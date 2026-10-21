@@ -11,3 +11,11 @@ Linux software Vulkan captures. Keyboard/mouse transitions, camera orbit and rep
 | ![Original Czech menu displayed by the Rust engine](2026-10-21-menu.webp) | ![Static MISE01 neighborhood and taxi displayed by the Rust engine](2026-10-21-mise01.webp) |
 
 New Game and Exit work in the menu. The mission view is a bounded static inspection scene; the taxi cannot be driven.
+
+## 2026-10-21 — original position animation
+
+Actual public CLI capture of unchanged `sipka1.4ds` + `sipka1.5ds` after 25 controlled 16 ms steps (400 ms). The recovered update path changes the retained model pose and uploads its original geometry to the GPU. Separate 0/400/800 ms validation confirms movement and exact return; this still image shows the middle state. Only the documented single-root position domain is supported; this is not character or mission animation.
+
+![Original arrow model at 400 ms in the Rust engine](2026-10-21-position-animation.webp)
+
+960 × 640 · 17 KiB · engine commit [`ed770ed`](https://github.com/dnesdan/lost-heaven-reborn/commit/ed770ed). Reproduce with the README animation command and `--headless --animation-steps 25 --capture /tmp/animation.png`.

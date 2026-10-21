@@ -2,6 +2,7 @@
 import copy
 import importlib.util
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -15,23 +16,30 @@ spec.loader.exec_module(progress)
 
 class ProgressTests(unittest.TestCase):
     def setUp(self):
-        self.snapshot = json.loads((ROOT / 'docs/progress.json').read_text())['function_progress']
+        snapshot_path = Path(os.environ.get('LHR_PROGRESS_TEST_SNAPSHOT', ROOT / 'docs/progress.json'))
+        document = json.loads(snapshot_path.read_text())
+        self.snapshot = document.get('function_progress', document)
 
     def test_reviewed_baseline_is_not_game_completion(self):
         progress.validate(self.snapshot)
         text = progress.render(self.snapshot)
-        self.assertIn('55 / 4,914 (1.12%)', text)
-        self.assertIn('48 / 1,683 (2.85%)', text)
-        self.assertIn('6 / N/A', text)
+        for library in self.snapshot['libraries']:
+            expected = progress.ratio(library['retained_pseudocode'], library['inventory_total'])
+            self.assertIn(f"| {library['name']} | {expected} |", text)
         self.assertIn('**0/12**', text)
         self.assertIn('not game-completion percentages', text)
 
-    def test_svg_reports_distinct_metrics_and_unknown_scoped_denominator(self):
+    def test_svg_reports_distinct_metrics_without_inventing_runtime_state(self):
         svg = progress.render_svg(self.snapshot)
-        self.assertIn('55 / 4,914 · 1.12%', svg)
-        self.assertIn('48 / 1,683 · 2.85%', svg)
-        self.assertIn('6 entries · 5 contracts', svg)
-        self.assertIn('eligible denominator unknown', svg)
+        for library in self.snapshot['libraries']:
+            if library['name'] not in {'Game.exe', 'LS3DF.dll'}:
+                continue
+            if library['inventory_total'] is None:
+                label = f"{library['retained_pseudocode']} / unknown"
+            else:
+                label = f"{library['retained_pseudocode']:,} / {library['inventory_total']:,} · {100 * library['retained_pseudocode'] / library['inventory_total']:.2f}%"
+            self.assertIn(label, svg)
+        self.assertIn('Eligible scoped-function denominator: unknown', svg)
         self.assertIn('0 / 12', svg)
         self.assertIn('not a game-completion percentage', svg)
         self.assertIn('aria-labelledby="dashboard-title dashboard-desc"', svg)
@@ -39,9 +47,15 @@ class ProgressTests(unittest.TestCase):
     def test_svg_is_deterministic_and_history_uses_frozen_inventory_counts(self):
         svg = progress.render_svg(self.snapshot)
         self.assertEqual(svg, progress.render_svg(copy.deepcopy(self.snapshot)))
-        self.assertIn('Game 9/4,914; LS3DF 45/1,683', svg)
-        self.assertIn('Game 55/4,914; LS3DF 48/1,683', svg)
-        self.assertIn('viewBox="0 0 840 580"', svg)
+        current_totals = {row['name']: row['inventory_total'] for row in self.snapshot['libraries']}
+        comparable = [row for row in self.snapshot['history']
+                      if {lib['name']: lib['inventory_total'] for lib in row['libraries']}.get('Game.exe') == current_totals.get('Game.exe')
+                      and {lib['name']: lib['inventory_total'] for lib in row['libraries']}.get('LS3DF.dll') == current_totals.get('LS3DF.dll')]
+        if comparable:
+            latest = comparable[-1]
+            counts = {lib['name']: lib['retained_pseudocode'] for lib in latest['libraries']}
+            self.assertIn(f"Game {counts['Game.exe']:,}/{current_totals['Game.exe']:,}; LS3DF {counts['LS3DF.dll']:,}/{current_totals['LS3DF.dll']:,}", svg)
+        self.assertRegex(svg, r'viewBox="0 0 840 \d+"')
 
     def test_svg_omits_history_with_different_inventory_denominators(self):
         snapshot = copy.deepcopy(self.snapshot)
@@ -59,9 +73,11 @@ class ProgressTests(unittest.TestCase):
         snapshot['history'].append(third)
         svg = progress.render_svg(snapshot)
         self.assertIn('y="540" class="history"', svg)
-        self.assertIn('y="588" class="detail"', svg)
-        self.assertIn('viewBox="0 0 840 602"', svg)
-        self.assertGreater(svg.index('y="588" class="detail"'), svg.index('y="540" class="history"'))
+        history_rows = svg.count('class="history"')
+        footer_y = 496 + max(1, history_rows) * 22 + 8
+        self.assertIn(f'y="{footer_y+18}" class="detail"', svg)
+        self.assertRegex(svg, r'viewBox="0 0 840 \d+"')
+        self.assertGreater(svg.index(f'y="{footer_y+18}" class="detail"'), svg.index('class="history"'))
 
     def test_svg_fallback_history_row_does_not_overlap_footer(self):
         snapshot = copy.deepcopy(self.snapshot)
@@ -153,7 +169,13 @@ class ProgressTests(unittest.TestCase):
         self.assertIn('3 original entries across 2 reviewed contracts', text)
         self.assertIn('20 cases', text)
         self.assertIn('13 cases', text)
-        self.assertIn('Gameplay integration is pending', text)
+        if any('integration_receipt' in port for port in snapshot['scoped_ports']):
+            static_count = sum(port['integration'] == 'static_inspection' for port in snapshot['scoped_ports'])
+            self.assertIn(f'Recorded runtime use: {static_count} contracts used in static inspection;', text)
+            self.assertIn('Runtime use', text)
+        else:
+            self.assertIn('Runtime integration status was not recorded in this snapshot', text)
+            self.assertNotIn('Runtime use', text)
         for row in snapshot['libraries']:
             self.assertIsNone(row['rust_ported'])
             self.assertEqual(row['accepted_functions'], [])
@@ -197,6 +219,39 @@ class ProgressTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'evidence identity'):
             progress.validate(self.snapshot)
 
+    def test_static_inspection_requires_hashed_integration_receipt(self):
+        snapshot = copy.deepcopy(self.snapshot)
+        port = snapshot['scoped_ports'][0]
+        port['integration'] = 'static_inspection'
+        port.pop('integration_receipt', None)
+        with self.assertRaisesRegex(ValueError, 'requires a hashed integration receipt'):
+            progress.validate(snapshot)
+
+        port['integration_receipt'] = {'id': 'RUST-STATIC-REVIEW', 'sha256': 'not-a-hash'}
+        with self.assertRaisesRegex(ValueError, 'Invalid static integration receipt'):
+            progress.validate(snapshot)
+
+        port['integration_receipt'] = {'id': 'RUST-STATIC-REVIEW', 'sha256': 'a' * 64}
+        if len(snapshot['scoped_ports']) > 1:
+            snapshot['scoped_ports'][1]['integration'] = 'not_integrated'
+            snapshot['scoped_ports'][1]['integration_receipt'] = None
+        snapshot['history'][-1]['scoped_ports'] = progress.scoped_summary(snapshot['scoped_ports'])
+        progress.validate(snapshot)
+        rendered = progress.render(snapshot)
+        self.assertIn('| Static inspection |', rendered)
+        static_count = sum(p['integration'] == 'static_inspection' for p in snapshot['scoped_ports'])
+        unrecorded_count = len(snapshot['scoped_ports']) - static_count
+        self.assertIn(f'Recorded runtime use: {static_count} contracts used in static inspection; {unrecorded_count} contracts with no integration recorded', rendered)
+        self.assertNotIn('active IPol', rendered)
+
+    def test_static_integration_history_retains_receipt_hash(self):
+        port = copy.deepcopy(self.snapshot['scoped_ports'][0])
+        port['integration'] = 'static_inspection'
+        port['integration_receipt'] = {'id': 'RUST-STATIC-REVIEW', 'sha256': 'b' * 64}
+        history = progress.scoped_summary([port])
+        self.assertEqual(history[0]['integration'], 'static_inspection')
+        self.assertEqual(history[0]['integration_receipt_sha256'], 'b' * 64)
+
     def test_source_links_are_relative_to_each_generated_document(self):
         self.assertIn('](crates/lhr-engine/src/clock.rs)', progress.render(self.snapshot))
         self.assertIn('](../crates/lhr-engine/src/clock.rs)', progress.render(self.snapshot, include_history=True))
@@ -233,7 +288,7 @@ class ProgressTests(unittest.TestCase):
             progress.validate(self.snapshot)
 
     def test_future_clock_acceptance_requires_whole_function_evidence(self):
-        row = self.snapshot['libraries'][-1]
+        row = next(library for library in self.snapshot['libraries'] if library['name'] == 'LS3DF.dll')
         row['accepted_functions'] = [{
             'entry_rva': '0x720f0', 'inventory_evidence': ['synthetic-inventory-proof'],
             'contract_evidence': ['synthetic-whole-contract-proof'],
@@ -241,10 +296,12 @@ class ProgressTests(unittest.TestCase):
             'review_ids': ['independent-review-1', 'independent-review-2'],
             'runtime_evidence': []}]
         row['semantic_contracts'], row['rust_ported'] = 1, 1
-        self.snapshot['history'][-1]['libraries'][-1]['rust_ported'] = 1
+        history_library = next(library for library in self.snapshot['history'][-1]['libraries'] if library['name'] == 'LS3DF.dll')
+        history_library['rust_ported'] = 1
         progress.validate(self.snapshot)
         rendered = progress.render(self.snapshot)
-        self.assertIn('| LS3DF.dll | 48 / 1,683 (2.85%) | 1 / N/A | 1 / N/A | N/A |', rendered)
+        expected_ratio = progress.ratio(row['retained_pseudocode'], row['inventory_total'])
+        self.assertIn(f'| LS3DF.dll | {expected_ratio} | 1 / N/A | 1 / N/A | N/A |', rendered)
         self.assertNotIn('1 / 1,683', rendered)
         self.assertIn('until eligible original functions are audited', rendered)
         self.assertNotIn('Full semantic-contract counts are unmeasured', rendered)

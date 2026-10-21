@@ -17,8 +17,17 @@ RVA = re.compile(r'0x[0-9a-f]+\Z')
 
 
 def scoped_summary(ports):
-    return [{'contract_id': row['contract']['id'], 'source_commit': row['source_commit'],
-             'entries': len(row['functions']), 'cases': row['cases']} for row in ports]
+    summary = []
+    for row in ports:
+        item = {'contract_id': row['contract']['id'], 'source_commit': row['source_commit'],
+                'entries': len(row['functions']), 'cases': row['cases']}
+        # Older frozen history rows remain unchanged; new snapshots retain runtime state.
+        if 'integration_receipt' in row:
+            item['integration'] = row['integration']
+            item['integration_receipt_sha256'] = (
+                row['integration_receipt']['sha256'] if row['integration_receipt'] else None)
+        summary.append(item)
+    return summary
 
 
 def validate_scoped_ports(ports, libraries):
@@ -28,7 +37,10 @@ def validate_scoped_ports(ports, libraries):
     inventories = {row['binary_sha256']: row['inventory_membership_sha256'] for row in libraries}
     entries, contract_ids = set(), set()
     for port in ports:
-        if set(port) != {'name', 'source_path', 'source_commit', 'source_sha256', 'functions', 'contract', 'comparison', 'reviews', 'cases', 'scope', 'integration'}:
+        required = {'name', 'source_path', 'source_commit', 'source_sha256', 'functions', 'contract',
+                    'comparison', 'reviews', 'cases', 'scope', 'integration'}
+        allowed = required | {'integration_receipt'}
+        if not required <= set(port) or not set(port) <= allowed:
             raise ValueError('Unexpected scoped-port fields')
         if not re.fullmatch(r'crates/[a-z0-9-]+/src/[a-z0-9_]+\.rs', port['source_path']):
             raise ValueError('Invalid scoped-port public source path')
@@ -37,8 +49,16 @@ def validate_scoped_ports(ports, libraries):
         for field in ['name', 'scope']:
             if not isinstance(port[field], str) or not port[field].strip() or any(c in port[field] for c in '\r\n|[]<>'):
                 raise ValueError('Invalid scoped-port text')
-        if type(port['cases']) is not int or port['cases'] <= 0 or port['integration'] != 'not_integrated':
+        if type(port['cases']) is not int or port['cases'] <= 0 or port['integration'] not in {'not_integrated', 'static_inspection'}:
             raise ValueError('Scoped-port cases/integration require explicit bounded evidence')
+        receipt = port.get('integration_receipt')
+        if port['integration'] == 'static_inspection':
+            if not isinstance(receipt, dict) or set(receipt) != {'id', 'sha256'}:
+                raise ValueError('Static inspection requires a hashed integration receipt')
+            if not re.fullmatch(r'[A-Za-z0-9_-]+', receipt['id']) or not SHA.fullmatch(receipt['sha256']):
+                raise ValueError('Invalid static integration receipt identity')
+        elif receipt is not None:
+            raise ValueError('Unintegrated scoped ports cannot claim a static integration receipt')
         if not isinstance(port['reviews'], list) or not isinstance(port['functions'], list):
             raise ValueError('Scoped-port functions/reviews must be lists')
         for evidence in [port['contract'], port['comparison'], *port['reviews']]:
@@ -136,10 +156,23 @@ def validate(snapshot):
     for row in history:
         date.fromisoformat(row['as_of'])
         for port in row.get('scoped_ports', []):
-            if set(port) != {'contract_id', 'source_commit', 'entries', 'cases'} or not re.fullmatch(r'[A-Za-z0-9_-]+', port['contract_id']) or not re.fullmatch(r'[0-9a-f]{40}', port['source_commit']):
+            old_fields = {'contract_id', 'source_commit', 'entries', 'cases'}
+            new_fields = old_fields | {'integration', 'integration_receipt_sha256'}
+            if (set(port) not in (old_fields, new_fields) or
+                    not re.fullmatch(r'[A-Za-z0-9_-]+', port['contract_id']) or
+                    not re.fullmatch(r'[0-9a-f]{40}', port['source_commit'])):
                 raise ValueError('Invalid historical scoped-port identity')
             if any(type(port[k]) is not int or port[k] <= 0 for k in ['entries', 'cases']):
                 raise ValueError('Invalid historical scoped-port counts')
+            if set(port) == new_fields:
+                if port['integration'] not in {'not_integrated', 'static_inspection'}:
+                    raise ValueError('Invalid historical scoped integration state')
+                receipt_hash = port['integration_receipt_sha256']
+                if port['integration'] == 'static_inspection':
+                    if not SHA.fullmatch(receipt_hash or ''):
+                        raise ValueError('Historical static inspection requires a hashed integration receipt')
+                elif receipt_hash is not None:
+                    raise ValueError('Historical unintegrated port cannot include an integration receipt')
         for library in row['libraries']:
             total, retained = library['inventory_total'], library['retained_pseudocode']
             if type(retained) is not int or retained < 0 or (total is not None and (type(total) is not int or total <= 0 or retained > total)):
@@ -185,12 +218,25 @@ def render(snapshot, include_history=False):
     ports = snapshot['scoped_ports']
     if ports:
         entry_count = sum(len(port['functions']) for port in ports)
-        lines += ['', f"Accepted scoped Rust ports: **{entry_count} original entries across {len(ports)} reviewed contracts**. These preserve the stated domains and do not increase the whole-function figures above. Gameplay integration is pending.", '',
-                  '| Rust contract | Original entries | Native-derived validation cases | Verified scope |',
-                  '| --- | ---: | ---: | --- |']
-        for port in ports:
-            path = ('../' if include_history else '') + port['source_path']
-            lines.append(f"| [{port['name']}]({path}) | {len(port['functions'])} | {port['cases']} cases | {port['scope']} |")
+        has_runtime_metadata = any('integration_receipt' in port for port in ports)
+        static_count = sum(port['integration'] == 'static_inspection' for port in ports)
+        unintegrated_count = len(ports) - static_count
+        if has_runtime_metadata:
+            lines += ['', f"Accepted scoped Rust ports: **{entry_count} original entries across {len(ports)} reviewed contracts**. Recorded runtime use: {static_count} contracts used in static inspection; {unintegrated_count} contracts with no integration recorded. These preserve the stated domains and do not increase the whole-function figures above.", '',
+                      '| Rust contract | Original entries | Native-derived validation cases | Runtime use | Verified scope |',
+                      '| --- | ---: | ---: | --- | --- |']
+            for port in ports:
+                path = ('../' if include_history else '') + port['source_path']
+                runtime_use = 'Static inspection' if port['integration'] == 'static_inspection' else 'No integration recorded'
+                lines.append(f"| [{port['name']}]({path}) | {len(port['functions'])} | {port['cases']} cases | {runtime_use} | {port['scope']} |")
+            lines += ['', 'Runtime-use labels come from reviewed, hashed receipts. Scoped ports do not increase whole-function acceptance counts.']
+        else:
+            lines += ['', f"Accepted scoped Rust ports: **{entry_count} original entries across {len(ports)} reviewed contracts**. These preserve the stated domains and do not increase the whole-function figures above. Runtime integration status was not recorded in this snapshot.", '',
+                      '| Rust contract | Original entries | Native-derived validation cases | Verified scope |',
+                      '| --- | ---: | ---: | --- |']
+            for port in ports:
+                path = ('../' if include_history else '') + port['source_path']
+                lines.append(f"| [{port['name']}]({path}) | {len(port['functions'])} | {port['cases']} cases | {port['scope']} |")
     if include_history:
         lines += ['', '| Frozen snapshot | As of | Retained static pseudocode | Scoped Rust entries | Complete systems |', '| --- | --- | --- | ---: | ---: |']
         for row in snapshot['history']:
@@ -207,6 +253,9 @@ def render_svg(snapshot):
     game, ls3df = rows.get('Game.exe'), rows.get('LS3DF.dll')
     ports = snapshot['scoped_ports']
     entry_count = sum(len(port['functions']) for port in ports)
+    has_runtime_metadata = any('integration_receipt' in port for port in ports)
+    static_count = sum(port['integration'] == 'static_inspection' for port in ports)
+    unintegrated_count = len(ports) - static_count
     systems = snapshot['systems']
     palette = {'ink': '#142b3b', 'muted': '#506577', 'paper': '#f3f7f8', 'card': '#ffffff',
                'line': '#d4e0e5', 'blue': '#176b87', 'green': '#33765a', 'amber': '#9a5a12',
@@ -243,7 +292,8 @@ def render_svg(snapshot):
     cards = ''.join([
         card(36, 112, 'GAME.EXE · STATIC RETAINED PSEUDOCODE', count_label(game), 'Default-profile inventory · not semantic coverage', palette['blue'], game_percent),
         card(432, 112, 'LS3DF.DLL · STATIC RETAINED PSEUDOCODE', count_label(ls3df), 'Explicit profile union · not semantic coverage', palette['green'], ls_percent),
-        card(36, 278, 'REVIEWED SCOPED RUST PORTS', f'{entry_count} entries · {len(ports)} contracts', 'Absolute scoped counts · eligible denominator unknown', palette['amber']),
+        card(36, 278, 'REVIEWED SCOPED RUST PORTS', f'{entry_count} entries · {len(ports)} contracts',
+             f'{static_count} used in static inspection · {unintegrated_count} unrecorded' if has_runtime_metadata else 'Absolute scoped counts · eligible denominator unknown', palette['amber']),
         card(432, 278, 'STRICT FULL-SYSTEM VERIFICATION', f"{systems['verified']} / {systems['total']}", 'Verified complete systems · strict evidence gate', palette['muted'])
     ])
 
@@ -269,7 +319,7 @@ def render_svg(snapshot):
     date_label = escape(snapshot['as_of'])
     return f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 840 {canvas_height}" role="img" aria-labelledby="dashboard-title dashboard-desc">
 <title id="dashboard-title">Mafia Rust reconstruction progress evidence</title>
-<desc id="dashboard-desc">As of {date_label}. Static retained pseudocode: {escape(count_label(game))} for Game.exe and {escape(count_label(ls3df))} for LS3DF.dll. {entry_count} reviewed scoped Rust entries across {len(ports)} contracts with an unknown eligible-function denominator. Strict full-system verification: {systems['verified']} of {systems['total']}. These measures are separate and are not a game-completion percentage.</desc>
+<desc id="dashboard-desc">As of {date_label}. Static retained pseudocode: {escape(count_label(game))} for Game.exe and {escape(count_label(ls3df))} for LS3DF.dll. {entry_count} reviewed scoped Rust entries across {len(ports)} contracts with an unknown eligible-function denominator{f'; {static_count} with recorded static inspection and {unintegrated_count} with no integration recorded' if has_runtime_metadata else ''}. Strict full-system verification: {systems['verified']} of {systems['total']}. These measures are separate and are not a game-completion percentage.</desc>
 <style>
 text{{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;fill:{palette['ink']}}}
 .kicker{{font-size:14px;font-weight:700;letter-spacing:1.1px;fill:{palette['muted']}}}
@@ -288,8 +338,8 @@ text{{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-se
 {cards}
 <text x="36" y="469" class="kicker">FROZEN STATIC HISTORY · MATCHING INVENTORY DENOMINATORS</text>
 {history_lines}
-<text x="36" y="{footer_first}" class="detail">Static analysis is not implementation coverage; scoped ports are not whole-function credits.</text>
-<text x="36" y="{footer_second}" class="detail">Full-system verification is not an overall completion estimate.</text>
+<text x="36" y="{footer_first}" class="detail">Eligible scoped-function denominator: unknown · scoped ports are not whole-function credits.</text>
+<text x="36" y="{footer_second}" class="detail">Static analysis is not implementation coverage; full-system verification is not completion.</text>
 </svg>'''
 
 
