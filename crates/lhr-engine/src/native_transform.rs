@@ -1,7 +1,7 @@
 //! Original exported LS3DF `S_matrix`/`S_quat` operations, using Game's
 //! single-precision, round-to-nearest arithmetic policy (x87 control word 0x003f).
 //! Row vectors multiply row-major 4×4 storage; translation occupies elements12–14.
-//! These operations do not implement lazy frame caches or quaternion normalization.
+//! These operations do not implement lazy frame caches.
 //! Native comparisons cover ordinary finite inputs; extended-exponent x87 edge
 //! cases (intermediate underflow/overflow), NaNs and other control words are not
 //! established as equivalent to portable Rust arithmetic.
@@ -136,6 +136,30 @@ impl SQuat {
         self.wxyz.iter().copied().all(is_verified_scalar)
     }
 
+    /// Original `S_quat::Normalize`, RVA0x30140, under the verified input policy.
+    /// Degenerate input selects X, then Z, then Y, preserving other components;
+    /// an all-zero quaternion therefore becomes [0,0,1,0], not identity.
+    pub fn normalize(&mut self) {
+        let [w, x, y, z] = self.wxyz;
+        let norm_squared = ((w * w + x * x) + y * y) + z * z;
+        if norm_squared <= 1e-8 {
+            self.wxyz[0] = 0.0;
+            let axis = if x != 0.0 {
+                1
+            } else if z != 0.0 {
+                3
+            } else {
+                2
+            };
+            self.wxyz[axis] = if self.wxyz[axis] < 0.0 { -1.0 } else { 1.0 };
+        } else if (norm_squared - 1.0).abs() >= 1e-8 {
+            let reciprocal = 1.0 / norm_squared.sqrt();
+            for axis in [1, 2, 3, 0] {
+                self.wxyz[axis] *= reciprocal;
+            }
+        }
+    }
+
     /// Original `S_quat::RotationMatrix`, RVA0x2ec00; returns a complete matrix.
     pub fn rotation_matrix(self) -> SMatrix {
         let mut matrix = SMatrix::identity();
@@ -160,6 +184,56 @@ mod tests {
             wxyz: [1., 1e-20, 0., 0.]
         }
         .is_verified_input());
+    }
+
+    #[test]
+    fn zero_quaternion_normalizes_to_y_axis_with_signed_zeros_preserved() {
+        let mut zero = SQuat { wxyz: [0.; 4] };
+        zero.normalize();
+        assert_eq!(zero.wxyz, [0., 0., 1., 0.]);
+        let mut negative_zero = SQuat { wxyz: [-0.; 4] };
+        negative_zero.normalize();
+        assert_eq!(
+            negative_zero.wxyz.map(f32::to_bits),
+            [0, 0x80000000, 0x3f800000, 0x80000000]
+        );
+    }
+
+    #[test]
+    fn degenerate_normalization_selects_x_then_z_then_y() {
+        let mut x = SQuat {
+            wxyz: [1e-12, -1e-12, 2e-12, 3e-12],
+        };
+        x.normalize();
+        assert_eq!(x.wxyz, [0., -1., 2e-12, 3e-12]);
+        let mut z = SQuat {
+            wxyz: [1e-12, 0., 2e-12, -3e-12],
+        };
+        z.normalize();
+        assert_eq!(z.wxyz, [0., 0., 2e-12, -1.]);
+        let mut y = SQuat {
+            wxyz: [1e-12, 0., -2e-12, 0.],
+        };
+        y.normalize();
+        assert_eq!(y.wxyz, [0., 0., -1., 0.]);
+    }
+
+    #[test]
+    fn nonunit_normalization_matches_original_body_vector() {
+        let mut quaternion = SQuat {
+            wxyz: [2., 3., 4., 5.],
+        };
+        quaternion.normalize();
+        assert_eq!(
+            quaternion.wxyz.map(f32::to_bits),
+            [1049319752, 1053885932, 1057708360, 1059991450]
+        );
+        let mut already_unit_by_rounded_norm = SQuat {
+            wxyz: [1., 1e-12, 0., 0.],
+        };
+        let original = already_unit_by_rounded_norm;
+        already_unit_by_rounded_norm.normalize();
+        assert_eq!(already_unit_by_rounded_norm, original);
     }
 
     #[test]
