@@ -3,6 +3,7 @@ use std::{
     fmt, fs,
     path::{Path, PathBuf},
 };
+pub mod animation;
 mod cache;
 pub use cache::{CacheObject, CachePart, CityCache, parse_city_cache};
 mod dta;
