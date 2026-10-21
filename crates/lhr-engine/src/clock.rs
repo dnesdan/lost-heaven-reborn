@@ -2,6 +2,7 @@
 //!
 //! Contract `PC-CLOCK-ORACLE-STEP2-20261021` targets `LS3DF.dll` SHA-256
 //! `e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6`:
+//! Original PS2 symbols and the PC address crosswalk identify the methods as
 //! `NullTimer` at RVA `0x720f0` and `GetTimer` at RVA `0x72100`. Native calls
 //! exercised 20 controlled cases under Wine/QEMU; they verify method arithmetic
 //! and dependency interactions, not real scheduler timing or whole-game behavior.
@@ -52,7 +53,7 @@ impl EngineClock {
     /// Replace the stored sample with one fresh backend sample.
     ///
     /// This corresponds to the original `NullTimer` method at RVA `0x720f0`.
-    pub fn reset_sample<B: ClockBackend + ?Sized>(&mut self, backend: &mut B) {
+    pub fn null_timer<B: ClockBackend + ?Sized>(&mut self, backend: &mut B) {
         self.last_sample = backend.sample_ms();
     }
 
@@ -65,14 +66,14 @@ impl EngineClock {
     /// arithmetic, and returns `minimum` immediately. Sleep overshoot is not
     /// sampled again. Otherwise, a nonzero `maximum` caps only the returned
     /// value; the stored sample remains the fresh backend sample.
-    pub fn sample_delta<B: ClockBackend + ?Sized>(
+    pub fn get_timer<B: ClockBackend + ?Sized>(
         &mut self,
         minimum: u32,
         maximum: u32,
         backend: &mut B,
     ) -> u32 {
         let previous = self.last_sample;
-        self.reset_sample(backend);
+        self.null_timer(backend);
         let elapsed = self.last_sample.wrapping_sub(previous);
 
         if elapsed < minimum {
@@ -352,7 +353,7 @@ mod tests {
             let mut clock = EngineClock::from_sample(vector.previous);
             let mut backend = ControlledBackend::new(vector.sample, vector.overshoot);
 
-            let returned = clock.sample_delta(vector.minimum, vector.maximum, &mut backend);
+            let returned = clock.get_timer(vector.minimum, vector.maximum, &mut backend);
 
             assert_eq!(returned, vector.returned, "{} return", vector.name);
             assert_eq!(
@@ -375,11 +376,11 @@ mod tests {
     }
 
     #[test]
-    fn reset_samples_once_and_replaces_shared_state() {
+    fn null_timer_samples_once_and_replaces_shared_state() {
         let mut clock = EngineClock::from_sample(999);
         let mut backend = ControlledBackend::new(7, 0);
 
-        clock.reset_sample(&mut backend);
+        clock.null_timer(&mut backend);
 
         assert_eq!(clock.last_sample(), 7);
         assert_eq!(backend.events, [Event::Sample]);
@@ -391,8 +392,8 @@ mod tests {
         let mut first_backend = ControlledBackend::new(20, 0);
         let mut second_backend = ControlledBackend::new(25, 0);
 
-        let first = clock.sample_delta(0, 0, &mut first_backend);
-        let second = clock.sample_delta(0, 0, &mut second_backend);
+        let first = clock.get_timer(0, 0, &mut first_backend);
+        let second = clock.get_timer(0, 0, &mut second_backend);
 
         assert_eq!((first, second, clock.last_sample()), (10, 5, 25));
         assert_eq!(first_backend.events, [Event::Sample]);
@@ -403,10 +404,10 @@ mod tests {
     fn reset_and_delta_share_state_across_callers() {
         let mut clock = EngineClock::from_sample(900);
         let mut reset_backend = ControlledBackend::new(7, 0);
-        clock.reset_sample(&mut reset_backend);
+        clock.null_timer(&mut reset_backend);
 
         let mut delta_backend = ControlledBackend::new(7, 0);
-        let returned = clock.sample_delta(0, 0, &mut delta_backend);
+        let returned = clock.get_timer(0, 0, &mut delta_backend);
 
         assert_eq!(returned, 0);
         assert_eq!(clock.last_sample(), 7);
@@ -419,7 +420,7 @@ mod tests {
         let mut clock = EngineClock::from_sample(90);
         let mut backend: Box<dyn ClockBackend> = Box::new(ControlledBackend::new(100, 0));
 
-        let returned = clock.sample_delta(0, 0, backend.as_mut());
+        let returned = clock.get_timer(0, 0, backend.as_mut());
 
         assert_eq!(returned, 10);
         assert_eq!(clock.last_sample(), 100);

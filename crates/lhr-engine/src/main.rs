@@ -155,12 +155,17 @@ fn material_effects_omitted(material: &lhr_assets::Material) -> bool {
 struct LoadedScene {
     scene: Scene,
     camera: Camera,
+    runtime: lhr_engine::runtime::RetainedScene,
 }
 fn load(options: &Options) -> Result<LoadedScene, String> {
     let Some(root) = &options.root else {
         let scene = synthetic();
         let camera = Camera::fit(&scene)?;
-        return Ok(LoadedScene { scene, camera });
+        return Ok(LoadedScene {
+            scene,
+            camera,
+            runtime: lhr_engine::runtime::RetainedScene::default(),
+        });
     };
     let installation = lhr_assets::Installation::open(root)
         .map_err(|e| format!("Cannot open asset installation: {e}"))?;
@@ -195,8 +200,15 @@ fn load(options: &Options) -> Result<LoadedScene, String> {
         println!("Static scene subset: {} frames; {omitted} materials have effects not rendered; animation, lighting and mission scripts are not executed", model.frames.len());
     }
     let mut builder = assembly::SceneBuilder::new(&installation, &options.textures);
-    builder.append(&model, Mat4::IDENTITY, None, options.model.is_some(), None)?;
-    let scene = builder.finish()?;
+    builder.append_retained(
+        &path,
+        Arc::new(model),
+        Mat4::IDENTITY,
+        None,
+        options.model.is_some(),
+        None,
+    )?;
+    let (scene, mut runtime) = builder.finish()?;
     let camera = if options.model.is_some() {
         Camera::fit(&scene)?
     } else {
@@ -205,15 +217,21 @@ fn load(options: &Options) -> Result<LoadedScene, String> {
             &scene,
             options.mission.as_deref().unwrap_or("00menu"),
             "intro_pos",
+            &mut runtime,
         )?
     };
-    Ok(LoadedScene { scene, camera })
+    Ok(LoadedScene {
+        scene,
+        camera,
+        runtime,
+    })
 }
 fn authored_camera(
     installation: &lhr_assets::Installation,
     scene: &Scene,
     mission: &str,
     name: &str,
+    runtime: &mut lhr_engine::runtime::RetainedScene,
 ) -> Result<Camera, String> {
     let mut camera = Camera::fit(scene)?;
     let bytes = installation
@@ -239,6 +257,7 @@ fn authored_camera(
         println!("Authored camera {name} unavailable; fitted inspection camera");
     }
     camera.validate()?;
+    runtime.retain_metadata(metadata)?;
     Ok(camera)
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -255,6 +274,9 @@ struct App {
     adapter: Option<wgpu::Adapter>,
     scene: Scene,
     camera: Camera,
+    runtime: lhr_engine::runtime::RetainedScene,
+    runtime_engine: lhr_engine::runtime::RuntimeEngine,
+    clock_backend: lhr_engine::runtime::PlatformClock,
     options: Options,
     window: Option<Arc<Window>>,
     surface: Option<wgpu::Surface<'static>>,
@@ -293,7 +315,11 @@ impl App {
             AppMode::FirstMissionScene => Some("mise01".into()),
             _ => None,
         };
-        let LoadedScene { mut scene, camera } = load(&self.options)?;
+        let LoadedScene {
+            mut scene,
+            camera,
+            runtime,
+        } = load(&self.options)?;
         if mode == AppMode::Menu {
             scene
                 .meshes
@@ -312,6 +338,8 @@ impl App {
         self.renderer = Some(renderer);
         self.scene = scene;
         self.camera = camera;
+        self.runtime = runtime;
+        self.runtime_engine.reset_clock(&mut self.clock_backend);
         self.mode = mode;
         self.keys.clear();
         println!("Application state: {mode:?}; scene assets loaded; gameplay and cutscene execution unsupported");
@@ -471,6 +499,28 @@ impl ApplicationHandler for App {
                 }) {
                     return;
                 }
+                let step = match self
+                    .runtime_engine
+                    .advance_static(&mut self.runtime, &mut self.clock_backend)
+                {
+                    Ok(step) => step,
+                    Err(error) => {
+                        self.fail(
+                            event_loop,
+                            &format!("Bound static runtime failed: {error:?}"),
+                        );
+                        return;
+                    }
+                };
+                if self.count == 0 {
+                    println!("Bound static runtime: raw delta {}, modified {}, driver time {}, {} retained model guards dispatched; authored actors/scripts remain unbound",step.raw_delta,step.modified_delta,step.driver_time,step.models_dispatched);
+                }
+                if let Some(renderer) = &self.renderer {
+                    if let Err(error) = self.runtime.upload_changed(renderer) {
+                        self.fail(event_loop, &error);
+                        return;
+                    }
+                }
                 let offset = self.camera.eye - self.camera.target;
                 let mut yaw = 0.0;
                 let mut pitch = 0.0;
@@ -561,7 +611,11 @@ impl ApplicationHandler for App {
 }
 fn run() -> Result<(), String> {
     let options = options()?;
-    let LoadedScene { mut scene, camera } = load(&options)?;
+    let LoadedScene {
+        mut scene,
+        camera,
+        mut runtime,
+    } = load(&options)?;
     let ui = match &options.root {
         Some(root) if options.model.is_none() && options.mission.is_none() => {
             let installation = lhr_assets::Installation::open(root).map_err(|e| e.to_string())?;
@@ -596,7 +650,15 @@ fn run() -> Result<(), String> {
             "interactive window"
         }
     );
+    let mut clock_backend = lhr_engine::runtime::PlatformClock::default();
+    let initial_sample = lhr_engine::clock::ClockBackend::sample_ms(&mut clock_backend);
+    let mut runtime_engine = lhr_engine::runtime::RuntimeEngine::from_sample(initial_sample);
+    println!("Retained runtime binding: {} placements, {} source frames; static model guards only, host inspection population/order (not original mission initialization)",runtime.models.len(),runtime.models.iter().map(|model|model.pose().len()).sum::<usize>());
     if options.headless {
+        let step = runtime_engine
+            .advance_static(&mut runtime, &mut clock_backend)
+            .map_err(|error| format!("Bound static runtime failed: {error:?}"))?;
+        println!("Bound static runtime: raw delta {}, driver time {}, {} retained model guards dispatched",step.raw_delta,step.driver_time,step.models_dispatched);
         let instance = lhr_render::instance();
         let renderer = pollster::block_on(Renderer::new(
             &instance,
@@ -627,6 +689,9 @@ fn run() -> Result<(), String> {
         adapter: None,
         scene,
         camera,
+        runtime,
+        runtime_engine,
+        clock_backend,
         options,
         window: None,
         surface: None,

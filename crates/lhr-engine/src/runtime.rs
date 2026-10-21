@@ -1,0 +1,824 @@
+//! Retained original-data model graph and fixed-topology renderer bindings.
+//! Geometry is shared through Arc; every placement has separate frame identities
+//! and local pose state. Native actor/mission initialization is not inferred.
+use crate::{
+    frame_dispatch::ObjectId,
+    model_tick::{ModelBackend, ModelTickState, ModelVTableId},
+    scene_tick::{FrameId, InterpolatorId},
+};
+use glam::{Mat4, Quat, Vec3};
+use lhr_assets::Model;
+use lhr_render::Vertex;
+use std::sync::Arc;
+
+/// One retained draw's exact source vertex mapping, including spatial crops.
+#[derive(Debug)]
+pub struct DrawBinding {
+    pub draw_index: usize,
+    pub frame_index: usize,
+    pub geometry_frame: usize,
+    pub source_vertices: Vec<u32>,
+}
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FramePose {
+    pub identity: FrameId,
+    pub position: [f32; 3],
+    pub rotation_wxyz: [f32; 4],
+    pub scale: [f32; 3],
+}
+#[derive(Debug)]
+pub struct RetainedModel {
+    pub identity: ObjectId,
+    pub source_name: String,
+    pub source: Arc<Model>,
+    pub world: Mat4,
+    pub visual_scale: Option<[f32; 3]>,
+    pose: Vec<FramePose>,
+    needs_upload: bool,
+    pub draws: Vec<DrawBinding>,
+    pub native: ModelTickState,
+}
+#[derive(Debug, Default)]
+pub struct RetainedScene {
+    pub models: Vec<RetainedModel>,
+    next_frame: u32,
+    metadata: Option<lhr_assets::Scene>,
+    budgeted_bytes: usize,
+    metadata_bytes: usize,
+}
+#[derive(Debug, PartialEq, Eq)]
+pub enum RuntimeError {
+    UnknownInterpolator(InterpolatorId),
+    MissingAnimationEvaluator,
+    MissingHierarchyUpdate,
+    UnsupportedPhase(&'static str),
+    UnknownObject(ObjectId),
+    Storage(&'static str),
+    Modifier(crate::frame_delta::ModifierError),
+    Dispatch(String),
+}
+struct UnboundAnimation;
+impl ModelBackend for UnboundAnimation {
+    type Error = RuntimeError;
+    fn evaluator_count(&self, id: InterpolatorId) -> Result<u32, Self::Error> {
+        Err(RuntimeError::UnknownInterpolator(id))
+    }
+    fn tick_interpolator(
+        &mut self,
+        _: &mut ModelTickState,
+        _: InterpolatorId,
+        _: i32,
+    ) -> Result<(), Self::Error> {
+        Err(RuntimeError::MissingAnimationEvaluator)
+    }
+    fn update_model(
+        &mut self,
+        _: &mut ModelTickState,
+        _: ModelVTableId,
+    ) -> Result<(), Self::Error> {
+        Err(RuntimeError::MissingHierarchyUpdate)
+    }
+}
+impl RetainedScene {
+    pub fn metadata(&self) -> Option<&lhr_assets::Scene> {
+        self.metadata.as_ref()
+    }
+    pub fn set_assembly_budget(&mut self, bytes: usize) -> Result<(), String> {
+        if bytes > 256 * 1024 * 1024 {
+            return Err("Retained scene exceeds resource quota".into());
+        }
+        self.budgeted_bytes = bytes;
+        Ok(())
+    }
+    pub fn retain_metadata(&mut self, metadata: lhr_assets::Scene) -> Result<(), String> {
+        let mut bytes = std::mem::size_of::<lhr_assets::Scene>();
+        let mut add = |count: usize, size: usize| -> Result<(), String> {
+            bytes = bytes
+                .checked_add(count.checked_mul(size).ok_or("Metadata size overflow")?)
+                .ok_or("Metadata size overflow")?;
+            Ok(())
+        };
+        add(
+            metadata.objects.capacity(),
+            std::mem::size_of::<lhr_assets::SceneObject>(),
+        )?;
+        add(
+            metadata.actors.capacity(),
+            std::mem::size_of::<lhr_assets::SceneActor>(),
+        )?;
+        add(
+            metadata.scripts.capacity(),
+            std::mem::size_of::<lhr_assets::SceneScript>(),
+        )?;
+        for object in &metadata.objects {
+            add(object.name.capacity(), 1)?;
+            for value in [&object.model, &object.parent].into_iter().flatten() {
+                add(value.capacity(), 1)?;
+            }
+        }
+        for actor in &metadata.actors {
+            add(actor.name.capacity(), 1)?;
+        }
+        for script in &metadata.scripts {
+            add(script.name.capacity(), 1)?;
+            add(script.code.capacity(), 1)?;
+        }
+        let next = self
+            .budgeted_bytes
+            .checked_sub(self.metadata_bytes)
+            .and_then(|n| n.checked_add(bytes))
+            .ok_or("Metadata budget overflow")?;
+        if next > 256 * 1024 * 1024 {
+            return Err("Retained metadata exceeds scene resource quota".into());
+        }
+        self.budgeted_bytes = next;
+        self.metadata_bytes = bytes;
+        self.metadata = Some(metadata);
+        Ok(())
+    }
+    /// Input models must come from the supported 4DS parser: it rejects nonzero
+    /// trailing LoadAnimCount. This is not a constructor for authored Game actors.
+    pub fn retain(
+        &mut self,
+        source_name: String,
+        source: Arc<Model>,
+        world: Mat4,
+        visual_scale: Option<[f32; 3]>,
+        draws: Vec<DrawBinding>,
+    ) -> Result<(), String> {
+        if source.frames.iter().any(|frame| {
+            ![1, 2, 5, 6, 7, 12].contains(&frame.kind)
+                || (frame.kind == 1 && !matches!(frame.visual, Some(0 | 1)))
+        }) {
+            return Err("Unsupported active or nonstatic source frame".into());
+        }
+        let identity = ObjectId(
+            u32::try_from(self.models.len())
+                .map_err(|_| "Model identity overflow")?
+                .checked_add(1)
+                .ok_or("Model identity overflow")?,
+        );
+        let mut pose = Vec::with_capacity(source.frames.len());
+        for frame in &source.frames {
+            self.next_frame = self
+                .next_frame
+                .checked_add(1)
+                .ok_or("Frame identity overflow")?;
+            pose.push(FramePose {
+                identity: FrameId(self.next_frame),
+                position: frame.position,
+                rotation_wxyz: frame.rotation_wxyz,
+                scale: frame.scale,
+            });
+        }
+        let model = RetainedModel {
+            identity,
+            source_name,
+            source,
+            world,
+            visual_scale,
+            pose,
+            needs_upload: false,
+            draws,
+            native: ModelTickState::new(ModelVTableId(0x1009c160)),
+        };
+        model.transforms()?;
+        self.models.push(model);
+        Ok(())
+    }
+}
+impl RetainedModel {
+    pub fn pose(&self) -> &[FramePose] {
+        &self.pose
+    }
+    pub fn set_frame_position(&mut self, index: usize, position: [f32; 3]) -> Result<(), String> {
+        if position.iter().any(|v| !v.is_finite()) {
+            return Err("Nonfinite bound position".into());
+        }
+        let pose = self.pose.get_mut(index).ok_or("Unknown bound frame")?;
+        if pose.position != position {
+            pose.position = position;
+            self.needs_upload = true;
+        }
+        Ok(())
+    }
+    /// Execute the actual recovered model guard for a parsed, unbound static model.
+    /// A later animation binding is never silently replaced with a no-op backend.
+    pub fn tick_static(&mut self, delta: i32) -> Result<(), RuntimeError> {
+        self.native.tick(&mut UnboundAnimation, delta)
+    }
+
+    pub fn transforms(&self) -> Result<Vec<Mat4>, String> {
+        if self.pose.len() != self.source.frames.len() || !self.world.is_finite() {
+            return Err("Retained model graph mismatch".into());
+        }
+        if self.visual_scale.is_some_and(|s| {
+            s.iter()
+                .any(|v| !v.is_finite() || *v <= 0.0 || *v > 10000.0)
+        }) {
+            return Err("Invalid retained visual scale".into());
+        }
+        let mut transforms = Vec::with_capacity(self.pose.len());
+        for (index, (source, pose)) in self.source.frames.iter().zip(&self.pose).enumerate() {
+            let [w, x, y, z] = pose.rotation_wxyz;
+            let q = Quat::from_xyzw(-x, -y, -z, w);
+            let norm = q.length_squared();
+            if !norm.is_finite() || (norm - 1.0).abs() > 0.00001 {
+                return Err("Invalid retained frame quaternion".into());
+            }
+            let scale = if source.kind == 1 {
+                self.visual_scale.unwrap_or(pose.scale)
+            } else {
+                pose.scale
+            };
+            if pose
+                .position
+                .iter()
+                .chain(scale.iter())
+                .any(|v| !v.is_finite())
+            {
+                return Err("Nonfinite retained pose".into());
+            }
+            let local = Mat4::from_scale_rotation_translation(
+                Vec3::from_array(scale),
+                q,
+                Vec3::from_array(pose.position),
+            );
+            let transform = if let Some(parent) = source.parent {
+                if parent >= index {
+                    return Err("Retained parent ordering is unsupported".into());
+                }
+                transforms[parent] * local
+            } else {
+                self.world * local
+            };
+            if !transform.is_finite() {
+                return Err("Retained transform overflow".into());
+            }
+            transforms.push(transform);
+        }
+        Ok(transforms)
+    }
+
+    /// Rebuild only vertex values for an existing draw; topology and source geometry
+    /// remain fixed. A crop's mapping continues to refer to the selected vertices.
+    pub fn vertices(
+        &self,
+        binding: &DrawBinding,
+        transforms: &[Mat4],
+    ) -> Result<Vec<Vertex>, String> {
+        let transform = *transforms
+            .get(binding.frame_index)
+            .ok_or("Unknown retained frame binding")?;
+        let lod = self
+            .source
+            .frames
+            .get(binding.geometry_frame)
+            .and_then(|f| f.lods.first())
+            .ok_or("Unknown retained geometry binding")?;
+        binding
+            .source_vertices
+            .iter()
+            .map(|index| {
+                let vertex = lod
+                    .vertices
+                    .get(*index as usize)
+                    .ok_or("Invalid retained vertex binding")?;
+                let p = transform.transform_point3(Vec3::from_array(vertex.position));
+                if !p.is_finite() {
+                    return Err("Retained vertex transform overflow".into());
+                }
+                Ok(Vertex {
+                    position: [p.x, p.y, -p.z],
+                    uv: vertex.uv,
+                })
+            })
+            .collect()
+    }
+}
+
+/// Real I3D driver slot+8 (`PC-DRIVER-TICK-20261021`): shared wrapping time.
+/// Constructor preserves this value; create/reset once from the proven Init-state,
+/// not once per model or frame.
+#[derive(Debug, PartialEq, Eq)]
+pub struct DriverTickState {
+    pub elapsed: u32,
+}
+impl DriverTickState {
+    pub const fn from_existing(elapsed: u32) -> Self {
+        Self { elapsed }
+    }
+    pub fn reset_for_init(&mut self) {
+        self.elapsed = 0;
+    }
+    pub fn tick(&mut self, delta: i32) {
+        self.elapsed = self.elapsed.wrapping_add(delta as u32);
+    }
+}
+
+/// Host monotonic millisecond adapter. Its epoch is explicit host policy; it is
+/// not an implementation of the original Win32 absolute timeGetTime epoch.
+pub struct PlatformClock {
+    origin: std::time::Instant,
+}
+impl Default for PlatformClock {
+    fn default() -> Self {
+        Self {
+            origin: std::time::Instant::now(),
+        }
+    }
+}
+impl crate::clock::ClockBackend for PlatformClock {
+    fn sample_ms(&mut self) -> u32 {
+        self.origin.elapsed().as_millis() as u32
+    }
+    fn sleep_ms(&mut self, milliseconds: u32) {
+        std::thread::sleep(std::time::Duration::from_millis(u64::from(milliseconds)));
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct RuntimeFrame {
+    pub raw_delta: u32,
+    pub modified_delta: u32,
+    pub driver_time: u32,
+    pub models_dispatched: usize,
+}
+
+/// Supported original-data static binding. Placement population/order is the
+/// host's bounded inspection selection, not reconstructed Game mission state.
+/// Required unknown actor/pose/mission callbacks remain errors. This does not
+/// substitute successful no-op implementations for original dependencies.
+pub struct RuntimeEngine {
+    clock: crate::clock::EngineClock,
+    modifier: crate::frame_delta::FrameDeltaState,
+    driver: DriverTickState,
+    scene: crate::scene_tick::LocalScene,
+}
+impl RuntimeEngine {
+    pub fn from_sample(sample: u32) -> Self {
+        let mut driver = DriverTickState::from_existing(0);
+        driver.reset_for_init();
+        Self {
+            clock: crate::clock::EngineClock::from_sample(sample),
+            modifier: crate::frame_delta::FrameDeltaState::default(),
+            driver,
+            scene: crate::scene_tick::LocalScene::default(),
+        }
+    }
+    pub fn reset_clock<B: crate::clock::ClockBackend + ?Sized>(&mut self, backend: &mut B) {
+        self.clock.null_timer(backend);
+    }
+    pub fn get_timer<B: crate::clock::ClockBackend + ?Sized>(
+        &mut self,
+        minimum: u32,
+        maximum: u32,
+        backend: &mut B,
+    ) -> u32 {
+        self.clock.get_timer(minimum, maximum, backend)
+    }
+    pub fn modify_delta(&mut self, delta: &mut u32, word: u16) -> Result<(), RuntimeError> {
+        self.modifier
+            .apply(Some(delta), &[], word)
+            .map_err(RuntimeError::Modifier)
+    }
+    pub fn driver_time(&self) -> u32 {
+        self.driver.elapsed
+    }
+    pub fn dispatch_static(
+        &mut self,
+        graph: &mut RetainedScene,
+        delta: i32,
+        word: u16,
+    ) -> Result<usize, RuntimeError> {
+        use crate::frame_dispatch::*;
+        let records = graph
+            .models
+            .iter()
+            .map(|model| ModelRecord {
+                object: model.identity,
+                opaque: 0,
+            })
+            .collect::<Vec<_>>();
+        let mut state = FrameState {
+            pending_flag: 0,
+            pending_counter: 0,
+            pending_target: None,
+            pending_argument: 0,
+            context_object: None,
+            scene: Some(ObjectId(0xffff0001)),
+            manager: Some(ObjectId(0xffff0002)),
+            models: ModelView {
+                allocation: ModelAllocationId(1),
+                count: records.len(),
+            },
+            mission: None,
+            timed: TimedView::default(),
+            control_word: word,
+        };
+        let mut backend = StaticBackend {
+            graph,
+            records,
+            driver: &mut self.driver,
+            scene: &mut self.scene,
+            dispatched: 0,
+        };
+        state
+            .tick(&mut backend, delta)
+            .map_err(|error| RuntimeError::Dispatch(format!("{error:?}")))?;
+        Ok(backend.dispatched)
+    }
+    /// Host static-inspection profile, using the observed16/83 timer request and
+    /// explicit empty-track modifier. It is not the entire original Game loop;
+    /// original input, authored actors, camera, mission and presentation callers
+    /// are not inferred from this local composition.
+    pub fn advance_static<B: crate::clock::ClockBackend + ?Sized>(
+        &mut self,
+        graph: &mut RetainedScene,
+        backend: &mut B,
+    ) -> Result<RuntimeFrame, RuntimeError> {
+        let raw_delta = self.get_timer(16, 83, backend);
+        let mut delta = raw_delta;
+        self.modify_delta(&mut delta, 0x003f)?;
+        let models_dispatched = self.dispatch_static(graph, delta as i32, 0x003f)?;
+        Ok(RuntimeFrame {
+            raw_delta,
+            modified_delta: delta,
+            driver_time: self.driver.elapsed,
+            models_dispatched,
+        })
+    }
+}
+struct StaticBackend<'a> {
+    graph: &'a mut RetainedScene,
+    records: Vec<crate::frame_dispatch::ModelRecord>,
+    driver: &'a mut DriverTickState,
+    scene: &'a mut crate::scene_tick::LocalScene,
+    dispatched: usize,
+}
+struct NoActiveFrames;
+impl crate::scene_tick::SceneBackend for NoActiveFrames {
+    fn tick_frame(&mut self, _: &mut crate::scene_tick::LocalScene, _: FrameId, _: i32) {
+        unreachable!("Static-domain active frame guard");
+    }
+    fn tick_interpolator(
+        &mut self,
+        _: &mut crate::scene_tick::LocalScene,
+        _: InterpolatorId,
+        _: i32,
+    ) {
+        unreachable!("Static-domain scene interpolator guard");
+    }
+}
+impl crate::frame_dispatch::FrameBackend for StaticBackend<'_> {
+    type Error = RuntimeError;
+    fn model_at(
+        &self,
+        allocation: crate::frame_dispatch::ModelAllocationId,
+        index: usize,
+    ) -> Result<crate::frame_dispatch::ModelRecord, Self::Error> {
+        if allocation.0 != 1 {
+            return Err(RuntimeError::Storage("Unknown model allocation"));
+        }
+        self.records
+            .get(index)
+            .copied()
+            .ok_or(RuntimeError::Storage("Invalid model record"))
+    }
+    fn timed_at(
+        &self,
+        _: crate::frame_dispatch::TimedAllocationId,
+        _: usize,
+    ) -> Result<crate::frame_dispatch::TimedRecord, Self::Error> {
+        Err(RuntimeError::UnsupportedPhase("Timed-object storage"))
+    }
+    fn write_timed(
+        &mut self,
+        _: crate::frame_dispatch::TimedAllocationId,
+        _: usize,
+        _: crate::frame_dispatch::TimedRecord,
+    ) -> Result<(), Self::Error> {
+        Err(RuntimeError::UnsupportedPhase("Timed-object storage"))
+    }
+    fn pending(
+        &mut self,
+        _: &mut crate::frame_dispatch::FrameState,
+        _: ObjectId,
+        _: u32,
+    ) -> Result<(), Self::Error> {
+        Err(RuntimeError::UnsupportedPhase("Sound callback"))
+    }
+    fn context_tick(
+        &mut self,
+        _: &mut crate::frame_dispatch::FrameState,
+        _: ObjectId,
+        _: i32,
+    ) -> Result<(), Self::Error> {
+        Err(RuntimeError::UnsupportedPhase("Context560510"))
+    }
+    fn scene_tick(
+        &mut self,
+        _: &mut crate::frame_dispatch::FrameState,
+        object: ObjectId,
+        delta: i32,
+    ) -> Result<(), Self::Error> {
+        if object != ObjectId(0xffff0001) {
+            return Err(RuntimeError::UnknownObject(object));
+        }
+        if !self.scene.frames().is_empty() || self.scene.interpolator().is_some() {
+            return Err(RuntimeError::UnsupportedPhase("Active scene callbacks"));
+        }
+        self.scene.tick(&mut NoActiveFrames, delta);
+        Ok(())
+    }
+    fn manager_tick(
+        &mut self,
+        _: &mut crate::frame_dispatch::FrameState,
+        object: ObjectId,
+        delta: i32,
+    ) -> Result<(), Self::Error> {
+        if object != ObjectId(0xffff0002) {
+            return Err(RuntimeError::UnknownObject(object));
+        }
+        self.driver.tick(delta);
+        Ok(())
+    }
+    fn model_tick(
+        &mut self,
+        _: &mut crate::frame_dispatch::FrameState,
+        object: ObjectId,
+        delta: i32,
+    ) -> Result<(), Self::Error> {
+        let model = self
+            .graph
+            .models
+            .iter_mut()
+            .find(|model| model.identity == object)
+            .ok_or(RuntimeError::UnknownObject(object))?;
+        model.tick_static(delta)?;
+        self.dispatched += 1;
+        Ok(())
+    }
+    fn mission_enabled(&self, _: ObjectId) -> Result<bool, Self::Error> {
+        Err(RuntimeError::UnsupportedPhase(
+            "Authored mission initialization",
+        ))
+    }
+    fn mission_tick(
+        &mut self,
+        _: &mut crate::frame_dispatch::FrameState,
+        _: ObjectId,
+        _: i32,
+    ) -> Result<(), Self::Error> {
+        Err(RuntimeError::UnsupportedPhase("Authored mission update"))
+    }
+    fn set_alpha(
+        &mut self,
+        _: &mut crate::frame_dispatch::FrameState,
+        _: ObjectId,
+        _: u32,
+    ) -> Result<(), Self::Error> {
+        Err(RuntimeError::UnsupportedPhase("Timed alpha update"))
+    }
+    fn release(
+        &mut self,
+        _: &mut crate::frame_dispatch::FrameState,
+        _: ObjectId,
+    ) -> Result<(), Self::Error> {
+        Err(RuntimeError::UnsupportedPhase("Timed release"))
+    }
+}
+
+impl RetainedScene {
+    /// Upload only explicitly changed, supported bound poses. Draw counts and
+    /// topology are fixed by original-data assembly; renderer validation is kept.
+    pub fn upload_changed(&mut self, renderer: &lhr_render::Renderer) -> Result<usize, String> {
+        let mut count = 0;
+        for model in &mut self.models {
+            if !model.needs_upload {
+                continue;
+            }
+            let transforms = model.transforms()?;
+            let updates = model
+                .draws
+                .iter()
+                .map(|binding| {
+                    model
+                        .vertices(binding, &transforms)
+                        .map(|vertices| (binding.draw_index, vertices))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            for (draw, vertices) in updates {
+                renderer.update_mesh_vertices(draw, &vertices)?;
+                count += 1;
+            }
+            model.needs_upload = false;
+        }
+        Ok(count)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lhr_assets::{Frame, Lod};
+    fn source() -> Arc<Model> {
+        Arc::new(Model {
+            materials: vec![],
+            frames: vec![Frame {
+                kind: 1,
+                visual: Some(0),
+                render_flags: 0,
+                logic_flags: 0,
+                culling: 0,
+                name: "source".into(),
+                parent: None,
+                position: [0.; 3],
+                scale: [1.; 3],
+                rotation_wxyz: [1., 0., 0., 0.],
+                instance: None,
+                lods: vec![Lod {
+                    distance: 0.,
+                    vertices: vec![
+                        lhr_assets::Vertex {
+                            position: [1., 2., 3.],
+                            normal: [0., 1., 0.],
+                            uv: [0.25, 0.75],
+                        },
+                        lhr_assets::Vertex {
+                            position: [4., 5., 6.],
+                            normal: [0., 1., 0.],
+                            uv: [0.5, 0.5],
+                        },
+                    ],
+                    groups: vec![],
+                }],
+            }],
+        })
+    }
+    fn graph() -> RetainedScene {
+        let mut graph = RetainedScene::default();
+        let source = source();
+        for i in 0..2 {
+            graph
+                .retain(
+                    format!("model{i}"),
+                    source.clone(),
+                    Mat4::IDENTITY,
+                    None,
+                    vec![DrawBinding {
+                        draw_index: i,
+                        frame_index: 0,
+                        geometry_frame: 0,
+                        source_vertices: vec![1, 0],
+                    }],
+                )
+                .unwrap();
+        }
+        graph
+    }
+    #[test]
+    fn driver_tick_matches_six_native_wrapping_vectors_and_init_policy() {
+        for (previous, delta, expected) in [
+            (0, 83, 83),
+            (83, 0, 83),
+            (u32::MAX, 1, 0),
+            (i32::MAX as u32, 1, 0x80000000),
+            (10, -7, 3),
+            (0x80000000, i32::MIN, 0),
+        ] {
+            let mut driver = DriverTickState::from_existing(previous);
+            assert_eq!(driver.elapsed, previous);
+            driver.tick(delta);
+            assert_eq!(driver.elapsed, expected);
+        }
+        let mut driver = DriverTickState::from_existing(123);
+        assert_eq!(driver.elapsed, 123);
+        driver.reset_for_init();
+        assert_eq!(driver.elapsed, 0);
+        driver.tick(7);
+        driver.tick(-1);
+        assert_eq!(driver.elapsed, 6);
+    }
+    #[test]
+    fn shared_source_has_distinct_placement_and_frame_identity() {
+        let graph = graph();
+        assert!(Arc::ptr_eq(
+            &graph.models[0].source,
+            &graph.models[1].source
+        ));
+        assert_ne!(graph.models[0].identity, graph.models[1].identity);
+        assert_ne!(
+            graph.models[0].pose()[0].identity,
+            graph.models[1].pose()[0].identity
+        );
+        assert_eq!(graph.models[0].native.interpolator, None);
+    }
+    #[test]
+    fn bound_pose_rebuild_preserves_source_vertex_mapping_and_other_placement() {
+        let mut graph = graph();
+        let model = &mut graph.models[0];
+        let original = model
+            .vertices(&model.draws[0], &model.transforms().unwrap())
+            .unwrap();
+        assert_eq!(original[0].position, [4., 5., -6.]);
+        assert_eq!(original[0].uv, [0.5, 0.5]);
+        model.set_frame_position(0, [10., 0., 0.]).unwrap();
+        assert!(model.needs_upload);
+        let moved = model
+            .vertices(&model.draws[0], &model.transforms().unwrap())
+            .unwrap();
+        assert_eq!(moved[0].position, [14., 5., -6.]);
+        assert_eq!(graph.models[1].pose()[0].position, [0.; 3]);
+        assert_eq!(graph.models[0].source.frames[0].position, [0.; 3]);
+        assert!(graph.models[0]
+            .set_frame_position(0, [f32::NAN, 0., 0.])
+            .is_err());
+        assert_eq!(graph.models[0].pose()[0].position, [10., 0., 0.]);
+    }
+    struct Clock {
+        samples: std::collections::VecDeque<u32>,
+        sleeps: Vec<u32>,
+    }
+    impl crate::clock::ClockBackend for Clock {
+        fn sample_ms(&mut self) -> u32 {
+            self.samples.pop_front().unwrap()
+        }
+        fn sleep_ms(&mut self, delay: u32) {
+            self.sleeps.push(delay);
+        }
+    }
+    #[test]
+    fn real_components_compose_with_one_shared_clock_and_driver() {
+        let mut graph = graph();
+        let mut engine = RuntimeEngine::from_sample(0);
+        let mut clock = Clock {
+            samples: [10, 40].into(),
+            sleeps: vec![],
+        };
+        assert_eq!(
+            engine.advance_static(&mut graph, &mut clock).unwrap(),
+            RuntimeFrame {
+                raw_delta: 16,
+                modified_delta: 16,
+                driver_time: 16,
+                models_dispatched: 2
+            }
+        );
+        assert_eq!(
+            engine.advance_static(&mut graph, &mut clock).unwrap(),
+            RuntimeFrame {
+                raw_delta: 24,
+                modified_delta: 24,
+                driver_time: 40,
+                models_dispatched: 2
+            }
+        );
+        assert_eq!(clock.sleeps, vec![6]);
+        assert!(clock.samples.is_empty());
+        assert_eq!(engine.modifier.raw_accumulated, 40);
+        assert_eq!(engine.modifier.derived_position, 40);
+    }
+    #[test]
+    fn unbound_animation_fails_without_a_fake_evaluator_or_finalize() {
+        let mut graph = graph();
+        graph.models[1].native.interpolator = Some(InterpolatorId(9));
+        let mut engine = RuntimeEngine::from_sample(0);
+        let error = engine.dispatch_static(&mut graph, 7, 0x3f).unwrap_err();
+        assert!(format!("{error:?}").contains("UnknownInterpolator"));
+        assert_eq!(engine.driver_time(), 7); // preceding native phase already ran
+    }
+    #[test]
+    fn active_scene_requires_binding_instead_of_silent_noop() {
+        let mut engine = RuntimeEngine::from_sample(0);
+        engine.scene.frames_mut().push(FrameId(1));
+        assert!(engine.dispatch_static(&mut graph(), 7, 0x3f).is_err());
+        assert_eq!(engine.driver_time(), 0);
+    }
+    #[test]
+    fn retained_metadata_obeys_scene_memory_budget() {
+        let mut graph = RetainedScene::default();
+        graph.set_assembly_budget(256 * 1024 * 1024).unwrap();
+        assert!(graph.retain_metadata(lhr_assets::Scene::default()).is_err());
+        assert!(graph.metadata().is_none());
+        graph.set_assembly_budget(0).unwrap();
+        graph.retain_metadata(lhr_assets::Scene::default()).unwrap();
+        let bytes = graph.budgeted_bytes;
+        graph.retain_metadata(lhr_assets::Scene::default()).unwrap();
+        assert_eq!(graph.budgeted_bytes, bytes);
+    }
+    #[test]
+    fn runtime_retention_rejects_an_emitter_not_admitted_by_static_parser() {
+        let mut source = (*source()).clone();
+        source.frames[0].kind = 17;
+        assert!(RetainedScene::default()
+            .retain(
+                "emitter".into(),
+                Arc::new(source),
+                Mat4::IDENTITY,
+                None,
+                vec![]
+            )
+            .is_err());
+    }
+}

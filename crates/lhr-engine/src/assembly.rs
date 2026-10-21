@@ -2,8 +2,12 @@
 use super::{charge_scene, engine_position, source_rotation};
 use glam::{Mat4, Vec3};
 use lhr_assets::{FaceGroup, Installation, Lod, Model};
+use lhr_engine::runtime::{DrawBinding, RetainedScene};
 use lhr_render::{Mesh, Scene, Texture, Vertex};
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 pub const MAX_SCENE_BYTES: usize = 256 * 1024 * 1024;
 const MAX_DRAWS: usize = 4096;
 #[derive(Clone, Copy, Debug)]
@@ -39,6 +43,8 @@ pub struct SceneBuilder<'a> {
     installation: &'a Installation,
     textures_directory: &'a str,
     meshes: Vec<Mesh>,
+    retained: RetainedScene,
+    retained_sources: HashSet<usize>,
     bytes: usize,
     texture_cache: HashMap<(String, [bool; 2]), Arc<Texture>>,
     allow_texture_fallback: bool,
@@ -51,6 +57,8 @@ impl<'a> SceneBuilder<'a> {
             installation,
             textures_directory,
             meshes: Vec::new(),
+            retained: RetainedScene::default(),
+            retained_sources: HashSet::new(),
             bytes: 0,
             texture_cache: HashMap::new(),
             allow_texture_fallback: true,
@@ -61,14 +69,29 @@ impl<'a> SceneBuilder<'a> {
     pub fn deny_texture_fallback(&mut self) {
         self.allow_texture_fallback = false;
     }
-    pub fn append(
+    pub fn append_retained(
         &mut self,
-        model: &Model,
+        source_name: &str,
+        source: Arc<Model>,
         world: Mat4,
         crop: Option<XzBounds>,
         strict: bool,
         visual_scale: Option<[f32; 3]>,
     ) -> Result<(), String> {
+        let model = &*source;
+        let source_key = Arc::as_ptr(&source) as usize;
+        if !self.retained_sources.contains(&source_key) {
+            let source_bytes = super::neighborhood::model_storage_bytes(model)?;
+            charge_scene(&mut self.bytes, source_bytes, MAX_SCENE_BYTES)?;
+            self.retained_sources.insert(source_key);
+        }
+        let pose_bytes = model
+            .frames
+            .len()
+            .checked_mul(std::mem::size_of::<lhr_engine::runtime::FramePose>())
+            .ok_or("Retained pose size overflow")?;
+        charge_scene(&mut self.bytes, pose_bytes, MAX_SCENE_BYTES)?;
+        let mut bindings = Vec::new();
         if !world.is_finite() {
             return Err("Model placement transform overflow".into());
         }
@@ -81,7 +104,7 @@ impl<'a> SceneBuilder<'a> {
         }
         let installation = self.installation;
         let transforms = model_transforms(&model.frames, world, visual_scale)?;
-        for (frame, transform) in model.frames.iter().zip(transforms) {
+        for (frame_index, (frame, transform)) in model.frames.iter().zip(transforms).enumerate() {
             let geometry = if let Some(index) = frame.instance {
                 model.frames.get(index).ok_or("Invalid mesh instance")?
             } else {
@@ -191,6 +214,19 @@ impl<'a> SceneBuilder<'a> {
                     }
                 };
                 let (vertices, indices) = make_geometry(lod, &selected, transform, crop.is_some())?;
+                let source_vertices = source_vertex_indices(lod, &selected, crop.is_some())?;
+                let binding_bytes = source_vertices
+                    .len()
+                    .checked_mul(4)
+                    .and_then(|n| n.checked_add(std::mem::size_of::<DrawBinding>()))
+                    .ok_or("Retained binding size overflow")?;
+                charge_scene(&mut self.bytes, binding_bytes, MAX_SCENE_BYTES)?;
+                bindings.push(DrawBinding {
+                    draw_index: self.meshes.len(),
+                    frame_index,
+                    geometry_frame: frame.instance.unwrap_or(frame_index),
+                    source_vertices,
+                });
                 self.meshes.push(Mesh {
                     vertices,
                     indices,
@@ -198,17 +234,28 @@ impl<'a> SceneBuilder<'a> {
                 });
             }
         }
+        self.retained.retain(
+            source_name.to_owned(),
+            source,
+            world,
+            visual_scale,
+            bindings,
+        )?;
         Ok(())
     }
-    pub fn finish(self) -> Result<Scene, String> {
+    pub fn finish(mut self) -> Result<(Scene, RetainedScene), String> {
         if self.meshes.is_empty() {
             return Err("Selected scene contains no supported visible geometry".into());
         }
         println!("Scene resources: {} draws, {} budgeted geometry/texture bytes, {} shared texture variants; {} unassigned material groups skipped, {} triangles outside spatial subset",
             self.meshes.len(),self.bytes,self.texture_cache.len(),self.unassigned_groups,self.cropped_triangles);
-        Ok(Scene {
-            meshes: self.meshes,
-        })
+        self.retained.set_assembly_budget(self.bytes)?;
+        Ok((
+            Scene {
+                meshes: self.meshes,
+            },
+            self.retained,
+        ))
     }
 }
 fn model_transforms(
@@ -283,6 +330,22 @@ fn select_triangles(
     }
     Ok((selected, used.into_iter().filter(|v| *v).count()))
 }
+fn source_vertex_indices(lod: &Lod, selected: &[u32], compact: bool) -> Result<Vec<u32>, String> {
+    let mut used = vec![!compact; lod.vertices.len()];
+    if compact {
+        for index in selected {
+            *used
+                .get_mut(*index as usize)
+                .ok_or("Invalid retained source index")? = true;
+        }
+    }
+    used.into_iter()
+        .enumerate()
+        .filter(|(_, used)| *used)
+        .map(|(index, _)| u32::try_from(index).map_err(|_| "Retained source index overflow".into()))
+        .collect()
+}
+
 fn make_geometry(
     lod: &Lod,
     selected: &[u32],
@@ -455,5 +518,58 @@ mod tests {
         assert_eq!(second[2].transform_vector3(Vec3::X), Vec3::X * 3.0);
         assert_eq!(frames[0].scale, [2.0; 3]);
         assert_eq!(frames[1].scale, [3.0; 3]);
+    }
+    #[test]
+    fn retained_binding_rebuild_matches_assembly_hierarchy_crop_and_scale() {
+        let geometry = lod(&[[0., 0., 0.], [1., 0., 0.], [0., 1., 0.], [9., 9., 9.]]);
+        let mut parent = frame(None, [2., 3., 4.]);
+        parent.kind = 6;
+        parent.visual = None;
+        parent.scale = [3.; 3];
+        let mut visual = frame(Some(0), [1., 2., 3.]);
+        visual.lods = vec![geometry];
+        let q = std::f32::consts::FRAC_1_SQRT_2;
+        visual.rotation_wxyz = [q, 0., 0., q];
+        let source = Arc::new(Model {
+            materials: vec![],
+            frames: vec![parent, visual],
+        });
+        let world = Mat4::from_translation(Vec3::new(5., 6., 7.));
+        let selected = [2, 0, 1];
+        let mapping = source_vertex_indices(&source.frames[1].lods[0], &selected, true).unwrap();
+        assert_eq!(mapping, vec![0, 1, 2]);
+        let original_transforms =
+            model_transforms(&source.frames, world, Some([2., 1., 1.])).unwrap();
+        let (original, _) = make_geometry(
+            &source.frames[1].lods[0],
+            &selected,
+            original_transforms[1],
+            true,
+        )
+        .unwrap();
+        let mut graph = RetainedScene::default();
+        graph
+            .retain(
+                "synthetic".into(),
+                source,
+                world,
+                Some([2., 1., 1.]),
+                vec![DrawBinding {
+                    draw_index: 0,
+                    frame_index: 1,
+                    geometry_frame: 1,
+                    source_vertices: mapping,
+                }],
+            )
+            .unwrap();
+        let model = &graph.models[0];
+        let rebuilt = model
+            .vertices(&model.draws[0], &model.transforms().unwrap())
+            .unwrap();
+        for (a, b) in original.iter().zip(rebuilt) {
+            assert_eq!(a.position.map(f32::to_bits), b.position.map(f32::to_bits));
+            assert_eq!(a.uv.map(f32::to_bits), b.uv.map(f32::to_bits));
+        }
+        assert!(source_vertex_indices(&model.source.frames[1].lods[0], &[99], true).is_err());
     }
 }

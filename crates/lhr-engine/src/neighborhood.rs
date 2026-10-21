@@ -28,11 +28,11 @@ pub fn load(installation: &Installation, textures: &str) -> Result<LoadedScene, 
     let bounds = XzBounds::around(center, RADIUS)?;
     let taxi = actor_object(&metadata, "taxi", 4)?;
     let taxi_world = object_transform(&metadata, taxi)?;
-    let taxi_model = model_path(taxi.model.as_deref().ok_or("Taxi source model absent")?)?;
+    let taxi_path = model_path(taxi.model.as_deref().ok_or("Taxi source model absent")?)?;
     let mut source_budget = SourceBudget::default();
     let root_bytes = read("missions/mise01/scene.4ds")?;
     source_budget.input(root_bytes.len())?;
-    let root = lhr_assets::parse_four_ds_scene(&root_bytes).map_err(|e| e.to_string())?;
+    let root = Arc::new(lhr_assets::parse_four_ds_scene(&root_bytes).map_err(|e| e.to_string())?);
     source_budget.model(&root)?;
     drop(root_bytes);
     let mut builder = SceneBuilder::new(installation, textures);
@@ -42,7 +42,14 @@ pub fn load(installation: &Installation, textures: &str) -> Result<LoadedScene, 
         .iter()
         .filter(|m| material_effects_omitted(m))
         .count();
-    builder.append(&root, Mat4::IDENTITY, Some(bounds), false, None)?;
+    builder.append_retained(
+        "missions/mise01/scene.4ds",
+        root.clone(),
+        Mat4::IDENTITY,
+        Some(bounds),
+        false,
+        None,
+    )?;
     drop(root);
     let cache = lhr_assets::parse_city_cache(&read("missions/mise01/cache.bin")?)
         .map_err(|e| e.to_string())?;
@@ -92,15 +99,23 @@ pub fn load(installation: &Installation, textures: &str) -> Result<LoadedScene, 
             }
         };
         let world = placement_transform(object.position, object.rotation_wxyz, object.scale)?;
-        builder.append(&model, world, None, false, Some(object.secondary_scale))?;
+        builder.append_retained(
+            &name,
+            model.clone(),
+            world,
+            None,
+            false,
+            Some(object.secondary_scale),
+        )?;
         if object.secondary_scale != [1.0; 3] {
             secondary_overrides += 1;
         }
         loaded += 1;
     }
-    let taxi_bytes = read(&taxi_model)?;
+    let taxi_bytes = read(&taxi_path)?;
     source_budget.input(taxi_bytes.len())?;
-    let taxi_model = lhr_assets::parse_four_ds_scene(&taxi_bytes).map_err(|e| e.to_string())?;
+    let taxi_model =
+        Arc::new(lhr_assets::parse_four_ds_scene(&taxi_bytes).map_err(|e| e.to_string())?);
     source_budget.model(&taxi_model)?;
     drop(taxi_bytes);
     effect_materials += taxi_model
@@ -108,7 +123,7 @@ pub fn load(installation: &Installation, textures: &str) -> Result<LoadedScene, 
         .iter()
         .filter(|m| material_effects_omitted(m))
         .count();
-    builder.append(&taxi_model, taxi_world, None, false, None)?;
+    builder.append_retained(&taxi_path, taxi_model, taxi_world, None, false, None)?;
     println!("MISE01 static neighborhood: {total} cache placements, {candidates} within {RADIUS} source units, {} selected (cap {PLACEMENT_CAP}), {loaded} loaded; {billboards} unsupported billboard-visual placements skipped; secondary visual-scale override applied per placement ({secondary_overrides} nonunit); {} shared parsed cache models; one authored taxi placed across all model roots",selected.len(),models.len());
     for (name, reason) in &unsupported {
         println!("Neighborhood unsupported model: {name}: {reason}");
@@ -116,12 +131,17 @@ pub fn load(installation: &Installation, textures: &str) -> Result<LoadedScene, 
     println!("Neighborhood metadata: {} objects, {} actors, {} parsed script programs; {effect_materials} source materials have effects not rendered; lighting, actor initialization, scripts, traffic, physics and gameplay are not executed",metadata.objects.len(),metadata.actors.len(),metadata.scripts.len());
     println!("Cache source word retained without visibility interpretation; native part visibility, pooling and PVS are not executed. The native filename substitution outside this selected subset is not implemented");
     println!("Neighborhood model budgets: {} encoded source bytes (limit {}), {} all-LOD parsed allocation bytes (limit {}) charged across root/cache/taxi",source_budget.encoded,MAX_MODEL_INPUT_BYTES,source_budget.decoded,MAX_PARSED_MODEL_BYTES);
-    let scene = builder.finish()?;
+    let (scene, mut runtime) = builder.finish()?;
     let camera = inspection_camera(taxi_world)?;
     println!(
         "Camera: rewrite inspection view of authored taxi/spawn; not an original gameplay camera"
     );
-    Ok(LoadedScene { scene, camera })
+    runtime.retain_metadata(metadata)?;
+    Ok(LoadedScene {
+        scene,
+        camera,
+        runtime,
+    })
 }
 const MAX_MODEL_INPUT_BYTES: usize = 32 * 1024 * 1024;
 const MAX_PARSED_MODEL_BYTES: usize = 64 * 1024 * 1024;
@@ -143,7 +163,7 @@ impl SourceBudget {
             .map_err(|_| "Neighborhood all-LOD parsed model quota exceeded".into())
     }
 }
-fn model_storage_bytes(model: &Model) -> Result<usize, String> {
+pub(super) fn model_storage_bytes(model: &Model) -> Result<usize, String> {
     let mut total = std::mem::size_of::<Model>();
     let mut add = |count: usize, size: usize| -> Result<(), String> {
         let bytes = count
