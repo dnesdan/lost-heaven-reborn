@@ -667,8 +667,8 @@ def render_svg_v3(snapshot):
         card(432, 112, 'LS3DF.DLL · STATIC RETAINED PSEUDOCODE', count(ls3df), 'Explicit profile union · not semantic coverage', palette['green'], pct(ls3df)),
         card(36, 278, 'REVIEWED SCOPED RUST PORTS', f'{entry_count} entries · {len(ports)} contracts', f'{static_count} used in static inspection · {unrecorded} unrecorded', palette['amber']),
         card(432, 278, 'STRICT FULL-SYSTEM VERIFICATION', f"{systems['verified']} / {systems['total']}", 'Verified complete systems · strict evidence gate', palette['muted']),
-        card(36, 444, 'SUPPLIED CONFIGURATION SETUP.EXE', count(setup), '172 in-image non-thunk procedures', palette['green'], pct(setup)),
-        card(432, 444, 'ARCHIVE INSTALLER BOOTSTRAP',
+        card(36, 444, 'SETUP.EXE · STATIC PSEUDOCODE', count(setup), '172 in-image non-thunk procedures', palette['green'], pct(setup)),
+        card(432, 444, 'INSTALLER · STATIC PSEUDOCODE',
              f"{installer['retained_pseudocode']} / {installer['inventory_total']} · {100*installer['retained_pseudocode']/installer['inventory_total']:.2f}%",
              'In-image non-thunk procedures · distribution target', palette['muted'],
              100*installer['retained_pseudocode']/installer['inventory_total'])])

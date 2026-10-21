@@ -16,9 +16,15 @@ spec.loader.exec_module(progress)
 
 class ProgressTests(unittest.TestCase):
     def setUp(self):
-        snapshot_path = Path(os.environ.get('LHR_PROGRESS_TEST_SNAPSHOT', ROOT / 'docs/progress.json'))
+        snapshot_path = Path(os.environ.get('LHR_PROGRESS_TEST_SNAPSHOT', ROOT / 'tests/fixtures/progress-v2-legacy.json'))
         document = json.loads(snapshot_path.read_text())
         self.snapshot = document.get('function_progress', document)
+
+    def test_current_public_snapshot_validates(self):
+        public_path = ROOT / 'docs/progress.json'
+        document = json.loads(public_path.read_text())
+        snapshot = document.get('function_progress', document)
+        progress.validate(snapshot)
 
     def schema3_snapshot(self):
         """Small valid migration fixture; historical schema-2 rows stay untouched."""

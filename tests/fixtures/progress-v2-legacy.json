@@ -1,0 +1,1140 @@
+{
+  "updated_at": "2026-10-21",
+  "project_status": "Original-data Rust menu and static INTRO/MISE01 inspection; six original entries covered by five reviewed scoped library contracts; gameplay integration pending and campaign not playable",
+  "rust_toolchain": "1.99.1",
+  "validation": {
+    "status": "Clock, Scene, IPol caller-control, Game delta modifier and generic actor dispatch milestones each passed two sequential independent reviews; latest workspace suite passes 106 Rust, 9 REA wrapper and 23 progress tests.",
+    "rust_unit_tests": 106,
+    "rust_unit_test_split": {
+      "lhr_assets": 52,
+      "lhr_engine_library": 32,
+      "lhr_engine_application": 18,
+      "lhr_render": 4
+    },
+    "rea_wrapper_tests": 9,
+    "latest_accepted_baseline": {
+      "source_commit": "305f96e4c3f654c17287a1a540af3468c642d3c0",
+      "rust_unit_tests": 106,
+      "rea_wrapper_tests": 9,
+      "progress_tests": 23,
+      "milestone": "Six original entries across five scoped library contracts; gameplay integration remains pending."
+    },
+    "progress_tests": 23
+  },
+  "assets": {
+    "scope": "A8/A2/A6/A1/AA DTA subset; selected 4DS, BMP/TGA, menu/text/font, scene2, cache and script intake",
+    "archive_order_basis": "PC-RUST-MENU-001 static REA startup registration sequence, restricted to the supported archive subset",
+    "read_fallback": "Selected source read errors do not fall back; stricter than native fallback behavior",
+    "checksum_verification": false,
+    "audio_codecs": "unsupported",
+    "scene_streaming": "Bounded MISE01 inspection crop only; native streaming, visibility, pooling and PVS not implemented",
+    "collision": "not implemented",
+    "directory_assumption": "Trusted stable installation tree required; not descriptor-relative confinement against hostile concurrent parent replacement"
+  },
+  "menu": {
+    "implementation": "Czech PC menu layout/localization display and keyboard/pointer selection",
+    "current_validation": "Linux X11 input and captures frozen; Down selects Exit, Up selects New Game, Enter/mouse opens static INTRO, Escape opens MISE01 spawn neighborhood, orbit/reload verified, Escape returns to menu",
+    "profile_chooser": "not implemented",
+    "unsupported_menu_actions": "not implemented",
+    "new_game_flow": "Static intro geometry; Escape switches to static MISE01 spawn-neighborhood inspection with original static taxi, then returns to menu. No cinematic or mission execution.",
+    "intro_cutscene": "not implemented",
+    "original_reference_runtime": "Menu-to-prolog-to-first-mission HUD verified in the original game only; not Rust gameplay evidence"
+  },
+  "scene_and_scripts": {
+    "scene2": "Bounded object, actor and embedded script metadata parsing",
+    "city_cache": "Bounded inspection crop: 64 selected of 200 placements within 120 source units, 62 loaded, 2 validated billboard placements skipped; no native streaming, visibility, pooling or PVS",
+    "script_intake": "Observed actor serialization and line-oriented command parsing; no expression evaluation",
+    "diagnostic_vm_subset": "One bounded step per program for literal LABEL/GOTO/GOSUB/RETURN/WAIT/COMMANDBLOCK/END (PC-RUST-CONTROL-VM-01); not integrated with actors, world effects or mission progression",
+    "probe_results": "INTRO: 16 scripts halt on unsupported commands, one after advancing a prefix. MISE01: 37 halt, seven after advancing a prefix, two empty scripts complete. Prefix counts overlap halted counts.",
+    "original_runtime_comparison": "PC-RUST-CONTROL-VM-RUNTIME-02 compares bounded COMMANDBLOCK and WAIT states against original runtime observations; GOTO/END and complete scheduler/caller chain unverified, replay observed only",
+    "mission_execution": "not implemented",
+    "current_validation": "Reviewed static MISE01 neighborhood and taxi inspection remains the graphical baseline; new library tests do not establish mission execution."
+  },
+  "renderer": {
+    "target": "wgpu Vulkan on Linux, Metal on macOS",
+    "latest_accepted_baseline": "Linux llvmpipe offscreen rendering and bounded Xvfb camera inspection; phase 1 accepted by two reviews",
+    "current_menu_scene_validation": "Linux X11 captures and keyboard/mouse transitions frozen; MISE01 spawn-neighborhood crop, orbit, and repeat-load pixels verified; approximate static scenes, not gameplay",
+    "omitted_effect_material_counts": {
+      "MENU": 33,
+      "INTRO": 12,
+      "MISE01": 62,
+      "meaning": "Materials with unsupported effects; diagnostics do not mean every counted material is omitted in full"
+    },
+    "original_render_parity": "not established",
+    "macos_metal": "Apple arm64 cargo check passed through generic actor dispatch commit; compilation only, no linking or Metal runtime"
+  },
+  "campaign_playable": false,
+  "historical_analysis": {
+    "game_exe_pseudocode": "9/4914 (0.18% of default profile)",
+    "ls3df_pseudocode": "45/1683 (2.67% of explicitly documented union profile)",
+    "meaning": "Retained static pseudocode counts; not semantic understanding or implementation coverage."
+  },
+  "full_system_verification": {
+    "verified": 0,
+    "total": 12,
+    "percent": 0,
+    "meaning": "Strict original full-system evidence gate, preserving the prior 12-subsystem registry; not an overall remake completion estimate."
+  },
+  "rea_evidence": [
+    "PC-RUST-BOOTSTRAP-001",
+    "PC-RUST-ARCHIVE-001",
+    "PC-RUST-MENU-001",
+    "PC-RUST-CONTROL-VM-01",
+    "PC-RUST-CONTROL-VM-RUNTIME-02",
+    "PC-RUST-CITY-CACHE-001"
+  ],
+  "rust_milestone_evidence_indexes": [
+    "RUST-ENGINE-EVIDENCE-INDEX-20261021",
+    "RUST-DTA-MILESTONE-EVIDENCE-20261021",
+    "RUST-MENU-SCENE-MILESTONE-EVIDENCE-20261021",
+    "RUST-MISE01-NEIGHBORHOOD-MILESTONE-EVIDENCE-20261021"
+  ],
+  "historical_runtime_trace": "40 animation API time units measured as 40 milliseconds on one unscaled path; not a universal timing rule.",
+  "history": [
+    {
+      "revision": "a077ef25e887b6129c893daf9e5c4885904a2c31",
+      "date": "2026-10-21",
+      "milestone": "Started standalone Rust engine with original asset rendering",
+      "verification": "13 Rust tests and 9 REA wrapper tests passed",
+      "analysis_snapshot": "Game.exe 9/4914 (0.18%); LS3DF.dll 45/1683 (2.67%); strict full-system evidence 0/12"
+    },
+    {
+      "revision": "90d2edb",
+      "date": "2026-10-21",
+      "milestone": "Added lazy reads from selected original DTA archives",
+      "verification": "27 Rust tests and 9 REA wrapper tests passed; two sequential independent reviews accepted",
+      "analysis_snapshot": "PC-RUST-ARCHIVE-001; 20,229 entries compared against private prototype decoder, not independent source extraction or original runtime"
+    },
+    {
+      "revision": "d5e3754b7c26a0b408f051a825114208de2a3b36",
+      "date": "2026-10-21",
+      "milestone": "Added original Czech menu and bounded static INTRO/MISE01 scene inspection",
+      "verification": "61 Rust tests (49 assets, 8 engine, 4 renderer) and 9 REA wrapper tests passed; two sequential independent reviews accepted",
+      "analysis_snapshot": "PC-RUST-MENU-001 and PC-RUST-CONTROL-VM-01; static menu/scene and bounded control evidence only, campaign not playable"
+    }
+  ],
+  "reset_boundary": "Former Godot prototype implementation/tests and original-game runtime traces are not counted as Rust behavior or validation.",
+  "macos_validation": {
+    "command": "cargo check --workspace --all-targets --target aarch64-apple-darwin --locked",
+    "result": "passed through generic actor dispatch commit",
+    "scope": "Compilation only; no macOS link or Metal runtime"
+  },
+  "phase2": {
+    "status": "Implementation and evidence frozen; two sequential independent reviews accepted",
+    "evidence_manifest": "RUST-MISE01-NEIGHBORHOOD-MILESTONE-EVIDENCE-20261021:manifest",
+    "evidence_manifest_sha256": "bdc73ebd069eca94111e1621568c7111194ddb14b1281b054c6411574b043995",
+    "final_record": "RUST-MISE01-NEIGHBORHOOD-MILESTONE-EVIDENCE-20261021:final-record",
+    "final_record_sha256": "3e8f5e73aa2dc9109e7fc3528043a6c17b44fd33ffee4f89e21ee0dc05098aef",
+    "neighborhood_contract": "PC-RUST-MISE01-NEIGHBORHOOD-001",
+    "taxi_contract": "PC-RUST-MISE01-TAXI-001",
+    "cache_transform_contract": "PC-RUST-CITY-CACHE-001",
+    "cache_transform_contract_sha256": "54efd7ef4f28458627587aed015e7dd3d5e545cc9dd5df04db9da0d2ca865253",
+    "selection": "64 of 200 cache placements within radius 120; 62 loaded, 2 validated billboard placements skipped",
+    "static_taxi_model_roots": 15,
+    "draws": 394,
+    "budgeted_geometry_texture_bytes": 12403012,
+    "encoded_model_bytes": 5373178,
+    "parsed_all_lod_model_bytes": 9119125,
+    "shared_cache_models": 30,
+    "unsupported_or_unverified": [
+      "native streaming/visibility/pooling/PVS",
+      "filename substitution outside the selected crop",
+      "original gameplay camera",
+      "collision, physics, driving, AI, traffic",
+      "mission execution and actor effects",
+      "lighting, alpha and reflection effects"
+    ]
+  },
+  "function_progress": {
+    "schema_version": 2,
+    "snapshot_id": "RUST-SCOPED-PORTS-20261021-04",
+    "as_of": "2026-10-21",
+    "source_baseline": "b0c4cf166d327bd26b3f80c65a707e0d7fddd76f",
+    "recount_sha256": "d6e2ca702aa611f7ae5706d187847dd65908df9bd64674daf5d0d9ee422b5b14",
+    "libraries": [
+      {
+        "name": "Game.exe",
+        "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+        "inventory_version": "pc-r2-20261021",
+        "inventory_membership_sha256": "bd82dbdaecf1981548dd73c0793264b520dc08191fb7e8dc8cc8e3bc244e186b",
+        "inventory_total": 4914,
+        "retained_entries": [
+          "0x13f0",
+          "0x1ca0",
+          "0x25d0",
+          "0x2b60",
+          "0x36c0",
+          "0x33c60",
+          "0x60c90",
+          "0x61580",
+          "0x61830",
+          "0x61900",
+          "0x61c70",
+          "0x63960",
+          "0x6c770",
+          "0x6cb40",
+          "0x6cbc0",
+          "0x6cc00",
+          "0x6ccb0",
+          "0x6ccf0",
+          "0x6d3b0",
+          "0x979b0",
+          "0xce960",
+          "0xf01a0",
+          "0xf0620",
+          "0x11b470",
+          "0x13f7d0",
+          "0x140580",
+          "0x1407e0",
+          "0x1493d0",
+          "0x155e40",
+          "0x157120",
+          "0x157140",
+          "0x15d810",
+          "0x160510",
+          "0x172b80",
+          "0x199610",
+          "0x19b130",
+          "0x19c6a0",
+          "0x19e2a0",
+          "0x19e2d0",
+          "0x1a7ff0",
+          "0x1a8030",
+          "0x1afd50",
+          "0x1b8430",
+          "0x1b85f0",
+          "0x1bd910",
+          "0x1be750",
+          "0x1bebe0",
+          "0x1bf5a0",
+          "0x1c0080",
+          "0x1d94d0",
+          "0x1db730",
+          "0x1db890",
+          "0x1e0690",
+          "0x1e91b0",
+          "0x1e9690",
+          "0x1e9960",
+          "0x1e9be0",
+          "0x1e9e50",
+          "0x1ea000",
+          "0x1ea2e0",
+          "0x1ea370",
+          "0x1eba40",
+          "0x1ebe80",
+          "0x1ec8a0",
+          "0x1f6f30",
+          "0x1f7000",
+          "0x1f70d0",
+          "0x2027b0",
+          "0x2036d0",
+          "0x203880",
+          "0x204ee0",
+          "0x207360"
+        ],
+        "retained_pseudocode": 72,
+        "semantic_contracts": null,
+        "rust_ported": null,
+        "differential_verified": null,
+        "verified_code_bytes": null,
+        "scope": "Retained static pseudocode only; bounded scoped Rust adapters are reported separately and are not whole-function or runtime coverage.",
+        "accepted_functions": []
+      },
+      {
+        "name": "rw_data.dll",
+        "binary_sha256": "67f72c30cc7fe941f5526b8602a0bd2785baa0f22617bbcfd4a71bacd79b8d49",
+        "inventory_version": "pc-r2-20261021",
+        "inventory_membership_sha256": null,
+        "inventory_total": null,
+        "retained_entries": [
+          "0x11e0",
+          "0x18a0",
+          "0x1b90",
+          "0x25c0",
+          "0x4690",
+          "0x4720"
+        ],
+        "retained_pseudocode": 6,
+        "semantic_contracts": null,
+        "rust_ported": null,
+        "differential_verified": null,
+        "verified_code_bytes": null,
+        "scope": "Retained static pseudocode only; whole-function port and runtime audit incomplete.",
+        "accepted_functions": []
+      },
+      {
+        "name": "LS3DF.dll",
+        "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+        "inventory_version": "pc-r2-20261021",
+        "inventory_membership_sha256": "82e5a161d38e2dd48c71c4f2570a60f32a4328b226e23b6345713cc6ce601b60",
+        "inventory_total": 1683,
+        "retained_entries": [
+          "0x48b0",
+          "0x4900",
+          "0x4a00",
+          "0x4a20",
+          "0x4a40",
+          "0x4a70",
+          "0x4a80",
+          "0x4af0",
+          "0x4b30",
+          "0x4bf0",
+          "0x4c50",
+          "0x4d30",
+          "0x4db0",
+          "0x4ea0",
+          "0x4f50",
+          "0x5050",
+          "0x15620",
+          "0x193e0",
+          "0x1c7d0",
+          "0x1ca60",
+          "0x1d1c0",
+          "0x1d320",
+          "0x1e230",
+          "0x1e360",
+          "0x1e470",
+          "0x1e580",
+          "0x1e9e0",
+          "0x1ea60",
+          "0x1ed30",
+          "0x1ef10",
+          "0x2bd50",
+          "0x2e070",
+          "0x2fee0",
+          "0x30140",
+          "0x335a0",
+          "0x33680",
+          "0x337b0",
+          "0x34010",
+          "0x34040",
+          "0x34bd0",
+          "0x48ab0",
+          "0x49290",
+          "0x49f90",
+          "0x4a0e0",
+          "0x56860",
+          "0x56e80",
+          "0x575d0",
+          "0x5a7a0",
+          "0x603e0",
+          "0x60840",
+          "0x60cb0",
+          "0x61800",
+          "0x62030",
+          "0x72100",
+          "0x79150"
+        ],
+        "retained_pseudocode": 55,
+        "semantic_contracts": null,
+        "rust_ported": null,
+        "differential_verified": null,
+        "verified_code_bytes": null,
+        "scope": "Retained static pseudocode only; bounded scoped Rust adapters are reported separately and are not whole-function or runtime coverage.",
+        "accepted_functions": []
+      }
+    ],
+    "systems": {
+      "verified": 0,
+      "total": 12
+    },
+    "history": [
+      {
+        "snapshot_id": "historical-retained-static-20261021",
+        "as_of": "2026-10-21",
+        "libraries": [
+          {
+            "name": "Game.exe",
+            "inventory_total": 4914,
+            "retained_pseudocode": 9,
+            "rust_ported": null,
+            "differential_verified": null
+          },
+          {
+            "name": "LS3DF.dll",
+            "inventory_total": 1683,
+            "retained_pseudocode": 45,
+            "rust_ported": null,
+            "differential_verified": null
+          }
+        ],
+        "systems": {
+          "verified": 0,
+          "total": 12
+        }
+      },
+      {
+        "snapshot_id": "pc-function-r2-20261021",
+        "as_of": "2026-10-21",
+        "libraries": [
+          {
+            "name": "Game.exe",
+            "inventory_total": 4914,
+            "retained_pseudocode": 55,
+            "rust_ported": null,
+            "differential_verified": null
+          },
+          {
+            "name": "rw_data.dll",
+            "inventory_total": null,
+            "retained_pseudocode": 6,
+            "rust_ported": null,
+            "differential_verified": null
+          },
+          {
+            "name": "LS3DF.dll",
+            "inventory_total": 1683,
+            "retained_pseudocode": 48,
+            "rust_ported": null,
+            "differential_verified": null
+          }
+        ],
+        "systems": {
+          "verified": 0,
+          "total": 12
+        }
+      },
+      {
+        "snapshot_id": "RUST-SCOPED-PORTS-20261021-01",
+        "as_of": "2026-10-21",
+        "libraries": [
+          {
+            "name": "Game.exe",
+            "inventory_total": 4914,
+            "retained_pseudocode": 55,
+            "rust_ported": null,
+            "differential_verified": null
+          },
+          {
+            "name": "rw_data.dll",
+            "inventory_total": null,
+            "retained_pseudocode": 6,
+            "rust_ported": null,
+            "differential_verified": null
+          },
+          {
+            "name": "LS3DF.dll",
+            "inventory_total": 1683,
+            "retained_pseudocode": 48,
+            "rust_ported": null,
+            "differential_verified": null
+          }
+        ],
+        "systems": {
+          "verified": 0,
+          "total": 12
+        },
+        "scoped_ports": [
+          {
+            "contract_id": "PC-CLOCK-ORACLE-STEP2-20261021",
+            "source_commit": "ed69df16899657065602a8a368f2f6abbda8d642",
+            "entries": 2,
+            "cases": 20
+          },
+          {
+            "contract_id": "PC-SCENE-ORACLE-STEP3-20261021",
+            "source_commit": "8c647af43989f23f28499a307668bef53ad9f59e",
+            "entries": 1,
+            "cases": 13
+          },
+          {
+            "contract_id": "PC-IPOL-CALLBACK-ORACLE-STEP3-20261021",
+            "source_commit": "6fa388aba1071168209f1eac708dd6f37ede2a82",
+            "entries": 1,
+            "cases": 31
+          }
+        ]
+      },
+      {
+        "snapshot_id": "RUST-SCOPED-PORTS-20261021-02",
+        "as_of": "2026-10-21",
+        "libraries": [
+          {
+            "name": "Game.exe",
+            "inventory_total": 4914,
+            "retained_pseudocode": 55,
+            "rust_ported": null,
+            "differential_verified": null
+          },
+          {
+            "name": "rw_data.dll",
+            "inventory_total": null,
+            "retained_pseudocode": 6,
+            "rust_ported": null,
+            "differential_verified": null
+          },
+          {
+            "name": "LS3DF.dll",
+            "inventory_total": 1683,
+            "retained_pseudocode": 48,
+            "rust_ported": null,
+            "differential_verified": null
+          }
+        ],
+        "systems": {
+          "verified": 0,
+          "total": 12
+        },
+        "scoped_ports": [
+          {
+            "contract_id": "PC-CLOCK-ORACLE-STEP2-20261021",
+            "source_commit": "ed69df16899657065602a8a368f2f6abbda8d642",
+            "entries": 2,
+            "cases": 20
+          },
+          {
+            "contract_id": "PC-SCENE-ORACLE-STEP3-20261021",
+            "source_commit": "8c647af43989f23f28499a307668bef53ad9f59e",
+            "entries": 1,
+            "cases": 13
+          },
+          {
+            "contract_id": "PC-IPOL-CALLBACK-ORACLE-STEP3-20261021",
+            "source_commit": "6fa388aba1071168209f1eac708dd6f37ede2a82",
+            "entries": 1,
+            "cases": 31
+          },
+          {
+            "contract_id": "PC-GAME-PHASE-STATIC-20261021",
+            "source_commit": "4101e0b8923a3babd2b54933866a159386cbf0cc",
+            "entries": 1,
+            "cases": 22576
+          },
+          {
+            "contract_id": "PC-ACTOR-TICK-ORACLE-STEP3-20261021",
+            "source_commit": "305f96e4c3f654c17287a1a540af3468c642d3c0",
+            "entries": 1,
+            "cases": 26
+          }
+        ]
+      },
+      {
+        "snapshot_id": "RUST-SCOPED-PORTS-20261021-03",
+        "as_of": "2026-10-21",
+        "libraries": [
+          {
+            "name": "Game.exe",
+            "inventory_total": 4914,
+            "retained_pseudocode": 72,
+            "rust_ported": null,
+            "differential_verified": null
+          },
+          {
+            "name": "rw_data.dll",
+            "inventory_total": null,
+            "retained_pseudocode": 6,
+            "rust_ported": null,
+            "differential_verified": null
+          },
+          {
+            "name": "LS3DF.dll",
+            "inventory_total": 1683,
+            "retained_pseudocode": 55,
+            "rust_ported": null,
+            "differential_verified": null
+          }
+        ],
+        "systems": {
+          "verified": 0,
+          "total": 12
+        },
+        "scoped_ports": [
+          {
+            "contract_id": "PC-CLOCK-ORACLE-STEP2-20261021",
+            "source_commit": "ed69df16899657065602a8a368f2f6abbda8d642",
+            "entries": 2,
+            "cases": 20
+          },
+          {
+            "contract_id": "PC-SCENE-ORACLE-STEP3-20261021",
+            "source_commit": "8c647af43989f23f28499a307668bef53ad9f59e",
+            "entries": 1,
+            "cases": 13
+          },
+          {
+            "contract_id": "PC-IPOL-CALLBACK-ORACLE-STEP3-20261021",
+            "source_commit": "6fa388aba1071168209f1eac708dd6f37ede2a82",
+            "entries": 1,
+            "cases": 31
+          },
+          {
+            "contract_id": "PC-GAME-PHASE-STATIC-20261021",
+            "source_commit": "4101e0b8923a3babd2b54933866a159386cbf0cc",
+            "entries": 1,
+            "cases": 22576
+          },
+          {
+            "contract_id": "PC-ACTOR-TICK-ORACLE-STEP3-20261021",
+            "source_commit": "305f96e4c3f654c17287a1a540af3468c642d3c0",
+            "entries": 1,
+            "cases": 26
+          },
+          {
+            "contract_id": "PC-GAME-FRAME-DISPATCH-20261021",
+            "source_commit": "0d634fbc9e02941d70de7c2991cdf2e411156b6e",
+            "entries": 1,
+            "cases": 1509
+          },
+          {
+            "contract_id": "PC-MODEL-TICK-20261021",
+            "source_commit": "0d634fbc9e02941d70de7c2991cdf2e411156b6e",
+            "entries": 1,
+            "cases": 7
+          }
+        ]
+      },
+      {
+        "snapshot_id": "RUST-SCOPED-PORTS-20261021-04",
+        "as_of": "2026-10-21",
+        "libraries": [
+          {
+            "name": "Game.exe",
+            "inventory_total": 4914,
+            "retained_pseudocode": 72,
+            "rust_ported": null,
+            "differential_verified": null
+          },
+          {
+            "name": "rw_data.dll",
+            "inventory_total": null,
+            "retained_pseudocode": 6,
+            "rust_ported": null,
+            "differential_verified": null
+          },
+          {
+            "name": "LS3DF.dll",
+            "inventory_total": 1683,
+            "retained_pseudocode": 55,
+            "rust_ported": null,
+            "differential_verified": null
+          }
+        ],
+        "systems": {
+          "verified": 0,
+          "total": 12
+        },
+        "scoped_ports": [
+          {
+            "contract_id": "PC-CLOCK-ORACLE-STEP2-20261021",
+            "source_commit": "ed69df16899657065602a8a368f2f6abbda8d642",
+            "entries": 2,
+            "cases": 20,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "1d9209151fcc0fbd937f624431d99110d46071f6ef0ce9c4caf684417fe2032b"
+          },
+          {
+            "contract_id": "PC-SCENE-ORACLE-STEP3-20261021",
+            "source_commit": "8c647af43989f23f28499a307668bef53ad9f59e",
+            "entries": 1,
+            "cases": 13,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "1d9209151fcc0fbd937f624431d99110d46071f6ef0ce9c4caf684417fe2032b"
+          },
+          {
+            "contract_id": "PC-IPOL-CALLBACK-ORACLE-STEP3-20261021",
+            "source_commit": "6fa388aba1071168209f1eac708dd6f37ede2a82",
+            "entries": 1,
+            "cases": 31,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-PHASE-STATIC-20261021",
+            "source_commit": "4101e0b8923a3babd2b54933866a159386cbf0cc",
+            "entries": 1,
+            "cases": 22576,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "1d9209151fcc0fbd937f624431d99110d46071f6ef0ce9c4caf684417fe2032b"
+          },
+          {
+            "contract_id": "PC-ACTOR-TICK-ORACLE-STEP3-20261021",
+            "source_commit": "305f96e4c3f654c17287a1a540af3468c642d3c0",
+            "entries": 1,
+            "cases": 26,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-FRAME-DISPATCH-20261021",
+            "source_commit": "0d634fbc9e02941d70de7c2991cdf2e411156b6e",
+            "entries": 1,
+            "cases": 1509,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "1d9209151fcc0fbd937f624431d99110d46071f6ef0ce9c4caf684417fe2032b"
+          },
+          {
+            "contract_id": "PC-MODEL-TICK-20261021",
+            "source_commit": "0d634fbc9e02941d70de7c2991cdf2e411156b6e",
+            "entries": 1,
+            "cases": 7,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "1d9209151fcc0fbd937f624431d99110d46071f6ef0ce9c4caf684417fe2032b"
+          },
+          {
+            "contract_id": "PC-GAME-SELECTED-LOOP-20261021",
+            "source_commit": "b1ead79fc2d33889560dc41c0754500b962f0f8a",
+            "entries": 1,
+            "cases": 123,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-5DS-POSITION-CHANNEL-002",
+            "source_commit": "671cf2bdc092cc796fd230dcb77b0917aff49a91",
+            "entries": 1,
+            "cases": 2684,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-NAMED-LOOKUP-CONTROLLED-CONTRACT-20261021",
+            "source_commit": "cbeeead64d131b824987d037641166c261a787a8",
+            "entries": 2,
+            "cases": 13,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-PROGRAM-RESET-START-CONTRACT-20261021",
+            "source_commit": "cbeeead64d131b824987d037641166c261a787a8",
+            "entries": 1,
+            "cases": 9,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          }
+        ]
+      }
+    ],
+    "scoped_ports": [
+      {
+        "name": "Clock reset and elapsed time",
+        "source_path": "crates/lhr-engine/src/clock.rs",
+        "source_commit": "ed69df16899657065602a8a368f2f6abbda8d642",
+        "source_sha256": "de5eabcb49c2b29ba9511d96270cbc6f123447ae54e7686ec8b85b00bcdc7661",
+        "functions": [
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x720f0",
+            "rust_symbol": "lhr_engine::clock::EngineClock::reset_sample",
+            "inventory_membership_sha256": "82e5a161d38e2dd48c71c4f2570a60f32a4328b226e23b6345713cc6ce601b60"
+          },
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x72100",
+            "rust_symbol": "lhr_engine::clock::EngineClock::sample_delta",
+            "inventory_membership_sha256": "82e5a161d38e2dd48c71c4f2570a60f32a4328b226e23b6345713cc6ce601b60"
+          }
+        ],
+        "contract": {
+          "id": "PC-CLOCK-ORACLE-STEP2-20261021",
+          "sha256": "92e61950876affd7cfda011fe654886fd17bdc3d08d21ea347cdb88dc9ae19d1"
+        },
+        "comparison": {
+          "id": "PC-RUST-CLOCK-DIFFERENTIAL-STEP2-20261021",
+          "sha256": "35733977759b733eae42f79be0160a3e66b0b0a0a1bf045f622a29689ab4a8c0"
+        },
+        "reviews": [
+          {
+            "id": "RUST-CLOCK-REVIEW1-20261021",
+            "sha256": "9ef5cae4bdbeb3184f0a7f552f99b936c0f85dd0376baa774005bf129c5422fc"
+          },
+          {
+            "id": "RUST-CLOCK-REVIEW2-20261021",
+            "sha256": "d2ecdfd2d23fc647945cecdcf907dec88f3b416c506a2565ea186a004975ba55"
+          }
+        ],
+        "cases": 20,
+        "scope": "Serialized shared u32 clock with the standard sampling/sleep backend; no arbitrary IGraph overrides or caller lifecycle.",
+        "integration": "static_inspection",
+        "integration_receipt": {
+          "id": "RUST-STATIC-INSPECTION-20261021",
+          "sha256": "1d9209151fcc0fbd937f624431d99110d46071f6ef0ce9c4caf684417fe2032b"
+        }
+      },
+      {
+        "name": "Scene callback dispatch",
+        "source_path": "crates/lhr-engine/src/scene_tick.rs",
+        "source_commit": "8c647af43989f23f28499a307668bef53ad9f59e",
+        "source_sha256": "788a009ecab95ce08cd2266b38da07a02e9a8514a91e31c22d2f79f492e3521b",
+        "functions": [
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x4a0e0",
+            "rust_symbol": "lhr_engine::scene_tick::LocalScene::tick",
+            "inventory_membership_sha256": "82e5a161d38e2dd48c71c4f2570a60f32a4328b226e23b6345713cc6ce601b60"
+          }
+        ],
+        "contract": {
+          "id": "PC-SCENE-ORACLE-STEP3-20261021",
+          "sha256": "8e20c5526bd553249b6f51d34961bf7d72a8d28798a7e3e16d30326deb89c4eb"
+        },
+        "comparison": {
+          "id": "PC-RUST-SCENE-DISPATCH-STEP3-20261021",
+          "sha256": "0a8b1848c9eeb272ac48b6c66bf078e2bfbc2e69ddac60b11e4e0d9eec80ef8d"
+        },
+        "reviews": [
+          {
+            "id": "RUST-SCENE-REVIEW1-20261021",
+            "sha256": "ecc50b23cac377da3ebfe2bd68c59961d8c8e8edaecbee542ee231ab5b087a1b"
+          },
+          {
+            "id": "RUST-SCENE-REVIEW2-20261021",
+            "sha256": "1f6aaa9c5db467bd8c0a2e0b1a55fa2488e10f2ece37c54f19bf8653c209a418"
+          }
+        ],
+        "cases": 13,
+        "scope": "Immediate mutations and reentry in valid logical collections; animation and actor lifetime remain backend responsibilities. The static inspection uses the constructor-empty Scene path; active scene callbacks remain unbound.",
+        "integration": "static_inspection",
+        "integration_receipt": {
+          "id": "RUST-STATIC-INSPECTION-20261021",
+          "sha256": "1d9209151fcc0fbd937f624431d99110d46071f6ef0ce9c4caf684417fe2032b"
+        }
+      },
+      {
+        "name": "Interpolator callback control",
+        "source_path": "crates/lhr-engine/src/interpolator.rs",
+        "source_commit": "6fa388aba1071168209f1eac708dd6f37ede2a82",
+        "source_sha256": "495da78e52aa8f6228a44e66cc118b3ba1c4845703bf1c8bcd4106bc21c0f17a",
+        "functions": [
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x1e470",
+            "rust_symbol": "lhr_engine::interpolator::InterpolatorSet::tick",
+            "inventory_membership_sha256": "82e5a161d38e2dd48c71c4f2570a60f32a4328b226e23b6345713cc6ce601b60"
+          }
+        ],
+        "contract": {
+          "id": "PC-IPOL-CALLBACK-ORACLE-STEP3-20261021",
+          "sha256": "ece63c48896d3cfc0c0cc85fab3f8ecf56788bbaec1759b55f2c029db3fbe8c8"
+        },
+        "comparison": {
+          "id": "PC-RUST-IPOL-PROJECTIONS-STEP3-20261021",
+          "sha256": "cb9408b97fb3175af32bbad5e226b7f48892895e300296d74a30e8f767a34ae0"
+        },
+        "reviews": [
+          {
+            "id": "RUST-IPOL-REVIEW1-20261021",
+            "sha256": "47d3305e878fd2a016198508b0b839a44fcc12db0bc1bf6ce5feff4ec401f2d0"
+          },
+          {
+            "id": "RUST-IPOL-REVIEW2-20261021",
+            "sha256": "2d19059e34bb0e57c027e2d3136b3cf3b07d179068d050f80288cf7390d9fd45"
+          }
+        ],
+        "cases": 31,
+        "scope": "Caller control: 23 callback-observer and 8 scalar projections; evaluator math, poses and full note streams remain backend responsibilities.",
+        "integration": "not_integrated",
+        "integration_receipt": null
+      },
+      {
+        "name": "Game frame-delta modifier",
+        "source_path": "crates/lhr-engine/src/frame_delta.rs",
+        "source_commit": "4101e0b8923a3babd2b54933866a159386cbf0cc",
+        "source_sha256": "55a2d283f7d68eea303923adfa79fcd610a532388ae15cb3aa81eea2f1a7285b",
+        "functions": [
+          {
+            "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+            "entry_rva": "0x19b130",
+            "rust_symbol": "lhr_engine::frame_delta::FrameDeltaState::apply",
+            "inventory_membership_sha256": "bd82dbdaecf1981548dd73c0793264b520dc08191fb7e8dc8cc8e3bc244e186b"
+          }
+        ],
+        "contract": {
+          "id": "PC-GAME-PHASE-STATIC-20261021",
+          "sha256": "a494102d7e21419dd7f5479bc93880fd1fe968eb51af533ff486895b02d39c79"
+        },
+        "comparison": {
+          "id": "PC-RUST-FRAME-DELTA-DIFFERENTIAL-STEP3-20261021",
+          "sha256": "21713be431025c56ba031701cea71d3672f6d4600d4e125852557324d56a6bac"
+        },
+        "reviews": [
+          {
+            "id": "RUST-FRAME-DELTA-REVIEW1-20261021",
+            "sha256": "0328709341b4b6886dac94f95c6c11502735c9a330b8f9debb3a3ea913057658"
+          },
+          {
+            "id": "RUST-FRAME-DELTA-REVIEW2-20261021",
+            "sha256": "9d1fbbf8659d986efd2b20374a77fcb3be0c5e31d3af62153a059e19be0e1bee"
+          }
+        ],
+        "cases": 22576,
+        "scope": "Typed state with masked x87 precision and rounding; original-body comparison excludes FPU status flags, traps and gameplay integration.",
+        "integration": "static_inspection",
+        "integration_receipt": {
+          "id": "RUST-STATIC-INSPECTION-20261021",
+          "sha256": "1d9209151fcc0fbd937f624431d99110d46071f6ef0ce9c4caf684417fe2032b"
+        }
+      },
+      {
+        "name": "Generic actor callback dispatch",
+        "source_path": "crates/lhr-engine/src/actor_tick.rs",
+        "source_commit": "305f96e4c3f654c17287a1a540af3468c642d3c0",
+        "source_sha256": "9a246bb7a3e2ebc1978019c244f5b17078e6eb7b8f652e475717be0a98061422",
+        "functions": [
+          {
+            "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+            "entry_rva": "0x64f0",
+            "rust_symbol": "lhr_engine::actor_tick::ActorTickState::tick",
+            "inventory_membership_sha256": "bd82dbdaecf1981548dd73c0793264b520dc08191fb7e8dc8cc8e3bc244e186b"
+          }
+        ],
+        "contract": {
+          "id": "PC-ACTOR-TICK-ORACLE-STEP3-20261021",
+          "sha256": "bca678d6f142137174f28d3e558e18f0eb3bfcd8f8311a019987cd8a2447f4ab"
+        },
+        "comparison": {
+          "id": "PC-RUST-ACTOR-TICK-PROJECTIONS-STEP3-20261021",
+          "sha256": "b23d68b70d52c96c80ed5affd1f423c50d3cae8da99d3b7ba3085a8bd8be7d36"
+        },
+        "reviews": [
+          {
+            "id": "RUST-ACTOR-TICK-REVIEW1-20261021",
+            "sha256": "e61b13e5e4cf452ba8695e4d0684ab3a9c2910c460697863ac5ccaebc03e7087"
+          },
+          {
+            "id": "RUST-ACTOR-TICK-REVIEW2-20261021",
+            "sha256": "d1dabfca6b6e7d8faaddaaa793e8da5d86afbfb359ba3d769944711db2d045c2"
+          }
+        ],
+        "cases": 26,
+        "scope": "Visibility and live virtual-call ordering with mutation and reentry; callback implementations, actor ownership and gameplay integration remain open.",
+        "integration": "not_integrated",
+        "integration_receipt": null
+      },
+      {
+        "name": "Game frame coordinator dispatch",
+        "source_path": "crates/lhr-engine/src/frame_dispatch.rs",
+        "source_commit": "0d634fbc9e02941d70de7c2991cdf2e411156b6e",
+        "source_sha256": "fc7a7935f112b8765f330102d9aec8016714a69508afcd1664b1e4a9e76cd5d3",
+        "functions": [
+          {
+            "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+            "entry_rva": "0x1407e0",
+            "rust_symbol": "lhr_engine::frame_dispatch::FrameState::tick",
+            "inventory_membership_sha256": "bd82dbdaecf1981548dd73c0793264b520dc08191fb7e8dc8cc8e3bc244e186b"
+          }
+        ],
+        "contract": {
+          "id": "PC-GAME-FRAME-DISPATCH-20261021",
+          "sha256": "4a1728a34abaee0ffef97ae076d3cdaf82f986306311199564cd66b5bce021d5"
+        },
+        "comparison": {
+          "id": "RUST-FRAME-DISPATCH-COMPARISON-20261021",
+          "sha256": "6f8d0c61144b0ca4cf1c0545d2ab6a3c99dd9ddf7aa7ff7c042fecc0019f0a04"
+        },
+        "reviews": [
+          {
+            "id": "RUST-FRAME-DISPATCH-REVIEW1-20261021",
+            "sha256": "f61857079c767d793f6b93186ff8f081c4135b63597db3ad24c728216bfea183"
+          },
+          {
+            "id": "RUST-FRAME-DISPATCH-REVIEW2-20261021",
+            "sha256": "040a6c9ea085565baa8eba9cd13035a26a46335717d3f639ccc9ea13cfa3f809"
+          }
+        ],
+        "cases": 1509,
+        "scope": "Bounded valid-storage coordinator control flow and arithmetic with synthetic callbacks; required helpers, mission initialization, object lifecycle and full Game integration remain dependencies.",
+        "integration": "static_inspection",
+        "integration_receipt": {
+          "id": "RUST-STATIC-INSPECTION-20261021",
+          "sha256": "1d9209151fcc0fbd937f624431d99110d46071f6ef0ce9c4caf684417fe2032b"
+        }
+      },
+      {
+        "name": "LS3DF model tick caller dispatch",
+        "source_path": "crates/lhr-engine/src/model_tick.rs",
+        "source_commit": "0d634fbc9e02941d70de7c2991cdf2e411156b6e",
+        "source_sha256": "baae0599cbce10c21b1f0013887a9180ecac44bf73cacfcc3c95cd8b163fb7d8",
+        "functions": [
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x34010",
+            "rust_symbol": "lhr_engine::model_tick::ModelTickState::tick",
+            "inventory_membership_sha256": "82e5a161d38e2dd48c71c4f2570a60f32a4328b226e23b6345713cc6ce601b60"
+          }
+        ],
+        "contract": {
+          "id": "PC-MODEL-TICK-20261021",
+          "sha256": "4ac4848e467aeb9eac0773c86bea8c64a45f2d53d39bfea366e1479d2c3edf1f"
+        },
+        "comparison": {
+          "id": "RUST-MODEL-TICK-COMPARISON-20261021",
+          "sha256": "90af18a17ecf0159d4120960ecfa3c621a840934101599c4348cf5eadffc25a9"
+        },
+        "reviews": [
+          {
+            "id": "RUST-MODEL-TICK-REVIEW1-20261021",
+            "sha256": "9f5c48e37c5aec55d58f966ba9029c9a686da7f026fc524f72166b7dab8813d6"
+          },
+          {
+            "id": "RUST-MODEL-TICK-REVIEW2-20261021",
+            "sha256": "29de9e3ab0b341c812b336c25a5ece22c7fa3451443e67c8b75063242bc4787b"
+          }
+        ],
+        "cases": 7,
+        "scope": "Bounded valid model storage caller guard, IPol tick and live finalizer dispatch; the seven Rust checks project selected behaviors from an eleven-case native oracle, not a full eleven-case state differential. Evaluator, finalizer, pose and Game integration excluded. This receipt covers only the static null-IPol path.",
+        "integration": "static_inspection",
+        "integration_receipt": {
+          "id": "RUST-STATIC-INSPECTION-20261021",
+          "sha256": "1d9209151fcc0fbd937f624431d99110d46071f6ef0ce9c4caf684417fe2032b"
+        }
+      },
+      {
+        "name": "Selected game-loop control",
+        "source_path": "crates/lhr-engine/src/selected_loop.rs",
+        "source_commit": "b1ead79fc2d33889560dc41c0754500b962f0f8a",
+        "source_sha256": "b7ca7a0570f493b413b006e84aa6a00de235dd53f4789d46b8df992144c5e533",
+        "functions": [
+          {
+            "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+            "entry_rva": "0x1be750",
+            "rust_symbol": "lhr_engine::selected_loop::SelectedLoop::enter",
+            "inventory_membership_sha256": "bd82dbdaecf1981548dd73c0793264b520dc08191fb7e8dc8cc8e3bc244e186b"
+          }
+        ],
+        "contract": {
+          "id": "PC-GAME-SELECTED-LOOP-20261021",
+          "sha256": "4a1728a34abaee0ffef97ae076d3cdaf82f986306311199564cd66b5bce021d5"
+        },
+        "comparison": {
+          "id": "RUST-SELECTED-LOOP-COMPARISON-20261021",
+          "sha256": "5b92a43093d292e5f81a2dc13b50b536d0aaf10b6a2365843e64ca19420c70d0"
+        },
+        "reviews": [
+          {
+            "id": "RUST-SELECTED-LOOP-REVIEW1-20261021",
+            "sha256": "0288593c137cb134d46bce73d9f9b441cbef856911e514a7bd8ed3f02f005618"
+          },
+          {
+            "id": "RUST-SELECTED-LOOP-REVIEW2-20261021",
+            "sha256": "a064a20c78f69ab481c6c745255612b86f0459efd344f40be6810eccd10f0735"
+          }
+        ],
+        "cases": 123,
+        "scope": "Bounded selected-loop caller control with explicit fallible callbacks; whole Game ancestry, host adapter integration and invalid native memory behavior remain excluded.",
+        "integration": "not_integrated",
+        "integration_receipt": null
+      },
+      {
+        "name": "5DS isolated position-channel intake and sampling",
+        "source_path": "crates/lhr-assets/src/animation.rs",
+        "source_commit": "671cf2bdc092cc796fd230dcb77b0917aff49a91",
+        "source_sha256": "d0e890a5f11d12a238d8ea076d57bb27769c0b6a094a3183754d2edd64a6151e",
+        "functions": [
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x1d320",
+            "rust_symbol": "lhr_assets::animation::PositionTrack::sample_position_channel",
+            "inventory_membership_sha256": "82e5a161d38e2dd48c71c4f2570a60f32a4328b226e23b6345713cc6ce601b60"
+          }
+        ],
+        "contract": {
+          "id": "PC-5DS-POSITION-CHANNEL-002",
+          "sha256": "eb38100d54790b05d29a4c9c26bc35f4d4d3916573bdfcba2b5262008681ad16"
+        },
+        "comparison": {
+          "id": "RUST-5DS-POSITION-COMPARISON-20261021",
+          "sha256": "70bf7c6c26f9093c3cd61317232ecd647a061f665ea7fdde8aca291b8e000a9a"
+        },
+        "reviews": [
+          {
+            "id": "RUST-5DS-POSITION-REVIEW1-20261021",
+            "sha256": "9edcf07470cf1e5caddfe4d713b10970fbb3eeaca99ad7d9db9dd3badb87ad3f"
+          },
+          {
+            "id": "RUST-5DS-POSITION-REVIEW2-20261021",
+            "sha256": "379fdec14830b9270ba47e4834d412f802932c27fdbb599a9f4ddb8579913ab1"
+          }
+        ],
+        "cases": 2684,
+        "scope": "Isolated 5DS position-channel parser, selected reader and evaluator branch within the bounded data/numeric domain; no quaternion/scale math, model binding, IPol lifecycle, hierarchy, skinning or rendered animation parity.",
+        "integration": "not_integrated",
+        "integration_receipt": null
+      },
+      {
+        "name": "Named script lookup callers",
+        "source_path": "crates/lhr-engine/src/named_script.rs",
+        "source_commit": "cbeeead64d131b824987d037641166c261a787a8",
+        "source_sha256": "219a29efca26b9b3aa1dfbde14398cddeccba3e409db310a9ee91e6506183d1b",
+        "functions": [
+          {
+            "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+            "entry_rva": "0x140580",
+            "rust_symbol": "lhr_engine::named_script::run_context_named",
+            "inventory_membership_sha256": "bd82dbdaecf1981548dd73c0793264b520dc08191fb7e8dc8cc8e3bc244e186b"
+          },
+          {
+            "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+            "entry_rva": "0x1afd50",
+            "rust_symbol": "lhr_engine::named_script::run_mission_named",
+            "inventory_membership_sha256": "bd82dbdaecf1981548dd73c0793264b520dc08191fb7e8dc8cc8e3bc244e186b"
+          }
+        ],
+        "contract": {
+          "id": "PC-NAMED-LOOKUP-CONTROLLED-CONTRACT-20261021",
+          "sha256": "1a05f789cd60edf890c655488bf92c2790c7b028f3758db25510acbe49410d36"
+        },
+        "comparison": {
+          "id": "RUST-NAMED-SCRIPT-COMPARISON-20261021",
+          "sha256": "4717235545acda53e3ab6d076e1ae3db520a1be69458f605a2f413ab781c6090"
+        },
+        "reviews": [
+          {
+            "id": "RUST-NAMED-SCRIPT-REVIEW1-20261021",
+            "sha256": "763c49ed2d797c485a14aa7a96cc7488402b6f4800754f9e30b30a1daf0ccc85"
+          },
+          {
+            "id": "RUST-NAMED-SCRIPT-REVIEW2-20261021",
+            "sha256": "9418e54da15cb59c12200819680f37a8387384d1c825ca5c7440f0047c44235f"
+          }
+        ],
+        "cases": 13,
+        "scope": "Mission/global lookup caller control against controlled dependencies; ASCII comparison is bounded, and VM/world/mission effects remain unimplemented.",
+        "integration": "not_integrated",
+        "integration_receipt": null
+      },
+      {
+        "name": "Program reset/start caller",
+        "source_path": "crates/lhr-engine/src/named_script.rs",
+        "source_commit": "cbeeead64d131b824987d037641166c261a787a8",
+        "source_sha256": "219a29efca26b9b3aa1dfbde14398cddeccba3e409db310a9ee91e6506183d1b",
+        "functions": [
+          {
+            "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+            "entry_rva": "0x6cbc0",
+            "rust_symbol": "lhr_engine::named_script::reset_and_start",
+            "inventory_membership_sha256": "bd82dbdaecf1981548dd73c0793264b520dc08191fb7e8dc8cc8e3bc244e186b"
+          }
+        ],
+        "contract": {
+          "id": "PC-PROGRAM-RESET-START-CONTRACT-20261021",
+          "sha256": "f7582ae9d1982c032895a69db44aa42b025502421cf79f27dd0cd2d4a934c758"
+        },
+        "comparison": {
+          "id": "RUST-NAMED-SCRIPT-COMPARISON-20261021",
+          "sha256": "4717235545acda53e3ab6d076e1ae3db520a1be69458f605a2f413ab781c6090"
+        },
+        "reviews": [
+          {
+            "id": "RUST-NAMED-SCRIPT-REVIEW1-20261021",
+            "sha256": "763c49ed2d797c485a14aa7a96cc7488402b6f4800754f9e30b30a1daf0ccc85"
+          },
+          {
+            "id": "RUST-NAMED-SCRIPT-REVIEW2-20261021",
+            "sha256": "9418e54da15cb59c12200819680f37a8387384d1c825ca5c7440f0047c44235f"
+          }
+        ],
+        "cases": 9,
+        "scope": "Synchronous reset/start caller state mutations before a controlled scheduler observer; full scheduler, VM and program/mission effects are not implemented.",
+        "integration": "not_integrated",
+        "integration_receipt": null
+      }
+    ]
+  },
+  "native_phase_observation": {
+    "id": "PC-GAME-ACTUAL-PHASE-20261021-03",
+    "contract_sha256": "94f90254c342b6ffb18af7be892b598c8ef41b1661e6f77099cf096d86390f52",
+    "manifest_sha256": "8349aebb619459cb38035a6ba7fe613dc3665e1c4086712745ee13eed7f408db",
+    "scope": "Two actual original Game dispatch intervals at delta83 establish sampled scene, mission, actor and scheduler edges. Dispatcher model-vector population and unobserved parent edges remain unknown; black images do not identify a visible scene. Reference evidence only, not Rust gameplay or full frame parity."
+  }
+}
