@@ -100,6 +100,7 @@ impl Camera {
 }
 struct Draw {
     vertex: wgpu::Buffer,
+    vertex_count: usize,
     index: wgpu::Buffer,
     count: u32,
     material: wgpu::BindGroup,
@@ -399,8 +400,9 @@ impl Renderer {
                 vertex: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: None,
                     contents: bytemuck::cast_slice(&mesh.vertices),
-                    usage: wgpu::BufferUsages::VERTEX,
+                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
                 }),
+                vertex_count: mesh.vertices.len(),
                 index: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: None,
                     contents: bytemuck::cast_slice(&mesh.indices),
@@ -476,6 +478,18 @@ impl Renderer {
             },
             draw.texture.size(),
         );
+        Ok(())
+    }
+    /// Queue replacement vertices for an existing draw, preserving its topology and material.
+    ///
+    /// Updates take effect on the next queue submission, like `update_texture`.
+    /// The caller owns pose evaluation and coordinate conversion. This upload
+    /// interface does not implement or approximate original animation behavior.
+    pub fn update_mesh_vertices(&self, index: usize, vertices: &[Vertex]) -> Result<(), String> {
+        let draw = self.draws.get(index).ok_or("Mesh index unavailable")?;
+        validate_vertex_replacement(draw.vertex_count, vertices)?;
+        self.queue
+            .write_buffer(&draw.vertex, 0, bytemuck::cast_slice(vertices));
         Ok(())
     }
     fn render_matrix(
@@ -743,6 +757,18 @@ impl Renderer {
         Ok(())
     }
 }
+fn validate_vertex_replacement(expected: usize, vertices: &[Vertex]) -> Result<(), String> {
+    if vertices.len() != expected {
+        return Err("Replacement vertex count differs".into());
+    }
+    if vertices
+        .iter()
+        .any(|v| v.position.iter().chain(&v.uv).any(|x| !x.is_finite()))
+    {
+        return Err("Replacement vertices contain nonfinite values".into());
+    }
+    Ok(())
+}
 fn screen_matrix(width: u32, height: u32, design: [f32; 2]) -> Mat4 {
     let scale = (width as f32 / design[0]).min(height as f32 / design[1]);
     let x = design[0] * scale / width as f32;
@@ -760,6 +786,23 @@ pub fn instance() -> wgpu::Instance {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn replacement_geometry_preserves_topology_and_requires_finite_attributes() {
+        let valid = Vertex {
+            position: [1.0, -2.0, 3.0],
+            uv: [0.0, 1.0],
+        };
+        assert!(validate_vertex_replacement(3, &[valid; 3]).is_ok());
+        assert!(validate_vertex_replacement(3, &[valid; 2]).is_err());
+        assert!(validate_vertex_replacement(3, &[valid; 4]).is_err());
+        let mut invalid = [valid; 3];
+        invalid[2].position[0] = f32::NAN;
+        assert!(validate_vertex_replacement(3, &invalid).is_err());
+        invalid[2] = valid;
+        invalid[2].uv[1] = f32::INFINITY;
+        assert!(validate_vertex_replacement(3, &invalid).is_err());
+    }
 
     #[test]
     fn authored_camera_rejects_collapsed_and_vertical_bases() {
