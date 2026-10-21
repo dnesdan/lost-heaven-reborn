@@ -9,6 +9,7 @@ pub mod interpolator;
 pub mod model_tick;
 pub mod named_script;
 pub mod native_transform;
+pub mod original_config;
 pub mod runtime;
 pub mod scene_tick;
 pub mod selected_loop;
