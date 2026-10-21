@@ -56,6 +56,7 @@ pub enum RuntimeError {
     Storage(&'static str),
     Modifier(crate::frame_delta::ModifierError),
     Dispatch(String),
+    Animation(String),
 }
 struct UnboundAnimation;
 impl ModelBackend for UnboundAnimation {
@@ -80,6 +81,25 @@ impl ModelBackend for UnboundAnimation {
     }
 }
 impl RetainedScene {
+    /// Charge an externally owned position binding once when installing it.
+    /// Repeated charges are conservative; failed charges preserve the budget.
+    pub fn charge_position_binding(
+        &mut self,
+        playback: &crate::animation_binding::PositionPlayback,
+    ) -> Result<(), String> {
+        let bytes = playback
+            .storage_bytes()
+            .map_err(|error| format!("{error:?}"))?;
+        let total = self
+            .budgeted_bytes
+            .checked_add(bytes)
+            .ok_or("Animation allocation overflow")?;
+        if total > 256 * 1024 * 1024 {
+            return Err("Retained animation exceeds scene memory budget".into());
+        }
+        self.budgeted_bytes = total;
+        Ok(())
+    }
     pub fn metadata(&self) -> Option<&lhr_assets::Scene> {
         self.metadata.as_ref()
     }
@@ -391,6 +411,52 @@ impl RuntimeEngine {
         delta: i32,
         word: u16,
     ) -> Result<usize, RuntimeError> {
+        self.dispatch_bound(graph, delta, word, None)
+    }
+    /// Bind one explicitly selected original-data position model. Population and
+    /// order remain the host inspection graph, not original mission construction.
+    pub fn dispatch_position(
+        &mut self,
+        graph: &mut RetainedScene,
+        model_index: usize,
+        playback: &mut crate::animation_binding::PositionPlayback,
+        delta: i32,
+        word: u16,
+    ) -> Result<usize, RuntimeError> {
+        let model = graph
+            .models
+            .get(model_index)
+            .ok_or(RuntimeError::Storage("Unknown animation placement"))?;
+        if model.world != Mat4::IDENTITY || model.visual_scale.is_some() {
+            return Err(RuntimeError::UnsupportedPhase(
+                "Position binding requires identity wrapper placement",
+            ));
+        }
+        if model.identity != playback.model_identity() {
+            return Err(RuntimeError::UnsupportedPhase(
+                "Animation placement identity mismatch",
+            ));
+        }
+        if !Arc::ptr_eq(&model.source, playback.source_model()) {
+            return Err(RuntimeError::UnsupportedPhase(
+                "Animation source identity mismatch",
+            ));
+        }
+        if word != 0x003f {
+            return Err(RuntimeError::UnsupportedPhase(
+                "Position evaluator requires PC24 nearest control word",
+            ));
+        }
+        let object = model.identity;
+        self.dispatch_bound(graph, delta, word, Some((object, playback)))
+    }
+    fn dispatch_bound(
+        &mut self,
+        graph: &mut RetainedScene,
+        delta: i32,
+        word: u16,
+        position: Option<(ObjectId, &mut crate::animation_binding::PositionPlayback)>,
+    ) -> Result<usize, RuntimeError> {
         use crate::frame_dispatch::*;
         let records = graph
             .models
@@ -422,11 +488,33 @@ impl RuntimeEngine {
             driver: &mut self.driver,
             scene: &mut self.scene,
             dispatched: 0,
+            position,
         };
         state
             .tick(&mut backend, delta)
             .map_err(|error| RuntimeError::Dispatch(format!("{error:?}")))?;
         Ok(backend.dispatched)
+    }
+    /// Advance the explicitly selected bounded position binding through the same
+    /// clock, modifier and coordinator as static inspection.
+    pub fn advance_position<B: crate::clock::ClockBackend + ?Sized>(
+        &mut self,
+        graph: &mut RetainedScene,
+        model_index: usize,
+        playback: &mut crate::animation_binding::PositionPlayback,
+        backend: &mut B,
+    ) -> Result<RuntimeFrame, RuntimeError> {
+        let raw_delta = self.get_timer(16, 83, backend);
+        let mut delta = raw_delta;
+        self.modify_delta(&mut delta, 0x003f)?;
+        let models_dispatched =
+            self.dispatch_position(graph, model_index, playback, delta as i32, 0x003f)?;
+        Ok(RuntimeFrame {
+            raw_delta,
+            modified_delta: delta,
+            driver_time: self.driver.elapsed,
+            models_dispatched,
+        })
     }
     /// Host static-inspection profile, using the observed16/83 timer request and
     /// explicit empty-track modifier. It is not the entire original Game loop;
@@ -455,6 +543,7 @@ struct StaticBackend<'a> {
     driver: &'a mut DriverTickState,
     scene: &'a mut crate::scene_tick::LocalScene,
     dispatched: usize,
+    position: Option<(ObjectId, &'a mut crate::animation_binding::PositionPlayback)>,
 }
 struct NoActiveFrames;
 impl crate::scene_tick::SceneBackend for NoActiveFrames {
@@ -555,7 +644,20 @@ impl crate::frame_dispatch::FrameBackend for StaticBackend<'_> {
             .iter_mut()
             .find(|model| model.identity == object)
             .ok_or(RuntimeError::UnknownObject(object))?;
-        model.tick_static(delta)?;
+        if let Some((identity, playback)) = &mut self.position {
+            if *identity == object {
+                let observation = playback
+                    .tick(&mut model.native, delta)
+                    .map_err(|error| RuntimeError::Animation(format!("{error:?}")))?;
+                model
+                    .set_frame_position(0, observation.position)
+                    .map_err(RuntimeError::Animation)?;
+            } else {
+                model.tick_static(delta)?;
+            }
+        } else {
+            model.tick_static(delta)?;
+        }
         self.dispatched += 1;
         Ok(())
     }

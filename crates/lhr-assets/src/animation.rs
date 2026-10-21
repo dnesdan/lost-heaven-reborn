@@ -56,6 +56,21 @@ impl PositionTrack {
         &self.values
     }
 
+    /// Host buffer allocation accounting only; excludes inline/owner storage.
+    /// Uses actual vector capacities rather than key lengths.
+    pub fn storage_bytes(&self) -> Result<usize> {
+        self.times
+            .capacity()
+            .checked_mul(std::mem::size_of::<u16>())
+            .and_then(|times| {
+                self.values
+                    .capacity()
+                    .checked_mul(std::mem::size_of::<[f32; 3]>())
+                    .and_then(|values| times.checked_add(values))
+            })
+            .ok_or_else(|| Error("position storage accounting overflow".into()))
+    }
+
     /// Samples only this channel before IPol boundary handling. No looping occurs
     /// here. The supported domain excludes signed times, frame-index wrapping,
     /// nonfinite values and extreme magnitudes outside the tested numeric policy.
@@ -402,6 +417,19 @@ mod tests {
                 .len(),
             usize::from(u16::MAX)
         );
+    }
+
+    #[test]
+    fn storage_accounting_uses_actual_capacity() {
+        let mut times = Vec::with_capacity(11);
+        times.push(0);
+        let mut values = Vec::with_capacity(17);
+        values.push([0.; 3]);
+        let expected = times.capacity() * std::mem::size_of::<u16>()
+            + values.capacity() * std::mem::size_of::<[f32; 3]>();
+        let track = PositionTrack { times, values };
+        assert_eq!(track.storage_bytes().unwrap(), expected);
+        assert!(track.storage_bytes().unwrap() > 14);
     }
 
     #[test]

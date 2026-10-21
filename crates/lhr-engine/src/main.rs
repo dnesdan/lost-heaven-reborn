@@ -15,6 +15,8 @@ use winit::{
 struct Options {
     root: Option<PathBuf>,
     model: Option<String>,
+    animation: Option<String>,
+    animation_steps: Option<u32>,
     capture: Option<PathBuf>,
     headless: bool,
     frames: u32,
@@ -27,6 +29,8 @@ fn options() -> Result<Options, String> {
     let mut result = Options {
         root: None,
         model: None,
+        animation: None,
+        animation_steps: None,
         capture: None,
         headless: false,
         frames: 0,
@@ -40,6 +44,8 @@ fn options() -> Result<Options, String> {
         match arg.as_str() {
             "--textures" => result.textures = args.next().ok_or("Missing textures argument")?,
             "--root" => result.root = Some(args.next().ok_or("Missing root argument")?.into()),
+            "--animation-steps" => result.animation_steps = Some(args.next().ok_or("Missing animation steps")?.parse().map_err(|_|"Invalid animation steps")?),
+            "--animation" => result.animation = Some(args.next().ok_or("Missing animation argument")?),
             "--model" => result.model = Some(args.next().ok_or("Missing model argument")?),
             "--capture" => result.capture = Some(args.next().ok_or("Missing capture argument")?.into()),
             "--headless" => result.headless = true,
@@ -48,15 +54,24 @@ fn options() -> Result<Options, String> {
             "--synthetic" => result.synthetic = true,
             "--mission" => result.mission = Some(args.next().ok_or("Missing mission argument")?),
             "--help" => return Err(concat!(
-                "Usage: lhr-engine [--synthetic | --root DIRECTORY [--model RELATIVE_4DS | --mission NAME]] ",
-                "[--textures RELATIVE_DIRECTORY] [--headless --capture PNG] [--frames N] [--linear]. ",
+                "Usage: lhr-engine [--synthetic | --root DIRECTORY [--model RELATIVE_4DS [--animation RELATIVE_5DS] | --mission NAME]] ",
+                "[--textures RELATIVE_DIRECTORY] [--headless --capture PNG [--animation-steps N]] [--frames N] [--linear]. ",
+                "Headless --animation-steps 0..600 uses controlled 16 ms inspection-clock steps; omit it for one platform-clock step. ",
                 "Root alone opens the supported original Czech main-menu subset (New Game/Exit). ",
                 "Menu: arrows/Enter or mouse. New Game loads static INTRO; Esc loads static MISE01, then returns to menu. ",
-                "Scene inspection: arrows orbit, W/S zoom. Original profile, cutscene, mission-script and gameplay execution are not implemented. ",
+                "Scene inspection: arrows orbit, W/S zoom. --animation admits only a matched single-root position track; other animation channels are unavailable. Original profile, cutscene, mission-script and gameplay execution are not implemented. ",
                 "Sampling is provisional nearest (or --linear), not verified original behavior."
             ).into()),
             _ => return Err("Unknown command option".into()),
         }
+    }
+    if let Some(steps) = result.animation_steps {
+        if !result.headless || result.animation.is_none() || steps > 600 {
+            return Err("--animation-steps requires headless animation and a count0..600".into());
+        }
+    }
+    if result.animation.is_some() && (result.root.is_none() || result.model.is_none()) {
+        return Err("Animation inspection requires --root and --model".into());
     }
     if result.model.is_some() && result.root.is_none() {
         return Err("A model requires an installation root".into());
@@ -156,6 +171,7 @@ struct LoadedScene {
     scene: Scene,
     camera: Camera,
     runtime: lhr_engine::runtime::RetainedScene,
+    animation: Option<lhr_engine::animation_binding::PositionPlayback>,
 }
 fn load(options: &Options) -> Result<LoadedScene, String> {
     let Some(root) = &options.root else {
@@ -165,6 +181,7 @@ fn load(options: &Options) -> Result<LoadedScene, String> {
             scene,
             camera,
             runtime: lhr_engine::runtime::RetainedScene::default(),
+            animation: None,
         });
     };
     let installation = lhr_assets::Installation::open(root)
@@ -185,12 +202,26 @@ fn load(options: &Options) -> Result<LoadedScene, String> {
     let data = installation
         .read(&path)
         .map_err(|e| format!("Cannot read selected geometry: {e}"))?;
-    let model = if options.model.is_some() {
-        lhr_assets::parse_four_ds(&data)
+    let (model, animation_source) = if let Some(animation_path) = &options.animation {
+        let animation_bytes = installation
+            .read(animation_path)
+            .map_err(|error| format!("Cannot read selected animation: {error}"))?;
+        let source = lhr_assets::parse_four_ds_position_animation(&data, &animation_bytes)
+            .map_err(|error| format!("Unsupported position animation source: {error}"))?;
+        let (model, count, animation) = source.into_parts();
+        let model = Arc::new(model);
+        let source = lhr_engine::animation_binding::PositionSource::new(&model, count, animation)
+            .map_err(|error| format!("Unsupported position binding: {error:?}"))?;
+        (model, Some(source))
     } else {
-        lhr_assets::parse_four_ds_scene(&data)
-    }
-    .map_err(|e| format!("Selected geometry is unsupported or malformed: {e}"))?;
+        let model = if options.model.is_some() {
+            lhr_assets::parse_four_ds(&data)
+        } else {
+            lhr_assets::parse_four_ds_scene(&data)
+        }
+        .map_err(|error| format!("Selected geometry is unsupported or malformed: {error}"))?;
+        (Arc::new(model), None)
+    };
     if options.model.is_none() {
         let omitted = model
             .materials
@@ -202,13 +233,29 @@ fn load(options: &Options) -> Result<LoadedScene, String> {
     let mut builder = assembly::SceneBuilder::new(&installation, &options.textures);
     builder.append_retained(
         &path,
-        Arc::new(model),
+        model,
         Mat4::IDENTITY,
         None,
         options.model.is_some(),
         None,
     )?;
     let (scene, mut runtime) = builder.finish()?;
+    let animation = animation_source
+        .map(|source| {
+            lhr_engine::animation_binding::PositionPlayback::new(
+                source,
+                runtime.models[0].identity,
+                &mut runtime.models[0].native,
+            )
+            .map_err(|error| format!("Position initialization failed: {error:?}"))
+        })
+        .transpose()?;
+    if let Some(playback) = &animation {
+        runtime.charge_position_binding(playback)?;
+    }
+    if animation.is_some() {
+        println!("Bound original position-only animation: slot0 mode2; one model wrapper and root mesh; native control flow/pose with host transform and render policy, no mission integration");
+    }
     let camera = if options.model.is_some() {
         Camera::fit(&scene)?
     } else {
@@ -224,6 +271,7 @@ fn load(options: &Options) -> Result<LoadedScene, String> {
         scene,
         camera,
         runtime,
+        animation,
     })
 }
 fn authored_camera(
@@ -275,6 +323,7 @@ struct App {
     scene: Scene,
     camera: Camera,
     runtime: lhr_engine::runtime::RetainedScene,
+    animation: Option<lhr_engine::animation_binding::PositionPlayback>,
     runtime_engine: lhr_engine::runtime::RuntimeEngine,
     clock_backend: lhr_engine::runtime::PlatformClock,
     options: Options,
@@ -319,6 +368,7 @@ impl App {
             mut scene,
             camera,
             runtime,
+            animation,
         } = load(&self.options)?;
         if mode == AppMode::Menu {
             scene
@@ -339,6 +389,7 @@ impl App {
         self.scene = scene;
         self.camera = camera;
         self.runtime = runtime;
+        self.animation = animation;
         self.runtime_engine.reset_clock(&mut self.clock_backend);
         self.mode = mode;
         self.keys.clear();
@@ -499,21 +550,20 @@ impl ApplicationHandler for App {
                 }) {
                     return;
                 }
-                let step = match self
-                    .runtime_engine
-                    .advance_static(&mut self.runtime, &mut self.clock_backend)
-                {
+                let step = match advance_bound(
+                    &mut self.runtime_engine,
+                    &mut self.runtime,
+                    &mut self.animation,
+                    &mut self.clock_backend,
+                ) {
                     Ok(step) => step,
                     Err(error) => {
-                        self.fail(
-                            event_loop,
-                            &format!("Bound static runtime failed: {error:?}"),
-                        );
+                        self.fail(event_loop, &format!("Bound runtime failed: {error:?}"));
                         return;
                     }
                 };
                 if self.count == 0 {
-                    println!("Bound static runtime: raw delta {}, modified {}, driver time {}, {} retained model guards dispatched; authored actors/scripts remain unbound",step.raw_delta,step.modified_delta,step.driver_time,step.models_dispatched);
+                    println!("Bound runtime: raw delta {}, modified {}, driver time {}, {} retained model ticks dispatched; authored actors/scripts remain unbound",step.raw_delta,step.modified_delta,step.driver_time,step.models_dispatched);
                 }
                 if let Some(renderer) = &self.renderer {
                     if let Err(error) = self.runtime.upload_changed(renderer) {
@@ -609,12 +659,36 @@ impl ApplicationHandler for App {
         }
     }
 }
+fn advance_bound<B: lhr_engine::clock::ClockBackend + ?Sized>(
+    engine: &mut lhr_engine::runtime::RuntimeEngine,
+    graph: &mut lhr_engine::runtime::RetainedScene,
+    animation: &mut Option<lhr_engine::animation_binding::PositionPlayback>,
+    clock: &mut B,
+) -> Result<lhr_engine::runtime::RuntimeFrame, lhr_engine::runtime::RuntimeError> {
+    if let Some(playback) = animation {
+        engine.advance_position(graph, 0, playback, clock)
+    } else {
+        engine.advance_static(graph, clock)
+    }
+}
+/// Deterministic headless inspection clock; not original wall-clock execution.
+struct InspectionClock(u32);
+impl lhr_engine::clock::ClockBackend for InspectionClock {
+    fn sample_ms(&mut self) -> u32 {
+        self.0 += 16;
+        self.0
+    }
+    fn sleep_ms(&mut self, milliseconds: u32) {
+        self.0 += milliseconds;
+    }
+}
 fn run() -> Result<(), String> {
     let options = options()?;
     let LoadedScene {
         mut scene,
         camera,
         mut runtime,
+        mut animation,
     } = load(&options)?;
     let ui = match &options.root {
         Some(root) if options.model.is_none() && options.mission.is_none() => {
@@ -636,7 +710,12 @@ fn run() -> Result<(), String> {
         println!("Menu subset: New Game and Exit; original profile chooser and other actions are not implemented");
     }
     println!(
-        "Original-data menu/static scene inspection; provisional {} texture sampling; {} indexed mesh groups",
+        "Original-data {} inspection; provisional {} texture sampling; {} indexed mesh groups",
+        if animation.is_some() {
+            "position animation"
+        } else {
+            "menu/static scene"
+        },
         if options.linear { "linear" } else { "nearest" },
         scene.meshes.len()
     );
@@ -653,12 +732,34 @@ fn run() -> Result<(), String> {
     let mut clock_backend = lhr_engine::runtime::PlatformClock::default();
     let initial_sample = lhr_engine::clock::ClockBackend::sample_ms(&mut clock_backend);
     let mut runtime_engine = lhr_engine::runtime::RuntimeEngine::from_sample(initial_sample);
-    println!("Retained runtime binding: {} placements, {} source frames; static model guards only, host inspection population/order (not original mission initialization)",runtime.models.len(),runtime.models.iter().map(|model|model.pose().len()).sum::<usize>());
+    println!("Retained runtime binding: {} placements, {} source frames; {}; host inspection population/order (not original mission initialization)",runtime.models.len(),runtime.models.iter().map(|model|model.pose().len()).sum::<usize>(), if animation.is_some() { "bounded position animation" } else { "static model guards only" });
     if options.headless {
-        let step = runtime_engine
-            .advance_static(&mut runtime, &mut clock_backend)
-            .map_err(|error| format!("Bound static runtime failed: {error:?}"))?;
-        println!("Bound static runtime: raw delta {}, driver time {}, {} retained model guards dispatched",step.raw_delta,step.driver_time,step.models_dispatched);
+        if let Some(steps) = options.animation_steps {
+            runtime_engine = lhr_engine::runtime::RuntimeEngine::from_sample(0);
+            let mut inspection_clock = InspectionClock(0);
+            for _ in 0..steps {
+                advance_bound(
+                    &mut runtime_engine,
+                    &mut runtime,
+                    &mut animation,
+                    &mut inspection_clock,
+                )
+                .map_err(|error| format!("Bound inspection runtime failed: {error:?}"))?;
+            }
+            println!("Headless animation inspection: {steps} controlled clock steps, {} ms; host time policy, not native wall-clock execution",steps*16);
+        } else {
+            let step = advance_bound(
+                &mut runtime_engine,
+                &mut runtime,
+                &mut animation,
+                &mut clock_backend,
+            )
+            .map_err(|error| format!("Bound runtime failed: {error:?}"))?;
+            println!(
+                "Bound runtime: raw delta {}, driver time {}, {} retained model ticks dispatched",
+                step.raw_delta, step.driver_time, step.models_dispatched
+            );
+        }
         let instance = lhr_render::instance();
         let renderer = pollster::block_on(Renderer::new(
             &instance,
@@ -667,6 +768,7 @@ fn run() -> Result<(), String> {
             wgpu::TextureFormat::Rgba8UnormSrgb,
             options.linear,
         ))?;
+        runtime.upload_changed(&renderer)?;
         if mode == AppMode::Menu {
             renderer.capture_with_overlay(
                 640,
@@ -691,6 +793,7 @@ fn run() -> Result<(), String> {
         camera,
         runtime,
         runtime_engine,
+        animation,
         clock_backend,
         options,
         window: None,

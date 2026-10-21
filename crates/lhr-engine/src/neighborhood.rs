@@ -141,6 +141,7 @@ pub fn load(installation: &Installation, textures: &str) -> Result<LoadedScene, 
         scene,
         camera,
         runtime,
+        animation: None,
     })
 }
 const MAX_MODEL_INPUT_BYTES: usize = 32 * 1024 * 1024;
