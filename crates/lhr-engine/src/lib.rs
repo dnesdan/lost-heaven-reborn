@@ -12,4 +12,5 @@ pub mod native_transform;
 pub mod original_config;
 pub mod runtime;
 pub mod scene_tick;
+pub mod script_scheduler;
 pub mod selected_loop;
