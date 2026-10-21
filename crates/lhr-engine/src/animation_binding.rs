@@ -13,6 +13,7 @@ use std::sync::Arc;
 pub enum BindingError {
     Unsupported(&'static str),
     Animation(String),
+    Frame(crate::frame_transform::FrameError),
 }
 
 /// Validated one-root position source. Native initialization and hierarchy
@@ -191,6 +192,54 @@ mod tests {
     }
 
     #[test]
+    fn lazy_world_read_and_animation_share_flags_without_extra_finalization() {
+        let (model, animation) = sources();
+        let mut native = ModelTickState::new(ModelVTableId(0x1009c160));
+        let mut playback = PositionPlayback::new(
+            PositionSource::new(&model, 1, animation).unwrap(),
+            crate::frame_dispatch::ObjectId(1),
+            &mut native,
+        )
+        .unwrap();
+        assert_eq!(playback.observation().mesh_flags, 9);
+        let first = playback.world_matrix().unwrap();
+        let loaded = playback.observation();
+        assert_eq!((loaded.mesh_flags, loaded.mesh_counter), (0x3d, 1));
+        assert_eq!(playback.world_matrix().unwrap(), first);
+        assert_eq!(playback.observation(), loaded);
+        assert!(playback.uploaded_world().is_none());
+        playback.mark_uploaded(first);
+        assert_eq!(
+            playback.uploaded_world(),
+            Some(first.elements.map(f32::to_bits))
+        );
+        playback.tick(&mut native, 200).unwrap();
+        assert_eq!(
+            (
+                playback.observation().mesh_flags,
+                playback.observation().mesh_counter
+            ),
+            (0x1d, 2)
+        );
+        let moved = playback.world_matrix().unwrap();
+        assert_ne!(
+            first.elements.map(f32::to_bits),
+            moved.elements.map(f32::to_bits)
+        );
+        assert_eq!(
+            (
+                playback.observation().mesh_flags,
+                playback.observation().mesh_counter
+            ),
+            (0x3d, 2)
+        );
+        assert_eq!(
+            playback.uploaded_world(),
+            Some(first.elements.map(f32::to_bits))
+        );
+    }
+
+    #[test]
     fn actual_clock_phase_binding_requires_source_identity_and_supported_control_word() {
         let (model, animation) = sources();
         let mut graph = crate::runtime::RetainedScene::default();
@@ -269,11 +318,13 @@ mod tests {
 }
 
 use crate::{
+    frame_transform::{FrameKey, I3dFrameGraph, I3dFrameState},
     interpolator::{
         AllocationId, AnimSetId, EvaluatorId, EvaluatorView, InterpolatorBackend, InterpolatorSet,
         Slot, TickError,
     },
     model_tick::{ModelBackend, ModelTickState, ModelVTableId},
+    native_transform::{SMatrix, SQuat},
     scene_tick::{FrameId, InterpolatorId},
 };
 
@@ -290,26 +341,22 @@ pub struct PositionObservation {
     pub mesh_counter: u32,
     pub visual_flags: u32,
 }
-#[derive(Debug)]
-struct FrameState {
-    flags: u32,
-    counter: u32,
-    visual: u32,
-    position: [f32; 3],
-}
-
 /// Native automatic slot0 setup and the bounded one-child model finalizer.
 /// No callbacks, additional slots, ancestors, grandchildren or deferred entries
 /// are admitted. The host owns one preallocated evaluator and seven unbound
 /// slots; native allocation and full constructor/loader parity are not claimed.
-/// Rendering matrices remain the host retained-assembly policy.
+/// Pose setters, finalization and lazy renderer reads share the same frame
+/// flags and caches. Matrix/point arithmetic uses the verified native methods;
+/// camera, handedness conversion and rasterization remain host policies.
 #[derive(Debug)]
 pub struct PositionPlayback {
     source: PositionSource,
     set: InterpolatorSet,
-    model: FrameState,
-    mesh: FrameState,
+    frames: I3dFrameGraph,
+    model: FrameKey,
+    mesh: FrameKey,
     identity: crate::frame_dispatch::ObjectId,
+    uploaded_world: Option<[u32; 16]>,
 }
 impl PositionPlayback {
     pub fn new(
@@ -341,31 +388,40 @@ impl PositionPlayback {
             allocation: AllocationId(1),
             count: 1,
         };
-        let position = source.initial_position;
+        let mut frames = I3dFrameGraph::default();
+        let model = frames
+            .insert(I3dFrameState::model())
+            .map_err(BindingError::Frame)?;
+        let frame = &source.model.frames[0];
+        let mesh = frames
+            .insert(I3dFrameState::source_mesh(
+                source.initial_position,
+                frame.scale,
+                SQuat {
+                    wxyz: frame.rotation_wxyz,
+                },
+            ))
+            .map_err(BindingError::Frame)?;
+        frames
+            .link_to(mesh, Some(model))
+            .map_err(BindingError::Frame)?;
         let mut bound = Self {
             source,
             set,
             identity,
-            model: FrameState {
-                flags: 0x4000003d,
-                counter: 0,
-                visual: 0,
-                position: [0.; 3],
-            },
-            mesh: FrameState {
-                flags: 0x40000009,
-                counter: 0,
-                visual: 0x2a00,
-                position,
-            },
+            uploaded_world: None,
+            frames,
+            model,
+            mesh,
         };
         // LoadHierarchy invokes the real model update after SetAnimation and
         // before returning. This clears frame dirtiness, not IPol dirty state.
         PositionModelBackend {
             source: &bound.source,
             set: &mut bound.set,
-            model: &mut bound.model,
-            mesh: &mut bound.mesh,
+            frames: &mut bound.frames,
+            model: bound.model,
+            mesh: bound.mesh,
             interpolator: InterpolatorId(identity.0),
         }
         .update_model(native, native.vtable)?;
@@ -396,7 +452,30 @@ impl PositionPlayback {
                 .and_then(|value| value.checked_add(position_bytes))
                 .ok_or(BindingError::Unsupported("animation allocation overflow"))?;
         }
+        bytes = bytes
+            .checked_add(self.frames.storage_bytes().map_err(BindingError::Frame)?)
+            .ok_or(BindingError::Unsupported("animation allocation overflow"))?;
         Ok(bytes)
+    }
+    /// Read the original lazy world transform, mutating the shared cache flags.
+    pub fn world_matrix(&mut self) -> Result<SMatrix, BindingError> {
+        self.frames
+            .world_matrix(self.mesh)
+            .map_err(BindingError::Frame)
+    }
+    /// State snapshots do not trigger a lazy getter; useful for before/after
+    /// renderer observations and explicit diagnostics.
+    pub fn frame_states(&self) -> (I3dFrameState, I3dFrameState) {
+        (
+            *self.frames.state(self.model).unwrap(),
+            *self.frames.state(self.mesh).unwrap(),
+        )
+    }
+    pub(crate) fn uploaded_world(&self) -> Option<[u32; 16]> {
+        self.uploaded_world
+    }
+    pub(crate) fn mark_uploaded(&mut self, world: SMatrix) {
+        self.uploaded_world = Some(world.elements.map(f32::to_bits));
     }
     pub fn model_identity(&self) -> crate::frame_dispatch::ObjectId {
         self.identity
@@ -405,16 +484,17 @@ impl PositionPlayback {
         self.source.model()
     }
     pub fn observation(&self) -> PositionObservation {
+        let (model, mesh) = self.frame_states();
         PositionObservation {
-            position: self.mesh.position,
+            position: mesh.local.elements[12..15].try_into().unwrap(),
             current: self.set.slots[0].current,
             previous: self.set.slots[0].previous,
             dirty: self.set.dirty,
-            model_flags: self.model.flags,
-            model_counter: self.model.counter,
-            mesh_flags: self.mesh.flags,
-            mesh_counter: self.mesh.counter,
-            visual_flags: self.mesh.visual,
+            model_flags: model.flags,
+            model_counter: model.update_count,
+            mesh_flags: mesh.flags,
+            mesh_counter: mesh.update_count,
+            visual_flags: mesh.visual_flags,
         }
     }
     /// Positive time increments no greater than one duration preserve the native
@@ -445,8 +525,9 @@ impl PositionPlayback {
         let mut backend = PositionModelBackend {
             source: &self.source,
             set: &mut self.set,
-            model: &mut self.model,
-            mesh: &mut self.mesh,
+            frames: &mut self.frames,
+            model: self.model,
+            mesh: self.mesh,
             interpolator: InterpolatorId(self.identity.0),
         };
         native.tick(&mut backend, delta)?;
@@ -456,8 +537,9 @@ impl PositionPlayback {
 struct PositionModelBackend<'a> {
     source: &'a PositionSource,
     set: &'a mut InterpolatorSet,
-    model: &'a mut FrameState,
-    mesh: &'a mut FrameState,
+    frames: &'a mut I3dFrameGraph,
+    model: FrameKey,
+    mesh: FrameKey,
     interpolator: InterpolatorId,
 }
 impl ModelBackend for PositionModelBackend<'_> {
@@ -481,6 +563,7 @@ impl ModelBackend for PositionModelBackend<'_> {
             .tick(
                 &mut PositionEvaluator {
                     source: self.source,
+                    frames: self.frames,
                     mesh: self.mesh,
                 },
                 delta,
@@ -495,31 +578,16 @@ impl ModelBackend for PositionModelBackend<'_> {
         if vtable != ModelVTableId(0x1009c160) {
             return Err(BindingError::Unsupported("unavailable model finalizer"));
         }
-        let dirty = self.model.flags & 0x40002000 != 0;
-        if dirty {
-            self.model.counter = self.model.counter.wrapping_add(1);
-            self.mesh.flags = (self.mesh.flags & 0xfffffedf) | 0x2000;
-        }
-        let mesh_dirty = self.mesh.flags & 0x40002000 != 0;
-        if mesh_dirty {
-            self.mesh.counter = self.mesh.counter.wrapping_add(1);
-            if self.mesh.visual & 0x40 == 0 {
-                self.mesh.visual &= !0x40000;
-            }
-            if self.mesh.visual & 0x40 == 0 {
-                self.mesh.visual &= !0x1c0000;
-            }
-            self.mesh.flags &= 0xbfffdfff;
-            self.model.flags = (self.model.flags & 0xfffffebf) | 0x2000;
-        }
-        self.model.flags &= 0xfffffebf;
-        self.model.flags &= 0xbfffdfff;
+        self.frames
+            .update(self.model)
+            .map_err(BindingError::Frame)?;
         Ok(())
     }
 }
 struct PositionEvaluator<'a> {
     source: &'a PositionSource,
-    mesh: &'a mut FrameState,
+    frames: &'a mut I3dFrameGraph,
+    mesh: FrameKey,
 }
 impl InterpolatorBackend for PositionEvaluator<'_> {
     fn evaluator_at(
@@ -540,18 +608,27 @@ impl InterpolatorBackend for PositionEvaluator<'_> {
         if !slot.enabled || slot.weight != 1. {
             return Err(TickError::MissingEvaluator(id));
         }
-        self.mesh.position = self.source.animation.tracks[0]
+        let position = self.source.animation.tracks[0]
             .position_only()
             .and_then(|track| track.sample_position_channel(slot.current as u32))
             .map_err(|_| TickError::MissingEvaluator(id))?;
-        self.mesh.flags |= 0x40000000;
+        self.frames
+            .assign_position(self.mesh, position)
+            .map_err(|_| TickError::MissingEvaluator(id))?;
         Ok(())
     }
     fn boundary_destination(&self, id: EvaluatorId) -> Result<Option<FrameId>, TickError> {
         if id != EvaluatorId(1) {
             return Err(TickError::MissingEvaluator(id));
         }
-        if self.mesh.flags & 0x800 != 0 {
+        if self
+            .frames
+            .state(self.mesh)
+            .map_err(|_| TickError::MissingEvaluator(id))?
+            .flags
+            & 0x800
+            != 0
+        {
             return Err(TickError::MissingFrame(FrameId(1)));
         }
         Ok(None)

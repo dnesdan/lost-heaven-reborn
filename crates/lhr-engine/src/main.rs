@@ -254,7 +254,7 @@ fn load(options: &Options) -> Result<LoadedScene, String> {
         runtime.charge_position_binding(playback)?;
     }
     if animation.is_some() {
-        println!("Bound original position-only animation: slot0 mode2; one model wrapper and root mesh; native control flow/pose with host transform and render policy, no mission integration");
+        println!("Bound original position-only animation: slot0 mode2; one model wrapper and root mesh; native control flow, pose, frame caches and matrix/point arithmetic; host camera, handedness and rendering, no mission integration");
     }
     let camera = if options.model.is_some() {
         Camera::fit(&scene)?
@@ -566,7 +566,9 @@ impl ApplicationHandler for App {
                     println!("Bound runtime: raw delta {}, modified {}, driver time {}, {} retained model ticks dispatched; authored actors/scripts remain unbound",step.raw_delta,step.modified_delta,step.driver_time,step.models_dispatched);
                 }
                 if let Some(renderer) = &self.renderer {
-                    if let Err(error) = self.runtime.upload_changed(renderer) {
+                    if let Err(error) =
+                        upload_bound(&mut self.runtime, &mut self.animation, renderer)
+                    {
                         self.fail(event_loop, &error);
                         return;
                     }
@@ -657,6 +659,17 @@ impl ApplicationHandler for App {
         if let Some(window) = &self.window {
             window.request_redraw();
         }
+    }
+}
+fn upload_bound(
+    graph: &mut lhr_engine::runtime::RetainedScene,
+    animation: &mut Option<lhr_engine::animation_binding::PositionPlayback>,
+    renderer: &Renderer,
+) -> Result<usize, String> {
+    if let Some(playback) = animation {
+        graph.upload_position_changed(renderer, playback)
+    } else {
+        graph.upload_changed(renderer)
     }
 }
 fn advance_bound<B: lhr_engine::clock::ClockBackend + ?Sized>(
@@ -768,7 +781,7 @@ fn run() -> Result<(), String> {
             wgpu::TextureFormat::Rgba8UnormSrgb,
             options.linear,
         ))?;
-        runtime.upload_changed(&renderer)?;
+        upload_bound(&mut runtime, &mut animation, &renderer)?;
         if mode == AppMode::Menu {
             renderer.capture_with_overlay(
                 640,

@@ -216,7 +216,7 @@ impl RetainedModel {
             return Err("Nonfinite bound position".into());
         }
         let pose = self.pose.get_mut(index).ok_or("Unknown bound frame")?;
-        if pose.position != position {
+        if pose.position.map(f32::to_bits) != position.map(f32::to_bits) {
             pose.position = position;
             self.needs_upload = true;
         }
@@ -278,6 +278,49 @@ impl RetainedModel {
             transforms.push(transform);
         }
         Ok(transforms)
+    }
+
+    /// Native frame world-matrix and point-transform path for the admitted
+    /// single-root position model. Handedness conversion remains renderer policy.
+    pub fn vertices_native(
+        &self,
+        binding: &DrawBinding,
+        world: &crate::native_transform::SMatrix,
+    ) -> Result<Vec<Vertex>, String> {
+        if binding.frame_index != 0 || binding.geometry_frame != 0 || !world.is_verified_input() {
+            return Err("Unsupported native vertex transform domain".into());
+        }
+        let lod = self
+            .source
+            .frames
+            .first()
+            .and_then(|f| f.lods.first())
+            .ok_or("Missing native bound geometry")?;
+        binding
+            .source_vertices
+            .iter()
+            .map(|index| {
+                let vertex = lod
+                    .vertices
+                    .get(*index as usize)
+                    .ok_or("Invalid retained vertex binding")?;
+                if !vertex
+                    .position
+                    .into_iter()
+                    .all(crate::native_transform::is_verified_scalar)
+                {
+                    return Err("Native vertex outside verified numeric domain".into());
+                }
+                let [x, y, z] = world.transform_point(vertex.position);
+                if ![x, y, z].into_iter().all(f32::is_finite) {
+                    return Err("Native vertex transform overflow".into());
+                }
+                Ok(Vertex {
+                    position: [x, y, -z],
+                    uv: vertex.uv,
+                })
+            })
+            .collect()
     }
 
     /// Rebuild only vertex values for an existing draw; topology and source geometry
@@ -692,6 +735,57 @@ impl crate::frame_dispatch::FrameBackend for StaticBackend<'_> {
 }
 
 impl RetainedScene {
+    /// The lazy getter executes even for a clean upload: native cache flags are
+    /// shared with animation finalization, independently of the GPU upload cache.
+    pub fn upload_position_changed(
+        &mut self,
+        renderer: &lhr_render::Renderer,
+        playback: &mut crate::animation_binding::PositionPlayback,
+    ) -> Result<usize, String> {
+        let model = self
+            .models
+            .iter_mut()
+            .find(|m| m.identity == playback.model_identity())
+            .ok_or("Unknown animation placement")?;
+        if !Arc::ptr_eq(&model.source, playback.source_model())
+            || model.world.to_cols_array().map(f32::to_bits)
+                != Mat4::IDENTITY.to_cols_array().map(f32::to_bits)
+            || model.visual_scale.is_some()
+            || model.pose.len() != 1
+            || model.pose[0].position.map(f32::to_bits)
+                != playback.observation().position.map(f32::to_bits)
+        {
+            return Err("Native animation binding diverged from retained placement".into());
+        }
+        let world = playback
+            .world_matrix()
+            .map_err(|error| format!("{error:?}"))?;
+        if !world.is_verified_input() {
+            return Err("Native world matrix outside verified numeric domain".into());
+        }
+        if !model.needs_upload
+            && playback.uploaded_world() == Some(world.elements.map(f32::to_bits))
+        {
+            return Ok(0);
+        }
+        let updates = model
+            .draws
+            .iter()
+            .map(|binding| {
+                model
+                    .vertices_native(binding, &world)
+                    .map(|vertices| (binding.draw_index, vertices))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let count = updates.len();
+        for (draw, vertices) in updates {
+            renderer.update_mesh_vertices(draw, &vertices)?;
+        }
+        model.needs_upload = false;
+        playback.mark_uploaded(world);
+        Ok(count)
+    }
+
     /// Upload only explicitly changed, supported bound poses. Draw counts and
     /// topology are fixed by original-data assembly; renderer validation is kept.
     pub fn upload_changed(&mut self, renderer: &lhr_render::Renderer) -> Result<usize, String> {
@@ -779,6 +873,30 @@ mod tests {
         }
         graph
     }
+    #[test]
+    fn native_vertices_preserve_mapping_handedness_and_explicit_numeric_domain() {
+        let mut graph = graph();
+        let model = &mut graph.models[0];
+        let mut world = crate::native_transform::SMatrix::identity();
+        world.elements[12..15].copy_from_slice(&[10., 20., 30.]);
+        let vertices = model.vertices_native(&model.draws[0], &world).unwrap();
+        assert_eq!(vertices[0].position, [14., 25., -36.]);
+        assert_eq!(vertices[1].position, [11., 22., -33.]);
+        assert_eq!(vertices[0].uv, [0.5, 0.5]);
+        world.elements[0] = f32::from_bits(1);
+        assert!(model.vertices_native(&model.draws[0], &world).is_err());
+        model.draws[0].frame_index = 1;
+        assert!(model
+            .vertices_native(
+                &model.draws[0],
+                &crate::native_transform::SMatrix::identity()
+            )
+            .is_err());
+        model.set_frame_position(0, [-0., 0., 0.]).unwrap();
+        assert_eq!(model.pose()[0].position[0].to_bits(), (-0.0f32).to_bits());
+        assert_eq!(model.source.frames[0].position, [0.; 3]);
+    }
+
     #[test]
     fn driver_tick_matches_six_native_wrapping_vectors_and_init_policy() {
         for (previous, delta, expected) in [

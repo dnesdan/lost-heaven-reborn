@@ -5,6 +5,7 @@ pub mod animation_binding;
 pub mod clock;
 pub mod frame_delta;
 pub mod frame_dispatch;
+pub mod frame_transform;
 pub mod interpolator;
 pub mod mission_effects;
 pub mod model_tick;
