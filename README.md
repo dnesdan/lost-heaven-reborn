@@ -1,7 +1,7 @@
 # Lost Heaven Reborn
 
 <!-- generated-function-progress:start -->
-As of 2026-10-21 · snapshot `RUST-SCOPED-PORTS-20261021-01`.
+As of 2026-10-21 · snapshot `RUST-SCOPED-PORTS-20261021-02`.
 
 | Original binary | Retained pseudocode | Full contracts | Full Rust ports | Differential runtime verified |
 | --- | ---: | ---: | ---: | ---: |
@@ -13,14 +13,18 @@ Strict full-system gate: **0/12**. These static activity ratios are not game-com
 
 Regenerate locally with `python3 scripts/progress.py --write`; verify without writes with `python3 scripts/progress.py --check`. Versioned snapshots are retained in `docs/progress.json`; milestone history is maintained in `docs/PROGRESS.md`.
 
-Accepted scoped Rust ports: **4 original entries across 3 reviewed contracts**. These preserve the stated domains and do not increase the whole-function figures above. Gameplay integration is pending.
+Accepted scoped Rust ports: **6 original entries across 5 reviewed contracts**. These preserve the stated domains and do not increase the whole-function figures above. Gameplay integration is pending.
 
 | Rust contract | Original entries | Native-derived validation cases | Verified scope |
 | --- | ---: | ---: | --- |
 | [Clock reset and elapsed time](crates/lhr-engine/src/clock.rs) | 2 | 20 cases | Serialized shared u32 clock with the standard sampling/sleep backend; no arbitrary IGraph overrides or caller lifecycle. |
 | [Scene callback dispatch](crates/lhr-engine/src/scene_tick.rs) | 1 | 13 cases | Immediate mutations and reentry in valid logical collections; animation and actor lifetime remain backend responsibilities. |
 | [Interpolator callback control](crates/lhr-engine/src/interpolator.rs) | 1 | 31 cases | Caller control: 23 callback-observer and 8 scalar projections; evaluator math, poses and full note streams remain backend responsibilities. |
+| [Game frame-delta modifier](crates/lhr-engine/src/frame_delta.rs) | 1 | 22576 cases | Typed state with masked x87 precision and rounding; original-body comparison excludes FPU status flags, traps and gameplay integration. |
+| [Generic actor callback dispatch](crates/lhr-engine/src/actor_tick.rs) | 1 | 26 cases | Visibility and live virtual-call ordering with mutation and reentry; callback implementations, actor ownership and gameplay integration remain open. |
 <!-- generated-function-progress:end -->
+
+Static percentages use the last audited inventory; newer private research awaits a separate recount. Scoped Rust ports are tracked independently.
 
 An independent Rust reimplementation of the Mafia: The City of Lost Heaven (2002) engine and game. The current build reads a user's original PC installation, displays the Czech PC menu layout and assets, and renders bounded static scenes. MISE01 inspection now assembles a small neighborhood around the authored player spawn with the original static taxi. It does not execute the cinematic, missions, or gameplay. The long-term goal is a complete campaign using the user's own legally obtained game data. No game assets are included.
 
@@ -44,7 +48,7 @@ Build the native engine binary with `cargo build --locked -p lhr-engine` from th
 
 The first command opens the Rust-rendered original menu. Up/Down and Enter select options; only New Game and Exit work, and there is no profile chooser. New Game switches to a static intro scene; Escape switches to the bounded MISE01 spawn-neighborhood inspection. This temporary inspection path does not play the original video/cinematic or execute missions or gameplay. Add `--headless --capture /tmp/scene.png` to either inspection command for a one-frame GPU capture, or `--frames N` to bound a window run. Camera inspection uses arrow keys and W/S. See [coverage](COVERAGE.md) for exact evidence and limits.
 
-`setup.sh --graphics` prepares the Linux software Vulkan tools used for development captures. `scripts/test.sh` passes 90 Rust tests, 9 REA wrapper tests and 23 progress tests. On Linux x86_64, X11 input has been checked through menu, static INTRO and the MISE01 neighborhood, including orbit and reload. An Apple arm64 cargo check passes, but macOS linking and Metal runtime have not been tested. iOS is a future compatibility target. The original game's executable and REA are not gameplay runtime dependencies.
+`setup.sh --graphics` prepares the Linux software Vulkan tools used for development captures. `scripts/test.sh` passes 106 Rust tests, 9 REA wrapper tests and 23 progress tests. On Linux x86_64, X11 input has been checked through menu, static INTRO and the MISE01 neighborhood, including orbit and reload. An Apple arm64 cargo check passes, but macOS linking and Metal runtime have not been tested. iOS is a future compatibility target. The original game's executable and REA are not gameplay runtime dependencies.
 
 ## Reverse engineering and assets
 

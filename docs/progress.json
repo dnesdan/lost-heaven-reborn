@@ -1,23 +1,23 @@
 {
   "updated_at": "2026-10-21",
-  "project_status": "Original-data Rust menu and static INTRO/MISE01 inspection; reviewed clock, Scene and IPol caller-control library contracts; gameplay integration pending and campaign not playable",
+  "project_status": "Original-data Rust menu and static INTRO/MISE01 inspection; six original entries covered by five reviewed scoped library contracts; gameplay integration pending and campaign not playable",
   "rust_toolchain": "1.99.1",
   "validation": {
-    "status": "Clock, local Scene and IPol caller-control milestones each accepted by two sequential independent reviews; latest workspace suite passes 90 Rust, 9 REA wrapper and 23 progress tests.",
-    "rust_unit_tests": 90,
+    "status": "Clock, Scene, IPol caller-control, Game delta modifier and generic actor dispatch milestones each passed two sequential independent reviews; latest workspace suite passes 106 Rust, 9 REA wrapper and 23 progress tests.",
+    "rust_unit_tests": 106,
     "rust_unit_test_split": {
       "lhr_assets": 52,
-      "lhr_engine_library": 16,
+      "lhr_engine_library": 32,
       "lhr_engine_application": 18,
       "lhr_render": 4
     },
     "rea_wrapper_tests": 9,
     "latest_accepted_baseline": {
-      "source_commit": "6fa388aba1071168209f1eac708dd6f37ede2a82",
-      "rust_unit_tests": 90,
+      "source_commit": "305f96e4c3f654c17287a1a540af3468c642d3c0",
+      "rust_unit_tests": 106,
       "rea_wrapper_tests": 9,
       "progress_tests": 23,
-      "milestone": "Four original entries across three scoped library contracts; gameplay integration remains pending."
+      "milestone": "Six original entries across five scoped library contracts; gameplay integration remains pending."
     },
     "progress_tests": 23
   },
@@ -61,7 +61,7 @@
       "meaning": "Materials with unsupported effects; diagnostics do not mean every counted material is omitted in full"
     },
     "original_render_parity": "not established",
-    "macos_metal": "Apple arm64 cargo check passed through IPol caller-control commit; compilation only, no linking or Metal runtime"
+    "macos_metal": "Apple arm64 cargo check passed through generic actor dispatch commit; compilation only, no linking or Metal runtime"
   },
   "campaign_playable": false,
   "historical_analysis": {
@@ -116,7 +116,7 @@
   "reset_boundary": "Former Godot prototype implementation/tests and original-game runtime traces are not counted as Rust behavior or validation.",
   "macos_validation": {
     "command": "cargo check --workspace --all-targets --target aarch64-apple-darwin --locked",
-    "result": "passed through IPol caller-control commit",
+    "result": "passed through generic actor dispatch commit",
     "scope": "Compilation only; no macOS link or Metal runtime"
   },
   "phase2": {
@@ -147,9 +147,9 @@
   },
   "function_progress": {
     "schema_version": 2,
-    "snapshot_id": "RUST-SCOPED-PORTS-20261021-01",
+    "snapshot_id": "RUST-SCOPED-PORTS-20261021-02",
     "as_of": "2026-10-21",
-    "source_baseline": "6fa388aba1071168209f1eac708dd6f37ede2a82",
+    "source_baseline": "305f96e4c3f654c17287a1a540af3468c642d3c0",
     "recount_sha256": "9600f01bb93cd85ddfa537457a18387c292bccd913f9f3762754cc38c9a9c393",
     "libraries": [
       {
@@ -420,6 +420,69 @@
             "cases": 31
           }
         ]
+      },
+      {
+        "snapshot_id": "RUST-SCOPED-PORTS-20261021-02",
+        "as_of": "2026-10-21",
+        "libraries": [
+          {
+            "name": "Game.exe",
+            "inventory_total": 4914,
+            "retained_pseudocode": 55,
+            "rust_ported": null,
+            "differential_verified": null
+          },
+          {
+            "name": "rw_data.dll",
+            "inventory_total": null,
+            "retained_pseudocode": 6,
+            "rust_ported": null,
+            "differential_verified": null
+          },
+          {
+            "name": "LS3DF.dll",
+            "inventory_total": 1683,
+            "retained_pseudocode": 48,
+            "rust_ported": null,
+            "differential_verified": null
+          }
+        ],
+        "systems": {
+          "verified": 0,
+          "total": 12
+        },
+        "scoped_ports": [
+          {
+            "contract_id": "PC-CLOCK-ORACLE-STEP2-20261021",
+            "source_commit": "ed69df16899657065602a8a368f2f6abbda8d642",
+            "entries": 2,
+            "cases": 20
+          },
+          {
+            "contract_id": "PC-SCENE-ORACLE-STEP3-20261021",
+            "source_commit": "8c647af43989f23f28499a307668bef53ad9f59e",
+            "entries": 1,
+            "cases": 13
+          },
+          {
+            "contract_id": "PC-IPOL-CALLBACK-ORACLE-STEP3-20261021",
+            "source_commit": "6fa388aba1071168209f1eac708dd6f37ede2a82",
+            "entries": 1,
+            "cases": 31
+          },
+          {
+            "contract_id": "PC-GAME-PHASE-STATIC-20261021",
+            "source_commit": "4101e0b8923a3babd2b54933866a159386cbf0cc",
+            "entries": 1,
+            "cases": 22576
+          },
+          {
+            "contract_id": "PC-ACTOR-TICK-ORACLE-STEP3-20261021",
+            "source_commit": "305f96e4c3f654c17287a1a540af3468c642d3c0",
+            "entries": 1,
+            "cases": 26
+          }
+        ]
       }
     ],
     "scoped_ports": [
@@ -533,7 +596,83 @@
         "cases": 31,
         "scope": "Caller control: 23 callback-observer and 8 scalar projections; evaluator math, poses and full note streams remain backend responsibilities.",
         "integration": "not_integrated"
+      },
+      {
+        "name": "Game frame-delta modifier",
+        "source_path": "crates/lhr-engine/src/frame_delta.rs",
+        "source_commit": "4101e0b8923a3babd2b54933866a159386cbf0cc",
+        "source_sha256": "55a2d283f7d68eea303923adfa79fcd610a532388ae15cb3aa81eea2f1a7285b",
+        "functions": [
+          {
+            "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+            "entry_rva": "0x19b130",
+            "rust_symbol": "lhr_engine::frame_delta::FrameDeltaState::apply",
+            "inventory_membership_sha256": "bd82dbdaecf1981548dd73c0793264b520dc08191fb7e8dc8cc8e3bc244e186b"
+          }
+        ],
+        "contract": {
+          "id": "PC-GAME-PHASE-STATIC-20261021",
+          "sha256": "a494102d7e21419dd7f5479bc93880fd1fe968eb51af533ff486895b02d39c79"
+        },
+        "comparison": {
+          "id": "PC-RUST-FRAME-DELTA-DIFFERENTIAL-STEP3-20261021",
+          "sha256": "21713be431025c56ba031701cea71d3672f6d4600d4e125852557324d56a6bac"
+        },
+        "reviews": [
+          {
+            "id": "RUST-FRAME-DELTA-REVIEW1-20261021",
+            "sha256": "0328709341b4b6886dac94f95c6c11502735c9a330b8f9debb3a3ea913057658"
+          },
+          {
+            "id": "RUST-FRAME-DELTA-REVIEW2-20261021",
+            "sha256": "9d1fbbf8659d986efd2b20374a77fcb3be0c5e31d3af62153a059e19be0e1bee"
+          }
+        ],
+        "cases": 22576,
+        "scope": "Typed state with masked x87 precision and rounding; original-body comparison excludes FPU status flags, traps and gameplay integration.",
+        "integration": "not_integrated"
+      },
+      {
+        "name": "Generic actor callback dispatch",
+        "source_path": "crates/lhr-engine/src/actor_tick.rs",
+        "source_commit": "305f96e4c3f654c17287a1a540af3468c642d3c0",
+        "source_sha256": "9a246bb7a3e2ebc1978019c244f5b17078e6eb7b8f652e475717be0a98061422",
+        "functions": [
+          {
+            "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+            "entry_rva": "0x64f0",
+            "rust_symbol": "lhr_engine::actor_tick::ActorTickState::tick",
+            "inventory_membership_sha256": "bd82dbdaecf1981548dd73c0793264b520dc08191fb7e8dc8cc8e3bc244e186b"
+          }
+        ],
+        "contract": {
+          "id": "PC-ACTOR-TICK-ORACLE-STEP3-20261021",
+          "sha256": "bca678d6f142137174f28d3e558e18f0eb3bfcd8f8311a019987cd8a2447f4ab"
+        },
+        "comparison": {
+          "id": "PC-RUST-ACTOR-TICK-PROJECTIONS-STEP3-20261021",
+          "sha256": "b23d68b70d52c96c80ed5affd1f423c50d3cae8da99d3b7ba3085a8bd8be7d36"
+        },
+        "reviews": [
+          {
+            "id": "RUST-ACTOR-TICK-REVIEW1-20261021",
+            "sha256": "e61b13e5e4cf452ba8695e4d0684ab3a9c2910c460697863ac5ccaebc03e7087"
+          },
+          {
+            "id": "RUST-ACTOR-TICK-REVIEW2-20261021",
+            "sha256": "d1dabfca6b6e7d8faaddaaa793e8da5d86afbfb359ba3d769944711db2d045c2"
+          }
+        ],
+        "cases": 26,
+        "scope": "Visibility and live virtual-call ordering with mutation and reentry; callback implementations, actor ownership and gameplay integration remain open.",
+        "integration": "not_integrated"
       }
     ]
+  },
+  "native_phase_observation": {
+    "id": "PC-GAME-ACTUAL-PHASE-20261021-03",
+    "contract_sha256": "94f90254c342b6ffb18af7be892b598c8ef41b1661e6f77099cf096d86390f52",
+    "manifest_sha256": "8349aebb619459cb38035a6ba7fe613dc3665e1c4086712745ee13eed7f408db",
+    "scope": "Two actual original Game dispatch intervals at delta83 establish sampled scene, mission, actor and scheduler edges. Dispatcher model-vector population and unobserved parent edges remain unknown; black images do not identify a visible scene. Reference evidence only, not Rust gameplay or full frame parity."
   }
 }

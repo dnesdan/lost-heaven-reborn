@@ -1,7 +1,7 @@
 # Progress
 
 <!-- generated-function-progress:start -->
-As of 2026-10-21 · snapshot `RUST-SCOPED-PORTS-20261021-01`.
+As of 2026-10-21 · snapshot `RUST-SCOPED-PORTS-20261021-02`.
 
 | Original binary | Retained pseudocode | Full contracts | Full Rust ports | Differential runtime verified |
 | --- | ---: | ---: | ---: | ---: |
@@ -13,33 +13,37 @@ Strict full-system gate: **0/12**. These static activity ratios are not game-com
 
 Regenerate locally with `python3 scripts/progress.py --write`; verify without writes with `python3 scripts/progress.py --check`. Versioned snapshots are retained in `docs/progress.json`; milestone history is maintained in `docs/PROGRESS.md`.
 
-Accepted scoped Rust ports: **4 original entries across 3 reviewed contracts**. These preserve the stated domains and do not increase the whole-function figures above. Gameplay integration is pending.
+Accepted scoped Rust ports: **6 original entries across 5 reviewed contracts**. These preserve the stated domains and do not increase the whole-function figures above. Gameplay integration is pending.
 
 | Rust contract | Original entries | Native-derived validation cases | Verified scope |
 | --- | ---: | ---: | --- |
 | [Clock reset and elapsed time](../crates/lhr-engine/src/clock.rs) | 2 | 20 cases | Serialized shared u32 clock with the standard sampling/sleep backend; no arbitrary IGraph overrides or caller lifecycle. |
 | [Scene callback dispatch](../crates/lhr-engine/src/scene_tick.rs) | 1 | 13 cases | Immediate mutations and reentry in valid logical collections; animation and actor lifetime remain backend responsibilities. |
 | [Interpolator callback control](../crates/lhr-engine/src/interpolator.rs) | 1 | 31 cases | Caller control: 23 callback-observer and 8 scalar projections; evaluator math, poses and full note streams remain backend responsibilities. |
+| [Game frame-delta modifier](../crates/lhr-engine/src/frame_delta.rs) | 1 | 22576 cases | Typed state with masked x87 precision and rounding; original-body comparison excludes FPU status flags, traps and gameplay integration. |
+| [Generic actor callback dispatch](../crates/lhr-engine/src/actor_tick.rs) | 1 | 26 cases | Visibility and live virtual-call ordering with mutation and reentry; callback implementations, actor ownership and gameplay integration remain open. |
 
 | Frozen snapshot | As of | Retained static pseudocode | Scoped Rust entries | Complete systems |
 | --- | --- | --- | ---: | ---: |
 | `historical-retained-static-20261021` | 2026-10-21 | Game.exe 9 / 4,914 (0.18%); LS3DF.dll 45 / 1,683 (2.67%) | N/A | 0/12 |
 | `pc-function-r2-20261021` | 2026-10-21 | Game.exe 55 / 4,914 (1.12%); rw_data.dll 6 / N/A; LS3DF.dll 48 / 1,683 (2.85%) | N/A | 0/12 |
 | `RUST-SCOPED-PORTS-20261021-01` | 2026-10-21 | Game.exe 55 / 4,914 (1.12%); rw_data.dll 6 / N/A; LS3DF.dll 48 / 1,683 (2.85%) | 4 | 0/12 |
+| `RUST-SCOPED-PORTS-20261021-02` | 2026-10-21 | Game.exe 55 / 4,914 (1.12%); rw_data.dll 6 / N/A; LS3DF.dll 48 / 1,683 (2.85%) | 6 | 0/12 |
 <!-- generated-function-progress:end -->
 
 Updated 2026-10-21 UTC. The Rust engine displays the Czech PC menu, static INTRO and a bounded MISE01 spawn neighborhood with the original static taxi. Phase 1 and phase 2 were accepted by two sequential independent reviewers. This is a static inspection flow, not mission execution or gameplay. Full campaign completion remains the goal.
 
 | Measure | Current status |
 | --- | --- |
-| Rust workspace | `scripts/test.sh` passed 90 Rust tests (52 assets, 16 engine library, 18 application, 4 renderer), 9 REA wrapper tests and 23 progress tests, including formatting, workspace check and Clippy. Clock, Scene and IPol caller-control commits each passed two sequential independent reviews. |
+| Rust workspace | `scripts/test.sh` passed 106 Rust tests (52 assets, 32 engine library, 18 application, 4 renderer), 9 REA wrapper tests and 23 progress tests, including formatting, workspace check and Clippy. Clock, Scene, IPol caller control, Game delta modifier and actor dispatch commits each passed two sequential independent reviews. |
 | Asset reader | Reads the supported A8/A2/A6/A1/AA archive subset before loose files. Earlier private validation compared all 20,229 indexed resources (1,393,380,816 bytes) against a private prototype decoder, not an independent source extraction. Four known resources also match independent loose-source hashes. |
 | Linux menu and renderer | Frozen X11/XTEST evidence verifies Down→Exit, Up→New Game, Enter/mouse→static INTRO, Escape→the MISE01 spawn neighborhood, orbit, repeat-load pixel equality, and Escape→menu. The crop selects 64 of 200 cache placements within 120 source units; 62 load and two validated billboard placements are skipped. The original static taxi is assembled across its 15 model roots. Original 4build101 and bedna00 archive captures match their prior loose-file PNG hashes. Scene rendering is approximate; 33 MENU, 12 INTRO and 62 MISE01 materials have effects omitted, and camera projection and lighting remain approximate. |
 | Asset limits | Audio codecs and checksum verification are unsupported. Archive order follows static native startup registration for supported archives; selected-source failures do not fall back. |
 | Rust menu | The Czech PC menu currently supports New Game and Exit. Unsupported actions are disabled and there is no profile chooser. New Game goes to static intro geometry; Escape switches to the MISE01 static spawn-neighborhood inspection and then back to the menu. This path does not run the original cinematic or mission. |
 | Rust scenes and scripts | `inspect_scripts --control-probe` runs one bounded step per program using the literal LABEL/GOTO/GOSUB/RETURN/WAIT/COMMANDBLOCK/END subset in `PC-RUST-CONTROL-VM-01`. `PC-RUST-CONTROL-VM-RUNTIME-02` compares a command-block state transition and WAIT threshold against original runtime observations; the Rust harness matches those bounded states. GOTO/END comparison, the full scheduler/caller chain, replay, actor effects and mission parity remain unverified. Among the sampled scripts, 16 INTRO programs and 37 MISE01 programs halt on unsupported commands; one and seven respectively advance a prefix first, while two MISE01 programs are empty and complete. Prefix counts overlap halted counts. |
-| macOS / Metal | Apple arm64 `cargo check --workspace --all-targets --target aarch64-apple-darwin --locked` passes through the IPol caller-control commit. This is compilation only; macOS linking and Metal runtime are untested. |
-| Reconstructed update components | Shared clock reset/sampling: 20 native/Rust cases; live Scene callback dispatch: 13 projections; IPol caller control: 23 callback-observer and 8 scalar projections. Evaluation math, full animation, actors and gameplay integration remain incomplete. |
+| macOS / Metal | Apple arm64 `cargo check --workspace --all-targets --target aarch64-apple-darwin --locked` passes through the generic actor dispatch commit. This is compilation only; macOS linking and Metal runtime are untested. |
+| Reconstructed update components | Shared clock reset/sampling: 20 native/Rust cases; live Scene callback dispatch: 13 projections; IPol caller control: 23 callback-observer and 8 scalar projections. The Game delta modifier matches 22,576 isolated original-body cases, including explicit x87 precision and rounding. Generic actor visibility and dispatch match 26 native-derived projections, including immediate callback mutation and reentry. Evaluation math, full animation, called actor methods, ownership and gameplay integration remain incomplete. |
+| Original frame research | `PC-GAME-ACTUAL-PHASE-20261021-03` retains two original Game dispatch intervals with sampled scene, mission, actor and scheduler edges. Unobserved model ancestry and dispatcher-vector population remain unknown. This is reference research, not Rust integration or visible scene proof. |
 | Campaign | Not playable through the Rust engine. |
 
 Historical private REA/Ghidra counts are 9/4,914 Game.exe procedures in the default inventory (0.18%) and 45/1,683 LS3DF.dll procedures (2.67%). These are retained static pseudocode counts, not a measure of understanding or implementation. The strict evidence gate remains 0/12 systems; no overall remake-completion percentage is defined. Static contracts `PC-RUST-BOOTSTRAP-001`, `PC-RUST-ARCHIVE-001`, `PC-RUST-MENU-001` and `PC-RUST-CONTROL-VM-01` do not establish the full game loop. `PC-RUST-SCENE-001` records bounded parser input/output only. The separate `PC-RUST-CONTROL-VM-RUNTIME-02` trace compares bounded command-block and WAIT states; it does not establish the complete scheduler or caller chain. Frozen Rust menu evidence is in private manifest `rust-menu-validation/evidence.json`; original-game reference play is recorded separately. One other private runtime trace measured 40 animation API time units as 40 milliseconds on a specific unscaled path, not a universal clock rule.
@@ -58,4 +62,4 @@ The former Godot prototype, including its synthetic gameplay checks and private 
 
 ## Environment and verification
 
-Use `./scripts/setup.sh` to install the pinned Rust 1.99.1 toolchain into the shared tools directory; run `./scripts/test.sh` for formatting, locked workspace check/tests, Clippy and REA wrapper tests. This setup, full suite and X11 checks were exercised on Linux x86_64. Apple arm64 target compilation passed through the IPol caller-control commit; native macOS linking/Metal remains untested.
+Use `./scripts/setup.sh` to install the pinned Rust 1.99.1 toolchain into the shared tools directory; run `./scripts/test.sh` for formatting, locked workspace check/tests, Clippy and REA wrapper tests. This setup, full suite and X11 checks were exercised on Linux x86_64. Apple arm64 target compilation passed through the generic actor dispatch commit; native macOS linking/Metal remains untested.
