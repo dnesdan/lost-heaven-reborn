@@ -1,79 +1,96 @@
-Build **Lost Heaven Reborn**, a playable **Mafia: The City of Lost Heaven (2002)** remake in **Godot 4**, in the existing public repository:
-[dnesdan/lost-heaven-reborn](https://github.com/dnesdan/lost-heaven-reborn)
+Lost Heaven Reborn — Rust Engine Reconstruction
 
-Work autonomously in Linux Codex cloud. Deliver Linux first, with macOS/iOS support designed in from the start. Speak Czech with me; use English for code, commits, and documentation. PSP is outside scope.
+Rebuild Mafia: The City of Lost Heaven (2002) as a complete, standalone game engine written in Rust, based on reverse engineering of the original PC and PS2 binaries.
 
-## Repository
+Repository: https://github.com/dnesdan/lost-heaven-reborn
 
-Inspect the checkout, branch, instructions, and existing work. Clone only if needed; initialize if empty. Preserve existing work and history; never force-push. Use the task branch and commit/push small, verified milestones through available Git/GitHub access.
+This is not a remake with new gameplay. It is a faithful reimplementation of the original engine and complete game, preserving the original visuals, assets, physics, AI, missions, scripting, and behavior.
 
-Keep documentation short and practical: `README.md` for setup, commands, status, and next step; `AGENTS.md` for conventions, verification, and cleanup; `PROMPT.md` containing this prompt with private inputs redacted; `LICENSE` using MIT for our original code; `THIRD_PARTY_NOTICES.md` recording reused sources, revisions, licenses, and modifications. No filler or speculative documentation.
+Technology
 
-## Setup
+* Rust for the entire new engine and gameplay implementation.
+* wgpu for rendering: Vulkan on Linux, Metal on macOS, with future iOS compatibility.
+* Minimal supporting Rust crates for windowing, input, audio, mathematics, and serialization.
+* No Unreal, Godot, Unity, SceneKit, or dependency on the original executable at runtime.
+* Develop primarily in Linux Codex cloud, but maintain native Linux and macOS builds.
 
-Detect architecture, memory/disk limits, network policy, graphics, and available UI controls. Install missing dependencies from official sources as needed; pin working versions, cache downloads, and limit concurrency.
+Reverse engineering
 
-Install a stable Godot 4 release from [official releases](https://github.com/godotengine/godot-builds/releases) with matching export templates. Use **Mobile rendering: Vulkan on Linux, native Metal on supported Apple devices**. Start with GDScript; add C++ GDExtensions only for concrete needs. Keep importers portable and reuse existing parser languages.
+REA — Reverse Engineer Anything is the primary and mandatory reverse-engineering tool.
 
-Provide repeatable setup, import, run, test, capture, and export commands. Install [REA](https://github.com/morluto/rea), Ghidra, their documented Node/JDK dependencies, and required Linux utilities when needed. Use REA's CLI if MCP is unavailable; investigate specific unknowns and validate findings.
+Install and configure REA with Ghidra on the available host. Use MCP or CLI to analyze the original PC executables, DLLs, and PS2 binaries where supported.
 
-## Private inputs
+Reverse engineer the actual engine, not just its file formats. Recover and document:
 
-I will provide `MAFIA_PC_URL`, `MAFIA_PS2_URL`, and optionally `PS2_BIOS_URL` through environment variables or ignored configuration; also accept local paths. Use resumable downloads, record SHA-256 hashes and game editions, and preserve originals read-only.
+* LS3D rendering, materials, lighting, world streaming, and visibility.
+* File formats, assets, animations, skeletons, and collision structures.
+* Vehicle physics, driving, damage, and traffic simulation.
+* Character movement, weapons, combat, and AI.
+* Police, navigation, pedestrians, and city simulation.
+* Original scripting VM, mission logic, events, and cutscenes.
+* Cameras, audio, HUD, menus, localization, and save/load.
+* Interactions, timing, state machines, and dependencies between systems.
 
-Use PC data/behavior as the primary reference. For additional evidence, use PS2 data and a compatible emulator: [PCSX2](https://pcsx2.net/downloads/) on supported Linux hosts, or [ARMSX2](https://github.com/ARMSX2/ARMSX2) on compatible hosts. Use isolated Wine prefixes for PC reference runs and separate emulator settings/saves. Check host and PS2 analysis support before investing in setup.
+Analyze incrementally, starting with bootstrapping, asset loading, rendering, and the main game loop. Trace real functions, structures, constants, and call graphs. Compare PC and PS2 implementations where useful.
 
-Exclude original/converted assets, media URLs, credentials, BIOS, decompiled game code, and analysis databases from Git and public artifacts. Audit staged files and outgoing commits; public CI uses synthetic fixtures.
+Do not guess when binary evidence is available. Record discoveries with binary hashes, function addresses, evidence, and confidence levels. Verify behavior against the original running game whenever possible. If REA cannot analyze a particular binary architecture, identify the limitation rather than fabricating results.
 
-## Existing work
+Implement the recovered behavior independently in idiomatic Rust. Do not publish copied proprietary source code or decompiler output.
 
-Inspect relevant code and follow useful upstream references:
+Original game assets
 
-- [mafia-workbench](https://github.com/b4rtt/mafia-workbench) and [MafiaUnity](https://github.com/MafiaHub/MafiaUnity): parsers and runtime research.
-- [Max4dsTools](https://github.com/pudingus/Max4dsTools) and [MafiaBlenderToolkit](https://github.com/Richard01CZ/MafiaBlenderToolkit): conversion.
-- [mafia-re](https://github.com/Marvisak/mafia-re), [PC analysis](https://github.com/st0rm94/mafia-reverse-engineering-export), and [PS2 decompiled](https://github.com/st0rm94/mafia-ps2-decompiled): behavior references.
-- [LS3D-SceneKit](https://github.com/alex-alex/LS3D-SceneKit), [bully-remake](https://github.com/oh-ashen-one/bully-remake), and [awesome-mafia](https://github.com/MafiaHub/awesome-mafia).
+Preserve the original Mafia graphics and content. Do not recreate or replace them unnecessarily.
 
-Copy/adapt license-compatible code with attribution. Use unlicensed projects as research references unless permission is obtained. Treat decompiled output as evidence requiring validation.
+The engine must read the user’s own legally obtained PC game installation. PS2 data may also be used for research and comparison.
 
-## Implement and verify
+Support original models, textures, animations, sounds, maps, scripts, and other required game data, converting or caching them locally when necessary.
 
-Separate importers, intermediate data, and gameplay. Convert suitable models/animations to GLB; preserve scene, collision, script, and gameplay metadata separately. Verify axes, units, materials, skeleton hierarchy/rest pose, skinning, and animation timing. Preserve the original style and available Czech text/audio.
+Do not bundle copyrighted assets. The public repository must contain only independently written engine code, tools, tests using synthetic fixtures, and documentation.
 
-Deliver progressively: original model; recognizable district with collision; Tommy with original animations and third-person camera; original car with enter/exit and driving; checkpoint task with HUD, failure, completion, and restart; packaged Linux game independent of the editor, emulator, and analysis tools.
+Keep original binaries, game files, extracted assets, converted content, analysis databases, credentials, and private download URLs outside Git.
 
-Reproduce vehicle handling deliberately; verify steering, braking, collisions, and enter/exit. Default vehicle physics is only a prototype. Add traffic, police, and further missions after the slice works.
+The final application should run using the user’s original game data, without requiring the original Game.exe or REA during gameplay.
 
-Actually operate and inspect the game: movement, camera, driving, and restart through real inputs; capture screenshots/video, inspect frames, fix defects, and compare against original-game reference captures. Use available desktop controls or isolated X11/Xvfb with xdotool. Keep captures private.
+Development workflow
 
-Prove a small Vulkan render first. Xvfb provides no GPU acceleration; software rendering is acceptable when verified and labelled. Headless checks do not prove visuals. Distinguish builds, logic tests, rendered checks, and interactive tests; report approximations and blocked checks honestly.
+Work autonomously and implement real functionality continuously. Prioritize a working engine over extensive planning.
 
-Prepare macOS/iOS export presets early. Use a Mac with Xcode for iOS export/signing and test Metal on Apple hardware, including a physical iPhone when available. Define shared input actions with touch/gamepad controls for walking, camera, interaction, and driving; check pause/resume. Linux rendering or simulator screenshots do not validate Metal. Missing Apple access must not block Linux progress; provide exact remaining verification steps.
+Develop incrementally:
 
-## Cleanup
+1. Initialize the Rust workspace, build system, and wgpu renderer.
+2. Reverse engineer and implement original asset loading.
+3. Render the actual Lost Heaven world using original models and textures.
+4. Implement original animation, collision, movement, and vehicles.
+5. Reconstruct the scripting VM and execute original mission scripts.
+6. Implement AI, traffic, police, combat, cutscenes, and remaining systems.
+7. Achieve full campaign compatibility and native Linux/macOS releases.
 
-Track owned processes, sessions, mounts, and temporary settings in an ignored ownership record. On success, failure, or cancellation, close gracefully, wait for writes, then use bounded TERM/KILL only for verified task-owned processes. Never globally kill applications. Recover leftovers safely on the next run.
+Each milestone must be tested and compared with the original game. Use automated tests, actual rendering, screenshots, and interactive gameplay verification where available. Clearly distinguish verified functionality from incomplete work.
 
-Restore temporary settings and remove only owned scratch files. Preserve inputs, saves, installed tools, reusable caches, imports, and useful evidence. Leave no owned background jobs running.
+Repository and agents
 
-Start implementing now. Continue through playable milestones; finish independent work before asking one specific question about a genuine blocker.
+Use the existing public GitHub repository. Commit and push small, meaningful, tested changes regularly. Never force-push.
 
-## Orchestration and code review
+Delegate implementation and research to available subagents, preferably Luna 6 and Sol 6.1 where supported. The main agent coordinates integration and progress. Require two independent code-review passes for substantial milestones, with fixes between reviews.
 
-Act only as the orchestrator: plan, assign tasks, track acceptance checks, coordinate integration, and handle Git. Do not implement code yourself. Delegate research, implementation, testing, fixes, and reviews to **Luna 6 (`gpt-6-luna`)** and **Sol 6.1 (`gpt-6.1-sol`)**. Use Luna for focused tasks and Sol for complex changes, integration work, and reviews. Give each task one owner, a clear scope, and concrete acceptance checks. Use separate worktrees or non-overlapping file ownership.
+Maintain minimal English documentation:
 
-Require **two sequential, independent code-review rounds for every code milestone**:
+* README.md — build, run, requirements, current status.
+* AGENTS.md — development rules and architecture.
+* PROMPT.md — this initial prompt.
+* LICENSE — MIT for original project code.
+* THIRD_PARTY_NOTICES.md — dependency licenses.
 
-1. A reviewer who did not author the code checks correctness, requirements, integration, and verification evidence. Delegate fixes, then rerun relevant checks.
-2. A fresh reviewer examines the final revised diff, including all fixes, for remaining defects and regressions.
+Communicate with me in Czech. Keep code and documentation in English.
 
-No agent may review its own code. Resolve material findings and independently recheck subsequent fixes before accepting, committing, and pushing the milestone.
+Verification and cleanup
 
-If spawning or a requested model is unavailable, report the exact limitation; never claim those agents or reviews were used, silently substitute models, or implement the code yourself.
+Build and test on Linux continuously. Maintain macOS/Metal compatibility and provide repeatable build commands. Verify actual rendered output and gameplay whenever graphical execution is available.
 
+Clean up all task-owned emulator sessions, analysis tools, game processes, temporary mounts, and background jobs after testing. Preserve user files, reusable caches, and research results.
 
-[Private input source footer redacted in full.]
+Never claim that functionality works without corresponding evidence.
 
-## Supplemental reconstruction requirements
+The long-term completion criterion is the entire original Mafia being playable through the new Rust engine — not merely loading the city or demonstrating a few mechanics.
 
-The latest user steering adds a mandatory full faithful engine/game reconstruction goal. Use REA and Ghidra to analyze the actual PC binary, recording its SHA-256 and traceable function addresses, calls, layouts, state, update order, timing, and constants in private evidence. Use PC as the baseline and cross-check PS2 behavior and platform differences. Validate static findings against the original runtime; do not invent unverified engine internals. Maintain `COVERAGE.md` for all major game subsystems, separating parser evidence, static binary analysis, implementation, runtime validation, and gaps. Full-system coverage, not a vertical slice, is the completion criterion. Require two sequential independent review rounds for every code milestone, including checks that fidelity claims cite evidence and match validation. Keep original assets, URLs, binaries, decompiled code, and analysis databases private. This is a summary of the latest steering, not a verbatim transcript.
+Start reverse engineering and implementing now. Do not stop after writing a plan.

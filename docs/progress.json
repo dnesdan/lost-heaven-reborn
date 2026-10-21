@@ -1,76 +1,40 @@
 {
   "updated_at": "2026-10-21",
-  "toolchain": {
-    "rea": "6.7.0",
-    "ghidra": "12.1.4"
-  },
-  "inventory_includes_external_entries": {
-    "Game.exe": 130,
-    "LS3DF.dll": 159
-  },
-  "binary_procedure_inventory": {
-    "Game.exe": {
-      "profile": "default",
-      "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
-      "inventory_profile_id": "7810ea9437da59780820ec6fedb47ce47390841a95d527ddb6c3b3700fe180cb",
-      "procedures": 4914,
-      "retained_unique_pseudocode_procedures": 5,
-      "retained_pseudocode_percent": 0.10175
+  "project_status": "Initial Rust asset/render and camera-inspection milestone; full campaign not playable",
+  "rust_toolchain": "1.99.1",
+  "validation": {
+    "status": "passed independently",
+    "commands": "scripts/test.sh: format, workspace check, workspace tests, Clippy, REA wrapper tests",
+    "rust_unit_tests": 13,
+    "rust_unit_test_split": {
+      "lhr_assets": 7,
+      "lhr_engine": 3,
+      "lhr_render": 3
     },
-    "LS3DF.dll": {
-      "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
-      "default_profile_procedures": 1667,
-      "default_inventory_profile_id": "5fb8141f282b82b7a78df6b2d631f00eb93729605b53b333297ebfb4ff03fe9f",
-      "pseudocode_profile": "explicit 16-seed",
-      "pseudocode_inventory_profile_id": "46301268618f6f9f27a2856e15858155a42599f674def681aa6a56df9fe13c64",
-      "pseudocode_profile_procedures": 1681,
-      "retained_unique_pseudocode_procedures": 31,
-      "retained_pseudocode_percent": 1.84414
-    }
+    "rea_wrapper_tests": 9
   },
-  "instruction_validated_finding_count": null,
-  "count_record_sha256": "e72c38db3415595826a532bde14c989361a304c54f29e98d6fe8d1c2e9365642",
-  "original_runtime_evidence": {
-    "status": "Tutorial input observed",
-    "aggregate_behavior_count": null,
-    "observation": "In the original PC tutorial, Up moved Tommy forward and showed a walk pose; Right changed his position.",
-    "limitations": "Wine/QEMU capture cadence does not measure game frame rate or physical movement speed. Driving, combat, mission completion, sound, and exact animation parity remain unverified."
+  "assets": {
+    "scope": "Loose 4DS v29 static meshes and supported BMP textures",
+    "decoded_building_models": 5,
+    "decoded_vertices": 747,
+    "decoded_triangles": 395,
+    "dta_archives": "unsupported"
   },
-  "fully_system_verified_subsystems": {
-    "verified": 0,
-    "total": 12,
-    "percent": 0,
-    "meaning": "Strict evidence gate; not an overall remake completion estimate."
+  "renderer": {
+    "target": "wgpu Vulkan on Linux, Metal on macOS",
+    "linux": "Offscreen Vulkan llvmpipe rendering read back and visually inspected for 4build101 and bedna00; approximate unlit rendering, no original visual parity claim",
+    "window_inspection": "Focused XTEST Right-key input changed the bounded 2000-presented-frame capture; three-frame window baseline matches offscreen capture",
+    "original_gameplay": "not implemented or validated",
+    "macos_metal": "not tested"
   },
-  "history": [
-    {
-      "date": "2026-10-21",
-      "revision": "69b73cb",
-      "historical_percentages": null
-    },
-    {
-      "date": "2026-10-21",
-      "revision": "cc07343",
-      "historical_percentages": null
-    },
-    {
-      "date": "2026-10-21",
-      "revision": "664e193d1fd480d71d13aae739db88856a386943",
-      "game_pseudocode": {
-        "procedures": 5,
-        "inventory_procedures": 4914,
-        "percent": 0.10175
-      },
-      "ls3df_pseudocode": {
-        "procedures": 31,
-        "inventory_procedures": 1681,
-        "percent": 1.84414
-      },
-      "fully_system_verified_subsystems": {
-        "verified": 0,
-        "total": 12,
-        "percent": 0
-      }
-    }
-  ]
+  "campaign_playable": false,
+  "historical_analysis": {
+    "game_exe_pseudocode": "9/4914, default inventory profile",
+    "ls3df_pseudocode": "45/1683, explicitly documented union profile",
+    "meaning": "static analysis counts, not understanding or implementation coverage"
+  },
+  "new_rea_evidence": "PC-RUST-BOOTSTRAP-001; bounded static boot/material/scene-tick/bitmap findings, not full main-loop fidelity",
+  "rust_milestone_evidence_index": "RUST-ENGINE-EVIDENCE-INDEX-20261021; private dated snapshot links asset, render, XTEST, and REA evidence without changing earlier frozen snapshots",
+  "historical_runtime_trace": "40 REA API units measured as 40 milliseconds on one unscaled path; not a universal timing rule.",
+  "reset_boundary": "Former Godot prototype implementation and tests are historical and are not counted as Rust behavior or validation."
 }

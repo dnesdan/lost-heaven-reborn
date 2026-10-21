@@ -1,56 +1,48 @@
 #!/usr/bin/env bash
-# Official version-pinned engine and templates; downloaded artifacts stay outside Git.
+# Official rustup with its published checksum; rustup verifies toolchain artifacts.
 set -euo pipefail
 source "$(dirname -- "$0")/common.sh"
-if [[ "${1:-}" != '' && "${1:-}" != --graphics ]]; then
-    echo 'Usage: scripts/setup.sh [--graphics]' >&2
-    exit 2
-fi
-for tool in python3 curl unzip sha512sum; do
-    command -v "$tool" >/dev/null || { echo "Missing setup prerequisite: $tool" >&2; exit 1; }
+[[ $# == 0 || ( $# == 1 && $1 == --graphics ) ]] || { echo 'Usage: scripts/setup.sh [--graphics]' >&2; exit 2; }
+for tool in python3 curl; do
+    command -v "$tool" >/dev/null || { echo "Missing prerequisite: $tool" >&2; exit 1; }
 done
-[[ "$(uname -s)" == Linux ]] || { echo 'This setup script prepares Linux. Install official Godot 4.6.3 on Apple hosts.' >&2; exit 1; }
-case "$(uname -m)" in
-    x86_64) arch=x86_64 ;;
-    aarch64|arm64) arch=arm64 ;;
-    *) echo 'Unsupported Linux architecture.' >&2; exit 1 ;;
+case "$(uname -s)-$(uname -m)" in
+    Linux-x86_64) host=x86_64-unknown-linux-gnu ;;
+    Linux-aarch64|Linux-arm64) host=aarch64-unknown-linux-gnu ;;
+    Darwin-arm64) host=aarch64-apple-darwin ;;
+    Darwin-x86_64) host=x86_64-apple-darwin ;;
+    *) echo 'Unsupported host; install official Rust 1.99.1 manually.' >&2; exit 1 ;;
 esac
-tools_dir="${LHR_TOOLS_DIR:-/workspace/lhr-tools}"
-mkdir -p "$tools_dir" "$XDG_DATA_HOME" "$XDG_CONFIG_HOME" "$XDG_CACHE_HOME"
-version=4.6.3
-release="https://github.com/godotengine/godot-builds/releases/download/${version}-stable"
-engine_archive="Godot_v${version}-stable_linux.${arch}.zip"
-template_archive="Godot_v${version}-stable_export_templates.tpz"
-curl --fail --location --proto '=https' --proto-redir '=https' --retry 3 \
-    "$release/SHA512-SUMS.txt" --output "$tools_dir/SHA512-SUMS.txt"
-for archive in "$engine_archive" "$template_archive"; do
-    expected="$(python3 - "$tools_dir/SHA512-SUMS.txt" "$archive" <<'PY'
-import pathlib, re, sys
-matches = [line.split()[0] for line in pathlib.Path(sys.argv[1]).read_text().splitlines()
-           if len(line.split()) == 2 and line.split()[1].lstrip('*') == sys.argv[2]]
-if len(matches) != 1 or not re.fullmatch('[a-fA-F0-9]{128}', matches[0]):
-    raise SystemExit('Official checksum entry missing or ambiguous')
-print(matches[0])
+mkdir -p "$LHR_TOOLS_DIR/rust/downloads" "$XDG_DATA_HOME" "$XDG_CONFIG_HOME" "$XDG_CACHE_HOME"
+if [[ ! -x "$CARGO_HOME/bin/rustup" ]]; then
+    download="$LHR_TOOLS_DIR/rust/downloads"
+    for artifact in rustup-init rustup-init.sha256; do
+        curl --fail --location --proto '=https' --proto-redir '=https' --retry 3 \
+            "https://static.rust-lang.org/rustup/dist/$host/$artifact" --output "$download/$artifact"
+    done
+    python3 - "$download" <<'PY'
+import hashlib, pathlib, re, sys
+root = pathlib.Path(sys.argv[1])
+expected = (root / 'rustup-init.sha256').read_text().split()[0]
+if not re.fullmatch('[0-9a-f]{64}', expected):
+    raise SystemExit('Invalid official rustup checksum')
+digest = hashlib.sha256()
+with (root / 'rustup-init').open('rb') as artifact:
+    for chunk in iter(lambda: artifact.read(1024 * 1024), b''):
+        digest.update(chunk)
+if digest.hexdigest() != expected:
+    raise SystemExit('rustup checksum mismatch')
 PY
-)"
-    if [[ ! -f "$tools_dir/$archive" ]] || ! printf '%s  %s\n' "$expected" "$tools_dir/$archive" | sha512sum --check --status; then
-        curl --fail --location --proto '=https' --proto-redir '=https' --retry 3 --continue-at - \
-            "$release/$archive" --output "$tools_dir/$archive.part"
-        printf '%s  %s\n' "$expected" "$tools_dir/$archive.part" | sha512sum --check --status
-        mv -- "$tools_dir/$archive.part" "$tools_dir/$archive"
-    fi
-done
-unzip -oq "$tools_dir/$engine_archive" -d "$tools_dir/engine-$version"
-engine="$tools_dir/engine-$version/Godot_v${version}-stable_linux.${arch}"
-chmod +x "$engine"
-[[ "$("$engine" --version)" == 4.6.3.stable* ]] || { echo 'Engine version mismatch.' >&2; exit 1; }
-ln -sfn "$engine" "$tools_dir/godot"
-unzip -oq "$tools_dir/$template_archive" -d "$tools_dir/template-stage"
-[[ "$(cat "$tools_dir/template-stage/templates/version.txt")" == 4.6.3.stable ]] || { echo 'Template version mismatch.' >&2; exit 1; }
-mkdir -p "$XDG_DATA_HOME/godot/export_templates/4.6.3.stable"
-cp -a "$tools_dir/template-stage/templates/." "$XDG_DATA_HOME/godot/export_templates/4.6.3.stable/"
+    chmod +x "$download/rustup-init"
+    "$download/rustup-init" -y --no-modify-path --profile minimal --default-toolchain 1.99.1 --component rustfmt --component clippy
+else
+    rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy
+fi
+require_rust
 if [[ "${1:-}" == --graphics ]]; then
     "$ROOT/scripts/setup-graphics.sh"
 fi
-"$engine" --headless --path "$ROOT" --editor --import --quit
-echo 'Godot 4.6.3 and matching export templates installed and checksum verified.'
+cd "$ROOT"
+cargo fetch --locked
+rustc --version
+cargo --version

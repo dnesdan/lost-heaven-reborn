@@ -1,0 +1,10 @@
+[package]
+name = "lhr-render"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+wgpu = { version = "=24.0.5", default-features = false, features = ["wgsl", "metal"] }
+bytemuck = { version = "=1.24.0", features = ["derive"] }
+glam = "=0.29.3"
+png = "=0.17.16"

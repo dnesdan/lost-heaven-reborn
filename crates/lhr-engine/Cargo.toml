@@ -1,0 +1,11 @@
+[package]
+name = "lhr-engine"
+version = "0.1.0"
+edition = "2021"
+[dependencies]
+lhr-assets = { path = "../lhr-assets" }
+lhr-render = { path = "../lhr-render" }
+wgpu = { version = "=24.0.5", default-features = false, features = ["wgsl", "metal"] }
+winit = { version = "=0.30.12", default-features = false, features = ["rwh_06", "x11"] }
+pollster = "=0.4.0"
+glam = "=0.29.3"

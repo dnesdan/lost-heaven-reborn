@@ -1,0 +1,570 @@
+//! Small indexed textured renderer. Source coordinate conversion belongs to asset intake.
+use bytemuck::{Pod, Zeroable};
+use glam::{Mat4, Vec3};
+use std::{path::Path, sync::mpsc};
+use wgpu::util::DeviceExt;
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+pub struct Vertex {
+    pub position: [f32; 3],
+    pub uv: [f32; 2],
+}
+pub struct Texture {
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Vec<u8>,
+    pub repeat: [bool; 2],
+}
+pub struct Mesh {
+    pub vertices: Vec<Vertex>,
+    pub indices: Vec<u32>,
+    pub texture: Option<Texture>,
+}
+pub struct Scene {
+    pub meshes: Vec<Mesh>,
+}
+pub struct Camera {
+    pub eye: Vec3,
+    pub target: Vec3,
+    pub up: Vec3,
+    pub near: f32,
+    pub far: f32,
+}
+impl Camera {
+    pub fn fit(scene: &Scene) -> Result<Self, String> {
+        let mut min = Vec3::splat(f32::INFINITY);
+        let mut max = Vec3::splat(f32::NEG_INFINITY);
+        for vertex in scene.meshes.iter().flat_map(|m| &m.vertices) {
+            let p = Vec3::from_array(vertex.position);
+            if !p.is_finite() {
+                return Err("Scene contains nonfinite coordinates".into());
+            }
+            min = min.min(p);
+            max = max.max(p);
+        }
+        if !min.is_finite() {
+            return Err("Scene has no vertices".into());
+        }
+        let center = (min + max) * 0.5;
+        let radius = (max - min).length().max(0.1) * 0.5;
+        if !center.is_finite()
+            || center.abs().max_element() > 1.0e8
+            || !radius.is_finite()
+            || radius > 1.0e8
+        {
+            return Err("Scene bounds exceed supported range".into());
+        }
+        let result = Self {
+            eye: center + Vec3::new(1.0, 0.65, 1.0).normalize() * radius * 2.8,
+            target: center,
+            up: Vec3::Y,
+            near: (radius / 1000.0).max(0.001),
+            far: radius * 20.0,
+        };
+        if !result.matrix(1.0).is_finite() {
+            return Err("Scene cannot produce a finite camera".into());
+        }
+        Ok(result)
+    }
+    fn matrix(&self, aspect: f32) -> Mat4 {
+        Mat4::perspective_rh(50f32.to_radians(), aspect, self.near, self.far)
+            * Mat4::look_at_rh(self.eye, self.target, self.up)
+    }
+}
+struct Draw {
+    vertex: wgpu::Buffer,
+    index: wgpu::Buffer,
+    count: u32,
+    material: wgpu::BindGroup,
+}
+pub struct Renderer {
+    pub device: wgpu::Device,
+    pub queue: wgpu::Queue,
+    format: wgpu::TextureFormat,
+    pipeline: wgpu::RenderPipeline,
+    camera_buffer: wgpu::Buffer,
+    camera_group: wgpu::BindGroup,
+    draws: Vec<Draw>,
+}
+impl Renderer {
+    pub async fn new(
+        instance: &wgpu::Instance,
+        surface: Option<&wgpu::Surface<'_>>,
+        scene: &Scene,
+        format: wgpu::TextureFormat,
+        linear: bool,
+    ) -> Result<Self, String> {
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: surface,
+                force_fallback_adapter: false,
+            })
+            .await
+            .ok_or("No compatible graphics adapter")?;
+        Self::with_adapter(&adapter, scene, format, linear).await
+    }
+    pub async fn with_adapter(
+        adapter: &wgpu::Adapter,
+        scene: &Scene,
+        format: wgpu::TextureFormat,
+        linear: bool,
+    ) -> Result<Self, String> {
+        let (device, queue) = adapter
+            .request_device(
+                &wgpu::DeviceDescriptor {
+                    label: Some("LHR renderer"),
+                    required_features: wgpu::Features::empty(),
+                    required_limits: wgpu::Limits::default(),
+                    memory_hints: wgpu::MemoryHints::MemoryUsage,
+                },
+                None,
+            )
+            .await
+            .map_err(|_| "Graphics device initialization failed")?;
+        let camera_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: None,
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+        let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: bytemuck::cast_slice(&Mat4::IDENTITY.to_cols_array()),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+        let camera_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &camera_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: camera_buffer.as_entire_binding(),
+            }],
+        });
+        let texture_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: None,
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: None,
+            source: wgpu::ShaderSource::Wgsl(include_str!("scene.wgsl").into()),
+        });
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[&camera_layout, &texture_layout],
+            push_constant_ranges: &[],
+        });
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: None,
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vertex"),
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: 20,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x2],
+                }],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fragment"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: Default::default(),
+            multiview: None,
+            cache: None,
+        });
+        let mut draws = Vec::new();
+        for mesh in &scene.meshes {
+            if mesh.indices.is_empty()
+                || mesh.indices.len() % 3 != 0
+                || mesh
+                    .indices
+                    .iter()
+                    .any(|&i| i as usize >= mesh.vertices.len())
+            {
+                return Err("Invalid mesh triangle indices".into());
+            }
+            if mesh
+                .vertices
+                .iter()
+                .any(|v| v.position.iter().chain(&v.uv).any(|x| !x.is_finite()))
+            {
+                return Err("Nonfinite mesh vertex".into());
+            }
+            let tex = mesh
+                .texture
+                .as_ref()
+                .ok_or("Mesh material has no texture or diffuse color")?;
+            if tex.width == 0
+                || tex.height == 0
+                || tex.width > 8192
+                || tex.height > 8192
+                || tex.rgba.len() != tex.width as usize * tex.height as usize * 4
+            {
+                return Err("Invalid texture dimensions or data".into());
+            }
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: None,
+                size: wgpu::Extent3d {
+                    width: tex.width,
+                    height: tex.height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            });
+            queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                &tex.rgba,
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(tex.width * 4),
+                    rows_per_image: Some(tex.height),
+                },
+                texture.size(),
+            );
+            let filter = if linear {
+                wgpu::FilterMode::Linear
+            } else {
+                wgpu::FilterMode::Nearest
+            };
+            let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+                mag_filter: filter,
+                min_filter: filter,
+                address_mode_u: if tex.repeat[0] {
+                    wgpu::AddressMode::Repeat
+                } else {
+                    wgpu::AddressMode::ClampToEdge
+                },
+                address_mode_v: if tex.repeat[1] {
+                    wgpu::AddressMode::Repeat
+                } else {
+                    wgpu::AddressMode::ClampToEdge
+                },
+                ..Default::default()
+            });
+            let material = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout: &texture_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(
+                            &texture.create_view(&Default::default()),
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&sampler),
+                    },
+                ],
+            });
+            draws.push(Draw {
+                vertex: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: None,
+                    contents: bytemuck::cast_slice(&mesh.vertices),
+                    usage: wgpu::BufferUsages::VERTEX,
+                }),
+                index: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: None,
+                    contents: bytemuck::cast_slice(&mesh.indices),
+                    usage: wgpu::BufferUsages::INDEX,
+                }),
+                count: mesh
+                    .indices
+                    .len()
+                    .try_into()
+                    .map_err(|_| "Too many indices")?,
+                material,
+            });
+        }
+        Ok(Self {
+            device,
+            queue,
+            format,
+            pipeline,
+            camera_buffer,
+            camera_group,
+            draws,
+        })
+    }
+    pub fn render(
+        &self,
+        view: &wgpu::TextureView,
+        width: u32,
+        height: u32,
+        camera: &Camera,
+    ) -> wgpu::CommandEncoder {
+        self.queue.write_buffer(
+            &self.camera_buffer,
+            0,
+            bytemuck::cast_slice(&camera.matrix(width as f32 / height as f32).to_cols_array()),
+        );
+        let depth = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth32Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let depth_view = depth.create_view(&Default::default());
+        let mut encoder = self.device.create_command_encoder(&Default::default());
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 0.025,
+                            g: 0.035,
+                            b: 0.055,
+                            a: 1.0,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Discard,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            pass.set_pipeline(&self.pipeline);
+            pass.set_bind_group(0, &self.camera_group, &[]);
+            for draw in &self.draws {
+                pass.set_bind_group(1, &draw.material, &[]);
+                pass.set_vertex_buffer(0, draw.vertex.slice(..));
+                pass.set_index_buffer(draw.index.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(0..draw.count, 0, 0..1);
+            }
+        }
+        encoder
+    }
+    pub fn capture(
+        &self,
+        width: u32,
+        height: u32,
+        camera: &Camera,
+        path: &Path,
+    ) -> Result<(), String> {
+        if width == 0 || height == 0 || width > 8192 || height > 8192 {
+            return Err("Capture size outside supported range".into());
+        }
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: self.format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let row = (width * 4 + 255) & !255;
+        let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: u64::from(row) * u64::from(height),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut encoder = self.render(
+            &texture.create_view(&Default::default()),
+            width,
+            height,
+            camera,
+        );
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(row),
+                    rows_per_image: Some(height),
+                },
+            },
+            texture.size(),
+        );
+        self.queue.submit(Some(encoder.finish()));
+        let slice = buffer.slice(..);
+        let (tx, rx) = mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |r| {
+            let _ = tx.send(r);
+        });
+        self.device.poll(wgpu::Maintain::Wait);
+        rx.recv()
+            .map_err(|_| "Capture readback disconnected")?
+            .map_err(|_| "Capture readback failed")?;
+        let mapped = slice.get_mapped_range();
+        let mut rgba = Vec::with_capacity(width as usize * height as usize * 4);
+        for bytes in mapped.chunks_exact(row as usize) {
+            rgba.extend_from_slice(&bytes[..width as usize * 4]);
+        }
+        drop(mapped);
+        buffer.unmap();
+        if matches!(
+            self.format,
+            wgpu::TextureFormat::Bgra8UnormSrgb | wgpu::TextureFormat::Bgra8Unorm
+        ) {
+            for pixel in rgba.as_chunks_mut::<4>().0 {
+                pixel.swap(0, 2);
+            }
+        }
+        let file = std::fs::File::create(path).map_err(|_| "Cannot create capture output")?;
+        let mut encoder = png::Encoder::new(file, width, height);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        encoder
+            .write_header()
+            .map_err(|_| "Cannot write capture header")?
+            .write_image_data(&rgba)
+            .map_err(|_| "Cannot write capture image")?;
+        Ok(())
+    }
+}
+pub fn instance() -> wgpu::Instance {
+    wgpu::Instance::new(&wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::VULKAN | wgpu::Backends::METAL,
+        ..Default::default()
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fitted_camera_contains_all_fixture_vertices_in_depth_and_view() {
+        let scene = Scene {
+            meshes: vec![Mesh {
+                vertices: [-1.0, 1.0]
+                    .into_iter()
+                    .flat_map(|x| {
+                        [-2.0, 2.0].into_iter().flat_map(move |y| {
+                            [-3.0, 3.0].into_iter().map(move |z| Vertex {
+                                position: [x, y, z],
+                                uv: [0.0; 2],
+                            })
+                        })
+                    })
+                    .collect(),
+                indices: vec![],
+                texture: None,
+            }],
+        };
+        let camera = Camera::fit(&scene).unwrap();
+        for vertex in &scene.meshes[0].vertices {
+            let clip = camera.matrix(1.5) * Vec3::from_array(vertex.position).extend(1.0);
+            let ndc = clip.truncate() / clip.w;
+            assert!(ndc.x.abs() < 1.0 && ndc.y.abs() < 1.0);
+            assert!((0.0..1.0).contains(&ndc.z));
+        }
+    }
+
+    #[test]
+    fn huge_finite_constant_coordinates_cannot_collapse_eye_to_target() {
+        let scene = Scene {
+            meshes: vec![Mesh {
+                vertices: vec![Vertex {
+                    position: [1.0e30; 3],
+                    uv: [0.0; 2],
+                }],
+                indices: vec![],
+                texture: None,
+            }],
+        };
+        assert!(Camera::fit(&scene).is_err());
+    }
+
+    #[test]
+    fn empty_or_nonfinite_geometry_cannot_produce_a_camera() {
+        assert!(Camera::fit(&Scene { meshes: vec![] }).is_err());
+        let invalid = Scene {
+            meshes: vec![Mesh {
+                vertices: vec![Vertex {
+                    position: [f32::NAN, 0.0, 0.0],
+                    uv: [0.0; 2],
+                }],
+                indices: vec![],
+                texture: None,
+            }],
+        };
+        assert!(Camera::fit(&invalid).is_err());
+    }
+}

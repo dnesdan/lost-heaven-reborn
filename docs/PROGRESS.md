@@ -1,33 +1,22 @@
-# Reconstruction progress
+# Progress
 
-Updated 2026-10-21 UTC. These measures describe separate stages of evidence. They do not estimate the percentage of the game reconstructed. Procedure counts depend on the binary and REA/Ghidra analysis profile; a procedure inventory is not a measure of understanding. Full-system verification requires traceable PC binary evidence and validation against original PC runtime behavior for every subsystem, with PS2 cross-checks where applicable.
+Updated 2026-10-21 UTC. The project has reset from a Godot gameplay prototype to a Rust/wgpu engine and game rewrite. The first Rust milestone reads a bounded set of loose original models and textures, renders a building and a crate, and supports camera inspection. Full campaign completion remains the goal.
 
-## Current evidence snapshot
+| Measure | Current status |
+| --- | --- |
+| Rust workspace | Independent final run passed 13 Rust tests (7 assets, 3 engine, 3 renderer), 9 REA wrapper tests, formatting, workspace check and Clippy. |
+| Asset reader | Five original building models decode to 747 vertices / 395 triangles. Loose 4DS v29 static meshes and supported BMPs only; DTA archive lookup is not implemented. |
+| Linux renderer | Vulkan llvmpipe offscreen captures for original 4build101 (190 vertices / 98 triangles) and bedna00 (24 / 12) were read back and visually inspected. A focused XTEST Right-key input changed a bounded 2000-presented-frame camera-inspection capture; its three-frame window baseline matches the offscreen capture. |
+| macOS / Metal | Toolchain selection is prepared, but no Mac validation has been performed. |
+| Original gameplay | Not implemented. The inspection camera input is not original-game control or gameplay validation; rendered visuals have not been compared against the original engine. |
+| Campaign | Not playable through the Rust engine. |
 
-| Measure | Current result | What it means |
-| --- | ---: | --- |
-| Game.exe procedures in default analysis inventory | 4,914 | Procedures present in the selected analysis snapshot. |
-| Game.exe procedures with retained pseudocode | 5 / 4,914 (0.10%) | Static decompiler output retained for unique procedures in that inventory; not a count of semantically understood functions. |
-| LS3DF.dll procedures in default analysis inventory | 1,667 | Procedures in the default analysis profile. |
-| LS3DF.dll procedures with retained pseudocode | 31 / 1,681 (1.84%) | Numerator uses an explicit 16-seed inventory profile that contains all 31 retained procedures. The default inventory has 1,667 procedures and is a different profile. |
-| Manually instruction-validated finding total | Not measured | Existing observations are not normalized to a consistent finding count. See the subsystem evidence registry in [COVERAGE.md](../COVERAGE.md). |
-| Original-runtime evidence | Tutorial input observed; no aggregate behavior count | The setup, main menu, tutorial load, forward movement/walk pose and a right-turn position change were observed. Timing and animation parity are unmeasured. |
-| Fully system-verified subsystems | 0 / 12 (0%) | Strict evidence gate across the canonical subsystem registry in [COVERAGE.md](../COVERAGE.md); this is not an overall remake completion estimate. |
+Historical private REA/Ghidra counts are 9/4,914 Game.exe procedures in the default inventory and 45/1,683 LS3DF.dll procedures in an explicitly documented union profile. Counts measure retained decompiler output only; they do not measure engine understanding. New bounded static REA evidence `PC-RUST-BOOTSTRAP-001` confirms selected boot, material, scene tick and bitmap findings, without establishing the full boot sequence or game loop. One private runtime trace measured 40 REA API units as 40 milliseconds on a specific unscaled path; do not generalize this to all clocks or animation paths. See [COVERAGE.md](../COVERAGE.md) for interpretation and boundaries.
 
-The original PC runtime was run through setup, main menu, and the Tutorial scene. Holding Up moved Tommy forward and showed a walk pose; holding Right changed his position. These are qualitative observations under Wine/QEMU and software rendering. Capture cadence does not measure the game's frame rate or physical movement speed. Driving, combat, mission completion, sound, and exact animation parity remain unverified. The PS2 symbol count is not a procedure count and is excluded.
+## Reset boundary
 
-## History
+The former Godot prototype, including its synthetic gameplay checks and private rendered captures, is historical. Its implementation and test results are not counted as Rust features or validation. Useful source-format, binary and original-runtime research remains available in private evidence. Public tests use synthetic inputs.
 
-| Date | Revision | Milestone | Snapshot |
-| --- | --- | --- | --- |
-| 2026-10-21 | [`69b73cb`](https://github.com/dnesdan/lost-heaven-reborn/commit/69b73cb) | Added a synthetic gameplay slice. | Historical counts unavailable |
-| 2026-10-21 | [`cc07343`](https://github.com/dnesdan/lost-heaven-reborn/commit/cc07343) | Added traceable private 4DS conversion and subsystem coverage. | Historical counts unavailable |
-| 2026-10-21 | [`664e193`](https://github.com/dnesdan/lost-heaven-reborn/commit/664e193d1fd480d71d13aae739db88856a386943) | Added experimental animation conversion and traceable binary analysis. | Game.exe 0.10%; LS3DF.dll 1.84%; fully verified 0/12 |
+## Verification
 
-The older revisions predate a comparable count snapshot; their historical percentages remain unavailable. The 664e193 snapshot uses the frozen counts shown above.
-
-## Method and sources
-
-Counts were taken 2026-10-21 UTC from retained JSON analysis records using REA 6.7.0 with Ghidra 12.1.4. The inventories include external/import entries (130 for Game.exe and 159 for LS3DF.dll). Game.exe SHA-256 is `08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27`; its default inventory profile ID is `7810ea9437da59780820ec6fedb47ce47390841a95d527ddb6c3b3700fe180cb`. LS3DF.dll SHA-256 is `e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6`; its default profile ID is `5fb8141f282b82b7a78df6b2d631f00eb93729605b53b333297ebfb4ff03fe9f`, and the explicit 16-seed profile ID is `46301268618f6f9f27a2856e15858155a42599f674def681aa6a56df9fe13c64`. The count record SHA-256 is `e72c38db3415595826a532bde14c989361a304c54f29e98d6fe8d1c2e9365642`. Game.exe uses its default inventory profile. LS3DF.dll's default profile contains 1,667 procedures; a separate explicit 16-seed profile contains 1,681 and is the denominator for its retained pseudocode numerator. All reported pseudocode addresses were verified as members of their stated denominator. Profiles must not be combined or compared as progress over time without a matching snapshot and profile.
-
-These measures follow the general practice of separating binary/function progress and dated history shown by [mafia-re](https://github.com/Marvisak/mafia-re) and [AnyPS5](https://github.com/boykopovar/AnyPS5) ([history](https://boykopovar.github.io/AnyPS5/history.html)). This project uses its own evidence definitions and does not reuse their content.
+Setup was repeated on Linux x86_64 with Rust 1.99.1 and the committed lockfile. The independent final `scripts/test.sh` run completed formatting, `cargo check --workspace --all-targets --locked`, workspace tests, Clippy, and all 9 REA wrapper tests. The bounded window path was exercised under Xvfb with a focused XTEST key input, and task-owned processes were stopped afterward. This is a development milestone, not release readiness. macOS/Metal remains untested.

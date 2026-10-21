@@ -51,3 +51,6 @@ downloads/
 *.key
 *.p12
 *.mobileprovision
+
+# Rust outputs remain external by default.
+/target/

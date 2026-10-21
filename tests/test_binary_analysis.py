@@ -48,7 +48,7 @@ class BinaryAnalysisBoundaryTests(unittest.TestCase):
 
     def test_input_symlink_into_checkout_rejected(self):
         alias = self.base / "input-alias"
-        alias.symlink_to(ROOT / "project.godot")
+        alias.symlink_to(ROOT / "Cargo.toml")
         result = self.run_wrapper("analyze", alias, "--output", self.base / "output.json")
         self.assertEqual(result.returncode, 2)
         self.assertFalse((self.base / "output.json").exists())
@@ -62,11 +62,11 @@ class BinaryAnalysisBoundaryTests(unittest.TestCase):
 
     def test_output_file_symlink_into_checkout_rejected(self):
         alias = self.base / "output.json"
-        alias.symlink_to(ROOT / "project.godot")
-        before = (ROOT / "project.godot").read_bytes()
+        alias.symlink_to(ROOT / "Cargo.toml")
+        before = (ROOT / "Cargo.toml").read_bytes()
         result = self.run_wrapper("analyze", self.binary, "--output", alias)
         self.assertEqual(result.returncode, 2)
-        self.assertEqual((ROOT / "project.godot").read_bytes(), before)
+        self.assertEqual((ROOT / "Cargo.toml").read_bytes(), before)
 
     def test_existing_private_file_preserved(self):
         output = self.base / "output.json"

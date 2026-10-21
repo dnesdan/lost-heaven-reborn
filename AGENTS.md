@@ -1,42 +1,12 @@
-# Working conventions
+# Development conventions
 
-- Use English code/documentation and Czech user communication. Preserve existing
-  history/work; never force-push. Use the current isolated checkout rather than
-  creating worktrees unless the user requests them.
-- Keep gameplay in `game/` and `scenes/`, portable intake/validation in
-  `importers/`, synthetic tests in `tests/`, and command wrappers in `scripts/`.
-- Pin Godot and matching export templates to 4.6.3. Use Mobile/Vulkan on Linux;
-  native Metal and signing/device verification require an Apple host.
-- Keep original/converted assets, source URLs, credentials, BIOS, captures,
-  analysis databases, and decompiled code outside Git and public exports. Private
-  inputs live outside the checkout. Never print secret values or raw URL errors.
-- Run `scripts/test.sh` and a Linux export after gameplay changes. Run the
-  exported executable independently. Report logic tests, rendered checks, real
-  input checks, and original-game comparisons separately; do not infer fidelity.
-- Public fixtures must be synthetic. Do not copy unlicensed or decompiled code.
-  Record copied licensed sources, exact revisions, licenses, and changes in
-  `THIRD_PARTY_NOTICES.md`.
-- The user requires an orchestrator that delegates implementation plus two
-  sequential independent review rounds for every code milestone. Authors never
-  review their own code. Delegate focused work to `gpt-6-luna` and complex work,
-  integration and reviews to `gpt-6.1-sol`. Resolve findings and rerun relevant
-  checks before Git
-  milestones. Audit staged files and outgoing commits for private material.
-- Record task-owned process identities in ignored/external ownership records.
-  Stop children gracefully, wait for writes, then bounded TERM/KILL only for
-  verified owned processes. Recover stale records by checking process identity
-  before acting; never kill an application globally. Preserve inputs, saves,
-  caches, tools, and useful private evidence. Remove only owned scratch files.
-
-Onboarding must inspect current resources, network policy, available credentials,
-and existing instructions before changing setup. Save reusable installation and
-startup instructions through the environment configuration workflow. Repository
-implementation changes require an authorized coding task; this project was
-created under the user's explicit implementation request.
-
-## Engine fidelity evidence
-
-- For full-reconstruction work, analyze the actual PC game binary with REA and Ghidra before claiming engine fidelity. Record each binary SHA-256 and private evidence IDs for relevant function addresses, call links, structures, state, update order, timing and constants. Keep binaries, Ghidra databases and decompiled output private.
-- PC behavior is the baseline. Cross-check PS2 data/binary behavior and record platform differences. Validate static findings against the original runtime; treat an unvalidated decompilation as a hypothesis and leave missing behavior unknown. Never invent engine internals.
-- Maintain `COVERAGE.md` by subsystem. Keep data-format parsing, static binary findings, runtime observations and implementation status distinct. Reviewers must be able to trace public claims to private evidence IDs. Full-system completion requires evidence and validation across every listed subsystem, with gaps reported.
-- Every code milestone has two sequential independent review rounds. Both rounds check requirements, correctness, integration and verification evidence; the second checks the final revised diff. Fidelity reviews also check binary/evidence traceability and whether behavior claims exceed validation. Authors do not review their own code.
+- Keep code and documentation in English; communicate with the user in Czech.
+- This is a Rust workspace. Keep the engine, gameplay and rendering in Rust; use wgpu, Vulkan on Linux and Metal on macOS. Avoid adding large frameworks or runtime dependencies without a concrete need.
+- Target the user's original, legally obtained PC installation as game data. Do not require the original executable or REA at runtime. Keep game files, extracted/converted assets, binaries, private URLs, credentials, analysis databases and decompiler output outside Git. Use synthetic public fixtures.
+- REA is the mandatory primary reverse-engineering tool, with Ghidra where supported. Record binary hashes, function addresses, evidence and confidence privately. Separate file-format findings, static analysis, implementation and original-runtime validation. Do not infer runtime behavior from decompiler output alone.
+- Keep README, coverage and progress documentation concise and evidence-based. State the current Rust rewrite status independently of useful historical analysis or prototype evidence.
+- Use pinned dependencies and `Cargo.lock`. Run `scripts/test.sh` for workspace changes. Report build, logic, rendered and interactive verification separately; do not claim features that were not exercised.
+- Work on the designated task branch (currently `rust-engine`) by default in the current checkout. Do not create additional worktrees or CI workflows unless requested.
+- The orchestrator assigns each implementation milestone to one owner. Use focused Luna 6 (`gpt-6-luna`) tasks and Sol 6.1 (`gpt-6.1-sol`) for complex work, integration and reviews. Every substantial code milestone receives two sequential independent reviews; authors do not review their own work, findings are fixed between rounds, and reviewers verify the final revised diff.
+- Preserve history and user work; never force-push. Audit staged files and outgoing commits for private data.
+- Track task-owned processes and temporary state. Stop only verified task-owned processes gracefully, then use bounded termination if needed. Preserve user files, inputs, saves, caches, tools and useful evidence; remove only owned scratch files.
