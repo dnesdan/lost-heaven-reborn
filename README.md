@@ -3,6 +3,8 @@
 <!-- generated-function-progress:start -->
 As of 2026-10-21 · snapshot `RUST-SCOPED-PORTS-20261021-02`.
 
+<p align="center"><img src="docs/progress.svg" alt="Progress dashboard: static retained pseudocode, reviewed scoped Rust entries, and strict system verification" width="100%"></p>
+
 | Original binary | Retained pseudocode | Full contracts | Full Rust ports | Differential runtime verified |
 | --- | ---: | ---: | ---: | ---: |
 | Game.exe | 55 / 4,914 (1.12%) | N/A | N/A | N/A |

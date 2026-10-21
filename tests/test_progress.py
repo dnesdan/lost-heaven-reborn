@@ -26,6 +26,62 @@ class ProgressTests(unittest.TestCase):
         self.assertIn('**0/12**', text)
         self.assertIn('not game-completion percentages', text)
 
+    def test_svg_reports_distinct_metrics_and_unknown_scoped_denominator(self):
+        svg = progress.render_svg(self.snapshot)
+        self.assertIn('55 / 4,914 · 1.12%', svg)
+        self.assertIn('48 / 1,683 · 2.85%', svg)
+        self.assertIn('6 entries · 5 contracts', svg)
+        self.assertIn('eligible denominator unknown', svg)
+        self.assertIn('0 / 12', svg)
+        self.assertIn('not a game-completion percentage', svg)
+        self.assertIn('aria-labelledby="dashboard-title dashboard-desc"', svg)
+
+    def test_svg_is_deterministic_and_history_uses_frozen_inventory_counts(self):
+        svg = progress.render_svg(self.snapshot)
+        self.assertEqual(svg, progress.render_svg(copy.deepcopy(self.snapshot)))
+        self.assertIn('Game 9/4,914; LS3DF 45/1,683', svg)
+        self.assertIn('Game 55/4,914; LS3DF 48/1,683', svg)
+        self.assertIn('viewBox="0 0 840 580"', svg)
+
+    def test_svg_omits_history_with_different_inventory_denominators(self):
+        snapshot = copy.deepcopy(self.snapshot)
+        snapshot['history'][0]['libraries'][1]['inventory_total'] = 1700
+        svg = progress.render_svg(snapshot)
+        self.assertNotIn('Game 9/4,914; LS3DF 45/1,683', svg)
+        self.assertIn('Game 55/4,914; LS3DF 48/1,683', svg)
+
+    def test_svg_canvas_grows_for_additional_comparable_history_rows(self):
+        snapshot = copy.deepcopy(self.snapshot)
+        third = copy.deepcopy(snapshot['history'][-1])
+        third['snapshot_id'] = 'synthetic-comparable-history'
+        third['libraries'][0]['retained_pseudocode'] = 56
+        third['libraries'][1]['retained_pseudocode'] = 49
+        snapshot['history'].append(third)
+        svg = progress.render_svg(snapshot)
+        self.assertIn('y="540" class="history"', svg)
+        self.assertIn('y="588" class="detail"', svg)
+        self.assertIn('viewBox="0 0 840 602"', svg)
+        self.assertGreater(svg.index('y="588" class="detail"'), svg.index('y="540" class="history"'))
+
+    def test_svg_fallback_history_row_does_not_overlap_footer(self):
+        snapshot = copy.deepcopy(self.snapshot)
+        for row in snapshot['history']:
+            for library in row['libraries']:
+                library['inventory_total'] = None
+        svg = progress.render_svg(snapshot)
+        self.assertIn('No frozen snapshots match', svg)
+        self.assertIn('y="496" class="history"', svg)
+        self.assertIn('y="526" class="detail"', svg)
+
+    def test_svg_zero_static_percentage_has_no_nonzero_fill(self):
+        snapshot = copy.deepcopy(self.snapshot)
+        snapshot['libraries'][0]['retained_pseudocode'] = 0
+        snapshot['libraries'][0]['retained_entries'] = []
+        svg = progress.render_svg(snapshot)
+        self.assertIn('0 / 4,914 · 0.00%', svg)
+        self.assertIn('x="60" y="235" width="320" height="10"', svg)
+        self.assertNotIn('x="60" y="235" width="2.00"', svg)
+
     def test_duplicate_canonical_entry_is_rejected(self):
         row = self.snapshot['libraries'][0]
         row['retained_entries'].append(row['retained_entries'][0])
@@ -77,6 +133,13 @@ class ProgressTests(unittest.TestCase):
             self.assertEqual(before, after)
             with patch.object(progress, 'ROOT', root):
                 self.assertEqual(progress.main(['--write']), 0)
+                self.assertEqual(progress.main(['--check']), 0)
+                expected_svg = progress.render_svg(self.snapshot)
+                (root / 'docs/progress.svg').write_text('stale svg')
+                self.assertEqual(progress.main(['--check']), 1)
+                self.assertEqual((root / 'docs/progress.svg').read_text(), 'stale svg')
+                self.assertEqual(progress.main(['--write']), 0)
+                self.assertEqual((root / 'docs/progress.svg').read_text(), expected_svg)
                 self.assertEqual(progress.main(['--check']), 0)
             self.assertTrue((root / 'README.md').read_text().endswith('\nsuffix'))
 

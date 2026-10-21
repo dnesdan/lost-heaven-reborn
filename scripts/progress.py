@@ -2,6 +2,7 @@
 """Validate one public snapshot and render progress offline; --check never writes."""
 import argparse
 from datetime import date
+from html import escape
 import json
 from pathlib import Path
 import re
@@ -10,6 +11,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 START = '<!-- generated-function-progress:start -->'
 END = '<!-- generated-function-progress:end -->'
+README_DASHBOARD = '<p align="center"><img src="docs/progress.svg" alt="Progress dashboard: static retained pseudocode, reviewed scoped Rust entries, and strict system verification" width="100%"></p>'
 SHA = re.compile(r'[0-9a-f]{64}\Z')
 RVA = re.compile(r'0x[0-9a-f]+\Z')
 
@@ -168,7 +170,10 @@ def ratio(value, total):
 
 
 def render(snapshot, include_history=False):
-    lines = [START, f"As of {snapshot['as_of']} · snapshot `{snapshot['snapshot_id']}`.", '',
+    lines = [START, f"As of {snapshot['as_of']} · snapshot `{snapshot['snapshot_id']}`.", '']
+    if not include_history:
+        lines += [README_DASHBOARD, '']
+    lines += [
              '| Original binary | Retained pseudocode | Full contracts | Full Rust ports | Differential runtime verified |',
              '| --- | ---: | ---: | ---: | ---: |']
     for row in snapshot['libraries']:
@@ -194,6 +199,98 @@ def render(snapshot, include_history=False):
             lines.append(f"| `{row['snapshot_id']}` | {row['as_of']} | {counts} | {scoped} | {row['systems']['verified']}/{row['systems']['total']} |")
     lines.append(END)
     return '\n'.join(lines)
+
+
+def render_svg(snapshot):
+    """Render an accessible, self-contained dashboard from the validated snapshot."""
+    rows = {row['name']: row for row in snapshot['libraries']}
+    game, ls3df = rows.get('Game.exe'), rows.get('LS3DF.dll')
+    ports = snapshot['scoped_ports']
+    entry_count = sum(len(port['functions']) for port in ports)
+    systems = snapshot['systems']
+    palette = {'ink': '#142b3b', 'muted': '#506577', 'paper': '#f3f7f8', 'card': '#ffffff',
+               'line': '#d4e0e5', 'blue': '#176b87', 'green': '#33765a', 'amber': '#9a5a12',
+               'track': '#e2ebee', 'softblue': '#e6f2f6', 'softgreen': '#e9f3ed', 'softamber': '#f8efe2'}
+
+    def percentage(row):
+        if row is None or row['inventory_total'] is None:
+            return None
+        return 100 * row['retained_pseudocode'] / row['inventory_total']
+
+    def count_label(row):
+        if row is None:
+            return 'Unknown'
+        total = row['inventory_total']
+        return (f"{row['retained_pseudocode']:,} / {total:,} · {percentage(row):.2f}%"
+                if total is not None else f"{row['retained_pseudocode']:,} / unknown")
+
+    def card(x, y, label, value, detail, accent, percent=None):
+        bar = ''
+        if percent is not None:
+            length = 320 * percent / 100
+            if length > 0:
+                bar = (f'<rect class="bar-track" x="{x+24}" y="{y+123}" width="320" height="10" rx="5" fill="{palette["track"]}"/>'
+                       f'<rect x="{x+24}" y="{y+123}" width="{length:.2f}" height="10" rx="5" fill="{accent}"/>')
+            else:
+                bar = f'<rect class="bar-track" x="{x+24}" y="{y+123}" width="320" height="10" rx="5" fill="{palette["track"]}"/>'
+        return (f'<g><rect class="card-bg" x="{x}" y="{y}" width="372" height="148" rx="16" fill="{palette["card"]}" stroke="{palette["line"]}"/>'
+                f'<rect x="{x}" y="{y}" width="7" height="148" rx="3" fill="{accent}"/>'
+                f'<text x="{x+24}" y="{y+39}" class="label">{escape(label)}</text>'
+                f'<text x="{x+24}" y="{y+82}" class="value">{escape(value)}</text>'
+                f'<text x="{x+24}" y="{y+105}" class="detail">{escape(detail)}</text>{bar}</g>')
+
+    game_percent, ls_percent = percentage(game), percentage(ls3df)
+    cards = ''.join([
+        card(36, 112, 'GAME.EXE · STATIC RETAINED PSEUDOCODE', count_label(game), 'Default-profile inventory · not semantic coverage', palette['blue'], game_percent),
+        card(432, 112, 'LS3DF.DLL · STATIC RETAINED PSEUDOCODE', count_label(ls3df), 'Explicit profile union · not semantic coverage', palette['green'], ls_percent),
+        card(36, 278, 'REVIEWED SCOPED RUST PORTS', f'{entry_count} entries · {len(ports)} contracts', 'Absolute scoped counts · eligible denominator unknown', palette['amber']),
+        card(432, 278, 'STRICT FULL-SYSTEM VERIFICATION', f"{systems['verified']} / {systems['total']}", 'Verified complete systems · strict evidence gate', palette['muted'])
+    ])
+
+    history = []
+    previous_counts = None
+    for item in snapshot['history']:
+        libs = {row['name']: row for row in item['libraries']}
+        g, l = libs.get('Game.exe'), libs.get('LS3DF.dll')
+        if (g and g['inventory_total'] is not None and g['inventory_total'] > 0 and
+                g['inventory_total'] == (game or {}).get('inventory_total') and
+                l and l['inventory_total'] is not None and l['inventory_total'] > 0 and
+                l['inventory_total'] == (ls3df or {}).get('inventory_total')):
+            counts = (g['retained_pseudocode'], g['inventory_total'], l['retained_pseudocode'], l['inventory_total'])
+            if counts != previous_counts:
+                history.append(f"{item['as_of']}: Game {g['retained_pseudocode']:,}/{g['inventory_total']:,}; LS3DF {l['retained_pseudocode']:,}/{l['inventory_total']:,}")
+                previous_counts = counts
+    history_lines = ''.join(f'<text x="36" y="{496 + index*22}" class="history">{escape(line)}</text>' for index, line in enumerate(history))
+    if not history_lines:
+        history_lines = '<text x="36" y="496" class="history">No frozen snapshots match the current inventory denominators.</text>'
+    footer_first = 496 + max(1, len(history)) * 22 + 8
+    footer_second = footer_first + 18
+    canvas_height = footer_second + 14
+    date_label = escape(snapshot['as_of'])
+    return f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 840 {canvas_height}" role="img" aria-labelledby="dashboard-title dashboard-desc">
+<title id="dashboard-title">Mafia Rust reconstruction progress evidence</title>
+<desc id="dashboard-desc">As of {date_label}. Static retained pseudocode: {escape(count_label(game))} for Game.exe and {escape(count_label(ls3df))} for LS3DF.dll. {entry_count} reviewed scoped Rust entries across {len(ports)} contracts with an unknown eligible-function denominator. Strict full-system verification: {systems['verified']} of {systems['total']}. These measures are separate and are not a game-completion percentage.</desc>
+<style>
+text{{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;fill:{palette['ink']}}}
+.kicker{{font-size:14px;font-weight:700;letter-spacing:1.1px;fill:{palette['muted']}}}
+.title{{font-size:28px;font-weight:750;letter-spacing:-.35px}}
+.label{{font-size:13px;font-weight:750;letter-spacing:.5px;fill:{palette['muted']}}}
+.value{{font-size:25px;font-weight:750;letter-spacing:-.4px}}
+.detail{{font-size:13px;fill:{palette['muted']}}}
+.history{{font-size:13px;fill:{palette['muted']}}}
+.dark-bg{{display:none}}
+@media(prefers-color-scheme:dark){{.light-bg{{display:none}}.dark-bg{{display:inline}}text{{fill:#edf4f6}}.kicker,.label,.detail,.history{{fill:#b3c5ce}}.card-bg{{fill:#172b39;stroke:#3b5361}}.bar-track{{fill:#314957}}}}
+</style>
+<rect class="light-bg" width="840" height="{canvas_height}" rx="24" fill="{palette['paper']}"/>
+<rect class="dark-bg" width="840" height="{canvas_height}" rx="24" fill="#0d1b25"/>
+<text x="36" y="38" class="kicker">LOST HEAVEN REBORN · EVIDENCE SNAPSHOT · {date_label}</text>
+<text x="36" y="75" class="title">Progress measures, separate denominators</text>
+{cards}
+<text x="36" y="469" class="kicker">FROZEN STATIC HISTORY · MATCHING INVENTORY DENOMINATORS</text>
+{history_lines}
+<text x="36" y="{footer_first}" class="detail">Static analysis is not implementation coverage; scoped ports are not whole-function credits.</text>
+<text x="36" y="{footer_second}" class="detail">Full-system verification is not an overall completion estimate.</text>
+</svg>'''
 
 
 def replace_fragment(text, fragment, filename):
@@ -226,6 +323,12 @@ def main(argv=None):
                 if args.write:
                     path.write_text(new)
                 changes.append(filename)
+        svg_path = ROOT / 'docs/progress.svg'
+        svg = render_svg(snapshot)
+        if not svg_path.exists() or svg_path.read_text() != svg:
+            if args.write:
+                svg_path.write_text(svg)
+            changes.append('docs/progress.svg')
         if changes and args.check:
             print('Stale generated progress: ' + ', '.join(changes), file=sys.stderr)
             return 1

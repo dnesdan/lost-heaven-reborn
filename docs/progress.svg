@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 840 580" role="img" aria-labelledby="dashboard-title dashboard-desc">
+<title id="dashboard-title">Mafia Rust reconstruction progress evidence</title>
+<desc id="dashboard-desc">As of 2026-10-21. Static retained pseudocode: 55 / 4,914 · 1.12% for Game.exe and 48 / 1,683 · 2.85% for LS3DF.dll. 6 reviewed scoped Rust entries across 5 contracts with an unknown eligible-function denominator. Strict full-system verification: 0 of 12. These measures are separate and are not a game-completion percentage.</desc>
+<style>
+text{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;fill:#142b3b}
+.kicker{font-size:14px;font-weight:700;letter-spacing:1.1px;fill:#506577}
+.title{font-size:28px;font-weight:750;letter-spacing:-.35px}
+.label{font-size:13px;font-weight:750;letter-spacing:.5px;fill:#506577}
+.value{font-size:25px;font-weight:750;letter-spacing:-.4px}
+.detail{font-size:13px;fill:#506577}
+.history{font-size:13px;fill:#506577}
+.dark-bg{display:none}
+@media(prefers-color-scheme:dark){.light-bg{display:none}.dark-bg{display:inline}text{fill:#edf4f6}.kicker,.label,.detail,.history{fill:#b3c5ce}.card-bg{fill:#172b39;stroke:#3b5361}.bar-track{fill:#314957}}
+</style>
+<rect class="light-bg" width="840" height="580" rx="24" fill="#f3f7f8"/>
+<rect class="dark-bg" width="840" height="580" rx="24" fill="#0d1b25"/>
+<text x="36" y="38" class="kicker">LOST HEAVEN REBORN · EVIDENCE SNAPSHOT · 2026-10-21</text>
+<text x="36" y="75" class="title">Progress measures, separate denominators</text>
+<g><rect class="card-bg" x="36" y="112" width="372" height="148" rx="16" fill="#ffffff" stroke="#d4e0e5"/><rect x="36" y="112" width="7" height="148" rx="3" fill="#176b87"/><text x="60" y="151" class="label">GAME.EXE · STATIC RETAINED PSEUDOCODE</text><text x="60" y="194" class="value">55 / 4,914 · 1.12%</text><text x="60" y="217" class="detail">Default-profile inventory · not semantic coverage</text><rect class="bar-track" x="60" y="235" width="320" height="10" rx="5" fill="#e2ebee"/><rect x="60" y="235" width="3.58" height="10" rx="5" fill="#176b87"/></g><g><rect class="card-bg" x="432" y="112" width="372" height="148" rx="16" fill="#ffffff" stroke="#d4e0e5"/><rect x="432" y="112" width="7" height="148" rx="3" fill="#33765a"/><text x="456" y="151" class="label">LS3DF.DLL · STATIC RETAINED PSEUDOCODE</text><text x="456" y="194" class="value">48 / 1,683 · 2.85%</text><text x="456" y="217" class="detail">Explicit profile union · not semantic coverage</text><rect class="bar-track" x="456" y="235" width="320" height="10" rx="5" fill="#e2ebee"/><rect x="456" y="235" width="9.13" height="10" rx="5" fill="#33765a"/></g><g><rect class="card-bg" x="36" y="278" width="372" height="148" rx="16" fill="#ffffff" stroke="#d4e0e5"/><rect x="36" y="278" width="7" height="148" rx="3" fill="#9a5a12"/><text x="60" y="317" class="label">REVIEWED SCOPED RUST PORTS</text><text x="60" y="360" class="value">6 entries · 5 contracts</text><text x="60" y="383" class="detail">Absolute scoped counts · eligible denominator unknown</text></g><g><rect class="card-bg" x="432" y="278" width="372" height="148" rx="16" fill="#ffffff" stroke="#d4e0e5"/><rect x="432" y="278" width="7" height="148" rx="3" fill="#506577"/><text x="456" y="317" class="label">STRICT FULL-SYSTEM VERIFICATION</text><text x="456" y="360" class="value">0 / 12</text><text x="456" y="383" class="detail">Verified complete systems · strict evidence gate</text></g>
+<text x="36" y="469" class="kicker">FROZEN STATIC HISTORY · MATCHING INVENTORY DENOMINATORS</text>
+<text x="36" y="496" class="history">2026-10-21: Game 9/4,914; LS3DF 45/1,683</text><text x="36" y="518" class="history">2026-10-21: Game 55/4,914; LS3DF 48/1,683</text>
+<text x="36" y="548" class="detail">Static analysis is not implementation coverage; scoped ports are not whole-function credits.</text>
+<text x="36" y="566" class="detail">Full-system verification is not an overall completion estimate.</text>
+</svg>
