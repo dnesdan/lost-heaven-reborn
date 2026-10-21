@@ -159,15 +159,82 @@ impl<'a> Reader<'a> {
     }
 }
 pub fn parse_four_ds(b: &[u8]) -> Result<Model> {
-    parse_four_ds_impl(b, false)
+    parse_four_ds_impl(b, false, false).map(|(model, _)| model)
 }
 /// Broader scene intake: retains material effects as metadata and accepts sector,
 /// light and target frames. Callers must implement or explicitly report material
 /// effects; this does not promise identical original rendering or simulation.
 pub fn parse_four_ds_scene(b: &[u8]) -> Result<Model> {
-    parse_four_ds_impl(b, true)
+    parse_four_ds_impl(b, true, false).map(|(model, _)| model)
 }
-fn parse_four_ds_impl(b: &[u8], scene: bool) -> Result<Model> {
+/// Validated original single-root position-animation intake. The original
+/// LoadAnimCount remains attached; this type must not enter a static-only path.
+#[derive(Debug, Clone)]
+pub struct PositionAnimatedModel {
+    model: Model,
+    load_animation_count: u8,
+    animation: animation::AnimationSet,
+}
+impl PositionAnimatedModel {
+    pub fn model(&self) -> &Model {
+        &self.model
+    }
+    pub fn load_animation_count(&self) -> u8 {
+        self.load_animation_count
+    }
+    pub fn animation(&self) -> &animation::AnimationSet {
+        &self.animation
+    }
+    /// Moves geometry and animation together with the original count metadata.
+    pub fn into_parts(self) -> (Model, u8, animation::AnimationSet) {
+        (self.model, self.load_animation_count, self.animation)
+    }
+}
+
+/// Separately admits original 4DS LoadAnimCount1 with a complete, matching 5DS
+/// position-only set. Static intake keeps rejecting all nonzero counts. This
+/// validates source compatibility, not model finalization or rendered playback.
+pub fn parse_four_ds_position_animation(
+    model_bytes: &[u8],
+    animation_bytes: &[u8],
+) -> Result<PositionAnimatedModel> {
+    let (model, load_animation_count) = parse_four_ds_impl(model_bytes, false, true)?;
+    if load_animation_count != 1 || model.frames.len() != 1 {
+        return err("position animation requires original count1 and one root frame");
+    }
+    let frame = &model.frames[0];
+    if frame.kind != 1
+        || frame.visual != Some(0)
+        || frame.parent.is_some()
+        || frame.instance.is_some()
+        || frame.lods.len() != 1
+    {
+        return err("position animation requires one root standard mesh and one LOD");
+    }
+    let animation = animation::parse_5ds(animation_bytes)?;
+    if animation.tracks.len() != 1 || animation.duration_ms() == 0 {
+        return err("position animation requires one nonzero-duration track");
+    }
+    let track = &animation.tracks[0];
+    if !track.name.is_ascii() || track.name != frame.name.as_bytes() {
+        return err("position animation frame name mismatch");
+    }
+    let positions = track.position_only()?;
+    if positions
+        .key_times()
+        .last()
+        .is_some_and(|&last| last > animation.end_frame)
+    {
+        return err("position animation key exceeds duration");
+    }
+    Ok(PositionAnimatedModel {
+        model,
+        load_animation_count,
+        animation,
+    })
+}
+
+fn parse_four_ds_impl(b: &[u8], scene: bool, allow_animation: bool) -> Result<(Model, u8)> {
     if b.len() > MAX_BYTES {
         return err("4DS exceeds 64 MiB quota");
     }
@@ -408,7 +475,8 @@ fn parse_four_ds_impl(b: &[u8], scene: bool) -> Result<Model> {
             lods,
         });
     }
-    if r.u8()? != 0 {
+    let load_animation_count = r.u8()?;
+    if load_animation_count != 0 && !allow_animation {
         return err("animated model unsupported");
     };
     if r.p != b.len() {
@@ -434,7 +502,7 @@ fn parse_four_ds_impl(b: &[u8], scene: bool) -> Result<Model> {
     if unsupported_billboard {
         return err(UNSUPPORTED_BILLBOARD);
     }
-    Ok(Model { materials, frames })
+    Ok((Model { materials, frames }, load_animation_count))
 }
 fn texture_name(r: &mut Reader<'_>) -> Result<String> {
     let name = r.string()?;
@@ -1139,5 +1207,67 @@ mod scene_model_tests {
                 .unwrap_err()
                 .is_unsupported_billboard()
         );
+    }
+}
+
+#[cfg(test)]
+mod position_animation_intake_tests {
+    use super::*;
+    fn pair() -> (Vec<u8>, Vec<u8>) {
+        let mut model = mesh_tests::mesh();
+        model[110] = 4;
+        model.splice(111..111, *b"Bone");
+        assert_eq!(parse_four_ds(&model).unwrap().frames[0].name, "Bone");
+        *model.last_mut().unwrap() = 1;
+        let mut payload = Vec::new();
+        payload.extend(1_u16.to_le_bytes());
+        payload.extend(10_u16.to_le_bytes());
+        payload.extend(12_u32.to_le_bytes());
+        payload.extend(17_u32.to_le_bytes());
+        payload.extend(b"Bone\0");
+        payload.extend(2_u32.to_le_bytes());
+        payload.extend(1_u16.to_le_bytes());
+        payload.extend(0_u16.to_le_bytes());
+        for value in [1_f32, 2., 3.] {
+            payload.extend(value.to_le_bytes());
+        }
+        let mut animation = b"5DS\0".to_vec();
+        animation.extend(20_u16.to_le_bytes());
+        animation.extend([0; 8]);
+        animation.extend((payload.len() as u32).to_le_bytes());
+        animation.extend(payload);
+        (model, animation)
+    }
+    #[test]
+    fn preserves_original_animation_count_and_static_rejection() {
+        let (model, animation) = pair();
+        assert!(parse_four_ds(&model).is_err());
+        assert!(parse_four_ds_scene(&model).is_err());
+        let source = parse_four_ds_position_animation(&model, &animation).unwrap();
+        assert_eq!(source.load_animation_count(), 1);
+        assert_eq!(source.model().frames[0].name, "Bone");
+        assert_eq!(source.animation().tracks[0].name, b"Bone");
+        assert_eq!(*model.last().unwrap(), 1);
+        let (geometry, count, set) = source.into_parts();
+        assert_eq!(count, 1);
+        assert_eq!(geometry.frames[0].name.as_bytes(), set.tracks[0].name);
+    }
+    #[test]
+    fn incompatible_or_truncated_original_pairs_fail() {
+        let (mut model, animation) = pair();
+        for count in [0, 2] {
+            *model.last_mut().unwrap() = count;
+            assert!(parse_four_ds_position_animation(&model, &animation).is_err());
+        }
+        *model.last_mut().unwrap() = 1;
+        let mut mismatch = animation.clone();
+        mismatch[30] = b'b';
+        assert!(parse_four_ds_position_animation(&model, &mismatch).is_err());
+        for len in 0..model.len() {
+            assert!(parse_four_ds_position_animation(&model[..len], &animation).is_err());
+        }
+        for len in 0..animation.len() {
+            assert!(parse_four_ds_position_animation(&model, &animation[..len]).is_err());
+        }
     }
 }
