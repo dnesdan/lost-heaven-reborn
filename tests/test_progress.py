@@ -20,6 +20,57 @@ class ProgressTests(unittest.TestCase):
         document = json.loads(snapshot_path.read_text())
         self.snapshot = document.get('function_progress', document)
 
+    def schema3_snapshot(self):
+        """Small valid migration fixture; historical schema-2 rows stay untouched."""
+        snapshot = copy.deepcopy(self.snapshot)
+        snapshot['schema_version'] = 3
+        snapshot['snapshot_id'] = 'SYNTHETIC-SETUP-INVENTORY-03'
+        snapshot['recount_sha256'] = 'c' * 64
+        for row in snapshot['libraries']:
+            row['inventory_basis'] = {'Game.exe': 'raw_profile_inventory',
+                                      'LS3DF.dll': 'raw_profile_union',
+                                      'rw_data.dll': 'unknown'}[row['name']]
+            row['inventory_profiles'] = {
+                'Game.exe': ['7810ea9437da59780820ec6fedb47ce47390841a95d527ddb6c3b3700fe180cb'],
+                'LS3DF.dll': ['0c1148c7491bbcdf5b3a0f9ea8ba9aad2523b95135b48b9e8385e31b815e1c1a',
+                              '20f79d3fb10ba69c5463530c8267a6e2a8f5d0d7232ea59fe159849342ec5d7e',
+                              '46301268618f6f9f27a2856e15858155a42599f674def681aa6a56df9fe13c64',
+                              '5fb8141f282b82b7a78df6b2d631f00eb93729605b53b333297ebfb4ff03fe9f'],
+                'rw_data.dll': []}[row['name']]
+        setup = copy.deepcopy(snapshot['libraries'][0])
+        setup.update({'name': 'Setup.exe (supplied configuration)',
+                      'binary_sha256': 'c6abff923ecedafc26be3f1abdb8fe286f3a0be1e787ea7b659b6c01a077d25d',
+                      'inventory_version': 'REA profile inventory',
+                      'inventory_membership_sha256': 'e0ccf8c5121747ba0608317068c72542b155fd2c758c784b518fd30f983e23df',
+                      'inventory_total': 172,
+                      'retained_entries': ['0x1410', '0x10a0', '0x14f0', '0x1210', '0x2c70',
+                                           '0x2cf0', '0x2d00', '0x2e00', '0x2ea0', '0x35f0'],
+                      'retained_pseudocode': 10,
+                      'semantic_contracts': None, 'rust_ported': None, 'differential_verified': None,
+                      'verified_code_bytes': None, 'scope': 'Static retained pseudocode only.',
+                      'accepted_functions': [], 'inventory_basis': 'in_image_non_thunk_procedures',
+                      'inventory_profiles': ['7810ea9437da59780820ec6fedb47ce47390841a95d527ddb6c3b3700fe180cb']})
+        snapshot['libraries'].append(setup)
+        snapshot['other_targets'] = [{'name': 'Setup.exe (archive installer bootstrap)',
+                                      'binary_sha256': 'e25cadc80ea5163e0f1c6fd703479469d9f23b47ade244fac5f22bcdb01b39bd',
+                                      'category': 'distribution_installer',
+                                      'status': 'static_inventory_recounted',
+                                      'inventory_profile': '7810ea9437da59780820ec6fedb47ce47390841a95d527ddb6c3b3700fe180cb',
+                                      'inventory_basis': 'in_image_non_thunk_procedures',
+                                      'inventory_membership_sha256': '27c2767e45bc4a202839bebda1c96224e0e77b36bf640ac8771d3c963d10759b',
+                                      'inventory_total': 376, 'retained_pseudocode': 1,
+                                      'retained_entries': ['0xb1cc']}]
+        latest = copy.deepcopy(snapshot['history'][-1])
+        latest['snapshot_id'] = snapshot['snapshot_id']
+        latest['as_of'] = snapshot['as_of']
+        latest['libraries'] = [{k: row[k] for k in ['name', 'binary_sha256', 'inventory_total', 'retained_pseudocode',
+                                                     'rust_ported', 'differential_verified', 'inventory_basis',
+                                                     'inventory_profiles', 'inventory_membership_sha256']}
+                               for row in snapshot['libraries']]
+        latest['history_prefix_sha256'] = progress.hash_history_prefix(snapshot['history'])
+        snapshot['history'].append(latest)
+        return snapshot
+
     def test_reviewed_baseline_is_not_game_completion(self):
         progress.validate(self.snapshot)
         text = progress.render(self.snapshot)
@@ -309,6 +360,163 @@ class ProgressTests(unittest.TestCase):
         row['accepted_functions'][0]['review_ids'] = ['same-review', 'same-review']
         with self.assertRaisesRegex(ValueError, 'two reviews'):
             progress.validate(self.snapshot)
+
+    def test_schema3_setup_basis_and_separate_installer_render_without_global_percent(self):
+        snapshot = self.schema3_snapshot()
+        progress.validate(snapshot)
+        markdown = progress.render(snapshot)
+        svg = progress.render_svg(snapshot)
+        self.assertIn('10 / 172 (5.81%)', markdown)
+        self.assertIn('In-image non-thunk procedures', markdown)
+        self.assertIn('archive installer bootstrap static inventory: **1 / 376 (0.27%)**', markdown)
+        self.assertIn('10 / 172 · 5.81%', svg)
+        self.assertIn('1 / 376 · 0.27%', svg)
+        self.assertIn('viewBox="0 0 840', svg)
+        self.assertNotIn('combined game percentage', markdown.lower())
+
+    def test_schema3_rejects_mixed_setup_denominator_or_false_unknown_percent(self):
+        snapshot = self.schema3_snapshot()
+        setup = snapshot['libraries'][-1]
+        setup['inventory_total'] = 236
+        snapshot['history'][-1]['libraries'][-1]['inventory_total'] = 236
+        with self.assertRaisesRegex(ValueError, '172-entry basis'):
+            progress.validate(snapshot)
+
+        snapshot = self.schema3_snapshot()
+        unknown = next(row for row in snapshot['libraries'] if row['name'] == 'rw_data.dll')
+        unknown['inventory_total'] = 12
+        snapshot['history'][-1]['libraries'][2]['inventory_total'] = 12
+        with self.assertRaisesRegex(ValueError, 'Unknown denominator'):
+            progress.validate(snapshot)
+
+    def test_schema3_installer_cannot_be_promoted_to_function_denominator(self):
+        snapshot = self.schema3_snapshot()
+        snapshot['other_targets'][0]['inventory_total'] = 1
+        with self.assertRaisesRegex(ValueError, '376-procedure'):
+            progress.validate(snapshot)
+
+    def test_schema3_latest_history_tracks_basis_but_old_history_shape_is_preserved(self):
+        snapshot = self.schema3_snapshot()
+        before = copy.deepcopy(snapshot['history'][:-1])
+        progress.validate(snapshot)
+        self.assertEqual(snapshot['history'][:-1], before)
+        snapshot['history'][0]['libraries'][0]['retained_pseudocode'] += 1
+        with self.assertRaisesRegex(ValueError, 'history is frozen'):
+            progress.validate(snapshot)
+
+        snapshot = self.schema3_snapshot()
+        snapshot['history'][-1]['libraries'][-1]['inventory_profiles'] = ['e' * 64]
+        with self.assertRaisesRegex(ValueError, 'history and current inventory bases disagree'):
+            progress.validate(snapshot)
+
+    def test_schema3_supports_chained_second_snapshot_and_rejects_prior_v3_tampering(self):
+        snapshot = self.schema3_snapshot()
+        second = copy.deepcopy(snapshot['history'][-1])
+        second['snapshot_id'] = 'SYNTHETIC-SETUP-INVENTORY-04'
+        second['as_of'] = '2026-10-22'
+        second['history_prefix_sha256'] = progress.hash_history_prefix(snapshot['history'])
+        snapshot['snapshot_id'] = second['snapshot_id']
+        snapshot['as_of'] = second['as_of']
+        snapshot['history'].append(second)
+        progress.validate(snapshot)
+        snapshot['history'][-2]['as_of'] = '2026-10-20'
+        with self.assertRaisesRegex(ValueError, 'append chain was modified'):
+            progress.validate(snapshot)
+
+    def test_schema3_second_append_revalidates_prior_identity_and_private_payload(self):
+        cases = [
+            ('inventory_profiles', ['/home/alice/private/profile.json'], 'known schema-3 historical inventory identity'),
+            ('binary_sha256', 'Bearer private-token', 'historical binary identity'),
+            ('inventory_basis', 'made_up_basis', 'historical denominator basis'),
+            ('rust_ported', 1_000_000, 'historical acceptance count'),
+            ('differential_verified', 1, 'Historical runtime count'),
+        ]
+        for field, value, message in cases:
+            with self.subTest(field=field):
+                snapshot = self.schema3_snapshot()
+                first_v3 = copy.deepcopy(snapshot['history'][-1])
+                second = copy.deepcopy(first_v3)
+                first_v3['snapshot_id'] = 'SYNTHETIC-OLDER-V3'
+                second['snapshot_id'] = 'SYNTHETIC-SETUP-INVENTORY-04'
+                second['as_of'] = '2026-10-22'
+                snapshot['history'][-1] = first_v3
+                snapshot['history'].append(second)
+                snapshot['snapshot_id'] = second['snapshot_id']
+                snapshot['as_of'] = second['as_of']
+                snapshot['history'][-2]['libraries'][0][field] = value
+                if field == 'differential_verified':
+                    snapshot['history'][-2]['libraries'][0]['rust_ported'] = None
+                for index in range(6, len(snapshot['history'])):
+                    snapshot['history'][index]['history_prefix_sha256'] = progress.hash_history_prefix(snapshot['history'][:index])
+                with self.assertRaisesRegex(ValueError, message):
+                    progress.validate(snapshot)
+
+        snapshot = self.schema3_snapshot()
+        first_v3 = copy.deepcopy(snapshot['history'][-1])
+        second = copy.deepcopy(first_v3)
+        first_v3['snapshot_id'] = 'SYNTHETIC-OLDER-V3'
+        second['snapshot_id'] = 'SYNTHETIC-SETUP-INVENTORY-04'
+        second['as_of'] = '2026-10-22'
+        snapshot['history'][-1] = first_v3
+        snapshot['history'].append(second)
+        snapshot['snapshot_id'] = second['snapshot_id']
+        snapshot['as_of'] = second['as_of']
+        snapshot['history'][-2]['scoped_ports'][0]['contract_id'] = '/private/secret.c'
+        for index in range(6, len(snapshot['history'])):
+            snapshot['history'][index]['history_prefix_sha256'] = progress.hash_history_prefix(snapshot['history'][:index])
+        with self.assertRaisesRegex(ValueError, 'historical scoped-port identity'):
+            progress.validate(snapshot)
+
+    def test_schema3_history_requires_profile_and_membership_identity_match(self):
+        snapshot = self.schema3_snapshot()
+        previous = copy.deepcopy(snapshot['history'][-1])
+        previous['snapshot_id'] = 'SYNTHETIC-OLDER-V3'
+        previous['libraries'][0]['inventory_profiles'] = ['e' * 64]
+        previous['libraries'][0]['inventory_membership_sha256'] = 'f' * 64
+        previous['history_prefix_sha256'] = progress.hash_history_prefix(snapshot['history'][:-1])
+        current = copy.deepcopy(snapshot['history'][-1])
+        current['history_prefix_sha256'] = progress.hash_history_prefix(snapshot['history'][:-1] + [previous])
+        snapshot['history'][-1] = previous
+        snapshot['history'].append(current)
+        snapshot['history'][-1]['snapshot_id'] = snapshot['snapshot_id']
+        progress.validate(snapshot)
+        svg = progress.render_svg(snapshot)
+        self.assertEqual(svg.count('Game 72/4,914; LS3DF 55/1,683'), 1)
+
+    def test_schema2_history_identity_bridge_is_receipt_and_snapshot_specific(self):
+        old = copy.deepcopy(self.snapshot['history'][0])
+        self.assertIsNotNone(progress.schema2_history_bridge(old, 'Game.exe'))
+        self.assertIsNotNone(progress.schema2_history_bridge(old, 'LS3DF.dll'))
+        changed_id = copy.deepcopy(old)
+        changed_id['snapshot_id'] = 'unknown-old-snapshot-with-same-denominators'
+        self.assertIsNone(progress.schema2_history_bridge(changed_id, 'Game.exe'))
+        changed_count = copy.deepcopy(old)
+        changed_count['libraries'][0]['retained_pseudocode'] = 10
+        self.assertIsNone(progress.schema2_history_bridge(changed_count, 'Game.exe'))
+
+    def test_schema3_2x3_dashboard_and_history_are_deterministic(self):
+        snapshot = self.schema3_snapshot()
+        first = progress.render_svg(snapshot)
+        self.assertEqual(first, progress.render_svg(copy.deepcopy(snapshot)))
+        self.assertIn('x="36" y="444"', first)
+        self.assertIn('x="432" y="444"', first)
+        self.assertIn('FROZEN STATIC HISTORY', first)
+        self.assertIn('Eligible scoped-function denominator: unknown', first)
+
+    def test_schema3_docs_history_keeps_regeneration_and_contract_detail(self):
+        snapshot = self.schema3_snapshot()
+        overview = progress.render(snapshot)
+        history = progress.render(snapshot, include_history=True)
+        for text in [overview, history]:
+            self.assertIn('python3 scripts/progress.py --write', text)
+            self.assertIn('python3 scripts/progress.py --check', text)
+        self.assertIn('[docs/PROGRESS.md](docs/PROGRESS.md)', overview)
+        self.assertIn('| Rust contract | Source | Original entries | Native-derived cases | Runtime use | Verified scope |', history)
+        port = snapshot['scoped_ports'][0]
+        self.assertIn(port['name'], history)
+        self.assertIn(f"[{port['source_path']}](../{port['source_path']})", history)
+        self.assertIn(f"| {port['cases']} |", history)
+        self.assertIn(port['scope'], history)
 
 
 if __name__ == '__main__':
