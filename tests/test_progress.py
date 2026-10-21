@@ -83,6 +83,61 @@ class ProgressTests(unittest.TestCase):
     def test_render_is_deterministic(self):
         self.assertEqual(progress.render(self.snapshot), progress.render(copy.deepcopy(self.snapshot)))
 
+    def test_scoped_ports_remain_separate_from_whole_function_credit(self):
+        snapshot = copy.deepcopy(self.snapshot)
+        snapshot['scoped_ports'] = snapshot['scoped_ports'][:2]
+        text = progress.render(snapshot)
+        self.assertIn('3 original entries across 2 reviewed contracts', text)
+        self.assertIn('20 cases', text)
+        self.assertIn('13 cases', text)
+        self.assertIn('Gameplay integration is pending', text)
+        for row in snapshot['libraries']:
+            self.assertIsNone(row['rust_ported'])
+            self.assertEqual(row['accepted_functions'], [])
+
+    def test_scoped_evidence_does_not_require_retained_pseudocode(self):
+        # NullTimer is an exact inventory member with instruction/oracle evidence;
+        # the frozen retained-pseudocode subset does not include it.
+        clock = self.snapshot['scoped_ports'][0]
+        self.assertEqual(clock['functions'][0]['entry_rva'], '0x720f0')
+        progress.validate(self.snapshot)
+        clock['functions'][0]['inventory_membership_sha256'] = '0' * 64
+        with self.assertRaisesRegex(ValueError, 'unproven scoped'):
+            progress.validate(self.snapshot)
+
+    def test_scoped_duplicate_entry_normalizes_rva_spelling(self):
+        entries = self.snapshot['scoped_ports'][0]['functions']
+        duplicate = copy.deepcopy(entries[0])
+        duplicate['entry_rva'] = '0x0720f0'
+        entries.append(duplicate)
+        with self.assertRaisesRegex(ValueError, 'Duplicate'):
+            progress.validate(self.snapshot)
+
+    def test_scoped_acceptance_requires_two_distinct_review_artifacts(self):
+        reviews = self.snapshot['scoped_ports'][0]['reviews']
+        reviews[1]['sha256'] = reviews[0]['sha256']
+        with self.assertRaisesRegex(ValueError, 'two distinct reviews'):
+            progress.validate(self.snapshot)
+
+    def test_scoped_history_must_match_current_acceptance(self):
+        self.snapshot['history'][-1]['scoped_ports'][0]['cases'] += 1
+        with self.assertRaisesRegex(ValueError, 'Scoped-port snapshot and history'):
+            progress.validate(self.snapshot)
+
+    def test_scoped_scope_and_comparison_are_required(self):
+        for field, value in [('scope', ''), ('cases', 0), ('integration', 'complete')]:
+            snapshot = copy.deepcopy(self.snapshot)
+            snapshot['scoped_ports'][0][field] = value
+            with self.assertRaises(ValueError):
+                progress.validate(snapshot)
+        self.snapshot['scoped_ports'][0]['comparison']['sha256'] = 'missing'
+        with self.assertRaisesRegex(ValueError, 'evidence identity'):
+            progress.validate(self.snapshot)
+
+    def test_source_links_are_relative_to_each_generated_document(self):
+        self.assertIn('](crates/lhr-engine/src/clock.rs)', progress.render(self.snapshot))
+        self.assertIn('](../crates/lhr-engine/src/clock.rs)', progress.render(self.snapshot, include_history=True))
+
     def test_previous_history_is_validated(self):
         self.snapshot['history'][0]['libraries'][0]['retained_pseudocode'] = 10000
         with self.assertRaisesRegex(ValueError, 'historical static counts'):

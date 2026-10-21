@@ -14,10 +14,57 @@ SHA = re.compile(r'[0-9a-f]{64}\Z')
 RVA = re.compile(r'0x[0-9a-f]+\Z')
 
 
+def scoped_summary(ports):
+    return [{'contract_id': row['contract']['id'], 'source_commit': row['source_commit'],
+             'entries': len(row['functions']), 'cases': row['cases']} for row in ports]
+
+
+def validate_scoped_ports(ports, libraries):
+    """Scoped replacements do not confer whole-original-function acceptance."""
+    if not isinstance(ports, list):
+        raise ValueError('Scoped ports must be a list')
+    inventories = {row['binary_sha256']: row['inventory_membership_sha256'] for row in libraries}
+    entries, contract_ids = set(), set()
+    for port in ports:
+        if set(port) != {'name', 'source_path', 'source_commit', 'source_sha256', 'functions', 'contract', 'comparison', 'reviews', 'cases', 'scope', 'integration'}:
+            raise ValueError('Unexpected scoped-port fields')
+        if not re.fullmatch(r'crates/[a-z0-9-]+/src/[a-z0-9_]+\.rs', port['source_path']):
+            raise ValueError('Invalid scoped-port public source path')
+        if not re.fullmatch(r'[0-9a-f]{40}', port['source_commit']) or not SHA.fullmatch(port['source_sha256']):
+            raise ValueError('Invalid scoped-port source identity')
+        for field in ['name', 'scope']:
+            if not isinstance(port[field], str) or not port[field].strip() or any(c in port[field] for c in '\r\n|[]<>'):
+                raise ValueError('Invalid scoped-port text')
+        if type(port['cases']) is not int or port['cases'] <= 0 or port['integration'] != 'not_integrated':
+            raise ValueError('Scoped-port cases/integration require explicit bounded evidence')
+        if not isinstance(port['reviews'], list) or not isinstance(port['functions'], list):
+            raise ValueError('Scoped-port functions/reviews must be lists')
+        for evidence in [port['contract'], port['comparison'], *port['reviews']]:
+            if set(evidence) != {'id', 'sha256'} or not re.fullmatch(r'[A-Za-z0-9_-]+', evidence['id']) or not SHA.fullmatch(evidence['sha256']):
+                raise ValueError('Invalid scoped-port evidence identity')
+        if len(port['reviews']) != 2 or len({r['id'] for r in port['reviews']}) != 2 or len({r['sha256'] for r in port['reviews']}) != 2:
+            raise ValueError('Scoped ports require two distinct reviews')
+        if port['contract']['id'] in contract_ids or not port['functions']:
+            raise ValueError('Duplicate or empty scoped contract')
+        contract_ids.add(port['contract']['id'])
+        for function in port['functions']:
+            if set(function) != {'binary_sha256', 'entry_rva', 'rust_symbol', 'inventory_membership_sha256'}:
+                raise ValueError('Unexpected scoped function fields')
+            if not RVA.fullmatch(function['entry_rva']):
+                raise ValueError('Invalid scoped function RVA')
+            key = (function['binary_sha256'], int(function['entry_rva'], 16))
+            membership = function['inventory_membership_sha256']
+            if key in entries or not SHA.fullmatch(membership) or membership != inventories.get(key[0]):
+                raise ValueError('Duplicate or unproven scoped function entry')
+            if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)+', function['rust_symbol']):
+                raise ValueError('Invalid Rust symbol')
+            entries.add(key)
+
+
 def validate(snapshot):
-    if set(snapshot) != {'schema_version', 'snapshot_id', 'as_of', 'source_baseline', 'recount_sha256', 'libraries', 'systems', 'history'}:
+    if set(snapshot) != {'schema_version', 'snapshot_id', 'as_of', 'source_baseline', 'recount_sha256', 'libraries', 'systems', 'history', 'scoped_ports'}:
         raise ValueError('Unexpected public snapshot fields')
-    if snapshot['schema_version'] != 1:
+    if snapshot['schema_version'] != 2:
         raise ValueError('Unsupported progress schema')
     if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', snapshot['as_of']):
         raise ValueError('Invalid as-of date')
@@ -86,6 +133,11 @@ def validate(snapshot):
         raise ValueError('Duplicate history snapshot')
     for row in history:
         date.fromisoformat(row['as_of'])
+        for port in row.get('scoped_ports', []):
+            if set(port) != {'contract_id', 'source_commit', 'entries', 'cases'} or not re.fullmatch(r'[A-Za-z0-9_-]+', port['contract_id']) or not re.fullmatch(r'[0-9a-f]{40}', port['source_commit']):
+                raise ValueError('Invalid historical scoped-port identity')
+            if any(type(port[k]) is not int or port[k] <= 0 for k in ['entries', 'cases']):
+                raise ValueError('Invalid historical scoped-port counts')
         for library in row['libraries']:
             total, retained = library['inventory_total'], library['retained_pseudocode']
             if type(retained) is not int or retained < 0 or (total is not None and (type(total) is not int or total <= 0 or retained > total)):
@@ -94,6 +146,9 @@ def validate(snapshot):
     expected = [{k: row[k] for k in ['name', 'inventory_total', 'retained_pseudocode', 'rust_ported', 'differential_verified']} for row in snapshot['libraries']]
     if latest['snapshot_id'] != snapshot['snapshot_id'] or latest['as_of'] != snapshot['as_of'] or latest['libraries'] != expected or latest['systems'] != systems:
         raise ValueError('Current snapshot and history disagree')
+    validate_scoped_ports(snapshot['scoped_ports'], snapshot['libraries'])
+    if latest.get('scoped_ports', []) != scoped_summary(snapshot['scoped_ports']):
+        raise ValueError('Scoped-port snapshot and history disagree')
     # Public projection is strictly metadata. Reject accidental private locators.
     encoded = json.dumps(snapshot)
     if any(token in encoded.lower() for token in ['http://', 'https://', 'file://', 'pseudocode_text', 'decompiler_output']):
@@ -122,11 +177,21 @@ def render(snapshot, include_history=False):
     semantic_note = 'Full semantic-contract counts are unmeasured. ' if all(row['semantic_contracts'] is None for row in snapshot['libraries']) else ''
     lines += ['', f"Strict full-system gate: **{gate['verified']}/{gate['total']}**. These static activity ratios are not game-completion percentages. N/A means the whole-function acceptance audit is incomplete; rw_data has no frozen inventory denominator. LS3DF uses an explicit profile union. Accepted stages use absolute counts with an N/A denominator until eligible original functions are audited; raw analyzer inventories include externals and thunks. {semantic_note}Verified code-byte coverage is unmeasured. The campaign is not playable.", '',
               'Regenerate locally with `python3 scripts/progress.py --write`; verify without writes with `python3 scripts/progress.py --check`. Versioned snapshots are retained in `docs/progress.json`; milestone history is maintained in `docs/PROGRESS.md`.']
+    ports = snapshot['scoped_ports']
+    if ports:
+        entry_count = sum(len(port['functions']) for port in ports)
+        lines += ['', f"Accepted scoped Rust ports: **{entry_count} original entries across {len(ports)} reviewed contracts**. These preserve the stated domains and do not increase the whole-function figures above. Gameplay integration is pending.", '',
+                  '| Rust contract | Original entries | Native-derived validation cases | Verified scope |',
+                  '| --- | ---: | ---: | --- |']
+        for port in ports:
+            path = ('../' if include_history else '') + port['source_path']
+            lines.append(f"| [{port['name']}]({path}) | {len(port['functions'])} | {port['cases']} cases | {port['scope']} |")
     if include_history:
-        lines += ['', '| Frozen snapshot | As of | Retained static pseudocode | Complete systems |', '| --- | --- | --- | ---: |']
+        lines += ['', '| Frozen snapshot | As of | Retained static pseudocode | Scoped Rust entries | Complete systems |', '| --- | --- | --- | ---: | ---: |']
         for row in snapshot['history']:
             counts = '; '.join(f"{library['name']} {ratio(library['retained_pseudocode'], library['inventory_total'])}" for library in row['libraries'])
-            lines.append(f"| `{row['snapshot_id']}` | {row['as_of']} | {counts} | {row['systems']['verified']}/{row['systems']['total']} |")
+            scoped = sum(port['entries'] for port in row['scoped_ports']) if 'scoped_ports' in row else 'N/A'
+            lines.append(f"| `{row['snapshot_id']}` | {row['as_of']} | {counts} | {scoped} | {row['systems']['verified']}/{row['systems']['total']} |")
     lines.append(END)
     return '\n'.join(lines)
 

@@ -1,21 +1,25 @@
 {
   "updated_at": "2026-10-21",
-  "project_status": "Original-data Rust menu, static INTRO and bounded MISE01 spawn-neighborhood inspection verified on Linux; phase 2 accepted by two sequential independent reviews; campaign not playable",
+  "project_status": "Original-data Rust menu and static INTRO/MISE01 inspection; reviewed clock, Scene and IPol caller-control library contracts; gameplay integration pending and campaign not playable",
   "rust_toolchain": "1.99.1",
   "validation": {
-    "status": "scripts/test.sh passed phase 2 source freeze: 74 Rust tests and 9 REA wrapper tests; two sequential independent reviews accepted",
-    "rust_unit_tests": 74,
+    "status": "Clock, local Scene and IPol caller-control milestones each accepted by two sequential independent reviews; latest workspace suite passes 90 Rust, 9 REA wrapper and 23 progress tests.",
+    "rust_unit_tests": 90,
     "rust_unit_test_split": {
       "lhr_assets": 52,
-      "lhr_engine": 18,
+      "lhr_engine_library": 16,
+      "lhr_engine_application": 18,
       "lhr_render": 4
     },
     "rea_wrapper_tests": 9,
     "latest_accepted_baseline": {
-      "rust_unit_tests": 74,
+      "source_commit": "6fa388aba1071168209f1eac708dd6f37ede2a82",
+      "rust_unit_tests": 90,
       "rea_wrapper_tests": 9,
-      "milestone": "Static MISE01 spawn-neighborhood and original taxi inspection, accepted by two sequential independent reviews"
-    }
+      "progress_tests": 23,
+      "milestone": "Four original entries across three scoped library contracts; gameplay integration remains pending."
+    },
+    "progress_tests": 23
   },
   "assets": {
     "scope": "A8/A2/A6/A1/AA DTA subset; selected 4DS, BMP/TGA, menu/text/font, scene2, cache and script intake",
@@ -44,7 +48,7 @@
     "probe_results": "INTRO: 16 scripts halt on unsupported commands, one after advancing a prefix. MISE01: 37 halt, seven after advancing a prefix, two empty scripts complete. Prefix counts overlap halted counts.",
     "original_runtime_comparison": "PC-RUST-CONTROL-VM-RUNTIME-02 compares bounded COMMANDBLOCK and WAIT states against original runtime observations; GOTO/END and complete scheduler/caller chain unverified, replay observed only",
     "mission_execution": "not implemented",
-    "current_validation": "74 Rust tests (52 assets, 18 engine, 4 render) and 9 REA wrapper tests pass; static MISE01 neighborhood and taxi inspection only; two sequential independent reviews accepted"
+    "current_validation": "Reviewed static MISE01 neighborhood and taxi inspection remains the graphical baseline; new library tests do not establish mission execution."
   },
   "renderer": {
     "target": "wgpu Vulkan on Linux, Metal on macOS",
@@ -57,7 +61,7 @@
       "meaning": "Materials with unsupported effects; diagnostics do not mean every counted material is omitted in full"
     },
     "original_render_parity": "not established",
-    "macos_metal": "Apple arm64 cargo check passed for frozen phase 2 source; compilation only, no linking or Metal runtime"
+    "macos_metal": "Apple arm64 cargo check passed through IPol caller-control commit; compilation only, no linking or Metal runtime"
   },
   "campaign_playable": false,
   "historical_analysis": {
@@ -112,7 +116,7 @@
   "reset_boundary": "Former Godot prototype implementation/tests and original-game runtime traces are not counted as Rust behavior or validation.",
   "macos_validation": {
     "command": "cargo check --workspace --all-targets --target aarch64-apple-darwin --locked",
-    "result": "passed from cache for phase 2 frozen source",
+    "result": "passed through IPol caller-control commit",
     "scope": "Compilation only; no macOS link or Metal runtime"
   },
   "phase2": {
@@ -142,10 +146,10 @@
     ]
   },
   "function_progress": {
-    "schema_version": 1,
-    "snapshot_id": "pc-function-r2-20261021",
+    "schema_version": 2,
+    "snapshot_id": "RUST-SCOPED-PORTS-20261021-01",
     "as_of": "2026-10-21",
-    "source_baseline": "86d14801a91a5f8d9fc5880094ea9a9160c59522",
+    "source_baseline": "6fa388aba1071168209f1eac708dd6f37ede2a82",
     "recount_sha256": "9600f01bb93cd85ddfa537457a18387c292bccd913f9f3762754cc38c9a9c393",
     "libraries": [
       {
@@ -365,6 +369,170 @@
           "verified": 0,
           "total": 12
         }
+      },
+      {
+        "snapshot_id": "RUST-SCOPED-PORTS-20261021-01",
+        "as_of": "2026-10-21",
+        "libraries": [
+          {
+            "name": "Game.exe",
+            "inventory_total": 4914,
+            "retained_pseudocode": 55,
+            "rust_ported": null,
+            "differential_verified": null
+          },
+          {
+            "name": "rw_data.dll",
+            "inventory_total": null,
+            "retained_pseudocode": 6,
+            "rust_ported": null,
+            "differential_verified": null
+          },
+          {
+            "name": "LS3DF.dll",
+            "inventory_total": 1683,
+            "retained_pseudocode": 48,
+            "rust_ported": null,
+            "differential_verified": null
+          }
+        ],
+        "systems": {
+          "verified": 0,
+          "total": 12
+        },
+        "scoped_ports": [
+          {
+            "contract_id": "PC-CLOCK-ORACLE-STEP2-20261021",
+            "source_commit": "ed69df16899657065602a8a368f2f6abbda8d642",
+            "entries": 2,
+            "cases": 20
+          },
+          {
+            "contract_id": "PC-SCENE-ORACLE-STEP3-20261021",
+            "source_commit": "8c647af43989f23f28499a307668bef53ad9f59e",
+            "entries": 1,
+            "cases": 13
+          },
+          {
+            "contract_id": "PC-IPOL-CALLBACK-ORACLE-STEP3-20261021",
+            "source_commit": "6fa388aba1071168209f1eac708dd6f37ede2a82",
+            "entries": 1,
+            "cases": 31
+          }
+        ]
+      }
+    ],
+    "scoped_ports": [
+      {
+        "name": "Clock reset and elapsed time",
+        "source_path": "crates/lhr-engine/src/clock.rs",
+        "source_commit": "ed69df16899657065602a8a368f2f6abbda8d642",
+        "source_sha256": "de5eabcb49c2b29ba9511d96270cbc6f123447ae54e7686ec8b85b00bcdc7661",
+        "functions": [
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x720f0",
+            "rust_symbol": "lhr_engine::clock::EngineClock::reset_sample",
+            "inventory_membership_sha256": "82e5a161d38e2dd48c71c4f2570a60f32a4328b226e23b6345713cc6ce601b60"
+          },
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x72100",
+            "rust_symbol": "lhr_engine::clock::EngineClock::sample_delta",
+            "inventory_membership_sha256": "82e5a161d38e2dd48c71c4f2570a60f32a4328b226e23b6345713cc6ce601b60"
+          }
+        ],
+        "contract": {
+          "id": "PC-CLOCK-ORACLE-STEP2-20261021",
+          "sha256": "92e61950876affd7cfda011fe654886fd17bdc3d08d21ea347cdb88dc9ae19d1"
+        },
+        "comparison": {
+          "id": "PC-RUST-CLOCK-DIFFERENTIAL-STEP2-20261021",
+          "sha256": "35733977759b733eae42f79be0160a3e66b0b0a0a1bf045f622a29689ab4a8c0"
+        },
+        "reviews": [
+          {
+            "id": "RUST-CLOCK-REVIEW1-20261021",
+            "sha256": "9ef5cae4bdbeb3184f0a7f552f99b936c0f85dd0376baa774005bf129c5422fc"
+          },
+          {
+            "id": "RUST-CLOCK-REVIEW2-20261021",
+            "sha256": "d2ecdfd2d23fc647945cecdcf907dec88f3b416c506a2565ea186a004975ba55"
+          }
+        ],
+        "cases": 20,
+        "scope": "Serialized shared u32 clock with the standard sampling/sleep backend; no arbitrary IGraph overrides or caller lifecycle.",
+        "integration": "not_integrated"
+      },
+      {
+        "name": "Scene callback dispatch",
+        "source_path": "crates/lhr-engine/src/scene_tick.rs",
+        "source_commit": "8c647af43989f23f28499a307668bef53ad9f59e",
+        "source_sha256": "788a009ecab95ce08cd2266b38da07a02e9a8514a91e31c22d2f79f492e3521b",
+        "functions": [
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x4a0e0",
+            "rust_symbol": "lhr_engine::scene_tick::LocalScene::tick",
+            "inventory_membership_sha256": "82e5a161d38e2dd48c71c4f2570a60f32a4328b226e23b6345713cc6ce601b60"
+          }
+        ],
+        "contract": {
+          "id": "PC-SCENE-ORACLE-STEP3-20261021",
+          "sha256": "8e20c5526bd553249b6f51d34961bf7d72a8d28798a7e3e16d30326deb89c4eb"
+        },
+        "comparison": {
+          "id": "PC-RUST-SCENE-DISPATCH-STEP3-20261021",
+          "sha256": "0a8b1848c9eeb272ac48b6c66bf078e2bfbc2e69ddac60b11e4e0d9eec80ef8d"
+        },
+        "reviews": [
+          {
+            "id": "RUST-SCENE-REVIEW1-20261021",
+            "sha256": "ecc50b23cac377da3ebfe2bd68c59961d8c8e8edaecbee542ee231ab5b087a1b"
+          },
+          {
+            "id": "RUST-SCENE-REVIEW2-20261021",
+            "sha256": "1f6aaa9c5db467bd8c0a2e0b1a55fa2488e10f2ece37c54f19bf8653c209a418"
+          }
+        ],
+        "cases": 13,
+        "scope": "Immediate mutations and reentry in valid logical collections; animation and actor lifetime remain backend responsibilities.",
+        "integration": "not_integrated"
+      },
+      {
+        "name": "Interpolator callback control",
+        "source_path": "crates/lhr-engine/src/interpolator.rs",
+        "source_commit": "6fa388aba1071168209f1eac708dd6f37ede2a82",
+        "source_sha256": "495da78e52aa8f6228a44e66cc118b3ba1c4845703bf1c8bcd4106bc21c0f17a",
+        "functions": [
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x1e470",
+            "rust_symbol": "lhr_engine::interpolator::InterpolatorSet::tick",
+            "inventory_membership_sha256": "82e5a161d38e2dd48c71c4f2570a60f32a4328b226e23b6345713cc6ce601b60"
+          }
+        ],
+        "contract": {
+          "id": "PC-IPOL-CALLBACK-ORACLE-STEP3-20261021",
+          "sha256": "ece63c48896d3cfc0c0cc85fab3f8ecf56788bbaec1759b55f2c029db3fbe8c8"
+        },
+        "comparison": {
+          "id": "PC-RUST-IPOL-PROJECTIONS-STEP3-20261021",
+          "sha256": "cb9408b97fb3175af32bbad5e226b7f48892895e300296d74a30e8f767a34ae0"
+        },
+        "reviews": [
+          {
+            "id": "RUST-IPOL-REVIEW1-20261021",
+            "sha256": "47d3305e878fd2a016198508b0b839a44fcc12db0bc1bf6ce5feff4ec401f2d0"
+          },
+          {
+            "id": "RUST-IPOL-REVIEW2-20261021",
+            "sha256": "2d19059e34bb0e57c027e2d3136b3cf3b07d179068d050f80288cf7390d9fd45"
+          }
+        ],
+        "cases": 31,
+        "scope": "Caller control: 23 callback-observer and 8 scalar projections; evaluator math, poses and full note streams remain backend responsibilities.",
+        "integration": "not_integrated"
       }
     ]
   }
