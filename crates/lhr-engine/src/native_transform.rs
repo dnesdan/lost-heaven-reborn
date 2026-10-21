@@ -17,6 +17,21 @@ pub fn is_verified_scalar(value: f32) -> bool {
     value.is_finite() && (value == 0.0 || (1e-12..=1e12).contains(&value.abs()))
 }
 
+/// Descriptive mapping of the internal vector-length helper, RVA0x2f9f0.
+/// Returns zero below the native squared-length cutoff, and exactly one for
+/// squared lengths within 1e-8 of one. Callers must guard each input scalar.
+pub fn vector_length(vector: [f32; 3]) -> f32 {
+    let [x, y, z] = vector;
+    let squared = (x * x + y * y) + z * z;
+    if (squared.to_bits() as i32) < 0x322b_cc77 {
+        0.0
+    } else if (squared - 1.0).abs() < 1e-8 {
+        1.0
+    } else {
+        squared.sqrt()
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SMatrix {
     pub elements: [f32; 16],
@@ -136,6 +151,23 @@ impl SQuat {
         self.wxyz.iter().copied().all(is_verified_scalar)
     }
 
+    /// Descriptive mapping of the internal quaternion-composition helper,
+    /// RVA0x2fa70. Returns the WXYZ product without normalization; separate
+    /// products and sums retain the native association.
+    pub fn compose(self, right: Self) -> Self {
+        let [w, x, y, z] = self.wxyz;
+        let [rw, rx, ry, rz] = right.wxyz;
+        let dot = (z * rz + y * ry) + x * rx;
+        Self {
+            wxyz: [
+                w * rw - dot,
+                (rx * w + x * rw) + (rz * y - ry * z),
+                (ry * w + y * rw) + (rx * z - rz * x),
+                (rz * w + z * rw) + (ry * x - y * rx),
+            ],
+        }
+    }
+
     /// Original `S_quat::Normalize`, RVA0x30140, under the verified input policy.
     /// Degenerate input selects X, then Z, then Y, preserving other components;
     /// an all-zero quaternion therefore becomes [0,0,1,0], not identity.
@@ -171,6 +203,33 @@ impl SQuat {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn vector_length_cutoff_and_ordinary_values() {
+        assert_eq!(vector_length([0.; 3]).to_bits(), 0);
+        assert_eq!(vector_length([-0.; 3]).to_bits(), 0);
+        assert_eq!(vector_length([0.00001, 0., 0.]), 0.);
+        assert_eq!(vector_length([0.0001, 0., 0.]), 0.);
+        assert_eq!(vector_length([0.00011, 0., 0.]), 0.00011);
+        assert_eq!(vector_length([1., 0., 0.]), 1.);
+        assert_eq!(vector_length([3., 4., 0.]), 5.);
+    }
+
+    #[test]
+    fn quaternion_composition_preserves_order_and_does_not_normalize() {
+        let a = SQuat {
+            wxyz: [2., 3., 4., 5.],
+        };
+        let b = SQuat {
+            wxyz: [7., 11., 13., 17.],
+        };
+        assert_eq!(a.compose(b).wxyz, [-156., 46., 58., 64.]);
+        assert_eq!(b.compose(a).wxyz, [-156., 40., 50., 74.]);
+        let identity = SQuat {
+            wxyz: [1., 0., 0., 0.],
+        };
+        assert_eq!(a.compose(identity), a);
+    }
+
     #[test]
     fn availability_guard_rejects_unverified_exponent_ranges() {
         for value in [0., -0., 1e-12, -1e12, 0.75] {
