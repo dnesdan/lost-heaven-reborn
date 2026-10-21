@@ -1,12 +1,10 @@
 //! Original-data menu and static scene inspection; mission scripts are not executed.
+mod assembly;
 mod menu;
+mod neighborhood;
 use glam::{Mat4, Quat, Vec3};
 use lhr_render::{Camera, Mesh, Renderer, Scene, Texture, Vertex};
-use std::{
-    collections::{HashMap, HashSet},
-    path::PathBuf,
-    sync::Arc,
-};
+use std::{collections::HashSet, path::PathBuf, sync::Arc};
 use winit::{
     application::ApplicationHandler,
     event::{ElementState, MouseButton, WindowEvent},
@@ -154,12 +152,25 @@ fn material_effects_omitted(material: &lhr_assets::Material) -> bool {
         || material.opacity != 1.0
         || material.animation.is_some()
 }
-fn load(options: &Options) -> Result<Scene, String> {
+struct LoadedScene {
+    scene: Scene,
+    camera: Camera,
+}
+fn load(options: &Options) -> Result<LoadedScene, String> {
     let Some(root) = &options.root else {
-        return Ok(synthetic());
+        let scene = synthetic();
+        let camera = Camera::fit(&scene)?;
+        return Ok(LoadedScene { scene, camera });
     };
     let installation = lhr_assets::Installation::open(root)
         .map_err(|e| format!("Cannot open asset installation: {e}"))?;
+    if options
+        .mission
+        .as_deref()
+        .is_some_and(|m| m.eq_ignore_ascii_case("mise01"))
+    {
+        return neighborhood::load(&installation, &options.textures);
+    }
     let path = options.model.clone().unwrap_or_else(|| {
         format!(
             "missions/{}/scene.4ds",
@@ -183,176 +194,28 @@ fn load(options: &Options) -> Result<Scene, String> {
             .count();
         println!("Static scene subset: {} frames; {omitted} materials have effects not rendered; animation, lighting and mission scripts are not executed", model.frames.len());
     }
-    let mut transforms = Vec::new();
-    let mut meshes = Vec::new();
-    let mut scene_bytes = 0usize;
-    let mut texture_cache = HashMap::<(String, [bool; 2]), Arc<Texture>>::new();
-    const MAX_SCENE_BYTES: usize = 256 * 1024 * 1024;
-    for frame in &model.frames {
-        let rotation = source_rotation(frame.rotation_wxyz)?;
-        let local = Mat4::from_scale_rotation_translation(
-            Vec3::from_array(frame.scale),
-            rotation,
-            Vec3::from_array(frame.position),
-        );
-        let transform = if let Some(parent) = frame.parent {
-            *transforms
-                .get(parent)
-                .ok_or("Model parent ordering is unsupported")?
-                * local
-        } else {
-            local
-        };
-        if !transform.is_finite() {
-            return Err("Model transform overflow".into());
-        }
-        transforms.push(transform);
-        let geometry = if let Some(index) = frame.instance {
-            model.frames.get(index).ok_or("Invalid mesh instance")?
-        } else {
-            frame
-        };
-        let Some(lod) = geometry.lods.first() else {
-            continue;
-        };
-        for group in &lod.groups {
-            let geometry_bytes = lod
-                .vertices
-                .len()
-                .checked_mul(std::mem::size_of::<Vertex>())
-                .and_then(|n| {
-                    group
-                        .indices
-                        .len()
-                        .checked_mul(4)
-                        .and_then(|i| n.checked_add(i))
-                })
-                .ok_or("Scene size overflow")?;
-            if meshes.len() >= 4096 {
-                return Err("Scene exceeds draw quota".into());
-            }
-            charge_scene(&mut scene_bytes, geometry_bytes, MAX_SCENE_BYTES)?;
-
-            let Some(material) = model.materials.get(group.material) else {
-                if options.model.is_none() {
-                    continue;
-                }
-                return Err("Invalid model material reference".into());
-            };
-            let texture = if material.texture.is_empty() {
-                let mut rgba: Vec<u8> = material
-                    .diffuse
-                    .iter()
-                    .map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8)
-                    .collect();
-                rgba.push(255);
-                Some(Arc::new(Texture {
-                    width: 1,
-                    height: 1,
-                    repeat: [false, false],
-                    rgba,
-                }))
-            } else {
-                let name = format!("{}/{}", options.textures, material.texture);
-                let repeat = [material.flags & 0x10000 == 0, material.flags & 0x20000 == 0];
-                let key = (name.to_ascii_lowercase(), repeat);
-                if let Some(texture) = texture_cache.get(&key) {
-                    Some(texture.clone())
-                } else {
-                    let bytes = installation
-                        .read(&name)
-                        .map_err(|_| "A model texture is unavailable")?;
-                    let width = bytes
-                        .get(18..22)
-                        .and_then(|b| b.try_into().ok())
-                        .map(i32::from_le_bytes)
-                        .filter(|&n| n > 0)
-                        .ok_or("Invalid BMP width")? as usize;
-                    let height = bytes
-                        .get(22..26)
-                        .and_then(|b| b.try_into().ok())
-                        .map(i32::from_le_bytes)
-                        .filter(|&n| n != 0 && n != i32::MIN)
-                        .ok_or("Invalid BMP height")?
-                        .unsigned_abs() as usize;
-                    let texture_bytes = width
-                        .checked_mul(height)
-                        .and_then(|n| n.checked_mul(4))
-                        .ok_or("Texture size overflow")?;
-                    charge_scene(&mut scene_bytes, texture_bytes, MAX_SCENE_BYTES)?;
-                    let decoded = match lhr_assets::decode_bmp_original(&bytes) {
-                        Ok(decoded) => decoded,
-                        Err(error) if options.model.is_none() => {
-                            eprintln!("Static subset: {name} unavailable ({error}); source diffuse color fallback");
-                            let mut rgba: Vec<u8> = material
-                                .diffuse
-                                .iter()
-                                .map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8)
-                                .collect();
-                            rgba.push(255);
-                            lhr_assets::Texture {
-                                width: 1,
-                                height: 1,
-                                rgba,
-                            }
-                        }
-                        Err(error) => {
-                            return Err(format!(
-                                "Model texture {name} is unsupported or malformed: {error}"
-                            ))
-                        }
-                    };
-                    let texture = Arc::new(Texture {
-                        width: decoded.width,
-                        height: decoded.height,
-                        rgba: decoded.rgba,
-                        repeat,
-                    });
-                    texture_cache.insert(key, texture.clone());
-                    Some(texture)
-                }
-            };
-            // Explicit source-to-engine conversion: preserve X/Y, reflect Z. Reverse
-            // each triangle to retain its orientation after the handedness change.
-            let vertices = lod
-                .vertices
-                .iter()
-                .map(|v| {
-                    Ok(Vertex {
-                        position: engine_position(transform, v.position)?,
-                        uv: v.uv,
-                    })
-                })
-                .collect::<Result<Vec<_>, String>>()?;
-            let indices = group
-                .indices
-                .as_chunks::<3>()
-                .0
-                .iter()
-                .flat_map(|t| [t[0], t[2], t[1]])
-                .collect();
-            meshes.push(Mesh {
-                vertices,
-                indices,
-                texture,
-            });
-        }
-    }
-    if meshes.is_empty() {
-        return Err("Selected model contains no supported visible geometry".into());
-    }
-    Ok(Scene { meshes })
-}
-fn authored_camera(options: &Options, scene: &Scene, name: &str) -> Result<Camera, String> {
-    let mut camera = Camera::fit(scene)?;
-    let Some(root) = &options.root else {
-        return Ok(camera);
+    let mut builder = assembly::SceneBuilder::new(&installation, &options.textures);
+    builder.append(&model, Mat4::IDENTITY, None, options.model.is_some(), None)?;
+    let scene = builder.finish()?;
+    let camera = if options.model.is_some() {
+        Camera::fit(&scene)?
+    } else {
+        authored_camera(
+            &installation,
+            &scene,
+            options.mission.as_deref().unwrap_or("00menu"),
+            "intro_pos",
+        )?
     };
-    if options.model.is_some() {
-        return Ok(camera);
-    }
-    let installation = lhr_assets::Installation::open(root).map_err(|e| e.to_string())?;
-    let mission = options.mission.as_deref().unwrap_or("00menu");
+    Ok(LoadedScene { scene, camera })
+}
+fn authored_camera(
+    installation: &lhr_assets::Installation,
+    scene: &Scene,
+    mission: &str,
+    name: &str,
+) -> Result<Camera, String> {
+    let mut camera = Camera::fit(scene)?;
     let bytes = installation
         .read(&format!("missions/{mission}/scene2.bin"))
         .map_err(|e| e.to_string())?;
@@ -430,16 +293,7 @@ impl App {
             AppMode::FirstMissionScene => Some("mise01".into()),
             _ => None,
         };
-        let mut scene = load(&self.options)?;
-        let camera = authored_camera(
-            &self.options,
-            &scene,
-            if mode == AppMode::Menu {
-                "intro_pos"
-            } else {
-                "camera_start"
-            },
-        )?;
+        let LoadedScene { mut scene, camera } = load(&self.options)?;
         if mode == AppMode::Menu {
             scene
                 .meshes
@@ -707,8 +561,7 @@ impl ApplicationHandler for App {
 }
 fn run() -> Result<(), String> {
     let options = options()?;
-    let mut scene = load(&options)?;
-    let camera = authored_camera(&options, &scene, "intro_pos")?;
+    let LoadedScene { mut scene, camera } = load(&options)?;
     let ui = match &options.root {
         Some(root) if options.model.is_none() && options.mission.is_none() => {
             let installation = lhr_assets::Installation::open(root).map_err(|e| e.to_string())?;

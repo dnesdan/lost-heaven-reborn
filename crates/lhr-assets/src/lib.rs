@@ -21,6 +21,16 @@ pub use tga::decode_tga;
 const MAX_BYTES: usize = 64 * 1024 * 1024;
 #[derive(Debug, Clone)]
 pub struct Error(pub String);
+const UNSUPPORTED_BILLBOARD: &str =
+    "unsupported visual type 4; only standard static mesh supported";
+impl Error {
+    /// True only after a complete model passed supported structural validation,
+    /// including the billboard mesh and its five opaque axis/mode bytes. Other
+    /// unsupported visuals, malformed payloads and truncated files return false.
+    pub fn is_unsupported_billboard(&self) -> bool {
+        self.0 == UNSUPPORTED_BILLBOARD
+    }
+}
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.0)
@@ -246,6 +256,7 @@ fn parse_four_ds_impl(b: &[u8], scene: bool) -> Result<Model> {
     let mut frames = Vec::new();
     let mut total_vertices = 0usize;
     let mut total_indices = 0usize;
+    let mut unsupported_billboard = false;
     for _ in 0..count {
         let kind = r.u8()?;
         if kind != 1 && kind != 6 && !(scene && [2, 5, 7, 12].contains(&kind)) {
@@ -255,9 +266,12 @@ fn parse_four_ds_impl(b: &[u8], scene: bool) -> Result<Model> {
         let mut render_flags = 0;
         let mut logic_flags = 0;
         if let Some(visual) = visual {
-            if visual > 1 {
-                return err("unsupported visual type; only standard static mesh supported");
+            if visual > 1 && visual != 4 {
+                return Err(Error(format!(
+                    "unsupported visual type {visual}; only standard static mesh supported"
+                )));
             };
+            unsupported_billboard |= visual == 4;
             render_flags = r.u8()?;
             logic_flags = r.u8()?;
         }
@@ -372,6 +386,12 @@ fn parse_four_ds_impl(b: &[u8], scene: bool) -> Result<Model> {
                 }
             }
         }
+        // A billboard shares the standard mesh/instance layout, then always
+        // stores five additional axis/mode bytes, including for mesh instances.
+        // Consume and validate extents, but never return it as a renderable model.
+        if visual == Some(4) {
+            r.take(5)?;
+        }
         frames.push(Frame {
             kind,
             visual,
@@ -409,6 +429,9 @@ fn parse_four_ds_impl(b: &[u8], scene: bool) -> Result<Model> {
         {
             return err("invalid or chained mesh instance");
         }
+    }
+    if unsupported_billboard {
+        return err(UNSUPPORTED_BILLBOARD);
     }
     Ok(Model { materials, frames })
 }
@@ -1033,5 +1056,87 @@ mod scene_model_tests {
             "Šťěšž"
         );
         assert!(decode_windows1250(&[0x81]).is_err());
+    }
+    fn billboard() -> Vec<u8> {
+        let mut bytes = super::mesh_tests::mesh();
+        assert_eq!(&bytes[63..65], &[1, 0]);
+        bytes[64] = 4;
+        let end = bytes.len() - 1;
+        bytes.splice(end..end, [0; 5]);
+        bytes
+    }
+    #[test]
+    fn unsupported_billboard_is_classified_only_after_complete_validation() {
+        let bytes = billboard();
+        assert!(
+            parse_four_ds_scene(&bytes)
+                .unwrap_err()
+                .is_unsupported_billboard()
+        );
+        for n in 0..bytes.len() {
+            assert!(
+                !parse_four_ds_scene(&bytes[..n])
+                    .unwrap_err()
+                    .is_unsupported_billboard(),
+                "{n}"
+            );
+        }
+        let mut trailing = bytes.clone();
+        trailing.push(0);
+        assert!(
+            !parse_four_ds_scene(&trailing)
+                .unwrap_err()
+                .is_unsupported_billboard()
+        );
+        let mut cyclic = bytes.clone();
+        cyclic[67..69].copy_from_slice(&1u16.to_le_bytes());
+        assert!(
+            !parse_four_ds_scene(&cyclic)
+                .unwrap_err()
+                .is_unsupported_billboard()
+        );
+        let mut bad_index = bytes;
+        let index_offset = bad_index.len() - 14;
+        bad_index[index_offset..index_offset + 2].copy_from_slice(&1u16.to_le_bytes());
+        assert!(
+            !parse_four_ds_scene(&bad_index)
+                .unwrap_err()
+                .is_unsupported_billboard()
+        );
+    }
+    #[test]
+    fn other_unsupported_visuals_are_distinct_from_billboards() {
+        for visual in [2, 3, 5, 255] {
+            let mut bytes = super::mesh_tests::mesh();
+            bytes[64] = visual;
+            let error = parse_four_ds_scene(&bytes).unwrap_err();
+            assert!(!error.is_unsupported_billboard());
+            assert!(error.0.contains(&format!("visual type {visual};")));
+        }
+    }
+    #[test]
+    fn billboard_instance_requires_its_own_mode_payload() {
+        let mut bytes = super::mesh_tests::mesh();
+        let mut instance = bytes[63..112].to_vec();
+        instance[1] = 4;
+        instance.extend(1u16.to_le_bytes());
+        instance.extend([0; 5]);
+        let end = bytes.len() - 1;
+        bytes.splice(end..end, instance);
+        bytes[61..63].copy_from_slice(&2u16.to_le_bytes());
+        assert!(
+            parse_four_ds_scene(&bytes)
+                .unwrap_err()
+                .is_unsupported_billboard()
+        );
+        // Removing just the instance's axis/mode bytes must be a truncation,
+        // rather than an unsupported billboard that callers may deliberately skip.
+        let end = bytes.len() - 1;
+        bytes.drain(end - 5..end);
+        assert!(
+            !parse_four_ds_scene(&bytes)
+                .unwrap_err()
+                .is_unsupported_billboard()
+        );
     }
 }

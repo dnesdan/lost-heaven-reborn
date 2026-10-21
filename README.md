@@ -1,6 +1,6 @@
 # Lost Heaven Reborn
 
-An independent Rust reimplementation of the Mafia: The City of Lost Heaven (2002) engine and game. The current build reads a user's original PC installation, displays the Czech PC menu layout and assets, and renders bounded static scenes. It does not yet execute the original intro, missions, or gameplay. The long-term goal is a complete campaign using the user's own legally obtained game data. No game assets are included.
+An independent Rust reimplementation of the Mafia: The City of Lost Heaven (2002) engine and game. The current build reads a user's original PC installation, displays the Czech PC menu layout and assets, and renders bounded static scenes. MISE01 inspection now assembles a small neighborhood around the authored player spawn with the original static taxi. It does not execute the cinematic, missions, or gameplay. The long-term goal is a complete campaign using the user's own legally obtained game data. No game assets are included.
 
 ## Build and run
 
@@ -20,9 +20,9 @@ Build the native engine binary with `cargo build --locked -p lhr-engine` from th
 ./scripts/run.sh --root /path/to/Mafia --model models/4build101.4ds
 ```
 
-The first command opens the Rust-rendered original menu. Up/Down and Enter select options; only New Game and Exit work, and there is no profile chooser. New Game switches to a static intro scene; Escape switches to a static MISE01 inspection scene. This temporary inspection path does not play the original video/cinematic or execute missions/gameplay. Add `--headless --capture /tmp/scene.png` to either inspection command for a one-frame GPU capture, or `--frames N` to bound a window run. Camera inspection uses arrow keys and W/S. See [coverage](COVERAGE.md) for exact evidence and limits.
+The first command opens the Rust-rendered original menu. Up/Down and Enter select options; only New Game and Exit work, and there is no profile chooser. New Game switches to a static intro scene; Escape switches to the bounded MISE01 spawn-neighborhood inspection. This temporary inspection path does not play the original video/cinematic or execute missions or gameplay. Add `--headless --capture /tmp/scene.png` to either inspection command for a one-frame GPU capture, or `--frames N` to bound a window run. Camera inspection uses arrow keys and W/S. See [coverage](COVERAGE.md) for exact evidence and limits.
 
-`setup.sh --graphics` prepares the Linux software Vulkan tools used for development captures. `scripts/test.sh` passes 61 Rust tests and 9 REA wrapper tests. On Linux x86_64, X11 input has been checked through menu, static INTRO and static MISE01 inspection; this is not original cutscene or gameplay execution. macOS builds are intended but Metal has not been tested. iOS is a future compatibility target. The original game's executable and REA are not gameplay runtime dependencies.
+`setup.sh --graphics` prepares the Linux software Vulkan tools used for development captures. `scripts/test.sh` passes 74 Rust tests and 9 REA wrapper tests. On Linux x86_64, X11 input has been checked through menu, static INTRO and the MISE01 neighborhood, including orbit and reload. An Apple arm64 cargo check passes, but macOS linking and Metal runtime have not been tested. iOS is a future compatibility target. The original game's executable and REA are not gameplay runtime dependencies.
 
 ## Reverse engineering and assets
 

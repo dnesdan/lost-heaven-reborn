@@ -1,20 +1,20 @@
 {
   "updated_at": "2026-10-21",
-  "project_status": "Original-data Rust menu and static scene inspection verified on Linux; two independent reviews accepted; campaign not playable",
+  "project_status": "Original-data Rust menu, static INTRO and bounded MISE01 spawn-neighborhood inspection verified on Linux; phase 2 accepted by two sequential independent reviews; campaign not playable",
   "rust_toolchain": "1.99.1",
   "validation": {
-    "status": "scripts/test.sh passed current milestone; two independent reviews accepted",
-    "rust_unit_tests": 61,
+    "status": "scripts/test.sh passed phase 2 source freeze: 74 Rust tests and 9 REA wrapper tests; two sequential independent reviews accepted",
+    "rust_unit_tests": 74,
     "rust_unit_test_split": {
-      "lhr_assets": 49,
-      "lhr_engine": 8,
+      "lhr_assets": 52,
+      "lhr_engine": 18,
       "lhr_render": 4
     },
     "rea_wrapper_tests": 9,
     "latest_accepted_baseline": {
-      "rust_unit_tests": 27,
+      "rust_unit_tests": 74,
       "rea_wrapper_tests": 9,
-      "milestone": "DTA intake, accepted by two sequential independent reviews"
+      "milestone": "Static MISE01 spawn-neighborhood and original taxi inspection, accepted by two sequential independent reviews"
     }
   },
   "assets": {
@@ -23,41 +23,41 @@
     "read_fallback": "Selected source read errors do not fall back; stricter than native fallback behavior",
     "checksum_verification": false,
     "audio_codecs": "unsupported",
-    "scene_streaming": "not implemented",
+    "scene_streaming": "Bounded MISE01 inspection crop only; native streaming, visibility, pooling and PVS not implemented",
     "collision": "not implemented",
     "directory_assumption": "Trusted stable installation tree required; not descriptor-relative confinement against hostile concurrent parent replacement"
   },
   "menu": {
     "implementation": "Czech PC menu layout/localization display and keyboard/pointer selection",
-    "current_validation": "Linux X11 input and captures frozen; Down selects Exit, Up selects New Game, Enter/mouse opens static INTRO, Escape opens static MISE01 then returns to menu",
+    "current_validation": "Linux X11 input and captures frozen; Down selects Exit, Up selects New Game, Enter/mouse opens static INTRO, Escape opens MISE01 spawn neighborhood, orbit/reload verified, Escape returns to menu",
     "profile_chooser": "not implemented",
     "unsupported_menu_actions": "not implemented",
-    "new_game_flow": "Static intro scene; Escape switches to static MISE01 inspection. No cinematic or mission execution.",
+    "new_game_flow": "Static intro geometry; Escape switches to static MISE01 spawn-neighborhood inspection with original static taxi, then returns to menu. No cinematic or mission execution.",
     "intro_cutscene": "not implemented",
     "original_reference_runtime": "Menu-to-prolog-to-first-mission HUD verified in the original game only; not Rust gameplay evidence"
   },
   "scene_and_scripts": {
     "scene2": "Bounded object, actor and embedded script metadata parsing",
-    "city_cache": "Bounded placement parsing; no streaming",
+    "city_cache": "Bounded inspection crop: 64 selected of 200 placements within 120 source units, 62 loaded, 2 validated billboard placements skipped; no native streaming, visibility, pooling or PVS",
     "script_intake": "Observed actor serialization and line-oriented command parsing; no expression evaluation",
     "diagnostic_vm_subset": "One bounded step per program for literal LABEL/GOTO/GOSUB/RETURN/WAIT/COMMANDBLOCK/END (PC-RUST-CONTROL-VM-01); not integrated with actors, world effects or mission progression",
     "probe_results": "INTRO: 16 scripts halt on unsupported commands, one after advancing a prefix. MISE01: 37 halt, seven after advancing a prefix, two empty scripts complete. Prefix counts overlap halted counts.",
     "original_runtime_comparison": "PC-RUST-CONTROL-VM-RUNTIME-02 compares bounded COMMANDBLOCK and WAIT states against original runtime observations; GOTO/END and complete scheduler/caller chain unverified, replay observed only",
     "mission_execution": "not implemented",
-    "current_validation": "61 Rust tests and 9 REA wrapper tests pass; diagnostic probe does not execute gameplay"
+    "current_validation": "74 Rust tests (52 assets, 18 engine, 4 render) and 9 REA wrapper tests pass; static MISE01 neighborhood and taxi inspection only; two sequential independent reviews accepted"
   },
   "renderer": {
     "target": "wgpu Vulkan on Linux, Metal on macOS",
-    "latest_accepted_baseline": "Linux llvmpipe offscreen rendering and bounded Xvfb camera inspection",
-    "current_menu_scene_validation": "Linux X11 captures and keyboard/mouse transitions frozen; approximate static scenes, not gameplay",
+    "latest_accepted_baseline": "Linux llvmpipe offscreen rendering and bounded Xvfb camera inspection; phase 1 accepted by two reviews",
+    "current_menu_scene_validation": "Linux X11 captures and keyboard/mouse transitions frozen; MISE01 spawn-neighborhood crop, orbit, and repeat-load pixels verified; approximate static scenes, not gameplay",
     "omitted_effect_material_counts": {
       "MENU": 33,
       "INTRO": 12,
-      "MISE01": 39,
-      "meaning": "Materials with unsupported effects, not all fully omitted materials"
+      "MISE01": 62,
+      "meaning": "Materials with unsupported effects; diagnostics do not mean every counted material is omitted in full"
     },
     "original_render_parity": "not established",
-    "macos_metal": "not tested"
+    "macos_metal": "Apple arm64 cargo check passed for frozen phase 2 source; compilation only, no linking or Metal runtime"
   },
   "campaign_playable": false,
   "historical_analysis": {
@@ -69,19 +69,21 @@
     "verified": 0,
     "total": 12,
     "percent": 0,
-    "meaning": "Strict evidence gate; not an overall remake completion estimate."
+    "meaning": "Strict original full-system evidence gate, preserving the prior 12-subsystem registry; not an overall remake completion estimate."
   },
   "rea_evidence": [
     "PC-RUST-BOOTSTRAP-001",
     "PC-RUST-ARCHIVE-001",
     "PC-RUST-MENU-001",
     "PC-RUST-CONTROL-VM-01",
-    "PC-RUST-CONTROL-VM-RUNTIME-02"
+    "PC-RUST-CONTROL-VM-RUNTIME-02",
+    "PC-RUST-CITY-CACHE-001"
   ],
   "rust_milestone_evidence_indexes": [
     "RUST-ENGINE-EVIDENCE-INDEX-20261021",
     "RUST-DTA-MILESTONE-EVIDENCE-20261021",
-    "RUST-MENU-SCENE-MILESTONE-EVIDENCE-20261021"
+    "RUST-MENU-SCENE-MILESTONE-EVIDENCE-20261021",
+    "RUST-MISE01-NEIGHBORHOOD-MILESTONE-EVIDENCE-20261021"
   ],
   "historical_runtime_trace": "40 animation API time units measured as 40 milliseconds on one unscaled path; not a universal timing rule.",
   "history": [
@@ -98,7 +100,45 @@
       "milestone": "Added lazy reads from selected original DTA archives",
       "verification": "27 Rust tests and 9 REA wrapper tests passed; two sequential independent reviews accepted",
       "analysis_snapshot": "PC-RUST-ARCHIVE-001; 20,229 entries compared against private prototype decoder, not independent source extraction or original runtime"
+    },
+    {
+      "revision": "d5e3754b7c26a0b408f051a825114208de2a3b36",
+      "date": "2026-10-21",
+      "milestone": "Added original Czech menu and bounded static INTRO/MISE01 scene inspection",
+      "verification": "61 Rust tests (49 assets, 8 engine, 4 renderer) and 9 REA wrapper tests passed; two sequential independent reviews accepted",
+      "analysis_snapshot": "PC-RUST-MENU-001 and PC-RUST-CONTROL-VM-01; static menu/scene and bounded control evidence only, campaign not playable"
     }
   ],
-  "reset_boundary": "Former Godot prototype implementation/tests and original-game runtime traces are not counted as Rust behavior or validation."
+  "reset_boundary": "Former Godot prototype implementation/tests and original-game runtime traces are not counted as Rust behavior or validation.",
+  "macos_validation": {
+    "command": "cargo check --workspace --all-targets --target aarch64-apple-darwin --locked",
+    "result": "passed from cache for phase 2 frozen source",
+    "scope": "Compilation only; no macOS link or Metal runtime"
+  },
+  "phase2": {
+    "status": "Implementation and evidence frozen; two sequential independent reviews accepted",
+    "evidence_manifest": "/workspace/lhr-private/rust-menu-validation-phase2/manifest.sha256",
+    "evidence_manifest_sha256": "bdc73ebd069eca94111e1621568c7111194ddb14b1281b054c6411574b043995",
+    "final_record": "/workspace/lhr-private/rust-menu-validation-phase2/FINAL.json",
+    "final_record_sha256": "3e8f5e73aa2dc9109e7fc3528043a6c17b44fd33ffee4f89e21ee0dc05098aef",
+    "neighborhood_contract": "PC-RUST-MISE01-NEIGHBORHOOD-001",
+    "taxi_contract": "PC-RUST-MISE01-TAXI-001",
+    "cache_transform_contract": "PC-RUST-CITY-CACHE-001",
+    "cache_transform_contract_sha256": "54efd7ef4f28458627587aed015e7dd3d5e545cc9dd5df04db9da0d2ca865253",
+    "selection": "64 of 200 cache placements within radius 120; 62 loaded, 2 validated billboard placements skipped",
+    "static_taxi_model_roots": 15,
+    "draws": 394,
+    "budgeted_geometry_texture_bytes": 12403012,
+    "encoded_model_bytes": 5373178,
+    "parsed_all_lod_model_bytes": 9119125,
+    "shared_cache_models": 30,
+    "unsupported_or_unverified": [
+      "native streaming/visibility/pooling/PVS",
+      "filename substitution outside the selected crop",
+      "original gameplay camera",
+      "collision, physics, driving, AI, traffic",
+      "mission execution and actor effects",
+      "lighting, alpha and reflection effects"
+    ]
+  }
 }
