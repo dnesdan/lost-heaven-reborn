@@ -73,3 +73,7 @@ If spawning or a requested model is unavailable, report the exact limitation; ne
 
 
 [Private input source footer redacted in full.]
+
+## Supplemental reconstruction requirements
+
+The latest user steering adds a mandatory full faithful engine/game reconstruction goal. Use REA and Ghidra to analyze the actual PC binary, recording its SHA-256 and traceable function addresses, calls, layouts, state, update order, timing, and constants in private evidence. Use PC as the baseline and cross-check PS2 behavior and platform differences. Validate static findings against the original runtime; do not invent unverified engine internals. Maintain `COVERAGE.md` for all major game subsystems, separating parser evidence, static binary analysis, implementation, runtime validation, and gaps. Full-system coverage, not a vertical slice, is the completion criterion. Require two sequential independent review rounds for every code milestone, including checks that fidelity claims cite evidence and match validation. Keep original assets, URLs, binaries, decompiled code, and analysis databases private. This is a summary of the latest steering, not a verbatim transcript.

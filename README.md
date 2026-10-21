@@ -6,10 +6,11 @@ with enter/exit and prototype driving, checkpoints, failure, completion, and
 restart. It contains no Mafia models, animation, text, or audio. Vehicle handling
 is an approximation; fidelity to the original game has not been established.
 
-Local validation: 24 synthetic Python tests and 25 headless Godot assertions pass;
+Local validation: 24 Python tests, 6 synthetic model/converter tests (including
+a headless GLB load), and 25 gameplay Godot assertions pass;
 the Linux export starts independently with no script errors. The actual district,
 player, car, checkpoint and HUD were inspected in a Mobile/Vulkan llvmpipe capture.
-Private evidence stays outside the checkout. Public CI has not been executed yet.
+Private evidence stays outside the checkout. Verification uses local synthetic tests.
 
 Linux uses Mobile/Vulkan. A verified software Vulkan renderer is suitable for
 development captures; Xvfb itself supplies no GPU acceleration. Headless tests
@@ -19,13 +20,13 @@ pause/resume, and device behavior require Apple hardware and Xcode validation.
 
 ## Commands
 
-Run from the checkout on Linux with Python 3, curl, unzip, and sha512sum:
+Run from the checkout on Linux with Python 3, Node.js 20.11+, curl, unzip, and sha512sum:
 
 ```sh
 ./scripts/setup.sh                  # official pinned engine + matching templates
 ./scripts/setup.sh --graphics       # also unpack verified graphics tools on Debian 13 x86_64
 ./scripts/run.sh                    # requires a working Vulkan display
-./scripts/test.sh                   # public synthetic Python + headless Godot tests
+./scripts/test.sh                   # synthetic Python/Node + headless Godot tests
 ./scripts/capture.sh                # private isolated X11/Vulkan screenshot
 ./scripts/export.sh Linux           # build/linux/lost-heaven-reborn.x86_64
 ./build/linux/lost-heaven-reborn.x86_64
@@ -34,8 +35,7 @@ Run from the checkout on Linux with Python 3, curl, unzip, and sha512sum:
 The exported game runs independently of the editor and analysis tools on a host
 with writable user data and a Vulkan driver. In this restricted cloud shell,
 `source scripts/common.sh` before starting the exported binary supplies writable
-XDG locations. The public CI workflow uses only synthetic tests/resources;
-workflow configuration is not evidence that GitHub Actions has executed it.
+XDG locations. Local tests use only synthetic fixtures and resources.
 
 Capture additionally needs Xvfb, xdotool and ImageMagick (`import`); video recording
 can use ffmpeg. On Debian/Ubuntu the system
@@ -79,16 +79,49 @@ The manifests identify bytes, not authenticated game editions.
 `lhr-level-v1` validates separate scene/collision metadata in meters and a
 right-handed Y-up coordinate system. Objects have unique IDs, finite positions,
 optional rotation/positive scale, relative GLB model paths, box collision, and
-JSON metadata. Public tests generate synthetic fixtures. This validator does not
-convert DTA/4DS/5DS, validate GLB skeletons/materials, or load original assets into
-the game. No proprietary-format converter has been implemented or validated.
+JSON metadata. This validator does not extract archives or load original assets
+into the game.
 
-Next: identify the provided PC edition, extract one model with a compatible
-licensed tool, validate axes/scale/materials and skeleton/animation timing against
-private reference captures, then integrate an original district and car. Install
-Wine/emulator/REA/Ghidra only for a specific validated reference-analysis need.
-PC and PS2 reference runs, behavior comparisons, original-asset milestones, and
-Apple hardware checks remain outstanding until their prerequisites are available.
+An external extracted PC 4DS v29 model can be converted with the read-only MIT
+parser tooling. No npm installation is needed:
+
+```sh
+./scripts/convert-model.sh --source /private/model.4ds --textures /private/maps --output /private/new-model
+./scripts/inspect-model.sh /private/new-model/model.glb --output /private/new-capture
+```
+
+The output directory must be new and its parent must exist. Inputs, textures,
+GLB, metadata and captures stay outside the checkout; symlink escapes and
+output overwrites are refused. Source bytes and permissions remain unchanged.
+The converter supports opaque static LOD0 visuals, positive scales and dummy
+frames, with uncompressed 8/24/32-bit BMP textures. Missing textures fail unless
+`--allow-missing-textures` explicitly permits a labelled color fallback. Skin,
+morph, joints, animation, alpha/reflection/additive/emissive materials and other
+frame types are rejected. It preserves hierarchy and source metadata, reflects Z,
+converts stored WXYZ rotations, and reverses winding. Source units remain at
+scale 1: their interpretation as meters is **unverified**; calibrate before
+creating meter-based level metadata. Diffuse PBR lighting and nearest filtering
+are presentation choices, not an original-game appearance match.
+
+A private original PC crate and its original texture passed GLB validation and
+were visually inspected using this converter/viewer in Godot 4.6.3 Mobile/Vulkan
+on llvmpipe. Source and imported bounds agreed within floating-point tolerance.
+The public tests use generated models and bitmaps only. Headless model checks
+prove structure and transforms; the inspection command additionally records the
+actual renderer and a private screenshot. It reuses the bounded capture cleanup
+and leaves the synthetic game unchanged. No original-game comparison, skeleton,
+animation, district or original-car gameplay has been validated.
+
+[COVERAGE.md](COVERAGE.md) records implemented systems, evidence levels,
+remaining binary analysis and fidelity gaps.
+
+Next: extract a small PC district with scene/collision placement metadata and
+validate an original character's skin/rest pose and 5DS timing against private
+reference captures. REA and Ghidra binary analysis of the provided PC game are
+required for the faithful reconstruction; tool installation alone does not
+validate behavior. Wine and PS2 emulator reference runs depend on host feasibility.
+Full engine/game coverage, original-runtime comparisons and Apple hardware checks
+remain outstanding.
 
 Our original code is MIT licensed; game assets and trademarks remain with their
 owners. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for inspected references.

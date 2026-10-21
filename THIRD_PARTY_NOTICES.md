@@ -1,9 +1,9 @@
 # Third-party references
 
-Original project code is MIT licensed. No source code, assets, or decompiled
-output from the references below has been copied/adapted into this checkout.
-Read-only Git inspection on 2026-10-21 covered each root README, root license
-when present, and repository file tree at the exact revision shown.
+Original project code is MIT licensed. The read-only model/bitmap parsers below
+reuse MIT-licensed mafia-workbench code; no proprietary assets or decompiled
+output are included. Git inspection on 2026-10-21 covered each root README, root
+license when present, and repository tree at the exact revision shown.
 
 | Reference | Inspected revision | Observed root license |
 | --- | --- | --- |
@@ -23,9 +23,28 @@ Additional parser inspection: Workbench `research/formats.md`,
 `Assets/Scripts/API/MafiaFormats/{4DSLoader,5DSLoader,Scene2BINLoader}.cs`;
 Max4dsTools `scripts/max4ds/4ds_parser.ms`; MafiaBlenderToolkit
 `io_mafia_toolkit/4ds/codec/document.py`. These distinguish archive/model/animation
-and scene metadata and expose hierarchy/skinning/timing validation needs. They
-are research evidence, not proof that this project can convert original assets.
-No implementation was copied, so there are no upstream modifications to list.
+and scene metadata and expose hierarchy/skinning/timing validation needs.
+Sources other than the explicitly vendored Workbench parsers remain research
+references; their inspection does not validate runtime fidelity.
+
+## Reused mafia-workbench code
+
+`importers/fourds/vendor/fourds.mjs` adapts `src/core/fourds.js` and
+`importers/fourds/vendor/bmp.mjs` adapts `src/core/bmp.js` from
+[b4rtt/mafia-workbench](https://github.com/b4rtt/mafia-workbench), revision
+`9f1edbfbc20ab2ac57e66d4f8a444127e92d602e`.
+Copyright (c) 2026 Roman Šimr; MIT License. The **complete upstream license** is
+preserved in [importers/fourds/vendor/LICENSE](importers/fourds/vendor/LICENSE).
+The adaptations retain read-only parsing, omit the editing functions and their
+material-settings dependency, and replace iconv-lite string decoding with Node's
+built-in Windows-1250 decoder. No other parser behavior is intentionally changed.
+
+The original converter follows the basis/rotation interpretation documented in
+upstream `src/ui/transforms.js` and `src/ui/viewport.js`; the source revision and
+adaptations are recorded in [importers/fourds/PROVENANCE.md](importers/fourds/PROVENANCE.md).
+New GLB/PNG serialization, CLI validation and synthetic fixtures are original MIT
+project code. Node.js built-in libraries provide hashing, compression and text
+decoding; no npm dependency or upstream game data is distributed.
 
 Godot 4.6.3 is a separately installed MIT-licensed runtime and export templates
 from [official godot-builds releases](https://github.com/godotengine/godot-builds/releases/tag/4.6.3-stable).

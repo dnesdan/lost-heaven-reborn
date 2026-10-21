@@ -129,6 +129,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--godot", required=True)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--model", type=Path, help="inspect an external self-contained GLB instead of the prototype")
     parser.add_argument("--wait", type=float, default=6)
     args = parser.parse_args()
     if not 1 <= args.wait <= 45:
@@ -142,6 +143,10 @@ def main():
     output = (args.output or base / "captures" / time.strftime("%Y%m%d-%H%M%S")).resolve()
     if output == ROOT or ROOT in output.parents:
         parser.error("captures must remain outside the repository")
+    if args.model is not None:
+        args.model = args.model.resolve(strict=True)
+        if args.model == ROOT or ROOT in args.model.parents or not args.model.is_file():
+            parser.error("model must be a regular file outside the repository")
     registry = base / "capture-owners"
     registry.mkdir(parents=True, mode=0o700, exist_ok=True)
     with (registry / ".lock").open("a") as lock:
@@ -190,8 +195,14 @@ def capture(args, output, registry):
             if not display.isdigit():
                 raise RuntimeError("Xvfb returned an invalid display")
             environment = dict(os.environ, DISPLAY=":" + display)
-            game = subprocess.Popen([args.godot, "--path", str(ROOT), "--rendering-method", "mobile", "--rendering-driver", "vulkan", "--audio-driver", "Dummy", "--resolution", "1280x720", "--", "--capture-check"],
-                                    env=environment, stdout=glog, stderr=glog)
+            command = [args.godot, "--path", str(ROOT), "--rendering-method", "mobile",
+                       "--rendering-driver", "vulkan", "--audio-driver", "Dummy", "--resolution", "1280x720"]
+            if args.model is None:
+                command += ["--", "--capture-check"]
+            else:
+                command += ["--script", str(ROOT / "importers/fourds/model_viewer.gd"),
+                            "--", str(args.model), str(output / "model-report.json")]
+            game = subprocess.Popen(command, env=environment, stdout=glog, stderr=glog)
             processes.append(game)
             save_record()
             deadline = time.monotonic() + 30

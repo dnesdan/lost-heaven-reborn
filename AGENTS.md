@@ -33,3 +33,10 @@ and existing instructions before changing setup. Save reusable installation and
 startup instructions through the environment configuration workflow. Repository
 implementation changes require an authorized coding task; this project was
 created under the user's explicit implementation request.
+
+## Engine fidelity evidence
+
+- For full-reconstruction work, analyze the actual PC game binary with REA and Ghidra before claiming engine fidelity. Record each binary SHA-256 and private evidence IDs for relevant function addresses, call links, structures, state, update order, timing and constants. Keep binaries, Ghidra databases and decompiled output private.
+- PC behavior is the baseline. Cross-check PS2 data/binary behavior and record platform differences. Validate static findings against the original runtime; treat an unvalidated decompilation as a hypothesis and leave missing behavior unknown. Never invent engine internals.
+- Maintain `COVERAGE.md` by subsystem. Keep data-format parsing, static binary findings, runtime observations and implementation status distinct. Reviewers must be able to trace public claims to private evidence IDs. Full-system completion requires evidence and validation across every listed subsystem, with gaps reported.
+- Every code milestone has two sequential independent review rounds. Both rounds check requirements, correctness, integration and verification evidence; the second checks the final revised diff. Fidelity reviews also check binary/evidence traceability and whether behavior claims exceed validation. Authors do not review their own code.
