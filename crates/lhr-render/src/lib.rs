@@ -1,7 +1,11 @@
 //! Small indexed textured renderer. Source coordinate conversion belongs to asset intake.
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3};
-use std::{path::Path, sync::mpsc};
+use std::{
+    collections::HashMap,
+    path::Path,
+    sync::{mpsc, Arc},
+};
 use wgpu::util::DeviceExt;
 
 #[repr(C)]
@@ -10,6 +14,7 @@ pub struct Vertex {
     pub position: [f32; 3],
     pub uv: [f32; 2],
 }
+#[derive(Clone)]
 pub struct Texture {
     pub width: u32,
     pub height: u32,
@@ -19,7 +24,7 @@ pub struct Texture {
 pub struct Mesh {
     pub vertices: Vec<Vertex>,
     pub indices: Vec<u32>,
-    pub texture: Option<Texture>,
+    pub texture: Option<Arc<Texture>>,
 }
 pub struct Scene {
     pub meshes: Vec<Mesh>,
@@ -32,6 +37,29 @@ pub struct Camera {
     pub far: f32,
 }
 impl Camera {
+    pub fn validate(&self) -> Result<(), String> {
+        let direction = self.target - self.eye;
+        if !self.eye.is_finite()
+            || !self.target.is_finite()
+            || !self.up.is_finite()
+            || self.eye.abs().max_element() > 1.0e8
+            || self.target.abs().max_element() > 1.0e8
+            || direction.length_squared() < 1.0e-8
+            || direction
+                .normalize()
+                .cross(self.up.normalize_or_zero())
+                .length_squared()
+                < 1.0e-6
+            || !self.near.is_finite()
+            || !self.far.is_finite()
+            || self.near <= 0.0
+            || self.far <= self.near
+            || !self.matrix(1.0).is_finite()
+        {
+            return Err("Camera position, basis or clipping range is invalid".into());
+        }
+        Ok(())
+    }
     pub fn fit(scene: &Scene) -> Result<Self, String> {
         let mut min = Vec3::splat(f32::INFINITY);
         let mut max = Vec3::splat(f32::NEG_INFINITY);
@@ -62,9 +90,7 @@ impl Camera {
             near: (radius / 1000.0).max(0.001),
             far: radius * 20.0,
         };
-        if !result.matrix(1.0).is_finite() {
-            return Err("Scene cannot produce a finite camera".into());
-        }
+        result.validate()?;
         Ok(result)
     }
     fn matrix(&self, aspect: f32) -> Mat4 {
@@ -77,12 +103,16 @@ struct Draw {
     index: wgpu::Buffer,
     count: u32,
     material: wgpu::BindGroup,
+    texture: wgpu::Texture,
 }
 pub struct Renderer {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     format: wgpu::TextureFormat,
     pipeline: wgpu::RenderPipeline,
+    overlay_pipeline: wgpu::RenderPipeline,
+    overlay_buffer: wgpu::Buffer,
+    overlay_group: wgpu::BindGroup,
     camera_buffer: wgpu::Buffer,
     camera_group: wgpu::BindGroup,
     draws: Vec<Draw>,
@@ -217,7 +247,53 @@ impl Renderer {
             multiview: None,
             cache: None,
         });
+        let overlay_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: None,
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vertex"),
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: 20,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x2],
+                }],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fragment"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: Default::default(),
+            multiview: None,
+            cache: None,
+        });
+        let overlay_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Screen projection"),
+            contents: bytemuck::cast_slice(&Mat4::IDENTITY.to_cols_array()),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+        let overlay_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &camera_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: overlay_buffer.as_entire_binding(),
+            }],
+        });
         let mut draws = Vec::new();
+        let mut materials = HashMap::<(usize, [bool; 2]), (wgpu::Texture, wgpu::BindGroup)>::new();
         for mesh in &scene.meshes {
             if mesh.indices.is_empty()
                 || mesh.indices.len() % 3 != 0
@@ -247,71 +323,78 @@ impl Renderer {
             {
                 return Err("Invalid texture dimensions or data".into());
             }
-            let texture = device.create_texture(&wgpu::TextureDescriptor {
-                label: None,
-                size: wgpu::Extent3d {
-                    width: tex.width,
-                    height: tex.height,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8UnormSrgb,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                view_formats: &[],
-            });
-            queue.write_texture(
-                wgpu::TexelCopyTextureInfo {
-                    texture: &texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                &tex.rgba,
-                wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(tex.width * 4),
-                    rows_per_image: Some(tex.height),
-                },
-                texture.size(),
-            );
-            let filter = if linear {
-                wgpu::FilterMode::Linear
+            let key = (Arc::as_ptr(tex) as usize, tex.repeat);
+            let (texture, material) = if let Some(cached) = materials.get(&key) {
+                cached.clone()
             } else {
-                wgpu::FilterMode::Nearest
+                let texture = device.create_texture(&wgpu::TextureDescriptor {
+                    label: None,
+                    size: wgpu::Extent3d {
+                        width: tex.width,
+                        height: tex.height,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                    view_formats: &[],
+                });
+                queue.write_texture(
+                    wgpu::TexelCopyTextureInfo {
+                        texture: &texture,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d::ZERO,
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    &tex.rgba,
+                    wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(tex.width * 4),
+                        rows_per_image: Some(tex.height),
+                    },
+                    texture.size(),
+                );
+                let filter = if linear {
+                    wgpu::FilterMode::Linear
+                } else {
+                    wgpu::FilterMode::Nearest
+                };
+                let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+                    mag_filter: filter,
+                    min_filter: filter,
+                    address_mode_u: if tex.repeat[0] {
+                        wgpu::AddressMode::Repeat
+                    } else {
+                        wgpu::AddressMode::ClampToEdge
+                    },
+                    address_mode_v: if tex.repeat[1] {
+                        wgpu::AddressMode::Repeat
+                    } else {
+                        wgpu::AddressMode::ClampToEdge
+                    },
+                    ..Default::default()
+                });
+                let material = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: None,
+                    layout: &texture_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(
+                                &texture.create_view(&Default::default()),
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(&sampler),
+                        },
+                    ],
+                });
+                materials.insert(key, (texture.clone(), material.clone()));
+                (texture, material)
             };
-            let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-                mag_filter: filter,
-                min_filter: filter,
-                address_mode_u: if tex.repeat[0] {
-                    wgpu::AddressMode::Repeat
-                } else {
-                    wgpu::AddressMode::ClampToEdge
-                },
-                address_mode_v: if tex.repeat[1] {
-                    wgpu::AddressMode::Repeat
-                } else {
-                    wgpu::AddressMode::ClampToEdge
-                },
-                ..Default::default()
-            });
-            let material = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: None,
-                layout: &texture_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(
-                            &texture.create_view(&Default::default()),
-                        ),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&sampler),
-                    },
-                ],
-            });
             draws.push(Draw {
                 vertex: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: None,
@@ -329,6 +412,7 @@ impl Renderer {
                     .try_into()
                     .map_err(|_| "Too many indices")?,
                 material,
+                texture,
             });
         }
         Ok(Self {
@@ -336,6 +420,9 @@ impl Renderer {
             queue,
             format,
             pipeline,
+            overlay_pipeline,
+            overlay_buffer,
+            overlay_group,
             camera_buffer,
             camera_group,
             draws,
@@ -348,10 +435,87 @@ impl Renderer {
         height: u32,
         camera: &Camera,
     ) -> wgpu::CommandEncoder {
+        self.render_matrix(
+            view,
+            width,
+            height,
+            camera.matrix(width as f32 / height as f32),
+        )
+    }
+    /// Draw screen-space pixels on a fixed design canvas, preserving its aspect ratio.
+    pub fn render_screen(
+        &self,
+        view: &wgpu::TextureView,
+        width: u32,
+        height: u32,
+        design: [f32; 2],
+    ) -> wgpu::CommandEncoder {
+        self.render_matrix(view, width, height, screen_matrix(width, height, design))
+    }
+    /// Replace pixels of an existing material without recreating the device or geometry.
+    pub fn update_texture(&self, index: usize, pixels: &Texture) -> Result<(), String> {
+        let draw = self.draws.get(index).ok_or("Texture index unavailable")?;
+        if pixels.width != draw.texture.width()
+            || pixels.height != draw.texture.height()
+            || pixels.rgba.len() != pixels.width as usize * pixels.height as usize * 4
+        {
+            return Err("Replacement texture dimensions differ".into());
+        }
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &draw.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &pixels.rgba,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(pixels.width * 4),
+                rows_per_image: Some(pixels.height),
+            },
+            draw.texture.size(),
+        );
+        Ok(())
+    }
+    fn render_matrix(
+        &self,
+        view: &wgpu::TextureView,
+        width: u32,
+        height: u32,
+        matrix: Mat4,
+    ) -> wgpu::CommandEncoder {
+        self.render_layers(view, width, height, matrix, None)
+    }
+    /// Render a scene followed by the final mesh as an alpha-composited design-canvas overlay.
+    pub fn render_with_overlay(
+        &self,
+        view: &wgpu::TextureView,
+        width: u32,
+        height: u32,
+        camera: &Camera,
+        design: [f32; 2],
+    ) -> wgpu::CommandEncoder {
+        self.render_layers(
+            view,
+            width,
+            height,
+            camera.matrix(width as f32 / height as f32),
+            Some(design),
+        )
+    }
+    fn render_layers(
+        &self,
+        view: &wgpu::TextureView,
+        width: u32,
+        height: u32,
+        matrix: Mat4,
+        overlay: Option<[f32; 2]>,
+    ) -> wgpu::CommandEncoder {
         self.queue.write_buffer(
             &self.camera_buffer,
             0,
-            bytemuck::cast_slice(&camera.matrix(width as f32 / height as f32).to_cols_array()),
+            bytemuck::cast_slice(&matrix.to_cols_array()),
         );
         let depth = self.device.create_texture(&wgpu::TextureDescriptor {
             label: None,
@@ -398,7 +562,40 @@ impl Renderer {
             });
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.camera_group, &[]);
-            for draw in &self.draws {
+            let count = self
+                .draws
+                .len()
+                .saturating_sub(usize::from(overlay.is_some()));
+            for draw in &self.draws[..count] {
+                pass.set_bind_group(1, &draw.material, &[]);
+                pass.set_vertex_buffer(0, draw.vertex.slice(..));
+                pass.set_index_buffer(draw.index.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(0..draw.count, 0, 0..1);
+            }
+        }
+        if let Some(design) = overlay {
+            self.queue.write_buffer(
+                &self.overlay_buffer,
+                0,
+                bytemuck::cast_slice(&screen_matrix(width, height, design).to_cols_array()),
+            );
+            if let Some(draw) = self.draws.last() {
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Menu overlay"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+                pass.set_pipeline(&self.overlay_pipeline);
+                pass.set_bind_group(0, &self.overlay_group, &[]);
                 pass.set_bind_group(1, &draw.material, &[]);
                 pass.set_vertex_buffer(0, draw.vertex.slice(..));
                 pass.set_index_buffer(draw.index.slice(..), wgpu::IndexFormat::Uint32);
@@ -412,6 +609,53 @@ impl Renderer {
         width: u32,
         height: u32,
         camera: &Camera,
+        path: &Path,
+    ) -> Result<(), String> {
+        self.capture_matrix(
+            width,
+            height,
+            camera.matrix(width as f32 / height as f32),
+            None,
+            path,
+        )
+    }
+    pub fn capture_screen(
+        &self,
+        width: u32,
+        height: u32,
+        design: [f32; 2],
+        path: &Path,
+    ) -> Result<(), String> {
+        self.capture_matrix(
+            width,
+            height,
+            screen_matrix(width, height, design),
+            None,
+            path,
+        )
+    }
+    pub fn capture_with_overlay(
+        &self,
+        width: u32,
+        height: u32,
+        camera: &Camera,
+        design: [f32; 2],
+        path: &Path,
+    ) -> Result<(), String> {
+        self.capture_matrix(
+            width,
+            height,
+            camera.matrix(width as f32 / height as f32),
+            Some(design),
+            path,
+        )
+    }
+    fn capture_matrix(
+        &self,
+        width: u32,
+        height: u32,
+        matrix: Mat4,
+        overlay: Option<[f32; 2]>,
         path: &Path,
     ) -> Result<(), String> {
         if width == 0 || height == 0 || width > 8192 || height > 8192 {
@@ -438,11 +682,12 @@ impl Renderer {
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
-        let mut encoder = self.render(
+        let mut encoder = self.render_layers(
             &texture.create_view(&Default::default()),
             width,
             height,
-            camera,
+            matrix,
+            overlay,
         );
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
@@ -498,6 +743,13 @@ impl Renderer {
         Ok(())
     }
 }
+fn screen_matrix(width: u32, height: u32, design: [f32; 2]) -> Mat4 {
+    let scale = (width as f32 / design[0]).min(height as f32 / design[1]);
+    let x = design[0] * scale / width as f32;
+    let y = design[1] * scale / height as f32;
+    Mat4::from_scale(Vec3::new(x, y, 1.0))
+        * Mat4::orthographic_rh(0.0, design[0], design[1], 0.0, -1.0, 1.0)
+}
 pub fn instance() -> wgpu::Instance {
     wgpu::Instance::new(&wgpu::InstanceDescriptor {
         backends: wgpu::Backends::VULKAN | wgpu::Backends::METAL,
@@ -509,6 +761,22 @@ pub fn instance() -> wgpu::Instance {
 mod tests {
     use super::*;
 
+    #[test]
+    fn authored_camera_rejects_collapsed_and_vertical_bases() {
+        let mut camera = Camera {
+            eye: Vec3::splat(1.0e30),
+            target: Vec3::splat(1.0e30),
+            up: Vec3::Y,
+            near: 0.1,
+            far: 100.0,
+        };
+        assert!(camera.validate().is_err());
+        camera.eye = Vec3::ZERO;
+        camera.target = Vec3::Y;
+        assert!(camera.validate().is_err());
+        camera.target = Vec3::Z;
+        assert!(camera.validate().is_ok());
+    }
     #[test]
     fn fitted_camera_contains_all_fixture_vertices_in_depth_and_view() {
         let scene = Scene {

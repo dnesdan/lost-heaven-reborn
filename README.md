@@ -1,10 +1,10 @@
 # Lost Heaven Reborn
 
-An independent Rust reimplementation of the Mafia: The City of Lost Heaven (2002) engine and game. The Rust bootstrap reads a bounded subset of original 4DS models and BMP textures, and has rendered one original building and one crate with wgpu on Linux. This is an initial asset/render milestone, not a playable world or a visual match. The long-term goal is a playable full campaign using a user's own lawful PC installation. No proprietary game files are included. See [coverage](COVERAGE.md) for scope and evidence.
+An independent Rust reimplementation of the Mafia: The City of Lost Heaven (2002) engine and game. The current build reads a user's original PC installation, displays the Czech PC menu layout and assets, and renders bounded static scenes. It does not yet execute the original intro, missions, or gameplay. The long-term goal is a complete campaign using the user's own legally obtained game data. No game assets are included.
 
 ## Build and run
 
-Requires Rust 1.99.1, installed by the setup script. Linux uses wgpu with Vulkan; macOS is intended to use Metal. Rust dependencies are pinned in `Cargo.lock`.
+Requires Rust 1.99.1, installed by the setup script. Linux uses wgpu with Vulkan; macOS is intended to use Metal. Dependencies are pinned in `Cargo.lock`.
 
 ```sh
 ./scripts/setup.sh
@@ -12,16 +12,20 @@ Requires Rust 1.99.1, installed by the setup script. Linux uses wgpu with Vulkan
 ./scripts/run.sh --synthetic
 ```
 
-To build the native engine binary without launching it, run `cargo build --locked -p lhr-engine` from the repository root. macOS builds are intended but have not been tested.
+Build the native engine binary with `cargo build --locked -p lhr-engine` from the repository root. These commands use the user's game installation directly:
 
-Run from the repository root. `setup.sh --graphics` prepares the verified Linux software Vulkan tools used for development captures. On Linux without a hardware Vulkan driver, the runner selects llvmpipe when the supporting graphics runtime is installed. `run.sh` launches the current Rust engine from source; a packaged standalone game is not available yet. The original game's executable and REA are not runtime dependencies.
+```sh
+./scripts/run.sh --root /path/to/Mafia
+./scripts/run.sh --root /path/to/Mafia --mission mise01
+./scripts/run.sh --root /path/to/Mafia --model models/4build101.4ds
+```
 
-To inspect a supported model from a legally obtained installation, provide its root directory and model-relative path. For example, use `./scripts/run.sh --root /private/game-data --model models/4build101.4ds --textures maps --headless --capture /tmp/building.png`. The reader checks loose files first, then supported A1.DTA, A2.DTA, and A6.DTA archives. This lookup policy is a project choice, not a claim about original-engine precedence. `--synthetic` renders the built-in test scene.
+The first command opens the Rust-rendered original menu. Up/Down and Enter select options; only New Game and Exit work, and there is no profile chooser. New Game switches to a static intro scene; Escape switches to a static MISE01 inspection scene. This temporary inspection path does not play the original video/cinematic or execute missions/gameplay. Add `--headless --capture /tmp/scene.png` to either inspection command for a one-frame GPU capture, or `--frames N` to bound a window run. Camera inspection uses arrow keys and W/S. See [coverage](COVERAGE.md) for exact evidence and limits.
 
-The setup and Rust build workflow was exercised on Linux x86_64. Actual offscreen Vulkan rendering was verified with llvmpipe. The scripts include native macOS and Linux arm64 toolchain selection, but macOS/Metal has not been tested. iOS is a future compatibility target.
+`setup.sh --graphics` prepares the Linux software Vulkan tools used for development captures. `scripts/test.sh` passes 61 Rust tests and 9 REA wrapper tests. On Linux x86_64, X11 input has been checked through menu, static INTRO and static MISE01 inspection; this is not original cutscene or gameplay execution. macOS builds are intended but Metal has not been tested. iOS is a future compatibility target. The original game's executable and REA are not gameplay runtime dependencies.
 
 ## Reverse engineering and assets
 
-REA with Ghidra is the required analysis path for engine behavior. Keep original executables, installations, extracted or converted assets, analysis databases, decompiler output, credentials and private URLs outside Git. Public tests use synthetic fixtures. The reader supports selected loose files and bounded A1/A2/A6 archive lookup; archive audio and checksum verification are unsupported. It does not load a full city, missions, or gameplay yet. Use a trusted, stable installation tree. The engine is intended to load the user's own legally obtained PC installation. PS2 material is used for research and comparison.
+REA with Ghidra is the required analysis path for engine behavior. Keep original executables, installations, extracted or converted assets, analysis databases, decompiler output, credentials and private URLs outside Git. Public tests use synthetic fixtures. The reader supports selected PC DTA archives and bounded model, scene, menu and script-data formats; archive audio and checksum verification remain unsupported. Full city simulation, mission execution and campaign play are not implemented. Use a trusted, stable installation tree. PS2 material is used for research and comparison.
 
 Project code is MIT licensed. Game assets and trademarks belong to their respective owners. See [third-party notices](THIRD_PARTY_NOTICES.md).

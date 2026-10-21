@@ -530,16 +530,27 @@ mod container_tests {
             Self(p)
         }
         fn archive(&self, name: &str, paths: &[&str]) {
+            self.archive_payload(name, paths, b"abc");
+        }
+        fn archive_payload(&self, name: &str, paths: &[&str], content: &[u8]) {
             let (k1, k2): (u32, u32) = match name.to_ascii_uppercase().as_str() {
                 "A1.DTA" => (0x3d98766c, 0xde7009cd),
                 "A2.DTA" => (0x82a1c97b, 0x2d5085d4),
                 "A6.DTA" => (0x64cd8d0a, 0x4bc97b2d),
+                "A8.DTA" => (0xd8dd8fac, 0x5324ace5),
+                "AA.DTA" => (0x5342760c, 0xedeac652),
                 _ => panic!("test archive name"),
             };
             let mut key = [0; 8];
             key[..4].copy_from_slice(&k2.to_le_bytes());
             key[4..].copy_from_slice(&k1.to_le_bytes());
-            std::fs::write(self.0.join(name), fixture_key(paths, true, key)).unwrap();
+            let mut payload = vec![0];
+            payload.extend_from_slice(content);
+            std::fs::write(
+                self.0.join(name),
+                fixture_payload(paths, true, key, &payload, content.len() as u32),
+            )
+            .unwrap();
         }
     }
     impl Drop for Directory {
@@ -548,14 +559,16 @@ mod container_tests {
         }
     }
     #[test]
-    fn installation_case_discovery_lookup_and_explicit_loose_first() {
+    fn installation_case_discovery_lookup_archive_first_and_loose_fallback() {
         let d = Directory::new();
         d.archive("a2.DtA", &["models\\Test.4ds"]);
         let installation = crate::Installation::open(&d.0).unwrap();
         assert_eq!(installation.read("MODELS/TEST.4DS").unwrap(), b"abc");
         std::fs::create_dir(d.0.join("Models")).unwrap();
         std::fs::write(d.0.join("Models/TeSt.4DS"), b"loose").unwrap();
-        assert_eq!(installation.read("models/test.4ds").unwrap(), b"loose");
+        assert_eq!(installation.read("models/test.4ds").unwrap(), b"abc");
+        std::fs::write(d.0.join("other.txt"), b"loose").unwrap();
+        assert_eq!(installation.read("OTHER.TXT").unwrap(), b"loose");
         for name in [
             "../x",
             "/x",
@@ -567,15 +580,12 @@ mod container_tests {
         }
     }
     #[test]
-    fn installation_rejects_duplicate_archives_resources_and_loose_case() {
+    fn installation_rejects_duplicate_archives_and_loose_case() {
         let d = Directory::new();
-        d.archive("A2.dta", &["models/x"]);
+        d.archive("A2.dta", &["models/y"]);
         d.archive("a2.DTA", &["models/y"]);
         assert!(crate::Installation::open(&d.0).is_err());
         std::fs::remove_file(d.0.join("a2.DTA")).unwrap();
-        d.archive("A6.dta", &["MODELS/X"]);
-        assert!(crate::Installation::open(&d.0).is_err());
-        std::fs::remove_file(d.0.join("A6.dta")).unwrap();
         std::fs::create_dir(d.0.join("models")).unwrap();
         std::fs::write(d.0.join("models/X"), b"a").unwrap();
         std::fs::write(d.0.join("models/x"), b"b").unwrap();
@@ -587,12 +597,25 @@ mod container_tests {
         );
     }
     #[test]
+    fn first_registered_patch_archive_overlays_base_resource() {
+        let d = Directory::new();
+        d.archive_payload("A2.dta", &["models/x"], b"base");
+        d.archive_payload("A8.dta", &["models/x"], b"patch");
+        assert_eq!(
+            crate::Installation::open(&d.0)
+                .unwrap()
+                .read("models/x")
+                .unwrap(),
+            b"patch"
+        );
+    }
+    #[test]
     fn installation_malformed_archive_and_bad_loose_never_fall_back() {
         let d = Directory::new();
         std::fs::write(d.0.join("A2.dta"), b"broken").unwrap();
         assert!(crate::Installation::open(&d.0).is_err());
         std::fs::remove_file(d.0.join("A2.dta")).unwrap();
-        d.archive("A2.dta", &["models/x"]);
+        d.archive("A2.dta", &["models/y"]);
         std::fs::create_dir_all(d.0.join("models/x")).unwrap();
         let installation = crate::Installation::open(&d.0).unwrap();
         assert!(installation.read("models/x").is_err());
@@ -627,14 +650,15 @@ mod container_tests {
         assert!(crate::Installation::open(&d.0).is_err());
         std::fs::remove_file(d.0.join("A2.dta")).unwrap();
         d.archive("A2.dta", &["models/x"]);
-        symlink(&outside.0, d.0.join("models")).unwrap();
+        symlink(&outside.0, d.0.join("loose")).unwrap();
         let installation = crate::Installation::open(&d.0).unwrap();
-        assert!(installation.read("models/x").is_err());
-        std::fs::remove_file(d.0.join("models")).unwrap();
-        std::fs::create_dir(d.0.join("models")).unwrap();
+        assert_eq!(installation.read("models/x").unwrap(), b"abc");
+        assert!(installation.read("loose/x").is_err());
+        std::fs::remove_file(d.0.join("loose")).unwrap();
+        std::fs::create_dir(d.0.join("loose")).unwrap();
         std::fs::write(d.0.join("real"), b"loose").unwrap();
-        symlink(d.0.join("real"), d.0.join("models/x")).unwrap();
-        assert!(installation.read("models/x").is_err());
+        symlink(d.0.join("real"), d.0.join("loose/x")).unwrap();
+        assert!(installation.read("loose/x").is_err());
     }
     #[test]
     fn corrupt_encoded_filename_and_decoded_quota() {

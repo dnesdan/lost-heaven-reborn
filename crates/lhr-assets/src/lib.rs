@@ -3,7 +3,20 @@ use std::{
     fmt, fs,
     path::{Path, PathBuf},
 };
+mod cache;
+pub use cache::{CacheObject, CachePart, CityCache, parse_city_cache};
 mod dta;
+mod menu;
+mod scene;
+pub mod script;
+pub mod script_vm;
+mod tga;
+pub use menu::{
+    FontGlyph, FontMetrics, LanguageFontMap, MenuDefinition, MenuItem, TextDb, TextDbEntry,
+    parse_font_metrics, parse_language_font_map, parse_menu_definition, parse_text_db,
+};
+pub use scene::{Scene, SceneActor, SceneObject, SceneScript, parse_scene2};
+pub use tga::decode_tga;
 
 const MAX_BYTES: usize = 64 * 1024 * 1024;
 #[derive(Debug, Clone)]
@@ -26,9 +39,12 @@ pub struct Vertex {
 }
 #[derive(Debug, Clone)]
 pub struct FaceGroup {
+    /// Zero-based material table index, or UNASSIGNED_MATERIAL for scene groups
+    /// whose source reference is zero. The latter must not index the table.
     pub material: usize,
     pub indices: Vec<u32>,
 }
+pub const UNASSIGNED_MATERIAL: usize = usize::MAX;
 #[derive(Debug, Clone)]
 pub struct Lod {
     pub distance: f32,
@@ -41,9 +57,28 @@ pub struct Material {
     pub ambient: [f32; 3],
     pub diffuse: [f32; 3],
     pub texture: String,
+    pub emission: [f32; 3],
+    pub opacity: f32,
+    pub alpha_texture: Option<String>,
+    pub reflection: Option<f32>,
+    pub environment_texture: Option<String>,
+    pub animation: Option<TextureAnimation>,
+}
+#[derive(Debug, Clone)]
+pub struct TextureAnimation {
+    pub frames: u32,
+    pub unknown: u16,
+    pub delay: u32,
+    pub unknown2: u32,
+    pub unknown3: u32,
 }
 #[derive(Debug, Clone)]
 pub struct Frame {
+    pub kind: u8,
+    pub visual: Option<u8>,
+    pub render_flags: u8,
+    pub logic_flags: u8,
+    pub culling: u8,
     pub name: String,
     pub parent: Option<usize>,
     pub position: [f32; 3],
@@ -113,6 +148,15 @@ impl<'a> Reader<'a> {
     }
 }
 pub fn parse_four_ds(b: &[u8]) -> Result<Model> {
+    parse_four_ds_impl(b, false)
+}
+/// Broader scene intake: retains material effects as metadata and accepts sector,
+/// light and target frames. Callers must implement or explicitly report material
+/// effects; this does not promise identical original rendering or simulation.
+pub fn parse_four_ds_scene(b: &[u8]) -> Result<Model> {
+    parse_four_ds_impl(b, true)
+}
+fn parse_four_ds_impl(b: &[u8], scene: bool) -> Result<Model> {
     if b.len() > MAX_BYTES {
         return err("4DS exceeds 64 MiB quota");
     }
@@ -129,11 +173,18 @@ pub fn parse_four_ds(b: &[u8]) -> Result<Model> {
         let diffuse = r.vec()?;
         let emission: [f32; 3] = r.vec()?;
         let opacity = r.f()?;
-        if flags
-            & (0x8000 | 0x80000 | 0x01000000 | 0x04000000 | 0x20000000 | 0x40000000 | 0x80000000)
-            != 0
-            || opacity != 1.
-            || emission != [0.; 3]
+        if !scene
+            && (flags
+                & (0x8000
+                    | 0x80000
+                    | 0x01000000
+                    | 0x04000000
+                    | 0x20000000
+                    | 0x40000000
+                    | 0x80000000)
+                != 0
+                || opacity != 1.
+                || emission != [0.; 3])
         {
             return err("unsupported alpha, reflection, emissive or animated material");
         }
@@ -144,18 +195,48 @@ pub fn parse_four_ds(b: &[u8]) -> Result<Model> {
         {
             return err("material color outside 0..1");
         }
-        let texture = r.string()?;
-        if !texture.is_empty() {
-            safe_relative(&texture)?;
-            if !texture.to_ascii_lowercase().ends_with(".bmp") {
-                return err("only BMP textures supported");
-            }
+        if !(0. ..=1.).contains(&opacity) {
+            return err("material opacity outside 0..1");
         }
+        let reflection = if flags & 0x80000 != 0 {
+            Some(r.f()?)
+        } else {
+            None
+        };
+        let environment_texture = if reflection.is_some() {
+            Some(texture_name(&mut r)?)
+        } else {
+            None
+        };
+        let texture = texture_name(&mut r)?;
+        let alpha_texture =
+            if !texture.is_empty() && flags & 0x40000000 != 0 && flags & 0xa1000000 == 0 {
+                Some(texture_name(&mut r)?)
+            } else {
+                None
+            };
+        let animation = if flags & 0x04000000 != 0 {
+            Some(TextureAnimation {
+                frames: r.u32()?,
+                unknown: r.u16()?,
+                delay: r.u32()?,
+                unknown2: r.u32()?,
+                unknown3: r.u32()?,
+            })
+        } else {
+            None
+        };
         materials.push(Material {
             flags,
             ambient,
             diffuse,
             texture,
+            emission,
+            opacity,
+            reflection,
+            environment_texture,
+            alpha_texture,
+            animation,
         });
     }
     let count = r.u16()? as usize;
@@ -167,15 +248,18 @@ pub fn parse_four_ds(b: &[u8]) -> Result<Model> {
     let mut total_indices = 0usize;
     for _ in 0..count {
         let kind = r.u8()?;
-        if kind != 1 && kind != 6 {
+        if kind != 1 && kind != 6 && !(scene && [2, 5, 7, 12].contains(&kind)) {
             return err("unsupported frame type; only static visual and dummy supported");
         };
-        if kind == 1 {
-            let visual = r.u8()?;
+        let visual = if kind == 1 { Some(r.u8()?) } else { None };
+        let mut render_flags = 0;
+        let mut logic_flags = 0;
+        if let Some(visual) = visual {
             if visual > 1 {
                 return err("unsupported visual type; only standard static mesh supported");
             };
-            r.take(2)?;
+            render_flags = r.u8()?;
+            logic_flags = r.u8()?;
         }
         let parent = r.u16()? as usize;
         let position = r.vec()?;
@@ -192,13 +276,45 @@ pub fn parse_four_ds(b: &[u8]) -> Result<Model> {
         {
             return err("zero quaternion");
         };
-        r.take(1)?;
-        let name = r.string()?;
-        r.string()?;
+        let culling = r.u8()?;
+        let name = if scene {
+            source_string(&mut r)?
+        } else {
+            r.string()?
+        };
+        if scene {
+            source_string(&mut r)?;
+        } else {
+            r.string()?;
+        }
         let mut lods = Vec::new();
         let mut instance = None;
         if kind == 6 {
             r.take(24)?;
+        } else if kind == 2 {
+            r.take(84)?;
+        } else if kind == 5 || kind == 12 {
+            if kind == 5 {
+                r.take(8)?;
+            }
+            let vertices = r.u32()? as usize;
+            let faces = r.u32()? as usize;
+            if vertices > 1_000_000 || faces > 1_000_000 {
+                return err("sector/occluder quota exceeded");
+            }
+            r.take(vertices * 12 + faces * 6)?;
+            if kind == 5 {
+                r.take(24)?;
+                let portals = r.u8()?;
+                for _ in 0..portals {
+                    let points = r.u8()? as usize;
+                    r.take(28 + points * 12)?;
+                }
+            }
+        } else if kind == 7 {
+            r.take(2)?;
+            let n = r.u8()? as usize;
+            r.take(n * 2)?;
         } else {
             let id = r.u16()? as usize;
             if id != 0 {
@@ -240,11 +356,11 @@ pub fn parse_four_ds(b: &[u8]) -> Result<Model> {
                             indices.push(index as u32)
                         }
                         let mat = r.u16()? as usize;
-                        if mat == 0 || mat > materials.len() {
+                        if (!scene && mat == 0) || mat > materials.len() {
                             return err("material reference outside table");
                         };
                         faces.push(FaceGroup {
-                            material: mat - 1,
+                            material: mat.checked_sub(1).unwrap_or(UNASSIGNED_MATERIAL),
                             indices,
                         });
                     }
@@ -257,6 +373,11 @@ pub fn parse_four_ds(b: &[u8]) -> Result<Model> {
             }
         }
         frames.push(Frame {
+            kind,
+            visual,
+            render_flags,
+            logic_flags,
+            culling,
             name,
             parent: parent.checked_sub(1),
             position,
@@ -291,6 +412,24 @@ pub fn parse_four_ds(b: &[u8]) -> Result<Model> {
     }
     Ok(Model { materials, frames })
 }
+fn texture_name(r: &mut Reader<'_>) -> Result<String> {
+    let name = r.string()?;
+    if !name.is_empty() {
+        safe_relative(&name)?;
+        if !name.to_ascii_lowercase().ends_with(".bmp") {
+            return err("only BMP textures supported");
+        }
+    }
+    Ok(name)
+}
+fn source_string(r: &mut Reader<'_>) -> Result<String> {
+    let n = r.u8()? as usize;
+    let bytes = r.take(n)?;
+    if bytes.contains(&0) {
+        return err("NUL in source name");
+    }
+    decode_windows1250(bytes)
+}
 fn safe_relative(s: &str) -> Result<()> {
     if s.is_empty()
         || s.contains(['\\', ':', '\0'])
@@ -302,8 +441,9 @@ fn safe_relative(s: &str) -> Result<()> {
     };
     Ok(())
 }
-/// Original installation resources: explicit loose-first policy, then A1/A2/A6 DTA.
-/// This ordering is a project choice; archive duplicates and failed reads never fall through.
+/// Original installation resources follow the evidenced DTA-first force-registration
+/// order, then fall back to a loose file only when no archive contains the path.
+/// A failed read of the selected DTA copy never falls back to loose or an older copy.
 /// The installation directory tree must be trusted and stable during use. Handle and
 /// metadata checks detect ordinary replacement/mutation; they do not confine hostile
 /// concurrent replacement of parent directories (which requires descriptor-relative IO).
@@ -328,6 +468,8 @@ impl Installation {
                 "A1.DTA" => Some((0x3d98766c, 0xde7009cd)),
                 "A2.DTA" => Some((0x82a1c97b, 0x2d5085d4)),
                 "A6.DTA" => Some((0x64cd8d0a, 0x4bc97b2d)),
+                "A8.DTA" => Some((0xd8dd8fac, 0x5324ace5)),
+                "AA.DTA" => Some((0x5342760c, 0xedeac652)),
                 _ => None,
             };
             if let Some(keys) = key
@@ -338,6 +480,14 @@ impl Installation {
                 return err("ambiguous duplicate archive filename");
             }
         }
+        let mut discovered: Vec<_> = discovered.into_iter().collect();
+        const ORDER: [&str; 5] = ["A8.DTA", "A2.DTA", "A6.DTA", "A1.DTA", "AA.DTA"];
+        discovered.sort_by_key(|(name, _)| {
+            ORDER
+                .iter()
+                .position(|candidate| *candidate == name)
+                .unwrap_or(ORDER.len())
+        });
         let mut archives = Vec::new();
         let mut archive_index = std::collections::BTreeMap::new();
         for (_, (path, (k1, k2))) in discovered {
@@ -346,9 +496,9 @@ impl Installation {
             verify_contained(&root, &path)?;
             for entry in archive.entries() {
                 let key = dta::canonical(&entry.path).map_err(Error)?;
-                if archive_index.insert(key, archives.len()).is_some() {
-                    return err("ambiguous resource in multiple archives");
-                }
+                // dtaSetDtaFirstForce uses the first registered copy. The native
+                // registration order puts A8 ahead of A2/A6/A1/AA for known archives.
+                archive_index.entry(key).or_insert(archives.len());
             }
             archives.push(std::sync::Mutex::new(archive));
         }
@@ -361,9 +511,15 @@ impl Installation {
     pub fn read(&self, name: &str) -> Result<Vec<u8>> {
         safe_relative(name)?;
         let canonical = dta::canonical(name).map_err(Error)?;
+        if let Some(index) = self.archive_index.get(&canonical) {
+            return self.archives[*index]
+                .lock()
+                .map_err(|_| Error("archive reader unavailable".into()))?
+                .read(&canonical, MAX_BYTES)
+                .map_err(Error);
+        }
         let mut path = self.root.clone();
         let parts: Vec<_> = canonical.split('/').collect();
-        let mut loose = true;
         for (i, part) in parts.iter().enumerate() {
             let mut matching = None;
             for child in bounded_children(&path)? {
@@ -375,8 +531,7 @@ impl Installation {
                 }
             }
             let Some(child) = matching else {
-                loose = false;
-                break;
+                return err("original asset unavailable");
             };
             let metadata = fs::symlink_metadata(&child)
                 .map_err(|_| Error("loose asset metadata unavailable".into()))?;
@@ -389,20 +544,9 @@ impl Installation {
             verify_contained(&self.root, &child)?;
             path = child;
         }
-        if loose {
-            let mut file = dta::checked_open(&path).map_err(Error)?;
-            verify_contained(&self.root, &path)?;
-            return read_asset_handle(&mut file);
-        }
-        let index = self
-            .archive_index
-            .get(&canonical)
-            .ok_or_else(|| Error("original asset unavailable".into()))?;
-        self.archives[*index]
-            .lock()
-            .map_err(|_| Error("archive reader unavailable".into()))?
-            .read(&canonical, MAX_BYTES)
-            .map_err(Error)
+        let mut file = dta::checked_open(&path).map_err(Error)?;
+        verify_contained(&self.root, &path)?;
+        read_asset_handle(&mut file)
     }
 }
 fn bounded_children(path: &Path) -> Result<Vec<PathBuf>> {
@@ -486,6 +630,15 @@ pub fn read_asset_file(path: impl AsRef<Path>) -> Result<Vec<u8>> {
 }
 /// Uncompressed Windows BMP, 8-bit indexed or 24-bit BGR. Output is top-down RGBA.
 pub fn decode_bmp(b: &[u8]) -> Result<Texture> {
+    decode_bmp_impl(b, false)
+}
+/// Original-loader compatibility: initialize all 256 indexed palette slots to
+/// black before reading the declared entries. Some shipped BMPs use an omitted
+/// palette index. Strict decode_bmp keeps rejecting such files.
+pub fn decode_bmp_original(b: &[u8]) -> Result<Texture> {
+    decode_bmp_impl(b, true)
+}
+fn decode_bmp_impl(b: &[u8], original_palette: bool) -> Result<Texture> {
     if b.len() > MAX_BYTES {
         return err("BMP exceeds 64 MiB quota");
     };
@@ -535,6 +688,9 @@ pub fn decode_bmp(b: &[u8]) -> Result<Texture> {
     for _ in 0..palette_count {
         let c = r.take(4)?;
         palette.push([c[2], c[1], c[0], 255]);
+    }
+    if depth == 8 && original_palette {
+        palette.resize(256, [0, 0, 0, 255]);
     }
     if offset < r.p || size != b.len() {
         return err("BMP invalid data offset or file size");
@@ -630,12 +786,30 @@ mod tests {
         b[30] = 1;
         assert!(decode_bmp(&b).is_err());
     }
+    #[test]
+    fn original_palette_zero_initialization_does_not_consume_pixels() {
+        let mut b = bmp();
+        b.resize(62, 0);
+        b[2..6].copy_from_slice(&62u32.to_le_bytes());
+        b[10..14].copy_from_slice(&58u32.to_le_bytes());
+        b[28] = 8;
+        b[46..50].copy_from_slice(&1u32.to_le_bytes());
+        b[54..58].copy_from_slice(&[3, 2, 1, 0]);
+        b[58] = 255;
+        assert!(decode_bmp(&b).is_err());
+        assert_eq!(decode_bmp_original(&b).unwrap().rgba, [0, 0, 0, 255]);
+        b[58] = 0;
+        assert_eq!(decode_bmp_original(&b).unwrap().rgba, [1, 2, 3, 255]);
+        for n in 0..b.len() {
+            assert!(decode_bmp_original(&b[..n]).is_err());
+        }
+    }
 }
 
 #[cfg(test)]
 mod mesh_tests {
     use super::*;
-    fn mesh() -> Vec<u8> {
+    pub(super) fn mesh() -> Vec<u8> {
         let mut b = b"4DS\0".to_vec();
         b.extend(29u16.to_le_bytes());
         b.extend([0; 8]);
@@ -731,5 +905,133 @@ mod file_tests {
             "asset must be a regular file"
         );
         assert_eq!(read_asset_file(&path).unwrap_err().0, "asset unavailable");
+    }
+}
+
+/// Decode Windows-1250 text, rejecting undefined bytes instead of replacing names.
+pub fn decode_windows1250(bytes: &[u8]) -> Result<String> {
+    const UPPER: [u32; 128] = [
+        0x20ac, 0x0000, 0x201a, 0x0000, 0x201e, 0x2026, 0x2020, 0x2021, 0x0000, 0x2030, 0x0160,
+        0x2039, 0x015a, 0x0164, 0x017d, 0x0179, 0x0000, 0x2018, 0x2019, 0x201c, 0x201d, 0x2022,
+        0x2013, 0x2014, 0x0000, 0x2122, 0x0161, 0x203a, 0x015b, 0x0165, 0x017e, 0x017a, 0x00a0,
+        0x02c7, 0x02d8, 0x0141, 0x00a4, 0x0104, 0x00a6, 0x00a7, 0x00a8, 0x00a9, 0x015e, 0x00ab,
+        0x00ac, 0x00ad, 0x00ae, 0x017b, 0x00b0, 0x00b1, 0x02db, 0x0142, 0x00b4, 0x00b5, 0x00b6,
+        0x00b7, 0x00b8, 0x0105, 0x015f, 0x00bb, 0x013d, 0x02dd, 0x013e, 0x017c, 0x0154, 0x00c1,
+        0x00c2, 0x0102, 0x00c4, 0x0139, 0x0106, 0x00c7, 0x010c, 0x00c9, 0x0118, 0x00cb, 0x011a,
+        0x00cd, 0x00ce, 0x010e, 0x0110, 0x0143, 0x0147, 0x00d3, 0x00d4, 0x0150, 0x00d6, 0x00d7,
+        0x0158, 0x016e, 0x00da, 0x0170, 0x00dc, 0x00dd, 0x0162, 0x00df, 0x0155, 0x00e1, 0x00e2,
+        0x0103, 0x00e4, 0x013a, 0x0107, 0x00e7, 0x010d, 0x00e9, 0x0119, 0x00eb, 0x011b, 0x00ed,
+        0x00ee, 0x010f, 0x0111, 0x0144, 0x0148, 0x00f3, 0x00f4, 0x0151, 0x00f6, 0x00f7, 0x0159,
+        0x016f, 0x00fa, 0x0171, 0x00fc, 0x00fd, 0x0163, 0x02d9,
+    ];
+    let mut output = String::new();
+    for &byte in bytes {
+        let code = if byte < 128 {
+            byte as u32
+        } else {
+            UPPER[(byte - 128) as usize]
+        };
+        if byte >= 128 && code == 0 {
+            return err("undefined Windows-1250 byte");
+        }
+        output.push(char::from_u32(code).unwrap());
+    }
+    Ok(output)
+}
+
+#[cfg(test)]
+mod scene_model_tests {
+    use super::*;
+    fn material_scene() -> Vec<u8> {
+        let mut b = super::mesh_tests::mesh();
+        // Reflection payload precedes diffuse name; independent alpha name follows it.
+        b[16..20].copy_from_slice(&0x4008_8000u32.to_le_bytes());
+        let mut names = 0.5f32.to_le_bytes().to_vec();
+        for name in ["env.bmp", "color.bmp", "mask.bmp"] {
+            names.push(name.len() as u8);
+            names.extend(name.as_bytes());
+        }
+        b.splice(60..61, names);
+        b
+    }
+    #[test]
+    fn metadata_material_payloads_preserve_mesh_alignment() {
+        let b = material_scene();
+        assert!(parse_four_ds(&b).is_err());
+        let m = parse_four_ds_scene(&b).unwrap();
+        assert_eq!(m.materials[0].texture, "color.bmp");
+        assert_eq!(m.materials[0].alpha_texture.as_deref(), Some("mask.bmp"));
+        assert_eq!(
+            m.materials[0].environment_texture.as_deref(),
+            Some("env.bmp")
+        );
+        assert_eq!(m.materials[0].reflection, Some(0.5));
+        assert_eq!(m.frames[0].lods[0].vertices[0].position, [1., 2., 3.]);
+        for n in 0..b.len() {
+            assert!(parse_four_ds_scene(&b[..n]).is_err(), "{n}");
+        }
+    }
+    #[test]
+    fn embedded_key_and_additive_flags_suppress_separate_alpha_payload() {
+        for effect in [0x01000000u32, 0x20000000, 0x80000000] {
+            let mut b = super::mesh_tests::mesh();
+            b[16..20].copy_from_slice(&(0x40008000 | effect).to_le_bytes());
+            let mut name = vec![9];
+            name.extend(b"color.bmp");
+            b.splice(60..61, name);
+            let model = parse_four_ds_scene(&b).unwrap();
+            assert!(model.materials[0].alpha_texture.is_none());
+            assert_eq!(model.frames[0].lods[0].vertices[0].position, [1., 2., 3.]);
+        }
+    }
+    #[test]
+    fn zero_source_material_is_explicit_only_in_scene_mode() {
+        let mut b = super::mesh_tests::mesh();
+        let n = b.len();
+        b[n - 3..n - 1].copy_from_slice(&0u16.to_le_bytes());
+        assert!(parse_four_ds(&b).is_err());
+        assert_eq!(
+            parse_four_ds_scene(&b).unwrap().frames[0].lods[0].groups[0].material,
+            UNASSIGNED_MATERIAL
+        );
+    }
+    #[test]
+    fn bounded_sector_metadata_and_portal_extents() {
+        let mut b = b"4DS\0".to_vec();
+        b.extend(29u16.to_le_bytes());
+        b.extend([0; 8]);
+        b.extend(0u16.to_le_bytes());
+        b.extend(1u16.to_le_bytes());
+        b.push(5);
+        b.extend(0u16.to_le_bytes());
+        for f in [0f32, 0., 0., 1., 1., 1., 1., 0., 0., 0.] {
+            b.extend(f.to_le_bytes());
+        }
+        b.extend([0, 0, 0]); // culling, name, properties
+        b.extend([0; 8]);
+        b.extend(0u32.to_le_bytes());
+        b.extend(0u32.to_le_bytes());
+        b.extend([0; 24]);
+        b.push(1);
+        b.push(3);
+        b.extend([0; 28 + 3 * 12]);
+        b.push(0);
+        let m = parse_four_ds_scene(&b).unwrap();
+        assert_eq!(m.frames[0].kind, 5);
+        assert!(m.frames[0].lods.is_empty());
+        for n in 0..b.len() {
+            assert!(parse_four_ds_scene(&b[..n]).is_err(), "{n}");
+        }
+        let mut huge = b.clone();
+        huge[72..76].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert!(parse_four_ds_scene(&huge).is_err());
+    }
+    #[test]
+    fn cp1250_names_are_exact_and_undefined_bytes_rejected() {
+        assert_eq!(
+            decode_windows1250(&[0x8a, 0x9d, 0xec, 0x9a, 0x9e]).unwrap(),
+            "Šťěšž"
+        );
+        assert!(decode_windows1250(&[0x81]).is_err());
     }
 }

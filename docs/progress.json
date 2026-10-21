@@ -1,34 +1,62 @@
 {
   "updated_at": "2026-10-21",
-  "project_status": "DTA intake milestone tested and accepted by two sequential independent reviews; campaign not playable",
+  "project_status": "Original-data Rust menu and static scene inspection verified on Linux; two independent reviews accepted; campaign not playable",
   "rust_toolchain": "1.99.1",
   "validation": {
-    "status": "scripts/test.sh passed; two sequential independent reviews accepted manifest bb397fe59de45cb471c07a00f227e6a111f8ecc7cf9f1c9c5a766464962b6d7c",
-    "rust_unit_tests": 27,
+    "status": "scripts/test.sh passed current milestone; two independent reviews accepted",
+    "rust_unit_tests": 61,
     "rust_unit_test_split": {
-      "lhr_assets": 21,
-      "lhr_engine": 3,
-      "lhr_render": 3
+      "lhr_assets": 49,
+      "lhr_engine": 8,
+      "lhr_render": 4
     },
-    "rea_wrapper_tests": 9
+    "rea_wrapper_tests": 9,
+    "latest_accepted_baseline": {
+      "rust_unit_tests": 27,
+      "rea_wrapper_tests": 9,
+      "milestone": "DTA intake, accepted by two sequential independent reviews"
+    }
   },
   "assets": {
-    "scope": "Loose supported files plus lazy A1/A2/A6 DTA lookup; 4DS v29 static meshes and supported BMP textures",
-    "private_archive_entries_read": 20229,
-    "private_archive_bytes_read": 1393380816,
-    "reference_byte_equality": "Exact against a separate private prototype decoder, not independent source extraction or original-runtime comparison.",
-    "capture_parity": "Archive-path captures for 4build101 and bedna00 exactly match previous loose-path PNG hashes; not original-engine image parity.",
-    "archive_precedence": "Explicit project loose-first policy; original runtime mount/override behavior unknown.",
+    "scope": "A8/A2/A6/A1/AA DTA subset; selected 4DS, BMP/TGA, menu/text/font, scene2, cache and script intake",
+    "archive_order_basis": "PC-RUST-MENU-001 static REA startup registration sequence, restricted to the supported archive subset",
+    "read_fallback": "Selected source read errors do not fall back; stricter than native fallback behavior",
     "checksum_verification": false,
     "audio_codecs": "unsupported",
-    "independent_loose_hash_matches": 4,
-    "directory_assumption": "Trusted stable installation tree required; not descriptor-relative confinement against hostile concurrent parent replacement."
+    "scene_streaming": "not implemented",
+    "collision": "not implemented",
+    "directory_assumption": "Trusted stable installation tree required; not descriptor-relative confinement against hostile concurrent parent replacement"
+  },
+  "menu": {
+    "implementation": "Czech PC menu layout/localization display and keyboard/pointer selection",
+    "current_validation": "Linux X11 input and captures frozen; Down selects Exit, Up selects New Game, Enter/mouse opens static INTRO, Escape opens static MISE01 then returns to menu",
+    "profile_chooser": "not implemented",
+    "unsupported_menu_actions": "not implemented",
+    "new_game_flow": "Static intro scene; Escape switches to static MISE01 inspection. No cinematic or mission execution.",
+    "intro_cutscene": "not implemented",
+    "original_reference_runtime": "Menu-to-prolog-to-first-mission HUD verified in the original game only; not Rust gameplay evidence"
+  },
+  "scene_and_scripts": {
+    "scene2": "Bounded object, actor and embedded script metadata parsing",
+    "city_cache": "Bounded placement parsing; no streaming",
+    "script_intake": "Observed actor serialization and line-oriented command parsing; no expression evaluation",
+    "diagnostic_vm_subset": "One bounded step per program for literal LABEL/GOTO/GOSUB/RETURN/WAIT/COMMANDBLOCK/END (PC-RUST-CONTROL-VM-01); not integrated with actors, world effects or mission progression",
+    "probe_results": "INTRO: 16 scripts halt on unsupported commands, one after advancing a prefix. MISE01: 37 halt, seven after advancing a prefix, two empty scripts complete. Prefix counts overlap halted counts.",
+    "original_runtime_comparison": "PC-RUST-CONTROL-VM-RUNTIME-02 compares bounded COMMANDBLOCK and WAIT states against original runtime observations; GOTO/END and complete scheduler/caller chain unverified, replay observed only",
+    "mission_execution": "not implemented",
+    "current_validation": "61 Rust tests and 9 REA wrapper tests pass; diagnostic probe does not execute gameplay"
   },
   "renderer": {
     "target": "wgpu Vulkan on Linux, Metal on macOS",
-    "linux": "Offscreen Vulkan llvmpipe output read back and visually inspected; unlit approximation",
-    "window_inspection": "Bounded Xvfb/XTEST camera inspection passed; not original gameplay",
-    "original_gameplay": "not implemented or validated",
+    "latest_accepted_baseline": "Linux llvmpipe offscreen rendering and bounded Xvfb camera inspection",
+    "current_menu_scene_validation": "Linux X11 captures and keyboard/mouse transitions frozen; approximate static scenes, not gameplay",
+    "omitted_effect_material_counts": {
+      "MENU": 33,
+      "INTRO": 12,
+      "MISE01": 39,
+      "meaning": "Materials with unsupported effects, not all fully omitted materials"
+    },
+    "original_render_parity": "not established",
     "macos_metal": "not tested"
   },
   "campaign_playable": false,
@@ -45,11 +73,15 @@
   },
   "rea_evidence": [
     "PC-RUST-BOOTSTRAP-001",
-    "PC-RUST-ARCHIVE-001"
+    "PC-RUST-ARCHIVE-001",
+    "PC-RUST-MENU-001",
+    "PC-RUST-CONTROL-VM-01",
+    "PC-RUST-CONTROL-VM-RUNTIME-02"
   ],
   "rust_milestone_evidence_indexes": [
     "RUST-ENGINE-EVIDENCE-INDEX-20261021",
-    "RUST-DTA-MILESTONE-EVIDENCE-20261021"
+    "RUST-DTA-MILESTONE-EVIDENCE-20261021",
+    "RUST-MENU-SCENE-MILESTONE-EVIDENCE-20261021"
   ],
   "historical_runtime_trace": "40 animation API time units measured as 40 milliseconds on one unscaled path; not a universal timing rule.",
   "history": [
@@ -59,7 +91,14 @@
       "milestone": "Started standalone Rust engine with original asset rendering",
       "verification": "13 Rust tests and 9 REA wrapper tests passed",
       "analysis_snapshot": "Game.exe 9/4914 (0.18%); LS3DF.dll 45/1683 (2.67%); strict full-system evidence 0/12"
+    },
+    {
+      "revision": "90d2edb",
+      "date": "2026-10-21",
+      "milestone": "Added lazy reads from selected original DTA archives",
+      "verification": "27 Rust tests and 9 REA wrapper tests passed; two sequential independent reviews accepted",
+      "analysis_snapshot": "PC-RUST-ARCHIVE-001; 20,229 entries compared against private prototype decoder, not independent source extraction or original runtime"
     }
   ],
-  "reset_boundary": "Former Godot prototype implementation and tests are historical and are not counted as Rust behavior or validation."
+  "reset_boundary": "Former Godot prototype implementation/tests and original-game runtime traces are not counted as Rust behavior or validation."
 }

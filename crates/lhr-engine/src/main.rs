@@ -1,10 +1,15 @@
-//! Camera inspection executable; this does not implement original gameplay.
+//! Original-data menu and static scene inspection; mission scripts are not executed.
+mod menu;
 use glam::{Mat4, Quat, Vec3};
 use lhr_render::{Camera, Mesh, Renderer, Scene, Texture, Vertex};
-use std::{collections::HashSet, path::PathBuf, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+    sync::Arc,
+};
 use winit::{
     application::ApplicationHandler,
-    event::{ElementState, WindowEvent},
+    event::{ElementState, MouseButton, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoop},
     keyboard::{KeyCode, PhysicalKey},
     window::{Window, WindowId},
@@ -18,6 +23,7 @@ struct Options {
     linear: bool,
     textures: String,
     synthetic: bool,
+    mission: Option<String>,
 }
 fn options() -> Result<Options, String> {
     let mut result = Options {
@@ -29,6 +35,7 @@ fn options() -> Result<Options, String> {
         linear: false,
         textures: "maps".into(),
         synthetic: false,
+        mission: None,
     };
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -41,17 +48,30 @@ fn options() -> Result<Options, String> {
             "--linear" => result.linear = true,
             "--frames" => result.frames = args.next().ok_or("Missing frame count")?.parse().map_err(|_| "Invalid frame count")?,
             "--synthetic" => result.synthetic = true,
+            "--mission" => result.mission = Some(args.next().ok_or("Missing mission argument")?),
             "--help" => return Err(concat!(
-                "Usage: lhr-engine [--synthetic | --root DIRECTORY --model RELATIVE_4DS] ",
+                "Usage: lhr-engine [--synthetic | --root DIRECTORY [--model RELATIVE_4DS | --mission NAME]] ",
                 "[--textures RELATIVE_DIRECTORY] [--headless --capture PNG] [--frames N] [--linear]. ",
-                "Camera inspection: arrows orbit, W/S zoom, Esc exits. ",
+                "Root alone opens the supported original Czech main-menu subset (New Game/Exit). ",
+                "Menu: arrows/Enter or mouse. New Game loads static INTRO; Esc loads static MISE01, then returns to menu. ",
+                "Scene inspection: arrows orbit, W/S zoom. Original profile, cutscene, mission-script and gameplay execution are not implemented. ",
                 "Sampling is provisional nearest (or --linear), not verified original behavior."
             ).into()),
             _ => return Err("Unknown command option".into()),
         }
     }
-    if result.root.is_some() != result.model.is_some() {
-        return Err("Root and model must be provided together".into());
+    if result.model.is_some() && result.root.is_none() {
+        return Err("A model requires an installation root".into());
+    }
+    if result.mission.is_some() && (result.root.is_none() || result.model.is_some()) {
+        return Err("A mission requires an installation root and no model".into());
+    }
+    if let Some(name) = &result.mission {
+        if name.is_empty() || !name.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_') {
+            return Err(
+                "Mission name must contain only ASCII letters, digits and underscore".into(),
+            );
+        }
     }
     if result.headless && result.frames != 0 {
         return Err("Headless mode captures exactly one frame; omit --frames".into());
@@ -60,7 +80,7 @@ fn options() -> Result<Options, String> {
         return Err("Headless mode requires a capture output".into());
     }
     if result.synthetic == result.root.is_some() {
-        return Err("Select exactly one of --synthetic or --root with --model".into());
+        return Err("Select exactly one of --synthetic or --root".into());
     }
     if result.capture.is_some() && !result.headless && result.frames == 0 {
         return Err("Window capture requires a bounded --frames count".into());
@@ -89,14 +109,14 @@ fn synthetic() -> Scene {
                 },
             ],
             indices: vec![0, 1, 2, 0, 2, 3],
-            texture: Some(Texture {
+            texture: Some(Arc::new(Texture {
                 width: 2,
                 height: 2,
                 repeat: [true, true],
                 rgba: vec![
                     255, 32, 32, 255, 32, 255, 32, 255, 32, 32, 255, 255, 255, 255, 32, 255,
                 ],
-            }),
+            })),
         }],
     }
 }
@@ -122,20 +142,51 @@ fn engine_position(transform: Mat4, position: [f32; 3]) -> Result<[f32; 3], Stri
     }
     Ok([p.x, p.y, -p.z])
 }
+fn material_effects_omitted(material: &lhr_assets::Material) -> bool {
+    // These are the effects rejected by strict model intake; scene intake retains
+    // their metadata, but the current opaque, unlit renderer does not execute them.
+    const UNSUPPORTED_EFFECT_FLAGS: u32 =
+        0x8000 | 0x80000 | 0x01000000 | 0x04000000 | 0x20000000 | 0x40000000 | 0x80000000;
+    material.flags & UNSUPPORTED_EFFECT_FLAGS != 0
+        || material.alpha_texture.is_some()
+        || material.environment_texture.is_some()
+        || material.emission != [0.0; 3]
+        || material.opacity != 1.0
+        || material.animation.is_some()
+}
 fn load(options: &Options) -> Result<Scene, String> {
     let Some(root) = &options.root else {
         return Ok(synthetic());
     };
-    let installation =
-        lhr_assets::Installation::open(root).map_err(|_| "Cannot open asset installation")?;
+    let installation = lhr_assets::Installation::open(root)
+        .map_err(|e| format!("Cannot open asset installation: {e}"))?;
+    let path = options.model.clone().unwrap_or_else(|| {
+        format!(
+            "missions/{}/scene.4ds",
+            options.mission.as_deref().unwrap_or("00menu")
+        )
+    });
     let data = installation
-        .read(options.model.as_deref().unwrap())
-        .map_err(|_| "Cannot read selected model")?;
-    let model = lhr_assets::parse_four_ds(&data)
-        .map_err(|_| "Selected model is unsupported or malformed")?;
+        .read(&path)
+        .map_err(|e| format!("Cannot read selected geometry: {e}"))?;
+    let model = if options.model.is_some() {
+        lhr_assets::parse_four_ds(&data)
+    } else {
+        lhr_assets::parse_four_ds_scene(&data)
+    }
+    .map_err(|e| format!("Selected geometry is unsupported or malformed: {e}"))?;
+    if options.model.is_none() {
+        let omitted = model
+            .materials
+            .iter()
+            .filter(|material| material_effects_omitted(material))
+            .count();
+        println!("Static scene subset: {} frames; {omitted} materials have effects not rendered; animation, lighting and mission scripts are not executed", model.frames.len());
+    }
     let mut transforms = Vec::new();
     let mut meshes = Vec::new();
     let mut scene_bytes = 0usize;
+    let mut texture_cache = HashMap::<(String, [bool; 2]), Arc<Texture>>::new();
     const MAX_SCENE_BYTES: usize = 256 * 1024 * 1024;
     for frame in &model.frames {
         let rotation = source_rotation(frame.rotation_wxyz)?;
@@ -182,10 +233,12 @@ fn load(options: &Options) -> Result<Scene, String> {
             }
             charge_scene(&mut scene_bytes, geometry_bytes, MAX_SCENE_BYTES)?;
 
-            let material = model
-                .materials
-                .get(group.material)
-                .ok_or("Invalid model material reference")?;
+            let Some(material) = model.materials.get(group.material) else {
+                if options.model.is_none() {
+                    continue;
+                }
+                return Err("Invalid model material reference".into());
+            };
             let texture = if material.texture.is_empty() {
                 let mut rgba: Vec<u8> = material
                     .diffuse
@@ -193,43 +246,71 @@ fn load(options: &Options) -> Result<Scene, String> {
                     .map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8)
                     .collect();
                 rgba.push(255);
-                Some(Texture {
+                Some(Arc::new(Texture {
                     width: 1,
                     height: 1,
                     repeat: [false, false],
                     rgba,
-                })
+                }))
             } else {
                 let name = format!("{}/{}", options.textures, material.texture);
-                let bytes = installation
-                    .read(&name)
-                    .map_err(|_| "A model texture is unavailable")?;
-                let width = bytes
-                    .get(18..22)
-                    .and_then(|b| b.try_into().ok())
-                    .map(i32::from_le_bytes)
-                    .filter(|&n| n > 0)
-                    .ok_or("Invalid BMP width")? as usize;
-                let height = bytes
-                    .get(22..26)
-                    .and_then(|b| b.try_into().ok())
-                    .map(i32::from_le_bytes)
-                    .filter(|&n| n != 0 && n != i32::MIN)
-                    .ok_or("Invalid BMP height")?
-                    .unsigned_abs() as usize;
-                let texture_bytes = width
-                    .checked_mul(height)
-                    .and_then(|n| n.checked_mul(4))
-                    .ok_or("Texture size overflow")?;
-                charge_scene(&mut scene_bytes, texture_bytes, MAX_SCENE_BYTES)?;
-                let decoded = lhr_assets::decode_bmp(&bytes)
-                    .map_err(|_| "A model texture is unsupported or malformed")?;
-                Some(Texture {
-                    width: decoded.width,
-                    height: decoded.height,
-                    rgba: decoded.rgba,
-                    repeat: [material.flags & 0x10000 == 0, material.flags & 0x20000 == 0],
-                })
+                let repeat = [material.flags & 0x10000 == 0, material.flags & 0x20000 == 0];
+                let key = (name.to_ascii_lowercase(), repeat);
+                if let Some(texture) = texture_cache.get(&key) {
+                    Some(texture.clone())
+                } else {
+                    let bytes = installation
+                        .read(&name)
+                        .map_err(|_| "A model texture is unavailable")?;
+                    let width = bytes
+                        .get(18..22)
+                        .and_then(|b| b.try_into().ok())
+                        .map(i32::from_le_bytes)
+                        .filter(|&n| n > 0)
+                        .ok_or("Invalid BMP width")? as usize;
+                    let height = bytes
+                        .get(22..26)
+                        .and_then(|b| b.try_into().ok())
+                        .map(i32::from_le_bytes)
+                        .filter(|&n| n != 0 && n != i32::MIN)
+                        .ok_or("Invalid BMP height")?
+                        .unsigned_abs() as usize;
+                    let texture_bytes = width
+                        .checked_mul(height)
+                        .and_then(|n| n.checked_mul(4))
+                        .ok_or("Texture size overflow")?;
+                    charge_scene(&mut scene_bytes, texture_bytes, MAX_SCENE_BYTES)?;
+                    let decoded = match lhr_assets::decode_bmp_original(&bytes) {
+                        Ok(decoded) => decoded,
+                        Err(error) if options.model.is_none() => {
+                            eprintln!("Static subset: {name} unavailable ({error}); source diffuse color fallback");
+                            let mut rgba: Vec<u8> = material
+                                .diffuse
+                                .iter()
+                                .map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8)
+                                .collect();
+                            rgba.push(255);
+                            lhr_assets::Texture {
+                                width: 1,
+                                height: 1,
+                                rgba,
+                            }
+                        }
+                        Err(error) => {
+                            return Err(format!(
+                                "Model texture {name} is unsupported or malformed: {error}"
+                            ))
+                        }
+                    };
+                    let texture = Arc::new(Texture {
+                        width: decoded.width,
+                        height: decoded.height,
+                        rgba: decoded.rgba,
+                        repeat,
+                    });
+                    texture_cache.insert(key, texture.clone());
+                    Some(texture)
+                }
             };
             // Explicit source-to-engine conversion: preserve X/Y, reflect Z. Reverse
             // each triangle to retain its orientation after the handedness change.
@@ -262,7 +343,53 @@ fn load(options: &Options) -> Result<Scene, String> {
     }
     Ok(Scene { meshes })
 }
+fn authored_camera(options: &Options, scene: &Scene, name: &str) -> Result<Camera, String> {
+    let mut camera = Camera::fit(scene)?;
+    let Some(root) = &options.root else {
+        return Ok(camera);
+    };
+    if options.model.is_some() {
+        return Ok(camera);
+    }
+    let installation = lhr_assets::Installation::open(root).map_err(|e| e.to_string())?;
+    let mission = options.mission.as_deref().unwrap_or("00menu");
+    let bytes = installation
+        .read(&format!("missions/{mission}/scene2.bin"))
+        .map_err(|e| e.to_string())?;
+    let metadata = lhr_assets::parse_scene2(&bytes).map_err(|e| e.to_string())?;
+    println!("Scene metadata: {} objects, {} actors, {} parsed script programs; actors and mission scripts are not executed",
+        metadata.objects.len(), metadata.actors.len(), metadata.scripts.len());
+    if let Some(object) = metadata
+        .objects
+        .iter()
+        .find(|o| o.name.eq_ignore_ascii_case(name))
+    {
+        if let (Some(p), Some(q)) = (object.position, object.rotation_wxyz) {
+            let rotation = source_rotation(q)?;
+            let forward = rotation * Vec3::Z;
+            camera.eye = Vec3::new(p[0], p[1], -p[2]);
+            camera.target = camera.eye + Vec3::new(forward.x, forward.y, -forward.z);
+            camera.up = Vec3::Y;
+            println!("Authored camera: {name}; provisional 50-degree field of view");
+        }
+    } else {
+        println!("Authored camera {name} unavailable; fitted inspection camera");
+    }
+    camera.validate()?;
+    Ok(camera)
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AppMode {
+    Menu,
+    IntroScene,
+    FirstMissionScene,
+    Inspection,
+}
 struct App {
+    mode: AppMode,
+    ui: Option<menu::MenuUi>,
+    pointer: [f32; 2],
+    adapter: Option<wgpu::Adapter>,
     scene: Scene,
     camera: Camera,
     options: Options,
@@ -275,6 +402,67 @@ struct App {
     error: Option<String>,
 }
 impl App {
+    fn refresh_menu(&self) -> Result<(), String> {
+        if let (Some(ui), Some(renderer)) = (&self.ui, &self.renderer) {
+            renderer.update_texture(self.scene.meshes.len() - 1, &ui.pixels())?;
+        }
+        Ok(())
+    }
+    fn activate(&mut self, event_loop: &ActiveEventLoop) {
+        if self.mode != AppMode::Menu {
+            return;
+        }
+        let action = self.ui.as_ref().unwrap().activate();
+        println!("Menu activate: {action:?}");
+        match action {
+            menu::Action::NewGame => {
+                if let Err(error) = self.transition(AppMode::IntroScene) {
+                    self.fail(event_loop, &error);
+                }
+            }
+            menu::Action::Quit => event_loop.exit(),
+            _ => println!("Selected original menu action is not implemented; menu retained"),
+        }
+    }
+    fn transition(&mut self, mode: AppMode) -> Result<(), String> {
+        self.options.mission = match mode {
+            AppMode::IntroScene => Some("intro".into()),
+            AppMode::FirstMissionScene => Some("mise01".into()),
+            _ => None,
+        };
+        let mut scene = load(&self.options)?;
+        let camera = authored_camera(
+            &self.options,
+            &scene,
+            if mode == AppMode::Menu {
+                "intro_pos"
+            } else {
+                "camera_start"
+            },
+        )?;
+        if mode == AppMode::Menu {
+            scene
+                .meshes
+                .push(menu::quad(self.ui.as_ref().unwrap().pixels()));
+        }
+        let renderer = pollster::block_on(Renderer::with_adapter(
+            self.adapter.as_ref().ok_or("Graphics adapter absent")?,
+            &scene,
+            self.config.as_ref().unwrap().format,
+            self.options.linear,
+        ))?;
+        self.surface
+            .as_ref()
+            .unwrap()
+            .configure(&renderer.device, self.config.as_ref().unwrap());
+        self.renderer = Some(renderer);
+        self.scene = scene;
+        self.camera = camera;
+        self.mode = mode;
+        self.keys.clear();
+        println!("Application state: {mode:?}; scene assets loaded; gameplay and cutscene execution unsupported");
+        Ok(())
+    }
     fn fail(&mut self, event_loop: &ActiveEventLoop, message: &str) {
         self.error = Some(message.into());
         event_loop.exit();
@@ -287,8 +475,11 @@ impl ApplicationHandler for App {
         }
         let Ok(window) = event_loop.create_window(
             Window::default_attributes()
-                .with_title("Lost Heaven Reborn — camera inspection")
-                .with_inner_size(winit::dpi::LogicalSize::new(960, 640)),
+                .with_title("Lost Heaven Reborn — original menu / static scene inspection")
+                .with_inner_size(winit::dpi::LogicalSize::new(
+                    if self.mode == AppMode::Menu { 640 } else { 960 },
+                    if self.mode == AppMode::Menu { 480 } else { 640 },
+                )),
         ) else {
             self.fail(event_loop, "Cannot create inspection window");
             return;
@@ -328,6 +519,7 @@ impl ApplicationHandler for App {
             }
         };
         surface.configure(&renderer.device, &config);
+        self.adapter = Some(adapter);
         self.window = Some(window);
         self.surface = Some(surface);
         self.renderer = Some(renderer);
@@ -339,14 +531,72 @@ impl ApplicationHandler for App {
             WindowEvent::Focused(false) => self.keys.clear(),
             WindowEvent::KeyboardInput { event, .. } => {
                 if let PhysicalKey::Code(code) = event.physical_key {
-                    if code == KeyCode::Escape {
-                        event_loop.exit();
+                    if event.state == ElementState::Pressed && !event.repeat {
+                        if self.mode == AppMode::Menu {
+                            match code {
+                                KeyCode::ArrowDown | KeyCode::ArrowUp => {
+                                    self.ui.as_mut().unwrap().move_selection(
+                                        if code == KeyCode::ArrowDown { 1 } else { -1 },
+                                    );
+                                    println!(
+                                        "Menu focus: {}",
+                                        self.ui.as_ref().unwrap().focus_id()
+                                    );
+                                    if let Err(error) = self.refresh_menu() {
+                                        self.fail(event_loop, &error);
+                                    }
+                                }
+                                KeyCode::Enter | KeyCode::NumpadEnter => self.activate(event_loop),
+                                KeyCode::Escape => event_loop.exit(),
+                                _ => {}
+                            }
+                        } else if code == KeyCode::Escape {
+                            let next = if self.mode == AppMode::IntroScene {
+                                AppMode::FirstMissionScene
+                            } else {
+                                AppMode::Menu
+                            };
+                            if self.ui.is_some() {
+                                if let Err(error) = self.transition(next) {
+                                    self.fail(event_loop, &error);
+                                }
+                            } else {
+                                event_loop.exit();
+                            }
+                        }
                     }
-                    if event.state == ElementState::Pressed {
-                        self.keys.insert(code);
-                    } else {
-                        self.keys.remove(&code);
+                    if self.mode != AppMode::Menu {
+                        if event.state == ElementState::Pressed {
+                            self.keys.insert(code);
+                        } else {
+                            self.keys.remove(&code);
+                        }
                     }
+                }
+            }
+            WindowEvent::CursorMoved { position, .. } if self.mode == AppMode::Menu => {
+                let size = self.window.as_ref().unwrap().inner_size();
+                self.pointer = menu::design_position(
+                    [position.x as f32, position.y as f32],
+                    [size.width, size.height],
+                );
+                if self.ui.as_mut().unwrap().point(self.pointer) {
+                    println!(
+                        "Menu pointer focus: {}",
+                        self.ui.as_ref().unwrap().focus_id()
+                    );
+                    if let Err(error) = self.refresh_menu() {
+                        self.fail(event_loop, &error);
+                    }
+                }
+            }
+            WindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                button: MouseButton::Left,
+                ..
+            } if self.mode == AppMode::Menu => {
+                if self.ui.as_ref().unwrap().hit(self.pointer) {
+                    self.activate(event_loop);
                 }
             }
             WindowEvent::Resized(size) => {
@@ -397,12 +647,18 @@ impl ApplicationHandler for App {
                 {
                     match surface.get_current_texture() {
                         Ok(frame) => {
-                            let encoder = renderer.render(
-                                &frame.texture.create_view(&Default::default()),
-                                config.width,
-                                config.height,
-                                &self.camera,
-                            );
+                            let view = frame.texture.create_view(&Default::default());
+                            let encoder = if self.mode == AppMode::Menu {
+                                renderer.render_with_overlay(
+                                    &view,
+                                    config.width,
+                                    config.height,
+                                    &self.camera,
+                                    menu::DESIGN,
+                                )
+                            } else {
+                                renderer.render(&view, config.width, config.height, &self.camera)
+                            };
                             renderer.queue.submit(Some(encoder.finish()));
                             frame.present();
                             self.count += 1;
@@ -419,13 +675,20 @@ impl ApplicationHandler for App {
                 }
                 if self.options.frames > 0 && self.count >= self.options.frames {
                     if let Some(path) = &self.options.capture {
-                        if self
-                            .renderer
-                            .as_ref()
-                            .unwrap()
-                            .capture(960, 640, &self.camera, path)
-                            .is_err()
-                        {
+                        let renderer = self.renderer.as_ref().unwrap();
+                        let size = self.window.as_ref().unwrap().inner_size();
+                        let result = if self.mode == AppMode::Menu {
+                            renderer.capture_with_overlay(
+                                size.width,
+                                size.height,
+                                &self.camera,
+                                menu::DESIGN,
+                                path,
+                            )
+                        } else {
+                            renderer.capture(size.width, size.height, &self.camera, path)
+                        };
+                        if result.is_err() {
                             self.fail(event_loop, "Capture failed");
                             return;
                         }
@@ -444,10 +707,29 @@ impl ApplicationHandler for App {
 }
 fn run() -> Result<(), String> {
     let options = options()?;
-    let scene = load(&options)?;
-    let camera = Camera::fit(&scene)?;
+    let mut scene = load(&options)?;
+    let camera = authored_camera(&options, &scene, "intro_pos")?;
+    let ui = match &options.root {
+        Some(root) if options.model.is_none() && options.mission.is_none() => {
+            let installation = lhr_assets::Installation::open(root).map_err(|e| e.to_string())?;
+            Some(menu::MenuUi::load(&installation)?)
+        }
+        _ => None,
+    };
+    let mode = if ui.is_some() {
+        AppMode::Menu
+    } else {
+        AppMode::Inspection
+    };
+    if let Some(ui) = &ui {
+        scene.meshes.push(menu::quad(ui.pixels()));
+    }
+    println!("Application state: {mode:?}");
+    if ui.is_some() {
+        println!("Menu subset: New Game and Exit; original profile chooser and other actions are not implemented");
+    }
     println!(
-        "Camera inspection; provisional {} texture sampling; {} indexed mesh groups",
+        "Original-data menu/static scene inspection; provisional {} texture sampling; {} indexed mesh groups",
         if options.linear { "linear" } else { "nearest" },
         scene.meshes.len()
     );
@@ -470,12 +752,26 @@ fn run() -> Result<(), String> {
             wgpu::TextureFormat::Rgba8UnormSrgb,
             options.linear,
         ))?;
-        renderer.capture(960, 640, &camera, options.capture.as_deref().unwrap())?;
+        if mode == AppMode::Menu {
+            renderer.capture_with_overlay(
+                640,
+                480,
+                &camera,
+                menu::DESIGN,
+                options.capture.as_deref().unwrap(),
+            )?;
+        } else {
+            renderer.capture(960, 640, &camera, options.capture.as_deref().unwrap())?;
+        }
         println!("GPU readback capture complete");
         return Ok(());
     }
     let event_loop = EventLoop::new().map_err(|_| "Cannot initialize window event loop")?;
     let mut app = App {
+        mode,
+        ui,
+        pointer: [-1.0; 2],
+        adapter: None,
         scene,
         camera,
         options,
@@ -505,6 +801,32 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn effect_diagnostics_include_flag_only_materials_without_optional_payloads() {
+        let mut material = lhr_assets::Material {
+            flags: 0,
+            ambient: [0.0; 3],
+            diffuse: [1.0; 3],
+            texture: String::new(),
+            emission: [0.0; 3],
+            opacity: 1.0,
+            alpha_texture: None,
+            reflection: None,
+            environment_texture: None,
+            animation: None,
+        };
+        assert!(!material_effects_omitted(&material));
+        for flag in [
+            0x8000, 0x80000, 0x01000000, 0x04000000, 0x20000000, 0x40000000, 0x80000000,
+        ] {
+            material.flags = flag;
+            assert!(material_effects_omitted(&material), "flag {flag:08x}");
+        }
+        material.flags = 0x30000; // Supported clamp flags are not omitted effects.
+        assert!(!material_effects_omitted(&material));
+        material.opacity = 0.5;
+        assert!(material_effects_omitted(&material));
+    }
     #[test]
     fn aggregate_budget_rejects_many_individually_small_allocations() {
         let mut total = 0;
