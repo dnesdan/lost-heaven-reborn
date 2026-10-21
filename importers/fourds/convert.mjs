@@ -2,6 +2,7 @@
 import { createHash } from 'node:crypto';
 import { parseFourDs } from './vendor/fourds.mjs';
 import { bmpToPng, pngDimensions } from './png.mjs';
+import { prepareAnimation, addAnimatedGeometry, finishAnimations } from './animation.mjs';
 
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 const unsupportedMaterialFlags = (0x8000 | 0x80000 | 0x01000000 | 0x04000000
@@ -21,12 +22,21 @@ export function safeTextureName(value) {
 }
 
 export function convertStaticModel(source, { resolveTexture, allowMissingTextures = false } = {}) {
+  return convertModel(source, { resolveTexture, allowMissingTextures });
+}
+
+export function convertExperimentalAnimatedModel(source, options = {}) {
+  return convertModel(source, options, options);
+}
+
+function convertModel(source, { resolveTexture, allowMissingTextures = false } = {}, experimental = null) {
   if (source.length > 64 * 1024 * 1024) throw new Error('Model exceeds the 64 MiB limit.');
   const model = parseFourDs(source, 'all');
-  if (model.animated || model.meshes.some(frame => frame.skin?.length || frame.morph?.targets || frame.type === 10)) {
+  const animation = experimental ? prepareAnimation(model, experimental) : null;
+  if (!animation && (model.animated || model.meshes.some(frame => frame.skin?.length || frame.morph?.targets || frame.type === 10))) {
     throw new Error('Animated, skinned, morph and joint models are outside this static converter.');
   }
-  if (model.meshes.some(frame => ![1, 6].includes(frame.type)
+  if (!animation && model.meshes.some(frame => ![1, 6].includes(frame.type)
       || frame.type === 1 && ![0, 1].includes(frame.visual))) {
     throw new Error('Only standard static visuals and dummy frames are supported.');
   }
@@ -51,15 +61,22 @@ export function convertStaticModel(source, { resolveTexture, allowMissingTexture
     chunks.push(bytes); byteLength += bytes.length;
     return index;
   }
-  function attribute(values, size, includeBounds = false) {
+  function attribute(values, size, includeBounds = false, componentType = 5126, target = 34962) {
     if (values.length % size || values.some(value => !Number.isFinite(value))) throw new Error('Invalid vertex attribute.');
-    const bytes = Buffer.alloc(values.length * 4);
-    values.forEach((value, index) => bytes.writeFloatLE(value, index * 4));
-    const accessor = { bufferView: append(bytes, 34962), componentType: 5126,
-      count: values.length / size, type: { 2: 'VEC2', 3: 'VEC3' }[size] };
+    const width = componentType === 5123 ? 2 : 4, bytes = Buffer.alloc(values.length * width);
+    values.forEach((value, index) => {
+      if (componentType === 5123) bytes.writeUInt16LE(value, index * width);
+      else {
+        if (!Number.isFinite(Math.fround(value))) throw new Error('Attribute exceeds float32 range.');
+        bytes.writeFloatLE(value, index * width);
+      }
+    });
+    const accessor = { bufferView: append(bytes, target), componentType,
+      count: values.length / size, type: { 1: 'SCALAR', 2: 'VEC2', 3: 'VEC3', 4: 'VEC4', 16: 'MAT4' }[size] };
     if (includeBounds) {
       accessor.min = Array(size).fill(Infinity); accessor.max = Array(size).fill(-Infinity);
       values.forEach((value, index) => {
+        if (componentType === 5126) value = Math.fround(value);
         accessor.min[index % size] = Math.min(accessor.min[index % size], value);
         accessor.max[index % size] = Math.max(accessor.max[index % size], value);
       });
@@ -126,7 +143,9 @@ export function convertStaticModel(source, { resolveTexture, allowMissingTexture
       scale: frame.scale,
       extras: { sourceFrameId: frame.id, sourceParent: frame.parent, sourceType: frame.type,
         sourceVisual: frame.visual, sourceCulling: frame.culling, sourceRenderFlags: frame.renderFlags,
-        sourceLogicFlags: frame.logicFlags, sourceProperties: frame.properties } });
+        sourceLogicFlags: frame.logicFlags, sourceProperties: frame.properties,
+        ...(animation && frame.type === 10 ? { sourceJointId: frame.joint,
+          opaqueType10Matrix: frame.inverseBind, opaqueType10MatrixSemantics: 'unknown; not the skin inverse matrix' } : {}) } });
   }
   let vertexCount = 0, triangleCount = 0;
   const omitted = [];
@@ -137,6 +156,7 @@ export function convertStaticModel(source, { resolveTexture, allowMissingTexture
     const geometry = resolve(frame), lod = geometry.lods?.[0];
     if (!lod?.positions.length) continue;
     if (!enabled(frame) || frame.renderFlags & 0x40 || /(?:^|\s)SECT(?:\s|$)/i.test(frame.properties ?? '')) {
+      if (animation) throw new Error('Experimental conversion refuses hidden geometry instead of omitting polygons.');
       omitted.push({ frame: frame.id, reason: 'disabled or hidden source surface' }); continue;
     }
     if (lod.invalidNormals || lod.invalidUV) throw new Error('Invalid source normals or UVs cannot be converted silently.');
@@ -148,6 +168,7 @@ export function convertStaticModel(source, { resolveTexture, allowMissingTexture
     const positions = lod.positions.map((value, index) => index % 3 === 2 ? -value : value);
     const normals = lod.normals.map((value, index) => index % 3 === 2 ? -value : value);
     const attributes = { POSITION: attribute(positions, 3, true), NORMAL: attribute(normals, 3), TEXCOORD_0: attribute(lod.uv, 2) };
+    const morph = animation ? addAnimatedGeometry(frame, lod, animation, gltf, attribute, attributes) : null;
     const primitives = [];
     for (const group of lod.faces) {
       if (!group.indices.length) continue;
@@ -157,14 +178,18 @@ export function convertStaticModel(source, { resolveTexture, allowMissingTexture
         reversed.push(group.indices[index], group.indices[index + 2], group.indices[index + 1]);
       }
       triangleCount += reversed.length / 3;
-      primitives.push({ attributes, indices: indexAccessor(reversed), material: group.material - 1, mode: 4 });
+      primitives.push({ attributes, indices: indexAccessor(reversed), material: group.material - 1, mode: 4,
+        ...(morph?.targets.length ? { targets: morph.targets } : {}) });
     }
     if (!primitives.length) continue;
     vertexCount += lod.vertices;
     node.mesh = gltf.meshes.push({ name: node.name, primitives,
+      ...(morph?.targets.length ? { weights: Array(morph.targets.length).fill(0) } : {}),
       extras: { sourceLod: 0, sourceLodDistance: lod.distance, omittedLowerLods: geometry.lods.length - 1 } }) - 1;
+    if (morph?.targets.length) gltf.meshes[node.mesh].extras.targetNames = morph.targetNames;
   }
   if (!triangleCount) throw new Error('Model contains no supported visible triangles.');
+  if (animation) finishAnimations(animation, gltf, attribute);
   if (!gltf.images.length) { delete gltf.images; delete gltf.textures; delete gltf.samplers; }
   const metadata = { schema: 'lhr-static-model-v1', sourceFormat: '4DS', sourceVersion: model.version,
     sourceSha256: sha256(source), sourceBasis: 'left-handed Y-up', targetBasis: 'right-handed Y-up',
@@ -179,6 +204,35 @@ export function convertStaticModel(source, { resolveTexture, allowMissingTexture
   gltf.extras = { schema: metadata.schema, sourceSha256: metadata.sourceSha256,
     sourceBasis: metadata.sourceBasis, targetBasis: metadata.targetBasis,
     unitScale: 1, unitStatus: metadata.unitStatus, scope: metadata.scope };
+  if (animation) {
+    metadata.schema = 'lhr-experimental-animation-v1';
+    metadata.scope = 'experimental single-LOD skin/morph/5DS asset playback; original engine behavior unverified';
+    metadata.engineFidelity = false;
+    metadata.chosenSecondsPerFrame = animation.secondsPerFrame;
+    metadata.sourceTimeUnitsPerFrame = 40;
+    metadata.sourceTimeUnitStatus = 'PC static analysis: 40 engine API units per file frame; physical seconds unverified';
+    metadata.staticEvidence = 'PC-ANIMATION-API-DOSSIER; duration/key getters; no original runtime comparison';
+    metadata.interpolation = 'provisional local replacement; glTF LINEAR vectors and slerp rotations';
+    metadata.limitations = animation.limitations;
+    metadata.warnings.push('Experimental animation: original engine fidelity is unverified; secondsPerFrame and interpolation are explicit playback assumptions.');
+    metadata.skins = [...animation.skins].map(([frameId, skin]) => ({ frameId,
+      jointFrameIds: skin.bones.map(b => b.id), maxBindMatrixError: skin.maxBindError,
+      source: skin.source }));
+    metadata.morphs = [...animation.morphs].map(([frameId, morph]) => ({ frameId,
+      targetsPerRegion: morph.targets, regions: morph.regions.map(r => ({ indices: r.indices })),
+      exportedRegionTargets: morph.targets * morph.regions.length }));
+    metadata.animations = animation.clips;
+    metadata.hierarchy.forEach((frame, index) => {
+      if (model.meshes[index].type === 10) Object.assign(frame, {
+        sourceJointId: model.meshes[index].joint,
+        opaqueType10Matrix: model.meshes[index].inverseBind,
+        opaqueType10MatrixSemantics: 'unknown; not the skin inverse matrix' });
+    });
+    gltf.extras = { ...gltf.extras, schema: metadata.schema, scope: metadata.scope,
+      engineFidelity: false, chosenSecondsPerFrame: metadata.chosenSecondsPerFrame,
+      sourceTimeUnitsPerFrame: 40, sourceTimeUnitStatus: metadata.sourceTimeUnitStatus,
+      limitations: animation.limitations };
+  }
   const binary = Buffer.concat(chunks); gltf.buffers = [{ byteLength: binary.length }];
   const json = Buffer.from(JSON.stringify(gltf)), jsonPadded = Buffer.concat([json, Buffer.alloc((4 - json.length % 4) % 4, 32)]);
   const binaryPadded = Buffer.concat([binary, Buffer.alloc((4 - binary.length % 4) % 4)]);

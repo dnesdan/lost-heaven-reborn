@@ -6,6 +6,9 @@ var bounds := AABB()
 var have_bounds := false
 var mesh_count := 0
 var surface_count := 0
+var skeleton_bones := 0
+var blend_shapes := 0
+var animation_names: Array = []
 
 func _initialize() -> void:
 	call_deferred("build_scene")
@@ -15,10 +18,16 @@ func fail(message: String) -> void:
 	quit(1)
 
 func inspect_node(node: Node) -> void:
+	if node is Skeleton3D:
+		skeleton_bones += (node as Skeleton3D).get_bone_count()
+	if node is AnimationPlayer:
+		for animation_name in (node as AnimationPlayer).get_animation_list():
+			animation_names.append(animation_name)
 	if node is MeshInstance3D:
 		var mesh := node as MeshInstance3D
 		mesh_count += 1
 		surface_count += mesh.mesh.get_surface_count()
+		blend_shapes += mesh.mesh.get_blend_shape_count()
 		var box := mesh.global_transform * mesh.get_aabb()
 		bounds = bounds.merge(box) if have_bounds else box
 		have_bounds = true
@@ -101,12 +110,19 @@ func build_scene() -> void:
 		return
 	var document := GLTFDocument.new()
 	var state := GLTFState.new()
-	if document.append_from_file(source, state) != OK:
+	var compression_key := "IMPORT_FORCE_DISABLE_MESH_COMPRESSION"
+	if not ClassDB.class_has_integer_constant("EditorSceneFormatImporter", compression_key):
+		fail("Godot cannot guarantee an import without mesh compression.")
+		return
+	var import_flags := ClassDB.class_get_integer_constant("EditorSceneFormatImporter", compression_key)
+	if document.append_from_file(source, state, import_flags) != OK:
 		fail("GLB could not be loaded.")
 		return
 	model_root = Node3D.new()
 	root.add_child(model_root)
-	var model := document.generate_scene(state)
+	# Experimental clips remain provisional; 100fps preserves a chosen 25fps
+	# source's key boundaries. This inspector displays the rest pose only.
+	var model := document.generate_scene(state, 100.0)
 	if model == null:
 		fail("GLB did not produce a scene.")
 		return
@@ -144,6 +160,9 @@ func build_scene() -> void:
 	var report := {"check": "structure" if verify_only else "rendered", "glb_nodes": state.get_nodes().size(),
 		"glb_meshes": state.get_meshes().size(), "glb_materials": state.get_materials().size(),
 		"mesh_instances": mesh_count, "surfaces": surface_count,
+		"skeleton_bones": skeleton_bones, "blend_shapes": blend_shapes,
+		"animation_names": animation_names, "check_pose": "rest", "gltf_import_bake_fps": 100.0,
+		"mesh_compression": "disabled", "gltf_import_flags": import_flags,
 		"bounds_position": [bounds.position.x, bounds.position.y, bounds.position.z],
 		"bounds_size": [bounds.size.x, bounds.size.y, bounds.size.z]}
 	if not verify_only:

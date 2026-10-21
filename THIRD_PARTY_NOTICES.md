@@ -30,7 +30,8 @@ references; their inspection does not validate runtime fidelity.
 ## Reused mafia-workbench code
 
 `importers/fourds/vendor/fourds.mjs` adapts `src/core/fourds.js` and
-`importers/fourds/vendor/bmp.mjs` adapts `src/core/bmp.js` from
+`importers/fourds/vendor/bmp.mjs` adapts `src/core/bmp.js`, and
+`importers/fourds/vendor/fiveds.mjs` adapts `src/core/fiveds.js`, from
 [b4rtt/mafia-workbench](https://github.com/b4rtt/mafia-workbench), revision
 `9f1edbfbc20ab2ac57e66d4f8a444127e92d602e`.
 Copyright (c) 2026 Roman Šimr; MIT License. The **complete upstream license** is
@@ -42,6 +43,10 @@ built-in Windows-1250 decoder. No other parser behavior is intentionally changed
 The original converter follows the basis/rotation interpretation documented in
 upstream `src/ui/transforms.js` and `src/ui/viewport.js`; the source revision and
 adaptations are recorded in [importers/fourds/PROVENANCE.md](importers/fourds/PROVENANCE.md).
+The experimental matrix/skin/morph and animation conversion module is original
+MIT project code; it copies no decompiled engine implementation. Its provisional
+clock/interpolation conventions and preserved metadata are documented in the
+same provenance file.
 New GLB/PNG serialization, CLI validation and synthetic fixtures are original MIT
 project code. Node.js built-in libraries provide hashing, compression and text
 decoding; no npm dependency or upstream game data is distributed.

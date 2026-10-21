@@ -1,13 +1,17 @@
 # Lost Heaven Reborn
 
 Godot 4.6.3 development prototype for a future Mafia (2002) remake. The current
-slice uses original procedural geometry: walking, a third-person camera, a car
+gameplay slice uses procedural geometry: walking, a third-person camera, a car
 with enter/exit and prototype driving, checkpoints, failure, completion, and
-restart. It contains no Mafia models, animation, text, or audio. Vehicle handling
-is an approximation; fidelity to the original game has not been established.
+restart. It has no Mafia models, animation, text, or audio integrated into
+gameplay. Vehicle handling is an approximation; fidelity to the original game
+has not been established.
 
-Local validation: 24 Python tests, 6 synthetic model/converter tests (including
-a headless GLB load), and 25 gameplay Godot assertions pass;
+See [reconstruction progress](docs/PROGRESS.md) for separate, evidence-based
+analysis and verification measures. They do not estimate overall game completion.
+
+Local validation: 33 Python tests, 12 converter tests (six static and six
+animation, including headless Godot viewer checks), and 25 gameplay Godot assertions pass;
 the Linux export starts independently with no script errors. The actual district,
 player, car, checkpoint and HUD were inspected in a Mobile/Vulkan llvmpipe capture.
 Private evidence stays outside the checkout. Verification uses local synthetic tests.
@@ -63,6 +67,20 @@ Provide a lawful local file or configure a direct download URL securely using
 in commands, documentation, issues, or commits. Website landing pages need a
 separate authorized download step; intake does not resolve file-host pages.
 
+## Static binary analysis
+
+REA and Ghidra are available for offline static analysis of privately provided
+PC binaries. Their Node runtime requirements are separate from the Node 20.11+
+converter prerequisite. See [binary analysis setup](docs/binary-analysis-setup.md)
+for pinned installation and safe wrapper examples:
+
+```sh
+./scripts/setup_binary_analysis.sh
+./scripts/run_binary_analysis.sh decompile /absolute/private/program 0x123456
+```
+
+Analysis outputs and the original binaries stay outside the checkout.
+
 ```sh
 ./scripts/import.sh intake --kind pc --edition 'PC Czech edition' --local /private/input.zip
 ./scripts/import.sh intake --kind ps2 --edition 'PS2 USA NTSC'
@@ -95,7 +113,7 @@ GLB, metadata and captures stay outside the checkout; symlink escapes and
 output overwrites are refused. Source bytes and permissions remain unchanged.
 The converter supports opaque static LOD0 visuals, positive scales and dummy
 frames, with uncompressed 8/24/32-bit BMP textures. Missing textures fail unless
-`--allow-missing-textures` explicitly permits a labelled color fallback. Skin,
+`--allow-missing-textures` explicitly permits a labelled color fallback. By default skin,
 morph, joints, animation, alpha/reflection/additive/emissive materials and other
 frame types are rejected. It preserves hierarchy and source metadata, reflects Z,
 converts stored WXYZ rotations, and reverses winding. Source units remain at
@@ -103,25 +121,50 @@ scale 1: their interpretation as meters is **unverified**; calibrate before
 creating meter-based level metadata. Diffuse PBR lighting and nearest filtering
 are presentation choices, not an original-game appearance match.
 
+Skin, morph and 5DS v20 clips have a separate experimental opt-in. Each clip is
+specified as `NAME=/absolute/private/clip.5ds`; timing must be an explicit caller
+assumption:
+
+```sh
+./scripts/convert-model.sh --experimental-animation --seconds-per-frame 0.04 \
+  --source /private/character.4ds --textures /private/maps \
+  --clip WALK=/private/walk.5ds --output /private/new-character
+./scripts/inspect-model.sh /private/new-character/model.glb --output /private/new-rest-capture
+```
+
+`0.04` is an example assumption, not a proven original clock rate. PC static
+analysis establishes 40 engine API time units per file frame; their duration in
+seconds remains unverified. Output metadata retains raw frame keys, all source
+tracks and numeric note payloads, chosen timing and explicit limitations.
+Note events are metadata only. Unsupported string events, unknown flags,
+unmatched/ambiguous tracks, overlapping morph regions, additional LODs and
+hidden geometry fail explicitly. Source skin matrices and the hierarchy must
+agree. Type10's separate opaque matrix is preserved without assigning bind
+semantics. Independent morph-region shapes and local LINEAR/slerp animation
+are provisional playback interpretations. The inspector displays the rest pose
+and reports skeleton, blend-shape and clip counts; its 100fps import baking is
+a viewer choice. Mesh compression is disabled to preserve vertex precision.
+See [format provenance](importers/fourds/PROVENANCE.md) for
+the transform derivation and evidence limits. Public tests use synthetic data.
+
 A private original PC crate and its original texture passed GLB validation and
 were visually inspected using this converter/viewer in Godot 4.6.3 Mobile/Vulkan
 on llvmpipe. Source and imported bounds agreed within floating-point tolerance.
 The public tests use generated models and bitmaps only. Headless model checks
 prove structure and transforms; the inspection command additionally records the
 actual renderer and a private screenshot. It reuses the bounded capture cleanup
-and leaves the synthetic game unchanged. No original-game comparison, skeleton,
-animation, district or original-car gameplay has been validated.
+and leaves the synthetic game unchanged. Original engine skeleton/animation
+behavior, district and original-car gameplay have not been validated against
+the original game.
 
 [COVERAGE.md](COVERAGE.md) records implemented systems, evidence levels,
 remaining binary analysis and fidelity gaps.
 
-Next: extract a small PC district with scene/collision placement metadata and
-validate an original character's skin/rest pose and 5DS timing against private
-reference captures. REA and Ghidra binary analysis of the provided PC game are
-required for the faithful reconstruction; tool installation alone does not
-validate behavior. Wine and PS2 emulator reference runs depend on host feasibility.
-Full engine/game coverage, original-runtime comparisons and Apple hardware checks
-remain outstanding.
+Next: connect more recovered district data with original collision behavior and
+validate animation timing and state behavior against the original runtime. The
+private district and character conversion proofs are intermediate evidence;
+they are not integrated into public gameplay. Full subsystem coverage and Apple
+hardware checks remain outstanding.
 
 Our original code is MIT licensed; game assets and trademarks remain with their
 owners. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for inspected references.

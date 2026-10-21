@@ -1,0 +1,57 @@
+{
+  "updated_at": "2026-10-21",
+  "toolchain": {
+    "rea": "6.7.0",
+    "ghidra": "12.1.4"
+  },
+  "inventory_includes_external_entries": {
+    "Game.exe": 130,
+    "LS3DF.dll": 159
+  },
+  "binary_procedure_inventory": {
+    "Game.exe": {
+      "profile": "default",
+      "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+      "inventory_profile_id": "7810ea9437da59780820ec6fedb47ce47390841a95d527ddb6c3b3700fe180cb",
+      "procedures": 4914,
+      "retained_unique_pseudocode_procedures": 5,
+      "retained_pseudocode_percent": 0.10175
+    },
+    "LS3DF.dll": {
+      "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+      "default_profile_procedures": 1667,
+      "default_inventory_profile_id": "5fb8141f282b82b7a78df6b2d631f00eb93729605b53b333297ebfb4ff03fe9f",
+      "pseudocode_profile": "explicit 16-seed",
+      "pseudocode_inventory_profile_id": "46301268618f6f9f27a2856e15858155a42599f674def681aa6a56df9fe13c64",
+      "pseudocode_profile_procedures": 1681,
+      "retained_unique_pseudocode_procedures": 31,
+      "retained_pseudocode_percent": 1.84414
+    }
+  },
+  "instruction_validated_finding_count": null,
+  "count_record_sha256": "e72c38db3415595826a532bde14c989361a304c54f29e98d6fe8d1c2e9365642",
+  "original_runtime_evidence": {
+    "status": "Tutorial input observed",
+    "aggregate_behavior_count": null,
+    "observation": "In the original PC tutorial, Up moved Tommy forward and showed a walk pose; Right changed his position.",
+    "limitations": "Wine/QEMU capture cadence does not measure game frame rate or physical movement speed. Driving, combat, mission completion, sound, and exact animation parity remain unverified."
+  },
+  "fully_system_verified_subsystems": {
+    "verified": 0,
+    "total": 12,
+    "percent": 0,
+    "meaning": "Strict evidence gate; not an overall remake completion estimate."
+  },
+  "history": [
+    {
+      "date": "2026-10-21",
+      "revision": "69b73cb",
+      "historical_percentages": null
+    },
+    {
+      "date": "2026-10-21",
+      "revision": "cc07343",
+      "historical_percentages": null
+    }
+  ]
+}
