@@ -1,40 +1,65 @@
 {
   "updated_at": "2026-10-21",
-  "project_status": "Initial Rust asset/render and camera-inspection milestone; full campaign not playable",
+  "project_status": "DTA intake milestone tested and accepted by two sequential independent reviews; campaign not playable",
   "rust_toolchain": "1.99.1",
   "validation": {
-    "status": "passed independently",
-    "commands": "scripts/test.sh: format, workspace check, workspace tests, Clippy, REA wrapper tests",
-    "rust_unit_tests": 13,
+    "status": "scripts/test.sh passed; two sequential independent reviews accepted manifest bb397fe59de45cb471c07a00f227e6a111f8ecc7cf9f1c9c5a766464962b6d7c",
+    "rust_unit_tests": 27,
     "rust_unit_test_split": {
-      "lhr_assets": 7,
+      "lhr_assets": 21,
       "lhr_engine": 3,
       "lhr_render": 3
     },
     "rea_wrapper_tests": 9
   },
   "assets": {
-    "scope": "Loose 4DS v29 static meshes and supported BMP textures",
-    "decoded_building_models": 5,
-    "decoded_vertices": 747,
-    "decoded_triangles": 395,
-    "dta_archives": "unsupported"
+    "scope": "Loose supported files plus lazy A1/A2/A6 DTA lookup; 4DS v29 static meshes and supported BMP textures",
+    "private_archive_entries_read": 20229,
+    "private_archive_bytes_read": 1393380816,
+    "reference_byte_equality": "Exact against a separate private prototype decoder, not independent source extraction or original-runtime comparison.",
+    "capture_parity": "Archive-path captures for 4build101 and bedna00 exactly match previous loose-path PNG hashes; not original-engine image parity.",
+    "archive_precedence": "Explicit project loose-first policy; original runtime mount/override behavior unknown.",
+    "checksum_verification": false,
+    "audio_codecs": "unsupported",
+    "independent_loose_hash_matches": 4,
+    "directory_assumption": "Trusted stable installation tree required; not descriptor-relative confinement against hostile concurrent parent replacement."
   },
   "renderer": {
     "target": "wgpu Vulkan on Linux, Metal on macOS",
-    "linux": "Offscreen Vulkan llvmpipe rendering read back and visually inspected for 4build101 and bedna00; approximate unlit rendering, no original visual parity claim",
-    "window_inspection": "Focused XTEST Right-key input changed the bounded 2000-presented-frame capture; three-frame window baseline matches offscreen capture",
+    "linux": "Offscreen Vulkan llvmpipe output read back and visually inspected; unlit approximation",
+    "window_inspection": "Bounded Xvfb/XTEST camera inspection passed; not original gameplay",
     "original_gameplay": "not implemented or validated",
     "macos_metal": "not tested"
   },
   "campaign_playable": false,
   "historical_analysis": {
-    "game_exe_pseudocode": "9/4914, default inventory profile",
-    "ls3df_pseudocode": "45/1683, explicitly documented union profile",
-    "meaning": "static analysis counts, not understanding or implementation coverage"
+    "game_exe_pseudocode": "9/4914 (0.18% of default profile)",
+    "ls3df_pseudocode": "45/1683 (2.67% of explicitly documented union profile)",
+    "meaning": "Retained static pseudocode counts; not semantic understanding or implementation coverage."
   },
-  "new_rea_evidence": "PC-RUST-BOOTSTRAP-001; bounded static boot/material/scene-tick/bitmap findings, not full main-loop fidelity",
-  "rust_milestone_evidence_index": "RUST-ENGINE-EVIDENCE-INDEX-20261021; private dated snapshot links asset, render, XTEST, and REA evidence without changing earlier frozen snapshots",
-  "historical_runtime_trace": "40 REA API units measured as 40 milliseconds on one unscaled path; not a universal timing rule.",
+  "full_system_verification": {
+    "verified": 0,
+    "total": 12,
+    "percent": 0,
+    "meaning": "Strict evidence gate; not an overall remake completion estimate."
+  },
+  "rea_evidence": [
+    "PC-RUST-BOOTSTRAP-001",
+    "PC-RUST-ARCHIVE-001"
+  ],
+  "rust_milestone_evidence_indexes": [
+    "RUST-ENGINE-EVIDENCE-INDEX-20261021",
+    "RUST-DTA-MILESTONE-EVIDENCE-20261021"
+  ],
+  "historical_runtime_trace": "40 animation API time units measured as 40 milliseconds on one unscaled path; not a universal timing rule.",
+  "history": [
+    {
+      "revision": "a077ef25e887b6129c893daf9e5c4885904a2c31",
+      "date": "2026-10-21",
+      "milestone": "Started standalone Rust engine with original asset rendering",
+      "verification": "13 Rust tests and 9 REA wrapper tests passed",
+      "analysis_snapshot": "Game.exe 9/4914 (0.18%); LS3DF.dll 45/1683 (2.67%); strict full-system evidence 0/12"
+    }
+  ],
   "reset_boundary": "Former Godot prototype implementation and tests are historical and are not counted as Rust behavior or validation."
 }

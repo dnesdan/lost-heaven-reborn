@@ -3,6 +3,8 @@ use std::{
     fmt, fs,
     path::{Path, PathBuf},
 };
+mod dta;
+
 const MAX_BYTES: usize = 64 * 1024 * 1024;
 #[derive(Debug, Clone)]
 pub struct Error(pub String);
@@ -300,9 +302,15 @@ fn safe_relative(s: &str) -> Result<()> {
     };
     Ok(())
 }
-/// Loose original installation files only. No external process or conversion is invoked.
+/// Original installation resources: explicit loose-first policy, then A1/A2/A6 DTA.
+/// This ordering is a project choice; archive duplicates and failed reads never fall through.
+/// The installation directory tree must be trusted and stable during use. Handle and
+/// metadata checks detect ordinary replacement/mutation; they do not confine hostile
+/// concurrent replacement of parent directories (which requires descriptor-relative IO).
 pub struct Installation {
     root: PathBuf,
+    archives: Vec<std::sync::Mutex<dta::Archive>>,
+    archive_index: std::collections::BTreeMap<String, usize>,
 }
 impl Installation {
     pub fn open(root: impl AsRef<Path>) -> Result<Self> {
@@ -310,19 +318,141 @@ impl Installation {
             .map_err(|_| Error("installation directory unavailable".into()))?;
         if !root.is_dir() {
             return err("installation root must be directory");
-        };
-        Ok(Self { root })
+        }
+        let mut discovered = std::collections::BTreeMap::new();
+        for path in bounded_children(&root)? {
+            let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+                continue;
+            };
+            let key = match name.to_ascii_uppercase().as_str() {
+                "A1.DTA" => Some((0x3d98766c, 0xde7009cd)),
+                "A2.DTA" => Some((0x82a1c97b, 0x2d5085d4)),
+                "A6.DTA" => Some((0x64cd8d0a, 0x4bc97b2d)),
+                _ => None,
+            };
+            if let Some(keys) = key
+                && discovered
+                    .insert(name.to_ascii_uppercase(), (path, keys))
+                    .is_some()
+            {
+                return err("ambiguous duplicate archive filename");
+            }
+        }
+        let mut archives = Vec::new();
+        let mut archive_index = std::collections::BTreeMap::new();
+        for (_, (path, (k1, k2))) in discovered {
+            verify_contained(&root, &path)?;
+            let archive = dta::Archive::open(&path, k1, k2).map_err(Error)?;
+            verify_contained(&root, &path)?;
+            for entry in archive.entries() {
+                let key = dta::canonical(&entry.path).map_err(Error)?;
+                if archive_index.insert(key, archives.len()).is_some() {
+                    return err("ambiguous resource in multiple archives");
+                }
+            }
+            archives.push(std::sync::Mutex::new(archive));
+        }
+        Ok(Self {
+            root,
+            archives,
+            archive_index,
+        })
     }
     pub fn read(&self, name: &str) -> Result<Vec<u8>> {
         safe_relative(name)?;
-        let p = fs::canonicalize(self.root.join(name)).map_err(|_| {
-            Error("original loose asset missing; DTA archive lookup is not yet supported".into())
-        })?;
-        if !p.starts_with(&self.root) {
-            return err("asset resolves outside installation");
-        };
-        read_asset_file(p)
+        let canonical = dta::canonical(name).map_err(Error)?;
+        let mut path = self.root.clone();
+        let parts: Vec<_> = canonical.split('/').collect();
+        let mut loose = true;
+        for (i, part) in parts.iter().enumerate() {
+            let mut matching = None;
+            for child in bounded_children(&path)? {
+                let Some(value) = child.file_name().and_then(|s| s.to_str()) else {
+                    continue;
+                };
+                if value.to_lowercase() == *part && matching.replace(child).is_some() {
+                    return err("ambiguous loose asset path");
+                }
+            }
+            let Some(child) = matching else {
+                loose = false;
+                break;
+            };
+            let metadata = fs::symlink_metadata(&child)
+                .map_err(|_| Error("loose asset metadata unavailable".into()))?;
+            if metadata.file_type().is_symlink() {
+                return err("loose asset symlink unsupported");
+            }
+            if i + 1 < parts.len() && !metadata.is_dir() {
+                return err("loose asset parent is not directory");
+            }
+            verify_contained(&self.root, &child)?;
+            path = child;
+        }
+        if loose {
+            let mut file = dta::checked_open(&path).map_err(Error)?;
+            verify_contained(&self.root, &path)?;
+            return read_asset_handle(&mut file);
+        }
+        let index = self
+            .archive_index
+            .get(&canonical)
+            .ok_or_else(|| Error("original asset unavailable".into()))?;
+        self.archives[*index]
+            .lock()
+            .map_err(|_| Error("archive reader unavailable".into()))?
+            .read(&canonical, MAX_BYTES)
+            .map_err(Error)
     }
+}
+fn bounded_children(path: &Path) -> Result<Vec<PathBuf>> {
+    let mut children = Vec::new();
+    for entry in
+        fs::read_dir(path).map_err(|_| Error("installation directory unreadable".into()))?
+    {
+        if children.len() == 100000 {
+            return err("installation directory entry quota exceeded");
+        }
+        children.push(
+            entry
+                .map_err(|_| Error("installation directory entry unreadable".into()))?
+                .path(),
+        );
+    }
+    Ok(children)
+}
+fn verify_contained(root: &Path, path: &Path) -> Result<()> {
+    let canonical = fs::canonicalize(path).map_err(|_| Error("asset unavailable".into()))?;
+    if !canonical.starts_with(root) {
+        return err("asset resolves outside installation");
+    }
+    Ok(())
+}
+fn read_asset_handle(file: &mut fs::File) -> Result<Vec<u8>> {
+    use std::io::Read;
+    let before = file
+        .metadata()
+        .map_err(|_| Error("asset metadata unavailable".into()))?;
+    if !before.is_file() {
+        return err("asset must be a regular file");
+    }
+    if before.len() > MAX_BYTES as u64 {
+        return err("asset exceeds 64 MiB quota");
+    }
+    let mut b = Vec::new();
+    file.take(MAX_BYTES as u64 + 1)
+        .read_to_end(&mut b)
+        .map_err(|_| Error("asset read failed".into()))?;
+    let after = file
+        .metadata()
+        .map_err(|_| Error("asset metadata unavailable".into()))?;
+    if b.len() > MAX_BYTES {
+        return err("asset exceeds 64 MiB quota");
+    }
+    if before.len() != after.len() || before.modified().ok() != after.modified().ok() {
+        return err("asset changed while reading");
+    }
+    Ok(b)
 }
 /// Read a regular asset file with a 64 MiB allocation/read ceiling.
 /// Errors intentionally contain no input paths or operating-system details.

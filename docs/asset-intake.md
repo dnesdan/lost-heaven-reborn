@@ -1,63 +1,23 @@
-# Original asset intake boundary
+# Original asset intake
 
-`lhr-assets` reads original bytes directly, without a Godot or GLB dependency.
-The current scope is static standard visual meshes and dummy hierarchy in 4DS
-version 29, all stored LOD records, and uncompressed 8-bit palette or 24-bit BGR
-Windows BITMAPINFOHEADER BMP textures. The renderer chooses LOD0 explicitly;
-original distance selection is not implemented. Input vertices, indices, float32
-values, material references and frame order are preserved. Material references
-and parents become zero-based Rust indices. Normals/UVs must be finite: damaged
-or unused uninitialised values are rejected rather than replaced.
+`lhr-assets` reads a user's local game installation directly; it does not depend on Godot, GLB conversion, an external extractor, or Game.exe at runtime. `Installation::read` checks loose paths first and then searches recognized A1.DTA, A2.DTA and A6.DTA indexes. That precedence is an explicit project policy. It is not presented as original-engine precedence. Paths are matched case-insensitively; names in DTA indexes use Windows-1250 decoding. Ambiguous duplicate archive names or resources fail with an error rather than selecting one silently. Discovery opens and validates every recognized archive, so a malformed archive can prevent `Installation::open` even if a requested loose file exists. A loose-path read error does not fall through to an archive; an archive read error does not try another source.
 
-The static path rejects animated models, skins, morphs, other visual/frame types,
-zero rotations, nonpositive scale, alpha/reflection/additive/animated/emissive
-materials, malformed hierarchy and invalid references. Unknown name encoding is
-rejected (ASCII names only). Texture addressing flags remain on each material.
-The diffuse renderer does not reconstruct original lighting or material behavior.
+Archive lookup is lazy and bounded. Indexes are limited to 100,000 entries, individual assets to 64 MiB, decoded blocks to 32 KiB, entry filenames to 255 bytes, and scanned directories to 100,000 entries. It supports raw block kinds 0 and 2–7 and custom LZ/RLE kind 1. Codecs 8 and above (audio) are unsupported. Table, entry and block bounds are checked; checksum-like fields and opaque header fields are not interpreted. The reader does not extract or cache archive contents. A private validation read all 20,229 indexed resources and compared the returned bytes against a separate private prototype decoder; this is not an independent source extraction or original-runtime check, and does not establish that the full city or game can be loaded. Four known resources also match independently recorded loose-source hashes.
 
-Coordinate convention is stored left-handed Y-up. Stored quaternion components
-are WXYZ; the existing format interpretation conjugates these for column vectors,
-composes T*R*S, and reflects world Z and triangle winding for a right-handed
-renderer. This convention is a data-format interpretation, not runtime fidelity.
+The installation root must be a trusted, stable directory tree while it is read. The reader checks containment, handles and metadata and rejects ordinary symlink/replacement cases, but it is not descriptor-relative confinement against a hostile process concurrently replacing parent directories. This limitation applies to loose files and archive lookup.
 
-`Installation` reads confined, bounded loose files from a user-selected directory.
-It rejects traversal and symlink escapes and never launches an extractor. Reads
-are case-sensitive. Read-only DTA archive lookup is **not implemented**: an
-installation containing only archives is therefore not supported yet. No original
-files or converted geometry belong in the repository.
+Static model intake supports standard visual meshes and dummy hierarchy in 4DS version 29, and uncompressed 8-bit palette or 24-bit BGR Windows BITMAPINFOHEADER BMP textures. The renderer chooses LOD0 explicitly; original distance selection is not implemented. The current building subset consists of five decoded original models (747 vertices, 395 triangles). Original 4build101 (190 vertices, 98 triangles) and bedna00 (24 vertices, 12 triangles) rendered from the loose-file reader; capture parity through the archive reader was validated for both models. Identical captures show the two intake paths feed the same test renderer, not that the renderer matches the original game.
 
-Each input is limited to 64 MiB; models additionally limit frames, LOD count,
-vertices and indices. Textures limit dimensions and decoded pixels. All reads use
-checked input bounds. Synthetic tests exercise complete-file truncations,
-headers, malformed paths, BMP padding/color, invalid dimensions and compression.
-The read-only `inspect` example reports decoded counts without emitting source
-names or geometry; private validation paths/hashes are stored outside Git.
+The parser preserves input geometry, indices, float values, material references and frame order. Parent/material references become zero-based Rust indices. Normals and UVs must be finite. It rejects animation, skins, morphs, unsupported frame/visual types, zero rotations, nonpositive scale, alpha/reflection/additive/animated/emissive materials, malformed hierarchy and invalid references. Model names must be ASCII. Clamp flags `0x10000` (U) and `0x20000` (V) are preserved; absent flags mean repeat. The renderer is an unlit approximation and does not reproduce original material or lighting behavior.
 
-## Provenance
+Stored transforms use left-handed Y-up coordinates and WXYZ quaternions. The current format interpretation conjugates rotations for column vectors, composes T*R*S, then reflects world Z and triangle winding for the right-handed renderer. These conventions come from file-format interpretation and have not been validated against original-engine transform output.
 
-The Rust reader is a manual adaptation of the read-only layout/algorithm in
-`b4rtt/mafia-workbench` `src/core/fourds.js`, revision
-`9f1edbfbc20ab2ac57e66d4f8a444127e92d602e` (MIT), with stricter quotas and
-unsupported-feature rejection; editing, animation and sector functionality was
-not carried over. BMP decoding is implemented from the documented Windows
-BITMAPINFOHEADER layout. The original MIT copyright/license is retained at
-`crates/lhr-assets/UPSTREAM_LICENSE`. Static format evidence and original-binary
-boot evidence are separate; this parser establishes no gameplay behavior.
+## Evidence
 
-## Material tests and attribution notice
+REA/Ghidra contract `PC-RUST-ARCHIVE-001` records bounded static findings about the ISD0 index, archive entries, decryption, block handling and lookup behavior. It does not validate the Rust implementation's runtime fidelity. Project loose-first lookup is an explicit implementation choice; original runtime mount order and override behavior remain unknown. Separate private integration evidence links all 20,229 private reads and identical bedna00/4build101 capture hashes to the Rust implementation. Neither dataset proves full-world loading, original rendering, physics, missions or campaign compatibility.
 
-`Material.flags` is public. Before reading optional unsupported payloads, the
-parser rejects `0x8000`, `0x80000`, `0x01000000`, `0x04000000`, `0x20000000`,
-`0x40000000`, `0x80000000`, non-unit opacity and nonzero emission. Synthetic
-cases assert each flag's explicit unsupported-material error. Clamp flags
-`0x10000` (U) and `0x20000` (V) are preserved and accepted; absence means repeat.
-These flags follow the pinned format implementation; original engine lighting,
-filtering, alpha handling and texture selection are not asserted equivalent.
+Synthetic tests cover truncation, header bounds, index/entry limits, path normalization, duplicate/ambiguous names, raw and custom-LZ blocks, malformed streams, BMP padding/color and unsupported features. The read-only `inspect` example reports decoded counts without emitting source names or geometry. Original files and converted geometry remain outside Git.
 
-Third-party notice: portions of `crates/lhr-assets/src/lib.rs` adapt the MIT
-read-only 4DS layout algorithm by Roman Šimr (2026), from the exact workbench
-revision above. Copyright and full MIT permission text are preserved in
-`crates/lhr-assets/UPSTREAM_LICENSE`. The adaptation adds bounded resource reads,
-Rust structures, strict feature rejection and synthetic tests; it omits editing,
-skin/morph, sector and original runtime behavior. No proprietary assets, original
-binaries or decompiled source are included.
+## Provenance and license
+
+The read-only 4DS layout adaptation in `crates/lhr-assets/src/lib.rs` and DTA layout/decryption adaptation in `crates/lhr-assets/src/dta.rs` draw on MIT-licensed `b4rtt/mafia-workbench` revision `9f1edbfbc20ab2ac57e66d4f8a444127e92d602e`, files `src/core/fourds.js`, `src/core/dta.js` and format constants. Rust implementations add quotas, strict validation, explicit errors and synthetic tests; editing tools and proprietary source are not included. The full upstream MIT notice is preserved in [crates/lhr-assets/UPSTREAM_LICENSE](../crates/lhr-assets/UPSTREAM_LICENSE). See [third-party notices](../THIRD_PARTY_NOTICES.md) for the source revision and adaptation summary.
