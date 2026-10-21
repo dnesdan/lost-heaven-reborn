@@ -52,6 +52,25 @@
       "date": "2026-10-21",
       "revision": "cc07343",
       "historical_percentages": null
+    },
+    {
+      "date": "2026-10-21",
+      "revision": "664e193d1fd480d71d13aae739db88856a386943",
+      "game_pseudocode": {
+        "procedures": 5,
+        "inventory_procedures": 4914,
+        "percent": 0.10175
+      },
+      "ls3df_pseudocode": {
+        "procedures": 31,
+        "inventory_procedures": 1681,
+        "percent": 1.84414
+      },
+      "fully_system_verified_subsystems": {
+        "verified": 0,
+        "total": 12,
+        "percent": 0
+      }
     }
   ]
 }

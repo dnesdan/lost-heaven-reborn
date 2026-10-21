@@ -5,6 +5,15 @@ var passed := 0
 var failed := 0
 var game: Node3D
 
+# Godot logs engine errors without changing script exit status. Capture them so
+# lifecycle regressions fail even if the scene eventually recovers.
+class ErrorCapture extends Logger:
+	var errors: Array[String] = []
+	func _log_error(_function: String, _file: String, _line: int, code: String,
+			_rationale: String, _editor_notify: bool, _error_type: int,
+			_script_backtraces: Array[ScriptBacktrace]) -> void:
+		errors.append(code)
+
 func _initialize() -> void:
 	call_deferred("run")
 
@@ -39,6 +48,8 @@ func enter_vehicle() -> void:
 	await frames(2)
 
 func run() -> void:
+	var error_capture := ErrorCapture.new()
+	OS.add_logger(error_capture)
 	await fresh_game()
 	check(game.mission.state == "active" and game.mission.checkpoint_index == 0,
 		"new game starts active at first checkpoint")
@@ -125,6 +136,34 @@ func run() -> void:
 	game = current_scene
 	check(game.mission.state == "active" and game.mission.checkpoint_index == 0,
 		"restart keyboard event dispatch safely replaces the active scene")
+	var replacement_count := [0]
+	var count_replacement := func(): replacement_count[0] += 1
+	scene_changed.connect(count_replacement)
+	for _press in 3:
+		var repeated_key := InputEventKey.new()
+		repeated_key.physical_keycode = KEY_R
+		repeated_key.pressed = true
+		game._unhandled_input(repeated_key)
+	await frames(5)
+	game = current_scene
+	scene_changed.disconnect(count_replacement)
+	check(replacement_count[0] == 1 and game != null and game.mission.state == "active",
+		"same-frame restart inputs replace the scene exactly once")
+	var active_scene := game
+	current_scene = null
+	game.restart()
+	await frames(2)
+	check(current_scene == null and is_instance_valid(active_scene),
+		"restart without an active current scene safely ignores the stale request")
+	current_scene = active_scene
+	game.restart()
+	current_scene = null
+	root.remove_child(game)
+	await frames(2)
+	check(current_scene == null and is_instance_valid(game),
+		"detached scene ignores its deferred restart request")
+	root.add_child(game)
+	current_scene = game
 
 	await fresh_game()
 	await enter_vehicle()
@@ -179,5 +218,7 @@ func run() -> void:
 	if is_instance_valid(game):
 		game.queue_free()
 	await process_frame
+	OS.remove_logger(error_capture)
+	check(error_capture.errors.is_empty(), "gameplay and restart lifecycle emit no engine errors")
 	print("GAME TESTS: %d passed, %d failed, 0 skipped" % [passed, failed])
 	quit(1 if failed else 0)

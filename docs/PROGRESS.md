@@ -18,12 +18,13 @@ The original PC runtime was run through setup, main menu, and the Tutorial scene
 
 ## History
 
-| Date | Revision | Milestone |
-| --- | --- | --- |
-| 2026-10-21 | [`69b73cb`](https://github.com/dnesdan/lost-heaven-reborn/commit/69b73cb) | Added a synthetic gameplay slice. |
-| 2026-10-21 | [`cc07343`](https://github.com/dnesdan/lost-heaven-reborn/commit/cc07343) | Added traceable private 4DS conversion and subsystem coverage. |
+| Date | Revision | Milestone | Snapshot |
+| --- | --- | --- | --- |
+| 2026-10-21 | [`69b73cb`](https://github.com/dnesdan/lost-heaven-reborn/commit/69b73cb) | Added a synthetic gameplay slice. | Historical counts unavailable |
+| 2026-10-21 | [`cc07343`](https://github.com/dnesdan/lost-heaven-reborn/commit/cc07343) | Added traceable private 4DS conversion and subsystem coverage. | Historical counts unavailable |
+| 2026-10-21 | [`664e193`](https://github.com/dnesdan/lost-heaven-reborn/commit/664e193d1fd480d71d13aae739db88856a386943) | Added experimental animation conversion and traceable binary analysis. | Game.exe 0.10%; LS3DF.dll 1.84%; fully verified 0/12 |
 
-Historical percentages are omitted because no comparable count snapshot was recorded for those revisions.
+The older revisions predate a comparable count snapshot; their historical percentages remain unavailable. The 664e193 snapshot uses the frozen counts shown above.
 
 ## Method and sources
 

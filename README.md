@@ -11,7 +11,7 @@ See [reconstruction progress](docs/PROGRESS.md) for separate, evidence-based
 analysis and verification measures. They do not estimate overall game completion.
 
 Local validation: 33 Python tests, 12 converter tests (six static and six
-animation, including headless Godot viewer checks), and 25 gameplay Godot assertions pass;
+animation, including headless Godot viewer checks), and 29 gameplay Godot assertions pass;
 the Linux export starts independently with no script errors. The actual district,
 player, car, checkpoint and HUD were inspected in a Mobile/Vulkan llvmpipe capture.
 Private evidence stays outside the checkout. Verification uses local synthetic tests.

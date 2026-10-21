@@ -12,6 +12,7 @@ var pitch := -0.22
 var touch_look_id := -1
 var notice := ""
 var notice_time := 0.0
+var restart_pending := false
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -155,10 +156,20 @@ func toggle_pause() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if get_tree().paused else Input.MOUSE_MODE_CAPTURED
 
 func restart() -> void:
+	if restart_pending:
+		return
+	restart_pending = true
 	get_tree().paused = false
 	SliceInput.release_touch()
 	# Scene replacement removes this node; finish input/signal dispatch first.
-	get_tree().reload_current_scene.call_deferred()
+	_restart_current_scene.call_deferred()
+
+func _restart_current_scene() -> void:
+	# A queued request may outlive the scene it belongs to.
+	if not is_inside_tree() or get_tree().current_scene != self:
+		restart_pending = false
+		return
+	get_tree().reload_current_scene()
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_FOCUS_OUT and is_inside_tree() and hud != null:
