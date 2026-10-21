@@ -8,3 +8,5 @@ cargo check --workspace --all-targets --locked
 cargo test --workspace --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
 python3 -m unittest discover -s tests -p 'test_binary_analysis.py' -v
+python3 -m unittest discover -s tests -p 'test_progress.py' -v
+python3 scripts/progress.py --check

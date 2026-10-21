@@ -117,9 +117,9 @@
   },
   "phase2": {
     "status": "Implementation and evidence frozen; two sequential independent reviews accepted",
-    "evidence_manifest": "/workspace/lhr-private/rust-menu-validation-phase2/manifest.sha256",
+    "evidence_manifest": "RUST-MISE01-NEIGHBORHOOD-MILESTONE-EVIDENCE-20261021:manifest",
     "evidence_manifest_sha256": "bdc73ebd069eca94111e1621568c7111194ddb14b1281b054c6411574b043995",
-    "final_record": "/workspace/lhr-private/rust-menu-validation-phase2/FINAL.json",
+    "final_record": "RUST-MISE01-NEIGHBORHOOD-MILESTONE-EVIDENCE-20261021:final-record",
     "final_record_sha256": "3e8f5e73aa2dc9109e7fc3528043a6c17b44fd33ffee4f89e21ee0dc05098aef",
     "neighborhood_contract": "PC-RUST-MISE01-NEIGHBORHOOD-001",
     "taxi_contract": "PC-RUST-MISE01-TAXI-001",
@@ -139,6 +139,233 @@
       "collision, physics, driving, AI, traffic",
       "mission execution and actor effects",
       "lighting, alpha and reflection effects"
+    ]
+  },
+  "function_progress": {
+    "schema_version": 1,
+    "snapshot_id": "pc-function-r2-20261021",
+    "as_of": "2026-10-21",
+    "source_baseline": "86d14801a91a5f8d9fc5880094ea9a9160c59522",
+    "recount_sha256": "9600f01bb93cd85ddfa537457a18387c292bccd913f9f3762754cc38c9a9c393",
+    "libraries": [
+      {
+        "name": "Game.exe",
+        "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+        "inventory_version": "pc-r2-20261021",
+        "inventory_membership_sha256": "bd82dbdaecf1981548dd73c0793264b520dc08191fb7e8dc8cc8e3bc244e186b",
+        "inventory_total": 4914,
+        "retained_entries": [
+          "0x13f0",
+          "0x1ca0",
+          "0x25d0",
+          "0x2b60",
+          "0x36c0",
+          "0x33c60",
+          "0x61580",
+          "0x61830",
+          "0x61900",
+          "0x61c70",
+          "0x63960",
+          "0x6c770",
+          "0x6cb40",
+          "0x6cbc0",
+          "0x6cc00",
+          "0x6ccb0",
+          "0x6ccf0",
+          "0x6d3b0",
+          "0x979b0",
+          "0xce960",
+          "0x11b470",
+          "0x140580",
+          "0x1407e0",
+          "0x1493d0",
+          "0x155e40",
+          "0x157120",
+          "0x157140",
+          "0x172b80",
+          "0x19b130",
+          "0x1afd50",
+          "0x1be750",
+          "0x1bebe0",
+          "0x1bf5a0",
+          "0x1d94d0",
+          "0x1db730",
+          "0x1db890",
+          "0x1e0690",
+          "0x1e91b0",
+          "0x1e9690",
+          "0x1e9960",
+          "0x1e9be0",
+          "0x1e9e50",
+          "0x1ea000",
+          "0x1ea2e0",
+          "0x1ea370",
+          "0x1eba40",
+          "0x1ebe80",
+          "0x1ec8a0",
+          "0x1f6f30",
+          "0x1f7000",
+          "0x1f70d0",
+          "0x2036d0",
+          "0x203880",
+          "0x204ee0",
+          "0x207360"
+        ],
+        "retained_pseudocode": 55,
+        "semantic_contracts": null,
+        "rust_ported": null,
+        "differential_verified": null,
+        "verified_code_bytes": null,
+        "scope": "Retained static pseudocode only; whole-function port and runtime audit incomplete.",
+        "accepted_functions": []
+      },
+      {
+        "name": "rw_data.dll",
+        "binary_sha256": "67f72c30cc7fe941f5526b8602a0bd2785baa0f22617bbcfd4a71bacd79b8d49",
+        "inventory_version": "pc-r2-20261021",
+        "inventory_membership_sha256": null,
+        "inventory_total": null,
+        "retained_entries": [
+          "0x11e0",
+          "0x18a0",
+          "0x1b90",
+          "0x25c0",
+          "0x4690",
+          "0x4720"
+        ],
+        "retained_pseudocode": 6,
+        "semantic_contracts": null,
+        "rust_ported": null,
+        "differential_verified": null,
+        "verified_code_bytes": null,
+        "scope": "Retained static pseudocode only; whole-function port and runtime audit incomplete.",
+        "accepted_functions": []
+      },
+      {
+        "name": "LS3DF.dll",
+        "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+        "inventory_version": "pc-r2-20261021",
+        "inventory_membership_sha256": "82e5a161d38e2dd48c71c4f2570a60f32a4328b226e23b6345713cc6ce601b60",
+        "inventory_total": 1683,
+        "retained_entries": [
+          "0x48b0",
+          "0x4900",
+          "0x4a00",
+          "0x4a20",
+          "0x4a40",
+          "0x4a80",
+          "0x4af0",
+          "0x4b30",
+          "0x4bf0",
+          "0x4c50",
+          "0x4d30",
+          "0x4db0",
+          "0x4ea0",
+          "0x4f50",
+          "0x5050",
+          "0x15620",
+          "0x193e0",
+          "0x1c7d0",
+          "0x1d1c0",
+          "0x1d320",
+          "0x1e230",
+          "0x1e360",
+          "0x1e470",
+          "0x1e580",
+          "0x1e9e0",
+          "0x1ea60",
+          "0x1ed30",
+          "0x1ef10",
+          "0x2bd50",
+          "0x2e070",
+          "0x2fee0",
+          "0x30140",
+          "0x34010",
+          "0x34040",
+          "0x34bd0",
+          "0x48ab0",
+          "0x4a0e0",
+          "0x56860",
+          "0x56e80",
+          "0x575d0",
+          "0x5a7a0",
+          "0x603e0",
+          "0x60840",
+          "0x60cb0",
+          "0x61800",
+          "0x62030",
+          "0x72100",
+          "0x79150"
+        ],
+        "retained_pseudocode": 48,
+        "semantic_contracts": null,
+        "rust_ported": null,
+        "differential_verified": null,
+        "verified_code_bytes": null,
+        "scope": "Retained static pseudocode only; whole-function port and runtime audit incomplete.",
+        "accepted_functions": []
+      }
+    ],
+    "systems": {
+      "verified": 0,
+      "total": 12
+    },
+    "history": [
+      {
+        "snapshot_id": "historical-retained-static-20261021",
+        "as_of": "2026-10-21",
+        "libraries": [
+          {
+            "name": "Game.exe",
+            "inventory_total": 4914,
+            "retained_pseudocode": 9,
+            "rust_ported": null,
+            "differential_verified": null
+          },
+          {
+            "name": "LS3DF.dll",
+            "inventory_total": 1683,
+            "retained_pseudocode": 45,
+            "rust_ported": null,
+            "differential_verified": null
+          }
+        ],
+        "systems": {
+          "verified": 0,
+          "total": 12
+        }
+      },
+      {
+        "snapshot_id": "pc-function-r2-20261021",
+        "as_of": "2026-10-21",
+        "libraries": [
+          {
+            "name": "Game.exe",
+            "inventory_total": 4914,
+            "retained_pseudocode": 55,
+            "rust_ported": null,
+            "differential_verified": null
+          },
+          {
+            "name": "rw_data.dll",
+            "inventory_total": null,
+            "retained_pseudocode": 6,
+            "rust_ported": null,
+            "differential_verified": null
+          },
+          {
+            "name": "LS3DF.dll",
+            "inventory_total": 1683,
+            "retained_pseudocode": 48,
+            "rust_ported": null,
+            "differential_verified": null
+          }
+        ],
+        "systems": {
+          "verified": 0,
+          "total": 12
+        }
+      }
     ]
   }
 }

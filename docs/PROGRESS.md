@@ -1,5 +1,24 @@
 # Progress
 
+<!-- generated-function-progress:start -->
+As of 2026-10-21 · snapshot `pc-function-r2-20261021`.
+
+| Original binary | Retained pseudocode | Full contracts | Full Rust ports | Differential runtime verified |
+| --- | ---: | ---: | ---: | ---: |
+| Game.exe | 55 / 4,914 (1.12%) | N/A | N/A | N/A |
+| rw_data.dll | 6 / N/A | N/A | N/A | N/A |
+| LS3DF.dll | 48 / 1,683 (2.85%) | N/A | N/A | N/A |
+
+Strict full-system gate: **0/12**. These static activity ratios are not game-completion percentages. N/A means the whole-function acceptance audit is incomplete; rw_data has no frozen inventory denominator. LS3DF uses an explicit profile union. Accepted stages use absolute counts with an N/A denominator until eligible original functions are audited; raw analyzer inventories include externals and thunks. Full semantic-contract counts are unmeasured. Verified code-byte coverage is unmeasured. The campaign is not playable.
+
+Regenerate locally with `python3 scripts/progress.py --write`; verify without writes with `python3 scripts/progress.py --check`. Versioned snapshots are retained in `docs/progress.json`; milestone history is maintained in `docs/PROGRESS.md`.
+
+| Frozen snapshot | As of | Retained static pseudocode | Complete systems |
+| --- | --- | --- | ---: |
+| `historical-retained-static-20261021` | 2026-10-21 | Game.exe 9 / 4,914 (0.18%); LS3DF.dll 45 / 1,683 (2.67%) | 0/12 |
+| `pc-function-r2-20261021` | 2026-10-21 | Game.exe 55 / 4,914 (1.12%); rw_data.dll 6 / N/A; LS3DF.dll 48 / 1,683 (2.85%) | 0/12 |
+<!-- generated-function-progress:end -->
+
 Updated 2026-10-21 UTC. The Rust engine displays the Czech PC menu, static INTRO and a bounded MISE01 spawn neighborhood with the original static taxi. Phase 1 and phase 2 were accepted by two sequential independent reviewers. This is a static inspection flow, not mission execution or gameplay. Full campaign completion remains the goal.
 
 | Measure | Current status |

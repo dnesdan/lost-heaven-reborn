@@ -1,5 +1,19 @@
 # Lost Heaven Reborn
 
+<!-- generated-function-progress:start -->
+As of 2026-10-21 · snapshot `pc-function-r2-20261021`.
+
+| Original binary | Retained pseudocode | Full contracts | Full Rust ports | Differential runtime verified |
+| --- | ---: | ---: | ---: | ---: |
+| Game.exe | 55 / 4,914 (1.12%) | N/A | N/A | N/A |
+| rw_data.dll | 6 / N/A | N/A | N/A | N/A |
+| LS3DF.dll | 48 / 1,683 (2.85%) | N/A | N/A | N/A |
+
+Strict full-system gate: **0/12**. These static activity ratios are not game-completion percentages. N/A means the whole-function acceptance audit is incomplete; rw_data has no frozen inventory denominator. LS3DF uses an explicit profile union. Accepted stages use absolute counts with an N/A denominator until eligible original functions are audited; raw analyzer inventories include externals and thunks. Full semantic-contract counts are unmeasured. Verified code-byte coverage is unmeasured. The campaign is not playable.
+
+Regenerate locally with `python3 scripts/progress.py --write`; verify without writes with `python3 scripts/progress.py --check`. Versioned snapshots are retained in `docs/progress.json`; milestone history is maintained in `docs/PROGRESS.md`.
+<!-- generated-function-progress:end -->
+
 An independent Rust reimplementation of the Mafia: The City of Lost Heaven (2002) engine and game. The current build reads a user's original PC installation, displays the Czech PC menu layout and assets, and renders bounded static scenes. MISE01 inspection now assembles a small neighborhood around the authored player spawn with the original static taxi. It does not execute the cinematic, missions, or gameplay. The long-term goal is a complete campaign using the user's own legally obtained game data. No game assets are included.
 
 ## Build and run
