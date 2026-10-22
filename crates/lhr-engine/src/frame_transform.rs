@@ -3,7 +3,7 @@
 //! LinkTo, RemoveChild and Update have retained PS2 symbols; PC entries are
 //! 0x1a6e0,0x1b9d0,0x1bf20,0x1ca60. Setter names are descriptive views of
 //! observed inline operations, not additional original symbols. Host storage
-//! does not implement native reference counting/destructors. Only LinkTo flags0,
+//! does not implement native reference counting/destructors. Only LinkTo flags0/1,
 //! model/mesh virtual updates, and an empty deferred queue are represented.
 use crate::native_transform::{is_verified_scalar, SMatrix, SQuat};
 const DIRTY: u32 = 0x40002000;
@@ -93,6 +93,9 @@ pub enum FrameError {
     NumericDomain(&'static str),
     QuaternionFromMatrixUnavailable,
     AllocationOverflow,
+    UnsupportedLinkFlags(u32),
+    UnsupportedLinkState,
+    DirectionFromVectorsUnavailable,
 }
 impl I3dFrameGraph {
     pub fn insert(&mut self, state: I3dFrameState) -> Result<FrameKey, FrameError> {
@@ -233,9 +236,48 @@ impl I3dFrameGraph {
     /// Native LinkTo flags0: prepend, preserve local pose, invalidate this world
     /// cache. Descendant caches stay unchanged until Update. Cycles are rejected.
     pub fn link_to(&mut self, child: FrameKey, parent: Option<FrameKey>) -> Result<(), FrameError> {
+        self.link_to_with_flags(child, parent, 0).map(|_| ())
+    }
+    /// Original LinkTo, RVA0x1b9d0, for flags0 and world-preserving flags1.
+    /// The native return value is zero, including the unchanged-parent path.
+    /// Flags1 computes the old world cache before unlinking, then derives the
+    /// new local position, scale and direction in native write order. Availability
+    /// failures retain preceding link/cache/pose writes and poison interrupted
+    /// caches. Unsupported flag2/4 ownership/callback paths are explicit errors.
+    pub fn link_to_with_flags(
+        &mut self,
+        child: FrameKey,
+        parent: Option<FrameKey>,
+        flags: u32,
+    ) -> Result<u32, FrameError> {
+        if flags > 1 {
+            return Err(FrameError::UnsupportedLinkFlags(flags));
+        }
+        let result = self.link_to_inner(child, parent, flags);
+        if let Err(
+            error @ (FrameError::NumericDomain(_)
+            | FrameError::QuaternionFromMatrixUnavailable
+            | FrameError::DirectionFromVectorsUnavailable),
+        ) = result
+        {
+            let node = self.node_mut(child)?;
+            node.local_error = Some(error);
+            node.world_error = Some(error);
+        }
+        result
+    }
+    fn link_to_inner(
+        &mut self,
+        child: FrameKey,
+        parent: Option<FrameKey>,
+        flags: u32,
+    ) -> Result<u32, FrameError> {
         let old = self.links(child)?.parent;
         if old == parent {
-            return Ok(());
+            return Ok(0);
+        }
+        if flags == 1 && self.state(child)?.flags & 0x1c0000 != 0 {
+            return Err(FrameError::UnsupportedLinkState);
         }
         let mut at = parent;
         let mut count = 0;
@@ -248,6 +290,9 @@ impl I3dFrameGraph {
             if count > self.nodes.len() {
                 return Err(FrameError::Cycle);
             }
+        }
+        if flags & 1 != 0 {
+            self.world_matrix(child)?;
         }
         if let Some(old) = old {
             self.remove_child(old, child)?;
@@ -266,9 +311,50 @@ impl I3dFrameGraph {
             p.links.child_count = p.links.child_count.wrapping_add(1);
             p.state.flags &= 0xfffffebf;
         }
-        let s = &mut self.node_mut(child)?.state;
-        s.flags = (s.flags & !0x20) | 0x40000000;
-        Ok(())
+        if flags & 1 == 0 {
+            let s = &mut self.node_mut(child)?.state;
+            s.flags = (s.flags & !0x20) | 0x40000000;
+        } else {
+            let relative = if let Some(p) = parent {
+                let parent_world = self.world_matrix(p)?;
+                // Native discards Inverse's false flag and uses its identity
+                // fallback for a singular parent.
+                let (inverse, _) = parent_world
+                    .inverse()
+                    .map_err(|_| FrameError::NumericDomain("LinkTo inverse"))?;
+                let child_world = self.world_matrix(child)?;
+                if !child_world.is_verified_input() || !inverse.is_verified_input() {
+                    return Err(FrameError::NumericDomain("LinkTo multiply"));
+                }
+                let relative = child_world.mul_affine(&inverse);
+                if !relative.is_verified_input() {
+                    return Err(FrameError::NumericDomain("LinkTo multiply"));
+                }
+                relative
+            } else {
+                self.world_matrix(child)?
+            };
+            self.assign_position(child, relative.elements[12..15].try_into().unwrap())?;
+            let scale = relative
+                .try_get_scale()
+                .map_err(|_| FrameError::NumericDomain("LinkTo GetScale"))?;
+            // This setter intentionally derives any missing quaternion from the
+            // previous local matrix, before SetDir3 replaces the basis.
+            self.assign_scale(child, scale)?;
+            self.node_mut(child)?
+                .state
+                .local
+                .try_set_dir3(
+                    relative.elements[8..11].try_into().unwrap(),
+                    relative.elements[4..7].try_into().unwrap(),
+                )
+                .map_err(|_| FrameError::DirectionFromVectorsUnavailable)?;
+            let node = self.node_mut(child)?;
+            node.state.flags = (node.state.flags & 0xfffffed3) | 0x40000010;
+            node.local_error = None;
+            node.world_error = None;
+        }
+        Ok(0)
     }
     fn scalar(v: f32, op: &'static str) -> Result<f32, FrameError> {
         if is_verified_scalar(v) {
@@ -481,6 +567,77 @@ mod tests {
         )
     }
     #[test]
+    fn world_preserving_reparent_detach_and_locked_position_follow_native_rules() {
+        for locked in [false, true] {
+            let mut graph = I3dFrameGraph::default();
+            let a = graph.insert(mesh([10., 0., 0.])).unwrap();
+            let b = graph.insert(mesh([20., 0., 0.])).unwrap();
+            let mut state = mesh([3., 0., 0.]);
+            if locked {
+                state.flags |= 0x80;
+            }
+            let child = graph.insert(state).unwrap();
+            graph.link_to(child, Some(a)).unwrap();
+            assert_eq!(graph.world_matrix(child).unwrap().elements[12], 13.);
+            assert_eq!(graph.link_to_with_flags(child, Some(b), 1), Ok(0));
+            assert_eq!(graph.links(child).unwrap().parent, Some(b));
+            assert_eq!(
+                graph.state(child).unwrap().local.elements[12],
+                if locked { 3. } else { -7. }
+            );
+            assert_eq!(
+                graph.world_matrix(child).unwrap().elements[12],
+                if locked { 23. } else { 13. }
+            );
+            graph.link_to_with_flags(child, None, 1).unwrap();
+            assert_eq!(
+                graph.world_matrix(child).unwrap().elements[12],
+                if locked { 3. } else { 13. }
+            );
+        }
+    }
+    #[test]
+    fn relink_errors_preserve_native_prefix_writes_and_mark_caches_unavailable() {
+        let mut graph = I3dFrameGraph::default();
+        let parent = graph.insert(mesh([10., 0., 0.])).unwrap();
+        let mut state = mesh([3., 0., 0.]);
+        state.flags = 0x30;
+        state.world.elements[12] = 7.;
+        state.local.elements[1] = f32::NAN;
+        let child = graph.insert(state).unwrap();
+        assert_eq!(
+            graph.link_to_with_flags(child, Some(parent), 2),
+            Err(FrameError::UnsupportedLinkFlags(2))
+        );
+        assert_eq!(graph.links(child).unwrap().parent, None);
+        assert_eq!(
+            graph.link_to_with_flags(child, Some(parent), 1),
+            Err(FrameError::QuaternionFromMatrixUnavailable)
+        );
+        assert_eq!(graph.links(child).unwrap().parent, Some(parent));
+        assert_eq!(graph.state(child).unwrap().local.elements[12], -3.);
+        assert_eq!(graph.state(child).unwrap().scale, [1.; 3]);
+        assert_eq!(graph.state(child).unwrap().flags, 0x40000010);
+        assert_eq!(
+            graph.world_matrix(child),
+            Err(FrameError::QuaternionFromMatrixUnavailable)
+        );
+    }
+    #[test]
+    fn singular_parent_uses_native_inverse_identity_fallback() {
+        let mut graph = I3dFrameGraph::default();
+        let mut state = mesh([10., 0., 0.]);
+        state.flags = 0x1c;
+        for i in [0, 5, 10] {
+            state.local.elements[i] = 0.;
+        }
+        let parent = graph.insert(state).unwrap();
+        let child = graph.insert(mesh([3., 0., 0.])).unwrap();
+        assert_eq!(graph.link_to_with_flags(child, Some(parent), 1), Ok(0));
+        assert_eq!(graph.state(child).unwrap().local.elements[12], 3.);
+        assert_eq!(graph.world_matrix(child).unwrap().elements[12], 10.);
+    }
+    #[test]
     fn parent_changes_stay_cached_until_update_then_repeated_reads_are_clean() {
         let mut graph = I3dFrameGraph::default();
         let root = graph.insert(I3dFrameState::model()).unwrap();
@@ -590,7 +747,7 @@ mod tests {
         let mut graph = I3dFrameGraph::default();
         let mut state = mesh([0.; 3]);
         state.flags = 0x10;
-        state.local.elements[1] = 0.25;
+        state.local.elements[0] = 0.0;
         let key = graph.insert(state).unwrap();
         assert_eq!(
             graph.assign_scale(key, [2., 3., 4.]),
@@ -606,7 +763,7 @@ mod tests {
         for flags in [0x30, 0x34] {
             let mut cached = mesh([0.; 3]);
             cached.flags = flags;
-            cached.local.elements[1] = 0.25;
+            cached.local.elements[0] = 0.0;
             let key = graph.insert(cached).unwrap();
             assert!(graph.world_matrix(key).is_ok());
             assert_eq!(

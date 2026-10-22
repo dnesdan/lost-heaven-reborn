@@ -7,7 +7,12 @@
 //! established as equivalent to portable Rust arithmetic.
 //! Callers requiring verified fidelity must check `is_verified_input` (and each
 //! vector scalar), then recheck generated matrices before subsequent operations.
-//! The arithmetic methods themselves do not reject values outside that domain.
+//! Legacy arithmetic methods do not reject values outside that domain. The
+//! `try_make` entries enforce their documented bounded domains and rounding
+//! enclosures, assuming the host default IEEE round-to-nearest arithmetic.
+
+#[path = "native_trig.rs"]
+mod native_trig;
 
 /// Conservative per-call domain for equivalence to x87 PC24 arithmetic.
 /// Nonzero magnitudes stay far enough from exponent limits for products and
@@ -47,6 +52,8 @@ pub enum MakeUnavailable {
     InputOutsideVerifiedDomain,
     UnrecoveredAxisAngle,
     UnrecoveredMatrix,
+    /// Conservative transcendental bounds cross a single-precision boundary.
+    RoundingUncertain,
 }
 
 impl SMatrix {
@@ -159,28 +166,60 @@ impl SQuat {
         self.wxyz.iter().copied().all(is_verified_scalar)
     }
 
-    /// Bounded original `S_quat::Make(S_vector const&, float)`, RVA0x2ee00.
-    /// Only signed zero angles are admitted. The original FSIN preserves that
-    /// zero's sign, FCOS returns one, and the normalization branch is skipped.
-    /// Other angles need the original extended-precision transcendental chain.
+    /// Original `S_quat::Make(S_vector const&, float)`, RVA0x2ee00.
+    /// Nonzero angles are bounded to [-2,2] radians and use outward enclosures
+    /// of retained x87 sin/cos. An ambiguous PC24 rounding returns an error.
+    /// Signed zero angles retain the previously admitted full finite-axis domain.
     pub fn try_make_axis_angle(axis: [f32; 3], angle: f32) -> Result<Self, MakeUnavailable> {
         if !angle.is_finite() || !axis.into_iter().all(f32::is_finite) {
             return Err(MakeUnavailable::InputOutsideVerifiedDomain);
         }
-        if angle != 0.0 {
-            return Err(MakeUnavailable::UnrecoveredAxisAngle);
+        if angle == 0.0 {
+            return Ok(Self {
+                wxyz: [1., angle * axis[0], angle * axis[1], angle * axis[2]],
+            });
         }
-        Ok(Self {
-            wxyz: [1.0, angle * axis[0], angle * axis[1], angle * axis[2]],
-        })
+        if !axis.into_iter().all(is_verified_scalar) {
+            return Err(MakeUnavailable::InputOutsideVerifiedDomain);
+        }
+        let half = angle * 0.5;
+        if !half.is_normal() {
+            return Err(MakeUnavailable::InputOutsideVerifiedDomain);
+        }
+        let (sine, cosine) = native_trig::sin_cos(half)?;
+        let w = cosine.rounded()?;
+        let [x, y, z] = [
+            sine.product(axis[0])?,
+            sine.product(axis[1])?,
+            sine.product(axis[2])?,
+        ];
+        let arithmetic = native_trig::Arithmetic::new();
+        let f = |v| arithmetic.input(v);
+        let [px, py, pz] = [x, y, z].map(f);
+        let norm = ((px * px + py * py) + pz * pz) + f(cosine.squared()?);
+        let mut out = Self { wxyz: [w, x, y, z] };
+        if f64::from((norm - f(1.)).abs().value) >= 1e-8 {
+            if norm.value < 1e-8 {
+                arithmetic.finish()?;
+                return Ok(Self {
+                    wxyz: [1., 0., 0., 0.],
+                });
+            }
+            let reciprocal = f(1.) / norm.sqrt();
+            for i in [1, 2, 3, 0] {
+                out.wxyz[i] = (f(out.wxyz[i]) * reciprocal).value;
+            }
+        }
+        arithmetic.finish()?;
+        Ok(out)
     }
 
-    /// Bounded original `S_quat::Make(S_matrix const&)`, RVA0x2eef0.
-    /// Admits the native zero-length early return, and positive X/Y diagonal
-    /// powers of two with a signed Z diagonal power of two (exponents -8..=8).
-    /// The latter follows the no-acos, zero-angle path. In particular the
-    /// original ignores the sign of that Z row on this path.
-    /// Unrecovered matrix and transcendental paths return an availability error.
+    /// Original `S_quat::Make(S_matrix const&)`, RVA0x2eef0, in a guarded domain.
+    /// Nondegenerate matrices follow the original two axis-angle factors and
+    /// composition; each nonzero factor angle must be at most two radians.
+    /// PC24 exponent edges and uncertain transcendental rounding return errors.
+    /// Retains the admitted zero-length and exact diagonal identity branches.
+    /// Missing-row reconstruction remains unavailable.
     pub fn try_make_from_matrix(matrix: &SMatrix) -> Result<Self, MakeUnavailable> {
         if !matrix.is_verified_input() {
             return Err(MakeUnavailable::InputOutsideVerifiedDomain);
@@ -200,8 +239,123 @@ impl SQuat {
                 wxyz: [1., 0., 0., 0.],
             })
         } else {
-            Err(MakeUnavailable::UnrecoveredMatrix)
+            Self::make_nonzero_matrix(matrix, lengths)
         }
+    }
+
+    fn make_nonzero_matrix(matrix: &SMatrix, lengths: [f32; 3]) -> Result<Self, MakeUnavailable> {
+        use native_trig::{Arithmetic, Float};
+        let arithmetic = Arithmetic::new();
+        let f = |v| arithmetic.input(v);
+        let [one, zero] = [f(1.), f(0.)];
+        let [lx, ly, lz] = lengths.map(f);
+        if ((lz * ly) * lx).value < 1e-8 {
+            return Err(MakeUnavailable::UnrecoveredMatrix);
+        }
+        let m = matrix.elements.map(f);
+        let ix = one / lx;
+        let iy = one / ly;
+        let v = [iy * m[4], iy * m[5], iy * m[6]];
+        let sum = [ix * m[0] + v[0], v[1] + ix * m[1], v[2] + ix * m[2]];
+        fn normalize<'a>(
+            mut a: [Float<'a>; 3],
+            squared: Float<'a>,
+            one: Float<'a>,
+        ) -> [Float<'a>; 3] {
+            if f64::from((squared - one).abs().value) >= 1e-8 {
+                if squared.value >= 1e-8 {
+                    let reciprocal = one / squared.sqrt();
+                    a = a.map(|v| v * reciprocal);
+                } else {
+                    let i = if a[0].value != 0. {
+                        0
+                    } else if a[2].value != 0. {
+                        2
+                    } else {
+                        1
+                    };
+                    a[i] = if a[i].value < 0. { -one } else { one };
+                }
+            }
+            a
+        }
+        let acos = |x: Float<'_>| -> Result<f32, MakeUnavailable> {
+            arithmetic.finish()?;
+            if x.value.abs() > 1. {
+                return Err(MakeUnavailable::UnrecoveredMatrix);
+            }
+            let y = ((one + x) * (one - x)).sqrt();
+            arithmetic.finish()?;
+            native_trig::atan2_positive(y.value, x.value)
+        };
+        let first = if v[1].value.abs() < 1. {
+            let axis = [v[2], zero, -v[0]];
+            let axis = normalize(axis, axis[2] * axis[2] + axis[0] * axis[0], one);
+            Self::try_make_axis_angle(axis.map(|v| -v.value), acos(v[1])?)?
+        } else if v[1].value <= 0. {
+            Self {
+                wxyz: [0., 0., 0., 1.],
+            }
+        } else {
+            Self {
+                wxyz: [1., 0., 0., 0.],
+            }
+        };
+        let [w, x, y, z] = first.wxyz.map(f);
+        let a = if w.value.abs() < 1. {
+            let x2 = x + x;
+            let y2 = y + y;
+            let z2 = z + z;
+            [
+                ((one - (y * y2 + z * z2)) + z2 * w) + y2 * x,
+                ((y2 * x - z2 * w) + one) - (x * x2 + z * z2),
+                ((y2 * w + z2 * x) + y * z2) - x2 * w,
+            ]
+        } else {
+            [one, one, zero]
+        };
+        let d = [a[0] - v[0], a[1] - v[1], a[2] - v[2]];
+        let from = [sum[0] - v[0], sum[1] - v[1], sum[2] - v[2]];
+        let dot = (d[2] * from[2] + from[1] * d[1]) + from[0] * d[0];
+        let second = if dot.value.abs() >= 1. {
+            let triple = ((d[2] * v[1] - d[1] * v[2]) * sum[0]
+                + (d[1] * v[0] - v[1] * d[0]) * sum[2])
+                + (v[2] * d[0] - d[2] * v[0]) * sum[1];
+            let axis = if triple.value <= 0. { v } else { v.map(|v| -v) };
+            let angle = if dot.value <= 0. {
+                f32::from_bits(0x40490fdb)
+            } else {
+                0.
+            };
+            arithmetic.finish()?;
+            Self::try_make_axis_angle(axis.map(|v| v.value), angle)?
+        } else {
+            let axis = [
+                d[1] * from[2] - from[1] * d[2],
+                d[2] * from[0] - from[2] * d[0],
+                from[1] * d[0] - d[1] * from[0],
+            ];
+            let squared = (axis[2] * axis[2] + axis[1] * axis[1]) + axis[0] * axis[0];
+            let axis = normalize(axis, squared, one);
+            Self::try_make_axis_angle(axis.map(|v| -v.value), acos(dot)?)?
+        };
+        arithmetic.finish()?;
+        let [w, x, y, z] = first.wxyz.map(f);
+        let [rw, rx, ry, rz] = second.wxyz.map(f);
+        let dot = (z * rz + y * ry) + x * rx;
+        let result = Self {
+            wxyz: [
+                (w * rw - dot).value,
+                ((rx * w + x * rw) + (rz * y - ry * z)).value,
+                ((ry * w + y * rw) + (rx * z - rz * x)).value,
+                ((rz * w + z * rw) + (ry * x - rx * y)).value,
+            ],
+        };
+        arithmetic.finish()?;
+        if !result.is_verified_input() {
+            return Err(MakeUnavailable::InputOutsideVerifiedDomain);
+        }
+        Ok(result)
     }
 
     /// Descriptive mapping of the internal quaternion-composition helper,
@@ -257,6 +411,81 @@ impl SQuat {
 mod tests {
     use super::*;
     #[test]
+    fn general_make_matches_original_nonzero_axis_and_matrix_paths() {
+        assert_eq!(
+            SQuat::try_make_axis_angle([2., 3., 4.], 1.)
+                .unwrap()
+                .wxyz
+                .map(f32::to_bits),
+            [0x3ea4c6c3, 0x3eb40919, 0x3f0706d2, 0x3f340919]
+        );
+        let matrix = SMatrix {
+            elements: [
+                1., 0., 0., 0., 0., 0., -1., 0., 0., 1., 0., 0., 10., 20., 30., 1.,
+            ],
+        };
+        assert_eq!(
+            SQuat::try_make_from_matrix(&matrix)
+                .unwrap()
+                .wxyz
+                .map(f32::to_bits),
+            [0x3f3504f4, 0x3f3504f4, 0, 0]
+        );
+        let matrix = SMatrix {
+            elements: [
+                0.5,
+                0.,
+                f32::from_bits(0x3f5db3d7),
+                0.,
+                0.,
+                1.,
+                0.,
+                0.,
+                -f32::from_bits(0x3f5db3d7),
+                0.,
+                0.5,
+                0.,
+                0.,
+                0.,
+                0.,
+                1.,
+            ],
+        };
+        assert_eq!(
+            SQuat::try_make_from_matrix(&matrix)
+                .unwrap()
+                .wxyz
+                .map(f32::to_bits),
+            [0x3f5db3d7, 0, 0x3effffff, 0]
+        );
+    }
+
+    #[test]
+    fn general_make_fails_closed_for_unrecovered_or_uncertain_numeric_paths() {
+        assert_eq!(
+            SQuat::try_make_axis_angle([1., 0., 0.], 1e-20),
+            Err(MakeUnavailable::RoundingUncertain)
+        );
+        assert_eq!(
+            SQuat::try_make_axis_angle([1., 0., 0.], f32::from_bits(1)),
+            Err(MakeUnavailable::InputOutsideVerifiedDomain)
+        );
+        let mut matrix = SMatrix::identity();
+        matrix.elements[5] = -1.;
+        matrix.elements[6] = -1.;
+        assert_eq!(
+            SQuat::try_make_from_matrix(&matrix),
+            Err(MakeUnavailable::UnrecoveredAxisAngle)
+        );
+        matrix = SMatrix::identity();
+        matrix.elements[0] = 0.;
+        assert_eq!(
+            SQuat::try_make_from_matrix(&matrix),
+            Err(MakeUnavailable::UnrecoveredMatrix)
+        );
+    }
+
+    #[test]
     fn bounded_make_preserves_signed_zero_and_rejects_unrecovered_angles() {
         for angle in [0., -0.] {
             let axis = [-2., 0., -0.];
@@ -271,13 +500,13 @@ mod tests {
                 ]
             );
         }
-        assert!(SQuat::try_make_axis_angle([1., 0., 0.], 0.25).is_err());
+        assert!(SQuat::try_make_axis_angle([1., 0., 0.], 3.).is_err());
         assert!(SQuat::try_make_axis_angle([f32::INFINITY, 0., 0.], 0.).is_err());
         assert!(SQuat::try_make_axis_angle([1., 0., 0.], f32::NAN).is_err());
     }
 
     #[test]
-    fn bounded_matrix_make_admits_native_identity_paths_only() {
+    fn bounded_matrix_make_preserves_original_identity_paths() {
         let expected = [1.0f32.to_bits(), 0, 0, 0];
         let mut matrix = SMatrix::identity();
         matrix.elements[0] = 2.;
@@ -292,7 +521,13 @@ mod tests {
             expected
         );
         matrix.elements[0] = 3.;
-        assert!(SQuat::try_make_from_matrix(&matrix).is_err());
+        assert_eq!(
+            SQuat::try_make_from_matrix(&matrix)
+                .unwrap()
+                .wxyz
+                .map(f32::to_bits),
+            expected
+        );
         matrix.elements[0] = -2.;
         assert!(SQuat::try_make_from_matrix(&matrix).is_err());
         matrix.elements = [1e-5; 16];
