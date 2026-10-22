@@ -37,3 +37,5 @@ pub mod skeletal_animation;
 pub mod skeletal_playback;
 pub mod target_direction;
 pub mod target_state;
+
+pub mod visual_resources;
