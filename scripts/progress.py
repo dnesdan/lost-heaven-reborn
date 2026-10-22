@@ -698,7 +698,35 @@ def render_svg_v3(snapshot):
     history_svg = ''.join(f'<text x="36" y="{history_y+i*22}" class="history">{escape(line)}</text>' for i,line in enumerate(history))
     if not history_svg:
         history_svg = f'<text x="36" y="{history_y}" class="history">No frozen snapshots match current Game and LS3DF denominators.</text>'
-    rows = max(1, len(history)); footer1 = history_y + rows*22 + 8; footer2 = footer1 + 18; height = footer2 + 14
+    rows = max(1, len(history)); scoped_title_y = history_y + rows*22 + 8
+    scoped_points = []
+    for item in snapshot['history']:
+        if 'scoped_ports' not in item:
+            continue
+        scoped_points.append((item['as_of'], sum(port['entries'] for port in item['scoped_ports'])))
+    chart_top = scoped_title_y + 31
+    chart_bottom = chart_top + 55
+    if scoped_points:
+        left, right = 72, 768
+        step = (right - left) / max(1, len(scoped_points) - 1)
+        max_count = max(count for _, count in scoped_points) or 1
+        coords = [(left + i * step, chart_bottom - 55 * count / max_count, date, count, item['snapshot_id'])
+                  for i, (item, (date, count)) in enumerate(
+                      (item, point) for item, point in zip(
+                          (row for row in snapshot['history'] if 'scoped_ports' in row), scoped_points))]
+        chart = [f'<polyline points="{" ".join(f"{x:.1f},{y:.1f}" for x,y,_,_,_ in coords)}" fill="none" stroke="{palette["amber"]}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>']
+        label_indexes = set(round(i * (len(coords) - 1) / min(6, len(coords) - 1))
+                            for i in range(min(6, len(coords) - 1) + 1)) if len(coords) > 1 else {0}
+        for index, (x, y, date, value, snapshot_id) in enumerate(coords):
+            point_title = escape(f'{snapshot_id} · {date} · {value} accepted scoped entries')
+            chart.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4" fill="{palette["amber"]}"><title>{point_title}</title></circle>')
+            if index in label_indexes:
+                chart.append(f'<text x="{x:.1f}" y="{y-8:.1f}" text-anchor="middle" class="history">{value}</text>')
+                chart.append(f'<text x="{x:.1f}" y="{chart_bottom+16}" text-anchor="middle" class="history">{escape(date)}</text>')
+        scoped_chart_svg = ''.join(chart)
+    else:
+        scoped_chart_svg = f'<text x="36" y="{chart_top+20}" class="history">No frozen scoped-entry counts recorded.</text>'
+    footer1 = chart_bottom + 40; footer2 = footer1 + 18; height = footer2 + 14
     date_label = escape(snapshot['as_of'])
     installer = snapshot['other_targets'][0]
     installer_count = f"{installer['retained_pseudocode']:,} / {installer['inventory_total']:,} · {100*installer['retained_pseudocode']/installer['inventory_total']:.2f}%"
@@ -709,6 +737,7 @@ def render_svg_v3(snapshot):
 <rect class="light-bg" width="840" height="{height}" rx="24" fill="{palette['paper']}"/><rect class="dark-bg" width="840" height="{height}" rx="24" fill="#0d1b25"/>
 <text x="36" y="38" class="kicker">LOST HEAVEN REBORN · EVIDENCE SNAPSHOT · {date_label}</text><text x="36" y="75" class="title">Progress measures, separate denominators</text>{cards}
 <text x="36" y="611" class="kicker">FROZEN STATIC HISTORY · MATCHING GAME AND LS3DF DENOMINATORS</text>{history_svg}
+<text x="36" y="{scoped_title_y}" class="kicker">ACCEPTED SCOPED RUST ENTRIES · ABSOLUTE COUNTS</text>{scoped_chart_svg}
 <text x="36" y="{footer1}" class="detail">Eligible scoped-function denominator: unknown · scoped ports are not whole-function credits.</text><text x="36" y="{footer2}" class="detail">Static analysis is not implementation coverage; full-system verification is not completion.</text></svg>'''
 
 

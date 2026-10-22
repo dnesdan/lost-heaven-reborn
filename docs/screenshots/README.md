@@ -19,3 +19,11 @@ Actual public CLI capture of unchanged `sipka1.4ds` + `sipka1.5ds` after 25 cont
 ![Original arrow model at 400 ms in the Rust engine](2026-10-21-position-animation.webp)
 
 960 × 640 · 17 KiB · engine commit [`ed770ed`](https://github.com/dnesdan/lost-heaven-reborn/commit/ed770ed). Reproduce with the README animation command and `--headless --animation-steps 25 --capture /tmp/animation.png`.
+
+## 2026-10-22 — original model hierarchy
+
+Actual Linux software Vulkan capture of `4build81.4ds`: three meshes and one dummy, materialized into an owned model/frame graph. Recovered common LS3DF fields, parent transforms and guarded original point arithmetic feed the renderer. Camera, materials and rasterization remain inspection choices; this image does not establish original rendering parity or mission gameplay.
+
+![Original building rendered through the recovered mesh and dummy hierarchy](2026-10-22-original-hierarchy.webp)
+
+960 × 640 · 34 KiB · engine commit [`a739570`](https://github.com/dnesdan/lost-heaven-reborn/commit/a739570). Reproduce with `--model models/4build81.4ds --headless --capture /tmp/hierarchy.png`. A bounded X11 run also passed. Separate animation captures at 0/25/50 steps confirmed movement and exact return to the initial image.

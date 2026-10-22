@@ -1,23 +1,23 @@
 {
   "updated_at": "2026-10-22",
-  "project_status": "Original-data Rust menu and static INTRO/MISE01 inspection; 46 original entries covered by 21 reviewed scoped contracts; gameplay integration pending and campaign not playable",
+  "project_status": "Original-data Rust menu, bounded scenes and native mesh/dummy hierarchy; 68 scoped entries across 26 reviewed contracts; mission gameplay remains unimplemented",
   "rust_toolchain": "1.99.1",
   "validation": {
-    "status": "New code passed two sequential independent reviews; cohesive workspace suite passes 195 Rust, 9 REA wrapper and 42 progress tests. Current Vulkan position captures pass; prior X11 menu/inspection proof retained. Campaign remains unplayable.",
-    "rust_unit_tests": 195,
+    "status": "Two sequential independent reviews per code milestone; 232 Rust, 9 REA and 42 progress tests pass. Native code comparisons, Linux Vulkan/X11 rendering and Apple arm64 compilation are separate evidence. Campaign is not playable.",
+    "rust_unit_tests": 232,
     "rust_unit_test_split": {
-      "lhr_assets": 62,
-      "lhr_engine_library": 109,
+      "lhr_assets": 63,
+      "lhr_engine_library": 145,
       "lhr_engine_application": 19,
       "lhr_render": 5
     },
     "rea_wrapper_tests": 9,
     "latest_accepted_baseline": {
-      "source_commit": "43aac0c4b5724e19ea12270088905c2f8ae4be41",
-      "rust_unit_tests": 195,
+      "source_commit": "a7395701f90c0aeeaf2436a39299c5ae830ccaa7",
+      "rust_unit_tests": 232,
       "rea_wrapper_tests": 9,
       "progress_tests": 42,
-      "milestone": "46 original entries across21 scoped contracts; bounded Make, affine inverse, raw driver storage and extended frame-cache paths. Mission execution and campaign incomplete."
+      "milestone": "68 scoped original entries across 26 contracts; owned model loading and strict transform arithmetic, raw police prerequisites and bounded player-control helpers. No original mission execution."
     },
     "progress_tests": 42
   },
@@ -52,7 +52,7 @@
   },
   "renderer": {
     "target": "wgpu Vulkan on Linux, Metal on macOS",
-    "latest_accepted_baseline": "Linux llvmpipe offscreen rendering and bounded Xvfb camera inspection; phase 1 accepted by two reviews",
+    "latest_accepted_baseline": "Static --model uses recovered common mesh/dummy hierarchy and checked original point arithmetic; Linux software Vulkan and bounded X11 capture verified.",
     "current_menu_scene_validation": "Linux X11 captures and keyboard/mouse transitions frozen; MISE01 spawn-neighborhood crop, orbit, and repeat-load pixels verified; approximate static scenes, not gameplay",
     "omitted_effect_material_counts": {
       "MENU": 33,
@@ -61,7 +61,7 @@
       "meaning": "Materials with unsupported effects; diagnostics do not mean every counted material is omitted in full"
     },
     "original_render_parity": "not established",
-    "macos_metal": "Apple arm64 cargo check passed through generic actor dispatch commit; compilation only, no linking or Metal runtime"
+    "macos_metal": "Apple arm64 all-target cargo check passes at current code baseline; no native macOS linking or Metal execution."
   },
   "campaign_playable": false,
   "historical_analysis": {
@@ -147,9 +147,9 @@
   },
   "function_progress": {
     "schema_version": 3,
-    "snapshot_id": "RUST-SCOPED-PORTS-20261022-06",
+    "snapshot_id": "RUST-SCOPED-PORTS-20261022-07",
     "as_of": "2026-10-22",
-    "source_baseline": "43aac0c4b5724e19ea12270088905c2f8ae4be41",
+    "source_baseline": "a7395701f90c0aeeaf2436a39299c5ae830ccaa7",
     "recount_sha256": "2736f474db3c9f1c5ef42aa46033afd66b4b06700b56f6dfd5b161399903e26c",
     "libraries": [
       {
@@ -7544,6 +7544,282 @@
           }
         ],
         "history_prefix_sha256": "577b6ad7832ea50cc3680ef25103718102ac90953bbd7bafaa56731c05dbbe68"
+      },
+      {
+        "snapshot_id": "RUST-SCOPED-PORTS-20261022-07",
+        "as_of": "2026-10-22",
+        "libraries": [
+          {
+            "name": "Game.exe",
+            "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+            "inventory_total": 4914,
+            "retained_pseudocode": 4783,
+            "rust_ported": null,
+            "differential_verified": null,
+            "inventory_basis": "raw_profile_inventory",
+            "inventory_profiles": [
+              "7810ea9437da59780820ec6fedb47ce47390841a95d527ddb6c3b3700fe180cb"
+            ],
+            "inventory_membership_sha256": "bd82dbdaecf1981548dd73c0793264b520dc08191fb7e8dc8cc8e3bc244e186b"
+          },
+          {
+            "name": "rw_data.dll",
+            "binary_sha256": "67f72c30cc7fe941f5526b8602a0bd2785baa0f22617bbcfd4a71bacd79b8d49",
+            "inventory_total": null,
+            "retained_pseudocode": 6,
+            "rust_ported": null,
+            "differential_verified": null,
+            "inventory_basis": "unknown",
+            "inventory_profiles": [],
+            "inventory_membership_sha256": null
+          },
+          {
+            "name": "LS3DF.dll",
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "inventory_total": 1689,
+            "retained_pseudocode": 1530,
+            "rust_ported": null,
+            "differential_verified": null,
+            "inventory_basis": "raw_profile_union",
+            "inventory_profiles": [
+              "0c1148c7491bbcdf5b3a0f9ea8ba9aad2523b95135b48b9e8385e31b815e1c1a",
+              "20f79d3fb10ba69c5463530c8267a6e2a8f5d0d7232ea59fe159849342ec5d7e",
+              "46301268618f6f9f27a2856e15858155a42599f674def681aa6a56df9fe13c64",
+              "5fb8141f282b82b7a78df6b2d631f00eb93729605b53b333297ebfb4ff03fe9f",
+              "32952d80e0c5001373e6b5a7e0cab3e36ede4dfb0d8f977cded5b0ec0ad03537",
+              "274abe8f77db68a07f35a04e0cf1f5ccd82a7e1af5ede3d2235572a935bebf05"
+            ],
+            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+          },
+          {
+            "name": "Setup.exe (supplied configuration)",
+            "binary_sha256": "c6abff923ecedafc26be3f1abdb8fe286f3a0be1e787ea7b659b6c01a077d25d",
+            "inventory_total": 172,
+            "retained_pseudocode": 172,
+            "rust_ported": null,
+            "differential_verified": null,
+            "inventory_basis": "in_image_non_thunk_procedures",
+            "inventory_profiles": [
+              "7810ea9437da59780820ec6fedb47ce47390841a95d527ddb6c3b3700fe180cb"
+            ],
+            "inventory_membership_sha256": "e0ccf8c5121747ba0608317068c72542b155fd2c758c784b518fd30f983e23df"
+          }
+        ],
+        "systems": {
+          "verified": 0,
+          "total": 12
+        },
+        "scoped_ports": [
+          {
+            "contract_id": "PC-CLOCK-ORACLE-STEP2-20261021",
+            "source_commit": "ed69df16899657065602a8a368f2f6abbda8d642",
+            "entries": 2,
+            "cases": 20,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "1d9209151fcc0fbd937f624431d99110d46071f6ef0ce9c4caf684417fe2032b"
+          },
+          {
+            "contract_id": "PC-SCENE-ORACLE-STEP3-20261021",
+            "source_commit": "8c647af43989f23f28499a307668bef53ad9f59e",
+            "entries": 1,
+            "cases": 13,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "1d9209151fcc0fbd937f624431d99110d46071f6ef0ce9c4caf684417fe2032b"
+          },
+          {
+            "contract_id": "PC-IPOL-CALLBACK-ORACLE-STEP3-20261021",
+            "source_commit": "6fa388aba1071168209f1eac708dd6f37ede2a82",
+            "entries": 1,
+            "cases": 31,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-PHASE-STATIC-20261021",
+            "source_commit": "4101e0b8923a3babd2b54933866a159386cbf0cc",
+            "entries": 1,
+            "cases": 22576,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "1d9209151fcc0fbd937f624431d99110d46071f6ef0ce9c4caf684417fe2032b"
+          },
+          {
+            "contract_id": "PC-ACTOR-TICK-ORACLE-STEP3-20261021",
+            "source_commit": "305f96e4c3f654c17287a1a540af3468c642d3c0",
+            "entries": 1,
+            "cases": 26,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-FRAME-DISPATCH-20261021",
+            "source_commit": "0d634fbc9e02941d70de7c2991cdf2e411156b6e",
+            "entries": 1,
+            "cases": 1509,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "1d9209151fcc0fbd937f624431d99110d46071f6ef0ce9c4caf684417fe2032b"
+          },
+          {
+            "contract_id": "PC-MODEL-TICK-20261021",
+            "source_commit": "0d634fbc9e02941d70de7c2991cdf2e411156b6e",
+            "entries": 1,
+            "cases": 7,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "1d9209151fcc0fbd937f624431d99110d46071f6ef0ce9c4caf684417fe2032b"
+          },
+          {
+            "contract_id": "PC-GAME-SELECTED-LOOP-20261021",
+            "source_commit": "b1ead79fc2d33889560dc41c0754500b962f0f8a",
+            "entries": 1,
+            "cases": 123,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-5DS-POSITION-CHANNEL-002",
+            "source_commit": "671cf2bdc092cc796fd230dcb77b0917aff49a91",
+            "entries": 1,
+            "cases": 2684,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-NAMED-LOOKUP-CONTROLLED-CONTRACT-20261021",
+            "source_commit": "cbeeead64d131b824987d037641166c261a787a8",
+            "entries": 2,
+            "cases": 13,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-PROGRAM-RESET-START-CONTRACT-20261021",
+            "source_commit": "cbeeead64d131b824987d037641166c261a787a8",
+            "entries": 1,
+            "cases": 9,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-NATIVE-TRANSFORM-001",
+            "source_commit": "149d4fcf5de6a1ec5e2a212b057b5ea303f29416",
+            "entries": 7,
+            "cases": 531,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-QUATERNION-NORMALIZE-001",
+            "source_commit": "f08a0b9cc65854f3390a020998edd76263d44e1b",
+            "entries": 1,
+            "cases": 809,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-ORIGINAL-CONFIG-20261021-001",
+            "source_commit": "866d80ed97f1f36bb14f36c8ac2dfb0b69681ff2",
+            "entries": 6,
+            "cases": 1577,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-SCRIPT-SCHEDULER-003",
+            "source_commit": "8fc4da3f558c7fd8f108dbde32007cfc01b307ea",
+            "entries": 2,
+            "cases": 440,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-STARTUP-EFFECTS-CONTRACT-001",
+            "source_commit": "68b4c62d05a7d5908c617ee32c63c37945f8632e",
+            "entries": 5,
+            "cases": 6825,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-NATIVE-TRANSFORM-DEPENDENCIES-001",
+            "source_commit": "8a3221a71f3cd0b77cb528a5591e32fdf3b8f3d9",
+            "entries": 2,
+            "cases": 1063,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-NUMERIC-FRAME-20261022",
+            "source_commit": "a7395701f90c0aeeaf2436a39299c5ae830ccaa7",
+            "entries": 8,
+            "cases": 7800,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "b8ef8e8204a402d100fbca4650f3cbe2b7077e3787ca66675d48110cee0036b5"
+          },
+          {
+            "contract_id": "PC-LS3DF-MAKE-CONTRACT-20261022-002",
+            "source_commit": "6fefd62903047bb0bae8e98226cf7cb815adc11e",
+            "entries": 2,
+            "cases": 18123,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS3DF-POLICE-20261022",
+            "source_commit": "79f7e2968c2aa8145ab86471f97c4a61e6537d3a",
+            "entries": 2,
+            "cases": 245,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS3DF-MATRIX-20261022",
+            "source_commit": "79f7e2968c2aa8145ab86471f97c4a61e6537d3a",
+            "entries": 1,
+            "cases": 10423,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS3DF-SCALE-DIRECTION-CONTRACT-20261022",
+            "source_commit": "6fefd62903047bb0bae8e98226cf7cb815adc11e",
+            "entries": 2,
+            "cases": 21809,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-PHASE2-MODEL-ARENA-20261022",
+            "source_commit": "f6d0ddf22cbacdbe29380b923635b9c0cbdd7198",
+            "entries": 8,
+            "cases": 1015,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "0e71942df94e05689bbad3259743179d6dc19e9a5473317c309dbbbdf036ede4"
+          },
+          {
+            "contract_id": "PC-PHASE2-ACTOR-CACHE-20261022",
+            "source_commit": "f6d0ddf22cbacdbe29380b923635b9c0cbdd7198",
+            "entries": 2,
+            "cases": 1260,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-POLICE-MANAGER-RAW-20261022",
+            "source_commit": "f41da7012ee5ca1bb9aae475c73f024385fde199",
+            "entries": 2,
+            "cases": 1756,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-PHASE4-PLAYER-CONTROL-20261022",
+            "source_commit": "e82f1b3cf30b9ee04700c397089fccdd782ec478",
+            "entries": 5,
+            "cases": 6284,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          }
+        ],
+        "history_prefix_sha256": "43ab5f111b4a259d8fa1510b55990af768fb1cb4c242a5b878c56af12451b915"
       }
     ],
     "scoped_ports": [
@@ -8291,33 +8567,8 @@
       {
         "name": "LS3DF I3D frame transform core",
         "source_path": "crates/lhr-engine/src/frame_transform.rs",
-        "source_commit": "43aac0c4b5724e19ea12270088905c2f8ae4be41",
-        "source_sha256": "3d31e1b6f6acdfeeae3eb3d941778d4c4a202bfed39b91e8fd7c765de60474b7",
-        "contract": {
-          "id": "PC-RUST-I3D-FRAME-TRANSFORM-002",
-          "sha256": "8b42b4dad080dec608d8a1e9d9be792673b856389c6b38d86a28054404c02193"
-        },
-        "comparison": {
-          "id": "PC-RUST-I3D-FRAME-COMPARE-002",
-          "sha256": "d24cec9dc4eb24a2279a869d2a3c22f43d888658abcd948002344a5d4310ae77"
-        },
-        "reviews": [
-          {
-            "id": "PC-RUST-I3D-FRAME-REVIEW1-20261022",
-            "sha256": "0034978bdd3d4a1b8e3148f5807ef015b5b81aeb8e0e05944c8222f707a9b840"
-          },
-          {
-            "id": "PC-RUST-I3D-FRAME-REVIEW2-20261022",
-            "sha256": "c0470b2882dd01de0a80e91a0b071b856b9bba251bc95c2563b9ffd84d457e1e"
-          }
-        ],
-        "cases": 886,
-        "scope": "Five bounded frame entries. The prior 502 original-DLL inputs still match 10,033 states and 1,514,784 fields. A new 384-input corpus adds 2,688 states and 129,024 exact fields through actual original scale setters and matrix getters. Admitted matrix-to-quaternion paths preserve write order, flags and distinct getter/setter behavior; other matrices remain unavailable. Model/mesh trees, LinkTo flags 0 and an empty deferred queue only. Prior production proof covers 14 states and 343 vertices; current Vulkan captures recheck 0/25/50 position steps. No arbitrary animation binding, native refcount, visibility, gameplay or renderer parity.",
-        "integration": "static_inspection",
-        "integration_receipt": {
-          "id": "PC-RUST-I3D-FRAME-INTEGRATION-002",
-          "sha256": "47cf33a17612189f1df413c720c5b67640179497a5fdb781a9bfb486e927d606"
-        },
+        "source_commit": "a7395701f90c0aeeaf2436a39299c5ae830ccaa7",
+        "source_sha256": "84fc7ebaa8aee2181ca23303f54d89dec5e81ca8c7050def4078ff2096f1df3d",
         "functions": [
           {
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
@@ -8348,34 +8599,77 @@
             "entry_rva": "0x1ca60",
             "rust_symbol": "I3dFrameGraph::update",
             "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+          },
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x1d1c0",
+            "rust_symbol": "I3dFrameGraph::apply_common_load_image_fields",
+            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+          },
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x1cc00",
+            "rust_symbol": "I3dFrameGraph::discard_hr_bound_vol",
+            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+          },
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x5a390",
+            "rust_symbol": "I3dFrameGraph::update_v",
+            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
           }
-        ]
+        ],
+        "contract": {
+          "id": "PC-NUMERIC-FRAME-20261022",
+          "sha256": "23835d57811f0936b7ca0a567b12cc44147a404d8e786f0ce55ff6e218dc1971"
+        },
+        "comparison": {
+          "id": "PC-NUMERIC-FRAME-COMPARE-20261022",
+          "sha256": "8780bff6d4de8f7759f69b102ac18084164d603f6f03302e3e941bda686c31f1"
+        },
+        "reviews": [
+          {
+            "id": "PC-NUMERIC-20261022-REVIEW1",
+            "sha256": "fbe7065df9080e16786bb68d2b21519d4603df2217a566be4d02676f2ff4fd73"
+          },
+          {
+            "id": "PC-NUMERIC-20261022-REVIEW2",
+            "sha256": "8bfc177ec42676d0efea51b6e9dad10a01db8adc0b22985bc0950f002037552c"
+          }
+        ],
+        "cases": 7800,
+        "scope": "Eight bounded frame entries; 7,800 native-derived cases retain the historical 7,798 and add two complete original SRT LinkTo/getter trajectories. The SRT corpus now has 180 complete cases and 76 mixed availability stops; the classification erratum preserves the old evidence. Normal-or-zero per-operation guards close 59 previously unavailable Rust source-frame worlds; two AXIS00 frames remain unsupported. A separate original taxi hierarchy comparison matches 66 world matrices/1,056 fields. Separate accepted physical primitive calls are 18,432 SetRot3, 13,960 row scaling, 12,945 affine products and 13,971 point transforms; these per-function counts and the Rust-only 1,953-frame replay are not added to row cases. Prior complete common LoadImage field projection, model/mesh/dummy updates and bound invalidation remain bounded; short reads, FF-enabled loading, sectors and derived resource propagation remain excluded. Dummy UpdateV stays an uncredited dependency. Static model graph and checked point rendering are integrated; flags-one application binding, general geometry loading and original renderer/gameplay parity remain unavailable.",
+        "integration": "static_inspection",
+        "integration_receipt": {
+          "id": "PC-RUST-STRICT-TRANSFORM-INTEGRATION-20261022",
+          "sha256": "b8ef8e8204a402d100fbca4650f3cbe2b7077e3787ca66675d48110cee0036b5"
+        }
       },
       {
         "name": "LS3DF bounded quaternion Make",
         "source_path": "crates/lhr-engine/src/native_transform.rs",
-        "source_commit": "ea3d9b24092fca39c975d60ae8533a28ddbaf1a9",
-        "source_sha256": "f0a4fb0fed2eaa1e8e24e85f2cf576450b1e18c82da3512df3f38b81d2e1f3fd",
+        "source_commit": "6fefd62903047bb0bae8e98226cf7cb815adc11e",
+        "source_sha256": "c0ace1e147ce1dd0792121d606b33d14a5ca743e5c3e3573a03c9b754ffe3bc7",
         "contract": {
-          "id": "PC-LS3DF-MATH-20261022",
-          "sha256": "5232073789e7054ea5a5eae542a08e63ba5e371ab3935ddd494dfcd647fc850c"
+          "id": "PC-LS3DF-MAKE-CONTRACT-20261022-002",
+          "sha256": "456a7317eb4b9c30158b470f1bff042220b3cddda0661a20d69e4cd63ba07124"
         },
         "comparison": {
-          "id": "PC-LS3DF-MATH-20261022-COMPARE",
-          "sha256": "a3aa3ca94625e278ff29103e9e81f1b3e17363f79419ddb810f83076179e065a"
+          "id": "PC-LS3DF-MAKE-COMPARISON-20261022-002",
+          "sha256": "d72982a1b917fa1fb7ba0cad4e4c05f57fd1eba207af4065632a65a70c962922"
         },
         "reviews": [
           {
-            "id": "PC-LS3DF-MATH-20261022-REVIEW1",
-            "sha256": "da5f811f21abe0a2bcd2d4d05b63fb9ee7be6adc6b42be75b6d7779971988b1e"
+            "id": "PC-PHASE1-20261022-REVIEW1",
+            "sha256": "a9fb92387477fcfcf8ad003458ef9ff6494a203880a12d01694a7e41a4683898"
           },
           {
-            "id": "PC-LS3DF-MATH-20261022-REVIEW2",
-            "sha256": "99a4bc7d5787c44f84ce3ad468a539eaa66f8a3f972e31ef10af7c86612c2089"
+            "id": "PC-PHASE1-20261022-REVIEW2",
+            "sha256": "313483aa45d30737515e93ffdaff8d76f42e8021d598a08985fdf2a8528ffe29"
           }
         ],
-        "cases": 12900,
-        "scope": "Original Make entries within explicit admitted domains: signed-zero axis angles, native zero-length matrix branch, and diagonal powers of two with positive X/Y and signed Z. Physical original code matches 11,876 matrix calls and 1,024 axis calls bitwise in debug and optimized Rust. General rotations, other scales and all nonzero angles remain unavailable. This isolated helper receipt does not establish application integration.",
+        "cases": 18123,
+        "scope": "Original Make entries in a guarded expanded domain: nonzero axis angles up to two radians and nondegenerate matrices whose two original factor angles are admitted. Portable outward intervals include documented reduced-domain x87 error and reject ambiguous f32 rounding; new PC24 intermediates remain ordinary. Physical comparisons match all 18,123 admitted Make calls from nonzero-axis, synthetic-matrix and source-SRT-derived matrix corpora; 4,892 other matrix attempts return explicit errors. Prior 12,900 zero/diagonal calls remain exact. Missing-row reconstruction and larger factor angles remain unavailable. Source-SRT inputs do not establish native loader parity; no new application animation binding.",
         "integration": "not_integrated",
         "integration_receipt": null,
         "functions": [
@@ -8470,6 +8764,273 @@
             "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
           }
         ]
+      },
+      {
+        "name": "LS3DF scale extraction and direction basis",
+        "source_path": "crates/lhr-engine/src/native_matrix.rs",
+        "source_commit": "6fefd62903047bb0bae8e98226cf7cb815adc11e",
+        "source_sha256": "84559148038c4ff0a87095c400e8f3f4a40ec46dbce5c44ee3361076ba09292f",
+        "functions": [
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x2e3a0",
+            "rust_symbol": "SMatrix::try_get_scale",
+            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+          },
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x2dcf0",
+            "rust_symbol": "SMatrix::try_set_dir3",
+            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+          }
+        ],
+        "contract": {
+          "id": "PC-LS3DF-SCALE-DIRECTION-CONTRACT-20261022",
+          "sha256": "863dc35cb2cd922bcaf48d926882980c873a42429c4fb0729f35f505b27a0903"
+        },
+        "comparison": {
+          "id": "PC-LS3DF-SCALE-DIRECTION-COMPARISON-20261022",
+          "sha256": "a905cda0f801c607a401fafdee0d4395ce7e205555d39ef1de431cd5cbc02ccf"
+        },
+        "reviews": [
+          {
+            "id": "PC-PHASE1-20261022-REVIEW1",
+            "sha256": "a9fb92387477fcfcf8ad003458ef9ff6494a203880a12d01694a7e41a4683898"
+          },
+          {
+            "id": "PC-PHASE1-20261022-REVIEW2",
+            "sha256": "313483aa45d30737515e93ffdaff8d76f42e8021d598a08985fdf2a8528ffe29"
+          }
+        ],
+        "cases": 21809,
+        "scope": "Original GetScale at RVA 0x2e3a0 and SetDir3 at RVA 0x2dcf0 with distinct operands under guarded PC24 round-to-nearest arithmetic. Physical originals match 11,104 admitted scale calls and 10,705 admitted direction calls; 10,239 other per-function attempts are explicit numeric or small-residual rejections. These are per-function calls from 16,024 paired input rows. GetScale ignores translation and the fourth column; SetDir3 preserves them and retains partial writes on error. Degenerate-up fallback, aliasing and other FPU policies remain unavailable. No original scene loading or application integration claim.",
+        "integration": "not_integrated",
+        "integration_receipt": null
+      },
+      {
+        "name": "LS3DF parsed model ownership and frame materialization",
+        "source_path": "crates/lhr-engine/src/model_loading.rs",
+        "source_commit": "f6d0ddf22cbacdbe29380b923635b9c0cbdd7198",
+        "source_sha256": "046f15d183c64ac30ee207648b2e8a070c7527ca0f142f4022363daa5e983e87",
+        "functions": [
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x33410",
+            "rust_symbol": "ModelArena::create_model",
+            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+          },
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x1a1e0",
+            "rust_symbol": "MaterializedModel::from_parsed",
+            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+          },
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x367b0",
+            "rust_symbol": "MaterializedModel::from_parsed",
+            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+          },
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x21570",
+            "rust_symbol": "MaterializedModel::from_parsed",
+            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+          },
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x33680",
+            "rust_symbol": "ModelArena::add_frame",
+            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+          },
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x33720",
+            "rust_symbol": "ModelArena::delete_frame",
+            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+          },
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x603e0",
+            "rust_symbol": "MaterializedModel::from_parsed",
+            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+          },
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x1a6a0",
+            "rust_symbol": "MaterializedModel::from_parsed",
+            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+          }
+        ],
+        "contract": {
+          "id": "PC-PHASE2-MODEL-ARENA-20261022",
+          "sha256": "e97af1b1f46ba0b9d991749caf22ba2e89602d51e259c68aa3bbfa7cfc737d73"
+        },
+        "comparison": {
+          "id": "PC-PHASE2-MODEL-ARENA-COMPARE-20261022",
+          "sha256": "c7e68bb4377db1f257daf752f44f06fa9e96a90e9b8901f8451efa44ac581680"
+        },
+        "reviews": [
+          {
+            "id": "PC-PHASE2-20261022-REVIEW1",
+            "sha256": "b446eea6617830e91f5692ca80b7305b37210d953b88d369f6b7472ed4aab57d"
+          },
+          {
+            "id": "PC-PHASE2-20261022-REVIEW2",
+            "sha256": "faa614fe579399f88eccdb1d1b1bca393174cb2d476e6d0ee6186f15c5e80ea1"
+          }
+        ],
+        "cases": 1015,
+        "scope": "Eight bounded entry projections: model, dummy, Object and LitObject constructors retain only represented common fields and owned-list defaults; AddFrame/DeleteFrame retain ordered membership, capacity, references and owner transitions; parsed LoadHierarchy retains two-phase parent linking and ownership transfer including failure prefixes; dummy LoadImage retains complete common fields and raw bounds. Rust matches 259 ownership operations and 756 hierarchy cases. Parsed input supplies geometry separately. Full constructors, binary stream loading, factory, Open, Close, zero-reference destruction and resource allocation are not implemented. Static supported mesh/dummy models retain their source identity and arena; unsupported frame types and numeric states are explicit errors.",
+        "integration": "static_inspection",
+        "integration_receipt": {
+          "id": "PC-PHASE2-STATIC-INTEGRATION-20261022",
+          "sha256": "0e71942df94e05689bbad3259743179d6dc19e9a5473317c309dbbbdf036ede4"
+        }
+      },
+      {
+        "name": "Game bounded actor and frame cache consumption",
+        "source_path": "crates/lhr-engine/src/actor_registry.rs",
+        "source_commit": "f6d0ddf22cbacdbe29380b923635b9c0cbdd7198",
+        "source_sha256": "50ca5c721f956349830aee4de61cd17fe03e186435d9a27c669b2c312c3cff85",
+        "functions": [
+          {
+            "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+            "entry_rva": "0x146280",
+            "rust_symbol": "ActorRegistry::take_actor",
+            "inventory_membership_sha256": "bd82dbdaecf1981548dd73c0793264b520dc08191fb7e8dc8cc8e3bc244e186b"
+          },
+          {
+            "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+            "entry_rva": "0x1463d0",
+            "rust_symbol": "ActorRegistry::take_frame",
+            "inventory_membership_sha256": "bd82dbdaecf1981548dd73c0793264b520dc08191fb7e8dc8cc8e3bc244e186b"
+          }
+        ],
+        "contract": {
+          "id": "PC-PHASE2-ACTOR-CACHE-20261022",
+          "sha256": "105a5cc1ece67dd5cdd4086118c959f94fc9120a7d478f7d6936f522fd153fc7"
+        },
+        "comparison": {
+          "id": "PC-PHASE2-ACTOR-CACHE-COMPARE-20261022",
+          "sha256": "d1a1d4ee235979bd92223101a15a9a8e0b49aa58e16830a3af0abdf6c145b4d9"
+        },
+        "reviews": [
+          {
+            "id": "PC-PHASE2-20261022-REVIEW1",
+            "sha256": "b446eea6617830e91f5692ca80b7305b37210d953b88d369f6b7472ed4aab57d"
+          },
+          {
+            "id": "PC-PHASE2-20261022-REVIEW2",
+            "sha256": "faa614fe579399f88eccdb1d1b1bca393174cb2d476e6d0ee6186f15c5e80ea1"
+          }
+        ],
+        "cases": 1260,
+        "scope": "Two cache-consumption entries over existing records: reverse ASCII case-insensitive matching, actor-kind filter, owned-name release, swap-last removal and ordered required backend effects. Original 1,260 cache cases match Rust in debug and optimized builds; additional ASCII and floating-class corpora validate dependencies. Names use the declared ASCII domain. Backend actor state and type-specific effects remain required dependencies. No cache insertion, drain, actor construction, resource lookup or application integration.",
+        "integration": "not_integrated",
+        "integration_receipt": null
+      },
+      {
+        "name": "Game raw police-manager initialization and reset",
+        "source_path": "crates/lhr-engine/src/police_state.rs",
+        "source_commit": "f41da7012ee5ca1bb9aae475c73f024385fde199",
+        "source_sha256": "7d27090cd14ca634aeabd2bf25f43f35d06d16aa14260f8f7e993a0e96c2dbb8",
+        "contract": {
+          "id": "PC-POLICE-MANAGER-RAW-20261022",
+          "sha256": "ccadb82a732e908c5ccd592755fb3ccfbbabd83d39c2223441f4085a0d85f06c"
+        },
+        "comparison": {
+          "id": "PC-POLICE-MANAGER-RAW-COMPARE-20261022",
+          "sha256": "a784a03aa906d3917fd28fb73fa92606518e2f5263d9c6085599391068e377a4"
+        },
+        "reviews": [
+          {
+            "id": "PC-POLICE-MANAGER-RAW-REVIEW1-20261022",
+            "sha256": "3d6a857e382738a4338585380d1acb27d4217f740a17b2af626e1e29076a8b4f"
+          },
+          {
+            "id": "PC-POLICE-MANAGER-RAW-REVIEW2-20261022",
+            "sha256": "4ae7cea521846658325b89472b3e79780ca6f5eaa2454e8733ccced885967a69"
+          }
+        ],
+        "cases": 1756,
+        "scope": "Bounded constructor stores and logical reset match 1,756 original input states in debug and optimized Rust: 302,032 state bytes and 65,536 retained storage bytes checked. Existing bytes and the constructor marker are explicit inputs; construction does not assume a zero mode. Reset truncates four pools while preserving allocations, pointees, script arguments and other unknown state. Opaque pointer words are never dereferenced. No native heap/ABI, resource creation, police ON or application integration claim.",
+        "integration": "not_integrated",
+        "integration_receipt": null,
+        "functions": [
+          {
+            "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+            "entry_rva": "0x99b40",
+            "rust_symbol": "PoliceManagerRawState::apply_constructor_fields",
+            "inventory_membership_sha256": "bd82dbdaecf1981548dd73c0793264b520dc08191fb7e8dc8cc8e3bc244e186b"
+          },
+          {
+            "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+            "entry_rva": "0x99cd0",
+            "rust_symbol": "PoliceManagerRawState::reset_retaining_pools",
+            "inventory_membership_sha256": "bd82dbdaecf1981548dd73c0793264b520dc08191fb7e8dc8cc8e3bc244e186b"
+          }
+        ]
+      },
+      {
+        "name": "Game bounded player control and model-animation helpers",
+        "source_path": "crates/lhr-engine/src/player_control.rs",
+        "source_commit": "e82f1b3cf30b9ee04700c397089fccdd782ec478",
+        "source_sha256": "98a995797413ac6d109bf78693a4f1a5a713fdff9b90cd6eeca1ef59300bfc84",
+        "functions": [
+          {
+            "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+            "entry_rva": "0x195f00",
+            "rust_symbol": "player_control::set_control_lock",
+            "inventory_membership_sha256": "bd82dbdaecf1981548dd73c0793264b520dc08191fb7e8dc8cc8e3bc244e186b"
+          },
+          {
+            "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+            "entry_rva": "0x17d310",
+            "rust_symbol": "player_control::reset_selected_control_state",
+            "inventory_membership_sha256": "bd82dbdaecf1981548dd73c0793264b520dc08191fb7e8dc8cc8e3bc244e186b"
+          },
+          {
+            "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+            "entry_rva": "0x17a560",
+            "rust_symbol": "player_control::reset_direction_vectors",
+            "inventory_membership_sha256": "bd82dbdaecf1981548dd73c0793264b520dc08191fb7e8dc8cc8e3bc244e186b"
+          },
+          {
+            "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+            "entry_rva": "0xe7a0",
+            "rust_symbol": "player_control::reset_embedded_animation_state",
+            "inventory_membership_sha256": "bd82dbdaecf1981548dd73c0793264b520dc08191fb7e8dc8cc8e3bc244e186b"
+          },
+          {
+            "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+            "entry_rva": "0xe8e0",
+            "rust_symbol": "player_control::ModelAnimationOwner::clear_animations",
+            "inventory_membership_sha256": "bd82dbdaecf1981548dd73c0793264b520dc08191fb7e8dc8cc8e3bc244e186b"
+          }
+        ],
+        "contract": {
+          "id": "PC-PHASE4-PLAYER-CONTROL-20261022",
+          "sha256": "62c8d2478a4a4a8ec697428b604a217478ebbfbc521487028a0932b68811b0e5"
+        },
+        "comparison": {
+          "id": "PC-PHASE4-PLAYER-CONTROL-COMPARE-20261022",
+          "sha256": "969558c525545a5006c220a9452b8867c5bff04a7e733dbfd56c3f26a44a7eaf"
+        },
+        "reviews": [
+          {
+            "id": "PC-PHASE4-20261022-REVIEW1",
+            "sha256": "ce55a23576a7cfa7655c5b9c5ba440f709b721986f1228cfa0c7a127afef1326"
+          },
+          {
+            "id": "PC-PHASE4-20261022-REVIEW2",
+            "sha256": "112cd15b130e01b4bbe9f8899a4b745a9df9b84fc23089435a4c3a833eb0624b"
+          }
+        ],
+        "cases": 6284,
+        "scope": "Five bounded Game entries over existing actor/model storage: direct byte-valued unlock and callback-free lock paths, script boolean normalization and follow-up reset, raw direction/embedded animation resets, and eight model-animation calls with a live owner read before each call. Rust debug and optimized builds match 5,288 raw original cases, 36 original probes stopped before unresolved calls, and 960 additional real-model-vtable animation cases (832 direct dependency calls and 128 composed caller cases). Prefix writes and explicit dependency errors are preserved. The unlisted LS3DF dependency at RVA 0x33890 has no canonical entry credit; StopAnimation is an upstream PS2 research name. Full first MISE01 lock, actor/Joint construction, collision, camera, vehicle physics and controllable gameplay remain unavailable.",
+        "integration": "not_integrated",
+        "integration_receipt": null
       }
     ],
     "other_targets": [
@@ -8875,5 +9436,10 @@
     "experiment_sha256": "b1803c925f1c945192e5042e079b0d61f7e9c3e34adfe342fa7fa958617b5b5d",
     "capability_sha256": "2ca9187f65fce4dd263941bfcd12941995c61eccad8308579b6a8d2123f274f9",
     "scope": "REA baseline fails at Game RVA0xab910. A separate direct Ghidra prototype correction yields actual pseudocode with14warnings; original body and inventory unchanged. REA currently lacks prototype mutation support. No runtime/implementation credit or change to audited static totals."
+  },
+  "native_mission_observation": {
+    "id": "PC-MISE01-STARTUP-OBSERVATION-20261022",
+    "manifest_sha256": "8b6f27c053acc8377d1d8f082dd80d114a71f1f6d6e8b091221654339df3f396",
+    "scope": "Original game observations trace MISE01 lock, replay, six vehicle attachments and unlock. Reference-only evidence; first non-leaf lock, actor/vehicle materialization, camera/collision and full mission execution remain unavailable in Rust."
   }
 }
