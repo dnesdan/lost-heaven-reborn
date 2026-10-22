@@ -1,7 +1,7 @@
 # Lost Heaven Reborn
 
 <!-- generated-function-progress:start -->
-As of 2026-10-22 · snapshot `RUST-SCOPED-PORTS-20261022-12`.
+As of 2026-10-22 · snapshot `RUST-SCOPED-PORTS-20261022-13`.
 
 <p align="center"><img src="docs/progress.svg" alt="Progress dashboard: static retained pseudocode, reviewed scoped Rust entries, and strict system verification" width="100%"></p>
 
@@ -14,7 +14,7 @@ As of 2026-10-22 · snapshot `RUST-SCOPED-PORTS-20261022-12`.
 
 Strict full-system gate: **0/12**. Binary-level static counts use the named denominator basis and do not combine into a game-completion percentage. Unknown denominators remain N/A. 1 supplied configuration Setup inventory uses 172 in-image non-thunk procedures. Separately, archive installer bootstrap static inventory: **376 / 376 (100.00%)**; this distribution target is not combined with engine-library counts. The campaign is not playable.
 
-Accepted scoped Rust ports: **117 entries across 43 reviewed contracts**. These remain separate from retained pseudocode and whole-function counts.
+Accepted scoped Rust ports: **126 entries across 44 reviewed contracts**. These remain separate from retained pseudocode and whole-function counts.
 
 Regenerate locally with `python3 scripts/progress.py --write`; verify without writes with `python3 scripts/progress.py --check`. Versioned snapshots are retained in `docs/progress.json`.
 Milestone history and scoped implementation evidence are in [docs/PROGRESS.md](docs/PROGRESS.md).
@@ -26,7 +26,7 @@ An independent Rust reimplementation of the Mafia: The City of Lost Heaven (2002
 
 The animation path binds original track names, advances one live controller slot, evaluates position and bounded linear/spherical rotation, updates Target and morph state, and uploads CPU-skinned first-LOD geometry. Controller ownership and controls cover eight slots; blended evaluation, scale/note channels, full animation-resource ownership and actor/mission integration remain open. Unsupported inputs fail explicitly. Original models and clips are regression fixtures for this general implementation.
 
-Bounded lifetime cleanup now releases admitted model, dummy, unbound Joint and Target objects, preserves externally retained frames, and rejects stale playback after close or parsed-source replacement. Native filenames, loaded visual resources and scene teardown remain open. This milestone adds logic comparisons and 19 Rust tests; it has no new rendered or interactive validation.
+Bounded lifetime cleanup releases admitted model, dummy, unbound Joint and Target objects, preserves external survivors, and rejects stale playback after parsed-source replacement. Independent material, face-group and mesh-level primitives now manage shared references and dependency cleanup through required backends. Six original-call scenarios compare their bounded state and effects; ten Rust tests were added. Native texture/buffer backends, loaded visual and scene teardown remain open. This milestone adds no rendered or interactive validation.
 
 The immediate goal is **the playable first mission, from the original menu through mission completion**, alongside function-by-function library parity with mafia-re. See the [acceptance gates and dependency order](docs/GOALS.md). PS2 symbol names guide reconstruction; PC behavior and platform differences require original-binary verification.
 
