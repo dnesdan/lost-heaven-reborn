@@ -1,4 +1,4 @@
-//! Owned plain-material, face-group and mesh-level lifecycle projections.
+//! Owned plain-material, face-group, mesh-level and mesh-object lifecycles.
 //!
 //! Original LS3DF SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6:
 //! material constructor/Release/SetTexture/SetEnvTexture RVAs 0x2ade0/0x2aef0/
@@ -7,7 +7,9 @@
 //! Names have original PS2 symbol provenance. This owns reference relationships,
 //! not native pointers or GPU managers. Texture references and buffer-block
 //! destruction require a concrete backend; there is no implicit no-op backend.
-//! Animated materials, mesh objects, geometry allocation and rendering are separate.
+//! Mesh-object constructor/Release/SetLOD/UpdateBoundVolume use RVAs
+//! 0x31320/0x313a0/0x31550/0x31400. Animated materials, geometry allocation
+//! and rendering are separate.
 //! The mesh constructor constant uses the verified PC24 round-to-nearest context;
 //! alternate original floating-control modes are not represented.
 //!
@@ -19,6 +21,7 @@
 //! Read-only access remains available for inspecting that interrupted prefix.
 //! Resources require explicit release with their backend; Drop cannot perform it.
 
+use crate::mesh_bounds::{update_mesh_bounds, MeshBoundVolume, MeshBoundsError};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT_ARENA: AtomicU64 = AtomicU64::new(1);
@@ -43,6 +46,7 @@ macro_rules! resource_key {
 resource_key!(MaterialKey);
 resource_key!(FaceGroupKey);
 resource_key!(MeshLevelKey);
+resource_key!(MeshObjectKey);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TextureKey(pub u64);
@@ -116,6 +120,7 @@ pub enum ResourceKey {
     Material(MaterialKey),
     FaceGroup(FaceGroupKey),
     MeshLevel(MeshLevelKey),
+    MeshObject(MeshObjectKey),
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FaceGroupOwner {
@@ -130,6 +135,11 @@ pub enum VisualResourceError {
     UnknownMaterial(MaterialKey),
     UnknownFaceGroup(FaceGroupKey),
     UnknownMeshLevel(MeshLevelKey),
+    UnknownMeshObject(MeshObjectKey),
+    MeshLevelReferenceOwned(MeshLevelKey),
+    InvalidLodIndex(u32),
+    UnsupportedLodIndex(u32),
+    MeshBounds(MeshBoundsError),
     ReferenceOverflow(ResourceKey),
     MaterialReferenceOwned(MaterialKey),
     FaceGroupOwned(FaceGroupKey),
@@ -189,6 +199,38 @@ pub struct I3dMeshLevel {
     pub mesh_flags: u32,
     pub env_scale: f32,
     storage_installed: bool,
+    external_references: u32,
+    orphaned_references: u32,
+}
+impl I3dMeshLevel {
+    pub fn external_references(&self) -> u32 {
+        self.external_references
+    }
+    /// Native references stranded when a mesh object retires with nonnull
+    /// slots above its truncated num_lods. They are never implicitly released.
+    pub fn orphaned_references(&self) -> u32 {
+        self.orphaned_references
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct I3dMeshObject {
+    pub references: u32,
+    pub num_lods: u32,
+    pub levels: [Option<MeshLevelKey>; 10],
+    /// Raw state for diagnosing native-order prefixes. Use bound_volume() to
+    /// require an available complete result rather than an interrupted sphere.
+    pub bounds: MeshBoundVolume,
+    pub u_ofs: f32,
+    pub v_ofs: f32,
+    pub env_u_ofs: f32,
+    pub env_v_ofs: f32,
+    bounds_available: bool,
+}
+impl I3dMeshObject {
+    pub fn bound_volume(&self) -> Option<&MeshBoundVolume> {
+        (self.references != 0 && self.bounds_available).then_some(&self.bounds)
+    }
 }
 
 #[derive(Debug)]
@@ -197,6 +239,7 @@ pub struct VisualResources {
     materials: Vec<Option<I3dMaterial>>,
     face_groups: Vec<Option<I3dFaceGroup>>,
     mesh_levels: Vec<Option<I3dMeshLevel>>,
+    mesh_objects: Vec<Option<I3dMeshObject>>,
     poisoned: bool,
 }
 impl VisualResources {
@@ -209,6 +252,7 @@ impl VisualResources {
             materials: Vec::new(),
             face_groups: Vec::new(),
             mesh_levels: Vec::new(),
+            mesh_objects: Vec::new(),
             poisoned: false,
         })
     }
@@ -251,6 +295,12 @@ impl VisualResources {
             .and_then(Option::as_ref)
             .ok_or(VisualResourceError::UnknownMeshLevel(key))
     }
+    pub fn mesh_object(&self, key: MeshObjectKey) -> Result<&I3dMeshObject, VisualResourceError> {
+        self.mesh_objects
+            .get(self.slot(key.arena, key.slot)?)
+            .and_then(Option::as_ref)
+            .ok_or(VisualResourceError::UnknownMeshObject(key))
+    }
     fn material_mut(&mut self, key: MaterialKey) -> Result<&mut I3dMaterial, VisualResourceError> {
         let i = self.slot(key.arena, key.slot)?;
         self.materials
@@ -277,6 +327,16 @@ impl VisualResources {
             .get_mut(i)
             .and_then(Option::as_mut)
             .ok_or(VisualResourceError::UnknownMeshLevel(key))
+    }
+    fn mesh_object_mut(
+        &mut self,
+        key: MeshObjectKey,
+    ) -> Result<&mut I3dMeshObject, VisualResourceError> {
+        let i = self.slot(key.arena, key.slot)?;
+        self.mesh_objects
+            .get_mut(i)
+            .and_then(Option::as_mut)
+            .ok_or(VisualResourceError::UnknownMeshObject(key))
     }
     fn push<T>(slots: &mut Vec<Option<T>>, value: T) -> Result<u32, VisualResourceError> {
         let key = u32::try_from(slots.len())
@@ -346,12 +406,47 @@ impl VisualResources {
                 mesh_flags: 0,
                 env_scale: f32::from_bits(0x403504f3),
                 storage_installed: false,
+                external_references: 1,
+                orphaned_references: 0,
             },
         )?;
         Ok(MeshLevelKey {
             arena: self.identity,
             slot,
         })
+    }
+    pub fn create_mesh_object(&mut self) -> Result<MeshObjectKey, VisualResourceError> {
+        self.available()?;
+        let slot = Self::push(
+            &mut self.mesh_objects,
+            I3dMeshObject {
+                references: 1,
+                num_lods: 0,
+                levels: [None; 10],
+                bounds: MeshBoundVolume::CONSTRUCTOR,
+                u_ofs: 0.,
+                v_ofs: 0.,
+                env_u_ofs: 0.,
+                env_v_ofs: 0.,
+                bounds_available: true,
+            },
+        )?;
+        Ok(MeshObjectKey {
+            arena: self.identity,
+            slot,
+        })
+    }
+    /// Host intake of a known level box, independent of vertex allocation.
+    /// Raw bits are retained; UpdateBoundVolume supplies the original X-validity
+    /// tests and arithmetic admission. Existing object volumes stay cached.
+    pub fn install_mesh_level_bbox(
+        &mut self,
+        key: MeshLevelKey,
+        bbox: [[f32; 3]; 2],
+    ) -> Result<(), VisualResourceError> {
+        self.available()?;
+        self.mesh_level_mut(key)?.bbox = bbox;
+        Ok(())
     }
     fn increment(references: u32, key: ResourceKey) -> Result<u32, VisualResourceError> {
         references
@@ -591,7 +686,11 @@ impl VisualResources {
     ) -> Result<(), VisualResourceError> {
         self.available()?;
         let current = self.mesh_level(level)?;
-        if current.storage_installed || current.references != 1 {
+        if current.storage_installed
+            || current.references != 1
+            || current.external_references != 1
+            || current.orphaned_references != 0
+        {
             return Err(VisualResourceError::StorageAlreadyInstalled);
         }
         if num_vertices > i32::MAX as u32 || block.graphics.is_some_and(|b| b.0 == 0) {
@@ -682,7 +781,9 @@ impl VisualResources {
             self.mesh_level(key)?.references,
             ResourceKey::MeshLevel(key),
         )?;
-        self.mesh_level_mut(key)?.references = count;
+        let level = self.mesh_level_mut(key)?;
+        level.references = count;
+        level.external_references += 1;
         Ok(())
     }
     pub fn release_mesh_level<B: VisualResourceBackend + ?Sized>(
@@ -691,9 +792,34 @@ impl VisualResources {
         backend: &mut B,
     ) -> Result<u32, VisualResourceOperationError<B::Error>> {
         self.available()?;
+        if self.mesh_level(key)?.external_references == 0 {
+            return Err(VisualResourceError::MeshLevelReferenceOwned(key).into());
+        }
+        // Reserve/validate destruction traversal before consuming external
+        // ownership. A host allocation rejection has no native-order prefix.
+        let chain = if self.mesh_level(key)?.references == 1 {
+            self.mesh_level(key)?
+                .fgroups
+                .map(|head| self.chain(head))
+                .transpose()?
+        } else {
+            None
+        };
+        self.mesh_level_mut(key)?.external_references -= 1;
+        self.release_mesh_level_reference(key, chain, backend)
+    }
+    fn release_mesh_level_reference<B: VisualResourceBackend + ?Sized>(
+        &mut self,
+        key: MeshLevelKey,
+        prepared_chain: Option<Vec<FaceGroupKey>>,
+        backend: &mut B,
+    ) -> Result<u32, VisualResourceOperationError<B::Error>> {
         let level = self.mesh_level(key)?;
         let chain = if level.references == 1 {
-            level.fgroups.map(|head| self.chain(head)).transpose()?
+            match prepared_chain {
+                Some(chain) => Some(chain),
+                None => level.fgroups.map(|head| self.chain(head)).transpose()?,
+            }
         } else {
             None
         };
@@ -714,6 +840,135 @@ impl VisualResources {
         }
         self.mesh_levels[(key.slot - 1) as usize] = None;
         Ok(0)
+    }
+    pub fn retain_mesh_object(&mut self, key: MeshObjectKey) -> Result<(), VisualResourceError> {
+        self.available()?;
+        let count = Self::increment(
+            self.mesh_object(key)?.references,
+            ResourceKey::MeshObject(key),
+        )?;
+        self.mesh_object_mut(key)?.references = count;
+        Ok(())
+    }
+    /// Original SetLOD for nonnegative signed indices. Native invalid-parameter
+    /// results for indices 10..=i32::MAX become InvalidLodIndex. Higher u32 inputs
+    /// represent excluded native negative-index memory access and are rejected
+    /// as UnsupportedLodIndex before any ownership changes.
+    /// Null replacement truncates num_lods but never clears higher slots.
+    pub fn set_lod<B: VisualResourceBackend + ?Sized>(
+        &mut self,
+        key: MeshObjectKey,
+        level: Option<MeshLevelKey>,
+        index: u32,
+        backend: &mut B,
+    ) -> Result<(), VisualResourceOperationError<B::Error>> {
+        self.available()?;
+        if index > i32::MAX as u32 {
+            return Err(VisualResourceError::UnsupportedLodIndex(index).into());
+        }
+        if index >= 10 {
+            return Err(VisualResourceError::InvalidLodIndex(index).into());
+        }
+        let old = self.mesh_object(key)?.levels[index as usize];
+        if let Some(level) = level {
+            self.mesh_level(level)?;
+        }
+        if old != level {
+            if let Some(level) = level {
+                Self::increment(
+                    self.mesh_level(level)?.references,
+                    ResourceKey::MeshLevel(level),
+                )?;
+            }
+            if let Some(old) = old {
+                if let Err(error) = self.release_mesh_level_reference(old, None, backend) {
+                    self.mesh_object_mut(key)?.bounds_available = false;
+                    return Err(error);
+                }
+            }
+            self.mesh_object_mut(key)?.levels[index as usize] = level;
+            if let Some(level) = level {
+                self.mesh_level_mut(level)?.references += 1;
+                let object = self.mesh_object_mut(key)?;
+                if object.num_lods <= index {
+                    object.num_lods = index + 1;
+                }
+            } else {
+                let object = self.mesh_object_mut(key)?;
+                if object.num_lods > index {
+                    object.num_lods = index;
+                }
+            }
+        } else if level.is_none() {
+            return Ok(());
+        }
+        // Ownership stores precede original UpdateBoundVolume. Host numeric
+        // guards retain them and preceding projected bound stores, then poison;
+        // the original has no arithmetic-error branch.
+        self.update_mesh_bound_volume(key)?;
+        Ok(())
+    }
+    pub fn update_mesh_bound_volume(
+        &mut self,
+        key: MeshObjectKey,
+    ) -> Result<(), VisualResourceError> {
+        self.available()?;
+        let object = self.mesh_object(key)?;
+        let count = object.num_lods as usize;
+        let mut boxes = [None; 10];
+        for (index, bbox) in boxes.iter_mut().enumerate().take(count) {
+            if let Some(level) = object.levels[index] {
+                *bbox = Some(self.mesh_level(level)?.bbox);
+            }
+        }
+        let object = self.mesh_object_mut(key)?;
+        object.bounds_available = false;
+        let result = update_mesh_bounds(&mut object.bounds, &boxes[..count]);
+        if let Err(error) = result {
+            self.poisoned = true;
+            return Err(VisualResourceError::MeshBounds(error));
+        }
+        self.mesh_object_mut(key)?.bounds_available = true;
+        Ok(())
+    }
+    /// Forward release rereads the active count, as the original does, within
+    /// the serialized nonreentrant backend domain. Higher hidden slots are not
+    /// released. Their native leaked references remain as explicit orphan counts.
+    pub fn release_mesh_object<B: VisualResourceBackend + ?Sized>(
+        &mut self,
+        key: MeshObjectKey,
+        backend: &mut B,
+    ) -> Result<u32, VisualResourceOperationError<B::Error>> {
+        self.available()?;
+        let count = self.mesh_object(key)?.references - 1;
+        self.mesh_object_mut(key)?.references = count;
+        if count != 0 {
+            return Ok(count);
+        }
+        // Cache bits remain diagnostic while owned levels are being destroyed.
+        self.mesh_object_mut(key)?.bounds_available = false;
+        let result = (|| {
+            let mut index = 0;
+            while index < self.mesh_object(key)?.num_lods {
+                if let Some(level) = self.mesh_object(key)?.levels[index as usize] {
+                    self.release_mesh_level_reference(level, None, backend)?;
+                }
+                index += 1;
+            }
+            let object = self.mesh_object(key)?;
+            let hidden = object.levels;
+            let start = object.num_lods as usize;
+            for level in hidden[start..].iter().flatten() {
+                // Bookkeeping changes ownership, not the original ref count.
+                self.mesh_level_mut(*level)?.orphaned_references += 1;
+            }
+            self.mesh_objects[(key.slot - 1) as usize] = None;
+            Ok::<_, VisualResourceOperationError<B::Error>>(0)
+        })();
+        if result.is_err() {
+            self.poisoned = true;
+        }
+        result
     }
 }
 
@@ -1235,5 +1490,323 @@ mod tests {
         resources.destroy_face_group(head, &mut backend).unwrap();
         assert_eq!(backend.events.len(), 1025);
         assert!(resources.face_group(tail).is_err());
+    }
+    #[test]
+    fn mesh_objects_share_duplicate_level_slots_without_consuming_external_ownership() {
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let level = resources.create_mesh_level().unwrap();
+        resources
+            .install_mesh_level_bbox(level, [[-1., -2., -3.], [1., 2., 3.]])
+            .unwrap();
+        let first = resources.create_mesh_object().unwrap();
+        let second = resources.create_mesh_object().unwrap();
+        resources
+            .set_lod(first, Some(level), 0, &mut backend)
+            .unwrap();
+        resources
+            .set_lod(first, Some(level), 2, &mut backend)
+            .unwrap();
+        resources
+            .set_lod(second, Some(level), 1, &mut backend)
+            .unwrap();
+        assert_eq!(resources.mesh_level(level).unwrap().references, 4);
+        resources.release_mesh_level(level, &mut backend).unwrap();
+        assert_eq!(
+            resources.mesh_level(level).unwrap().external_references(),
+            0
+        );
+        assert_eq!(
+            resources.release_mesh_level(level, &mut backend),
+            Err(VisualResourceError::MeshLevelReferenceOwned(level).into())
+        );
+        assert_eq!(resources.release_mesh_object(first, &mut backend), Ok(0));
+        assert_eq!(resources.mesh_level(level).unwrap().references, 1);
+        assert!(backend.events.is_empty());
+        assert_eq!(resources.release_mesh_object(second, &mut backend), Ok(0));
+        assert_eq!(
+            backend.events,
+            [Event::Vertex(level, CompleteVertexBuffer::default())]
+        );
+        assert!(resources.mesh_level(level).is_err());
+        assert!(resources.mesh_object(first).is_err());
+        let replacement = resources.create_mesh_object().unwrap();
+        assert!(replacement.slot() > second.slot());
+    }
+
+    #[test]
+    fn truncation_retains_hidden_references_and_final_release_preserves_native_orphans() {
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let mesh = resources.create_mesh_object().unwrap();
+        let shared = resources.create_mesh_level().unwrap();
+        let middle = resources.create_mesh_level().unwrap();
+        resources
+            .install_mesh_level_bbox(shared, [[-1.; 3], [1.; 3]])
+            .unwrap();
+        resources
+            .install_mesh_level_bbox(middle, [[-2.; 3], [2.; 3]])
+            .unwrap();
+        resources
+            .set_lod(mesh, Some(shared), 0, &mut backend)
+            .unwrap();
+        resources
+            .set_lod(mesh, Some(middle), 1, &mut backend)
+            .unwrap();
+        resources
+            .set_lod(mesh, Some(shared), 3, &mut backend)
+            .unwrap();
+        resources.release_mesh_level(shared, &mut backend).unwrap();
+        resources.release_mesh_level(middle, &mut backend).unwrap();
+        resources.set_lod(mesh, None, 1, &mut backend).unwrap();
+        assert_eq!(resources.mesh_object(mesh).unwrap().num_lods, 1);
+        assert_eq!(resources.mesh_object(mesh).unwrap().levels[3], Some(shared));
+        assert_eq!(resources.mesh_level(shared).unwrap().references, 2);
+        // A same nonnull hidden pointer does not extend num_lods.
+        resources
+            .set_lod(mesh, Some(shared), 3, &mut backend)
+            .unwrap();
+        assert_eq!(resources.mesh_object(mesh).unwrap().num_lods, 1);
+        backend.events.clear();
+        resources.release_mesh_object(mesh, &mut backend).unwrap();
+        assert!(backend.events.is_empty());
+        let leaked = resources.mesh_level(shared).unwrap();
+        assert_eq!(
+            (
+                leaked.references,
+                leaked.external_references(),
+                leaked.orphaned_references()
+            ),
+            (1, 0, 1)
+        );
+        assert_eq!(
+            resources.release_mesh_level(shared, &mut backend),
+            Err(VisualResourceError::MeshLevelReferenceOwned(shared).into())
+        );
+        assert_eq!(
+            resources.install_mesh_level_storage(shared, 0, CompleteVertexBuffer::default(), None),
+            Err(VisualResourceError::StorageAlreadyInstalled)
+        );
+        resources.retain_mesh_level(shared).unwrap();
+        assert_eq!(resources.release_mesh_level(shared, &mut backend), Ok(1));
+        assert_eq!(
+            resources.mesh_level(shared).unwrap().orphaned_references(),
+            1
+        );
+    }
+
+    #[test]
+    fn hidden_slot_overwrite_and_reexpansion_preserve_each_owned_reference() {
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let mesh = resources.create_mesh_object().unwrap();
+        let a = resources.create_mesh_level().unwrap();
+        let b = resources.create_mesh_level().unwrap();
+        let c = resources.create_mesh_level().unwrap();
+        for (index, level) in [(0, a), (1, b), (3, c)] {
+            resources
+                .install_mesh_level_bbox(level, [[-(index as f32 + 1.); 3], [index as f32 + 1.; 3]])
+                .unwrap();
+            resources
+                .set_lod(mesh, Some(level), index, &mut backend)
+                .unwrap();
+        }
+        resources.set_lod(mesh, None, 0, &mut backend).unwrap();
+        assert_eq!(resources.mesh_object(mesh).unwrap().num_lods, 0);
+        assert_eq!(resources.mesh_object(mesh).unwrap().levels[1], Some(b));
+        resources.set_lod(mesh, Some(a), 4, &mut backend).unwrap();
+        assert_eq!(resources.mesh_object(mesh).unwrap().num_lods, 5);
+        assert_eq!(
+            resources.mesh_object(mesh).unwrap().bounds.bbox,
+            [[-4.; 3], [4.; 3]]
+        );
+        resources.set_lod(mesh, None, 1, &mut backend).unwrap();
+        assert_eq!(resources.mesh_object(mesh).unwrap().num_lods, 1);
+        // Clearing a hidden nonnull pointer releases it without extending count.
+        resources.set_lod(mesh, None, 3, &mut backend).unwrap();
+        assert_eq!(resources.mesh_object(mesh).unwrap().num_lods, 1);
+        assert_eq!(resources.mesh_level(c).unwrap().references, 1);
+        resources.set_lod(mesh, None, 4, &mut backend).unwrap();
+        for level in [a, b, c] {
+            assert_eq!(resources.release_mesh_level(level, &mut backend), Ok(0));
+        }
+        resources.release_mesh_object(mesh, &mut backend).unwrap();
+    }
+
+    #[test]
+    fn set_lod_same_null_skips_bounds_but_same_nonnull_refreshes_without_retain() {
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let mesh = resources.create_mesh_object().unwrap();
+        let level = resources.create_mesh_level().unwrap();
+        resources
+            .install_mesh_level_bbox(level, [[-1.; 3], [1.; 3]])
+            .unwrap();
+        resources
+            .set_lod(mesh, Some(level), 3, &mut backend)
+            .unwrap();
+        resources.release_mesh_level(level, &mut backend).unwrap();
+        let old = resources.mesh_object(mesh).unwrap().bounds;
+        resources
+            .install_mesh_level_bbox(level, [[-5.; 3], [5.; 3]])
+            .unwrap();
+        resources.set_lod(mesh, None, 0, &mut backend).unwrap();
+        assert_eq!(resources.mesh_object(mesh).unwrap().num_lods, 4);
+        assert_eq!(resources.mesh_object(mesh).unwrap().bounds, old);
+        resources
+            .set_lod(mesh, Some(level), 3, &mut backend)
+            .unwrap();
+        assert_eq!(
+            resources.mesh_object(mesh).unwrap().bounds.bbox,
+            [[-5.; 3], [5.; 3]]
+        );
+        assert_eq!(resources.mesh_level(level).unwrap().references, 1);
+        assert!(backend.events.is_empty());
+        resources.release_mesh_object(mesh, &mut backend).unwrap();
+    }
+
+    #[test]
+    fn lod_replacement_bounds_rejection_retains_new_ownership_and_unavailable_volume_prefix() {
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let mesh = resources.create_mesh_object().unwrap();
+        let old = resources.create_mesh_level().unwrap();
+        let new = resources.create_mesh_level().unwrap();
+        resources
+            .install_mesh_level_bbox(old, [[0.; 3], [2.; 3]])
+            .unwrap();
+        resources
+            .install_mesh_level_bbox(new, [[-1e20; 3], [1e20; 3]])
+            .unwrap();
+        resources.set_lod(mesh, Some(old), 0, &mut backend).unwrap();
+        resources.release_mesh_level(old, &mut backend).unwrap();
+        let radius = resources.mesh_object(mesh).unwrap().bounds.radius;
+        assert_eq!(
+            resources.set_lod(mesh, Some(new), 0, &mut backend),
+            Err(VisualResourceError::MeshBounds(MeshBoundsError::NumericDomain("radius")).into())
+        );
+        assert!(resources.is_poisoned());
+        assert!(resources.mesh_level(old).is_err());
+        assert_eq!(resources.mesh_level(new).unwrap().references, 2);
+        let object = resources.mesh_object(mesh).unwrap();
+        assert_eq!(object.levels[0], Some(new));
+        assert_eq!(object.num_lods, 1);
+        assert_eq!(object.bounds.bbox, [[-1e20; 3], [1e20; 3]]);
+        assert_eq!(object.bounds.center, [0.; 3]);
+        assert_eq!(object.bounds.radius, radius);
+        assert!(object.bound_volume().is_none());
+        assert_eq!(
+            resources.release_mesh_object(mesh, &mut backend),
+            Err(VisualResourceError::Poisoned.into())
+        );
+        assert_eq!(
+            backend.events,
+            [Event::Vertex(old, CompleteVertexBuffer::default())]
+        );
+    }
+
+    #[test]
+    fn object_release_backend_failure_preserves_completed_prefix_and_never_replays() {
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let mesh = resources.create_mesh_object().unwrap();
+        let a = resources.create_mesh_level().unwrap();
+        let b = resources.create_mesh_level().unwrap();
+        resources.set_lod(mesh, Some(a), 0, &mut backend).unwrap();
+        resources.set_lod(mesh, Some(b), 1, &mut backend).unwrap();
+        resources.release_mesh_level(a, &mut backend).unwrap();
+        resources.release_mesh_level(b, &mut backend).unwrap();
+        backend.fail_before = Some(2);
+        assert_eq!(
+            resources.release_mesh_object(mesh, &mut backend),
+            Err(VisualResourceOperationError::Backend("unavailable"))
+        );
+        assert!(resources.is_poisoned());
+        assert!(resources.mesh_level(a).is_err());
+        assert_eq!(resources.mesh_level(b).unwrap().references, 0);
+        let object = resources.mesh_object(mesh).unwrap();
+        assert_eq!(object.references, 0);
+        assert!(object.bound_volume().is_none());
+        assert_eq!(object.levels[..2], [Some(a), Some(b)]);
+        assert_eq!(
+            resources.release_mesh_object(mesh, &mut backend),
+            Err(VisualResourceError::Poisoned.into())
+        );
+        assert_eq!(
+            backend.events,
+            [
+                Event::Vertex(a, CompleteVertexBuffer::default()),
+                Event::Vertex(b, CompleteVertexBuffer::default())
+            ]
+        );
+    }
+
+    #[test]
+    fn set_lod_backend_failure_does_not_publish_or_retain_replacement() {
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let mesh = resources.create_mesh_object().unwrap();
+        let old = resources.create_mesh_level().unwrap();
+        let new = resources.create_mesh_level().unwrap();
+        resources.set_lod(mesh, Some(old), 0, &mut backend).unwrap();
+        resources.release_mesh_level(old, &mut backend).unwrap();
+        backend.fail_before = Some(1);
+        assert_eq!(
+            resources.set_lod(mesh, Some(new), 0, &mut backend),
+            Err(VisualResourceOperationError::Backend("unavailable"))
+        );
+        assert_eq!(resources.mesh_level(old).unwrap().references, 0);
+        assert_eq!(resources.mesh_level(new).unwrap().references, 1);
+        assert_eq!(resources.mesh_object(mesh).unwrap().levels[0], Some(old));
+        assert!(resources
+            .mesh_object(mesh)
+            .unwrap()
+            .bound_volume()
+            .is_none());
+        assert!(resources.is_poisoned());
+    }
+
+    #[test]
+    fn mesh_lod_indices_foreign_keys_and_overflow_reject_before_native_order_effects() {
+        let mut resources = VisualResources::new().unwrap();
+        let mut foreign = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let mesh = resources.create_mesh_object().unwrap();
+        let old = resources.create_mesh_level().unwrap();
+        resources.set_lod(mesh, Some(old), 0, &mut backend).unwrap();
+        resources.release_mesh_level(old, &mut backend).unwrap();
+        assert_eq!(
+            resources.install_mesh_level_storage(old, 0, CompleteVertexBuffer::default(), None),
+            Err(VisualResourceError::StorageAlreadyInstalled)
+        );
+        assert_eq!(
+            resources.set_lod(mesh, None, 10, &mut backend),
+            Err(VisualResourceError::InvalidLodIndex(10).into())
+        );
+        assert_eq!(
+            resources.set_lod(mesh, None, u32::MAX, &mut backend),
+            Err(VisualResourceError::UnsupportedLodIndex(u32::MAX).into())
+        );
+        let foreign_level = foreign.create_mesh_level().unwrap();
+        assert_eq!(
+            resources.set_lod(mesh, Some(foreign_level), 0, &mut backend),
+            Err(VisualResourceError::ForeignArena.into())
+        );
+        let full = resources.create_mesh_level().unwrap();
+        resources.mesh_level_mut(full).unwrap().references = i32::MAX as u32;
+        assert_eq!(
+            resources.set_lod(mesh, Some(full), 0, &mut backend),
+            Err(VisualResourceError::ReferenceOverflow(ResourceKey::MeshLevel(full)).into())
+        );
+        assert_eq!(resources.mesh_object(mesh).unwrap().levels[0], Some(old));
+        assert_eq!(resources.mesh_level(old).unwrap().references, 1);
+        assert!(backend.events.is_empty());
+        resources.mesh_object_mut(mesh).unwrap().references = i32::MAX as u32;
+        assert_eq!(
+            resources.retain_mesh_object(mesh),
+            Err(VisualResourceError::ReferenceOverflow(
+                ResourceKey::MeshObject(mesh)
+            ))
+        );
     }
 }

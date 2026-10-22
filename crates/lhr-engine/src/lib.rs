@@ -13,6 +13,7 @@ pub mod frame_dispatch;
 pub mod frame_transform;
 pub mod interpolator;
 pub mod joint_state;
+pub mod mesh_bounds;
 pub mod mission_effects;
 pub mod model_loading;
 pub mod model_tick;
