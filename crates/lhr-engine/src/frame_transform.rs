@@ -163,18 +163,22 @@ impl I3dFrameGraph {
         }
         Ok(())
     }
-    /// Scale stores precede the unavailable matrix-to-quaternion dependency.
+    /// Scale stores precede the guarded matrix-to-quaternion dependency.
     pub fn assign_scale(&mut self, key: FrameKey, scale: [f32; 3]) -> Result<(), FrameError> {
         let node = self.node_mut(key)?;
         node.state.scale = scale;
         if node.state.flags & 8 == 0 {
-            // Native execution would continue through matrix-to-quaternion and
-            // invalidate both caches. Preserve the prior native stores/flags,
-            // but never expose their old cache after this interrupted setter.
-            let error = FrameError::QuaternionFromMatrixUnavailable;
-            node.local_error = Some(error);
-            node.world_error = Some(error);
-            return Err(error);
+            match SQuat::try_make_from_matrix(&node.state.local) {
+                Ok(rotation) => node.state.rotation = rotation,
+                Err(_) => {
+                    // Preserve native stores/flags preceding the unsupported
+                    // dependency, while keeping interrupted caches unavailable.
+                    let error = FrameError::QuaternionFromMatrixUnavailable;
+                    node.local_error = Some(error);
+                    node.world_error = Some(error);
+                    return Err(error);
+                }
+            }
         }
         node.state.flags = (node.state.flags & 0xfffffecb) | 0x40000008;
         Ok(())
@@ -292,7 +296,9 @@ impl I3dFrameGraph {
             self.node_mut(key)?.state.local.set_rot3(s.rotation);
         } else if flags & 4 == 0 {
             if flags & 8 == 0 {
-                return Err(FrameError::QuaternionFromMatrixUnavailable);
+                let rotation = SQuat::try_make_from_matrix(&self.state(key)?.local)
+                    .map_err(|_| FrameError::QuaternionFromMatrixUnavailable)?;
+                self.node_mut(key)?.state.rotation = rotation;
             }
             self.node_mut(key)?.state.flags |= 0xc;
         } else {
@@ -541,10 +547,50 @@ mod tests {
         assert_eq!(*graph.state(locked).unwrap(), state);
     }
     #[test]
+    fn admitted_matrix_rotation_is_stored_before_cache_flags_and_scaling() {
+        for setter in [false, true] {
+            let mut graph = I3dFrameGraph::default();
+            let mut state = mesh([10., 20., 30.]);
+            state.flags = 0x10;
+            state.local.elements[0] = 2.;
+            state.local.elements[5] = 0.5;
+            state.local.elements[10] = -4.;
+            state.rotation.wxyz = [0., 1., 0., 0.];
+            state.scale = [3., 4., 5.];
+            let key = graph.insert(state).unwrap();
+            if setter {
+                graph.assign_scale(key, [3., 4., 5.]).unwrap();
+                assert_eq!(graph.state(key).unwrap().flags, 0x40000008);
+                assert_eq!(graph.state(key).unwrap().local, state.local);
+            }
+            graph.update_matrix(key).unwrap();
+            let got = *graph.state(key).unwrap();
+            assert_eq!(
+                got.rotation.wxyz.map(f32::to_bits),
+                [1.0f32.to_bits(), 0, 0, 0]
+            );
+            let expected_diagonal = if setter { [3., 4., 5.] } else { [6., 2., -20.] };
+            assert_eq!(
+                [
+                    got.local.elements[0],
+                    got.local.elements[5],
+                    got.local.elements[10]
+                ],
+                expected_diagonal
+            );
+            assert_eq!(&got.local.elements[12..15], &[10., 20., 30.]);
+            assert_eq!(got.flags, if setter { 0x4000001c } else { 0x1c });
+            graph.update_matrix(key).unwrap();
+            assert_eq!(*graph.state(key).unwrap(), got);
+        }
+    }
+
+    #[test]
     fn missing_matrix_quaternion_keeps_prior_scale_store_and_flag_order() {
         let mut graph = I3dFrameGraph::default();
         let mut state = mesh([0.; 3]);
         state.flags = 0x10;
+        state.local.elements[1] = 0.25;
         let key = graph.insert(state).unwrap();
         assert_eq!(
             graph.assign_scale(key, [2., 3., 4.]),
@@ -560,6 +606,7 @@ mod tests {
         for flags in [0x30, 0x34] {
             let mut cached = mesh([0.; 3]);
             cached.flags = flags;
+            cached.local.elements[1] = 0.25;
             let key = graph.insert(cached).unwrap();
             assert!(graph.world_matrix(key).is_ok());
             assert_eq!(
