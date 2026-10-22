@@ -16,6 +16,7 @@ pub mod named_script;
 pub mod native_matrix;
 pub mod native_transform;
 pub mod original_config;
+pub mod player_control;
 pub mod police_state;
 pub mod runtime;
 pub mod scene_tick;
