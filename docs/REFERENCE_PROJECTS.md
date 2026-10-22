@@ -10,7 +10,7 @@ Audited on 2026-10-22 against Rust engine commit [`a739570`](https://github.com/
 
 ## LS3D-SceneKit
 
-The [skin reader](https://github.com/alex-alex/LS3D-SceneKit/blob/8fadd2201f52936d998c66c47b0a0d37476c2ce5/Mafia/Models/ModelMesh.swift#L47-L158) provides concrete leads for inverse bind matrices, bone indexes, rigid/blended vertex counts and two-influence weights. The [morph reader](https://github.com/alex-alex/LS3D-SceneKit/blob/8fadd2201f52936d998c66c47b0a0d37476c2ce5/Mafia/Models/ModelMorph.swift#L14-L119) exposes vertex links and per-LOD payloads. These need bounded Rust intake and original deformation comparisons; our current owned graph supports mesh/dummy frames, without Joint or skeletal deformation.
+The [skin reader](https://github.com/alex-alex/LS3D-SceneKit/blob/8fadd2201f52936d998c66c47b0a0d37476c2ce5/Mafia/Models/ModelMesh.swift#L47-L158) provides concrete leads for inverse bind matrices, bone indexes, rigid/blended vertex counts and two-influence weights. The [morph reader](https://github.com/alex-alex/LS3D-SceneKit/blob/8fadd2201f52936d998c66c47b0a0d37476c2ce5/Mafia/Models/ModelMorph.swift#L14-L119) exposes vertex links and per-LOD payloads. These need bounded Rust intake and original deformation comparisons. At the audited commit `a739570`, the owned graph supported mesh/dummy frames without Joint; subsequent Joint metadata/state work does not yet implement skeletal deformation.
 
 Several presentation choices cannot establish original behavior. Missing parents fall back to the root, only the first LOD is rendered, and some recognized visual types have no payload implementation. Material animation and lightmaps are skipped. [Scene lighting](https://github.com/alex-alex/LS3D-SceneKit/blob/8fadd2201f52936d998c66c47b0a0d37476c2ce5/Mafia/Scene/Scene.swift#L5027-L5062) uses tuned intensity scales. Our current unlit renderer also remains approximate; original driver, material, sector and visibility contracts are still required.
 
@@ -43,3 +43,21 @@ The [configured LS3DF hash](https://github.com/Marvisak/mafia-re/blob/86a7b15cbf
 | 5 | Morph/DAT/TCK and remaining animation channels. | Raw corpus preservation, original interpolation, target geometry, time boundaries, audio cursor and fade behavior. |
 
 Each deliverable remains independently authored Rust, checked through REA and original execution, with two sequential reviews. Full first-mission gameplay and complete engine/game compatibility remain open; external source coverage does not close those gaps.
+
+## Direct PS2 symbol crosscheck
+
+The supplied USA `SLUS_206.71` executable (SHA-256 `adf4944c5cdac23fcc4e9af9ef3ec1ba6234497e57cec2af2ff1a7a15c62a46f`) contains original function/global linker symbols, but no DWARF or STABS type/member information. mafia-re also distinguishes original symbols from guessed field names. We checked 27 complete symbol instruction ranges against unchanged original bytes; this is static evidence, without PS2 execution credit.
+
+| Original PS2 name | PS2 address | PC correspondence and evidence limit |
+| --- | --- | --- |
+| `I3D_joint::UpdateV` | `0x42b750` | LS3DF RVA `0x1ee30`; matching invalidation role, different masks and offsets. |
+| `I3D_joint::LoadImage` | `0x42b850` | LS3DF RVA `0x1ef10`; PS2 reads a four-byte suffix, PC reads 68 bytes. |
+| `I3D_singlemesh::DBuild` | `0x456f00` | LS3DF RVA `0x54c20`; PS2 zeroes the joint pointer array, pinned PC source leaves unmatched slots unwritten. |
+| `GetAnimIndex(unsigned int)` | `0x117a80` | Game RVA `0x8760`; instruction-level agreement on unsigned keys, duplicate midpoint selection and null/miss behavior. |
+| `C_human::Do_Crouched` | `0x17b2a0` | Game RVA `0x17f8a0`; structural correspondence, with additional PS2 collision-shape stores. |
+| `C_human::Do_Shoot` | `0x1802f0` | Game RVA `0x183590`; matched action-kind branches and animation resource references. |
+| `C_human::PersonAnim` | `0x16cf10` | Game RVA `0x173e50`; matched code flags, lookup and resource-binding structure. |
+
+These are original PS2 names with separately established PC correspondences, not recovered PC symbol tables. Member labels remain research names. PC model animation has eight channels while the inspected PS2 implementation has three; Joint storage and skin assignments also differ. Names therefore guide reconstruction without substituting PS2 layouts or behavior for PC evidence.
+
+REA currently rejects the Emotion Engine R5900 variant with `architecture_unsupported`. The PS2 crosscheck used the retained dedicated EE Ghidra backend in read-only mode; PC REA and original-code comparisons remain separate. Future contracts record native binary/address, exact symbol, name origin, mapping evidence, Rust symbol and validation independently. This crosscheck adds no completed-function credit.
