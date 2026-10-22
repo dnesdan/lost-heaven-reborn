@@ -1,7 +1,7 @@
 # Lost Heaven Reborn
 
 <!-- generated-function-progress:start -->
-As of 2026-10-22 · snapshot `RUST-SCOPED-PORTS-20261022-15`.
+As of 2026-10-22 · snapshot `RUST-SCOPED-PORTS-20261022-16`.
 
 <p align="center"><img src="docs/progress.svg" alt="Progress dashboard: static retained pseudocode, reviewed scoped Rust entries, and strict system verification" width="100%"></p>
 
@@ -26,7 +26,7 @@ An independent Rust reimplementation of the Mafia: The City of Lost Heaven (2002
 
 The animation path binds original track names, advances one live controller slot, evaluates position and bounded linear/spherical rotation, updates Target and morph state, and uploads CPU-skinned first-LOD geometry. Controller ownership and controls cover eight slots; blended evaluation, scale/note channels, full animation-resource ownership and actor/mission integration remain open. Unsupported inputs fail explicitly. Original models and clips are regression fixtures for this general implementation.
 
-Bounded frame/model cleanup and independent mesh/material ownership now have standalone IB/VB managers for pooled allocation and ordered cleanup. Fourteen complete original-call trajectories support the bounded manager scope; one separate prefix ends at a host insertion guard. A managed visual-owner bridge is the next integration step. Texture/GPU backends, loaded visual and scene teardown remain open. This milestone adds no rendered or interactive validation.
+A standalone managed visual-owner bridge now connects shared mesh/material lifetime to actual bounded IB/VB manager allocation and cleanup. Four composed original-call trajectories support this integration without adding canonical function credit. Next is distinct per-object LOD ownership; texture final lifetime, loaded-resource/GPU adapters and scene teardown remain open. This milestone adds no application integration or rendered/interactive validation.
 
 The immediate goal is **the playable first mission, from the original menu through mission completion**, alongside function-by-function library parity with mafia-re. See the [acceptance gates and dependency order](docs/GOALS.md). PS2 symbol names guide reconstruction; PC behavior and platform differences require original-binary verification.
 
