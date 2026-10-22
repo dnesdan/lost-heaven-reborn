@@ -109,6 +109,9 @@ impl CStrings {
     pub(crate) fn owns_allocation(&self, raw: u64) -> bool {
         self.reps.iter().flatten().any(|r| r.allocation.0 == raw)
     }
+    pub(crate) fn allocation_tokens(&self) -> impl Iterator<Item = u64> + '_ {
+        self.reps.iter().flatten().map(|r| r.allocation.0)
+    }
     pub fn identity(&self) -> u64 {
         self.identity
     }

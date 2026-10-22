@@ -19,7 +19,8 @@ use crate::i3d_object::{
 };
 use crate::managed_visual_resources::ManagedVisualBackend;
 use crate::texture_manager::{
-    ManagedOperationError, ManagedTextureEffects, ManagedWorldIntake, ManagerError, TextureManager,
+    CreationFormats, ManagedOperationError, ManagedTextureEffects, ManagedWorldIntake,
+    ManagerError, RegistryIntake, TextureManager,
 };
 use crate::visual_resources::{
     self as vr, FaceGroupKey, MaterialKey, MeshLevelKey, MeshObjectKey, RawVertexBytesKey,
@@ -121,6 +122,8 @@ pub struct ITexture {
     token: vr::TextureKey,
     intake_installed: bool,
     managed_admitted: bool,
+    managed_prepared: bool,
+    managed_created: bool,
 }
 #[derive(Clone, Copy, Debug)]
 pub enum AlphaName<'a> {
@@ -264,6 +267,18 @@ impl Textures {
     }
     fn domain(&self, k: TextureKey) -> Result<(), TextureError> {
         let t = self.live(k)?;
+        if t.managed_created && t.flags & 0x40 == 0 {
+            if t.graphics.is_some() || t.flags & 0xc0000000 != 0 {
+                return Err(TextureError::ManagedUnsupported);
+            }
+            return Ok(());
+        }
+        if t.managed_prepared && !t.managed_created {
+            if t.graphics.is_none() && t.managed_record.is_none() && !self.manager.has_links(k) {
+                return Ok(());
+            }
+            return Err(TextureError::ManagedUnsupported);
+        }
         if t.managed_admitted {
             self.manager
                 .validate_lifetime(k, t.flags, t.managed_record, t.graphics)?;
@@ -284,10 +299,16 @@ impl Textures {
     ) -> Result<(), TextureError> {
         self.domain(k)?;
         let t = self.texture(k)?;
-        if t.managed_admitted {
+        if t.managed_created && t.flags & 0x40 == 0 && self.manager.has_links(k) {
+            return Err(TextureError::ManagedUnsupported);
+        }
+        if t.managed_admitted || (t.managed_prepared && t.flags & 0x40 != 0) {
             self.manager
                 .validate_close(k, t.flags, t.managed_record, t.graphics)?;
-            if b.managed_texture_effects().is_none() {
+            let effects = b
+                .managed_texture_effects()
+                .ok_or(TextureError::ManagedUnsupported)?;
+            if self.manager.requires_creation_effects() && effects.creation_effects().is_none() {
                 return Err(TextureError::ManagedUnsupported);
             }
         }
@@ -363,6 +384,8 @@ impl Textures {
                 t.managed_record = None;
                 t.graphics = None;
                 t.managed_admitted = false;
+                t.managed_prepared = false;
+                t.managed_created = false;
             }
 
             if let Some(pixels) = self.texture(k)?.pixels {
@@ -555,6 +578,8 @@ impl TextureResources {
             token: vr::TextureKey(token),
             intake_installed: false,
             managed_admitted: false,
+            managed_prepared: false,
+            managed_created: false,
         }));
         Ok(TextureKey {
             arena: self.textures.identity,
@@ -586,6 +611,8 @@ impl TextureResources {
         let t = self.textures.live(k)?;
         if t.intake_installed
             || t.managed_admitted
+            || t.managed_prepared
+            || t.managed_created
             || t.references != 1
             || t.external_references != 1
         {
@@ -696,6 +723,114 @@ impl TextureResources {
     pub fn texture_manager(&self) -> &TextureManager {
         &self.textures.manager
     }
+    fn scalar_allocations(&self) -> Result<Vec<u64>, TextureError> {
+        let mut values = Vec::new();
+        let count = self.strings.allocation_tokens().count() + self.textures.slots.len();
+        values
+            .try_reserve(count)
+            .map_err(|_| TextureError::HostAllocation)?;
+        values.extend(self.strings.allocation_tokens());
+        values.extend(
+            self.textures
+                .slots
+                .iter()
+                .flatten()
+                .filter_map(|t| t.pixels.map(|p| p.0)),
+        );
+        Ok(values)
+    }
+    /// Adopts explicit pointer-array storage. No constructor defaults are guessed;
+    /// active seeded entries must already occupy its active prefix. Drop cannot
+    /// free the final array; explicit whole-manager shutdown remains unsupported.
+    pub fn configure_managed_registry(
+        &mut self,
+        input: RegistryIntake,
+    ) -> Result<(), TextureError> {
+        self.available()?;
+        let forbidden = self.scalar_allocations()?;
+        self.textures
+            .manager
+            .configure_registry(input, &forbidden)?;
+        Ok(())
+    }
+    /// Host caller preparation only: flags/create_flags are assigned separately
+    /// from Add, which never writes them or initialized. Accepts low flags with
+    /// managed0x40 optional; fresh flags0 supports direct Add/remove diagnostics.
+    /// No prior texture payload/weak links may be overwritten.
+    pub fn prepare_managed_texture(
+        &mut self,
+        key: TextureKey,
+        flags: u32,
+    ) -> Result<(), TextureError> {
+        self.available()?;
+        let t = self.textures.live(key)?;
+        if flags & 0xc0000000 != 0
+            || t.managed_prepared
+            || t.managed_created
+            || t.managed_admitted
+            || t.intake_installed
+            || t.references != 1
+            || t.external_references != 1
+            || t.graphics.is_some()
+            || t.lock_surface.is_some()
+            || t.pixels.is_some()
+            || t.managed_record.is_some()
+            || self.textures.manager.has_links(key)
+        {
+            return Err(TextureError::ManagedUnsupported);
+        }
+        let t = self.textures.texture_mut(key);
+        t.flags = flags;
+        t.creation_flags = flags;
+        t.managed_prepared = true;
+        Ok(())
+    }
+    /// Original diagnostic-supported AddTextureToTextureManager (RVA0x7ad20).
+    /// Source is raw bytes excluding NUL, length5..253. Formats and registry are
+    /// serialized stable snapshots: callback reentry/global mutation is excluded.
+    /// Caller state preparation is separate; this entry leaves flags/init intact.
+    /// Record/list allocation None is host unsupported+poison, filename None is
+    /// genuine false after record delete/diagnostic. After effects start, errors
+    /// retain all published/pending ownership without rollback.
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_texture_to_texture_manager<B: TextureBackend + ?Sized>(
+        &mut self,
+        key: TextureKey,
+        name: &[u8],
+        flags: u32,
+        formats: CreationFormats,
+        b: &mut B,
+    ) -> Result<bool, TextureOperationError<<B as BufferBackend>::Error>> {
+        self.available()?;
+        let t = self.textures.live(key)?;
+        if !t.managed_prepared
+            || t.managed_created
+            || t.managed_record.is_some()
+            || self.textures.manager.has_links(key)
+        {
+            return Err(TextureError::ManagedUnsupported.into());
+        }
+        self.textures.manager.preflight_add(name)?;
+        let forbidden = self.scalar_allocations()?;
+        let effects = b
+            .managed_texture_effects()
+            .ok_or(TextureError::ManagedUnsupported)?;
+        if effects.creation_effects().is_none() {
+            return Err(TextureError::ManagedUnsupported.into());
+        }
+        let t = self.textures.slots[(key.slot - 1) as usize]
+            .as_mut()
+            .unwrap();
+        self.textures
+            .manager
+            .add(key, name, flags, formats, &forbidden, effects, |record| {
+                t.graphics = None;
+                t.managed_record = Some(record);
+                t.managed_created = true;
+                t.managed_admitted = t.flags & 0x40 != 0;
+            })
+            .map_err(TextureOperationError::Manager)
+    }
     /// Atomic seeded-world ownership intake, not Add/Request/worker execution.
     /// Existing texture graphics must be null: pool graphics are adopted as
     /// separately owned references, then the texture receives only a borrow.
@@ -704,6 +839,8 @@ impl TextureResources {
         for binding in &input.bindings {
             let t = self.textures.live(binding.texture)?;
             if t.managed_admitted
+                || t.managed_prepared
+                || t.managed_created
                 || t.graphics.is_some()
                 || t.managed_record.is_some()
                 || t.flags & 0xc0000040 != 0
@@ -836,9 +973,10 @@ impl TextureResources {
         // availability bound also excludes duplicate-record cleanup until direct
         // removals have reduced each target to at most one active record.
         for (i, t) in self.textures.slots.iter().enumerate() {
-            if t.as_ref()
-                .is_some_and(|t| t.state == TextureState::Live && t.managed_admitted)
-            {
+            if t.as_ref().is_some_and(|t| {
+                t.state == TextureState::Live
+                    && (t.managed_admitted || t.managed_prepared || t.managed_created)
+            }) {
                 self.textures.preflight_close(
                     TextureKey {
                         arena: self.textures.identity,
@@ -1244,6 +1382,14 @@ mod tests {
         Leave,
         ManagedFilename(Option<ManagedFilenameAllocation>),
         ManagedRecord(ManagedRecordKey),
+        CreateRecord(ManagedRecordKey),
+        RecordWrite(RecordWrite),
+        CreateFilename(u32, Option<ManagedFilenameAllocation>),
+        CopyFilename(Vec<u8>),
+        CreateArray(u32, Option<ManagedRegistryAllocation>),
+        ArrayWrite(u32, ManagedRecordKey),
+        DeleteArray(Option<ManagedRegistryAllocation>),
+        LowMemory,
     }
     #[derive(Default)]
     struct Backend {
@@ -1268,6 +1414,13 @@ mod tests {
         fail_leave: bool,
         managed_files: BTreeMap<u64, bool>,
         managed_records: BTreeMap<u64, bool>,
+        creation_enabled: bool,
+        filename_none: bool,
+        record_none: bool,
+        array_none: bool,
+        fail_copy_array: bool,
+        filename_bytes: BTreeMap<u64, Vec<u8>>,
+        arrays: BTreeMap<u64, Vec<Option<ManagedRecordKey>>>,
     }
     impl Backend {
         fn next(&mut self) -> u64 {
@@ -1414,6 +1567,15 @@ mod tests {
     }
     impl ManagedTextureEffects for Backend {
         type Error = &'static str;
+        fn creation_effects(
+            &mut self,
+        ) -> Option<&mut dyn ManagedTextureCreationEffects<Error = Self::Error>> {
+            if self.creation_enabled {
+                Some(self)
+            } else {
+                None
+            }
+        }
         fn enter_texture_section(&mut self) -> Result<(), Self::Error> {
             self.events.push(Event::Enter);
             assert!(!self.section_held);
@@ -1448,7 +1610,7 @@ mod tests {
             }
         }
         fn delete_managed_record(&mut self, a: ManagedRecordKey) -> Result<(), Self::Error> {
-            assert!(self.section_held);
+            assert!(self.section_held || self.creation_enabled);
             self.events.push(Event::ManagedRecord(a));
             assert_eq!(self.managed_records.remove(&a.0), Some(true));
             if self.fail_record {
@@ -1456,6 +1618,95 @@ mod tests {
             } else {
                 Ok(())
             }
+        }
+    }
+    impl ManagedTextureCreationEffects for Backend {
+        type Error = &'static str;
+        fn allocate_managed_record(
+            &mut self,
+            bytes: u32,
+        ) -> Result<Option<ManagedRecordKey>, Self::Error> {
+            assert_eq!(bytes, 20);
+            if self.record_none {
+                return Ok(None);
+            }
+            let k = ManagedRecordKey(self.next());
+            self.managed_records.insert(k.0, true);
+            self.events.push(Event::CreateRecord(k));
+            Ok(Some(k))
+        }
+        fn write_managed_record(
+            &mut self,
+            _: ManagedRecordKey,
+            value: RecordWrite,
+        ) -> Result<(), Self::Error> {
+            self.events.push(Event::RecordWrite(value));
+            Ok(())
+        }
+        fn allocate_managed_filename(
+            &mut self,
+            bytes: u32,
+        ) -> Result<Option<ManagedFilenameAllocation>, Self::Error> {
+            let k = if self.filename_none {
+                None
+            } else {
+                let k = ManagedFilenameAllocation(self.next());
+                self.managed_files.insert(k.0, true);
+                Some(k)
+            };
+            self.events.push(Event::CreateFilename(bytes, k));
+            Ok(k)
+        }
+        fn copy_managed_filename(
+            &mut self,
+            k: ManagedFilenameAllocation,
+            bytes: &[u8],
+        ) -> Result<(), Self::Error> {
+            self.filename_bytes.insert(k.0, bytes.to_vec());
+            self.events.push(Event::CopyFilename(bytes.to_vec()));
+            Ok(())
+        }
+        fn allocate_managed_registry(
+            &mut self,
+            bytes: u32,
+        ) -> Result<Option<ManagedRegistryAllocation>, Self::Error> {
+            let k = if self.array_none {
+                None
+            } else {
+                let k = ManagedRegistryAllocation(self.next());
+                self.arrays.insert(k.0, vec![None; bytes as usize / 4]);
+                Some(k)
+            };
+            self.events.push(Event::CreateArray(bytes, k));
+            Ok(k)
+        }
+        fn write_managed_registry_entry(
+            &mut self,
+            a: ManagedRegistryAllocation,
+            i: u32,
+            r: ManagedRecordKey,
+        ) -> Result<(), Self::Error> {
+            self.arrays.get_mut(&a.0).unwrap()[i as usize] = Some(r);
+            self.events.push(Event::ArrayWrite(i, r));
+            if self.fail_copy_array {
+                Err("array write then failed")
+            } else {
+                Ok(())
+            }
+        }
+        fn delete_managed_registry(
+            &mut self,
+            a: Option<ManagedRegistryAllocation>,
+        ) -> Result<(), Self::Error> {
+            if let Some(a) = a {
+                self.arrays.remove(&a.0).unwrap();
+            }
+            self.events.push(Event::DeleteArray(a));
+            Ok(())
+        }
+        fn managed_texture_low_memory(&mut self) -> Result<(), Self::Error> {
+            self.events.push(Event::LowMemory);
+            Ok(())
         }
     }
     impl TextureBackend for Backend {
@@ -2504,5 +2755,332 @@ mod tests {
         r.reclaim_unused_indices(&mut b).unwrap();
         assert!(b.allocations.is_empty());
         assert!(b.buffers.is_empty());
+    }
+    fn creation_world(flags: u32) -> (TextureResources, Backend, TextureKey) {
+        let mut r = TextureResources::new().unwrap();
+        let mut b = Backend {
+            managed_enabled: true,
+            creation_enabled: true,
+            ..Backend::default()
+        };
+        let t = r.create_texture().unwrap();
+        r.configure_managed_registry(RegistryIntake {
+            capacity: 0,
+            growth: 2,
+            allocation: None,
+        })
+        .unwrap();
+        r.prepare_managed_texture(t, flags).unwrap();
+        b.events.clear();
+        (r, b, t)
+    }
+    fn add(
+        r: &mut TextureResources,
+        b: &mut Backend,
+        t: TextureKey,
+        name: &[u8],
+        flags: u32,
+    ) -> Result<bool, TextureOperationError<&'static str>> {
+        r.add_texture_to_texture_manager(
+            t,
+            name,
+            flags,
+            CreationFormats {
+                dxt: 0x31545844,
+                normal: 0x17,
+            },
+            b,
+        )
+    }
+    #[test]
+    fn actual_add_prepared_close_releases_record_and_keeps_caller_flags_unchanged() {
+        let (mut r, mut b, t) = creation_world(0x40);
+        assert!(add(&mut r, &mut b, t, b"stone2.bmp", 0).unwrap());
+        let texture = r.texture(t).unwrap();
+        assert_eq!(
+            (texture.flags, texture.creation_flags, texture.initialized),
+            (0x40, 0x40, false)
+        );
+        let record = r
+            .texture_manager()
+            .record(r.texture_manager().active_records()[0])
+            .unwrap();
+        assert_eq!(
+            record.filename_bytes.as_deref(),
+            Some(b"stone2_1.565\0".as_slice())
+        );
+        assert_eq!(
+            record.fields.unwrap(),
+            ManagedRecordFields {
+                format: 0x17,
+                pool: 2,
+                last_frame: 0
+            }
+        );
+        assert_eq!(r.release_texture(t, &mut b).unwrap(), 0);
+        assert!(b.managed_records.is_empty());
+        assert!(b.managed_files.is_empty());
+        assert_eq!(r.texture_manager().registry().unwrap().capacity, 2);
+        assert_eq!(b.arrays.len(), 1);
+        assert!(!r.is_poisoned());
+    }
+    #[test]
+    fn flags_zero_add_remove_close_preserves_stale_pointer_and_blocks_unsafe_close() {
+        let (mut r, mut b, t) = creation_world(0);
+        add(&mut r, &mut b, t, b"x0.tga", 0).unwrap();
+        let ptr = r.texture(t).unwrap().managed_record;
+        let n = b.events.len();
+        assert!(r.close_texture(t, &mut b).is_err());
+        assert_eq!(b.events.len(), n);
+        assert!(!r.is_poisoned());
+        r.remove_managed_texture(t, &mut b).unwrap();
+        r.close_texture(t, &mut b).unwrap();
+        assert_eq!(r.texture(t).unwrap().managed_record, ptr);
+        assert_eq!(r.texture(t).unwrap().flags, 0);
+        r.release_texture(t, &mut b).unwrap();
+    }
+    #[test]
+    fn filename_none_is_false_deletes_record_diagnoses_and_allows_retry() {
+        let (mut r, mut b, t) = creation_world(0x40);
+        b.filename_none = true;
+        assert!(!add(&mut r, &mut b, t, b"stone1.bmp", 0).unwrap());
+        assert!(r.texture(t).unwrap().managed_record.is_none());
+        assert!(!r.is_poisoned());
+        assert_eq!(r.texture_manager().registry().unwrap().capacity, 0);
+        assert!(b.managed_records.is_empty());
+        assert_eq!(b.events.last(), Some(&Event::LowMemory));
+        assert!(!b
+            .events
+            .iter()
+            .any(|e| matches!(e, Event::Enter | Event::CreateArray(..))));
+        b.filename_none = false;
+        assert!(add(&mut r, &mut b, t, b"stone1.bmp", 0x200).unwrap());
+        r.release_texture(t, &mut b).unwrap();
+    }
+    #[test]
+    fn growth_copies_active_order_then_deletes_old_array_and_removal_updates_swap_slot() {
+        let (mut r, mut b, t) = creation_world(0x40);
+        let mut keys = vec![t];
+        for _ in 0..2 {
+            let k = r.create_texture().unwrap();
+            r.prepare_managed_texture(k, 0x40).unwrap();
+            keys.push(k);
+        }
+        for k in &keys {
+            add(&mut r, &mut b, *k, b"test0.bmp", 0).unwrap();
+        }
+        assert_eq!(r.texture_manager().registry().unwrap().capacity, 4);
+        let a = r.texture_manager().registry().unwrap().allocation.unwrap();
+        let records: Vec<_> = r
+            .texture_manager()
+            .active_records()
+            .iter()
+            .map(|&id| r.texture_manager().record(id).unwrap().allocation)
+            .collect();
+        assert_eq!(
+            b.arrays[&a.0][..3],
+            records.iter().copied().map(Some).collect::<Vec<_>>()
+        );
+        r.remove_managed_texture(keys[0], &mut b).unwrap();
+        assert_eq!(b.arrays[&a.0][0], Some(records[2]));
+        for k in keys {
+            r.release_texture(k, &mut b).unwrap();
+        }
+        assert!(b.managed_records.is_empty());
+    }
+    #[test]
+    fn format_branches_signed_pool_and_byte_lengths_preserve_original_domain() {
+        for (name, flags, formats, suffix, pool) in [
+            (
+                b"a\x80.bmp".as_slice(),
+                0x200,
+                CreationFormats { dxt: 7, normal: 23 },
+                b"_1.DX1\0".as_slice(),
+                -176,
+            ),
+            (
+                b"a\xff.bmp".as_slice(),
+                0x200,
+                CreationFormats { dxt: 0, normal: 17 },
+                b"_5.565\0".as_slice(),
+                -49,
+            ),
+            (
+                b"0.bmp".as_slice(),
+                0,
+                CreationFormats { dxt: 7, normal: 23 },
+                b"_1.565\0".as_slice(),
+                0,
+            ),
+        ] {
+            let (mut r, mut b, t) = creation_world(0x40);
+            r.add_texture_to_texture_manager(t, name, flags, formats, &mut b)
+                .unwrap();
+            let record = r
+                .texture_manager()
+                .record(r.texture_manager().active_records()[0])
+                .unwrap();
+            assert_eq!(record.fields.unwrap().pool, pool);
+            assert!(record.filename_bytes.as_ref().unwrap().ends_with(suffix));
+            let writes: Vec<_> = b
+                .events
+                .iter()
+                .filter_map(|e| {
+                    if let Event::RecordWrite(w) = e {
+                        Some(*w)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            assert!(
+                matches!(writes[2], RecordWrite::Format(_))
+                    == (flags & 0x200 != 0 && formats.dxt != 0)
+            );
+            r.release_texture(t, &mut b).unwrap();
+        }
+        let (mut r, mut b, t) = creation_world(0x40);
+        let name = vec![b'1'; 253];
+        assert!(add(&mut r, &mut b, t, &name, 0).unwrap());
+        assert_eq!(
+            r.texture_manager()
+                .record(r.texture_manager().active_records()[0])
+                .unwrap()
+                .filename_bytes
+                .as_ref()
+                .unwrap()
+                .len(),
+            256
+        );
+    }
+    #[test]
+    fn invalid_or_unavailable_creation_is_preeffect_retryable() {
+        let (mut r, mut b, t) = creation_world(0x40);
+        let n = b.events.len();
+        assert!(add(&mut r, &mut b, t, b"bad", 0).is_err());
+        assert_eq!(b.events.len(), n);
+        b.creation_enabled = false;
+        assert!(add(&mut r, &mut b, t, b"stone1.bmp", 0).is_err());
+        assert_eq!(b.events.len(), n);
+        assert!(!r.is_poisoned());
+        b.creation_enabled = true;
+        add(&mut r, &mut b, t, b"stone1.bmp", 0).unwrap();
+        let n = b.events.len();
+        assert!(add(&mut r, &mut b, t, b"stone1.bmp", 0).is_err());
+        assert_eq!(b.events.len(), n);
+    }
+    #[test]
+    fn array_none_preserves_published_texture_and_expanded_capacity_without_rollback() {
+        let (mut r, mut b, t) = creation_world(0x40);
+        b.array_none = true;
+        assert!(add(&mut r, &mut b, t, b"stone1.bmp", 0).is_err());
+        assert!(r.is_poisoned());
+        assert!(r.texture(t).unwrap().managed_record.is_some());
+        assert_eq!(r.texture_manager().registry().unwrap().capacity, 2);
+        assert!(r.texture_manager().registry().unwrap().allocation.is_none());
+        assert!(r.texture_manager().active_records().is_empty());
+        let p = r.texture_manager().creation_progress().unwrap();
+        assert!(p.published);
+        assert!(p.record.is_some() && p.filename.is_some());
+        assert_eq!(b.managed_records.len(), 1);
+        let n = b.events.len();
+        assert!(r.remove_managed_texture(t, &mut b).is_err());
+        assert_eq!(b.events.len(), n);
+    }
+    #[test]
+    fn record_none_is_host_unsupported_and_never_native_false() {
+        let (mut r, mut b, t) = creation_world(0x40);
+        b.record_none = true;
+        assert!(matches!(
+            add(&mut r, &mut b, t, b"stone1.bmp", 0),
+            Err(TextureOperationError::Manager(
+                ManagedOperationError::State(ManagerError::UnsupportedAllocation)
+            ))
+        ));
+        assert!(r.is_poisoned());
+        assert!(r.texture(t).unwrap().managed_record.is_none());
+        assert!(!b.events.contains(&Event::LowMemory));
+    }
+    #[test]
+    fn partial_registry_copy_error_retains_old_and_new_arrays_and_published_record() {
+        let (mut r, mut b, t) = creation_world(0x40);
+        add(&mut r, &mut b, t, b"stone1.bmp", 0).unwrap();
+        let u = r.create_texture().unwrap();
+        r.prepare_managed_texture(u, 0x40).unwrap();
+        add(&mut r, &mut b, u, b"stone2.bmp", 0).unwrap();
+        let old = r.texture_manager().registry().unwrap().allocation;
+        let v = r.create_texture().unwrap();
+        r.prepare_managed_texture(v, 0x40).unwrap();
+        b.fail_copy_array = true;
+        assert!(add(&mut r, &mut b, v, b"stone3.bmp", 0).is_err());
+        assert!(r.is_poisoned());
+        assert_eq!(r.texture_manager().registry().unwrap().allocation, old);
+        assert_eq!(b.arrays.len(), 2);
+        assert_eq!(r.texture_manager().active_records().len(), 2);
+        assert!(r
+            .texture_manager()
+            .creation_progress()
+            .unwrap()
+            .new_array
+            .is_some());
+    }
+    #[test]
+    fn direct_removal_requires_creation_capability_before_any_delete_and_can_retry() {
+        let (mut r, mut b, t) = creation_world(0x40);
+        add(&mut r, &mut b, t, b"one0.bmp", 0).unwrap();
+        let u = r.create_texture().unwrap();
+        r.prepare_managed_texture(u, 0x40).unwrap();
+        add(&mut r, &mut b, u, b"two0.bmp", 0).unwrap();
+        let n = b.events.len();
+        b.creation_enabled = false;
+        assert!(r.remove_managed_texture(t, &mut b).is_err());
+        assert_eq!(b.events.len(), n);
+        assert!(!r.is_poisoned());
+        assert_eq!(b.managed_records.len(), 2);
+        b.creation_enabled = true;
+        r.remove_managed_texture(t, &mut b).unwrap();
+        assert_eq!(r.texture_manager().active_records().len(), 1);
+    }
+    #[test]
+    fn removal_write_error_keeps_decremented_count_and_pending_swap_without_replay() {
+        let (mut r, mut b, t) = creation_world(0x40);
+        add(&mut r, &mut b, t, b"one0.bmp", 0).unwrap();
+        let u = r.create_texture().unwrap();
+        r.prepare_managed_texture(u, 0x40).unwrap();
+        add(&mut r, &mut b, u, b"two0.bmp", 0).unwrap();
+        let last = r.texture_manager().active_records()[1];
+        b.fail_copy_array = true;
+        assert!(r.remove_managed_texture(t, &mut b).is_err());
+        assert!(r.is_poisoned());
+        assert!(!b.section_held);
+        assert_eq!(r.texture_manager().active_records().len(), 1);
+        assert_eq!(r.texture_manager().pending_registry_swap(), Some((0, last)));
+        assert_eq!(b.managed_records.len(), 1);
+        let n = b.events.len();
+        assert!(r.remove_managed_texture(t, &mut b).is_err());
+        assert_eq!(b.events.len(), n);
+    }
+    #[test]
+    fn removed_last_still_copies_freed_pointer_into_inactive_registry_slot() {
+        let (mut r, mut b, t) = creation_world(0x40);
+        add(&mut r, &mut b, t, b"one0.bmp", 0).unwrap();
+        let u = r.create_texture().unwrap();
+        r.prepare_managed_texture(u, 0x40).unwrap();
+        add(&mut r, &mut b, u, b"two0.bmp", 0).unwrap();
+        let ptr = r.texture(u).unwrap().managed_record.unwrap();
+        b.events.clear();
+        r.remove_managed_texture(u, &mut b).unwrap();
+        let copy = b
+            .events
+            .iter()
+            .position(|e| *e == Event::ArrayWrite(1, ptr))
+            .unwrap();
+        let delete = b
+            .events
+            .iter()
+            .position(|e| *e == Event::ManagedRecord(ptr))
+            .unwrap();
+        assert!(copy > delete);
+        assert_eq!(r.texture_manager().active_records().len(), 1);
     }
 }

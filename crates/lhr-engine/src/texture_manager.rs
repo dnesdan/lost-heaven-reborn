@@ -1,10 +1,13 @@
-//! Bounded PC managed-texture removal, descriptive names for PC-only globals.
+//! Bounded PC managed-texture creation/removal; globals use descriptive names.
 //! Original LS3DF.dll SHA-256:
 //! e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6.
+//! RVA0x7ad20 AddTextureToTextureManager has original diagnostic-string name
+//! provenance; 20-byte record, copied raw-byte filename, published texture
+//! pointers, and explicit registry growth precede AL1. This excludes full Create.
 //! RVA0x7aee0: reverse first-record match; conditional reverse256 queue clear;
 //! filename delete, record delete, swap removal; three pools' reverse owner
 //! clears; flags &=0x3fffffff; leave critical section; AL1. No worker, Request,
-//! Create, pool shutdown or graphics allocation/release is reconstructed here.
+//! full Create, pool shutdown or graphics allocation/release is reconstructed here.
 //! Snapshot intake/typed identities and failure handling are host adapters.
 use crate::itexture::{ManagedRecordKey, TextureGraphics, TextureKey, TextureSurface};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -46,6 +49,13 @@ impl PoolSlotId {
 /// exception/worker recovery. Callbacks are serialized/nonreentrant.
 pub trait ManagedTextureEffects {
     type Error;
+    /// Optional unavailable capability, never a successful substitute. Stable
+    /// capability/identity domain is required across serialized callbacks.
+    fn creation_effects(
+        &mut self,
+    ) -> Option<&mut dyn ManagedTextureCreationEffects<Error = Self::Error>> {
+        None
+    }
     fn enter_texture_section(&mut self) -> Result<(), Self::Error>;
     fn leave_texture_section(&mut self) -> Result<(), Self::Error>;
     /// The original delete is unconditional, including the null pointer case.
@@ -54,6 +64,92 @@ pub trait ManagedTextureEffects {
         allocation: Option<ManagedFilenameAllocation>,
     ) -> Result<(), Self::Error>;
     fn delete_managed_record(&mut self, allocation: ManagedRecordKey) -> Result<(), Self::Error>;
+}
+/// Required storage/allocator effects for original AddTextureToTextureManager,
+/// RVA0x7ad20. Record/array allocation None is an unsupported native unchecked
+/// path, while filename None is the original false result. No callback reentry
+/// or mutation of format globals/count is admitted. Allocator identities must
+/// remain distinct from every historical allocation in this world.
+pub trait ManagedTextureCreationEffects {
+    type Error;
+    fn allocate_managed_record(
+        &mut self,
+        bytes: u32,
+    ) -> Result<Option<ManagedRecordKey>, Self::Error>;
+    fn write_managed_record(
+        &mut self,
+        record: ManagedRecordKey,
+        value: RecordWrite,
+    ) -> Result<(), Self::Error>;
+    fn allocate_managed_filename(
+        &mut self,
+        bytes: u32,
+    ) -> Result<Option<ManagedFilenameAllocation>, Self::Error>;
+    fn copy_managed_filename(
+        &mut self,
+        allocation: ManagedFilenameAllocation,
+        bytes: &[u8],
+    ) -> Result<(), Self::Error>;
+    fn allocate_managed_registry(
+        &mut self,
+        bytes: u32,
+    ) -> Result<Option<ManagedRegistryAllocation>, Self::Error>;
+    fn write_managed_registry_entry(
+        &mut self,
+        array: ManagedRegistryAllocation,
+        index: u32,
+        record: ManagedRecordKey,
+    ) -> Result<(), Self::Error>;
+    /// Includes the original null old-array delete call.
+    fn delete_managed_registry(
+        &mut self,
+        array: Option<ManagedRegistryAllocation>,
+    ) -> Result<(), Self::Error>;
+    fn managed_texture_low_memory(&mut self) -> Result<(), Self::Error>;
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ManagedRegistryAllocation(pub u64);
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RecordWrite {
+    Owner(TextureKey),
+    LastFrame(u32),
+    Format(u32),
+    Pool(i32),
+    Filename(Option<ManagedFilenameAllocation>),
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CreationFormats {
+    pub dxt: u32,
+    pub normal: u32,
+}
+/// Explicit host intake, not reconstructed manager constructor defaults.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RegistryIntake {
+    pub capacity: u32,
+    pub growth: u32,
+    pub allocation: Option<ManagedRegistryAllocation>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ManagedRecordFields {
+    pub format: u32,
+    pub pool: i32,
+    pub last_frame: u32,
+}
+/// Interrupted host diagnostics. `fields` and `filename_bytes` are planned
+/// values computed before effects, not evidence of initialized native storage.
+/// `stage` identifies the current/last attempted effect; `published` and `copied`
+/// record completed host publication/copy steps. A callback may perform its
+/// effect before returning Err, so its completion remains ambiguous.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CreationProgress {
+    pub record: Option<ManagedRecordKey>,
+    pub filename: Option<ManagedFilenameAllocation>,
+    pub filename_bytes: Vec<u8>,
+    pub fields: ManagedRecordFields,
+    pub stage: ManagedStage,
+    pub published: bool,
+    pub new_array: Option<ManagedRegistryAllocation>,
+    pub copied: u32,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CriticalState {
@@ -75,6 +171,15 @@ pub enum ManagedStage {
     Filename,
     Record,
     Leave,
+    AllocateRecord,
+    WriteRecord,
+    AllocateFilename,
+    CopyFilename,
+    Diagnostic,
+    AllocateRegistry,
+    CopyRegistry,
+    DeleteRegistry,
+    AppendRegistry,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ManagerError {
@@ -88,6 +193,9 @@ pub enum ManagerError {
     Incoherent,
     HostAllocation,
     IdentityOverflow,
+    CreationUnavailable,
+    UnsupportedAllocation,
+    InvalidFilename,
 }
 #[derive(Debug, PartialEq, Eq)]
 pub enum ManagedOperationError<E> {
@@ -153,6 +261,8 @@ pub struct ManagedRecord {
     pub file_name: Option<ManagedFilenameAllocation>,
     pub preserved: Vec<u8>,
     pub phase: RecordPhase,
+    pub fields: Option<ManagedRecordFields>,
+    pub filename_bytes: Option<Vec<u8>>,
 }
 #[derive(Debug, PartialEq, Eq)]
 pub struct PoolSlot {
@@ -173,6 +283,10 @@ pub struct TextureManager {
     pools: [Vec<PoolSlot>; 3],
     critical: CriticalState,
     poisoned: bool,
+    registry: Option<RegistryIntake>,
+    creation: Option<CreationProgress>,
+    allocation_history: Vec<u64>,
+    registry_swap: Option<(u32, RecordId)>,
 }
 impl TextureManager {
     pub(crate) fn new(identity: u64) -> Self {
@@ -186,7 +300,318 @@ impl TextureManager {
             pools: [Vec::new(), Vec::new(), Vec::new()],
             critical: CriticalState::NotHeld,
             poisoned: false,
+            registry: None,
+            creation: None,
+            allocation_history: Vec::new(),
+            registry_swap: None,
         }
+    }
+    /// Interrupted swap-copy after the original count decrement.
+    pub fn pending_registry_swap(&self) -> Option<(u32, RecordId)> {
+        self.registry_swap
+    }
+    pub fn registry(&self) -> Option<RegistryIntake> {
+        self.registry
+    }
+    pub fn creation_progress(&self) -> Option<&CreationProgress> {
+        self.creation.as_ref()
+    }
+    pub(crate) fn configure_registry(
+        &mut self,
+        input: RegistryIntake,
+        forbidden: &[u64],
+    ) -> Result<(), ManagerError> {
+        if self.poisoned {
+            return Err(ManagerError::Poisoned);
+        }
+        if self.registry.is_some() {
+            return Err(ManagerError::AlreadySeeded);
+        }
+        if input.capacity > i32::MAX as u32
+            || input.growth == 0
+            || input.growth > i32::MAX as u32
+            || input.capacity < self.active.len() as u32
+            || input.capacity.checked_mul(4).is_none()
+            || (input.capacity == 0) != input.allocation.is_none()
+        {
+            return Err(ManagerError::InvalidCount);
+        }
+        if let Some(a) = input.allocation {
+            if self.aliases(a.0, forbidden) {
+                return Err(ManagerError::InvalidIdentity);
+            }
+            self.allocation_history
+                .try_reserve(1)
+                .map_err(|_| ManagerError::HostAllocation)?;
+            self.allocation_history.push(a.0);
+        }
+        self.registry = Some(input);
+        self.seeded = true;
+        Ok(())
+    }
+    fn aliases(&self, raw: u64, forbidden: &[u64]) -> bool {
+        raw == 0
+            || forbidden.contains(&raw)
+            || self.allocation_history.contains(&raw)
+            || self
+                .records
+                .iter()
+                .any(|r| r.allocation.0 == raw || r.file_name.is_some_and(|a| a.0 == raw))
+    }
+    pub(crate) fn preflight_add(&mut self, name: &[u8]) -> Result<(), ManagerError> {
+        if self.poisoned {
+            return Err(ManagerError::Poisoned);
+        }
+        if !(5..=253).contains(&name.len()) || name.contains(&0) {
+            return Err(ManagerError::InvalidFilename);
+        }
+        let registry = self.registry.ok_or(ManagerError::CreationUnavailable)?;
+        let count = u32::try_from(self.active.len()).map_err(|_| ManagerError::InvalidCount)?;
+        if count >= registry.capacity {
+            registry
+                .capacity
+                .checked_add(registry.growth)
+                .filter(|&v| v <= i32::MAX as u32)
+                .and_then(|v| v.checked_mul(4))
+                .ok_or(ManagerError::InvalidCount)?;
+        }
+        u32::try_from(self.records.len() + 1).map_err(|_| ManagerError::IdentityOverflow)?;
+        self.records
+            .try_reserve(1)
+            .map_err(|_| ManagerError::HostAllocation)?;
+        self.active
+            .try_reserve(1)
+            .map_err(|_| ManagerError::HostAllocation)?;
+        self.allocation_history
+            .try_reserve(3)
+            .map_err(|_| ManagerError::HostAllocation)?;
+        Ok(())
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn add<E>(
+        &mut self,
+        texture: TextureKey,
+        name: &[u8],
+        flags: u32,
+        formats: CreationFormats,
+        forbidden: &[u64],
+        effects: &mut dyn ManagedTextureEffects<Error = E>,
+        mut publish: impl FnMut(ManagedRecordKey),
+    ) -> Result<bool, ManagedOperationError<E>> {
+        self.preflight_add(name)?;
+        if effects.creation_effects().is_none() {
+            return Err(ManagerError::CreationUnavailable.into());
+        }
+        let stem = name.len() - 4;
+        let format = if flags & 0x200 != 0 && formats.dxt != 0 {
+            formats.dxt
+        } else {
+            formats.normal
+        };
+        let mut bytes = Vec::new();
+        bytes
+            .try_reserve(stem + 7)
+            .map_err(|_| ManagerError::HostAllocation)?;
+        bytes.extend_from_slice(&name[..stem]);
+        bytes.extend_from_slice(if flags & 0x200 != 0 && formats.dxt != 0 {
+            b"_1.DX1\0"
+        } else if formats.normal == 0x17 {
+            b"_1.565\0"
+        } else {
+            b"_5.565\0"
+        });
+        self.creation = Some(CreationProgress {
+            record: None,
+            filename: None,
+            filename_bytes: bytes,
+            fields: ManagedRecordFields {
+                format,
+                pool: name[stem - 1] as i8 as i32 - 0x30,
+                last_frame: 0,
+            },
+            stage: ManagedStage::AllocateRecord,
+            published: false,
+            new_array: None,
+            copied: 0,
+        });
+        macro_rules! effect {
+            ($stage:ident, $call:expr) => {{
+                self.creation.as_mut().unwrap().stage = ManagedStage::$stage;
+                $call.map_err(|error| ManagedOperationError::Backend {
+                    stage: ManagedStage::$stage,
+                    error,
+                    leave_error: None,
+                })?
+            }};
+        }
+        let result = (|| {
+            let record = effect!(
+                AllocateRecord,
+                effects
+                    .creation_effects()
+                    .unwrap()
+                    .allocate_managed_record(20)
+            )
+            .ok_or(ManagerError::UnsupportedAllocation)?;
+            self.creation.as_mut().unwrap().record = Some(record);
+            if self.aliases(record.0, forbidden) {
+                return Err(ManagerError::InvalidIdentity.into());
+            }
+            self.allocation_history.push(record.0);
+            effect!(
+                WriteRecord,
+                effects
+                    .creation_effects()
+                    .unwrap()
+                    .write_managed_record(record, RecordWrite::Owner(texture))
+            );
+            effect!(
+                WriteRecord,
+                effects
+                    .creation_effects()
+                    .unwrap()
+                    .write_managed_record(record, RecordWrite::LastFrame(0))
+            );
+            let pool = self.creation.as_ref().unwrap().fields.pool;
+            if flags & 0x200 != 0 && formats.dxt != 0 {
+                effect!(
+                    WriteRecord,
+                    effects
+                        .creation_effects()
+                        .unwrap()
+                        .write_managed_record(record, RecordWrite::Format(format))
+                );
+                effect!(
+                    WriteRecord,
+                    effects
+                        .creation_effects()
+                        .unwrap()
+                        .write_managed_record(record, RecordWrite::Pool(pool))
+                );
+            } else {
+                effect!(
+                    WriteRecord,
+                    effects
+                        .creation_effects()
+                        .unwrap()
+                        .write_managed_record(record, RecordWrite::Pool(pool))
+                );
+                effect!(
+                    WriteRecord,
+                    effects
+                        .creation_effects()
+                        .unwrap()
+                        .write_managed_record(record, RecordWrite::Format(format))
+                );
+            }
+            let size = self.creation.as_ref().unwrap().filename_bytes.len() as u32;
+            let file = effect!(
+                AllocateFilename,
+                effects
+                    .creation_effects()
+                    .unwrap()
+                    .allocate_managed_filename(size)
+            );
+            self.creation.as_mut().unwrap().filename = file;
+            effect!(
+                WriteRecord,
+                effects
+                    .creation_effects()
+                    .unwrap()
+                    .write_managed_record(record, RecordWrite::Filename(file))
+            );
+            let Some(file) = file else {
+                effect!(Record, effects.delete_managed_record(record));
+                effect!(
+                    Diagnostic,
+                    effects
+                        .creation_effects()
+                        .unwrap()
+                        .managed_texture_low_memory()
+                );
+                return Ok(false);
+            };
+            if self.aliases(file.0, forbidden) {
+                return Err(ManagerError::InvalidIdentity.into());
+            }
+            self.allocation_history.push(file.0);
+            effect!(
+                CopyFilename,
+                effects
+                    .creation_effects()
+                    .unwrap()
+                    .copy_managed_filename(file, &self.creation.as_ref().unwrap().filename_bytes)
+            );
+            publish(record);
+            self.creation.as_mut().unwrap().published = true;
+            let count = self.active.len() as u32;
+            let registry = self.registry.as_mut().unwrap();
+            if count >= registry.capacity {
+                registry.capacity += registry.growth;
+                let capacity = registry.capacity;
+                let array = effect!(
+                    AllocateRegistry,
+                    effects
+                        .creation_effects()
+                        .unwrap()
+                        .allocate_managed_registry(capacity * 4)
+                )
+                .ok_or(ManagerError::UnsupportedAllocation)?;
+                self.creation.as_mut().unwrap().new_array = Some(array);
+                if self.aliases(array.0, forbidden) {
+                    return Err(ManagerError::InvalidIdentity.into());
+                }
+                self.allocation_history.push(array.0);
+                for (i, id) in self.active.iter().enumerate() {
+                    let old = self.records[(id.slot - 1) as usize].allocation;
+                    effect!(
+                        CopyRegistry,
+                        effects
+                            .creation_effects()
+                            .unwrap()
+                            .write_managed_registry_entry(array, i as u32, old)
+                    );
+                    self.creation.as_mut().unwrap().copied += 1;
+                }
+                effect!(
+                    DeleteRegistry,
+                    effects
+                        .creation_effects()
+                        .unwrap()
+                        .delete_managed_registry(self.registry.unwrap().allocation)
+                );
+                self.registry.as_mut().unwrap().allocation = Some(array);
+            }
+            let array = self.registry.unwrap().allocation.unwrap();
+            effect!(
+                AppendRegistry,
+                effects
+                    .creation_effects()
+                    .unwrap()
+                    .write_managed_registry_entry(array, count, record)
+            );
+            let progress = self.creation.take().unwrap();
+            let id = RecordId {
+                arena: self.identity,
+                slot: self.records.len() as u32 + 1,
+            };
+            self.records.push(ManagedRecord {
+                id,
+                owner: texture,
+                allocation: record,
+                file_name: Some(file),
+                preserved: Vec::new(),
+                phase: RecordPhase::Live,
+                fields: Some(progress.fields),
+                filename_bytes: Some(progress.filename_bytes),
+            });
+            self.active.push(id);
+            Ok(true)
+        })();
+        if result.is_err() {
+            self.poisoned = true;
+        }
+        result
     }
     pub fn is_poisoned(&self) -> bool {
         self.poisoned
@@ -225,6 +650,9 @@ impl TextureManager {
             .get(id.pool as usize)
             .and_then(|p| p.get(id.slot.wrapping_sub(1) as usize))
             .ok_or(ManagerError::UnknownPool)
+    }
+    pub(crate) fn requires_creation_effects(&self) -> bool {
+        self.registry.is_some()
     }
     pub(crate) fn record_count(&self, texture: TextureKey) -> usize {
         self.active
@@ -425,6 +853,8 @@ impl TextureManager {
                 file_name: r.file_name,
                 preserved: r.preserved,
                 phase: RecordPhase::Live,
+                fields: None,
+                filename_bytes: None,
             });
             self.active.push(id);
         }
@@ -456,6 +886,9 @@ impl TextureManager {
     ) -> Result<bool, ManagedOperationError<E>> {
         if self.poisoned {
             return Err(ManagerError::Poisoned.into());
+        }
+        if self.registry.is_some() && effects.creation_effects().is_none() {
+            return Err(ManagerError::CreationUnavailable.into());
         }
         if let Err(error) = effects.enter_texture_section() {
             self.poisoned = true;
@@ -490,7 +923,29 @@ impl TextureManager {
                     .delete_managed_record(self.records[slot].allocation)
                     .map_err(|e| (ManagedStage::Record, e))?;
                 self.records[slot].phase = RecordPhase::RecordFreed;
-                self.active.swap_remove(index);
+                // Native count publication precedes the array copy. Keep the
+                // former last identity available if the external write fails.
+                let last_id = self.active.pop().unwrap();
+                let remaining = self.active.len();
+                if remaining != 0 {
+                    self.registry_swap = Some((index as u32, last_id));
+                    if let Some(registry) = self.registry {
+                        let last = self.records[(last_id.slot - 1) as usize].allocation;
+                        effects
+                            .creation_effects()
+                            .unwrap()
+                            .write_managed_registry_entry(
+                                registry.allocation.unwrap(),
+                                index as u32,
+                                last,
+                            )
+                            .map_err(|e| (ManagedStage::CopyRegistry, e))?;
+                    }
+                    if index < remaining {
+                        self.active[index] = last_id;
+                    }
+                    self.registry_swap = None;
+                }
             }
             if *flags & 0x80000000 != 0 {
                 for pool in &mut self.pools {
