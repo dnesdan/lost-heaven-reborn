@@ -245,6 +245,35 @@ pub(super) fn model_storage_bytes(model: &Model) -> Result<usize, String> {
                 }
             }
         }
+        if let Some(target) = &frame.target {
+            add(target.frame_indices.capacity(), std::mem::size_of::<u16>())?;
+        }
+        if let Some(definition) = frame
+            .morph
+            .as_ref()
+            .and_then(|morph| morph.definition.as_ref())
+        {
+            add(
+                definition.lods.capacity(),
+                std::mem::size_of::<lhr_assets::MorphLodRecord>(),
+            )?;
+            for lod in &definition.lods {
+                add(
+                    lod.channels.capacity(),
+                    std::mem::size_of::<lhr_assets::MorphChannelRecord>(),
+                )?;
+                for channel in &lod.channels {
+                    add(
+                        channel.samples.capacity(),
+                        std::mem::size_of::<lhr_assets::MorphSampleRecord>(),
+                    )?;
+                    add(
+                        channel.vertex_indices.capacity(),
+                        std::mem::size_of::<u16>(),
+                    )?;
+                }
+            }
+        }
     }
     Ok(total)
 }
@@ -519,6 +548,8 @@ mod tests {
                 dummy_bounds: None,
                 joint: None,
                 skin: None,
+                morph: None,
+                target: None,
                 parent: None,
                 position: [0.0; 3],
                 scale: [1.0; 3],

@@ -3,6 +3,7 @@
 pub mod actor_registry;
 pub mod actor_tick;
 pub mod animation_binding;
+pub mod animation_index;
 pub mod clock;
 pub mod driver_state;
 pub mod frame_delta;
@@ -19,6 +20,7 @@ pub mod native_transform;
 pub mod original_config;
 pub mod player_control;
 pub mod police_state;
+pub mod rotation_animation;
 pub mod runtime;
 pub mod scene_tick;
 pub mod script_scheduler;
@@ -27,3 +29,8 @@ pub mod singlemesh_binding;
 pub mod singlemesh_bounds;
 pub mod singlemesh_deformation;
 pub mod singlemesh_pose;
+pub mod singlemorph_state;
+
+pub mod skeletal_animation;
+pub mod target_direction;
+pub mod target_state;

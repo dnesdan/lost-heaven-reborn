@@ -4,7 +4,8 @@
 //! 0x1a6e0,0x1b9d0,0x1bf20,0x1ca60. Setter names are descriptive views of
 //! observed inline operations, not additional original symbols. Host storage
 //! does not implement native reference counting/destructors. Only LinkTo flags0/1,
-//! model/mesh/dummy/joint virtual updates, and an empty deferred queue are represented.
+//! model/mesh/dummy/joint/Target virtual updates and the owned deferred Target queue
+//! are represented.
 //! Joint cache and singlemesh discovery/binding use owned graph identities;
 //! loaded-definition bounds and inherited visual updates are represented;
 //! singlemesh rendering/resource backends remain separate.
@@ -17,6 +18,9 @@ use crate::{
         calculate_singlemesh_bounds, SinglemeshBoundVolume, SinglemeshBoundingBox,
         SinglemeshBoundsError,
     },
+    target_state::{
+        I3dTargetState, TargetFrameBackend, TargetRegistry, TargetUpdateError, TargetUpdateQueue,
+    },
 };
 const DIRTY: u32 = 0x40002000;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -27,6 +31,7 @@ pub enum FrameKind {
     Mesh,
     Dummy,
     Joint,
+    Target,
     /// A Joint::UpdateV target with optional owned binding fields. Only an
     /// owned binding admits the inherited visual update and loaded bounds path.
     Singlemesh,
@@ -86,6 +91,13 @@ impl I3dFrameState {
         state.kind = FrameKind::Joint;
         state
     }
+    /// Original Target base-frame constructor projection, RVA 0x59490.
+    /// Derived links and target flags are registered separately.
+    pub fn target() -> Self {
+        let mut state = Self::model();
+        state.kind = FrameKind::Target;
+        state
+    }
     /// Supported FrameLoadImage result. Caller separately proves mesh type/flags.
     pub fn source_mesh(position: [f32; 3], scale: [f32; 3], rotation: SQuat) -> Self {
         let mut s = Self::model();
@@ -131,6 +143,9 @@ pub struct I3dFrameGraph {
     nodes: Vec<Node>,
     world_path: Vec<FrameKey>,
     visits: Vec<Visit>,
+    targets: TargetRegistry,
+    target_updates: TargetUpdateQueue,
+    deferred_error: Option<FrameError>,
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FrameError {
@@ -150,6 +165,10 @@ pub enum FrameError {
     SinglemeshBindingUnavailable(FrameKey),
     SinglemeshBoundsUnavailable(FrameKey),
     SinglemeshBoundsDefinitionTooShort(FrameKey),
+    NotTarget(FrameKey),
+    TargetUnavailable(FrameKey),
+    UnsupportedTargetFlags(FrameKey, u32),
+    TargetDirectionUnavailable(FrameKey),
 }
 impl I3dFrameGraph {
     pub fn insert(&mut self, state: I3dFrameState) -> Result<FrameKey, FrameError> {
@@ -193,6 +212,42 @@ impl I3dFrameGraph {
     pub fn state(&self, key: FrameKey) -> Result<&I3dFrameState, FrameError> {
         Ok(&self.node(key)?.state)
     }
+    /// Register the parsed Target links after all model identities exist.
+    /// LoadImage sets membership bit 0x4000 for every nonzero reference, while
+    /// preserving duplicates and registration order in its owned registry.
+    pub fn register_target(
+        &mut self,
+        key: FrameKey,
+        state: I3dTargetState,
+    ) -> Result<(), FrameError> {
+        if self.state(key)?.kind != FrameKind::Target {
+            return Err(FrameError::NotTarget(key));
+        }
+        for &linked in state.frames() {
+            self.index(linked)?;
+        }
+        self.target_updates
+            .reserve_pending(self.nodes.len())
+            .map_err(|_| FrameError::TargetUnavailable(key))?;
+        // All keys were preflighted; successful insertion is followed only by
+        // infallible stores, including repeated stores for duplicate references.
+        self.targets
+            .insert(key, state)
+            .map_err(|_| FrameError::TargetUnavailable(key))?;
+        for index in 0..self.targets.state(key).unwrap().frames().len() {
+            let linked = self.targets.state(key).unwrap().frames()[index];
+            self.node_mut(linked)?.state.flags |= 0x4000;
+        }
+        Ok(())
+    }
+
+    pub fn target_state(&self, key: FrameKey) -> Result<&I3dTargetState, FrameError> {
+        self.index(key)?;
+        self.targets
+            .state(key)
+            .map_err(|_| FrameError::TargetUnavailable(key))
+    }
+
     pub fn joint_state(&self, key: FrameKey) -> Result<&I3dJointState, FrameError> {
         self.node(key)?
             .joint
@@ -540,6 +595,8 @@ impl I3dFrameGraph {
                 )
             })
             .and_then(|n| n.checked_add(binding_bytes))
+            .and_then(|n| n.checked_add(self.targets.storage_bytes().ok()?))
+            .and_then(|n| n.checked_add(self.target_updates.storage_bytes().ok()?))
             .and_then(|n| {
                 n.checked_add(
                     self.visits
@@ -575,7 +632,7 @@ impl I3dFrameGraph {
         Ok(())
     }
     /// Observed LoadHierarchy EndLoad root store, followed by original Update.
-    /// This does not implement resource loading or a populated deferred queue.
+    /// Resource loading remains outside this field projection.
     pub fn mark_loaded_root(&mut self, key: FrameKey) -> Result<(), FrameError> {
         let state = &mut self.node_mut(key)?.state;
         state.flags = (state.flags & 0xfffffeff) | 0x40000000;
@@ -644,6 +701,73 @@ impl I3dFrameGraph {
         state.flags = (state.flags & 0xfffffecb) | 0x40000008;
         Ok(())
     }
+    /// Assign a quaternion already normalized by the original track evaluator.
+    /// Preserve its exact bits; running Normalize again would change samples.
+    /// The input has the same numeric availability guard as assign_rotation.
+    pub fn apply_evaluated_rotation(
+        &mut self,
+        key: FrameKey,
+        rotation: SQuat,
+    ) -> Result<(), FrameError> {
+        self.index(key)?;
+        if !rotation.is_verified_input() {
+            return Err(FrameError::NumericDomain("evaluated rotation"));
+        }
+        let state = &mut self.node_mut(key)?.state;
+        state.rotation = rotation;
+        state.flags = (state.flags & 0xfffffecb) | 0x40000008;
+        Ok(())
+    }
+
+    /// Original SetDirWorld (RVA 0x1b040), for a frame with a parent and a
+    /// roll whose absolute value is at most the native double 1e-8 threshold.
+    /// The parent cache is requested before inverse/direction arithmetic. A
+    /// singular parent uses the original inverse identity fallback. SetDir3
+    /// retains its native partial writes on an unavailable numeric dependency;
+    /// host error markers prevent those caches from appearing complete later.
+    /// Parentless SetDir and roll rotations above that threshold remain unavailable.
+    pub fn set_direction_world(
+        &mut self,
+        key: FrameKey,
+        direction: [f32; 3],
+        roll: f32,
+    ) -> Result<(), FrameError> {
+        self.index(key)?;
+        let result = (|| {
+            let parent = self
+                .links(key)?
+                .parent
+                .ok_or(FrameError::TargetDirectionUnavailable(key))?;
+            let parent_world = self.world_matrix(parent)?;
+            let (inverse, _) = parent_world
+                .inverse()
+                .map_err(|_| FrameError::NumericDomain("SetDirWorld inverse"))?;
+            let direction_matrix = crate::target_direction::try_target_direction_matrix(direction)
+                .map_err(|_| FrameError::NumericDomain("SetDirWorld direction"))?;
+            if !roll.is_finite() || f64::from(roll.abs()) > f64::from(1e-8_f32) {
+                return Err(FrameError::TargetDirectionUnavailable(key));
+            }
+            let relative = direction_matrix
+                .try_mul_affine(&inverse)
+                .map_err(|_| FrameError::NumericDomain("SetDirWorld multiply"))?;
+            self.node_mut(key)?
+                .state
+                .local
+                .try_set_dir3(
+                    relative.elements[8..11].try_into().unwrap(),
+                    relative.elements[4..7].try_into().unwrap(),
+                )
+                .map_err(|_| FrameError::DirectionFromVectorsUnavailable)?;
+            let state = &mut self.node_mut(key)?.state;
+            state.flags = (state.flags & 0xfffffed3) | 0x40000010;
+            Ok(())
+        })();
+        let node = self.node_mut(key)?;
+        node.local_error = result.as_ref().err().copied();
+        node.world_error = result.as_ref().err().copied();
+        result
+    }
+
     /// RemoveChild preserves the detached child's world cache, even if now stale.
     pub fn remove_child(&mut self, parent: FrameKey, child: FrameKey) -> Result<(), FrameError> {
         self.index(parent)?;
@@ -940,6 +1064,20 @@ impl I3dFrameGraph {
     /// Observed UpdateV effects for the represented frame kinds. Dummy's
     /// original entry is RVA0x1a330; it clears its own bound flag only if dirty.
     pub fn update_v(&mut self, key: FrameKey) -> Result<(), FrameError> {
+        if let Some(error) = self.deferred_error {
+            return Err(error);
+        }
+        if self.state(key)?.kind == FrameKind::Target {
+            let flags = self.state(key)?.flags;
+            let result = self
+                .target_updates
+                .update_v(key, flags)
+                .map_err(|_| FrameError::TargetUnavailable(key));
+            if let Err(error) = result {
+                self.deferred_error = Some(error);
+            }
+            return result;
+        }
         if self.state(key)?.kind == FrameKind::Singlemesh && self.node(key)?.binding.is_none() {
             return Err(FrameError::UnsupportedSinglemeshUpdate(key));
         }
@@ -980,9 +1118,12 @@ impl I3dFrameGraph {
         Ok(())
     }
     /// Original Update/recursive-child effects for model/standard-mesh/dummy/joint
-    /// objects and owned singlemesh bindings. The deferred list is empty;
+    /// objects and owned singlemesh bindings, followed by deferred Target updates;
     /// target-only singlemesh projections cannot enter their own update.
     pub fn update(&mut self, key: FrameKey) -> Result<(), FrameError> {
+        if let Some(error) = self.deferred_error {
+            return Err(error);
+        }
         let mut visits = std::mem::take(&mut self.visits);
         visits.clear();
         let result = (|| {
@@ -1025,16 +1166,260 @@ impl I3dFrameGraph {
                 s.visual_flags &= !0x40000;
             }
             s.flags &= !DIRTY;
+            self.flush_target_updates()?;
             Ok(())
         })();
         self.visits = visits;
         result
+    }
+    fn flush_target_updates(&mut self) -> Result<(), FrameError> {
+        let Some(count) = self.target_updates.begin_flush() else {
+            return Ok(());
+        };
+        // Moving the registry avoids cloning linked-frame allocations. Nested
+        // Update calls observe the queue's reentrancy guard and skip this flush.
+        let targets = std::mem::take(&mut self.targets);
+        let result = (|| {
+            for index in 0..count {
+                let key = self.target_updates.pending()[index];
+                let target = targets
+                    .state(key)
+                    .map_err(|_| FrameError::TargetUnavailable(key))?;
+                target
+                    .update_frames_with_backend(key, self)
+                    .map_err(|error| match error {
+                        TargetUpdateError::World(error) => error,
+                        TargetUpdateError::UnsupportedTargetFlags(flags) => {
+                            FrameError::UnsupportedTargetFlags(key, flags)
+                        }
+                        TargetUpdateError::NumericDomain => {
+                            FrameError::NumericDomain("Target UpdateFrames")
+                        }
+                    })?;
+            }
+            Ok(())
+        })();
+        self.targets = targets;
+        match result {
+            Ok(()) => {
+                self.target_updates.finish_flush();
+                Ok(())
+            }
+            Err(error) => {
+                self.deferred_error = Some(error);
+                Err(error)
+            }
+        }
+    }
+}
+
+impl TargetFrameBackend for I3dFrameGraph {
+    type Error = FrameError;
+    fn world_matrix(&mut self, frame: FrameKey) -> Result<SMatrix, Self::Error> {
+        I3dFrameGraph::world_matrix(self, frame)
+    }
+    fn set_direction_world(
+        &mut self,
+        frame: FrameKey,
+        direction: [f32; 3],
+        roll: f32,
+    ) -> Result<(), Self::Error> {
+        I3dFrameGraph::set_direction_world(self, frame, direction, roll)
+    }
+    fn update_frame(&mut self, frame: FrameKey) -> Result<(), Self::Error> {
+        self.update(frame)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn target_registration_retains_links_sets_membership_and_charges_storage() {
+        let mut graph = I3dFrameGraph::default();
+        let target = graph.insert(I3dFrameState::target()).unwrap();
+        let linked = graph.insert(I3dFrameState::dummy()).unwrap();
+        let before = graph.storage_bytes().unwrap();
+        let state = I3dTargetState::from_parsed_fields(0, &[1, 1], &[linked]).unwrap();
+        graph.register_target(target, state).unwrap();
+        assert_eq!(
+            graph.target_state(target).unwrap().frames(),
+            [linked, linked]
+        );
+        assert_ne!(graph.state(linked).unwrap().flags & 0x4000, 0);
+        assert!(graph.storage_bytes().unwrap() > before);
+        assert_eq!(
+            graph.register_target(linked, I3dTargetState::default()),
+            Err(FrameError::NotTarget(linked))
+        );
+    }
+
+    #[test]
+    fn target_zero_flags_flushes_world_after_root_dirty_clear_and_retains_storage() {
+        let mut graph = I3dFrameGraph::default();
+        let root = graph.insert(I3dFrameState::model()).unwrap();
+        let target = graph.insert(I3dFrameState::target()).unwrap();
+        let linked = graph.insert(I3dFrameState::dummy()).unwrap();
+        graph.link_to(target, Some(root)).unwrap();
+        graph.assign_position(target, [2., 3., 4.]).unwrap();
+        graph
+            .register_target(
+                target,
+                I3dTargetState::from_parsed_fields(0, &[1], &[linked]).unwrap(),
+            )
+            .unwrap();
+        let before = graph.storage_bytes().unwrap();
+        graph.update(root).unwrap();
+        assert_eq!(graph.state(root).unwrap().flags & DIRTY, 0);
+        assert_eq!(graph.state(target).unwrap().flags & DIRTY, 0);
+        assert_ne!(graph.state(target).unwrap().flags & 0x20, 0);
+        assert_eq!(
+            graph.state(target).unwrap().world.elements[12..15],
+            [2., 3., 4.]
+        );
+        assert!(graph.target_updates.pending().is_empty());
+        assert!(!graph.target_updates.is_flushing());
+        assert_eq!(graph.storage_bytes().unwrap(), before);
+    }
+
+    #[test]
+    fn deferred_target_failure_preserves_forward_prefix_and_poisoned_queue() {
+        let mut graph = I3dFrameGraph::default();
+        let root = graph.insert(I3dFrameState::model()).unwrap();
+        let linked = graph.insert(I3dFrameState::dummy()).unwrap();
+        let mut targets = Vec::new();
+        for flags in [0, 2, 0] {
+            let target = graph.insert(I3dFrameState::target()).unwrap();
+            graph.assign_position(target, [1., 2., 3.]).unwrap();
+            graph
+                .register_target(
+                    target,
+                    I3dTargetState::from_parsed_fields(flags, &[1], &[linked]).unwrap(),
+                )
+                .unwrap();
+            graph.update_v(target).unwrap();
+            targets.push(target);
+        }
+        let error = FrameError::UnsupportedTargetFlags(targets[1], 2);
+        assert_eq!(graph.update(root), Err(error));
+        assert_eq!(graph.state(root).unwrap().flags & DIRTY, 0);
+        assert_ne!(graph.state(targets[0]).unwrap().flags & 0x20, 0);
+        assert_ne!(graph.state(targets[1]).unwrap().flags & 0x20, 0);
+        assert_eq!(graph.state(targets[2]).unwrap().flags & 0x20, 0);
+        assert!(graph.target_updates.is_flushing());
+        assert_eq!(graph.target_updates.pending(), targets);
+        let root_state = *graph.state(root).unwrap();
+        assert_eq!(graph.update(root), Err(error));
+        assert_eq!(graph.update_v(targets[2]), Err(error));
+        assert_eq!(*graph.state(root).unwrap(), root_state);
+        assert_eq!(graph.target_updates.pending(), targets);
+    }
+
+    #[test]
+    fn target_update_v_checks_active_and_dirty_only_and_retains_duplicates() {
+        let mut graph = I3dFrameGraph::default();
+        let target = graph.insert(I3dFrameState::target()).unwrap();
+        graph
+            .register_target(target, I3dTargetState::default())
+            .unwrap();
+        graph.node_mut(target).unwrap().state.flags = 0x40000000;
+        graph.update_v(target).unwrap();
+        assert!(graph.target_updates.pending().is_empty());
+        graph.node_mut(target).unwrap().state.flags = 1;
+        graph.update_v(target).unwrap();
+        assert!(graph.target_updates.pending().is_empty());
+        graph.node_mut(target).unwrap().state.flags = 0x2001;
+        graph.update_v(target).unwrap();
+        graph.update_v(target).unwrap();
+        assert_eq!(graph.target_updates.pending(), [target, target]);
+    }
+
+    #[test]
+    fn target_look_at_reentrant_update_drops_appended_queue_after_snapshot() {
+        let mut graph = I3dFrameGraph::default();
+        let root = graph.insert(I3dFrameState::model()).unwrap();
+        let linked = graph.insert(I3dFrameState::dummy()).unwrap();
+        let target = graph.insert(I3dFrameState::target()).unwrap();
+        graph.link_to(linked, Some(root)).unwrap();
+        graph.link_to(target, Some(linked)).unwrap();
+        graph.assign_position(target, [1., 0., 0.]).unwrap();
+        graph
+            .register_target(
+                target,
+                I3dTargetState::from_parsed_fields(1, &[1], &[linked]).unwrap(),
+            )
+            .unwrap();
+        graph.update(root).unwrap();
+        assert_eq!(
+            graph.state(linked).unwrap().local.elements[8..11],
+            [1., 0., 0.]
+        );
+        // Ordinary traversal and the Target callback both update this frame.
+        // Its Target child appends while the deferred queue is already busy.
+        assert_eq!(graph.state(linked).unwrap().update_count, 2);
+        assert!(graph.target_updates.pending().is_empty());
+        assert!(!graph.target_updates.is_flushing());
+        assert!(graph.deferred_error.is_none());
+    }
+
+    #[test]
+    fn direction_world_uses_parent_inverse_and_reports_unavailable_backends() {
+        let mut graph = I3dFrameGraph::default();
+        let mut parent_state = I3dFrameState::model();
+        parent_state.world.elements[0] = 2.;
+        parent_state.world.elements[5] = 0.5;
+        let parent = graph.insert(parent_state).unwrap();
+        let child = graph.insert(I3dFrameState::dummy()).unwrap();
+        graph.link_to(child, Some(parent)).unwrap();
+        graph.set_direction_world(child, [1., 0., 1.], 0.).unwrap();
+        let state = graph.state(child).unwrap();
+        assert_eq!(state.flags & 0x4000003c, 0x40000010);
+        assert!(state.local.elements[8] < state.local.elements[10]);
+        let isolated = graph.insert(I3dFrameState::dummy()).unwrap();
+        let error = FrameError::TargetDirectionUnavailable(isolated);
+        assert_eq!(
+            graph.set_direction_world(isolated, [1., 0., 0.], 0.),
+            Err(error)
+        );
+        assert_eq!(graph.world_matrix(isolated), Err(error));
+        let roll_error = FrameError::TargetDirectionUnavailable(child);
+        assert_eq!(
+            graph.set_direction_world(child, [1., 0., 1.], 1.),
+            Err(roll_error)
+        );
+        assert_eq!(graph.state(child).unwrap().flags & 0x4000003c, 0x40000010);
+    }
+
+    #[test]
+    fn evaluated_rotation_preserves_sample_bits_without_second_normalization() {
+        let mut graph = I3dFrameGraph::default();
+        let key = graph.insert(I3dFrameState::dummy()).unwrap();
+        let rotation = SQuat {
+            wxyz: [0.5, -0.25, 0.125, -0.],
+        };
+        graph.node_mut(key).unwrap().state.flags = 0x1234ffff;
+        graph.apply_evaluated_rotation(key, rotation).unwrap();
+        assert_eq!(
+            graph.state(key).unwrap().rotation.wxyz.map(f32::to_bits),
+            rotation.wxyz.map(f32::to_bits)
+        );
+        assert_eq!(
+            graph.state(key).unwrap().flags,
+            (0x1234ffff & 0xfffffecb) | 0x40000008
+        );
+        let before = *graph.state(key).unwrap();
+        assert_eq!(
+            graph.apply_evaluated_rotation(
+                key,
+                SQuat {
+                    wxyz: [f32::NAN, 0., 0., 0.]
+                }
+            ),
+            Err(FrameError::NumericDomain("evaluated rotation"))
+        );
+        assert_eq!(*graph.state(key).unwrap(), before);
+    }
 
     #[test]
     fn joint_matrix_stops_at_visual_and_reuses_cached_parent() {

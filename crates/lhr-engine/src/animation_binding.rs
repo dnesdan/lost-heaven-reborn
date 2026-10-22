@@ -126,6 +126,8 @@ mod tests {
                 dummy_bounds: None,
                 joint: None,
                 skin: None,
+                morph: None,
+                target: None,
                 parent: None,
                 position: [0.; 3],
                 scale: [1.; 3],

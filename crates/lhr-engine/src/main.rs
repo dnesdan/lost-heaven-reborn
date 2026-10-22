@@ -17,6 +17,7 @@ struct Options {
     model: Option<String>,
     animation: Option<String>,
     animation_steps: Option<u32>,
+    sample_animation_ms: Option<u32>,
     capture: Option<PathBuf>,
     headless: bool,
     frames: u32,
@@ -31,6 +32,7 @@ fn options() -> Result<Options, String> {
         model: None,
         animation: None,
         animation_steps: None,
+        sample_animation_ms: None,
         capture: None,
         headless: false,
         frames: 0,
@@ -44,6 +46,7 @@ fn options() -> Result<Options, String> {
         match arg.as_str() {
             "--textures" => result.textures = args.next().ok_or("Missing textures argument")?,
             "--root" => result.root = Some(args.next().ok_or("Missing root argument")?.into()),
+            "--sample-animation-ms" => result.sample_animation_ms = Some(args.next().ok_or("Missing animation sample time")?.parse().map_err(|_| "Invalid animation sample time")?),
             "--animation-steps" => result.animation_steps = Some(args.next().ok_or("Missing animation steps")?.parse().map_err(|_|"Invalid animation steps")?),
             "--animation" => result.animation = Some(args.next().ok_or("Missing animation argument")?),
             "--model" => result.model = Some(args.next().ok_or("Missing model argument")?),
@@ -59,11 +62,18 @@ fn options() -> Result<Options, String> {
                 "Headless --animation-steps 0..600 uses controlled 16 ms inspection-clock steps; omit it for one platform-clock step. ",
                 "Root alone opens the supported original Czech main-menu subset (New Game/Exit). ",
                 "Menu: arrows/Enter or mouse. New Game loads static INTRO; Esc loads static MISE01, then returns to menu. ",
-                "Scene inspection: arrows orbit, W/S zoom. --animation admits only a matched single-root position track; other animation channels are unavailable. Original profile, cutscene, mission-script and gameplay execution are not implemented. ",
+                "Scene inspection: arrows orbit, W/S zoom. --animation alone admits a matched single-root position track. Add --sample-animation-ms MS for one bounded position/rotation skeletal pose; this does not start controller playback. Original profile, cutscene, mission-script and gameplay execution are not implemented. ",
                 "Sampling is provisional nearest (or --linear), not verified original behavior."
             ).into()),
             _ => return Err("Unknown command option".into()),
         }
+    }
+    if result.sample_animation_ms.is_some()
+        && (result.animation.is_none() || result.animation_steps.is_some())
+    {
+        return Err(
+            "--sample-animation-ms requires --animation and excludes --animation-steps".into(),
+        );
     }
     if let Some(steps) = result.animation_steps {
         if !result.headless || result.animation.is_none() || steps > 600 {
@@ -195,7 +205,24 @@ fn load(options: &Options) -> Result<LoadedScene, String> {
     let data = installation
         .read(&path)
         .map_err(|e| format!("Cannot read selected geometry: {e}"))?;
-    let (model, animation_source) = if let Some(animation_path) = &options.animation {
+    let mut animation_sample = None;
+    let (model, animation_source) = if let Some(milliseconds) = options.sample_animation_ms {
+        let animation_path = options
+            .animation
+            .as_ref()
+            .ok_or("Missing sample animation")?;
+        let bytes = installation
+            .read(animation_path)
+            .map_err(|error| error.to_string())?;
+        let animation =
+            lhr_assets::animation::parse_5ds(&bytes).map_err(|error| error.to_string())?;
+        let model = lhr_assets::parse_four_ds(&data)
+            .or_else(|_| lhr_assets::parse_four_ds_skin(&data))
+            .or_else(|_| lhr_assets::parse_four_ds_singlemorph(&data))
+            .map_err(|error| format!("Unsupported skeletal model source: {error}"))?;
+        animation_sample = Some((Arc::new(animation), milliseconds));
+        (Arc::new(model), None)
+    } else if let Some(animation_path) = &options.animation {
         let animation_bytes = installation
             .read(animation_path)
             .map_err(|error| format!("Cannot read selected animation: {error}"))?;
@@ -208,7 +235,9 @@ fn load(options: &Options) -> Result<LoadedScene, String> {
         (model, Some(source))
     } else {
         let model = if options.model.is_some() {
-            lhr_assets::parse_four_ds(&data).or_else(|_| lhr_assets::parse_four_ds_skin(&data))
+            lhr_assets::parse_four_ds(&data)
+                .or_else(|_| lhr_assets::parse_four_ds_skin(&data))
+                .or_else(|_| lhr_assets::parse_four_ds_singlemorph(&data))
         } else {
             lhr_assets::parse_four_ds_scene(&data)
         }
@@ -229,6 +258,9 @@ fn load(options: &Options) -> Result<LoadedScene, String> {
     let mut builder = assembly::SceneBuilder::new(&installation, &options.textures);
     if options.model.is_some() && animation_source.is_none() {
         builder.use_original_model_loading();
+    }
+    if let Some((animation, milliseconds)) = animation_sample {
+        builder.sample_original_animation(animation, milliseconds);
     }
     builder.append_retained(
         &path,

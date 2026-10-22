@@ -219,14 +219,30 @@ impl SQuat {
     /// composition; each nonzero factor angle must be at most two radians.
     /// PC24 exponent edges and uncertain transcendental rounding return errors.
     /// Retains the admitted zero-length and exact diagonal identity branches.
+    /// Matrix admission checks each PC24 intermediate, including row lengths;
+    /// ordinary small basis components need not satisfy the legacy scalar guard.
     /// Missing-row reconstruction remains unavailable.
     pub fn try_make_from_matrix(matrix: &SMatrix) -> Result<Self, MakeUnavailable> {
-        if !matrix.is_verified_input() {
-            return Err(MakeUnavailable::InputOutsideVerifiedDomain);
+        let arithmetic = native_trig::Arithmetic::new();
+        let f = |value| arithmetic.input(value);
+        for value in matrix.elements {
+            f(value);
         }
+        arithmetic.finish()?;
         let m = &matrix.elements;
-        let lengths = [0, 4, 8].map(|i| vector_length([m[i], m[i + 1], m[i + 2]]));
-        let empty_basis = ((lengths[2] + lengths[1]) + lengths[0]) < 1e-8;
+        let lengths = [0, 4, 8].map(|i| {
+            let [x, y, z] = [m[i], m[i + 1], m[i + 2]].map(f);
+            let squared = (x * x + y * y) + z * z;
+            if (squared.value.to_bits() as i32) < 0x322b_cc77 {
+                0.
+            } else if (squared - f(1.)).abs().value < 1e-8 {
+                1.
+            } else {
+                squared.sqrt().value
+            }
+        });
+        let empty_basis = ((f(lengths[2]) + f(lengths[1])) + f(lengths[0])).value < 1e-8;
+        arithmetic.finish()?;
         let diagonal = [1, 2, 4, 6, 8, 9].into_iter().all(|i| m[i].to_bits() == 0);
         let power = |value: f32| {
             let bits = value.abs().to_bits();
@@ -482,6 +498,43 @@ mod tests {
         assert_eq!(
             SQuat::try_make_from_matrix(&matrix),
             Err(MakeUnavailable::UnrecoveredMatrix)
+        );
+    }
+
+    #[test]
+    fn matrix_make_checks_small_basis_intermediates_instead_of_blanket_magnitudes() {
+        // Synthetic original-PC Make comparisons: all eight outputs are identity.
+        for exponent in [40, 48, 54, 60] {
+            for sign in [-1., 1.] {
+                let tiny = sign * 2f32.powi(-exponent);
+                let mut matrix = SMatrix::identity();
+                matrix.elements[1] = tiny;
+                matrix.elements[4] = -tiny;
+                assert!(!matrix.is_verified_input());
+                assert_eq!(
+                    SQuat::try_make_from_matrix(&matrix)
+                        .unwrap()
+                        .wxyz
+                        .map(f32::to_bits),
+                    [1f32.to_bits(), 0, 0, 0]
+                );
+            }
+        }
+        // A tiny product may disappear into an otherwise ordinary row length;
+        // the wider native exponent remains unsupported even after that sum.
+        for tiny in [f32::from_bits(1), 2f32.powi(-64)] {
+            let mut matrix = SMatrix::identity();
+            matrix.elements[1] = tiny;
+            assert_eq!(
+                SQuat::try_make_from_matrix(&matrix),
+                Err(MakeUnavailable::InputOutsideVerifiedDomain)
+            );
+        }
+        let mut matrix = SMatrix::identity();
+        matrix.elements[0] = f32::MAX;
+        assert_eq!(
+            SQuat::try_make_from_matrix(&matrix),
+            Err(MakeUnavailable::InputOutsideVerifiedDomain)
         );
     }
 

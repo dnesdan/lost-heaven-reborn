@@ -8,6 +8,7 @@ use crate::{
     singlemesh_deformation::{
         deform_singlemesh_lod, DeformationUnavailable, SkinGroup, SkinVertex,
     },
+    singlemorph_state::{SinglemorphError, SinglemorphState},
 };
 use lhr_assets::Model;
 
@@ -16,6 +17,7 @@ pub enum SkinPoseError {
     Source(&'static str),
     Frame(FrameError),
     Deformation(DeformationUnavailable),
+    Morph(SinglemorphError),
 }
 impl From<FrameError> for SkinPoseError {
     fn from(value: FrameError) -> Self {
@@ -25,6 +27,49 @@ impl From<FrameError> for SkinPoseError {
 impl From<DeformationUnavailable> for SkinPoseError {
     fn from(value: DeformationUnavailable) -> Self {
         Self::Deformation(value)
+    }
+}
+impl From<SinglemorphError> for SkinPoseError {
+    fn from(value: SinglemorphError) -> Self {
+        Self::Morph(value)
+    }
+}
+
+/// Owned first-LOD source buffer retained across the original morph dirty gate.
+/// Joint animation reskins this buffer; it must not replace a clean morph result
+/// with the original, unmorphed source vertices.
+#[derive(Debug)]
+pub(crate) struct MorphPose {
+    state: SinglemorphState,
+    vertices: Vec<lhr_assets::Vertex>,
+}
+impl MorphPose {
+    pub(crate) fn from_frame(frame: &lhr_assets::Frame) -> Result<Self, SkinPoseError> {
+        let record = frame
+            .morph
+            .as_ref()
+            .ok_or(SkinPoseError::Source("morph record"))?;
+        if record
+            .definition
+            .as_ref()
+            .is_some_and(|definition| definition.lods.len() != frame.lods.len())
+        {
+            return Err(SkinPoseError::Source("morph/geometry LOD count"));
+        }
+        let lod = frame
+            .lods
+            .first()
+            .ok_or(SkinPoseError::Source("morph first LOD"))?;
+        Ok(Self {
+            state: SinglemorphState::from_record(record)?,
+            vertices: lod.vertices.clone(),
+        })
+    }
+    pub(crate) fn storage_bytes(&self) -> Option<usize> {
+        self.vertices
+            .capacity()
+            .checked_mul(std::mem::size_of::<lhr_assets::Vertex>())?
+            .checked_add(self.state.storage_bytes())
     }
 }
 
@@ -40,15 +85,16 @@ impl SinglemeshPose {
         source: &Model,
         keys: &[FrameKey],
         graph: &mut I3dFrameGraph,
+        morphs: &mut [Option<MorphPose>],
     ) -> Result<Self, SkinPoseError> {
-        if source.frames.len() != keys.len() {
+        if source.frames.len() != keys.len() || source.frames.len() != morphs.len() {
             return Err(SkinPoseError::Source("frame identity count"));
         }
         let mut output = Self {
             vertices: (0..source.frames.len()).map(|_| None).collect(),
         };
         for (index, frame) in source.frames.iter().enumerate() {
-            if (frame.kind, frame.visual) != (1, Some(2)) {
+            if !matches!((frame.kind, frame.visual), (1, Some(2 | 3))) {
                 if frame.skin.is_some() {
                     return Err(SkinPoseError::Source("skin on a non-singlemesh frame"));
                 }
@@ -113,6 +159,27 @@ impl SinglemeshPose {
                     "singlemesh has no mesh or descendant joints",
                 ));
             }
+            // Original singlemorph UpdateLodVertices (0x57590) updates its
+            // shared morph buffer before invoking inherited skin deformation.
+            // The bounds warming above belongs to the preceding DBuild path.
+            let source_vertices = if frame.visual == Some(3) {
+                let cache = morphs[index]
+                    .as_mut()
+                    .ok_or(SkinPoseError::Source("owned morph buffer"))?;
+                let record = frame
+                    .morph
+                    .as_ref()
+                    .ok_or(SkinPoseError::Source("morph record"))?;
+                cache
+                    .state
+                    .update_morph_lod(record, 0, &mut cache.vertices)?;
+                &cache.vertices
+            } else {
+                if frame.morph.is_some() || morphs[index].is_some() {
+                    return Err(SkinPoseError::Source("morph on non-singlemorph frame"));
+                }
+                &lod.vertices
+            };
             let joints: Vec<_> = graph
                 .singlemesh_binding(keys[index])?
                 .joints()
@@ -142,8 +209,7 @@ impl SinglemeshPose {
                 .into_iter()
                 .map(|value| value.unwrap_or(SMatrix::identity()))
                 .collect();
-            let vertices: Vec<_> = lod
-                .vertices
+            let vertices: Vec<_> = source_vertices
                 .iter()
                 .map(|vertex| SkinVertex {
                     position: vertex.position,

@@ -7,7 +7,8 @@
 use crate::frame_transform::{FrameError, FrameKey, FrameKind, I3dFrameGraph, I3dFrameState};
 use crate::joint_state::{I3dJointState, SinglemeshInvalidationState};
 use crate::native_transform::{SMatrix, SQuat};
-use crate::singlemesh_pose::{SinglemeshPose, SkinPoseError};
+use crate::singlemesh_pose::{MorphPose, SinglemeshPose, SkinPoseError};
+use crate::target_state::{I3dTargetState, TargetError};
 use lhr_assets::Model;
 use std::{fmt, sync::Arc};
 
@@ -48,7 +49,11 @@ pub enum ModelError {
     MissingDummyBounds(usize),
     MissingJointRecord(usize),
     MissingSkinRecord(usize),
+    MissingTargetRecord(usize),
+    Target(TargetError),
     SkinPose(SkinPoseError),
+    Animation(crate::skeletal_animation::SkeletalAnimationError),
+    AnimationIdentity,
     InvalidParent {
         index: usize,
         parent: usize,
@@ -307,6 +312,7 @@ pub struct MaterializedModel {
     root: ModelKey,
     source_frame_keys: Vec<FrameKey>,
     skin_pose: Option<SinglemeshPose>,
+    morph_poses: Vec<Option<MorphPose>>,
     complete: bool,
 }
 impl MaterializedModel {
@@ -328,6 +334,7 @@ impl MaterializedModel {
                         root: ModelKey(FrameKey(0)),
                         source_frame_keys: Vec::new(),
                         skin_pose: None,
+                        morph_poses: Vec::new(),
                         complete: false,
                     }),
                 });
@@ -339,6 +346,7 @@ impl MaterializedModel {
             root,
             source_frame_keys: Vec::new(),
             skin_pose: None,
+            morph_poses: Vec::new(),
             complete: false,
         };
         for index in 0..result.source.frames.len() {
@@ -349,6 +357,12 @@ impl MaterializedModel {
                     partial: Box::new(result),
                 });
             }
+        }
+        if let Err(error) = result.resolve_targets() {
+            return Err(ModelLoadFailure {
+                error,
+                partial: Box::new(result),
+            });
         }
         if let Err(error) = result.transfer_loaded_frames() {
             return Err(ModelLoadFailure {
@@ -369,12 +383,13 @@ impl MaterializedModel {
         let source = &self.source.frames[index];
         let mut state = match (source.kind, source.visual) {
             (1, Some(0 | 1)) => I3dFrameState::mesh(),
-            (1, Some(2)) => {
+            (1, Some(2 | 3)) => {
                 let mut state = I3dFrameState::mesh();
                 state.kind = FrameKind::Singlemesh;
                 state
             }
             (6, None) => I3dFrameState::dummy(),
+            (7, None) => I3dFrameState::target(),
             (10, None) => I3dFrameState::joint(),
             _ => {
                 return Err(ModelError::UnsupportedFrame {
@@ -387,10 +402,20 @@ impl MaterializedModel {
         if source.kind == 6 && source.dummy_bounds.is_none() {
             return Err(ModelError::MissingDummyBounds(index));
         }
+        if source.kind == 7 && source.target.is_none() {
+            return Err(ModelError::MissingTargetRecord(index));
+        }
+        if source.kind != 7 && source.target.is_some() {
+            return Err(ModelError::UnsupportedFrame {
+                index,
+                kind: source.kind,
+                visual: source.visual,
+            });
+        }
         if source.kind == 10 && source.joint.is_none() {
             return Err(ModelError::MissingJointRecord(index));
         }
-        if source.visual == Some(2)
+        if matches!(source.visual, Some(2 | 3))
             && (source.skin.is_none() || source.lods.is_empty() || source.instance.is_some())
         {
             return Err(ModelError::MissingSkinRecord(index));
@@ -441,7 +466,34 @@ impl MaterializedModel {
                 joint.index,
             )?;
         }
+        let morph = if source.visual == Some(3) {
+            Some(MorphPose::from_frame(source).map_err(ModelError::SkinPose)?)
+        } else {
+            if source.morph.is_some() {
+                return Err(ModelError::SkinPose(SkinPoseError::Source(
+                    "morph on non-singlemorph frame",
+                )));
+            }
+            None
+        };
+        self.morph_poses.push(morph);
         self.source_frame_keys.push(key);
+        Ok(())
+    }
+    fn resolve_targets(&mut self) -> Result<(), ModelError> {
+        for (index, source) in self.source.frames.iter().enumerate() {
+            if let Some(record) = &source.target {
+                let state = I3dTargetState::from_parsed_fields(
+                    record.flags,
+                    &record.frame_indices,
+                    &self.source_frame_keys,
+                )
+                .map_err(ModelError::Target)?;
+                self.arena
+                    .graph
+                    .register_target(self.source_frame_keys[index], state)?;
+            }
+        }
         Ok(())
     }
     fn transfer_loaded_frames(&mut self) -> Result<(), ModelError> {
@@ -478,6 +530,42 @@ impl MaterializedModel {
             .map(|&key| self.arena.world_matrix(key))
             .collect()
     }
+    /// Sample one explicitly bound position/rotation animation at an admitted
+    /// time, apply its evaluator writes, then execute the model hierarchy update.
+    /// This host inspection adapter does not create original controller/resource
+    /// ownership, advance IPol time, blend slots, or dispatch boundary events.
+    /// Sampling is preflighted before any writes. After writes begin, unavailable
+    /// graph work preserves its prefix and discards the old renderable pose.
+    pub fn evaluate_skeletal_animation(
+        &mut self,
+        animation: &crate::skeletal_animation::SkeletalAnimation,
+        current_ms: u32,
+    ) -> Result<(), ModelError> {
+        if !self.complete
+            || !Arc::ptr_eq(&self.source, animation.model())
+            || animation.bindings().iter().any(|binding| {
+                self.source_frame_keys.get(binding.frame_index) != Some(&binding.frame)
+            })
+        {
+            return Err(ModelError::AnimationIdentity);
+        }
+        let samples = animation
+            .sample(current_ms)
+            .map_err(ModelError::Animation)?;
+        self.skin_pose = None;
+        for sample in samples {
+            if let Some(position) = sample.position {
+                self.arena.graph.assign_position(sample.frame, position)?;
+            }
+            if let Some(rotation) = sample.rotation {
+                self.arena
+                    .graph
+                    .apply_evaluated_rotation(sample.frame, rotation)?;
+            }
+        }
+        self.arena.graph.update(self.root.root())?;
+        Ok(())
+    }
     /// Build an immutable first-LOD CPU skin pose from the unchanged source and
     /// the owned Joint hierarchy, including the populated-definition bounds
     /// calculation before deformation. This does not bind an animation or
@@ -493,11 +581,16 @@ impl MaterializedModel {
             .source
             .frames
             .iter()
-            .any(|frame| frame.visual == Some(2))
+            .any(|frame| matches!(frame.visual, Some(2 | 3)))
         {
             self.skin_pose = Some(
-                SinglemeshPose::build(&self.source, &self.source_frame_keys, &mut self.arena.graph)
-                    .map_err(ModelError::SkinPose)?,
+                SinglemeshPose::build(
+                    &self.source,
+                    &self.source_frame_keys,
+                    &mut self.arena.graph,
+                    &mut self.morph_poses,
+                )
+                .map_err(ModelError::SkinPose)?,
             );
         }
         Ok(())
@@ -517,6 +610,23 @@ impl MaterializedModel {
                     .ok_or(ModelError::AllocationOverflow)?,
             )
             .ok_or(ModelError::AllocationOverflow)?;
+        let mut bytes = bytes
+            .checked_add(
+                self.morph_poses
+                    .capacity()
+                    .checked_mul(std::mem::size_of::<Option<MorphPose>>())
+                    .ok_or(ModelError::AllocationOverflow)?,
+            )
+            .ok_or(ModelError::AllocationOverflow)?;
+        for morph in self.morph_poses.iter().flatten() {
+            bytes = bytes
+                .checked_add(
+                    morph
+                        .storage_bytes()
+                        .ok_or(ModelError::AllocationOverflow)?,
+                )
+                .ok_or(ModelError::AllocationOverflow)?;
+        }
         bytes
             .checked_add(match &self.skin_pose {
                 Some(pose) => pose.storage_bytes().ok_or(ModelError::AllocationOverflow)?,
@@ -542,6 +652,8 @@ mod tests {
             dummy_bounds: (kind == 6).then_some([[0.; 3], [1.; 3]]),
             joint: None,
             skin: None,
+            morph: None,
+            target: None,
             parent,
             position,
             scale: [1.; 3],
@@ -694,6 +806,110 @@ mod tests {
             materials: vec![],
             frames: vec![mesh, a, b],
         })
+    }
+
+    fn synthetic_joint_animation() -> Arc<lhr_assets::animation::AnimationSet> {
+        let mut payload = vec![1, 0, 10, 0];
+        payload.extend(12u32.to_le_bytes());
+        payload.extend(17u32.to_le_bytes());
+        payload.extend(b"bone\0");
+        payload.extend(6u16.to_le_bytes());
+        payload.extend(0u16.to_le_bytes());
+        for values in [
+            vec![1., 0., 0., 0., 1., 0.001, 0., 0.],
+            vec![4., 0., 0., 8., 2., 0.],
+        ] {
+            payload.extend(2u16.to_le_bytes());
+            payload.extend(0u16.to_le_bytes());
+            payload.extend(10u16.to_le_bytes());
+            payload.extend(0u16.to_le_bytes());
+            for value in values {
+                payload.extend(f32::to_le_bytes(value));
+            }
+        }
+        let mut bytes = b"5DS\0".to_vec();
+        bytes.extend(20u16.to_le_bytes());
+        bytes.extend([0; 8]);
+        bytes.extend((payload.len() as u32).to_le_bytes());
+        bytes.extend(payload);
+        Arc::new(lhr_assets::animation::parse_5ds(&bytes).unwrap())
+    }
+
+    #[test]
+    fn skeletal_sample_updates_owned_joint_and_invalidates_old_skin_pose() {
+        let mut source = skinned_source();
+        let joint = &mut Arc::make_mut(&mut source).frames[1];
+        joint.name = "bone".into();
+        joint.name_bytes = b"bone".to_vec();
+        let mut loaded = MaterializedModel::from_parsed(source.clone()).unwrap();
+        loaded.prepare_skin_pose().unwrap();
+        let old_position = loaded.skin_pose().unwrap().vertices(0).unwrap()[0].position;
+        let animation = crate::skeletal_animation::SkeletalAnimation::new(
+            &source,
+            synthetic_joint_animation(),
+            loaded.source_frame_keys(),
+        )
+        .unwrap();
+        let sampled = animation.sample(200).unwrap();
+        loaded.evaluate_skeletal_animation(&animation, 200).unwrap();
+        assert!(loaded.skin_pose().is_none());
+        let joint = loaded.arena.state(loaded.source_frame_keys()[1]).unwrap();
+        assert_eq!(joint.local.elements[12..15], sampled[0].position.unwrap());
+        assert_eq!(
+            joint.rotation.wxyz.map(f32::to_bits),
+            sampled[0].rotation.unwrap().wxyz.map(f32::to_bits)
+        );
+        loaded.prepare_skin_pose().unwrap();
+        assert_ne!(
+            loaded.skin_pose().unwrap().vertices(0).unwrap()[0].position,
+            old_position
+        );
+        let before = *loaded.arena.state(loaded.source_frame_keys()[1]).unwrap();
+        assert!(loaded.evaluate_skeletal_animation(&animation, 401).is_err());
+        assert_eq!(
+            *loaded.arena.state(loaded.source_frame_keys()[1]).unwrap(),
+            before
+        );
+        assert!(loaded.skin_pose().is_some());
+        let other_source = Arc::new(source.as_ref().clone());
+        let other = crate::skeletal_animation::SkeletalAnimation::new(
+            &other_source,
+            synthetic_joint_animation(),
+            loaded.source_frame_keys(),
+        )
+        .unwrap();
+        assert_eq!(
+            loaded.evaluate_skeletal_animation(&other, 200),
+            Err(ModelError::AnimationIdentity)
+        );
+    }
+
+    #[test]
+    fn parsed_target_references_keep_membership_and_reject_missing_payload() {
+        let mut target = frame(7, None, [1., 0., 0.]);
+        target.target = Some(lhr_assets::TargetRecord {
+            flags: 0,
+            frame_indices: vec![0, 1, 1],
+        });
+        let source = Arc::new(Model {
+            materials: vec![],
+            frames: vec![frame(6, None, [0.; 3]), target],
+        });
+        let loaded = MaterializedModel::from_parsed(source).unwrap();
+        let keys = loaded.source_frame_keys();
+        assert_eq!(
+            loaded.arena.graph.target_state(keys[1]).unwrap().frames(),
+            &[keys[0], keys[0]]
+        );
+        assert_ne!(loaded.arena.state(keys[0]).unwrap().flags & 0x4000, 0);
+        let missing = Arc::new(Model {
+            materials: vec![],
+            frames: vec![frame(7, None, [0.; 3])],
+        });
+        assert_eq!(
+            MaterializedModel::from_parsed(missing).unwrap_err().error,
+            ModelError::MissingTargetRecord(0)
+        );
     }
 
     #[test]

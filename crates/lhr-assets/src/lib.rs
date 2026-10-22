@@ -20,6 +20,7 @@ pub use scene::{Scene, SceneActor, SceneObject, SceneScript, parse_scene2};
 pub use tga::decode_tga;
 
 const MAX_BYTES: usize = 64 * 1024 * 1024;
+const MAX_MORPH_CHANNELS: usize = 100_000;
 #[derive(Debug, Clone)]
 pub struct Error(pub String);
 const UNSUPPORTED_BILLBOARD: &str =
@@ -41,6 +42,15 @@ impl std::error::Error for Error {}
 type Result<T> = std::result::Result<T, Error>;
 fn err<T>(s: &str) -> Result<T> {
     Err(Error(s.into()))
+}
+fn charge_morph_records<T>(total: &mut usize, count: usize) -> Result<()> {
+    let next = count
+        .checked_mul(std::mem::size_of::<T>())
+        .and_then(|bytes| total.checked_add(bytes))
+        .filter(|&bytes| bytes <= MAX_BYTES)
+        .ok_or_else(|| Error("morph decoded storage quota exceeded".into()))?;
+    *total = next;
+    Ok(())
 }
 #[derive(Debug, Clone)]
 pub struct Vertex {
@@ -91,6 +101,14 @@ pub struct JointRecord {
     /// Original joint index, without a binding-table range assumption.
     pub index: u32,
 }
+/// Original kind-7 target suffix. References retain their source values; this
+/// does not resolve or update target links.
+#[derive(Debug, Clone)]
+pub struct TargetRecord {
+    pub flags: u16,
+    /// Original u16 reference words; the source u8 count is this vector's length.
+    pub frame_indices: Vec<u16>,
+}
 /// Original PC singlemesh skin suffix. This preserves file records; it does not
 /// establish a complete joint binding or admit the model to static rendering.
 #[derive(Debug, Clone)]
@@ -125,6 +143,42 @@ pub struct SkinBoneRecord {
     /// deformation consumers must validate their own supported numerical domain.
     pub weights: Vec<f32>,
 }
+/// Raw original PC morph suffix. No morph evaluation or neutral state is implied.
+#[derive(Debug, Clone)]
+pub struct MorphRecord {
+    /// A zero count has no following definition bytes.
+    pub target_count: u8,
+    pub definition: Option<MorphDefinition>,
+}
+#[derive(Debug, Clone)]
+pub struct MorphDefinition {
+    pub channel_count: u8,
+    /// Source LOD order, corresponding to the geometry LODs.
+    pub lods: Vec<MorphLodRecord>,
+    /// Original final 40 bytes as little-endian words; semantics remain opaque.
+    pub trailer_words: [u32; 10],
+}
+#[derive(Debug, Clone)]
+pub struct MorphLodRecord {
+    pub channels: Vec<MorphChannelRecord>,
+}
+#[derive(Debug, Clone)]
+pub struct MorphChannelRecord {
+    pub vertex_count: u16,
+    /// Source vertex-major, target-minor order. Every float bit is retained.
+    pub samples: Vec<MorphSampleRecord>,
+    /// Absent for an empty channel. Zero leaves native index storage absent.
+    /// Every nonzero source byte selects the explicit index array; no implicit
+    /// vertex association is invented when it is zero.
+    pub index_mode: Option<u8>,
+    /// Present only for a nonzero index mode, with one index per channel vertex.
+    pub vertex_indices: Vec<u16>,
+}
+#[derive(Debug, Clone)]
+pub struct MorphSampleRecord {
+    pub position: [f32; 3],
+    pub normal: [f32; 3],
+}
 #[derive(Debug, Clone)]
 pub struct Frame {
     pub kind: u8,
@@ -141,9 +195,12 @@ pub struct Frame {
     pub dummy_bounds: Option<[[f32; 3]; 2]>,
     /// Original kind-10 joint suffix, retained by scene and singlemesh intake.
     pub joint: Option<JointRecord>,
-    /// Visual-2 metadata, retained by scene and explicit singlemesh intake.
-    /// Morph visuals remain unsupported.
+    /// Original kind-7 target metadata, without link resolution or evaluation.
+    pub target: Option<TargetRecord>,
+    /// Inherited skin metadata, retained by scene and explicit character intake.
     pub skin: Option<SkinRecord>,
+    /// Retained only by explicit singlemorph intake; requires runtime validation.
+    pub morph: Option<MorphRecord>,
     pub parent: Option<usize>,
     pub position: [f32; 3],
     pub scale: [f32; 3],
@@ -218,7 +275,7 @@ impl<'a> Reader<'a> {
     }
 }
 pub fn parse_four_ds(b: &[u8]) -> Result<Model> {
-    parse_four_ds_impl(b, false, false, false).map(|(model, _)| model)
+    parse_four_ds_impl(b, false, false, false, false).map(|(model, _)| model)
 }
 /// Broader scene intake: retains material effects as metadata and accepts sector,
 /// light, target and joint frames, and visual-2 singlemesh skin records. Joint
@@ -227,16 +284,28 @@ pub fn parse_four_ds(b: &[u8]) -> Result<Model> {
 /// Callers must implement or report material
 /// effects; this does not promise identical original rendering or simulation.
 pub fn parse_four_ds_scene(b: &[u8]) -> Result<Model> {
-    parse_four_ds_impl(b, true, false, true).map(|(model, _)| model)
+    parse_four_ds_impl(b, true, false, true, false).map(|(model, _)| model)
 }
 /// Bounded singlemesh metadata intake with the static material and animation
 /// gates. Accepts only mesh, dummy and joint frames and requires a visual-2
 /// frame. Raw skin records still require binding/deformation validation before
 /// use; this function does not establish a renderable character.
 pub fn parse_four_ds_skin(b: &[u8]) -> Result<Model> {
-    let (model, _) = parse_four_ds_impl(b, false, false, true)?;
+    let (model, _) = parse_four_ds_impl(b, false, false, true, false)?;
     if !model.frames.iter().any(|frame| frame.skin.is_some()) {
         return err("singlemesh metadata requires a visual-2 frame");
+    }
+    Ok(model)
+}
+/// Explicit original singlemorph metadata intake. Retains inherited skin and all
+/// morph channels, source vertex associations and opaque words. Scene material
+/// metadata and target frames are admitted, but LoadAnimCount must remain zero.
+/// This establishes neither morph initialization nor renderable deformation.
+/// Existing static, scene and visual-2-only intake keep their original gates.
+pub fn parse_four_ds_singlemorph(b: &[u8]) -> Result<Model> {
+    let (model, _) = parse_four_ds_impl(b, true, false, true, true)?;
+    if !model.frames.iter().any(|frame| frame.morph.is_some()) {
+        return err("singlemorph metadata requires a visual-3 frame");
     }
     Ok(model)
 }
@@ -271,7 +340,7 @@ pub fn parse_four_ds_position_animation(
     model_bytes: &[u8],
     animation_bytes: &[u8],
 ) -> Result<PositionAnimatedModel> {
-    let (model, load_animation_count) = parse_four_ds_impl(model_bytes, false, true, false)?;
+    let (model, load_animation_count) = parse_four_ds_impl(model_bytes, false, true, false, false)?;
     if load_animation_count != 1 || model.frames.len() != 1 {
         return err("position animation requires original count1 and one root frame");
     }
@@ -312,6 +381,7 @@ fn parse_four_ds_impl(
     scene: bool,
     allow_animation: bool,
     allow_skin: bool,
+    allow_morph: bool,
 ) -> Result<(Model, u8)> {
     if b.len() > MAX_BYTES {
         return err("4DS exceeds 64 MiB quota");
@@ -403,6 +473,9 @@ fn parse_four_ds_impl(
     let mut total_vertices = 0usize;
     let mut total_indices = 0usize;
     let mut total_skin_weights = 0usize;
+    let mut total_morph_samples = 0usize;
+    let mut total_morph_channels = 0usize;
+    let mut total_morph_bytes = 0usize;
     let mut unsupported_billboard = false;
     for _ in 0..count {
         let kind = r.u8()?;
@@ -417,10 +490,14 @@ fn parse_four_ds_impl(
         let mut render_flags = 0;
         let mut logic_flags = 0;
         if let Some(visual) = visual {
-            if allow_skin && visual == 3 {
+            if allow_skin && visual == 3 && !allow_morph {
                 return err("unsupported visual type 3; morph singlemesh unsupported");
             }
-            if visual > 1 && visual != 4 && !(allow_skin && visual == 2) {
+            if visual > 1
+                && visual != 4
+                && !(allow_skin && visual == 2)
+                && !(allow_morph && visual == 3)
+            {
                 return Err(Error(format!(
                     "unsupported visual type {visual}; only standard static mesh supported"
                 )));
@@ -456,7 +533,9 @@ fn parse_four_ds_impl(
         let properties = r.take(property_length)?.to_vec();
         let mut dummy_bounds = None;
         let mut joint = None;
+        let mut target = None;
         let mut skin = None;
+        let mut morph = None;
         let mut lods = Vec::new();
         let mut instance = None;
         if kind == 6 {
@@ -498,13 +577,20 @@ fn parse_four_ds_impl(
                 }
             }
         } else if kind == 7 {
-            r.take(2)?;
-            let n = r.u8()? as usize;
-            r.take(n * 2)?;
+            let flags = r.u16()?;
+            let count = r.u8()? as usize;
+            let mut frame_indices = Vec::with_capacity(count);
+            for _ in 0..count {
+                frame_indices.push(r.u16()?);
+            }
+            target = Some(TargetRecord {
+                flags,
+                frame_indices,
+            });
         } else {
             let id = r.u16()? as usize;
             if id != 0 {
-                if visual == Some(2) {
+                if matches!(visual, Some(2 | 3)) {
                     return err("unsupported singlemesh instance");
                 }
                 instance = Some(id - 1)
@@ -561,7 +647,7 @@ fn parse_four_ds_impl(
                 }
             }
         }
-        if visual == Some(2) {
+        if matches!(visual, Some(2 | 3)) {
             let mut skin_lods = Vec::with_capacity(lods.len());
             for _ in &lods {
                 let bone_count = r.u8()? as usize;
@@ -610,6 +696,99 @@ fn parse_four_ds_impl(
             }
             skin = Some(SkinRecord { lods: skin_lods });
         }
+        if visual == Some(3) {
+            let target_count = r.u8()?;
+            let definition = if target_count == 0 {
+                None
+            } else {
+                let channel_count = r.u8()?;
+                let lod_count = r.u8()? as usize;
+                if lod_count > lods.len() {
+                    return err("morph LOD count exceeds geometry LODs");
+                }
+                // Empty channels still own vector metadata. Preflight the full
+                // definition before allocating any LOD/channel arrays so a tiny
+                // zero-vertex wire record cannot amplify without an aggregate cap.
+                let channel_records = lod_count * channel_count as usize;
+                total_morph_channels = total_morph_channels
+                    .checked_add(channel_records)
+                    .filter(|&count| count <= MAX_MORPH_CHANNELS)
+                    .ok_or_else(|| Error("morph channel quota exceeded".into()))?;
+                charge_morph_records::<MorphLodRecord>(&mut total_morph_bytes, lod_count)?;
+                charge_morph_records::<MorphChannelRecord>(
+                    &mut total_morph_bytes,
+                    channel_records,
+                )?;
+                let mut morph_lods = Vec::with_capacity(lod_count);
+                for lod in &lods[..lod_count] {
+                    let mut channels = Vec::with_capacity(channel_count as usize);
+                    for _ in 0..channel_count {
+                        let vertex_count = r.u16()?;
+                        let sample_count = vertex_count as usize * target_count as usize;
+                        total_morph_samples = total_morph_samples
+                            .checked_add(sample_count)
+                            .ok_or_else(|| Error("morph sample quota exceeded".into()))?;
+                        if total_morph_samples > 1_000_000 {
+                            return err("morph sample quota exceeded");
+                        }
+                        charge_morph_records::<MorphSampleRecord>(
+                            &mut total_morph_bytes,
+                            sample_count,
+                        )?;
+                        // Check the complete sample extent before allocating records.
+                        let sample_bytes = r.take(sample_count * 24)?;
+                        let mut samples = Vec::with_capacity(sample_count);
+                        for bytes in sample_bytes.as_chunks::<24>().0 {
+                            let mut sample_reader = Reader { b: bytes, p: 0 };
+                            samples.push(MorphSampleRecord {
+                                position: sample_reader.raw_vec()?,
+                                normal: sample_reader.raw_vec()?,
+                            });
+                        }
+                        let index_mode = if vertex_count == 0 {
+                            None
+                        } else {
+                            Some(r.u8()?)
+                        };
+                        let mut vertex_indices = Vec::new();
+                        if index_mode.is_some_and(|mode| mode != 0) {
+                            charge_morph_records::<u16>(
+                                &mut total_morph_bytes,
+                                vertex_count as usize,
+                            )?;
+                            vertex_indices.reserve(vertex_count as usize);
+                            for _ in 0..vertex_count {
+                                let index = r.u16()?;
+                                if index as usize >= lod.vertices.len() {
+                                    return err("morph index outside geometry vertex array");
+                                }
+                                vertex_indices.push(index);
+                            }
+                        }
+                        channels.push(MorphChannelRecord {
+                            vertex_count,
+                            samples,
+                            index_mode,
+                            vertex_indices,
+                        });
+                    }
+                    morph_lods.push(MorphLodRecord { channels });
+                }
+                let mut trailer_words = [0; 10];
+                for word in &mut trailer_words {
+                    *word = r.u32()?;
+                }
+                Some(MorphDefinition {
+                    channel_count,
+                    lods: morph_lods,
+                    trailer_words,
+                })
+            };
+            morph = Some(MorphRecord {
+                target_count,
+                definition,
+            });
+        }
         // A billboard shares the standard mesh/instance layout, then always
         // stores five additional axis/mode bytes, including for mesh instances.
         // Consume and validate extents, but never return it as a renderable model.
@@ -627,7 +806,9 @@ fn parse_four_ds_impl(
             properties,
             dummy_bounds,
             joint,
+            target,
             skin,
+            morph,
             parent: parent.checked_sub(1),
             position,
             scale,
@@ -723,6 +904,7 @@ impl Installation {
                 "A6.DTA" => Some((0x64cd8d0a, 0x4bc97b2d)),
                 "A8.DTA" => Some((0xd8dd8fac, 0x5324ace5)),
                 "AA.DTA" => Some((0x5342760c, 0xedeac652)),
+                "AC.DTA" => Some((0x43876fea, 0x900cdba8)),
                 _ => None,
             };
             if let Some(keys) = key
@@ -734,7 +916,7 @@ impl Installation {
             }
         }
         let mut discovered: Vec<_> = discovered.into_iter().collect();
-        const ORDER: [&str; 5] = ["A8.DTA", "A2.DTA", "A6.DTA", "A1.DTA", "AA.DTA"];
+        const ORDER: [&str; 6] = ["A8.DTA", "A2.DTA", "A6.DTA", "A1.DTA", "AC.DTA", "AA.DTA"];
         discovered.sort_by_key(|(name, _)| {
             ORDER
                 .iter()
@@ -750,7 +932,7 @@ impl Installation {
             for entry in archive.entries() {
                 let key = dta::canonical(&entry.path).map_err(Error)?;
                 // dtaSetDtaFirstForce uses the first registered copy. The native
-                // registration order puts A8 ahead of A2/A6/A1/AA for known archives.
+                // registration order puts A8 ahead of A2/A6/A1/AC/AA for known archives.
                 archive_index.entry(key).or_insert(archives.len());
             }
             archives.push(std::sync::Mutex::new(archive));
@@ -1698,5 +1880,389 @@ mod position_animation_intake_tests {
         for len in 0..animation.len() {
             assert!(parse_four_ds_position_animation(&model, &animation[..len]).is_err());
         }
+    }
+}
+
+#[cfg(test)]
+mod singlemorph_intake_tests {
+    use super::*;
+
+    fn common(bytes: &mut Vec<u8>, kind: u8, parent: u16, name: &[u8]) {
+        bytes.push(kind);
+        if kind == 1 {
+            bytes.extend([3, 0x31, 0x42]);
+        }
+        bytes.extend(parent.to_le_bytes());
+        for value in [0f32, 0., 0., 1., 1., 1., 1., 0., 0., 0.] {
+            bytes.extend(value.to_le_bytes());
+        }
+        bytes.extend([0, name.len() as u8]);
+        bytes.extend(name);
+        bytes.push(0);
+    }
+    fn prefix() -> Vec<u8> {
+        let mut bytes = b"4DS\0".to_vec();
+        bytes.extend(29u16.to_le_bytes());
+        bytes.extend([0; 8]);
+        bytes.extend(0u16.to_le_bytes());
+        bytes.extend(2u16.to_le_bytes());
+        common(&mut bytes, 1, 0, b"Morph");
+        bytes.extend(0u16.to_le_bytes()); // No instance.
+        bytes.push(2);
+        for vertices in [2u16, 1] {
+            bytes.extend((vertices as f32).to_le_bytes());
+            bytes.extend(vertices.to_le_bytes());
+            bytes.extend(vec![0; vertices as usize * 32]);
+            bytes.push(0);
+        }
+        bytes.extend([0, 0]); // Empty inherited skin in both geometry LODs.
+        bytes
+    }
+    fn finish(bytes: &mut Vec<u8>) {
+        common(bytes, 6, 1, b"Tail");
+        bytes.extend([0; 24]);
+        bytes.push(0);
+    }
+    fn words() -> [u32; 6] {
+        [
+            0x80000000, 0x7f801234, 0xffc05678, 1, 0x7f800000, 0xff800000,
+        ]
+    }
+    fn fixture() -> (Vec<u8>, usize, usize) {
+        let mut bytes = prefix();
+        let morph_offset = bytes.len();
+        bytes.extend([2, 3, 2]); // Targets, channels, LODs.
+        let mut index_offset = 0;
+        for lod in 0..2 {
+            for channel in 0..3 {
+                let vertices: u16 = if channel == 0 {
+                    0
+                } else if channel == 1 {
+                    3 // Zero mode retains no invented association, even beyond geometry.
+                } else if channel == 2 && lod == 0 {
+                    2
+                } else {
+                    1
+                };
+                bytes.extend(vertices.to_le_bytes());
+                if vertices == 0 {
+                    continue; // No samples or index-mode byte.
+                }
+                for sample in 0..vertices * 2 {
+                    for word in words().map(|word| word ^ sample as u32) {
+                        bytes.extend(word.to_le_bytes());
+                    }
+                }
+                let mode = if channel == 1 { 0 } else { 7 };
+                bytes.push(mode);
+                if mode != 0 {
+                    index_offset = bytes.len();
+                    for vertex in 0..vertices {
+                        bytes.extend((if lod == 0 { 1 - vertex } else { 0 }).to_le_bytes());
+                    }
+                }
+            }
+        }
+        for word in 0..10u32 {
+            bytes.extend((0x7f800001 + word).to_le_bytes());
+        }
+        finish(&mut bytes);
+        (bytes, morph_offset, index_offset)
+    }
+    #[test]
+    fn raw_morph_lods_channels_and_numeric_words_are_retained() {
+        let (bytes, _, _) = fixture();
+        let model = parse_four_ds_singlemorph(&bytes).unwrap();
+        let frame = &model.frames[0];
+        assert_eq!(frame.visual, Some(3));
+        assert_eq!(frame.skin.as_ref().unwrap().lods.len(), 2);
+        assert!(
+            frame
+                .skin
+                .as_ref()
+                .unwrap()
+                .lods
+                .iter()
+                .all(|l| l.definition.is_none())
+        );
+        let morph = frame.morph.as_ref().unwrap();
+        assert_eq!(morph.target_count, 2);
+        let definition = morph.definition.as_ref().unwrap();
+        assert_eq!(definition.channel_count, 3);
+        assert_eq!(definition.lods.len(), 2);
+        for (lod_index, lod) in definition.lods.iter().enumerate() {
+            assert_eq!(lod.channels.len(), 3);
+            assert_eq!(lod.channels[0].vertex_count, 0);
+            assert!(lod.channels[0].samples.is_empty());
+            assert_eq!(lod.channels[0].index_mode, None);
+            assert!(lod.channels[0].vertex_indices.is_empty());
+            assert_eq!(lod.channels[1].index_mode, Some(0));
+            assert!(lod.channels[1].vertex_indices.is_empty());
+            assert_eq!(lod.channels[2].index_mode, Some(7));
+            assert_eq!(
+                lod.channels[2].vertex_indices,
+                if lod_index == 0 { vec![1, 0] } else { vec![0] }
+            );
+            for channel in &lod.channels[1..] {
+                assert_eq!(channel.samples.len(), channel.vertex_count as usize * 2);
+                for (index, sample) in channel.samples.iter().enumerate() {
+                    let expected = words().map(|word| word ^ index as u32);
+                    assert_eq!(sample.position.map(f32::to_bits), expected[..3]);
+                    assert_eq!(sample.normal.map(f32::to_bits), expected[3..]);
+                }
+            }
+        }
+        assert_eq!(
+            definition.trailer_words,
+            std::array::from_fn(|i| 0x7f800001 + i as u32)
+        );
+        assert_eq!(model.frames[1].name_bytes, b"Tail");
+        assert!(model.frames[1].morph.is_none());
+        assert!(parse_four_ds(&bytes).is_err());
+        assert!(parse_four_ds_skin(&bytes).is_err());
+        assert!(parse_four_ds_scene(&bytes).is_err());
+        assert!(parse_four_ds_singlemorph(&super::mesh_tests::mesh()).is_err());
+    }
+    #[test]
+    fn zero_targets_and_zero_channels_have_exact_consumption() {
+        let mut bytes = prefix();
+        bytes.push(0);
+        finish(&mut bytes);
+        let model = parse_four_ds_singlemorph(&bytes).unwrap();
+        let morph = model.frames[0].morph.as_ref().unwrap();
+        assert_eq!(morph.target_count, 0);
+        assert!(morph.definition.is_none());
+        assert_eq!(model.frames[1].name_bytes, b"Tail");
+        let mut bytes = prefix();
+        bytes.extend([3, 0, 0]);
+        bytes.extend([0xff; 40]);
+        finish(&mut bytes);
+        let model = parse_four_ds_singlemorph(&bytes).unwrap();
+        let definition = model.frames[0]
+            .morph
+            .as_ref()
+            .unwrap()
+            .definition
+            .as_ref()
+            .unwrap();
+        assert!(definition.lods.is_empty());
+        assert_eq!(definition.trailer_words, [u32::MAX; 10]);
+        assert_eq!(model.frames[1].name_bytes, b"Tail");
+    }
+    #[test]
+    fn target_suffix_preserves_raw_flags_references_and_following_frame() {
+        for references in [vec![], vec![0u16, u16::MAX, 11]] {
+            let mut bytes = prefix();
+            bytes[16..18].copy_from_slice(&3u16.to_le_bytes());
+            bytes.push(0); // Zero-target morph suffix on the preceding frame.
+            common(&mut bytes, 7, 1, b"Target");
+            bytes.extend(0x81ffu16.to_le_bytes());
+            bytes.push(references.len() as u8);
+            for reference in &references {
+                bytes.extend(reference.to_le_bytes());
+            }
+            finish(&mut bytes);
+            let model = parse_four_ds_singlemorph(&bytes).unwrap();
+            let target = model.frames[1].target.as_ref().unwrap();
+            assert_eq!(target.flags, 0x81ff);
+            assert_eq!(target.frame_indices, references);
+            assert_eq!(model.frames[2].name_bytes, b"Tail");
+            assert!(model.frames[2].target.is_none());
+            for length in 0..bytes.len() {
+                assert!(
+                    parse_four_ds_singlemorph(&bytes[..length]).is_err(),
+                    "{length}"
+                );
+            }
+        }
+    }
+    #[test]
+    fn zero_vertex_channels_have_an_aggregate_metadata_quota_across_frames_and_lods() {
+        fn model(frame_count: u16) -> Vec<u8> {
+            let mut bytes = prefix()[..18].to_vec();
+            bytes[16..18].copy_from_slice(&frame_count.to_le_bytes());
+            for _ in 0..frame_count {
+                common(&mut bytes, 1, 0, b"Empty");
+                bytes.extend(0u16.to_le_bytes());
+                bytes.push(16);
+                for _ in 0..16 {
+                    bytes.extend(0f32.to_le_bytes());
+                    bytes.extend(0u16.to_le_bytes());
+                    bytes.push(0);
+                }
+                bytes.extend([0; 16]); // Zero-bone inherited skin in every LOD.
+                bytes.extend([1, 255, 16]);
+                bytes.extend([0; 16 * 255 * 2]); // Zero-vertex morph channels.
+                bytes.extend([0; 40]);
+            }
+            bytes.push(0);
+            bytes
+        }
+        // Each frame has 4,080 empty channels and no sample or index buffers.
+        // The threshold must count all LODs and all frames rather than samples.
+        assert_eq!(
+            parse_four_ds_singlemorph(&model(24)).unwrap().frames.len(),
+            24
+        );
+        let amplified = model(25);
+        assert!(amplified.len() < 256 * 1024);
+        assert!(
+            parse_four_ds_singlemorph(&amplified)
+                .unwrap_err()
+                .0
+                .contains("morph channel quota")
+        );
+    }
+    #[test]
+    fn malformed_morph_extents_indices_and_static_gates_fail() {
+        let (bytes, morph_offset, index_offset) = fixture();
+        for length in 0..bytes.len() {
+            assert!(
+                parse_four_ds_singlemorph(&bytes[..length]).is_err(),
+                "{length}"
+            );
+        }
+        let mut invalid = bytes.clone();
+        invalid[index_offset..index_offset + 2].copy_from_slice(&1u16.to_le_bytes());
+        assert!(
+            parse_four_ds_singlemorph(&invalid)
+                .unwrap_err()
+                .0
+                .contains("morph index")
+        );
+        let mut invalid = bytes.clone();
+        invalid[morph_offset + 2] = 3;
+        assert!(
+            parse_four_ds_singlemorph(&invalid)
+                .unwrap_err()
+                .0
+                .contains("morph LOD")
+        );
+        let mut invalid = prefix();
+        invalid.extend([255, 1, 1]);
+        invalid.extend(u16::MAX.to_le_bytes());
+        assert!(
+            parse_four_ds_singlemorph(&invalid)
+                .unwrap_err()
+                .0
+                .contains("morph sample quota")
+        );
+        let mut invalid = bytes.clone();
+        *invalid.last_mut().unwrap() = 1;
+        assert!(
+            parse_four_ds_singlemorph(&invalid)
+                .unwrap_err()
+                .0
+                .contains("animated model")
+        );
+        let mut invalid = bytes;
+        invalid.push(0);
+        assert!(parse_four_ds_singlemorph(&invalid).is_err());
+        let mut instance = super::mesh_tests::mesh();
+        instance[64] = 3;
+        instance[112..114].copy_from_slice(&1u16.to_le_bytes());
+        assert!(
+            parse_four_ds_singlemorph(&instance)
+                .unwrap_err()
+                .0
+                .contains("singlemesh instance")
+        );
+    }
+}
+
+#[cfg(test)]
+mod animation_archive_tests {
+    use super::*;
+    fn xor(bytes: &mut [u8], key: &[u8; 8]) {
+        for (i, byte) in bytes.iter_mut().enumerate() {
+            *byte ^= key[i % 8];
+        }
+    }
+    fn archive(content: &[u8], k1: u32, k2: u32) -> Vec<u8> {
+        let mut key = [0; 8];
+        key[..4].copy_from_slice(&k2.to_le_bytes());
+        key[4..].copy_from_slice(&k1.to_le_bytes());
+        let name = b"Anims\\Synthetic.5DS\0";
+        let data_offset = 20 + 32 + name.len();
+        let payload_length = content.len() + 1;
+        let mut bytes = vec![0; 20];
+        bytes[..4].copy_from_slice(b"ISD0");
+        let mut record = vec![0; 32];
+        for (offset, word) in [
+            (0, (32 + name.len() + 4 + payload_length) as u32),
+            (4, 32),
+            (16, content.len() as u32),
+            (20, 1),
+        ] {
+            record[offset..offset + 4].copy_from_slice(&word.to_le_bytes());
+        }
+        record[24..26].copy_from_slice(&(name.len() as u16 | 0x8000).to_le_bytes());
+        xor(&mut record, &key);
+        bytes.extend(record);
+        let mut encoded_name = name.to_vec();
+        xor(&mut encoded_name, &key);
+        bytes.extend(encoded_name);
+        bytes.extend((payload_length as u32).to_le_bytes());
+        let mut payload = vec![0];
+        payload.extend(content);
+        xor(&mut payload, &key);
+        bytes.extend(payload);
+        let table_offset = bytes.len();
+        let mut row = vec![0; 28];
+        row[4..8].copy_from_slice(&20u32.to_le_bytes());
+        row[8..12].copy_from_slice(&(data_offset as u32).to_le_bytes());
+        xor(&mut row, &key);
+        bytes.extend(row);
+        let mut header = Vec::new();
+        for word in [1, table_offset as u32, 28, 0] {
+            header.extend(word.to_le_bytes());
+        }
+        xor(&mut header, &key);
+        bytes[4..20].copy_from_slice(&header);
+        bytes
+    }
+    struct Directory(PathBuf);
+    impl Drop for Directory {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    #[test]
+    fn ac_registration_uses_native_precedence_and_archive_first_lookup() {
+        let directory = Directory(
+            std::env::temp_dir().join(format!("lhr-ac-registration-{}", std::process::id())),
+        );
+        fs::create_dir(&directory.0).unwrap();
+        fs::create_dir(directory.0.join("anims")).unwrap();
+        fs::write(directory.0.join("anims/synthetic.5ds"), b"loose").unwrap();
+        for (name, data, k1, k2) in [
+            ("A1.dta", b"A1", 0x3d98766c, 0xde7009cd),
+            ("aC.DtA", b"AC", 0x43876fea, 0x900cdba8),
+            ("AA.dta", b"AA", 0x5342760c, 0xedeac652),
+        ] {
+            fs::write(directory.0.join(name), archive(data, k1, k2)).unwrap();
+        }
+        let read = || {
+            Installation::open(&directory.0)
+                .unwrap()
+                .read("ANIMS/SYNTHETIC.5DS")
+                .unwrap()
+        };
+        assert_eq!(read(), b"A1");
+        fs::remove_file(directory.0.join("A1.dta")).unwrap();
+        assert_eq!(read(), b"AC");
+        fs::copy(directory.0.join("aC.DtA"), directory.0.join("AC.dta")).unwrap();
+        assert!(
+            Installation::open(&directory.0)
+                .err()
+                .unwrap()
+                .0
+                .contains("duplicate archive")
+        );
+        fs::remove_file(directory.0.join("AC.dta")).unwrap();
+        fs::remove_file(directory.0.join("aC.DtA")).unwrap();
+        assert_eq!(read(), b"AA");
+        fs::remove_file(directory.0.join("AA.dta")).unwrap();
+        assert_eq!(read(), b"loose");
     }
 }

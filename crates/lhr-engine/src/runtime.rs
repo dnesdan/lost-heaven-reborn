@@ -234,9 +234,9 @@ impl RetainedScene {
     ) -> Result<(), String> {
         if source.frames.iter().enumerate().any(|(index, frame)| {
             if let Some(loaded) = &materialized {
-                ![1, 6, 10].contains(&frame.kind)
-                    || (frame.kind == 1 && !matches!(frame.visual, Some(0..=2)))
-                    || (frame.visual == Some(2)
+                ![1, 6, 7, 10].contains(&frame.kind)
+                    || (frame.kind == 1 && !matches!(frame.visual, Some(0..=3)))
+                    || (matches!(frame.visual, Some(2 | 3))
                         && loaded
                             .skin_pose()
                             .and_then(|pose| pose.vertices(index))
@@ -245,6 +245,7 @@ impl RetainedScene {
                 ![1, 2, 5, 6, 7, 12].contains(&frame.kind)
                     || (frame.kind == 1 && !matches!(frame.visual, Some(0 | 1)))
                     || frame.skin.is_some()
+                    || frame.morph.is_some()
             }
         }) {
             return Err("Unsupported source frame or missing checked skin pose".into());
@@ -963,6 +964,8 @@ mod tests {
                 dummy_bounds: None,
                 joint: None,
                 skin: None,
+                morph: None,
+                target: None,
                 parent: None,
                 position: [0.; 3],
                 scale: [1.; 3],

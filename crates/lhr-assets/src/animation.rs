@@ -1,4 +1,4 @@
-//! Bounded 5DS v20 intake and isolated position-channel sampling.
+//! Bounded 5DS v20 channel intake and isolated position-channel sampling.
 //!
 //! These are descriptive Rust names, not recovered original symbols. Layout is
 //! evidenced by the PC loader; sampling corresponds to the position branch of
@@ -27,7 +27,11 @@ pub struct AnimationTrack {
     /// Original bytes, for exact matching against original frame names.
     pub name: Vec<u8>,
     pub flags: u16,
+    /// Uninterpreted high word of the original four-byte track header.
+    pub reserved: u16,
+    pub rotation: Option<RotationTrack>,
     pub position: Option<PositionTrack>,
+    pub scale: Option<ScaleTrack>,
 }
 impl AnimationTrack {
     /// Whole-track position-only playback is available only without other channels.
@@ -41,6 +45,71 @@ impl AnimationTrack {
             .as_ref()
             .ok_or_else(|| Error("position channel absent".into()))
     }
+}
+
+/// Original rotation records in file component order. Intake does not normalize,
+/// reorder, reject nonfinite IEEE values, or establish an evaluator domain.
+#[derive(Clone, Debug)]
+pub struct RotationTrack {
+    times: Vec<u16>,
+    values: Vec<[f32; 4]>,
+    padding: Option<u16>,
+}
+impl RotationTrack {
+    pub fn key_times(&self) -> &[u16] {
+        &self.times
+    }
+    pub fn key_values(&self) -> &[[f32; 4]] {
+        &self.values
+    }
+    /// Exact source IEEE bits, including signed zero and NaN payloads.
+    pub fn key_value_bits(&self) -> impl ExactSizeIterator<Item = [u32; 4]> + '_ {
+        self.values.iter().map(|value| value.map(f32::to_bits))
+    }
+    /// Present after the timestamp array for an even key count.
+    pub fn padding(&self) -> Option<u16> {
+        self.padding
+    }
+    /// Host buffer allocation accounting; excludes inline/owner storage.
+    pub fn storage_bytes(&self) -> Result<usize> {
+        channel_storage_bytes(self.times.capacity(), self.values.capacity(), 4)
+    }
+}
+
+/// Retained scale records only; no scale playback is implied.
+#[derive(Clone, Debug)]
+pub struct ScaleTrack {
+    times: Vec<u16>,
+    values: Vec<[f32; 3]>,
+    padding: Option<u16>,
+}
+impl ScaleTrack {
+    pub fn key_times(&self) -> &[u16] {
+        &self.times
+    }
+    pub fn key_values(&self) -> &[[f32; 3]] {
+        &self.values
+    }
+    pub fn key_value_bits(&self) -> impl ExactSizeIterator<Item = [u32; 3]> + '_ {
+        self.values.iter().map(|value| value.map(f32::to_bits))
+    }
+    pub fn padding(&self) -> Option<u16> {
+        self.padding
+    }
+    pub fn storage_bytes(&self) -> Result<usize> {
+        channel_storage_bytes(self.times.capacity(), self.values.capacity(), 3)
+    }
+}
+
+fn channel_storage_bytes(times: usize, values: usize, components: usize) -> Result<usize> {
+    times
+        .checked_mul(2)
+        .and_then(|times| {
+            values
+                .checked_mul(components * 4)
+                .and_then(|values| times.checked_add(values))
+        })
+        .ok_or_else(|| Error("channel storage accounting overflow".into()))
 }
 
 #[derive(Clone, Debug)]
@@ -137,7 +206,7 @@ fn channel(
     offset: &mut usize,
     components: usize,
     budget: &mut DecodeBudget,
-) -> Result<(Vec<u16>, usize)> {
+) -> Result<(Vec<u16>, usize, Option<u16>)> {
     let count = usize::from(word(data, *offset)?);
     *offset += 2;
     if count == 0 {
@@ -153,17 +222,41 @@ fn channel(
     if times.windows(2).any(|pair| pair[0] >= pair[1]) {
         return Err(Error("5DS keys must be strictly increasing".into()));
     }
-    // The count word plus time array is padded to a four-byte boundary.
-    *offset += count * 2 + if count.is_multiple_of(2) { 2 } else { 0 };
+    // Alignment is relative to the channel start, even for unaligned records.
+    *offset += count * 2;
+    let padding = if count.is_multiple_of(2) {
+        let padding = word(data, *offset)?;
+        *offset += 2;
+        Some(padding)
+    } else {
+        None
+    };
     let values = *offset;
     bytes(data, values, count * components * 4)?;
     *offset += count * components * 4;
-    Ok((times, values))
+    Ok((times, values, padding))
+}
+
+fn read_values<const N: usize>(data: &[u8], offset: usize, count: usize) -> Result<Vec<[f32; N]>> {
+    let mut values = Vec::with_capacity(count);
+    for key in 0..count {
+        let mut value = [0.0; N];
+        for (axis, component) in value.iter_mut().enumerate() {
+            *component = f32::from_bits(dword(data, offset + (key * N + axis) * 4)?);
+        }
+        values.push(value);
+    }
+    Ok(values)
 }
 
 /// Reads relative offsets without mutating or relocating input bytes. Rotation
-/// and scale sections are bounded/skipped, not interpreted. Note channels and
-/// unknown flags are rejected until their file layout and execution are covered.
+/// and scale records are retained in source order without arithmetic. Note
+/// channels and unknown low-word flags are rejected. High-word metadata and
+/// alignment words are preserved without assigning unproven meanings.
+///
+/// This strict intake rejects overlapping decoded names/bodies. The declared
+/// last frame and individual key times are retained independently; a channel may
+/// extend past the set duration. This is not original loader execution.
 pub fn parse_5ds(data: &[u8]) -> Result<AnimationSet> {
     parse_tracks(data, None)
 }
@@ -211,10 +304,21 @@ fn parse_tracks(data: &[u8], selected: Option<usize>) -> Result<AnimationSet> {
     }
     // Bound total allocations AND repeated scanning for aliased offsets. A small
     // file cannot multiply a shared name/channel into unbounded decoded output.
-    let mut budget = DecodeBudget(data.len().saturating_mul(4).min(MAX_FILE));
     let decoded_count = if selected.is_some() { 1 } else { count };
-    budget.charge(decoded_count * std::mem::size_of::<AnimationTrack>())?;
+    let metadata_bytes = decoded_count
+        * (std::mem::size_of::<AnimationTrack>() + 2 * std::mem::size_of::<(usize, usize)>());
+    // Inline channel owners grew when previously skipped channels were retained.
+    // Allow that bounded per-record overhead even for a tiny one-key file, while
+    // keeping dynamic decoding and aggregate allocations capped.
+    let mut budget = DecodeBudget(
+        data.len()
+            .saturating_mul(4)
+            .saturating_add(metadata_bytes)
+            .min(MAX_FILE),
+    );
+    budget.charge(metadata_bytes)?;
     let mut tracks = Vec::with_capacity(decoded_count);
+    let mut regions = Vec::with_capacity(decoded_count * 2);
     for index in 0..count {
         if selected.is_some_and(|wanted| wanted != index) {
             continue;
@@ -234,17 +338,26 @@ fn parse_tracks(data: &[u8], selected: Option<usize>) -> Result<AnimationSet> {
             .ok_or_else(|| Error("unterminated 5DS name".into()))?;
         budget.charge(name_len + 1)?;
         let name = remaining[..name_len].to_vec();
+        regions.push((name_offset, name_offset + name_len + 1));
         let flags = word(payload, track_offset)?;
         if flags & !0x0e != 0 {
             return Err(Error("5DS notes or unknown channels unavailable".into()));
         }
-        bytes(payload, track_offset, 4)?; // flags followed by retained reserved word
+        let reserved = word(payload, track_offset + 2)?;
         let mut cursor = track_offset + 4;
-        if flags & 4 != 0 {
-            channel(payload, &mut cursor, 4, &mut budget)?;
-        }
+        let rotation = if flags & 4 != 0 {
+            let (times, values_offset, padding) = channel(payload, &mut cursor, 4, &mut budget)?;
+            let values = read_values(payload, values_offset, times.len())?;
+            Some(RotationTrack {
+                times,
+                values,
+                padding,
+            })
+        } else {
+            None
+        };
         let position = if flags & 2 != 0 {
-            let (times, values_offset) = channel(payload, &mut cursor, 3, &mut budget)?;
+            let (times, values_offset, _) = channel(payload, &mut cursor, 3, &mut budget)?;
             let mut values = Vec::with_capacity(times.len());
             for key in 0..times.len() {
                 let mut value = [0.0_f32; 3];
@@ -267,14 +380,30 @@ fn parse_tracks(data: &[u8], selected: Option<usize>) -> Result<AnimationSet> {
         } else {
             None
         };
-        if flags & 8 != 0 {
-            channel(payload, &mut cursor, 3, &mut budget)?;
-        }
+        let scale = if flags & 8 != 0 {
+            let (times, values_offset, padding) = channel(payload, &mut cursor, 3, &mut budget)?;
+            let values = read_values(payload, values_offset, times.len())?;
+            Some(ScaleTrack {
+                times,
+                values,
+                padding,
+            })
+        } else {
+            None
+        };
+        regions.push((track_offset, cursor));
         tracks.push(AnimationTrack {
             name,
             flags,
+            reserved,
+            rotation,
             position,
+            scale,
         });
+    }
+    regions.sort_unstable();
+    if regions.windows(2).any(|pair| pair[0].1 > pair[1].0) {
+        return Err(Error("5DS decoded regions overlap".into()));
     }
     Ok(AnimationSet {
         timestamp,
@@ -323,6 +452,155 @@ mod tests {
         data.extend((payload.len() as u32).to_le_bytes());
         data.extend(payload);
         data
+    }
+
+    fn rotation_fixture(times: &[u16], bits: &[[u32; 4]], mixed: bool) -> Vec<u8> {
+        let mut data = fixture(0, &[], &[]);
+        let header = 18 + 17;
+        data[header..header + 2]
+            .copy_from_slice(&(if mixed { 14_u16 } else { 4_u16 }).to_le_bytes());
+        data[header + 2..header + 4].copy_from_slice(&0x8912_u16.to_le_bytes());
+        data.extend((times.len() as u16).to_le_bytes());
+        for time in times {
+            data.extend(time.to_le_bytes());
+        }
+        if times.len().is_multiple_of(2) {
+            data.extend(0xa53c_u16.to_le_bytes());
+        }
+        for value in bits {
+            for component in value {
+                data.extend(component.to_le_bytes());
+            }
+        }
+        if mixed {
+            for value in [[1_f32, 2., 3.], [4., 5., 6.]] {
+                data.extend(1_u16.to_le_bytes());
+                data.extend(3_u16.to_le_bytes());
+                for component in value {
+                    data.extend(component.to_le_bytes());
+                }
+            }
+        }
+        let payload_size = data.len() - 18;
+        data[14..18].copy_from_slice(&(payload_size as u32).to_le_bytes());
+        data
+    }
+
+    #[test]
+    fn rotation_bits_times_and_uninterpreted_metadata_are_exact() {
+        // Includes non-unit values, signed zero, subnormal, signaling/quiet NaN
+        // payloads and infinities. Admission to playback belongs to an evaluator.
+        let bits = [
+            [0x80000000, 0x7f812345, 0xffc54321, 1],
+            [0x7f800000, 0xff800000, 0x3f800000, 0x40000000],
+        ];
+        let data = rotation_fixture(&[2, 10], &bits, false);
+        let original = data.clone();
+        let set = parse_5ds(&data).unwrap();
+        let track = &set.tracks[0];
+        assert_eq!(data, original);
+        assert_eq!(track.flags, 4);
+        assert_eq!(track.reserved, 0x8912);
+        assert!(track.position_only().is_err());
+        let rotation = track.rotation.as_ref().unwrap();
+        assert_eq!(rotation.key_times(), [2, 10]);
+        assert_eq!(rotation.key_value_bits().collect::<Vec<_>>(), bits);
+        assert_eq!(rotation.padding(), Some(0xa53c));
+        assert_eq!(rotation.key_values()[1][3], 2.0);
+        assert!(rotation.storage_bytes().unwrap() >= 36);
+
+        let odd = parse_5ds(&rotation_fixture(&[5], &bits[..1], false)).unwrap();
+        assert_eq!(odd.tracks[0].rotation.as_ref().unwrap().padding(), None);
+    }
+
+    #[test]
+    fn mixed_channels_keep_source_order_and_legacy_route_rejection() {
+        let bits = [[0x3f800000, 0, 0x80000000, 0x3f000000]; 2];
+        let set = parse_5ds(&rotation_fixture(&[0, 10], &bits, true)).unwrap();
+        let track = &set.tracks[0];
+        assert!(track.position_only().is_err());
+        assert_eq!(
+            track
+                .rotation
+                .as_ref()
+                .unwrap()
+                .key_value_bits()
+                .collect::<Vec<_>>(),
+            bits
+        );
+        assert_eq!(track.position.as_ref().unwrap().key_times(), [3]);
+        assert_eq!(
+            track.position.as_ref().unwrap().key_values(),
+            [[1., 2., 3.]]
+        );
+        let scale = track.scale.as_ref().unwrap();
+        assert_eq!(scale.key_times(), [3]);
+        assert_eq!(scale.key_values(), [[4., 5., 6.]]);
+        assert_eq!(
+            scale.key_value_bits().next().unwrap(),
+            [4_f32.to_bits(), 5_f32.to_bits(), 6_f32.to_bits()]
+        );
+        assert_eq!(scale.padding(), None);
+        assert!(scale.storage_bytes().unwrap() >= 14);
+    }
+
+    #[test]
+    fn rotation_counts_endpoints_and_internal_truncations_are_checked() {
+        let bits = [[0, 0, 0, 0x3f800000]; 2];
+        let good = rotation_fixture(&[0, 10], &bits, false);
+        for len in 18..good.len() {
+            let mut truncated = good[..len].to_vec();
+            truncated[14..18].copy_from_slice(&((len - 18) as u32).to_le_bytes());
+            assert!(parse_5ds(&truncated).is_err(), "length {len}");
+        }
+        for times in [&[][..], &[0, 0], &[10, 2]] {
+            let malformed = rotation_fixture(times, &bits[..times.len()], false);
+            assert!(parse_5ds(&malformed).is_err(), "times {times:?}");
+        }
+        let mut inflated = good.clone();
+        inflated[39..41].copy_from_slice(&u16::MAX.to_le_bytes());
+        assert!(parse_5ds(&inflated).is_err());
+        for flag in [1_u16, 0x10, 0x20, 0x8004] {
+            let mut unknown = good.clone();
+            unknown[35..37].copy_from_slice(&flag.to_le_bytes());
+            assert!(parse_5ds(&unknown).is_err());
+        }
+        // The declared set duration does not erase or constrain source key times.
+        assert!(parse_5ds(&good).is_ok());
+        let past_end = parse_5ds(&rotation_fixture(&[0, 11], &bits, false)).unwrap();
+        assert_eq!(past_end.end_frame, 10);
+        assert_eq!(
+            past_end.tracks[0].rotation.as_ref().unwrap().key_times(),
+            [0, 11]
+        );
+        let mut zero = rotation_fixture(&[0], &bits[..1], false);
+        zero[20..22].copy_from_slice(&0_u16.to_le_bytes());
+        assert!(parse_5ds(&zero).is_ok());
+    }
+
+    #[test]
+    fn overlapping_names_bodies_and_record_table_fail() {
+        let good = rotation_fixture(&[0], &[[0, 0, 0, 0x3f800000]], false);
+        for offset in [0_u32, 11, 17, 21, 23, u32::MAX] {
+            let mut overlapping = good.clone();
+            overlapping[22..26].copy_from_slice(&offset.to_le_bytes());
+            assert!(parse_5ds(&overlapping).is_err(), "name offset {offset}");
+        }
+        let original = good[18..].to_vec();
+        let mut payload = Vec::new();
+        payload.extend(2_u16.to_le_bytes());
+        payload.extend(10_u16.to_le_bytes());
+        for _ in 0..2 {
+            payload.extend(20_u32.to_le_bytes());
+            payload.extend(25_u32.to_le_bytes());
+        }
+        payload.extend(&original[12..]);
+        let mut aliased = good[..14].to_vec();
+        aliased.extend((payload.len() as u32).to_le_bytes());
+        aliased.extend(payload);
+        assert!(parse_5ds(&aliased).unwrap_err().0.contains("overlap"));
+        // Selected intake does not claim validation of another record's body.
+        assert!(read_5ds_track(&aliased, 0).is_ok());
     }
 
     #[test]

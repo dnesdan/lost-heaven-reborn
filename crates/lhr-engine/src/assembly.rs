@@ -49,6 +49,7 @@ pub struct SceneBuilder<'a> {
     texture_cache: HashMap<(String, [bool; 2]), Arc<Texture>>,
     allow_texture_fallback: bool,
     original_model_loading: bool,
+    animation_sample: Option<(Arc<lhr_assets::animation::AnimationSet>, u32)>,
     pub cropped_triangles: usize,
     pub unassigned_groups: usize,
 }
@@ -64,6 +65,7 @@ impl<'a> SceneBuilder<'a> {
             texture_cache: HashMap::new(),
             allow_texture_fallback: true,
             original_model_loading: false,
+            animation_sample: None,
             cropped_triangles: 0,
             unassigned_groups: 0,
         }
@@ -73,6 +75,15 @@ impl<'a> SceneBuilder<'a> {
     }
     pub fn use_original_model_loading(&mut self) {
         self.original_model_loading = true;
+    }
+    /// Sample the next original model once; no controller or clock is inferred.
+    pub fn sample_original_animation(
+        &mut self,
+        animation: Arc<lhr_assets::animation::AnimationSet>,
+        milliseconds: u32,
+    ) {
+        self.original_model_loading = true;
+        self.animation_sample = Some((animation, milliseconds));
     }
     pub fn append_retained(
         &mut self,
@@ -84,13 +95,16 @@ impl<'a> SceneBuilder<'a> {
         visual_scale: Option<[f32; 3]>,
     ) -> Result<(), String> {
         let model = &*source;
-        if model
-            .frames
-            .iter()
-            .any(|frame| frame.visual == Some(2) || frame.skin.is_some())
-            && !self.original_model_loading
+        if strict && model.materials.iter().any(super::material_effects_omitted) {
+            return Err("Selected model requires unsupported material effects".into());
+        }
+        if model.frames.iter().any(|frame| {
+            matches!(frame.visual, Some(2 | 3)) || frame.skin.is_some() || frame.morph.is_some()
+        }) && !self.original_model_loading
         {
-            return Err("Singlemesh requires owned binding and a checked CPU pose".into());
+            return Err(
+                "Singlemesh or singlemorph requires owned binding and a checked CPU pose".into(),
+            );
         }
         let source_key = Arc::as_ptr(&source) as usize;
         if !self.retained_sources.contains(&source_key) {
@@ -138,6 +152,37 @@ impl<'a> SceneBuilder<'a> {
                 source.clone(),
             )
             .map_err(|failure| format!("Original model materialization: {}", failure.error))?;
+            if let Some((animation, milliseconds)) = self.animation_sample.take() {
+                let binding = lhr_engine::skeletal_animation::SkeletalAnimation::new(
+                    &source,
+                    animation,
+                    loaded.source_frame_keys(),
+                )
+                .map_err(|error| format!("Unsupported skeletal binding: {error:?}"))?;
+                let bytes = binding
+                    .storage_bytes()
+                    .map_err(|error| format!("{error:?}"))?
+                    .checked_add(
+                        binding
+                            .animation_storage_bytes()
+                            .map_err(|error| format!("{error:?}"))?,
+                    )
+                    .and_then(|bytes| {
+                        binding
+                            .bindings()
+                            .len()
+                            .checked_mul(std::mem::size_of::<
+                                lhr_engine::skeletal_animation::SampledFrame,
+                            >())
+                            .and_then(|samples| bytes.checked_add(samples))
+                    })
+                    .ok_or("Animation storage overflow")?;
+                charge_scene(&mut self.bytes, bytes, MAX_SCENE_BYTES)?;
+                loaded
+                    .evaluate_skeletal_animation(&binding, milliseconds)
+                    .map_err(|error| error.to_string())?;
+                println!("Original skeletal pose sample: {} bound frames at {milliseconds} ms; position/rotation evaluators, Target updates and CPU skinning; no controller playback or gameplay", binding.bindings().len());
+            }
             loaded
                 .prepare_skin_pose()
                 .map_err(|error| error.to_string())?;
@@ -168,15 +213,16 @@ impl<'a> SceneBuilder<'a> {
         }
         if let Some(loaded) = &materialized {
             println!(
-                "Original parsed-model materialization: {} frames ({} visual, {} dummy, {} joint); owned hierarchy and original world/point arithmetic; fast-find, native vertex buffers and mission construction are not reconstructed",
+                "Original parsed-model materialization: {} frames ({} visual, {} dummy, {} target, {} joint); owned hierarchy and original world/point arithmetic; fast-find, native vertex buffers and mission construction are not reconstructed",
                 model.frames.len(),
                 model.frames.iter().filter(|frame| frame.kind == 1).count(),
                 model.frames.iter().filter(|frame| frame.kind == 6).count(),
+                model.frames.iter().filter(|frame| frame.kind == 7).count(),
                 model.frames.iter().filter(|frame| frame.kind == 10).count()
             );
             if loaded.skin_pose().is_some() {
                 println!(
-                    "Original singlemesh pose: first LOD, bound Joint hierarchy, eager bounds and CPU position/normal deformation; source UVs and topology retained; unlit inspection rendering, no character animation or gameplay"
+                    "Original singlemesh pose: first LOD, bound Joint hierarchy, eager bounds and CPU position/normal deformation; source UVs and topology retained; unlit inspection rendering, no character controller or gameplay"
                 );
             }
         }
@@ -193,8 +239,11 @@ impl<'a> SceneBuilder<'a> {
                 .as_ref()
                 .and_then(|loaded| loaded.skin_pose())
                 .and_then(|pose| pose.vertices(frame_index));
-            if geometry.visual == Some(2) && pose.is_none() {
-                return Err("Singlemesh pose unavailable; source vertices cannot substitute for deformation".into());
+            if matches!(geometry.visual, Some(2 | 3)) && pose.is_none() {
+                return Err(
+                    "Character pose unavailable; source vertices cannot substitute for deformation"
+                        .into(),
+                );
             }
             for group in &lod.groups {
                 let Some(material) = model.materials.get(group.material) else {
@@ -521,6 +570,8 @@ mod tests {
             dummy_bounds: None,
             joint: None,
             skin: None,
+            morph: None,
+            target: None,
             parent,
             position,
             scale: [1.0; 3],
@@ -533,6 +584,196 @@ mod tests {
             logic_flags: 0,
             culling: 0,
         }
+    }
+    fn character_source(visual: u8) -> Arc<Model> {
+        let mut mesh = frame(None, [0.; 3]);
+        mesh.visual = Some(visual);
+        mesh.lods.push(Lod {
+            distance: 0.,
+            vertices: [[100., 0., 0.], [101., 0., 0.], [100., 0., 1.]]
+                .into_iter()
+                .map(|position| lhr_assets::Vertex {
+                    position,
+                    normal: [0., 1., 0.],
+                    uv: [0.25, 0.75],
+                })
+                .collect(),
+            groups: vec![FaceGroup {
+                material: 0,
+                indices: vec![0, 1, 2],
+            }],
+        });
+        mesh.skin = Some(lhr_assets::SkinRecord {
+            lods: vec![lhr_assets::SkinLodRecord {
+                definition: Some(lhr_assets::SkinLodDefinition {
+                    root_vertex_count: 0,
+                    bounds: [-1., -1., -1., 1., 1., 1.],
+                    bones: vec![lhr_assets::SkinBoneRecord {
+                        matrix: lhr_engine::native_transform::SMatrix::identity().elements,
+                        rigid_vertex_count: 3,
+                        weighted_vertex_count: 0,
+                        blend_joint_index: 0,
+                        bounds: [-1., -1., -1., 1., 1., 1.],
+                        weights: vec![],
+                    }],
+                }),
+            }],
+        });
+        if visual == 3 {
+            mesh.morph = Some(lhr_assets::MorphRecord {
+                target_count: 2,
+                definition: Some(lhr_assets::MorphDefinition {
+                    channel_count: 1,
+                    trailer_words: [0; 10],
+                    lods: vec![lhr_assets::MorphLodRecord {
+                        channels: vec![lhr_assets::MorphChannelRecord {
+                            vertex_count: 3,
+                            index_mode: Some(1),
+                            vertex_indices: vec![2, 0, 1],
+                            samples: [[0., 0., 1.], [0., 0., 0.], [1., 0., 0.]]
+                                .into_iter()
+                                .flat_map(|position| {
+                                    [
+                                        lhr_assets::MorphSampleRecord {
+                                            position,
+                                            normal: [0., 1., 0.],
+                                        },
+                                        lhr_assets::MorphSampleRecord {
+                                            position: [9.; 3],
+                                            normal: [1., 0., 0.],
+                                        },
+                                    ]
+                                })
+                                .collect(),
+                        }],
+                    }],
+                }),
+            });
+        }
+        let mut joint = frame(Some(0), [0.; 3]);
+        joint.kind = 10;
+        joint.visual = None;
+        joint.joint = Some(lhr_assets::JointRecord {
+            bone_matrix: lhr_engine::native_transform::SMatrix::identity().elements,
+            index: 0,
+        });
+        Arc::new(Model {
+            frames: vec![mesh, joint],
+            materials: vec![lhr_assets::Material {
+                flags: 0,
+                ambient: [0.; 3],
+                diffuse: [1.; 3],
+                texture: String::new(),
+                emission: [0.; 3],
+                opacity: 1.,
+                alpha_texture: None,
+                reflection: None,
+                environment_texture: None,
+                animation: None,
+            }],
+        })
+    }
+    #[test]
+    fn character_assembly_requires_owned_pose_and_rejects_unsupported_morph_materials() {
+        struct Directory(std::path::PathBuf);
+        impl Drop for Directory {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let directory = Directory(
+            std::env::temp_dir().join(format!("lhr-character-assembly-{}", std::process::id())),
+        );
+        std::fs::create_dir(&directory.0).unwrap();
+        let installation = Installation::open(&directory.0).unwrap();
+        for visual in [2, 3] {
+            let source = character_source(visual);
+            let mut legacy = SceneBuilder::new(&installation, "maps");
+            assert!(legacy
+                .append_retained(
+                    "synthetic",
+                    source.clone(),
+                    Mat4::IDENTITY,
+                    None,
+                    true,
+                    None
+                )
+                .unwrap_err()
+                .contains("checked CPU pose"));
+            let mut builder = SceneBuilder::new(&installation, "maps");
+            builder.use_original_model_loading();
+            builder
+                .append_retained(
+                    "synthetic",
+                    source.clone(),
+                    Mat4::IDENTITY,
+                    None,
+                    true,
+                    None,
+                )
+                .unwrap();
+            let (scene, retained) = builder.finish().unwrap();
+            assert_eq!(scene.meshes.len(), 1);
+            assert_eq!(scene.meshes[0].indices, [0, 2, 1]);
+            assert_eq!(scene.meshes[0].vertices[0].uv, [0.25, 0.75]);
+            assert_eq!(
+                scene.meshes[0].vertices[0].position,
+                if visual == 3 { [0.; 3] } else { [100., 0., 0.] }
+            );
+            assert_eq!(
+                scene.meshes[0].vertices[2].position,
+                if visual == 3 {
+                    [0., 0., -1.]
+                } else {
+                    [100., 0., -1.]
+                }
+            );
+            assert_eq!(
+                source.frames[0].lods[0].vertices[0].position,
+                [100., 0., 0.]
+            );
+            assert!(Arc::ptr_eq(&retained.models[0].source, &source));
+        }
+        let mut invalid = (*character_source(3)).clone();
+        let channel = &mut invalid.frames[0]
+            .morph
+            .as_mut()
+            .unwrap()
+            .definition
+            .as_mut()
+            .unwrap()
+            .lods[0]
+            .channels[0];
+        channel.index_mode = Some(0);
+        channel.vertex_indices.clear();
+        let mut builder = SceneBuilder::new(&installation, "maps");
+        builder.use_original_model_loading();
+        assert!(builder
+            .append_retained(
+                "synthetic",
+                Arc::new(invalid),
+                Mat4::IDENTITY,
+                None,
+                true,
+                None
+            )
+            .unwrap_err()
+            .contains("MissingVertexIndices"));
+        let mut invalid = (*character_source(3)).clone();
+        invalid.materials[0].flags = 0x8000;
+        let mut builder = SceneBuilder::new(&installation, "maps");
+        builder.use_original_model_loading();
+        assert!(builder
+            .append_retained(
+                "synthetic",
+                Arc::new(invalid),
+                Mat4::IDENTITY,
+                None,
+                true,
+                None
+            )
+            .unwrap_err()
+            .contains("unsupported material effects"));
     }
     #[test]
     fn crossing_triangle_is_retained_when_all_vertices_are_outside_crop() {
