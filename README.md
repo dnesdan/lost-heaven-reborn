@@ -1,7 +1,7 @@
 # Lost Heaven Reborn
 
 <!-- generated-function-progress:start -->
-As of 2026-10-22 · snapshot `RUST-SCOPED-PORTS-20261022-17`.
+As of 2026-10-22 · snapshot `RUST-SCOPED-PORTS-20261022-18`.
 
 <p align="center"><img src="docs/progress.svg" alt="Progress dashboard: static retained pseudocode, reviewed scoped Rust entries, and strict system verification" width="100%"></p>
 
@@ -14,7 +14,7 @@ As of 2026-10-22 · snapshot `RUST-SCOPED-PORTS-20261022-17`.
 
 Strict full-system gate: **0/12**. Binary-level static counts use the named denominator basis and do not combine into a game-completion percentage. Unknown denominators remain N/A. 1 supplied configuration Setup inventory uses 172 in-image non-thunk procedures. Separately, archive installer bootstrap static inventory: **376 / 376 (100.00%)**; this distribution target is not combined with engine-library counts. The campaign is not playable.
 
-Accepted scoped Rust ports: **151 entries across 47 reviewed contracts**. These remain separate from retained pseudocode and whole-function counts.
+Accepted scoped Rust ports: **159 entries across 49 reviewed contracts**. These remain separate from retained pseudocode and whole-function counts.
 
 Regenerate locally with `python3 scripts/progress.py --write`; verify without writes with `python3 scripts/progress.py --check`. Versioned snapshots are retained in `docs/progress.json`.
 Milestone history and scoped implementation evidence are in [docs/PROGRESS.md](docs/PROGRESS.md).
@@ -26,9 +26,9 @@ An independent Rust reimplementation of the Mafia: The City of Lost Heaven (2002
 
 The animation path binds original track names, advances one live controller slot, evaluates position and bounded linear/spherical rotation, updates Target and morph state, and uploads CPU-skinned first-LOD geometry. Controller ownership and controls cover eight slots; blended evaluation, scale/note channels, full animation-resource ownership and actor/mission integration remain open. Unsupported inputs fail explicitly. Original models and clips are regression fixtures for this general implementation.
 
-Bounded per-object resources now own ten unique generated LOD slots separately from their shared mesh/material resources and the managed IB/VB bridge. Cleanup completes all ten LOD releases before clearing the slots and releasing the shared mesh. 8 original-call trajectories support this scope. Actual texture final lifetime, derived LOD resources, loaded/GPU adapters and scene teardown remain open; no application or new rendered/interactive validation is claimed.
+Standalone per-object LOD and shared mesh/material ownership now compose with bounded nonmanaged `ITexture` and `C_str` lifetime. Nine direct original-call cases and one composed resource case support the admitted fields and cleanup effects. Managed texture removal, native creation/upload, derived LODs, loaded/GPU adapters and scene teardown remain open; no application or new rendered/interactive validation is claimed.
 
-New ownership code uses `lhr_engine::ls3df::i3d_object`, exposing `Lod` and the scoped `I3dObjectResources`. This logical original-library namespace adds no DLL or Cargo package; see the [package and name mapping](docs/REFERENCE_PROJECTS.md#rust-organization-and-original-names).
+Ownership code uses `lhr_engine::ls3df::{c_str, itexture, i3d_object}`. These logical original-library modules add no DLL or Cargo package; see the [package and name mapping](docs/REFERENCE_PROJECTS.md#rust-organization-and-original-names).
 
 The immediate goal is **the playable first mission, from the original menu through mission completion**, alongside function-by-function library parity with mafia-re. See the [acceptance gates and dependency order](docs/GOALS.md). PS2 symbol names guide reconstruction; PC behavior and platform differences require original-binary verification.
 
@@ -72,7 +72,7 @@ The first command opens the Rust-rendered original menu. Up/Down and Enter selec
 
 Standalone static `--model` loading now builds an owned mesh/dummy hierarchy using recovered common LS3DF fields, parent links, reference transitions and guarded original transforms. `4build81.4ds` exercises three meshes and one dummy. Unsupported frame types, world-space visuals, reflective materials and unverified numeric paths report errors. This route does not establish native world streaming or original lighting/material parity. The MISE01 neighborhood remains a separate static inspection path.
 
-Standalone models use the owned original hierarchy and checked first-LOD skin/morph pose. Earlier skin intake admits 80 of 82 selected paths (37,948 vertices); two remain explicit numeric-domain failures. Separate composed comparisons cover `civil02` and the actual `TommyTAXIDRIVER` model. Connecting recovered buffer ownership to loaded visuals and the GPU backend, texture lifetime and original lighting remain open; the inspection renderer does not use recovered normals for lighting.
+Standalone models use the owned original hierarchy and checked first-LOD skin/morph pose. Earlier skin intake admits 80 of 82 selected paths (37,948 vertices); two remain explicit numeric-domain failures. Separate composed comparisons cover `civil02` and the actual `TommyTAXIDRIVER` model. Connecting recovered ownership to loaded visuals and the GPU backend, managed texture lifetime, creation/upload and original lighting remain open; the inspection renderer does not use recovered normals for lighting.
 
 `--skeletal-animation` runs sequential position/rotation playback for a supported model/animation pair. It explicitly requests slot 0, unit weight and loop mode; original game animation selection is not implemented. Windowed playback uses the recovered clock and dispatch path. Add `--headless --animation-steps 25 --capture /tmp/animation.png` for 25 controlled 16 ms steps. Bounds, deformation and rendering are requested by the inspection adapter; this does not establish original renderer scheduling. Spherical rotation admits angles through 1.5 radians only where checked numeric intervals give an unambiguous original float result. Other domains, multi-slot blending, scale and notes fail explicitly.
 
