@@ -7,6 +7,7 @@ pub mod animation_binding;
 pub mod animation_controller;
 pub mod animation_index;
 pub mod buffer_managers;
+pub mod c_str;
 pub mod clock;
 pub mod driver_state;
 pub mod frame_delta;
@@ -14,6 +15,7 @@ pub mod frame_dispatch;
 pub mod frame_transform;
 pub mod i3d_object;
 pub mod interpolator;
+pub mod itexture;
 pub mod joint_state;
 pub mod managed_visual_resources;
 pub mod mesh_bounds;
@@ -47,5 +49,5 @@ pub mod visual_resources;
 /// Original engine-library namespace, without moving existing modules or
 /// claiming an additional DLL/Cargo package or a complete LS3DF reconstruction.
 pub mod ls3df {
-    pub use crate::i3d_object;
+    pub use crate::{c_str, i3d_object, itexture};
 }
