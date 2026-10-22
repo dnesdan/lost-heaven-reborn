@@ -1,7 +1,9 @@
 //! Owned projection of PC I3D_joint fields used by constructor, LoadImage and
-//! UpdateV (LS3DF RVAs 0x1ed30, 0x1ef10 and 0x1ee30). The class/method names
+//! UpdateV and GetJointMatrix (LS3DF RVAs 0x1ed30, 0x1ef10, 0x1ee30 and
+//! 0x56ba0). The class/method names
 //! have PS2 symbol provenance; the PC member labels are descriptive. This is
-//! neither the PS2 layout nor a singlemesh binding or deformation backend.
+//! neither the PS2 layout nor a deformation backend. The owned frame graph
+//! provides the matrix cache and singlemesh binding operations.
 use crate::{frame_transform::FrameKey, native_transform::SMatrix};
 
 #[derive(Clone, Copy, Debug, PartialEq)]

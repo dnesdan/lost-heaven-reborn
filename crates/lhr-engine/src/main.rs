@@ -208,7 +208,7 @@ fn load(options: &Options) -> Result<LoadedScene, String> {
         (model, Some(source))
     } else {
         let model = if options.model.is_some() {
-            lhr_assets::parse_four_ds(&data)
+            lhr_assets::parse_four_ds(&data).or_else(|_| lhr_assets::parse_four_ds_skin(&data))
         } else {
             lhr_assets::parse_four_ds_scene(&data)
         }
@@ -221,7 +221,10 @@ fn load(options: &Options) -> Result<LoadedScene, String> {
             .iter()
             .filter(|material| material_effects_omitted(material))
             .count();
-        println!("Static scene subset: {} frames; {omitted} materials have effects not rendered; animation, lighting and mission scripts are not executed", model.frames.len());
+        println!(
+            "Static scene subset: {} frames; {omitted} materials have effects not rendered; animation, lighting and mission scripts are not executed",
+            model.frames.len()
+        );
     }
     let mut builder = assembly::SceneBuilder::new(&installation, &options.textures);
     if options.model.is_some() && animation_source.is_none() {
@@ -250,7 +253,9 @@ fn load(options: &Options) -> Result<LoadedScene, String> {
         runtime.charge_position_binding(playback)?;
     }
     if animation.is_some() {
-        println!("Bound original position-only animation: slot0 mode2; one model wrapper and root mesh; native control flow, pose, frame caches and matrix/point arithmetic; host camera, handedness and rendering, no mission integration");
+        println!(
+            "Bound original position-only animation: slot0 mode2; one model wrapper and root mesh; native control flow, pose, frame caches and matrix/point arithmetic; host camera, handedness and rendering, no mission integration"
+        );
     }
     let camera = if options.model.is_some() {
         Camera::fit(&scene)?
@@ -282,8 +287,12 @@ fn authored_camera(
         .read(&format!("missions/{mission}/scene2.bin"))
         .map_err(|e| e.to_string())?;
     let metadata = lhr_assets::parse_scene2(&bytes).map_err(|e| e.to_string())?;
-    println!("Scene metadata: {} objects, {} actors, {} parsed script programs; actors and mission scripts are not executed",
-        metadata.objects.len(), metadata.actors.len(), metadata.scripts.len());
+    println!(
+        "Scene metadata: {} objects, {} actors, {} parsed script programs; actors and mission scripts are not executed",
+        metadata.objects.len(),
+        metadata.actors.len(),
+        metadata.scripts.len()
+    );
     if let Some(object) = metadata
         .objects
         .iter()
@@ -389,7 +398,9 @@ impl App {
         self.runtime_engine.reset_clock(&mut self.clock_backend);
         self.mode = mode;
         self.keys.clear();
-        println!("Application state: {mode:?}; scene assets loaded; gameplay and cutscene execution unsupported");
+        println!(
+            "Application state: {mode:?}; scene assets loaded; gameplay and cutscene execution unsupported"
+        );
         Ok(())
     }
     fn fail(&mut self, event_loop: &ActiveEventLoop, message: &str) {
@@ -559,7 +570,13 @@ impl ApplicationHandler for App {
                     }
                 };
                 if self.count == 0 {
-                    println!("Bound runtime: raw delta {}, modified {}, driver time {}, {} retained model ticks dispatched; authored actors/scripts remain unbound",step.raw_delta,step.modified_delta,step.driver_time,step.models_dispatched);
+                    println!(
+                        "Bound runtime: raw delta {}, modified {}, driver time {}, {} retained model ticks dispatched; authored actors/scripts remain unbound",
+                        step.raw_delta,
+                        step.modified_delta,
+                        step.driver_time,
+                        step.models_dispatched
+                    );
                 }
                 if let Some(renderer) = &self.renderer {
                     if let Err(error) =
@@ -716,7 +733,9 @@ fn run() -> Result<(), String> {
     }
     println!("Application state: {mode:?}");
     if ui.is_some() {
-        println!("Menu subset: New Game and Exit; original profile chooser and other actions are not implemented");
+        println!(
+            "Menu subset: New Game and Exit; original profile chooser and other actions are not implemented"
+        );
     }
     println!(
         "Original-data {} inspection; provisional {} texture sampling; {} indexed mesh groups",
@@ -741,7 +760,20 @@ fn run() -> Result<(), String> {
     let mut clock_backend = lhr_engine::runtime::PlatformClock::default();
     let initial_sample = lhr_engine::clock::ClockBackend::sample_ms(&mut clock_backend);
     let mut runtime_engine = lhr_engine::runtime::RuntimeEngine::from_sample(initial_sample);
-    println!("Retained runtime binding: {} placements, {} source frames; {}; host inspection population/order (not original mission initialization)",runtime.models.len(),runtime.models.iter().map(|model|model.pose().len()).sum::<usize>(), if animation.is_some() { "bounded position animation" } else { "static model guards only" });
+    println!(
+        "Retained runtime binding: {} placements, {} source frames; {}; host inspection population/order (not original mission initialization)",
+        runtime.models.len(),
+        runtime
+            .models
+            .iter()
+            .map(|model| model.pose().len())
+            .sum::<usize>(),
+        if animation.is_some() {
+            "bounded position animation"
+        } else {
+            "static model guards only"
+        }
+    );
     if options.headless {
         if let Some(steps) = options.animation_steps {
             runtime_engine = lhr_engine::runtime::RuntimeEngine::from_sample(0);
@@ -755,7 +787,10 @@ fn run() -> Result<(), String> {
                 )
                 .map_err(|error| format!("Bound inspection runtime failed: {error:?}"))?;
             }
-            println!("Headless animation inspection: {steps} controlled clock steps, {} ms; host time policy, not native wall-clock execution",steps*16);
+            println!(
+                "Headless animation inspection: {steps} controlled clock steps, {} ms; host time policy, not native wall-clock execution",
+                steps * 16
+            );
         } else {
             let step = advance_bound(
                 &mut runtime_engine,

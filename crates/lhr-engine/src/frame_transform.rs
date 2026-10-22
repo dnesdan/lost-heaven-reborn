@@ -5,10 +5,18 @@
 //! observed inline operations, not additional original symbols. Host storage
 //! does not implement native reference counting/destructors. Only LinkTo flags0/1,
 //! model/mesh/dummy/joint virtual updates, and an empty deferred queue are represented.
+//! Joint cache and singlemesh discovery/binding use owned graph identities;
+//! loaded-definition bounds and inherited visual updates are represented;
+//! singlemesh rendering/resource backends remain separate.
 use crate::{
     joint_state::{I3dJointState, SinglemeshInvalidationState},
     native_matrix::{checked_f32_add, checked_f32_mul},
     native_transform::{SMatrix, SQuat},
+    singlemesh_binding::{DBuildBindingOutcome, I3dSinglemeshBinding},
+    singlemesh_bounds::{
+        calculate_singlemesh_bounds, SinglemeshBoundVolume, SinglemeshBoundingBox,
+        SinglemeshBoundsError,
+    },
 };
 const DIRTY: u32 = 0x40002000;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -19,8 +27,8 @@ pub enum FrameKind {
     Mesh,
     Dummy,
     Joint,
-    /// Only an explicit Joint::UpdateV invalidation target. Its own virtual
-    /// update requires the unavailable singlemesh backend.
+    /// A Joint::UpdateV target with optional owned binding fields. Only an
+    /// owned binding admits the inherited visual update and loaded bounds path.
     Singlemesh,
 }
 /// Fields observed by these methods, not a complete native object.
@@ -98,16 +106,19 @@ pub struct FrameLinks {
     pub next: Option<FrameKey>,
     pub child_count: u32,
 }
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 struct Node {
     state: I3dFrameState,
     links: FrameLinks,
     joint: Option<I3dJointState>,
     singlemesh: Option<SinglemeshInvalidationState>,
+    binding: Option<I3dSinglemeshBinding>,
     // Host availability markers, not original frame fields. An interrupted
     // guarded computation must not later masquerade as a valid native cache.
     local_error: Option<FrameError>,
     world_error: Option<FrameError>,
+    joint_error: Option<FrameError>,
+    singlemesh_bound_error: Option<FrameError>,
 }
 #[derive(Clone, Copy, Debug)]
 struct Visit {
@@ -135,6 +146,10 @@ pub enum FrameError {
     NotJoint(FrameKey),
     InvalidSinglemeshTarget(FrameKey),
     UnsupportedSinglemeshUpdate(FrameKey),
+    JointMatrixUnavailable(FrameKey),
+    SinglemeshBindingUnavailable(FrameKey),
+    SinglemeshBoundsUnavailable(FrameKey),
+    SinglemeshBoundsDefinitionTooShort(FrameKey),
 }
 impl I3dFrameGraph {
     pub fn insert(&mut self, state: I3dFrameState) -> Result<FrameKey, FrameError> {
@@ -147,8 +162,11 @@ impl I3dFrameGraph {
             links: FrameLinks::default(),
             joint: (state.kind == FrameKind::Joint).then(I3dJointState::default),
             singlemesh: None,
+            binding: None,
             local_error: None,
             world_error: None,
+            joint_error: None,
+            singlemesh_bound_error: None,
         });
         // Retain bounded traversal storage so the scene charges all allocations
         // before ticking or lazily rendering; traversal cannot grow past nodes.
@@ -181,6 +199,73 @@ impl I3dFrameGraph {
             .as_ref()
             .ok_or(FrameError::NotJoint(key))
     }
+    /// Import a known PC joint projection, including an available native cache.
+    /// This host intake does not execute the original constructor or loader.
+    pub fn insert_joint_state(
+        &mut self,
+        mut state: I3dFrameState,
+        joint: I3dJointState,
+    ) -> Result<FrameKey, FrameError> {
+        if let Some(target) = joint.singlemesh {
+            self.singlemesh_invalidation_state(target)?;
+        }
+        state.kind = FrameKind::Joint;
+        let key = self.insert(state)?;
+        self.node_mut(key)?.joint = Some(joint);
+        Ok(key)
+    }
+
+    /// Original GetJointMatrix, PC RVA0x56ba0. The valid flag is set before
+    /// UpdateMatrix, and each completed ancestor product replaces the cache.
+    /// The first model/visual ancestor is excluded. A cached parent joint
+    /// terminates the walk after one product. Unsupported arithmetic preserves
+    /// preceding stores and marks the interrupted cache unavailable to callers.
+    pub fn get_joint_matrix(&mut self, key: FrameKey) -> Result<SMatrix, FrameError> {
+        if self.joint_state(key)?.flags & 0x10 != 0 {
+            if let Some(error) = self.node(key)?.joint_error {
+                return Err(error);
+            }
+            return self
+                .joint_state(key)?
+                .joint_matrix
+                .ok_or(FrameError::JointMatrixUnavailable(key));
+        }
+        self.node_mut(key)?.joint.as_mut().unwrap().flags |= 0x10;
+        let result = (|| {
+            let local = self.local_matrix(key)?;
+            self.node_mut(key)?.joint.as_mut().unwrap().joint_matrix = Some(local);
+            let mut parent = self.links(key)?.parent;
+            while let Some(at) = parent {
+                let kind = self.state(at)?.kind;
+                if matches!(
+                    kind,
+                    FrameKind::Model | FrameKind::Mesh | FrameKind::Singlemesh
+                ) {
+                    break;
+                }
+                let cached = kind == FrameKind::Joint && self.joint_state(at)?.flags & 0x10 != 0;
+                let right = if cached {
+                    self.get_joint_matrix(at)?
+                } else {
+                    self.local_matrix(at)?
+                };
+                let product = self
+                    .joint_state(key)?
+                    .joint_matrix
+                    .unwrap()
+                    .try_mul_affine(&right)
+                    .map_err(|_| FrameError::NumericDomain("GetJointMatrix multiply"))?;
+                self.node_mut(key)?.joint.as_mut().unwrap().joint_matrix = Some(product);
+                if cached {
+                    break;
+                }
+                parent = self.links(at)?.parent;
+            }
+            Ok(self.joint_state(key)?.joint_matrix.unwrap())
+        })();
+        self.node_mut(key)?.joint_error = result.as_ref().err().copied();
+        result
+    }
     /// Complete derived LoadImage payload; the caller applies common fields
     /// first. Matrix/index bits are retained even outside numeric getter domains.
     pub fn apply_joint_load_image_fields(
@@ -194,7 +279,202 @@ impl I3dFrameGraph {
             .as_mut()
             .ok_or(FrameError::NotJoint(key))?
             .apply_load_image_fields(bone_matrix, index);
+        self.node_mut(key)?.joint_error = None;
         Ok(())
+    }
+    /// Import the mesh-presence and invalidation fields needed by the binding
+    /// prefix. This is not a native singlemesh constructor or geometry loader.
+    pub fn insert_singlemesh_binding(
+        &mut self,
+        state: I3dFrameState,
+        invalidation: SinglemeshInvalidationState,
+        mesh_present: bool,
+    ) -> Result<FrameKey, FrameError> {
+        let key = self.insert_singlemesh_invalidation_target(state, invalidation)?;
+        self.node_mut(key)?.binding = Some(I3dSinglemeshBinding {
+            mesh_present,
+            ..Default::default()
+        });
+        Ok(key)
+    }
+    pub fn singlemesh_binding(&self, key: FrameKey) -> Result<&I3dSinglemeshBinding, FrameError> {
+        self.node(key)?
+            .binding
+            .as_ref()
+            .ok_or(FrameError::SinglemeshBindingUnavailable(key))
+    }
+    /// Last successfully calculated bound, available only while the native
+    /// bound-valid flag is set and no interrupted calculation is pending.
+    pub fn singlemesh_bound_volume(
+        &self,
+        key: FrameKey,
+    ) -> Result<SinglemeshBoundVolume, FrameError> {
+        let node = self.node(key)?;
+        if let Some(error) = node.singlemesh_bound_error {
+            return Err(error);
+        }
+        if node.state.visual_flags & 0x20000 == 0 {
+            return Err(FrameError::SinglemeshBoundsUnavailable(key));
+        }
+        self.singlemesh_binding(key)?
+            .bound_volume
+            .ok_or(FrameError::SinglemeshBoundsUnavailable(key))
+    }
+    /// DBuild for an explicitly supplied, loaded first-LOD skin definition.
+    /// After binding, the original bounds traversal eagerly evaluates joint
+    /// matrices before the final DBuild visual-flag store. Missing mesh/empty
+    /// discovery retains the native false result. The caller owns the validated
+    /// LOD/definition relationship; this does not load resources or supply the
+    /// missing-LOD and missing-definition fallback backends.
+    pub fn d_build_loaded_singlemesh(
+        &mut self,
+        key: FrameKey,
+        initial_bbox: SinglemeshBoundingBox,
+        joint_boxes: &[SinglemeshBoundingBox],
+    ) -> Result<bool, FrameError> {
+        match self.d_build_binding(key)? {
+            DBuildBindingOutcome::NoMesh | DBuildBindingOutcome::NoJoints => return Ok(false),
+            DBuildBindingOutcome::BoundVolumeUpdateRequired => {}
+        }
+        self.update_singlemesh_loaded_bounds(key, initial_bbox, joint_boxes)?;
+        let state = &mut self.node_mut(key)?.state;
+        if state.visual_flags & 0x40 == 0 {
+            state.visual_flags &= !0x40000;
+        }
+        Ok(true)
+    }
+    /// Populated-definition UpdateBVolumeProc path (PC RVA0x54810), after a
+    /// successful binding allocation. The counter store precedes arithmetic
+    /// and joint-cache work. On unsupported numeric input, completed joint
+    /// cache writes remain, but no native partial volume is claimed or exposed.
+    pub fn update_singlemesh_loaded_bounds(
+        &mut self,
+        key: FrameKey,
+        initial_bbox: SinglemeshBoundingBox,
+        joint_boxes: &[SinglemeshBoundingBox],
+    ) -> Result<(), FrameError> {
+        self.singlemesh_binding(key)?;
+        let changed = self.singlemesh_invalidation_state(key)?.joints_changed;
+        self.node_mut(key)?
+            .binding
+            .as_mut()
+            .unwrap()
+            .bvol_joints_changed = changed;
+        let result = (|| {
+            let binding = self.singlemesh_binding(key)?;
+            if !binding.mesh_present || binding.joints.is_empty() {
+                return Err(FrameError::SinglemeshBoundsUnavailable(key));
+            }
+            let count = binding.joints.len();
+            if joint_boxes.len() < count {
+                return Err(FrameError::SinglemeshBoundsDefinitionTooShort(key));
+            }
+            // Unwritten PC allocation slots are never interpreted as null.
+            if binding.joints.iter().any(Option::is_none) {
+                return Err(FrameError::SinglemeshBindingUnavailable(key));
+            }
+            let boxes: Vec<_> = joint_boxes[..count].iter().copied().map(Some).collect();
+            let volume = calculate_singlemesh_bounds(initial_bbox, &boxes, |index| {
+                let joint = self.singlemesh_binding(key)?.joints[index].unwrap();
+                self.get_joint_matrix(joint)
+            })
+            .map_err(|error| match error {
+                SinglemeshBoundsError::JointMatrix(error) => error,
+                SinglemeshBoundsError::NumericDomain => {
+                    FrameError::NumericDomain("singlemesh bound volume")
+                }
+            })?;
+            let node = self.node_mut(key)?;
+            node.binding.as_mut().unwrap().bound_volume = Some(volume);
+            node.state.visual_flags = (node.state.visual_flags & !0x40000) | 0x20000;
+            self.discard_hr_bound_vol(key)
+        })();
+        self.node_mut(key)?.singlemesh_bound_error = result.as_ref().err().copied();
+        result
+    }
+    /// Original PC findJoint, RVA0x54d80: descendants in sibling-head preorder,
+    /// with at most 64 joints. Nested visual nodes do not stop the PC search.
+    /// The receiver itself is excluded. Owned links are cycle-free.
+    pub fn find_joint(&self, key: FrameKey) -> Result<Vec<FrameKey>, FrameError> {
+        let mut found = Vec::new();
+        let mut at = self.links(key)?.child;
+        while let Some(current) = at {
+            if self.state(current)?.kind == FrameKind::Joint {
+                if found.len() == 64 {
+                    // Native breaks this sibling level; unwind to its parent.
+                    at = self.find_joint_next(key, current, false)?;
+                    continue;
+                }
+                found.push(current);
+            }
+            at = match self.links(current)?.child {
+                Some(child) => Some(child),
+                None => self.find_joint_next(key, current, true)?,
+            };
+        }
+        Ok(found)
+    }
+    fn find_joint_next(
+        &self,
+        root: FrameKey,
+        mut current: FrameKey,
+        include_sibling: bool,
+    ) -> Result<Option<FrameKey>, FrameError> {
+        if include_sibling {
+            if let Some(next) = self.links(current)?.next {
+                return Ok(Some(next));
+            }
+        }
+        while let Some(parent) = self.links(current)?.parent {
+            if parent == root {
+                break;
+            }
+            if let Some(next) = self.links(parent)?.next {
+                return Ok(Some(next));
+            }
+            current = parent;
+        }
+        Ok(None)
+    }
+    /// DBuild's binding prefix, PC RVA0x54c20. Old backreferences are cleared
+    /// before checking mesh presence. Each dense slot takes the first matching
+    /// index in findJoint order. Unwritten native allocation slots remain host
+    /// unavailable markers. Bounds and the subsequent visual-flag store are
+    /// deliberately pending; BoundVolumeUpdateRequired is not a true return.
+    pub fn d_build_binding(&mut self, key: FrameKey) -> Result<DBuildBindingOutcome, FrameError> {
+        self.singlemesh_binding(key)?;
+        // An unwritten slot is not safe to dereference on the next native call.
+        if self
+            .singlemesh_binding(key)?
+            .joints
+            .iter()
+            .any(Option::is_none)
+        {
+            return Err(FrameError::SinglemeshBindingUnavailable(key));
+        }
+        let old = std::mem::take(&mut self.node_mut(key)?.binding.as_mut().unwrap().joints);
+        for joint in old.into_iter().flatten() {
+            self.node_mut(joint)?.joint.as_mut().unwrap().singlemesh = None;
+        }
+        if !self.singlemesh_binding(key)?.mesh_present {
+            return Ok(DBuildBindingOutcome::NoMesh);
+        }
+        let found = self.find_joint(key)?;
+        if found.is_empty() {
+            return Ok(DBuildBindingOutcome::NoJoints);
+        }
+        let mut slots = vec![None; found.len()];
+        for (index, slot) in slots.iter_mut().enumerate() {
+            for &joint in &found {
+                if self.joint_state(joint)?.index == index as u32 {
+                    *slot = Some(joint);
+                    self.node_mut(joint)?.joint.as_mut().unwrap().singlemesh = Some(key);
+                    break;
+                }
+            }
+        }
+        self.node_mut(key)?.binding.as_mut().unwrap().joints = slots;
+        Ok(DBuildBindingOutcome::BoundVolumeUpdateRequired)
     }
     /// Import only a known singlemesh frame/counter projection for linked
     /// Joint::UpdateV. This does not construct or load a native singlemesh.
@@ -217,8 +497,8 @@ impl I3dFrameGraph {
             .as_ref()
             .ok_or(FrameError::InvalidSinglemeshTarget(key))
     }
-    /// Assign the observed pointer field using an owned target. Joint discovery,
-    /// index arrays, reference ownership and vertex binding are separate work.
+    /// Assign the observed pointer field using an owned target. This low-level
+    /// projection does not populate the target's DBuild joint-index array.
     pub fn assign_joint_singlemesh_target(
         &mut self,
         key: FrameKey,
@@ -235,6 +515,20 @@ impl I3dFrameGraph {
         Ok(self.node(key)?.links)
     }
     pub fn storage_bytes(&self) -> Result<usize, FrameError> {
+        let binding_bytes = self
+            .nodes
+            .iter()
+            .try_fold(0usize, |total, node| {
+                let bytes = match &node.binding {
+                    Some(binding) => binding
+                        .joints
+                        .capacity()
+                        .checked_mul(std::mem::size_of::<Option<FrameKey>>())?,
+                    None => 0,
+                };
+                total.checked_add(bytes)
+            })
+            .ok_or(FrameError::AllocationOverflow)?;
         self.nodes
             .capacity()
             .checked_mul(std::mem::size_of::<Node>())
@@ -245,6 +539,7 @@ impl I3dFrameGraph {
                         .checked_mul(std::mem::size_of::<FrameKey>())?,
                 )
             })
+            .and_then(|n| n.checked_add(binding_bytes))
             .and_then(|n| {
                 n.checked_add(
                     self.visits
@@ -622,15 +917,17 @@ impl I3dFrameGraph {
     }
     fn enter_update(&mut self, key: FrameKey) -> Result<Visit, FrameError> {
         let n = self.node_mut(key)?;
-        // A target-only singlemesh projection cannot enter its native virtual
-        // update traversal. Reject before claiming any own Update side effects.
-        if n.state.kind == FrameKind::Singlemesh {
+        // Only the owned binding projection admits the evidenced inherited
+        // visual update. The legacy target-only projection remains guarded.
+        if n.state.kind == FrameKind::Singlemesh && n.binding.is_none() {
             return Err(FrameError::UnsupportedSinglemeshUpdate(key));
         }
         let dirty = n.state.flags & DIRTY != 0;
         if dirty {
             n.state.update_count = n.state.update_count.wrapping_add(1);
-            if n.state.kind == FrameKind::Mesh && n.state.visual_flags & 0x40 == 0 {
+            if matches!(n.state.kind, FrameKind::Mesh | FrameKind::Singlemesh)
+                && n.state.visual_flags & 0x40 == 0
+            {
                 n.state.visual_flags &= !0x40000;
             }
         }
@@ -643,11 +940,14 @@ impl I3dFrameGraph {
     /// Observed UpdateV effects for the represented frame kinds. Dummy's
     /// original entry is RVA0x1a330; it clears its own bound flag only if dirty.
     pub fn update_v(&mut self, key: FrameKey) -> Result<(), FrameError> {
-        if self.state(key)?.kind == FrameKind::Singlemesh {
+        if self.state(key)?.kind == FrameKind::Singlemesh && self.node(key)?.binding.is_none() {
             return Err(FrameError::UnsupportedSinglemeshUpdate(key));
         }
         if self.state(key)?.kind == FrameKind::Joint {
             let node = self.node_mut(key)?;
+            if node.state.flags & DIRTY != 0 {
+                node.joint_error = None;
+            }
             let target = node
                 .joint
                 .as_mut()
@@ -669,7 +969,9 @@ impl I3dFrameGraph {
         }
         let s = &mut self.node_mut(key)?.state;
         if s.flags & DIRTY != 0 {
-            if s.kind == FrameKind::Mesh && s.visual_flags & 0x40 == 0 {
+            if matches!(s.kind, FrameKind::Mesh | FrameKind::Singlemesh)
+                && s.visual_flags & 0x40 == 0
+            {
                 s.visual_flags &= !0x1c0000;
             } else if s.kind == FrameKind::Dummy {
                 s.dummy_flags &= !0x10;
@@ -678,7 +980,8 @@ impl I3dFrameGraph {
         Ok(())
     }
     /// Original Update/recursive-child effects for model/standard-mesh/dummy/joint
-    /// objects. The deferred list is empty; singlemesh virtual updates fail.
+    /// objects and owned singlemesh bindings. The deferred list is empty;
+    /// target-only singlemesh projections cannot enter their own update.
     pub fn update(&mut self, key: FrameKey) -> Result<(), FrameError> {
         let mut visits = std::mem::take(&mut self.visits);
         visits.clear();
@@ -715,7 +1018,10 @@ impl I3dFrameGraph {
                 parent = self.links(p)?.parent;
             }
             let s = &mut self.node_mut(key)?.state;
-            if s.kind == FrameKind::Mesh && s.flags & DIRTY != 0 && s.visual_flags & 0x40 == 0 {
+            if matches!(s.kind, FrameKind::Mesh | FrameKind::Singlemesh)
+                && s.flags & DIRTY != 0
+                && s.visual_flags & 0x40 == 0
+            {
                 s.visual_flags &= !0x40000;
             }
             s.flags &= !DIRTY;
@@ -729,6 +1035,282 @@ impl I3dFrameGraph {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn joint_matrix_stops_at_visual_and_reuses_cached_parent() {
+        let mut graph = I3dFrameGraph::default();
+        let visual = graph.insert(mesh([100., 0., 0.])).unwrap();
+        let mut dummy_state = I3dFrameState::dummy();
+        dummy_state.local.elements[12] = 10.;
+        let dummy = graph.insert(dummy_state).unwrap();
+        let parent = graph.insert(I3dFrameState::joint()).unwrap();
+        let child = graph.insert(I3dFrameState::joint()).unwrap();
+        graph.assign_position(parent, [2., 0., 0.]).unwrap();
+        graph.assign_position(child, [3., 0., 0.]).unwrap();
+        graph.link_to(dummy, Some(visual)).unwrap();
+        graph.link_to(parent, Some(dummy)).unwrap();
+        graph.link_to(child, Some(parent)).unwrap();
+        assert_eq!(graph.get_joint_matrix(parent).unwrap().elements[12], 12.);
+        graph.assign_position(dummy, [20., 0., 0.]).unwrap();
+        // Native cached joint bypasses the modified ancestor and own local work.
+        assert_eq!(graph.get_joint_matrix(child).unwrap().elements[12], 15.);
+        assert_eq!(graph.state(visual).unwrap().flags & 0x14, 0);
+        graph.update(parent).unwrap();
+        assert_eq!(graph.get_joint_matrix(child).unwrap().elements[12], 25.);
+        assert_eq!(graph.joint_state(parent).unwrap().flags & 0x10, 0);
+    }
+
+    #[test]
+    fn joint_matrix_early_valid_flag_cannot_hide_failed_computation() {
+        let mut graph = I3dFrameGraph::default();
+        let mut state = I3dFrameState::joint();
+        state.flags = 0;
+        state.rotation.wxyz[0] = f32::NAN;
+        let joint = graph.insert(state).unwrap();
+        let error = FrameError::NumericDomain("SetRot3");
+        assert_eq!(graph.get_joint_matrix(joint), Err(error));
+        assert_eq!(graph.joint_state(joint).unwrap().flags, 0x10);
+        assert_eq!(graph.state(joint).unwrap().flags, 0x14);
+        assert_eq!(graph.get_joint_matrix(joint), Err(error));
+        graph
+            .assign_rotation(
+                joint,
+                SQuat {
+                    wxyz: [1., 0., 0., 0.],
+                },
+            )
+            .unwrap();
+        assert_eq!(graph.get_joint_matrix(joint), Err(error));
+        graph.update_v(joint).unwrap();
+        assert_eq!(graph.get_joint_matrix(joint), Ok(SMatrix::identity()));
+
+        let mut state = I3dFrameState::dummy();
+        state.flags = 0x14;
+        state.local.elements[0] = f32::MAX;
+        let dummy = graph.insert(state).unwrap();
+        graph.link_to(joint, Some(dummy)).unwrap();
+        graph.assign_scale(joint, [2., 1., 1.]).unwrap();
+        graph.update_v(joint).unwrap();
+        let error = FrameError::NumericDomain("GetJointMatrix multiply");
+        assert_eq!(graph.get_joint_matrix(joint), Err(error));
+        assert_eq!(
+            graph
+                .joint_state(joint)
+                .unwrap()
+                .joint_matrix
+                .unwrap()
+                .elements[0],
+            2.
+        );
+        assert_eq!(graph.get_joint_matrix(joint), Err(error));
+    }
+
+    #[test]
+    fn joint_hot_cache_copies_raw_bits_and_missing_storage_is_unavailable() {
+        let mut graph = I3dFrameGraph::default();
+        let mut cache = SMatrix::identity();
+        cache.elements[0] = f32::from_bits(0x7fc01234);
+        cache.elements[12] = -0.;
+        let state = I3dJointState {
+            flags: 0x10,
+            joint_matrix: Some(cache),
+            ..Default::default()
+        };
+        let joint = graph
+            .insert_joint_state(I3dFrameState::joint(), state)
+            .unwrap();
+        let before = *graph.state(joint).unwrap();
+        assert_eq!(
+            graph
+                .get_joint_matrix(joint)
+                .unwrap()
+                .elements
+                .map(f32::to_bits),
+            cache.elements.map(f32::to_bits)
+        );
+        assert_eq!(*graph.state(joint).unwrap(), before);
+        let missing = graph
+            .insert_joint_state(
+                I3dFrameState::joint(),
+                I3dJointState {
+                    flags: 0x10,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            graph.get_joint_matrix(missing),
+            Err(FrameError::JointMatrixUnavailable(missing))
+        );
+    }
+
+    #[test]
+    fn binding_uses_preorder_first_match_and_keeps_bounds_pending() {
+        let mut graph = I3dFrameGraph::default();
+        let target = graph
+            .insert_singlemesh_binding(
+                I3dFrameState::mesh(),
+                SinglemeshInvalidationState { joints_changed: 7 },
+                true,
+            )
+            .unwrap();
+        let first = graph.insert(I3dFrameState::joint()).unwrap();
+        let nested = graph.insert(mesh([0.; 3])).unwrap();
+        let second = graph.insert(I3dFrameState::joint()).unwrap();
+        graph
+            .apply_joint_load_image_fields(second, SMatrix::identity(), 1)
+            .unwrap();
+        graph.link_to(nested, Some(target)).unwrap();
+        graph.link_to(first, Some(target)).unwrap();
+        graph.link_to(second, Some(nested)).unwrap();
+        assert_eq!(graph.find_joint(target).unwrap(), vec![first, second]);
+        let before = *graph.state(target).unwrap();
+        assert_eq!(
+            graph.d_build_binding(target),
+            Ok(DBuildBindingOutcome::BoundVolumeUpdateRequired)
+        );
+        assert_eq!(
+            graph.singlemesh_binding(target).unwrap().joints(),
+            &[Some(first), Some(second)]
+        );
+        assert_eq!(*graph.state(target).unwrap(), before);
+        assert_eq!(graph.joint_state(first).unwrap().singlemesh, Some(target));
+        graph.remove_child(nested, second).unwrap();
+        graph.d_build_binding(target).unwrap();
+        assert_eq!(graph.joint_state(second).unwrap().singlemesh, None);
+
+        let duplicate = graph.insert(I3dFrameState::joint()).unwrap();
+        graph.link_to(duplicate, Some(target)).unwrap();
+        graph.d_build_binding(target).unwrap();
+        assert_eq!(
+            graph.singlemesh_binding(target).unwrap().joints(),
+            &[Some(duplicate), None]
+        );
+        assert_eq!(graph.joint_state(first).unwrap().singlemesh, None);
+        assert_eq!(
+            graph.d_build_binding(target),
+            Err(FrameError::SinglemeshBindingUnavailable(target))
+        );
+        graph.update(target).unwrap();
+    }
+
+    #[test]
+    fn binding_empty_paths_and_search_limit_are_explicit() {
+        let mut graph = I3dFrameGraph::default();
+        for (present, expected) in [
+            (false, DBuildBindingOutcome::NoMesh),
+            (true, DBuildBindingOutcome::NoJoints),
+        ] {
+            let key = graph
+                .insert_singlemesh_binding(
+                    I3dFrameState::mesh(),
+                    SinglemeshInvalidationState { joints_changed: 0 },
+                    present,
+                )
+                .unwrap();
+            assert_eq!(graph.d_build_binding(key), Ok(expected));
+        }
+        let root = graph.insert(I3dFrameState::model()).unwrap();
+        let mut expected = Vec::new();
+        for _ in 0..80 {
+            let joint = graph.insert(I3dFrameState::joint()).unwrap();
+            graph.link_to(joint, Some(root)).unwrap();
+            expected.insert(0, joint);
+        }
+        expected.truncate(64);
+        assert_eq!(graph.find_joint(root).unwrap(), expected);
+        let bytes = graph.storage_bytes().unwrap();
+        graph.find_joint(root).unwrap();
+        assert_eq!(graph.storage_bytes().unwrap(), bytes);
+    }
+
+    #[test]
+    fn loaded_d_build_eagerly_caches_bounds_before_palette_work() {
+        let mut graph = I3dFrameGraph::default();
+        let target = graph
+            .insert_singlemesh_binding(
+                I3dFrameState::mesh(),
+                SinglemeshInvalidationState { joints_changed: 23 },
+                true,
+            )
+            .unwrap();
+        assert_eq!(
+            graph
+                .singlemesh_binding(target)
+                .unwrap()
+                .bvol_joints_changed(),
+            (-400_i32) as u32
+        );
+        let parent = graph.insert(I3dFrameState::joint()).unwrap();
+        let child = graph.insert(I3dFrameState::joint()).unwrap();
+        graph
+            .apply_joint_load_image_fields(child, SMatrix::identity(), 1)
+            .unwrap();
+        graph.assign_position(parent, [2., 0., 0.]).unwrap();
+        graph.assign_position(child, [3., 0., 0.]).unwrap();
+        graph.link_to(parent, Some(target)).unwrap();
+        graph.link_to(child, Some(parent)).unwrap();
+        let bbox = SinglemeshBoundingBox {
+            min: [-1.; 3],
+            max: [1.; 3],
+        };
+        assert!(graph
+            .d_build_loaded_singlemesh(target, SinglemeshBoundingBox::EMPTY, &[bbox; 2])
+            .unwrap());
+        assert_eq!(graph.joint_state(parent).unwrap().flags & 0x10, 0x10);
+        assert_eq!(graph.joint_state(child).unwrap().flags & 0x10, 0x10);
+        let volume = graph.singlemesh_bound_volume(target).unwrap();
+        assert_eq!(volume.bbox.min, [1., -1., -1.]);
+        assert_eq!(volume.bbox.max, [6., 1., 1.]);
+        assert_eq!(
+            graph
+                .singlemesh_binding(target)
+                .unwrap()
+                .bvol_joints_changed(),
+            23
+        );
+        assert_eq!(graph.state(target).unwrap().visual_flags & 0x60000, 0x20000);
+        graph.update_v(child).unwrap();
+        assert_eq!(
+            graph.singlemesh_bound_volume(target),
+            Err(FrameError::SinglemeshBoundsUnavailable(target))
+        );
+        assert_eq!(
+            graph
+                .singlemesh_binding(target)
+                .unwrap()
+                .bvol_joints_changed(),
+            23
+        );
+        assert_eq!(
+            graph
+                .singlemesh_invalidation_state(target)
+                .unwrap()
+                .joints_changed,
+            24
+        );
+        // Counter copy and prior cache effects persist if the next definition
+        // cannot provide every record. A stale volume is no longer exposed.
+        assert_eq!(
+            graph.update_singlemesh_loaded_bounds(target, bbox, &[]),
+            Err(FrameError::SinglemeshBoundsDefinitionTooShort(target))
+        );
+        assert_eq!(
+            graph
+                .singlemesh_binding(target)
+                .unwrap()
+                .bvol_joints_changed(),
+            24
+        );
+        assert_eq!(
+            graph.singlemesh_bound_volume(target),
+            Err(FrameError::SinglemeshBoundsDefinitionTooShort(target))
+        );
+        graph
+            .update_singlemesh_loaded_bounds(target, SinglemeshBoundingBox::EMPTY, &[bbox; 2])
+            .unwrap();
+        assert_eq!(graph.singlemesh_bound_volume(target).unwrap(), volume);
+    }
     #[test]
     fn joint_update_invalidates_linked_singlemesh_and_only_cached_ancestors() {
         let mut graph = I3dFrameGraph::default();

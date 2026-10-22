@@ -232,11 +232,22 @@ impl RetainedScene {
         draws: Vec<DrawBinding>,
         materialized: Option<crate::model_loading::MaterializedModel>,
     ) -> Result<(), String> {
-        if source.frames.iter().any(|frame| {
-            ![1, 2, 5, 6, 7, 12].contains(&frame.kind)
-                || (frame.kind == 1 && !matches!(frame.visual, Some(0 | 1)))
+        if source.frames.iter().enumerate().any(|(index, frame)| {
+            if let Some(loaded) = &materialized {
+                ![1, 6, 10].contains(&frame.kind)
+                    || (frame.kind == 1 && !matches!(frame.visual, Some(0..=2)))
+                    || (frame.visual == Some(2)
+                        && loaded
+                            .skin_pose()
+                            .and_then(|pose| pose.vertices(index))
+                            .is_none())
+            } else {
+                ![1, 2, 5, 6, 7, 12].contains(&frame.kind)
+                    || (frame.kind == 1 && !matches!(frame.visual, Some(0 | 1)))
+                    || frame.skin.is_some()
+            }
         }) {
-            return Err("Unsupported active or nonstatic source frame".into());
+            return Err("Unsupported source frame or missing checked skin pose".into());
         }
         let identity = ObjectId(
             u32::try_from(self.models.len())
@@ -282,7 +293,7 @@ impl RetainedModel {
     }
     pub fn set_frame_position(&mut self, index: usize, position: [f32; 3]) -> Result<(), String> {
         if self.materialized.is_some() {
-            return Err("Materialized static model does not bind position animation".into());
+            return Err("Materialized model has no position-animation binding".into());
         }
         if position.iter().any(|v| !v.is_finite()) {
             return Err("Nonfinite bound position".into());
@@ -362,6 +373,9 @@ impl RetainedModel {
         binding: &DrawBinding,
         world: &crate::native_transform::SMatrix,
     ) -> Result<Vec<Vertex>, String> {
+        if self.materialized.is_some() {
+            return Err("Position-only vertex upload cannot replace a materialized pose".into());
+        }
         if binding.frame_index != 0 || binding.geometry_frame != 0 || !world.is_verified_input() {
             return Err("Unsupported native vertex transform domain".into());
         }
@@ -405,6 +419,11 @@ impl RetainedModel {
         binding: &DrawBinding,
         transforms: &[Mat4],
     ) -> Result<Vec<Vertex>, String> {
+        if self.materialized.is_some() {
+            return Err(
+                "Materialized geometry requires its original matrix and checked pose".into(),
+            );
+        }
         let transform = *transforms
             .get(binding.frame_index)
             .ok_or("Unknown retained frame binding")?;
@@ -943,6 +962,7 @@ mod tests {
                 properties: Vec::new(),
                 dummy_bounds: None,
                 joint: None,
+                skin: None,
                 parent: None,
                 position: [0.; 3],
                 scale: [1.; 3],
@@ -1000,6 +1020,16 @@ mod tests {
         assert!(Arc::ptr_eq(&retained.source, &source));
         assert!(retained.transforms().is_err());
         assert!(retained.set_frame_position(0, [1.; 3]).is_err());
+        let binding = DrawBinding {
+            draw_index: 0,
+            frame_index: 0,
+            geometry_frame: 0,
+            source_vertices: vec![0],
+        };
+        assert!(retained
+            .vertices_native(&binding, &crate::native_transform::SMatrix::identity())
+            .is_err());
+        assert!(retained.vertices(&binding, &[Mat4::IDENTITY]).is_err());
         retained.tick_static(16).unwrap();
         let mut incomplete = (*source).clone();
         let mut unsupported = incomplete.frames[0].clone();

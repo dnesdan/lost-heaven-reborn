@@ -84,6 +84,14 @@ impl<'a> SceneBuilder<'a> {
         visual_scale: Option<[f32; 3]>,
     ) -> Result<(), String> {
         let model = &*source;
+        if model
+            .frames
+            .iter()
+            .any(|frame| frame.visual == Some(2) || frame.skin.is_some())
+            && !self.original_model_loading
+        {
+            return Err("Singlemesh requires owned binding and a checked CPU pose".into());
+        }
         let source_key = Arc::as_ptr(&source) as usize;
         if !self.retained_sources.contains(&source_key) {
             let source_bytes = super::neighborhood::model_storage_bytes(model)?;
@@ -126,8 +134,13 @@ impl<'a> SceneBuilder<'a> {
                     "Original model materialization requires identity wrapper placement".into(),
                 );
             }
-            let loaded = lhr_engine::model_loading::MaterializedModel::from_parsed(source.clone())
-                .map_err(|failure| format!("Original model materialization: {}", failure.error))?;
+            let mut loaded = lhr_engine::model_loading::MaterializedModel::from_parsed(
+                source.clone(),
+            )
+            .map_err(|failure| format!("Original model materialization: {}", failure.error))?;
+            loaded
+                .prepare_skin_pose()
+                .map_err(|error| error.to_string())?;
             charge_scene(
                 &mut self.bytes,
                 loaded.storage_bytes().map_err(|error| error.to_string())?,
@@ -153,10 +166,19 @@ impl<'a> SceneBuilder<'a> {
         if transforms.len() != model.frames.len() {
             return Err("Materialized hierarchy/source frame mismatch".into());
         }
-        if materialized.is_some() {
-            println!("Original parsed-model materialization: {} frames ({} mesh, {} dummy); owned hierarchy and original world/point arithmetic; fast-find, derived mesh resources and mission construction are not reconstructed",
-                model.frames.len(), model.frames.iter().filter(|frame| frame.kind == 1).count(),
-                model.frames.iter().filter(|frame| frame.kind == 6).count());
+        if let Some(loaded) = &materialized {
+            println!(
+                "Original parsed-model materialization: {} frames ({} visual, {} dummy, {} joint); owned hierarchy and original world/point arithmetic; fast-find, native vertex buffers and mission construction are not reconstructed",
+                model.frames.len(),
+                model.frames.iter().filter(|frame| frame.kind == 1).count(),
+                model.frames.iter().filter(|frame| frame.kind == 6).count(),
+                model.frames.iter().filter(|frame| frame.kind == 10).count()
+            );
+            if loaded.skin_pose().is_some() {
+                println!(
+                    "Original singlemesh pose: first LOD, bound Joint hierarchy, eager bounds and CPU position/normal deformation; source UVs and topology retained; unlit inspection rendering, no character animation or gameplay"
+                );
+            }
         }
         for (frame_index, (frame, transform)) in model.frames.iter().zip(transforms).enumerate() {
             let geometry = if let Some(index) = frame.instance {
@@ -167,6 +189,13 @@ impl<'a> SceneBuilder<'a> {
             let Some(lod) = geometry.lods.first() else {
                 continue;
             };
+            let pose = materialized
+                .as_ref()
+                .and_then(|loaded| loaded.skin_pose())
+                .and_then(|pose| pose.vertices(frame_index));
+            if geometry.visual == Some(2) && pose.is_none() {
+                return Err("Singlemesh pose unavailable; source vertices cannot substitute for deformation".into());
+            }
             for group in &lod.groups {
                 let Some(material) = model.materials.get(group.material) else {
                     if !strict {
@@ -175,7 +204,8 @@ impl<'a> SceneBuilder<'a> {
                     }
                     return Err("Invalid model material reference".into());
                 };
-                let (selected, unique_vertices) = select_triangles(lod, group, transform, crop)?;
+                let (selected, unique_vertices) =
+                    select_triangles(lod, group, transform, crop, pose)?;
                 self.cropped_triangles += (group.indices.len() - selected.len()) / 3;
                 if selected.is_empty() {
                     continue;
@@ -238,7 +268,9 @@ impl<'a> SceneBuilder<'a> {
                         let decoded = match lhr_assets::decode_bmp_original(&bytes) {
                             Ok(decoded) => decoded,
                             Err(error) if !strict && self.allow_texture_fallback => {
-                                eprintln!("Static subset: {name} unavailable ({error}); source diffuse color fallback");
+                                eprintln!(
+                                    "Static subset: {name} unavailable ({error}); source diffuse color fallback"
+                                );
                                 let mut rgba: Vec<u8> = material
                                     .diffuse
                                     .iter()
@@ -254,7 +286,7 @@ impl<'a> SceneBuilder<'a> {
                             Err(error) => {
                                 return Err(format!(
                                     "Model texture {name} is unsupported or malformed: {error}"
-                                ))
+                                ));
                             }
                         };
                         let texture = Arc::new(Texture {
@@ -267,7 +299,8 @@ impl<'a> SceneBuilder<'a> {
                         Some(texture)
                     }
                 };
-                let (vertices, indices) = make_geometry(lod, &selected, transform, crop.is_some())?;
+                let (vertices, indices) =
+                    make_geometry(lod, &selected, transform, crop.is_some(), pose)?;
                 let source_vertices = source_vertex_indices(lod, &selected, crop.is_some())?;
                 let binding_bytes = source_vertices
                     .len()
@@ -306,8 +339,14 @@ impl<'a> SceneBuilder<'a> {
         if self.meshes.is_empty() {
             return Err("Selected scene contains no supported visible geometry".into());
         }
-        println!("Scene resources: {} draws, {} budgeted geometry/texture bytes, {} shared texture variants; {} unassigned material groups skipped, {} triangles outside spatial subset",
-            self.meshes.len(),self.bytes,self.texture_cache.len(),self.unassigned_groups,self.cropped_triangles);
+        println!(
+            "Scene resources: {} draws, {} budgeted geometry/texture bytes, {} shared texture variants; {} unassigned material groups skipped, {} triangles outside spatial subset",
+            self.meshes.len(),
+            self.bytes,
+            self.texture_cache.len(),
+            self.unassigned_groups,
+            self.cropped_triangles
+        );
         self.retained.set_assembly_budget(self.bytes)?;
         Ok((
             Scene {
@@ -362,8 +401,12 @@ fn select_triangles(
     group: &FaceGroup,
     transform: impl Into<GeometryTransform>,
     crop: Option<XzBounds>,
+    pose: Option<&[lhr_engine::singlemesh_deformation::SkinVertex]>,
 ) -> Result<(Vec<u32>, usize), String> {
     let transform = transform.into();
+    if pose.is_some_and(|pose| pose.len() != lod.vertices.len()) {
+        return Err("Deformed/source vertex count mismatch".into());
+    }
     if !group.indices.len().is_multiple_of(3) {
         return Err("Invalid triangle index count".into());
     }
@@ -376,7 +419,8 @@ fn select_triangles(
                 .vertices
                 .get(tri[i] as usize)
                 .ok_or("Invalid triangle vertex index")?;
-            p[i] = Vec3::from_array(transform.source_point(vertex.position)?);
+            let position = pose.map_or(vertex.position, |pose| pose[tri[i] as usize].position);
+            p[i] = Vec3::from_array(transform.source_point(position)?);
             if !p[i].is_finite() {
                 return Err("Model vertex transform overflow".into());
             }
@@ -411,8 +455,12 @@ fn make_geometry(
     selected: &[u32],
     transform: impl Into<GeometryTransform>,
     compact: bool,
+    pose: Option<&[lhr_engine::singlemesh_deformation::SkinVertex]>,
 ) -> Result<(Vec<Vertex>, Vec<u32>), String> {
     let transform = transform.into();
+    if pose.is_some_and(|pose| pose.len() != lod.vertices.len()) {
+        return Err("Deformed/source vertex count mismatch".into());
+    }
     let mut mapping = vec![u32::MAX; lod.vertices.len()];
     if compact {
         for i in selected {
@@ -427,7 +475,8 @@ fn make_geometry(
         if !compact || mapping[index] != u32::MAX {
             mapping[index] = u32::try_from(vertices.len()).map_err(|_| "Vertex count overflow")?;
             vertices.push(Vertex {
-                position: transform.render_point(v.position)?,
+                position: transform
+                    .render_point(pose.map_or(v.position, |pose| pose[index].position))?,
                 uv: v.uv,
             });
         }
@@ -471,6 +520,7 @@ mod tests {
             properties: Vec::new(),
             dummy_bounds: None,
             joint: None,
+            skin: None,
             parent,
             position,
             scale: [1.0; 3],
@@ -500,10 +550,11 @@ mod tests {
         };
         let bounds = XzBounds::around([0.0; 3], 1.0).unwrap();
         let (selected, count) =
-            select_triangles(&lod, &group, Mat4::IDENTITY, Some(bounds)).unwrap();
+            select_triangles(&lod, &group, Mat4::IDENTITY, Some(bounds), None).unwrap();
         assert_eq!(selected, vec![0, 1, 2]);
         assert_eq!(count, 3);
-        let (vertices, indices) = make_geometry(&lod, &selected, Mat4::IDENTITY, true).unwrap();
+        let (vertices, indices) =
+            make_geometry(&lod, &selected, Mat4::IDENTITY, true, None).unwrap();
         assert_eq!(vertices.len(), 3);
         assert_eq!(indices, vec![0, 2, 1]);
         assert_eq!(vertices[2].position, [0.0, 0.0, -5.0]);
@@ -517,13 +568,15 @@ mod tests {
             indices: vec![0, 1, 2],
         };
         let bounds = XzBounds::around([-10.0, 0.0, -10.0], 1.0).unwrap();
-        assert!(select_triangles(&lod, &group, Mat4::IDENTITY, Some(bounds))
-            .unwrap()
-            .0
-            .is_empty());
+        assert!(
+            select_triangles(&lod, &group, Mat4::IDENTITY, Some(bounds), None)
+                .unwrap()
+                .0
+                .is_empty()
+        );
         let transform = Mat4::from_translation(Vec3::new(-9.0, 0.0, -10.0));
         assert_eq!(
-            select_triangles(&lod, &group, transform, Some(bounds))
+            select_triangles(&lod, &group, transform, Some(bounds), None)
                 .unwrap()
                 .0
                 .len(),
@@ -533,8 +586,40 @@ mod tests {
             material: 0,
             indices: vec![0, 1, 8],
         };
-        assert!(select_triangles(&lod, &invalid, transform, Some(bounds)).is_err());
-        assert!(make_geometry(&lod, &[0, 1, 9], transform, true).is_err());
+        assert!(select_triangles(&lod, &invalid, transform, Some(bounds), None).is_err());
+        assert!(make_geometry(&lod, &[0, 1, 9], transform, true, None).is_err());
+    }
+    #[test]
+    fn skin_draw_uses_deformed_positions_with_original_uvs_and_topology() {
+        let lod = lod(&[[100., 0., 0.], [101., 0., 0.], [100., 0., 1.]]);
+        let pose: Vec<_> = [[0., 0., 0.], [1., 0., 0.], [0., 0., 1.]]
+            .into_iter()
+            .map(|position| lhr_engine::singlemesh_deformation::SkinVertex {
+                position,
+                normal: [0., 1., 0.],
+            })
+            .collect();
+        let group = FaceGroup {
+            material: 0,
+            indices: vec![0, 1, 2],
+        };
+        let bounds = XzBounds::around([0.; 3], 2.).unwrap();
+        let (selected, _) =
+            select_triangles(&lod, &group, Mat4::IDENTITY, Some(bounds), Some(&pose)).unwrap();
+        assert_eq!(selected, [0, 1, 2]);
+        assert!(
+            select_triangles(&lod, &group, Mat4::IDENTITY, Some(bounds), None)
+                .unwrap()
+                .0
+                .is_empty()
+        );
+        let (vertices, indices) =
+            make_geometry(&lod, &selected, Mat4::IDENTITY, false, Some(&pose)).unwrap();
+        assert_eq!(indices, [0, 2, 1]);
+        assert_eq!(vertices[2].position, [0., 0., -1.]);
+        assert_eq!(vertices[2].uv, lod.vertices[2].uv);
+        assert_eq!(lod.vertices[0].position, [100., 0., 0.]);
+        assert!(make_geometry(&lod, &selected, Mat4::IDENTITY, false, Some(&pose[..2])).is_err());
     }
     #[test]
     fn placement_wraps_every_independent_root_and_preserves_nested_hierarchy() {
@@ -610,6 +695,7 @@ mod tests {
             &selected,
             original_transforms[1],
             true,
+            None,
         )
         .unwrap();
         let mut graph = RetainedScene::default();

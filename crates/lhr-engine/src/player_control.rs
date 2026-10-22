@@ -15,6 +15,117 @@ use crate::interpolator::InterpolatorSet;
 
 pub const PLAYER_CONTROL_STORAGE_BYTES: usize = 0xb00;
 
+/// Four retained PC `g_collision` fields at offsets `0x2b0..0x2c0`.
+/// Pointer words are opaque native identities, never host pointers. This does
+/// not construct a collision world or own the referenced dynamic objects.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DynamicCollisionFilter {
+    pub callback: u32,
+    pub single_owner: u32,
+    pub owner_list: u32,
+    pub owner_count: u32,
+    /// Identity of the context's inline owner slot (`context + 0x2b4`).
+    pub inline_owner_address: u32,
+}
+
+impl DynamicCollisionFilter {
+    /// Game RVA `0x1c3d10`, PS2 symbol `g_collision::DynSetNextCollOwner`.
+    /// Clearing leaves the old single owner and list words intact. Unlike PS2,
+    /// the PC body does not change flags in any referenced dynamic object.
+    pub fn dyn_set_next_coll_owner(&mut self, owner: u32, callback: u32) {
+        if owner != 0 {
+            self.owner_count = 1;
+            self.owner_list = self.inline_owner_address;
+            self.single_owner = owner;
+        } else {
+            self.owner_count = 0;
+        }
+        self.callback = callback;
+    }
+
+    /// Game RVA `0x1c3d60`, PS2 symbol `g_collision::DynSetNextCollOwnerMult`.
+    /// A null list suppresses the supplied count; the inline owner is retained.
+    pub fn dyn_set_next_coll_owner_mult(&mut self, owners: u32, count: u32, callback: u32) {
+        self.owner_list = owners;
+        self.owner_count = if owners == 0 { 0 } else { count };
+        self.callback = callback;
+    }
+}
+
+/// Arguments of the PC crouch-clearance `TestSphereB` call (RVA `0x1d5940`).
+/// The original passes null contact and normal output pointers.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CrouchClearanceQuery {
+    pub origin: [f32; 3],
+    pub displacement: [f32; 3],
+    pub radius: f32,
+    pub mask: u32,
+    pub flags: u32,
+}
+
+/// Existing actor frame and collision-world access required by `Do_Crouched`.
+/// Missing nonnull identities must return errors, never fabricated empty data.
+/// Frame reads model direct memory access; `update_frame` is Game's imported
+/// frame-update call at RVA `0x20fc30`. `test_sphere_b` must use the actual
+/// collision world for gameplay. A test backend establishes call contracts only.
+pub trait CrouchBackend {
+    type Error;
+    fn frame_flags(&self, frame: u32) -> Result<u8, Self::Error>;
+    fn update_frame(&mut self, frame: u32) -> Result<(), Self::Error>;
+    fn frame_translation(&self, frame: u32) -> Result<[f32; 3], Self::Error>;
+    fn test_sphere_b(
+        &mut self,
+        filter: &mut DynamicCollisionFilter,
+        query: CrouchClearanceQuery,
+    ) -> Result<u32, Self::Error>;
+}
+
+/// Game RVA `0x17f8a0`, original PS2 name `C_human::Do_Crouched(bool)`.
+/// Preserves PC byte arguments (including noncanonical nonzero values), the
+/// attached-state guards and the lazy frame update before querying clearance.
+/// Numeric comparisons cover finite frame coordinates under round-to-nearest.
+/// Backend errors stop at the unavailable operation: a failed query leaves the
+/// installed filter and prior posture intact. Successful queries always clear
+/// the filter before writing posture. Actor construction, collision geometry,
+/// and the PS2-only dynamic sphere size changes are outside this PC projection.
+pub fn do_crouched<B: CrouchBackend + ?Sized>(
+    player: &mut [u8; PLAYER_CONTROL_STORAGE_BYTES],
+    requested: u8,
+    filter: &mut DynamicCollisionFilter,
+    backend: &mut B,
+) -> Result<(), B::Error> {
+    if word(player, 0x6f8) != 0 || word(player, 0x700) != 0 {
+        player[0x1e4] = 0;
+        return Ok(());
+    }
+    let mut posture = requested;
+    if player[0x1e4] != 0 && requested == 0 {
+        let frame = word(player, 0x68);
+        if backend.frame_flags(frame)? & 0x20 == 0 {
+            backend.update_frame(frame)?;
+        }
+        let mut origin = backend.frame_translation(frame)?;
+        origin[1] += 1.0;
+        filter.dyn_set_next_coll_owner_mult(word(player, 0x688), word(player, 0x690), 0);
+        let collision = backend.test_sphere_b(
+            filter,
+            CrouchClearanceQuery {
+                origin,
+                displacement: [0.0, f32::from_bits(0x3f0c_cccd), 0.0],
+                radius: f32::from_bits(0x3e99_999a),
+                mask: 2,
+                flags: 0,
+            },
+        )?;
+        filter.dyn_set_next_coll_owner(0, 0);
+        if collision != 0 {
+            posture = 1;
+        }
+    }
+    player[0x1e4] = posture;
+    Ok(())
+}
+
 /// Owned projection of Game's existing sorted animation-code/index table.
 /// Entries must come from the caller. The original game's table bootstrap and
 /// resource catalog remain unresolved; no original executable or extracted
@@ -358,6 +469,171 @@ pub fn stop_animation(interpolator: Option<&mut InterpolatorSet>, index: u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn filter_fixture() -> DynamicCollisionFilter {
+        DynamicCollisionFilter {
+            callback: 11,
+            single_owner: 12,
+            owner_list: 13,
+            owner_count: 14,
+            inline_owner_address: 15,
+        }
+    }
+
+    #[test]
+    fn collision_filter_preserves_stale_words_and_null_list_suppresses_count() {
+        let mut filter = filter_fixture();
+        filter.dyn_set_next_coll_owner(21, 22);
+        assert_eq!((filter.owner_list, filter.owner_count), (15, 1));
+        filter.dyn_set_next_coll_owner(0, 23);
+        assert_eq!((filter.single_owner, filter.owner_list), (21, 15));
+        assert_eq!((filter.callback, filter.owner_count), (23, 0));
+        filter.dyn_set_next_coll_owner_mult(31, u32::MAX, 32);
+        assert_eq!((filter.owner_list, filter.owner_count), (31, u32::MAX));
+        filter.dyn_set_next_coll_owner_mult(0, u32::MAX, 33);
+        assert_eq!(
+            filter,
+            DynamicCollisionFilter {
+                callback: 33,
+                single_owner: 21,
+                owner_list: 0,
+                owner_count: 0,
+                inline_owner_address: 15,
+            }
+        );
+    }
+
+    struct ClearanceBackend {
+        dirty: bool,
+        updates: u32,
+        collision: Result<u32, &'static str>,
+        observed: Option<(DynamicCollisionFilter, CrouchClearanceQuery)>,
+    }
+    impl CrouchBackend for ClearanceBackend {
+        type Error = &'static str;
+        fn frame_flags(&self, frame: u32) -> Result<u8, Self::Error> {
+            assert_eq!(frame, 123);
+            Ok(if self.dirty { 0 } else { 0x20 })
+        }
+        fn update_frame(&mut self, frame: u32) -> Result<(), Self::Error> {
+            assert_eq!(frame, 123);
+            self.dirty = false;
+            self.updates += 1;
+            Ok(())
+        }
+        fn frame_translation(&self, frame: u32) -> Result<[f32; 3], Self::Error> {
+            assert_eq!(frame, 123);
+            assert!(!self.dirty);
+            Ok([2.0, 3.0, 4.0])
+        }
+        fn test_sphere_b(
+            &mut self,
+            filter: &mut DynamicCollisionFilter,
+            query: CrouchClearanceQuery,
+        ) -> Result<u32, Self::Error> {
+            self.observed = Some((*filter, query));
+            self.collision
+        }
+    }
+    fn clearance_backend(collision: Result<u32, &'static str>) -> ClearanceBackend {
+        ClearanceBackend {
+            dirty: true,
+            updates: 0,
+            collision,
+            observed: None,
+        }
+    }
+
+    #[test]
+    fn crouch_clearance_updates_frame_installs_filter_and_clears_before_posture() {
+        for collision in [0, 1, 0x8000_0000, u32::MAX] {
+            let mut player = [0; PLAYER_CONTROL_STORAGE_BYTES];
+            player[0x1e4] = 255;
+            store(&mut player, 0x68, 123);
+            store(&mut player, 0x688, 456);
+            store(&mut player, 0x690, 7);
+            let before = player;
+            let mut filter = filter_fixture();
+            let mut backend = clearance_backend(Ok(collision));
+            do_crouched(&mut player, 0, &mut filter, &mut backend).unwrap();
+            assert_eq!(backend.updates, 1);
+            let (installed, query) = backend.observed.unwrap();
+            assert_eq!(
+                (
+                    installed.callback,
+                    installed.owner_list,
+                    installed.owner_count
+                ),
+                (0, 456, 7)
+            );
+            assert_eq!(query.origin, [2.0, 4.0, 4.0]);
+            assert_eq!(query.displacement.map(f32::to_bits), [0, 0x3f0c_cccd, 0]);
+            assert_eq!(
+                (query.radius.to_bits(), query.mask, query.flags),
+                (0x3e99_999a, 2, 0)
+            );
+            assert_eq!(
+                (
+                    filter.callback,
+                    filter.single_owner,
+                    filter.owner_list,
+                    filter.owner_count
+                ),
+                (0, 12, 456, 0)
+            );
+            let mut expected = before;
+            expected[0x1e4] = u8::from(collision != 0);
+            assert_eq!(player, expected);
+        }
+    }
+
+    #[test]
+    fn crouch_guards_and_nonzero_requests_do_not_access_backend_or_filter() {
+        for previous in [0, 1, 255] {
+            for requested in [0, 1, 255] {
+                for attached in [0, 0x6f8, 0x700] {
+                    if previous != 0 && requested == 0 && attached == 0 {
+                        continue;
+                    }
+                    let mut player = [0; PLAYER_CONTROL_STORAGE_BYTES];
+                    player[0x1e4] = previous;
+                    if attached != 0 {
+                        store(&mut player, attached, 1);
+                    }
+                    let mut filter = filter_fixture();
+                    let mut backend = clearance_backend(Err("unavailable"));
+                    do_crouched(&mut player, requested, &mut filter, &mut backend).unwrap();
+                    assert_eq!(player[0x1e4], if attached == 0 { requested } else { 0 });
+                    assert_eq!(filter, filter_fixture());
+                    assert!(backend.observed.is_none());
+                    assert_eq!(backend.updates, 0);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn unavailable_clearance_preserves_posture_and_installed_filter() {
+        let mut player = [0; PLAYER_CONTROL_STORAGE_BYTES];
+        player[0x1e4] = 2;
+        store(&mut player, 0x68, 123);
+        store(&mut player, 0x688, 456);
+        store(&mut player, 0x690, 7);
+        let before = player;
+        let mut filter = filter_fixture();
+        let mut backend = clearance_backend(Err("collision world unavailable"));
+        backend.dirty = false;
+        assert_eq!(
+            do_crouched(&mut player, 0, &mut filter, &mut backend),
+            Err("collision world unavailable")
+        );
+        assert_eq!(player, before);
+        assert_eq!(backend.updates, 0);
+        assert_eq!(
+            (filter.callback, filter.owner_list, filter.owner_count),
+            (0, 456, 7)
+        );
+    }
 
     #[test]
     fn animation_index_preserves_unsigned_order_and_original_duplicate_choice() {

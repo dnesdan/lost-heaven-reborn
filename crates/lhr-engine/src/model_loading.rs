@@ -1,10 +1,13 @@
 //! Owned model/frame materialization for the validated mesh, dummy and joint subset.
+//! Singlemesh admission retains binding fields and requires a separate checked
+//! pose snapshot and populated-definition bounds before rendering.
 //! LS3DF RVAs 0x33680/0x33720/0x33500 define model ownership; 0x603e0
 //! transfers loaded frames in file order, including a successfully loaded prefix
 //! before an error. File lookup, animation and GPU resource creation are separate.
-use crate::frame_transform::{FrameError, FrameKey, I3dFrameGraph, I3dFrameState};
-use crate::joint_state::I3dJointState;
+use crate::frame_transform::{FrameError, FrameKey, FrameKind, I3dFrameGraph, I3dFrameState};
+use crate::joint_state::{I3dJointState, SinglemeshInvalidationState};
 use crate::native_transform::{SMatrix, SQuat};
+use crate::singlemesh_pose::{SinglemeshPose, SkinPoseError};
 use lhr_assets::Model;
 use std::{fmt, sync::Arc};
 
@@ -44,6 +47,8 @@ pub enum ModelError {
     },
     MissingDummyBounds(usize),
     MissingJointRecord(usize),
+    MissingSkinRecord(usize),
+    SkinPose(SkinPoseError),
     InvalidParent {
         index: usize,
         parent: usize,
@@ -85,7 +90,20 @@ impl ModelArena {
         properties: Vec<u8>,
         dummy_bounds: Option<[[f32; 3]; 2]>,
     ) -> Result<FrameKey, ModelError> {
-        let key = self.graph.insert(state)?;
+        let key = if state.kind == FrameKind::Singlemesh {
+            // PC constructor RVA0x54240 initializes this counter to -300.
+            // This is only its binding/invalidation field projection; mesh
+            // data remains owned by the parsed source, not a native pointer.
+            self.graph.insert_singlemesh_binding(
+                state,
+                SinglemeshInvalidationState {
+                    joints_changed: (-300_i32) as u32,
+                },
+                true,
+            )?
+        } else {
+            self.graph.insert(state)?
+        };
         self.frames.push(LoadedFrame {
             key,
             references: 1,
@@ -135,6 +153,13 @@ impl ModelArena {
     pub fn joint_state(&self, key: FrameKey) -> Result<&I3dJointState, ModelError> {
         self.frame_index(key)?;
         Ok(self.graph.joint_state(key)?)
+    }
+    pub fn singlemesh_bound_volume(
+        &self,
+        key: FrameKey,
+    ) -> Result<crate::singlemesh_bounds::SinglemeshBoundVolume, ModelError> {
+        self.frame_index(key)?;
+        Ok(self.graph.singlemesh_bound_volume(key)?)
     }
     pub fn retain(&mut self, key: FrameKey) -> Result<(), ModelError> {
         let i = self.frame_index(key)?;
@@ -281,6 +306,7 @@ pub struct MaterializedModel {
     arena: ModelArena,
     root: ModelKey,
     source_frame_keys: Vec<FrameKey>,
+    skin_pose: Option<SinglemeshPose>,
     complete: bool,
 }
 impl MaterializedModel {
@@ -301,6 +327,7 @@ impl MaterializedModel {
                         arena,
                         root: ModelKey(FrameKey(0)),
                         source_frame_keys: Vec::new(),
+                        skin_pose: None,
                         complete: false,
                     }),
                 });
@@ -311,6 +338,7 @@ impl MaterializedModel {
             arena,
             root,
             source_frame_keys: Vec::new(),
+            skin_pose: None,
             complete: false,
         };
         for index in 0..result.source.frames.len() {
@@ -341,6 +369,11 @@ impl MaterializedModel {
         let source = &self.source.frames[index];
         let mut state = match (source.kind, source.visual) {
             (1, Some(0 | 1)) => I3dFrameState::mesh(),
+            (1, Some(2)) => {
+                let mut state = I3dFrameState::mesh();
+                state.kind = FrameKind::Singlemesh;
+                state
+            }
             (6, None) => I3dFrameState::dummy(),
             (10, None) => I3dFrameState::joint(),
             _ => {
@@ -356,6 +389,11 @@ impl MaterializedModel {
         }
         if source.kind == 10 && source.joint.is_none() {
             return Err(ModelError::MissingJointRecord(index));
+        }
+        if source.visual == Some(2)
+            && (source.skin.is_none() || source.lods.is_empty() || source.instance.is_some())
+        {
+            return Err(ModelError::MissingSkinRecord(index));
         }
         if source.kind == 1 {
             state.visual_flags = u32::from(u16::from_le_bytes([
@@ -440,9 +478,37 @@ impl MaterializedModel {
             .map(|&key| self.arena.world_matrix(key))
             .collect()
     }
+    /// Build an immutable first-LOD CPU skin pose from the unchanged source and
+    /// the owned Joint hierarchy, including the populated-definition bounds
+    /// calculation before deformation. This does not bind an animation or
+    /// implement native vertex-buffer management and rendering.
+    pub fn prepare_skin_pose(&mut self) -> Result<(), ModelError> {
+        if !self.complete {
+            return Err(ModelError::SkinPose(SkinPoseError::Source(
+                "incomplete model",
+            )));
+        }
+        self.skin_pose = None;
+        if self
+            .source
+            .frames
+            .iter()
+            .any(|frame| frame.visual == Some(2))
+        {
+            self.skin_pose = Some(
+                SinglemeshPose::build(&self.source, &self.source_frame_keys, &mut self.arena.graph)
+                    .map_err(ModelError::SkinPose)?,
+            );
+        }
+        Ok(())
+    }
+    pub fn skin_pose(&self) -> Option<&SinglemeshPose> {
+        self.skin_pose.as_ref()
+    }
     /// Additional owned storage; source Arc<Model> payload is charged by caller.
     pub fn storage_bytes(&self) -> Result<usize, ModelError> {
-        self.arena
+        let bytes = self
+            .arena
             .storage_bytes()?
             .checked_add(
                 self.source_frame_keys
@@ -450,6 +516,12 @@ impl MaterializedModel {
                     .checked_mul(std::mem::size_of::<FrameKey>())
                     .ok_or(ModelError::AllocationOverflow)?,
             )
+            .ok_or(ModelError::AllocationOverflow)?;
+        bytes
+            .checked_add(match &self.skin_pose {
+                Some(pose) => pose.storage_bytes().ok_or(ModelError::AllocationOverflow)?,
+                None => 0,
+            })
             .ok_or(ModelError::AllocationOverflow)
     }
 }
@@ -469,6 +541,7 @@ mod tests {
             properties: vec![0xff, 0, 0x80],
             dummy_bounds: (kind == 6).then_some([[0.; 3], [1.; 3]]),
             joint: None,
+            skin: None,
             parent,
             position,
             scale: [1.; 3],
@@ -565,6 +638,127 @@ mod tests {
             Some(failure.partial.root)
         );
         assert_eq!(failure.partial.arena.frame(key).unwrap().references, 1);
+    }
+
+    fn skinned_source() -> Arc<Model> {
+        let mut mesh = frame(1, None, [0.; 3]);
+        mesh.visual = Some(2);
+        mesh.render_flags = 0;
+        mesh.lods.push(lhr_assets::Lod {
+            distance: 0.,
+            vertices: vec![
+                lhr_assets::Vertex {
+                    position: [1., 2., 3.],
+                    normal: [0., 1., 0.],
+                    uv: [0.25, 0.75],
+                },
+                lhr_assets::Vertex {
+                    position: [9.; 3],
+                    normal: [-0., 0., 1.],
+                    uv: [1.; 2],
+                },
+            ],
+            groups: vec![],
+        });
+        let bone = lhr_assets::SkinBoneRecord {
+            matrix: SMatrix::identity().elements,
+            rigid_vertex_count: 0,
+            weighted_vertex_count: 1,
+            blend_joint_index: 2,
+            bounds: [-1., -1., -1., 1., 1., 1.],
+            weights: vec![0.25],
+        };
+        let mut unused = bone.clone();
+        unused.weighted_vertex_count = 0;
+        unused.weights.clear();
+        mesh.skin = Some(lhr_assets::SkinRecord {
+            lods: vec![lhr_assets::SkinLodRecord {
+                definition: Some(lhr_assets::SkinLodDefinition {
+                    root_vertex_count: 1,
+                    bounds: [-1., -1., -1., 1., 1., 1.],
+                    bones: vec![bone, unused],
+                }),
+            }],
+        });
+        let mut a = frame(10, Some(0), [4., 0., 0.]);
+        a.joint = Some(lhr_assets::JointRecord {
+            bone_matrix: SMatrix::identity().elements,
+            index: 0,
+        });
+        let mut b = frame(10, Some(0), [0., 8., 0.]);
+        b.joint = Some(lhr_assets::JointRecord {
+            bone_matrix: SMatrix::identity().elements,
+            index: 1,
+        });
+        Arc::new(Model {
+            materials: vec![],
+            frames: vec![mesh, a, b],
+        })
+    }
+
+    #[test]
+    fn skin_pose_binds_original_indices_blends_and_preserves_source_and_suffix() {
+        let source = skinned_source();
+        let mut loaded = MaterializedModel::from_parsed(source.clone()).unwrap();
+        assert!(loaded.skin_pose().is_none());
+        loaded.prepare_skin_pose().unwrap();
+        let pose = loaded.skin_pose().unwrap().vertices(0).unwrap();
+        assert_eq!(pose[0].position, [2., 8., 3.]);
+        assert_eq!(pose[0].normal, [0., 1., 0.]);
+        assert_eq!(pose[1].position, [9.; 3]);
+        assert_eq!(pose[1].normal[0].to_bits(), (-0.0_f32).to_bits());
+        assert_eq!(source.frames[0].lods[0].vertices[0].position, [1., 2., 3.]);
+        assert_eq!(source.frames[0].lods[0].vertices[0].uv, [0.25, 0.75]);
+        let target = loaded.source_frame_keys()[0];
+        let bounds = loaded.arena.singlemesh_bound_volume(target).unwrap();
+        assert_eq!(bounds.bbox.min, [-1.; 3]);
+        assert_eq!(bounds.bbox.max, [5., 9., 1.]);
+        assert_eq!(bounds.center, [2., 4., 0.]);
+        assert_eq!(bounds.radius.to_bits(), 35_f32.sqrt().to_bits());
+        assert_eq!(
+            loaded
+                .arena
+                .joint_state(loaded.source_frame_keys()[1])
+                .unwrap()
+                .singlemesh,
+            Some(target)
+        );
+        assert!(loaded.skin_pose().unwrap().vertices(1).is_none());
+        loaded.prepare_skin_pose().unwrap();
+        assert_eq!(
+            loaded.skin_pose().unwrap().vertices(0).unwrap()[0].position,
+            [2., 8., 3.]
+        );
+        assert_eq!(
+            loaded.arena.singlemesh_bound_volume(target).unwrap(),
+            bounds
+        );
+    }
+
+    #[test]
+    fn skin_pose_never_publishes_missing_joint_or_malformed_partition_fallback() {
+        let mut source = skinned_source();
+        Arc::make_mut(&mut source).frames[2]
+            .joint
+            .as_mut()
+            .unwrap()
+            .index = 2;
+        let mut loaded = MaterializedModel::from_parsed(source).unwrap();
+        assert!(loaded.prepare_skin_pose().is_err());
+        assert!(loaded.skin_pose().is_none());
+        let mut source = skinned_source();
+        Arc::make_mut(&mut source).frames[0]
+            .skin
+            .as_mut()
+            .unwrap()
+            .lods[0]
+            .definition
+            .as_mut()
+            .unwrap()
+            .root_vertex_count = 0;
+        let mut loaded = MaterializedModel::from_parsed(source).unwrap();
+        assert!(loaded.prepare_skin_pose().is_err());
+        assert!(loaded.skin_pose().is_none());
     }
     #[test]
     fn unsupported_frame_preserves_loaded_prefix_ownership() {

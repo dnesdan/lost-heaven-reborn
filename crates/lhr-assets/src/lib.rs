@@ -1,4 +1,4 @@
-//! Bounded read-only static 4DS v29 and BMP intake. Source coordinates and order are preserved.
+//! Bounded read-only PC 4DS v29 and BMP intake. Source coordinates and order are preserved.
 use std::{
     fmt, fs,
     path::{Path, PathBuf},
@@ -91,6 +91,40 @@ pub struct JointRecord {
     /// Original joint index, without a binding-table range assumption.
     pub index: u32,
 }
+/// Original PC singlemesh skin suffix. This preserves file records; it does not
+/// establish a complete joint binding or admit the model to static rendering.
+#[derive(Debug, Clone)]
+pub struct SkinRecord {
+    /// In the same order as the frame's geometry LODs.
+    pub lods: Vec<SkinLodRecord>,
+}
+#[derive(Debug, Clone)]
+pub struct SkinLodRecord {
+    /// A zero bone-count byte has no following definition bytes in PC files.
+    pub definition: Option<SkinLodDefinition>,
+}
+#[derive(Debug, Clone)]
+pub struct SkinLodDefinition {
+    /// Source count of the undeformed rigid vertex suffix.
+    pub root_vertex_count: u32,
+    /// Source min/max words, without numerical or bounds interpretation.
+    pub bounds: [f32; 6],
+    /// Source bone order; the stored bone count is this vector's length.
+    pub bones: Vec<SkinBoneRecord>,
+}
+#[derive(Debug, Clone)]
+pub struct SkinBoneRecord {
+    /// Original matrix words in source order, without finite-value validation.
+    pub matrix: [f32; 16],
+    pub rigid_vertex_count: u32,
+    pub weighted_vertex_count: u32,
+    /// Original blend-joint reference word; no index conversion is applied.
+    pub blend_joint_index: u32,
+    pub bounds: [f32; 6],
+    /// Original f32 words, including nonfinite/out-of-range values. Binding and
+    /// deformation consumers must validate their own supported numerical domain.
+    pub weights: Vec<f32>,
+}
 #[derive(Debug, Clone)]
 pub struct Frame {
     pub kind: u8,
@@ -105,8 +139,11 @@ pub struct Frame {
     pub properties: Vec<u8>,
     /// Original dummy bounding box. Retained as data, not a collision shape.
     pub dummy_bounds: Option<[[f32; 3]; 2]>,
-    /// Original kind-10 joint suffix, retained only by broader scene intake.
+    /// Original kind-10 joint suffix, retained by scene and singlemesh intake.
     pub joint: Option<JointRecord>,
+    /// Visual-2 metadata, retained by scene and explicit singlemesh intake.
+    /// Morph visuals remain unsupported.
+    pub skin: Option<SkinRecord>,
     pub parent: Option<usize>,
     pub position: [f32; 3],
     pub scale: [f32; 3],
@@ -165,6 +202,12 @@ impl<'a> Reader<'a> {
         }
         Ok(v)
     }
+    fn raw_vec<const N: usize>(&mut self) -> Result<[f32; N]> {
+        let bytes = self.take(N * 4)?;
+        Ok(std::array::from_fn(|i| {
+            f32::from_le_bytes(bytes[i * 4..i * 4 + 4].try_into().unwrap())
+        }))
+    }
     fn string(&mut self) -> Result<String> {
         let n = self.u8()? as usize;
         let b = self.take(n)?;
@@ -175,14 +218,27 @@ impl<'a> Reader<'a> {
     }
 }
 pub fn parse_four_ds(b: &[u8]) -> Result<Model> {
-    parse_four_ds_impl(b, false, false).map(|(model, _)| model)
+    parse_four_ds_impl(b, false, false, false).map(|(model, _)| model)
 }
 /// Broader scene intake: retains material effects as metadata and accepts sector,
-/// light, target and joint frames. Joint suffixes are raw metadata, without
-/// skinning or joint-runtime behavior. Callers must implement or report material
+/// light, target and joint frames, and visual-2 singlemesh skin records. Joint
+/// and skin suffixes are raw metadata, without skinning or joint-runtime
+/// behavior. Morph visuals and singlemesh instances remain unsupported.
+/// Callers must implement or report material
 /// effects; this does not promise identical original rendering or simulation.
 pub fn parse_four_ds_scene(b: &[u8]) -> Result<Model> {
-    parse_four_ds_impl(b, true, false).map(|(model, _)| model)
+    parse_four_ds_impl(b, true, false, true).map(|(model, _)| model)
+}
+/// Bounded singlemesh metadata intake with the static material and animation
+/// gates. Accepts only mesh, dummy and joint frames and requires a visual-2
+/// frame. Raw skin records still require binding/deformation validation before
+/// use; this function does not establish a renderable character.
+pub fn parse_four_ds_skin(b: &[u8]) -> Result<Model> {
+    let (model, _) = parse_four_ds_impl(b, false, false, true)?;
+    if !model.frames.iter().any(|frame| frame.skin.is_some()) {
+        return err("singlemesh metadata requires a visual-2 frame");
+    }
+    Ok(model)
 }
 /// Validated original single-root position-animation intake. The original
 /// LoadAnimCount remains attached; this type must not enter a static-only path.
@@ -215,7 +271,7 @@ pub fn parse_four_ds_position_animation(
     model_bytes: &[u8],
     animation_bytes: &[u8],
 ) -> Result<PositionAnimatedModel> {
-    let (model, load_animation_count) = parse_four_ds_impl(model_bytes, false, true)?;
+    let (model, load_animation_count) = parse_four_ds_impl(model_bytes, false, true, false)?;
     if load_animation_count != 1 || model.frames.len() != 1 {
         return err("position animation requires original count1 and one root frame");
     }
@@ -251,7 +307,12 @@ pub fn parse_four_ds_position_animation(
     })
 }
 
-fn parse_four_ds_impl(b: &[u8], scene: bool, allow_animation: bool) -> Result<(Model, u8)> {
+fn parse_four_ds_impl(
+    b: &[u8],
+    scene: bool,
+    allow_animation: bool,
+    allow_skin: bool,
+) -> Result<(Model, u8)> {
     if b.len() > MAX_BYTES {
         return err("4DS exceeds 64 MiB quota");
     }
@@ -341,17 +402,25 @@ fn parse_four_ds_impl(b: &[u8], scene: bool, allow_animation: bool) -> Result<(M
     let mut frames = Vec::new();
     let mut total_vertices = 0usize;
     let mut total_indices = 0usize;
+    let mut total_skin_weights = 0usize;
     let mut unsupported_billboard = false;
     for _ in 0..count {
         let kind = r.u8()?;
-        if kind != 1 && kind != 6 && !(scene && [2, 5, 7, 10, 12].contains(&kind)) {
+        if kind != 1
+            && kind != 6
+            && !(scene && [2, 5, 7, 10, 12].contains(&kind))
+            && !(allow_skin && kind == 10)
+        {
             return err("unsupported frame type; only static visual and dummy supported");
         };
         let visual = if kind == 1 { Some(r.u8()?) } else { None };
         let mut render_flags = 0;
         let mut logic_flags = 0;
         if let Some(visual) = visual {
-            if visual > 1 && visual != 4 {
+            if allow_skin && visual == 3 {
+                return err("unsupported visual type 3; morph singlemesh unsupported");
+            }
+            if visual > 1 && visual != 4 && !(allow_skin && visual == 2) {
                 return Err(Error(format!(
                     "unsupported visual type {visual}; only standard static mesh supported"
                 )));
@@ -387,6 +456,7 @@ fn parse_four_ds_impl(b: &[u8], scene: bool, allow_animation: bool) -> Result<(M
         let properties = r.take(property_length)?.to_vec();
         let mut dummy_bounds = None;
         let mut joint = None;
+        let mut skin = None;
         let mut lods = Vec::new();
         let mut instance = None;
         if kind == 6 {
@@ -434,6 +504,9 @@ fn parse_four_ds_impl(b: &[u8], scene: bool, allow_animation: bool) -> Result<(M
         } else {
             let id = r.u16()? as usize;
             if id != 0 {
+                if visual == Some(2) {
+                    return err("unsupported singlemesh instance");
+                }
                 instance = Some(id - 1)
             } else {
                 let n = r.u8()?;
@@ -488,6 +561,55 @@ fn parse_four_ds_impl(b: &[u8], scene: bool, allow_animation: bool) -> Result<(M
                 }
             }
         }
+        if visual == Some(2) {
+            let mut skin_lods = Vec::with_capacity(lods.len());
+            for _ in &lods {
+                let bone_count = r.u8()? as usize;
+                if bone_count == 0 {
+                    skin_lods.push(SkinLodRecord { definition: None });
+                    continue;
+                }
+                let root_vertex_count = r.u32()?;
+                let bounds = r.raw_vec()?;
+                let mut bones = Vec::with_capacity(bone_count);
+                for _ in 0..bone_count {
+                    let matrix = r.raw_vec()?;
+                    let rigid_vertex_count = r.u32()?;
+                    let weighted_vertex_count = r.u32()?;
+                    let blend_joint_index = r.u32()?;
+                    let bounds = r.raw_vec()?;
+                    total_skin_weights = total_skin_weights
+                        .checked_add(weighted_vertex_count as usize)
+                        .ok_or_else(|| Error("skin weight quota exceeded".into()))?;
+                    if total_skin_weights > 1_000_000 {
+                        return err("skin weight quota exceeded");
+                    }
+                    let weight_bytes = r.take(weighted_vertex_count as usize * 4)?;
+                    let weights = weight_bytes
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
+                        .map(|b| f32::from_le_bytes(*b))
+                        .collect();
+                    bones.push(SkinBoneRecord {
+                        matrix,
+                        rigid_vertex_count,
+                        weighted_vertex_count,
+                        blend_joint_index,
+                        bounds,
+                        weights,
+                    });
+                }
+                skin_lods.push(SkinLodRecord {
+                    definition: Some(SkinLodDefinition {
+                        root_vertex_count,
+                        bounds,
+                        bones,
+                    }),
+                });
+            }
+            skin = Some(SkinRecord { lods: skin_lods });
+        }
         // A billboard shares the standard mesh/instance layout, then always
         // stores five additional axis/mode bytes, including for mesh instances.
         // Consume and validate extents, but never return it as a renderable model.
@@ -505,6 +627,7 @@ fn parse_four_ds_impl(b: &[u8], scene: bool, allow_animation: bool) -> Result<(M
             properties,
             dummy_bounds,
             joint,
+            skin,
             parent: parent.checked_sub(1),
             position,
             scale,
@@ -1111,6 +1234,158 @@ pub fn decode_windows1250(bytes: &[u8]) -> Result<String> {
 #[cfg(test)]
 mod scene_model_tests {
     use super::*;
+    fn skin_scene() -> (Vec<u8>, [u32; 16], usize) {
+        let mut bytes = b"4DS\0".to_vec();
+        bytes.extend(29u16.to_le_bytes());
+        bytes.extend([0; 8]);
+        bytes.extend(0u16.to_le_bytes());
+        bytes.extend(2u16.to_le_bytes());
+        bytes.extend([1, 2, 0x31, 0x42]);
+        bytes.extend(0u16.to_le_bytes());
+        for value in [0f32, 0., 0., 1., 1., 1., 1., 0., 0., 0.] {
+            bytes.extend(value.to_le_bytes());
+        }
+        bytes.extend([0, 4, b'S', b'k', b'i', b'n', 0]);
+        bytes.extend(0u16.to_le_bytes());
+        bytes.push(2);
+        for n in [2u16, 1] {
+            bytes.extend((n as f32).to_le_bytes());
+            bytes.extend(n.to_le_bytes());
+            for _ in 0..n {
+                bytes.extend([0; 32]);
+            }
+            bytes.push(0);
+        }
+        let words: [u32; 16] = [
+            0, 0x80000000, 1, 0x80000001, 0x007fffff, 0x00800000, 0x3f800000, 0xbf800000,
+            0x7f7fffff, 0xff7fffff, 0x7f800000, 0xff800000, 0x7fc01234, 0xffc05678, 0x7f801234,
+            0xff801234,
+        ];
+        // First LOD deliberately retains raw counts/references outside any
+        // renderer's supported range. Metadata intake does not bind joints.
+        bytes.push(1);
+        bytes.extend(u32::MAX.to_le_bytes());
+        for word in &words[..6] {
+            bytes.extend(word.to_le_bytes());
+        }
+        for word in words {
+            bytes.extend(word.to_le_bytes());
+        }
+        bytes.extend(u32::MAX.to_le_bytes());
+        let weighted_count_offset = bytes.len();
+        bytes.extend(16u32.to_le_bytes());
+        bytes.extend(u32::MAX.to_le_bytes());
+        for word in &words[10..] {
+            bytes.extend(word.to_le_bytes());
+        }
+        for word in words {
+            bytes.extend(word.to_le_bytes());
+        }
+        // The original PC zero-count branch has no definition payload.
+        bytes.push(0);
+        bytes.push(6);
+        bytes.extend(0u16.to_le_bytes());
+        for value in [0f32, 0., 0., 1., 1., 1., 1., 0., 0., 0.] {
+            bytes.extend(value.to_le_bytes());
+        }
+        bytes.extend([0, 4, b'T', b'a', b'i', b'l', 0]);
+        bytes.extend([0; 24]);
+        bytes.push(0);
+        (bytes, words, weighted_count_offset)
+    }
+    #[test]
+    fn skin_metadata_preserves_raw_words_lod_order_and_following_frame() {
+        let (bytes, words, _) = skin_scene();
+        for model in [
+            parse_four_ds_scene(&bytes).unwrap(),
+            parse_four_ds_skin(&bytes).unwrap(),
+        ] {
+            let frame = &model.frames[0];
+            assert_eq!(frame.visual, Some(2));
+            assert_eq!(frame.render_flags, 0x31);
+            assert_eq!(frame.logic_flags, 0x42);
+            let skin = frame.skin.as_ref().unwrap();
+            assert_eq!(skin.lods.len(), 2);
+            assert_eq!(frame.lods[0].vertices.len(), 2);
+            assert_eq!(frame.lods[1].vertices.len(), 1);
+            let definition = skin.lods[0].definition.as_ref().unwrap();
+            assert_eq!(definition.root_vertex_count, u32::MAX);
+            assert_eq!(definition.bounds.map(f32::to_bits), words[..6]);
+            let bone = &definition.bones[0];
+            assert_eq!(bone.matrix.map(f32::to_bits), words);
+            assert_eq!(bone.rigid_vertex_count, u32::MAX);
+            assert_eq!(bone.weighted_vertex_count, 16);
+            assert_eq!(bone.blend_joint_index, u32::MAX);
+            assert_eq!(bone.bounds.map(f32::to_bits), words[10..]);
+            assert_eq!(
+                bone.weights.iter().map(|w| w.to_bits()).collect::<Vec<_>>(),
+                words
+            );
+            assert!(skin.lods[1].definition.is_none());
+            assert_eq!(model.frames[1].name, "Tail");
+            assert!(model.frames[1].skin.is_none());
+        }
+        assert!(parse_four_ds(&bytes).is_err());
+        assert!(parse_four_ds_skin(&super::mesh_tests::mesh()).is_err());
+        for length in 0..bytes.len() {
+            assert!(parse_four_ds_scene(&bytes[..length]).is_err(), "{length}");
+        }
+    }
+    #[test]
+    fn skin_intake_keeps_weight_animation_and_variant_guards() {
+        let (bytes, _, weighted_count_offset) = skin_scene();
+        let mut invalid = bytes.clone();
+        invalid[weighted_count_offset..weighted_count_offset + 4]
+            .copy_from_slice(&u32::MAX.to_le_bytes());
+        assert!(
+            parse_four_ds_scene(&invalid)
+                .unwrap_err()
+                .0
+                .contains("skin weight quota")
+        );
+        let mut invalid = bytes.clone();
+        *invalid.last_mut().unwrap() = 1;
+        assert!(
+            parse_four_ds_skin(&invalid)
+                .unwrap_err()
+                .0
+                .contains("animated model")
+        );
+        let mut invalid = bytes.clone();
+        invalid.push(0);
+        assert!(parse_four_ds_scene(&invalid).is_err());
+        let mut morph = bytes;
+        morph[19] = 3;
+        assert!(
+            parse_four_ds_scene(&morph)
+                .unwrap_err()
+                .0
+                .contains("visual type 3;")
+        );
+        let mut instance = super::mesh_tests::mesh();
+        instance[64] = 2;
+        instance[112..114].copy_from_slice(&1u16.to_le_bytes());
+        assert!(
+            parse_four_ds_scene(&instance)
+                .unwrap_err()
+                .0
+                .contains("singlemesh instance")
+        );
+    }
+    #[test]
+    fn skin_strict_route_keeps_static_material_gate() {
+        let mut bytes = super::mesh_tests::mesh();
+        bytes[16..20].copy_from_slice(&0x8000u32.to_le_bytes());
+        bytes[64] = 2;
+        bytes.insert(bytes.len() - 1, 0); // Zero-bone LOD, no definition payload.
+        assert!(parse_four_ds_scene(&bytes).is_ok());
+        assert!(
+            parse_four_ds_skin(&bytes)
+                .unwrap_err()
+                .0
+                .contains("unsupported alpha")
+        );
+    }
     fn joint_scene() -> (Vec<u8>, [u32; 16]) {
         let mut bytes = b"4DS\0".to_vec();
         bytes.extend(29u16.to_le_bytes());
@@ -1329,7 +1604,7 @@ mod scene_model_tests {
     }
     #[test]
     fn other_unsupported_visuals_are_distinct_from_billboards() {
-        for visual in [2, 3, 5, 255] {
+        for visual in [3, 5, 255] {
             let mut bytes = super::mesh_tests::mesh();
             bytes[64] = visual;
             let error = parse_four_ds_scene(&bytes).unwrap_err();

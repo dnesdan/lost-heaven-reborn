@@ -23,3 +23,7 @@ pub mod runtime;
 pub mod scene_tick;
 pub mod script_scheduler;
 pub mod selected_loop;
+pub mod singlemesh_binding;
+pub mod singlemesh_bounds;
+pub mod singlemesh_deformation;
+pub mod singlemesh_pose;

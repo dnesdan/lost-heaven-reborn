@@ -124,13 +124,27 @@ pub fn load(installation: &Installation, textures: &str) -> Result<LoadedScene, 
         .filter(|m| material_effects_omitted(m))
         .count();
     builder.append_retained(&taxi_path, taxi_model, taxi_world, None, false, None)?;
-    println!("MISE01 static neighborhood: {total} cache placements, {candidates} within {RADIUS} source units, {} selected (cap {PLACEMENT_CAP}), {loaded} loaded; {billboards} unsupported billboard-visual placements skipped; secondary visual-scale override applied per placement ({secondary_overrides} nonunit); {} shared parsed cache models; one authored taxi placed across all model roots",selected.len(),models.len());
+    println!(
+        "MISE01 static neighborhood: {total} cache placements, {candidates} within {RADIUS} source units, {} selected (cap {PLACEMENT_CAP}), {loaded} loaded; {billboards} unsupported billboard-visual placements skipped; secondary visual-scale override applied per placement ({secondary_overrides} nonunit); {} shared parsed cache models; one authored taxi placed across all model roots",
+        selected.len(),
+        models.len()
+    );
     for (name, reason) in &unsupported {
         println!("Neighborhood unsupported model: {name}: {reason}");
     }
-    println!("Neighborhood metadata: {} objects, {} actors, {} parsed script programs; {effect_materials} source materials have effects not rendered; lighting, actor initialization, scripts, traffic, physics and gameplay are not executed",metadata.objects.len(),metadata.actors.len(),metadata.scripts.len());
-    println!("Cache source word retained without visibility interpretation; native part visibility, pooling and PVS are not executed. The native filename substitution outside this selected subset is not implemented");
-    println!("Neighborhood model budgets: {} encoded source bytes (limit {}), {} all-LOD parsed allocation bytes (limit {}) charged across root/cache/taxi",source_budget.encoded,MAX_MODEL_INPUT_BYTES,source_budget.decoded,MAX_PARSED_MODEL_BYTES);
+    println!(
+        "Neighborhood metadata: {} objects, {} actors, {} parsed script programs; {effect_materials} source materials have effects not rendered; lighting, actor initialization, scripts, traffic, physics and gameplay are not executed",
+        metadata.objects.len(),
+        metadata.actors.len(),
+        metadata.scripts.len()
+    );
+    println!(
+        "Cache source word retained without visibility interpretation; native part visibility, pooling and PVS are not executed. The native filename substitution outside this selected subset is not implemented"
+    );
+    println!(
+        "Neighborhood model budgets: {} encoded source bytes (limit {}), {} all-LOD parsed allocation bytes (limit {}) charged across root/cache/taxi",
+        source_budget.encoded, MAX_MODEL_INPUT_BYTES, source_budget.decoded, MAX_PARSED_MODEL_BYTES
+    );
     let (scene, mut runtime) = builder.finish()?;
     let camera = inspection_camera(taxi_world)?;
     println!(
@@ -211,6 +225,24 @@ pub(super) fn model_storage_bytes(model: &Model) -> Result<usize, String> {
             )?;
             for group in &lod.groups {
                 add(group.indices.capacity(), std::mem::size_of::<u32>())?;
+            }
+        }
+        if let Some(skin) = &frame.skin {
+            add(
+                skin.lods.capacity(),
+                std::mem::size_of::<lhr_assets::SkinLodRecord>(),
+            )?;
+            for lod in &skin.lods {
+                let Some(definition) = &lod.definition else {
+                    continue;
+                };
+                add(
+                    definition.bones.capacity(),
+                    std::mem::size_of::<lhr_assets::SkinBoneRecord>(),
+                )?;
+                for bone in &definition.bones {
+                    add(bone.weights.capacity(), std::mem::size_of::<f32>())?;
+                }
             }
         }
     }
@@ -486,6 +518,7 @@ mod tests {
                 properties: Vec::new(),
                 dummy_bounds: None,
                 joint: None,
+                skin: None,
                 parent: None,
                 position: [0.0; 3],
                 scale: [1.0; 3],
