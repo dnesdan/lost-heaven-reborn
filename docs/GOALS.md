@@ -21,6 +21,8 @@ PS2 symbols help recover original names. Keep three origins distinct: an actual 
 
 The owned model/Joint/Target hierarchy now connects exact-name position/rotation binding, eight-slot controller ownership and one live slot's sequential playback to clock/dispatch and CPU skin upload. Bounded linear/spherical rotation, morph and loaded bounds-cache behavior are available. Regression models and clips test this composition; they do not establish general asset coverage, a constructed gameplay actor or first-mission execution.
 
+Bounded parsed-model lifetime now covers admitted model, dummy, unbound Joint and Target teardown, external survivors and stale-playback rejection. Native file Open, filename sharing, loaded visual-resource destruction and repeated scene load/unload still require their resource backends. This logic milestone adds no new rendered or interactive validation; all six first-mission gates remain open.
+
 The next dependency order is:
 
 1. Extend animation dependencies across admitted data: weighted multi-slot evaluation, scale/note channels, remaining numeric domains and original notification boundaries. Preserve controller ownership and original update order as coverage grows.
