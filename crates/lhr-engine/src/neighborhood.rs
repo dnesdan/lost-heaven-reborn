@@ -194,6 +194,8 @@ pub(super) fn model_storage_bytes(model: &Model) -> Result<usize, String> {
     }
     for frame in &model.frames {
         add(frame.name.capacity(), 1)?;
+        add(frame.name_bytes.capacity(), 1)?;
+        add(frame.properties.capacity(), 1)?;
         add(
             frame.lods.capacity(),
             std::mem::size_of::<lhr_assets::Lod>(),
@@ -480,6 +482,9 @@ mod tests {
                 logic_flags: 0,
                 culling: 0,
                 name: String::new(),
+                name_bytes: Vec::new(),
+                properties: Vec::new(),
+                dummy_bounds: None,
                 parent: None,
                 position: [0.0; 3],
                 scale: [1.0; 3],

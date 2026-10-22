@@ -1,8 +1,8 @@
 //! Bounded static scene assembly; source transforms precede the handedness conversion.
-use super::{charge_scene, engine_position, source_rotation};
+use super::{charge_scene, source_rotation};
 use glam::{Mat4, Vec3};
 use lhr_assets::{FaceGroup, Installation, Lod, Model};
-use lhr_engine::runtime::{DrawBinding, RetainedScene};
+use lhr_engine::runtime::{DrawBinding, GeometryTransform, RetainedScene};
 use lhr_render::{Mesh, Scene, Texture, Vertex};
 use std::{
     collections::{HashMap, HashSet},
@@ -48,6 +48,7 @@ pub struct SceneBuilder<'a> {
     bytes: usize,
     texture_cache: HashMap<(String, [bool; 2]), Arc<Texture>>,
     allow_texture_fallback: bool,
+    original_model_loading: bool,
     pub cropped_triangles: usize,
     pub unassigned_groups: usize,
 }
@@ -62,12 +63,16 @@ impl<'a> SceneBuilder<'a> {
             bytes: 0,
             texture_cache: HashMap::new(),
             allow_texture_fallback: true,
+            original_model_loading: false,
             cropped_triangles: 0,
             unassigned_groups: 0,
         }
     }
     pub fn deny_texture_fallback(&mut self) {
         self.allow_texture_fallback = false;
+    }
+    pub fn use_original_model_loading(&mut self) {
+        self.original_model_loading = true;
     }
     pub fn append_retained(
         &mut self,
@@ -103,7 +108,56 @@ impl<'a> SceneBuilder<'a> {
             return Err("Invalid spatial crop bounds".into());
         }
         let installation = self.installation;
-        let transforms = model_transforms(&model.frames, world, visual_scale)?;
+        let mut materialized = if self.original_model_loading {
+            if model
+                .frames
+                .iter()
+                .any(|frame| frame.kind == 1 && frame.render_flags & 0x40 != 0)
+            {
+                return Err(
+                    "Original world-space visual vertex dispatch is not reconstructed".into(),
+                );
+            }
+            if world.to_cols_array().map(f32::to_bits)
+                != Mat4::IDENTITY.to_cols_array().map(f32::to_bits)
+                || visual_scale.is_some()
+            {
+                return Err(
+                    "Original model materialization requires identity wrapper placement".into(),
+                );
+            }
+            let loaded = lhr_engine::model_loading::MaterializedModel::from_parsed(source.clone())
+                .map_err(|failure| format!("Original model materialization: {}", failure.error))?;
+            charge_scene(
+                &mut self.bytes,
+                loaded.storage_bytes().map_err(|error| error.to_string())?,
+                MAX_SCENE_BYTES,
+            )?;
+            Some(loaded)
+        } else {
+            None
+        };
+        let transforms: Vec<GeometryTransform> = if let Some(loaded) = &mut materialized {
+            loaded
+                .world_matrices()
+                .map_err(|error| error.to_string())?
+                .into_iter()
+                .map(GeometryTransform::Original)
+                .collect()
+        } else {
+            model_transforms(&model.frames, world, visual_scale)?
+                .into_iter()
+                .map(GeometryTransform::Inspection)
+                .collect()
+        };
+        if transforms.len() != model.frames.len() {
+            return Err("Materialized hierarchy/source frame mismatch".into());
+        }
+        if materialized.is_some() {
+            println!("Original parsed-model materialization: {} frames ({} mesh, {} dummy); owned hierarchy and original world/point arithmetic; fast-find, derived mesh resources and mission construction are not reconstructed",
+                model.frames.len(), model.frames.iter().filter(|frame| frame.kind == 1).count(),
+                model.frames.iter().filter(|frame| frame.kind == 6).count());
+        }
         for (frame_index, (frame, transform)) in model.frames.iter().zip(transforms).enumerate() {
             let geometry = if let Some(index) = frame.instance {
                 model.frames.get(index).ok_or("Invalid mesh instance")?
@@ -234,13 +288,18 @@ impl<'a> SceneBuilder<'a> {
                 });
             }
         }
-        self.retained.retain(
-            source_name.to_owned(),
-            source,
-            world,
-            visual_scale,
-            bindings,
-        )?;
+        if let Some(loaded) = materialized {
+            self.retained
+                .retain_materialized(source_name.to_owned(), loaded, bindings)?;
+        } else {
+            self.retained.retain(
+                source_name.to_owned(),
+                source,
+                world,
+                visual_scale,
+                bindings,
+            )?;
+        }
         Ok(())
     }
     pub fn finish(mut self) -> Result<(Scene, RetainedScene), String> {
@@ -301,9 +360,10 @@ fn model_transforms(
 fn select_triangles(
     lod: &Lod,
     group: &FaceGroup,
-    transform: Mat4,
+    transform: impl Into<GeometryTransform>,
     crop: Option<XzBounds>,
 ) -> Result<(Vec<u32>, usize), String> {
+    let transform = transform.into();
     if !group.indices.len().is_multiple_of(3) {
         return Err("Invalid triangle index count".into());
     }
@@ -316,7 +376,7 @@ fn select_triangles(
                 .vertices
                 .get(tri[i] as usize)
                 .ok_or("Invalid triangle vertex index")?;
-            p[i] = transform.transform_point3(Vec3::from_array(vertex.position));
+            p[i] = Vec3::from_array(transform.source_point(vertex.position)?);
             if !p[i].is_finite() {
                 return Err("Model vertex transform overflow".into());
             }
@@ -349,9 +409,10 @@ fn source_vertex_indices(lod: &Lod, selected: &[u32], compact: bool) -> Result<V
 fn make_geometry(
     lod: &Lod,
     selected: &[u32],
-    transform: Mat4,
+    transform: impl Into<GeometryTransform>,
     compact: bool,
 ) -> Result<(Vec<Vertex>, Vec<u32>), String> {
+    let transform = transform.into();
     let mut mapping = vec![u32::MAX; lod.vertices.len()];
     if compact {
         for i in selected {
@@ -366,7 +427,7 @@ fn make_geometry(
         if !compact || mapping[index] != u32::MAX {
             mapping[index] = u32::try_from(vertices.len()).map_err(|_| "Vertex count overflow")?;
             vertices.push(Vertex {
-                position: engine_position(transform, v.position)?,
+                position: transform.render_point(v.position)?,
                 uv: v.uv,
             });
         }
@@ -406,6 +467,9 @@ mod tests {
     fn frame(parent: Option<usize>, position: [f32; 3]) -> lhr_assets::Frame {
         lhr_assets::Frame {
             name: String::new(),
+            name_bytes: Vec::new(),
+            properties: Vec::new(),
+            dummy_bounds: None,
             parent,
             position,
             scale: [1.0; 3],

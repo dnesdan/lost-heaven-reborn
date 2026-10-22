@@ -91,6 +91,12 @@ pub struct Frame {
     pub logic_flags: u8,
     pub culling: u8,
     pub name: String,
+    /// Original length-prefixed bytes, separate from the display encoding.
+    pub name_bytes: Vec<u8>,
+    /// Opaque common-frame properties; preserve bytes without text conversion.
+    pub properties: Vec<u8>,
+    /// Original dummy bounding box. Retained as data, not a collision shape.
+    pub dummy_bounds: Option<[[f32; 3]; 2]>,
     pub parent: Option<usize>,
     pub position: [f32; 3],
     pub scale: [f32; 3],
@@ -359,20 +365,26 @@ fn parse_four_ds_impl(b: &[u8], scene: bool, allow_animation: bool) -> Result<(M
             return err("zero quaternion");
         };
         let culling = r.u8()?;
+        let name_start = r.p;
         let name = if scene {
             source_string(&mut r)?
         } else {
             r.string()?
         };
-        if scene {
-            source_string(&mut r)?;
-        } else {
-            r.string()?;
-        }
+        let name_bytes = r.b[name_start + 1..r.p].to_vec();
+        let property_length = r.u8()? as usize;
+        let properties = r.take(property_length)?.to_vec();
+        let mut dummy_bounds = None;
         let mut lods = Vec::new();
         let mut instance = None;
         if kind == 6 {
-            r.take(24)?;
+            let bytes = r.take(24)?;
+            dummy_bounds = Some(std::array::from_fn(|row| {
+                std::array::from_fn(|column| {
+                    let offset = (row * 3 + column) * 4;
+                    f32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap())
+                })
+            }));
         } else if kind == 2 {
             r.take(84)?;
         } else if kind == 5 || kind == 12 {
@@ -467,6 +479,9 @@ fn parse_four_ds_impl(b: &[u8], scene: bool, allow_animation: bool) -> Result<(M
             logic_flags,
             culling,
             name,
+            name_bytes,
+            properties,
+            dummy_bounds,
             parent: parent.checked_sub(1),
             position,
             scale,
@@ -845,6 +860,45 @@ mod tests {
         assert!(parse_four_ds(&b).is_err());
         for s in ["../x", "/x", "x\\y", "x:y", ""] {
             assert!(safe_relative(s).is_err())
+        }
+    }
+    #[test]
+    fn common_frame_bytes_and_dummy_bounds_survive_intake() {
+        let mut bytes = empty();
+        bytes.truncate(16);
+        bytes.extend(1u16.to_le_bytes());
+        bytes.push(6);
+        bytes.extend(0u16.to_le_bytes());
+        for value in [0f32, -0., 3., 1., 2., 4., 1., 0., 0., 0.] {
+            bytes.extend(value.to_le_bytes());
+        }
+        bytes.extend([0x89, 2, 0x8a, b'X']);
+        bytes.extend([4, 0, 0xff, b'\t', b'A']);
+        let bounds = [0x80000000u32, 0x7fc01234, 1, 0x3f800000, 0xbf800000, 0];
+        for value in bounds {
+            bytes.extend(value.to_le_bytes());
+        }
+        bytes.push(0);
+        let model = parse_four_ds_scene(&bytes).unwrap();
+        let frame = &model.frames[0];
+        assert_eq!(frame.name, "ŠX");
+        assert_eq!(frame.name_bytes, [0x8a, b'X']);
+        assert_eq!(frame.properties, [0, 0xff, b'\t', b'A']);
+        assert_eq!(frame.culling, 0x89);
+        assert_eq!(frame.position[1].to_bits(), 0x80000000);
+        assert_eq!(
+            frame
+                .dummy_bounds
+                .unwrap()
+                .into_iter()
+                .flatten()
+                .map(f32::to_bits)
+                .collect::<Vec<_>>(),
+            bounds
+        );
+        assert!(parse_four_ds(&bytes).is_err()); // ASCII model-name policy remains explicit.
+        for length in 0..bytes.len() {
+            assert!(parse_four_ds_scene(&bytes[..length]).is_err(), "{length}");
         }
     }
     fn bmp() -> Vec<u8> {

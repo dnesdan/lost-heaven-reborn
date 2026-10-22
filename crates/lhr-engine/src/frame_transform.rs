@@ -1,10 +1,10 @@
-//! Lazy LS3DF frame caches and the closed model/mesh hierarchy subset.
+//! Lazy LS3DF frame caches and the closed model/mesh/dummy hierarchy subset.
 //! UpdateWMatrixProc is an original DLL export, RVA0x1c7d0. UpdateMatrix,
 //! LinkTo, RemoveChild and Update have retained PS2 symbols; PC entries are
 //! 0x1a6e0,0x1b9d0,0x1bf20,0x1ca60. Setter names are descriptive views of
 //! observed inline operations, not additional original symbols. Host storage
 //! does not implement native reference counting/destructors. Only LinkTo flags0/1,
-//! model/mesh virtual updates, and an empty deferred queue are represented.
+//! model/mesh/dummy virtual updates, and an empty deferred queue are represented.
 use crate::native_transform::{is_verified_scalar, SMatrix, SQuat};
 const DIRTY: u32 = 0x40002000;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -13,6 +13,7 @@ pub struct FrameKey(pub u32);
 pub enum FrameKind {
     Model,
     Mesh,
+    Dummy,
 }
 /// Fields observed by these methods, not a complete native object.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -26,6 +27,8 @@ pub struct I3dFrameState {
     pub world_scale: f32,
     pub update_count: u32,
     pub visual_flags: u32,
+    /// Native dummy-only field at +0x198; independent of mesh visual flags.
+    pub dummy_flags: u32,
 }
 impl I3dFrameState {
     /// Actual model/base-frame constructor field projection.
@@ -42,7 +45,23 @@ impl I3dFrameState {
             world_scale: 1.,
             update_count: 0,
             visual_flags: 0,
+            dummy_flags: 0,
         }
+    }
+    /// Original standard Object/LitObject common constructor projection,
+    /// RVAs0x367b0/0x21570. Mesh payload and visual subtype remain loader-owned.
+    pub fn mesh() -> Self {
+        let mut state = Self::model();
+        state.kind = FrameKind::Mesh;
+        state.visual_flags = 0x2a00;
+        state
+    }
+    /// Original dummy constructor projection, RVA0x1a1e0. Bounds and other
+    /// derived payload fields are owned by the loader arena, outside this graph.
+    pub fn dummy() -> Self {
+        let mut state = Self::model();
+        state.kind = FrameKind::Dummy;
+        state
     }
     /// Supported FrameLoadImage result. Caller separately proves mesh type/flags.
     pub fn source_mesh(position: [f32; 3], scale: [f32; 3], rotation: SQuat) -> Self {
@@ -156,6 +175,54 @@ impl I3dFrameGraph {
                 )
             })
             .ok_or(FrameError::AllocationOverflow)
+    }
+    /// Common field projection of FrameLoadImage, RVA0x1d1c0, after a
+    /// complete record has been validated. The loader first constructs and
+    /// links the frame, and separately owns raw names/properties. These stores
+    /// ignore position lock and preserve quaternion bits without normalization.
+    /// Short reads, name-cache effects and original allocation are outside scope.
+    pub fn apply_common_load_image_fields(
+        &mut self,
+        key: FrameKey,
+        position: [f32; 3],
+        scale: [f32; 3],
+        rotation: SQuat,
+        raw_logic_flags: u8,
+    ) -> Result<(), FrameError> {
+        let node = self.node_mut(key)?;
+        node.state.local.elements[12..15].copy_from_slice(&position);
+        node.state.scale = scale;
+        node.state.rotation = rotation;
+        node.state.flags = (node.state.flags & 0xffffff00) | u32::from(raw_logic_flags);
+        node.state.flags = (node.state.flags & 0xfffffe8b) | 0x40000008;
+        // The native mask invalidates both caches. Subsequent getters recheck
+        // the complete new SRT rather than retaining a previous host interruption.
+        node.local_error = None;
+        node.world_error = None;
+        Ok(())
+    }
+    /// Observed LoadHierarchy EndLoad root store, followed by original Update.
+    /// This does not implement resource loading or a populated deferred queue.
+    pub fn mark_loaded_root(&mut self, key: FrameKey) -> Result<(), FrameError> {
+        let state = &mut self.node_mut(key)?.state;
+        state.flags = (state.flags & 0xfffffeff) | 0x40000000;
+        self.update(key)
+    }
+    /// Original bound-cache invalidation at RVA0x1cc00, used by model Close.
+    /// All represented kinds differ from native sector type5, which stops the
+    /// original ancestor walk and is deliberately absent from this graph.
+    pub fn discard_hr_bound_vol(&mut self, key: FrameKey) -> Result<(), FrameError> {
+        self.node_mut(key)?.state.flags &= 0xfffffebf;
+        let mut parent = self.links(key)?.parent;
+        while let Some(key) = parent {
+            let node = self.node_mut(key)?;
+            if node.state.flags & 0x40 == 0 {
+                break;
+            }
+            node.state.flags &= 0xfffffebf;
+            parent = node.links.parent;
+        }
+        Ok(())
     }
     /// Copies even equal values, preserving signed zero. Flag0x80 locks position.
     pub fn assign_position(&mut self, key: FrameKey, p: [f32; 3]) -> Result<(), FrameError> {
@@ -498,14 +565,20 @@ impl I3dFrameGraph {
             dirty,
         })
     }
-    fn visual_update(&mut self, key: FrameKey) -> Result<(), FrameError> {
+    /// Observed UpdateV effects for the represented frame kinds. Dummy's
+    /// original entry is RVA0x1a330; it clears its own bound flag only if dirty.
+    pub fn update_v(&mut self, key: FrameKey) -> Result<(), FrameError> {
         let s = &mut self.node_mut(key)?.state;
-        if s.kind == FrameKind::Mesh && s.visual_flags & 0x40 == 0 && s.flags & DIRTY != 0 {
-            s.visual_flags &= !0x1c0000;
+        if s.flags & DIRTY != 0 {
+            if s.kind == FrameKind::Mesh && s.visual_flags & 0x40 == 0 {
+                s.visual_flags &= !0x1c0000;
+            } else if s.kind == FrameKind::Dummy {
+                s.dummy_flags &= !0x10;
+            }
         }
         Ok(())
     }
-    /// Original Update/recursive-child effects for model/standard-mesh objects.
+    /// Original Update/recursive-child effects for model/standard-mesh/dummy objects.
     /// The deferred list is explicitly empty and there are no external callbacks.
     pub fn update(&mut self, key: FrameKey) -> Result<(), FrameError> {
         let mut visits = std::mem::take(&mut self.visits);
@@ -522,7 +595,7 @@ impl I3dFrameGraph {
                 } else {
                     let done = visits.pop().unwrap();
                     if let Some(p) = visits.last_mut() {
-                        self.visual_update(done.key)?;
+                        self.update_v(done.key)?;
                         if self.state(done.key)?.flags & DIRTY != 0 {
                             self.node_mut(done.key)?.state.flags &= !DIRTY;
                             let s = &mut self.node_mut(p.key)?.state;
@@ -532,7 +605,7 @@ impl I3dFrameGraph {
                     }
                 }
             }
-            self.visual_update(key)?;
+            self.update_v(key)?;
             self.node_mut(key)?.state.flags &= 0xfffffebf;
             let mut parent = self.links(key)?.parent;
             while let Some(p) = parent {
@@ -565,6 +638,76 @@ mod tests {
                 wxyz: [1., 0., 0., 0.],
             },
         )
+    }
+    #[test]
+    fn common_image_fields_are_raw_stores_after_linking() {
+        let mut graph = I3dFrameGraph::default();
+        let parent = graph.insert(I3dFrameState::model()).unwrap();
+        let child = graph.insert(I3dFrameState::mesh()).unwrap();
+        graph.link_to(child, Some(parent)).unwrap();
+        graph.node_mut(child).unwrap().state.flags |= 0x20000080;
+        let position = [f32::from_bits(0x80000000), f32::from_bits(0x7fc01234), 7.];
+        let rotation = SQuat {
+            wxyz: [2., -3., 4., -0.],
+        };
+        graph
+            .apply_common_load_image_fields(child, position, [-2., 0., 3.], rotation, 0x80)
+            .unwrap();
+        let state = graph.state(child).unwrap();
+        assert_eq!(
+            state.local.elements[12..15]
+                .iter()
+                .map(|v| v.to_bits())
+                .collect::<Vec<_>>(),
+            position.map(f32::to_bits)
+        );
+        assert_eq!(state.scale, [-2., 0., 3.]);
+        assert_eq!(
+            state.rotation.wxyz.map(f32::to_bits),
+            rotation.wxyz.map(f32::to_bits)
+        );
+        assert_eq!(state.flags, 0x60000088);
+        assert_eq!(graph.links(child).unwrap().parent, Some(parent));
+        assert_eq!(state.world, SMatrix::identity());
+    }
+    #[test]
+    fn dummy_virtual_update_has_its_own_flags_and_clean_update_discards_bounds() {
+        let mut graph = I3dFrameGraph::default();
+        let mut state = I3dFrameState::dummy();
+        state.flags = 0x140;
+        state.dummy_flags = 0x31;
+        state.visual_flags = u32::MAX;
+        let key = graph.insert(state).unwrap();
+        graph.update_v(key).unwrap();
+        assert_eq!(graph.state(key).unwrap().dummy_flags, 0x31);
+        graph.update(key).unwrap();
+        assert_eq!(graph.state(key).unwrap().flags, 0);
+        assert_eq!(graph.state(key).unwrap().update_count, 0);
+        graph.mark_loaded_root(key).unwrap();
+        assert_eq!(graph.state(key).unwrap().dummy_flags, 0x21);
+        assert_eq!(graph.state(key).unwrap().visual_flags, u32::MAX);
+        assert_eq!(graph.state(key).unwrap().update_count, 1);
+        assert_eq!(graph.state(key).unwrap().flags, 0);
+    }
+    #[test]
+    fn bound_invalidation_stops_at_first_clean_ancestor() {
+        let mut graph = I3dFrameGraph::default();
+        let root = graph.insert(I3dFrameState::model()).unwrap();
+        let middle = graph.insert(I3dFrameState::dummy()).unwrap();
+        let leaf = graph.insert(I3dFrameState::mesh()).unwrap();
+        graph.link_to(middle, Some(root)).unwrap();
+        graph.link_to(leaf, Some(middle)).unwrap();
+        graph.node_mut(root).unwrap().state.flags = 0x140;
+        graph.node_mut(middle).unwrap().state.flags = 0x100;
+        graph.node_mut(leaf).unwrap().state.flags = 0x140;
+        graph.discard_hr_bound_vol(leaf).unwrap();
+        assert_eq!(graph.state(leaf).unwrap().flags, 0);
+        assert_eq!(graph.state(middle).unwrap().flags, 0x100);
+        assert_eq!(graph.state(root).unwrap().flags, 0x140);
+        graph.node_mut(middle).unwrap().state.flags |= 0x40;
+        graph.discard_hr_bound_vol(leaf).unwrap();
+        assert_eq!(graph.state(middle).unwrap().flags, 0);
+        assert_eq!(graph.state(root).unwrap().flags, 0);
     }
     #[test]
     fn world_preserving_reparent_detach_and_locked_position_follow_native_rules() {

@@ -148,13 +148,6 @@ fn source_rotation(q: [f32; 4]) -> Result<Quat, String> {
     }
     Ok(rotation)
 }
-fn engine_position(transform: Mat4, position: [f32; 3]) -> Result<[f32; 3], String> {
-    let p = transform.transform_point3(Vec3::from_array(position));
-    if !p.is_finite() {
-        return Err("Model vertex transform overflow".into());
-    }
-    Ok([p.x, p.y, -p.z])
-}
 fn material_effects_omitted(material: &lhr_assets::Material) -> bool {
     // These are the effects rejected by strict model intake; scene intake retains
     // their metadata, but the current opaque, unlit renderer does not execute them.
@@ -231,6 +224,9 @@ fn load(options: &Options) -> Result<LoadedScene, String> {
         println!("Static scene subset: {} frames; {omitted} materials have effects not rendered; animation, lighting and mission scripts are not executed", model.frames.len());
     }
     let mut builder = assembly::SceneBuilder::new(&installation, &options.textures);
+    if options.model.is_some() && animation_source.is_none() {
+        builder.use_original_model_loading();
+    }
     builder.append_retained(
         &path,
         model,
@@ -882,9 +878,15 @@ mod tests {
     #[test]
     fn finite_inputs_that_overflow_transformed_vertex_are_rejected() {
         let transform = Mat4::from_scale(Vec3::splat(f32::MAX));
-        assert!(engine_position(transform, [2.0, 0.0, 0.0]).is_err());
+        assert!(
+            lhr_engine::runtime::GeometryTransform::Inspection(transform)
+                .render_point([2.0, 0.0, 0.0])
+                .is_err()
+        );
         assert_eq!(
-            engine_position(Mat4::IDENTITY, [1.0, 2.0, 3.0]).unwrap(),
+            lhr_engine::runtime::GeometryTransform::Inspection(Mat4::IDENTITY)
+                .render_point([1.0, 2.0, 3.0])
+                .unwrap(),
             [1.0, 2.0, -3.0]
         );
     }

@@ -11,6 +11,44 @@ use lhr_assets::Model;
 use lhr_render::Vertex;
 use std::sync::Arc;
 
+/// Geometry consumes either the inspection placement or the recovered frame
+/// matrix. Original point arithmetic must not pass through glam's association.
+#[derive(Clone, Copy, Debug)]
+pub enum GeometryTransform {
+    Inspection(Mat4),
+    Original(crate::native_transform::SMatrix),
+}
+impl From<Mat4> for GeometryTransform {
+    fn from(value: Mat4) -> Self {
+        Self::Inspection(value)
+    }
+}
+impl GeometryTransform {
+    pub fn source_point(self, point: [f32; 3]) -> Result<[f32; 3], String> {
+        let result = match self {
+            Self::Inspection(matrix) => matrix.transform_point3(Vec3::from_array(point)).to_array(),
+            Self::Original(matrix) => {
+                if !matrix.is_verified_input()
+                    || !point
+                        .into_iter()
+                        .all(crate::native_transform::is_verified_scalar)
+                {
+                    return Err("Original point transform outside verified numeric domain".into());
+                }
+                matrix.transform_point(point)
+            }
+        };
+        if !result.into_iter().all(f32::is_finite) {
+            return Err("Geometry transform overflow".into());
+        }
+        Ok(result)
+    }
+    pub fn render_point(self, point: [f32; 3]) -> Result<[f32; 3], String> {
+        let [x, y, z] = self.source_point(point)?;
+        Ok([x, y, -z])
+    }
+}
+
 /// One retained draw's exact source vertex mapping, including spatial crops.
 #[derive(Debug)]
 pub struct DrawBinding {
@@ -37,6 +75,7 @@ pub struct RetainedModel {
     needs_upload: bool,
     pub draws: Vec<DrawBinding>,
     pub native: ModelTickState,
+    materialized: Option<crate::model_loading::MaterializedModel>,
 }
 #[derive(Debug, Default)]
 pub struct RetainedScene {
@@ -166,6 +205,40 @@ impl RetainedScene {
         visual_scale: Option<[f32; 3]>,
         draws: Vec<DrawBinding>,
     ) -> Result<(), String> {
+        self.retain_inner(source_name, source, world, visual_scale, draws, None)
+    }
+    /// Retain the same owned hierarchy that supplied the initial render geometry.
+    pub fn retain_materialized(
+        &mut self,
+        source_name: String,
+        materialized: crate::model_loading::MaterializedModel,
+        draws: Vec<DrawBinding>,
+    ) -> Result<(), String> {
+        let source = materialized.source().clone();
+        if !materialized.is_complete()
+            || materialized.source_frame_keys().len() != source.frames.len()
+            || materialized.root().0 == 0
+        {
+            return Err("Cannot retain an incomplete materialized model".into());
+        }
+        self.retain_inner(
+            source_name,
+            source,
+            Mat4::IDENTITY,
+            None,
+            draws,
+            Some(materialized),
+        )
+    }
+    fn retain_inner(
+        &mut self,
+        source_name: String,
+        source: Arc<Model>,
+        world: Mat4,
+        visual_scale: Option<[f32; 3]>,
+        draws: Vec<DrawBinding>,
+        materialized: Option<crate::model_loading::MaterializedModel>,
+    ) -> Result<(), String> {
         if source.frames.iter().any(|frame| {
             ![1, 2, 5, 6, 7, 12].contains(&frame.kind)
                 || (frame.kind == 1 && !matches!(frame.visual, Some(0 | 1)))
@@ -201,8 +274,11 @@ impl RetainedScene {
             needs_upload: false,
             draws,
             native: ModelTickState::new(ModelVTableId(0x1009c160)),
+            materialized,
         };
-        model.transforms()?;
+        if model.materialized.is_none() {
+            model.transforms()?;
+        }
         self.models.push(model);
         Ok(())
     }
@@ -212,6 +288,9 @@ impl RetainedModel {
         &self.pose
     }
     pub fn set_frame_position(&mut self, index: usize, position: [f32; 3]) -> Result<(), String> {
+        if self.materialized.is_some() {
+            return Err("Materialized static model does not bind position animation".into());
+        }
         if position.iter().any(|v| !v.is_finite()) {
             return Err("Nonfinite bound position".into());
         }
@@ -229,6 +308,9 @@ impl RetainedModel {
     }
 
     pub fn transforms(&self) -> Result<Vec<Mat4>, String> {
+        if self.materialized.is_some() {
+            return Err("Materialized model requires original world matrices".into());
+        }
         if self.pose.len() != self.source.frames.len() || !self.world.is_finite() {
             return Err("Retained model graph mismatch".into());
         }
@@ -817,6 +899,23 @@ impl RetainedScene {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn original_geometry_keeps_translation_association_and_handedness() {
+        let mut matrix = crate::native_transform::SMatrix::identity();
+        matrix.elements[0] = 16_777_216.;
+        matrix.elements[4] = 1.;
+        matrix.elements[8] = 1.;
+        matrix.elements[12] = -16_777_216.;
+        assert_eq!(
+            GeometryTransform::Original(matrix)
+                .render_point([1.; 3])
+                .unwrap(),
+            [2., 1., -1.]
+        );
+        assert!(GeometryTransform::Original(matrix)
+            .render_point([1e-20, 1., 1.])
+            .is_err());
+    }
     use lhr_assets::{Frame, Lod};
     fn source() -> Arc<Model> {
         Arc::new(Model {
@@ -828,6 +927,9 @@ mod tests {
                 logic_flags: 0,
                 culling: 0,
                 name: "source".into(),
+                name_bytes: b"source".to_vec(),
+                properties: Vec::new(),
+                dummy_bounds: None,
                 parent: None,
                 position: [0.; 3],
                 scale: [1.; 3],
@@ -872,6 +974,31 @@ mod tests {
                 .unwrap();
         }
         graph
+    }
+    #[test]
+    fn materialized_retention_preserves_source_and_rejects_partial_or_legacy_pose_paths() {
+        let source = source();
+        let loaded = crate::model_loading::MaterializedModel::from_parsed(source.clone()).unwrap();
+        let mut scene = RetainedScene::default();
+        scene
+            .retain_materialized("fixture".into(), loaded, Vec::new())
+            .unwrap();
+        let retained = &mut scene.models[0];
+        assert!(Arc::ptr_eq(&retained.source, &source));
+        assert!(retained.transforms().is_err());
+        assert!(retained.set_frame_position(0, [1.; 3]).is_err());
+        retained.tick_static(16).unwrap();
+        let mut incomplete = (*source).clone();
+        let mut unsupported = incomplete.frames[0].clone();
+        unsupported.kind = 2;
+        incomplete.frames.push(unsupported);
+        let failure =
+            crate::model_loading::MaterializedModel::from_parsed(Arc::new(incomplete)).unwrap_err();
+        assert_eq!(failure.partial.source_frame_keys().len(), 1);
+        assert!(scene
+            .retain_materialized("partial".into(), *failure.partial, Vec::new())
+            .is_err());
+        assert_eq!(scene.models.len(), 1);
     }
     #[test]
     fn native_vertices_preserve_mapping_handedness_and_explicit_numeric_domain() {
