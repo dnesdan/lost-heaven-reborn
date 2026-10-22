@@ -1,6 +1,6 @@
 # Reconstruction goals
 
-The immediate gameplay milestone is the original first mission running in the standalone Rust engine, from the original menu through mission completion. The long-term target remains the complete original campaign and engine. A static city, an imported character or a set of isolated native-compatible functions does not satisfy either goal.
+The goal is a standalone Rust engine that runs the original game's models, animations and complete campaign using the user's own original PC data. Build reusable behavior across evidenced formats and numeric domains; individual models and clips are regression fixtures, not implementation targets. The immediate gameplay milestone is the original first mission, from the original menu through mission completion. A static city, an imported character or isolated native-compatible functions do not satisfy that gate.
 
 | First-mission acceptance gate | Required evidence |
 | --- | --- |
@@ -19,13 +19,13 @@ Use the [pinned reference audit](REFERENCE_PROJECTS.md) as a function and depend
 
 PS2 symbols help recover original names. Keep three origins distinct: an actual original symbol, an upstream-assigned PC correspondence, and a descriptive working name. Record hashes and addresses privately. The supplied PS2 ELF retains linker symbols; the presence of names does not establish full type/member debug information. Verify PC/PS2 layouts, calling conventions and behavior independently before sharing implementations.
 
-The actual first-mission `TommyTAXIDRIVER` visual-3 model now loads into the owned Joint/Target hierarchy. Static and independently sampled `breath01a` poses match original morph, skin, frame and bounds outputs. Original 5DS rotation records, bounded rotation evaluation, exact record-to-frame binding and AC access are implemented; these are prerequisites for a character controller, not a playable player.
+The owned model/Joint/Target hierarchy now connects exact-name position/rotation binding, eight-slot controller ownership and one live slot's sequential playback to clock/dispatch and CPU skin upload. Bounded linear/spherical rotation, morph and loaded bounds-cache behavior are available. Regression models and clips test this composition; they do not establish general asset coverage, a constructed gameplay actor or first-mission execution.
 
 The next dependency order is:
 
-1. Connect the verified model/Target/morph/skin and position/rotation evaluator paths to original IPol controller ownership and time advancement. Recover missing spherical rotations, scale/notes and blend modes as required by first-mission clips.
-2. Recover animation-set/resource cache and required TCK paths, adding A4 access when evidenced. The caller-owned InitAnimIndex sort/cleanup is verified, but the original resource catalog and lifetime remain open.
-3. Connect actor/BODY, model and interpolator ownership to animation selection. Keep original animation-code/resource mappings outside any dependency on Game.exe at runtime.
+1. Extend animation dependencies across admitted data: weighted multi-slot evaluation, scale/note channels, remaining numeric domains and original notification boundaries. Preserve controller ownership and original update order as coverage grows.
+2. Recover animation-set/resource cache, animation-machine construction and required TCK paths, adding A4 access when evidenced. InitAnimIndex sort/cleanup and GetTrack over caller-owned records are bounded prerequisites; the original catalog, locale-comparison backend and resource lifetime remain open.
+3. Connect actor/BODY, model and controller ownership to original animation selection. Keep original animation-code/resource mappings outside any dependency on Game.exe at runtime.
 4. Continue original control lock/release, replay, attachments, collision-backed movement, vehicles, camera, pursuit and mission objectives through completion. Compare original-runtime traces and interactive Rust runs of the same sequence.
 
 Work on independent dependencies in parallel using Astra and Sol agents. Integrate verified functions when their real callers and ownership are ready; unavailable paths continue to fail explicitly. Keep library contracts, asset inspection and complete first-mission behavior as separate evidence claims.
