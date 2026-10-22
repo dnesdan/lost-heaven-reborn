@@ -1,6 +1,6 @@
 # Reference-project audit
 
-Source audit refreshed on 2026-10-22 against Rust engine commit [`5903942`](https://github.com/dnesdan/lost-heaven-reborn/commit/5903942266c212c6cd5e88b75df688973e6b447b), extending the earlier audit at `a739570`. Four independent research assignments inspected mafia-re and MafiaUnity formats, runtime and rendering. The mafia-re revision is unchanged; this is deeper inspection, not new upstream progress. No reference application was built or run, and this refresh performed no new REA analysis or original-runtime comparison. The audit baseline was 110 scoped entries across 41 contracts; the audit itself adds no implementation or gameplay credit. The later bounded frame/model lifecycle snapshot retained 117 scoped entries across 43 contracts. The subsequent resource-primitives snapshot retained 126 scoped entries across 44 contracts. The subsequent mesh-object snapshot retained 129 scoped entries across 45 contracts. The buffer-manager snapshot retained 147 scoped entries across 46 contracts. The current snapshot adds a standalone managed visual-owner bridge with zero new canonical entries: **147 scoped entries / 46 contracts; 0/12 strict full-system gates**. Next is distinct per-object LOD ownership; texture final lifetime, loaded-resource/GPU adapters and the first mission remain open. See [coverage](../COVERAGE.md) and [progress](PROGRESS.md).
+Source audit refreshed on 2026-10-22 against Rust engine commit [`5903942`](https://github.com/dnesdan/lost-heaven-reborn/commit/5903942266c212c6cd5e88b75df688973e6b447b), extending the earlier audit at `a739570`. Four independent research assignments inspected mafia-re and MafiaUnity formats, runtime and rendering. The mafia-re revision is unchanged; this is deeper inspection, not new upstream progress. No reference application was built or run, and this refresh performed no new REA analysis or original-runtime comparison. The audit baseline was 110 scoped entries across 41 contracts; the audit itself adds no implementation or gameplay credit. The later bounded frame/model lifecycle snapshot retained 117 scoped entries across 43 contracts. The subsequent resource-primitives snapshot retained 126 scoped entries across 44 contracts. The subsequent mesh-object snapshot retained 129 scoped entries across 45 contracts. The buffer-manager snapshot retained 147 scoped entries across 46 contracts. The subsequent standalone bridge retained 147 scoped entries across 46 contracts with zero new canonical entries. The current snapshot adds bounded per-object plain LOD ownership: **151 scoped entries / 47 contracts; 0/12 strict full-system gates**. Actual texture lifetime, derived LOD resources, loaded/GPU adapters and the first mission remain open. See [coverage](../COVERAGE.md) and [progress](PROGRESS.md).
 
 | Reference | Audited revision | Useful evidence |
 | --- | --- | --- |
@@ -10,6 +10,20 @@ Source audit refreshed on 2026-10-22 against Rust engine commit [`5903942`](http
 | [MafiaUnity](https://github.com/MafiaHub/MafiaUnity) | [`0d7a12f0`, develop](https://github.com/MafiaHub/MafiaUnity/tree/0d7a12f03ce4385173377c3e9f457dcc2e891f24) | Data readers, mission scene assembly and presentation adapters; prototype mechanics require separate native verification. |
 
 **Decision:** use mafia-re to locate original engine algorithms and dependencies; use MafiaUnity to identify data-to-world integration gaps. Preserve the existing native-backed Rust contracts. Neither project supplies a completed original Game.exe runtime or first mission to transplant.
+
+## Rust organization and original names
+
+New ownership code uses `lhr_engine::ls3df::i3d_object::{Lod, I3dObjectResources}` while physical source paths and existing Cargo packages stay unchanged. `I3dObjectResources` is a bounded ownership projection. `Lod` follows actual PC `lod::Create()` diagnostic bytes; `I3D_object` names have original PS2 symbols with independently researched PC correspondence. Member names retain their original-message, source or research provenance; a source spelling alone is not an original symbol.
+
+| Original boundary | Current Rust organization and limit |
+| --- | --- |
+| LS3DF.dll | Recovered engine/resource components in `lhr-engine`; logical `ls3df::i3d_object` namespace. `lhr-render` supplies wgpu presentation, without IGraph/Direct3D DLL parity or original sound lifetime. |
+| rw_data.dll | Bounded archive/provider behavior in `lhr-assets`; no complete DLL parity. |
+| Game.exe | Scoped gameplay policies and the host application share `lhr-engine`; their origin remains separate from LS3DF. |
+| IJoy.dll | Host winit input in `lhr-engine` is an adapter, without original input-DLL parity. |
+| Setup.exe | Selected shared configuration in `lhr-engine::original_config`; no original Setup executable. |
+
+`lhr-assets` also parses LS3DF/Game formats, so package placement does not identify an original loader or VM. mafia-re combines I3D, IGraph and sound in one LS3DF build target; its newer I3D subfolders are upstream organization, not recovered original packages. The behavior reference stays pinned to `86a7b15c`; separately observing upstream `53680593` adds no implementation or runtime credit.
 
 ## LS3D-SceneKit
 
@@ -120,5 +134,7 @@ These are original PS2 names with separately established PC correspondences, not
 Fresh static research associates the original PS2 `I3D_mesh_object::UpdateBoundVolume` symbol (VA `0x43c750`) with PC RVA `0x31400`. PS2 uses three LOD slots versus ten on PC, ref/count/slots offsets `0x30/0x34/0x38` versus `0x04/0x08/0x0c`, and VU/EE arithmetic rather than PC x87. These are original-symbol and instruction findings only, without PS2 runtime equivalence.
 
 Fresh original PS2 symbols identify the IB/VB manager methods, with separately researched PC associations. PS2 manager allocation creates whole buffers, whereas PC pools shared blocks; PS2 VB allocation also lacks the PC FVF argument. Both PS2 `UnlockAll` bodies (VAs `0x479870` and `0x479ba0`) contain only `jr ra; nop`, unlike the PC lock-list cleanup. PC per-buffer shared-block allocation/free names remain descriptive research names, without matching original PS2 symbols. These instruction findings are static only, with no PS2 runtime equivalence.
+
+Fresh static object research confirms a separate PC ten-generated-LOD cleanup layer. The original PS2 object teardown is split between `__dt__10I3D_objectFv` (VA `0x4243f0`) and `BogusDestructor__10I3D_objectFv` (`0x43f9c0`); neither captured body performs that PC loop. PS2 `SetMesh` (`0x43fa00`) lacks the PC keep-compatible/delete-ten path. The plain `Lod` name comes from PC diagnostic bytes, without a corresponding PS2 linker-name claim. These are static platform differences, with no PS2 execution evidence.
 
 REA currently rejects the Emotion Engine R5900 variant with `architecture_unsupported`. The PS2 crosscheck used the retained dedicated EE Ghidra backend in read-only mode; PC REA and original-code comparisons remain separate. Future contracts record native binary/address, exact symbol, name origin, mapping evidence, Rust symbol and validation independently. This crosscheck adds no completed-function credit.

@@ -1,7 +1,7 @@
 # Lost Heaven Reborn
 
 <!-- generated-function-progress:start -->
-As of 2026-10-22 · snapshot `RUST-SCOPED-PORTS-20261022-16`.
+As of 2026-10-22 · snapshot `RUST-SCOPED-PORTS-20261022-17`.
 
 <p align="center"><img src="docs/progress.svg" alt="Progress dashboard: static retained pseudocode, reviewed scoped Rust entries, and strict system verification" width="100%"></p>
 
@@ -14,7 +14,7 @@ As of 2026-10-22 · snapshot `RUST-SCOPED-PORTS-20261022-16`.
 
 Strict full-system gate: **0/12**. Binary-level static counts use the named denominator basis and do not combine into a game-completion percentage. Unknown denominators remain N/A. 1 supplied configuration Setup inventory uses 172 in-image non-thunk procedures. Separately, archive installer bootstrap static inventory: **376 / 376 (100.00%)**; this distribution target is not combined with engine-library counts. The campaign is not playable.
 
-Accepted scoped Rust ports: **147 entries across 46 reviewed contracts**. These remain separate from retained pseudocode and whole-function counts.
+Accepted scoped Rust ports: **151 entries across 47 reviewed contracts**. These remain separate from retained pseudocode and whole-function counts.
 
 Regenerate locally with `python3 scripts/progress.py --write`; verify without writes with `python3 scripts/progress.py --check`. Versioned snapshots are retained in `docs/progress.json`.
 Milestone history and scoped implementation evidence are in [docs/PROGRESS.md](docs/PROGRESS.md).
@@ -26,7 +26,9 @@ An independent Rust reimplementation of the Mafia: The City of Lost Heaven (2002
 
 The animation path binds original track names, advances one live controller slot, evaluates position and bounded linear/spherical rotation, updates Target and morph state, and uploads CPU-skinned first-LOD geometry. Controller ownership and controls cover eight slots; blended evaluation, scale/note channels, full animation-resource ownership and actor/mission integration remain open. Unsupported inputs fail explicitly. Original models and clips are regression fixtures for this general implementation.
 
-A standalone managed visual-owner bridge now connects shared mesh/material lifetime to actual bounded IB/VB manager allocation and cleanup. Four composed original-call trajectories support this integration without adding canonical function credit. Next is distinct per-object LOD ownership; texture final lifetime, loaded-resource/GPU adapters and scene teardown remain open. This milestone adds no application integration or rendered/interactive validation.
+Bounded per-object resources now own ten unique generated LOD slots separately from their shared mesh/material resources and the managed IB/VB bridge. Cleanup completes all ten LOD releases before clearing the slots and releasing the shared mesh. 8 original-call trajectories support this scope. Actual texture final lifetime, derived LOD resources, loaded/GPU adapters and scene teardown remain open; no application or new rendered/interactive validation is claimed.
+
+New ownership code uses `lhr_engine::ls3df::i3d_object`, exposing `Lod` and the scoped `I3dObjectResources`. This logical original-library namespace adds no DLL or Cargo package; see the [package and name mapping](docs/REFERENCE_PROJECTS.md#rust-organization-and-original-names).
 
 The immediate goal is **the playable first mission, from the original menu through mission completion**, alongside function-by-function library parity with mafia-re. See the [acceptance gates and dependency order](docs/GOALS.md). PS2 symbol names guide reconstruction; PC behavior and platform differences require original-binary verification.
 
