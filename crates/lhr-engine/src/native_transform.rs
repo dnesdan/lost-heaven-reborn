@@ -41,6 +41,14 @@ pub struct SQuat {
     /// Original WXYZ component order.
     pub wxyz: [f32; 4],
 }
+/// Availability failures for the bounded original Make entry points.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MakeUnavailable {
+    InputOutsideVerifiedDomain,
+    UnrecoveredAxisAngle,
+    UnrecoveredMatrix,
+}
+
 impl SMatrix {
     pub fn is_verified_input(&self) -> bool {
         self.elements.iter().copied().all(is_verified_scalar)
@@ -151,6 +159,51 @@ impl SQuat {
         self.wxyz.iter().copied().all(is_verified_scalar)
     }
 
+    /// Bounded original `S_quat::Make(S_vector const&, float)`, RVA0x2ee00.
+    /// Only signed zero angles are admitted. The original FSIN preserves that
+    /// zero's sign, FCOS returns one, and the normalization branch is skipped.
+    /// Other angles need the original extended-precision transcendental chain.
+    pub fn try_make_axis_angle(axis: [f32; 3], angle: f32) -> Result<Self, MakeUnavailable> {
+        if !angle.is_finite() || !axis.into_iter().all(f32::is_finite) {
+            return Err(MakeUnavailable::InputOutsideVerifiedDomain);
+        }
+        if angle != 0.0 {
+            return Err(MakeUnavailable::UnrecoveredAxisAngle);
+        }
+        Ok(Self {
+            wxyz: [1.0, angle * axis[0], angle * axis[1], angle * axis[2]],
+        })
+    }
+
+    /// Bounded original `S_quat::Make(S_matrix const&)`, RVA0x2eef0.
+    /// Admits the native zero-length early return, and positive X/Y diagonal
+    /// powers of two with a signed Z diagonal power of two (exponents -8..=8).
+    /// The latter follows the no-acos, zero-angle path. In particular the
+    /// original ignores the sign of that Z row on this path.
+    /// Unrecovered matrix and transcendental paths return an availability error.
+    pub fn try_make_from_matrix(matrix: &SMatrix) -> Result<Self, MakeUnavailable> {
+        if !matrix.is_verified_input() {
+            return Err(MakeUnavailable::InputOutsideVerifiedDomain);
+        }
+        let m = &matrix.elements;
+        let lengths = [0, 4, 8].map(|i| vector_length([m[i], m[i + 1], m[i + 2]]));
+        let empty_basis = ((lengths[2] + lengths[1]) + lengths[0]) < 1e-8;
+        let diagonal = [1, 2, 4, 6, 8, 9].into_iter().all(|i| m[i].to_bits() == 0);
+        let power = |value: f32| {
+            let bits = value.abs().to_bits();
+            bits & 0x7f_ffff == 0 && (119..=135).contains(&((bits >> 23) & 0xff))
+        };
+        let scaled_identity =
+            diagonal && m[0] > 0.0 && m[5] > 0.0 && [m[0], m[5], m[10]].into_iter().all(power);
+        if empty_basis || scaled_identity {
+            Ok(Self {
+                wxyz: [1., 0., 0., 0.],
+            })
+        } else {
+            Err(MakeUnavailable::UnrecoveredMatrix)
+        }
+    }
+
     /// Descriptive mapping of the internal quaternion-composition helper,
     /// RVA0x2fa70. Returns the WXYZ product without normalization; separate
     /// products and sums retain the native association.
@@ -203,6 +256,59 @@ impl SQuat {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn bounded_make_preserves_signed_zero_and_rejects_unrecovered_angles() {
+        for angle in [0., -0.] {
+            let axis = [-2., 0., -0.];
+            let result = SQuat::try_make_axis_angle(axis, angle).unwrap();
+            assert_eq!(
+                result.wxyz.map(f32::to_bits),
+                [
+                    1.0f32.to_bits(),
+                    (angle * -2.).to_bits(),
+                    (angle * 0.).to_bits(),
+                    (angle * -0.).to_bits()
+                ]
+            );
+        }
+        assert!(SQuat::try_make_axis_angle([1., 0., 0.], 0.25).is_err());
+        assert!(SQuat::try_make_axis_angle([f32::INFINITY, 0., 0.], 0.).is_err());
+        assert!(SQuat::try_make_axis_angle([1., 0., 0.], f32::NAN).is_err());
+    }
+
+    #[test]
+    fn bounded_matrix_make_admits_native_identity_paths_only() {
+        let expected = [1.0f32.to_bits(), 0, 0, 0];
+        let mut matrix = SMatrix::identity();
+        matrix.elements[0] = 2.;
+        matrix.elements[5] = 0.25;
+        matrix.elements[10] = -8.;
+        matrix.elements[12..15].copy_from_slice(&[10., 20., 30.]);
+        assert_eq!(
+            SQuat::try_make_from_matrix(&matrix)
+                .unwrap()
+                .wxyz
+                .map(f32::to_bits),
+            expected
+        );
+        matrix.elements[0] = 3.;
+        assert!(SQuat::try_make_from_matrix(&matrix).is_err());
+        matrix.elements[0] = -2.;
+        assert!(SQuat::try_make_from_matrix(&matrix).is_err());
+        matrix.elements = [1e-5; 16];
+        assert_eq!(
+            SQuat::try_make_from_matrix(&matrix)
+                .unwrap()
+                .wxyz
+                .map(f32::to_bits),
+            expected
+        );
+        matrix.elements[0] = 0.001;
+        assert!(SQuat::try_make_from_matrix(&matrix).is_err());
+        matrix.elements[0] = f32::NAN;
+        assert!(SQuat::try_make_from_matrix(&matrix).is_err());
+    }
+
     #[test]
     fn vector_length_cutoff_and_ordinary_values() {
         assert_eq!(vector_length([0.; 3]).to_bits(), 0);
