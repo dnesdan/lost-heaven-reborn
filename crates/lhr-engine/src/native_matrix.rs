@@ -1,5 +1,5 @@
-//! Bounded affine inverse from the original `S_matrix` entry point.
-use crate::native_transform::SMatrix;
+//! Bounded original `S_matrix` arithmetic under Game's PC24/RN policy.
+use crate::native_transform::{SMatrix, SQuat};
 
 /// Portable arithmetic cannot reproduce x87 extended exponent intermediates.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -26,6 +26,36 @@ fn sub(a: f32, b: f32) -> Result<f32, InverseUnavailable> {
 }
 fn minor(a: f32, b: f32, c: f32, d: f32) -> Result<f32, InverseUnavailable> {
     sub(mul(a, b)?, mul(c, d)?)
+}
+
+/// A needed operand or arithmetic intermediate is outside the finite normal
+/// f32-or-zero domain. Ignored fields are not constrained by this guard.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MatrixArithmeticUnavailable;
+
+fn normal_operand(value: f32) -> Result<f32, MatrixArithmeticUnavailable> {
+    if value == 0.0 || value.is_normal() {
+        Ok(value)
+    } else {
+        Err(MatrixArithmeticUnavailable)
+    }
+}
+// Arithmetic values are computed by separate f32 operations, with no FMA.
+// The widened computation guards x87's wider exponent, not extra precision.
+// f32 products fit f64 exactly; near-zero cancellation of f32 sums also fits.
+// Inputs and every accepted intermediate are normal-or-zero, so PC24 rounding
+// agrees with IEEE f32 without using unverified subnormal/overflow arithmetic.
+pub(crate) fn checked_f32_mul(a: f32, b: f32) -> Result<f32, MatrixArithmeticUnavailable> {
+    let (a, b) = (normal_operand(a)?, normal_operand(b)?);
+    mul(a, b).map_err(|_| MatrixArithmeticUnavailable)
+}
+pub(crate) fn checked_f32_add(a: f32, b: f32) -> Result<f32, MatrixArithmeticUnavailable> {
+    let (a, b) = (normal_operand(a)?, normal_operand(b)?);
+    add(a, b).map_err(|_| MatrixArithmeticUnavailable)
+}
+fn checked_f32_sub(a: f32, b: f32) -> Result<f32, MatrixArithmeticUnavailable> {
+    let (a, b) = (normal_operand(a)?, normal_operand(b)?);
+    sub(a, b).map_err(|_| MatrixArithmeticUnavailable)
 }
 
 /// Availability guard for original scale extraction.
@@ -69,6 +99,88 @@ fn normalized(v: [f32; 3]) -> Result<[f32; 3], InverseUnavailable> {
 }
 
 impl SMatrix {
+    /// Checked original SetRot3, RVA0x2e070, using only needed operands.
+    /// abs(W)>=1 writes an identity basis without reading XYZ. Existing matrix
+    /// fields are never read by the native routine; seven non-basis fields are
+    /// preserved even when outside the arithmetic domain.
+    /// This wrapper preflights all arithmetic and leaves the destination intact
+    /// on failure. That is a host availability policy, not a claim about native
+    /// partial basis stores after arithmetic outside the supported domain.
+    pub fn try_set_rot3(&mut self, quaternion: SQuat) -> Result<(), MatrixArithmeticUnavailable> {
+        let [w, x, y, z] = quaternion.wxyz;
+        normal_operand(w)?;
+        let basis = if w.abs() >= 1.0 {
+            [1., 0., 0., 0., 1., 0., 0., 0., 1.]
+        } else {
+            let x2 = checked_f32_add(x, x)?;
+            let y2 = checked_f32_add(y, y)?;
+            let z2 = checked_f32_add(z, z)?;
+            let xx = checked_f32_mul(x2, x)?;
+            let xy = checked_f32_mul(y2, x)?;
+            let xz = checked_f32_mul(z2, x)?;
+            let yy = checked_f32_mul(y2, y)?;
+            let yz = checked_f32_mul(z2, y)?;
+            let zz = checked_f32_mul(z2, z)?;
+            let wx = checked_f32_mul(x2, w)?;
+            let wy = checked_f32_mul(y2, w)?;
+            let wz = checked_f32_mul(z2, w)?;
+            [
+                checked_f32_sub(1., checked_f32_add(zz, yy)?)?,
+                checked_f32_sub(xy, wz)?,
+                checked_f32_add(wy, xz)?,
+                checked_f32_add(wz, xy)?,
+                checked_f32_sub(1., checked_f32_add(zz, xx)?)?,
+                checked_f32_sub(yz, wx)?,
+                checked_f32_sub(xz, wy)?,
+                checked_f32_add(wx, yz)?,
+                checked_f32_sub(1., checked_f32_add(yy, xx)?)?,
+            ]
+        };
+        for (index, value) in [0, 1, 2, 4, 5, 6, 8, 9, 10].into_iter().zip(basis) {
+            self.elements[index] = value;
+        }
+        Ok(())
+    }
+    /// Checked original affine product, RVA0x2d3a0, with distinct output storage.
+    /// Both homogeneous columns are ignored; output is [0,0,0,1]. Needed
+    /// operands and intermediates must remain finite normal f32 values or zero.
+    pub fn try_mul_affine(&self, right: &Self) -> Result<Self, MatrixArithmeticUnavailable> {
+        let a = &self.elements;
+        let b = &right.elements;
+        let mut result = Self::identity();
+        for row in 0..4 {
+            for column in 0..3 {
+                let first = checked_f32_mul(a[row * 4], b[column])?;
+                let second = checked_f32_mul(a[row * 4 + 1], b[4 + column])?;
+                let third = checked_f32_mul(a[row * 4 + 2], b[8 + column])?;
+                let initial = if row == 3 {
+                    checked_f32_add(first, b[12 + column])?
+                } else {
+                    first
+                };
+                result.elements[row * 4 + column] =
+                    checked_f32_add(checked_f32_add(initial, second)?, third)?;
+            }
+        }
+        Ok(result)
+    }
+    /// Checked original point transform, RVA0x2e980. Adds translation after
+    /// the first product, then Y and Z products; ignores the homogeneous column.
+    pub fn try_transform_point(
+        &self,
+        vector: [f32; 3],
+    ) -> Result<[f32; 3], MatrixArithmeticUnavailable> {
+        let mut out = [0.; 3];
+        for (column, value) in out.iter_mut().enumerate() {
+            let first = checked_f32_mul(vector[0], self.elements[column])?;
+            let translated = checked_f32_add(first, self.elements[12 + column])?;
+            let second = checked_f32_mul(vector[1], self.elements[4 + column])?;
+            let third = checked_f32_mul(vector[2], self.elements[8 + column])?;
+            *value = checked_f32_add(checked_f32_add(translated, second)?, third)?;
+        }
+        Ok(out)
+    }
+
     /// Original `S_matrix::SetDir3`, RVA0x2dcf0, for nondegenerate input
     /// directions under PC24/RN. Copies and normalizes Z before constructing Y
     /// and X. The small-residual fallback is explicitly unavailable. A
@@ -208,6 +320,59 @@ impl SMatrix {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn checked_rotation_uses_needed_operands_and_preflights_rejected_arithmetic() {
+        let mut matrix = SMatrix {
+            elements: [f32::from_bits(0x7fc01234); 16],
+        };
+        matrix
+            .try_set_rot3(SQuat {
+                wxyz: [1., f32::NAN, f32::INFINITY, f32::from_bits(1)],
+            })
+            .unwrap();
+        assert_eq!(matrix.elements[0], 1.);
+        assert_eq!(matrix.elements[5], 1.);
+        assert_eq!(matrix.elements[10], 1.);
+        assert_eq!(matrix.elements[12].to_bits(), 0x7fc01234);
+        let before = matrix.elements.map(f32::to_bits);
+        assert_eq!(
+            matrix.try_set_rot3(SQuat {
+                wxyz: [0.5, 1e-23, 0., 0.]
+            }),
+            Err(MatrixArithmeticUnavailable)
+        );
+        assert_eq!(matrix.elements.map(f32::to_bits), before);
+    }
+    #[test]
+    fn checked_affine_and_point_preserve_native_association_and_ignore_columns() {
+        let mut left = SMatrix::identity();
+        let mut right = SMatrix::identity();
+        for i in [3, 7, 11, 15] {
+            left.elements[i] = f32::NAN;
+            right.elements[i] = f32::INFINITY;
+        }
+        right.elements[4] = 1.;
+        right.elements[8] = 1.;
+        right.elements[12] = -100_000_000.;
+        let point = [100_000_000., 1., 1.];
+        assert_eq!(right.try_transform_point(point).unwrap()[0], 2.);
+        left.elements[12..15].copy_from_slice(&point);
+        assert_eq!(left.try_mul_affine(&right).unwrap().elements[12], 2.);
+        right.elements[0] = f32::MIN_POSITIVE;
+        right.elements[4] = 0.;
+        right.elements[8] = 0.;
+        right.elements[12] = 0.;
+        assert_eq!(
+            right.try_transform_point([0.5, 0., 0.]),
+            Err(MatrixArithmeticUnavailable)
+        );
+        right.elements[0] = f32::MAX;
+        assert_eq!(
+            right.try_transform_point([2., 0., 0.]),
+            Err(MatrixArithmeticUnavailable)
+        );
+    }
 
     #[test]
     fn scale_uses_row_lengths_and_ignores_other_fields() {

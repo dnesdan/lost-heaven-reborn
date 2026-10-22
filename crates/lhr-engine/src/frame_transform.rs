@@ -5,7 +5,10 @@
 //! observed inline operations, not additional original symbols. Host storage
 //! does not implement native reference counting/destructors. Only LinkTo flags0/1,
 //! model/mesh/dummy virtual updates, and an empty deferred queue are represented.
-use crate::native_transform::{is_verified_scalar, SMatrix, SQuat};
+use crate::{
+    native_matrix::{checked_f32_add, checked_f32_mul},
+    native_transform::{SMatrix, SQuat},
+};
 const DIRTY: u32 = 0x40002000;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FrameKey(pub u32);
@@ -423,13 +426,6 @@ impl I3dFrameGraph {
         }
         Ok(0)
     }
-    fn scalar(v: f32, op: &'static str) -> Result<f32, FrameError> {
-        if is_verified_scalar(v) {
-            Ok(v)
-        } else {
-            Err(FrameError::NumericDomain(op))
-        }
-    }
     /// Original PC0x1a6e0. Preserve flag writes before an unavailable dependency.
     pub fn update_matrix(&mut self, key: FrameKey) -> Result<(), FrameError> {
         let result = self.update_matrix_inner(key);
@@ -443,10 +439,11 @@ impl I3dFrameGraph {
         if flags & 0x10 == 0 {
             self.node_mut(key)?.state.flags |= 0x14;
             let s = *self.state(key)?;
-            if !s.rotation.is_verified_input() || !s.local.is_verified_input() {
-                return Err(FrameError::NumericDomain("SetRot3"));
-            }
-            self.node_mut(key)?.state.local.set_rot3(s.rotation);
+            self.node_mut(key)?
+                .state
+                .local
+                .try_set_rot3(s.rotation)
+                .map_err(|_| FrameError::NumericDomain("SetRot3"))?;
         } else if flags & 4 == 0 {
             if flags & 8 == 0 {
                 let rotation = SQuat::try_make_from_matrix(&self.state(key)?.local)
@@ -464,9 +461,9 @@ impl I3dFrameGraph {
             for col in 0..3 {
                 let i = row * 4 + col;
                 let s = self.state(key)?;
-                let v = Self::scalar(s.local.elements[i], "local row scaling")?;
-                let scale = Self::scalar(s.scale[row], "local row scaling")?;
-                self.node_mut(key)?.state.local.elements[i] = v * scale;
+                self.node_mut(key)?.state.local.elements[i] =
+                    checked_f32_mul(s.local.elements[i], s.scale[row])
+                        .map_err(|_| FrameError::NumericDomain("local row scaling"))?;
             }
         }
         Ok(())
@@ -520,31 +517,29 @@ impl I3dFrameGraph {
                 return Err(error);
             }
             let right = self.state(p)?.world;
-            if !s.local.is_verified_input() || !right.is_verified_input() {
-                return Err(FrameError::NumericDomain("matrix multiply"));
-            }
-            s.local.mul_affine(&right)
+            s.local
+                .try_mul_affine(&right)
+                .map_err(|_| FrameError::NumericDomain("matrix multiply"))?
         } else {
             s.local
         };
-        let zy =
-            Self::scalar(s.scale[2], "world scale")? + Self::scalar(s.scale[1], "world scale")?;
+        let unavailable = |_| FrameError::NumericDomain("world scale");
+        let zy = checked_f32_add(s.scale[2], s.scale[1]).map_err(unavailable)?;
         // The parent branch adds X before the matrix copy; the root copies first.
         let total = if parent.is_some() {
-            Some(Self::scalar(zy, "world scale")? + Self::scalar(s.scale[0], "world scale")?)
+            Some(checked_f32_add(zy, s.scale[0]).map_err(unavailable)?)
         } else {
             None
         };
         self.node_mut(key)?.state.world = world;
         let mut scale = match total {
             Some(v) => v,
-            None => Self::scalar(zy, "world scale")? + Self::scalar(s.scale[0], "world scale")?,
+            None => checked_f32_add(zy, s.scale[0]).map_err(unavailable)?,
         };
         if let Some(p) = parent {
-            scale = Self::scalar(scale, "world scale")?
-                * Self::scalar(self.state(p)?.world_scale, "world scale")?;
+            scale = checked_f32_mul(scale, self.state(p)?.world_scale).map_err(unavailable)?;
         }
-        scale = Self::scalar(scale, "world scale")? * f32::from_bits(0x3eaaaaab);
+        scale = checked_f32_mul(scale, f32::from_bits(0x3eaaaaab)).map_err(unavailable)?;
         let s = &mut self.node_mut(key)?.state;
         s.world_scale = scale;
         s.flags |= 0x20;
@@ -638,6 +633,56 @@ mod tests {
                 wxyz: [1., 0., 0., 0.],
             },
         )
+    }
+    #[test]
+    fn row_scaling_retains_earlier_stores_before_an_unavailable_product() {
+        let mut graph = I3dFrameGraph::default();
+        let mut state = mesh([0.; 3]);
+        state.flags = 0x18;
+        state.local.elements[0] = 2.;
+        state.local.elements[1] = f32::MIN_POSITIVE;
+        state.scale = [0.5, 1., 1.];
+        let key = graph.insert(state).unwrap();
+        assert_eq!(
+            graph.local_matrix(key),
+            Err(FrameError::NumericDomain("local row scaling"))
+        );
+        assert_eq!(graph.state(key).unwrap().local.elements[0], 1.);
+        assert_eq!(
+            graph.state(key).unwrap().local.elements[1],
+            f32::MIN_POSITIVE
+        );
+        assert_eq!(graph.state(key).unwrap().flags, 0x1c);
+        assert_eq!(
+            graph.world_matrix(key),
+            Err(FrameError::NumericDomain("local row scaling"))
+        );
+        assert_eq!(graph.state(key).unwrap().local.elements[0], 1.);
+    }
+    #[test]
+    fn small_normal_srt_is_available_but_extended_exponent_products_remain_errors() {
+        let mut graph = I3dFrameGraph::default();
+        let root = graph.insert(I3dFrameState::model()).unwrap();
+        let mut state = mesh([1e-20, 0., 0.]);
+        state.scale = [1e-20; 3];
+        let child = graph.insert(state).unwrap();
+        graph.link_to(child, Some(root)).unwrap();
+        let world = graph.world_matrix(child).unwrap();
+        assert_eq!(world.elements[0], 1e-20);
+        assert_eq!(world.elements[12], 1e-20);
+        let mut state = mesh([0.; 3]);
+        state.rotation.wxyz = [0.5, 1e-23, 0., 0.];
+        let key = graph.insert(state).unwrap();
+        assert_eq!(
+            graph.local_matrix(key),
+            Err(FrameError::NumericDomain("SetRot3"))
+        );
+        assert_eq!(graph.state(key).unwrap().local, state.local);
+        assert_eq!(graph.state(key).unwrap().flags, state.flags | 0x14);
+        assert_eq!(
+            graph.world_matrix(key),
+            Err(FrameError::NumericDomain("SetRot3"))
+        );
     }
     #[test]
     fn common_image_fields_are_raw_stores_after_linking() {
@@ -955,7 +1000,7 @@ mod tests {
             .unwrap();
         assert!(graph.local_matrix(key).is_ok());
         let mut state = I3dFrameState::model();
-        state.scale = [1e12; 3];
+        state.scale = [f32::MAX; 3];
         let huge = graph.insert(state).unwrap();
         assert!(graph.update_w_matrix_proc(huge).is_err());
         assert!(graph.world_matrix(huge).is_err());

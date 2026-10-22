@@ -27,16 +27,9 @@ impl GeometryTransform {
     pub fn source_point(self, point: [f32; 3]) -> Result<[f32; 3], String> {
         let result = match self {
             Self::Inspection(matrix) => matrix.transform_point3(Vec3::from_array(point)).to_array(),
-            Self::Original(matrix) => {
-                if !matrix.is_verified_input()
-                    || !point
-                        .into_iter()
-                        .all(crate::native_transform::is_verified_scalar)
-                {
-                    return Err("Original point transform outside verified numeric domain".into());
-                }
-                matrix.transform_point(point)
-            }
+            Self::Original(matrix) => matrix.try_transform_point(point).map_err(|_| {
+                "Original point transform outside verified numeric domain".to_owned()
+            })?,
         };
         if !result.into_iter().all(f32::is_finite) {
             return Err("Geometry transform overflow".into());
@@ -913,8 +906,27 @@ mod tests {
             [2., 1., -1.]
         );
         assert!(GeometryTransform::Original(matrix)
-            .render_point([1e-20, 1., 1.])
+            .render_point([f32::MAX, 1., 1.])
             .is_err());
+    }
+    #[test]
+    fn original_geometry_admits_small_normal_values_and_keeps_guard_errors() {
+        let mut matrix = crate::native_transform::SMatrix::identity();
+        matrix.elements[12] = 1e-20;
+        for i in [3, 7, 11, 15] {
+            matrix.elements[i] = f32::NAN;
+        }
+        assert_eq!(
+            GeometryTransform::Original(matrix)
+                .source_point([1e-20, 0., 0.])
+                .unwrap(),
+            [2e-20, 0., 0.]
+        );
+        matrix.elements[0] = f32::MAX;
+        assert_eq!(
+            GeometryTransform::Original(matrix).source_point([2., 0., 0.]),
+            Err("Original point transform outside verified numeric domain".to_owned())
+        );
     }
     use lhr_assets::{Frame, Lod};
     fn source() -> Arc<Model> {
