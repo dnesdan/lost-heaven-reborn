@@ -6,6 +6,7 @@ pub mod actor_tick;
 pub mod animation_binding;
 pub mod animation_controller;
 pub mod animation_index;
+pub mod buffer_managers;
 pub mod clock;
 pub mod driver_state;
 pub mod frame_delta;
