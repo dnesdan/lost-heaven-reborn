@@ -307,6 +307,7 @@ impl fmt::Display for ModelLoadFailure {
 impl std::error::Error for ModelLoadFailure {}
 #[derive(Debug)]
 pub struct MaterializedModel {
+    identity: Arc<()>,
     source: Arc<Model>,
     arena: ModelArena,
     root: ModelKey,
@@ -329,6 +330,7 @@ impl MaterializedModel {
                 return Err(ModelLoadFailure {
                     error,
                     partial: Box::new(Self {
+                        identity: Arc::new(()),
                         source,
                         arena,
                         root: ModelKey(FrameKey(0)),
@@ -341,6 +343,7 @@ impl MaterializedModel {
             }
         };
         let mut result = Self {
+            identity: Arc::new(()),
             source,
             arena,
             root,
@@ -511,6 +514,33 @@ impl MaterializedModel {
     }
     pub fn source(&self) -> &Arc<Model> {
         &self.source
+    }
+    pub(crate) fn identity(&self) -> &Arc<()> {
+        &self.identity
+    }
+    pub(crate) fn mark_animated(&mut self, frame: FrameKey) -> Result<(), ModelError> {
+        self.arena.graph.mark_animated(frame)?;
+        Ok(())
+    }
+    pub(crate) fn apply_animation_sample(
+        &mut self,
+        sample: crate::skeletal_animation::SampledFrame,
+    ) -> Result<(), ModelError> {
+        self.skin_pose = None;
+        if let Some(position) = sample.position {
+            self.arena.graph.assign_position(sample.frame, position)?;
+        }
+        if let Some(rotation) = sample.rotation {
+            self.arena
+                .graph
+                .apply_evaluated_rotation(sample.frame, rotation)?;
+        }
+        Ok(())
+    }
+    pub(crate) fn update_animation_model(&mut self) -> Result<(), ModelError> {
+        self.skin_pose = None;
+        self.arena.graph.update(self.root.root())?;
+        Ok(())
     }
     pub fn root(&self) -> FrameKey {
         self.root.root()

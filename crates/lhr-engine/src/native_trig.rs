@@ -110,14 +110,18 @@ fn pi() -> Interval {
 /// FPATAN on positive Y and arbitrary finite X; callers supply the original
 /// PC24 square-root result. This encloses the extended atan2, not acos(x).
 pub(super) fn atan2_positive(y: f32, x: f32) -> Result<f32, MakeUnavailable> {
+    atan2_positive_interval(y, x)?.rounded()
+}
+
+fn atan2_positive_interval(y: f32, x: f32) -> Result<Interval, MakeUnavailable> {
     if !x.is_finite() || !y.is_finite() || y.is_sign_negative() {
         return Err(MakeUnavailable::InputOutsideVerifiedDomain);
     }
     if y == 0. {
         return if x < 0. {
-            pi().rounded()
+            Ok(pi())
         } else if x > 0. {
-            Ok(0.)
+            Ok(Interval::exact(0.))
         } else {
             Err(MakeUnavailable::RoundingUncertain)
         };
@@ -125,7 +129,7 @@ pub(super) fn atan2_positive(y: f32, x: f32) -> Result<f32, MakeUnavailable> {
     let a = x.abs() as f64;
     let b = y as f64;
     if a == 0. {
-        return pi().div(Interval::exact(2.)).rounded();
+        return Ok(pi().div(Interval::exact(2.)));
     }
     let swapped = b > a;
     let r = Interval::exact(a.min(b)).div(Interval::exact(a.max(b)));
@@ -154,7 +158,58 @@ pub(super) fn atan2_positive(y: f32, x: f32) -> Result<f32, MakeUnavailable> {
         sum = pi().sub(sum);
     }
     // FPATAN <1 extended ulp; every result is <=pi, ulp<=2^-62.
-    sum.expand(f64::from_bits(963 << 52)).rounded()
+    Ok(sum.expand(f64::from_bits(963 << 52)))
+}
+
+/// Enclose FSIN within the Intel reduced-argument domain. The Slerp caller
+/// restricts all arguments to [0,1.5], strictly below pi/2. The first omitted
+/// Taylor term is below 2^-120 even at 1.5; 2^-60 covers x87 extended error.
+fn slerp_sine(x: Interval) -> Interval {
+    let square = x.mul(x);
+    let mut sum = x;
+    let mut term = x;
+    for n in 1..=20 {
+        term = term
+            .mul(square)
+            .div(Interval::exact(((2 * n) * (2 * n + 1)) as f64))
+            .neg();
+        sum = sum.add(term);
+    }
+    sum.expand((f64::from_bits(903 << 52) + f64::from_bits(963 << 52)).next_up())
+}
+
+/// Original RVA2fee0 spherical weights, including the retained extended angle
+/// used by the denominator FSIN. A stored f32 angle feeds both numerator FSINs.
+/// Every arithmetic instruction following a transcendental rounds to PC24.
+/// A coefficient is admitted only if its entire enclosure rounds identically.
+pub(crate) fn slerp_weights(dot: f32, fraction: f32) -> Result<(f32, f32), MakeUnavailable> {
+    if !dot.is_finite() || !(0. ..1.).contains(&dot) || !(0. ..=1.).contains(&fraction) {
+        return Err(MakeUnavailable::InputOutsideVerifiedDomain);
+    }
+    let arithmetic = Arithmetic::new();
+    let one = arithmetic.input(1.);
+    let cosine = arithmetic.input(dot);
+    let y = ((one + cosine) * (one - cosine)).sqrt();
+    arithmetic.finish()?;
+    let angle = atan2_positive_interval(y.value, dot)?;
+    let stored = angle.rounded()?;
+    if angle.lo <= 0. || angle.hi > 1.5 || stored > 1.5 {
+        return Err(MakeUnavailable::UnrecoveredAxisAngle);
+    }
+    let reciprocal = Interval::exact(1.).div(slerp_sine(angle)).rounded()?;
+    let fraction_value = arithmetic.input(fraction);
+    let left_argument = ((one - fraction_value) * arithmetic.input(stored)).value;
+    let right_argument = (arithmetic.input(stored) * fraction_value).value;
+    arithmetic.finish()?;
+    let weight = |argument: f32| {
+        if argument == 0. {
+            // FSIN preserves signed zero; the reciprocal is positive.
+            Ok(argument)
+        } else {
+            slerp_sine(Interval::exact(argument as f64)).product(reciprocal)
+        }
+    };
+    Ok((weight(left_argument)?, weight(right_argument)?))
 }
 
 /// PC24 arithmetic with a sticky exponent-domain guard. x87 retains a wider

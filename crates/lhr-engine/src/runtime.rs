@@ -69,6 +69,7 @@ pub struct RetainedModel {
     pub draws: Vec<DrawBinding>,
     pub native: ModelTickState,
     materialized: Option<crate::model_loading::MaterializedModel>,
+    skeletal_bound: bool,
 }
 #[derive(Debug, Default)]
 pub struct RetainedScene {
@@ -113,6 +114,57 @@ impl ModelBackend for UnboundAnimation {
     }
 }
 impl RetainedScene {
+    /// Install one explicit inspection controller on the retained owned hierarchy.
+    /// Source storage is already charged by assembly; charge controller ownership
+    /// and any extra hierarchy storage once, after the initial pose is prepared.
+    pub fn bind_skeletal(
+        &mut self,
+        model_index: usize,
+        animation: Arc<lhr_assets::animation::AnimationSet>,
+    ) -> Result<crate::skeletal_playback::SkeletalPlayback, String> {
+        let model = self
+            .models
+            .get_mut(model_index)
+            .ok_or("Unknown animation placement")?;
+        if model.skeletal_bound || model.native.interpolator.is_some() {
+            return Err("Animation placement already bound".into());
+        }
+        if model.world.to_cols_array().map(f32::to_bits)
+            != Mat4::IDENTITY.to_cols_array().map(f32::to_bits)
+            || model.visual_scale.is_some()
+        {
+            return Err("Skeletal binding requires identity wrapper placement".into());
+        }
+        let loaded = model
+            .materialized
+            .as_mut()
+            .ok_or("Skeletal binding requires owned materialization")?;
+        if !Arc::ptr_eq(&model.source, loaded.source()) {
+            return Err("Skeletal materialization source identity mismatch".into());
+        }
+        let before = loaded.storage_bytes().map_err(|error| error.to_string())?;
+        // Construction may leave original hierarchy writes on failure. Keep the
+        // placement bound so a failed install cannot fall back to static success.
+        model.skeletal_bound = true;
+        let playback = crate::skeletal_playback::SkeletalPlayback::new(loaded, animation)
+            .map_err(|error| error.to_string())?;
+        let after = loaded.storage_bytes().map_err(|error| error.to_string())?;
+        let bytes = playback
+            .storage_bytes()
+            .map_err(|error| error.to_string())?
+            .checked_add(after.saturating_sub(before))
+            .ok_or("Animation allocation overflow")?;
+        let total = self
+            .budgeted_bytes
+            .checked_add(bytes)
+            .ok_or("Animation allocation overflow")?;
+        if total > 256 * 1024 * 1024 {
+            return Err("Retained animation exceeds scene memory budget".into());
+        }
+        self.budgeted_bytes = total;
+        model.needs_upload = true;
+        Ok(playback)
+    }
     /// Charge an externally owned position binding once when installing it.
     /// Repeated charges are conservative; failed charges preserve the budget.
     pub fn charge_position_binding(
@@ -280,6 +332,7 @@ impl RetainedScene {
             draws,
             native: ModelTickState::new(ModelVTableId(0x1009c160)),
             materialized,
+            skeletal_bound: false,
         };
         if model.materialized.is_none() {
             model.transforms()?;
@@ -289,6 +342,94 @@ impl RetainedScene {
     }
 }
 impl RetainedModel {
+    fn validate_materialized(&self) -> Result<(), String> {
+        let loaded = self
+            .materialized
+            .as_ref()
+            .ok_or("Missing owned materialization")?;
+        if !loaded.is_complete()
+            || !Arc::ptr_eq(&self.source, loaded.source())
+            || self.world.to_cols_array().map(f32::to_bits)
+                != Mat4::IDENTITY.to_cols_array().map(f32::to_bits)
+            || self.visual_scale.is_some()
+        {
+            return Err("Owned materialization diverged from retained placement".into());
+        }
+        Ok(())
+    }
+    fn materialized_world_matrices(
+        &mut self,
+    ) -> Result<Vec<crate::native_transform::SMatrix>, String> {
+        // Validate public source/placement fields before the lazy getter can
+        // mutate the original hierarchy's matrix cache.
+        self.validate_materialized()?;
+        self.materialized
+            .as_mut()
+            .ok_or("Missing owned materialization")?
+            .world_matrices()
+            .map_err(|error| error.to_string())
+    }
+    fn validate_skeletal(
+        &self,
+        playback: &crate::skeletal_playback::SkeletalPlayback,
+    ) -> Result<(), String> {
+        self.validate_materialized()?;
+        if !self.skeletal_bound || !Arc::ptr_eq(&self.source, playback.source()) {
+            return Err("Skeletal animation diverged from retained placement".into());
+        }
+        playback
+            .validate_model(
+                self.materialized
+                    .as_ref()
+                    .ok_or("Missing skeletal materialization")?,
+            )
+            .map_err(|error| error.to_string())?;
+        Ok(())
+    }
+    fn vertices_materialized(
+        &self,
+        binding: &DrawBinding,
+        matrices: &[crate::native_transform::SMatrix],
+    ) -> Result<Vec<Vertex>, String> {
+        self.validate_materialized()?;
+        let loaded = self
+            .materialized
+            .as_ref()
+            .ok_or("Missing owned materialization")?;
+        let matrix = *matrices
+            .get(binding.frame_index)
+            .ok_or("Unknown retained frame binding")?;
+        let geometry = self
+            .source
+            .frames
+            .get(binding.geometry_frame)
+            .ok_or("Unknown retained geometry binding")?;
+        let lod = geometry.lods.first().ok_or("Missing retained first LOD")?;
+        let pose = loaded
+            .skin_pose()
+            .and_then(|pose| pose.vertices(binding.frame_index));
+        if matches!(geometry.visual, Some(2 | 3)) && pose.is_none()
+            || pose.is_some_and(|pose| pose.len() != lod.vertices.len())
+        {
+            return Err("Missing checked deformation for materialized upload".into());
+        }
+        binding
+            .source_vertices
+            .iter()
+            .map(|index| {
+                let index = *index as usize;
+                let vertex = lod
+                    .vertices
+                    .get(index)
+                    .ok_or("Invalid retained vertex binding")?;
+                let position = pose.map_or(vertex.position, |pose| pose[index].position);
+                Ok(Vertex {
+                    position: GeometryTransform::Original(matrix).render_point(position)?,
+                    uv: vertex.uv,
+                })
+            })
+            .collect()
+    }
     pub fn pose(&self) -> &[FramePose] {
         &self.pose
     }
@@ -309,6 +450,9 @@ impl RetainedModel {
     /// Execute the actual recovered model guard for a parsed, unbound static model.
     /// A later animation binding is never silently replaced with a no-op backend.
     pub fn tick_static(&mut self, delta: i32) -> Result<(), RuntimeError> {
+        if self.skeletal_bound {
+            return Err(RuntimeError::MissingAnimationEvaluator);
+        }
         self.native.tick(&mut UnboundAnimation, delta)
     }
 
@@ -586,14 +730,19 @@ impl RuntimeEngine {
             ));
         }
         let object = model.identity;
-        self.dispatch_bound(graph, delta, word, Some((object, playback)))
+        self.dispatch_bound(
+            graph,
+            delta,
+            word,
+            Some(ActivePlayback::Position(object, playback)),
+        )
     }
     fn dispatch_bound(
         &mut self,
         graph: &mut RetainedScene,
         delta: i32,
         word: u16,
-        position: Option<(ObjectId, &mut crate::animation_binding::PositionPlayback)>,
+        playback: Option<ActivePlayback<'_>>,
     ) -> Result<usize, RuntimeError> {
         use crate::frame_dispatch::*;
         let records = graph
@@ -626,12 +775,60 @@ impl RuntimeEngine {
             driver: &mut self.driver,
             scene: &mut self.scene,
             dispatched: 0,
-            position,
+            playback,
         };
         state
             .tick(&mut backend, delta)
             .map_err(|error| RuntimeError::Dispatch(format!("{error:?}")))?;
         Ok(backend.dispatched)
+    }
+    /// Route one owned skeletal controller through the recovered frame dispatcher.
+    pub fn dispatch_skeletal(
+        &mut self,
+        graph: &mut RetainedScene,
+        model_index: usize,
+        playback: &mut crate::skeletal_playback::SkeletalPlayback,
+        delta: i32,
+        word: u16,
+    ) -> Result<usize, RuntimeError> {
+        let model = graph
+            .models
+            .get(model_index)
+            .ok_or(RuntimeError::Storage("Unknown animation placement"))?;
+        model
+            .validate_skeletal(playback)
+            .map_err(RuntimeError::Animation)?;
+        if word != 0x003f {
+            return Err(RuntimeError::UnsupportedPhase(
+                "Skeletal evaluator requires PC24 nearest control word",
+            ));
+        }
+        let object = model.identity;
+        self.dispatch_bound(
+            graph,
+            delta,
+            word,
+            Some(ActivePlayback::Skeletal(object, playback)),
+        )
+    }
+    pub fn advance_skeletal<B: crate::clock::ClockBackend + ?Sized>(
+        &mut self,
+        graph: &mut RetainedScene,
+        model_index: usize,
+        playback: &mut crate::skeletal_playback::SkeletalPlayback,
+        backend: &mut B,
+    ) -> Result<RuntimeFrame, RuntimeError> {
+        let raw_delta = self.get_timer(16, 83, backend);
+        let mut delta = raw_delta;
+        self.modify_delta(&mut delta, 0x003f)?;
+        let models_dispatched =
+            self.dispatch_skeletal(graph, model_index, playback, delta as i32, 0x003f)?;
+        Ok(RuntimeFrame {
+            raw_delta,
+            modified_delta: delta,
+            driver_time: self.driver.elapsed,
+            models_dispatched,
+        })
     }
     /// Advance the explicitly selected bounded position binding through the same
     /// clock, modifier and coordinator as static inspection.
@@ -675,13 +872,17 @@ impl RuntimeEngine {
         })
     }
 }
+enum ActivePlayback<'a> {
+    Position(ObjectId, &'a mut crate::animation_binding::PositionPlayback),
+    Skeletal(ObjectId, &'a mut crate::skeletal_playback::SkeletalPlayback),
+}
 struct StaticBackend<'a> {
     graph: &'a mut RetainedScene,
     records: Vec<crate::frame_dispatch::ModelRecord>,
     driver: &'a mut DriverTickState,
     scene: &'a mut crate::scene_tick::LocalScene,
     dispatched: usize,
-    position: Option<(ObjectId, &'a mut crate::animation_binding::PositionPlayback)>,
+    playback: Option<ActivePlayback<'a>>,
 }
 struct NoActiveFrames;
 impl crate::scene_tick::SceneBackend for NoActiveFrames {
@@ -782,19 +983,46 @@ impl crate::frame_dispatch::FrameBackend for StaticBackend<'_> {
             .iter_mut()
             .find(|model| model.identity == object)
             .ok_or(RuntimeError::UnknownObject(object))?;
-        if let Some((identity, playback)) = &mut self.position {
-            if *identity == object {
+        match &mut self.playback {
+            Some(ActivePlayback::Position(identity, playback)) if *identity == object => {
                 let observation = playback
                     .tick(&mut model.native, delta)
                     .map_err(|error| RuntimeError::Animation(format!("{error:?}")))?;
                 model
                     .set_frame_position(0, observation.position)
                     .map_err(RuntimeError::Animation)?;
-            } else {
-                model.tick_static(delta)?;
             }
-        } else {
-            model.tick_static(delta)?;
+            Some(ActivePlayback::Skeletal(identity, playback)) if *identity == object => {
+                model
+                    .validate_skeletal(playback)
+                    .map_err(RuntimeError::Animation)?;
+                let loaded = model
+                    .materialized
+                    .as_mut()
+                    .ok_or(RuntimeError::Storage("Missing skeletal materialization"))?;
+                let before = loaded
+                    .storage_bytes()
+                    .map_err(|error| RuntimeError::Animation(error.to_string()))?;
+                let changed = playback
+                    .tick(loaded, delta)
+                    .map_err(|error| RuntimeError::Animation(error.to_string()))?;
+                let after = loaded
+                    .storage_bytes()
+                    .map_err(|error| RuntimeError::Animation(error.to_string()))?;
+                let total = self
+                    .graph
+                    .budgeted_bytes
+                    .checked_add(after.saturating_sub(before))
+                    .ok_or(RuntimeError::Storage("Animation allocation overflow"))?;
+                if total > 256 * 1024 * 1024 {
+                    return Err(RuntimeError::Storage(
+                        "Retained animation exceeds scene memory budget",
+                    ));
+                }
+                self.graph.budgeted_bytes = total;
+                model.needs_upload |= changed;
+            }
+            _ => model.tick_static(delta)?,
         }
         self.dispatched += 1;
         Ok(())
@@ -830,6 +1058,18 @@ impl crate::frame_dispatch::FrameBackend for StaticBackend<'_> {
 }
 
 impl RetainedScene {
+    pub fn upload_skeletal_changed(
+        &mut self,
+        renderer: &lhr_render::Renderer,
+        model_index: usize,
+        playback: &crate::skeletal_playback::SkeletalPlayback,
+    ) -> Result<usize, String> {
+        self.models
+            .get(model_index)
+            .ok_or("Unknown animation placement")?
+            .validate_skeletal(playback)?;
+        self.upload_changed(renderer)
+    }
     /// The lazy getter executes even for a clean upload: native cache flags are
     /// shared with animation finalization, independently of the GPU upload cache.
     pub fn upload_position_changed(
@@ -889,16 +1129,29 @@ impl RetainedScene {
             if !model.needs_upload {
                 continue;
             }
-            let transforms = model.transforms()?;
-            let updates = model
-                .draws
-                .iter()
-                .map(|binding| {
-                    model
-                        .vertices(binding, &transforms)
-                        .map(|vertices| (binding.draw_index, vertices))
-                })
-                .collect::<Result<Vec<_>, _>>()?;
+            let updates = if model.materialized.is_some() {
+                let matrices = model.materialized_world_matrices()?;
+                model
+                    .draws
+                    .iter()
+                    .map(|binding| {
+                        model
+                            .vertices_materialized(binding, &matrices)
+                            .map(|vertices| (binding.draw_index, vertices))
+                    })
+                    .collect::<Result<Vec<_>, _>>()?
+            } else {
+                let transforms = model.transforms()?;
+                model
+                    .draws
+                    .iter()
+                    .map(|binding| {
+                        model
+                            .vertices(binding, &transforms)
+                            .map(|vertices| (binding.draw_index, vertices))
+                    })
+                    .collect::<Result<Vec<_>, _>>()?
+            };
             for (draw, vertices) in updates {
                 renderer.update_mesh_vertices(draw, &vertices)?;
                 count += 1;
@@ -1045,6 +1298,148 @@ mod tests {
             .retain_materialized("partial".into(), *failure.partial, Vec::new())
             .is_err());
         assert_eq!(scene.models.len(), 1);
+    }
+    fn skeletal_fixture_animation() -> Arc<lhr_assets::animation::AnimationSet> {
+        let mut payload = vec![1, 0, 10, 0];
+        payload.extend(12u32.to_le_bytes());
+        payload.extend(19u32.to_le_bytes());
+        payload.extend(b"source\0");
+        payload.extend(2u16.to_le_bytes());
+        payload.extend(0u16.to_le_bytes());
+        payload.extend(2u16.to_le_bytes());
+        payload.extend(0u16.to_le_bytes());
+        payload.extend(10u16.to_le_bytes());
+        payload.extend(0u16.to_le_bytes());
+        for value in [0f32, 0., 0., 10., 0., 0.] {
+            payload.extend(value.to_le_bytes());
+        }
+        let mut bytes = b"5DS\0".to_vec();
+        bytes.extend(20u16.to_le_bytes());
+        bytes.extend([0u8; 8]);
+        bytes.extend((payload.len() as u32).to_le_bytes());
+        bytes.extend(payload);
+        Arc::new(lhr_assets::animation::parse_5ds(&bytes).unwrap())
+    }
+    fn skeletal_graph() -> RetainedScene {
+        let source = source();
+        let mut graph = RetainedScene::default();
+        for i in 0..2 {
+            let loaded =
+                crate::model_loading::MaterializedModel::from_parsed(source.clone()).unwrap();
+            graph
+                .retain_materialized(
+                    format!("skeletal{i}"),
+                    loaded,
+                    vec![DrawBinding {
+                        draw_index: i,
+                        frame_index: 0,
+                        geometry_frame: 0,
+                        source_vertices: vec![1, 0],
+                    }],
+                )
+                .unwrap();
+        }
+        graph
+    }
+    #[test]
+    fn materialized_geometry_rejects_mutated_public_source_and_placement_before_getters() {
+        let mut graph = skeletal_graph();
+        let model = &mut graph.models[0];
+        let original = model.source.clone();
+        let matrices = model.materialized_world_matrices().unwrap();
+        assert!(model
+            .vertices_materialized(&model.draws[0], &matrices)
+            .is_ok());
+        // A byte-identical clone still is not the owned hierarchy's source Arc.
+        model.source = Arc::new((*original).clone());
+        assert!(model.validate_materialized().is_err());
+        assert!(model.materialized_world_matrices().is_err());
+        assert!(model
+            .vertices_materialized(&model.draws[0], &matrices)
+            .is_err());
+        model.source = original;
+        model.world = Mat4::from_translation(Vec3::X);
+        assert!(model.validate_materialized().is_err());
+        assert!(model.materialized_world_matrices().is_err());
+        assert!(model
+            .vertices_materialized(&model.draws[0], &matrices)
+            .is_err());
+        model.world = Mat4::IDENTITY;
+        model.visual_scale = Some([1.; 3]);
+        assert!(model.validate_materialized().is_err());
+        assert!(model.materialized_world_matrices().is_err());
+        assert!(model
+            .vertices_materialized(&model.draws[0], &matrices)
+            .is_err());
+        model.visual_scale = None;
+        assert!(model.materialized_world_matrices().is_ok());
+        assert!(model
+            .vertices_materialized(&model.draws[0], &matrices)
+            .is_ok());
+    }
+    #[test]
+    fn sequential_skeletal_dispatch_refreshes_owned_vertices_and_keeps_placement_identity() {
+        let mut graph = skeletal_graph();
+        let mut playback = graph
+            .bind_skeletal(0, skeletal_fixture_animation())
+            .unwrap();
+        let initial_budget = graph.budgeted_bytes;
+        assert!(initial_budget > 0);
+        assert!(graph
+            .bind_skeletal(0, skeletal_fixture_animation())
+            .is_err());
+        assert!(graph.models[0].tick_static(16).is_err());
+        let mut engine = RuntimeEngine::from_sample(0);
+        let mut clock = Clock {
+            samples: [40, 80].into(),
+            sleeps: Vec::new(),
+        };
+        for _ in 0..2 {
+            let frame = engine
+                .advance_skeletal(&mut graph, 0, &mut playback, &mut clock)
+                .unwrap();
+            assert_eq!(frame.raw_delta, 40);
+            assert_eq!(frame.models_dispatched, 2);
+        }
+        let model = &mut graph.models[0];
+        assert!(model.needs_upload);
+        let matrices = model
+            .materialized
+            .as_mut()
+            .unwrap()
+            .world_matrices()
+            .unwrap();
+        let vertices = model
+            .vertices_materialized(&model.draws[0], &matrices)
+            .unwrap();
+        assert_eq!(vertices[0].position, [6., 5., -6.]);
+        assert_eq!(vertices[0].uv, [0.5, 0.5]);
+        assert_eq!(vertices[1].position, [3., 2., -3.]);
+        assert_eq!(model.source.frames[0].position, [0.; 3]);
+        assert_eq!(engine.driver_time(), 80);
+        assert_eq!(graph.budgeted_bytes, initial_budget);
+        assert!(engine
+            .dispatch_skeletal(&mut graph, 0, &mut playback, 16, 0x37)
+            .is_err());
+        graph
+            .bind_skeletal(1, skeletal_fixture_animation())
+            .unwrap();
+        assert!(engine
+            .dispatch_skeletal(&mut graph, 1, &mut playback, 16, 0x3f)
+            .is_err());
+    }
+    #[test]
+    fn skeletal_binding_obeys_scene_budget_and_requires_owned_materialization() {
+        assert!(graph()
+            .bind_skeletal(0, skeletal_fixture_animation())
+            .is_err());
+        let mut graph = skeletal_graph();
+        graph.set_assembly_budget(256 * 1024 * 1024).unwrap();
+        assert!(graph
+            .bind_skeletal(0, skeletal_fixture_animation())
+            .is_err());
+        assert_eq!(graph.budgeted_bytes, 256 * 1024 * 1024);
+        assert!(graph.models[0].tick_static(16).is_err());
     }
     #[test]
     fn native_vertices_preserve_mapping_handedness_and_explicit_numeric_domain() {

@@ -212,6 +212,11 @@ impl I3dFrameGraph {
     pub fn state(&self, key: FrameKey) -> Result<&I3dFrameState, FrameError> {
         Ok(&self.node(key)?.state)
     }
+    /// GetFrameInterpolator RVA0x1ea60 marks a newly bound destination.
+    pub(crate) fn mark_animated(&mut self, key: FrameKey) -> Result<(), FrameError> {
+        self.node_mut(key)?.state.flags |= 0x10000000;
+        Ok(())
+    }
     /// Register the parsed Target links after all model identities exist.
     /// LoadImage sets membership bit 0x4000 for every nonzero reference, while
     /// preserving duplicates and registration order in its owned registry.
@@ -446,6 +451,30 @@ impl I3dFrameGraph {
         })();
         self.node_mut(key)?.singlemesh_bound_error = result.as_ref().err().copied();
         result
+    }
+    /// Singlemesh bounds virtual wrapper, PC RVA0x547e0 (singlemorph RVA0x57580
+    /// tail-jumps here). A matching Joint-change counter only sets the valid
+    /// bit. Otherwise the populated-definition calculation stores the counter
+    /// before its graph/arithmetic work. An interrupted host calculation remains
+    /// unavailable; its equal counter must not publish an incomplete volume.
+    pub fn update_singlemesh_loaded_bounds_cached(
+        &mut self,
+        key: FrameKey,
+        initial_bbox: SinglemeshBoundingBox,
+        joint_boxes: &[SinglemeshBoundingBox],
+    ) -> Result<(), FrameError> {
+        let node = self.node(key)?;
+        if let Some(error) = node.singlemesh_bound_error {
+            return Err(error);
+        }
+        let stored = self.singlemesh_binding(key)?.bvol_joints_changed;
+        let changed = self.singlemesh_invalidation_state(key)?.joints_changed;
+        if stored != changed {
+            self.update_singlemesh_loaded_bounds(key, initial_bbox, joint_boxes)
+        } else {
+            self.node_mut(key)?.state.visual_flags |= 0x20000;
+            Ok(())
+        }
     }
     /// Original PC findJoint, RVA0x54d80: descendants in sibling-head preorder,
     /// with at most 64 joints. Nested visual nodes do not stop the PC search.
@@ -1655,6 +1684,11 @@ mod tests {
             23
         );
         assert_eq!(graph.state(target).unwrap().visual_flags & 0x60000, 0x20000);
+        // The cached wrapper does not read a skin definition or rebuild links.
+        graph
+            .update_singlemesh_loaded_bounds_cached(target, bbox, &[])
+            .unwrap();
+        assert_eq!(graph.singlemesh_bound_volume(target).unwrap(), volume);
         graph.update_v(child).unwrap();
         assert_eq!(
             graph.singlemesh_bound_volume(target),
@@ -1677,7 +1711,7 @@ mod tests {
         // Counter copy and prior cache effects persist if the next definition
         // cannot provide every record. A stale volume is no longer exposed.
         assert_eq!(
-            graph.update_singlemesh_loaded_bounds(target, bbox, &[]),
+            graph.update_singlemesh_loaded_bounds_cached(target, bbox, &[]),
             Err(FrameError::SinglemeshBoundsDefinitionTooShort(target))
         );
         assert_eq!(
@@ -1689,6 +1723,12 @@ mod tests {
         );
         assert_eq!(
             graph.singlemesh_bound_volume(target),
+            Err(FrameError::SinglemeshBoundsDefinitionTooShort(target))
+        );
+        // The native counter write preceded failure. Host admission must not
+        // turn that equal counter into a successfully published stale volume.
+        assert_eq!(
+            graph.update_singlemesh_loaded_bounds_cached(target, bbox, &[bbox; 2]),
             Err(FrameError::SinglemeshBoundsDefinitionTooShort(target))
         );
         graph

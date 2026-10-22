@@ -18,6 +18,7 @@ struct Options {
     animation: Option<String>,
     animation_steps: Option<u32>,
     sample_animation_ms: Option<u32>,
+    skeletal_animation: bool,
     capture: Option<PathBuf>,
     headless: bool,
     frames: u32,
@@ -33,6 +34,7 @@ fn options() -> Result<Options, String> {
         animation: None,
         animation_steps: None,
         sample_animation_ms: None,
+        skeletal_animation: false,
         capture: None,
         headless: false,
         frames: 0,
@@ -48,6 +50,7 @@ fn options() -> Result<Options, String> {
             "--root" => result.root = Some(args.next().ok_or("Missing root argument")?.into()),
             "--sample-animation-ms" => result.sample_animation_ms = Some(args.next().ok_or("Missing animation sample time")?.parse().map_err(|_| "Invalid animation sample time")?),
             "--animation-steps" => result.animation_steps = Some(args.next().ok_or("Missing animation steps")?.parse().map_err(|_|"Invalid animation steps")?),
+            "--skeletal-animation" => result.skeletal_animation = true,
             "--animation" => result.animation = Some(args.next().ok_or("Missing animation argument")?),
             "--model" => result.model = Some(args.next().ok_or("Missing model argument")?),
             "--capture" => result.capture = Some(args.next().ok_or("Missing capture argument")?.into()),
@@ -62,11 +65,18 @@ fn options() -> Result<Options, String> {
                 "Headless --animation-steps 0..600 uses controlled 16 ms inspection-clock steps; omit it for one platform-clock step. ",
                 "Root alone opens the supported original Czech main-menu subset (New Game/Exit). ",
                 "Menu: arrows/Enter or mouse. New Game loads static INTRO; Esc loads static MISE01, then returns to menu. ",
-                "Scene inspection: arrows orbit, W/S zoom. --animation alone admits a matched single-root position track. Add --sample-animation-ms MS for one bounded position/rotation skeletal pose; this does not start controller playback. Original profile, cutscene, mission-script and gameplay execution are not implemented. ",
+                "Scene inspection: arrows orbit, W/S zoom. --animation alone admits a matched single-root position track. Add --skeletal-animation for sequential skeletal slot0 mode2 playback, or --sample-animation-ms MS for one independent skeletal pose. Original profile, cutscene, mission-script and gameplay execution are not implemented. ",
                 "Sampling is provisional nearest (or --linear), not verified original behavior."
             ).into()),
             _ => return Err("Unknown command option".into()),
         }
+    }
+    if result.skeletal_animation
+        && (result.animation.is_none() || result.sample_animation_ms.is_some())
+    {
+        return Err(
+            "--skeletal-animation requires --animation and excludes --sample-animation-ms".into(),
+        );
     }
     if result.sample_animation_ms.is_some()
         && (result.animation.is_none() || result.animation_steps.is_some())
@@ -77,7 +87,7 @@ fn options() -> Result<Options, String> {
     }
     if let Some(steps) = result.animation_steps {
         if !result.headless || result.animation.is_none() || steps > 600 {
-            return Err("--animation-steps requires headless animation and a count0..600".into());
+            return Err("--animation-steps requires headless animation and a count 0..600".into());
         }
     }
     if result.animation.is_some() && (result.root.is_none() || result.model.is_none()) {
@@ -170,11 +180,23 @@ fn material_effects_omitted(material: &lhr_assets::Material) -> bool {
         || material.opacity != 1.0
         || material.animation.is_some()
 }
+enum AnimationPlayback {
+    Position(Box<lhr_engine::animation_binding::PositionPlayback>),
+    Skeletal(Box<lhr_engine::skeletal_playback::SkeletalPlayback>),
+}
+impl AnimationPlayback {
+    fn description(&self) -> &'static str {
+        match self {
+            Self::Position(_) => "bounded position animation",
+            Self::Skeletal(_) => "bounded sequential skeletal animation",
+        }
+    }
+}
 struct LoadedScene {
     scene: Scene,
     camera: Camera,
     runtime: lhr_engine::runtime::RetainedScene,
-    animation: Option<lhr_engine::animation_binding::PositionPlayback>,
+    animation: Option<AnimationPlayback>,
 }
 fn load(options: &Options) -> Result<LoadedScene, String> {
     let Some(root) = &options.root else {
@@ -206,7 +228,10 @@ fn load(options: &Options) -> Result<LoadedScene, String> {
         .read(&path)
         .map_err(|e| format!("Cannot read selected geometry: {e}"))?;
     let mut animation_sample = None;
-    let (model, animation_source) = if let Some(milliseconds) = options.sample_animation_ms {
+    let mut skeletal_source = None;
+    let (model, animation_source) = if options.skeletal_animation
+        || options.sample_animation_ms.is_some()
+    {
         let animation_path = options
             .animation
             .as_ref()
@@ -220,7 +245,12 @@ fn load(options: &Options) -> Result<LoadedScene, String> {
             .or_else(|_| lhr_assets::parse_four_ds_skin(&data))
             .or_else(|_| lhr_assets::parse_four_ds_singlemorph(&data))
             .map_err(|error| format!("Unsupported skeletal model source: {error}"))?;
-        animation_sample = Some((Arc::new(animation), milliseconds));
+        let animation = Arc::new(animation);
+        if options.skeletal_animation {
+            skeletal_source = Some(animation);
+        } else {
+            animation_sample = Some((animation, options.sample_animation_ms.unwrap()));
+        }
         (Arc::new(model), None)
     } else if let Some(animation_path) = &options.animation {
         let animation_bytes = installation
@@ -271,20 +301,26 @@ fn load(options: &Options) -> Result<LoadedScene, String> {
         None,
     )?;
     let (scene, mut runtime) = builder.finish()?;
-    let animation = animation_source
+    let mut animation = animation_source
         .map(|source| {
             lhr_engine::animation_binding::PositionPlayback::new(
                 source,
                 runtime.models[0].identity,
                 &mut runtime.models[0].native,
             )
+            .map(|playback| AnimationPlayback::Position(Box::new(playback)))
             .map_err(|error| format!("Position initialization failed: {error:?}"))
         })
         .transpose()?;
-    if let Some(playback) = &animation {
+    if let Some(AnimationPlayback::Position(playback)) = &animation {
         runtime.charge_position_binding(playback)?;
     }
-    if animation.is_some() {
+    if let Some(source) = skeletal_source {
+        let playback = runtime.bind_skeletal(0, source)?;
+        println!("Bound original skeletal controller: slot0 mode2, {} ms; position/rotation, Target, morph and first-LOD CPU skin; host inspection initialization, camera and rendering; no mission integration", playback.duration_ms());
+        animation = Some(AnimationPlayback::Skeletal(Box::new(playback)));
+    }
+    if matches!(animation, Some(AnimationPlayback::Position(_))) {
         println!(
             "Bound original position-only animation: slot0 mode2; one model wrapper and root mesh; native control flow, pose, frame caches and matrix/point arithmetic; host camera, handedness and rendering, no mission integration"
         );
@@ -360,7 +396,7 @@ struct App {
     scene: Scene,
     camera: Camera,
     runtime: lhr_engine::runtime::RetainedScene,
-    animation: Option<lhr_engine::animation_binding::PositionPlayback>,
+    animation: Option<AnimationPlayback>,
     runtime_engine: lhr_engine::runtime::RuntimeEngine,
     clock_backend: lhr_engine::runtime::PlatformClock,
     options: Options,
@@ -708,25 +744,33 @@ impl ApplicationHandler for App {
 }
 fn upload_bound(
     graph: &mut lhr_engine::runtime::RetainedScene,
-    animation: &mut Option<lhr_engine::animation_binding::PositionPlayback>,
+    animation: &mut Option<AnimationPlayback>,
     renderer: &Renderer,
 ) -> Result<usize, String> {
-    if let Some(playback) = animation {
-        graph.upload_position_changed(renderer, playback)
-    } else {
-        graph.upload_changed(renderer)
+    match animation {
+        Some(AnimationPlayback::Position(playback)) => {
+            graph.upload_position_changed(renderer, playback)
+        }
+        Some(AnimationPlayback::Skeletal(playback)) => {
+            graph.upload_skeletal_changed(renderer, 0, playback)
+        }
+        None => graph.upload_changed(renderer),
     }
 }
 fn advance_bound<B: lhr_engine::clock::ClockBackend + ?Sized>(
     engine: &mut lhr_engine::runtime::RuntimeEngine,
     graph: &mut lhr_engine::runtime::RetainedScene,
-    animation: &mut Option<lhr_engine::animation_binding::PositionPlayback>,
+    animation: &mut Option<AnimationPlayback>,
     clock: &mut B,
 ) -> Result<lhr_engine::runtime::RuntimeFrame, lhr_engine::runtime::RuntimeError> {
-    if let Some(playback) = animation {
-        engine.advance_position(graph, 0, playback, clock)
-    } else {
-        engine.advance_static(graph, clock)
+    match animation {
+        Some(AnimationPlayback::Position(playback)) => {
+            engine.advance_position(graph, 0, playback, clock)
+        }
+        Some(AnimationPlayback::Skeletal(playback)) => {
+            engine.advance_skeletal(graph, 0, playback, clock)
+        }
+        None => engine.advance_static(graph, clock),
     }
 }
 /// Deterministic headless inspection clock; not original wall-clock execution.
@@ -771,11 +815,9 @@ fn run() -> Result<(), String> {
     }
     println!(
         "Original-data {} inspection; provisional {} texture sampling; {} indexed mesh groups",
-        if animation.is_some() {
-            "position animation"
-        } else {
-            "menu/static scene"
-        },
+        animation
+            .as_ref()
+            .map_or("menu/static scene", AnimationPlayback::description),
         if options.linear { "linear" } else { "nearest" },
         scene.meshes.len()
     );
@@ -800,11 +842,7 @@ fn run() -> Result<(), String> {
             .iter()
             .map(|model| model.pose().len())
             .sum::<usize>(),
-        if animation.is_some() {
-            "bounded position animation"
-        } else {
-            "static model guards only"
-        }
+        animation.as_ref().map_or("static model guards only", AnimationPlayback::description)
     );
     if options.headless {
         if let Some(steps) = options.animation_steps {

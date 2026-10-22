@@ -12,7 +12,7 @@
 //! enclosures, assuming the host default IEEE round-to-nearest arithmetic.
 
 #[path = "native_trig.rs"]
-mod native_trig;
+pub(crate) mod native_trig;
 
 /// Conservative per-call domain for equivalence to x87 PC24 arithmetic.
 /// Nonzero magnitudes stay far enough from exponent limits for products and

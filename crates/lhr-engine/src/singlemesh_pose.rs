@@ -150,18 +150,27 @@ impl SinglemeshPose {
                 .iter()
                 .map(|bone| bbox(bone.bounds))
                 .collect();
-            if !graph.d_build_loaded_singlemesh(
-                keys[index],
-                bbox(definition.bounds),
-                &joint_boxes,
-            )? {
-                return Err(SkinPoseError::Source(
-                    "singlemesh has no mesh or descendant joints",
-                ));
+            if graph.singlemesh_binding(keys[index])?.joints().is_empty() {
+                if !graph.d_build_loaded_singlemesh(
+                    keys[index],
+                    bbox(definition.bounds),
+                    &joint_boxes,
+                )? {
+                    return Err(SkinPoseError::Source(
+                        "singlemesh has no mesh or descendant joints",
+                    ));
+                }
+            } else {
+                graph.update_singlemesh_loaded_bounds_cached(
+                    keys[index],
+                    bbox(definition.bounds),
+                    &joint_boxes,
+                )?;
             }
             // Original singlemorph UpdateLodVertices (0x57590) updates its
             // shared morph buffer before invoking inherited skin deformation.
-            // The bounds warming above belongs to the preceding DBuild path.
+            // Initial binding uses DBuild. Later host pose requests use the
+            // original bounds virtual wrapper and its Joint-change cache gate.
             let source_vertices = if frame.visual == Some(3) {
                 let cache = morphs[index]
                     .as_mut()

@@ -15,8 +15,10 @@ pub enum RotationUnavailable {
     InvalidTrack,
     TimeOutsideVerifiedDomain,
     NumericDomain,
-    /// The original retained FPATAN/FSIN spherical branch is not ported here.
+    /// Spherical branch is disabled, or its angle exceeds the verified 1.5 rad bound.
     SphericalInterpolation,
+    /// A retained x87 result cannot be proved to round to one f32 value.
+    RoundingUncertain,
 }
 
 // x87 PC24 has a wider exponent range than f32. Check EVERY intermediate,
@@ -58,6 +60,25 @@ pub fn try_slerp_linear(
     second: SQuat,
     fraction: f32,
 ) -> Result<SQuat, RotationUnavailable> {
+    slerp(first, second, fraction, false)
+}
+
+/// Original exported `S_quat::Slerp`, RVA0x2fee0, including its spherical
+/// branch for angles through 1.5 radians. The spherical weights preserve the
+/// original FPATAN/FSIN and PC24 rounding sequence using outward enclosures.
+/// Ambiguous rounding or wider angles return an availability error. Inputs
+/// need not be unit length; the dot and every arithmetic intermediate must
+/// remain ordinary f32 or zero. No normalization occurs in this leaf.
+pub fn try_slerp(first: SQuat, second: SQuat, fraction: f32) -> Result<SQuat, RotationUnavailable> {
+    slerp(first, second, fraction, true)
+}
+
+fn slerp(
+    first: SQuat,
+    second: SQuat,
+    fraction: f32,
+    spherical: bool,
+) -> Result<SQuat, RotationUnavailable> {
     for value in first.wxyz.into_iter().chain(second.wxyz).chain([fraction]) {
         input(value)?;
     }
@@ -75,15 +96,29 @@ pub fn try_slerp_linear(
         b = b.map(|value| -value);
     }
     // FSUB is PC24; the comparison constant is the original DOUBLE 0.0001.
-    if sub(1., dot.abs())? as f64 > 0.0001_f64 {
-        return Err(RotationUnavailable::SphericalInterpolation);
-    }
-    let complement = sub(1., fraction)?;
+    let (complement, weight) = if sub(1., dot.abs())? as f64 > 0.0001_f64 {
+        if !spherical {
+            return Err(RotationUnavailable::SphericalInterpolation);
+        }
+        crate::native_transform::native_trig::slerp_weights(dot.abs(), fraction).map_err(
+            |error| match error {
+                crate::native_transform::MakeUnavailable::UnrecoveredAxisAngle => {
+                    RotationUnavailable::SphericalInterpolation
+                }
+                crate::native_transform::MakeUnavailable::RoundingUncertain => {
+                    RotationUnavailable::RoundingUncertain
+                }
+                _ => RotationUnavailable::NumericDomain,
+            },
+        )?
+    } else {
+        (sub(1., fraction)?, fraction)
+    };
     let mut result = [0.; 4];
     // Component3 and0 use the reverse addition order (signed-zero behavior).
     for component in [1, 2, 3, 0] {
         let left = mul(a[component], complement)?;
-        let right = mul(b[component], fraction)?;
+        let right = mul(b[component], weight)?;
         result[component] = if component < 3 && component != 0 {
             add(right, left)?
         } else {
@@ -161,7 +196,7 @@ pub fn sample_rotation_keys(
         let frame_time = mul(current_ms as f32, f32::from_bits(0x3ccc_cccd))?;
         let numerator = sub(frame_time, f32::from(times[left]))?;
         let fraction = div(numerator, f32::from(times[right] - times[left]))?;
-        try_slerp_linear(
+        try_slerp(
             SQuat { wxyz: values[left] },
             SQuat {
                 wxyz: values[right],
@@ -213,6 +248,84 @@ mod tests {
             .unwrap();
             assert_eq!(actual.wxyz.map(f32::to_bits), expected);
         }
+    }
+
+    #[test]
+    fn synthetic_spherical_inputs_match_original_including_endpoint_rounding() {
+        // Original PC, CW003f, seeded synthetic inputs. The first case has t=0:
+        // original FSIN/reciprocal arithmetic still changes all four components.
+        let cases: [SlerpCase; 3] = [
+            (
+                [0x3c8c085e, 0x3e99a5a9, 0xbeb97d9a, 0xbf61dc7a],
+                [0x3ea67398, 0xbf2be46d, 0x3ed181b1, 0xbf067f0e],
+                0x00000000,
+                [0x3c8c085d, 0x3e99a5a8, 0xbeb97d99, 0xbf61dc79],
+            ),
+            (
+                [0x3df62b80, 0x3f3b7354, 0xbec0f4ef, 0x3f0ded65],
+                [0xbe335a99, 0x3ebe18ec, 0x3eae95f2, 0x3f587f64],
+                0x3f000000,
+                [0xbcfc5724, 0x3f1e5c25, 0xbca4c580, 0x3f48ebe6],
+            ),
+            (
+                [0xbf4c13e6, 0xbb334af9, 0x3eb69d6b, 0xbef967bb],
+                [0x3f2541a8, 0xbf2cc1c7, 0x3eae136e, 0x3de3157b],
+                0x3e800000,
+                [0xbf5b0318, 0x3e50f6d0, 0x3e43167a, 0xbedf4400],
+            ),
+        ];
+        for (a, b, fraction, expected) in cases {
+            let first = SQuat {
+                wxyz: a.map(f32::from_bits),
+            };
+            let second = SQuat {
+                wxyz: b.map(f32::from_bits),
+            };
+            let fraction = f32::from_bits(fraction);
+            assert_eq!(
+                try_slerp_linear(first, second, fraction),
+                Err(RotationUnavailable::SphericalInterpolation)
+            );
+            assert_eq!(
+                try_slerp(first, second, fraction)
+                    .unwrap()
+                    .wxyz
+                    .map(f32::to_bits),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn spherical_adapter_and_reduced_argument_rejection() {
+        let a = SQuat {
+            wxyz: [1., 0., 0., 0.],
+        };
+        let b = SQuat {
+            wxyz: [0.5, 0.75, 0., 0.],
+        };
+        // Original Slerp followed by original Normalize, on the physical PC.
+        assert_eq!(
+            sample_rotation_keys(&[0, 10], &[a.wxyz, b.wxyz], 100)
+                .unwrap()
+                .wxyz
+                .map(f32::to_bits),
+            [0x3f795fbb, 0x3e67783e, 0, 0]
+        );
+        assert_eq!(
+            try_slerp(
+                a,
+                SQuat {
+                    wxyz: [0., 1., 0., 0.]
+                },
+                0.5
+            ),
+            Err(RotationUnavailable::SphericalInterpolation)
+        );
+        assert_eq!(
+            try_slerp(a, b, -0.25),
+            Err(RotationUnavailable::NumericDomain)
+        );
     }
 
     #[test]

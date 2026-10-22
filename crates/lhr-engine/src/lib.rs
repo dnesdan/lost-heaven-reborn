@@ -1,8 +1,10 @@
 //! Reusable engine components for the Rust rewrite.
 
+pub mod actor_animation;
 pub mod actor_registry;
 pub mod actor_tick;
 pub mod animation_binding;
+pub mod animation_controller;
 pub mod animation_index;
 pub mod clock;
 pub mod driver_state;
@@ -32,5 +34,6 @@ pub mod singlemesh_pose;
 pub mod singlemorph_state;
 
 pub mod skeletal_animation;
+pub mod skeletal_playback;
 pub mod target_direction;
 pub mod target_state;
