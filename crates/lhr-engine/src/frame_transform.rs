@@ -1,11 +1,12 @@
-//! Lazy LS3DF frame caches and the closed model/mesh/dummy hierarchy subset.
+//! Lazy LS3DF frame caches and the closed model/mesh/dummy/joint hierarchy subset.
 //! UpdateWMatrixProc is an original DLL export, RVA0x1c7d0. UpdateMatrix,
 //! LinkTo, RemoveChild and Update have retained PS2 symbols; PC entries are
 //! 0x1a6e0,0x1b9d0,0x1bf20,0x1ca60. Setter names are descriptive views of
 //! observed inline operations, not additional original symbols. Host storage
 //! does not implement native reference counting/destructors. Only LinkTo flags0/1,
-//! model/mesh/dummy virtual updates, and an empty deferred queue are represented.
+//! model/mesh/dummy/joint virtual updates, and an empty deferred queue are represented.
 use crate::{
+    joint_state::{I3dJointState, SinglemeshInvalidationState},
     native_matrix::{checked_f32_add, checked_f32_mul},
     native_transform::{SMatrix, SQuat},
 };
@@ -17,6 +18,10 @@ pub enum FrameKind {
     Model,
     Mesh,
     Dummy,
+    Joint,
+    /// Only an explicit Joint::UpdateV invalidation target. Its own virtual
+    /// update requires the unavailable singlemesh backend.
+    Singlemesh,
 }
 /// Fields observed by these methods, not a complete native object.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -66,6 +71,13 @@ impl I3dFrameState {
         state.kind = FrameKind::Dummy;
         state
     }
+    /// Common base-frame projection of the PC Joint constructor, RVA0x1ed30.
+    /// The graph separately owns the derived joint fields.
+    pub fn joint() -> Self {
+        let mut state = Self::model();
+        state.kind = FrameKind::Joint;
+        state
+    }
     /// Supported FrameLoadImage result. Caller separately proves mesh type/flags.
     pub fn source_mesh(position: [f32; 3], scale: [f32; 3], rotation: SQuat) -> Self {
         let mut s = Self::model();
@@ -90,6 +102,8 @@ pub struct FrameLinks {
 struct Node {
     state: I3dFrameState,
     links: FrameLinks,
+    joint: Option<I3dJointState>,
+    singlemesh: Option<SinglemeshInvalidationState>,
     // Host availability markers, not original frame fields. An interrupted
     // guarded computation must not later masquerade as a valid native cache.
     local_error: Option<FrameError>,
@@ -118,6 +132,9 @@ pub enum FrameError {
     UnsupportedLinkFlags(u32),
     UnsupportedLinkState,
     DirectionFromVectorsUnavailable,
+    NotJoint(FrameKey),
+    InvalidSinglemeshTarget(FrameKey),
+    UnsupportedSinglemeshUpdate(FrameKey),
 }
 impl I3dFrameGraph {
     pub fn insert(&mut self, state: I3dFrameState) -> Result<FrameKey, FrameError> {
@@ -128,6 +145,8 @@ impl I3dFrameGraph {
         self.nodes.push(Node {
             state,
             links: FrameLinks::default(),
+            joint: (state.kind == FrameKind::Joint).then(I3dJointState::default),
+            singlemesh: None,
             local_error: None,
             world_error: None,
         });
@@ -155,6 +174,62 @@ impl I3dFrameGraph {
     }
     pub fn state(&self, key: FrameKey) -> Result<&I3dFrameState, FrameError> {
         Ok(&self.node(key)?.state)
+    }
+    pub fn joint_state(&self, key: FrameKey) -> Result<&I3dJointState, FrameError> {
+        self.node(key)?
+            .joint
+            .as_ref()
+            .ok_or(FrameError::NotJoint(key))
+    }
+    /// Complete derived LoadImage payload; the caller applies common fields
+    /// first. Matrix/index bits are retained even outside numeric getter domains.
+    pub fn apply_joint_load_image_fields(
+        &mut self,
+        key: FrameKey,
+        bone_matrix: SMatrix,
+        index: u32,
+    ) -> Result<(), FrameError> {
+        self.node_mut(key)?
+            .joint
+            .as_mut()
+            .ok_or(FrameError::NotJoint(key))?
+            .apply_load_image_fields(bone_matrix, index);
+        Ok(())
+    }
+    /// Import only a known singlemesh frame/counter projection for linked
+    /// Joint::UpdateV. This does not construct or load a native singlemesh.
+    pub fn insert_singlemesh_invalidation_target(
+        &mut self,
+        mut state: I3dFrameState,
+        invalidation: SinglemeshInvalidationState,
+    ) -> Result<FrameKey, FrameError> {
+        state.kind = FrameKind::Singlemesh;
+        let key = self.insert(state)?;
+        self.node_mut(key)?.singlemesh = Some(invalidation);
+        Ok(key)
+    }
+    pub fn singlemesh_invalidation_state(
+        &self,
+        key: FrameKey,
+    ) -> Result<&SinglemeshInvalidationState, FrameError> {
+        self.node(key)?
+            .singlemesh
+            .as_ref()
+            .ok_or(FrameError::InvalidSinglemeshTarget(key))
+    }
+    /// Assign the observed pointer field using an owned target. Joint discovery,
+    /// index arrays, reference ownership and vertex binding are separate work.
+    pub fn assign_joint_singlemesh_target(
+        &mut self,
+        key: FrameKey,
+        target: Option<FrameKey>,
+    ) -> Result<(), FrameError> {
+        self.joint_state(key)?;
+        if let Some(target) = target {
+            self.singlemesh_invalidation_state(target)?;
+        }
+        self.node_mut(key)?.joint.as_mut().unwrap().singlemesh = target;
+        Ok(())
     }
     pub fn links(&self, key: FrameKey) -> Result<FrameLinks, FrameError> {
         Ok(self.node(key)?.links)
@@ -547,6 +622,11 @@ impl I3dFrameGraph {
     }
     fn enter_update(&mut self, key: FrameKey) -> Result<Visit, FrameError> {
         let n = self.node_mut(key)?;
+        // A target-only singlemesh projection cannot enter its native virtual
+        // update traversal. Reject before claiming any own Update side effects.
+        if n.state.kind == FrameKind::Singlemesh {
+            return Err(FrameError::UnsupportedSinglemeshUpdate(key));
+        }
         let dirty = n.state.flags & DIRTY != 0;
         if dirty {
             n.state.update_count = n.state.update_count.wrapping_add(1);
@@ -563,6 +643,30 @@ impl I3dFrameGraph {
     /// Observed UpdateV effects for the represented frame kinds. Dummy's
     /// original entry is RVA0x1a330; it clears its own bound flag only if dirty.
     pub fn update_v(&mut self, key: FrameKey) -> Result<(), FrameError> {
+        if self.state(key)?.kind == FrameKind::Singlemesh {
+            return Err(FrameError::UnsupportedSinglemeshUpdate(key));
+        }
+        if self.state(key)?.kind == FrameKind::Joint {
+            let node = self.node_mut(key)?;
+            let target = node
+                .joint
+                .as_mut()
+                .unwrap()
+                .invalidate_for_update(node.state.flags);
+            if let Some(target) = target {
+                let target_node = self.node_mut(target)?;
+                let singlemesh = target_node
+                    .singlemesh
+                    .as_mut()
+                    .ok_or(FrameError::InvalidSinglemeshTarget(target))?;
+                singlemesh.joints_changed = singlemesh.joints_changed.wrapping_add(1);
+                target_node.state.visual_flags &= !0x60000;
+                self.discard_hr_bound_vol(target)?;
+                let flags = &mut self.node_mut(target)?.state.flags;
+                *flags = (*flags & 0xfffffebf) | 0x40000000;
+            }
+            return Ok(());
+        }
         let s = &mut self.node_mut(key)?.state;
         if s.flags & DIRTY != 0 {
             if s.kind == FrameKind::Mesh && s.visual_flags & 0x40 == 0 {
@@ -573,8 +677,8 @@ impl I3dFrameGraph {
         }
         Ok(())
     }
-    /// Original Update/recursive-child effects for model/standard-mesh/dummy objects.
-    /// The deferred list is explicitly empty and there are no external callbacks.
+    /// Original Update/recursive-child effects for model/standard-mesh/dummy/joint
+    /// objects. The deferred list is empty; singlemesh virtual updates fail.
     pub fn update(&mut self, key: FrameKey) -> Result<(), FrameError> {
         let mut visits = std::mem::take(&mut self.visits);
         visits.clear();
@@ -625,6 +729,95 @@ impl I3dFrameGraph {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn joint_update_invalidates_linked_singlemesh_and_only_cached_ancestors() {
+        let mut graph = I3dFrameGraph::default();
+        let far = graph.insert(I3dFrameState::model()).unwrap();
+        let stop = graph.insert(I3dFrameState::dummy()).unwrap();
+        let near = graph.insert(I3dFrameState::dummy()).unwrap();
+        let target = graph
+            .insert_singlemesh_invalidation_target(
+                I3dFrameState::mesh(),
+                SinglemeshInvalidationState {
+                    joints_changed: u32::MAX,
+                },
+            )
+            .unwrap();
+        graph.link_to(stop, Some(far)).unwrap();
+        graph.link_to(near, Some(stop)).unwrap();
+        graph.link_to(target, Some(near)).unwrap();
+        for key in [far, near, target] {
+            graph.node_mut(key).unwrap().state.flags = 0x175;
+        }
+        graph.node_mut(stop).unwrap().state.flags = 0x135;
+        graph.node_mut(target).unwrap().state.visual_flags = 0xffffffff;
+        let joint = graph.insert(I3dFrameState::joint()).unwrap();
+        graph
+            .assign_joint_singlemesh_target(joint, Some(target))
+            .unwrap();
+        graph.node_mut(joint).unwrap().joint.as_mut().unwrap().flags = u32::MAX;
+        let own_frame_flags = graph.state(joint).unwrap().flags;
+        graph.update_v(joint).unwrap();
+        assert_eq!(graph.joint_state(joint).unwrap().flags, 0xffffffe3);
+        assert_eq!(graph.state(joint).unwrap().flags, own_frame_flags);
+        assert_eq!(
+            graph
+                .singlemesh_invalidation_state(target)
+                .unwrap()
+                .joints_changed,
+            0
+        );
+        assert_eq!(graph.state(target).unwrap().visual_flags, 0xfff9ffff);
+        assert_eq!(graph.state(target).unwrap().flags, 0x40000035);
+        assert_eq!(graph.state(near).unwrap().flags, 0x35);
+        assert_eq!(graph.state(stop).unwrap().flags, 0x135);
+        assert_eq!(graph.state(far).unwrap().flags, 0x175);
+        assert_eq!(
+            graph.update_v(target),
+            Err(FrameError::UnsupportedSinglemeshUpdate(target))
+        );
+        assert_eq!(
+            graph.update(target),
+            Err(FrameError::UnsupportedSinglemeshUpdate(target))
+        );
+    }
+
+    #[test]
+    fn inherited_joint_change_does_not_invalidate_singlemesh_vertices() {
+        let mut graph = I3dFrameGraph::default();
+        let target = graph
+            .insert_singlemesh_invalidation_target(
+                I3dFrameState::mesh(),
+                SinglemeshInvalidationState { joints_changed: 7 },
+            )
+            .unwrap();
+        let parent = graph.insert(I3dFrameState::model()).unwrap();
+        let joint = graph.insert(I3dFrameState::joint()).unwrap();
+        graph.link_to(joint, Some(parent)).unwrap();
+        graph
+            .assign_joint_singlemesh_target(joint, Some(target))
+            .unwrap();
+        graph.node_mut(joint).unwrap().state.flags = 0x3d;
+        graph.node_mut(joint).unwrap().joint.as_mut().unwrap().flags = 0x1f;
+        let target_before = *graph.state(target).unwrap();
+        graph.update(parent).unwrap();
+        assert_eq!(graph.joint_state(joint).unwrap().flags, 3);
+        assert_eq!(graph.state(joint).unwrap().flags & DIRTY, 0);
+        assert_eq!(
+            graph
+                .singlemesh_invalidation_state(target)
+                .unwrap()
+                .joints_changed,
+            7
+        );
+        assert_eq!(*graph.state(target).unwrap(), target_before);
+        assert_eq!(
+            graph.assign_joint_singlemesh_target(joint, Some(parent)),
+            Err(FrameError::InvalidSinglemeshTarget(parent))
+        );
+        assert_eq!(graph.joint_state(joint).unwrap().singlemesh, Some(target));
+    }
+
     fn mesh(position: [f32; 3]) -> I3dFrameState {
         I3dFrameState::source_mesh(
             position,

@@ -470,6 +470,7 @@ mod tests {
             name_bytes: Vec::new(),
             properties: Vec::new(),
             dummy_bounds: None,
+            joint: None,
             parent,
             position,
             scale: [1.0; 3],

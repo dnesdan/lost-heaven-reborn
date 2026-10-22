@@ -1,8 +1,9 @@
-//! Owned model/frame materialization for the validated mesh and dummy subset.
+//! Owned model/frame materialization for the validated mesh, dummy and joint subset.
 //! LS3DF RVAs 0x33680/0x33720/0x33500 define model ownership; 0x603e0
 //! transfers loaded frames in file order, including a successfully loaded prefix
 //! before an error. File lookup, animation and GPU resource creation are separate.
 use crate::frame_transform::{FrameError, FrameKey, I3dFrameGraph, I3dFrameState};
+use crate::joint_state::I3dJointState;
 use crate::native_transform::{SMatrix, SQuat};
 use lhr_assets::Model;
 use std::{fmt, sync::Arc};
@@ -42,6 +43,7 @@ pub enum ModelError {
         visual: Option<u8>,
     },
     MissingDummyBounds(usize),
+    MissingJointRecord(usize),
     InvalidParent {
         index: usize,
         parent: usize,
@@ -129,6 +131,10 @@ impl ModelArena {
     pub fn state(&self, key: FrameKey) -> Result<&I3dFrameState, ModelError> {
         self.frame_index(key)?;
         Ok(self.graph.state(key)?)
+    }
+    pub fn joint_state(&self, key: FrameKey) -> Result<&I3dJointState, ModelError> {
+        self.frame_index(key)?;
+        Ok(self.graph.joint_state(key)?)
     }
     pub fn retain(&mut self, key: FrameKey) -> Result<(), ModelError> {
         let i = self.frame_index(key)?;
@@ -336,6 +342,7 @@ impl MaterializedModel {
         let mut state = match (source.kind, source.visual) {
             (1, Some(0 | 1)) => I3dFrameState::mesh(),
             (6, None) => I3dFrameState::dummy(),
+            (10, None) => I3dFrameState::joint(),
             _ => {
                 return Err(ModelError::UnsupportedFrame {
                     index,
@@ -346,6 +353,9 @@ impl MaterializedModel {
         };
         if source.kind == 6 && source.dummy_bounds.is_none() {
             return Err(ModelError::MissingDummyBounds(index));
+        }
+        if source.kind == 10 && source.joint.is_none() {
+            return Err(ModelError::MissingJointRecord(index));
         }
         if source.kind == 1 {
             state.visual_flags = u32::from(u16::from_le_bytes([
@@ -383,6 +393,16 @@ impl MaterializedModel {
             },
             source.culling,
         )?;
+        if source.kind == 10 {
+            let joint = source.joint.as_ref().unwrap();
+            self.arena.graph.apply_joint_load_image_fields(
+                key,
+                SMatrix {
+                    elements: joint.bone_matrix,
+                },
+                joint.index,
+            )?;
+        }
         self.source_frame_keys.push(key);
         Ok(())
     }
@@ -448,6 +468,7 @@ mod tests {
             name_bytes: b"fixture".to_vec(),
             properties: vec![0xff, 0, 0x80],
             dummy_bounds: (kind == 6).then_some([[0.; 3], [1.; 3]]),
+            joint: None,
             parent,
             position,
             scale: [1.; 3],
@@ -490,6 +511,60 @@ mod tests {
             0x7fc01234
         );
         assert!(loaded.storage_bytes().unwrap() > 0);
+    }
+    #[test]
+    fn materializes_joint_hierarchy_without_inventing_binding_or_cache_values() {
+        let mut first = frame(10, None, [10., 0., 0.]);
+        first.scale = [2.; 3];
+        let mut bone_matrix = SMatrix::identity().elements;
+        bone_matrix[2] = f32::from_bits(0x7fc01234);
+        bone_matrix[12] = -0.;
+        first.joint = Some(lhr_assets::JointRecord {
+            bone_matrix,
+            index: u32::MAX,
+        });
+        let mut second = frame(10, Some(0), [1., 2., 3.]);
+        second.joint = first.joint.clone();
+        let source = Arc::new(Model {
+            materials: Vec::new(),
+            frames: vec![first, second, frame(1, Some(1), [1., 0., 0.])],
+        });
+        let mut loaded = MaterializedModel::from_parsed(source).unwrap();
+        assert!(loaded.is_complete());
+        let keys = loaded.source_frame_keys().to_vec();
+        let matrices = loaded.world_matrices().unwrap();
+        assert_eq!(&matrices[1].elements[12..15], &[12., 4., 6.]);
+        assert_eq!(&matrices[2].elements[12..15], &[14., 4., 6.]);
+        for &key in &keys[..2] {
+            let joint = loaded.arena.joint_state(key).unwrap();
+            assert_eq!(joint.bone_matrix.elements[2].to_bits(), 0x7fc01234);
+            assert_eq!(joint.bone_matrix.elements[12].to_bits(), 0x80000000);
+            assert_eq!(joint.matrix_184.elements[0].to_bits(), 0x3c23d70a);
+            assert_eq!(joint.index, u32::MAX);
+            assert_eq!(joint.flags, 1);
+            assert_eq!(joint.joint_matrix, None);
+            assert_eq!(joint.singlemesh, None);
+            assert_eq!(loaded.arena.frame(key).unwrap().references, 1);
+            assert_eq!(loaded.arena.frame(key).unwrap().owner, Some(loaded.root));
+        }
+    }
+
+    #[test]
+    fn missing_joint_payload_preserves_prefix_and_never_claims_complete() {
+        let source = Arc::new(Model {
+            materials: Vec::new(),
+            frames: vec![frame(6, None, [0.; 3]), frame(10, Some(0), [0.; 3])],
+        });
+        let failure = MaterializedModel::from_parsed(source).unwrap_err();
+        assert_eq!(failure.error, ModelError::MissingJointRecord(1));
+        assert!(!failure.partial.is_complete());
+        assert_eq!(failure.partial.source_frame_keys().len(), 1);
+        let key = failure.partial.source_frame_keys()[0];
+        assert_eq!(
+            failure.partial.arena.frame(key).unwrap().owner,
+            Some(failure.partial.root)
+        );
+        assert_eq!(failure.partial.arena.frame(key).unwrap().references, 1);
     }
     #[test]
     fn unsupported_frame_preserves_loaded_prefix_ownership() {

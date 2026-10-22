@@ -124,6 +124,7 @@ mod tests {
                 name_bytes: b"n".to_vec(),
                 properties: Vec::new(),
                 dummy_bounds: None,
+                joint: None,
                 parent: None,
                 position: [0.; 3],
                 scale: [1.; 3],

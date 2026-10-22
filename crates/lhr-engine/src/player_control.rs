@@ -2,7 +2,7 @@
 //!
 //! Game SHA-256 `08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27`:
 //! control lock RVA `0x195f00`, follow-up `0x17d310`, direction reset `0x17a560`,
-//! embedded reset `0xe7a0`, model-animation caller `0xe8e0`.
+//! embedded reset `0xe7a0`, model-animation caller `0xe8e0`, animation index `0x8760`.
 //! LS3DF SHA-256 `e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6`:
 //! virtual slot `0x68` targets RVA `0x33890` (upstream PS2 research name
 //! `StopAnimation`; no original PC symbol).
@@ -14,6 +14,84 @@
 use crate::interpolator::InterpolatorSet;
 
 pub const PLAYER_CONTROL_STORAGE_BYTES: usize = 0xb00;
+
+/// Owned projection of Game's existing sorted animation-code/index table.
+/// Entries must come from the caller. The original game's table bootstrap and
+/// resource catalog remain unresolved; no original executable or extracted
+/// catalog is a runtime dependency. This does not load animation resources or
+/// construct a human actor.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnimationIndexTable {
+    entries: Option<Vec<(u32, i32)>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AnimationIndexTableError {
+    EmptyNonnullTable,
+    IndexArithmeticOverflow,
+    Unsorted { index: usize },
+}
+
+impl AnimationIndexTable {
+    /// `None` represents the original null table pointer. A nonnull empty table
+    /// is unsupported: the original lookup reads its first entry anyway.
+    /// Duplicate codes are allowed and retain their original record order.
+    pub fn from_existing_entries(
+        entries: Option<Vec<(u32, i32)>>,
+    ) -> Result<Self, AnimationIndexTableError> {
+        if let Some(entries) = &entries {
+            if entries.is_empty() {
+                return Err(AnimationIndexTableError::EmptyNonnullTable);
+            }
+            // Host admission: eight-byte records must fit a native 32-bit extent.
+            if entries.len() > u32::MAX as usize / 8 {
+                return Err(AnimationIndexTableError::IndexArithmeticOverflow);
+            }
+            // The original adds its signed low/high bounds before dividing.
+            if entries.len() - 1 > i32::MAX as usize / 2 {
+                return Err(AnimationIndexTableError::IndexArithmeticOverflow);
+            }
+            if let Some(index) = entries.windows(2).position(|pair| pair[0].0 > pair[1].0) {
+                return Err(AnimationIndexTableError::Unsorted { index: index + 1 });
+            }
+        }
+        Ok(Self { entries })
+    }
+
+    /// Game RVA `0x8760`; original PS2 name `GetAnimIndex(unsigned int)` has
+    /// matching table-search semantics. PC compares unsigned animation codes
+    /// and returns the selected signed index, or `-1` when absent. Midpoint
+    /// selection matters for duplicate codes; do not use an arbitrary-match
+    /// standard-library binary search here.
+    pub fn get_anim_index(&self, code: u32) -> i32 {
+        let Some(entries) = &self.entries else {
+            return -1;
+        };
+        let mut low = 0;
+        let mut high = entries.len() - 1;
+        loop {
+            let middle = (low + high) / 2;
+            let (candidate, index) = entries[middle];
+            if candidate == code {
+                return index;
+            }
+            if low >= high {
+                return -1;
+            }
+            if candidate > code {
+                // Original MOV EDI,EAX-1, not the usual upper-bound update.
+                // middle==0 makes the native high bound -1; the next midpoint
+                // truncates (-1+0)/2 to zero and returns a miss on that entry.
+                if middle == 0 {
+                    return -1;
+                }
+                high = middle - 1;
+            } else {
+                low = middle + 1;
+            }
+        }
+    }
+}
 
 /// Borrows existing player storage; this is not a native-constructor replacement.
 pub struct RawPlayerControlState<'a> {
@@ -280,6 +358,42 @@ pub fn stop_animation(interpolator: Option<&mut InterpolatorSet>, index: u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn animation_index_preserves_unsigned_order_and_original_duplicate_choice() {
+        let table = AnimationIndexTable::from_existing_entries(Some(vec![
+            (0, 9),
+            (7, 10),
+            (7, 11),
+            (7, 12),
+            (0x8000_0000, -2),
+            (u32::MAX, i32::MIN),
+        ]))
+        .unwrap();
+        assert_eq!(table.get_anim_index(7), 11);
+        assert_eq!(table.get_anim_index(0x8000_0000), -2);
+        assert_eq!(table.get_anim_index(u32::MAX), i32::MIN);
+        assert_eq!(table.get_anim_index(0x7fff_ffff), -1);
+        assert_eq!(table.get_anim_index(0), 9);
+    }
+
+    #[test]
+    fn animation_index_distinguishes_null_from_invalid_nonnull_empty_table() {
+        let null = AnimationIndexTable::from_existing_entries(None).unwrap();
+        assert_eq!(null.get_anim_index(u32::MAX), -1);
+        assert_eq!(
+            AnimationIndexTable::from_existing_entries(Some(vec![])),
+            Err(AnimationIndexTableError::EmptyNonnullTable)
+        );
+        assert_eq!(
+            AnimationIndexTable::from_existing_entries(Some(vec![(1, 0), (0, 1)])),
+            Err(AnimationIndexTableError::Unsorted { index: 1 })
+        );
+        let single = AnimationIndexTable::from_existing_entries(Some(vec![(1, 42)])).unwrap();
+        assert_eq!(single.get_anim_index(0), -1);
+        assert_eq!(single.get_anim_index(1), 42);
+        assert_eq!(single.get_anim_index(2), -1);
+    }
 
     #[test]
     fn unavailable_animation_call_retains_only_prior_native_writes() {

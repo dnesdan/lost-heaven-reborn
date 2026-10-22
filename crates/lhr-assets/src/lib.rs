@@ -84,6 +84,14 @@ pub struct TextureAnimation {
     pub unknown3: u32,
 }
 #[derive(Debug, Clone)]
+pub struct JointRecord {
+    /// Original 64-byte matrix in source order. Every float bit is retained,
+    /// including nonfinite values; this metadata does not validate skinning.
+    pub bone_matrix: [f32; 16],
+    /// Original joint index, without a binding-table range assumption.
+    pub index: u32,
+}
+#[derive(Debug, Clone)]
 pub struct Frame {
     pub kind: u8,
     pub visual: Option<u8>,
@@ -97,6 +105,8 @@ pub struct Frame {
     pub properties: Vec<u8>,
     /// Original dummy bounding box. Retained as data, not a collision shape.
     pub dummy_bounds: Option<[[f32; 3]; 2]>,
+    /// Original kind-10 joint suffix, retained only by broader scene intake.
+    pub joint: Option<JointRecord>,
     pub parent: Option<usize>,
     pub position: [f32; 3],
     pub scale: [f32; 3],
@@ -168,7 +178,8 @@ pub fn parse_four_ds(b: &[u8]) -> Result<Model> {
     parse_four_ds_impl(b, false, false).map(|(model, _)| model)
 }
 /// Broader scene intake: retains material effects as metadata and accepts sector,
-/// light and target frames. Callers must implement or explicitly report material
+/// light, target and joint frames. Joint suffixes are raw metadata, without
+/// skinning or joint-runtime behavior. Callers must implement or report material
 /// effects; this does not promise identical original rendering or simulation.
 pub fn parse_four_ds_scene(b: &[u8]) -> Result<Model> {
     parse_four_ds_impl(b, true, false).map(|(model, _)| model)
@@ -333,7 +344,7 @@ fn parse_four_ds_impl(b: &[u8], scene: bool, allow_animation: bool) -> Result<(M
     let mut unsupported_billboard = false;
     for _ in 0..count {
         let kind = r.u8()?;
-        if kind != 1 && kind != 6 && !(scene && [2, 5, 7, 12].contains(&kind)) {
+        if kind != 1 && kind != 6 && !(scene && [2, 5, 7, 10, 12].contains(&kind)) {
             return err("unsupported frame type; only static visual and dummy supported");
         };
         let visual = if kind == 1 { Some(r.u8()?) } else { None };
@@ -375,6 +386,7 @@ fn parse_four_ds_impl(b: &[u8], scene: bool, allow_animation: bool) -> Result<(M
         let property_length = r.u8()? as usize;
         let properties = r.take(property_length)?.to_vec();
         let mut dummy_bounds = None;
+        let mut joint = None;
         let mut lods = Vec::new();
         let mut instance = None;
         if kind == 6 {
@@ -385,6 +397,16 @@ fn parse_four_ds_impl(b: &[u8], scene: bool, allow_animation: bool) -> Result<(M
                     f32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap())
                 })
             }));
+        } else if kind == 10 {
+            // The PC suffix is one fixed 68-byte record. Keep its words raw;
+            // numeric and binding validation belong to consumers of the joint.
+            let bytes = r.take(68)?;
+            joint = Some(JointRecord {
+                bone_matrix: std::array::from_fn(|i| {
+                    f32::from_le_bytes(bytes[i * 4..i * 4 + 4].try_into().unwrap())
+                }),
+                index: u32::from_le_bytes(bytes[64..68].try_into().unwrap()),
+            });
         } else if kind == 2 {
             r.take(84)?;
         } else if kind == 5 || kind == 12 {
@@ -482,6 +504,7 @@ fn parse_four_ds_impl(b: &[u8], scene: bool, allow_animation: bool) -> Result<(M
             name_bytes,
             properties,
             dummy_bounds,
+            joint,
             parent: parent.checked_sub(1),
             position,
             scale,
@@ -1088,6 +1111,83 @@ pub fn decode_windows1250(bytes: &[u8]) -> Result<String> {
 #[cfg(test)]
 mod scene_model_tests {
     use super::*;
+    fn joint_scene() -> (Vec<u8>, [u32; 16]) {
+        let mut bytes = b"4DS\0".to_vec();
+        bytes.extend(29u16.to_le_bytes());
+        bytes.extend([0; 8]);
+        bytes.extend(0u16.to_le_bytes());
+        bytes.extend(2u16.to_le_bytes());
+        let words: [u32; 16] = [
+            0, 0x80000000, 1, 0x80000001, 0x007fffff, 0x00800000, 0x3f800000, 0xbf800000,
+            0x7f7fffff, 0xff7fffff, 0x7f800000, 0xff800000, 0x7fc01234, 0xffc05678, 0x7f801234,
+            0xff801234,
+        ];
+        for (kind, parent, name) in [(10, 2u16, b"Bone".as_slice()), (6, 0, b"Root")] {
+            bytes.push(kind);
+            bytes.extend(parent.to_le_bytes());
+            for value in [0f32, -0., 2., 1., 2., 3., 1., 0., 0., 0.] {
+                bytes.extend(value.to_le_bytes());
+            }
+            bytes.extend([0x89, name.len() as u8]);
+            bytes.extend(name);
+            bytes.extend([3, 0, 0xff, 0x80]);
+            if kind == 10 {
+                for word in words {
+                    bytes.extend(word.to_le_bytes());
+                }
+                bytes.extend(u32::MAX.to_le_bytes());
+            } else {
+                bytes.extend([0; 24]);
+            }
+        }
+        bytes.push(0);
+        (bytes, words)
+    }
+    #[test]
+    fn joint_metadata_preserves_every_word_and_following_frame_alignment() {
+        let (bytes, words) = joint_scene();
+        let model = parse_four_ds_scene(&bytes).unwrap();
+        let frame = &model.frames[0];
+        assert_eq!(frame.kind, 10);
+        assert_eq!(frame.visual, None);
+        assert_eq!(frame.parent, Some(1));
+        assert_eq!(frame.name_bytes, b"Bone");
+        assert_eq!(frame.properties, [0, 0xff, 0x80]);
+        assert_eq!(frame.culling, 0x89);
+        assert!(frame.dummy_bounds.is_none());
+        assert!(frame.instance.is_none());
+        assert!(frame.lods.is_empty());
+        let joint = frame.joint.as_ref().unwrap();
+        assert_eq!(joint.bone_matrix.map(f32::to_bits), words);
+        assert_eq!(joint.index, u32::MAX);
+        let root = &model.frames[1];
+        assert_eq!(root.name, "Root");
+        assert_eq!(root.parent, None);
+        assert!(root.dummy_bounds.is_some());
+        assert!(root.joint.is_none());
+        assert!(parse_four_ds(&bytes).is_err());
+        for length in 0..bytes.len() {
+            assert!(parse_four_ds_scene(&bytes[..length]).is_err(), "{length}");
+        }
+    }
+    #[test]
+    fn joint_intake_keeps_hierarchy_animation_and_extent_guards() {
+        let (bytes, _) = joint_scene();
+        for parent in [1u16, 3] {
+            let mut invalid = bytes.clone();
+            invalid[19..21].copy_from_slice(&parent.to_le_bytes());
+            assert!(parse_four_ds_scene(&invalid).is_err());
+        }
+        let mut invalid = bytes.clone();
+        *invalid.last_mut().unwrap() = 1;
+        assert!(parse_four_ds_scene(&invalid).is_err());
+        let mut invalid = bytes.clone();
+        invalid.push(0);
+        assert!(parse_four_ds_scene(&invalid).is_err());
+        let mut invalid = bytes;
+        invalid[16..18].copy_from_slice(&16385u16.to_le_bytes());
+        assert!(parse_four_ds_scene(&invalid).is_err());
+    }
     fn material_scene() -> Vec<u8> {
         let mut b = super::mesh_tests::mesh();
         // Reflection payload precedes diffuse name; independent alpha name follows it.
