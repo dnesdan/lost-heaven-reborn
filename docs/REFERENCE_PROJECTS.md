@@ -1,6 +1,6 @@
 # Reference-project audit
 
-Audited on 2026-10-22 against Rust engine commit [`a739570`](https://github.com/dnesdan/lost-heaven-reborn/commit/a739570). These pinned source audits identify reconstruction leads and incompatible assumptions. They add no native comparison cases, completed functions or gameplay credit. Detailed source hashes, line references and findings remain in the private research ledger.
+Pinned source audits began on 2026-10-22 against Rust engine commit [`a739570`](https://github.com/dnesdan/lost-heaven-reborn/commit/a739570). Subsequent independently reconstructed Joint/singlemesh behavior is summarized below. Reference audits themselves add no native comparison cases, completed functions or gameplay credit; detailed hashes and findings remain private.
 
 | Reference | Audited revision | Useful evidence |
 | --- | --- | --- |
@@ -10,7 +10,7 @@ Audited on 2026-10-22 against Rust engine commit [`a739570`](https://github.com/
 
 ## LS3D-SceneKit
 
-The [skin reader](https://github.com/alex-alex/LS3D-SceneKit/blob/8fadd2201f52936d998c66c47b0a0d37476c2ce5/Mafia/Models/ModelMesh.swift#L47-L158) provides concrete leads for inverse bind matrices, bone indexes, rigid/blended vertex counts and two-influence weights. The [morph reader](https://github.com/alex-alex/LS3D-SceneKit/blob/8fadd2201f52936d998c66c47b0a0d37476c2ce5/Mafia/Models/ModelMorph.swift#L14-L119) exposes vertex links and per-LOD payloads. These need bounded Rust intake and original deformation comparisons. At the audited commit `a739570`, the owned graph supported mesh/dummy frames without Joint; subsequent Joint metadata/state work does not yet implement skeletal deformation.
+The [skin reader](https://github.com/alex-alex/LS3D-SceneKit/blob/8fadd2201f52936d998c66c47b0a0d37476c2ce5/Mafia/Models/ModelMesh.swift#L47-L158) provides leads for inverse bind matrices, bone indexes, rigid/blended counts and two-influence weights. Independent PC reconstruction now admits bounded visual-type-2 skin records, Joint hierarchies, dense binding, eager bounds and CPU deformation. One original `civil02` first-LOD pipeline matches 3,124 u32 fields against original execution; 80 of 82 strict models produce static first-LOD poses, totaling 37,948 vertices. Two stop at numeric-domain checks. The [morph reader](https://github.com/alex-alex/LS3D-SceneKit/blob/8fadd2201f52936d998c66c47b0a0d37476c2ce5/Mafia/Models/ModelMorph.swift#L14-L119) remains a lead for visual-type-3 loading, vertex links and per-LOD payloads, including Tommy's unsupported model.
 
 Several presentation choices cannot establish original behavior. Missing parents fall back to the root, only the first LOD is rendered, and some recognized visual types have no payload implementation. Material animation and lightmaps are skipped. [Scene lighting](https://github.com/alex-alex/LS3D-SceneKit/blob/8fadd2201f52936d998c66c47b0a0d37476c2ce5/Mafia/Scene/Scene.swift#L5027-L5062) uses tuned intensity scales. Our current unlit renderer also remains approximate; original driver, material, sector and visibility contracts are still required.
 
@@ -30,15 +30,17 @@ Since the earlier pinned reference, the main addition is LitObject plus supporti
 
 The committed LS3DF card reports 97.60% instruction-comparison progress, with 1,350 of 1,361 functions associated with source. The [metric](https://github.com/Marvisak/mafia-re/blob/86a7b15cbfa002bc6222e5542671a81988472882/tools/progress.py#L97-L143) also changed its denominator: 299 linked-library functions were excluded while 103 source-associated functions were added. These figures cannot be substituted for our static inventory, scoped Rust ports or runtime verification. This audit did not rebuild the upstream comparison toolchain.
 
-The [configured LS3DF hash](https://github.com/Marvisak/mafia-re/blob/86a7b15cbfa002bc6222e5542671a81988472882/reccmp-project.yml#L1-L34) matches our reference; its Setup targets differ. Game.exe has no implementation target there. PS2 debug names are useful provenance, but PC Joint, scene and animation layouts differ. The [Joint matrix helper](https://github.com/Marvisak/mafia-re/blob/86a7b15cbfa002bc6222e5542671a81988472882/ls3df/I3D/I3D.h#L2870-L2902) explicitly retains a nonmatching compilation caveat; missing or duplicate joint indexes also require careful admission rules.
+The [configured LS3DF hash](https://github.com/Marvisak/mafia-re/blob/86a7b15cbfa002bc6222e5542671a81988472882/reccmp-project.yml#L1-L34) matches our reference; its Setup targets differ. Game.exe has no implementation target there. PS2 linker names provide provenance, while PC Joint, scene and animation layouts differ. The [Joint matrix helper](https://github.com/Marvisak/mafia-re/blob/86a7b15cbfa002bc6222e5542671a81988472882/ls3df/I3D/I3D.h#L2870-L2902) retains a nonmatching compilation caveat. Our contract uses actual PC instructions and original execution, with explicit admission rules for missing/duplicate joint indexes.
+
+PC `GetVertexJoint` at LS3DF RVA `0x54dd0` has 2,040 admitted native comparisons. Its independently verified instruction boundary is absent from the legacy static inventory, so scoped-entry credit is deferred; implementation and runtime evidence do not silently add an inventory entry or function count.
 
 ## Next dependency order
 
 | Step | Concrete deliverable | Required original evidence |
 | --- | --- | --- |
-| 1 | Owned Joint state and parsed joint records. | REA boundaries and constructor/load/update bytes, PC/PS2 layout differences, linked resource invalidation. |
-| 2 | Singlemesh joint binding and deformation. | Parent/index/cache rules, missing/duplicate indexes, matrix order, vertex and normal results before GPU integration. |
-| 3 | Real actor/model animation ownership and first MISE01 control dependencies. | Actual Game factory/body binding, eight animation channels, lock callbacks, replay, vehicle attachments, camera and collision. |
+| 1 | Scoped result: owned Joint records/state, hierarchy and cached matrix evaluation. | PC instructions and original constructor/load/update/matrix comparisons; separately evidenced PS2 names/layout differences. |
+| 2 | Scoped result: dense visual-type-2 binding, eager bounds and first-LOD CPU position/normal deformation integrated into static inspection. | Original skin corpus: 142 models, 261 LODs, 4,698 bones, 51,389 weights / 682,925 exact bytes. Actual `civil02` composed pipeline: 3,124 exact u32 fields. Native allocation/render lifetime and skeletal animation remain outside this result. |
+| 3 | Tommy's visual-type-3 model, skeletal rotation tracks, AC animation resources and real actor/model ownership, then first MISE01 control. | Original singlemorph skin/morph loading, name-to-track binding, AC/5DS access and catalog bootstrap, Game factory/BODY binding, eight channels, lock/replay/vehicle/camera dependencies. Caller-owned collision filters and instrumented crouch queries do not supply collision geometry. |
 | 4 | LitObject, material and sector rendering. | Original resource lifetime, vertex dispatch, lighting/visibility state and controlled reference images. |
 | 5 | Morph/DAT/TCK and remaining animation channels. | Raw corpus preservation, original interpolation, target geometry, time boundaries, audio cursor and fade behavior. |
 
@@ -46,18 +48,20 @@ Each deliverable remains independently authored Rust, checked through REA and or
 
 ## Direct PS2 symbol crosscheck
 
-The supplied USA `SLUS_206.71` executable (SHA-256 `adf4944c5cdac23fcc4e9af9ef3ec1ba6234497e57cec2af2ff1a7a15c62a46f`) contains original function/global linker symbols, but no DWARF or STABS type/member information. mafia-re also distinguishes original symbols from guessed field names. We checked 27 complete symbol instruction ranges against unchanged original bytes; this is static evidence, without PS2 execution credit.
+The supplied USA `SLUS_206.71` executable (SHA-256 `adf4944c5cdac23fcc4e9af9ef3ec1ba6234497e57cec2af2ff1a7a15c62a46f`) contains original function/global linker symbols, but no DWARF or STABS type/member information. mafia-re also distinguishes original symbols from guessed field names. The earlier batch checked 27 complete symbol ranges. This batch captures 22 singlemesh-related ranges plus two supplemental ranges; the captures overlap earlier work and are not an additive unique-function count. All are static evidence against unchanged original bytes, without PS2 execution credit.
 
 | Original PS2 name | PS2 address | PC correspondence and evidence limit |
 | --- | --- | --- |
 | `I3D_joint::UpdateV` | `0x42b750` | LS3DF RVA `0x1ee30`; matching invalidation role, different masks and offsets. |
 | `I3D_joint::LoadImage` | `0x42b850` | LS3DF RVA `0x1ef10`; PS2 reads a four-byte suffix, PC reads 68 bytes. |
-| `I3D_singlemesh::DBuild` | `0x456f00` | LS3DF RVA `0x54c20`; PS2 zeroes the joint pointer array, pinned PC source leaves unmatched slots unwritten. |
+| `I3D_singlemesh::DBuild` | `0x456f00` | LS3DF RVA `0x54c20`; PS2 zeroes joint-pointer holes, actual PC instructions leave unmatched slots unwritten. |
+| `I3D_joint::GetJointMatrix` | `0x456cc0` | LS3DF RVA `0x56ba0`; matching cache/traversal and multiplication order, different storage and local-matrix dependencies. |
+| `I3D_visual::UpdateV` | `0x45bf70` | LS3DF RVA `0x5a390`; inherited by singlemesh on both platforms, with different invalidation masks. |
 | `GetAnimIndex(unsigned int)` | `0x117a80` | Game RVA `0x8760`; instruction-level agreement on unsigned keys, duplicate midpoint selection and null/miss behavior. |
 | `C_human::Do_Crouched` | `0x17b2a0` | Game RVA `0x17f8a0`; structural correspondence, with additional PS2 collision-shape stores. |
 | `C_human::Do_Shoot` | `0x1802f0` | Game RVA `0x183590`; matched action-kind branches and animation resource references. |
 | `C_human::PersonAnim` | `0x16cf10` | Game RVA `0x173e50`; matched code flags, lookup and resource-binding structure. |
 
-These are original PS2 names with separately established PC correspondences, not recovered PC symbol tables. Member labels remain research names. PC model animation has eight channels while the inspected PS2 implementation has three; Joint storage and skin assignments also differ. Names therefore guide reconstruction without substituting PS2 layouts or behavior for PC evidence.
+These are original PS2 names with separately established PC correspondences, not recovered PC symbol tables. Member labels remain research names. PC model animation has eight channels; PS2 has three. PS2 skin assignments use two bytes per vertex and a secondary weight divided by 256; PC uses per-joint float weights for the primary influence. PS2 CPU position output has stride 16; PC position/normal output has stride 24. PS2 joint discovery returns early at nested singlemesh/singlemorph visuals, stopping the current sibling scan; PC keeps traversing. Inherited visual UpdateV clears PS2 mask `0x140000` versus PC `0x1c0000`. These differences remain explicit alongside the array-hole and Joint-layout differences above.
 
 REA currently rejects the Emotion Engine R5900 variant with `architecture_unsupported`. The PS2 crosscheck used the retained dedicated EE Ghidra backend in read-only mode; PC REA and original-code comparisons remain separate. Future contracts record native binary/address, exact symbol, name origin, mapping evidence, Rust symbol and validation independently. This crosscheck adds no completed-function credit.

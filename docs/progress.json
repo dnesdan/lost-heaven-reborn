@@ -1,28 +1,28 @@
 {
   "updated_at": "2026-10-22",
-  "project_status": "Original-data Rust menu and bounded scenes; owned Joint library prerequisites and animation index lookup; 72 scoped entries across 28 contracts. First-mission gameplay remains unimplemented.",
+  "project_status": "Original-data Rust menu and bounded scenes; owned Joint matrices, singlemesh binding/bounds and a verified original civil02 first-LOD CPU skin pose; 83 scoped entries across 32 contracts. First-mission gameplay remains unimplemented.",
   "rust_toolchain": "1.99.1",
   "validation": {
-    "status": "Two sequential independent reviews per code milestone; 242 Rust, 9 REA and 42 progress tests pass. Native code comparisons, Linux Vulkan/X11 rendering and Apple arm64 compilation are separate evidence. Campaign is not playable.",
-    "rust_unit_tests": 242,
+    "status": "Two sequential independent code reviews accepted; 271 Rust, 9 REA and 42 progress tests pass. Linux build, eight software Vulkan captures and bounded X11 input pass; Apple arm64 all-target compilation passes. Original-code comparisons, static actor poses and rendered inspection remain separate from mission gameplay.",
+    "rust_unit_tests": 271,
     "rust_unit_test_split": {
-      "lhr_assets": 65,
-      "lhr_engine_library": 153,
-      "lhr_engine_application": 19,
+      "lhr_assets": 68,
+      "lhr_engine_library": 178,
+      "lhr_engine_application": 20,
       "lhr_render": 5
     },
     "rea_wrapper_tests": 9,
     "latest_accepted_baseline": {
-      "source_commit": "82ea83196b213af2412813a50de46c17813919bf",
-      "rust_unit_tests": 242,
+      "source_commit": "31d2bf600104f5ae0b656d892072f524bbc5b7a6",
+      "rust_unit_tests": 271,
       "rea_wrapper_tests": 9,
       "progress_tests": 42,
-      "milestone": "72 scoped entries across 28 contracts; bounded owned Joint metadata/state and original animation index lookup added. No character deformation or mission execution."
+      "milestone": "83 scoped entries across 32 contracts; bounded Joint/singlemesh binding, bounds and CPU deformation plus crouch/filter helpers. One original civil02 static actor pose matches 3,124 fields. GetVertexJoint is verified outside the frozen legacy entry inventory and receives no new entry credit. First-mission execution remains unavailable."
     },
     "progress_tests": 42
   },
   "assets": {
-    "scope": "A8/A2/A6/A1/AA DTA subset; selected 4DS, BMP/TGA, menu/text/font, scene2, cache and script intake",
+    "scope": "A8/A2/A6/A1/AA DTA subset; selected 4DS common frames, Joint and visual-type-2 skin records, BMP/TGA, menu/text/font, scene2, cache and script intake",
     "archive_order_basis": "PC-RUST-MENU-001 static REA startup registration sequence, restricted to the supported archive subset",
     "read_fallback": "Selected source read errors do not fall back; stricter than native fallback behavior",
     "checksum_verification": false,
@@ -48,12 +48,12 @@
     "probe_results": "INTRO: 16 scripts halt on unsupported commands, one after advancing a prefix. MISE01: 37 halt, seven after advancing a prefix, two empty scripts complete. Prefix counts overlap halted counts.",
     "original_runtime_comparison": "PC-RUST-CONTROL-VM-RUNTIME-02 compares bounded COMMANDBLOCK and WAIT states against original runtime observations; GOTO/END and complete scheduler/caller chain unverified, replay observed only",
     "mission_execution": "not implemented",
-    "current_validation": "Reviewed static MISE01 neighborhood and taxi inspection remains the graphical baseline; new library tests do not establish mission execution."
+    "current_validation": "Static MISE01 neighborhood/taxi and standalone civil02 first-LOD pose inspection are verified. CPU pose comparison and rendering do not establish actor control, script effects or mission execution."
   },
   "renderer": {
     "target": "wgpu Vulkan on Linux, Metal on macOS",
-    "latest_accepted_baseline": "Static --model uses recovered common mesh/dummy hierarchy and checked original point arithmetic; Linux software Vulkan and bounded X11 capture verified.",
-    "current_menu_scene_validation": "Linux X11 captures and keyboard/mouse transitions frozen; MISE01 spawn-neighborhood crop, orbit, and repeat-load pixels verified; approximate static scenes, not gameplay",
+    "latest_accepted_baseline": "Static --model retains owned hierarchy and supports a bounded original civil02 first-LOD CPU skin pose with binding and eager bounds evaluation; one original actor matches 18 joints, 417 vertices and 3,124 raw fields. Original driver rendering and skeletal animation are not established.",
+    "current_menu_scene_validation": "Eight final-source Linux software Vulkan captures cover hierarchy, position animation at 0/25/50 steps, civil02 and exact repeat, menu and MISE01. A bounded original-data civil02 X11 run delivered camera input and changed the captured image. Menu/scene inspection remains separate from gameplay.",
     "omitted_effect_material_counts": {
       "MENU": 33,
       "INTRO": 12,
@@ -61,7 +61,7 @@
       "meaning": "Materials with unsupported effects; diagnostics do not mean every counted material is omitted in full"
     },
     "original_render_parity": "not established",
-    "macos_metal": "Apple arm64 all-target cargo check passes at current code baseline; no native macOS linking or Metal execution."
+    "macos_metal": "Apple arm64 all-target cargo check passes at the accepted code baseline; native macOS linking and Metal execution remain untested."
   },
   "campaign_playable": false,
   "historical_analysis": {
@@ -116,7 +116,7 @@
   "reset_boundary": "Former Godot prototype implementation/tests and original-game runtime traces are not counted as Rust behavior or validation.",
   "macos_validation": {
     "command": "cargo check --workspace --all-targets --target aarch64-apple-darwin --locked",
-    "result": "Apple ARM64 all-target cargo check passed at 82ea83196b213af2412813a50de46c17813919bf; native macOS linking and Metal runtime remain untested.",
+    "result": "Apple ARM64 all-target cargo check passed at 31d2bf600104f5ae0b656d892072f524bbc5b7a6; native macOS linking and Metal runtime remain untested.",
     "scope": "Compilation only; no macOS link or Metal runtime"
   },
   "phase2": {
@@ -147,9 +147,9 @@
   },
   "function_progress": {
     "schema_version": 3,
-    "snapshot_id": "RUST-SCOPED-PORTS-20261022-08",
+    "snapshot_id": "RUST-SCOPED-PORTS-20261022-09",
     "as_of": "2026-10-22",
-    "source_baseline": "82ea83196b213af2412813a50de46c17813919bf",
+    "source_baseline": "31d2bf600104f5ae0b656d892072f524bbc5b7a6",
     "recount_sha256": "2736f474db3c9f1c5ef42aa46033afd66b4b06700b56f6dfd5b161399903e26c",
     "libraries": [
       {
@@ -8112,6 +8112,330 @@
           }
         ],
         "history_prefix_sha256": "5ab86739307ef866914cfc8d671c0600bcf934e34d40843c64bb9d1aa8980bc3"
+      },
+      {
+        "snapshot_id": "RUST-SCOPED-PORTS-20261022-09",
+        "as_of": "2026-10-22",
+        "libraries": [
+          {
+            "name": "Game.exe",
+            "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+            "inventory_total": 4914,
+            "retained_pseudocode": 4783,
+            "rust_ported": null,
+            "differential_verified": null,
+            "inventory_basis": "raw_profile_inventory",
+            "inventory_profiles": [
+              "7810ea9437da59780820ec6fedb47ce47390841a95d527ddb6c3b3700fe180cb"
+            ],
+            "inventory_membership_sha256": "bd82dbdaecf1981548dd73c0793264b520dc08191fb7e8dc8cc8e3bc244e186b"
+          },
+          {
+            "name": "rw_data.dll",
+            "binary_sha256": "67f72c30cc7fe941f5526b8602a0bd2785baa0f22617bbcfd4a71bacd79b8d49",
+            "inventory_total": null,
+            "retained_pseudocode": 6,
+            "rust_ported": null,
+            "differential_verified": null,
+            "inventory_basis": "unknown",
+            "inventory_profiles": [],
+            "inventory_membership_sha256": null
+          },
+          {
+            "name": "LS3DF.dll",
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "inventory_total": 1689,
+            "retained_pseudocode": 1530,
+            "rust_ported": null,
+            "differential_verified": null,
+            "inventory_basis": "raw_profile_union",
+            "inventory_profiles": [
+              "0c1148c7491bbcdf5b3a0f9ea8ba9aad2523b95135b48b9e8385e31b815e1c1a",
+              "20f79d3fb10ba69c5463530c8267a6e2a8f5d0d7232ea59fe159849342ec5d7e",
+              "46301268618f6f9f27a2856e15858155a42599f674def681aa6a56df9fe13c64",
+              "5fb8141f282b82b7a78df6b2d631f00eb93729605b53b333297ebfb4ff03fe9f",
+              "32952d80e0c5001373e6b5a7e0cab3e36ede4dfb0d8f977cded5b0ec0ad03537",
+              "274abe8f77db68a07f35a04e0cf1f5ccd82a7e1af5ede3d2235572a935bebf05"
+            ],
+            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+          },
+          {
+            "name": "Setup.exe (supplied configuration)",
+            "binary_sha256": "c6abff923ecedafc26be3f1abdb8fe286f3a0be1e787ea7b659b6c01a077d25d",
+            "inventory_total": 172,
+            "retained_pseudocode": 172,
+            "rust_ported": null,
+            "differential_verified": null,
+            "inventory_basis": "in_image_non_thunk_procedures",
+            "inventory_profiles": [
+              "7810ea9437da59780820ec6fedb47ce47390841a95d527ddb6c3b3700fe180cb"
+            ],
+            "inventory_membership_sha256": "e0ccf8c5121747ba0608317068c72542b155fd2c758c784b518fd30f983e23df"
+          }
+        ],
+        "systems": {
+          "verified": 0,
+          "total": 12
+        },
+        "scoped_ports": [
+          {
+            "contract_id": "PC-CLOCK-ORACLE-STEP2-20261021",
+            "source_commit": "ed69df16899657065602a8a368f2f6abbda8d642",
+            "entries": 2,
+            "cases": 20,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "1d9209151fcc0fbd937f624431d99110d46071f6ef0ce9c4caf684417fe2032b"
+          },
+          {
+            "contract_id": "PC-SCENE-ORACLE-STEP3-20261021",
+            "source_commit": "8c647af43989f23f28499a307668bef53ad9f59e",
+            "entries": 1,
+            "cases": 13,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "1d9209151fcc0fbd937f624431d99110d46071f6ef0ce9c4caf684417fe2032b"
+          },
+          {
+            "contract_id": "PC-IPOL-CALLBACK-ORACLE-STEP3-20261021",
+            "source_commit": "6fa388aba1071168209f1eac708dd6f37ede2a82",
+            "entries": 1,
+            "cases": 31,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-PHASE-STATIC-20261021",
+            "source_commit": "4101e0b8923a3babd2b54933866a159386cbf0cc",
+            "entries": 1,
+            "cases": 22576,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "1d9209151fcc0fbd937f624431d99110d46071f6ef0ce9c4caf684417fe2032b"
+          },
+          {
+            "contract_id": "PC-ACTOR-TICK-ORACLE-STEP3-20261021",
+            "source_commit": "305f96e4c3f654c17287a1a540af3468c642d3c0",
+            "entries": 1,
+            "cases": 26,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-FRAME-DISPATCH-20261021",
+            "source_commit": "0d634fbc9e02941d70de7c2991cdf2e411156b6e",
+            "entries": 1,
+            "cases": 1509,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "1d9209151fcc0fbd937f624431d99110d46071f6ef0ce9c4caf684417fe2032b"
+          },
+          {
+            "contract_id": "PC-MODEL-TICK-20261021",
+            "source_commit": "0d634fbc9e02941d70de7c2991cdf2e411156b6e",
+            "entries": 1,
+            "cases": 7,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "1d9209151fcc0fbd937f624431d99110d46071f6ef0ce9c4caf684417fe2032b"
+          },
+          {
+            "contract_id": "PC-GAME-SELECTED-LOOP-20261021",
+            "source_commit": "b1ead79fc2d33889560dc41c0754500b962f0f8a",
+            "entries": 1,
+            "cases": 123,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-5DS-POSITION-CHANNEL-002",
+            "source_commit": "671cf2bdc092cc796fd230dcb77b0917aff49a91",
+            "entries": 1,
+            "cases": 2684,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-NAMED-LOOKUP-CONTROLLED-CONTRACT-20261021",
+            "source_commit": "cbeeead64d131b824987d037641166c261a787a8",
+            "entries": 2,
+            "cases": 13,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-PROGRAM-RESET-START-CONTRACT-20261021",
+            "source_commit": "cbeeead64d131b824987d037641166c261a787a8",
+            "entries": 1,
+            "cases": 9,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-NATIVE-TRANSFORM-001",
+            "source_commit": "149d4fcf5de6a1ec5e2a212b057b5ea303f29416",
+            "entries": 7,
+            "cases": 531,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-QUATERNION-NORMALIZE-001",
+            "source_commit": "f08a0b9cc65854f3390a020998edd76263d44e1b",
+            "entries": 1,
+            "cases": 809,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-ORIGINAL-CONFIG-20261021-001",
+            "source_commit": "866d80ed97f1f36bb14f36c8ac2dfb0b69681ff2",
+            "entries": 6,
+            "cases": 1577,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-SCRIPT-SCHEDULER-003",
+            "source_commit": "8fc4da3f558c7fd8f108dbde32007cfc01b307ea",
+            "entries": 2,
+            "cases": 440,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-STARTUP-EFFECTS-CONTRACT-001",
+            "source_commit": "68b4c62d05a7d5908c617ee32c63c37945f8632e",
+            "entries": 5,
+            "cases": 6825,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-NATIVE-TRANSFORM-DEPENDENCIES-001",
+            "source_commit": "8a3221a71f3cd0b77cb528a5591e32fdf3b8f3d9",
+            "entries": 2,
+            "cases": 1063,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-NUMERIC-FRAME-20261022",
+            "source_commit": "a7395701f90c0aeeaf2436a39299c5ae830ccaa7",
+            "entries": 8,
+            "cases": 7800,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "b8ef8e8204a402d100fbca4650f3cbe2b7077e3787ca66675d48110cee0036b5"
+          },
+          {
+            "contract_id": "PC-LS3DF-MAKE-CONTRACT-20261022-002",
+            "source_commit": "6fefd62903047bb0bae8e98226cf7cb815adc11e",
+            "entries": 2,
+            "cases": 18123,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS3DF-POLICE-20261022",
+            "source_commit": "79f7e2968c2aa8145ab86471f97c4a61e6537d3a",
+            "entries": 2,
+            "cases": 245,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS3DF-MATRIX-20261022",
+            "source_commit": "79f7e2968c2aa8145ab86471f97c4a61e6537d3a",
+            "entries": 1,
+            "cases": 10423,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS3DF-SCALE-DIRECTION-CONTRACT-20261022",
+            "source_commit": "6fefd62903047bb0bae8e98226cf7cb815adc11e",
+            "entries": 2,
+            "cases": 21809,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-PHASE2-MODEL-ARENA-20261022",
+            "source_commit": "f6d0ddf22cbacdbe29380b923635b9c0cbdd7198",
+            "entries": 8,
+            "cases": 1015,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "0e71942df94e05689bbad3259743179d6dc19e9a5473317c309dbbbdf036ede4"
+          },
+          {
+            "contract_id": "PC-PHASE2-ACTOR-CACHE-20261022",
+            "source_commit": "f6d0ddf22cbacdbe29380b923635b9c0cbdd7198",
+            "entries": 2,
+            "cases": 1260,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-POLICE-MANAGER-RAW-20261022",
+            "source_commit": "f41da7012ee5ca1bb9aae475c73f024385fde199",
+            "entries": 2,
+            "cases": 1756,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-PHASE4-PLAYER-CONTROL-20261022",
+            "source_commit": "e82f1b3cf30b9ee04700c397089fccdd782ec478",
+            "entries": 5,
+            "cases": 6284,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-RUST-JOINT-OWNED-20261022",
+            "source_commit": "82ea83196b213af2412813a50de46c17813919bf",
+            "entries": 3,
+            "cases": 1335,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "ae02c0d7967f561458aa1e7f4b4132addfb8b675a52bcb7b50a9eeb3cc79597e"
+          },
+          {
+            "contract_id": "PC-GAME-GET-ANIM-INDEX-20261022",
+            "source_commit": "82ea83196b213af2412813a50de46c17813919bf",
+            "entries": 1,
+            "cases": 1636,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS3DF-SINGLEMESH-BINDING-20261022",
+            "source_commit": "31d2bf600104f5ae0b656d892072f524bbc5b7a6",
+            "entries": 3,
+            "cases": 902,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "ae02c0d7967f561458aa1e7f4b4132addfb8b675a52bcb7b50a9eeb3cc79597e"
+          },
+          {
+            "contract_id": "PC-LS3DF-SINGLEMESH-DEFORMATION-20261022",
+            "source_commit": "31d2bf600104f5ae0b656d892072f524bbc5b7a6",
+            "entries": 4,
+            "cases": 4296,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "ae02c0d7967f561458aa1e7f4b4132addfb8b675a52bcb7b50a9eeb3cc79597e"
+          },
+          {
+            "contract_id": "PC-LS3DF-SINGLEMESH-BOUNDS-20261022",
+            "source_commit": "31d2bf600104f5ae0b656d892072f524bbc5b7a6",
+            "entries": 1,
+            "cases": 1024,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "ae02c0d7967f561458aa1e7f4b4132addfb8b675a52bcb7b50a9eeb3cc79597e"
+          },
+          {
+            "contract_id": "PC-GAME-CROUCH-COLLISION-FILTER-20261022",
+            "source_commit": "31d2bf600104f5ae0b656d892072f524bbc5b7a6",
+            "entries": 3,
+            "cases": 2836,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          }
+        ],
+        "history_prefix_sha256": "e06f277dc6dfba73b4d86c8152ede9efa8017b0ea5eb188b70a35b1454abd8df"
       }
     ],
     "scoped_ports": [
@@ -9369,8 +9693,11 @@
         ],
         "cases": 1335,
         "scope": "Three bounded PC entries retain written constructor fields, an unavailable unwritten matrix cache, complete parsed 68-byte Joint records and linked singlemesh counter/flag/bound invalidation. Rust matches 1,335 admitted original cases and 350,365 projected words: four constructors, 1,296 updates, 32 mixed traversals and three complete loads. The broader 2,250-case native corpus includes 915 excluded sector or partial/error/failure-configured cases. Separately, 5,672 original Joint records preserve 385,696 raw bytes in 315 detached synthetic envelopes with remapped parents; this is not full character loading or original hierarchy parity. Singlemesh virtual updates explicitly fail; GetJointMatrix, binding/deformation, native allocation/I/O/destruction and gameplay remain unavailable. PS2 names are original, but PC masks, fields and the 68-byte payload are verified separately. No application Joint-model integration claim.",
-        "integration": "not_integrated",
-        "integration_receipt": null
+        "integration": "static_inspection",
+        "integration_receipt": {
+          "id": "PC-RUST-SINGLEMESH-INTEGRATION-20261022",
+          "sha256": "ae02c0d7967f561458aa1e7f4b4132addfb8b675a52bcb7b50a9eeb3cc79597e"
+        }
       },
       {
         "name": "Game original animation index lookup",
@@ -9405,6 +9732,201 @@
         ],
         "cases": 1636,
         "scope": "Original GetAnimIndex semantics over a caller-owned sorted table: unsigned code comparisons, signed index results, null/missing returns and deterministic duplicate midpoint choice. All 1,636 admitted original comparisons match debug and optimized Rust. Nonnull empty tables and unrepresentable native record extents are rejected by explicit host admission; five native-only zero-count observations are excluded. Actual PS2 linker symbols and instructions support the name/cross-platform correspondence, without PS2 execution credit. No original table catalog is bundled; bootstrap, resource loading, PersonAnim, actor construction and first-mission execution remain open.",
+        "integration": "not_integrated",
+        "integration_receipt": null
+      },
+      {
+        "name": "LS3DF Joint matrices and owned singlemesh binding",
+        "source_path": "crates/lhr-engine/src/frame_transform.rs",
+        "source_commit": "31d2bf600104f5ae0b656d892072f524bbc5b7a6",
+        "source_sha256": "d626e68245c8a32f9893087fe32817e76493f5f59fc07339bc5f86dff6d67a18",
+        "functions": [
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x56ba0",
+            "rust_symbol": "frame_transform::I3dFrameGraph::get_joint_matrix",
+            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+          },
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x54c20",
+            "rust_symbol": "frame_transform::I3dFrameGraph::d_build_binding",
+            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+          },
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x54d80",
+            "rust_symbol": "frame_transform::I3dFrameGraph::find_joint",
+            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+          }
+        ],
+        "contract": {
+          "id": "PC-LS3DF-SINGLEMESH-BINDING-20261022",
+          "sha256": "8a327e0f46cb5c5f9463f2fc30c07bfb22b75164e3448a25139f9bc49c66350e"
+        },
+        "comparison": {
+          "id": "PC-LS3DF-SINGLEMESH-BINDING-20261022-COMPARE",
+          "sha256": "2df40b629d63b4dbabd7862ac85c910bf52404a49275570a1ae19cb8ee127c70"
+        },
+        "reviews": [
+          {
+            "id": "PC-SINGLEMESH-CODE-20261022-R1",
+            "sha256": "881f16d9a2d70cb8d6be1dc9273965509cc4057f8dd04c8ef065e9bc8fb2a33b"
+          },
+          {
+            "id": "PC-SINGLEMESH-CODE-20261022-R2",
+            "sha256": "1f5a4823ce3ad5a952465dac210281ff1f6db5515df247ca34740510bbb89cf7"
+          }
+        ],
+        "cases": 902,
+        "scope": "Three bounded PC entry projections cover guarded Joint matrix evaluation and cache reuse, child/sibling joint discovery capped at 64, and owned binding-table/backreference stores. These scopes match 902 original cases and 551,594 represented u32 fields. Loaded definitions additionally compose binding with eager bounds callbacks and graph invalidation; 896 rich-bounds comparisons are separate from native DBuild execution. An independent 2,264-case inherited-update comparison supports mixed model/singlemesh/joint traversal without adding entries for already credited Frame Update or visual UpdateV. Missing pointer slots, unsupported kinds and numeric operations fail explicitly. Native allocation, driver resources, proxy dispatch and full object lifetime remain outside scope. Verified GetVertexJoint implementation is documented separately; its new canonical-entry credit awaits inventory admission.",
+        "integration": "static_inspection",
+        "integration_receipt": {
+          "id": "PC-RUST-SINGLEMESH-INTEGRATION-20261022",
+          "sha256": "ae02c0d7967f561458aa1e7f4b4132addfb8b675a52bcb7b50a9eeb3cc79597e"
+        }
+      },
+      {
+        "name": "LS3DF CPU skin deformation and normal-matrix arithmetic",
+        "source_path": "crates/lhr-engine/src/singlemesh_deformation.rs",
+        "source_commit": "31d2bf600104f5ae0b656d892072f524bbc5b7a6",
+        "source_sha256": "887df96e47b3397b3aaac3521191433a90e7723e149e2731d1f1168824c9a8b5",
+        "functions": [
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x68360",
+            "rust_symbol": "singlemesh_deformation::transform_skin_vertices",
+            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+          },
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x68430",
+            "rust_symbol": "singlemesh_deformation::blend_skin_vertices",
+            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+          },
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x2e1f0",
+            "rust_symbol": "singlemesh_deformation::skin_normal_matrix",
+            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+          },
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x54f60",
+            "rust_symbol": "singlemesh_deformation::deform_singlemesh_lod",
+            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+          }
+        ],
+        "contract": {
+          "id": "PC-LS3DF-SINGLEMESH-DEFORMATION-20261022",
+          "sha256": "b11034d554b6e8a2ddbc540d0a23e143f393d40bc9f4853be8c8b345f4e69156"
+        },
+        "comparison": {
+          "id": "PC-LS3DF-SINGLEMESH-DEFORMATION-20261022-COMPARE",
+          "sha256": "c397fe815972af342d622da9ddc964c464c5b48efefce4b9ceeb1781af1ff773"
+        },
+        "reviews": [
+          {
+            "id": "PC-SINGLEMESH-CODE-20261022-R1",
+            "sha256": "881f16d9a2d70cb8d6be1dc9273965509cc4057f8dd04c8ef065e9bc8fb2a33b"
+          },
+          {
+            "id": "PC-SINGLEMESH-CODE-20261022-R2",
+            "sha256": "1f5a4823ce3ad5a952465dac210281ff1f6db5515df247ca34740510bbb89cf7"
+          }
+        ],
+        "cases": 4296,
+        "scope": "Three arithmetic leaf projections and the CPU arithmetic snapshot of UpdateLodVertices match 4,296 admitted original cases and 205,472 u32 fields; four native zero-column normalization cases are explicitly unavailable. Rigid and unclamped blended position/normal operations retain original order and PC24 rounding, with exact suffix copies. The 1,000 LOD cases use supplied cached joint matrices and source/skin buffer pointers, including 500 controlled first allocations; they do not establish original driver, lock, proxy, lighting, cache or resource lifetime behavior. The two CPU helper names are descriptive because original names are unresolved. This SetRot matrix overload at RVA 0x2e1f0 is distinct from the already credited quaternion overload at 0x2e1c0.",
+        "integration": "static_inspection",
+        "integration_receipt": {
+          "id": "PC-RUST-SINGLEMESH-INTEGRATION-20261022",
+          "sha256": "ae02c0d7967f561458aa1e7f4b4132addfb8b675a52bcb7b50a9eeb3cc79597e"
+        }
+      },
+      {
+        "name": "LS3DF populated singlemesh bound-volume arithmetic",
+        "source_path": "crates/lhr-engine/src/singlemesh_bounds.rs",
+        "source_commit": "31d2bf600104f5ae0b656d892072f524bbc5b7a6",
+        "source_sha256": "ae0e8a7b1fb6ef2cb082f90df6a82fe3d36feb38ca61964bb2c0b22f7339f5e2",
+        "functions": [
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x54810",
+            "rust_symbol": "singlemesh_bounds::calculate_singlemesh_bounds",
+            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+          }
+        ],
+        "contract": {
+          "id": "PC-LS3DF-SINGLEMESH-BOUNDS-20261022",
+          "sha256": "ad8288832bda2c2aec4cb07994365fadecd8f649b397b33efc402cff81ffeaa5"
+        },
+        "comparison": {
+          "id": "PC-LS3DF-SINGLEMESH-BOUNDS-20261022-COMPARE",
+          "sha256": "ad8288832bda2c2aec4cb07994365fadecd8f649b397b33efc402cff81ffeaa5"
+        },
+        "reviews": [
+          {
+            "id": "PC-SINGLEMESH-CODE-20261022-R1",
+            "sha256": "881f16d9a2d70cb8d6be1dc9273965509cc4057f8dd04c8ef065e9bc8fb2a33b"
+          },
+          {
+            "id": "PC-SINGLEMESH-CODE-20261022-R2",
+            "sha256": "1f5a4823ce3ad5a952465dac210281ff1f6db5515df247ca34740510bbb89cf7"
+          }
+        ],
+        "cases": 1024,
+        "scope": "The populated-definition arithmetic projection of UpdateBVolumeProc preserves base-box inclusion, native corner and matrix-callback order, null-joint and invalid-X skips, strict min/max comparisons, and rounded center/radius calculation. All 1,024 original physical-x86/QEMU cases match Rust bounds; the same cohort separately matches graph callback matrices and flags. Consumed arithmetic requires finite normal f32 or zero under PC24/RN. Missing mesh/LOD/definition fallbacks, binding counters, visual flags and ancestor invalidation are outside this calculator and handled only by the separately bounded graph integration. No additional entry is claimed for the corner helper or UpdateBoundProc.",
+        "integration": "static_inspection",
+        "integration_receipt": {
+          "id": "PC-RUST-SINGLEMESH-INTEGRATION-20261022",
+          "sha256": "ae02c0d7967f561458aa1e7f4b4132addfb8b675a52bcb7b50a9eeb3cc79597e"
+        }
+      },
+      {
+        "name": "Game crouch posture and collision-filter state",
+        "source_path": "crates/lhr-engine/src/player_control.rs",
+        "source_commit": "31d2bf600104f5ae0b656d892072f524bbc5b7a6",
+        "source_sha256": "dcbdf5afd1b3e55da0ffed3499f9ba23b60163d5fe2d5ff67eeca8179aa89335",
+        "functions": [
+          {
+            "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+            "entry_rva": "0x17f8a0",
+            "rust_symbol": "player_control::do_crouched",
+            "inventory_membership_sha256": "bd82dbdaecf1981548dd73c0793264b520dc08191fb7e8dc8cc8e3bc244e186b"
+          },
+          {
+            "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+            "entry_rva": "0x1c3d10",
+            "rust_symbol": "player_control::DynamicCollisionFilter::dyn_set_next_coll_owner",
+            "inventory_membership_sha256": "bd82dbdaecf1981548dd73c0793264b520dc08191fb7e8dc8cc8e3bc244e186b"
+          },
+          {
+            "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+            "entry_rva": "0x1c3d60",
+            "rust_symbol": "player_control::DynamicCollisionFilter::dyn_set_next_coll_owner_mult",
+            "inventory_membership_sha256": "bd82dbdaecf1981548dd73c0793264b520dc08191fb7e8dc8cc8e3bc244e186b"
+          }
+        ],
+        "contract": {
+          "id": "PC-GAME-CROUCH-COLLISION-FILTER-20261022",
+          "sha256": "2513c14abd971e1784daaf567ad923eb261b2378dd51cd522eb2454b22e0aed7"
+        },
+        "comparison": {
+          "id": "PC-GAME-CROUCH-COLLISION-FILTER-20261022-COMPARE",
+          "sha256": "b3bb754658000eb05b315b418db2097fd364e8bf1aac46528d35326c840d4e03"
+        },
+        "reviews": [
+          {
+            "id": "PC-SINGLEMESH-CODE-20261022-R1",
+            "sha256": "881f16d9a2d70cb8d6be1dc9273965509cc4057f8dd04c8ef065e9bc8fb2a33b"
+          },
+          {
+            "id": "PC-SINGLEMESH-CODE-20261022-R2",
+            "sha256": "1f5a4823ce3ad5a952465dac210281ff1f6db5515df247ca34740510bbb89cf7"
+          }
+        ],
+        "cases": 2836,
+        "scope": "Three complete projected PC control/state bodies match 2,836 original cases in debug and optimized Rust: 1,836 crouch operations and 500 cases for each collision-owner setter. Tests preserve guards, exact query parameters, callback/filter ordering, stale-field retention, nonzero-hit handling and explicit host failure prefixes. Actual frame-update and sphere-collision callees are instrumented boundaries, so this does not establish original collision geometry, actor construction, animation ownership, playable controls or mission execution. PS2 symbols support names and correspondence; PC platform differences are retained.",
         "integration": "not_integrated",
         "integration_receipt": null
       }
