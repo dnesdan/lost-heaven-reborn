@@ -1,30 +1,30 @@
 # Lost Heaven Reborn
 
 <!-- generated-function-progress:start -->
-As of 2026-10-22 · snapshot `RUST-SCOPED-PORTS-20261022-09`.
+As of 2026-10-22 · snapshot `RUST-SCOPED-PORTS-20261022-10`.
 
 <p align="center"><img src="docs/progress.svg" alt="Progress dashboard: static retained pseudocode, reviewed scoped Rust entries, and strict system verification" width="100%"></p>
 
 | Original binary | Static retained pseudocode | Denominator basis | Full contracts | Full Rust ports | Differential runtime verified |
 | --- | ---: | --- | ---: | ---: | ---: |
-| Game.exe | 4783 / 4,914 (97.33%) | Raw profile inventory | N/A | N/A | N/A |
-| rw_data.dll | 6 / N/A | Unknown inventory | N/A | N/A | N/A |
-| LS3DF.dll | 1530 / 1,689 (90.59%) | Explicit profile union | N/A | N/A | N/A |
+| Game.exe | 4784 / 4,914 (97.35%) | Explicit profile union | N/A | N/A | N/A |
+| rw_data.dll | 176 / 234 (75.21%) | Explicit profile union | N/A | N/A | N/A |
+| LS3DF.dll | 1555 / 1,714 (90.72%) | Explicit profile union | N/A | N/A | N/A |
 | Setup.exe (supplied configuration) | 172 / 172 (100.00%) | In-image non-thunk procedures | N/A | N/A | N/A |
 
 Strict full-system gate: **0/12**. Binary-level static counts use the named denominator basis and do not combine into a game-completion percentage. Unknown denominators remain N/A. 1 supplied configuration Setup inventory uses 172 in-image non-thunk procedures. Separately, archive installer bootstrap static inventory: **376 / 376 (100.00%)**; this distribution target is not combined with engine-library counts. The campaign is not playable.
 
-Accepted scoped Rust ports: **83 entries across 32 reviewed contracts**. These remain separate from retained pseudocode and whole-function counts.
+Accepted scoped Rust ports: **95 entries across 38 reviewed contracts**. These remain separate from retained pseudocode and whole-function counts.
 
 Regenerate locally with `python3 scripts/progress.py --write`; verify without writes with `python3 scripts/progress.py --check`. Versioned snapshots are retained in `docs/progress.json`.
 Milestone history and scoped implementation evidence are in [docs/PROGRESS.md](docs/PROGRESS.md).
 <!-- generated-function-progress:end -->
 
-Static percentages use the last audited inventory. Scoped function ports and actual runtime integration are tracked separately; newer research receives no credit until reviewed.
+Static percentages retain raw analyzer denominators, including external import rows. The audited in-image cohorts now have output for 4,784/4,784 Game, 1,555/1,555 LS3DF and 176/176 rw_data entries. These are recognized cohorts, not exhaustive function discovery or completed Rust rewrites; 491 pinned mafia-re LS3DF addresses still need exact inventory correspondence. Scoped ports, warnings and runtime validation remain separate, with history preserved.
 
 An independent Rust reimplementation of the Mafia: The City of Lost Heaven (2002) engine and game. The current build reads a user's original PC installation, displays the Czech PC menu layout and assets, renders bounded scenes, and plays a verified single-root position animation from unchanged original model/animation files. MISE01 inspection assembles a small neighborhood around the authored player spawn with the original static taxi. It does not execute the cinematic, missions, or gameplay. The long-term goal is a complete campaign using the user's own legally obtained game data. No runtime game data is included.
 
-Original skinned models now have a bounded static pose path: owned Joint hierarchy, joint binding, bounds and CPU deformation feed the renderer. `civil02` matches the original DLL across all 3,124 compared vertex, matrix, flag and bounds values. This does not yet animate characters or make Tommy playable.
+Original Tommy now has a bounded skeletal pose path: exact track-name binding, position/rotation sampling, Target updates, morph weights and CPU skinning feed the renderer. His static pose and five `breath01a` samples match 81,216 original-code words, including morph intermediates, vertices, matrices, flags and bounds. This does not yet provide controller playback or a playable character.
 
 The immediate goal is **the playable first mission, from the original menu through mission completion**, alongside function-by-function library parity with mafia-re. See the [acceptance gates and dependency order](docs/GOALS.md). PS2 symbol names guide reconstruction; PC behavior and platform differences require original-binary verification.
 
@@ -37,6 +37,10 @@ The immediate goal is **the playable first mission, from the original menu throu
 ![Original civil02 character in a static pose through the recovered skin pipeline](docs/screenshots/2026-10-22-original-skin.webp)
 
 Actual Rust capture using original geometry and textures; first LOD, static pose and inspection lighting. [Evidence and reproduction](docs/screenshots/README.md#2026-10-22--original-skinned-character).
+
+![Original Tommy at a sampled animation pose in the Rust engine](docs/screenshots/2026-10-22-tommy-skeletal.webp)
+
+Actual 1,000 ms pose sample, original geometry and textures, inspected through X11. Preview: 640 × 427, 2.9 KiB. [Reproduction and limits](docs/screenshots/README.md#2026-10-22--original-tommy-skeletal-pose).
 
 ## Build and run
 
@@ -55,6 +59,7 @@ Build the native engine binary with `cargo build --locked -p lhr-engine` from th
 ./scripts/run.sh --root /path/to/Mafia --mission mise01
 ./scripts/run.sh --root /path/to/Mafia --model models/4build81.4ds
 ./scripts/run.sh --root /path/to/Mafia --model models/civil02.4ds
+./scripts/run.sh --root /path/to/Mafia --model models/TommyTAXIDRIVER.4ds --animation anims/breath01a.5ds --sample-animation-ms 1000
 ./scripts/run.sh --root /path/to/Mafia --model models/sipka1.4ds --animation models/sipka1.5ds
 ```
 
@@ -62,9 +67,11 @@ The first command opens the Rust-rendered original menu. Up/Down and Enter selec
 
 Standalone static `--model` loading now builds an owned mesh/dummy hierarchy using recovered common LS3DF fields, parent links, reference transitions and guarded original transforms. `4build81.4ds` exercises three meshes and one dummy. Unsupported frame types, world-space visuals, reflective materials and unverified numeric paths report errors. This route does not establish native world streaming or original lighting/material parity. The MISE01 neighborhood remains a separate static inspection path.
 
-The same command admits a bounded original singlemesh/Joint hierarchy and prepares its first-LOD pose without changing the source data. Across all 82 selected paths accepted by the strict skin reader, 80 models produce checked poses with 37,948 vertices; two dog paths fail explicitly outside the supported numeric domain. Only `civil02` has the separate composed original-DLL comparison described above. Morph models, skeletal animation and native vertex-buffer/resource lifetime remain unsupported; recovered normals are not yet used by the unlit renderer.
+Standalone models use the owned original hierarchy and checked first-LOD skin/morph pose. Earlier skin intake admits 80 of 82 selected paths (37,948 vertices); two remain explicit numeric-domain failures. Separate composed comparisons cover `civil02` and the actual `TommyTAXIDRIVER` model. Native vertex-buffer/resource lifetime and original lighting remain open; the inspection renderer does not use recovered normals for lighting.
 
-The animation command supports one matched position-only track and one root standard mesh with verified source flags. It uses recovered clock, model and interpolator behavior together with shared original frame-cache semantics and bounded original matrix/point arithmetic. Camera, handedness conversion, materials and rasterization remain inspection choices. Character animation, rotation/scale tracks, notes and arbitrary animation binding remain unsupported. For repeatable GPU captures, add `--headless --animation-steps 25 --capture /tmp/animation.png`: each controlled inspection step advances 16 ms through the same update path. Use 0, 25 and 50 steps for the loaded state, 400 ms and 800 ms; this is controlled test time, not a claim about original wall-clock presentation.
+`--sample-animation-ms` evaluates one position/rotation pose at the supplied time, then updates Target links and skinning. For `breath01a`, 0, 40, 200, 1000 and 5240 ms were compared with original code and rendered. This is independent pose sampling, without controller playback, slot blending, notes or gameplay. Wider spherical rotation interpolation remains unsupported. It cannot be combined with `--animation-steps`.
+
+The `sipka1` command without a sample time retains the earlier single-root position playback path through the recovered clock, model and interpolator. Add `--headless --animation-steps 25 --capture /tmp/animation.png` for 25 controlled 16 ms steps. Captures at 0/25/50 steps verify movement and exact return; inspection camera, handedness, materials and rasterization remain separate from original presentation.
 
 `setup.sh --graphics` prepares the Linux software Vulkan tools used for development captures. `scripts/test.sh` checks formatting, compilation, tests, Clippy, REA wrappers and generated progress. On Linux x86_64, X11 input has been checked through menu, static INTRO and the MISE01 neighborhood, including orbit and reload. An Apple arm64 cargo check passes, but macOS linking and Metal runtime have not been tested. iOS is a future compatibility target. The original game's executable and REA are not gameplay runtime dependencies.
 

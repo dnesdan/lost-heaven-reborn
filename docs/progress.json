@@ -1,29 +1,29 @@
 {
   "updated_at": "2026-10-22",
-  "project_status": "Original-data Rust menu and bounded scenes; owned Joint matrices, singlemesh binding/bounds and a verified original civil02 first-LOD CPU skin pose; 83 scoped entries across 32 contracts. First-mission gameplay remains unimplemented.",
+  "project_status": "Original-data Rust menu, bounded scenes and sampled original Tommy skeletal/morph poses; 95 scoped entries across 38 reviewed contracts. First-mission gameplay remains unimplemented.",
   "rust_toolchain": "1.99.1",
   "validation": {
-    "status": "Two sequential independent code reviews accepted; 271 Rust, 9 REA and 42 progress tests pass. Linux build, eight software Vulkan captures and bounded X11 input pass; Apple arm64 all-target compilation passes. Original-code comparisons, static actor poses and rendered inspection remain separate from mission gameplay.",
-    "rust_unit_tests": 271,
+    "status": "Two sequential independent code reviews accepted. 318 Rust, 9 REA and 42 progress tests pass; Linux build, 11 software Vulkan captures and X11 camera input pass; Apple arm64 all-target compilation passes. Independent sampled poses do not establish controller playback or mission gameplay.",
+    "rust_unit_tests": 318,
     "rust_unit_test_split": {
-      "lhr_assets": 68,
-      "lhr_engine_library": 178,
-      "lhr_engine_application": 20,
+      "lhr_assets": 78,
+      "lhr_engine_library": 214,
+      "lhr_engine_application": 21,
       "lhr_render": 5
     },
     "rea_wrapper_tests": 9,
     "latest_accepted_baseline": {
-      "source_commit": "31d2bf600104f5ae0b656d892072f524bbc5b7a6",
-      "rust_unit_tests": 271,
+      "source_commit": "d735e53971d7cd7d3c75fe985d021253a8ec7cb3",
+      "rust_unit_tests": 318,
       "rea_wrapper_tests": 9,
       "progress_tests": 42,
-      "milestone": "83 scoped entries across 32 contracts; bounded Joint/singlemesh binding, bounds and CPU deformation plus crouch/filter helpers. One original civil02 static actor pose matches 3,124 fields. GetVertexJoint is verified outside the frozen legacy entry inventory and receives no new entry credit. First-mission execution remains unavailable."
+      "milestone": "95 scoped entries across 38 contracts; actual Tommy static plus five skeletal samples match 81216 native words including Target, morph and skin. Full controller/resource ownership and first mission remain open."
     },
     "progress_tests": 42
   },
   "assets": {
-    "scope": "A8/A2/A6/A1/AA DTA subset; selected 4DS common frames, Joint and visual-type-2 skin records, BMP/TGA, menu/text/font, scene2, cache and script intake",
-    "archive_order_basis": "PC-RUST-MENU-001 static REA startup registration sequence, restricted to the supported archive subset",
+    "scope": "A8/A2/A6/A1/AC/AA DTA subset; bounded 4DS Joint, skin, morph and Target intake; 5DS position/rotation/scale records, BMP/TGA, menu/text/font, scene2, cache and script intake",
+    "archive_order_basis": "Original PC registration order restricted to the supported archive subset; AC is between A1 and AA, cross-checked with original rw_data key decoding.",
     "read_fallback": "Selected source read errors do not fall back; stricter than native fallback behavior",
     "checksum_verification": false,
     "audio_codecs": "unsupported",
@@ -147,15 +147,15 @@
   },
   "function_progress": {
     "schema_version": 3,
-    "snapshot_id": "RUST-SCOPED-PORTS-20261022-09",
+    "snapshot_id": "RUST-SCOPED-PORTS-20261022-10",
     "as_of": "2026-10-22",
-    "source_baseline": "31d2bf600104f5ae0b656d892072f524bbc5b7a6",
-    "recount_sha256": "2736f474db3c9f1c5ef42aa46033afd66b4b06700b56f6dfd5b161399903e26c",
+    "source_baseline": "d735e53971d7cd7d3c75fe985d021253a8ec7cb3",
+    "recount_sha256": "d2f32d8dea3710340e43413a432e878477907b21cad2aa827274fd83b048cf21",
     "libraries": [
       {
         "name": "Game.exe",
         "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
-        "inventory_version": "driver-final-static-20261021",
+        "inventory_version": "tommy-prototype-derived-union-20261022",
         "inventory_membership_sha256": "bd82dbdaecf1981548dd73c0793264b520dc08191fb7e8dc8cc8e3bc244e186b",
         "inventory_total": 4914,
         "retained_entries": [
@@ -1282,6 +1282,7 @@
           "0xab130",
           "0xab140",
           "0xab900",
+          "0xab910",
           "0xaf150",
           "0xaf1c0",
           "0xaf6a0",
@@ -4943,48 +4944,222 @@
           "0x22226c",
           "0x222280"
         ],
-        "retained_pseudocode": 4783,
+        "retained_pseudocode": 4784,
         "semantic_contracts": null,
         "rust_ported": null,
         "differential_verified": null,
         "verified_code_bytes": null,
-        "scope": "Successful retained static pseudocode from the frozen driver-profile sweep; default-profile raw inventory includes external and thunk rows. Static availability only, not semantic or implementation coverage.",
+        "scope": "Original default-profile results plus one explicitly derived REA/Ghidra prototype repair at RVA 0xab910. Complete 14392-byte body, instructions and 4914-row inventory remain unchanged; repaired pseudocode retains 13 warnings. All 4784 recognized in-image entries have output; 130 external rows remain in the raw denominator. Neither exhaustive discovery nor semantic correctness or Rust parity is established.",
         "accepted_functions": [],
-        "inventory_basis": "raw_profile_inventory",
+        "inventory_basis": "raw_profile_union",
         "inventory_profiles": [
-          "7810ea9437da59780820ec6fedb47ce47390841a95d527ddb6c3b3700fe180cb"
+          "7810ea9437da59780820ec6fedb47ce47390841a95d527ddb6c3b3700fe180cb",
+          "adc7f7a80b29038c74df6f4cf084b2b01d7ea637b30d3ff72b4a4921c6a5506f"
         ]
       },
       {
         "name": "rw_data.dll",
         "binary_sha256": "67f72c30cc7fe941f5526b8602a0bd2785baa0f22617bbcfd4a71bacd79b8d49",
-        "inventory_version": "pc-r2-20261021",
-        "inventory_membership_sha256": null,
-        "inventory_total": null,
+        "inventory_version": "tommy-static-union-20261022",
+        "inventory_membership_sha256": "7009f3d176d9977c056719cff89645a1c81ffdf581b773c731e97cfa9e355850",
+        "inventory_total": 234,
         "retained_entries": [
+          "0x1010",
+          "0x1030",
+          "0x1040",
+          "0x1070",
+          "0x1090",
+          "0x10a0",
+          "0x1100",
+          "0x1110",
+          "0x1120",
+          "0x1140",
+          "0x1150",
+          "0x1160",
+          "0x1170",
           "0x11e0",
+          "0x1330",
+          "0x1340",
+          "0x1360",
+          "0x1380",
+          "0x13b0",
+          "0x1640",
+          "0x1820",
+          "0x1850",
           "0x18a0",
           "0x1b90",
+          "0x23e0",
+          "0x25a0",
           "0x25c0",
+          "0x3730",
+          "0x3900",
+          "0x39f0",
+          "0x3f50",
+          "0x4040",
+          "0x4120",
+          "0x4130",
+          "0x4140",
+          "0x4150",
+          "0x4160",
+          "0x4250",
           "0x4690",
-          "0x4720"
+          "0x4720",
+          "0x4730",
+          "0x4760",
+          "0x4970",
+          "0x4c90",
+          "0x4ce0",
+          "0x4ef0",
+          "0x4f00",
+          "0x4f30",
+          "0x5230",
+          "0x55c0",
+          "0x5600",
+          "0x5630",
+          "0x5650",
+          "0x5740",
+          "0x5750",
+          "0x59f0",
+          "0x5a30",
+          "0x5a50",
+          "0x5cc0",
+          "0x5ccb",
+          "0x5d38",
+          "0x5d79",
+          "0x5d87",
+          "0x5dbb",
+          "0x5dc2",
+          "0x5dc9",
+          "0x5e18",
+          "0x5e4e",
+          "0x5ea2",
+          "0x5ec7",
+          "0x5f7b",
+          "0x5ff0",
+          "0x606c",
+          "0x60ae",
+          "0x6116",
+          "0x6139",
+          "0x6142",
+          "0x6170",
+          "0x61b0",
+          "0x61e0",
+          "0x6515",
+          "0x65cd",
+          "0x666a",
+          "0x669d",
+          "0x6706",
+          "0x69a6",
+          "0x69d3",
+          "0x69e4",
+          "0x69f3",
+          "0x6a8c",
+          "0x6aa6",
+          "0x6b07",
+          "0x6b19",
+          "0x6b45",
+          "0x6bb9",
+          "0x6c54",
+          "0x6dfb",
+          "0x6ea3",
+          "0x6f00",
+          "0x6f9e",
+          "0x6fb4",
+          "0x702f",
+          "0x70f5",
+          "0x713b",
+          "0x7165",
+          "0x7329",
+          "0x7390",
+          "0x73c0",
+          "0x740c",
+          "0x7462",
+          "0x74b8",
+          "0x74e5",
+          "0x762d",
+          "0x768a",
+          "0x7732",
+          "0x78dd",
+          "0x7900",
+          "0x79b9",
+          "0x7a52",
+          "0x7c06",
+          "0x7d38",
+          "0x7d58",
+          "0x7d91",
+          "0x7ee4",
+          "0x7f2c",
+          "0x7f57",
+          "0x8280",
+          "0x8589",
+          "0x863a",
+          "0x8735",
+          "0x8a2b",
+          "0x8b6f",
+          "0x8bc5",
+          "0x8c87",
+          "0x8cde",
+          "0x8d23",
+          "0x8f2b",
+          "0x904f",
+          "0x90f8",
+          "0x9120",
+          "0x9455",
+          "0x94b9",
+          "0x94d5",
+          "0x94f1",
+          "0x9510",
+          "0x9659",
+          "0x9674",
+          "0x968b",
+          "0x96a2",
+          "0x98c0",
+          "0x9980",
+          "0x9a00",
+          "0x9a10",
+          "0x9af0",
+          "0x9b6b",
+          "0x9d04",
+          "0x9d4e",
+          "0x9d81",
+          "0x9daa",
+          "0x9f2f",
+          "0x9f4b",
+          "0x9fe0",
+          "0xa0e0",
+          "0xa138",
+          "0xa265",
+          "0xa2aa",
+          "0xa376",
+          "0xa3eb",
+          "0xa60f",
+          "0xa63a",
+          "0xa790",
+          "0xa796",
+          "0xa840",
+          "0xa84b",
+          "0xa860",
+          "0xa880"
         ],
-        "retained_pseudocode": 6,
+        "retained_pseudocode": 176,
         "semantic_contracts": null,
         "rust_ported": null,
         "differential_verified": null,
         "verified_code_bytes": null,
-        "scope": "Retained static pseudocode only; whole-function port and runtime audit incomplete.",
+        "scope": "Audited raw-profile union: 176 recognized in-image entries with retained pseudocode and 58 external rows. Includes independently bounded virtual entries; historical snapshots are unchanged. Complete availability for this recognized cohort does not establish exhaustive discovery, correct decompilation, semantic recovery or Rust parity.",
         "accepted_functions": [],
-        "inventory_basis": "unknown",
-        "inventory_profiles": []
+        "inventory_basis": "raw_profile_union",
+        "inventory_profiles": [
+          "0ab01856f74d9ae53a8bdf87cad9d330cec9b83fb2e0602b2b0078736849f6cf",
+          "5fb8141f282b82b7a78df6b2d631f00eb93729605b53b333297ebfb4ff03fe9f"
+        ]
       },
       {
         "name": "LS3DF.dll",
         "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
-        "inventory_version": "driver-final-static-20261021",
-        "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c",
-        "inventory_total": 1689,
+        "inventory_version": "tommy-static-union-20261022",
+        "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37",
+        "inventory_total": 1714,
         "retained_entries": [
           "0x1010",
           "0x10c0",
@@ -5094,6 +5269,7 @@
           "0x1a1e0",
           "0x1a240",
           "0x1a260",
+          "0x1a330",
           "0x1a6a0",
           "0x1a6e0",
           "0x1a7f0",
@@ -5101,6 +5277,7 @@
           "0x1a9a0",
           "0x1ab00",
           "0x1ab50",
+          "0x1b040",
           "0x1b400",
           "0x1b430",
           "0x1b500",
@@ -5125,6 +5302,8 @@
           "0x1ce80",
           "0x1cf90",
           "0x1d1c0",
+          "0x1d2f0",
+          "0x1d300",
           "0x1d320",
           "0x1e230",
           "0x1e280",
@@ -5146,6 +5325,7 @@
           "0x1edc0",
           "0x1ede0",
           "0x1ee30",
+          "0x1eeb0",
           "0x1ef10",
           "0x1ef70",
           "0x1efa0",
@@ -5282,6 +5462,16 @@
           "0x33680",
           "0x33720",
           "0x337b0",
+          "0x33860",
+          "0x33890",
+          "0x338c0",
+          "0x338f0",
+          "0x33970",
+          "0x339b0",
+          "0x339f0",
+          "0x33a20",
+          "0x33a60",
+          "0x33a90",
           "0x33ac0",
           "0x33bf0",
           "0x33fd0",
@@ -5459,13 +5649,20 @@
           "0x54290",
           "0x542b0",
           "0x54370",
+          "0x54390",
+          "0x543b0",
           "0x54400",
+          "0x544d0",
+          "0x547e0",
           "0x54810",
           "0x54c20",
           "0x54d80",
+          "0x54dd0",
+          "0x54e30",
           "0x54f60",
           "0x55640",
           "0x557c0",
+          "0x55930",
           "0x56860",
           "0x56ad0",
           "0x56af0",
@@ -5488,11 +5685,14 @@
           "0x59590",
           "0x595b0",
           "0x59680",
+          "0x596d0",
           "0x596f0",
           "0x597f0",
           "0x59880",
           "0x598d0",
+          "0x59920",
           "0x599b0",
+          "0x59f10",
           "0x5a140",
           "0x5a170",
           "0x5a190",
@@ -6517,21 +6717,24 @@
           "0x9a750",
           "0x9a770"
         ],
-        "retained_pseudocode": 1530,
+        "retained_pseudocode": 1555,
         "semantic_contracts": null,
         "rust_ported": null,
         "differential_verified": null,
         "verified_code_bytes": null,
-        "scope": "Successful retained static pseudocode across the exact six-profile union; raw-profile union includes external and thunk rows. Static availability only, not semantic or implementation coverage.",
+        "scope": "Audited raw-profile union: 1555 recognized in-image entries with retained pseudocode and 159 external rows. Includes independently bounded virtual entries; historical snapshots are unchanged. Complete availability for this recognized cohort does not establish exhaustive discovery, correct decompilation, semantic recovery or Rust parity.",
         "accepted_functions": [],
         "inventory_basis": "raw_profile_union",
         "inventory_profiles": [
           "0c1148c7491bbcdf5b3a0f9ea8ba9aad2523b95135b48b9e8385e31b815e1c1a",
           "20f79d3fb10ba69c5463530c8267a6e2a8f5d0d7232ea59fe159849342ec5d7e",
+          "274abe8f77db68a07f35a04e0cf1f5ccd82a7e1af5ede3d2235572a935bebf05",
+          "32952d80e0c5001373e6b5a7e0cab3e36ede4dfb0d8f977cded5b0ec0ad03537",
           "46301268618f6f9f27a2856e15858155a42599f674def681aa6a56df9fe13c64",
           "5fb8141f282b82b7a78df6b2d631f00eb93729605b53b333297ebfb4ff03fe9f",
-          "32952d80e0c5001373e6b5a7e0cab3e36ede4dfb0d8f977cded5b0ec0ad03537",
-          "274abe8f77db68a07f35a04e0cf1f5ccd82a7e1af5ede3d2235572a935bebf05"
+          "6f969b0ae0cb8d4c7bed986a7fbf7c7588015d44b785ffa449d811eead7a2e6c",
+          "d91e39ecb7a8e9e659b00f5d7322ec046ab116b32b211da85106de74f0592ba9",
+          "f419ff26a361f07991be79a8a9f8ea6f5454ae7ae76d108606e0cfc0d3f4940c"
         ]
       },
       {
@@ -8436,6 +8639,385 @@
           }
         ],
         "history_prefix_sha256": "e06f277dc6dfba73b4d86c8152ede9efa8017b0ea5eb188b70a35b1454abd8df"
+      },
+      {
+        "snapshot_id": "RUST-SCOPED-PORTS-20261022-10",
+        "as_of": "2026-10-22",
+        "libraries": [
+          {
+            "name": "Game.exe",
+            "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+            "inventory_total": 4914,
+            "retained_pseudocode": 4784,
+            "rust_ported": null,
+            "differential_verified": null,
+            "inventory_basis": "raw_profile_union",
+            "inventory_profiles": [
+              "7810ea9437da59780820ec6fedb47ce47390841a95d527ddb6c3b3700fe180cb",
+              "adc7f7a80b29038c74df6f4cf084b2b01d7ea637b30d3ff72b4a4921c6a5506f"
+            ],
+            "inventory_membership_sha256": "bd82dbdaecf1981548dd73c0793264b520dc08191fb7e8dc8cc8e3bc244e186b"
+          },
+          {
+            "name": "rw_data.dll",
+            "binary_sha256": "67f72c30cc7fe941f5526b8602a0bd2785baa0f22617bbcfd4a71bacd79b8d49",
+            "inventory_total": 234,
+            "retained_pseudocode": 176,
+            "rust_ported": null,
+            "differential_verified": null,
+            "inventory_basis": "raw_profile_union",
+            "inventory_profiles": [
+              "0ab01856f74d9ae53a8bdf87cad9d330cec9b83fb2e0602b2b0078736849f6cf",
+              "5fb8141f282b82b7a78df6b2d631f00eb93729605b53b333297ebfb4ff03fe9f"
+            ],
+            "inventory_membership_sha256": "7009f3d176d9977c056719cff89645a1c81ffdf581b773c731e97cfa9e355850"
+          },
+          {
+            "name": "LS3DF.dll",
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "inventory_total": 1714,
+            "retained_pseudocode": 1555,
+            "rust_ported": null,
+            "differential_verified": null,
+            "inventory_basis": "raw_profile_union",
+            "inventory_profiles": [
+              "0c1148c7491bbcdf5b3a0f9ea8ba9aad2523b95135b48b9e8385e31b815e1c1a",
+              "20f79d3fb10ba69c5463530c8267a6e2a8f5d0d7232ea59fe159849342ec5d7e",
+              "274abe8f77db68a07f35a04e0cf1f5ccd82a7e1af5ede3d2235572a935bebf05",
+              "32952d80e0c5001373e6b5a7e0cab3e36ede4dfb0d8f977cded5b0ec0ad03537",
+              "46301268618f6f9f27a2856e15858155a42599f674def681aa6a56df9fe13c64",
+              "5fb8141f282b82b7a78df6b2d631f00eb93729605b53b333297ebfb4ff03fe9f",
+              "6f969b0ae0cb8d4c7bed986a7fbf7c7588015d44b785ffa449d811eead7a2e6c",
+              "d91e39ecb7a8e9e659b00f5d7322ec046ab116b32b211da85106de74f0592ba9",
+              "f419ff26a361f07991be79a8a9f8ea6f5454ae7ae76d108606e0cfc0d3f4940c"
+            ],
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
+          },
+          {
+            "name": "Setup.exe (supplied configuration)",
+            "binary_sha256": "c6abff923ecedafc26be3f1abdb8fe286f3a0be1e787ea7b659b6c01a077d25d",
+            "inventory_total": 172,
+            "retained_pseudocode": 172,
+            "rust_ported": null,
+            "differential_verified": null,
+            "inventory_basis": "in_image_non_thunk_procedures",
+            "inventory_profiles": [
+              "7810ea9437da59780820ec6fedb47ce47390841a95d527ddb6c3b3700fe180cb"
+            ],
+            "inventory_membership_sha256": "e0ccf8c5121747ba0608317068c72542b155fd2c758c784b518fd30f983e23df"
+          }
+        ],
+        "systems": {
+          "verified": 0,
+          "total": 12
+        },
+        "scoped_ports": [
+          {
+            "contract_id": "PC-CLOCK-ORACLE-STEP2-20261021",
+            "source_commit": "ed69df16899657065602a8a368f2f6abbda8d642",
+            "entries": 2,
+            "cases": 20,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "1d9209151fcc0fbd937f624431d99110d46071f6ef0ce9c4caf684417fe2032b"
+          },
+          {
+            "contract_id": "PC-SCENE-ORACLE-STEP3-20261021",
+            "source_commit": "8c647af43989f23f28499a307668bef53ad9f59e",
+            "entries": 1,
+            "cases": 13,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "1d9209151fcc0fbd937f624431d99110d46071f6ef0ce9c4caf684417fe2032b"
+          },
+          {
+            "contract_id": "PC-IPOL-CALLBACK-ORACLE-STEP3-20261021",
+            "source_commit": "6fa388aba1071168209f1eac708dd6f37ede2a82",
+            "entries": 1,
+            "cases": 31,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-PHASE-STATIC-20261021",
+            "source_commit": "4101e0b8923a3babd2b54933866a159386cbf0cc",
+            "entries": 1,
+            "cases": 22576,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "1d9209151fcc0fbd937f624431d99110d46071f6ef0ce9c4caf684417fe2032b"
+          },
+          {
+            "contract_id": "PC-ACTOR-TICK-ORACLE-STEP3-20261021",
+            "source_commit": "305f96e4c3f654c17287a1a540af3468c642d3c0",
+            "entries": 1,
+            "cases": 26,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-FRAME-DISPATCH-20261021",
+            "source_commit": "0d634fbc9e02941d70de7c2991cdf2e411156b6e",
+            "entries": 1,
+            "cases": 1509,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "1d9209151fcc0fbd937f624431d99110d46071f6ef0ce9c4caf684417fe2032b"
+          },
+          {
+            "contract_id": "PC-MODEL-TICK-20261021",
+            "source_commit": "0d634fbc9e02941d70de7c2991cdf2e411156b6e",
+            "entries": 1,
+            "cases": 7,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "1d9209151fcc0fbd937f624431d99110d46071f6ef0ce9c4caf684417fe2032b"
+          },
+          {
+            "contract_id": "PC-GAME-SELECTED-LOOP-20261021",
+            "source_commit": "b1ead79fc2d33889560dc41c0754500b962f0f8a",
+            "entries": 1,
+            "cases": 123,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-5DS-POSITION-CHANNEL-002",
+            "source_commit": "671cf2bdc092cc796fd230dcb77b0917aff49a91",
+            "entries": 1,
+            "cases": 2684,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-NAMED-LOOKUP-CONTROLLED-CONTRACT-20261021",
+            "source_commit": "cbeeead64d131b824987d037641166c261a787a8",
+            "entries": 2,
+            "cases": 13,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-PROGRAM-RESET-START-CONTRACT-20261021",
+            "source_commit": "cbeeead64d131b824987d037641166c261a787a8",
+            "entries": 1,
+            "cases": 9,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-NATIVE-TRANSFORM-001",
+            "source_commit": "149d4fcf5de6a1ec5e2a212b057b5ea303f29416",
+            "entries": 7,
+            "cases": 531,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-QUATERNION-NORMALIZE-001",
+            "source_commit": "f08a0b9cc65854f3390a020998edd76263d44e1b",
+            "entries": 1,
+            "cases": 809,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-ORIGINAL-CONFIG-20261021-001",
+            "source_commit": "866d80ed97f1f36bb14f36c8ac2dfb0b69681ff2",
+            "entries": 6,
+            "cases": 1577,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-SCRIPT-SCHEDULER-003",
+            "source_commit": "8fc4da3f558c7fd8f108dbde32007cfc01b307ea",
+            "entries": 2,
+            "cases": 440,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-STARTUP-EFFECTS-CONTRACT-001",
+            "source_commit": "68b4c62d05a7d5908c617ee32c63c37945f8632e",
+            "entries": 5,
+            "cases": 6825,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-NATIVE-TRANSFORM-DEPENDENCIES-001",
+            "source_commit": "8a3221a71f3cd0b77cb528a5591e32fdf3b8f3d9",
+            "entries": 2,
+            "cases": 1063,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-NUMERIC-FRAME-20261022",
+            "source_commit": "a7395701f90c0aeeaf2436a39299c5ae830ccaa7",
+            "entries": 8,
+            "cases": 7800,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "b8ef8e8204a402d100fbca4650f3cbe2b7077e3787ca66675d48110cee0036b5"
+          },
+          {
+            "contract_id": "PC-LS3DF-MAKE-CONTRACT-20261022-002",
+            "source_commit": "6fefd62903047bb0bae8e98226cf7cb815adc11e",
+            "entries": 2,
+            "cases": 18123,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS3DF-POLICE-20261022",
+            "source_commit": "79f7e2968c2aa8145ab86471f97c4a61e6537d3a",
+            "entries": 2,
+            "cases": 245,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS3DF-MATRIX-20261022",
+            "source_commit": "79f7e2968c2aa8145ab86471f97c4a61e6537d3a",
+            "entries": 1,
+            "cases": 10423,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS3DF-SCALE-DIRECTION-CONTRACT-20261022",
+            "source_commit": "6fefd62903047bb0bae8e98226cf7cb815adc11e",
+            "entries": 2,
+            "cases": 21809,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-PHASE2-MODEL-ARENA-20261022",
+            "source_commit": "f6d0ddf22cbacdbe29380b923635b9c0cbdd7198",
+            "entries": 8,
+            "cases": 1015,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "0e71942df94e05689bbad3259743179d6dc19e9a5473317c309dbbbdf036ede4"
+          },
+          {
+            "contract_id": "PC-PHASE2-ACTOR-CACHE-20261022",
+            "source_commit": "f6d0ddf22cbacdbe29380b923635b9c0cbdd7198",
+            "entries": 2,
+            "cases": 1260,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-POLICE-MANAGER-RAW-20261022",
+            "source_commit": "f41da7012ee5ca1bb9aae475c73f024385fde199",
+            "entries": 2,
+            "cases": 1756,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-PHASE4-PLAYER-CONTROL-20261022",
+            "source_commit": "e82f1b3cf30b9ee04700c397089fccdd782ec478",
+            "entries": 5,
+            "cases": 6284,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-RUST-JOINT-OWNED-20261022",
+            "source_commit": "82ea83196b213af2412813a50de46c17813919bf",
+            "entries": 3,
+            "cases": 1335,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "ae02c0d7967f561458aa1e7f4b4132addfb8b675a52bcb7b50a9eeb3cc79597e"
+          },
+          {
+            "contract_id": "PC-GAME-GET-ANIM-INDEX-20261022",
+            "source_commit": "82ea83196b213af2412813a50de46c17813919bf",
+            "entries": 1,
+            "cases": 1636,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS3DF-SINGLEMESH-BINDING-20261022",
+            "source_commit": "31d2bf600104f5ae0b656d892072f524bbc5b7a6",
+            "entries": 3,
+            "cases": 902,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "ae02c0d7967f561458aa1e7f4b4132addfb8b675a52bcb7b50a9eeb3cc79597e"
+          },
+          {
+            "contract_id": "PC-LS3DF-SINGLEMESH-DEFORMATION-20261022",
+            "source_commit": "31d2bf600104f5ae0b656d892072f524bbc5b7a6",
+            "entries": 4,
+            "cases": 4296,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "ae02c0d7967f561458aa1e7f4b4132addfb8b675a52bcb7b50a9eeb3cc79597e"
+          },
+          {
+            "contract_id": "PC-LS3DF-SINGLEMESH-BOUNDS-20261022",
+            "source_commit": "31d2bf600104f5ae0b656d892072f524bbc5b7a6",
+            "entries": 1,
+            "cases": 1024,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "ae02c0d7967f561458aa1e7f4b4132addfb8b675a52bcb7b50a9eeb3cc79597e"
+          },
+          {
+            "contract_id": "PC-GAME-CROUCH-COLLISION-FILTER-20261022",
+            "source_commit": "31d2bf600104f5ae0b656d892072f524bbc5b7a6",
+            "entries": 3,
+            "cases": 2836,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-ANIM-INDEX-20261022",
+            "source_commit": "d735e53971d7cd7d3c75fe985d021253a8ec7cb3",
+            "entries": 2,
+            "cases": 756,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS3DF-MORPH-20261022",
+            "source_commit": "d735e53971d7cd7d3c75fe985d021253a8ec7cb3",
+            "entries": 3,
+            "cases": 280,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "2c82054ce6f892269f8b4b222f9075562151bc7151220594fd7700fb04d0ded6"
+          },
+          {
+            "contract_id": "PC-ROTATION-LINEAR-20261022",
+            "source_commit": "d735e53971d7cd7d3c75fe985d021253a8ec7cb3",
+            "entries": 1,
+            "cases": 4003,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "2c82054ce6f892269f8b4b222f9075562151bc7151220594fd7700fb04d0ded6"
+          },
+          {
+            "contract_id": "PC-LS3DF-TARGET-20261022",
+            "source_commit": "d735e53971d7cd7d3c75fe985d021253a8ec7cb3",
+            "entries": 4,
+            "cases": 669,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "2c82054ce6f892269f8b4b222f9075562151bc7151220594fd7700fb04d0ded6"
+          },
+          {
+            "contract_id": "PC-LS3DF-SETDIRWORLD-20261022",
+            "source_commit": "d735e53971d7cd7d3c75fe985d021253a8ec7cb3",
+            "entries": 1,
+            "cases": 70,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "2c82054ce6f892269f8b4b222f9075562151bc7151220594fd7700fb04d0ded6"
+          },
+          {
+            "contract_id": "PC-LS3DF-DIRECTION-20261022",
+            "source_commit": "d735e53971d7cd7d3c75fe985d021253a8ec7cb3",
+            "entries": 1,
+            "cases": 4493,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "2c82054ce6f892269f8b4b222f9075562151bc7151220594fd7700fb04d0ded6"
+          }
+        ],
+        "history_prefix_sha256": "1bdeb212ef6659fbd9c1df18f62e1c41727843e2586fa232086b15ebcbcef21c"
       }
     ],
     "scoped_ports": [
@@ -8449,13 +9031,13 @@
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x720f0",
             "rust_symbol": "lhr_engine::clock::EngineClock::reset_sample",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           },
           {
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x72100",
             "rust_symbol": "lhr_engine::clock::EngineClock::sample_delta",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           }
         ],
         "contract": {
@@ -8494,7 +9076,7 @@
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x4a0e0",
             "rust_symbol": "lhr_engine::scene_tick::LocalScene::tick",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           }
         ],
         "contract": {
@@ -8533,7 +9115,7 @@
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x1e470",
             "rust_symbol": "lhr_engine::interpolator::InterpolatorSet::tick",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           }
         ],
         "contract": {
@@ -8683,7 +9265,7 @@
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x34010",
             "rust_symbol": "lhr_engine::model_tick::ModelTickState::tick",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           }
         ],
         "contract": {
@@ -8758,7 +9340,7 @@
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x1d320",
             "rust_symbol": "lhr_assets::animation::PositionTrack::sample_position_channel",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           }
         ],
         "contract": {
@@ -8893,43 +9475,43 @@
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x2cf20",
             "rust_symbol": "SMatrix::identity",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           },
           {
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x2e070",
             "rust_symbol": "SMatrix::set_rot3",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           },
           {
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x2e1c0",
             "rust_symbol": "SMatrix::set_rot",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           },
           {
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x2d3a0",
             "rust_symbol": "SMatrix::mul_affine",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           },
           {
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x2d220",
             "rust_symbol": "SMatrix::mul_assign_affine",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           },
           {
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x2e980",
             "rust_symbol": "SMatrix::transform_point",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           },
           {
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x2ec00",
             "rust_symbol": "SQuat::rotation_matrix",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           }
         ],
         "integration_receipt": null
@@ -8965,7 +9547,7 @@
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x30140",
             "rust_symbol": "SQuat::normalize",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           }
         ],
         "integration_receipt": null
@@ -9170,13 +9752,13 @@
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x2f9f0",
             "rust_symbol": "native_transform::vector_length",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           },
           {
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x2fa70",
             "rust_symbol": "SQuat::compose",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           }
         ]
       },
@@ -9190,49 +9772,49 @@
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x1a6e0",
             "rust_symbol": "I3dFrameGraph::update_matrix",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           },
           {
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x1b9d0",
             "rust_symbol": "I3dFrameGraph::link_to",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           },
           {
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x1bf20",
             "rust_symbol": "I3dFrameGraph::remove_child",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           },
           {
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x1c7d0",
             "rust_symbol": "I3dFrameGraph::update_w_matrix_proc",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           },
           {
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x1ca60",
             "rust_symbol": "I3dFrameGraph::update",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           },
           {
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x1d1c0",
             "rust_symbol": "I3dFrameGraph::apply_common_load_image_fields",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           },
           {
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x1cc00",
             "rust_symbol": "I3dFrameGraph::discard_hr_bound_vol",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           },
           {
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x5a390",
             "rust_symbol": "I3dFrameGraph::update_v",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           }
         ],
         "contract": {
@@ -9293,13 +9875,13 @@
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x2ee00",
             "rust_symbol": "SQuat::try_make_axis_angle",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           },
           {
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x2eef0",
             "rust_symbol": "SQuat::try_make_from_matrix",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           }
         ]
       },
@@ -9335,13 +9917,13 @@
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x15a20",
             "rust_symbol": "RawDriverState::set_storage_only",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           },
           {
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x15e50",
             "rust_symbol": "RawDriverState::get_raw",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           }
         ]
       },
@@ -9377,7 +9959,7 @@
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x2d0b0",
             "rust_symbol": "SMatrix::inverse",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           }
         ]
       },
@@ -9391,13 +9973,13 @@
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x2e3a0",
             "rust_symbol": "SMatrix::try_get_scale",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           },
           {
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x2dcf0",
             "rust_symbol": "SMatrix::try_set_dir3",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           }
         ],
         "contract": {
@@ -9433,49 +10015,49 @@
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x33410",
             "rust_symbol": "ModelArena::create_model",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           },
           {
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x1a1e0",
             "rust_symbol": "MaterializedModel::from_parsed",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           },
           {
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x367b0",
             "rust_symbol": "MaterializedModel::from_parsed",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           },
           {
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x21570",
             "rust_symbol": "MaterializedModel::from_parsed",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           },
           {
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x33680",
             "rust_symbol": "ModelArena::add_frame",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           },
           {
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x33720",
             "rust_symbol": "ModelArena::delete_frame",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           },
           {
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x603e0",
             "rust_symbol": "MaterializedModel::from_parsed",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           },
           {
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x1a6a0",
             "rust_symbol": "MaterializedModel::from_parsed",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           }
         ],
         "contract": {
@@ -9658,19 +10240,19 @@
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x1ed30",
             "rust_symbol": "joint_state::I3dJointState::default",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           },
           {
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x1ef10",
             "rust_symbol": "joint_state::I3dJointState::apply_load_image_fields",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           },
           {
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x1ee30",
             "rust_symbol": "frame_transform::I3dFrameGraph::update_v",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           }
         ],
         "contract": {
@@ -9745,19 +10327,19 @@
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x56ba0",
             "rust_symbol": "frame_transform::I3dFrameGraph::get_joint_matrix",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           },
           {
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x54c20",
             "rust_symbol": "frame_transform::I3dFrameGraph::d_build_binding",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           },
           {
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x54d80",
             "rust_symbol": "frame_transform::I3dFrameGraph::find_joint",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           }
         ],
         "contract": {
@@ -9796,25 +10378,25 @@
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x68360",
             "rust_symbol": "singlemesh_deformation::transform_skin_vertices",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           },
           {
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x68430",
             "rust_symbol": "singlemesh_deformation::blend_skin_vertices",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           },
           {
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x2e1f0",
             "rust_symbol": "singlemesh_deformation::skin_normal_matrix",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           },
           {
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x54f60",
             "rust_symbol": "singlemesh_deformation::deform_singlemesh_lod",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           }
         ],
         "contract": {
@@ -9853,7 +10435,7 @@
             "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
             "entry_rva": "0x54810",
             "rust_symbol": "singlemesh_bounds::calculate_singlemesh_bounds",
-            "inventory_membership_sha256": "2b9228b210d9f2c347e67994558094a9ec49c9683c6e9e5c6ab4c7da93f3603c"
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
           }
         ],
         "contract": {
@@ -9929,6 +10511,273 @@
         "scope": "Three complete projected PC control/state bodies match 2,836 original cases in debug and optimized Rust: 1,836 crouch operations and 500 cases for each collision-owner setter. Tests preserve guards, exact query parameters, callback/filter ordering, stale-field retention, nonzero-hit handling and explicit host failure prefixes. Actual frame-update and sphere-collision callees are instrumented boundaries, so this does not establish original collision geometry, actor construction, animation ownership, playable controls or mission execution. PS2 symbols support names and correspondence; PC platform differences are retained.",
         "integration": "not_integrated",
         "integration_receipt": null
+      },
+      {
+        "name": "Game animation-index initialization and cleanup",
+        "source_path": "crates/lhr-engine/src/animation_index.rs",
+        "source_commit": "d735e53971d7cd7d3c75fe985d021253a8ec7cb3",
+        "source_sha256": "d888a0202123abaf2668e49277476821a4d73064544385bc68a948223ed4549d",
+        "functions": [
+          {
+            "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+            "entry_rva": "0x86b0",
+            "rust_symbol": "animation_index::AnimationIndexState::init_anim_index",
+            "inventory_membership_sha256": "bd82dbdaecf1981548dd73c0793264b520dc08191fb7e8dc8cc8e3bc244e186b"
+          },
+          {
+            "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+            "entry_rva": "0x8750",
+            "rust_symbol": "animation_index::AnimationIndexState::cleanup_anim_index",
+            "inventory_membership_sha256": "bd82dbdaecf1981548dd73c0793264b520dc08191fb7e8dc8cc8e3bc244e186b"
+          }
+        ],
+        "contract": {
+          "id": "PC-GAME-ANIM-INDEX-20261022",
+          "sha256": "78a40e4737b9603d0ef570cc8bda2bf03e026d00e7e3ab9380301fb475ec8b49"
+        },
+        "comparison": {
+          "id": "PC-GAME-ANIM-INDEX-FINAL-20261022",
+          "sha256": "8856fa0dfe197c71d0519c63df520a927c4c13413940e383a43aacc1e6eab0cb"
+        },
+        "reviews": [
+          {
+            "id": "PC-TOMMY-CODE-20261022-R1",
+            "sha256": "7a463eb59839149fd16821adf692efd41be6f1ce7e6c27553bc2160924ebccaa"
+          },
+          {
+            "id": "PC-TOMMY-CODE-20261022-R2",
+            "sha256": "37b19db53a5d4b4bbb68f35c60e630966e1f87f2608a7c406f703c3e47898b06"
+          }
+        ],
+        "cases": 756,
+        "scope": "Caller-owned code/resource records preserve sentinel scanning, required allocation, original specialized equal-key sort order and cleanup pointer/count effects. All 756 cases and 353124 records match native output; 12 unavailable-call prefixes remain explicit. Original catalog, resource cache, allocator/release implementations and actor integration are not supplied.",
+        "integration": "not_integrated",
+        "integration_receipt": null
+      },
+      {
+        "name": "LS3DF morph weights and first-LOD deformation",
+        "source_path": "crates/lhr-engine/src/singlemorph_state.rs",
+        "source_commit": "d735e53971d7cd7d3c75fe985d021253a8ec7cb3",
+        "source_sha256": "dad718fbef65b3e0f931a5d2f2e600999f0675e8d0d375cb88262f6852e9e091",
+        "functions": [
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x34460",
+            "rust_symbol": "singlemorph_state::SinglemorphState::set_weight",
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
+          },
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x344b0",
+            "rust_symbol": "singlemorph_state::SinglemorphState::normalize_weights",
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
+          },
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x34570",
+            "rust_symbol": "singlemorph_state::SinglemorphState::update_morph_lod",
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
+          }
+        ],
+        "contract": {
+          "id": "PC-LS3DF-MORPH-20261022",
+          "sha256": "18f7af47d78628f399c1d76d16c050042cb59c10595ba96b4d7b9763907ca824"
+        },
+        "comparison": {
+          "id": "PC-LS3DF-MORPH-FINAL-20261022",
+          "sha256": "efb66ab050ff42bd4ef6b99ebcac28f95a6a6661d97971f0aa7f9780ecd4ab97"
+        },
+        "reviews": [
+          {
+            "id": "PC-TOMMY-CODE-20261022-R1",
+            "sha256": "7a463eb59839149fd16821adf692efd41be6f1ce7e6c27553bc2160924ebccaa"
+          },
+          {
+            "id": "PC-TOMMY-CODE-20261022-R2",
+            "sha256": "37b19db53a5d4b4bbb68f35c60e630966e1f87f2608a7c406f703c3e47898b06"
+          }
+        ],
+        "cases": 280,
+        "scope": "Bounded signed-weight normalization, strict thresholds, source-order region overwrite, explicit vertex associations and retained dirty buffers match 256 weight cases and 24 original Tommy variants. Initial morph and inherited skin operations feed the sampled-pose renderer. Missing native index storage is unavailable; no native resource/buffer lifetime or complete LoadImage claim.",
+        "integration": "static_inspection",
+        "integration_receipt": {
+          "id": "PC-TOMMY-COMPOSED-20261022",
+          "sha256": "2c82054ce6f892269f8b4b222f9075562151bc7151220594fd7700fb04d0ded6"
+        }
+      },
+      {
+        "name": "LS3DF linear quaternion interpolation and rotation evaluation",
+        "source_path": "crates/lhr-engine/src/rotation_animation.rs",
+        "source_commit": "d735e53971d7cd7d3c75fe985d021253a8ec7cb3",
+        "source_sha256": "852fa03041d04cb601c74d2defd95b3e1b31c03d66e0036b3b2b3b267667e6dd",
+        "functions": [
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x2fee0",
+            "rust_symbol": "rotation_animation::try_slerp_linear",
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
+          }
+        ],
+        "contract": {
+          "id": "PC-ROTATION-LINEAR-20261022",
+          "sha256": "69afe142a6baf5b19790b5a61fc72062b818e90141f0bb9d38cf4f1c5d23baff"
+        },
+        "comparison": {
+          "id": "PC-ROTATION-LINEAR-COMPARE-20261022",
+          "sha256": "b451cdb76c201543aa41c117ed8d9f9e7c169468db8973ec907492227eeaa94c"
+        },
+        "reviews": [
+          {
+            "id": "PC-TOMMY-CODE-20261022-R1",
+            "sha256": "7a463eb59839149fd16821adf692efd41be6f1ce7e6c27553bc2160924ebccaa"
+          },
+          {
+            "id": "PC-TOMMY-CODE-20261022-R2",
+            "sha256": "37b19db53a5d4b4bbb68f35c60e630966e1f87f2608a7c406f703c3e47898b06"
+          }
+        ],
+        "cases": 4003,
+        "scope": "The linear Slerp branch matches 4003 original cases; 2002 spherical cases remain explicitly unavailable. Rotation evaluation also matches 99579 original samples and 138 edge cases, with required destination normalization. Existing evaluator and Normalize entries receive no duplicate credit. Multiple controller slots, spherical interpolation and lifecycle remain open.",
+        "integration": "static_inspection",
+        "integration_receipt": {
+          "id": "PC-TOMMY-COMPOSED-20261022",
+          "sha256": "2c82054ce6f892269f8b4b222f9075562151bc7151220594fd7700fb04d0ded6"
+        }
+      },
+      {
+        "name": "LS3DF Target links and deferred direction updates",
+        "source_path": "crates/lhr-engine/src/target_state.rs",
+        "source_commit": "d735e53971d7cd7d3c75fe985d021253a8ec7cb3",
+        "source_sha256": "1bbe0fbd2885ace037dbc75af32679611ab77427a23089980a28c2313c0478b2",
+        "functions": [
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x59920",
+            "rust_symbol": "target_state::TargetUpdateQueue::update_v",
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
+          },
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x599b0",
+            "rust_symbol": "target_state::I3dTargetState::update_frames_with_backend",
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
+          },
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x596d0",
+            "rust_symbol": "target_state::I3dTargetState::set_target_flags_with_backend",
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
+          },
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x596f0",
+            "rust_symbol": "target_state::TargetRegistry::add_to_target",
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
+          }
+        ],
+        "contract": {
+          "id": "PC-LS3DF-TARGET-20261022",
+          "sha256": "88a797a1625af9bd00d89a1c57d88a12b3d2f5a737094c32f8c45b9b82dc1dc0"
+        },
+        "comparison": {
+          "id": "PC-LS3DF-TARGET-FINAL-20261022",
+          "sha256": "8856fa0dfe197c71d0519c63df520a927c4c13413940e383a43aacc1e6eab0cb"
+        },
+        "reviews": [
+          {
+            "id": "PC-TOMMY-CODE-20261022-R1",
+            "sha256": "7a463eb59839149fd16821adf692efd41be6f1ce7e6c27553bc2160924ebccaa"
+          },
+          {
+            "id": "PC-TOMMY-CODE-20261022-R2",
+            "sha256": "37b19db53a5d4b4bbb68f35c60e630966e1f87f2608a7c406f703c3e47898b06"
+          }
+        ],
+        "cases": 669,
+        "scope": "Owned Target links preserve zero-reference filtering, duplicates, membership effects and deferred update order. Native comparisons cover 49 derived-load/resolver cases, eight enqueue guards, five ownership sequences, four zero-mode/update observations, three constructor projections and 600 look-at callback cases. Direction mode and low-nibble-zero mode have required backends; other transform modes fail explicitly. Constructor, loader and removal dependencies receive no additional entry credit; native allocation and destruction remain separate.",
+        "integration": "static_inspection",
+        "integration_receipt": {
+          "id": "PC-TOMMY-COMPOSED-20261022",
+          "sha256": "2c82054ce6f892269f8b4b222f9075562151bc7151220594fd7700fb04d0ded6"
+        }
+      },
+      {
+        "name": "LS3DF parent-relative SetDirWorld and Target graph integration",
+        "source_path": "crates/lhr-engine/src/frame_transform.rs",
+        "source_commit": "d735e53971d7cd7d3c75fe985d021253a8ec7cb3",
+        "source_sha256": "f8789520a0c940e53f3a1b59b477c6ccdae91449cebf699fec481fcbc378bc5b",
+        "functions": [
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x1b040",
+            "rust_symbol": "frame_transform::I3dFrameGraph::set_direction_world",
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
+          }
+        ],
+        "contract": {
+          "id": "PC-LS3DF-SETDIRWORLD-20261022",
+          "sha256": "04a39035882b00234fccf818dcbeceaf40998d80fd1a87b50f99722eac0a85c5"
+        },
+        "comparison": {
+          "id": "PC-LS3DF-SETDIRWORLD-FINAL-20261022",
+          "sha256": "efb66ab050ff42bd4ef6b99ebcac28f95a6a6661d97971f0aa7f9780ecd4ab97"
+        },
+        "reviews": [
+          {
+            "id": "PC-TOMMY-CODE-20261022-R1",
+            "sha256": "7a463eb59839149fd16821adf692efd41be6f1ce7e6c27553bc2160924ebccaa"
+          },
+          {
+            "id": "PC-TOMMY-CODE-20261022-R2",
+            "sha256": "37b19db53a5d4b4bbb68f35c60e630966e1f87f2608a7c406f703c3e47898b06"
+          }
+        ],
+        "cases": 70,
+        "scope": "Parent-present SetDirWorld with near-zero roll matches 70 original cases over seven parent matrices; 14 additional cases return explicit unsupported arithmetic errors. Parent cache, inverse fallback, direction matrix, local basis stores and flags retain original order. Target queue flush occurs after root dirty clearing, preserves duplicates/reentrancy, and poisons interrupted graph updates. Parentless and nonzero-roll paths remain unavailable.",
+        "integration": "static_inspection",
+        "integration_receipt": {
+          "id": "PC-TOMMY-COMPOSED-20261022",
+          "sha256": "2c82054ce6f892269f8b4b222f9075562151bc7151220594fd7700fb04d0ded6"
+        }
+      },
+      {
+        "name": "LS3DF Target direction-matrix arithmetic",
+        "source_path": "crates/lhr-engine/src/target_direction.rs",
+        "source_commit": "d735e53971d7cd7d3c75fe985d021253a8ec7cb3",
+        "source_sha256": "3f4d7aa5e5bf51bc98f00580430c66ad0c8f0739e395d8f5adcac2436bf36ead",
+        "functions": [
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x2d9d0",
+            "rust_symbol": "target_direction::try_target_direction_matrix",
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
+          }
+        ],
+        "contract": {
+          "id": "PC-LS3DF-DIRECTION-20261022",
+          "sha256": "a052a26f44e95eeff1456328ca05fca307f5c4e86deadd2c61e7bb6bea1fd8fe"
+        },
+        "comparison": {
+          "id": "PC-LS3DF-DIRECTION-COMPARE-20261022",
+          "sha256": "a052a26f44e95eeff1456328ca05fca307f5c4e86deadd2c61e7bb6bea1fd8fe"
+        },
+        "reviews": [
+          {
+            "id": "PC-TOMMY-CODE-20261022-R1",
+            "sha256": "7a463eb59839149fd16821adf692efd41be6f1ce7e6c27553bc2160924ebccaa"
+          },
+          {
+            "id": "PC-TOMMY-CODE-20261022-R2",
+            "sha256": "37b19db53a5d4b4bbb68f35c60e630966e1f87f2608a7c406f703c3e47898b06"
+          }
+        ],
+        "cases": 4493,
+        "scope": "The original direction-matrix leaf matches all 4493 physical-x86 and QEMU cases, including axis, signed-zero, tiny, threshold-neighbor and random vectors. Each consumed PC24 intermediate must remain normal or zero; unavailable exponent and nonfinite inputs return errors. It feeds the bounded SetDirWorld path without replacing original math with generic look-at behavior.",
+        "integration": "static_inspection",
+        "integration_receipt": {
+          "id": "PC-TOMMY-COMPOSED-20261022",
+          "sha256": "2c82054ce6f892269f8b4b222f9075562151bc7151220594fd7700fb04d0ded6"
+        }
       }
     ],
     "other_targets": [

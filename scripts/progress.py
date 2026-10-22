@@ -663,7 +663,9 @@ def render_svg_v3(snapshot):
 
     installer = snapshot['other_targets'][0]
     cards = ''.join([
-        card(36, 112, 'GAME.EXE · STATIC RETAINED PSEUDOCODE', count(game), 'Raw profile inventory · includes external/thunk rows', palette['blue'], pct(game)),
+        card(36, 112, 'GAME.EXE · STATIC RETAINED PSEUDOCODE', count(game),
+             ('Raw profile union' if game['inventory_basis'] == 'raw_profile_union' else 'Raw profile inventory')
+             + ' · includes external/thunk rows', palette['blue'], pct(game)),
         card(432, 112, 'LS3DF.DLL · STATIC RETAINED PSEUDOCODE', count(ls3df), 'Explicit profile union · not semantic coverage', palette['green'], pct(ls3df)),
         card(36, 278, 'REVIEWED SCOPED RUST PORTS', f'{entry_count} entries · {len(ports)} contracts', f'{static_count} used in static inspection · {unrecorded} unrecorded', palette['amber']),
         card(432, 278, 'STRICT FULL-SYSTEM VERIFICATION', f"{systems['verified']} / {systems['total']}", 'Verified complete systems · strict evidence gate', palette['muted']),

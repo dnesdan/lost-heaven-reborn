@@ -19,14 +19,14 @@ Use the [pinned reference audit](REFERENCE_PROJECTS.md) as a function and depend
 
 PS2 symbols help recover original names. Keep three origins distinct: an actual original symbol, an upstream-assigned PC correspondence, and a descriptive working name. Record hashes and addresses privately. The supplied PS2 ELF retains linker symbols; the presence of names does not establish full type/member debug information. Verify PC/PS2 layouts, calling conventions and behavior independently before sharing implementations.
 
-Build on the verified Joint state and the scoped visual-2 singlemesh binding, bounds and CPU deformation paths. These prerequisites do not yet load or animate the actual first-mission player: MISE01's `TommyTAXIDRIVER` model uses visual-3 singlemorph.
+The actual first-mission `TommyTAXIDRIVER` visual-3 model now loads into the owned Joint/Target hierarchy. Static and independently sampled `breath01a` poses match original morph, skin, frame and bounds outputs. Original 5DS rotation records, bounded rotation evaluation, exact record-to-frame binding and AC access are implemented; these are prerequisites for a character controller, not a playable player.
 
 The next dependency order is:
 
-1. Recover visual-3 model loading and owned skin/morph data so the original Tommy model can enter the existing frame hierarchy without substituting another character.
-2. Complete the original 5DS rotation channels and exact track-to-frame binding. Discover animation resources in the user-owned AC archive and recover the resource cache, animation-set loading and required TCK paths; add A4 access where those paths require it.
-3. Connect actual actor/BODY, model and interpolator ownership to animation selection and pose application. Establish the PC animation-code/resource mapping without requiring the original executable at runtime. Bootstrap research and lookup helpers do not constitute implemented animation initialization.
-4. Continue the original control-lock and release path, then replay, attachments, collision-backed player and vehicle movement, camera, damage, pursuit and mission objectives through completion. Compare the same representative sequence in the original runtime and interactive Rust runs.
+1. Connect the verified model/Target/morph/skin and position/rotation evaluator paths to original IPol controller ownership and time advancement. Recover missing spherical rotations, scale/notes and blend modes as required by first-mission clips.
+2. Recover animation-set/resource cache and required TCK paths, adding A4 access when evidenced. The caller-owned InitAnimIndex sort/cleanup is verified, but the original resource catalog and lifetime remain open.
+3. Connect actor/BODY, model and interpolator ownership to animation selection. Keep original animation-code/resource mappings outside any dependency on Game.exe at runtime.
+4. Continue original control lock/release, replay, attachments, collision-backed movement, vehicles, camera, pursuit and mission objectives through completion. Compare original-runtime traces and interactive Rust runs of the same sequence.
 
 Work on independent dependencies in parallel using Astra and Sol agents. Integrate verified functions when their real callers and ownership are ready; unavailable paths continue to fail explicitly. Keep library contracts, asset inspection and complete first-mission behavior as separate evidence claims.
 
