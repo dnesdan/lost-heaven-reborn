@@ -1,12 +1,13 @@
-//! Nonmanaged PC ITexture lifetime and concrete material integration.
+//! PC ITexture lifetime and concrete material integration.
 //! Original PC LS3DF.dll SHA-256:
 //! e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6.
 //! Scoped RVAs: ctor0x75c10, Release0x75cd0, nondeleting dtor0x75c50,
-//! Close0x78680, Unlock0x78820. ITexture/C_str names have original PS2
+//! Close0x78680, Unlock0x78820; managed removal0x7aee0 is defined in texture_manager. ITexture/C_str names have original PS2
 //! provenance; PC layout/order are independently evidenced, not PS2 equivalence.
 //! TextureResources is a descriptive host facade, not Create/upload/Lock or
 //! renderer texture ownership. Constructor-unwritten fields remain unavailable.
-//! Managed/queued/pool ownership is rejected before effects (mask0xc0000040).
+//! Managed ownership requires an admitted seeded world and real optional backend
+//! capability; unknown managed/queued/pool state rejects before effects.
 //! Required surface/graphics/pixels/string/buffer effects are external, serialized
 //! and nonreentrant in one compatible live identity domain. Explicit cleanup is
 //! necessary; Drop cannot run these callbacks. Host tombstones do not represent
@@ -17,6 +18,9 @@ use crate::i3d_object::{
     ObjectError, ObjectOperationError, ObjectResourceKey, ObjectResources, PlainLodKey,
 };
 use crate::managed_visual_resources::ManagedVisualBackend;
+use crate::texture_manager::{
+    ManagedOperationError, ManagedTextureEffects, ManagedWorldIntake, ManagerError, TextureManager,
+};
 use crate::visual_resources::{
     self as vr, FaceGroupKey, MaterialKey, MeshLevelKey, MeshObjectKey, RawVertexBytesKey,
 };
@@ -41,12 +45,20 @@ pub struct TextureGraphics(pub u64);
 pub struct TextureSurface(pub u64);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct PixelAllocation(pub u64);
-/// Descriptive identity for explicitly excluded managed-record ownership.
+/// Stable allocation identity of a managed record, distinct from active membership.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ManagedRecordKey(pub u64);
 pub trait TextureBackend:
     BufferBackend + CStrBackend<Error = <Self as BufferBackend>::Error>
 {
+    /// Optional capability lookup is pure and stable throughout each call.
+    /// None explicitly rejects managed cleanup before effects; it is not a
+    /// successful replacement. Real implementations supply every required effect.
+    fn managed_texture_effects(
+        &mut self,
+    ) -> Option<&mut dyn ManagedTextureEffects<Error = <Self as BufferBackend>::Error>> {
+        None
+    }
     fn unlock_surface(
         &mut self,
         surface: TextureSurface,
@@ -108,6 +120,7 @@ pub struct ITexture {
     pub state: TextureState,
     token: vr::TextureKey,
     intake_installed: bool,
+    managed_admitted: bool,
 }
 #[derive(Clone, Copy, Debug)]
 pub enum AlphaName<'a> {
@@ -160,6 +173,12 @@ pub enum TextureError {
     HostAllocation,
     IdentityOverflow,
     UnknownExternalString,
+    Manager(ManagerError),
+}
+impl From<ManagerError> for TextureError {
+    fn from(e: ManagerError) -> Self {
+        Self::Manager(e)
+    }
 }
 impl From<ObjectError> for TextureError {
     fn from(e: ObjectError) -> Self {
@@ -175,6 +194,12 @@ impl From<StringError> for TextureError {
 pub enum TextureOperationError<E> {
     State(TextureError),
     Backend(E),
+    Manager(ManagedOperationError<E>),
+}
+impl<E> From<ManagerError> for TextureOperationError<E> {
+    fn from(e: ManagerError) -> Self {
+        Self::State(e.into())
+    }
 }
 impl<E> From<TextureError> for TextureOperationError<E> {
     fn from(e: TextureError) -> Self {
@@ -205,6 +230,7 @@ struct Textures {
     cached: Vec<TextureKey>,
     uncached: Vec<TextureKey>,
     poisoned: bool,
+    manager: TextureManager,
 }
 impl Textures {
     fn texture(&self, k: TextureKey) -> Result<&ITexture, TextureError> {
@@ -237,11 +263,49 @@ impl Textures {
             .ok_or(TextureError::InvalidIdentity)
     }
     fn domain(&self, k: TextureKey) -> Result<(), TextureError> {
-        if self.live(k)?.flags & 0xc0000040 != 0 || self.live(k)?.managed_record.is_some() {
+        let t = self.live(k)?;
+        if t.managed_admitted {
+            self.manager
+                .validate_lifetime(k, t.flags, t.managed_record, t.graphics)?;
+            Ok(())
+        } else if t.flags & 0xc0000040 != 0
+            || t.managed_record.is_some()
+            || self.manager.has_links(k)
+        {
             Err(TextureError::ManagedUnsupported)
         } else {
             Ok(())
         }
+    }
+    fn preflight_close<B: TextureBackend + ?Sized>(
+        &self,
+        k: TextureKey,
+        b: &mut B,
+    ) -> Result<(), TextureError> {
+        self.domain(k)?;
+        let t = self.texture(k)?;
+        if t.managed_admitted {
+            self.manager
+                .validate_close(k, t.flags, t.managed_record, t.graphics)?;
+            if b.managed_texture_effects().is_none() {
+                return Err(TextureError::ManagedUnsupported);
+            }
+        }
+        Ok(())
+    }
+    fn remove_managed<B: TextureBackend + ?Sized>(
+        &mut self,
+        k: TextureKey,
+        b: &mut B,
+    ) -> Result<bool, TextureOperationError<<B as BufferBackend>::Error>> {
+        self.domain(k)?;
+        let effects = b
+            .managed_texture_effects()
+            .ok_or(TextureError::ManagedUnsupported)?;
+        let flags = &mut self.slots[(k.slot - 1) as usize].as_mut().unwrap().flags;
+        self.manager
+            .remove(k, flags, effects)
+            .map_err(TextureOperationError::Manager)
     }
     fn can_retain(&self, k: TextureKey) -> Result<(), TextureError> {
         if self.live(k)?.references >= i32::MAX as u32 {
@@ -290,9 +354,17 @@ impl Textures {
         strings: &mut CStrings,
         b: &mut B,
     ) -> Result<(), TextureOperationError<<B as BufferBackend>::Error>> {
-        self.domain(k)?;
+        self.preflight_close(k, b)?;
         let result = (|| {
             self.unlock(k, b)?;
+            if self.texture(k)?.flags & 0x40 != 0 {
+                self.remove_managed(k, b)?;
+                let t = self.texture_mut(k);
+                t.managed_record = None;
+                t.graphics = None;
+                t.managed_admitted = false;
+            }
+
             if let Some(pixels) = self.texture(k)?.pixels {
                 self.call(b.delete_pixels(pixels))?;
                 self.texture_mut(k).pixels = None;
@@ -333,7 +405,7 @@ impl Textures {
         strings: &mut CStrings,
         b: &mut B,
     ) -> Result<(), TextureOperationError<<B as BufferBackend>::Error>> {
-        self.domain(k)?;
+        self.preflight_close(k, b)?;
         let result = (|| {
             self.close(k, strings, b)?;
             let t = self.texture(k)?;
@@ -364,6 +436,9 @@ impl Textures {
         }) == 0
         {
             return Err(TextureError::ReferenceOwned.into());
+        }
+        if t.references == 1 {
+            self.preflight_close(k, b)?;
         }
         let t = self.texture_mut(k);
         t.references -= 1;
@@ -403,6 +478,7 @@ impl TextureResources {
                 cached: Vec::new(),
                 uncached: Vec::new(),
                 poisoned: false,
+                manager: TextureManager::new(identity),
             },
             external_strings: Vec::new(),
             poisoned: false,
@@ -427,6 +503,7 @@ impl TextureResources {
         self.poisoned
             || self.objects.is_poisoned()
             || self.textures.poisoned
+            || self.textures.manager.is_poisoned()
             || self.strings.is_poisoned()
     }
     fn available(&self) -> Result<(), TextureError> {
@@ -477,6 +554,7 @@ impl TextureResources {
             state: TextureState::Live,
             token: vr::TextureKey(token),
             intake_installed: false,
+            managed_admitted: false,
         }));
         Ok(TextureKey {
             arena: self.textures.identity,
@@ -506,7 +584,11 @@ impl TextureResources {
         self.available()?;
         self.textures.domain(k)?;
         let t = self.textures.live(k)?;
-        if t.intake_installed || t.references != 1 || t.external_references != 1 {
+        if t.intake_installed
+            || t.managed_admitted
+            || t.references != 1
+            || t.external_references != 1
+        {
             return Err(TextureError::IntakeAlreadyInstalled.into());
         }
         if input.flags & 0xc0000040 != 0 {
@@ -611,6 +693,60 @@ impl TextureResources {
         list.push(k);
         Ok(())
     }
+    pub fn texture_manager(&self) -> &TextureManager {
+        &self.textures.manager
+    }
+    /// Atomic seeded-world ownership intake, not Add/Request/worker execution.
+    /// Existing texture graphics must be null: pool graphics are adopted as
+    /// separately owned references, then the texture receives only a borrow.
+    pub fn install_managed_world(&mut self, input: ManagedWorldIntake) -> Result<(), TextureError> {
+        self.available()?;
+        for binding in &input.bindings {
+            let t = self.textures.live(binding.texture)?;
+            if t.managed_admitted
+                || t.graphics.is_some()
+                || t.managed_record.is_some()
+                || t.flags & 0xc0000040 != 0
+            {
+                return Err(TextureError::ManagedUnsupported);
+            }
+        }
+        // These scalar allocations share the backend's unique live-allocation
+        // identity domain. Never adopt a buffer already owned by C_str/pixels.
+        let aliases = |raw: u64| {
+            self.strings.owns_allocation(raw)
+                || self
+                    .textures
+                    .slots
+                    .iter()
+                    .flatten()
+                    .any(|t| t.pixels.is_some_and(|p| p.0 == raw))
+        };
+        for record in &input.records {
+            if aliases(record.allocation.0) || record.file_name.is_some_and(|a| aliases(a.0)) {
+                return Err(ManagerError::InvalidIdentity.into());
+            }
+        }
+        let bindings = self.textures.manager.install(input)?;
+        for binding in bindings {
+            let t = self.textures.texture_mut(binding.texture);
+            t.flags = binding.flags;
+            t.managed_record = binding.record;
+            t.graphics = binding.graphics;
+            t.managed_admitted = true;
+        }
+        Ok(())
+    }
+    /// Original manager-removal projection. It preserves the texture's raw
+    /// managed-record and borrowed graphics pointers, including stale identity.
+    pub fn remove_managed_texture<B: TextureBackend + ?Sized>(
+        &mut self,
+        k: TextureKey,
+        b: &mut B,
+    ) -> Result<bool, TextureOperationError<<B as BufferBackend>::Error>> {
+        self.available()?;
+        self.textures.remove_managed(k, b)
+    }
     pub fn retain_texture(&mut self, k: TextureKey) -> Result<(), TextureError> {
         self.available()?;
         self.textures.retain(k, false)
@@ -695,6 +831,24 @@ impl TextureResources {
         >,
     ) -> Result<T, TextureOperationError<<B as BufferBackend>::Error>> {
         self.available()?;
+        // A seeded managed world requires a complete stable backend for object
+        // operations, before any ancestor reference/resource effect. This host
+        // availability bound also excludes duplicate-record cleanup until direct
+        // removals have reduced each target to at most one active record.
+        for (i, t) in self.textures.slots.iter().enumerate() {
+            if t.as_ref()
+                .is_some_and(|t| t.state == TextureState::Live && t.managed_admitted)
+            {
+                self.textures.preflight_close(
+                    TextureKey {
+                        arena: self.textures.identity,
+                        slot: i as u32 + 1,
+                    },
+                    b,
+                )?;
+            }
+        }
+
         let mut adapter = Adapter {
             textures: &mut self.textures,
             strings: &mut self.strings,
@@ -1072,6 +1226,7 @@ impl TextureResources {
 mod tests {
     use super::*;
     use crate::c_str::{CRepKey, StringAllocation};
+    use crate::texture_manager::*;
     use std::collections::BTreeMap;
     #[derive(Clone, Debug, PartialEq, Eq)]
     enum Event {
@@ -1085,6 +1240,10 @@ mod tests {
         BufferFree(bm::AllocationToken),
         BlockFree(bm::AllocationToken),
         BufferGraphicsFree(bm::GraphicsBuffer),
+        Enter,
+        Leave,
+        ManagedFilename(Option<ManagedFilenameAllocation>),
+        ManagedRecord(ManagedRecordKey),
     }
     #[derive(Default)]
     struct Backend {
@@ -1101,6 +1260,14 @@ mod tests {
         fail_string_free: bool,
         fail_surface_free: bool,
         fail_texture_free: bool,
+        managed_enabled: bool,
+        section_held: bool,
+        fail_enter: bool,
+        fail_filename: bool,
+        fail_record: bool,
+        fail_leave: bool,
+        managed_files: BTreeMap<u64, bool>,
+        managed_records: BTreeMap<u64, bool>,
     }
     impl Backend {
         fn next(&mut self) -> u64 {
@@ -1245,7 +1412,63 @@ mod tests {
             Err("fixture graphics should succeed")
         }
     }
+    impl ManagedTextureEffects for Backend {
+        type Error = &'static str;
+        fn enter_texture_section(&mut self) -> Result<(), Self::Error> {
+            self.events.push(Event::Enter);
+            assert!(!self.section_held);
+            if self.fail_enter {
+                return Err("enter rejected without lock");
+            }
+            self.section_held = true;
+            Ok(())
+        }
+        fn leave_texture_section(&mut self) -> Result<(), Self::Error> {
+            assert!(self.section_held);
+            self.events.push(Event::Leave);
+            if self.fail_leave {
+                return Err("leave failed");
+            }
+            self.section_held = false;
+            Ok(())
+        }
+        fn delete_managed_filename(
+            &mut self,
+            a: Option<ManagedFilenameAllocation>,
+        ) -> Result<(), Self::Error> {
+            assert!(self.section_held);
+            self.events.push(Event::ManagedFilename(a));
+            if let Some(a) = a {
+                assert_eq!(self.managed_files.remove(&a.0), Some(true));
+            }
+            if self.fail_filename {
+                Err("filename freed then failed")
+            } else {
+                Ok(())
+            }
+        }
+        fn delete_managed_record(&mut self, a: ManagedRecordKey) -> Result<(), Self::Error> {
+            assert!(self.section_held);
+            self.events.push(Event::ManagedRecord(a));
+            assert_eq!(self.managed_records.remove(&a.0), Some(true));
+            if self.fail_record {
+                Err("record freed then failed")
+            } else {
+                Ok(())
+            }
+        }
+    }
     impl TextureBackend for Backend {
+        fn managed_texture_effects(
+            &mut self,
+        ) -> Option<&mut dyn ManagedTextureEffects<Error = &'static str>> {
+            if self.managed_enabled {
+                Some(self)
+            } else {
+                None
+            }
+        }
+
         fn unlock_surface(&mut self, s: TextureSurface) -> Result<(), &'static str> {
             assert!(self.surfaces.contains_key(&s.0));
             self.events.push(Event::SurfaceUnlock(s));
@@ -1289,6 +1512,81 @@ mod tests {
         ) -> Result<(), &'static str> {
             Err("raw geometry not supplied")
         }
+    }
+    fn managed_fixture(
+        r: &mut TextureResources,
+        b: &mut Backend,
+        duplicate: bool,
+        missing: bool,
+    ) -> (TextureKey, ManagedWorldIntake) {
+        let key = r.create_texture().unwrap();
+        let mut input = b.input();
+        let graphics = input.graphics.take().unwrap();
+        r.install_texture(key, input, b).unwrap();
+        let mut records = Vec::new();
+        if !missing {
+            for i in 0..if duplicate { 2 } else { 1 } {
+                let file = ManagedFilenameAllocation(b.next());
+                b.managed_files.insert(file.0, true);
+                let allocation = ManagedRecordKey(b.next());
+                b.managed_records.insert(allocation.0, true);
+                records.push(RecordIntake {
+                    owner: key,
+                    allocation,
+                    file_name: Some(file),
+                    preserved: vec![i as u8; 12],
+                });
+            }
+        }
+        let record = records.first().map(|r| r.allocation);
+        let mut queue = [None; 256];
+        if !missing {
+            for i in [0, 1, 7, 128, 254, 255] {
+                queue[i] = Some(key);
+            }
+        }
+        let pools = std::array::from_fn(|pool| {
+            (0..2)
+                .map(|index| {
+                    let g = if pool == 0 && index == 0 {
+                        graphics
+                    } else {
+                        let g = TextureGraphics(b.next());
+                        b.textures.insert(g.0, 1);
+                        g
+                    };
+                    let surface = TextureSurface(b.next());
+                    b.surfaces.insert(surface.0, 1);
+                    PoolIntake {
+                        owner: if index == 0 { Some(key) } else { None },
+                        preserved: [(pool * 2 + index) as u8; 40],
+                        resources: PoolResources {
+                            graphics: Some(g),
+                            surface: Some(surface),
+                        },
+                    }
+                })
+                .collect()
+        });
+        (
+            key,
+            ManagedWorldIntake {
+                records,
+                queue,
+                counters: QueueCounters {
+                    out: 17,
+                    put: 91,
+                    len: if missing { 0 } else { 6 },
+                },
+                pools,
+                bindings: vec![ManagedBinding {
+                    texture: key,
+                    flags: if missing { 0x8000014e } else { 0xc000014e },
+                    record,
+                    graphics: Some(graphics),
+                }],
+            },
+        )
     }
     fn request(n: u32) -> VertexRequest {
         VertexRequest {
@@ -1795,5 +2093,416 @@ mod tests {
         assert!(!r.is_poisoned());
         r.release_texture(k, &mut b).unwrap();
         assert!(b.strings.is_empty());
+    }
+    #[test]
+    fn managed_remove_preserves_stale_fields_counters_and_all_pool_owned_resources() {
+        let mut r = TextureResources::new().unwrap();
+        let mut b = Backend {
+            managed_enabled: true,
+            ..Backend::default()
+        };
+        let (k, input) = managed_fixture(&mut r, &mut b, false, false);
+        let counters = input.counters;
+        let record = input.records[0].allocation;
+        let filename = input.records[0].file_name;
+        let graphics = input.bindings[0].graphics;
+        r.install_managed_world(input).unwrap();
+        let record_id = r.texture_manager().active_records()[0];
+        b.events.clear();
+        assert!(r.remove_managed_texture(k, &mut b).unwrap());
+        assert_eq!(
+            b.events,
+            vec![
+                Event::Enter,
+                Event::ManagedFilename(filename),
+                Event::ManagedRecord(record),
+                Event::Leave
+            ]
+        );
+        assert_eq!(r.texture(k).unwrap().managed_record, Some(record));
+        assert_eq!(r.texture(k).unwrap().graphics, graphics);
+        assert_eq!(r.texture(k).unwrap().flags, 0x14e);
+        assert_eq!(r.texture_manager().counters(), counters);
+        assert!(r.texture_manager().queue().iter().all(Option::is_none));
+        assert!(r.texture_manager().active_records().is_empty());
+        assert_eq!(
+            r.texture_manager().record(record_id).unwrap().phase,
+            RecordPhase::RecordFreed
+        );
+        for (pool, slots) in r.texture_manager().pools().iter().enumerate() {
+            for (index, slot) in slots.iter().enumerate() {
+                assert_eq!(slot.owner, None);
+                assert_eq!(slot.preserved, [(pool * 2 + index) as u8; 40]);
+                assert!(slot.resources.graphics.is_some());
+                assert!(slot.resources.surface.is_some());
+            }
+        }
+        assert_eq!(b.textures.len(), 6);
+        assert_eq!(b.surfaces.len(), 7);
+        b.events.clear();
+        r.remove_managed_texture(k, &mut b).unwrap();
+        assert_eq!(b.events, vec![Event::Enter, Event::Leave]);
+        r.close_texture(k, &mut b).unwrap();
+        assert_eq!(r.texture(k).unwrap().managed_record, None);
+        assert_eq!(r.texture(k).unwrap().graphics, None);
+        assert_eq!(r.texture(k).unwrap().flags, 0);
+        r.release_texture(k, &mut b).unwrap();
+        assert!(b.strings.is_empty());
+        assert_eq!(b.textures.len(), 6);
+        assert_eq!(b.surfaces.len(), 6);
+        assert!(!b.events.iter().any(|e| matches!(e, Event::TextureFree(_))));
+    }
+    #[test]
+    fn managed_duplicate_records_select_reverse_match_and_close_waits_for_safe_count() {
+        let mut r = TextureResources::new().unwrap();
+        let mut b = Backend {
+            managed_enabled: true,
+            ..Backend::default()
+        };
+        let (k, mut input) = managed_fixture(&mut r, &mut b, true, false);
+        let first = input.records[0].allocation;
+        let last = input.records[1].allocation;
+        let filename = input.records[1].file_name.take();
+        b.managed_files.remove(&filename.unwrap().0);
+        r.install_managed_world(input).unwrap();
+        let before = b.events.len();
+        assert!(r.close_texture(k, &mut b).is_err());
+        assert_eq!(b.events.len(), before);
+        assert!(!r.is_poisoned());
+        r.remove_managed_texture(k, &mut b).unwrap();
+        assert!(b.events.contains(&Event::ManagedFilename(None)));
+        assert!(b.events.contains(&Event::ManagedRecord(last)));
+        assert_eq!(r.texture_manager().active_records().len(), 1);
+        assert_eq!(
+            r.texture_manager()
+                .record(r.texture_manager().active_records()[0])
+                .unwrap()
+                .allocation,
+            first
+        );
+        assert_eq!(r.texture(k).unwrap().managed_record, Some(first));
+        r.close_texture(k, &mut b).unwrap();
+        assert!(r.texture_manager().active_records().is_empty());
+        assert!(b.managed_records.is_empty());
+        r.release_texture(k, &mut b).unwrap();
+    }
+    #[test]
+    fn managed_missing_record_still_clears_loaded_pool_owners_without_graphics_release() {
+        let mut r = TextureResources::new().unwrap();
+        let mut b = Backend {
+            managed_enabled: true,
+            ..Backend::default()
+        };
+        let (k, input) = managed_fixture(&mut r, &mut b, false, true);
+        r.install_managed_world(input).unwrap();
+        b.events.clear();
+        r.remove_managed_texture(k, &mut b).unwrap();
+        assert_eq!(b.events, vec![Event::Enter, Event::Leave]);
+        assert!(r
+            .texture_manager()
+            .pools()
+            .iter()
+            .flatten()
+            .all(|s| s.owner.is_none()));
+        assert!(r.texture(k).unwrap().graphics.is_some());
+        assert_eq!(r.texture(k).unwrap().flags, 0x14e);
+        r.release_texture(k, &mut b).unwrap();
+        assert_eq!(b.textures.len(), 6);
+    }
+    #[test]
+    fn managed_missing_capability_precedes_last_decrement_unlock_and_nondelete_poison() {
+        let mut r = TextureResources::new().unwrap();
+        let mut b = Backend::default();
+        let (k, input) = managed_fixture(&mut r, &mut b, false, false);
+        r.install_managed_world(input).unwrap();
+        let lock = r.texture(k).unwrap().lock_surface;
+        let before = b.events.len();
+        assert_eq!(
+            r.release_texture(k, &mut b),
+            Err(TextureOperationError::State(
+                TextureError::ManagedUnsupported
+            ))
+        );
+        assert_eq!(
+            r.destruct_texture(k, &mut b),
+            Err(TextureOperationError::State(
+                TextureError::ManagedUnsupported
+            ))
+        );
+        assert_eq!(r.texture(k).unwrap().references, 1);
+        assert_eq!(r.texture(k).unwrap().lock_surface, lock);
+        assert_eq!(b.events.len(), before);
+        assert!(!r.is_poisoned());
+        b.managed_enabled = true;
+        r.destruct_texture(k, &mut b).unwrap();
+        assert_eq!(r.texture(k).unwrap().state, TextureState::Destructed);
+        assert_eq!(b.textures.len(), 6);
+    }
+    #[test]
+    fn managed_body_failure_attempts_one_leave_and_retains_both_errors_and_prefix() {
+        let mut r = TextureResources::new().unwrap();
+        let mut b = Backend {
+            managed_enabled: true,
+            ..Backend::default()
+        };
+        let (k, input) = managed_fixture(&mut r, &mut b, false, false);
+        r.install_managed_world(input).unwrap();
+        let id = r.texture_manager().active_records()[0];
+        b.events.clear();
+        b.fail_filename = true;
+        b.fail_leave = true;
+        assert_eq!(
+            r.remove_managed_texture(k, &mut b),
+            Err(TextureOperationError::Manager(
+                ManagedOperationError::Backend {
+                    stage: ManagedStage::Filename,
+                    error: "filename freed then failed",
+                    leave_error: Some("leave failed")
+                }
+            ))
+        );
+        assert_eq!(
+            r.texture_manager().critical_state(),
+            CriticalState::LeaveFailed
+        );
+        assert_eq!(
+            r.texture_manager().record(id).unwrap().phase,
+            RecordPhase::FreeingFilename
+        );
+        assert_eq!(r.texture_manager().active_records(), &[id]);
+        assert!(r.texture_manager().queue().iter().all(Option::is_none));
+        assert!(r
+            .texture_manager()
+            .pools()
+            .iter()
+            .flatten()
+            .any(|s| s.owner == Some(k)));
+        assert_eq!(r.texture(k).unwrap().flags, 0xc000014e);
+        assert!(r.is_poisoned());
+        assert_eq!(
+            b.events
+                .iter()
+                .filter(|e| matches!(e, Event::Leave))
+                .count(),
+            1
+        );
+        let before = b.events.len();
+        assert!(r.remove_managed_texture(k, &mut b).is_err());
+        assert_eq!(b.events.len(), before);
+    }
+    #[test]
+    fn managed_enter_failure_after_release_preserves_zero_ref_and_unlocked_surface_prefix() {
+        let mut r = TextureResources::new().unwrap();
+        let mut b = Backend {
+            managed_enabled: true,
+            ..Backend::default()
+        };
+        let (k, input) = managed_fixture(&mut r, &mut b, false, false);
+        r.install_managed_world(input).unwrap();
+        b.fail_enter = true;
+        b.events.clear();
+        assert_eq!(
+            r.release_texture(k, &mut b),
+            Err(TextureOperationError::Manager(
+                ManagedOperationError::Backend {
+                    stage: ManagedStage::Enter,
+                    error: "enter rejected without lock",
+                    leave_error: None
+                }
+            ))
+        );
+        assert_eq!(r.texture(k).unwrap().references, 0);
+        assert_eq!(r.texture(k).unwrap().lock_surface, None);
+        assert_eq!(r.texture_manager().critical_state(), CriticalState::NotHeld);
+        assert!(r.texture_manager().queue().iter().any(Option::is_some));
+        assert!(!b.section_held);
+        assert!(!b.events.contains(&Event::Leave));
+        assert!(r.is_poisoned());
+    }
+    #[test]
+    fn managed_leave_failure_keeps_completed_body_but_not_close_pointer_clears() {
+        let mut r = TextureResources::new().unwrap();
+        let mut b = Backend {
+            managed_enabled: true,
+            ..Backend::default()
+        };
+        let (k, input) = managed_fixture(&mut r, &mut b, false, false);
+        r.install_managed_world(input).unwrap();
+        b.fail_leave = true;
+        assert_eq!(
+            r.close_texture(k, &mut b),
+            Err(TextureOperationError::Manager(
+                ManagedOperationError::Backend {
+                    stage: ManagedStage::Leave,
+                    error: "leave failed",
+                    leave_error: None
+                }
+            ))
+        );
+        assert!(r.texture_manager().active_records().is_empty());
+        assert!(r
+            .texture_manager()
+            .pools()
+            .iter()
+            .flatten()
+            .all(|p| p.owner.is_none()));
+        assert_eq!(r.texture(k).unwrap().flags, 0x14e);
+        assert!(r.texture(k).unwrap().managed_record.is_some());
+        assert!(r.texture(k).unwrap().graphics.is_some());
+        assert!(r.texture(k).unwrap().pixels.is_some());
+        assert!(r.is_poisoned());
+    }
+    #[test]
+    fn managed_intake_guards_scalar_allocation_aliases_owned_graphics_and_queue_gates() {
+        let mut r = TextureResources::new().unwrap();
+        let mut b = Backend::default();
+        let (_key, mut input) = managed_fixture(&mut r, &mut b, false, false);
+        input.counters.len = 0;
+        assert!(r.install_managed_world(input).is_err());
+        assert!(!r.texture_manager().is_seeded());
+        assert!(!r.is_poisoned());
+        let mut r = TextureResources::new().unwrap();
+        let (k, mut input) = managed_fixture(&mut r, &mut b, false, false);
+        let rep = file_rep(&r, k, false).unwrap();
+        input.records[0].file_name = Some(ManagedFilenameAllocation(
+            r.strings().rep(rep).unwrap().allocation.0,
+        ));
+        let before = b.events.len();
+        assert_eq!(
+            r.install_managed_world(input),
+            Err(TextureError::Manager(ManagerError::InvalidIdentity))
+        );
+        assert_eq!(b.events.len(), before);
+        assert!(!r.texture_manager().is_seeded());
+        let mut r = TextureResources::new().unwrap();
+        let (k, input) = managed_fixture(&mut r, &mut b, false, false);
+        let graphics = input.bindings[0].graphics;
+        r.textures.texture_mut(k).graphics = graphics;
+        assert_eq!(
+            r.install_managed_world(input),
+            Err(TextureError::ManagedUnsupported)
+        );
+        assert!(!r.is_poisoned());
+    }
+    #[test]
+    fn managed_seeded_constructor_cannot_be_overwritten_by_normal_ownership_intake() {
+        let mut r = TextureResources::new().unwrap();
+        let mut b = Backend {
+            managed_enabled: true,
+            ..Backend::default()
+        };
+        let key = r.create_texture().unwrap();
+        let filename = ManagedFilenameAllocation(b.next());
+        b.managed_files.insert(filename.0, true);
+        let record = ManagedRecordKey(b.next());
+        b.managed_records.insert(record.0, true);
+        r.install_managed_world(ManagedWorldIntake {
+            records: vec![RecordIntake {
+                owner: key,
+                allocation: record,
+                file_name: Some(filename),
+                preserved: Vec::new(),
+            }],
+            queue: [None; 256],
+            counters: QueueCounters::default(),
+            pools: [Vec::new(), Vec::new(), Vec::new()],
+            bindings: vec![ManagedBinding {
+                texture: key,
+                flags: 0x40,
+                record: Some(record),
+                graphics: None,
+            }],
+        })
+        .unwrap();
+        let input = TextureIntake {
+            uid: 0,
+            graphics: None,
+            lock_surface: None,
+            pixels: None,
+            initialized: false,
+            width: 0,
+            height: 0,
+            format: 0,
+            flags: 0,
+            creation_flags: 0,
+            color_key: 0,
+            levels: 0,
+            memory_size: 0,
+            file_name: Some(b"overwrite"),
+            name_offset: Some(0),
+            alpha_file_name: AlphaName::Null,
+            alpha_name_offset: None,
+        };
+        let before = b.events.len();
+        assert_eq!(
+            r.install_texture(key, input, &mut b),
+            Err(TextureOperationError::State(
+                TextureError::IntakeAlreadyInstalled
+            ))
+        );
+        assert_eq!(b.events.len(), before);
+        assert_eq!(r.texture(key).unwrap().flags, 0x40);
+        assert_eq!(r.texture(key).unwrap().managed_record, Some(record));
+        assert!(!r.is_poisoned());
+        r.release_texture(key, &mut b).unwrap();
+        assert!(b.managed_files.is_empty());
+        assert!(b.managed_records.is_empty());
+        assert!(b.strings.is_empty());
+    }
+    #[test]
+    fn managed_object_chain_preflights_backend_before_ancestor_effects_then_releases_only_owned_resources(
+    ) {
+        let mut r = TextureResources::new().unwrap();
+        let mut b = Backend {
+            managed_enabled: true,
+            ..Backend::default()
+        };
+        let (k, input) = managed_fixture(&mut r, &mut b, false, false);
+        r.install_managed_world(input).unwrap();
+        let material = r.create_material().unwrap();
+        r.set_texture(material, Some(k), &mut b).unwrap();
+        r.set_env_texture(material, Some(k), &mut b).unwrap();
+        r.release_texture(k, &mut b).unwrap();
+        let group = r.create_face_group().unwrap();
+        r.set_material(group, Some(material), &mut b).unwrap();
+        r.release_material(material, &mut b).unwrap();
+        r.allocate_group_indices(group, 1, 0, &mut b).unwrap();
+        let level = r.create_mesh_level().unwrap();
+        r.allocate_level_vertices(level, 3, request(3), Some(group), &mut b)
+            .unwrap();
+        r.install_mesh_level_bbox(level, [[-1.; 3], [1.; 3]])
+            .unwrap();
+        let mesh = r.create_mesh_object().unwrap();
+        r.set_lod(mesh, Some(level), 0, &mut b).unwrap();
+        r.release_mesh_level(level, &mut b).unwrap();
+        let object = r.create_object_resources(Some(mesh)).unwrap();
+        r.release_mesh_object(mesh, &mut b).unwrap();
+        b.managed_enabled = false;
+        let before = b.events.len();
+        assert_eq!(
+            r.destroy_object_resources(object, &mut b),
+            Err(TextureOperationError::State(
+                TextureError::ManagedUnsupported
+            ))
+        );
+        assert_eq!(b.events.len(), before);
+        assert_eq!(
+            r.objects().object(object).unwrap().phase,
+            crate::i3d_object::ObjectCleanupPhase::Alive
+        );
+        assert_eq!(r.texture(k).unwrap().references, 2);
+        assert!(!r.is_poisoned());
+        b.managed_enabled = true;
+        r.destroy_object_resources(object, &mut b).unwrap();
+        assert!(r.texture(k).is_err());
+        assert!(b.managed_files.is_empty());
+        assert!(b.managed_records.is_empty());
+        assert!(b.strings.is_empty());
+        assert_eq!(b.textures.len(), 6);
+        assert_eq!(b.surfaces.len(), 6);
+        assert!(!b.events.iter().any(|e| matches!(e, Event::TextureFree(_))));
+        r.reclaim_unused_indices(&mut b).unwrap();
+        assert!(b.allocations.is_empty());
+        assert!(b.buffers.is_empty());
     }
 }

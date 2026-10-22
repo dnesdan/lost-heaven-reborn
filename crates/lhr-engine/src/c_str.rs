@@ -105,6 +105,10 @@ impl CStrings {
             poisoned: false,
         })
     }
+    /// Scalar-allocation admission guard shared with managed-record adoption.
+    pub(crate) fn owns_allocation(&self, raw: u64) -> bool {
+        self.reps.iter().flatten().any(|r| r.allocation.0 == raw)
+    }
     pub fn identity(&self) -> u64 {
         self.identity
     }

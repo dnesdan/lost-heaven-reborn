@@ -43,11 +43,12 @@ pub mod skeletal_animation;
 pub mod skeletal_playback;
 pub mod target_direction;
 pub mod target_state;
+pub mod texture_manager;
 
 pub mod visual_resources;
 
 /// Original engine-library namespace, without moving existing modules or
 /// claiming an additional DLL/Cargo package or a complete LS3DF reconstruction.
 pub mod ls3df {
-    pub use crate::{c_str, i3d_object, itexture};
+    pub use crate::{c_str, i3d_object, itexture, texture_manager};
 }
