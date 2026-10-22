@@ -2,8 +2,10 @@
 //! UpdateWMatrixProc is an original DLL export, RVA0x1c7d0. UpdateMatrix,
 //! LinkTo, RemoveChild and Update have retained PS2 symbols; PC entries are
 //! 0x1a6e0,0x1b9d0,0x1bf20,0x1ca60. Setter names are descriptive views of
-//! observed inline operations, not additional original symbols. Host storage
-//! does not implement native reference counting/destructors. Only LinkTo flags0/1,
+//! observed inline operations, not additional original symbols. ModelArena owns
+//! references; this graph provides bounded model/dummy/joint/Target teardown.
+//! Visual resource destruction and external registrations remain unavailable.
+//! Only LinkTo flags0/1,
 //! model/mesh/dummy/joint/Target virtual updates and the owned deferred Target queue
 //! are represented.
 //! Joint cache and singlemesh discovery/binding use owned graph identities;
@@ -120,6 +122,7 @@ pub struct FrameLinks {
 }
 #[derive(Clone, Debug)]
 struct Node {
+    alive: bool,
     state: I3dFrameState,
     links: FrameLinks,
     joint: Option<I3dJointState>,
@@ -157,6 +160,8 @@ pub enum FrameError {
     AllocationOverflow,
     UnsupportedLinkFlags(u32),
     UnsupportedLinkState,
+    UnsupportedDestruction(FrameKey),
+    UnsupportedDestructionRegistrations(FrameKey, u32),
     DirectionFromVectorsUnavailable,
     NotJoint(FrameKey),
     InvalidSinglemeshTarget(FrameKey),
@@ -177,6 +182,7 @@ impl I3dFrameGraph {
             .and_then(|n| n.checked_add(1))
             .ok_or(FrameError::IdentityOverflow)?;
         self.nodes.push(Node {
+            alive: true,
             state,
             links: FrameLinks::default(),
             joint: (state.kind == FrameKind::Joint).then(I3dJointState::default),
@@ -197,7 +203,7 @@ impl I3dFrameGraph {
     }
     fn index(&self, key: FrameKey) -> Result<usize, FrameError> {
         let i = key.0.checked_sub(1).ok_or(FrameError::UnknownFrame(key))? as usize;
-        if i >= self.nodes.len() {
+        if self.nodes.get(i).is_none_or(|node| !node.alive) {
             return Err(FrameError::UnknownFrame(key));
         }
         Ok(i)
@@ -208,6 +214,139 @@ impl I3dFrameGraph {
     fn node_mut(&mut self, key: FrameKey) -> Result<&mut Node, FrameError> {
         let i = self.index(key)?;
         Ok(&mut self.nodes[i])
+    }
+    /// Preflight the represented model/dummy/joint/Target destructor paths.
+    /// Visual resources and external registrations
+    /// require their concrete backends. Rejection leaves the graph unchanged.
+    pub(crate) fn check_destruction(&self, key: FrameKey) -> Result<(), FrameError> {
+        let node = self.node(key)?;
+        if !matches!(
+            node.state.kind,
+            FrameKind::Model | FrameKind::Dummy | FrameKind::Joint | FrameKind::Target
+        ) {
+            return Err(FrameError::UnsupportedDestruction(key));
+        }
+        let registrations = node.state.flags
+            & (0x20000000
+                | 0x8000
+                | 0x400000
+                | if node.state.kind == FrameKind::Dummy {
+                    0x80000000
+                } else {
+                    0
+                });
+        if registrations != 0 {
+            return Err(FrameError::UnsupportedDestructionRegistrations(
+                key,
+                registrations,
+            ));
+        }
+        if node.state.kind == FrameKind::Target {
+            if self.target_updates.is_flushing() || self.target_updates.pending().contains(&key) {
+                return Err(FrameError::UnsupportedDestruction(key));
+            }
+            for &linked in self.target_state(key)?.frames() {
+                self.index(linked)?;
+            }
+        }
+        // Native removes only the first owner/occurrence. Never turn remaining
+        // raw dangling pointers into apparently usable stable graph identities.
+        let mut incoming = 0usize;
+        for (index, target) in self.nodes.iter().enumerate() {
+            if target.alive && target.state.kind == FrameKind::Target {
+                let target_key = FrameKey((index + 1) as u32);
+                if target_key != key {
+                    if let Ok(state) = self.targets.state(target_key) {
+                        incoming += state.frames().iter().filter(|&&frame| frame == key).count();
+                    }
+                }
+            }
+        }
+        let own_target_clears_bit =
+            node.state.kind == FrameKind::Target && self.target_state(key)?.frames().contains(&key);
+        if incoming > 1
+            || (incoming != 0 && (node.state.flags & 0x4000 == 0 || own_target_clears_bit))
+        {
+            return Err(FrameError::UnsupportedDestruction(key));
+        }
+        if node.state.kind == FrameKind::Joint {
+            let joint = node.joint.as_ref().unwrap();
+            for (index, target) in self.nodes.iter().enumerate() {
+                if let Some(binding) = &target.binding {
+                    for (slot, &linked) in binding.joints.iter().enumerate() {
+                        if linked == Some(key)
+                            && (joint.singlemesh != Some(FrameKey((index + 1) as u32))
+                                || joint.index as usize != slot)
+                        {
+                            return Err(FrameError::UnsupportedDestruction(key));
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(joint) = node.joint {
+            if let Some(target) = joint.singlemesh {
+                let binding = self.singlemesh_binding(target)?;
+                let slot = binding
+                    .joints
+                    .get(joint.index as usize)
+                    .ok_or(FrameError::SinglemeshBindingUnavailable(target))?;
+                // None is an unavailable allocation slot in this projection;
+                // it cannot be mistaken for an observed native null pointer.
+                let linked = slot.ok_or(FrameError::SinglemeshBindingUnavailable(target))?;
+                self.joint_state(linked)?;
+            }
+        }
+        Ok(())
+    }
+    /// Derived joint unlink precedes common parent/child detachment. Hierarchy
+    /// links carry no references; detaching children never releases them and
+    /// RemoveChild deliberately preserves their matrix caches.
+    pub(crate) fn destroy_derived(&mut self, key: FrameKey) -> Result<(), FrameError> {
+        if let Some(joint) = self.node(key)?.joint {
+            if let Some(target) = joint.singlemesh {
+                let linked = self.singlemesh_binding(target)?.joints[joint.index as usize].unwrap();
+                self.node_mut(linked)?.joint.as_mut().unwrap().singlemesh = None;
+                self.node_mut(target)?.binding.as_mut().unwrap().joints[joint.index as usize] =
+                    None;
+            }
+        }
+        if self.state(key)?.kind == FrameKind::Target {
+            let mut targets = std::mem::take(&mut self.targets);
+            let result = targets.destroy_target(key, |linked| {
+                self.node_mut(linked)
+                    .expect("preflighted target link")
+                    .state
+                    .flags &= !0x4000;
+            });
+            self.targets = targets;
+            result.map_err(|_| FrameError::TargetUnavailable(key))?;
+        }
+        Ok(())
+    }
+    /// The arena removes owner membership between derived and base effects.
+    pub(crate) fn destroy_base(&mut self, key: FrameKey) -> Result<(), FrameError> {
+        if self.state(key)?.flags & 0x4000 != 0 {
+            let mut flags = self.state(key)?.flags;
+            self.targets.remove_from_any_target(key, &mut flags);
+            self.node_mut(key)?.state.flags = flags;
+        }
+        if let Some(parent) = self.links(key)?.parent {
+            self.remove_child(parent, key)?;
+        }
+        while let Some(child) = self.links(key)?.child {
+            self.remove_child(key, child)?;
+        }
+        let node = self.node_mut(key)?;
+        node.alive = false;
+        node.joint = None;
+        Ok(())
+    }
+    #[cfg(test)]
+    fn destroy(&mut self, key: FrameKey) -> Result<(), FrameError> {
+        self.check_destruction(key)?;
+        self.destroy_derived(key)?;
+        self.destroy_base(key)
     }
     pub fn state(&self, key: FrameKey) -> Result<&I3dFrameState, FrameError> {
         Ok(&self.node(key)?.state)
@@ -241,6 +380,30 @@ impl I3dFrameGraph {
             .map_err(|_| FrameError::TargetUnavailable(key))?;
         for index in 0..self.targets.state(key).unwrap().frames().len() {
             let linked = self.targets.state(key).unwrap().frames()[index];
+            self.node_mut(linked)?.state.flags |= 0x4000;
+        }
+        Ok(())
+    }
+
+    /// Replace the empty constructor registration after parsed references have
+    /// resolved. Unlike AddToTarget, LoadImage preserves duplicate ownership.
+    pub(crate) fn apply_target_load_image_state(
+        &mut self,
+        key: FrameKey,
+        state: I3dTargetState,
+    ) -> Result<(), FrameError> {
+        if !self.target_state(key)?.frames().is_empty() {
+            return Err(FrameError::TargetUnavailable(key));
+        }
+        for &linked in state.frames() {
+            self.index(linked)?;
+        }
+        *self
+            .targets
+            .state_mut(key)
+            .map_err(|_| FrameError::TargetUnavailable(key))? = state;
+        for index in 0..self.target_state(key)?.frames().len() {
+            let linked = self.target_state(key)?.frames()[index];
             self.node_mut(linked)?.state.flags |= 0x4000;
         }
         Ok(())
@@ -1263,6 +1426,101 @@ impl TargetFrameBackend for I3dFrameGraph {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn joint_destruction_clears_the_indexed_slot_joint_and_preserves_other_slots() {
+        let mut graph = I3dFrameGraph::default();
+        let mesh = graph
+            .insert_singlemesh_binding(
+                I3dFrameState::mesh(),
+                SinglemeshInvalidationState { joints_changed: 7 },
+                true,
+            )
+            .unwrap();
+        let joint = graph.insert(I3dFrameState::joint()).unwrap();
+        let other = graph.insert(I3dFrameState::joint()).unwrap();
+        graph.node_mut(joint).unwrap().joint.as_mut().unwrap().index = 1;
+        graph
+            .assign_joint_singlemesh_target(joint, Some(mesh))
+            .unwrap();
+        graph
+            .assign_joint_singlemesh_target(other, Some(mesh))
+            .unwrap();
+        graph
+            .node_mut(mesh)
+            .unwrap()
+            .binding
+            .as_mut()
+            .unwrap()
+            .joints = vec![None, Some(other)];
+        graph.destroy(joint).unwrap();
+        assert_eq!(graph.state(joint), Err(FrameError::UnknownFrame(joint)));
+        assert_eq!(graph.joint_state(other).unwrap().singlemesh, None);
+        assert_eq!(
+            graph.singlemesh_binding(mesh).unwrap().joints(),
+            &[None, None]
+        );
+        assert_eq!(
+            graph
+                .singlemesh_invalidation_state(mesh)
+                .unwrap()
+                .joints_changed,
+            7
+        );
+        assert_eq!(
+            graph.destroy(mesh),
+            Err(FrameError::UnsupportedDestruction(mesh))
+        );
+    }
+
+    #[test]
+    fn target_destruction_guards_pending_queue_and_dangling_duplicate_links() {
+        let mut graph = I3dFrameGraph::default();
+        let linked = graph.insert(I3dFrameState::dummy()).unwrap();
+        let target = graph.insert(I3dFrameState::target()).unwrap();
+        graph
+            .register_target(
+                target,
+                I3dTargetState::from_parsed_fields(0, &[1, 1], &[linked]).unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            graph.destroy(linked),
+            Err(FrameError::UnsupportedDestruction(linked))
+        );
+        graph.destroy(target).unwrap();
+        assert_eq!(graph.state(linked).unwrap().flags & 0x4000, 0);
+        graph.destroy(linked).unwrap();
+        let target = graph.insert(I3dFrameState::target()).unwrap();
+        graph
+            .register_target(target, I3dTargetState::default())
+            .unwrap();
+        graph.update_v(target).unwrap();
+        assert_eq!(
+            graph.destroy(target),
+            Err(FrameError::UnsupportedDestruction(target))
+        );
+        assert_eq!(graph.target_updates.pending(), &[target]);
+        assert!(graph.target_state(target).is_ok());
+    }
+
+    #[test]
+    fn unimplemented_registration_cleanup_rejects_before_any_graph_mutation() {
+        for flag in [0x20000000, 0x8000, 0x400000, 0x80000000] {
+            let mut graph = I3dFrameGraph::default();
+            let parent = graph.insert(I3dFrameState::model()).unwrap();
+            let child = graph.insert(I3dFrameState::dummy()).unwrap();
+            graph.link_to(child, Some(parent)).unwrap();
+            graph.node_mut(child).unwrap().state.flags |= flag;
+            let links = graph.links(parent).unwrap();
+            assert_eq!(
+                graph.destroy(child),
+                Err(FrameError::UnsupportedDestructionRegistrations(child, flag))
+            );
+            assert_eq!(graph.links(parent).unwrap(), links);
+            assert_eq!(graph.links(child).unwrap().parent, Some(parent));
+        }
+    }
 
     #[test]
     fn target_registration_retains_links_sets_membership_and_charges_storage() {

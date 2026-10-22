@@ -43,6 +43,7 @@ impl From<ModelError> for SkeletalPlaybackError {
 pub struct SkeletalPlayback {
     source: Arc<Model>,
     identity: Arc<()>,
+    lifecycle_epoch: u64,
     binding: SkeletalAnimation,
     controller: IPolSet,
     native: ModelTickState,
@@ -118,6 +119,7 @@ impl SkeletalPlayback {
         }
         let source = Arc::clone(model.source());
         let identity = Arc::clone(model.identity());
+        let lifecycle_epoch = model.lifecycle_epoch()?;
         let keys = model.source_frame_keys().to_vec();
         let mut controller = IPolSet::new(model.root(), false);
         let resource = AnimationResource {
@@ -142,6 +144,7 @@ impl SkeletalPlayback {
         let mut result = Self {
             source,
             identity,
+            lifecycle_epoch,
             binding,
             controller,
             native: ModelTickState {
@@ -169,9 +172,39 @@ impl SkeletalPlayback {
         if !Arc::ptr_eq(&self.identity, model.identity())
             || !Arc::ptr_eq(&self.source, model.source())
             || !model.is_complete()
+            || model.lifecycle_epoch()? != self.lifecycle_epoch
         {
             return Err(SkeletalPlaybackError::Identity);
         }
+        // Public arena operations may retire a destination without replacing
+        // the parsed source. Validate every binding before advancing the clock
+        // or writing an earlier destination in the evaluator sequence.
+        for binding in self.binding.bindings() {
+            model.arena().frame(binding.frame)?;
+        }
+        Ok(())
+    }
+    /// Consume this host playback adapter before the admitted model Close.
+    /// Original Model::Close (RVA 0x33500) deletes its controller before releasing
+    /// owned frames. This adapter owns that controller separately; consuming it
+    /// here enforces the same ordering. Unavailable derived destruction remains
+    /// an error, with any completed Close prefix retained by the model.
+    pub fn close_model(self, model: &mut MaterializedModel) -> Result<(), SkeletalPlaybackError> {
+        self.validate_model(model)?;
+        drop(self);
+        model.close()?;
+        Ok(())
+    }
+    /// Release playback first, then reopen through the host parsed-data path.
+    /// This does not implement original file lookup or filename allocation.
+    pub fn reopen_model(
+        self,
+        model: &mut MaterializedModel,
+        source: Arc<Model>,
+    ) -> Result<(), SkeletalPlaybackError> {
+        self.validate_model(model)?;
+        drop(self);
+        model.reopen_from_parsed(source)?;
         Ok(())
     }
     pub fn stop_animation(&mut self) {
@@ -521,6 +554,17 @@ mod tests {
     fn x(model: &mut MaterializedModel) -> f32 {
         model.world_matrices().unwrap()[0].elements[12]
     }
+    fn lifecycle_fixture() -> (MaterializedModel, Arc<AnimationSet>) {
+        let (model, animation) = fixture();
+        let mut source = (**model.source()).clone();
+        source.frames[0].kind = 6;
+        source.frames[0].visual = None;
+        source.frames[0].dummy_bounds = Some([[-1.; 3], [1.; 3]]);
+        (
+            MaterializedModel::from_parsed(Arc::new(source)).unwrap(),
+            animation,
+        )
+    }
     #[test]
     fn evaluates_endpoint_before_wrap_then_resumes_and_restarts_without_resetting_delta() {
         let (mut model, animation) = fixture();
@@ -562,5 +606,99 @@ mod tests {
         assert_eq!(x(&mut model), 0.);
         playback.tick(&mut model, 40).unwrap();
         assert_eq!(x(&mut model), 1.);
+    }
+    #[test]
+    fn consuming_close_releases_animation_resources_and_retires_destinations() {
+        let (mut model, animation) = lifecycle_fixture();
+        let weak = Arc::downgrade(&animation);
+        let key = model.source_frame_keys()[0];
+        let root = model.root();
+        let playback = SkeletalPlayback::new(&mut model, animation).unwrap();
+        assert!(weak.upgrade().is_some());
+        playback.close_model(&mut model).unwrap();
+        assert!(weak.upgrade().is_none());
+        assert!(!model.is_complete());
+        assert!(model.arena().frame(key).is_err());
+        assert!(model.arena().frame(root).is_ok());
+    }
+    #[test]
+    fn unavailable_visual_destructor_does_not_keep_a_consumed_controller_alive() {
+        let (mut model, animation) = fixture();
+        let weak = Arc::downgrade(&animation);
+        let key = model.source_frame_keys()[0];
+        let playback = SkeletalPlayback::new(&mut model, animation).unwrap();
+        assert!(playback.close_model(&mut model).is_err());
+        assert!(weak.upgrade().is_none());
+        assert!(!model.is_complete());
+        // Admission failure preserves this pending owner reference. Retaining
+        // it externally lets Close finish without an unavailable destruction.
+        assert_eq!(model.arena().frame(key).unwrap().references, 1);
+        model.arena_mut().retain(key).unwrap();
+        model.close().unwrap();
+        let survivor = model.arena().frame(key).unwrap();
+        assert_eq!(survivor.references, 1);
+        assert_eq!(survivor.owner, None);
+    }
+    #[test]
+    fn reopen_keeps_root_and_shared_source_but_requires_a_new_playback() {
+        let (mut model, animation) = lifecycle_fixture();
+        let source = Arc::clone(model.source());
+        let mut other = MaterializedModel::from_parsed(Arc::clone(&source)).unwrap();
+        let mut other_playback = SkeletalPlayback::new(&mut other, Arc::clone(&animation)).unwrap();
+        let root = model.root();
+        let old_key = model.source_frame_keys()[0];
+        let playback = SkeletalPlayback::new(&mut model, Arc::clone(&animation)).unwrap();
+        playback
+            .reopen_model(&mut model, Arc::clone(&source))
+            .unwrap();
+        assert_eq!(model.root(), root);
+        assert_ne!(model.source_frame_keys()[0], old_key);
+        assert!(model.arena().frame(old_key).is_err());
+        assert!(Arc::ptr_eq(model.source(), &source));
+        other_playback.tick(&mut other, 40).unwrap();
+        assert_eq!(x(&mut other), 1.);
+        assert_eq!(x(&mut model), 0.);
+        let mut new_playback = SkeletalPlayback::new(&mut model, animation).unwrap();
+        new_playback.tick(&mut model, 80).unwrap();
+        assert_eq!(x(&mut model), 2.);
+        assert_eq!(x(&mut other), 1.);
+    }
+    #[test]
+    fn low_level_close_invalidates_old_playback_before_advancing_time() {
+        let (mut model, animation) = lifecycle_fixture();
+        let mut playback = SkeletalPlayback::new(&mut model, animation).unwrap();
+        playback.tick(&mut model, 40).unwrap();
+        let before = playback.controller().state().slots[0];
+        let owner = model
+            .arena()
+            .frame(model.source_frame_keys()[0])
+            .unwrap()
+            .owner
+            .unwrap();
+        model.arena_mut().close(owner).unwrap();
+        assert!(matches!(
+            playback.tick(&mut model, 40),
+            Err(SkeletalPlaybackError::Identity)
+        ));
+        let after = playback.controller().state().slots[0];
+        assert_eq!(
+            (after.current, after.previous, after.last_delta),
+            (before.current, before.previous, before.last_delta)
+        );
+    }
+    #[test]
+    fn destroyed_destination_is_rejected_before_controller_mutation() {
+        let (mut model, animation) = lifecycle_fixture();
+        let mut playback = SkeletalPlayback::new(&mut model, animation).unwrap();
+        let key = model.source_frame_keys()[0];
+        let before = playback.controller().state().slots[0];
+        model.arena_mut().release(key).unwrap();
+        assert!(playback.tick(&mut model, 40).is_err());
+        assert!(playback.restart_animation(&mut model, 2).is_err());
+        let after = playback.controller().state().slots[0];
+        assert_eq!(
+            (after.current, after.previous, after.last_delta),
+            (before.current, before.previous, before.last_delta)
+        );
     }
 }

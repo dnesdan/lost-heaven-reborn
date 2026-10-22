@@ -1,8 +1,9 @@
 //! Owned LS3DF Target links and its deferred-update queue.
 //!
 //! LS3DF SHA-256 `e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6`:
-//! constructor RVA `0x59490`, LoadImage `0x59f10`, AddToTarget `0x596f0`,
-//! removal `0x597f0`, UpdateV `0x59920`, UpdateFrames `0x599b0`,
+//! constructor RVA `0x59490`, derived destructor `0x595b0`, LoadImage `0x59f10`,
+//! AddToTarget `0x596f0`, removal `0x597f0`, DeleteFromAnyTarget `0x598d0`,
+//! UpdateV `0x59920`, UpdateFrames `0x599b0`,
 //! SetTargetFlags `0x596d0`. Parsed intake projects the derived fields after
 //! base-frame loading and successful reference resolution; it does not execute
 //! native allocators, raw reads, resource registration, or full LoadImage.
@@ -261,8 +262,9 @@ impl I3dTargetState {
 
 /// Stable graph keys replace native TargetList pointers. Registration order
 /// matters when parsed data leaves the same frame in multiple target lists.
-/// Native allocation identities and reference-counted destruction are outside
-/// this owned graph projection; host allocation errors remain explicit.
+/// Removing a Target swaps the last registration into its slot. Native
+/// allocation identities and reference counts remain outside this owned graph
+/// projection; host allocation errors remain explicit.
 #[derive(Debug, Default)]
 pub struct TargetRegistry {
     entries: Vec<(FrameKey, I3dTargetState)>,
@@ -310,6 +312,28 @@ impl TargetRegistry {
         Ok(&mut self.entries[index].1)
     }
 
+    /// Derived Target destructor projection (RVA 0x595b0). Clear membership on
+    /// every linked frame in forward order, including duplicates and self-links,
+    /// then unregister with last-element replacement and release link storage.
+    /// The caller must validate all referenced frame identities before invoking
+    /// this infallible callback, which clears their 0x4000 bit.
+    ///
+    /// Base-frame destruction follows separately, using the frame's flags after
+    /// these writes. The native destructor does not remove deferred queue entries;
+    /// this method therefore leaves the separate TargetUpdateQueue untouched.
+    pub fn destroy_target(
+        &mut self,
+        key: FrameKey,
+        mut clear_membership: impl FnMut(FrameKey),
+    ) -> Result<(), TargetError> {
+        let index = self.index(key)?;
+        for &frame in &self.entries[index].1.frames {
+            clear_membership(frame);
+        }
+        self.entries.swap_remove(index);
+        Ok(())
+    }
+
     /// Original removal searches the first matching link, replaces it with the
     /// last link, and clears the frame's membership bit even if a duplicate
     /// remains. `false` corresponds to native 0x80000006 (not found).
@@ -329,6 +353,22 @@ impl TargetRegistry {
         }
     }
 
+    /// DeleteFromAnyTarget (RVA 0x598d0) searches registrations and their links
+    /// forward, removing only the first match. Like DeleteFromTarget, it clears
+    /// membership even when duplicate links or another registered owner remain.
+    /// The search itself does not check the frame's membership bit; callers own
+    /// the flag guard required by their original call site.
+    pub fn remove_from_any_target(&mut self, frame: FrameKey, frame_flags: &mut u32) -> bool {
+        for (_, state) in &mut self.entries {
+            if let Some(index) = state.frames.iter().position(|&key| key == frame) {
+                state.frames.swap_remove(index);
+                *frame_flags &= !0x4000;
+                return true;
+            }
+        }
+        false
+    }
+
     /// Original AddToTarget first removes the frame from the first registered
     /// owner if its membership bit is set, then appends and sets that bit.
     /// A self-link does nothing. Parsed LoadImage links must use direct intake
@@ -344,14 +384,7 @@ impl TargetRegistry {
             return Ok(());
         }
         if *frame_flags & 0x4000 != 0 {
-            if let Some(previous) = self
-                .entries
-                .iter()
-                .find(|entry| entry.1.frames.contains(&frame))
-                .map(|entry| entry.0)
-            {
-                self.remove_from_target(previous, frame, frame_flags)?;
-            }
+            self.remove_from_any_target(frame, frame_flags);
         }
         let state = &mut self.entries[destination].1;
         if state.frames.len() >= state.frame_capacity as usize {
@@ -514,6 +547,92 @@ mod tests {
             &[FrameKey(10)]
         );
         assert_eq!(flags, 0);
+    }
+
+    #[test]
+    fn derived_destruction_visits_duplicate_self_links_and_preserves_deferred_queue() {
+        let owner = FrameKey(1);
+        let linked = FrameKey(9);
+        let mut registry = TargetRegistry::default();
+        registry
+            .insert(
+                owner,
+                I3dTargetState::from_parsed_fields(0, &[2, 1, 2], &[owner, linked]).unwrap(),
+            )
+            .unwrap();
+        let mut queue = TargetUpdateQueue::default();
+        queue.update_v(owner, 0x2001).unwrap();
+        queue.update_v(owner, 0x2001).unwrap();
+        let mut flags = [0x4001_u32, 0x8000_4000];
+        let mut visited = Vec::new();
+        let before = registry.storage_bytes().unwrap();
+        registry
+            .destroy_target(owner, |frame| {
+                visited.push(frame);
+                let slot = usize::from(frame == linked);
+                flags[slot] &= !0x4000;
+            })
+            .unwrap();
+        assert_eq!(visited, [linked, owner, linked]);
+        assert_eq!(flags, [1, 0x8000_0000]);
+        assert_eq!(
+            registry.state(owner),
+            Err(TargetError::UnknownTarget(owner))
+        );
+        assert!(registry.storage_bytes().unwrap() < before);
+        assert_eq!(queue.pending(), &[owner, owner]);
+        assert_eq!(
+            registry.destroy_target(owner, |_| panic!("unknown owner")),
+            Err(TargetError::UnknownTarget(owner))
+        );
+    }
+
+    #[test]
+    fn unregistering_target_changes_first_owner_search_order_by_last_replacement() {
+        let mut registry = TargetRegistry::default();
+        let linked = FrameKey(9);
+        for key in [FrameKey(1), FrameKey(2), FrameKey(3)] {
+            registry
+                .insert(
+                    key,
+                    I3dTargetState::from_parsed_fields(0, &[1], &[linked]).unwrap(),
+                )
+                .unwrap();
+        }
+        registry.destroy_target(FrameKey(1), |_| {}).unwrap();
+        let mut flags = 0x8000_4000;
+        assert!(registry.remove_from_any_target(linked, &mut flags));
+        assert_eq!(flags, 0x8000_0000);
+        assert!(registry.state(FrameKey(3)).unwrap().frames().is_empty());
+        assert_eq!(registry.state(FrameKey(2)).unwrap().frames(), &[linked]);
+    }
+
+    #[test]
+    fn any_target_removal_keeps_duplicate_and_other_owner_and_ignores_bit_guard() {
+        let mut registry = TargetRegistry::default();
+        let linked = FrameKey(9);
+        registry
+            .insert(
+                FrameKey(1),
+                I3dTargetState::from_parsed_fields(0, &[1, 2, 1], &[linked, FrameKey(10)]).unwrap(),
+            )
+            .unwrap();
+        registry
+            .insert(
+                FrameKey(2),
+                I3dTargetState::from_parsed_fields(0, &[1], &[linked]).unwrap(),
+            )
+            .unwrap();
+        let mut flags = 0x123;
+        assert!(registry.remove_from_any_target(linked, &mut flags));
+        assert_eq!(flags, 0x123);
+        assert_eq!(
+            registry.state(FrameKey(1)).unwrap().frames(),
+            &[linked, FrameKey(10)]
+        );
+        assert_eq!(registry.state(FrameKey(2)).unwrap().frames(), &[linked]);
+        assert!(!registry.remove_from_any_target(FrameKey(99), &mut flags));
+        assert_eq!(flags, 0x123);
     }
 
     #[test]

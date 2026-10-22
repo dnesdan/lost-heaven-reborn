@@ -3,7 +3,10 @@
 //! pose snapshot and populated-definition bounds before rendering.
 //! LS3DF RVAs 0x33680/0x33720/0x33500 define model ownership; 0x603e0
 //! transfers loaded frames in file order, including a successfully loaded prefix
-//! before an error. File lookup, animation and GPU resource creation are separate.
+//! before an error. Persistent parsed Close/reopen keeps root identity and uses
+//! nonreused tombstones for destroyed model/dummy/joint/Target objects. Visual
+//! resource destruction remains explicit. File lookup, native filename sharing,
+//! animation ownership and GPU resource creation are separate.
 use crate::frame_transform::{FrameError, FrameKey, FrameKind, I3dFrameGraph, I3dFrameState};
 use crate::joint_state::{I3dJointState, SinglemeshInvalidationState};
 use crate::native_transform::{SMatrix, SQuat};
@@ -28,6 +31,10 @@ pub struct LoadedFrame {
     pub name_bytes: Vec<u8>,
     pub properties: Vec<u8>,
     pub dummy_bounds: Option<[[f32; 3]; 2]>,
+    /// Immutable host backing, independent of model membership. This is not a
+    /// native mesh/LOD resource allocation or filename reference count.
+    pub source: Option<Arc<Model>>,
+    alive: bool,
 }
 #[derive(Debug)]
 pub struct LoadedModel {
@@ -35,6 +42,9 @@ pub struct LoadedModel {
     pub frames: Vec<FrameKey>,
     native_capacity: usize,
     growth: usize,
+    lifecycle_epoch: u64,
+    close_cursor: usize,
+    closing: bool,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ModelError {
@@ -65,6 +75,10 @@ pub enum ModelError {
         frame: FrameKey,
     },
     AllocationOverflow,
+    IncompleteModel,
+    CloseIncomplete(ModelKey),
+    OwnershipCycle,
+    NestedDestructionUnavailable(FrameKey),
 }
 impl From<FrameError> for ModelError {
     fn from(e: FrameError) -> Self {
@@ -85,6 +99,7 @@ pub struct ModelArena {
     graph: I3dFrameGraph,
     frames: Vec<LoadedFrame>,
     models: Vec<LoadedModel>,
+    destruction_depth: usize,
 }
 impl ModelArena {
     fn insert(
@@ -117,6 +132,8 @@ impl ModelArena {
             name_bytes,
             properties,
             dummy_bounds,
+            source: None,
+            alive: true,
         });
         Ok(key)
     }
@@ -128,6 +145,9 @@ impl ModelArena {
             frames: Vec::new(),
             native_capacity: 0,
             growth: 32,
+            lifecycle_epoch: 0,
+            close_cursor: 0,
+            closing: false,
         });
         Ok(key)
     }
@@ -135,11 +155,13 @@ impl ModelArena {
         let i = key.0.checked_sub(1).ok_or(ModelError::UnknownFrame(key))? as usize;
         self.frames
             .get(i)
-            .filter(|f| f.key == key)
+            .filter(|f| f.key == key && f.alive)
             .map(|_| i)
             .ok_or(ModelError::UnknownFrame(key))
     }
     fn model_index(&self, key: ModelKey) -> Result<usize, ModelError> {
+        self.frame_index(key.root())
+            .map_err(|_| ModelError::UnknownModel(key))?;
         self.models
             .iter()
             .position(|m| m.key == key)
@@ -154,6 +176,10 @@ impl ModelArena {
     pub fn state(&self, key: FrameKey) -> Result<&I3dFrameState, ModelError> {
         self.frame_index(key)?;
         Ok(self.graph.state(key)?)
+    }
+    pub fn links(&self, key: FrameKey) -> Result<crate::frame_transform::FrameLinks, ModelError> {
+        self.frame_index(key)?;
+        Ok(self.graph.links(key)?)
     }
     pub fn joint_state(&self, key: FrameKey) -> Result<&I3dJointState, ModelError> {
         self.frame_index(key)?;
@@ -171,25 +197,91 @@ impl ModelArena {
         self.frames[i].references = self.frames[i]
             .references
             .checked_add(1)
+            .filter(|&count| count <= i32::MAX as u32)
             .ok_or(ModelError::ReferenceOverflow(key))?;
         Ok(())
     }
-    /// Zero-count object destruction needs its derived destructor and is an
-    /// explicit dependency. On rejection, no reference count is changed.
+    /// Release the owned reference. Unsupported derived effects are rejected
+    /// before decrementing the last reference; completed earlier Close releases
+    /// remain observable. Dead stable keys never identify a later allocation.
     pub fn release(&mut self, key: FrameKey) -> Result<(), ModelError> {
         let i = self.frame_index(key)?;
-        if self.frames[i].references <= 1 {
-            return Err(ModelError::DestructionRequired(key));
+        if self.frames[i].references > 1 {
+            self.frames[i].references -= 1;
+            return Ok(());
         }
-        self.frames[i].references -= 1;
+        self.graph.check_destruction(key)?;
+        let owner_position = if let Some(owner) = self.frames[i].owner {
+            let mi = self.model_index(owner)?;
+            if self.models[mi].closing {
+                return Err(ModelError::CloseIncomplete(owner));
+            }
+            let position = self.models[mi]
+                .frames
+                .iter()
+                .position(|&k| k == key)
+                .ok_or(ModelError::FrameNotOwned {
+                    model: owner,
+                    frame: key,
+                })?;
+            Some((mi, position))
+        } else {
+            None
+        };
+        if self.graph.state(key)?.kind == FrameKind::Model {
+            // Host guard for independently constructed ownership graphs. This
+            // is an explicit availability bound, not a recovered native limit.
+            if self.destruction_depth >= 64 {
+                return Err(ModelError::NestedDestructionUnavailable(key));
+            }
+            self.destruction_depth += 1;
+            let result = self.close(ModelKey(key));
+            self.destruction_depth -= 1;
+            result?;
+            // Model's derived destructor frees its frame-array allocation
+            // after Close and before entering the common frame destructor.
+            let mi = self.model_index(ModelKey(key))?;
+            self.models[mi].frames = Vec::new();
+            self.models[mi].native_capacity = 0;
+        }
+        self.graph.destroy_derived(key)?;
+        // Derived teardown precedes base owner removal. The zero-count base
+        // destructor removes membership without an additional Release.
+        if let Some((mi, position)) = owner_position {
+            self.models[mi].frames.swap_remove(position);
+            self.frames[i].owner = None;
+        }
+        self.graph.destroy_base(key)?;
+        self.frames[i].references = 0;
+        self.frames[i].alive = false;
+        self.frames[i].properties = Vec::new();
+        self.frames[i].name_bytes = Vec::new();
+        self.frames[i].dummy_bounds = None;
+        self.frames[i].source = None;
         Ok(())
     }
     pub fn add_frame(&mut self, model: ModelKey, key: FrameKey) -> Result<(), ModelError> {
         let mi = self.model_index(model)?;
         let fi = self.frame_index(key)?;
+        if self.models[mi].closing {
+            return Err(ModelError::CloseIncomplete(model));
+        }
+        let mut ancestor = Some(model);
+        while let Some(current) = ancestor {
+            if current.root() == key {
+                return Err(ModelError::OwnershipCycle);
+            }
+            ancestor = self.frame(current.root())?.owner;
+        }
+        if let Some(previous) = self.frames[fi].owner {
+            if self.models[self.model_index(previous)?].closing {
+                return Err(ModelError::CloseIncomplete(previous));
+            }
+        }
         self.frames[fi]
             .references
             .checked_add(1)
+            .filter(|&count| count <= i32::MAX as u32)
             .ok_or(ModelError::ReferenceOverflow(key))?;
         let required = self.models[mi]
             .frames
@@ -226,37 +318,57 @@ impl ModelArena {
     pub fn delete_frame(&mut self, model: ModelKey, key: FrameKey) -> Result<(), ModelError> {
         let mi = self.model_index(model)?;
         let fi = self.frame_index(key)?;
+        if self.models[mi].closing {
+            return Err(ModelError::CloseIncomplete(model));
+        }
         let position = self.models[mi]
             .frames
             .iter()
             .position(|&k| k == key)
             .ok_or(ModelError::FrameNotOwned { model, frame: key })?;
         if self.frames[fi].references <= 1 {
-            return Err(ModelError::DestructionRequired(key));
+            self.graph.check_destruction(key)?;
         }
         self.models[mi].frames.swap_remove(position);
         self.frames[fi].owner = None;
-        self.frames[fi].references -= 1;
-        Ok(())
+        self.release(key)
     }
-    /// Close's ownership loop is represented only when every child has another
-    /// live reference. Animation deletion, filename sharing and derived frame
-    /// destruction require their concrete backends and are not fabricated here.
+    /// Forward ownership release for the represented destructor subset. Native
+    /// list storage is retained. An unavailable later destructor retains its
+    /// successful prefix; a host cursor prevents releasing that prefix twice.
+    /// A host lock and restored failed-slot owner keep unavailable nested
+    /// destruction consistent; these are not native exception semantics.
+    /// External references survive with their hierarchy links and source backing.
     pub fn close(&mut self, model: ModelKey) -> Result<(), ModelError> {
         let mi = self.model_index(model)?;
-        for &key in &self.models[mi].frames {
-            if self.frame(key)?.references <= 1 {
-                return Err(ModelError::DestructionRequired(key));
-            }
-        }
-        for &key in &self.models[mi].frames {
+        self.models[mi].lifecycle_epoch = self.models[mi]
+            .lifecycle_epoch
+            .checked_add(1)
+            .ok_or(ModelError::AllocationOverflow)?;
+        self.models[mi].closing = true;
+        while self.models[mi].close_cursor < self.models[mi].frames.len() {
+            let key = self.models[mi].frames[self.models[mi].close_cursor];
             let fi = self.frame_index(key)?;
+            if self.frames[fi].references <= 1 {
+                self.graph.check_destruction(key)?;
+            }
             self.frames[fi].owner = None;
-            self.frames[fi].references -= 1;
+            if let Err(error) = self.release(key) {
+                // The unsupported current slot still belongs to this pending
+                // host Close, including a nested model with a completed prefix.
+                self.frames[fi].owner = Some(model);
+                return Err(error);
+            }
+            self.models[mi].close_cursor += 1;
         }
         self.models[mi].frames.clear();
+        self.models[mi].close_cursor = 0;
+        self.models[mi].closing = false;
         self.graph.discard_hr_bound_vol(model.root())?;
         Ok(())
+    }
+    pub fn lifecycle_epoch(&self, model: ModelKey) -> Result<u64, ModelError> {
+        Ok(self.models[self.model_index(model)?].lifecycle_epoch)
     }
     pub fn world_matrix(&mut self, key: FrameKey) -> Result<SMatrix, ModelError> {
         self.frame_index(key)?;
@@ -315,6 +427,8 @@ pub struct MaterializedModel {
     skin_pose: Option<SinglemeshPose>,
     morph_poses: Vec<Option<MorphPose>>,
     complete: bool,
+    content_epoch: u64,
+    transferred_frames: usize,
 }
 impl MaterializedModel {
     /// Parsed, complete common records only; names/properties retain original
@@ -338,6 +452,8 @@ impl MaterializedModel {
                         skin_pose: None,
                         morph_poses: Vec::new(),
                         complete: false,
+                        content_epoch: 0,
+                        transferred_frames: 0,
                     }),
                 });
             }
@@ -351,6 +467,8 @@ impl MaterializedModel {
             skin_pose: None,
             morph_poses: Vec::new(),
             complete: false,
+            content_epoch: 0,
+            transferred_frames: 0,
         };
         for index in 0..result.source.frames.len() {
             if let Err(error) = result.load_frame(index) {
@@ -362,6 +480,7 @@ impl MaterializedModel {
             }
         }
         if let Err(error) = result.resolve_targets() {
+            let error = result.transfer_loaded_frames().err().unwrap_or(error);
             return Err(ModelLoadFailure {
                 error,
                 partial: Box::new(result),
@@ -439,6 +558,16 @@ impl MaterializedModel {
             ),
             None => None,
         };
+        let morph = if source.visual == Some(3) {
+            Some(MorphPose::from_frame(source).map_err(ModelError::SkinPose)?)
+        } else {
+            if source.morph.is_some() {
+                return Err(ModelError::SkinPose(SkinPoseError::Source(
+                    "morph on non-singlemorph frame",
+                )));
+            }
+            None
+        };
         let key = self.arena.insert(
             state,
             Some(index),
@@ -446,6 +575,15 @@ impl MaterializedModel {
             source.properties.clone(),
             source.dummy_bounds,
         )?;
+        let fi = self.arena.frame_index(key)?;
+        self.arena.frames[fi].source = Some(Arc::clone(&self.source));
+        self.morph_poses.push(morph);
+        self.source_frame_keys.push(key);
+        if source.kind == 7 {
+            self.arena
+                .graph
+                .register_target(key, I3dTargetState::default())?;
+        }
         // LoadImage links earlier parents before storing the common local SRT.
         if parent.is_some() {
             self.arena.graph.link_to(key, parent)?;
@@ -469,18 +607,6 @@ impl MaterializedModel {
                 joint.index,
             )?;
         }
-        let morph = if source.visual == Some(3) {
-            Some(MorphPose::from_frame(source).map_err(ModelError::SkinPose)?)
-        } else {
-            if source.morph.is_some() {
-                return Err(ModelError::SkinPose(SkinPoseError::Source(
-                    "morph on non-singlemorph frame",
-                )));
-            }
-            None
-        };
-        self.morph_poses.push(morph);
-        self.source_frame_keys.push(key);
         Ok(())
     }
     fn resolve_targets(&mut self) -> Result<(), ModelError> {
@@ -494,23 +620,77 @@ impl MaterializedModel {
                 .map_err(ModelError::Target)?;
                 self.arena
                     .graph
-                    .register_target(self.source_frame_keys[index], state)?;
+                    .apply_target_load_image_state(self.source_frame_keys[index], state)?;
             }
         }
         Ok(())
     }
     fn transfer_loaded_frames(&mut self) -> Result<(), ModelError> {
-        for &key in &self.source_frame_keys {
+        while self.transferred_frames < self.source_frame_keys.len() {
+            let key = self.source_frame_keys[self.transferred_frames];
             if self.arena.graph.links(key)?.parent.is_none() {
                 self.arena.graph.link_to(key, Some(self.root.root()))?;
             }
             self.arena.add_frame(self.root, key)?;
             self.arena.release(key)?;
+            self.transferred_frames += 1;
         }
         Ok(())
     }
     pub fn is_complete(&self) -> bool {
         self.complete
+            && self
+                .lifecycle_epoch()
+                .is_ok_and(|epoch| epoch == self.content_epoch)
+            && self
+                .arena
+                .model(self.root)
+                .is_ok_and(|model| model.frames.len() == self.source_frame_keys.len())
+            && self.source_frame_keys.iter().all(|&key| {
+                self.arena
+                    .frame(key)
+                    .is_ok_and(|frame| frame.owner == Some(self.root))
+            })
+    }
+    /// Content epoch also changes when callers close the low-level arena.
+    pub fn lifecycle_epoch(&self) -> Result<u64, ModelError> {
+        self.arena.lifecycle_epoch(self.root)
+    }
+    /// Close this parsed host materialization. External playback must be dropped
+    /// first by its owner; this adapter does not own the original model controller.
+    /// On failure the previous renderable pose and binding identity are invalid.
+    pub fn close(&mut self) -> Result<(), ModelError> {
+        self.complete = false;
+        self.identity = Arc::new(());
+        self.skin_pose = None;
+        // Failed intake may still own creator references not yet transferred.
+        // Keep their keys until adoption and Close both succeed.
+        self.transfer_loaded_frames()?;
+        self.arena.close(self.root)?;
+        self.morph_poses.clear();
+        self.source_frame_keys.clear();
+        self.transferred_frames = 0;
+        Ok(())
+    }
+    /// Close before loading a new parsed source into the same root identity.
+    /// This is not native file Open: filename sharing, I/O and fast-find naming
+    /// remain separate. Failed intake retains its successfully owned prefix.
+    pub fn reopen_from_parsed(&mut self, source: Arc<Model>) -> Result<(), ModelError> {
+        self.close()?;
+        self.source = source;
+        for index in 0..self.source.frames.len() {
+            if let Err(error) = self.load_frame(index) {
+                return Err(self.transfer_loaded_frames().err().unwrap_or(error));
+            }
+        }
+        if let Err(error) = self.resolve_targets() {
+            return Err(self.transfer_loaded_frames().err().unwrap_or(error));
+        }
+        self.transfer_loaded_frames()?;
+        self.arena.graph.mark_loaded_root(self.root.root())?;
+        self.content_epoch = self.lifecycle_epoch()?;
+        self.complete = true;
+        Ok(())
     }
     pub fn source(&self) -> &Arc<Model> {
         &self.source
@@ -545,6 +725,9 @@ impl MaterializedModel {
     pub fn root(&self) -> FrameKey {
         self.root.root()
     }
+    pub fn model_key(&self) -> ModelKey {
+        self.root
+    }
     pub fn source_frame_keys(&self) -> &[FrameKey] {
         &self.source_frame_keys
     }
@@ -555,6 +738,9 @@ impl MaterializedModel {
         &mut self.arena
     }
     pub fn world_matrices(&mut self) -> Result<Vec<SMatrix>, ModelError> {
+        if !self.is_complete() {
+            return Err(ModelError::IncompleteModel);
+        }
         self.source_frame_keys
             .iter()
             .map(|&key| self.arena.world_matrix(key))
@@ -571,7 +757,7 @@ impl MaterializedModel {
         animation: &crate::skeletal_animation::SkeletalAnimation,
         current_ms: u32,
     ) -> Result<(), ModelError> {
-        if !self.complete
+        if !self.is_complete()
             || !Arc::ptr_eq(&self.source, animation.model())
             || animation.bindings().iter().any(|binding| {
                 self.source_frame_keys.get(binding.frame_index) != Some(&binding.frame)
@@ -601,7 +787,7 @@ impl MaterializedModel {
     /// calculation before deformation. This does not bind an animation or
     /// implement native vertex-buffer management and rendering.
     pub fn prepare_skin_pose(&mut self) -> Result<(), ModelError> {
-        if !self.complete {
+        if !self.is_complete() {
             return Err(ModelError::SkinPose(SkinPoseError::Source(
                 "incomplete model",
             )));
@@ -626,9 +812,13 @@ impl MaterializedModel {
         Ok(())
     }
     pub fn skin_pose(&self) -> Option<&SinglemeshPose> {
-        self.skin_pose.as_ref()
+        self.is_complete()
+            .then_some(self.skin_pose.as_ref())
+            .flatten()
     }
-    /// Additional owned storage; source Arc<Model> payload is charged by caller.
+    /// Additional owned storage; shared source Arc<Model> payloads are charged
+    /// by the caller, including any old backing retained by surviving frames.
+    /// Arc handles are already included in the frame allocation size.
     pub fn storage_bytes(&self) -> Result<usize, ModelError> {
         let bytes = self
             .arena
@@ -1034,7 +1224,7 @@ mod tests {
         assert_eq!(partial.arena.state(partial.root()).unwrap().update_count, 0);
     }
     #[test]
-    fn transfers_last_owner_without_destroying_then_requires_real_destructor() {
+    fn transfers_last_owner_then_destroys_supported_unreferenced_frame() {
         let source = Arc::new(Model {
             materials: Vec::new(),
             frames: vec![frame(6, None, [0.; 3]), frame(1, None, [0.; 3])],
@@ -1049,16 +1239,267 @@ mod tests {
         );
         assert_eq!(loaded.arena.frame(key).unwrap().owner, Some(next));
         assert_eq!(loaded.arena.frame(key).unwrap().references, 1);
-        assert_eq!(
-            loaded.arena.close(next),
-            Err(ModelError::DestructionRequired(key))
-        );
-        assert_eq!(loaded.arena.frame(key).unwrap().owner, Some(next));
-        loaded.arena.retain(key).unwrap();
         loaded.arena.close(next).unwrap();
-        assert_eq!(loaded.arena.frame(key).unwrap().owner, None);
-        assert_eq!(loaded.arena.frame(key).unwrap().references, 1);
+        assert!(
+            matches!(loaded.arena.frame(key), Err(ModelError::UnknownFrame(dead)) if dead == key)
+        );
+        assert!(
+            matches!(loaded.arena.state(key), Err(ModelError::UnknownFrame(dead)) if dead == key)
+        );
     }
+    #[test]
+    fn persistent_root_reopens_with_new_keys_and_preserves_external_source_backing() {
+        let source = Arc::new(Model {
+            materials: Vec::new(),
+            frames: vec![frame(6, None, [3., 0., 0.])],
+        });
+        let old_source = Arc::downgrade(&source);
+        let mut loaded = MaterializedModel::from_parsed(source).unwrap();
+        let root = loaded.root();
+        let old_identity = Arc::clone(loaded.identity());
+        let old = loaded.source_frame_keys()[0];
+        loaded.arena.retain(old).unwrap();
+        loaded.close().unwrap();
+        assert!(!loaded.is_complete());
+        assert!(!Arc::ptr_eq(&old_identity, loaded.identity()));
+        assert_eq!(loaded.arena.frame(old).unwrap().references, 1);
+        assert_eq!(loaded.arena.frame(old).unwrap().owner, None);
+        assert_eq!(loaded.arena.links(old).unwrap().parent, Some(root));
+        let replacement = Arc::new(Model {
+            materials: Vec::new(),
+            frames: vec![frame(6, None, [7., 0., 0.])],
+        });
+        loaded.reopen_from_parsed(replacement).unwrap();
+        assert!(loaded.is_complete());
+        assert_eq!(loaded.root(), root);
+        assert!(loaded.source_frame_keys()[0].0 > old.0);
+        assert_eq!(loaded.arena.links(root).unwrap().child_count, 2);
+        assert!(old_source.upgrade().is_some());
+        loaded.arena.release(old).unwrap();
+        assert!(old_source.upgrade().is_none());
+        assert!(matches!(
+            loaded.arena.retain(old),
+            Err(ModelError::UnknownFrame(_))
+        ));
+        loaded.close().unwrap();
+        loaded.close().unwrap();
+        assert_eq!(loaded.arena.links(root).unwrap().child_count, 0);
+    }
+
+    #[test]
+    fn failed_close_retains_prefix_and_can_resume_without_double_release() {
+        let source = Arc::new(Model {
+            materials: Vec::new(),
+            frames: vec![frame(6, None, [0.; 3]), frame(1, None, [0.; 3])],
+        });
+        let mut loaded = MaterializedModel::from_parsed(source).unwrap();
+        let keys = loaded.source_frame_keys().to_vec();
+        assert_eq!(
+            loaded.close(),
+            Err(ModelError::Frame(FrameError::UnsupportedDestruction(
+                keys[1]
+            )))
+        );
+        assert!(!loaded.is_complete());
+        assert!(matches!(
+            loaded.arena.frame(keys[0]),
+            Err(ModelError::UnknownFrame(_))
+        ));
+        assert_eq!(loaded.arena.frame(keys[1]).unwrap().references, 1);
+        assert_eq!(
+            loaded.arena.frame(keys[1]).unwrap().owner,
+            Some(loaded.root)
+        );
+        assert_eq!(
+            loaded.close(),
+            Err(ModelError::Frame(FrameError::UnsupportedDestruction(
+                keys[1]
+            )))
+        );
+        let other = loaded.arena.create_model().unwrap();
+        assert_eq!(
+            loaded.arena.add_frame(other, keys[1]),
+            Err(ModelError::CloseIncomplete(loaded.root))
+        );
+        loaded.arena.retain(keys[1]).unwrap();
+        loaded.close().unwrap();
+        assert_eq!(loaded.arena.frame(keys[1]).unwrap().references, 1);
+        assert_eq!(loaded.arena.frame(keys[1]).unwrap().owner, None);
+        assert!(loaded.source_frame_keys().is_empty());
+    }
+
+    #[test]
+    fn low_level_close_invalidates_content_epoch_and_failed_target_intake_is_owned() {
+        let source = Arc::new(Model {
+            materials: Vec::new(),
+            frames: vec![frame(6, None, [0.; 3])],
+        });
+        let mut loaded = MaterializedModel::from_parsed(source).unwrap();
+        let epoch = loaded.lifecycle_epoch().unwrap();
+        loaded.arena.close(loaded.root).unwrap();
+        assert!(!loaded.is_complete());
+        assert!(loaded.lifecycle_epoch().unwrap() > epoch);
+        let mut target = frame(7, None, [0.; 3]);
+        target.target = Some(lhr_assets::TargetRecord {
+            flags: 0,
+            frame_indices: vec![2],
+        });
+        let failure = MaterializedModel::from_parsed(Arc::new(Model {
+            materials: Vec::new(),
+            frames: vec![target],
+        }))
+        .unwrap_err();
+        let mut partial = *failure.partial;
+        let key = partial.source_frame_keys()[0];
+        assert_eq!(partial.arena.frame(key).unwrap().owner, Some(partial.root));
+        // Constructor registration remains empty after failed reference intake.
+        // Its successfully constructed record is owned and can be closed.
+        partial.close().unwrap();
+        assert!(partial.source_frame_keys().is_empty());
+        assert!(matches!(
+            partial.arena.frame(key),
+            Err(ModelError::UnknownFrame(_))
+        ));
+    }
+
+    #[test]
+    fn destroyed_parent_detaches_surviving_child_without_releasing_or_invalidating_cache() {
+        let mut loaded = MaterializedModel::from_parsed(Arc::new(Model {
+            materials: Vec::new(),
+            frames: vec![
+                frame(6, None, [10., 0., 0.]),
+                frame(6, Some(0), [2., 0., 0.]),
+            ],
+        }))
+        .unwrap();
+        let keys = loaded.source_frame_keys().to_vec();
+        assert_eq!(
+            loaded.arena.world_matrix(keys[1]).unwrap().elements[12],
+            12.
+        );
+        loaded.arena.retain(keys[1]).unwrap();
+        loaded.close().unwrap();
+        assert_eq!(loaded.arena.links(keys[1]).unwrap().parent, None);
+        assert_eq!(loaded.arena.frame(keys[1]).unwrap().references, 1);
+        assert_eq!(
+            loaded.arena.world_matrix(keys[1]).unwrap().elements[12],
+            12.
+        );
+        loaded.arena.release(keys[1]).unwrap();
+        assert!(matches!(
+            loaded.arena.frame(keys[1]),
+            Err(ModelError::UnknownFrame(_))
+        ));
+    }
+
+    #[test]
+    fn retired_later_frame_invalidates_skin_and_rejects_legacy_sampling_before_writes() {
+        let mut source = skinned_source();
+        let joint = &mut Arc::make_mut(&mut source).frames[1];
+        joint.name_bytes = b"bone".to_vec();
+        let mut loaded = MaterializedModel::from_parsed(source.clone()).unwrap();
+        loaded.prepare_skin_pose().unwrap();
+        let keys = loaded.source_frame_keys().to_vec();
+        let animation = crate::skeletal_animation::SkeletalAnimation::new(
+            &source,
+            synthetic_joint_animation(),
+            &keys,
+        )
+        .unwrap();
+        let before = *loaded.arena.state(keys[1]).unwrap();
+        loaded.arena.release(keys[2]).unwrap();
+        assert!(!loaded.is_complete());
+        assert!(loaded.skin_pose().is_none());
+        assert_eq!(
+            loaded.evaluate_skeletal_animation(&animation, 200),
+            Err(ModelError::AnimationIdentity)
+        );
+        assert_eq!(*loaded.arena.state(keys[1]).unwrap(), before);
+        assert_eq!(loaded.world_matrices(), Err(ModelError::IncompleteModel));
+    }
+
+    #[test]
+    fn nested_unavailable_close_locks_even_an_empty_completed_prefix() {
+        let mut arena = ModelArena::default();
+        let outer = arena.create_model().unwrap();
+        let inner = arena.create_model().unwrap();
+        let other = arena.create_model().unwrap();
+        let mesh = arena
+            .insert(I3dFrameState::mesh(), None, Vec::new(), Vec::new(), None)
+            .unwrap();
+        arena.add_frame(inner, mesh).unwrap();
+        arena.release(mesh).unwrap();
+        arena.add_frame(outer, inner.root()).unwrap();
+        arena.release(inner.root()).unwrap();
+        assert_eq!(
+            arena.close(outer),
+            Err(ModelError::Frame(FrameError::UnsupportedDestruction(mesh)))
+        );
+        assert_eq!(arena.frame(inner.root()).unwrap().owner, Some(outer));
+        assert_eq!(
+            arena.add_frame(other, inner.root()),
+            Err(ModelError::CloseIncomplete(outer))
+        );
+        assert_eq!(
+            arena.delete_frame(outer, inner.root()),
+            Err(ModelError::CloseIncomplete(outer))
+        );
+        arena.retain(mesh).unwrap();
+        arena.close(outer).unwrap();
+        assert!(matches!(
+            arena.frame(inner.root()),
+            Err(ModelError::UnknownFrame(_))
+        ));
+        assert_eq!(arena.frame(mesh).unwrap().references, 1);
+        assert_eq!(arena.frame(mesh).unwrap().owner, None);
+    }
+
+    #[test]
+    fn deep_model_ownership_is_guarded_and_failed_close_can_resume() {
+        let mut arena = ModelArena::default();
+        let root = arena.create_model().unwrap();
+        let mut last = root;
+        for _ in 0..80 {
+            let child = arena.create_model().unwrap();
+            arena.add_frame(last, child.root()).unwrap();
+            arena.release(child.root()).unwrap();
+            last = child;
+        }
+        let blocked = match arena.close(root) {
+            Err(ModelError::NestedDestructionUnavailable(key)) => key,
+            other => panic!("unexpected nested close result: {other:?}"),
+        };
+        arena.retain(blocked).unwrap();
+        arena.close(root).unwrap();
+        assert!(arena.frame(blocked).is_ok());
+        arena.release(blocked).unwrap();
+        assert!(matches!(
+            arena.frame(last.root()),
+            Err(ModelError::UnknownFrame(_))
+        ));
+    }
+
+    #[test]
+    fn reference_growth_stays_within_the_native_signed_positive_domain() {
+        let mut arena = ModelArena::default();
+        let root = arena.create_model().unwrap();
+        let index = arena.frame_index(root.root()).unwrap();
+        arena.frames[index].references = i32::MAX as u32;
+        assert_eq!(
+            arena.retain(root.root()),
+            Err(ModelError::ReferenceOverflow(root.root()))
+        );
+        assert_eq!(
+            arena.frame(root.root()).unwrap().references,
+            i32::MAX as u32
+        );
+        arena.release(root.root()).unwrap();
+        assert_eq!(
+            arena.frame(root.root()).unwrap().references,
+            i32::MAX as u32 - 1
+        );
+    }
+
     #[test]
     fn validates_parent_without_returning_empty_success() {
         let source = Arc::new(Model {
