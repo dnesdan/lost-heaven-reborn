@@ -28,6 +28,8 @@ The next dependency order is:
 3. Connect actor/BODY, model and controller ownership to original animation selection. Keep original animation-code/resource mappings outside any dependency on Game.exe at runtime.
 4. Continue original control lock/release, replay, attachments, collision-backed movement, vehicles, camera, pursuit and mission objectives through completion. Compare original-runtime traces and interactive Rust runs of the same sequence.
 
+The [mafia-re/MafiaUnity source audit](REFERENCE_PROJECTS.md#next-general-engine-work) identifies complementary general-engine dependencies: persistent model/scene resource lifetime, mission-world construction, KLZ-backed collision, material states and sector visibility. Research these alongside the sequence above; upstream scene loaders and prototype mechanics do not replace original actor or script behavior.
+
 Work on independent dependencies in parallel using Astra and Sol agents. Integrate verified functions when their real callers and ownership are ready; unavailable paths continue to fail explicitly. Keep library contracts, asset inspection and complete first-mission behavior as separate evidence claims.
 
 ## Future graphics
