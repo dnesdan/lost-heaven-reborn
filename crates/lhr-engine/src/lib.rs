@@ -3,6 +3,7 @@
 pub mod actor_tick;
 pub mod animation_binding;
 pub mod clock;
+pub mod driver_state;
 pub mod frame_delta;
 pub mod frame_dispatch;
 pub mod frame_transform;
@@ -10,6 +11,7 @@ pub mod interpolator;
 pub mod mission_effects;
 pub mod model_tick;
 pub mod named_script;
+pub mod native_matrix;
 pub mod native_transform;
 pub mod original_config;
 pub mod runtime;
