@@ -677,14 +677,10 @@ impl VisualResources {
         current.index_buffer = block;
         Ok(())
     }
-    pub fn install_mesh_level_storage(
-        &mut self,
+    fn check_mesh_level_storage_fresh(
+        &self,
         level: MeshLevelKey,
-        num_vertices: u32,
-        block: CompleteVertexBuffer,
-        head: Option<FaceGroupKey>,
     ) -> Result<(), VisualResourceError> {
-        self.available()?;
         let current = self.mesh_level(level)?;
         if current.storage_installed
             || current.references != 1
@@ -693,6 +689,38 @@ impl VisualResources {
         {
             return Err(VisualResourceError::StorageAlreadyInstalled);
         }
+        Ok(())
+    }
+    /// Shared host-intake preflight. No ownership changes or backend effects.
+    /// The bridge uses this before allocating a manager block; the installer
+    /// repeats it to preserve its independent public admission contract.
+    pub(crate) fn check_mesh_level_storage_intake(
+        &self,
+        level: MeshLevelKey,
+        head: Option<FaceGroupKey>,
+    ) -> Result<u32, VisualResourceError> {
+        self.available()?;
+        self.check_mesh_level_storage_fresh(level)?;
+        let count = if let Some(head) = head {
+            if self.face_group(head)?.owner.is_some() {
+                return Err(VisualResourceError::FaceGroupOwned(head));
+            }
+            u32::try_from(self.chain(head)?.len())
+                .map_err(|_| VisualResourceError::IdentityOverflow)?
+        } else {
+            0
+        };
+        Ok(count)
+    }
+    pub fn install_mesh_level_storage(
+        &mut self,
+        level: MeshLevelKey,
+        num_vertices: u32,
+        block: CompleteVertexBuffer,
+        head: Option<FaceGroupKey>,
+    ) -> Result<(), VisualResourceError> {
+        self.available()?;
+        self.check_mesh_level_storage_fresh(level)?;
         if num_vertices > i32::MAX as u32 || block.graphics.is_some_and(|b| b.0 == 0) {
             return Err(VisualResourceError::InvalidExternalIdentity);
         }
@@ -722,15 +750,7 @@ impl VisualResources {
         {
             return Err(VisualResourceError::BufferBlockAlreadyOwned);
         }
-        let count = if let Some(head) = head {
-            if self.face_group(head)?.owner.is_some() {
-                return Err(VisualResourceError::FaceGroupOwned(head));
-            }
-            u32::try_from(self.chain(head)?.len())
-                .map_err(|_| VisualResourceError::IdentityOverflow)?
-        } else {
-            0
-        };
+        let count = self.check_mesh_level_storage_intake(level, head)?;
         if let Some(head) = head {
             self.face_group_mut(head)?.owner = Some(FaceGroupOwner::MeshLevel(level));
         }
