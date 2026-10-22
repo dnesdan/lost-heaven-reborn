@@ -365,6 +365,123 @@ impl ManagedVisualResources {
         Ok(true)
     }
 }
+// Narrow storage hooks for the separate plain-object LOD ownership layer.
+// They preserve this arena's manager world and token namespace without exposing
+// mutable managers or permitting forced destruction of live copied descriptors.
+impl ManagedVisualResources {
+    pub(crate) fn create_vertex_storage_owner(&mut self) -> Result<VertexOwnerKey, ManagedError> {
+        self.available()?;
+        self.managers.create_vertex_owner().map_err(Into::into)
+    }
+    pub(crate) fn allocate_vertex_storage<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        owner: VertexOwnerKey,
+        request: VertexRequest,
+        backend: &mut B,
+    ) -> Result<Option<CompleteVertexBuffer>, ManagedOperationError<B::Error>> {
+        self.available()?;
+        Self::reserve(&mut self.vertex_tokens)?;
+        let token = Self::next_token(self.vertex_tokens.len())?;
+        let allocated = match manager_result(self.managers.allocate_vertex(owner, request, backend))
+        {
+            Ok(v) => v,
+            Err(e) => {
+                self.poisoned = true;
+                return Err(e);
+            }
+        };
+        if !allocated {
+            return Ok(None);
+        }
+        let result = (|| {
+            let raw = active_descriptor(&self.managers, OwnerKey::Vertex(owner), request.count)?;
+            let (Some(BufferKey::Vertex(buffer)), Some(GraphicsBuffer::Vertex(graphics))) =
+                (raw.buffer, raw.graphics)
+            else {
+                return Err(ManagedError::BindingMismatch);
+            };
+            let visual = if let Some(t) = self.vertex_tokens.iter().find(|t| t.manager == buffer) {
+                t.visual
+            } else {
+                let visual = vr::VertexBufferKey(token);
+                self.vertex_tokens.push(VertexBufferToken {
+                    manager: buffer,
+                    visual,
+                });
+                visual
+            };
+            Ok(CompleteVertexBuffer {
+                buffer: Some(VertexBufferPointer::Managed(visual)),
+                base: raw.base,
+                graphics: Some(graphics),
+            })
+        })();
+        match result {
+            Ok(block) => Ok(Some(block)),
+            Err(e) => {
+                self.poisoned = true;
+                Err(e.into())
+            }
+        }
+    }
+    pub(crate) fn free_vertex_storage<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        owner: Option<VertexOwnerKey>,
+        descriptor: CompleteVertexBuffer,
+        backend: &mut B,
+    ) -> Result<(), ManagedOperationError<B::Error>> {
+        self.available()?;
+        let Some(owner) = owner else {
+            return if descriptor == CompleteVertexBuffer::default() {
+                Ok(())
+            } else {
+                Err(ManagedError::BindingMismatch.into())
+            };
+        };
+        let state = self.managers.vertex_owner(owner)?;
+        if state.lease == OwnerLease::Vacant
+            && state.descriptor == Descriptor::default()
+            && descriptor == CompleteVertexBuffer::default()
+        {
+            return Ok(());
+        }
+        let OwnerLease::Active {
+            block,
+            published: true,
+        } = state.lease
+        else {
+            return Err(ManagedError::BindingMismatch.into());
+        };
+        let count = self.managers.block(block)?.count;
+        let raw = active_descriptor(&self.managers, OwnerKey::Vertex(owner), count)?;
+        let (Some(BufferKey::Vertex(buffer)), Some(GraphicsBuffer::Vertex(graphics))) =
+            (raw.buffer, raw.graphics)
+        else {
+            return Err(ManagedError::BindingMismatch.into());
+        };
+        let visual = self
+            .vertex_tokens
+            .iter()
+            .find(|t| t.manager == buffer)
+            .ok_or(ManagedError::BindingMismatch)?
+            .visual;
+        if descriptor
+            != (CompleteVertexBuffer {
+                buffer: Some(VertexBufferPointer::Managed(visual)),
+                base: raw.base,
+                graphics: Some(graphics),
+            })
+        {
+            return Err(ManagedError::BindingMismatch.into());
+        }
+        let result = manager_result(self.managers.free_vertex(owner, backend));
+        if result.is_err() {
+            self.poisoned = true;
+        }
+        result
+    }
+}
+
 fn active_descriptor(
     managers: &BufferManagers,
     owner: OwnerKey,
