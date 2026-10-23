@@ -15,11 +15,11 @@ All gates remain open until corresponding evidence is recorded. Current function
 
 ## Parity with mafia-re
 
-At `494ede8`, bounded BODYCOL lifecycle/callback passes and fast frame-tree behavior bring the accepted scope to **245 entries / 77 contracts**, **20 static_inspection / 57 not_integrated**, strict **0/12**. Whole-function coverage remains N/A.
+At `21c555b`, bounded DOOR/WINDOW, BALLAST and SEAT continuation plus component/EXHAUST record helpers bring the accepted scope to **255 entries / 78 contracts**, **20 static_inspection / 58 not_integrated**, strict **0/12**. Whole-function coverage remains N/A.
 
 Actual authored MISE01 remains FINDACTOR/UnsupportedWorldBackend at PC3 / source line 4; no later line executes. All six first-mission gates remain open. No runtime gameplay integration or driving mode is established.
 
-Next continue original DOOR/WINDOW, BALLAST and SEAT behavior with real record/storage effects. Establish shared scene/frame ownership for BODYCOL effects, fast-tree registration and collision links, then finish wheels/source parameters and complete Init/teardown through the actual C_car caller. Close loader LOD0/world transforms, dynamic queries and contacts before the original vehicle solver and driving controls. Floating compiler operands/LET/IF, all 62 parameter cases and Compile/Init/Done remain parallel; genuine mission actors, scheduling, replay, objectives and completion remain required.
+Next establish shared scene/frame ownership for component and BODYCOL effects, fast-tree registration and collision links, then finish wheels/source parameters and full Init/cleanup through the actual C_car caller. Close loader LOD0/world transforms, dynamic queries and contacts before the original solver and driving controls. Floating compiler operands/LET/IF, all 62 parameter cases and Compile/Init/Done remain parallel; genuine mission actors, scheduling, replay, objectives and completion remain required.
 
 Historical Installation integration connects existing menu/static scene archive callers to NativeFiles; its asset-equality and static-rendering receipts remain in [PROGRESS.md](PROGRESS.md). That route supplies neither GPU-worker ownership nor mission-world construction.
 
@@ -37,13 +37,12 @@ Fresh REA/Ghidra instruction evidence and actual registry bytes support the boun
 
 The immediate dependency order is:
 
-1. Continue original DOOR/WINDOW, BALLAST and SEAT behavior through real record insertion/copy/growth, parsing, callback and cleanup effects. Preserve the genuine single-use Init frontier and native failure prefixes; stop explicitly before unavailable wheel behavior.
-2. Establish one genuine scene/frame owner shared by BODYCOL update/enumeration/LinkTo/remove effects, fast-tree names/registration and collision links. Supplied frame identities do not establish original driver, primary-sector or external-model construction. Preserve references, surviving external frames and repeatable release/reload.
-3. Finish wheels/source parameters, original Init success and genuine teardown through the actual C_car caller. Pair successful and failed Init with constructor, held resources and destruction; a standalone byte-state helper does not satisfy this package.
-4. Close collision-loader LOD0/world transforms, dynamic queries and body/wheel contacts, then reconstruct Tick -> Engine -> six-float Move -> DoWheelsCollision in original substep/solver order. Preserve accepted drivetrain/GearSnd behavior while closing timestep/shared direction and audio ownership. Then connect application input, player/camera and repeatable original-versus-Rust driving sequences.
-5. In parallel, close floating DecodeOperand, DecodeLet/DecodeIf, all 62 parameter ownership cases and Compile/Init/Done, then detector runtime and genuine mission scene/actor registration. Keyword recognition is not command execution; replay and objectives remain required.
+1. Establish one genuine scene/frame owner shared by component/BODYCOL update/enumeration/LinkTo/remove effects, fast-tree registration and collision links. Controlled taxi construction and caller-supplied identities do not close driver/resource ownership. Preserve references, external survivors and release/reload.
+2. Continue from genuine WheelEnumeration through wheel geometry/order/count checks, source parameters, full original Init success and failure/destruction cleanup through the actual C_car caller. Preserve callback-visible scratch, consumed continuations and earlier component effects; the bounded frontier is not a usable car.
+3. Close collision-loader LOD0/world transforms, dynamic queries and body/wheel contacts, then reconstruct Tick -> Engine -> six-float Move -> DoWheelsCollision in original substep/solver order. Preserve accepted drivetrain/GearSnd behavior while closing timestep/shared direction and audio ownership. Connect input, player/camera and repeatable original-versus-Rust driving sequences.
+4. In parallel, close floating DecodeOperand, DecodeLet/DecodeIf, all 62 parameter ownership cases and Compile/Init/Done, then detector runtime and genuine mission scene/actor registration. Replay, objectives and original scheduling remain required.
 
-Vehicle ownership/contact/dynamics can proceed before complete mission compilation because the direct C_Vehicle call graph does not intrinsically depend on the compiler. Authored mission acceptance remains gated on genuine world construction and original scheduling. Animation/catalog work remains a parallel general-engine dependency; preserve original update order and use actual content as regression inputs.
+Vehicle ownership/contact/dynamics can proceed before complete mission compilation because the direct C_Vehicle call graph does not intrinsically depend on the compiler. Authored mission acceptance remains gated on genuine world construction and scheduling. Animation/catalog work remains a parallel general-engine dependency; preserve original update order and use actual content as regression inputs.
 
 The [mafia-re/MafiaUnity source audit](REFERENCE_PROJECTS.md#next-general-engine-work) identifies complementary general-engine dependencies: persistent model/scene resource lifetime, mission-world construction, KLZ-backed collision, material states and sector visibility. Research these alongside the sequence above; upstream scene loaders and prototype mechanics do not replace original actor or script behavior.
 

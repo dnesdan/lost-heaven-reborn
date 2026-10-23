@@ -1,7 +1,7 @@
 # Lost Heaven Reborn
 
 <!-- generated-function-progress:start -->
-As of 2026-10-23 · snapshot `RUST-SCOPED-PORTS-20261023-39`.
+As of 2026-10-23 · snapshot `RUST-SCOPED-PORTS-20261023-40`.
 
 <p align="center"><img src="docs/progress.svg" alt="Progress dashboard: static retained pseudocode, reviewed scoped Rust entries, and strict system verification" width="100%"></p>
 
@@ -14,7 +14,7 @@ As of 2026-10-23 · snapshot `RUST-SCOPED-PORTS-20261023-39`.
 
 Strict full-system gate: **0/12**. Binary-level static counts use the named denominator basis and do not combine into a game-completion percentage. Unknown denominators remain N/A. 1 supplied configuration Setup inventory uses 172 in-image non-thunk procedures. Separately, archive installer bootstrap static inventory: **376 / 376 (100.00%)**; this distribution target is not combined with engine-library counts. The campaign is not playable.
 
-Accepted scoped Rust ports: **245 entries across 77 reviewed contracts**. These remain separate from retained pseudocode and whole-function counts.
+Accepted scoped Rust ports: **255 entries across 78 reviewed contracts**. These remain separate from retained pseudocode and whole-function counts.
 
 Regenerate locally with `python3 scripts/progress.py --write`; verify without writes with `python3 scripts/progress.py --check`. Versioned snapshots are retained in `docs/progress.json`.
 Milestone history and scoped implementation evidence are in [docs/PROGRESS.md](docs/PROGRESS.md).
@@ -23,7 +23,7 @@ Supplied binary catalog (file identities; independent measures):
 | Binary | Platform | Variant | Role | Static retained pseudocode | Scoped Rust entries |
 | --- | --- | --- | --- | ---: | ---: |
 | DrvMgt.dll | PC | Installed game | Driver-management helper, exact runtime use unresolved | N/A | 0 |
-| Game.exe | PC | Installed game | Game and mission executable | 4784 / 4,914 (97.35%) | 88 |
+| Game.exe | PC | Installed game | Game and mission executable | 4784 / 4,914 (97.35%) | 98 |
 | IJoy.dll | PC | Installed game | DirectInput joystick wrapper | N/A | 0 |
 | INet.dll | PC | Installed game | Network helper, exact runtime use unresolved | N/A | 0 |
 | LS3DF.dll | PC | Installed game | 3D, animation, audio and rendering engine | 1555 / 1,714 (90.72%) | 140 |
@@ -63,17 +63,15 @@ Ownership code uses `lhr_engine::ls3df::{c_str, itexture, i3d_object, texture_ma
 
 The immediate goal is **the playable first mission, from the original menu through mission completion**, alongside function-by-function library parity with mafia-re. See the [acceptance gates and dependency order](docs/GOALS.md). PS2 symbol names guide reconstruction; PC behavior and platform differences require original-binary verification.
 
-At `494ede8`, bounded BODYCOL lifecycle/callback passes and fast frame-tree behavior bring the accepted scope to **245 entries / 77 contracts**, **20 static_inspection / 57 not_integrated**, strict **0/12**. Whole-function coverage remains N/A.
+At `21c555b`, bounded DOOR/WINDOW, BALLAST and SEAT continuation plus component/EXHAUST record helpers bring the accepted scope to **255 entries / 78 contracts**, **20 static_inspection / 58 not_integrated**, strict **0/12**. Whole-function coverage remains N/A.
 
-Opt-in Init now composes actual BODYCOL record lifecycle, collection and recursive transform/detach passes, retaining completed effects and genuine DOOR/BALLAST frontiers. Fast frame lookup, Add/Remove and SetName preserve original tree order, scene filtering and explicit allocator/fatal boundaries. The bounded LoadCollision link loop and resolved-slot bridge consume caller-supplied identities; original driver/scene/model construction, frame update/link/remove ownership, full Init, contacts and the vehicle solver remain open.
+The opt-in continuation composes record helpers with BODYCOL behavior, preserving live vehicle bytes, explicitly supplied postprefix stack bytes, completed effect prefixes and a single-use continuation. Mixed word accesses now resolve through the owner of each byte. Normal execution stops before WheelEnumeration; missing required seats preserve original rejection and cleanup. The inline tail adds zero entries or scoped contracts. Frame, allocator, traversal, numeric and CRT effects remain explicit dependencies.
 
-Bounded original-instruction comparisons cover 478 record inputs, 164 BODYCOL inputs and 31 fast-tree/loader cases with 1,436 ordered operations, counted once across debug/release. Memory-fault/effect-failure prefixes and allocator/frame dependencies remain explicit, without full Init or gameplay validation. See [validation details and historical evidence](docs/PROGRESS.md).
-
-Actual FREERIDE/MISE02A resolved-slot bridge probes match the prior baseline across 119,019 records and 348,677 cell references: 2,044 sampled rays retain 288 hits, 575 misses and 1,181 explicit errors, including 950 missing-frame diagnostics. All 22,947 missing frame bindings remain. Inputs come from the prior independent JavaScript registry; original driver/scene/model construction, frame/world transforms and whole-map query parity remain unverified.
+Source-bound original-instruction comparisons and projected original-data taxi composition are recorded with explicit limits in [PROGRESS.md](docs/PROGRESS.md).
 
 Actual authored MISE01 remains FINDACTOR/UnsupportedWorldBackend at PC3 / source line 4; no later line executes. All six first-mission gates remain open. No runtime gameplay integration or driving mode is established.
 
-Earlier milestones, source-bound evidence and immutable snapshots remain in [PROGRESS.md](docs/PROGRESS.md).
+Earlier milestones and immutable snapshots remain in [PROGRESS.md](docs/PROGRESS.md).
 
 | Czech PC menu in Rust | MISE01 static inspection in Rust |
 | --- | --- |
@@ -123,11 +121,11 @@ Standalone models use the owned original hierarchy and checked first-LOD skin/mo
 
 The `sipka1` command without a sample time retains the earlier single-root position playback path through the recovered clock, model and interpolator. Add `--headless --animation-steps 25 --capture /tmp/animation.png` for 25 controlled 16 ms steps. Captures at 0/25/50 steps verify movement and exact return; inspection camera, handedness, materials and rasterization remain separate from original presentation.
 
-Current checks pass 702 Rust tests (108 assets unit, seven assets integration, 553 engine library, eight engine integration, 21 application, five renderer), nine REA-wrapper tests and 47 progress tests, plus formatting, locked checking and Clippy. Two sequential independent reviews accepted the exact source. Apple arm64 all-target typechecking passes; native macOS linking and Metal execution remain untested.
+Current checks pass 726 Rust tests (108 assets unit, 7 assets integration, 577 engine library, 8 engine integration, 21 application, 5 renderer), nine REA-wrapper tests and 47 progress tests, plus formatting, locked checking and Clippy. Two sequential independent reviews accepted the final source. Apple arm64 locked all-target typechecking passes for the final source; native macOS linking and Metal execution remain untested.
 
-No new rendered or interactive validation is claimed for these library-only changes. Prior source-bound llvmpipe menu/static-scene and taxi placement checks remain historical; they do not validate driving or physics.
+No new rendered or interactive validation was performed for these library changes. Earlier menu/static-scene and taxi placement evidence remains historical; it does not establish driving or physics.
 
-Next continue DOOR/WINDOW, BALLAST and SEAT behavior, establish shared scene/frame ownership, then finish wheels/parameters and complete Init/teardown through its real car caller. Contacts, the original solver and driving controls follow; see the [dependency order and first-mission gates](docs/GOALS.md).
+Next establish shared scene/frame ownership, then complete wheels/parameters and original Init/cleanup through its car caller; see [dependency order and acceptance gates](docs/GOALS.md).
 
 `setup.sh --graphics` prepares the Linux software Vulkan tools used for development captures. `scripts/test.sh` checks formatting, compilation, tests, Clippy, REA wrappers and generated progress. On Linux x86_64, X11 input has been checked through menu, static INTRO and the MISE01 neighborhood, including orbit and reload. An Apple arm64 cargo check passes, but macOS linking and Metal runtime have not been tested. iOS is a future compatibility target. The original game's executable and REA are not gameplay runtime dependencies.
 
