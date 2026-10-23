@@ -1,9 +1,10 @@
 //! rw_data.dll dtaSeek (PC RVA 0x3730), dtaClose (PC RVA 0x23e0),
-//! dtaRead (PC RVA 0x25c0), and DeCrypt (PC RVA 0x4690).
+//! dtaRead (PC RVA 0x25c0), DeCrypt (PC RVA 0x4690), and bounded native
+//! archive registration/open lifecycle (see `open`).
 //!
 //! Snapshot admission, copying and release below are host adapters, not dtaOpen,
-//! dtaRead or dtaClose reconstructions. They do not reproduce archive opening,
-//! cache errors, native ownership or installation priority selection. The mutex
+//! dtaRead or dtaClose reconstructions. Native lifecycle methods use OpenEffects
+//! and share the read/seek/close state; snapshot adapters remain separate. The mutex
 //! models serialized calls, excluding Win32 recursive critical-section reentry.
 use std::{collections::BTreeSet, sync::Mutex};
 
@@ -203,6 +204,7 @@ pub enum OperationError<E> {
     Backend(E),
     UnsupportedRead,
     UnsafeReadState,
+    UnsupportedOpen,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EffectStage {
@@ -216,6 +218,9 @@ pub enum EffectStage {
     FreeName,
     FreeBlock,
     FreeWav,
+    Open,
+    Allocate,
+    FreeOwner,
 }
 struct NativeState<B> {
     records: Vec<HandleRecord>,
@@ -224,6 +229,8 @@ struct NativeState<B> {
     effects: B,
     interrupted: Option<EffectStage>,
     admitted_allocations: BTreeSet<u64>,
+    owners: Vec<open::Owner>,
+    dta_first_force: bool,
 }
 /// Shared serialized storage for original dtaSeek and dtaClose. Admission is a
 /// host operation, not dtaOpen. Closed slots, including slot zero, are reused.
@@ -240,6 +247,8 @@ impl<B: Effects> Handles<B> {
                 effects,
                 interrupted: None,
                 admitted_allocations: BTreeSet::new(),
+                owners: Vec::new(),
+                dta_first_force: false,
             }),
         }
     }
@@ -1550,3 +1559,6 @@ mod tests {
         assert_eq!(bytes, original);
     }
 }
+
+mod open;
+pub use open::{OpenAllocation, OpenEffects};
