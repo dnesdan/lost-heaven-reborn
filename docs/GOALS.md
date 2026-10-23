@@ -15,11 +15,11 @@ All gates remain open until corresponding evidence is recorded. Current function
 
 ## Parity with mafia-re
 
-At `4c42068`, bounded actor frame effects now use the real owned `ModelArena`: Target search over stored original names, shared live user-data records, PC SetOn and supported frame release. Three canonical LS3DF entries add one reviewed contract: **195 entries / 63 contracts**, **20 static_inspection / 43 not_integrated**, strict **0/12**. Whole-function coverage remains N/A.
+At `2be45de`, owned `C_program` source/name lifetime composes with a real source-only kind-5 detector in `ActorWorld`: factory construction, Init, payload loading and derived destruction. Nine canonical Game entries add one reviewed contract: **204 entries / 64 contracts**, **20 static_inspection / 44 not_integrated**, strict **0/12**. Whole-function coverage remains N/A; detector Init/LoadData and previously credited factory dependencies add zero entries.
 
-Actual authored MISE01 remains at source line 4 / PC3: `FINDACTOR` reports `UnsupportedWorldBackend`, with nine null actor and ten null frame slots. No later script line executes. Real mission scene-sector ownership, derived actors and application-world wiring remain open. All six first-mission gates remain open; no new rendered, interactive or GPU validation.
+Actual authored MISE01 remains at PC3 / source line 4: `FINDACTOR` reports `UnsupportedWorldBackend`; no later line executes. Real mission sectors, replacement-table population and application-world wiring remain open. All six first-mission gates remain open; no new rendered, interactive or GPU validation.
 
-Next are owned program source/replacement records and detector payload lifetime with real mission/frame context. LoadSourceCode (PC 0x460c90) loads source; Compile (0x46c770) and its instruction/parameter decoders remain static research. Source storage does not establish compilation or executing kind-5 actors. Actual primary/backdrop scene-sector construction and actor registration precede kind-4 car resources and separate AE24 payload, then replay, controls, collision, camera and objectives. Animation/catalog work stays parallel.
+Next are original ExtrudeParams/ExtrudeString and DecodeOperand/Int/Let/If helpers, complete 398-row instruction recognition and all 62 parameter ownership cases, then Compile/Init/Done and detector GameInit/runtime. Actual mission sectors and registration precede car BODY/model/physics and separate AE24 payload, then replay, controls, collision, camera and objectives. Animation/catalog work stays parallel.
 
 Historical Installation integration connects existing menu/static scene archive callers to NativeFiles; its asset-equality and static-rendering receipts remain in [PROGRESS.md](PROGRESS.md). That route supplies neither GPU-worker ownership nor mission-world construction.
 
@@ -37,13 +37,13 @@ Fresh REA/Ghidra instruction evidence and actual registry bytes support the boun
 
 The immediate dependency order is:
 
-1. Reconstruct owned program source/name lifecycle, replacement records and detector payload dispatch with real mission/frame context. Preserve null/empty distinctions and ordered failure prefixes. LoadSourceCode (`0x460c90`) loads source; source storage is separate from compilation.
-2. Close original Compile (`0x46c770`), instruction/parameter decoder, allocated operand, Done and destruction dependencies before admitting executing kind-5 detector/autosave actors. Connect their Init to real owned dummy/frame hierarchy; diagnostic Program::from_source is not the original compiler.
-3. Construct the actual primary/backdrop scene sectors and their ownership, then recover original actor registration and AE24 payload flow. Standalone model hierarchy and frame effects do not supply mission sectors or a mission-world backend.
-4. Reconstruct kind-4 car ownership through a real type-9 model, BODY, physics, wheels and seats, then load its separate AE24 payload and preserve derived failure cleanup.
-5. Connect resource-backed replay Load/Update and persistent callbacks/actors to original control, collision-backed movement, camera, pursuit and mission objectives through completion. Compare original-runtime traces and interactive Rust runs of the same sequence.
+1. Close original ExtrudeParams, ExtrudeString, DecodeOperand, DecodeOperandInt, DecodeLet and DecodeIf helpers, with native byte/conversion comparisons and explicit CRT-locale admission.
+2. Reconstruct DecodeInstruction against all 398 original registry rows, exact IDs/order, terminal spaces and keyword boundaries; recognized syntax is separate from implemented runtime commands.
+3. Close all 62 DecodeParams cases with owned parameter variants, optional/default values, quote/fixed-buffer bounds, numeric conversions and partial-failure cleanup, including the nested 15-property WEATHER_SETPARAM table. A dispatch index is not complete semantic coverage.
+4. Reconstruct Compile line mutation/error reporting/vector ownership and Program Init/Done, then detector GameInit/GameDone and scheduler execution. Diagnostic Program::from_source is not the original compiler; compiler output alone does not establish gameplay.
+5. Construct actual primary/backdrop mission sectors and original actor registration/AE24 flow before kind-4 car model/BODY/physics/wheel/seat ownership and separate payload. Then connect replay, controls, collision, camera, pursuit and objectives through completion, comparing original-runtime traces and interactive Rust runs of the same sequence.
 
-Animation catalog/cache and animation-machine construction, TCK/resource lifetime, blending, scale/notes, remaining numeric domains and original notification boundaries remain parallel engine dependencies. Connect actor/BODY, model and controller ownership to original animation selection as their real callers become available; preserve original update order and keep resource mappings independent of Game.exe at runtime.
+Animation catalog/cache and animation-machine construction, TCK/resource lifetime, blending, scale/notes and remaining numeric/notification boundaries stay parallel. Connect actor/BODY, model and controller ownership to original animation selection when their real callers are ready; preserve original update order and runtime independence from Game.exe.
 
 The [mafia-re/MafiaUnity source audit](REFERENCE_PROJECTS.md#next-general-engine-work) identifies complementary general-engine dependencies: persistent model/scene resource lifetime, mission-world construction, KLZ-backed collision, material states and sector visibility. Research these alongside the sequence above; upstream scene loaders and prototype mechanics do not replace original actor or script behavior.
 
