@@ -12,6 +12,8 @@ pub mod buffer_managers;
 pub mod c_str;
 pub mod clock;
 pub mod collision_line;
+pub mod collision_prepare;
+pub mod collision_query;
 pub mod collision_world;
 pub mod driver_state;
 pub mod frame_delta;
@@ -56,6 +58,7 @@ pub mod target_state;
 pub mod texture_manager;
 pub mod vehicle_controls;
 pub mod vehicle_drivetrain;
+pub mod vehicle_init;
 pub mod vehicle_owner;
 
 pub mod visual_resources;
@@ -69,8 +72,8 @@ pub mod ls3df {
 /// Original game executable boundary; replay helper names remain descriptive.
 pub mod game {
     pub use crate::{
-        actor_world, collision_line, collision_world, original_program, program_instructions,
-        program_parser, replay_state, script_lookup, script_scheduler, vehicle_controls,
-        vehicle_drivetrain, vehicle_owner,
+        actor_world, collision_line, collision_prepare, collision_query, collision_world,
+        original_program, program_instructions, program_parser, replay_state, script_lookup,
+        script_scheduler, vehicle_controls, vehicle_drivetrain, vehicle_init, vehicle_owner,
     };
 }
