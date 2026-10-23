@@ -1,24 +1,24 @@
 {
   "updated_at": "2026-10-23",
-  "project_status": "Original-data Rust menu, bounded scenes and sequential skeletal playback; 179 scoped entries across 60 reviewed contracts. Standalone scheduler DIM_ACT/DIM_FRM declarations now retain separate borrowed-reference arrays; the authored MISE01 probe stops at findactor on line 4. Actor/frame lookup, mission-world ownership, replay resource Load/Update, production texture-worker/surface ownership and audio playback remain open; the first mission is not playable.",
+  "project_status": "Original-data Rust menu, bounded scenes and sequential skeletal playback; 181 scoped entries across 61 reviewed contracts. Bounded actor/frame lookup and synthetic ModelArena lifetime adapter compose with the scheduler. Actual authored MISE01 still stops at recognized FINDACTOR on line 4 / PC3 with UnsupportedWorldBackend. Mission-world ownership, replay resource Load/Update, production texture-worker/surface ownership and audio playback remain open; first mission not playable.",
   "rust_toolchain": "1.99.1",
   "validation": {
-    "status": "Current checks pass 521 Rust tests (104 assets unit, seven assets integration, 384 engine library, 21 application, five renderer), nine REA-wrapper tests and 47 progress tests, plus formatting, locked workspace checking and Clippy. Two sequential independent reviews accepted the exact source. Apple arm64 all-target checking passes; native macOS linking and Metal execution remain untested. Separately, 55 logical Rust probes pass in debug/release, counted once, including the authored script frontier; these add no original executions. Original x86 instructions under QEMU match Rust debug/release for 460 unique cases and 492 dispatcher invocations, counted once across profiles. The 618,240 normalized bytes per profile include padding: counts, live reference words and scheduler state compare; raw allocation identities and ordered allocation/free observations remain native-only. Allocator/free bodies are explicitly intercepted to supply successful 4\u201364-byte backing; their implementation and failure behavior are excluded. The actual authored MISE01 probe advances `commandblock`, `dim_act` and `dim_frm`, retaining nine null actor slots and ten null frame slots, then stops at unsupported `findactor` on source line 4 (PC3). Actor/frame lookup, world construction, replay resource Load/Update and first-mission execution remain open. No new rendered, interactive or GPU validation.",
-    "rust_unit_tests": 521,
+    "status": "Current checks pass 537 Rust tests (104 assets unit, seven assets integration, 400 engine library, 21 application, five renderer), nine REA-wrapper tests and 47 progress tests, plus formatting, locked workspace checking and Clippy. Two sequential independent reviews accepted the exact source. Apple arm64 all-target checking passes; native macOS linking and Metal execution remain untested. Separate Rust probes pass 108 logical cases (107 synthetic and one actual authored-script intake), counted once across debug/release; these add zero original executions. Original x86 instructions under QEMU match Rust debug/release for 207 unique inputs: 189 Game dispatcher invocations and 18 direct LS3DF calls, counted once across profiles. Each profile compares 13,248 normalized bytes, including 168 bytes of zero padding. MessageBeep is the sole replaced IAT effect, with six actual callbacks; 35 secondary-phase checkpoints remain native-only. No world/actor construction, allocator, Windows audio or full-game equivalence is claimed. The actual authored MISE01 probe still stops at source line 4 (PC3): `FINDACTOR` is recognized and reports `UnsupportedWorldBackend` after `commandblock`, `dim_act` and `dim_frm` retain nine null actor and ten null frame slots. No later line executes. Mission-world ownership, resource-backed replay Load/Update and first-mission execution remain open; no new rendered, interactive or GPU validation.",
+    "rust_unit_tests": 537,
     "rust_unit_test_split": {
       "lhr_assets": 104,
       "lhr_assets_integration": 7,
-      "lhr_engine_library": 384,
+      "lhr_engine_library": 400,
       "lhr_engine_application": 21,
       "lhr_render": 5
     },
     "rea_wrapper_tests": 9,
     "latest_accepted_baseline": {
-      "source_commit": "251e05b779e6a0c29c5bc8374a098ec97a3d62b7",
-      "rust_unit_tests": 521,
+      "source_commit": "da192854c093b03e1bafecfb12d6e68ba89e1007",
+      "rust_unit_tests": 537,
       "rea_wrapper_tests": 9,
       "progress_tests": 47,
-      "milestone": "179 scoped entries across 60 contracts. Bounded DIM_ACT/DIM_FRM scheduler declarations add zero canonical entries or contracts; 460 original-instruction QEMU cases match admitted Rust projections and 55 separate Rust logical probes pass, counted once across debug/release. Allocation/free are intercepted; native allocator and failure behavior are excluded. The authored MISE01 probe stops at unsupported findactor, source line 4 / PC3, after three commands. Contract integration remains 20 static_inspection / 40 not_integrated, strict 0/12; all six first-mission gates remain open."
+      "milestone": "181 scoped entries across 61 contracts; 20 static_inspection / 41 not_integrated, strict 0/12. Two LS3DF canonical lookup entries and zero Game dispatcher entry credit. 207 original-instruction inputs match debug/release; 108 separate Rust logical probes include the unchanged PC3 / line 4 actual MISE01 frontier with recognized FINDACTOR/UnsupportedWorldBackend. All six first-mission gates remain open."
     },
     "progress_tests": 47
   },
@@ -50,8 +50,9 @@
     "probe_results": "INTRO: 16 scripts halt on unsupported commands, one after advancing a prefix. MISE01: 37 halt, seven after advancing a prefix, two empty scripts complete. Prefix counts overlap halted counts.",
     "original_runtime_comparison": "PC-RUST-CONTROL-VM-RUNTIME-02 compares bounded COMMANDBLOCK and WAIT states against original runtime observations; GOTO/END and complete scheduler/caller chain unverified, replay observed only",
     "mission_execution": "not implemented",
-    "current_validation": "The actual authored MISE01 probe advances `commandblock`, `dim_act` and `dim_frm`, retaining nine null actor slots and ten null frame slots, then stops at unsupported `findactor` on source line 4 (PC3). Actor/frame lookup, world construction, replay resource Load/Update and first-mission execution remain open. No new rendered, interactive or GPU validation. Historical Installation menu/static scene captures, keyboard transitions and the replay-state comparison retain their earlier scopes.",
-    "standalone_replay_wait": "Bounded live RECWAITFOREND (original opcode 0x2e) composes the replay busy predicate with existing scheduler control; no application replay resource/update or mission integration."
+    "current_validation": "The actual authored MISE01 probe still stops at source line 4 (PC3): `FINDACTOR` is recognized and reports `UnsupportedWorldBackend` after `commandblock`, `dim_act` and `dim_frm` retain nine null actor and ten null frame slots. No later line executes. Mission-world ownership, resource-backed replay Load/Update and first-mission execution remain open; no new rendered, interactive or GPU validation. Historical Installation menu/static scene captures and prior replay/declaration receipts retain their original scopes.",
+    "standalone_replay_wait": "Bounded live RECWAITFOREND (original opcode 0x2e) composes the replay busy predicate with existing scheduler control; no application replay resource/update or mission integration.",
+    "bounded_world_lookup": "Standalone FINDACTOR/FINDFRAME and LS3DF exact ASCII frame search through required live backends; no initialized mission world or application integration."
   },
   "renderer": {
     "target": "wgpu Vulkan on Linux, Metal on macOS",
@@ -121,7 +122,7 @@
   "reset_boundary": "Former Godot prototype implementation/tests and original-game runtime traces are not counted as Rust behavior or validation.",
   "macos_validation": {
     "command": "cargo check --workspace --all-targets --target aarch64-apple-darwin --locked",
-    "result": "Apple arm64 all-target cargo check passed for the exact one-file reference-declaration source at 251e05b779e6a0c29c5bc8374a098ec97a3d62b7; native macOS linking and Metal runtime remain untested.",
+    "result": "Apple arm64 all-target cargo check passed for the exact five-file lookup source at da192854c093b03e1bafecfb12d6e68ba89e1007; native macOS linking and Metal runtime remain untested.",
     "scope": "Compilation only; no macOS link or Metal runtime"
   },
   "phase2": {
@@ -152,9 +153,9 @@
   },
   "function_progress": {
     "schema_version": 3,
-    "snapshot_id": "RUST-SCOPED-PORTS-20261023-30",
+    "snapshot_id": "RUST-SCOPED-PORTS-20261023-31",
     "as_of": "2026-10-23",
-    "source_baseline": "ceb988ae5f48543e63b5d8fd4fe267a7dfd69bbc",
+    "source_baseline": "da192854c093b03e1bafecfb12d6e68ba89e1007",
     "recount_sha256": "0437354f4d7cfce3d7e8caca424e9d09b9271bb4ceab79d24aa4224a642acaad",
     "libraries": [
       {
@@ -18707,6 +18708,569 @@
           }
         ],
         "history_prefix_sha256": "182b20a687c5707281a6ce7edf4af1929aef00192e4ff1b9ecb856818d6351e1"
+      },
+      {
+        "snapshot_id": "RUST-SCOPED-PORTS-20261023-31",
+        "as_of": "2026-10-23",
+        "libraries": [
+          {
+            "name": "Game.exe",
+            "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+            "inventory_total": 4914,
+            "retained_pseudocode": 4784,
+            "rust_ported": null,
+            "differential_verified": null,
+            "inventory_basis": "raw_profile_union",
+            "inventory_profiles": [
+              "7810ea9437da59780820ec6fedb47ce47390841a95d527ddb6c3b3700fe180cb",
+              "adc7f7a80b29038c74df6f4cf084b2b01d7ea637b30d3ff72b4a4921c6a5506f"
+            ],
+            "inventory_membership_sha256": "bd82dbdaecf1981548dd73c0793264b520dc08191fb7e8dc8cc8e3bc244e186b"
+          },
+          {
+            "name": "rw_data.dll",
+            "binary_sha256": "67f72c30cc7fe941f5526b8602a0bd2785baa0f22617bbcfd4a71bacd79b8d49",
+            "inventory_total": 234,
+            "retained_pseudocode": 176,
+            "rust_ported": null,
+            "differential_verified": null,
+            "inventory_basis": "raw_profile_union",
+            "inventory_profiles": [
+              "0ab01856f74d9ae53a8bdf87cad9d330cec9b83fb2e0602b2b0078736849f6cf",
+              "5fb8141f282b82b7a78df6b2d631f00eb93729605b53b333297ebfb4ff03fe9f"
+            ],
+            "inventory_membership_sha256": "7009f3d176d9977c056719cff89645a1c81ffdf581b773c731e97cfa9e355850"
+          },
+          {
+            "name": "LS3DF.dll",
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "inventory_total": 1714,
+            "retained_pseudocode": 1555,
+            "rust_ported": null,
+            "differential_verified": null,
+            "inventory_basis": "raw_profile_union",
+            "inventory_profiles": [
+              "0c1148c7491bbcdf5b3a0f9ea8ba9aad2523b95135b48b9e8385e31b815e1c1a",
+              "20f79d3fb10ba69c5463530c8267a6e2a8f5d0d7232ea59fe159849342ec5d7e",
+              "274abe8f77db68a07f35a04e0cf1f5ccd82a7e1af5ede3d2235572a935bebf05",
+              "32952d80e0c5001373e6b5a7e0cab3e36ede4dfb0d8f977cded5b0ec0ad03537",
+              "46301268618f6f9f27a2856e15858155a42599f674def681aa6a56df9fe13c64",
+              "5fb8141f282b82b7a78df6b2d631f00eb93729605b53b333297ebfb4ff03fe9f",
+              "6f969b0ae0cb8d4c7bed986a7fbf7c7588015d44b785ffa449d811eead7a2e6c",
+              "d91e39ecb7a8e9e659b00f5d7322ec046ab116b32b211da85106de74f0592ba9",
+              "f419ff26a361f07991be79a8a9f8ea6f5454ae7ae76d108606e0cfc0d3f4940c"
+            ],
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
+          },
+          {
+            "name": "Setup.exe (supplied configuration)",
+            "binary_sha256": "c6abff923ecedafc26be3f1abdb8fe286f3a0be1e787ea7b659b6c01a077d25d",
+            "inventory_total": 172,
+            "retained_pseudocode": 172,
+            "rust_ported": null,
+            "differential_verified": null,
+            "inventory_basis": "in_image_non_thunk_procedures",
+            "inventory_profiles": [
+              "7810ea9437da59780820ec6fedb47ce47390841a95d527ddb6c3b3700fe180cb"
+            ],
+            "inventory_membership_sha256": "e0ccf8c5121747ba0608317068c72542b155fd2c758c784b518fd30f983e23df"
+          }
+        ],
+        "systems": {
+          "verified": 0,
+          "total": 12
+        },
+        "scoped_ports": [
+          {
+            "contract_id": "PC-CLOCK-ORACLE-STEP2-20261021",
+            "source_commit": "ed69df16899657065602a8a368f2f6abbda8d642",
+            "entries": 2,
+            "cases": 20,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "1d9209151fcc0fbd937f624431d99110d46071f6ef0ce9c4caf684417fe2032b"
+          },
+          {
+            "contract_id": "PC-SCENE-ORACLE-STEP3-20261021",
+            "source_commit": "8c647af43989f23f28499a307668bef53ad9f59e",
+            "entries": 1,
+            "cases": 13,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "1d9209151fcc0fbd937f624431d99110d46071f6ef0ce9c4caf684417fe2032b"
+          },
+          {
+            "contract_id": "PC-IPOL-CALLBACK-ORACLE-STEP3-20261021",
+            "source_commit": "6fa388aba1071168209f1eac708dd6f37ede2a82",
+            "entries": 1,
+            "cases": 31,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "8746cbec0d40b0e84ecc4d26cbc3701f6f3811a32e1ad1fb4fef96d21f223b68"
+          },
+          {
+            "contract_id": "PC-GAME-PHASE-STATIC-20261021",
+            "source_commit": "4101e0b8923a3babd2b54933866a159386cbf0cc",
+            "entries": 1,
+            "cases": 22576,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "1d9209151fcc0fbd937f624431d99110d46071f6ef0ce9c4caf684417fe2032b"
+          },
+          {
+            "contract_id": "PC-ACTOR-TICK-ORACLE-STEP3-20261021",
+            "source_commit": "305f96e4c3f654c17287a1a540af3468c642d3c0",
+            "entries": 1,
+            "cases": 26,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-FRAME-DISPATCH-20261021",
+            "source_commit": "0d634fbc9e02941d70de7c2991cdf2e411156b6e",
+            "entries": 1,
+            "cases": 1509,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "1d9209151fcc0fbd937f624431d99110d46071f6ef0ce9c4caf684417fe2032b"
+          },
+          {
+            "contract_id": "PC-MODEL-TICK-20261021",
+            "source_commit": "0d634fbc9e02941d70de7c2991cdf2e411156b6e",
+            "entries": 1,
+            "cases": 7,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "1d9209151fcc0fbd937f624431d99110d46071f6ef0ce9c4caf684417fe2032b"
+          },
+          {
+            "contract_id": "PC-GAME-SELECTED-LOOP-20261021",
+            "source_commit": "b1ead79fc2d33889560dc41c0754500b962f0f8a",
+            "entries": 1,
+            "cases": 123,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-5DS-POSITION-CHANNEL-002",
+            "source_commit": "671cf2bdc092cc796fd230dcb77b0917aff49a91",
+            "entries": 1,
+            "cases": 2684,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "8746cbec0d40b0e84ecc4d26cbc3701f6f3811a32e1ad1fb4fef96d21f223b68"
+          },
+          {
+            "contract_id": "PC-NAMED-LOOKUP-CONTROLLED-CONTRACT-20261021",
+            "source_commit": "cbeeead64d131b824987d037641166c261a787a8",
+            "entries": 2,
+            "cases": 13,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-PROGRAM-RESET-START-CONTRACT-20261021",
+            "source_commit": "cbeeead64d131b824987d037641166c261a787a8",
+            "entries": 1,
+            "cases": 9,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-NATIVE-TRANSFORM-001",
+            "source_commit": "149d4fcf5de6a1ec5e2a212b057b5ea303f29416",
+            "entries": 7,
+            "cases": 531,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-QUATERNION-NORMALIZE-001",
+            "source_commit": "f08a0b9cc65854f3390a020998edd76263d44e1b",
+            "entries": 1,
+            "cases": 809,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-ORIGINAL-CONFIG-20261021-001",
+            "source_commit": "866d80ed97f1f36bb14f36c8ac2dfb0b69681ff2",
+            "entries": 6,
+            "cases": 1577,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-SCRIPT-SCHEDULER-003",
+            "source_commit": "8fc4da3f558c7fd8f108dbde32007cfc01b307ea",
+            "entries": 2,
+            "cases": 440,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-STARTUP-EFFECTS-CONTRACT-001",
+            "source_commit": "68b4c62d05a7d5908c617ee32c63c37945f8632e",
+            "entries": 5,
+            "cases": 6825,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-NATIVE-TRANSFORM-DEPENDENCIES-001",
+            "source_commit": "8a3221a71f3cd0b77cb528a5591e32fdf3b8f3d9",
+            "entries": 2,
+            "cases": 1063,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-NUMERIC-FRAME-20261022",
+            "source_commit": "a7395701f90c0aeeaf2436a39299c5ae830ccaa7",
+            "entries": 8,
+            "cases": 7800,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "b8ef8e8204a402d100fbca4650f3cbe2b7077e3787ca66675d48110cee0036b5"
+          },
+          {
+            "contract_id": "PC-LS3DF-MAKE-CONTRACT-20261022-002",
+            "source_commit": "6fefd62903047bb0bae8e98226cf7cb815adc11e",
+            "entries": 2,
+            "cases": 18123,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS3DF-POLICE-20261022",
+            "source_commit": "79f7e2968c2aa8145ab86471f97c4a61e6537d3a",
+            "entries": 2,
+            "cases": 245,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS3DF-MATRIX-20261022",
+            "source_commit": "79f7e2968c2aa8145ab86471f97c4a61e6537d3a",
+            "entries": 1,
+            "cases": 10423,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS3DF-SCALE-DIRECTION-CONTRACT-20261022",
+            "source_commit": "6fefd62903047bb0bae8e98226cf7cb815adc11e",
+            "entries": 2,
+            "cases": 21809,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LIFECYCLE-ARENA-EXTENSION-20261022",
+            "source_commit": "f8cc8f91ff2541d7d85be732b43f9b695769e8d1",
+            "entries": 8,
+            "cases": 1022,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "6d0b2855e4c9b882d072a961a912dc84803f1bc71328a69711087a84bd0bd263"
+          },
+          {
+            "contract_id": "PC-PHASE2-ACTOR-CACHE-20261022",
+            "source_commit": "f6d0ddf22cbacdbe29380b923635b9c0cbdd7198",
+            "entries": 2,
+            "cases": 1260,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-POLICE-MANAGER-RAW-20261022",
+            "source_commit": "f41da7012ee5ca1bb9aae475c73f024385fde199",
+            "entries": 2,
+            "cases": 1756,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-PHASE4-PLAYER-CONTROL-20261022",
+            "source_commit": "e82f1b3cf30b9ee04700c397089fccdd782ec478",
+            "entries": 5,
+            "cases": 6284,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-RUST-JOINT-OWNED-20261022",
+            "source_commit": "82ea83196b213af2412813a50de46c17813919bf",
+            "entries": 3,
+            "cases": 1335,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "ae02c0d7967f561458aa1e7f4b4132addfb8b675a52bcb7b50a9eeb3cc79597e"
+          },
+          {
+            "contract_id": "PC-GAME-GET-ANIM-INDEX-20261022",
+            "source_commit": "82ea83196b213af2412813a50de46c17813919bf",
+            "entries": 1,
+            "cases": 1636,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS3DF-SINGLEMESH-BINDING-20261022",
+            "source_commit": "31d2bf600104f5ae0b656d892072f524bbc5b7a6",
+            "entries": 3,
+            "cases": 902,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "ae02c0d7967f561458aa1e7f4b4132addfb8b675a52bcb7b50a9eeb3cc79597e"
+          },
+          {
+            "contract_id": "PC-LS3DF-SINGLEMESH-DEFORMATION-20261022",
+            "source_commit": "31d2bf600104f5ae0b656d892072f524bbc5b7a6",
+            "entries": 4,
+            "cases": 4296,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "ae02c0d7967f561458aa1e7f4b4132addfb8b675a52bcb7b50a9eeb3cc79597e"
+          },
+          {
+            "contract_id": "PC-LS3DF-SINGLEMESH-BOUNDS-20261022",
+            "source_commit": "31d2bf600104f5ae0b656d892072f524bbc5b7a6",
+            "entries": 1,
+            "cases": 1024,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "ae02c0d7967f561458aa1e7f4b4132addfb8b675a52bcb7b50a9eeb3cc79597e"
+          },
+          {
+            "contract_id": "PC-GAME-CROUCH-COLLISION-FILTER-20261022",
+            "source_commit": "31d2bf600104f5ae0b656d892072f524bbc5b7a6",
+            "entries": 3,
+            "cases": 2836,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-ANIM-INDEX-20261022",
+            "source_commit": "d735e53971d7cd7d3c75fe985d021253a8ec7cb3",
+            "entries": 2,
+            "cases": 756,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS3DF-MORPH-20261022",
+            "source_commit": "d735e53971d7cd7d3c75fe985d021253a8ec7cb3",
+            "entries": 3,
+            "cases": 280,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "2c82054ce6f892269f8b4b222f9075562151bc7151220594fd7700fb04d0ded6"
+          },
+          {
+            "contract_id": "PC-ROTATION-LINEAR-20261022",
+            "source_commit": "9c7003bb6e256a7202c6412d48f2a97dd2885b81",
+            "entries": 1,
+            "cases": 22103,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "8746cbec0d40b0e84ecc4d26cbc3701f6f3811a32e1ad1fb4fef96d21f223b68"
+          },
+          {
+            "contract_id": "PC-LIFECYCLE-TARGET-20261022",
+            "source_commit": "f8cc8f91ff2541d7d85be732b43f9b695769e8d1",
+            "entries": 6,
+            "cases": 675,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "6d0b2855e4c9b882d072a961a912dc84803f1bc71328a69711087a84bd0bd263"
+          },
+          {
+            "contract_id": "PC-LS3DF-SETDIRWORLD-20261022",
+            "source_commit": "d735e53971d7cd7d3c75fe985d021253a8ec7cb3",
+            "entries": 1,
+            "cases": 70,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "2c82054ce6f892269f8b4b222f9075562151bc7151220594fd7700fb04d0ded6"
+          },
+          {
+            "contract_id": "PC-LS3DF-DIRECTION-20261022",
+            "source_commit": "d735e53971d7cd7d3c75fe985d021253a8ec7cb3",
+            "entries": 1,
+            "cases": 4493,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "2c82054ce6f892269f8b4b222f9075562151bc7151220594fd7700fb04d0ded6"
+          },
+          {
+            "contract_id": "PC-IPOL-OWNED-LIFECYCLE-20261022",
+            "source_commit": "9c7003bb6e256a7202c6412d48f2a97dd2885b81",
+            "entries": 13,
+            "cases": 27,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "8746cbec0d40b0e84ecc4d26cbc3701f6f3811a32e1ad1fb4fef96d21f223b68"
+          },
+          {
+            "contract_id": "PC-GAME-GETTRACK-20261022",
+            "source_commit": "9c7003bb6e256a7202c6412d48f2a97dd2885b81",
+            "entries": 1,
+            "cases": 69226,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS3DF-LOADED-BOUNDS-CACHE-20261022",
+            "source_commit": "9c7003bb6e256a7202c6412d48f2a97dd2885b81",
+            "entries": 1,
+            "cases": 206,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "8746cbec0d40b0e84ecc4d26cbc3701f6f3811a32e1ad1fb4fef96d21f223b68"
+          },
+          {
+            "contract_id": "PC-LIFECYCLE-MODEL-20261022",
+            "source_commit": "f8cc8f91ff2541d7d85be732b43f9b695769e8d1",
+            "entries": 2,
+            "cases": 7,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LIFECYCLE-GRAPH-20261022",
+            "source_commit": "f8cc8f91ff2541d7d85be732b43f9b695769e8d1",
+            "entries": 3,
+            "cases": 10,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS3DF-VISUAL-RESOURCES-20261022",
+            "source_commit": "6adabfcd16bf679354a828b54a247e6a4f02e22d",
+            "entries": 9,
+            "cases": 6,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS3DF-MESH-OBJECT-20261022",
+            "source_commit": "acc9dae14a9b4c8a4ac3d67834b5a7b0f044b9dd",
+            "entries": 3,
+            "cases": 10,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS3DF-BUFFER-MANAGERS-20261022",
+            "source_commit": "87c7e3f30842cca8aa888f8e6a960d97b17827ad",
+            "entries": 18,
+            "cases": 14,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS3DF-OBJECT-LOD-20261022",
+            "source_commit": "73f8151215d6249dce391376bf23383da08a9fcc",
+            "entries": 4,
+            "cases": 8,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS3DF-C-STR-20261022",
+            "source_commit": "7650970aca7728ec11aabce966ed46ff7fd5741a",
+            "entries": 3,
+            "cases": 10,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS3DF-I-TEXTURE-20261022",
+            "source_commit": "7650970aca7728ec11aabce966ed46ff7fd5741a",
+            "entries": 5,
+            "cases": 8,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-MANAGED-TEXTURE-REMOVAL-20261022",
+            "source_commit": "a69b5f695fce48b5a1af633069c919efb8a61e37",
+            "entries": 1,
+            "cases": 7,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-MANAGED-TEXTURE-CREATE-20261022",
+            "source_commit": "97eea211f64ed2d146a1f19e6bfb20620aa0d4fd",
+            "entries": 1,
+            "cases": 5,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-MANAGED-TEXTURE-REQUEST-20261023",
+            "source_commit": "1a335f24589aa1fe020e0d723c1384a6dcb63572",
+            "entries": 1,
+            "cases": 8,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-MANAGED-TEXTURE-UNLOAD-20261023",
+            "source_commit": "553e3ab6ccec0514faf02b66aff7f4d1ddb2cc4a",
+            "entries": 1,
+            "cases": 3,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-MANAGED-TEXTURE-RELEASE-20261023",
+            "source_commit": "3ed1a477ac9574f70a29a929a743d639c5382752",
+            "entries": 1,
+            "cases": 3,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-MANAGED-TEXTURE-RESTORE-20261023",
+            "source_commit": "71b121960bc3bdd7cac1e1ed8dbfecbc8ed8841b",
+            "entries": 1,
+            "cases": 6,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-RWDATA-READ-CURSOR-CLOSE-20261023",
+            "source_commit": "055856824090efe7795499a49b9ba7a3f355eb2f",
+            "entries": 2,
+            "cases": 38,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-RWDATA-LOOSE-READ-20261023",
+            "source_commit": "b4a812d1889b860fde1e454838d341285693aeae",
+            "entries": 1,
+            "cases": 27,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-RWDATA-NATIVE-OPEN-20261023",
+            "source_commit": "6439ee2ce51b3b1aef4d17b5dc052626f8babef3",
+            "entries": 8,
+            "cases": 24,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-RWDATA-WAV-20261023",
+            "source_commit": "f89f54298d66de69cd06f8106c0239ee6145be42",
+            "entries": 1,
+            "cases": 202,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-REPLAY-STATE-20261023",
+            "source_commit": "ceb988ae5f48543e63b5d8fd4fe267a7dfd69bbc",
+            "entries": 2,
+            "cases": 1161,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS-SCRIPT-LOOKUP-20261023",
+            "source_commit": "da192854c093b03e1bafecfb12d6e68ba89e1007",
+            "entries": 2,
+            "cases": 207,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          }
+        ],
+        "history_prefix_sha256": "440dfb40675ef4407659e92b359cd444ae4d04956693882a2cdd6a45d307c259"
       }
     ],
     "scoped_ports": [
@@ -21643,6 +22207,48 @@
         "scope": "Two canonical Game entries: busy leaf 0x19e2d0 and full state setter 0x1989a0 in admitted live storage, with descriptive working names. Actual original x86 instructions under QEMU match 345 leaf, 708 setter, 102 bounded-dispatcher and six scheduler cases; 2,972,160 normalized output bytes per profile include unused zeroed capacity, with debug/release counted once. Live object/vector/vtable replacement, callback order and reentry remain observable. RECWAITFOREND opcode 0x2e uses live busy state and existing common advance; this bounded dispatcher extension adds no entry or whole-dispatcher credit. Synthetic scheduler wrapper mutates its fixture global after dispatch, without running original replay Update. Separately 76 synthetic Rust cases cover host admission/errors and the authored MISE01 line-2 dim_act frontier. No original PC/PS2 replay helper names, owner construction, resource-backed Load/Update, camera/actor/mission, application, rendered or GPU integration.",
         "integration": "not_integrated",
         "integration_receipt": null
+      },
+      {
+        "name": "LS3DF bounded frame lookup and Game lookup callers",
+        "source_path": "crates/lhr-engine/src/frame_lookup.rs",
+        "source_commit": "da192854c093b03e1bafecfb12d6e68ba89e1007",
+        "source_sha256": "0bdf5a033c7ff41e715e4ef0e2060d41c57bb4cee327b17a0e790ad044457e6d",
+        "functions": [
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x49210",
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37",
+            "rust_symbol": "frame_lookup::find_frame"
+          },
+          {
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "entry_rva": "0x1c360",
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37",
+            "rust_symbol": "frame_lookup::get_child_frame"
+          }
+        ],
+        "contract": {
+          "id": "PC-LS-SCRIPT-LOOKUP-20261023",
+          "sha256": "01fef4efa058ccd5bd183643149993946bb9ccd9548dbbe90f7e4b19c083d92f"
+        },
+        "comparison": {
+          "id": "PC-LS-SCRIPT-LOOKUP-20261023-COMPARE",
+          "sha256": "25f8ba3ba2234e2376462de801d5575942564d5cb61360cdf047890175ff2910"
+        },
+        "reviews": [
+          {
+            "id": "PC-LS-SCRIPT-LOOKUP-20261023-R1",
+            "sha256": "1a5ef7724cad0035e124a924fc931055efccb70712400354884266725d40aa95"
+          },
+          {
+            "id": "PC-LS-SCRIPT-LOOKUP-20261023-R2",
+            "sha256": "978baaf56512fe0eb1bec1bc6d9ebdb152302aae380401c349a5ac653593e0bc"
+          }
+        ],
+        "cases": 207,
+        "scope": "Two bounded canonical LS3DF entries: scene FindFrame 0x49210 and frame GetChildFrame 0x1c360, flags exactly 0x4ffff, ASCII names and separately admitted default-C Game/LS3DF locales. Game FINDACTOR/FINDFRAME dispatcher arms add zero canonical entries. Actor reverse primary, forward globals then reverse secondary preserves miss and partial-write behavior; frame self/child/sibling primary-before-backdrop lookup clears a miss. Original x86 under QEMU matches 207 unique inputs: 189 Game dispatches and 18 direct LS calls, 13,248 normalized bytes per profile including 168 zero-padding bytes, counted once across debug/release. Sole MessageBeep IAT replacement produces six actual callbacks; 35 secondary checkpoints remain native-only. Separate 108 Rust probes comprise 107 synthetic cases and one actual authored-script intake. Synthetic ModelArena load/link/close/reopen and stale identities do not establish mission-world integration. Host errors, lifetimes and budgets are admission policies. No original world/source registration/removal, allocator, Windows audio, application, replay resource, rendered or GPU integration; whole-function coverage N/A.",
+        "integration": "not_integrated",
+        "integration_receipt": null
       }
     ],
     "other_targets": [
@@ -23166,5 +23772,197 @@
     "new_rendered_or_interactive_validation": false,
     "new_GPU_validation": false,
     "next_dependencies": "Named actor/frame lookup and mission-world ownership, alongside resource-backed replay Load/Update and persistent owner/callback/camera/actor lifetime, then original control, collision, vehicles and mission objectives through completion."
+  },
+  "lookup_observation": {
+    "id": "PC-LS-SCRIPT-LOOKUP-20261023",
+    "status": "accepted_bounded_lookup_without_mission_world_integration",
+    "source_commit": "da192854c093b03e1bafecfb12d6e68ba89e1007",
+    "source_files": {
+      "crates/lhr-engine/src/frame_lookup.rs": "0bdf5a033c7ff41e715e4ef0e2060d41c57bb4cee327b17a0e790ad044457e6d",
+      "crates/lhr-engine/src/script_lookup.rs": "7c344592fb2c7497e2a131b6d2d322fa0f688327483d08dad02f88d68110828e",
+      "crates/lhr-engine/src/script_scheduler.rs": "cb8907aff25a3d94556b47c247def82e9510800bd043bbcd1efc8e19cd2d2f31",
+      "crates/lhr-engine/src/model_loading.rs": "c7a4a755b8f1ea50347b32fc1986250409a8049ed090f74f6f9831e485896833",
+      "crates/lhr-engine/src/lib.rs": "347c5910a387901b3d36072502c2da5ac302f3056f41a1d419b4529c7968eab3"
+    },
+    "contract": {
+      "id": "PC-LS-SCRIPT-LOOKUP-20261023",
+      "sha256": "01fef4efa058ccd5bd183643149993946bb9ccd9548dbbe90f7e4b19c083d92f"
+    },
+    "comparison": {
+      "id": "PC-LS-SCRIPT-LOOKUP-20261023-COMPARE",
+      "sha256": "25f8ba3ba2234e2376462de801d5575942564d5cb61360cdf047890175ff2910"
+    },
+    "reviews": [
+      {
+        "id": "PC-LS-SCRIPT-LOOKUP-20261023-R1",
+        "sha256": "1a5ef7724cad0035e124a924fc931055efccb70712400354884266725d40aa95"
+      },
+      {
+        "id": "PC-LS-SCRIPT-LOOKUP-20261023-R2",
+        "sha256": "978baaf56512fe0eb1bec1bc6d9ebdb152302aae380401c349a5ac653593e0bc"
+      }
+    ],
+    "research": {
+      "contract": {
+        "id": "PC-LS-SCRIPT-LOOKUP-20261023-REA-CONTRACT",
+        "sha256": "c558f09f9d94f2208a0029dae475447509ee15a605439ef317e1f43891124705"
+      },
+      "fresh_REA_index": {
+        "id": "PC-LS-SCRIPT-LOOKUP-20261023-REA-INDEX",
+        "sha256": "b3804d38c1ae471c7f354cdd200dc9770a55c97af4c1f67d478f55456da82ee8"
+      },
+      "source_byte_verification": {
+        "id": "PC-LS-SCRIPT-LOOKUP-20261023-SOURCE-BYTES",
+        "sha256": "fe8e08f749bb952003071e7c233f241daf37cda8a5dae283ca31d77fd61eed5d"
+      },
+      "LS_source_body_hashes": {
+        "id": "PC-LS-SCRIPT-LOOKUP-20261023-LS-BODIES",
+        "sha256": "124db535870d82c6f37a22730253040b8efb1b494ec408ecfbf8e5bc2d71d549"
+      },
+      "frozen_membership": {
+        "id": "PC-LS-SCRIPT-LOOKUP-20261023-MEMBERSHIP",
+        "sha256": "206331818e86264c5d740712f08a52c82aa2024d16d46b52f5982661433df977"
+      }
+    },
+    "native": {
+      "comparison": {
+        "id": "PC-LS-SCRIPT-LOOKUP-20261023-NATIVE-COMPARE",
+        "sha256": "3bceea10cb9378621105a3812d27b69cc9fab3b565e73946cab6c64d320b493d"
+      },
+      "freeze": {
+        "id": "PC-LS-SCRIPT-LOOKUP-20261023-NATIVE-FREEZE",
+        "sha256": "ac49e240743fd7abc1ec5ce3d257577693300e28b7b01723f8be701a5a17c94d"
+      },
+      "source_identity": {
+        "id": "PC-LS-SCRIPT-LOOKUP-20261023-SOURCE-IDENTITY",
+        "sha256": "dc6f1fe1943f689f053a0eac798f19f716570d4d793a148846a8781abe99bdc0"
+      },
+      "unique_inputs": 207,
+      "original_Game_dispatches": 189,
+      "direct_LS_calls": 18,
+      "normalized_bytes_per_profile": 13248,
+      "zero_padding_bytes_per_profile": 168,
+      "profiles": [
+        "debug",
+        "release"
+      ],
+      "profiles_counted_once": true,
+      "sole_IAT_model": "MessageBeep",
+      "actual_callback_count": 6,
+      "native_only_secondary_phase_checkpoints": 35,
+      "execution": "Actual original x86 instruction bodies under QEMU; controlled world storage and MessageBeep effect; no whole-game execution.",
+      "compared_surfaces": "Declared counts, all live admitted actor/frame slot identities, normalized zero capacity, PC/lastPC/elapsed/continuation, beep count and null-versus-empty stored LS frame names.",
+      "native_only_surfaces": "Ordered secondary-phase checkpoints, beep argument/pre-return slot/PC and raw backing pointers."
+    },
+    "Rust_probes": {
+      "receipt": {
+        "id": "PC-LS-SCRIPT-LOOKUP-20261023-PROBES",
+        "sha256": "70182f462f0174831944bdb596132327170e4afc418ced8af7762ac2e1c63b6f"
+      },
+      "source_freeze": {
+        "id": "PC-LS-SCRIPT-LOOKUP-20261023-PROBE-SOURCE",
+        "sha256": "b26ce4921a08f891f7f30fa803b723273aa0b56c09af9b2c9bb41c1ee3e38f42"
+      },
+      "logical_cases": 108,
+      "synthetic_cases": 107,
+      "actual_authored_script_intake_cases": 1,
+      "original_executions": 0,
+      "actual_asset_model_cases": 0,
+      "profiles": [
+        "debug",
+        "release"
+      ],
+      "case_count_policy": "Logical cases counted once across profiles; synthetic fixture successes do not execute an actual mission world."
+    },
+    "full_suite_receipt": {
+      "id": "PC-LS-SCRIPT-LOOKUP-20261023-FULL-TESTS",
+      "sha256": "7c561a5bbf832dc6f347c14d96a5f560f84ac7099068d01578c43e31b2523d1e"
+    },
+    "apple_check": {
+      "id": "PC-LS-SCRIPT-LOOKUP-20261023-APPLE-CHECK",
+      "sha256": "00379c9203c4f1df7dd42ddb84dbf6ddd3ffc12e9690b4f57ff587d60a2d45d7"
+    },
+    "canonical_entries": [
+      {
+        "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+        "entry_rva": "0x49210",
+        "body_bytes": 115,
+        "body_sha256": "fd7850f752c78b16b3cfa8c5baf798b13fb072372938474555d76d378a547067"
+      },
+      {
+        "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+        "entry_rva": "0x1c360",
+        "body_bytes": 520,
+        "body_sha256": "5256990d63d0a4dfb74eec981064b19da438b7b578d2c2cb0058dd4f3780e5b3"
+      }
+    ],
+    "new_canonical_entries": 2,
+    "new_scoped_contracts": 1,
+    "Game_dispatcher_entry_credit": 0,
+    "whole_function_coverage": "N/A",
+    "contract_integration_counts": {
+      "static_inspection": 20,
+      "not_integrated": 41
+    },
+    "strict_system_gate": {
+      "verified": 0,
+      "total": 12
+    },
+    "name_provenance": "FINDACTOR/FINDFRAME spellings and opcodes are original PC registry evidence. Actual PS2 I3D_scene::FindFrame and I3D_frame::GetChildFrame linker symbols support names with separately researched PC instruction/address correspondence; no recovered PC symbol table, PS2 execution or member-layout claim.",
+    "behavior": "Actor lookup preserves reverse primary, forward globals and reverse secondary order; a secondary match can replace a global result, and a total miss preserves the slot. Frame lookup searches primary before backdrop, self before depth-first children, and clears the slot on a miss. The bounded domain uses exact actor names, ASCII scene names, flags `0x4ffff` and separately admitted default-C Game/LS3DF locales. Reached invalid lifetimes, unsupported names and traversal limits fail explicitly.",
+    "diagnostic": "Fresh original-byte and controlled-native evidence corrects prior diagnostic-name transcription; implementation and negative probes use the verified literal.",
+    "admission": "Nonnegative bounded indices, live borrowed identities, exact actor byte equality; ASCII scene C strings,flags 0x4ffff and distinct default-C Game/LS3DF locale state. Reached malformed/stale/cyclic/budget-exhausting inputs error explicitly.",
+    "ModelArena_adapter": "The ModelArena adapter exercises production load/link/close/reopen and stale-identity behavior over synthetic model records. Parsed model metadata cannot distinguish null from empty stored names, so this adapter rejects empty helper queries; the generic LS3DF backend retains that distinction. Synthetic worlds and model lifetime checks establish no application or mission-world integration.",
+    "actual_authored_script_frontier": {
+      "mission": "MISE01",
+      "program_counter": 3,
+      "source_line": 4,
+      "command": "FINDACTOR",
+      "error": "UnsupportedWorldBackend",
+      "actor_null_slots": 9,
+      "frame_null_slots": 10,
+      "later_lines_executed": false
+    },
+    "mission_world_or_actor_construction": false,
+    "original_source_registration_removal": false,
+    "resource_backed_replay_Load_Update": false,
+    "application_integration": false,
+    "campaign_playable": false,
+    "new_full_game_execution": false,
+    "new_rendered_or_interactive_validation": false,
+    "new_GPU_validation": false,
+    "native_macOS_link_or_Metal": false,
+    "next_dependencies": "Next are original mission-world construction and actor/source registration/removal lifetime, resource-backed replay Load/Update and persistent callback/camera/actor ownership, then control, collision, vehicles and objectives through completion. Production texture-worker/surface ownership remains independently open.",
+    "original_resource_Rust_probe": {
+      "receipt": {
+        "id": "PC-LS-SCRIPT-LOOKUP-20261023-OWNED-MODELS",
+        "sha256": "287130e25f1fb584c5507a1ab8a6044e821a4cd7f23d85e7d67c643e722a4295"
+      },
+      "unique_checks": 168,
+      "profiles": [
+        "debug",
+        "release"
+      ],
+      "profiles_counted_once": true,
+      "resources_attempted": 4,
+      "models_admitted": 3,
+      "admitted_raw_frames": 51,
+      "close_attempts_blocked_by_existing_derived_destruction": 3,
+      "retired_frame_prefix": 0,
+      "successful_original_model_close_reopen": false,
+      "animated_static_intake_excluded": 1,
+      "original_executions": 0,
+      "rendered_checks": 0,
+      "mission_world_constructed": false,
+      "scope": "A separate original-resource Rust probe passes 168 checks once across debug/release: three of four attempted models admit lookup over 51 raw frames. All three closes reach the existing unsupported derived-destruction boundary before retiring any frame; no successful original-model close/reopen is claimed. The fourth animated model requires paired-animation intake outside this static probe. This adds no original execution, mission-world or rendering evidence."
+    },
+    "source_freeze": {
+      "id": "PC-LS-SCRIPT-LOOKUP-20261023-SOURCE-FREEZE",
+      "sha256": "86bdbf6fc78c3358c2f4564766cc59afc3591eeb77dbebe04cdf7fdbd41a81de"
+    },
+    "code_completion": {
+      "id": "PC-LS-SCRIPT-LOOKUP-20261023-CODE-COMPLETION",
+      "sha256": "c0826fcb13041904df7ce6bee6c28e6071e91dad64edb7583e6ff59eac0a1fa3"
+    }
   }
 }

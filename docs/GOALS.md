@@ -15,11 +15,11 @@ All gates remain open until corresponding evidence is recorded. Current function
 
 ## Parity with mafia-re
 
-At `251e05b`, bounded `DIM_ACT` / `DIM_FRM` declarations run through the existing scheduler. Separate actor/frame arrays hold borrowed identities: zero clears the selected array, growth replaces it with null slots, and equal/smaller positive declarations preserve its count and values. The 65,536-slot cap and recoverable allocation errors are host policies; native allocation-failure behavior is excluded. This extends existing dispatcher scope with **zero new canonical entries or scoped contracts**: **179 entries / 60 contracts**, **20 static_inspection / 40 not_integrated**, strict **0/12**.
+At `da19285`, bounded `FINDACTOR` / `FINDFRAME` now compose with the scheduler and reusable LS3DF frame search. Two canonical LS3DF entries add one reviewed contract: **181 entries / 61 contracts**, **20 static_inspection / 41 not_integrated**, strict **0/12**. Dispatcher arms add zero entry credit; whole-function coverage remains N/A.
 
-The actual authored MISE01 probe advances `commandblock`, `dim_act` and `dim_frm`, retaining nine null actor slots and ten null frame slots, then stops at unsupported `findactor` on source line 4 (PC3). Actor/frame lookup, world construction, replay resource Load/Update and first-mission execution remain open. No new rendered, interactive or GPU validation.
+The actual authored MISE01 probe still stops at source line 4 (PC3): `FINDACTOR` is recognized and reports `UnsupportedWorldBackend` after `commandblock`, `dim_act` and `dim_frm` retain nine null actor and ten null frame slots. No later line executes. Mission-world ownership, resource-backed replay Load/Update and first-mission execution remain open; no new rendered, interactive or GPU validation.
 
-Next are named actor/frame lookup and mission-world ownership, resource-backed replay Load/Update and persistent callback/camera/actor lifetime, then original control, collision, vehicles and objectives through completion. Production texture-worker/surface ownership remains independently open.
+Next are original mission-world construction and actor/source registration/removal lifetime, resource-backed replay Load/Update and persistent callback/camera/actor ownership, then control, collision, vehicles and objectives through completion. Production texture-worker/surface ownership remains independently open.
 
 Historical Installation integration connects existing menu/static scene archive callers to NativeFiles; its asset-equality and static-rendering receipts remain in [PROGRESS.md](PROGRESS.md). That route supplies neither GPU-worker ownership nor mission-world construction.
 
@@ -40,7 +40,7 @@ The next dependency order is:
 1. Extend animation dependencies across admitted data: weighted multi-slot evaluation, scale/note channels, remaining numeric domains and original notification boundaries. Preserve controller ownership and original update order as coverage grows.
 2. Recover animation-set/resource cache, animation-machine construction and required TCK paths, adding A4 access when evidenced. InitAnimIndex sort/cleanup and GetTrack over caller-owned records are bounded prerequisites; the original catalog, locale-comparison backend and resource lifetime remain open.
 3. Connect actor/BODY, model and controller ownership to original animation selection. Keep original animation-code/resource mappings outside any dependency on Game.exe at runtime.
-4. Continue from bounded declaration slots to named actor/frame lookup and mission-world ownership; recover resource-backed replay Load/Update and persistent owner/callback/camera/actor lifetime, then original control lock/release, attachments, collision-backed movement, vehicles, camera, pursuit and mission objectives through completion. Compare original-runtime traces and interactive Rust runs of the same sequence.
+4. Connect bounded lookup to original mission-world construction and actor/source registration/removal lifetime; recover resource-backed replay Load/Update and persistent owner/callback/camera/actor lifetime, then original control lock/release, attachments, collision-backed movement, vehicles, camera, pursuit and mission objectives through completion. Compare original-runtime traces and interactive Rust runs of the same sequence.
 
 The [mafia-re/MafiaUnity source audit](REFERENCE_PROJECTS.md#next-general-engine-work) identifies complementary general-engine dependencies: persistent model/scene resource lifetime, mission-world construction, KLZ-backed collision, material states and sector visibility. Research these alongside the sequence above; upstream scene loaders and prototype mechanics do not replace original actor or script behavior.
 
