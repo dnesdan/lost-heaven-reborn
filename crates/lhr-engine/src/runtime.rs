@@ -433,6 +433,28 @@ impl RetainedModel {
     pub fn pose(&self) -> &[FramePose] {
         &self.pose
     }
+    /// Change the host inspection placement of an unbound static model.
+    /// This is not an original frame/BODY operation. Validate the whole hierarchy
+    /// and its bound geometry before committing; owned original hierarchies and
+    /// animation bindings must use their respective recovered update paths.
+    pub fn set_world_transform(&mut self, world: Mat4) -> Result<(), String> {
+        if self.materialized.is_some() || self.skeletal_bound || self.native.interpolator.is_some()
+        {
+            return Err("Bound model requires its original transform update path".into());
+        }
+        if world.row(3).to_array() != [0.0, 0.0, 0.0, 1.0] {
+            return Err("Inspection placement must be affine".into());
+        }
+        let transforms = self.transforms_at(world)?;
+        for binding in &self.draws {
+            self.vertices(binding, &transforms)?;
+        }
+        if self.world.to_cols_array().map(f32::to_bits) != world.to_cols_array().map(f32::to_bits) {
+            self.world = world;
+            self.needs_upload = true;
+        }
+        Ok(())
+    }
     pub fn set_frame_position(&mut self, index: usize, position: [f32; 3]) -> Result<(), String> {
         if self.materialized.is_some() {
             return Err("Materialized model has no position-animation binding".into());
@@ -457,10 +479,14 @@ impl RetainedModel {
     }
 
     pub fn transforms(&self) -> Result<Vec<Mat4>, String> {
+        self.transforms_at(self.world)
+    }
+
+    fn transforms_at(&self, world: Mat4) -> Result<Vec<Mat4>, String> {
         if self.materialized.is_some() {
             return Err("Materialized model requires original world matrices".into());
         }
-        if self.pose.len() != self.source.frames.len() || !self.world.is_finite() {
+        if self.pose.len() != self.source.frames.len() || !world.is_finite() {
             return Err("Retained model graph mismatch".into());
         }
         if self.visual_scale.is_some_and(|s| {
@@ -501,7 +527,7 @@ impl RetainedModel {
                 }
                 transforms[parent] * local
             } else {
-                self.world * local
+                world * local
             };
             if !transform.is_finite() {
                 return Err("Retained transform overflow".into());
@@ -1523,6 +1549,101 @@ mod tests {
             .set_frame_position(0, [f32::NAN, 0., 0.])
             .is_err());
         assert_eq!(graph.models[0].pose()[0].position, [10., 0., 0.]);
+    }
+    #[test]
+    fn inspection_placement_updates_all_roots_and_children_without_changing_source() {
+        let mut source = (*source()).clone();
+        let mut child = source.frames[0].clone();
+        child.parent = Some(0);
+        child.position = [2., 0., 0.];
+        source.frames.push(child);
+        let mut root = source.frames[0].clone();
+        root.position = [-3., 0., 0.];
+        source.frames.push(root);
+        let source = Arc::new(source);
+        let mut graph = RetainedScene::default();
+        for index in 0..2 {
+            graph
+                .retain(
+                    "placement".into(),
+                    source.clone(),
+                    Mat4::IDENTITY,
+                    None,
+                    (0..3)
+                        .map(|frame| DrawBinding {
+                            draw_index: index * 3 + frame,
+                            frame_index: frame,
+                            geometry_frame: frame,
+                            source_vertices: vec![1, 0],
+                        })
+                        .collect(),
+                )
+                .unwrap();
+        }
+        let old_pose = graph.models[0].pose.clone();
+        let placement = Mat4::from_cols_array(&[
+            0., 0., -1., 0., 0., 1., 0., 0., 1., 0., 0., 0., 10., 0., 20., 1.,
+        ]);
+        graph.models[0].set_world_transform(placement).unwrap();
+        let model = &graph.models[0];
+        let transforms = model.transforms().unwrap();
+        for (frame, x) in [4., 6., 1.].into_iter().enumerate() {
+            let vertices = model.vertices(&model.draws[frame], &transforms).unwrap();
+            assert_eq!(vertices[0].position, [16., 5., x - 20.]);
+            assert_eq!(vertices[0].uv, [0.5, 0.5]);
+        }
+        assert!(model.needs_upload);
+        assert_eq!(model.pose, old_pose);
+        assert_eq!(model.source.frames[0].position, [0.; 3]);
+        assert_eq!(graph.models[1].world, Mat4::IDENTITY);
+        assert!(!graph.models[1].needs_upload);
+        graph.models[0].needs_upload = false;
+        graph.models[0].set_world_transform(placement).unwrap();
+        assert!(!graph.models[0].needs_upload);
+    }
+    #[test]
+    fn rejected_inspection_placement_preserves_world_and_pending_upload() {
+        for pending in [false, true] {
+            let mut graph = graph();
+            let model = &mut graph.models[0];
+            model.needs_upload = pending;
+            let previous = model.world.to_cols_array().map(f32::to_bits);
+            for world in [
+                Mat4::from_translation(Vec3::new(f32::NAN, 0., 0.)),
+                Mat4::ZERO,
+                Mat4::from_scale(Vec3::splat(f32::MAX)),
+            ] {
+                assert!(model.set_world_transform(world).is_err());
+                assert_eq!(model.world.to_cols_array().map(f32::to_bits), previous);
+                assert_eq!(model.needs_upload, pending);
+            }
+            model.pose[0].position = [f32::MAX, 0., 0.];
+            assert!(model
+                .set_world_transform(Mat4::from_translation(Vec3::new(f32::MAX, 0., 0.)))
+                .is_err());
+            assert_eq!(model.world.to_cols_array().map(f32::to_bits), previous);
+            assert_eq!(model.needs_upload, pending);
+        }
+    }
+    #[test]
+    fn inspection_placement_cannot_bypass_original_or_animation_bindings() {
+        let loaded = crate::model_loading::MaterializedModel::from_parsed(source()).unwrap();
+        let mut original = RetainedScene::default();
+        original
+            .retain_materialized("original".into(), loaded, vec![])
+            .unwrap();
+        let mut graph = graph();
+        let moved = Mat4::from_translation(Vec3::X);
+        assert!(original.models[0].set_world_transform(moved).is_err());
+        assert_eq!(original.models[0].world, Mat4::IDENTITY);
+        graph.models[0].native.interpolator = Some(InterpolatorId(1));
+        assert!(graph.models[0].set_world_transform(moved).is_err());
+        assert_eq!(graph.models[0].world, Mat4::IDENTITY);
+        graph.models[0].native.interpolator = None;
+        graph.models[0].skeletal_bound = true;
+        assert!(graph.models[0].set_world_transform(moved).is_err());
+        assert_eq!(graph.models[0].world, Mat4::IDENTITY);
+        assert!(!graph.models[0].needs_upload);
     }
     struct Clock {
         samples: std::collections::VecDeque<u32>,

@@ -11,6 +11,7 @@ pub mod animation_index;
 pub mod buffer_managers;
 pub mod c_str;
 pub mod clock;
+pub mod collision_line;
 pub mod driver_state;
 pub mod frame_delta;
 pub mod frame_dispatch;
@@ -32,6 +33,8 @@ pub mod original_config;
 pub mod original_program;
 pub mod player_control;
 pub mod police_state;
+pub mod program_instructions;
+pub mod program_parser;
 pub mod replay_state;
 pub mod rotation_animation;
 pub mod runtime;
@@ -50,6 +53,7 @@ pub mod skeletal_playback;
 pub mod target_direction;
 pub mod target_state;
 pub mod texture_manager;
+pub mod vehicle_controls;
 
 pub mod visual_resources;
 
@@ -61,5 +65,8 @@ pub mod ls3df {
 
 /// Original game executable boundary; replay helper names remain descriptive.
 pub mod game {
-    pub use crate::{actor_world, original_program, replay_state, script_lookup, script_scheduler};
+    pub use crate::{
+        actor_world, collision_line, original_program, program_instructions, program_parser,
+        replay_state, script_lookup, script_scheduler, vehicle_controls,
+    };
 }
