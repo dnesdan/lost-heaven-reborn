@@ -1,7 +1,7 @@
 # Lost Heaven Reborn
 
 <!-- generated-function-progress:start -->
-As of 2026-10-23 · snapshot `RUST-SCOPED-PORTS-20261023-36`.
+As of 2026-10-23 · snapshot `RUST-SCOPED-PORTS-20261023-37`.
 
 <p align="center"><img src="docs/progress.svg" alt="Progress dashboard: static retained pseudocode, reviewed scoped Rust entries, and strict system verification" width="100%"></p>
 
@@ -14,7 +14,7 @@ As of 2026-10-23 · snapshot `RUST-SCOPED-PORTS-20261023-36`.
 
 Strict full-system gate: **0/12**. Binary-level static counts use the named denominator basis and do not combine into a game-completion percentage. Unknown denominators remain N/A. 1 supplied configuration Setup inventory uses 172 in-image non-thunk procedures. Separately, archive installer bootstrap static inventory: **376 / 376 (100.00%)**; this distribution target is not combined with engine-library counts. The campaign is not playable.
 
-Accepted scoped Rust ports: **219 entries across 69 reviewed contracts**. These remain separate from retained pseudocode and whole-function counts.
+Accepted scoped Rust ports: **222 entries across 72 reviewed contracts**. These remain separate from retained pseudocode and whole-function counts.
 
 Regenerate locally with `python3 scripts/progress.py --write`; verify without writes with `python3 scripts/progress.py --check`. Versioned snapshots are retained in `docs/progress.json`.
 Milestone history and scoped implementation evidence are in [docs/PROGRESS.md](docs/PROGRESS.md).
@@ -23,7 +23,7 @@ Supplied binary catalog (file identities; independent measures):
 | Binary | Platform | Variant | Role | Static retained pseudocode | Scoped Rust entries |
 | --- | --- | --- | --- | ---: | ---: |
 | DrvMgt.dll | PC | Installed game | Driver-management helper, exact runtime use unresolved | N/A | 0 |
-| Game.exe | PC | Installed game | Game and mission executable | 4784 / 4,914 (97.35%) | 68 |
+| Game.exe | PC | Installed game | Game and mission executable | 4784 / 4,914 (97.35%) | 71 |
 | IJoy.dll | PC | Installed game | DirectInput joystick wrapper | N/A | 0 |
 | INet.dll | PC | Installed game | Network helper, exact runtime use unresolved | N/A | 0 |
 | LS3DF.dll | PC | Installed game | 3D, animation, audio and rendering engine | 1555 / 1,714 (90.72%) | 134 |
@@ -63,13 +63,17 @@ Ownership code uses `lhr_engine::ls3df::{c_str, itexture, i3d_object, texture_ma
 
 The immediate goal is **the playable first mission, from the original menu through mission completion**, alongside function-by-function library parity with mafia-re. See the [acceptance gates and dependency order](docs/GOALS.md). PS2 symbol names guide reconstruction; PC behavior and platform differences require original-binary verification.
 
-At `46db9f5`, the original PC C_Vehicle constructor and four drivetrain helpers add two bounded contracts: **219 entries / 69 contracts**, **20 static_inspection / 49 not_integrated**, strict **0/12**. Read-only KLZ intake and geometry binding add zero canonical-entry credit; whole-function coverage remains N/A.
+At `5eb220a`, bounded C_Vehicle Init attachment/discovery, collision triangle preparation and static-grid `_TestLineV` bring the accepted scope to **222 entries / 72 contracts**, **20 static_inspection / 52 not_integrated**, strict **0/12**. Whole-function coverage remains N/A.
 
-The constructor reproduces original writes over supplied bytes; it does not implement resource-owning Init or destruction. Detached drivetrain arithmetic and read-only collision geometry do not provide BODY/model/parameter/wheel setup, world queries or the original solver. Driving and the first mission remain unimplemented; no simplified-physics mode is added.
+Init preserves model/name ownership and BODY/EXHAUST/SPECCOLL/HEAD discovery order, returning original rejection or explicit unavailable frontiers; it never reports Init success. Collision preparation preserves source corners/planes and cell order. Partial LoadCollision behavior adds no loader entry credit. Static-grid queries compose the existing triangle leaf; eligible volumes and dynamic queries fail explicitly. Resource cleanup, full vehicle initialization and the solver remain open.
 
-Original instructions match 1,024 constructor configurations and, separately, 32 constructor-to-controls trajectories. Four drivetrain entries match 5,215 admitted configurations under explicit CW007f/PC24 nearest; 52 numeric cases remain excluded. Repeated profiles count once. Independently, read-only intake matches all 79 original KLZ members; controlled native loader fixtures compare derivative geometry/owners without full-loader credit.
+Original-instruction comparisons match 239 Init-prefix fixtures, 293 of 322 preparation fixtures and 2,845 of 2,869 static-query fixtures in debug/release, counted once. Preparation excludes 26 numeric cases and three binding diagnostics; query excludes 24 host-domain cases. Physical execution of the unchanged classifier covers all 322 inputs and resolves seven QEMU threshold discrepancies; loader degeneracy evidence remains controlled QEMU execution. Physical and QEMU query results agree on all 2,869 inputs. These are bounded detached comparisons, without full-game or driving validation.
+
+Actual FREERIDE/MISE02A Rust composition prepares 90,153 triangles across 119,019 retained source records, preserving 4,565 numeric errors plus binding/volume diagnostics. Previously prepared world coordinates remain external inputs; original transforms and whole-map query parity are unverified.
 
 Actual authored MISE01 remains FINDACTOR/UnsupportedWorldBackend at PC3 / source line 4; no later line executes. All six first-mission gates remain open. No runtime gameplay integration or driving mode is established.
+
+Historical vehicle-world milestone at `46db9f5` retains 219 entries / 69 contracts: 1,024 constructor configurations, 32 separate constructor-to-controls trajectories and 5,215 admitted drivetrain configurations with 52 numeric exclusions. Its 79-member KLZ intake and controlled loader/geometry-binding evidence retain their original limits.
 
 Historical driving-prerequisite milestone at `38bd2c4` reached 214/67 with original parser/398-row recognition, five detached input setters and the triangle-only collision leaf. Its static GPU/UI and placement evidence remains historical. Earlier source, frame, actor and resource observations retain their original limits.
 
@@ -133,11 +137,11 @@ Standalone models use the owned original hierarchy and checked first-LOD skin/mo
 
 The `sipka1` command without a sample time retains the earlier single-root position playback path through the recovered clock, model and interpolator. Add `--headless --animation-steps 25 --capture /tmp/animation.png` for 25 controlled 16 ms steps. Captures at 0/25/50 steps verify movement and exact return; inspection camera, handedness, materials and rasterization remain separate from original presentation.
 
-Current checks pass 641 Rust tests (108 assets unit, seven assets integration, 492 engine library, eight engine integration, 21 application, five renderer), nine REA-wrapper tests and 47 progress tests, plus formatting, locked checking and Clippy. Two sequential independent reviews accepted the exact source. Apple arm64 all-target typechecking passes; native macOS linking and Metal execution remain untested.
+Current checks pass 660 Rust tests (108 assets unit, seven assets integration, 511 engine library, eight engine integration, 21 application, five renderer), nine REA-wrapper tests and 47 progress tests, plus formatting, locked checking and Clippy. Two sequential independent reviews accepted the exact source. Apple arm64 all-target typechecking passes; native macOS linking and Metal execution remain untested.
 
 No new rendered or interactive validation is claimed for these library-only changes. The prior source-bound llvmpipe menu/static-scene and taxi placement checks remain historical; they do not validate driving or physics.
 
-Next are genuine C_Vehicle Init/cleanup with actual model/BODY, component/parameter/wheel ownership; original collision loader effects, frame transforms, grid and primitive contacts; then Tick/Engine/six-float Move and wheel/body solver behavior before application controls/update and camera. Compiler floating operands/LET/IF, all 62 parameter cases and Compile/Init/Done remain parallel; real mission world, scheduling, replay and objectives remain required.
+Next are Init's component/parameter/wheel stages and failure/destruction ownership; complete collision-loader/frame transforms, eligible primitive/dynamic queries and contacts; then Tick/Engine/six-float Move and wheel/body solver behavior before application controls/update and camera. Compiler floating operands/LET/IF, all 62 parameter cases and Compile/Init/Done remain parallel; genuine mission-world construction, scheduling, replay and objectives remain required.
 
 `setup.sh --graphics` prepares the Linux software Vulkan tools used for development captures. `scripts/test.sh` checks formatting, compilation, tests, Clippy, REA wrappers and generated progress. On Linux x86_64, X11 input has been checked through menu, static INTRO and the MISE01 neighborhood, including orbit and reload. An Apple arm64 cargo check passes, but macOS linking and Metal runtime have not been tested. iOS is a future compatibility target. The original game's executable and REA are not gameplay runtime dependencies.
 

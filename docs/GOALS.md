@@ -15,11 +15,11 @@ All gates remain open until corresponding evidence is recorded. Current function
 
 ## Parity with mafia-re
 
-At `46db9f5`, the original PC C_Vehicle constructor and four drivetrain helpers add two bounded contracts: **219 entries / 69 contracts**, **20 static_inspection / 49 not_integrated**, strict **0/12**. Read-only KLZ intake and geometry binding add zero canonical-entry credit; whole-function coverage remains N/A.
+At `5eb220a`, bounded C_Vehicle Init attachment/discovery, collision triangle preparation and static-grid `_TestLineV` bring the accepted scope to **222 entries / 72 contracts**, **20 static_inspection / 52 not_integrated**, strict **0/12**. Whole-function coverage remains N/A.
 
 Actual authored MISE01 remains FINDACTOR/UnsupportedWorldBackend at PC3 / source line 4; no later line executes. All six first-mission gates remain open. No runtime gameplay integration or driving mode is established.
 
-Next are genuine C_Vehicle Init/cleanup with actual model/BODY, component/parameter/wheel ownership; original collision loader effects, frame transforms, grid and primitive contacts; then Tick/Engine/six-float Move and wheel/body solver behavior before application controls/update and camera. Compiler floating operands/LET/IF, all 62 parameter cases and Compile/Init/Done remain parallel; real mission world, scheduling, replay and objectives remain required.
+Next are Init's component/parameter/wheel stages and failure/destruction ownership; complete collision-loader/frame transforms, eligible primitive/dynamic queries and contacts; then Tick/Engine/six-float Move and wheel/body solver behavior before application controls/update and camera. Compiler floating operands/LET/IF, all 62 parameter cases and Compile/Init/Done remain parallel; genuine mission-world construction, scheduling, replay and objectives remain required.
 
 Historical Installation integration connects existing menu/static scene archive callers to NativeFiles; its asset-equality and static-rendering receipts remain in [PROGRESS.md](PROGRESS.md). That route supplies neither GPU-worker ownership nor mission-world construction.
 
@@ -37,8 +37,8 @@ Fresh REA/Ghidra instruction evidence and actual registry bytes support the boun
 
 The immediate dependency order is:
 
-1. Close original C_Vehicle Init and destruction/failure cleanup with genuine type-9 model/BODY, component frames, source parameters and wheel resources. The raw constructor preserves original byte writes but owns none of these resources; C_car callbacks and retained references remain required.
-2. Close original collision-loader frame WorldOn/LOD0/lock effects, post-load classifier and missing/degenerate disable 0x20, volume ownership and external child resources. Then reconstruct original grid/cell candidate ordering, _TestLineV/TestLineV and every eligible primitive/dynamic query; read-only binding alone is not query readiness.
+1. Continue C_Vehicle Init beyond the explicit EXHAUST/SPECCOLL/HEAD/BODYCOL frontiers, with component transforms, source parameters, wheels and genuine failure/destruction cleanup. The accepted attachment/discovery prefix never returns original Init success; retained references and callbacks still require ownership.
+2. Close collision-loader stream/allocator/frame WorldOn/LOD0/lock effects and original world transforms. Compose accepted preparation/static-grid behavior with every eligible volume/dynamic query and genuine loaded scene ownership; preserve original corner/candidate order and explicit admission errors.
 3. Supply genuine body inertia, wheel radius, tyres/suspension/material state and contact callbacks. Preserve recovered SetCutTime/drivetrain arithmetic while closing actual timestep/shared-direction ownership and external gear-shift dependency.
 4. Reconstruct Tick -> Engine -> six-float Move -> DoWheelsCollision in original substep/solver order. Update publishes postintegration state. Then connect real application input, player/camera and repeatable original-versus-Rust driving sequences; no simplified physics substitutes for this gate.
 5. In parallel, close floating DecodeOperand, DecodeLet/DecodeIf, all 62 parameter ownership cases and Compile/Init/Done, then detector runtime and genuine mission scene/actor registration. Keyword recognition is not command execution; replay and objectives remain required.
