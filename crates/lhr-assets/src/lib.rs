@@ -5,6 +5,7 @@ use std::{
 };
 pub mod animation;
 mod cache;
+pub mod klz;
 pub use cache::{CacheObject, CachePart, CityCache, parse_city_cache};
 mod dta;
 mod menu;

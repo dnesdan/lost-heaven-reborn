@@ -4,14 +4,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let first = args.next().ok_or("expected asset path")?;
     let scene2 = first == "--scene2";
     let cache = first == "--cache";
+    let klz = first == "--klz";
     let bmp_original = first == "--bmp-original";
     let world = first == "--world";
-    let path = if scene2 || world || cache || bmp_original {
+    let path = if scene2 || world || cache || klz || bmp_original {
         args.next().ok_or("expected asset path")?
     } else {
         first
     };
     let bytes = lhr_assets::read_asset_file(path)?;
+    if klz {
+        use lhr_assets::klz::{Klz, PrimitiveKind};
+        let collision = Klz::parse(&bytes)?;
+        println!(
+            "grid={}x{} cells={} links={} world_vertices={}",
+            collision.grid.width,
+            collision.grid.length,
+            collision.cells.len(),
+            collision.links.len(),
+            collision.world_vertices.len(),
+        );
+        for (name, kind) in [
+            ("triangles", PrimitiveKind::Triangle),
+            ("aabbs", PrimitiveKind::Aabb),
+            ("xtobbs", PrimitiveKind::XtObb),
+            ("cylinders", PrimitiveKind::Cylinder),
+            ("obbs", PrimitiveKind::Obb),
+            ("spheres", PrimitiveKind::Sphere),
+        ] {
+            println!("{name}={}", collision.array(kind).len());
+        }
+        println!("Read-only KLZ intake; geometry binding and collision simulation are separate.");
+        return Ok(());
+    }
     if bmp_original {
         let t = lhr_assets::decode_bmp_original(&bytes)?;
         println!(
