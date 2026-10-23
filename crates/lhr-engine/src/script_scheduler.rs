@@ -4,6 +4,7 @@
 //! The adapter is not the original compiler, actor dispatcher, or full command VM.
 
 use crate::named_script::{ProgramScheduler, ResetState};
+use crate::replay_state::{self, ReplayError, ReplayOwnerId, ReplayReadBackend};
 use lhr_assets::script::parse_script;
 
 /// Identity of retained eight-byte instruction storage, independent of its live length.
@@ -119,6 +120,51 @@ pub trait ScriptEffects {
         state: &mut ResetState,
         delta: i32,
     ) -> Result<(), Self::Error>;
+
+    /// The original RECWAITFOREND caller needs a live replay predicate. Existing
+    /// startup-effect backends remain valid and explicitly reject this dependency.
+    fn replay_busy(&mut self) -> Result<bool, ReplayWaitError<Self::Error>> {
+        Err(ReplayWaitError::UnsupportedBackend)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ReplayWaitError<E> {
+    UnsupportedBackend,
+    Backend(E),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ReplayScriptError<E, R> {
+    Effects(E),
+    Replay(ReplayError<R>),
+}
+
+/// Supplies an existing replay owner and live global/storage reads to the fixed
+/// program adapter. This does not initialize a replay or simulate its update.
+pub struct ReplayScriptEffects<'a, E, B> {
+    pub effects: &'a mut E,
+    pub replay: &'a B,
+    pub owner: Option<ReplayOwnerId>,
+}
+
+impl<E: ScriptEffects, B: ReplayReadBackend> ScriptEffects for ReplayScriptEffects<'_, E, B> {
+    type Error = ReplayScriptError<E::Error, B::Error>;
+    fn execute(
+        &mut self,
+        command: StartupCommand,
+        control: &mut ControlState,
+        state: &mut ResetState,
+        delta: i32,
+    ) -> Result<(), Self::Error> {
+        self.effects
+            .execute(command, control, state, delta)
+            .map_err(ReplayScriptError::Effects)
+    }
+    fn replay_busy(&mut self) -> Result<bool, ReplayWaitError<Self::Error>> {
+        replay_state::is_busy(self.replay, self.owner)
+            .map_err(|error| ReplayWaitError::Backend(ReplayScriptError::Replay(error)))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -139,6 +185,7 @@ pub enum ExecutionError<E> {
     UnsupportedInterruptState,
     UnsupportedEndContext,
     Effects(E),
+    Replay(ReplayWaitError<E>),
 }
 
 #[derive(Clone, Debug)]
@@ -148,6 +195,7 @@ enum Operation {
     Gosub(String),
     Return,
     Wait(u32),
+    RecWaitForEnd,
     CommandBlock(bool),
     End,
     Startup(StartupCommand),
@@ -161,6 +209,7 @@ impl Operation {
             Self::Gosub(_) => 2,
             Self::Return => 3,
             Self::Wait(_) => 4,
+            Self::RecWaitForEnd => 0x2e,
             Self::End => 6,
             Self::CommandBlock(_) => 34,
             Self::Startup(StartupCommand::GameNightMission(_)) => 0x51,
@@ -212,6 +261,8 @@ impl Program {
                     "gosub" if literal_label(argument, 15) => Operation::Gosub(argument.to_owned()),
                     "return" if argument.is_empty() => Operation::Return,
                     "end" if argument.is_empty() => Operation::End,
+                    // Original registry name RECWAITFOREND, opcode 0x2e.
+                    "recwaitforend" if argument.is_empty() => Operation::RecWaitForEnd,
                     "wait" => argument
                         .parse::<u32>()
                         .ok()
@@ -431,6 +482,11 @@ impl<E: ScriptEffects> SchedulerBackend for ProgramBackend<'_, E> {
             Operation::Wait(value) => {
                 let threshold = wait_threshold(*value, self.control.control_word)?;
                 if self.control.elapsed >= threshold {
+                    self.control.advance(state);
+                }
+            }
+            Operation::RecWaitForEnd => {
+                if !self.effects.replay_busy().map_err(ExecutionError::Replay)? {
                     self.control.advance(state);
                 }
             }
@@ -801,5 +857,269 @@ mod tests {
             wait_threshold::<()>(1, 0x013f),
             Err(ExecutionError::InvalidControlWord(0x013f))
         ));
+    }
+}
+
+#[cfg(test)]
+mod replay_tests {
+    use super::*;
+    use std::cell::Cell;
+
+    struct Effects;
+    impl ScriptEffects for Effects {
+        type Error = &'static str;
+        fn execute(
+            &mut self,
+            _: StartupCommand,
+            _: &mut ControlState,
+            _: &mut ResetState,
+            _: i32,
+        ) -> Result<(), Self::Error> {
+            Err("startup effect unavailable")
+        }
+    }
+    struct Replay {
+        global: Cell<u32>,
+        state: Cell<u32>,
+        reads: Cell<u32>,
+        fail: bool,
+    }
+    impl ReplayReadBackend for Replay {
+        type Error = &'static str;
+        fn global_countdown(&self) -> Result<u32, Self::Error> {
+            if self.fail {
+                Err("global unavailable")
+            } else {
+                Ok(self.global.get())
+            }
+        }
+        fn read_word(&self, address: u32) -> Result<u32, Self::Error> {
+            assert_eq!(address, 0x10e4);
+            self.reads.set(self.reads.get() + 1);
+            Ok(self.state.get())
+        }
+    }
+    fn replay() -> Replay {
+        Replay {
+            global: Cell::new(0),
+            state: Cell::new(1),
+            reads: Cell::new(0),
+            fail: false,
+        }
+    }
+    fn state(continuation: u8) -> ResetState {
+        ResetState {
+            program_counter: 0,
+            short_stack_begin: 100,
+            short_stack_end: 100,
+            field_44: 0,
+            continuation,
+        }
+    }
+
+    #[test]
+    fn recwait_busy_retains_pc_elapsed_and_continuation_then_uses_common_advance() {
+        let program = Program::from_source("RECWAITFOREND\nend").unwrap();
+        let mut control = ControlState::new(0, 0x3f).unwrap();
+        control.elapsed = u32::MAX - 1;
+        control.last_program_counter = 77;
+        let replay = replay();
+        let mut effects = Effects;
+        let mut bridge = ReplayScriptEffects {
+            effects: &mut effects,
+            replay: &replay,
+            owner: Some(ReplayOwnerId::new(0x1000).unwrap()),
+        };
+        let mut backend = ProgramBackend {
+            program: &program,
+            control: &mut control,
+            effects: &mut bridge,
+        };
+        assert_eq!(backend.opcode(0, 0), Ok(0x2e));
+        let mut state = state(0);
+        let mut budget = DispatchBudget::new(8).unwrap();
+        run_scheduler(&mut state, &mut backend, 5, &mut budget).unwrap();
+        assert_eq!(
+            (
+                state.program_counter,
+                state.continuation,
+                backend.control.elapsed,
+                backend.control.last_program_counter
+            ),
+            (0, 0, 3, 77)
+        );
+        replay.state.set(4);
+        run_scheduler(&mut state, &mut backend, -1, &mut budget).unwrap();
+        assert_eq!(
+            (
+                state.program_counter,
+                state.continuation,
+                backend.control.elapsed,
+                backend.control.last_program_counter
+            ),
+            (1, 0, 0, 0)
+        );
+        assert_eq!(budget.remaining(), 6);
+    }
+
+    #[test]
+    fn continuation_one_false_advances_and_dispatches_end_with_same_delta() {
+        let program = Program::from_source("recwaitforend\nend").unwrap();
+        let mut control = ControlState::new(0, 0x3f).unwrap();
+        let replay = replay();
+        replay.state.set(0);
+        let mut effects = Effects;
+        let mut bridge = ReplayScriptEffects {
+            effects: &mut effects,
+            replay: &replay,
+            owner: Some(ReplayOwnerId::new(0x1000).unwrap()),
+        };
+        let mut backend = ProgramBackend {
+            program: &program,
+            control: &mut control,
+            effects: &mut bridge,
+        };
+        let mut state = state(1);
+        let mut budget = DispatchBudget::new(8).unwrap();
+        run_scheduler(&mut state, &mut backend, 7, &mut budget).unwrap();
+        assert_eq!(replay.reads.get(), 1);
+        assert_eq!(
+            (
+                state.program_counter,
+                state.continuation,
+                backend.control.elapsed,
+                backend.control.last_program_counter
+            ),
+            (1, 0, 7, 0)
+        );
+        assert_eq!(budget.remaining(), 6);
+    }
+
+    #[test]
+    fn persistent_busy_exhausts_scheduler_budget_preserving_accumulated_elapsed() {
+        let program = Program::from_source("recwaitforend").unwrap();
+        let mut control = ControlState::new(0, 0x3f).unwrap();
+        let replay = replay();
+        let mut effects = Effects;
+        let mut bridge = ReplayScriptEffects {
+            effects: &mut effects,
+            replay: &replay,
+            owner: Some(ReplayOwnerId::new(0x1000).unwrap()),
+        };
+        let mut backend = ProgramBackend {
+            program: &program,
+            control: &mut control,
+            effects: &mut bridge,
+        };
+        let mut state = state(1);
+        let mut budget = DispatchBudget::new(3).unwrap();
+        assert_eq!(
+            run_scheduler(&mut state, &mut backend, -1, &mut budget),
+            Err(SchedulerError::BudgetExhausted)
+        );
+        assert_eq!(
+            (
+                state.program_counter,
+                state.continuation,
+                backend.control.elapsed,
+                backend.control.last_program_counter
+            ),
+            (0, 1, u32::MAX - 2, u32::MAX)
+        );
+    }
+
+    #[test]
+    fn unavailable_replay_and_owner_are_errors_after_elapsed_accumulation() {
+        let program = Program::from_source("recwaitforend").unwrap();
+        let mut control = ControlState::new(0, 0x3f).unwrap();
+        let mut effects = Effects;
+        let mut state = state(0);
+        let mut budget = DispatchBudget::new(8).unwrap();
+        let mut backend = ProgramBackend {
+            program: &program,
+            control: &mut control,
+            effects: &mut effects,
+        };
+        assert_eq!(
+            run_scheduler(&mut state, &mut backend, 5, &mut budget),
+            Err(SchedulerError::Backend(ExecutionError::Replay(
+                ReplayWaitError::UnsupportedBackend
+            )))
+        );
+        assert_eq!((state.program_counter, backend.control.elapsed), (0, 5));
+        let replay = replay();
+        let mut bridge = ReplayScriptEffects {
+            effects: &mut effects,
+            replay: &replay,
+            owner: None,
+        };
+        let mut backend = ProgramBackend {
+            program: &program,
+            control: &mut control,
+            effects: &mut bridge,
+        };
+        assert_eq!(
+            run_scheduler(&mut state, &mut backend, 7, &mut budget),
+            Err(SchedulerError::Backend(ExecutionError::Replay(
+                ReplayWaitError::Backend(ReplayScriptError::Replay(ReplayError::MissingOwner))
+            )))
+        );
+        assert_eq!((state.program_counter, backend.control.elapsed), (0, 12));
+        replay.global.set(1);
+        run_scheduler(&mut state, &mut backend, 2, &mut budget).unwrap();
+        assert_eq!((state.program_counter, backend.control.elapsed), (0, 14));
+        assert_eq!(replay.reads.get(), 0);
+    }
+
+    #[test]
+    fn replay_backend_error_has_no_advance_and_literal_intake_rejects_arguments() {
+        let program = Program::from_source("recwaitforend").unwrap();
+        let mut control = ControlState::new(0, 0x3f).unwrap();
+        let replay = Replay {
+            fail: true,
+            ..replay()
+        };
+        let mut effects = Effects;
+        let mut bridge = ReplayScriptEffects {
+            effects: &mut effects,
+            replay: &replay,
+            owner: Some(ReplayOwnerId::new(0x1000).unwrap()),
+        };
+        let mut backend = ProgramBackend {
+            program: &program,
+            control: &mut control,
+            effects: &mut bridge,
+        };
+        let mut state = state(1);
+        let mut budget = DispatchBudget::new(8).unwrap();
+        assert_eq!(
+            run_scheduler(&mut state, &mut backend, 17, &mut budget),
+            Err(SchedulerError::Backend(ExecutionError::Replay(
+                ReplayWaitError::Backend(ReplayScriptError::Replay(ReplayError::Backend(
+                    "global unavailable"
+                )))
+            )))
+        );
+        assert_eq!(
+            (
+                state.program_counter,
+                state.continuation,
+                backend.control.elapsed
+            ),
+            (0, 1, 17)
+        );
+        let program = Program::from_source("recwaitforend 1").unwrap();
+        let backend = ProgramBackend {
+            program: &program,
+            control: &mut control,
+            effects: &mut effects,
+        };
+        assert_eq!(
+            backend.opcode(0, 0),
+            Err(ExecutionError::UnsupportedCommand {
+                line: 1,
+                command: "recwaitforend".into()
+            })
+        );
     }
 }

@@ -28,6 +28,7 @@ pub mod native_transform;
 pub mod original_config;
 pub mod player_control;
 pub mod police_state;
+pub mod replay_state;
 pub mod rotation_animation;
 pub mod runtime;
 pub mod scene_tick;
@@ -51,4 +52,9 @@ pub mod visual_resources;
 /// claiming an additional DLL/Cargo package or a complete LS3DF reconstruction.
 pub mod ls3df {
     pub use crate::{c_str, i3d_object, itexture, texture_manager};
+}
+
+/// Original game executable boundary; replay helper names remain descriptive.
+pub mod game {
+    pub use crate::{replay_state, script_scheduler};
 }
