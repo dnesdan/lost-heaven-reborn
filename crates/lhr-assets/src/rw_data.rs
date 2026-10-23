@@ -1635,3 +1635,6 @@ mod open;
 mod wav;
 mod wav_table;
 pub use open::{OpenAllocation, OpenEffects};
+
+/// Read-only filesystem host adapter; adds no native function credit.
+pub mod io;

@@ -15,11 +15,11 @@ const BLOCK: usize = 32768;
 pub(crate) struct Entry {
     pub path: String,
     pub size: usize,
-    blocks: u32,
+    pub(crate) blocks: u32,
     start: u64,
-    offset: u64,
-    end: u64,
-    encrypted: bool,
+    pub(crate) offset: u64,
+    pub(crate) end: u64,
+    pub(crate) encrypted: bool,
 }
 pub(crate) struct Archive {
     file: File,
@@ -55,7 +55,7 @@ pub(crate) fn checked_open(path: &Path) -> Result<File> {
     }
     Ok(file)
 }
-fn same_snapshot(a: &std::fs::Metadata, b: &std::fs::Metadata) -> bool {
+pub(crate) fn same_snapshot(a: &std::fs::Metadata, b: &std::fs::Metadata) -> bool {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
@@ -130,7 +130,9 @@ fn name(b: &[u8]) -> Result<String> {
 }
 impl Archive {
     pub fn open(path: &Path, k1: u32, k2: u32) -> Result<Self> {
-        let mut file = checked_open(path)?;
+        Self::from_file(checked_open(path)?, k1, k2)
+    }
+    pub(crate) fn from_file(mut file: File, k1: u32, k2: u32) -> Result<Self> {
         let snapshot = file
             .metadata()
             .map_err(|_| "archive metadata unavailable")?;

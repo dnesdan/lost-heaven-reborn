@@ -16,8 +16,8 @@ pub trait OpenEffects: ReadEffects {
     fn free_owner(&mut self, allocation: u64) -> Result<(), Self::Error>;
 }
 pub(super) struct Owner {
-    token: u64,
-    file: u32,
+    pub(super) token: u64,
+    pub(super) file: u32,
     refs: u32,
     registered: bool,
     key: u64,
@@ -216,6 +216,25 @@ impl<B: OpenEffects> Handles<B> {
         s.dta_first_force = true;
         Ok(())
     }
+    /// Host selection entry: never falls back to another owner or loose file.
+    pub fn open_selected(
+        &self,
+        name: &[u8],
+        owner: Option<u64>,
+    ) -> Result<u32, OperationError<B::Error>> {
+        if !name_valid(name) {
+            return Err(OperationError::UnsupportedOpen);
+        }
+        let mut s = self
+            .state
+            .lock()
+            .map_err(|_| OperationError::LockPoisoned)?;
+        ready(&s)?;
+        match owner {
+            Some(owner) => archive_open(&mut s, name, Some(owner)),
+            None => loose_open(&mut s, name),
+        }
+    }
     pub fn dta_open(&self, name: &[u8], force: bool) -> Result<u32, OperationError<B::Error>> {
         if !name_valid(name) {
             return Err(OperationError::UnsupportedOpen);
@@ -227,7 +246,7 @@ impl<B: OpenEffects> Handles<B> {
         ready(&s)?;
         let first = force || s.dta_first_force;
         let h = if first {
-            archive_open(&mut s, name)?
+            archive_open(&mut s, name, None)?
         } else {
             loose_open(&mut s, name)?
         };
@@ -237,7 +256,7 @@ impl<B: OpenEffects> Handles<B> {
         if first {
             loose_open(&mut s, name)
         } else {
-            archive_open(&mut s, name)
+            archive_open(&mut s, name, None)
         }
     }
 }
@@ -343,6 +362,7 @@ fn first_index(table: &[u8], hash: u32) -> Option<usize> {
 fn archive_open<B: OpenEffects>(
     s: &mut NativeState<B>,
     name: &[u8],
+    selected: Option<u64>,
 ) -> Result<u32, OperationError<B::Error>> {
     let upper = name.to_ascii_uppercase();
     let sum = upper
@@ -350,7 +370,7 @@ fn archive_open<B: OpenEffects>(
         .fold(0u16, |sum, &v| sum.wrapping_add(v as u16));
     let hash = ((name.len() as u32) << 16) | sum as u32;
     for i in 0..s.owners.len() {
-        if !s.owners[i].registered {
+        if !s.owners[i].registered || selected.is_some_and(|token| token != s.owners[i].token) {
             continue;
         }
         let Some(first) = first_index(&s.owners[i].table, hash) else {
