@@ -1,12 +1,12 @@
 {
   "updated_at": "2026-10-23",
-  "project_status": "Original-data Rust menu, bounded scenes and sequential skeletal playback; 177 scoped entries across 59 reviewed contracts. Bounded PCM16 mono/stereo WAV archive decoding composes with Open/Read/Seek/Close. Native Write, full DLL parity, audio/application integration and first-mission execution remain open.",
+  "project_status": "Original-data Rust menu, bounded scenes and sequential skeletal playback; 177 scoped entries across 59 reviewed contracts. Read-only host filesystem effects and native stream library API now use real files. Application/worker routing, audio playback and first-mission execution remain open.",
   "rust_toolchain": "1.99.1",
   "validation": {
-    "status": "490 Rust tests (99 assets, 365 engine library, 21 application, five render), nine REA-wrapper tests and 47 progress tests pass, plus formatting, locked workspace checking and Clippy. Apple arm64 all-target checking passes for the final four-file source freeze. Two sequential independent final-source reviews accepted bounded PCM16 WAV archive decoding. At `f89f542`, bounded PCM16 mono/stereo WAV archive decoding composes with Open/Read/Seek/Close: **177 scoped entries / 59 contracts**. Native comparisons cover 202 Read observations (172 nonfailure, 30 released-handle failures) across 26 archive fixtures plus four supplemental trajectories reusing four fixtures, with 66 explicit Seek context rows. The 510 normalized log rows and 7,280,960 complete-buffer bytes include guards and unrequested regions; debug/release count once. Separately, 128 logical decoder vectors and 18 scripted effects plus four direct-buffer effects check Rust behavior, without native failure injection. Eight fresh REA results support the codec; identical PC/PS2 table constants and PS2 linker names add no PS2 runtime claim. Scope is bounded 16-bit mono/stereo; generic non16 LZ, other channels, Write and full DLL parity remain open. Application/audio playback and first-mission integration remain open; no new rendered or interactive validation.",
-    "rust_unit_tests": 490,
+    "status": "495 Rust tests (104 assets, 365 engine library, 21 application, five render), nine REA-wrapper tests and 47 progress tests pass, plus formatting, locked workspace checking and Clippy. Apple arm64 all-target checking passes for the final four-file source freeze. Two sequential independent reviews accepted the read-only filesystem/native-stream host adapter. Final Rust replay reuses 202 previously sealed native Read observations, with zero fresh original execution and no native-equivalence claim for facade preflight. Separate installation Rust–Rust checks compare 13 assets / 1,618,556 bytes across six archives. Counts remain 177 entries / 59 contracts, strict 0/12. No application/worker routing, audio playback, new rendered/interactive validation or first-mission execution.",
+    "rust_unit_tests": 495,
     "rust_unit_test_split": {
-      "lhr_assets": 99,
+      "lhr_assets": 104,
       "lhr_engine_library": 365,
       "lhr_engine_application": 21,
       "lhr_render": 5
@@ -118,7 +118,7 @@
   "reset_boundary": "Former Godot prototype implementation/tests and original-game runtime traces are not counted as Rust behavior or validation.",
   "macos_validation": {
     "command": "cargo check --workspace --all-targets --target aarch64-apple-darwin --locked",
-    "result": "Apple arm64 all-target cargo check passed for frozen standalone Restore code at 71b121960bc3bdd7cac1e1ed8dbfecbc8ed8841b; native macOS linking and Metal runtime remain untested.",
+    "result": "Apple arm64 all-target cargo check passed for the final four-file host filesystem/native-stream source freeze at f04cc43ffc00b69de2adaa1ce4cf8e1a522eb971; native macOS linking and Metal runtime remain untested.",
     "scope": "Compilation only; no macOS link or Metal runtime"
   },
   "phase2": {
@@ -21500,7 +21500,7 @@
       },
       "fixture_intake_boolean_rows": 13,
       "underlying_manager_AL_observed": 13,
-      "intake_interpretation": "fixture helpers call actual manager Alloc and carry its AL success into post-admission storage setup; production fa\u00e7ade bool is host allocation/admission status. These are not native CreateFaces/CreateVertexMesh factory return comparisons.",
+      "intake_interpretation": "fixture helpers call actual manager Alloc and carry its AL success into post-admission storage setup; production façade bool is host allocation/admission status. These are not native CreateFaces/CreateVertexMesh factory return comparisons.",
       "synthetic_void_fixture_status_rows": 42,
       "synthetic_status_notes": "constructor native self pointers discarded; direct fixture chain/bbox/raw retain setup and void calls are zero statuses; no factory pointer return claim",
       "nonnull_free_wrappers": "originals executed; source void contracts, incidental child AL discarded, no numeric return credit"
@@ -22014,5 +22014,99 @@
         "binary_sha256": "db00215eda3ae5e247c78cfa1bf0b1ccb12745ac9328fe66d6c21deab6376413"
       }
     ]
+  },
+  "rw_data_filesystem_observation": {
+    "id": "RUST-RWDATA-FILESYSTEM-20261023",
+    "status": "accepted_read_only_host_adapter",
+    "source_commit": "f04cc43ffc00b69de2adaa1ce4cf8e1a522eb971",
+    "source_files": {
+      "crates/lhr-assets/src/dta.rs": "0d2e224b649bc46fefa2c22a6449b7d7b75bb0abc54072b6ab71f978af457d89",
+      "crates/lhr-assets/src/rw_data.rs": "d5c10747852bfa662a061e11913d0caca5c89c5a5df7c1676c1c928194ab7777",
+      "crates/lhr-assets/src/rw_data/open.rs": "9bb74517885ddc6ab037c413d43adec0941242cf6aad31a449b4f77d6a181451",
+      "crates/lhr-assets/src/rw_data/io.rs": "c72d6d78f1c1a374dc447a3b9009f2302bcc21e5bf427348603c20309579334f"
+    },
+    "contract": {
+      "id": "RUST-RWDATA-FILESYSTEM-20261023-CONTRACT",
+      "sha256": "20a987a0edf6f2093bd62782d4da5980cad79c2fe82553cf11428e85a64c98a7"
+    },
+    "comparison": {
+      "id": "RUST-RWDATA-FILESYSTEM-20261023-COMPARE",
+      "sha256": "bf55dbc949176782c23493cb45ae5907d5c2f80782c5d108b484de1281970e51"
+    },
+    "reviews": [
+      {
+        "id": "RUST-RWDATA-FILESYSTEM-20261023-R1",
+        "sha256": "f4d59cd621650e8ee867f80c6c21ea871a6d3690f1f7148bccce3798858be2f1"
+      },
+      {
+        "id": "RUST-RWDATA-FILESYSTEM-20261023-R2",
+        "sha256": "bbfe27a4aaa554bae5e8b46989809db38ddba13c8eab630f3ac73f49d4065ab8"
+      }
+    ],
+    "host_grouped_cases": 30,
+    "additional_malformed_admission_cases": 16,
+    "stored_native_replay": {
+      "prior_unique_archives": 26,
+      "additional_trajectories_reusing_existing_archives": 4,
+      "read_observations": 202,
+      "full_array_bytes": 7280960,
+      "normalized_log_rows": 510,
+      "original_runtime_invocations_this_milestone": 0,
+      "scope": "Handles<FilesystemEffects> replays prior sealed original outputs; it does not establish native equivalence of facade preflight/admission. Cases/arrays/debug/release counted once."
+    },
+    "actual_installation": {
+      "resources": 13,
+      "archives": 6,
+      "compared_bytes": 1618556,
+      "direct_archive_matches": 13,
+      "also_installation_matches": 12,
+      "shadow_context": "AA direct comparison matches; Installation intentionally selects a8 shadow instead.",
+      "basis": "Rust versus Rust byte equality; not original game execution.",
+      "original_runtime_invocations": 0
+    },
+    "new_canonical_entries": 0,
+    "new_scoped_contracts": 0,
+    "application_integration": false,
+    "worker_integration": false,
+    "audio_playback": false,
+    "new_rendered_or_interactive_validation": false,
+    "scope": "Read-only host filesystem effects and native stream facade. Retained checked File identity/index, raw ASCII filenames, explicit selected source without fallback, same-handle index admission and exact selected chain/backlinks/decoded length preflight through existing native pure codecs, physical entry extent and snapshot guards including cached reads, bounded allocation/IO, token generations protecting stale streams. Host policies are not original native trajectories; Installation/application/worker routing unchanged.",
+    "limitations": "Trusted stable parent directory tree; bounded ASCII/u32/codec domains; no general Win32/concurrency/ABI parity. Preflight extra reads and disposal are host policies. No audio playback/render/gameplay claim."
+  },
+  "replay_dependency_observation": {
+    "id": "PC-GAME-REPLAY-DEPENDENCIES-20261023",
+    "status": "static_only_REA_dependency_research",
+    "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+    "contract_sha256": "639dcb2cfe69ba2fbc2f084fd48ca627fd0ccb5c8ff8e2d63832f5e9adf13ac6",
+    "function_manifest_sha256": "b7306923f2638ed6090cf95fe34e88e8de934f2dc5e6c1ef1e5ece882c191e9d",
+    "evidence_hash_manifest_sha256": "7dfa4d2bc8bf78160fa15fb0880693e21131475157f910d1a7ae06297b911197",
+    "functions": [
+      {
+        "entry_rva": "0x19e2d0",
+        "body_bytes": 32,
+        "body_sha256": "fcb2e997db3499bbadaf4547f68d52a07fae9a386a5e1b0a8bdb95c35903ce83",
+        "evidence_id": "ev_8dcc88bffa25fcf044ebfa955aaf76c6d9e7bfd23166755530375f9888527c88"
+      },
+      {
+        "entry_rva": "0x1989a0",
+        "body_bytes": 450,
+        "body_sha256": "70d3c99bc2835fccdfdb14dc000a573516321d48ec3c59bb38ba9b195652d358",
+        "evidence_id": "ev_a096b5c81514a4f276ed5cfe93aa39a1d7e28bb2b2b79895dd75d0617d662dc0"
+      },
+      {
+        "entry_rva": "0x199610",
+        "body_bytes": 3089,
+        "body_sha256": "c9bae452f583284d9140b3215cf0969f96935bf05532ce40148bc7161e59b0f8",
+        "evidence_id": "ev_7d636dfa7b553bc3ab90aaf7f07cda63679a97697c845ebe64269a3d71863ef5"
+      }
+    ],
+    "name_provenance": "Descriptive working names only; no original PC name or PS2 correspondence established.",
+    "vm_arm": "Separately inspected instructions establish busy=true waits and busy=false advances; default dispatcher function boundary is incomplete and does not encompass the arm.",
+    "scope": "Static busy-predicate, state-setter and update dependency evidence; no reconstructed replay resource ownership or first-mission integration.",
+    "new_canonical_entries": 0,
+    "new_scoped_contracts": 0,
+    "new_original_runtime_comparisons": 0,
+    "new_implementation_credit": 0,
+    "new_rendered_or_interactive_validation": false
   }
 }
