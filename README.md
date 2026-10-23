@@ -1,7 +1,7 @@
 # Lost Heaven Reborn
 
 <!-- generated-function-progress:start -->
-As of 2026-10-23 · snapshot `RUST-SCOPED-PORTS-20261023-21`.
+As of 2026-10-23 · snapshot `RUST-SCOPED-PORTS-20261023-22`.
 
 <p align="center"><img src="docs/progress.svg" alt="Progress dashboard: static retained pseudocode, reviewed scoped Rust entries, and strict system verification" width="100%"></p>
 
@@ -14,7 +14,7 @@ As of 2026-10-23 · snapshot `RUST-SCOPED-PORTS-20261023-21`.
 
 Strict full-system gate: **0/12**. Binary-level static counts use the named denominator basis and do not combine into a game-completion percentage. Unknown denominators remain N/A. 1 supplied configuration Setup inventory uses 172 in-image non-thunk procedures. Separately, archive installer bootstrap static inventory: **376 / 376 (100.00%)**; this distribution target is not combined with engine-library counts. The campaign is not playable.
 
-Accepted scoped Rust ports: **162 entries across 52 reviewed contracts**. These remain separate from retained pseudocode and whole-function counts.
+Accepted scoped Rust ports: **163 entries across 53 reviewed contracts**. These remain separate from retained pseudocode and whole-function counts.
 
 Regenerate locally with `python3 scripts/progress.py --write`; verify without writes with `python3 scripts/progress.py --check`. Versioned snapshots are retained in `docs/progress.json`.
 Milestone history and scoped implementation evidence are in [docs/PROGRESS.md](docs/PROGRESS.md).
@@ -26,7 +26,7 @@ An independent Rust reimplementation of the Mafia: The City of Lost Heaven (2002
 
 The animation path binds original track names, advances one live controller slot, evaluates position and bounded linear/spherical rotation, updates Target and morph state, and uploads CPU-skinned first-LOD geometry. Controller ownership and controls cover eight slots; blended evaluation, scale/note channels, full animation-resource ownership and actor/mission integration remain open. Unsupported inputs fail explicitly. Original models and clips are regression fixtures for this general implementation.
 
-Standalone object/mesh/material ownership includes bounded managed-record creation, Request queue production and texture/string cleanup. The Request producer refreshes the frame stamp, reports current availability and queues an unloaded texture without retaining it; Request is an upstream working name. Full texture Create, worker/upload, pool shutdown, derived LODs, loaded/GPU adapters and scene teardown remain open; no new application, rendered or interactive validation is claimed.
+Standalone object/mesh/material ownership includes bounded managed-record creation, Request queue production, standalone pool unload and texture/string cleanup. Unload clears the loaded bit and weak pool owners while preserving queue, records and graphics handles; its name is an upstream working name. Full texture Create, Release/Restore, worker/upload, pool shutdown, derived LODs, loaded/GPU adapters and scene teardown remain open; no new application, rendered or interactive validation is claimed.
 
 Ownership code uses `lhr_engine::ls3df::{c_str, itexture, i3d_object, texture_manager}`. These logical original-library modules add no DLL or Cargo package; see the [package and name mapping](docs/REFERENCE_PROJECTS.md#rust-organization-and-original-names).
 
