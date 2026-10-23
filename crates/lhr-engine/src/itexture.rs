@@ -920,6 +920,47 @@ impl TextureResources {
             .request(key, record, flags, frame_counter, effects)
             .map_err(TextureOperationError::Manager)
     }
+    /// Adopts release-specific system references and native pool-array storage.
+    pub fn configure_managed_release(
+        &mut self,
+        input: crate::texture_manager::ManagedReleaseIntake,
+    ) -> Result<(), TextureError> {
+        self.available()?;
+        let forbidden = self.scalar_allocations()?;
+        self.textures.manager.configure_release(input, &forbidden)?;
+        Ok(())
+    }
+    /// Finite ReleaseManagedTextures (upstream working name), PC RVA0x7a610.
+    /// Borrowed texture graphics, records and queue entries survive teardown.
+    pub fn release_managed_textures<B: TextureBackend + ?Sized>(
+        &mut self,
+        b: &mut B,
+    ) -> Result<(), TextureOperationError<<B as BufferBackend>::Error>> {
+        self.available()?;
+        for owner in self
+            .textures
+            .manager
+            .pools()
+            .iter()
+            .flatten()
+            .filter_map(|s| s.owner)
+        {
+            self.textures.live(owner)?;
+        }
+        let effects = b
+            .managed_texture_effects()
+            .ok_or(TextureError::ManagedUnsupported)?;
+        let slots = &mut self.textures.slots;
+        self.textures
+            .manager
+            .release(
+                |owner| {
+                    slots[(owner.slot - 1) as usize].as_mut().unwrap().flags &= 0x7fffffff;
+                },
+                effects,
+            )
+            .map_err(TextureOperationError::Manager)
+    }
     /// Standalone UnloadManagedTextures (upstream working name), PC RVA0x7afe0.
     /// Clears loaded flags and weak owners only; borrowed graphics survive.
     pub fn unload_managed_textures<B: TextureBackend + ?Sized>(
@@ -1469,6 +1510,7 @@ mod tests {
         DeleteArray(Option<ManagedRegistryAllocation>),
         LowMemory,
         LastFrame(ManagedRecordKey, u32),
+        DeletePool(Option<ManagedPoolAllocation>),
     }
     #[derive(Default)]
     struct Backend {
@@ -1495,6 +1537,10 @@ mod tests {
         managed_records: BTreeMap<u64, bool>,
         creation_enabled: bool,
         request_enabled: bool,
+        release_enabled: bool,
+        fail_pool: bool,
+        fail_release_surface: Option<TextureSurface>,
+        pool_arrays: BTreeMap<u64, bool>,
         fail_last_frame: bool,
         filename_none: bool,
         record_none: bool,
@@ -1648,6 +1694,15 @@ mod tests {
     }
     impl ManagedTextureEffects for Backend {
         type Error = &'static str;
+        fn release_effects(
+            &mut self,
+        ) -> Option<&mut dyn ManagedTextureReleaseEffects<Error = Self::Error>> {
+            if self.release_enabled {
+                Some(self)
+            } else {
+                None
+            }
+        }
         fn creation_effects(
             &mut self,
         ) -> Option<&mut dyn ManagedTextureCreationEffects<Error = Self::Error>> {
@@ -1705,6 +1760,46 @@ mod tests {
             assert_eq!(self.managed_records.remove(&a.0), Some(true));
             if self.fail_record {
                 Err("record freed then failed")
+            } else {
+                Ok(())
+            }
+        }
+    }
+    impl ManagedTextureReleaseEffects for Backend {
+        type Error = &'static str;
+        fn can_release_surface(&self, s: TextureSurface) -> bool {
+            self.surfaces.contains_key(&s.0)
+        }
+        fn can_release_texture_graphics(&self, g: TextureGraphics) -> bool {
+            self.textures.contains_key(&g.0)
+        }
+        fn can_delete_managed_pool(&self, p: Option<ManagedPoolAllocation>) -> bool {
+            p.is_none_or(|p| self.pool_arrays.contains_key(&p.0))
+        }
+        fn release_surface(&mut self, s: TextureSurface) -> Result<(), Self::Error> {
+            assert!(!self.section_held);
+            TextureBackend::release_surface(self, s)?;
+            if self.fail_release_surface == Some(s) {
+                Err("selected surface released then failed")
+            } else {
+                Ok(())
+            }
+        }
+        fn release_texture_graphics(&mut self, g: TextureGraphics) -> Result<(), Self::Error> {
+            assert!(!self.section_held);
+            TextureBackend::release_texture_graphics(self, g)
+        }
+        fn delete_managed_pool(
+            &mut self,
+            p: Option<ManagedPoolAllocation>,
+        ) -> Result<(), Self::Error> {
+            assert!(!self.section_held);
+            self.events.push(Event::DeletePool(p));
+            if let Some(p) = p {
+                assert_eq!(self.pool_arrays.remove(&p.0), Some(true));
+            }
+            if self.fail_pool {
+                Err("pool freed then failed")
             } else {
                 Ok(())
             }
@@ -3710,5 +3805,202 @@ mod tests {
             .unwrap();
         assert!(copy > delete);
         assert_eq!(r.texture_manager().active_records().len(), 1);
+    }
+    fn release_world() -> (TextureResources, Backend, TextureKey, Vec<Event>) {
+        let mut r = TextureResources::new().unwrap();
+        let mut b = Backend {
+            managed_enabled: true,
+            release_enabled: true,
+            ..Backend::default()
+        };
+        let (key, input) = managed_fixture(&mut r, &mut b, false, false);
+        let mut expected = vec![Event::Enter, Event::Leave];
+        let mut system = [PoolResources {
+            graphics: None,
+            surface: None,
+        }; 3];
+        let pools = std::array::from_fn(|i| {
+            // A separate owned system reference may alias the pool's reference.
+            let resources = input.pools[i][0].resources;
+            system[i] = resources;
+            *b.textures.get_mut(&resources.graphics.unwrap().0).unwrap() += 1;
+            *b.surfaces.get_mut(&resources.surface.unwrap().0).unwrap() += 1;
+            expected.push(Event::SurfaceFree(resources.surface.unwrap()));
+            expected.push(Event::TextureFree(resources.graphics.unwrap()));
+            for slot in input.pools[i].iter().rev() {
+                expected.push(Event::SurfaceFree(slot.resources.surface.unwrap()));
+                expected.push(Event::TextureFree(slot.resources.graphics.unwrap()));
+            }
+            let allocation = ManagedPoolAllocation(b.next());
+            b.pool_arrays.insert(allocation.0, true);
+            expected.push(Event::DeletePool(Some(allocation)));
+            ManagedPoolStorage {
+                allocation: Some(allocation),
+                capacity: 4,
+                growth: 0x400,
+            }
+        });
+        r.install_managed_world(input).unwrap();
+        r.configure_managed_release(ManagedReleaseIntake {
+            system,
+            pools,
+            pool_memory: [11, 22, 33],
+        })
+        .unwrap();
+        b.events.clear();
+        (r, b, key, expected)
+    }
+    #[test]
+    fn release_managed_actual_order_alias_refs_retained_borrows_queue_records_and_repeat() {
+        let (mut r, mut b, key, expected) = release_world();
+        let graphics = r.texture(key).unwrap().graphics;
+        let record = r.texture(key).unwrap().managed_record;
+        let queue = *r.texture_manager().queue();
+        let counters = r.texture_manager().counters();
+        r.release_managed_textures(&mut b).unwrap();
+        assert_eq!(b.events, expected);
+        assert_eq!(r.texture(key).unwrap().graphics, graphics);
+        assert_eq!(r.texture(key).unwrap().managed_record, record);
+        assert_eq!(r.texture_manager().queue(), &queue);
+        assert_eq!(r.texture_manager().counters(), counters);
+        assert_eq!(r.texture(key).unwrap().flags, 0x4000014e);
+        assert!(b.textures.is_empty());
+        assert_eq!(b.surfaces.len(), 1); // Separate ITexture lock surface.
+        assert!(b.pool_arrays.is_empty());
+        let state = r.texture_manager().release_state().unwrap();
+        assert_eq!(state.pool_memory, [0; 3]);
+        assert!(state
+            .pools
+            .iter()
+            .all(|p| p.capacity == 0 && p.allocation.is_none() && p.growth == 0x400));
+        b.events.clear();
+        r.release_managed_textures(&mut b).unwrap();
+        assert_eq!(
+            b.events,
+            vec![
+                Event::Enter,
+                Event::Leave,
+                Event::DeletePool(None),
+                Event::DeletePool(None),
+                Event::DeletePool(None)
+            ]
+        );
+        r.close_texture(key, &mut b).unwrap();
+        assert!(!b.events.iter().any(|e| matches!(e, Event::TextureFree(_))));
+    }
+    #[test]
+    fn release_managed_preflight_entire_domain_precedes_unload_and_allows_retry() {
+        let (mut r, mut b, key, _) = release_world();
+        b.release_enabled = false;
+        assert!(r.release_managed_textures(&mut b).is_err());
+        b.release_enabled = true;
+        let last = r.texture_manager().pools()[2][0].resources.surface.unwrap();
+        let refs = b.surfaces.remove(&last.0).unwrap();
+        assert!(r.release_managed_textures(&mut b).is_err());
+        assert!(b.events.is_empty());
+        assert_eq!(r.texture(key).unwrap().flags, 0xc000014e);
+        b.surfaces.insert(last.0, refs);
+        r.release_managed_textures(&mut b).unwrap();
+    }
+    #[test]
+    fn release_managed_errors_retain_exact_completed_prefix_and_never_retry() {
+        for failure in 0..5 {
+            let (mut r, mut b, key, expected) = release_world();
+            b.fail_enter = failure == 0;
+            b.fail_leave = failure == 1;
+            b.fail_surface_free = failure == 2;
+            b.fail_texture_free = failure == 3;
+            b.fail_pool = failure == 4;
+            assert!(r.release_managed_textures(&mut b).is_err());
+            assert!(r.texture_manager().is_poisoned());
+            let prefix_len = [1, 2, 3, 4, 9][failure];
+            assert_eq!(b.events, expected[..prefix_len]);
+            let state = r.texture_manager().release_state().unwrap();
+            assert_eq!(state.system[0].surface.is_none(), failure >= 3);
+            assert_eq!(state.system[0].graphics.is_none(), failure == 4);
+            assert_eq!(state.pool_memory, [11, 22, 33]);
+            assert_eq!(r.texture_manager().pools()[0].len(), 2);
+            assert_eq!(
+                r.texture(key).unwrap().flags & 0x80000000,
+                if failure == 0 { 0x80000000 } else { 0 }
+            );
+            let before = b.events.len();
+            assert!(r.release_managed_textures(&mut b).is_err());
+            assert_eq!(b.events.len(), before);
+        }
+    }
+    #[test]
+    fn release_managed_second_pool_slot_error_keeps_native_pointers_and_completed_first_pool() {
+        let (mut r, mut b, _, expected) = release_world();
+        let initial = *r.texture_manager().release_state().unwrap();
+        let resources = r.texture_manager().pools()[1][1].resources;
+        b.fail_release_surface = resources.surface;
+        assert!(r.release_managed_textures(&mut b).is_err());
+        assert_eq!(b.events, expected[..12]);
+        let state = r.texture_manager().release_state().unwrap();
+        assert_eq!(
+            state.pools[0],
+            ManagedPoolStorage {
+                allocation: None,
+                capacity: 0,
+                growth: initial.pools[0].growth
+            }
+        );
+        assert_eq!(state.pool_memory, [0, 22, 33]);
+        assert_eq!(state.pools[1..], initial.pools[1..]);
+        assert_eq!(
+            state.system[1],
+            PoolResources {
+                graphics: None,
+                surface: None
+            }
+        );
+        assert_eq!(state.system[2], initial.system[2]);
+        assert!(r.texture_manager().pools()[0].is_empty());
+        assert_eq!(r.texture_manager().pools()[1][1].resources, resources);
+        assert!(!b.surfaces.contains_key(&resources.surface.unwrap().0));
+        assert!(b.textures.contains_key(&resources.graphics.unwrap().0));
+        assert_eq!(r.texture_manager().pools()[2].len(), 2);
+        assert!(r.texture_manager().is_poisoned());
+        let before = b.events.clone();
+        assert!(r.release_managed_textures(&mut b).is_err());
+        assert_eq!(b.events, before);
+    }
+    #[test]
+    fn release_managed_null_slot_and_invalid_storage_reject_without_effects() {
+        let mut r = TextureResources::new().unwrap();
+        let mut b = Backend {
+            managed_enabled: true,
+            release_enabled: true,
+            ..Backend::default()
+        };
+        let (_, mut input) = managed_fixture(&mut r, &mut b, false, false);
+        input.pools[2][1].resources.surface = None;
+        r.install_managed_world(input).unwrap();
+        let empty = ManagedPoolStorage {
+            allocation: None,
+            capacity: 0,
+            growth: 19,
+        };
+        let mut state = ManagedReleaseIntake {
+            system: [PoolResources {
+                graphics: None,
+                surface: None,
+            }; 3],
+            pools: [empty; 3],
+            pool_memory: [1; 3],
+        };
+        assert!(r.configure_managed_release(state).is_err());
+        for p in &mut state.pools {
+            let a = ManagedPoolAllocation(b.next());
+            b.pool_arrays.insert(a.0, true);
+            p.allocation = Some(a);
+            p.capacity = 2;
+        }
+        r.configure_managed_release(state).unwrap();
+        b.events.clear();
+        assert!(r.release_managed_textures(&mut b).is_err());
+        assert!(b.events.is_empty());
+        assert!(!r.texture_manager().is_poisoned());
     }
 }

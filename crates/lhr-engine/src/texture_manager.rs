@@ -7,7 +7,9 @@
 //! RVA0x7aee0: reverse first-record match; conditional reverse256 queue clear;
 //! filename delete, record delete, swap removal; three pools' reverse owner
 //! clears; flags &=0x3fffffff; leave critical section; AL1. No worker,
-//! full Create, pool shutdown or graphics allocation/release is reconstructed here.
+//! full Create or graphics allocation is reconstructed here. ReleaseManagedTextures
+//! is an upstream working name, RVA0x7a610: unload prefix, three per-pool
+//! system/slot COM releases and allocator-backed array teardown; no Restore/worker.
 //! RVA0x7a910 Request is an upstream working name: frame refresh and weak queue
 //! production only; it does not load a texture.
 //! Snapshot intake/typed identities and failure handling are host adapters.
@@ -65,6 +67,11 @@ pub trait ManagedTextureEffects {
     ) -> Option<&mut dyn ManagedTextureRequestEffects<Error = Self::Error>> {
         None
     }
+    fn release_effects(
+        &mut self,
+    ) -> Option<&mut dyn ManagedTextureReleaseEffects<Error = Self::Error>> {
+        None
+    }
     fn enter_texture_section(&mut self) -> Result<(), Self::Error>;
     fn leave_texture_section(&mut self) -> Result<(), Self::Error>;
     /// The original delete is unconditional, including the null pointer case.
@@ -73,6 +80,39 @@ pub trait ManagedTextureEffects {
         allocation: Option<ManagedFilenameAllocation>,
     ) -> Result<(), Self::Error>;
     fn delete_managed_record(&mut self, allocation: ManagedRecordKey) -> Result<(), Self::Error>;
+}
+/// ReleaseManagedTextures is an upstream working name, PC RVA0x7a610.
+/// Pure, stable capability checks cover every call before the unload prefix.
+/// Callbacks cannot reenter or mutate admitted storage; owned references remain
+/// valid until their scheduled release, including repeated aliases. Aliased
+/// COM identities each represent a separate owned reference, never deduplicated.
+pub trait ManagedTextureReleaseEffects {
+    type Error;
+    fn can_release_surface(&self, surface: TextureSurface) -> bool;
+    fn can_release_texture_graphics(&self, texture: TextureGraphics) -> bool;
+    fn can_delete_managed_pool(&self, allocation: Option<ManagedPoolAllocation>) -> bool;
+    fn release_surface(&mut self, surface: TextureSurface) -> Result<(), Self::Error>;
+    fn release_texture_graphics(&mut self, texture: TextureGraphics) -> Result<(), Self::Error>;
+    fn delete_managed_pool(
+        &mut self,
+        allocation: Option<ManagedPoolAllocation>,
+    ) -> Result<(), Self::Error>;
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ManagedPoolAllocation(pub u64);
+/// Native list data+0, capacity+4, grow+12; count+8 is the pool slot length.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ManagedPoolStorage {
+    pub allocation: Option<ManagedPoolAllocation>,
+    pub capacity: u32,
+    pub growth: u32,
+}
+/// Separate owned references and allocator-backed storage, adopted atomically.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ManagedReleaseIntake {
+    pub system: [PoolResources; 3],
+    pub pools: [ManagedPoolStorage; 3],
+    pub pool_memory: [u32; 3],
 }
 /// Explicit storage write for Request (upstream working name), RVA0x7a910.
 /// Serialized callbacks must preserve capability identity and cannot reenter.
@@ -202,6 +242,9 @@ pub enum ManagedStage {
     CopyRegistry,
     DeleteRegistry,
     AppendRegistry,
+    ReleaseSurface,
+    ReleaseGraphics,
+    DeletePool,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ManagerError {
@@ -217,6 +260,7 @@ pub enum ManagerError {
     IdentityOverflow,
     CreationUnavailable,
     RequestUnavailable,
+    ReleaseUnavailable,
     UnsupportedAllocation,
     InvalidFilename,
 }
@@ -243,8 +287,8 @@ pub struct QueueCounters {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PoolResources {
     /// Actual pool-owned references, independent of the weak texture owner.
-    /// Their association with the opaque native payload is host intake metadata;
-    /// 7aee0 itself accesses only owner+0 and the0x2c stride.
+    /// Release7a610 accesses texture+4 and surface+8 in each0x2c slot;
+    /// removal7aee0 itself accesses only owner+0 and the0x2c stride.
     pub graphics: Option<TextureGraphics>,
     pub surface: Option<TextureSurface>,
 }
@@ -299,7 +343,7 @@ pub struct PoolSlot {
     pub resources: PoolResources,
 }
 /// Private mutation, immutable diagnostics. Pool-owned resources survive owner
-/// clears and require a separately reconstructed shutdown; Drop cannot free them.
+/// clears; explicit configured release is required, and Drop cannot free them.
 pub struct TextureManager {
     identity: u64,
     seeded: bool,
@@ -314,6 +358,8 @@ pub struct TextureManager {
     creation: Option<CreationProgress>,
     allocation_history: Vec<u64>,
     registry_swap: Option<(u32, RecordId)>,
+    release: Option<ManagedReleaseIntake>,
+    released_borrows: Vec<TextureGraphics>,
 }
 impl TextureManager {
     pub(crate) fn new(identity: u64) -> Self {
@@ -331,6 +377,8 @@ impl TextureManager {
             creation: None,
             allocation_history: Vec::new(),
             registry_swap: None,
+            release: None,
+            released_borrows: Vec::new(),
         }
     }
     /// Interrupted swap-copy after the original count decrement.
@@ -744,6 +792,7 @@ impl TextureManager {
                 .iter()
                 .flatten()
                 .any(|p| p.resources.graphics == Some(graphics))
+                && !self.released_borrows.contains(&graphics)
             {
                 return Err(ManagerError::Incoherent);
             }
@@ -912,6 +961,146 @@ impl TextureManager {
         self.counters = input.counters;
         self.seeded = true;
         Ok(input.bindings)
+    }
+    pub fn release_state(&self) -> Option<&ManagedReleaseIntake> {
+        self.release.as_ref()
+    }
+    pub(crate) fn configure_release(
+        &mut self,
+        input: ManagedReleaseIntake,
+        forbidden: &[u64],
+    ) -> Result<(), ManagerError> {
+        if self.poisoned {
+            return Err(ManagerError::Poisoned);
+        }
+        if self.release.is_some() {
+            return Err(ManagerError::AlreadySeeded);
+        }
+        if !self.seeded {
+            return Err(ManagerError::Incoherent);
+        }
+        for (i, storage) in input.pools.iter().enumerate() {
+            if storage.capacity > i32::MAX as u32
+                || storage.capacity < self.pools[i].len() as u32
+                || storage.capacity.checked_mul(0x2c).is_none()
+                || (storage.capacity == 0) != storage.allocation.is_none()
+            {
+                return Err(ManagerError::InvalidCount);
+            }
+            if let Some(a) = storage.allocation {
+                if self.aliases(a.0, forbidden)
+                    || input.pools[..i].iter().any(|p| p.allocation == Some(a))
+                {
+                    return Err(ManagerError::InvalidIdentity);
+                }
+            }
+        }
+        if input
+            .system
+            .iter()
+            .any(|p| p.graphics.is_some_and(|g| g.0 == 0) || p.surface.is_some_and(|s| s.0 == 0))
+        {
+            return Err(ManagerError::InvalidIdentity);
+        }
+        self.allocation_history
+            .try_reserve(3)
+            .map_err(|_| ManagerError::HostAllocation)?;
+        self.released_borrows
+            .try_reserve(self.pools.iter().map(Vec::len).sum())
+            .map_err(|_| ManagerError::HostAllocation)?;
+        self.allocation_history
+            .extend(input.pools.iter().filter_map(|p| p.allocation.map(|a| a.0)));
+        self.release = Some(input);
+        Ok(())
+    }
+    /// Inlines the native unload prefix, then releases resources outside lock.
+    /// Failed callbacks retain the attempted pointer and poison without retries.
+    pub(crate) fn release<E>(
+        &mut self,
+        clear_loaded: impl FnMut(TextureKey),
+        effects: &mut dyn ManagedTextureEffects<Error = E>,
+    ) -> Result<(), ManagedOperationError<E>> {
+        if self.poisoned {
+            return Err(ManagerError::Poisoned.into());
+        }
+        let state = self.release.ok_or(ManagerError::ReleaseUnavailable)?;
+        let capability = effects
+            .release_effects()
+            .ok_or(ManagerError::ReleaseUnavailable)?;
+        let valid = state.system.iter().all(|p| {
+            p.surface.is_none_or(|s| capability.can_release_surface(s))
+                && p.graphics
+                    .is_none_or(|g| capability.can_release_texture_graphics(g))
+        }) && state
+            .pools
+            .iter()
+            .all(|p| capability.can_delete_managed_pool(p.allocation))
+            && self.pools.iter().flatten().all(|p| {
+                p.resources
+                    .surface
+                    .is_some_and(|s| capability.can_release_surface(s))
+                    && p.resources
+                        .graphics
+                        .is_some_and(|g| capability.can_release_texture_graphics(g))
+            });
+        if !valid {
+            return Err(ManagerError::ReleaseUnavailable.into());
+        }
+        self.unload(clear_loaded, effects)?;
+        let result = (|| {
+            let state = self.release.as_mut().unwrap();
+            for (i, pool) in self.pools.iter_mut().enumerate() {
+                if let Some(s) = state.system[i].surface {
+                    effects
+                        .release_effects()
+                        .unwrap()
+                        .release_surface(s)
+                        .map_err(|e| (ManagedStage::ReleaseSurface, e))?;
+                    state.system[i].surface = None;
+                }
+                if let Some(g) = state.system[i].graphics {
+                    effects
+                        .release_effects()
+                        .unwrap()
+                        .release_texture_graphics(g)
+                        .map_err(|e| (ManagedStage::ReleaseGraphics, e))?;
+                    state.system[i].graphics = None;
+                }
+                for slot in pool.iter_mut().rev() {
+                    effects
+                        .release_effects()
+                        .unwrap()
+                        .release_surface(slot.resources.surface.unwrap())
+                        .map_err(|e| (ManagedStage::ReleaseSurface, e))?;
+                    // Native slot pointers are not nulled before the array free.
+                    effects
+                        .release_effects()
+                        .unwrap()
+                        .release_texture_graphics(slot.resources.graphics.unwrap())
+                        .map_err(|e| (ManagedStage::ReleaseGraphics, e))?;
+                }
+                effects
+                    .release_effects()
+                    .unwrap()
+                    .delete_managed_pool(state.pools[i].allocation)
+                    .map_err(|e| (ManagedStage::DeletePool, e))?;
+                self.released_borrows
+                    .extend(pool.iter().filter_map(|s| s.resources.graphics));
+                state.pools[i].allocation = None;
+                pool.clear();
+                state.pools[i].capacity = 0;
+                state.pool_memory[i] = 0;
+            }
+            Ok(())
+        })();
+        result.map_err(|(stage, error)| {
+            self.poisoned = true;
+            ManagedOperationError::Backend {
+                stage,
+                error,
+                leave_error: None,
+            }
+        })
     }
     /// Standalone unload (upstream working name), PC RVA0x7afe0.
     /// Caller preflights every weak owner as live before supplying flag access.
