@@ -5,8 +5,11 @@
 //! transfers loaded frames in file order, including a successfully loaded prefix
 //! before an error. Persistent parsed Close/reopen keeps root identity and uses
 //! nonreused tombstones for destroyed model/dummy/joint/Target objects. Visual
-//! resource destruction remains explicit. File lookup, native filename sharing,
-//! animation ownership and GPU resource creation are separate.
+//! resources can now own concrete CPU geometry/images through the original
+//! plain object/resource teardown. Shared-arena static file intake composes
+//! close-first loading, fresh/shared filename descriptors and model prefixes.
+//! Loader callbacks/animation failure paths and GPU resource creation remain
+//! separate; the actual Installation adapter is not a full native LoadImage.
 use crate::frame_transform::{FrameError, FrameKey, FrameKind, I3dFrameGraph, I3dFrameState};
 use crate::joint_state::{I3dJointState, SinglemeshInvalidationState};
 use crate::native_transform::{SMatrix, SQuat};
@@ -35,6 +38,13 @@ pub struct LoadedFrame {
     pub original_name_bytes: Option<Vec<u8>>,
     pub properties: Vec<u8>,
     pub dummy_bounds: Option<[[f32; 3]; 2]>,
+    pub(crate) hr_bounds: crate::mesh_bounds::MeshBoundVolume,
+    pub(crate) hr_world_bounds: crate::mesh_bounds::MeshBoundVolume,
+    pub(crate) visual_bounds: Option<crate::mesh_bounds::MeshBoundVolume>,
+    pub(crate) object_resources: Option<crate::i3d_object::ObjectResourceKey>,
+    pub(crate) projector: Option<crate::frame_projector::I3dProjectorState>,
+    pub(crate) hr_bounds_error: Option<ModelError>,
+    pub(crate) hr_world_bounds_error: Option<ModelError>,
     /// Immutable host backing, independent of model membership. This is not a
     /// native mesh/LOD resource allocation or filename reference count.
     pub source: Option<Arc<Model>>,
@@ -43,6 +53,7 @@ pub struct LoadedFrame {
     pub user_data: crate::actor_frames::FrameUserData,
     alive: bool,
     pub(crate) name_pointer: crate::frame_fast_lookup::OriginalFrameName,
+    pub(crate) name_generation: u64,
     pub(crate) name_is_null: bool,
     pub(crate) ff_left: Option<FrameKey>,
     pub(crate) ff_right: Option<FrameKey>,
@@ -56,11 +67,59 @@ pub struct LoadedModel {
     lifecycle_epoch: u64,
     close_cursor: usize,
     pub(crate) closing: bool,
+    filename: Option<ModelFileNameKey>,
 }
 impl LoadedModel {
     pub fn capacity(&self) -> usize {
         self.native_capacity
     }
+}
+/// Stable identity of the allocation at the native filename pointer minus four.
+/// Equal byte strings are distinct allocations; this is not a filename cache.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ModelFileNameKey {
+    arena: crate::script_scheduler::FrameReferenceId,
+    slot: usize,
+}
+#[derive(Debug)]
+pub struct ModelFileName {
+    bytes: Vec<u8>,
+    references: i32,
+}
+impl ModelFileName {
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+    pub fn references(&self) -> i32 {
+        self.references
+    }
+}
+/// Loaded source-index mapping in the shared arena. On failure, the successfully
+/// constructed prefix remains inspectable, including any creator references
+/// whose transfer was blocked. This host mapping is not a native resource.
+#[derive(Debug)]
+pub struct SharedModelContent {
+    model: ModelKey,
+    frames: Vec<FrameKey>,
+    transferred_frames: usize,
+    arena: crate::script_scheduler::FrameReferenceId,
+    epoch: u64,
+}
+impl SharedModelContent {
+    pub fn model(&self) -> ModelKey {
+        self.model
+    }
+    pub fn frames(&self) -> &[FrameKey] {
+        &self.frames
+    }
+    pub fn transferred_frames(&self) -> usize {
+        self.transferred_frames
+    }
+}
+#[derive(Debug)]
+pub struct SharedModelLoadFailure {
+    pub error: ModelError,
+    pub partial: SharedModelContent,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ModelError {
@@ -94,6 +153,23 @@ pub enum ModelError {
     },
     AllocationOverflow,
     IncompleteModel,
+    ModelNotEmpty(ModelKey),
+    ForeignArena,
+    UnavailableOriginalName(FrameKey),
+    VisualBoundsUnavailable(FrameKey),
+    LoadedVisual(crate::loaded_visual_resources::LoadedVisualError),
+    BoundsDepthUnavailable(FrameKey),
+    StaleParsedContent(ModelKey),
+    Asset(String),
+    NativeModelOpenResult(u32),
+    LightConstructorUnavailable {
+        frame: FrameKey,
+        cause: Box<ModelError>,
+    },
+    OriginalModelOpenUnavailable(&'static str),
+    UnknownFilename(ModelFileNameKey),
+    FilenameAlreadyOwned(ModelKey),
+    FilenameReferenceOverflow(ModelFileNameKey),
     CloseIncomplete(ModelKey),
     OwnershipCycle,
     NestedDestructionUnavailable(FrameKey),
@@ -121,9 +197,14 @@ pub struct ModelArena {
     pub(crate) scenes: Vec<crate::scene_ownership::SceneFrameOwner>,
     pub(crate) sectors: Vec<crate::scene_ownership::SectorFrame>,
     destruction_depth: usize,
+    pub(crate) light_random: crate::frame_light::LightCrtRandom,
+    pub(crate) last_destroyed_frame: Option<FrameKey>,
+    next_name_generation: u64,
     lookup_owner: crate::frame_lookup::FrameLookupOwner,
     pub(crate) fast_tree: crate::arena_frame_names::ArenaFastTree,
     actor_data_records: Vec<crate::actor_frames::ActorDataRecord>,
+    filenames: Vec<Option<ModelFileName>>,
+    loaded_visual_resources: Option<crate::loaded_visual_resources::LoadedVisualResources>,
 }
 impl ModelArena {
     pub(crate) fn lookup_reference(
@@ -131,6 +212,13 @@ impl ModelArena {
         key: FrameKey,
     ) -> crate::script_scheduler::FrameReferenceId {
         self.lookup_owner.reference(key.0)
+    }
+    pub(crate) fn fresh_name_generation(&mut self) -> Result<u64, ModelError> {
+        self.next_name_generation = self
+            .next_name_generation
+            .checked_add(1)
+            .ok_or(ModelError::AllocationOverflow)?;
+        Ok(self.next_name_generation)
     }
     pub(crate) fn insert(
         &mut self,
@@ -140,6 +228,10 @@ impl ModelArena {
         properties: Vec<u8>,
         dummy_bounds: Option<[[f32; 3]; 2]>,
     ) -> Result<FrameKey, ModelError> {
+        self.frames
+            .try_reserve(1)
+            .map_err(|_| ModelError::AllocationOverflow)?;
+        let name_generation = self.fresh_name_generation()?;
         let key = if state.kind == FrameKind::Singlemesh {
             // PC constructor RVA0x54240 initializes this counter to -300.
             // This is only its binding/invalidation field projection; mesh
@@ -167,10 +259,18 @@ impl ModelArena {
             original_name_bytes,
             properties,
             dummy_bounds,
+            hr_bounds: crate::mesh_bounds::MeshBoundVolume::CONSTRUCTOR,
+            hr_world_bounds: crate::mesh_bounds::MeshBoundVolume::CONSTRUCTOR,
+            visual_bounds: None,
+            object_resources: None,
+            projector: None,
+            hr_bounds_error: None,
+            hr_world_bounds_error: None,
             source: None,
             user_data: crate::actor_frames::FrameUserData::Null,
             alive: true,
             name_is_null,
+            name_generation,
             name_pointer: if name_is_null {
                 crate::frame_fast_lookup::OriginalFrameName::Null
             } else {
@@ -181,7 +281,127 @@ impl ModelArena {
         });
         Ok(key)
     }
+    fn load_parsed_frame(
+        &mut self,
+        source_model: &Arc<Model>,
+        source_frame_keys: &mut Vec<FrameKey>,
+        morph_poses: &mut Vec<Option<MorphPose>>,
+        index: usize,
+    ) -> Result<(), ModelError> {
+        let source = &source_model.frames[index];
+        let mut state = match (source.kind, source.visual) {
+            (1, Some(0 | 1)) => I3dFrameState::mesh(),
+            (1, Some(2 | 3)) => {
+                let mut state = I3dFrameState::mesh();
+                state.kind = FrameKind::Singlemesh;
+                state
+            }
+            (6, None) => I3dFrameState::dummy(),
+            (7, None) => I3dFrameState::target(),
+            (10, None) => I3dFrameState::joint(),
+            _ => {
+                return Err(ModelError::UnsupportedFrame {
+                    index,
+                    kind: source.kind,
+                    visual: source.visual,
+                });
+            }
+        };
+        if source.kind == 6 && source.dummy_bounds.is_none() {
+            return Err(ModelError::MissingDummyBounds(index));
+        }
+        if source.kind == 7 && source.target.is_none() {
+            return Err(ModelError::MissingTargetRecord(index));
+        }
+        if source.kind != 7 && source.target.is_some() {
+            return Err(ModelError::UnsupportedFrame {
+                index,
+                kind: source.kind,
+                visual: source.visual,
+            });
+        }
+        if source.kind == 10 && source.joint.is_none() {
+            return Err(ModelError::MissingJointRecord(index));
+        }
+        if matches!(source.visual, Some(2 | 3))
+            && (source.skin.is_none() || source.lods.is_empty() || source.instance.is_some())
+        {
+            return Err(ModelError::MissingSkinRecord(index));
+        }
+        if source.kind == 1 {
+            state.visual_flags = u32::from(u16::from_le_bytes([
+                source.render_flags,
+                source.logic_flags,
+            ]));
+        }
+        let parent = match source.parent {
+            Some(parent) => Some(
+                *source_frame_keys
+                    .get(parent)
+                    .filter(|_| parent < index)
+                    .ok_or(ModelError::InvalidParent { index, parent })?,
+            ),
+            None => None,
+        };
+        let morph = if source.visual == Some(3) {
+            Some(MorphPose::from_frame(source).map_err(ModelError::SkinPose)?)
+        } else {
+            if source.morph.is_some() {
+                return Err(ModelError::SkinPose(SkinPoseError::Source(
+                    "morph on non-singlemorph frame",
+                )));
+            }
+            None
+        };
+        source_frame_keys
+            .try_reserve(1)
+            .map_err(|_| ModelError::AllocationOverflow)?;
+        morph_poses
+            .try_reserve(1)
+            .map_err(|_| ModelError::AllocationOverflow)?;
+        let key = self.insert(
+            state,
+            Some(index),
+            source.name_bytes.clone(),
+            source.properties.clone(),
+            source.dummy_bounds,
+        )?;
+        let fi = self.frame_index(key)?;
+        self.frames[fi].source = Some(Arc::clone(source_model));
+        morph_poses.push(morph);
+        source_frame_keys.push(key);
+        if source.kind == 7 {
+            self.graph.register_target(key, I3dTargetState::default())?;
+        }
+        // LoadImage links earlier parents before storing the common local SRT.
+        if parent.is_some() {
+            self.graph.link_to(key, parent)?;
+        }
+        self.graph.apply_common_load_image_fields(
+            key,
+            source.position,
+            source.scale,
+            SQuat {
+                wxyz: source.rotation_wxyz,
+            },
+            source.culling,
+        )?;
+        if source.kind == 10 {
+            let joint = source.joint.as_ref().unwrap();
+            self.graph.apply_joint_load_image_fields(
+                key,
+                SMatrix {
+                    elements: joint.bone_matrix,
+                },
+                joint.index,
+            )?;
+        }
+        Ok(())
+    }
     pub fn create_model(&mut self) -> Result<ModelKey, ModelError> {
+        self.models
+            .try_reserve(1)
+            .map_err(|_| ModelError::AllocationOverflow)?;
         let key =
             ModelKey(self.insert(I3dFrameState::model(), None, Vec::new(), Vec::new(), None)?);
         self.models.push(LoadedModel {
@@ -192,8 +412,633 @@ impl ModelArena {
             lifecycle_epoch: 0,
             close_cursor: 0,
             closing: false,
+            filename: None,
         });
         Ok(key)
+    }
+    /// Descriptive projection of the owned-list naming helper at PC RVA0x33ac0.
+    /// The model's current full name prefixes each owned frame's original local
+    /// name. Hierarchy child order and model membership are distinct here.
+    pub fn propagate_model_name(&mut self, model: ModelKey) -> Result<(), ModelError> {
+        let mi = self.model_index(model)?;
+        if self.models[mi].closing {
+            return Err(ModelError::CloseIncomplete(model));
+        }
+        let prefix = self.frame(model.root())?.name_bytes.clone();
+        let prefix = &prefix[..prefix.iter().position(|&b| b == 0).unwrap_or(prefix.len())];
+        for index in 0..self.models[mi].frames.len() {
+            let key = self.models[mi].frames[index];
+            if prefix.is_empty() {
+                self.reset_frame_model_name(key)?;
+            } else {
+                self.set_frame_model_name(key, prefix)?;
+            }
+        }
+        Ok(())
+    }
+    /// SetModelName1b800: allocate prefix+'.'+original before removing the old
+    /// fast-tree registration/allocation, then register the new full name.
+    pub fn set_frame_model_name(&mut self, key: FrameKey, prefix: &[u8]) -> Result<(), ModelError> {
+        use crate::frame_fast_lookup::OriginalFrameName;
+        let fi = self.frame_index(key)?;
+        if matches!(
+            self.frames[fi].name_pointer,
+            OriginalFrameName::Released { .. }
+        ) {
+            return Err(ModelError::UnavailableOriginalName(key));
+        }
+        let prefix = &prefix[..prefix.iter().position(|&b| b == 0).unwrap_or(prefix.len())];
+        let original = self.frames[fi]
+            .original_name_bytes
+            .as_deref()
+            .unwrap_or(b"");
+        let original = &original[..original
+            .iter()
+            .position(|&b| b == 0)
+            .unwrap_or(original.len())];
+        let size = prefix
+            .len()
+            .checked_add(original.len())
+            .and_then(|n| n.checked_add(2))
+            .ok_or(ModelError::AllocationOverflow)?;
+        let mut full = Vec::new();
+        full.try_reserve_exact(size)
+            .map_err(|_| ModelError::AllocationOverflow)?;
+        full.extend_from_slice(prefix);
+        full.push(b'.');
+        full.extend_from_slice(original);
+        let local = original.to_vec();
+        let generation = self.fresh_name_generation()?;
+        self.remove_frame_name_registration(key)?;
+        let frame = &mut self.frames[fi];
+        frame.name_bytes = full;
+        frame.name_generation = generation;
+        frame.original_name_bytes = Some(local);
+        frame.name_is_null = false;
+        frame.name_pointer = OriginalFrameName::Offset(prefix.len() + 1);
+        if self.fast_tree.enabled {
+            self.register_frame_name(key)?;
+        }
+        Ok(())
+    }
+    /// ResetModelName1b8f0 keeps the original local name and returns its pointer
+    /// to the allocation start. Registration removal precedes allocation.
+    pub fn reset_frame_model_name(&mut self, key: FrameKey) -> Result<(), ModelError> {
+        use crate::frame_fast_lookup::OriginalFrameName;
+        let fi = self.frame_index(key)?;
+        let frame = &self.frames[fi];
+        if matches!(frame.name_pointer, OriginalFrameName::Released { .. }) {
+            return Err(ModelError::UnavailableOriginalName(key));
+        }
+        if frame.name_pointer == OriginalFrameName::Offset(0)
+            || (frame.name_is_null && frame.name_pointer == OriginalFrameName::Null)
+        {
+            return Ok(());
+        }
+        self.remove_frame_name_registration(key)?;
+        let local = self.frames[fi].original_name_bytes.as_deref();
+        let Some(local) = local else {
+            self.frames[fi].name_generation = self.fresh_name_generation()?;
+            self.frames[fi].name_bytes.clear();
+            self.frames[fi].name_is_null = true;
+            return Ok(());
+        };
+        let mut owned = Vec::new();
+        owned
+            .try_reserve_exact(
+                local
+                    .len()
+                    .checked_add(1)
+                    .ok_or(ModelError::AllocationOverflow)?,
+            )
+            .map_err(|_| ModelError::AllocationOverflow)?;
+        owned.extend_from_slice(local);
+        self.frames[fi].name_generation = self.fresh_name_generation()?;
+        self.frames[fi].name_bytes = owned;
+        self.frames[fi].name_is_null = false;
+        self.frames[fi].name_pointer = OriginalFrameName::Offset(0);
+        if self.fast_tree.enabled {
+            self.register_frame_name(key)?;
+        }
+        Ok(())
+    }
+    pub fn loaded_visual_resources(
+        &self,
+    ) -> Option<&crate::loaded_visual_resources::LoadedVisualResources> {
+        self.loaded_visual_resources.as_ref()
+    }
+    pub(crate) fn visual_resource_owner_mut(
+        &mut self,
+    ) -> Result<&mut crate::loaded_visual_resources::LoadedVisualResources, ModelError> {
+        if self.loaded_visual_resources.is_none() {
+            self.loaded_visual_resources = Some(
+                crate::loaded_visual_resources::LoadedVisualResources::new()
+                    .map_err(ModelError::LoadedVisual)?,
+            );
+        }
+        Ok(self.loaded_visual_resources.as_mut().unwrap())
+    }
+    /// The live plain-object resource identity attached to this frame.
+    pub fn frame_object_resources(
+        &self,
+        key: FrameKey,
+    ) -> Result<Option<crate::i3d_object::ObjectResourceKey>, ModelError> {
+        Ok(self.frame(key)?.object_resources)
+    }
+    /// Original object SetMesh (PC RVA 0x368e0), including same-pointer bound
+    /// recopy and the null-mesh constructor bounds. Resource replacement owns
+    /// its LOD/mesh effects; this operation does not invalidate frame caches.
+    pub fn set_frame_mesh(
+        &mut self,
+        key: FrameKey,
+        mesh: Option<crate::visual_resources::MeshObjectKey>,
+        preserve_lods: bool,
+    ) -> Result<(), ModelError> {
+        let index = self.frame_index(key)?;
+        let object = self.frames[index]
+            .object_resources
+            .ok_or(ModelError::VisualBoundsUnavailable(key))?;
+        let copy_bounds = self.state(key)?.visual_flags & 0x40 == 0;
+        let owner = self
+            .loaded_visual_resources
+            .as_mut()
+            .ok_or(ModelError::VisualBoundsUnavailable(key))?;
+        let old = owner
+            .object_mesh(object)
+            .map_err(ModelError::LoadedVisual)?;
+        owner
+            .set_object_mesh(object, mesh, preserve_lods)
+            .map_err(ModelError::LoadedVisual)?;
+        if old == mesh && mesh.is_none() {
+            return Ok(());
+        }
+        if let Some(mesh) = mesh {
+            if copy_bounds {
+                // A host-unavailable source bound must not leave the previous
+                // mesh's box usable after the reference replacement succeeded.
+                self.frames[index].visual_bounds = None;
+                self.frames[index].visual_bounds =
+                    Some(owner.mesh_bounds(mesh).map_err(ModelError::LoadedVisual)?);
+            }
+        } else {
+            self.frames[index].visual_bounds =
+                Some(crate::mesh_bounds::MeshBoundVolume::CONSTRUCTOR);
+        }
+        Ok(())
+    }
+    /// Load an independently owned CPU texture reference into the same storage
+    /// used by this arena's materials. The caller must release that reference.
+    pub fn load_cpu_texture(
+        &mut self,
+        installation: &lhr_assets::Installation,
+        name: &str,
+    ) -> Result<crate::visual_resources::TextureKey, ModelError> {
+        self.visual_resource_owner_mut()?
+            .load_cpu_texture(installation, name)
+            .map_err(ModelError::LoadedVisual)
+    }
+    pub fn retain_cpu_texture(
+        &mut self,
+        texture: crate::visual_resources::TextureKey,
+    ) -> Result<(), ModelError> {
+        self.visual_resource_owner_mut()?
+            .retain_cpu_texture(texture)
+            .map_err(ModelError::LoadedVisual)
+    }
+    pub fn release_cpu_texture(
+        &mut self,
+        texture: crate::visual_resources::TextureKey,
+    ) -> Result<(), ModelError> {
+        self.visual_resource_owner_mut()?
+            .release_cpu_texture(texture)
+            .map_err(ModelError::LoadedVisual)
+    }
+    /// Host materialization of actual CPU vertex/index/texture ownership into
+    /// the original plain ObjectResources lifecycle. Completed bindings remain
+    /// owned on error. Original Create/worker/upload and GPU rendering are not
+    /// implemented by this adapter; unsupported derived subtypes stay closed.
+    pub fn load_plain_visual_resources(
+        &mut self,
+        model: ModelKey,
+        installation: &lhr_assets::Installation,
+    ) -> Result<(), ModelError> {
+        let mi = self.model_index(model)?;
+        if self.models[mi].closing {
+            return Err(ModelError::CloseIncomplete(model));
+        }
+        if self.loaded_visual_resources.is_none() {
+            self.loaded_visual_resources = Some(
+                crate::loaded_visual_resources::LoadedVisualResources::new()
+                    .map_err(ModelError::LoadedVisual)?,
+            );
+        }
+        for index in 0..self.models[mi].frames.len() {
+            let key = self.models[mi].frames[index];
+            if !matches!(
+                self.state(key)?.kind,
+                FrameKind::Mesh | FrameKind::Singlemesh
+            ) {
+                continue;
+            }
+            let fi = self.frame_index(key)?;
+            if self.frames[fi].object_resources.is_some() {
+                continue;
+            }
+            let source = self.frames[fi]
+                .source
+                .as_ref()
+                .cloned()
+                .ok_or(ModelError::VisualBoundsUnavailable(key))?;
+            let source_index = self.frames[fi]
+                .source_index
+                .ok_or(ModelError::VisualBoundsUnavailable(key))?;
+            let instance_object = if let Some(original_index) = source.frames[source_index].instance
+            {
+                if original_index >= source_index {
+                    return Err(ModelError::InvalidParent {
+                        index: source_index,
+                        parent: original_index,
+                    });
+                }
+                Some(
+                    self.frames
+                        .iter()
+                        .find(|frame| {
+                            frame.alive
+                                && frame.source_index == Some(original_index)
+                                && frame.owner == Some(model.into())
+                                && frame
+                                    .source
+                                    .as_ref()
+                                    .is_some_and(|other| Arc::ptr_eq(other, &source))
+                        })
+                        .and_then(|frame| frame.object_resources)
+                        .ok_or(ModelError::VisualBoundsUnavailable(key))?,
+                )
+            } else {
+                None
+            };
+            let owner = self.loaded_visual_resources.as_mut().unwrap();
+            let object = if let Some(original) = instance_object {
+                owner.load_plain_instance(original)
+            } else {
+                owner.load_plain_object(&source, source_index, installation)
+            }
+            .map_err(ModelError::LoadedVisual)?;
+            // Store the owned object before a later bound projection can fail.
+            self.frames[fi].object_resources = Some(object);
+            let bounds = owner
+                .object_bounds(object)
+                .map_err(ModelError::LoadedVisual)?;
+            // SetMesh368e0 copies the mesh bound volume unless flag0x40 locks it.
+            // Fresh visual bounds carry the constructor sentinels until copied.
+            self.frames[fi].visual_bounds = Some(if self.state(key)?.visual_flags & 0x40 == 0 {
+                bounds
+            } else {
+                crate::mesh_bounds::MeshBoundVolume::CONSTRUCTOR
+            });
+            self.graph.discard_hr_bound_vol(key)?;
+        }
+        Ok(())
+    }
+    /// Explicit manager-cache reclamation used after object/scene releases.
+    /// Object deletion itself frees its blocks while shared arrays stay cached.
+    pub fn reclaim_unused_visual_buffers(&mut self) -> Result<(), ModelError> {
+        if let Some(owner) = &mut self.loaded_visual_resources {
+            owner
+                .reclaim_unused_buffers()
+                .map_err(ModelError::LoadedVisual)?;
+        }
+        Ok(())
+    }
+    fn check_frame_destruction(&self, key: FrameKey) -> Result<(), ModelError> {
+        if let Some(object) = self.frame(key)?.object_resources {
+            let owner = self
+                .loaded_visual_resources
+                .as_ref()
+                .ok_or(ModelError::VisualBoundsUnavailable(key))?;
+            owner
+                .object_mesh(object)
+                .map_err(ModelError::LoadedVisual)?;
+            self.graph.check_destruction_with_owned_visual(key)?;
+        } else if let Some(projector) = &self.frame(key)?.projector {
+            if let Some(texture) = projector.texture() {
+                self.loaded_visual_resources
+                    .as_ref()
+                    .ok_or(ModelError::VisualBoundsUnavailable(key))?
+                    .cpu_texture(texture)
+                    .map_err(ModelError::LoadedVisual)?;
+            }
+            self.graph.check_destruction_with_owned_visual(key)?;
+        } else {
+            self.graph.check_destruction_with_owned_name(key)?;
+        }
+        Ok(())
+    }
+    pub fn model_filename(&self, model: ModelKey) -> Result<Option<ModelFileNameKey>, ModelError> {
+        Ok(self.models[self.model_index(model)?].filename)
+    }
+    pub fn filename(&self, key: ModelFileNameKey) -> Result<&ModelFileName, ModelError> {
+        if key.arena != self.lookup_owner.reference(0) {
+            return Err(ModelError::ForeignArena);
+        }
+        self.filenames
+            .get(key.slot)
+            .and_then(Option::as_ref)
+            .ok_or(ModelError::UnknownFilename(key))
+    }
+    fn allocate_model_filename(&mut self, model: ModelKey, bytes: &[u8]) -> Result<(), ModelError> {
+        let mi = self.model_index(model)?;
+        if self.models[mi].filename.is_some() {
+            return Err(ModelError::FilenameAlreadyOwned(model));
+        }
+        let bytes = &bytes[..bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len())];
+        let mut owned = Vec::new();
+        owned
+            .try_reserve_exact(bytes.len())
+            .map_err(|_| ModelError::AllocationOverflow)?;
+        owned.extend_from_slice(bytes);
+        self.filenames
+            .try_reserve(1)
+            .map_err(|_| ModelError::AllocationOverflow)?;
+        let key = ModelFileNameKey {
+            arena: self.lookup_owner.reference(0),
+            slot: self.filenames.len(),
+        };
+        self.filenames.push(Some(ModelFileName {
+            bytes: owned,
+            references: 1,
+        }));
+        self.models[mi].filename = Some(key);
+        Ok(())
+    }
+    /// Filename-pointer copy/retain observed at DuplicateHierarchy RVA0x33e37.
+    /// The caller must already have closed the destination. This isolated step
+    /// does not duplicate children or implement the whole DuplicateHierarchy.
+    pub fn copy_model_filename_reference(
+        &mut self,
+        destination: ModelKey,
+        source: ModelKey,
+    ) -> Result<(), ModelError> {
+        let si = self.model_index(source)?;
+        let di = self.model_index(destination)?;
+        if self.models[di].filename.is_some() {
+            return Err(ModelError::FilenameAlreadyOwned(destination));
+        }
+        if let Some(key) = self.models[si].filename {
+            let record = self.filenames[key.slot]
+                .as_mut()
+                .ok_or(ModelError::UnknownFilename(key))?;
+            record.references = record
+                .references
+                .checked_add(1)
+                .ok_or(ModelError::FilenameReferenceOverflow(key))?;
+            self.models[di].filename = Some(key);
+        }
+        Ok(())
+    }
+    /// Materialize the admitted parsed frame subset into an existing shared
+    /// arena. Root identity, other models, scene ownership and external frame
+    /// references remain in that arena. As in LoadHierarchy603e0, all constructed
+    /// frames transfer in file order before an intake error is returned.
+    /// Mesh payload remains parsed backing; this does not create GPU resources.
+    pub fn load_parsed_into_model(
+        &mut self,
+        model: ModelKey,
+        source: Arc<Model>,
+    ) -> Result<SharedModelContent, SharedModelLoadFailure> {
+        let mut content = SharedModelContent {
+            model,
+            frames: Vec::new(),
+            transferred_frames: 0,
+            arena: self.lookup_owner.reference(0),
+            epoch: self.lifecycle_epoch(model).unwrap_or(0),
+        };
+        let preflight = (|| {
+            let mi = self.model_index(model)?;
+            if self.models[mi].closing {
+                return Err(ModelError::CloseIncomplete(model));
+            }
+            if !self.models[mi].frames.is_empty() {
+                return Err(ModelError::ModelNotEmpty(model));
+            }
+            Ok(())
+        })();
+        if let Err(error) = preflight {
+            return Err(SharedModelLoadFailure {
+                error,
+                partial: content,
+            });
+        }
+        let mut morph_poses = Vec::new();
+        let mut result = Ok(());
+        for index in 0..source.frames.len() {
+            result = self.load_parsed_frame(&source, &mut content.frames, &mut morph_poses, index);
+            if result.is_err() {
+                break;
+            }
+        }
+        if result.is_ok() {
+            for (index, frame) in source.frames.iter().enumerate() {
+                if let Some(record) = &frame.target {
+                    result = I3dTargetState::from_parsed_fields(
+                        record.flags,
+                        &record.frame_indices,
+                        &content.frames,
+                    )
+                    .map_err(ModelError::Target)
+                    .and_then(|state| {
+                        self.graph
+                            .apply_target_load_image_state(content.frames[index], state)
+                            .map_err(ModelError::from)
+                    });
+                    if result.is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+        if let Err(error) = self.transfer_shared_model_content(&mut content) {
+            return Err(SharedModelLoadFailure {
+                error,
+                partial: content,
+            });
+        }
+        if result.is_ok() {
+            result = self
+                .graph
+                .mark_loaded_root(model.root())
+                .map_err(ModelError::from);
+        }
+        match result {
+            Ok(()) => Ok(content),
+            Err(error) => Err(SharedModelLoadFailure {
+                error,
+                partial: content,
+            }),
+        }
+    }
+    /// Resume only the pending ownership transfers of a failed host intake.
+    /// The source mapping must belong to this arena and retain its creator
+    /// references; successfully transferred entries are never released twice.
+    pub fn transfer_shared_model_content(
+        &mut self,
+        content: &mut SharedModelContent,
+    ) -> Result<(), ModelError> {
+        if content.arena != self.lookup_owner.reference(0) {
+            return Err(ModelError::ForeignArena);
+        }
+        if content.epoch != self.lifecycle_epoch(content.model)? {
+            return Err(ModelError::StaleParsedContent(content.model));
+        }
+        while content.transferred_frames < content.frames.len() {
+            let key = content.frames[content.transferred_frames];
+            if self.graph.links(key)?.parent.is_none() {
+                self.graph.link_to(key, Some(content.model.root()))?;
+            }
+            self.add_frame(content.model, key)?;
+            self.release(key)?;
+            content.transferred_frames += 1;
+        }
+        Ok(())
+    }
+    /// Actual Installation read and static-scene parser connected to the shared
+    /// arena. Close precedes lookup, and failed replacement retains the parsed
+    /// loaded prefix. A successful load owns a fresh filename descriptor.
+    /// This is a host path API, not original Open335a0: it accepts .4ds directly,
+    /// has no loader callbacks or animation path.
+    /// The parser itself rejects malformed bytes before frame construction.
+    pub fn reopen_model_asset(
+        &mut self,
+        model: ModelKey,
+        installation: &lhr_assets::Installation,
+        path: &str,
+    ) -> Result<SharedModelContent, SharedModelLoadFailure> {
+        let identity = self.lookup_owner.reference(0);
+        let epoch = self.lifecycle_epoch(model).unwrap_or(0);
+        let empty = || SharedModelContent {
+            model,
+            frames: Vec::new(),
+            transferred_frames: 0,
+            arena: identity,
+            epoch,
+        };
+        self.close(model).map_err(|error| SharedModelLoadFailure {
+            error,
+            partial: empty(),
+        })?;
+        let bytes = installation
+            .read(path)
+            .map_err(|error| SharedModelLoadFailure {
+                error: ModelError::Asset(error.to_string()),
+                partial: empty(),
+            })?;
+        let parsed =
+            lhr_assets::parse_four_ds_scene(&bytes).map_err(|error| SharedModelLoadFailure {
+                error: ModelError::Asset(error.to_string()),
+                partial: empty(),
+            })?;
+        let content = self.load_parsed_into_model(model, Arc::new(parsed))?;
+        if let Err(error) = self.allocate_model_filename(model, path.as_bytes()) {
+            return Err(SharedModelLoadFailure {
+                error,
+                partial: content,
+            });
+        }
+        if let Err(error) = self.propagate_model_name(model) {
+            return Err(SharedModelLoadFailure {
+                error,
+                partial: content,
+            });
+        }
+        Ok(content)
+    }
+    /// Static zero-flag/no-callback Open composition: close first, follow the
+    /// original LoadHierarchy filename rewrite, restore fast-find after loading,
+    /// create a fresh filename descriptor, then propagate a named model prefix.
+    /// Geometry/texture ownership is the concrete CPU adapter, not native
+    /// LoadImage allocation or GPU upload. Malformed source files, animations,
+    /// unsupported visuals and backend failures remain host availability errors;
+    /// their native loader failure prefixes/diagnostics are not emulated.
+    pub fn open_original_static_model(
+        &mut self,
+        model: ModelKey,
+        installation: &lhr_assets::Installation,
+        input_name: &str,
+    ) -> Result<SharedModelContent, SharedModelLoadFailure> {
+        let arena = self.lookup_owner.reference(0);
+        let empty = || SharedModelContent {
+            model,
+            frames: vec![],
+            transferred_frames: 0,
+            arena,
+            epoch: 0,
+        };
+        self.close(model).map_err(|error| SharedModelLoadFailure {
+            error,
+            partial: empty(),
+        })?;
+        let filename = input_name.as_bytes();
+        let filename = &filename[..filename
+            .iter()
+            .position(|&byte| byte == 0)
+            .unwrap_or(filename.len())];
+        let path =
+            original_static_geometry_path(filename).map_err(|error| SharedModelLoadFailure {
+                error,
+                partial: empty(),
+            })?;
+        let fast_find = self.fast_tree.enabled;
+        let named = !self
+            .frame(model.root())
+            .map_err(|error| SharedModelLoadFailure {
+                error,
+                partial: empty(),
+            })?
+            .name_bytes
+            .is_empty();
+        if named {
+            self.fast_tree.enabled = false;
+        }
+        let loaded = (|| {
+            let bytes = installation
+                .read(&path)
+                .map_err(|error| SharedModelLoadFailure {
+                    error: ModelError::Asset(error.to_string()),
+                    partial: empty(),
+                })?;
+            let source = lhr_assets::parse_four_ds_scene(&bytes).map_err(|error| {
+                SharedModelLoadFailure {
+                    error: ModelError::Asset(error.to_string()),
+                    partial: empty(),
+                }
+            })?;
+            let content = self.load_parsed_into_model(model, Arc::new(source))?;
+            if let Err(error) = self.load_plain_visual_resources(model, installation) {
+                return Err(SharedModelLoadFailure {
+                    error,
+                    partial: content,
+                });
+            }
+            Ok(content)
+        })();
+        self.fast_tree.enabled = fast_find;
+        let content = loaded?;
+        if let Err(error) = self.allocate_model_filename(model, filename) {
+            return Err(SharedModelLoadFailure {
+                error,
+                partial: content,
+            });
+        }
+        if named {
+            if let Err(error) = self.propagate_model_name(model) {
+                return Err(SharedModelLoadFailure {
+                    error,
+                    partial: content,
+                });
+            }
+        }
+        Ok(content)
     }
     pub(crate) fn frame_index(&self, key: FrameKey) -> Result<usize, ModelError> {
         let i = key.0.checked_sub(1).ok_or(ModelError::UnknownFrame(key))? as usize;
@@ -362,7 +1207,7 @@ impl ModelArena {
             self.frames[i].references -= 1;
             return Ok(());
         }
-        self.graph.check_destruction_with_owned_name(key)?;
+        self.check_frame_destruction(key)?;
         let owner_position = if let Some(owner) = self.frames[i].owner {
             self.check_owner_available(owner)?;
             let position = self
@@ -398,6 +1243,18 @@ impl ModelArena {
             self.models[mi].frames = Vec::new();
             self.models[mi].native_capacity = 0;
         }
+        if let Some(object) = self.frames[i].object_resources {
+            self.loaded_visual_resources
+                .as_mut()
+                .ok_or(ModelError::VisualBoundsUnavailable(key))?
+                .destroy_object(object)
+                .map_err(ModelError::LoadedVisual)?;
+            self.frames[i].object_resources = None;
+            self.frames[i].visual_bounds = None;
+        }
+        if self.frames[i].projector.is_some() {
+            self.release_projector_resources(key)?;
+        }
         self.graph.destroy_derived(key)?;
         self.remove_frame_name_registration(key)?;
         // Derived teardown precedes base owner removal. The zero-count base
@@ -407,6 +1264,7 @@ impl ModelArena {
             self.frames[i].owner = None;
         }
         self.graph.destroy_base(key)?;
+        self.last_destroyed_frame = Some(key);
         self.frames[i].references = 0;
         self.frames[i].alive = false;
         self.frames[i].properties = Vec::new();
@@ -483,7 +1341,7 @@ impl ModelArena {
             .position(|&k| k == key)
             .ok_or(ModelError::FrameNotOwned { model, frame: key })?;
         if self.frames[fi].references <= 1 {
-            self.graph.check_destruction_with_owned_name(key)?;
+            self.check_frame_destruction(key)?;
         }
         self.models[mi].frames.swap_remove(position);
         self.frames[fi].owner = None;
@@ -506,7 +1364,7 @@ impl ModelArena {
             let key = self.models[mi].frames[self.models[mi].close_cursor];
             let fi = self.frame_index(key)?;
             if self.frames[fi].references <= 1 {
-                self.graph.check_destruction_with_owned_name(key)?;
+                self.check_frame_destruction(key)?;
             }
             self.frames[fi].owner = None;
             if let Err(error) = self.release(key) {
@@ -520,6 +1378,17 @@ impl ModelArena {
         self.models[mi].frames.clear();
         self.models[mi].close_cursor = 0;
         self.models[mi].closing = false;
+        // PC Close33500 releases filename only after the forward frame loop.
+        if let Some(filename) = self.models[mi].filename {
+            let record = self.filenames[filename.slot]
+                .as_mut()
+                .ok_or(ModelError::UnknownFilename(filename))?;
+            record.references -= 1;
+            if record.references <= 0 {
+                self.filenames[filename.slot] = None;
+            }
+            self.models[mi].filename = None;
+        }
         self.graph.discard_hr_bound_vol(model.root())?;
         Ok(())
     }
@@ -568,6 +1437,20 @@ impl ModelArena {
                 .checked_mul(std::mem::size_of::<FrameKey>())
                 .ok_or(ModelError::AllocationOverflow)?)?;
         }
+        add(self
+            .filenames
+            .capacity()
+            .checked_mul(std::mem::size_of::<Option<ModelFileName>>())
+            .ok_or(ModelError::AllocationOverflow)?)?;
+        for filename in self.filenames.iter().flatten() {
+            add(filename.bytes.capacity())?;
+        }
+        if let Some(owner) = &self.loaded_visual_resources {
+            // Backing payloads dominate CPU resource storage. Manager/descriptor
+            // map allocator overhead is not represented by this estimate.
+            add(owner.backend().graphics_bytes())?;
+            add(owner.backend().decoded_texture_bytes())?;
+        }
         for f in &self.frames {
             add(f.name_bytes.capacity())?;
             if let Some(original) = &f.original_name_bytes {
@@ -584,6 +1467,36 @@ impl ModelArena {
         }
         Ok(size)
     }
+}
+
+/// Filename scan/rewrite from LoadHierarchy603e0, restricted to the provider's
+/// admitted ASCII domain. The native scan excludes a dot at indices zero/one.
+fn original_static_geometry_path(filename: &[u8]) -> Result<String, ModelError> {
+    if filename.is_empty() {
+        return Err(ModelError::NativeModelOpenResult(0x80000007));
+    }
+    if !filename.is_ascii() {
+        return Err(ModelError::OriginalModelOpenUnavailable(
+            "non-ASCII source path",
+        ));
+    }
+    let prefix = &filename[..filename.len().min(269)];
+    let dot = prefix
+        .iter()
+        .rposition(|&byte| byte == b'.')
+        .filter(|&index| index >= 2)
+        .ok_or(ModelError::NativeModelOpenResult(0x80000007))?;
+    if prefix[dot..].eq_ignore_ascii_case(b".4ds") {
+        return Err(ModelError::NativeModelOpenResult(0x80000007));
+    }
+    if dot > 265 {
+        return Err(ModelError::OriginalModelOpenUnavailable(
+            "native path rewrite exceeds filename buffer",
+        ));
+    }
+    let mut path = String::from_utf8(prefix[..dot].to_vec()).unwrap();
+    path.push_str(".4ds");
+    Ok(path)
 }
 
 /// A failure retains every frame already constructed and owned by the model.
@@ -683,112 +1596,12 @@ impl MaterializedModel {
         Ok(result)
     }
     fn load_frame(&mut self, index: usize) -> Result<(), ModelError> {
-        let source = &self.source.frames[index];
-        let mut state = match (source.kind, source.visual) {
-            (1, Some(0 | 1)) => I3dFrameState::mesh(),
-            (1, Some(2 | 3)) => {
-                let mut state = I3dFrameState::mesh();
-                state.kind = FrameKind::Singlemesh;
-                state
-            }
-            (6, None) => I3dFrameState::dummy(),
-            (7, None) => I3dFrameState::target(),
-            (10, None) => I3dFrameState::joint(),
-            _ => {
-                return Err(ModelError::UnsupportedFrame {
-                    index,
-                    kind: source.kind,
-                    visual: source.visual,
-                });
-            }
-        };
-        if source.kind == 6 && source.dummy_bounds.is_none() {
-            return Err(ModelError::MissingDummyBounds(index));
-        }
-        if source.kind == 7 && source.target.is_none() {
-            return Err(ModelError::MissingTargetRecord(index));
-        }
-        if source.kind != 7 && source.target.is_some() {
-            return Err(ModelError::UnsupportedFrame {
-                index,
-                kind: source.kind,
-                visual: source.visual,
-            });
-        }
-        if source.kind == 10 && source.joint.is_none() {
-            return Err(ModelError::MissingJointRecord(index));
-        }
-        if matches!(source.visual, Some(2 | 3))
-            && (source.skin.is_none() || source.lods.is_empty() || source.instance.is_some())
-        {
-            return Err(ModelError::MissingSkinRecord(index));
-        }
-        if source.kind == 1 {
-            state.visual_flags = u32::from(u16::from_le_bytes([
-                source.render_flags,
-                source.logic_flags,
-            ]));
-        }
-        let parent = match source.parent {
-            Some(parent) => Some(
-                *self
-                    .source_frame_keys
-                    .get(parent)
-                    .filter(|_| parent < index)
-                    .ok_or(ModelError::InvalidParent { index, parent })?,
-            ),
-            None => None,
-        };
-        let morph = if source.visual == Some(3) {
-            Some(MorphPose::from_frame(source).map_err(ModelError::SkinPose)?)
-        } else {
-            if source.morph.is_some() {
-                return Err(ModelError::SkinPose(SkinPoseError::Source(
-                    "morph on non-singlemorph frame",
-                )));
-            }
-            None
-        };
-        let key = self.arena.insert(
-            state,
-            Some(index),
-            source.name_bytes.clone(),
-            source.properties.clone(),
-            source.dummy_bounds,
-        )?;
-        let fi = self.arena.frame_index(key)?;
-        self.arena.frames[fi].source = Some(Arc::clone(&self.source));
-        self.morph_poses.push(morph);
-        self.source_frame_keys.push(key);
-        if source.kind == 7 {
-            self.arena
-                .graph
-                .register_target(key, I3dTargetState::default())?;
-        }
-        // LoadImage links earlier parents before storing the common local SRT.
-        if parent.is_some() {
-            self.arena.graph.link_to(key, parent)?;
-        }
-        self.arena.graph.apply_common_load_image_fields(
-            key,
-            source.position,
-            source.scale,
-            SQuat {
-                wxyz: source.rotation_wxyz,
-            },
-            source.culling,
-        )?;
-        if source.kind == 10 {
-            let joint = source.joint.as_ref().unwrap();
-            self.arena.graph.apply_joint_load_image_fields(
-                key,
-                SMatrix {
-                    elements: joint.bone_matrix,
-                },
-                joint.index,
-            )?;
-        }
-        Ok(())
+        self.arena.load_parsed_frame(
+            &self.source,
+            &mut self.source_frame_keys,
+            &mut self.morph_poses,
+            index,
+        )
     }
     fn resolve_targets(&mut self) -> Result<(), ModelError> {
         for (index, source) in self.source.frames.iter().enumerate() {
@@ -1062,6 +1875,217 @@ pub(crate) mod tests {
             instance: None,
             lods: Vec::new(),
         }
+    }
+    #[test]
+    fn shared_arena_load_close_keeps_external_survivors_and_other_models() {
+        let source = Arc::new(Model {
+            materials: vec![],
+            frames: vec![frame(6, None, [1., 2., 3.])],
+        });
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let first = arena.create_model().unwrap();
+        let second = arena.create_model().unwrap();
+        arena.scene_add_frame(scene, first.root()).unwrap();
+        arena.scene_add_frame(scene, second.root()).unwrap();
+        let first_content = arena.load_parsed_into_model(first, source.clone()).unwrap();
+        let second_content = arena
+            .load_parsed_into_model(second, source.clone())
+            .unwrap();
+        let survivor = first_content.frames()[0];
+        arena.retain(survivor).unwrap();
+        arena.close(first).unwrap();
+        assert_eq!(arena.frame(survivor).unwrap().owner, None);
+        assert_eq!(arena.links(survivor).unwrap().parent, Some(first.root()));
+        assert!(Arc::ptr_eq(
+            arena.frame(survivor).unwrap().source.as_ref().unwrap(),
+            &source
+        ));
+        assert_eq!(arena.model(second).unwrap().frames, second_content.frames());
+        let reloaded = arena.load_parsed_into_model(first, source).unwrap();
+        assert_ne!(reloaded.frames()[0], survivor);
+        arena.release(survivor).unwrap();
+        assert!(arena.frame(survivor).is_err());
+        arena.close(first).unwrap();
+        arena.close(second).unwrap();
+        assert_eq!(
+            arena.scene(scene).unwrap().frames(),
+            &[first.root(), second.root()]
+        );
+    }
+    #[test]
+    fn shared_intake_failure_transfers_prefix_and_rejects_stale_or_foreign_resume() {
+        let source = Arc::new(Model {
+            materials: vec![],
+            frames: vec![frame(6, None, [0.; 3]), frame(99, None, [0.; 3])],
+        });
+        let mut arena = ModelArena::default();
+        let model = arena.create_model().unwrap();
+        let mut failure = arena.load_parsed_into_model(model, source).unwrap_err();
+        assert!(matches!(
+            failure.error,
+            ModelError::UnsupportedFrame { index: 1, .. }
+        ));
+        assert_eq!(failure.partial.transferred_frames(), 1);
+        assert_eq!(
+            arena.frame(failure.partial.frames()[0]).unwrap().references,
+            1
+        );
+        let mut other = ModelArena::default();
+        other.create_model().unwrap();
+        assert_eq!(
+            other.transfer_shared_model_content(&mut failure.partial),
+            Err(ModelError::ForeignArena)
+        );
+        arena.close(model).unwrap();
+        assert_eq!(
+            arena.transfer_shared_model_content(&mut failure.partial),
+            Err(ModelError::StaleParsedContent(model))
+        );
+    }
+    #[test]
+    fn model_prefix_uses_original_names_across_repeated_rename_and_reset() {
+        let mut arena = ModelArena::default();
+        let model = arena.create_model().unwrap();
+        let content = arena
+            .load_parsed_into_model(
+                model,
+                Arc::new(Model {
+                    materials: vec![],
+                    frames: vec![frame(6, None, [0.; 3])],
+                }),
+            )
+            .unwrap();
+        let key = content.frames()[0];
+        arena.set_fast_find_enabled(true);
+        arena.set_frame_name(model.root(), Some(b"taxi")).unwrap();
+        arena.propagate_model_name(model).unwrap();
+        assert_eq!(arena.frame(key).unwrap().name_bytes, b"taxi.fixture");
+        assert_eq!(
+            arena.original_name_pointer(key).unwrap(),
+            crate::frame_fast_lookup::OriginalFrameName::Offset(5)
+        );
+        arena.set_frame_name(model.root(), Some(b"other")).unwrap();
+        arena.propagate_model_name(model).unwrap();
+        assert_eq!(arena.frame(key).unwrap().name_bytes, b"other.fixture");
+        arena.set_frame_name(model.root(), None).unwrap();
+        arena.propagate_model_name(model).unwrap();
+        assert_eq!(arena.frame(key).unwrap().name_bytes, b"fixture");
+        assert_eq!(
+            arena.original_name_pointer(key).unwrap(),
+            crate::frame_fast_lookup::OriginalFrameName::Offset(0)
+        );
+        arena.close(model).unwrap();
+        assert_eq!(arena.fast_tree_root(), None);
+    }
+    #[test]
+    fn filename_allocations_are_fresh_sharing_explicit_and_close_releases_last() {
+        let mut arena = ModelArena::default();
+        let a = arena.create_model().unwrap();
+        let b = arena.create_model().unwrap();
+        let c = arena.create_model().unwrap();
+        arena.allocate_model_filename(a, b"models/car.4ds").unwrap();
+        arena.allocate_model_filename(b, b"models/car.4ds").unwrap();
+        let a_name = arena.model_filename(a).unwrap().unwrap();
+        let b_name = arena.model_filename(b).unwrap().unwrap();
+        assert_ne!(a_name, b_name);
+        arena.copy_model_filename_reference(c, a).unwrap();
+        assert_eq!(arena.filename(a_name).unwrap().references(), 2);
+        arena.close(a).unwrap();
+        assert_eq!(arena.filename(a_name).unwrap().references(), 1);
+        arena.close(c).unwrap();
+        assert!(arena.filename(a_name).is_err());
+        assert_eq!(arena.filename(b_name).unwrap().references(), 1);
+        let other = ModelArena::default();
+        assert_eq!(
+            other.filename(b_name).unwrap_err(),
+            ModelError::ForeignArena
+        );
+    }
+    #[test]
+    fn original_static_path_rewrites_and_preserves_the_native_extension_rejection() {
+        assert_eq!(
+            original_static_geometry_path(b"models/example.i3d").unwrap(),
+            "models/example.4ds"
+        );
+        assert_eq!(
+            original_static_geometry_path(b"ab.other").unwrap(),
+            "ab.4ds"
+        );
+        for name in [
+            b"a.i3d".as_slice(),
+            b".i3d",
+            b"ab.4ds",
+            b"ab.4DS",
+            b"no_extension",
+            b"",
+        ] {
+            assert_eq!(
+                original_static_geometry_path(name),
+                Err(ModelError::NativeModelOpenResult(0x80000007))
+            );
+        }
+        let mut name = b"ab.".to_vec();
+        name.extend(std::iter::repeat_n(b'x', 300));
+        assert_eq!(original_static_geometry_path(&name).unwrap(), "ab.4ds");
+        let mut name = vec![b'x'; 267];
+        name.extend_from_slice(b".z");
+        assert!(matches!(
+            original_static_geometry_path(&name),
+            Err(ModelError::OriginalModelOpenUnavailable(_))
+        ));
+    }
+    #[test]
+    fn installation_reopen_reads_real_file_closes_before_lookup_and_retains_root() {
+        let path = std::env::temp_dir().join(format!(
+            "lhr-shared-model-{}-{}",
+            std::process::id(),
+            crate::frame_lookup::incarnation()
+        ));
+        std::fs::create_dir(&path).unwrap();
+        let mut bytes = b"4DS\0".to_vec();
+        bytes.extend(29u16.to_le_bytes());
+        bytes.extend([0; 8]);
+        bytes.extend([0; 5]);
+        std::fs::write(path.join("fixture.4ds"), bytes).unwrap();
+        let installation = lhr_assets::Installation::open(&path).unwrap();
+        let mut arena = ModelArena::default();
+        let model = arena.create_model().unwrap();
+        arena
+            .reopen_model_asset(model, &installation, "fixture.4ds")
+            .unwrap();
+        let filename = arena.model_filename(model).unwrap().unwrap();
+        assert_eq!(arena.filename(filename).unwrap().bytes(), b"fixture.4ds");
+        arena.set_frame_name(model.root(), Some(b"placed")).unwrap();
+        arena.set_fast_find_enabled(true);
+        arena
+            .open_original_static_model(model, &installation, "fixture.i3d")
+            .unwrap();
+        assert!(arena.fast_tree.enabled);
+        assert!(arena.filename(filename).is_err());
+        let original_filename = arena.model_filename(model).unwrap().unwrap();
+        assert_eq!(
+            arena.filename(original_filename).unwrap().bytes(),
+            b"fixture.i3d"
+        );
+        let rejected = arena
+            .open_original_static_model(model, &installation, "fixture.4ds")
+            .unwrap_err();
+        assert_eq!(
+            rejected.error,
+            ModelError::NativeModelOpenResult(0x80000007)
+        );
+        assert!(arena.filename(original_filename).is_err());
+        assert!(arena.fast_tree.enabled);
+
+        let failure = arena
+            .reopen_model_asset(model, &installation, "missing.4ds")
+            .unwrap_err();
+        assert!(matches!(failure.error, ModelError::Asset(_)));
+        assert_eq!(arena.model_filename(model).unwrap(), None);
+        assert!(arena.filename(filename).is_err());
+        assert_eq!(arena.model(model).unwrap().key, model);
+        std::fs::remove_dir_all(path).unwrap();
     }
     #[test]
     fn materializes_owned_hierarchy_and_original_bytes() {

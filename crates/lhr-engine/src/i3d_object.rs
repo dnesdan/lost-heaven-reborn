@@ -63,6 +63,7 @@ pub enum ObjectError {
     LodDestructed(PlainLodKey),
     StorageAlreadyInstalled,
     MeshReferenceOwned(MeshObjectKey),
+    MeshCompatibilityUnavailable,
 }
 impl From<ManagedError> for ObjectError {
     fn from(e: ManagedError) -> Self {
@@ -624,6 +625,157 @@ impl ObjectResources {
     ) -> Result<(), ObjectOperationError<B::Error>> {
         self.available()?;
         managed_result(self.managed.unlock_all_vertices(backend))
+    }
+}
+
+impl ObjectResources {
+    pub(crate) fn copy_mesh_level_scalar_fields(
+        &mut self,
+        destination: MeshLevelKey,
+        source: MeshLevelKey,
+    ) -> Result<(), ObjectError> {
+        self.available()?;
+        self.managed
+            .copy_mesh_level_scalar_fields(destination, source)
+            .map_err(Into::into)
+    }
+    pub(crate) fn reset_empty_mesh_bounds(
+        &mut self,
+        mesh: MeshObjectKey,
+    ) -> Result<(), ObjectError> {
+        self.available()?;
+        self.managed
+            .reset_empty_mesh_bounds(mesh)
+            .map_err(Into::into)
+    }
+}
+
+impl ObjectResources {
+    pub(crate) fn clear_duplicate_mesh<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        mesh: MeshObjectKey,
+        backend: &mut B,
+    ) -> Result<(), ObjectOperationError<B::Error>> {
+        self.available()?;
+        managed_result(self.managed.clear_duplicate_mesh(mesh, backend))
+    }
+    pub(crate) fn copy_material<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        destination: MaterialKey,
+        source: Option<MaterialKey>,
+        backend: &mut B,
+    ) -> Result<i32, ObjectOperationError<B::Error>> {
+        self.available()?;
+        managed_result(self.managed.copy_material(destination, source, backend))
+    }
+}
+
+impl ObjectResources {
+    /// Resource-owning effects of object SetMesh368e0. The arena caller owns
+    /// visual flags and the visual bbox copy/reset after this prefix.
+    pub(crate) fn set_object_mesh<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        object: ObjectResourceKey,
+        mesh: Option<MeshObjectKey>,
+        preserve_lods: bool,
+        backend: &mut B,
+    ) -> Result<(), ObjectOperationError<B::Error>> {
+        self.available()?;
+        let old = self.object(object)?.mesh;
+        if old == mesh {
+            return Ok(());
+        }
+        if let Some(mesh) = mesh {
+            self.managed
+                .resources()
+                .mesh_object(mesh)
+                .map_err(ManagedError::from)?;
+        }
+        if preserve_lods && mesh.is_some() {
+            return Err(ObjectError::MeshCompatibilityUnavailable.into());
+        }
+        let index = (object.slot - 1) as usize;
+        let result = (|| {
+            {
+                for slot in 0..10 {
+                    if let Some(lod) = self.objects[index].as_ref().unwrap().lods[slot] {
+                        self.cleanup_lod(lod, backend)?;
+                        self.lods[(lod.slot - 1) as usize] = None;
+                    }
+                }
+            }
+            self.objects[index].as_mut().unwrap().lods = [None; 10];
+            if let Some(old) = old {
+                managed_result(self.managed.release_mesh_object(old, backend))?;
+            }
+            self.objects[index].as_mut().unwrap().mesh = mesh;
+            if let Some(mesh) = mesh {
+                self.managed.retain_mesh_object(mesh)?;
+            }
+            Ok(())
+        })();
+        if result.is_err() {
+            self.poisoned = true;
+        }
+        result
+    }
+}
+
+impl ObjectResources {
+    pub(crate) fn append_duplicate_group(
+        &mut self,
+        level: MeshLevelKey,
+        group: FaceGroupKey,
+    ) -> Result<(), ObjectError> {
+        self.available()?;
+        self.managed
+            .append_duplicate_group(level, group)
+            .map_err(Into::into)
+    }
+}
+
+impl ObjectResources {
+    pub fn install_loaded_material_scalars(
+        &mut self,
+        key: MaterialKey,
+        source: &lhr_assets::Material,
+        flags: u32,
+    ) -> Result<(), ObjectError> {
+        self.available()?;
+        self.managed
+            .install_loaded_material_scalars(key, source, flags)
+            .map_err(Into::into)
+    }
+}
+
+impl ObjectResources {
+    pub(crate) fn install_loaded_lod_distance(
+        &mut self,
+        level: MeshLevelKey,
+        distance: f32,
+    ) -> Result<(), ObjectError> {
+        self.available()?;
+        self.managed
+            .install_loaded_lod_distance(level, distance)
+            .map_err(Into::into)
+    }
+}
+
+impl ObjectResources {
+    pub(crate) fn adopt_loaded_material_texture<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        key: MaterialKey,
+        texture: Option<TextureKey>,
+        environment: bool,
+        backend: &mut B,
+    ) -> Result<(), ObjectOperationError<B::Error>> {
+        self.available()?;
+        managed_result(self.managed.adopt_loaded_material_texture(
+            key,
+            texture,
+            environment,
+            backend,
+        ))
     }
 }
 

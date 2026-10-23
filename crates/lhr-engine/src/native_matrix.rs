@@ -53,10 +53,6 @@ pub(crate) fn checked_f32_add(a: f32, b: f32) -> Result<f32, MatrixArithmeticUna
     let (a, b) = (normal_operand(a)?, normal_operand(b)?);
     add(a, b).map_err(|_| MatrixArithmeticUnavailable)
 }
-fn checked_f32_sub(a: f32, b: f32) -> Result<f32, MatrixArithmeticUnavailable> {
-    let (a, b) = (normal_operand(a)?, normal_operand(b)?);
-    sub(a, b).map_err(|_| MatrixArithmeticUnavailable)
-}
 
 /// Availability guard for original scale extraction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -112,29 +108,60 @@ impl SMatrix {
         let basis = if w.abs() >= 1.0 {
             [1., 0., 0., 0., 1., 0., 0., 0., 1.]
         } else {
-            let x2 = checked_f32_add(x, x)?;
-            let y2 = checked_f32_add(y, y)?;
-            let z2 = checked_f32_add(z, z)?;
-            let xx = checked_f32_mul(x2, x)?;
-            let xy = checked_f32_mul(y2, x)?;
-            let xz = checked_f32_mul(z2, x)?;
-            let yy = checked_f32_mul(y2, y)?;
-            let yz = checked_f32_mul(z2, y)?;
-            let zz = checked_f32_mul(z2, z)?;
-            let wx = checked_f32_mul(x2, w)?;
-            let wy = checked_f32_mul(y2, w)?;
-            let wz = checked_f32_mul(z2, w)?;
-            [
-                checked_f32_sub(1., checked_f32_add(zz, yy)?)?,
-                checked_f32_sub(xy, wz)?,
-                checked_f32_add(wy, xz)?,
-                checked_f32_add(wz, xy)?,
-                checked_f32_sub(1., checked_f32_add(zz, xx)?)?,
-                checked_f32_sub(yz, wx)?,
-                checked_f32_sub(xz, wy)?,
-                checked_f32_add(wx, yz)?,
-                checked_f32_sub(1., checked_f32_add(yy, xx)?)?,
-            ]
+            if ![x, y, z].into_iter().all(f32::is_finite) {
+                return Err(MatrixArithmeticUnavailable);
+            }
+            // PC24 uses a 24-bit significand with the x87 wider exponent.
+            // z2 and seven products are explicitly spilled to f32 stack slots;
+            // tiny spilled products may become subnormal/zero, as on AXIS data.
+            fn pc24(value: f64) -> f64 {
+                let bits = value.to_bits();
+                let magnitude = bits & 0x7fff_ffff_ffff_ffff;
+                let discarded = magnitude & ((1_u64 << 29) - 1);
+                let mut retained = magnitude >> 29;
+                let halfway = 1_u64 << 28;
+                if discarded > halfway || (discarded == halfway && retained & 1 != 0) {
+                    retained += 1;
+                }
+                f64::from_bits((bits & (1_u64 << 63)) | (retained << 29))
+            }
+            fn spill(value: f64) -> Result<f64, MatrixArithmeticUnavailable> {
+                let value = value as f32;
+                if value.is_finite() {
+                    Ok(value as f64)
+                } else {
+                    Err(MatrixArithmeticUnavailable)
+                }
+            }
+            let [w, x, y, z] = [w, x, y, z].map(f64::from);
+            let x2 = pc24(x + x);
+            let y2 = pc24(y + y);
+            let z2 = spill(pc24(z + z))?;
+            let xx = spill(pc24(x2 * x))?;
+            let xy = spill(pc24(y2 * x))?;
+            let xz = spill(pc24(z2 * x))?;
+            let yy = spill(pc24(y2 * y))?;
+            let yz = spill(pc24(z2 * y))?;
+            let zz = spill(pc24(z2 * z))?;
+            let wx = spill(pc24(x2 * w))?;
+            let wy = pc24(y2 * w);
+            let wz = pc24(z2 * w);
+            let values = [
+                pc24(1.0 - pc24(zz + yy)),
+                pc24(xy - wz),
+                pc24(wy + xz),
+                pc24(wz + xy),
+                pc24(1.0 - pc24(zz + xx)),
+                pc24(yz - wx),
+                pc24(xz - wy),
+                pc24(wx + yz),
+                pc24(1.0 - pc24(yy + xx)),
+            ];
+            let mut basis = [0.; 9];
+            for (target, value) in basis.iter_mut().zip(values) {
+                *target = spill(value)? as f32;
+            }
+            basis
         };
         for (index, value) in [0, 1, 2, 4, 5, 6, 8, 9, 10].into_iter().zip(basis) {
             self.elements[index] = value;
@@ -338,11 +365,43 @@ mod tests {
         let before = matrix.elements.map(f32::to_bits);
         assert_eq!(
             matrix.try_set_rot3(SQuat {
-                wxyz: [0.5, 1e-23, 0., 0.]
+                wxyz: [0.5, f32::MAX, 0., 0.]
             }),
             Err(MatrixArithmeticUnavailable)
         );
         assert_eq!(matrix.elements.map(f32::to_bits), before);
+    }
+    #[test]
+    fn checked_rotation_preserves_pc24_explicit_tiny_product_spills() {
+        let mut matrix = SMatrix::identity();
+        // Synthetic powers of two: xx spills to the minimum subnormal;
+        // xz is exactly halfway below it and rounds to even zero.
+        let tiny = f32::from_bits((127 - 75) << 23);
+        matrix
+            .try_set_rot3(SQuat {
+                wxyz: [0.5, tiny, 0.75, tiny * 0.5],
+            })
+            .unwrap();
+        let expected = [
+            -0.125,
+            tiny,
+            0.75,
+            tiny * 2.,
+            1.,
+            -tiny * 0.25,
+            -0.75,
+            tiny * 1.75,
+            -0.125,
+        ];
+        let indices = [0, 1, 2, 4, 5, 6, 8, 9, 10];
+        assert_eq!(
+            indices.map(|index| matrix.elements[index].to_bits()),
+            expected.map(f32::to_bits)
+        );
+        assert_eq!(
+            [3, 7, 11, 12, 13, 14, 15].map(|i| matrix.elements[i]),
+            [0., 0., 0., 0., 0., 0., 1.]
+        );
     }
     #[test]
     fn checked_affine_and_point_preserve_native_association_and_ignore_columns() {

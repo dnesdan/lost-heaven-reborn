@@ -12,15 +12,17 @@ use crate::vehicle_component_records::{
     vehicle_seat_records_insert,
 };
 
-/// Caller-supplied opaque stack bytes. Address denotes ESP at the first DOOR
-/// instruction. Known retained vector headers replace their corresponding
-/// bytes when the genuine continuation is consumed; no native allocation occurs.
-/// Earlier prefix locals outside the explicitly mirrored record sources remain
-/// caller input. This is not a reconstruction of the complete Init stack.
+/// Original Init locals, four saved registers, and SEH registration bytes.
+pub const VEHICLE_INIT_STACK_BYTES: usize = 0x1c8;
+
+/// Native Init stack at ESP after saving its four registers. Reached original
+/// stores overwrite these bytes; untouched automatic bytes remain caller input.
+/// The projection includes its wheel-name buffer and exception registration.
+/// This address is stable through the complete Init attempt.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VehicleComponentTailScratch {
     pub address: u32,
-    pub bytes: [u8; 0x13c],
+    pub bytes: [u8; VEHICLE_INIT_STACK_BYTES],
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -100,9 +102,9 @@ pub trait VehicleComponentTailBackend: VehicleComponentsBackend + VehicleBodycol
 /// addresses belong to the backend. This view performs no snapshot/copyback.
 /// Use the backend-aware word methods when an address can cross that boundary.
 pub struct VehicleComponentTailMemory<'a> {
-    vehicle_address: u32,
-    vehicle: &'a mut [u8],
-    scratch: &'a mut VehicleComponentTailScratch,
+    pub(super) vehicle_address: u32,
+    pub(super) vehicle: &'a mut [u8],
+    pub(super) scratch: &'a mut VehicleComponentTailScratch,
 }
 impl VehicleComponentTailMemory<'_> {
     fn region(&self, address: u32, size: usize) -> Option<&[u8]> {
@@ -155,13 +157,35 @@ impl VehicleComponentTailMemory<'_> {
         Some(())
     }
 
+    pub fn read_byte_with_backend<B: VehicleInitBackend + ?Sized>(
+        &self,
+        backend: &mut B,
+        address: u32,
+    ) -> Result<u8, B::Error> {
+        match self.read_byte(address) {
+            Some(value) => Ok(value),
+            None => backend.read_byte(address),
+        }
+    }
+    pub fn write_byte_with_backend<B: VehicleInitBackend + ?Sized>(
+        &mut self,
+        backend: &mut B,
+        address: u32,
+        value: u8,
+    ) -> Result<(), B::Error> {
+        match self.write_byte(address, value) {
+            Some(()) => Ok(()),
+            None => backend.write_byte(address, value),
+        }
+    }
+
     fn touches_projection(&self, address: u32) -> bool {
         (0..4).any(|offset| self.read_byte(address.wrapping_add(offset)).is_some())
     }
 
     /// Keeps a wholly external read as one backend word operation. Mixed words
     /// resolve each byte through its live owner, in increasing byte order.
-    pub fn read_word_with_backend<B: VehicleInitBackend>(
+    pub fn read_word_with_backend<B: VehicleInitBackend + ?Sized>(
         &self,
         backend: &mut B,
         address: u32,
@@ -186,7 +210,7 @@ impl VehicleComponentTailMemory<'_> {
     /// Keeps wholly external writes as backend word operations. Mixed writes
     /// resolve bytes in increasing order and retain completed stores if a host
     /// effect is unavailable. This does not model hardware page-fault atomicity.
-    pub fn write_word_with_backend<B: VehicleInitBackend>(
+    pub fn write_word_with_backend<B: VehicleInitBackend + ?Sized>(
         &mut self,
         backend: &mut B,
         address: u32,
@@ -207,11 +231,11 @@ impl VehicleComponentTailMemory<'_> {
         Ok(())
     }
 }
-struct Projection<'a, B> {
-    backend: &'a mut B,
-    memory: VehicleComponentTailMemory<'a>,
+pub(super) struct Projection<'a, B: ?Sized> {
+    pub(super) backend: &'a mut B,
+    pub(super) memory: VehicleComponentTailMemory<'a>,
 }
-impl<B: VehicleInitBackend> VehicleInitBackend for Projection<'_, B> {
+impl<B: VehicleInitBackend + ?Sized> VehicleInitBackend for Projection<'_, B> {
     type Error = B::Error;
     fn read_byte(&mut self, a: u32) -> Result<u8, Self::Error> {
         match self.memory.read_byte(a) {
@@ -232,10 +256,10 @@ impl<B: VehicleInitBackend> VehicleInitBackend for Projection<'_, B> {
         self.memory.write_word_with_backend(self.backend, a, v)
     }
     fn free(&mut self, a: u32) -> Result<(), Self::Error> {
-        self.backend.free(a)
+        self.backend.free_projected(&mut self.memory, a)
     }
     fn allocate(&mut self, n: u32) -> Result<u32, Self::Error> {
-        self.backend.allocate(n)
+        self.backend.allocate_projected(&mut self.memory, n)
     }
     fn collect_frame(&mut self, v: &mut VehicleInitFrameVector, f: u32) -> Result<(), Self::Error> {
         self.backend.collect_frame(v, f)
@@ -303,6 +327,8 @@ fn count(v: VehicleInitFrameVector) -> u32 {
 }
 pub struct VehicleComponentTailEnumeration<'a> {
     scratch: &'a mut VehicleComponentTailScratch,
+    vehicle: &'a mut [u8],
+    vehicle_address: u32,
     offset: usize,
 }
 impl VehicleComponentTailEnumeration<'_> {
@@ -311,10 +337,16 @@ impl VehicleComponentTailEnumeration<'_> {
         frame: u32,
         backend: &mut B,
     ) -> Result<u32, VehicleInitUnavailable<B::Error>> {
-        let mut v = vector(self.scratch, self.offset);
-        let result = backend.collect_frame(&mut v, frame);
-        put_vector(self.scratch, self.offset, v);
-        result.map(|()| 0).map_err(VehicleInitUnavailable::Effect)
+        let header = self.scratch.address.wrapping_add(self.offset as u32);
+        backend.collect_frame_projected(
+            VehicleComponentTailMemory {
+                vehicle_address: self.vehicle_address,
+                vehicle: self.vehicle,
+                scratch: self.scratch,
+            },
+            header,
+            frame,
+        )
     }
 }
 
@@ -334,8 +366,29 @@ impl VehicleInitState {
                 VehicleComponentsUnavailable::Init(VehicleInitUnavailable::AlreadyStarted),
             ));
         }
+        let car_entry = self.car_caller_started;
+        if car_entry && !std::mem::take(&mut self.car_caller_ready) {
+            return Err(VehicleComponentTailUnavailable::NoContinuation);
+        }
         self.validate_tail_storage::<B>(&storage)?;
+        if car_entry {
+            // Actual saved registers at the C_car callsite, before Init's
+            // first body instruction. Other untouched stack bytes stay input.
+            for (index, value) in [
+                0,
+                storage.bodycol.vehicle_address,
+                storage.bodycol.vehicle_address.wrapping_sub(0x70),
+                model,
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                storage.scratch.bytes[index * 4..index * 4 + 4]
+                    .copy_from_slice(&value.to_le_bytes());
+            }
+        }
         self.tail_scratch = Some(storage.scratch.clone());
+        self.tail_vehicle_address = Some(storage.bodycol.vehicle_address);
         let outcome = self.init_components(
             &mut VehicleBodycolComponents::with_exhaust_records(
                 backend,
@@ -348,10 +401,10 @@ impl VehicleInitState {
             Ok(outcome) => outcome,
             Err(error) => return Err(VehicleComponentTailUnavailable::Prefix(error)),
         };
-        storage.scratch = self.tail_scratch.take().unwrap();
         match outcome {
             VehicleComponentsOutcome::Rejected(r) => Ok(VehicleComponentTailOutcome::Rejected(r)),
             VehicleComponentsOutcome::UnavailableFrontier(_) => {
+                storage.scratch = self.tail_scratch.take().unwrap();
                 self.continue_component_tail(backend, storage)
             }
         }
@@ -380,7 +433,7 @@ impl VehicleInitState {
         self.scratch = Some(vector(scratch, 0x68));
         result
     }
-    fn validate_tail_storage<B: VehicleInitBackend>(
+    pub(super) fn validate_tail_storage<B: VehicleInitBackend>(
         &self,
         storage: &VehicleComponentTailStorage,
     ) -> TailResult<B, ()> {
@@ -409,19 +462,26 @@ impl VehicleInitState {
         }
         Ok(())
     }
+    pub(super) fn live_tail_memory(&mut self) -> VehicleComponentTailMemory<'_> {
+        VehicleComponentTailMemory {
+            vehicle_address: self.tail_vehicle_address.unwrap(),
+            vehicle: &mut self.bytes,
+            scratch: self.tail_scratch.as_mut().unwrap(),
+        }
+    }
     pub fn component_tail_scratch(&self) -> Option<&VehicleComponentTailScratch> {
         self.tail_scratch.as_ref()
     }
-    fn tail_word(&self, offset: usize) -> u32 {
+    pub(super) fn tail_word(&self, offset: usize) -> u32 {
         stack_word(self.tail_scratch.as_ref().unwrap(), offset)
     }
-    fn tail_store(&mut self, offset: usize, value: u32) {
+    pub(super) fn tail_store(&mut self, offset: usize, value: u32) {
         stack_store(self.tail_scratch.as_mut().unwrap(), offset, value);
     }
-    fn tail_vector(&self, offset: usize) -> VehicleInitFrameVector {
+    pub(super) fn tail_vector(&self, offset: usize) -> VehicleInitFrameVector {
         vector(self.tail_scratch.as_ref().unwrap(), offset)
     }
-    fn tail_zero(&mut self, offset: usize, words: usize) {
+    pub(super) fn tail_zero(&mut self, offset: usize, words: usize) {
         for i in 0..words {
             self.tail_store(offset + i * 4, 0);
         }
@@ -429,7 +489,7 @@ impl VehicleInitState {
     // Pointer-bearing fields are mutable through the seat callback. Every
     // subsequent raw access resolves again: an indirect address may now name
     // vehicle or stack storage instead of an external frame or allocation.
-    fn tail_read_word<B: VehicleInitBackend>(
+    pub(super) fn tail_read_word<B: VehicleInitBackend>(
         &mut self,
         b: &mut B,
         address: u32,
@@ -437,7 +497,7 @@ impl VehicleInitState {
         self.tail_projection(b, self.tail_vehicle_address.unwrap())
             .read_word(address)
     }
-    fn tail_read_byte<B: VehicleInitBackend>(
+    pub(super) fn tail_read_byte<B: VehicleInitBackend>(
         &mut self,
         b: &mut B,
         address: u32,
@@ -445,7 +505,7 @@ impl VehicleInitState {
         self.tail_projection(b, self.tail_vehicle_address.unwrap())
             .read_byte(address)
     }
-    fn tail_write_word<B: VehicleInitBackend>(
+    pub(super) fn tail_write_word<B: VehicleInitBackend>(
         &mut self,
         b: &mut B,
         address: u32,
@@ -484,7 +544,10 @@ impl VehicleInitState {
             .map_err(VehicleInitUnavailable::Effect)
             .map_err(Into::into)
     }
-    fn tail_name_length<B: VehicleInitBackend>(&mut self, b: &mut B) -> TailResult<B, u32> {
+    pub(super) fn tail_name_length<B: VehicleInitBackend>(
+        &mut self,
+        b: &mut B,
+    ) -> TailResult<B, u32> {
         let mut address = self.load(0x4bc)?;
         let mut remaining = u32::MAX;
         while remaining != 0 {
@@ -517,14 +580,27 @@ impl VehicleInitState {
                 capacity: 0,
             },
         );
+        scratch.bytes[0x1c4] = match query {
+            VehicleComponentTailQuery::Ballast => 2,
+            VehicleComponentTailQuery::Seat => 3,
+        };
         b.enumerate_tail(
             root,
             query,
-            &mut VehicleComponentTailEnumeration { scratch, offset },
+            &mut VehicleComponentTailEnumeration {
+                scratch,
+                offset,
+                vehicle: &mut self.bytes,
+                vehicle_address: self.tail_vehicle_address.unwrap(),
+            },
         )?;
         Ok(())
     }
-    fn tail_projection<'a, B>(&'a mut self, b: &'a mut B, base: u32) -> Projection<'a, B> {
+    pub(super) fn tail_projection<'a, B>(
+        &'a mut self,
+        b: &'a mut B,
+        base: u32,
+    ) -> Projection<'a, B> {
         Projection {
             backend: b,
             memory: VehicleComponentTailMemory {
@@ -534,7 +610,7 @@ impl VehicleInitState {
             },
         }
     }
-    fn tail_direction<B: VehicleComponentTailBackend>(
+    pub(super) fn tail_direction<B: VehicleComponentsBackend>(
         &mut self,
         b: &mut B,
         frame: u32,
@@ -615,7 +691,7 @@ impl VehicleInitState {
         }
         Ok(direction)
     }
-    fn tail_transform<B: VehicleInitBackend>(
+    pub(super) fn tail_transform<B: VehicleInitBackend>(
         &mut self,
         b: &mut B,
         matrix: MatrixSource,
@@ -918,11 +994,12 @@ impl VehicleInitState {
         {
             // The four original frees occur even for null vector pointers.
             for offset in [0x48, 0x38, 0x58] {
-                b.free(self.tail_vector(offset).begin).map_err(Effect)?;
+                self.init_free(b, self.tail_vector(offset).begin)
+                    .map_err(Effect)?;
                 self.tail_zero(offset + 4, 3);
             }
             let allocation = self.tail_vector(0x68).begin;
-            b.free(allocation).map_err(Effect)?;
+            self.init_free(b, allocation).map_err(Effect)?;
             return Ok(VehicleComponentTailOutcome::Rejected(
                 VehicleInitRejection::MissingSeat,
             ));
@@ -1019,11 +1096,12 @@ impl VehicleInitState {
             }
             index = index.wrapping_add(1);
         }
+        self.wheel_continuation = true;
         Ok(VehicleComponentTailOutcome::UnavailableFrontier(
             VehicleComponentTailFrontier::WheelEnumeration,
         ))
     }
-    fn tail_transformed_record<B: VehicleComponentTailBackend>(
+    pub(super) fn tail_transformed_record<B: VehicleComponentTailBackend>(
         &mut self,
         b: &mut B,
         offset: usize,
@@ -1076,6 +1154,77 @@ impl VehicleInitState {
         }
         Ok(())
     }
+}
+
+pub(super) fn insert_special_point_projection<B: VehicleInitBackend>(
+    backend: &mut B,
+    vehicle: &mut [u8],
+    vehicle_address: u32,
+    scratch: &mut VehicleComponentTailScratch,
+    insertion: u32,
+    source_offset: u32,
+) -> Result<(), B::Error> {
+    let source = scratch.address.wrapping_add(source_offset);
+    vehicle_special_points_insert(
+        &mut Projection {
+            backend,
+            memory: VehicleComponentTailMemory {
+                vehicle_address,
+                vehicle,
+                scratch,
+            },
+        },
+        vehicle_address.wrapping_add(0x1fb0),
+        insertion,
+        source,
+    )
+    .map(|_| ())
+}
+pub(super) fn insert_special_control_projection<B: VehicleInitBackend>(
+    backend: &mut B,
+    vehicle: &mut [u8],
+    vehicle_address: u32,
+    scratch: &mut VehicleComponentTailScratch,
+    insertion: u32,
+) -> Result<(), B::Error> {
+    let source = scratch.address.wrapping_add(0x20);
+    vehicle_special_controls_insert(
+        &mut Projection {
+            backend,
+            memory: VehicleComponentTailMemory {
+                vehicle_address,
+                vehicle,
+                scratch,
+            },
+        },
+        vehicle_address.wrapping_add(0x1ff8),
+        insertion,
+        source,
+    )
+    .map(|_| ())
+}
+pub(super) fn insert_exhaust_live_projection<B: VehicleInitBackend>(
+    backend: &mut B,
+    vehicle: &mut [u8],
+    vehicle_address: u32,
+    scratch: &mut VehicleComponentTailScratch,
+    insertion: u32,
+) -> Result<(), B::Error> {
+    let source = scratch.address.wrapping_add(0x8c);
+    vehicle_exhaust_records_insert(
+        &mut Projection {
+            backend,
+            memory: VehicleComponentTailMemory {
+                vehicle_address,
+                vehicle,
+                scratch,
+            },
+        },
+        vehicle_address.wrapping_add(0x450),
+        insertion,
+        source,
+    )
+    .map(|_| ())
 }
 
 #[cfg(test)]
@@ -1135,12 +1284,17 @@ mod projection_tests {
 
     #[test]
     fn mixed_words_resolve_each_owner_at_both_edges_of_both_projections() {
-        for edge in [0x1000u32, 0x3400, 0x5000, 0x513c] {
+        for edge in [
+            0x1000u32,
+            0x3400,
+            0x5000,
+            0x5000 + VEHICLE_INIT_STACK_BYTES as u32,
+        ] {
             for preceding in 1..=3 {
                 let mut vehicle = [0x11; 0x2400];
                 let mut scratch = VehicleComponentTailScratch {
                     address: 0x5000,
-                    bytes: [0x22; 0x13c],
+                    bytes: [0x22; VEHICLE_INIT_STACK_BYTES],
                 };
                 let mut backend = MemoryBackend::default();
                 let mut projection = Projection {
@@ -1189,7 +1343,7 @@ mod projection_tests {
         let mut vehicle = [0x11; 8];
         let mut scratch = VehicleComponentTailScratch {
             address: 0x1008,
-            bytes: [0x22; 0x13c],
+            bytes: [0x22; VEHICLE_INIT_STACK_BYTES],
         };
         let mut memory = VehicleComponentTailMemory {
             vehicle_address: 0x1000,
@@ -1199,7 +1353,10 @@ mod projection_tests {
         assert_eq!(memory.read_word(0x1006), Some(0x22221111));
         assert_eq!(memory.write_word(0x1006, 0x44332211), Some(()));
         assert_eq!(memory.read_word(0x1006), Some(0x44332211));
-        assert_eq!(memory.write_word(0x1006 + 0x13c, 0), None);
+        assert_eq!(
+            memory.write_word(0x1006 + VEHICLE_INIT_STACK_BYTES as u32, 0),
+            None
+        );
         assert_eq!(memory.read_byte(0x1142), Some(0x22));
         assert_eq!(memory.read_byte(0x1143), Some(0x22));
         let mut backend = MemoryBackend::default();
@@ -1219,7 +1376,7 @@ mod projection_tests {
         let mut vehicle = [0; 8];
         let mut scratch = VehicleComponentTailScratch {
             address: 0x5000,
-            bytes: [0; 0x13c],
+            bytes: [0; VEHICLE_INIT_STACK_BYTES],
         };
         let mut memory = VehicleComponentTailMemory {
             vehicle_address: 0x1000,
@@ -1247,7 +1404,7 @@ mod projection_tests {
             let mut vehicle = [0x11; 8];
             let mut scratch = VehicleComponentTailScratch {
                 address: 0x5000,
-                bytes: [0; 0x13c],
+                bytes: [0; VEHICLE_INIT_STACK_BYTES],
             };
             let mut memory = VehicleComponentTailMemory {
                 vehicle_address: 0x1000,
@@ -1288,7 +1445,7 @@ mod projection_tests {
         let mut vehicle = [0x11; 8];
         let mut scratch = VehicleComponentTailScratch {
             address: 0x5000,
-            bytes: [0; 0x13c],
+            bytes: [0; VEHICLE_INIT_STACK_BYTES],
         };
         let mut memory = VehicleComponentTailMemory {
             vehicle_address: 0,

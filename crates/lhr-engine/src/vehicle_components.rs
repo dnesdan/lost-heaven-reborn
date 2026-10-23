@@ -4,9 +4,14 @@
 //! Effect methods correspond to actual calls, rather than successful substitutes
 //! for inline arithmetic. All arithmetic assumes Game's x87 PC24/RN policy.
 use super::*;
+#[path = "vehicle_special_records.rs"]
+mod special_records;
 use crate::{
     native_matrix::{checked_f32_add, checked_f32_mul},
     native_transform::SMatrix,
+};
+pub use special_records::{
+    vehicle_collect_frame, vehicle_special_controls_insert, vehicle_special_points_insert,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -28,6 +33,8 @@ pub enum VehicleComponentsUnavailable<E> {
     Init(VehicleInitUnavailable<E>),
     /// Only a frontier produced by this very state can be continued, once.
     NoContinuation,
+    /// The complete Init route requires a record helper over its live stack.
+    ProjectionBackendUnavailable,
     /// Portable arithmetic cannot represent the required x87 intermediate.
     NumericDomain(&'static str),
 }
@@ -108,6 +115,37 @@ pub trait VehicleComponentsBackend: VehicleInitBackend {
         kind: u32,
         enabled: u8,
     ) -> Result<(), Self::Error>;
+    /// Complete Init record calls use the original shared stack, including
+    /// untouched bytes and stores visible to allocator callbacks.
+    fn insert_exhaust_projected(
+        &mut self,
+        _vehicle: &mut [u8],
+        _scratch: &mut VehicleComponentTailScratch,
+        _insertion: u32,
+        _value: [u32; 6],
+    ) -> Result<(), VehicleComponentsUnavailable<Self::Error>> {
+        Err(VehicleComponentsUnavailable::ProjectionBackendUnavailable)
+    }
+    fn insert_special_point_projected(
+        &mut self,
+        _vehicle: &mut [u8],
+        _scratch: &mut VehicleComponentTailScratch,
+        _insertion: u32,
+        _source_offset: u32,
+        _point: [u32; 3],
+    ) -> Result<(), VehicleComponentsUnavailable<Self::Error>> {
+        Err(VehicleComponentsUnavailable::ProjectionBackendUnavailable)
+    }
+    fn insert_special_control_projected(
+        &mut self,
+        _vehicle: &mut [u8],
+        _scratch: &mut VehicleComponentTailScratch,
+        _insertion: u32,
+        _kind: u32,
+        _enabled: u8,
+    ) -> Result<(), VehicleComponentsUnavailable<Self::Error>> {
+        Err(VehicleComponentsUnavailable::ProjectionBackendUnavailable)
+    }
     /// Actual optional indirect call vehicle+0x31c, ECX=vehicle+0xc74 value,
     /// EDX=frame, stack arguments=(control_pointer,index).
     fn special_collision_callback(
@@ -160,7 +198,7 @@ pub struct VehicleComponentsEnumeration<'a> {
 }
 enum ComponentEnumerationTarget<'a> {
     BodyCollision(&'a mut [u8], VehicleBodyCollisionContext),
-    Collect(&'a mut VehicleInitFrameVector),
+    Collect(&'a mut VehicleInitState),
 }
 impl VehicleComponentsEnumeration<'_> {
     pub fn visit<B: VehicleComponentsBackend + ?Sized>(
@@ -172,11 +210,24 @@ impl VehicleComponentsEnumeration<'_> {
             ComponentEnumerationTarget::BodyCollision(vehicle, context) => backend
                 .body_collision_callback(vehicle, *context, frame)
                 .map_err(VehicleInitUnavailable::Effect),
-            ComponentEnumerationTarget::Collect(vector) => {
-                backend
-                    .collect_frame(vector, frame)
-                    .map_err(VehicleInitUnavailable::Effect)?;
-                Ok(0)
+            ComponentEnumerationTarget::Collect(state) => {
+                if state.tail_scratch.is_some() {
+                    let header = state
+                        .tail_scratch
+                        .as_ref()
+                        .unwrap()
+                        .address
+                        .wrapping_add(0x58);
+                    let result =
+                        backend.collect_frame_projected(state.live_tail_memory(), header, frame);
+                    state.component_scratch = Some(state.tail_vector(0x58));
+                    result
+                } else {
+                    backend
+                        .collect_frame(state.component_scratch.as_mut().unwrap(), frame)
+                        .map_err(VehicleInitUnavailable::Effect)?;
+                    Ok(0)
+                }
             }
         }
     }
@@ -301,15 +352,49 @@ pub(super) fn normalize_direction<E>(
     Ok(vector.map(f32::to_bits))
 }
 
+fn component_tail_error<E>(
+    error: VehicleComponentTailUnavailable<E>,
+) -> VehicleComponentsUnavailable<E> {
+    match error {
+        VehicleComponentTailUnavailable::Tail(error) => error,
+        _ => VehicleComponentsUnavailable::ProjectionBackendUnavailable,
+    }
+}
 impl VehicleInitState {
     // The opt-in tail has an explicit stack mapping. Mirror reached prefix
     // stores that overlap its record sources; legacy callers have no mapping.
-    fn component_stack_words(&mut self, offset: usize, values: &[u32]) {
+    pub(super) fn component_stack_words(&mut self, offset: usize, values: &[u32]) {
         if let Some(scratch) = self.tail_scratch.as_mut() {
             for (index, value) in values.iter().enumerate() {
                 let start = offset + index * 4;
                 scratch.bytes[start..start + 4].copy_from_slice(&value.to_le_bytes());
             }
+        }
+    }
+    pub(super) fn component_stack_byte(&mut self, offset: usize, value: u8) {
+        if let Some(scratch) = self.tail_scratch.as_mut() {
+            scratch.bytes[offset] = value;
+        }
+    }
+    pub(super) fn mirror_component_vector(
+        &mut self,
+        offset: usize,
+        vector: VehicleInitFrameVector,
+    ) {
+        self.component_stack_words(offset + 4, &[vector.begin, vector.end, vector.capacity]);
+    }
+    fn component_transform<B: VehicleInitBackend>(
+        &mut self,
+        backend: &mut B,
+        matrix: MatrixSource,
+        point: PointSource,
+        output: usize,
+    ) -> Result<[u32; 3], VehicleComponentsUnavailable<B::Error>> {
+        if self.tail_scratch.is_some() {
+            self.tail_transform(backend, matrix, point, output)
+                .map_err(component_tail_error)
+        } else {
+            transform_sources(backend, matrix, point)
         }
     }
     /// Executes the established prefix and its component continuation. It never
@@ -344,67 +429,85 @@ impl VehicleInitState {
                 loop {
                     let body = self.load(0xe68)?;
                     backend.prepare_frame_matrix(body).map_err(Effect)?;
-                    let mut body_matrix = matrix(read_words(backend, body.wrapping_add(0x50))?);
+                    let mut words = [0; 16];
+                    for (index, value) in words.iter_mut().enumerate() {
+                        *value = backend
+                            .read_word(body.wrapping_add(0x50 + index as u32 * 4))
+                            .map_err(Effect)?;
+                        self.component_stack_words(0xb4 + index * 4, &[*value]);
+                    }
+                    let mut body_matrix = matrix(words);
                     let frame = self.scratch_frame(backend, index)?;
-                    let position = transform_sources(
+                    let position = self.component_transform(
                         backend,
                         MatrixSource::Local(body_matrix),
                         PointSource::External(frame.wrapping_add(0x80)),
+                        0x130,
                     )?;
-                    // Native zeros copied translation before transforming a direction.
+                    self.component_stack_words(0x8c, &position[..2]);
+                    self.component_stack_words(0xec, &[0]);
+                    self.component_stack_words(0x94, &position[2..]);
+                    self.component_stack_words(0xe8, &[0]);
+                    self.component_stack_words(0xe4, &[0]);
                     body_matrix.elements[12..15].fill(0.);
                     let frame = self.scratch_frame(backend, index)?;
-                    let flags = backend
-                        .read_word(frame.wrapping_add(0xac))
-                        .map_err(Effect)?;
-                    let direction = if flags & 0x10 == 0 {
-                        backend
-                            .write_word(frame.wrapping_add(0xac), flags | 0x10)
-                            .map_err(Effect)?;
-                        backend.normalize_frame_quaternion(frame).map_err(Effect)?;
-                        backend.set_frame_rotation_matrix(frame).map_err(Effect)?;
-                        read_words(backend, frame.wrapping_add(0x70))?
+                    let direction = if self.tail_scratch.is_some() {
+                        self.tail_direction(backend, frame)
+                            .map_err(component_tail_error)?
                     } else {
-                        normalize_direction(read_words(backend, frame.wrapping_add(0x70))?)?
+                        let flags = backend
+                            .read_word(frame.wrapping_add(0xac))
+                            .map_err(Effect)?;
+                        if flags & 0x10 == 0 {
+                            backend
+                                .write_word(frame.wrapping_add(0xac), flags | 0x10)
+                                .map_err(Effect)?;
+                            backend.normalize_frame_quaternion(frame).map_err(Effect)?;
+                            backend.set_frame_rotation_matrix(frame).map_err(Effect)?;
+                            read_words(backend, frame.wrapping_add(0x70))?
+                        } else {
+                            normalize_direction(read_words(backend, frame.wrapping_add(0x70))?)?
+                        }
                     };
-                    let direction = transform_sources(
+                    let direction = self.component_transform(
                         backend,
                         MatrixSource::Local(body_matrix),
                         PointSource::Local(direction),
+                        0x80,
                     )?;
-                    self.component_stack_words(
-                        0x8c,
-                        &[
-                            position[0],
-                            position[1],
-                            position[2],
-                            direction[0],
-                            direction[1],
-                            direction[2],
-                        ],
-                    );
+                    self.component_stack_words(0x98, &direction);
                     let insertion = self.load(0x458)?;
-                    backend
-                        .insert_exhaust(
+                    let value = [
+                        position[0],
+                        position[1],
+                        position[2],
+                        direction[0],
+                        direction[1],
+                        direction[2],
+                    ];
+                    if let Some(scratch) = self.tail_scratch.as_mut() {
+                        backend.insert_exhaust_projected(
                             &mut self.bytes,
+                            scratch,
                             insertion,
-                            [
-                                position[0],
-                                position[1],
-                                position[2],
-                                direction[0],
-                                direction[1],
-                                direction[2],
-                            ],
-                        )
-                        .map_err(Effect)?;
+                            value,
+                        )?;
+                    } else {
+                        backend
+                            .insert_exhaust(&mut self.bytes, insertion, value)
+                            .map_err(Effect)?;
+                    }
                     self.detach_scratch_frame(backend, index)?;
                     if index == 0 {
                         break;
                     }
                     index = index.wrapping_sub(1);
                 }
+                if self.tail_scratch.is_some() {
+                    self.scratch = Some(self.tail_vector(0x68));
+                }
                 self.scratch.as_mut().unwrap().end = self.scratch.unwrap().begin;
+                self.mirror_component_vector(0x68, self.scratch.unwrap());
                 self.enumerate_special_collision(backend)?;
                 self.special_collision_components(backend)?;
                 self.head_component(backend, true)?;
@@ -426,6 +529,14 @@ impl VehicleInitState {
             name_length_with_nul: self.name_length,
             model,
         };
+        self.component_stack_words(
+            0x124,
+            &[
+                self.name_length,
+                model,
+                self.tail_vehicle_address.unwrap_or(0).wrapping_add(0x4ac),
+            ],
+        );
         backend.enumerate_components(
             model,
             VehicleComponentsQuery::BodyCollision,
@@ -457,6 +568,7 @@ impl VehicleInitState {
         for (index, value) in words.iter_mut().enumerate() {
             *value = self.load(0xd28 + index as u32 * 4)?;
         }
+        self.component_stack_words(0xb4, &words);
         let (inverse, _) = matrix(words)
             .inverse()
             .map_err(|_| VehicleComponentsUnavailable::NumericDomain("model matrix inverse"))?;
@@ -474,15 +586,20 @@ impl VehicleInitState {
             capacity: 0,
         });
         let model = self.load(0x34c)?;
-        backend.enumerate_components(
+        if let Some(scratch) = self.tail_scratch.as_ref() {
+            self.component_stack_byte(0x58, scratch.bytes[0x37]);
+        }
+        self.mirror_component_vector(0x58, self.component_scratch.unwrap());
+        self.component_stack_byte(0x1c4, 1);
+        let result = backend.enumerate_components(
             model,
             VehicleComponentsQuery::Door,
             &mut VehicleComponentsEnumeration {
-                target: ComponentEnumerationTarget::Collect(
-                    self.component_scratch.as_mut().unwrap(),
-                ),
+                target: ComponentEnumerationTarget::Collect(self),
             },
-        )?;
+        );
+        self.mirror_component_vector(0x58, self.component_scratch.unwrap());
+        result?;
         self.scan_component_name(backend)?;
         let suffix_offset = self.name_length.wrapping_sub(1).wrapping_add(5);
         let mut index = 0;
@@ -511,17 +628,30 @@ impl VehicleInitState {
             }
             index = index.wrapping_add(1);
         }
+        // The native door-setup index is initialized even when the sorted
+        // collection is empty and execution skips directly to BALLAST.
+        self.component_stack_words(0x1c, &[0]);
         let frontier = if self.component_count() != 0 {
             VehicleComponentsFrontier::DoorSetup { index: 0 }
         } else {
             VehicleComponentsFrontier::BallastEnumeration
         };
+        if self.tail_scratch.is_some() {
+            self.scratch = Some(self.tail_vector(0x68));
+            self.component_scratch = Some(self.tail_vector(0x58));
+        }
         self.component_tail = Some(frontier);
         Ok(VehicleComponentsOutcome::UnavailableFrontier(frontier))
     }
 
     pub fn component_scratch(&self) -> Option<VehicleInitFrameVector> {
-        self.component_scratch
+        self.component_scratch.map(|value| {
+            if self.tail_scratch.is_some() {
+                self.tail_vector(0x58)
+            } else {
+                value
+            }
+        })
     }
 
     fn component_count(&self) -> u32 {
@@ -560,17 +690,22 @@ impl VehicleInitState {
     }
 
     fn scratch_frame<B: VehicleInitBackend>(
-        &self,
+        &mut self,
         backend: &mut B,
         index: u32,
     ) -> Result<u32, VehicleComponentsUnavailable<B::Error>> {
-        backend
-            .read_word(
-                self.scratch
-                    .unwrap()
-                    .begin
-                    .wrapping_add(index.wrapping_mul(4)),
-            )
+        let begin = if self.tail_scratch.is_some() {
+            self.tail_word(0x6c)
+        } else {
+            self.scratch.unwrap().begin
+        };
+        let address = begin.wrapping_add(index.wrapping_mul(4));
+        let result = if self.tail_scratch.is_some() {
+            self.tail_read_word(backend, address)
+        } else {
+            backend.read_word(address)
+        };
+        result
             .map_err(VehicleInitUnavailable::Effect)
             .map_err(Into::into)
     }
@@ -598,7 +733,7 @@ impl VehicleInitState {
             self.load(0x34c)?,
             VehicleInitQuery::SpecialCollision,
             &mut VehicleInitEnumeration {
-                target: EnumerationTarget::Collect(self.scratch.as_mut().unwrap()),
+                target: EnumerationTarget::ProjectedCollect(self),
             },
         )?;
         Ok(())
@@ -610,7 +745,11 @@ impl VehicleInitState {
         use VehicleInitUnavailable::Effect;
         let mut index = 0;
         loop {
-            let vector = self.scratch.unwrap();
+            let vector = if self.tail_scratch.is_some() {
+                self.tail_vector(0x68)
+            } else {
+                self.scratch.unwrap()
+            };
             let count = ((vector.end.wrapping_sub(vector.begin) as i32) >> 2) as u32;
             if vector.begin == 0 || index >= count {
                 break;
@@ -625,30 +764,64 @@ impl VehicleInitState {
             }
             let frame = self.scratch_frame(backend, index)?;
             backend.prepare_frame_matrix(frame).map_err(Effect)?;
-            let first = transform_sources(
+            let first = self.component_transform(
                 backend,
                 MatrixSource::External(frame.wrapping_add(0x50)),
                 PointSource::Local([bounds[0], bounds[1], bounds[2]]),
+                0x80,
             )?;
             let insertion = self.load(0x1fb8)?;
-            backend
-                .insert_special_point(&mut self.bytes, insertion, first)
-                .map_err(Effect)?;
+            if let Some(scratch) = self.tail_scratch.as_mut() {
+                backend.insert_special_point_projected(
+                    &mut self.bytes,
+                    scratch,
+                    insertion,
+                    0x80,
+                    first,
+                )?;
+            } else {
+                backend
+                    .insert_special_point(&mut self.bytes, insertion, first)
+                    .map_err(Effect)?;
+            }
             let frame = self.scratch_frame(backend, index)?;
             backend.prepare_frame_matrix(frame).map_err(Effect)?;
-            let second = transform_sources(
+            let second = self.component_transform(
                 backend,
                 MatrixSource::External(frame.wrapping_add(0x50)),
                 PointSource::Local([bounds[3], bounds[4], bounds[5]]),
+                0x130,
             )?;
             let insertion = self.load(0x1fb8)?;
-            backend
-                .insert_special_point(&mut self.bytes, insertion, second)
-                .map_err(Effect)?;
+            if let Some(scratch) = self.tail_scratch.as_mut() {
+                backend.insert_special_point_projected(
+                    &mut self.bytes,
+                    scratch,
+                    insertion,
+                    0x130,
+                    second,
+                )?;
+            } else {
+                backend
+                    .insert_special_point(&mut self.bytes, insertion, second)
+                    .map_err(Effect)?;
+            }
             let insertion = self.load(0x2000)?;
-            backend
-                .insert_special_control(&mut self.bytes, insertion, 0x40, 1)
-                .map_err(Effect)?;
+            self.component_stack_words(0x20, &[0x40]);
+            self.component_stack_byte(0x24, 1);
+            if let Some(scratch) = self.tail_scratch.as_mut() {
+                backend.insert_special_control_projected(
+                    &mut self.bytes,
+                    scratch,
+                    insertion,
+                    0x40,
+                    1,
+                )?;
+            } else {
+                backend
+                    .insert_special_control(&mut self.bytes, insertion, 0x40, 1)
+                    .map_err(Effect)?;
+            }
             let function = self.load(0x31c)?;
             if function != 0 {
                 let control_pointer = self.load::<B::Error>(0x2000)?.wrapping_sub(8);
@@ -671,13 +844,16 @@ impl VehicleInitState {
         use VehicleInitUnavailable::Effect;
         if enumerate {
             self.head = 0;
-            backend.enumerate(
+            self.component_stack_words(0x78, &[0]);
+            let result = backend.enumerate(
                 self.load(0x34c)?,
                 VehicleInitQuery::Head,
                 &mut VehicleInitEnumeration {
-                    target: EnumerationTarget::Head(&mut self.head),
+                    target: EnumerationTarget::ProjectedHead(self),
                 },
-            )?;
+            );
+            self.component_stack_words(0x78, &[self.head]);
+            result?;
         }
         if self.head == 0 {
             for offset in [0x2d4, 0x2d8, 0x2dc] {
@@ -686,10 +862,11 @@ impl VehicleInitState {
         } else {
             let body = self.load(0xe68)?;
             backend.prepare_frame_matrix(body).map_err(Effect)?;
-            let point = transform_sources(
+            let point = self.component_transform(
                 backend,
                 MatrixSource::External(body.wrapping_add(0x50)),
                 PointSource::External(self.head.wrapping_add(0x80)),
+                0x80,
             )?;
             for (index, value) in point.into_iter().enumerate() {
                 self.store(0x2d4 + index as u32 * 4, value)?;
@@ -700,6 +877,7 @@ impl VehicleInitState {
                 .remove_model_child(model, self.head)
                 .map_err(Effect)?;
             self.head = 0;
+            self.component_stack_words(0x78, &[0]);
         }
         Ok(())
     }
@@ -798,6 +976,24 @@ impl<B: VehicleComponentsBackend + crate::vehicle_bodycol::VehicleBodycolBackend
             .free(allocation)
             .map_err(crate::vehicle_bodycol::VehicleBodycolUnavailable::Effect)
     }
+    fn allocate_projected(
+        &mut self,
+        memory: &mut VehicleComponentTailMemory<'_>,
+        bytes: u32,
+    ) -> Result<u32, Self::Error> {
+        self.backend
+            .allocate_projected(memory, bytes)
+            .map_err(crate::vehicle_bodycol::VehicleBodycolUnavailable::Effect)
+    }
+    fn free_projected(
+        &mut self,
+        memory: &mut VehicleComponentTailMemory<'_>,
+        allocation: u32,
+    ) -> Result<(), Self::Error> {
+        self.backend
+            .free_projected(memory, allocation)
+            .map_err(crate::vehicle_bodycol::VehicleBodycolUnavailable::Effect)
+    }
     fn collect_frame(
         &mut self,
         vector: &mut VehicleInitFrameVector,
@@ -817,6 +1013,13 @@ impl<B: VehicleComponentsBackend + crate::vehicle_bodycol::VehicleBodycolBackend
             .enumerate(model, query, target)
             .map_err(bodycol_init_error)
     }
+}
+fn projected_component_error<E>(
+    error: E,
+) -> VehicleComponentsUnavailable<crate::vehicle_bodycol::VehicleBodycolUnavailable<E>> {
+    VehicleComponentsUnavailable::Init(VehicleInitUnavailable::Effect(
+        crate::vehicle_bodycol::VehicleBodycolUnavailable::Effect(error),
+    ))
 }
 impl<B: VehicleComponentsBackend + crate::vehicle_bodycol::VehicleBodycolBackend>
     VehicleComponentsBackend for VehicleBodycolComponents<'_, B>
@@ -877,6 +1080,57 @@ impl<B: VehicleComponentsBackend + crate::vehicle_bodycol::VehicleBodycolBackend
         self.backend
             .insert_special_control(vehicle, insertion, kind, enabled)
             .map_err(crate::vehicle_bodycol::VehicleBodycolUnavailable::Effect)
+    }
+    fn insert_exhaust_projected(
+        &mut self,
+        vehicle: &mut [u8],
+        scratch: &mut VehicleComponentTailScratch,
+        insertion: u32,
+        _value: [u32; 6],
+    ) -> Result<(), VehicleComponentsUnavailable<Self::Error>> {
+        super::component_tail::insert_exhaust_live_projection(
+            self.backend,
+            vehicle,
+            self.storage.vehicle_address,
+            scratch,
+            insertion,
+        )
+        .map_err(projected_component_error)
+    }
+    fn insert_special_point_projected(
+        &mut self,
+        vehicle: &mut [u8],
+        scratch: &mut VehicleComponentTailScratch,
+        insertion: u32,
+        source_offset: u32,
+        _point: [u32; 3],
+    ) -> Result<(), VehicleComponentsUnavailable<Self::Error>> {
+        super::component_tail::insert_special_point_projection(
+            self.backend,
+            vehicle,
+            self.storage.vehicle_address,
+            scratch,
+            insertion,
+            source_offset,
+        )
+        .map_err(projected_component_error)
+    }
+    fn insert_special_control_projected(
+        &mut self,
+        vehicle: &mut [u8],
+        scratch: &mut VehicleComponentTailScratch,
+        insertion: u32,
+        _kind: u32,
+        _enabled: u8,
+    ) -> Result<(), VehicleComponentsUnavailable<Self::Error>> {
+        super::component_tail::insert_special_control_projection(
+            self.backend,
+            vehicle,
+            self.storage.vehicle_address,
+            scratch,
+            insertion,
+        )
+        .map_err(projected_component_error)
     }
     fn special_collision_callback(
         &mut self,
@@ -1479,7 +1733,7 @@ mod tests {
             bodycol: actual_bodycol_storage(),
             scratch: VehicleComponentTailScratch {
                 address: 0x29000,
-                bytes: [0xa5; 0x13c],
+                bytes: [0xa5; VEHICLE_INIT_STACK_BYTES],
             },
         }
     }
@@ -1703,6 +1957,26 @@ mod tests {
         }
     }
     #[test]
+    fn early_native_rejection_keeps_the_live_stack_for_explicit_destruction() {
+        let mut backend = tail_backend();
+        let mut state = VehicleInitState::from_bytes(vec![0; 0x2400]);
+        assert_eq!(
+            state.init_component_tail(&mut backend, 0, tail_storage()),
+            Ok(VehicleComponentTailOutcome::Rejected(
+                VehicleInitRejection::NullModel
+            ))
+        );
+        let scratch = state.component_tail_scratch().unwrap();
+        assert_eq!(scratch.address, 0x29000);
+        assert_eq!(&scratch.bytes[0x1c0..0x1c4], &0x61eadcu32.to_le_bytes());
+        assert_eq!(&scratch.bytes[0x1c4..0x1c8], &u32::MAX.to_le_bytes());
+        assert!(!state.wheel_continuation);
+        assert!(state
+            .init_component_tail(&mut backend, MODEL, tail_storage())
+            .is_err());
+    }
+
+    #[test]
     fn component_tail_requires_real_capability_and_consumes_invalid_overlay() {
         let mut backend = tail_backend();
         let mut state = state();
@@ -1827,6 +2101,40 @@ mod tests {
         }
     }
     #[test]
+    fn empty_doors_initialize_the_stack_index_only_after_enumeration() {
+        let mut baseline = tail_backend();
+        baseline.doors = false;
+        state()
+            .init_component_tail(&mut baseline, MODEL, tail_storage())
+            .unwrap();
+        for (stop, expected) in [
+            (
+                Event::EnumerateComponents(VehicleComponentsQuery::Door),
+                0xa5a5a5a5u32,
+            ),
+            (
+                Event::TailEnumerate(BODY, VehicleComponentTailQuery::Ballast),
+                0,
+            ),
+        ] {
+            let mut backend = tail_backend();
+            backend.doors = false;
+            backend.fail = Some(
+                baseline
+                    .events
+                    .iter()
+                    .position(|event| *event == stop)
+                    .unwrap(),
+            );
+            let mut vehicle = state();
+            assert!(vehicle
+                .init_component_tail(&mut backend, MODEL, tail_storage())
+                .is_err());
+            let scratch = vehicle.component_tail_scratch().unwrap();
+            assert_eq!(&scratch.bytes[0x1c..0x20], &expected.to_le_bytes());
+        }
+    }
+    #[test]
     fn component_tail_missing_seat_frees_native_vectors_and_numeric_failure_is_bounded() {
         let mut backend = tail_backend();
         backend.tail_empty_seats = true;
@@ -1850,7 +2158,7 @@ mod tests {
             })
             .take(4)
             .collect::<Vec<_>>();
-        assert_eq!(frees, [0, 0x10000, 0x10100, 0]);
+        assert_eq!(frees, [0, 0x30a00, 0x31100, 0]);
         assert_eq!(state.scratch().unwrap().begin, 0);
         assert_eq!(state.component_scratch().unwrap().begin, 0);
         let mut backend = tail_backend();

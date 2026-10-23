@@ -4,7 +4,9 @@
 //! 0x1a6e0,0x1b9d0,0x1bf20,0x1ca60. Setter names are descriptive views of
 //! observed inline operations, not additional original symbols. ModelArena owns
 //! references; this graph provides bounded model/dummy/joint/Target teardown.
-//! Visual resource destruction and external registrations remain unavailable.
+//! ModelArena also composes attached plain-object resource teardown before the
+//! visual/base destructor. Unbound/derived visuals and external registrations
+//! remain unavailable.
 //! Only LinkTo flags0/1,
 //! model/mesh/dummy/joint/Target virtual updates and the owned deferred Target queue
 //! are represented.
@@ -33,6 +35,9 @@ pub enum FrameKind {
     Sector,
     Model,
     Mesh,
+    /// Native visual type1, projector subtype PROJ.
+    Projector,
+    Light,
     Dummy,
     Joint,
     Target,
@@ -54,6 +59,8 @@ pub struct I3dFrameState {
     pub visual_flags: u32,
     /// Native dummy-only field at +0x198; independent of mesh visual flags.
     pub dummy_flags: u32,
+    /// Projector-only native cache word +0x258, cleared by UpdateV464a0.
+    pub projector_cache_258: u32,
 }
 impl I3dFrameState {
     /// Actual model/base-frame constructor field projection.
@@ -71,6 +78,7 @@ impl I3dFrameState {
             update_count: 0,
             visual_flags: 0,
             dummy_flags: 0,
+            projector_cache_258: 0,
         }
     }
     /// Original standard Object/LitObject common constructor projection,
@@ -128,6 +136,7 @@ struct Node {
     state: I3dFrameState,
     links: FrameLinks,
     joint: Option<I3dJointState>,
+    light: Option<crate::frame_light::I3dLightState>,
     singlemesh: Option<SinglemeshInvalidationState>,
     binding: Option<I3dSinglemeshBinding>,
     // Host availability markers, not original frame fields. An interrupted
@@ -184,11 +193,22 @@ impl I3dFrameGraph {
             .ok()
             .and_then(|n| n.checked_add(1))
             .ok_or(FrameError::IdentityOverflow)?;
+        let required = self.nodes.len() + 1;
+        self.nodes
+            .try_reserve(1)
+            .map_err(|_| FrameError::AllocationOverflow)?;
+        self.world_path
+            .try_reserve(required.saturating_sub(self.world_path.len()))
+            .map_err(|_| FrameError::AllocationOverflow)?;
+        self.visits
+            .try_reserve(required.saturating_sub(self.visits.len()))
+            .map_err(|_| FrameError::AllocationOverflow)?;
         self.nodes.push(Node {
             alive: true,
             state,
             links: FrameLinks::default(),
             joint: (state.kind == FrameKind::Joint).then(I3dJointState::default),
+            light: None,
             singlemesh: None,
             binding: None,
             local_error: None,
@@ -198,10 +218,6 @@ impl I3dFrameGraph {
         });
         // Retain bounded traversal storage so the scene charges all allocations
         // before ticking or lazily rendering; traversal cannot grow past nodes.
-        self.world_path
-            .reserve(self.nodes.len().saturating_sub(self.world_path.len()));
-        self.visits
-            .reserve(self.nodes.len().saturating_sub(self.visits.len()));
         Ok(FrameKey(id))
     }
     fn index(&self, key: FrameKey) -> Result<usize, FrameError> {
@@ -223,20 +239,41 @@ impl I3dFrameGraph {
     /// require their concrete backends. Rejection leaves the graph unchanged.
     #[cfg(test)]
     pub(crate) fn check_destruction(&self, key: FrameKey) -> Result<(), FrameError> {
-        self.check_destruction_excluding(key, 0)
+        self.check_destruction_excluding(key, 0, false)
     }
     pub(crate) fn check_destruction_with_owned_name(
         &self,
         key: FrameKey,
     ) -> Result<(), FrameError> {
-        self.check_destruction_excluding(key, 0x2000_0000)
+        self.check_destruction_excluding(key, 0x2000_0000, false)
     }
-    fn check_destruction_excluding(&self, key: FrameKey, handled: u32) -> Result<(), FrameError> {
+    /// Plain ObjectResources must be owned and released by the arena before
+    /// invoking visual5a370/base1a9a0. Unbound or derived visuals stay rejected.
+    pub(crate) fn check_destruction_with_owned_visual(
+        &self,
+        key: FrameKey,
+    ) -> Result<(), FrameError> {
+        self.check_destruction_excluding(key, 0x2000_0000, true)
+    }
+    fn check_destruction_excluding(
+        &self,
+        key: FrameKey,
+        handled: u32,
+        plain_visual: bool,
+    ) -> Result<(), FrameError> {
         let node = self.node(key)?;
         if !matches!(
             node.state.kind,
-            FrameKind::Model | FrameKind::Dummy | FrameKind::Joint | FrameKind::Target
-        ) {
+            FrameKind::Model
+                | FrameKind::Dummy
+                | FrameKind::Joint
+                | FrameKind::Target
+                | FrameKind::Light
+        ) && !(plain_visual && matches!(node.state.kind, FrameKind::Mesh | FrameKind::Projector))
+        {
+            return Err(FrameError::UnsupportedDestruction(key));
+        }
+        if node.state.kind == FrameKind::Light && node.light.is_none() {
             return Err(FrameError::UnsupportedDestruction(key));
         }
         let registrations = (node.state.flags & !handled)
@@ -374,6 +411,41 @@ impl I3dFrameGraph {
     pub fn state(&self, key: FrameKey) -> Result<&I3dFrameState, FrameError> {
         Ok(&self.node(key)?.state)
     }
+    /// Direct native field stores used by reconstructed callers. Unlike SetRot,
+    /// SetScale or LinkTo, a store does not invoke additional invalidation. The
+    /// caller must restrict writes to its evidenced offsets and preserve their
+    /// order; hierarchy, derived bindings and lifetime remain graph-owned.
+    pub(crate) fn begin_light_constructor(&mut self, key: FrameKey) -> Result<(), FrameError> {
+        if self.state(key)?.kind != FrameKind::Light || self.node(key)?.light.is_some() {
+            return Err(FrameError::UnsupportedFrameUpdate(key));
+        }
+        self.node_mut(key)?.light = Some(crate::frame_light::I3dLightState::constructor_prefix());
+        Ok(())
+    }
+    pub(crate) fn light_state(
+        &self,
+        key: FrameKey,
+    ) -> Result<&crate::frame_light::I3dLightState, FrameError> {
+        self.node(key)?
+            .light
+            .as_ref()
+            .ok_or(FrameError::UnsupportedFrameUpdate(key))
+    }
+    pub(crate) fn light_state_mut(
+        &mut self,
+        key: FrameKey,
+    ) -> Result<&mut crate::frame_light::I3dLightState, FrameError> {
+        self.node_mut(key)?
+            .light
+            .as_mut()
+            .ok_or(FrameError::UnsupportedFrameUpdate(key))
+    }
+    pub(crate) fn projected_state_mut(
+        &mut self,
+        key: FrameKey,
+    ) -> Result<&mut I3dFrameState, FrameError> {
+        Ok(&mut self.node_mut(key)?.state)
+    }
     /// Common SetOn store, PC RVA0x1b400: only the low argument byte controls
     /// flag bit0. Matrix/volume cache flags and descendants are untouched.
     pub(crate) fn set_on(&mut self, key: FrameKey, on: u32) -> Result<(), FrameError> {
@@ -492,7 +564,10 @@ impl I3dFrameGraph {
                 let kind = self.state(at)?.kind;
                 if matches!(
                     kind,
-                    FrameKind::Model | FrameKind::Mesh | FrameKind::Singlemesh
+                    FrameKind::Model
+                        | FrameKind::Mesh
+                        | FrameKind::Projector
+                        | FrameKind::Singlemesh
                 ) {
                     break;
                 }
@@ -1277,8 +1352,10 @@ impl I3dFrameGraph {
         let dirty = n.state.flags & DIRTY != 0;
         if dirty {
             n.state.update_count = n.state.update_count.wrapping_add(1);
-            if matches!(n.state.kind, FrameKind::Mesh | FrameKind::Singlemesh)
-                && n.state.visual_flags & 0x40 == 0
+            if matches!(
+                n.state.kind,
+                FrameKind::Mesh | FrameKind::Projector | FrameKind::Singlemesh
+            ) && n.state.visual_flags & 0x40 == 0
             {
                 n.state.visual_flags &= !0x40000;
             }
@@ -1297,6 +1374,9 @@ impl I3dFrameGraph {
         }
         if let Some(error) = self.deferred_error {
             return Err(error);
+        }
+        if self.state(key)?.kind == FrameKind::Light {
+            return self.update_light_v(key);
         }
         if self.state(key)?.kind == FrameKind::Target {
             let flags = self.state(key)?.flags;
@@ -1338,10 +1418,15 @@ impl I3dFrameGraph {
         }
         let s = &mut self.node_mut(key)?.state;
         if s.flags & DIRTY != 0 {
-            if matches!(s.kind, FrameKind::Mesh | FrameKind::Singlemesh)
-                && s.visual_flags & 0x40 == 0
+            if matches!(
+                s.kind,
+                FrameKind::Mesh | FrameKind::Projector | FrameKind::Singlemesh
+            ) && s.visual_flags & 0x40 == 0
             {
                 s.visual_flags &= !0x1c0000;
+                if s.kind == FrameKind::Projector {
+                    s.projector_cache_258 = 0;
+                }
             } else if s.kind == FrameKind::Dummy {
                 s.dummy_flags &= !0x10;
             }
@@ -1383,15 +1468,17 @@ impl I3dFrameGraph {
             self.node_mut(key)?.state.flags &= 0xfffffebf;
             let mut parent = self.links(key)?.parent;
             while let Some(p) = parent {
-                if self.state(p)?.flags & 0x40 == 0 {
+                if self.state(p)?.flags & 0x40 == 0 || self.state(p)?.kind == FrameKind::Sector {
                     break;
                 }
                 self.node_mut(p)?.state.flags &= 0xfffffebf;
                 parent = self.links(p)?.parent;
             }
             let s = &mut self.node_mut(key)?.state;
-            if matches!(s.kind, FrameKind::Mesh | FrameKind::Singlemesh)
-                && s.flags & DIRTY != 0
+            if matches!(
+                s.kind,
+                FrameKind::Mesh | FrameKind::Projector | FrameKind::Singlemesh
+            ) && s.flags & DIRTY != 0
                 && s.visual_flags & 0x40 == 0
             {
                 s.visual_flags &= !0x40000;
@@ -2157,7 +2244,7 @@ mod tests {
         assert_eq!(graph.state(key).unwrap().local.elements[0], 1.);
     }
     #[test]
-    fn small_normal_srt_is_available_but_extended_exponent_products_remain_errors() {
+    fn small_srt_and_quaternion_spills_are_available_but_overflow_is_guarded() {
         let mut graph = I3dFrameGraph::default();
         let root = graph.insert(I3dFrameState::model()).unwrap();
         let mut state = mesh([1e-20, 0., 0.]);
@@ -2169,6 +2256,11 @@ mod tests {
         assert_eq!(world.elements[12], 1e-20);
         let mut state = mesh([0.; 3]);
         state.rotation.wxyz = [0.5, 1e-23, 0., 0.];
+        let tiny = graph.insert(state).unwrap();
+        let matrix = graph.local_matrix(tiny).unwrap();
+        assert_eq!(matrix.elements[6], -1e-23);
+        assert_eq!(matrix.elements[9], 1e-23);
+        state.rotation.wxyz = [0.5, f32::MAX, 0., 0.];
         let key = graph.insert(state).unwrap();
         assert_eq!(
             graph.local_matrix(key),

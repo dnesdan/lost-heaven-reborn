@@ -100,6 +100,63 @@ pub(super) fn sin_cos(x: f32) -> Result<(Interval, Interval), MakeUnavailable> {
     Ok((sin.expand(error), cos.expand(error)))
 }
 
+/// Extended reduced-angle domain needed by frame SetDir. Taylor evaluation
+/// stays within |x|<=4; 40 terms bound the omitted tail below 2^-120.
+/// The 2^-60 absolute allowance conservatively covers x87 argument reduction
+/// and transcendental rounding across this small interval.
+pub(super) fn sin_cos_frame(x: f32) -> Result<(Interval, Interval), MakeUnavailable> {
+    if !x.is_finite() || x.abs() > 4. || x == 0. {
+        return Err(MakeUnavailable::UnrecoveredAxisAngle);
+    }
+    let quadrant = ((x as f64) / std::f64::consts::FRAC_PI_2).round() as i32;
+    // Split pi/2 preserves a narrow enclosure after cancellation near its
+    // single-precision approximations. The low-part interval brackets the
+    // exact residual from the nearest f64 high part.
+    let low = 6.123233995736766e-17_f64;
+    let high = quadrant as f64 * std::f64::consts::FRAC_PI_2;
+    let high = if quadrant.abs() <= 2 {
+        Interval::exact(high)
+    } else {
+        Interval::bounds(high.next_down(), high.next_up())
+    };
+    let residual =
+        Interval::bounds(low.next_down(), low.next_up()).mul(Interval::exact(quadrant as f64));
+    let x = Interval::exact(x as f64).sub(high).sub(residual);
+    let square = x.mul(x);
+    let mut sine = x;
+    let mut sine_term = x;
+    let mut cosine = Interval::exact(1.);
+    let mut cosine_term = cosine;
+    for n in 1..=40 {
+        sine_term = sine_term
+            .mul(square)
+            .div(Interval::exact(((2 * n) * (2 * n + 1)) as f64))
+            .neg();
+        cosine_term = cosine_term
+            .mul(square)
+            .div(Interval::exact(((2 * n - 1) * (2 * n)) as f64))
+            .neg();
+        sine = sine.add(sine_term);
+        cosine = cosine.add(cosine_term);
+    }
+    let (sine, cosine) = match quadrant.rem_euclid(4) {
+        0 => (sine, cosine),
+        1 => (cosine, sine.neg()),
+        2 => (sine.neg(), cosine.neg()),
+        _ => (cosine.neg(), sine),
+    };
+    let error = f64::from_bits(963 << 52);
+    Ok((sine.expand(error), cosine.expand(error)))
+}
+
+pub(super) fn atan_signed(y: f32, x: f32) -> Result<f32, MakeUnavailable> {
+    if y == 0. && x > 0. {
+        return Ok(y);
+    }
+    let angle = atan2_positive(y.abs(), x)?;
+    Ok(if y.is_sign_negative() { -angle } else { angle })
+}
+
 fn pi() -> Interval {
     Interval::bounds(
         std::f64::consts::PI.next_down(),
@@ -281,6 +338,56 @@ impl std::ops::Neg for Float<'_> {
             ..self
         }
     }
+}
+
+/// Light's FCOS cache and spot-cone enclosing sphere. Transcendental results
+/// remain enclosed until the original PC24 arithmetic/spill points; in
+/// particular the cosine difference does not subtract prematurely rounded
+/// float fields. This is the finite normal-or-zero arithmetic domain.
+pub(crate) fn light_cone_cosines(inner: f32, outer: f32) -> Result<[f32; 3], MakeUnavailable> {
+    let arithmetic = Arithmetic::new();
+    let half = arithmetic.input(0.5);
+    let inner_half = (arithmetic.input(inner) * half).value;
+    let outer_half = (arithmetic.input(outer) * half).value;
+    let cosine = |angle| -> Result<Interval, MakeUnavailable> {
+        if angle == 0. {
+            Ok(Interval::exact(1.))
+        } else {
+            Ok(sin_cos_frame(angle)?.1)
+        }
+    };
+    let inner_cos = cosine(inner_half)?;
+    let outer_cos = cosine(outer_half)?;
+    let difference = if inner_half == outer_half {
+        0.
+    } else {
+        inner_cos.sub(outer_cos).rounded()?
+    };
+    let reciprocal = if difference > 0. {
+        (arithmetic.input(1.) / arithmetic.input(difference)).value
+    } else {
+        0.
+    };
+    arithmetic.finish()?;
+    Ok([outer_cos.rounded()?, inner_cos.rounded()?, reciprocal])
+}
+
+pub(crate) fn light_cone_radius(outer: f32, range: f32) -> Result<f32, MakeUnavailable> {
+    let arithmetic = Arithmetic::new();
+    let half = arithmetic.input(0.5);
+    let outer_half = (arithmetic.input(outer) * half).value;
+    let angle = ((arithmetic.input(f32::from_bits(0x40490fdb)) - arithmetic.input(outer_half))
+        * half)
+        .value;
+    let sine = if angle == 0. {
+        Interval::exact(0.)
+    } else {
+        sin_cos_frame(angle)?.0
+    };
+    let denominator = sine.add(sine).rounded()?;
+    let radius = (arithmetic.input(range) / arithmetic.input(denominator)).value;
+    arithmetic.finish()?;
+    Ok(radius)
 }
 
 #[cfg(test)]

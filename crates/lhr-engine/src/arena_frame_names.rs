@@ -233,8 +233,10 @@ impl ModelArena {
         if (!frame.name_is_null).then(|| c_name(&frame.name_bytes)) == name {
             return Ok(());
         }
+        let generation = self.fresh_name_generation()?;
         self.remove_frame_name_registration(key)?;
         let frame = &mut self.frames[fi];
+        frame.name_generation = generation;
         if !frame.name_is_null {
             frame.name_pointer = match frame.name_pointer {
                 OriginalFrameName::Offset(offset) | OriginalFrameName::Released { offset } => {

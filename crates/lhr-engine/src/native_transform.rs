@@ -11,6 +11,8 @@
 //! `try_make` entries enforce their documented bounded domains and rounding
 //! enclosures, assuming the host default IEEE round-to-nearest arithmetic.
 
+#[path = "native_frame_direction.rs"]
+mod frame_direction;
 #[path = "native_trig.rs"]
 pub(crate) mod native_trig;
 
@@ -171,6 +173,13 @@ impl SQuat {
     /// of retained x87 sin/cos. An ambiguous PC24 rounding returns an error.
     /// Signed zero angles retain the previously admitted full finite-axis domain.
     pub fn try_make_axis_angle(axis: [f32; 3], angle: f32) -> Result<Self, MakeUnavailable> {
+        Self::make_axis_angle_domain(axis, angle, false)
+    }
+    fn make_axis_angle_domain(
+        axis: [f32; 3],
+        angle: f32,
+        frame_domain: bool,
+    ) -> Result<Self, MakeUnavailable> {
         if !angle.is_finite() || !axis.into_iter().all(f32::is_finite) {
             return Err(MakeUnavailable::InputOutsideVerifiedDomain);
         }
@@ -186,7 +195,11 @@ impl SQuat {
         if !half.is_normal() {
             return Err(MakeUnavailable::InputOutsideVerifiedDomain);
         }
-        let (sine, cosine) = native_trig::sin_cos(half)?;
+        let (sine, cosine) = if frame_domain {
+            native_trig::sin_cos_frame(half)?
+        } else {
+            native_trig::sin_cos(half)?
+        };
         let w = cosine.rounded()?;
         let [x, y, z] = [
             sine.product(axis[0])?,
@@ -216,7 +229,8 @@ impl SQuat {
 
     /// Original `S_quat::Make(S_matrix const&)`, RVA0x2eef0, in a guarded domain.
     /// Nondegenerate matrices follow the original two axis-angle factors and
-    /// composition; each nonzero factor angle must be at most two radians.
+    /// composition. Internal factors use the checked reduced x87 sin/cos
+    /// enclosure, including angles up to the original pi branch.
     /// PC24 exponent edges and uncertain transcendental rounding return errors.
     /// Retains the admitted zero-length and exact diagonal identity branches.
     /// Matrix admission checks each PC24 intermediate, including row lengths;
@@ -307,7 +321,7 @@ impl SQuat {
         let first = if v[1].value.abs() < 1. {
             let axis = [v[2], zero, -v[0]];
             let axis = normalize(axis, axis[2] * axis[2] + axis[0] * axis[0], one);
-            Self::try_make_axis_angle(axis.map(|v| -v.value), acos(v[1])?)?
+            Self::make_axis_angle_domain(axis.map(|v| -v.value), acos(v[1])?, true)?
         } else if v[1].value <= 0. {
             Self {
                 wxyz: [0., 0., 0., 1.],
@@ -344,7 +358,7 @@ impl SQuat {
                 0.
             };
             arithmetic.finish()?;
-            Self::try_make_axis_angle(axis.map(|v| v.value), angle)?
+            Self::make_axis_angle_domain(axis.map(|v| v.value), angle, true)?
         } else {
             let axis = [
                 d[1] * from[2] - from[1] * d[2],
@@ -353,7 +367,7 @@ impl SQuat {
             ];
             let squared = (axis[2] * axis[2] + axis[1] * axis[1]) + axis[0] * axis[0];
             let axis = normalize(axis, squared, one);
-            Self::try_make_axis_angle(axis.map(|v| -v.value), acos(dot)?)?
+            Self::make_axis_angle_domain(axis.map(|v| -v.value), acos(dot)?, true)?
         };
         arithmetic.finish()?;
         let [w, x, y, z] = first.wxyz.map(f);
@@ -489,9 +503,14 @@ mod tests {
         let mut matrix = SMatrix::identity();
         matrix.elements[5] = -1.;
         matrix.elements[6] = -1.;
+        // Original PC24 Make executes its factor beyond the old two-radian
+        // host boundary. Keep the independently captured output as regression.
         assert_eq!(
-            SQuat::try_make_from_matrix(&matrix),
-            Err(MakeUnavailable::UnrecoveredAxisAngle)
+            SQuat::try_make_from_matrix(&matrix)
+                .unwrap()
+                .wxyz
+                .map(f32::to_bits),
+            [1053028119, 1064076128, 0, 0]
         );
         matrix = SMatrix::identity();
         matrix.elements[0] = 0.;
@@ -582,7 +601,13 @@ mod tests {
             expected
         );
         matrix.elements[0] = -2.;
-        assert!(SQuat::try_make_from_matrix(&matrix).is_err());
+        assert_eq!(
+            SQuat::try_make_from_matrix(&matrix)
+                .unwrap()
+                .wxyz
+                .map(f32::to_bits),
+            [3007036718, 0, 1065353216, 0]
+        );
         matrix.elements = [1e-5; 16];
         assert_eq!(
             SQuat::try_make_from_matrix(&matrix)
@@ -592,7 +617,12 @@ mod tests {
             expected
         );
         matrix.elements[0] = 0.001;
-        assert!(SQuat::try_make_from_matrix(&matrix).is_err());
+        // This near-parallel basis still needs the unrecovered missing-row
+        // branch; admitting the larger factor angle does not close that path.
+        assert_eq!(
+            SQuat::try_make_from_matrix(&matrix),
+            Err(MakeUnavailable::UnrecoveredMatrix)
+        );
         matrix.elements[0] = f32::NAN;
         assert!(SQuat::try_make_from_matrix(&matrix).is_err());
     }

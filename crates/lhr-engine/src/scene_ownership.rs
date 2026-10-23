@@ -185,6 +185,14 @@ impl ModelArena {
             state.flags |= 0x0808_0080 | if index < 2 { 0x40 } else { 0 };
             let sector = SectorKey(self.insert(state, None, Vec::new(), Vec::new(), None)?);
             self.set_frame_name(sector.frame(), Some(name))?;
+            if index < 2 {
+                let fi = self.frame_index(sector.frame())?;
+                self.frames[fi].hr_bounds = crate::mesh_bounds::MeshBoundVolume {
+                    bbox: [[-10000.; 3], [10000.; 3]],
+                    center: [0.; 3],
+                    radius: f32::from_bits(0x46875104),
+                };
+            }
             self.sectors.push(SectorFrame {
                 key: sector,
                 scene: key,

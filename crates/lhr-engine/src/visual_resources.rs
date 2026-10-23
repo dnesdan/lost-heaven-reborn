@@ -726,10 +726,10 @@ impl VisualResources {
         }
         match block.buffer {
             Some(VertexBufferPointer::Managed(key)) if num_vertices == 0 || key.0 == 0 => {
-                return Err(VisualResourceError::InvalidVertexStorage)
+                return Err(VisualResourceError::InvalidVertexStorage);
             }
             Some(VertexBufferPointer::RawBytes(key)) if num_vertices != 0 || key.0 == 0 => {
-                return Err(VisualResourceError::InvalidVertexStorage)
+                return Err(VisualResourceError::InvalidVertexStorage);
             }
             _ => {}
         }
@@ -989,6 +989,265 @@ impl VisualResources {
             self.poisoned = true;
         }
         result
+    }
+}
+
+impl VisualResources {
+    /// Scalar stores at LOD Duplicate31000, before vertex and group copying.
+    /// This narrow hook does not duplicate any resource reference or allocation.
+    pub(crate) fn copy_mesh_level_scalar_fields(
+        &mut self,
+        destination: MeshLevelKey,
+        source: MeshLevelKey,
+    ) -> Result<(), VisualResourceError> {
+        self.available()?;
+        let flags = self.mesh_level(source)?.mesh_flags;
+        self.mesh_level_mut(destination)?.mesh_flags = flags;
+        let env = self.mesh_level(source)?.env_scale;
+        self.mesh_level_mut(destination)?.env_scale = env;
+        let distance = self.mesh_level(source)?.lod_dist;
+        self.mesh_level_mut(destination)?.lod_dist = distance;
+        Ok(())
+    }
+    /// Constructor bounds reset after Mesh Duplicate315e0 clears all slots.
+    pub(crate) fn reset_empty_mesh_bounds(
+        &mut self,
+        mesh: MeshObjectKey,
+    ) -> Result<(), VisualResourceError> {
+        self.available()?;
+        let record = self.mesh_object_mut(mesh)?;
+        if record.levels.iter().any(Option::is_some) {
+            return Err(VisualResourceError::InvalidFaceGroupChain);
+        }
+        record.num_lods = 0;
+        record.bounds = MeshBoundVolume::CONSTRUCTOR;
+        record.u_ofs = 0.;
+        record.v_ofs = 0.;
+        record.bounds_available = true;
+        Ok(())
+    }
+}
+
+impl VisualResources {
+    /// Duplicate315e0 releases all ten slots before clearing the array. Bounds
+    /// remain untouched for a nonnull source until the subsequent SetLOD calls.
+    pub(crate) fn clear_duplicate_mesh<B: VisualResourceBackend + ?Sized>(
+        &mut self,
+        mesh: MeshObjectKey,
+        backend: &mut B,
+    ) -> Result<(), VisualResourceOperationError<B::Error>> {
+        self.available()?;
+        let slots = self.mesh_object(mesh)?.levels;
+        let result = (|| {
+            for level in slots.into_iter().flatten() {
+                self.release_mesh_level_reference(level, None, backend)?;
+            }
+            let r = self.mesh_object_mut(mesh)?;
+            r.num_lods = 0;
+            r.levels = [None; 10];
+            Ok(())
+        })();
+        if result.is_err() {
+            self.poisoned = true;
+        }
+        result
+    }
+    /// Material Copy2b0b0. Raw scalar setters preserve NaNs and signed zeros;
+    /// texture setters supply the actual release/retain and flag effects.
+    pub(crate) fn copy_material<B: VisualResourceBackend + ?Sized>(
+        &mut self,
+        destination: MaterialKey,
+        source: Option<MaterialKey>,
+        backend: &mut B,
+    ) -> Result<i32, VisualResourceOperationError<B::Error>> {
+        self.available()?;
+        self.material(destination)?;
+        let Some(source) = source else {
+            return Ok(0x80000007u32 as i32);
+        };
+        let flags = self.material(source)?.flags & 0xfbffffff;
+        self.material_mut(destination)?.flags = flags;
+        let value = self.material(source)?.alpha;
+        self.material_mut(destination)?.alpha = value;
+        let value = self.material(source)?.ambient;
+        self.material_mut(destination)?.ambient = value;
+        let value = self.material(source)?.diffuse;
+        self.material_mut(destination)?.diffuse = value;
+        let value = self.material(source)?.emissive;
+        self.material_mut(destination)?.emissive = value;
+        let value = self.material(source)?.env_alpha;
+        self.material_mut(destination)?.env_alpha = value;
+        let texture = self.material(source)?.texture;
+        self.set_texture(destination, texture, backend)?;
+        let texture = self.material(source)?.env_texture;
+        self.set_env_texture(destination, texture, backend)?;
+        Ok(0)
+    }
+}
+
+impl VisualResources {
+    pub(crate) fn lookup_mesh(&self, slot: u32) -> Result<MeshObjectKey, VisualResourceError> {
+        let key = MeshObjectKey {
+            arena: self.identity,
+            slot,
+        };
+        self.mesh_object(key)?;
+        Ok(key)
+    }
+    pub(crate) fn lookup_lod(&self, slot: u32) -> Result<MeshLevelKey, VisualResourceError> {
+        let key = MeshLevelKey {
+            arena: self.identity,
+            slot,
+        };
+        self.mesh_level(key)?;
+        Ok(key)
+    }
+    pub(crate) fn lookup_face_group(&self, slot: u32) -> Result<FaceGroupKey, VisualResourceError> {
+        let key = FaceGroupKey {
+            arena: self.identity,
+            slot,
+        };
+        self.face_group(key)?;
+        Ok(key)
+    }
+    pub(crate) fn lookup_material(&self, slot: u32) -> Result<MaterialKey, VisualResourceError> {
+        let key = MaterialKey {
+            arena: self.identity,
+            slot,
+        };
+        self.material(key)?;
+        Ok(key)
+    }
+}
+
+impl VisualResources {
+    /// Reached AddFGroup31220 branch with the original append argument set.
+    /// Material-derived flags/scale precede linking; a numeric exclusion keeps
+    /// those completed stores and leaves the new group unattached.
+    pub(crate) fn append_duplicate_group(
+        &mut self,
+        level: MeshLevelKey,
+        group: FaceGroupKey,
+    ) -> Result<(), VisualResourceError> {
+        self.available()?;
+        let new = self.face_group(group)?;
+        if new.owner.is_some() || new.next.is_some() {
+            return Err(VisualResourceError::FaceGroupOwned(group));
+        }
+        let flags = new
+            .material
+            .map(|key| self.material(key).map(|m| m.flags))
+            .transpose()?;
+        let count = self
+            .mesh_level(level)?
+            .num_fgroups
+            .checked_add(1)
+            .ok_or(VisualResourceError::IdentityOverflow)?;
+        if let Some(flags) = flags {
+            if flags & 0x40000 != 0 {
+                self.mesh_level_mut(level)?.mesh_flags |= 0x10;
+            }
+            if flags & 0x8000000 != 0 {
+                self.mesh_level_mut(level)?.mesh_flags |= 0x20;
+            }
+            if flags & 0x80000 != 0 {
+                let r = self.mesh_level_mut(level)?;
+                r.mesh_flags = ((r.mesh_flags | 8) & !7) | ((flags >> 12) & 7);
+                let scale = f32::from_bits(0x403504f3) / (flags & 255) as f32;
+                if !(scale == 0. || scale.is_normal()) {
+                    self.poisoned = true;
+                    return Err(VisualResourceError::MeshBounds(
+                        MeshBoundsError::NumericDomain("LOD environment scale"),
+                    ));
+                }
+                self.mesh_level_mut(level)?.env_scale = scale;
+            }
+        }
+        if let Some(head) = self.mesh_level(level)?.fgroups {
+            let tail = *self
+                .chain(head)?
+                .last()
+                .ok_or(VisualResourceError::InvalidFaceGroupChain)?;
+            self.face_group_mut(tail)?.next = Some(group);
+            self.face_group_mut(group)?.owner = Some(FaceGroupOwner::Next(tail));
+        } else {
+            self.mesh_level_mut(level)?.fgroups = Some(group);
+            self.face_group_mut(group)?.owner = Some(FaceGroupOwner::MeshLevel(level));
+        }
+        self.mesh_level_mut(level)?.num_fgroups = count;
+        Ok(())
+    }
+}
+
+impl VisualResources {
+    /// Host admission of the serialized scalar block read by Load2bd50. Raw
+    /// flags precede the original contiguous ambient/diffuse/emissive/alpha
+    /// fields; env-alpha exists only when serialized flag0x80000 is present.
+    /// Native texture-load flag derivation remains a separate backend contract.
+    pub fn install_loaded_material_scalars(
+        &mut self,
+        key: MaterialKey,
+        source: &lhr_assets::Material,
+        flags: u32,
+    ) -> Result<(), VisualResourceError> {
+        self.available()?;
+        let material = self.material_mut(key)?;
+        material.flags = flags;
+        material.ambient = source.ambient;
+        material.diffuse = source.diffuse;
+        material.emissive = source.emission;
+        material.alpha = source.opacity;
+        if source.flags & 0x80000 != 0 {
+            material.env_alpha = source
+                .reflection
+                .ok_or(VisualResourceError::InvalidExternalIdentity)?;
+        }
+        Ok(())
+    }
+}
+
+impl VisualResources {
+    pub(crate) fn install_loaded_lod_distance(
+        &mut self,
+        level: MeshLevelKey,
+        distance: f32,
+    ) -> Result<(), VisualResourceError> {
+        self.available()?;
+        self.mesh_level_mut(level)?.lod_dist = distance;
+        Ok(())
+    }
+}
+
+impl VisualResources {
+    /// Fresh loaded-material slot admission. Native Load receives references
+    /// directly from the cache; it does not call SetTexture or SetEnvTexture.
+    pub(crate) fn adopt_loaded_material_texture<B: VisualResourceBackend + ?Sized>(
+        &mut self,
+        key: MaterialKey,
+        texture: Option<TextureKey>,
+        environment: bool,
+        backend: &mut B,
+    ) -> Result<(), VisualResourceOperationError<B::Error>> {
+        self.available()?;
+        let current = self.material(key)?;
+        if (if environment {
+            current.env_texture
+        } else {
+            current.texture
+        })
+        .is_some()
+        {
+            return Err(VisualResourceError::StorageAlreadyInstalled.into());
+        }
+        if let Some(texture) = texture {
+            self.backend(backend.retain_texture(texture))?;
+        }
+        if environment {
+            self.material_mut(key)?.env_texture = texture;
+        } else {
+            self.material_mut(key)?.texture = texture;
+        }
+        Ok(())
     }
 }
 

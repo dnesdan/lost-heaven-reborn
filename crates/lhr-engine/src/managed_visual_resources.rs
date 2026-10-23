@@ -818,6 +818,100 @@ impl ManagedVisualResources {
     }
 }
 
+impl ManagedVisualResources {
+    pub(crate) fn copy_mesh_level_scalar_fields(
+        &mut self,
+        destination: MeshLevelKey,
+        source: MeshLevelKey,
+    ) -> Result<(), ManagedError> {
+        self.available()?;
+        self.resources
+            .copy_mesh_level_scalar_fields(destination, source)
+            .map_err(Into::into)
+    }
+    pub(crate) fn reset_empty_mesh_bounds(
+        &mut self,
+        mesh: MeshObjectKey,
+    ) -> Result<(), ManagedError> {
+        self.available()?;
+        self.resources
+            .reset_empty_mesh_bounds(mesh)
+            .map_err(Into::into)
+    }
+}
+
+impl ManagedVisualResources {
+    pub(crate) fn clear_duplicate_mesh<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        mesh: MeshObjectKey,
+        backend: &mut B,
+    ) -> Result<(), ManagedOperationError<B::Error>> {
+        self.visual_operation(backend, |r, b| r.clear_duplicate_mesh(mesh, b))
+    }
+    pub(crate) fn copy_material<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        destination: MaterialKey,
+        source: Option<MaterialKey>,
+        backend: &mut B,
+    ) -> Result<i32, ManagedOperationError<B::Error>> {
+        self.visual_operation(backend, |r, b| r.copy_material(destination, source, b))
+    }
+}
+
+impl ManagedVisualResources {
+    pub(crate) fn append_duplicate_group(
+        &mut self,
+        level: MeshLevelKey,
+        group: FaceGroupKey,
+    ) -> Result<(), ManagedError> {
+        self.available()?;
+        self.resources
+            .append_duplicate_group(level, group)
+            .map_err(Into::into)
+    }
+}
+
+impl ManagedVisualResources {
+    pub fn install_loaded_material_scalars(
+        &mut self,
+        key: MaterialKey,
+        source: &lhr_assets::Material,
+        flags: u32,
+    ) -> Result<(), ManagedError> {
+        self.available()?;
+        self.resources
+            .install_loaded_material_scalars(key, source, flags)
+            .map_err(Into::into)
+    }
+}
+
+impl ManagedVisualResources {
+    pub(crate) fn install_loaded_lod_distance(
+        &mut self,
+        level: MeshLevelKey,
+        distance: f32,
+    ) -> Result<(), ManagedError> {
+        self.available()?;
+        self.resources
+            .install_loaded_lod_distance(level, distance)
+            .map_err(Into::into)
+    }
+}
+
+impl ManagedVisualResources {
+    pub(crate) fn adopt_loaded_material_texture<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        key: MaterialKey,
+        texture: Option<TextureKey>,
+        environment: bool,
+        backend: &mut B,
+    ) -> Result<(), ManagedOperationError<B::Error>> {
+        self.visual_operation(backend, |r, b| {
+            r.adopt_loaded_material_texture(key, texture, environment, b)
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

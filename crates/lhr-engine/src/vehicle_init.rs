@@ -1,4 +1,4 @@
-//! Bounded original PC `C_Vehicle::Init` attachment and component discovery.
+//! Original PC `C_Vehicle::Init`, component discovery and explicit ownership.
 //!
 //! A frontier is an unfinished native initialization, never a usable vehicle.
 //! Addresses are inert 32-bit identities. The backend owns external storage,
@@ -10,6 +10,57 @@ pub use components::*;
 #[path = "vehicle_component_tail.rs"]
 mod component_tail;
 pub use component_tail::*;
+#[path = "vehicle_wheels.rs"]
+mod wheels;
+pub use wheels::*;
+#[path = "vehicle_axis_records.rs"]
+mod axis_records;
+pub use axis_records::*;
+#[path = "vehicle_axis.rs"]
+mod axis;
+pub use axis::*;
+#[path = "vehicle_axis_update.rs"]
+mod axis_update;
+pub use axis_update::*;
+#[path = "vehicle_init_finish.rs"]
+mod finish;
+pub use finish::*;
+#[path = "vehicle_car_caller.rs"]
+mod car_caller;
+pub use car_caller::*;
+#[path = "vehicle_destructor.rs"]
+mod destructor;
+pub use destructor::*;
+
+#[path = "vehicle_source_parameters.rs"]
+mod source_parameters;
+pub use source_parameters::*;
+#[path = "vehicle_light_init.rs"]
+mod light_init;
+pub use light_init::*;
+
+#[path = "vehicle_light_projectors.rs"]
+mod light_projectors;
+pub use light_projectors::*;
+
+#[path = "vehicle_setup_records.rs"]
+mod setup_records;
+pub use setup_records::*;
+
+#[path = "vehicle_setup_defaults.rs"]
+mod setup_defaults;
+pub use setup_defaults::*;
+
+#[path = "vehicle_setup.rs"]
+mod setup;
+pub use setup::*;
+#[path = "vehicle_init_complete.rs"]
+mod complete;
+pub use complete::*;
+
+#[path = "vehicle_deform.rs"]
+mod deform;
+pub use deform::*;
 
 /// Original frame enumeration requests in this initialization prefix.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -110,11 +161,46 @@ pub trait VehicleInitBackend {
     fn free(&mut self, allocation: u32) -> Result<(), Self::Error>;
     /// Returning zero is the original allocator's null result, not unavailability.
     fn allocate(&mut self, bytes: u32) -> Result<u32, Self::Error>;
+    /// Allocator effects reached through a live projection receive that same
+    /// mapping. The ordinary heap implementation need not access it; an effect
+    /// that observes or mutates caller memory must do so through this view.
+    fn allocate_projected(
+        &mut self,
+        _memory: &mut VehicleComponentTailMemory<'_>,
+        bytes: u32,
+    ) -> Result<u32, Self::Error> {
+        self.allocate(bytes)
+    }
+    fn free_projected(
+        &mut self,
+        _memory: &mut VehicleComponentTailMemory<'_>,
+        allocation: u32,
+    ) -> Result<(), Self::Error> {
+        self.free(allocation)
+    }
     fn collect_frame(
         &mut self,
         vector: &mut VehicleInitFrameVector,
         frame: u32,
     ) -> Result<(), Self::Error>;
+    /// Original collecting callback over the same live vehicle/stack mapping.
+    /// Allocation and free callbacks can alter the header before its next load.
+    fn collect_frame_projected(
+        &mut self,
+        memory: VehicleComponentTailMemory<'_>,
+        header: u32,
+        frame: u32,
+    ) -> Result<u32, VehicleInitUnavailable<Self::Error>> {
+        vehicle_collect_frame(
+            &mut component_tail::Projection {
+                backend: self,
+                memory,
+            },
+            header,
+            frame,
+        )
+        .map_err(VehicleInitUnavailable::Effect)
+    }
     fn enumerate(
         &mut self,
         model: u32,
@@ -133,8 +219,8 @@ pub struct VehicleInitEnumeration<'a> {
 
 enum EnumerationTarget<'a> {
     Body(&'a mut VehicleInitState),
-    Head(&'a mut u32),
-    Collect(&'a mut VehicleInitFrameVector),
+    ProjectedCollect(&'a mut VehicleInitState),
+    ProjectedHead(&'a mut VehicleInitState),
 }
 
 impl VehicleInitEnumeration<'_> {
@@ -148,14 +234,29 @@ impl VehicleInitEnumeration<'_> {
                 state.store(0xe68, frame)?;
                 Ok(0)
             }
-            EnumerationTarget::Head(slot) => {
-                **slot = frame;
+            EnumerationTarget::ProjectedHead(state) => {
+                state.head = frame;
+                state.component_stack_words(0x78, &[frame]);
                 Ok(0)
             }
-            EnumerationTarget::Collect(vector) => {
-                backend
-                    .collect_frame(vector, frame)
-                    .map_err(VehicleInitUnavailable::Effect)?;
+            EnumerationTarget::ProjectedCollect(state) => {
+                let result = if state.tail_scratch.is_some() {
+                    let header = state
+                        .tail_scratch
+                        .as_ref()
+                        .unwrap()
+                        .address
+                        .wrapping_add(0x68);
+                    let result =
+                        backend.collect_frame_projected(state.live_tail_memory(), header, frame);
+                    state.scratch = Some(state.tail_vector(0x68));
+                    result.map(|_| ())
+                } else {
+                    backend
+                        .collect_frame(state.scratch.as_mut().unwrap(), frame)
+                        .map_err(VehicleInitUnavailable::Effect)
+                };
+                result?;
                 Ok(0)
             }
         }
@@ -178,9 +279,38 @@ pub struct VehicleInitState {
     component_tail: Option<VehicleComponentsFrontier>,
     tail_scratch: Option<VehicleComponentTailScratch>,
     tail_vehicle_address: Option<u32>,
+    wheel_continuation: bool,
+    wheel_setup_ready: bool,
+    car_caller_started: bool,
+    car_caller_ready: bool,
+    final_setup_ready: bool,
+    init_geometry_saved_esi: Option<u32>,
+    destructor_started: bool,
 }
 
 impl VehicleInitState {
+    pub(super) fn init_allocate<B: VehicleInitBackend>(
+        &mut self,
+        backend: &mut B,
+        bytes: u32,
+    ) -> Result<u32, B::Error> {
+        if self.tail_scratch.is_some() && self.tail_vehicle_address.is_some() {
+            backend.allocate_projected(&mut self.live_tail_memory(), bytes)
+        } else {
+            backend.allocate(bytes)
+        }
+    }
+    pub(super) fn init_free<B: VehicleInitBackend>(
+        &mut self,
+        backend: &mut B,
+        allocation: u32,
+    ) -> Result<(), B::Error> {
+        if self.tail_scratch.is_some() && self.tail_vehicle_address.is_some() {
+            backend.free_projected(&mut self.live_tail_memory(), allocation)
+        } else {
+            backend.free(allocation)
+        }
+    }
     pub fn from_bytes(bytes: Vec<u8>) -> Self {
         Self {
             bytes,
@@ -193,6 +323,13 @@ impl VehicleInitState {
             component_tail: None,
             tail_scratch: None,
             tail_vehicle_address: None,
+            wheel_continuation: false,
+            wheel_setup_ready: false,
+            car_caller_started: false,
+            car_caller_ready: false,
+            final_setup_ready: false,
+            init_geometry_saved_esi: None,
+            destructor_started: false,
         }
     }
 
@@ -201,7 +338,13 @@ impl VehicleInitState {
     }
 
     pub fn scratch(&self) -> Option<VehicleInitFrameVector> {
-        self.scratch
+        self.scratch.map(|value| {
+            if self.tail_scratch.is_some() {
+                self.tail_vector(0x68)
+            } else {
+                value
+            }
+        })
     }
 
     pub fn head(&self) -> u32 {
@@ -262,6 +405,7 @@ impl VehicleInitState {
             return Err(VehicleInitUnavailable::AlreadyStarted);
         }
         self.started = true;
+        self.component_stack_words(0x1c0, &[0x61eadc, u32::MAX]);
         self.store(0x34c, model)?;
         if model == 0 {
             return Ok(Rejected(VehicleInitRejection::NullModel));
@@ -280,7 +424,7 @@ impl VehicleInitState {
         }
         let previous = self.load::<B::Error>(0x4bc)?;
         if previous != 0 {
-            backend.free(previous).map_err(Effect)?;
+            self.init_free(backend, previous).map_err(Effect)?;
             self.store(0x4bc, 0)?;
         }
         let mut source = self.name_pointer(backend)?;
@@ -294,8 +438,8 @@ impl VehicleInitState {
             }
         }
         // The native scan includes NUL, then reserves one additional byte.
-        let allocation = backend
-            .allocate((!remaining).wrapping_add(1))
+        let allocation = self
+            .init_allocate(backend, (!remaining).wrapping_add(1))
             .map_err(Effect)?;
         self.store(0x4bc, allocation)?;
         if allocation == 0 {
@@ -329,12 +473,17 @@ impl VehicleInitState {
             end: 0,
             capacity: 0,
         });
+        if let Some(scratch) = self.tail_scratch.as_ref() {
+            self.component_stack_byte(0x68, scratch.bytes[0x37]);
+        }
+        self.mirror_component_vector(0x68, self.scratch.unwrap());
+        self.component_stack_words(0x1c4, &[0]);
         let attached = self.load::<B::Error>(0x34c)?;
         backend.enumerate(
             attached,
             VehicleInitQuery::Exhaust,
             &mut VehicleInitEnumeration {
-                target: EnumerationTarget::Collect(self.scratch.as_mut().unwrap()),
+                target: EnumerationTarget::ProjectedCollect(self),
             },
         )?;
         let vector = self.scratch.as_mut().unwrap();
@@ -348,12 +497,13 @@ impl VehicleInitState {
         }
         // Native erase(begin,end) has an empty suffix here and stores end=begin.
         vector.end = vector.begin;
+        self.mirror_component_vector(0x68, self.scratch.unwrap());
         let attached = self.load::<B::Error>(0x34c)?;
         backend.enumerate(
             attached,
             VehicleInitQuery::SpecialCollision,
             &mut VehicleInitEnumeration {
-                target: EnumerationTarget::Collect(self.scratch.as_mut().unwrap()),
+                target: EnumerationTarget::ProjectedCollect(self),
             },
         )?;
         let vector = self.scratch.unwrap();
@@ -361,12 +511,13 @@ impl VehicleInitState {
             return Ok(self.frontier(VehicleInitFrontier::SpecialCollisionTransform));
         }
         self.head = 0;
+        self.component_stack_words(0x78, &[0]);
         let attached = self.load::<B::Error>(0x34c)?;
         backend.enumerate(
             attached,
             VehicleInitQuery::Head,
             &mut VehicleInitEnumeration {
-                target: EnumerationTarget::Head(&mut self.head),
+                target: EnumerationTarget::ProjectedHead(self),
             },
         )?;
         if self.head != 0 {
