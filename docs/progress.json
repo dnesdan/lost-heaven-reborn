@@ -1,12 +1,13 @@
 {
   "updated_at": "2026-10-23",
-  "project_status": "Original-data Rust menu, bounded scenes and sequential skeletal playback; 177 scoped entries across 59 reviewed contracts. Read-only host filesystem effects and native stream library API now use real files. Application/worker routing, audio playback and first-mission execution remain open.",
+  "project_status": "Original-data Rust menu, bounded scenes and sequential skeletal playback; 177 scoped entries across 59 reviewed contracts. Existing Installation archive callers now use the selected NativeFiles provider for menu/static scene loading. Replay state/VM integration, production texture-worker/surface ownership, audio playback and first-mission execution remain open.",
   "rust_toolchain": "1.99.1",
   "validation": {
-    "status": "495 Rust tests (104 assets, 365 engine library, 21 application, five render), nine REA-wrapper tests and 47 progress tests pass, plus formatting, locked workspace checking and Clippy. Apple arm64 all-target checking passes for the final four-file source freeze. Two sequential independent reviews accepted the read-only filesystem/native-stream host adapter. Final Rust replay reuses 202 previously sealed native Read observations, with zero fresh original execution and no native-equivalence claim for facade preflight. Separate installation Rust–Rust checks compare 13 assets / 1,618,556 bytes across six archives. Counts remain 177 entries / 59 contracts, strict 0/12. No application/worker routing, audio playback, new rendered/interactive validation or first-mission execution.",
-    "rust_unit_tests": 495,
+    "status": "502 Rust tests (104 assets unit, seven assets integration, 365 engine library, 21 application, five render), nine REA-wrapper tests and 47 progress tests pass, plus formatting, locked workspace checking and Clippy. Apple arm64 all-target checking passes for the exact five-file Installation-provider freeze; no native macOS link or Metal runtime. Two sequential independent reviews accepted the exact final source. Independent probes pass 45 assertions per debug/release profile. Actual Rust–Rust checks match 49 unique resources / 26,228,595 complete bytes per profile against frozen baseline 1a1a8df. Ten exact-baseline rendered/keyboard-state images have zero changed pixels. No fresh REA analysis, original-runtime invocation, app audio playback or first-mission execution; counts remain 177/59, 20 static_inspection/39 not_integrated and strict 0/12.",
+    "rust_unit_tests": 502,
     "rust_unit_test_split": {
       "lhr_assets": 104,
+      "lhr_assets_integration": 7,
       "lhr_engine_library": 365,
       "lhr_engine_application": 21,
       "lhr_render": 5
@@ -24,16 +25,17 @@
   "assets": {
     "scope": "A8/A2/A6/A1/AC/AA DTA subset; bounded 4DS Joint, skin, morph and Target intake; 5DS position/rotation/scale records, BMP/TGA, menu/text/font, scene2, cache and script intake",
     "archive_order_basis": "Original PC registration order restricted to the supported archive subset; AC is between A1 and AA, cross-checked with original rw_data key decoding.",
-    "read_fallback": "Selected source read errors do not fall back; stricter than native fallback behavior",
+    "read_fallback": "Selected archive errors propagate with no retry, lower-archive or loose-file fallback; existing host policy is stricter than original dtaOpen fallback.",
     "checksum_verification": false,
-    "audio_codecs": "unsupported",
+    "audio_codecs": "Bounded native PCM16 mono/stereo WAV archive decoding; no application audio playback.",
     "scene_streaming": "Bounded MISE01 inspection crop only; native streaming, visibility, pooling and PVS not implemented",
     "collision": "not implemented",
-    "directory_assumption": "Trusted stable installation tree required; not descriptor-relative confinement against hostile concurrent parent replacement"
+    "directory_assumption": "Trusted stable installation tree required; not descriptor-relative confinement against hostile concurrent parent replacement",
+    "installation_archive_provider": "Existing Installation::read callers use NativeFiles with original raw ASCII name, original table row and selected archive owner; non-ASCII archive names return UnsupportedName, loose Unicode behavior unchanged. Checked empty entries are a host accommodation."
   },
   "menu": {
     "implementation": "Czech PC menu layout/localization display and keyboard/pointer selection",
-    "current_validation": "Linux X11 input and captures frozen; Down selects Exit, Up selects New Game, Enter/mouse opens static INTRO, Escape opens MISE01 spawn neighborhood, orbit/reload verified, Escape returns to menu",
+    "current_validation": "Current selected-native-provider keyboard sequence: menu → New Game → static INTRO → Escape → static MISE01 → Escape → menu, with four unchanged exact-baseline state captures. Earlier pointer, selection, orbit and reload evidence remains historical; no authored cutscene or gameplay.",
     "profile_chooser": "not implemented",
     "unsupported_menu_actions": "not implemented",
     "new_game_flow": "Static intro geometry; Escape switches to static MISE01 spawn-neighborhood inspection with original static taxi, then returns to menu. No cinematic or mission execution.",
@@ -48,12 +50,12 @@
     "probe_results": "INTRO: 16 scripts halt on unsupported commands, one after advancing a prefix. MISE01: 37 halt, seven after advancing a prefix, two empty scripts complete. Prefix counts overlap halted counts.",
     "original_runtime_comparison": "PC-RUST-CONTROL-VM-RUNTIME-02 compares bounded COMMANDBLOCK and WAIT states against original runtime observations; GOTO/END and complete scheduler/caller chain unverified, replay observed only",
     "mission_execution": "not implemented",
-    "current_validation": "Earlier menu/MISE01 and sequential animation graphics remain retained. Bounded standalone Restore uses controlled device/storage effects. No real GPU, full texture Create, worker/upload, whole-device shutdown or scene/application integration; no new rendered or interactive validation."
+    "current_validation": "Current selected Installation native provider renders MENU/INTRO/MISE01 with unchanged exact-baseline output and keyboard transitions. This is bounded static inspection. Replay state/VM bridge, production texture-worker/surface ownership, full texture Create, real GPU lifetime and first-mission execution remain open."
   },
   "renderer": {
     "target": "wgpu Vulkan on Linux, Metal on macOS",
     "latest_accepted_baseline": "At 9c7003bb6e256a7202c6412d48f2a97dd2885b81, owned model/Joint/Target hierarchy and loaded change-counter bounds caching support bounded sequential position/rotation playback, morph and first-LOD CPU skin upload. A 206-step original-code comparison matches 1413160 state/frame/bone/vertex/bounds words; final 360-step software Vulkan output matches the prior regression capture exactly. Inspection requests bounds, CPU deformation and rendering explicitly; original renderer scheduling, driver lifetime, lighting and graphics parity remain open.",
-    "current_menu_scene_validation": "Sequential headless captures and a retained continuous 400-frame X11 regression show changing skinned geometry; the final-source 360-step GPU check preserves the prior image exactly. Earlier menu, MISE01, hierarchy, independent skeletal poses, civil02 and 0/25/50-step position-animation checks remain retained regression evidence. Menu/scene inspection remains separate from gameplay.",
+    "current_menu_scene_validation": "Ten current images equal exact frozen Rust baseline 1a1a8df with zero changed pixels: three headless MENU/INTRO/MISE01, three 360-frame windowed runs and four keyboard-transition states. Earlier skeletal/static/sample and position-animation evidence remains separate. No original rendering parity, authored cutscene or playable mission.",
     "omitted_effect_material_counts": {
       "MENU": 33,
       "INTRO": 12,
@@ -61,7 +63,7 @@
       "meaning": "Materials with unsupported effects; diagnostics do not mean every counted material is omitted in full"
     },
     "original_render_parity": "not established",
-    "macos_metal": "Apple arm64 all-target cargo check passes at the accepted code baseline; native macOS linking and Metal execution remain untested."
+    "macos_metal": "Apple arm64 all-target cargo check passes for the exact five-file Installation-provider freeze; native macOS linking and Metal execution remain untested."
   },
   "campaign_playable": false,
   "historical_analysis": {
@@ -118,7 +120,7 @@
   "reset_boundary": "Former Godot prototype implementation/tests and original-game runtime traces are not counted as Rust behavior or validation.",
   "macos_validation": {
     "command": "cargo check --workspace --all-targets --target aarch64-apple-darwin --locked",
-    "result": "Apple arm64 all-target cargo check passed for the final four-file host filesystem/native-stream source freeze at f04cc43ffc00b69de2adaa1ce4cf8e1a522eb971; native macOS linking and Metal runtime remain untested.",
+    "result": "Apple arm64 all-target cargo check passed for the exact five-file Installation-provider freeze at b856d765c1b17aff038cf4578f9bbea7a027539a; native macOS linking and Metal runtime remain untested.",
     "scope": "Compilation only; no macOS link or Metal runtime"
   },
   "phase2": {
@@ -22108,5 +22110,147 @@
     "new_original_runtime_comparisons": 0,
     "new_implementation_credit": 0,
     "new_rendered_or_interactive_validation": false
+  },
+  "installation_native_provider_observation": {
+    "id": "RUST-INSTALLATION-NATIVE-PROVIDER-20261023",
+    "status": "accepted_bounded_application_provider_integration",
+    "source_commit": "b856d765c1b17aff038cf4578f9bbea7a027539a",
+    "baseline_commit": "1a1a8df9492df0a58cd891b8a26a642bb4e8a99f",
+    "source_files": {
+      "crates/lhr-assets/src/dta.rs": "623a83cc8e27246e3dc8721d1703bbd4bfdb7b9a2020d7bafca69cf997afb6aa",
+      "crates/lhr-assets/src/lib.rs": "e06e35ba0540b658cc8f298eef31fcab82301a5f1818f68146771d8df0ea0c2d",
+      "crates/lhr-assets/src/rw_data/io.rs": "c6b65b4b413134f637f9ffa723e175a7fd5ace453fa6d71a5116ade316efbe2b",
+      "crates/lhr-assets/src/rw_data/open.rs": "31fb1f9d2123f6670e15f25b60916e95e9bc44e52f63f26f5ab1cab951224547",
+      "crates/lhr-assets/tests/installation_native.rs": "909fa5074bc621b03bd3d766aee7469b543f374d25e3e280029227d8b14d1dda"
+    },
+    "contract": {
+      "id": "RUST-INSTALLATION-NATIVE-PROVIDER-20261023-CONTRACT",
+      "sha256": "601370d9f396c19fd284914d93f1f1b8d27976b3a46a4c0c52fb7a7bfbdfdcc0"
+    },
+    "comparison": {
+      "id": "RUST-INSTALLATION-NATIVE-PROVIDER-20261023-COMPARE",
+      "sha256": "21ff2a6e6b54c5c4b2618a57138914e9a98222e4ae0c3cea18254dfaa2543679"
+    },
+    "reviews": [
+      {
+        "id": "RUST-INSTALLATION-NATIVE-PROVIDER-20261023-R1",
+        "sha256": "6e1ac851e94d82688d10f3a2f7bda160709cbdf75332f2798ae08dee801b390f"
+      },
+      {
+        "id": "RUST-INSTALLATION-NATIVE-PROVIDER-20261023-R2",
+        "sha256": "1a9c1a215ad6bb19c66aa71fa9aac564330849678c168ebee4bb56396e9154a2"
+      }
+    ],
+    "research": {
+      "id": "RUST-INSTALLATION-NATIVE-PROVIDER-20261023-REA-REVIEW",
+      "sha256": "ee98d7245416c836992528ce414035533ec94a597e8f637ec712cba7d7ed7093"
+    },
+    "integration_accounting": {
+      "id": "RUST-INSTALLATION-NATIVE-PROVIDER-20261023-ACCOUNTING",
+      "sha256": "9369eeee957447dd51e0eac7b624d4ea8cb6a342f84388eb4dc180ed56f3a0cf"
+    },
+    "application_route": {
+      "entry_points": "Existing Installation::open/read API; menu, scene and assembly callers unchanged.",
+      "selected_identity": "Original raw filename, source table row and selected archive owner; first canonical winner in A8,A2,A6,A1,AC,AA order.",
+      "route": "NativeFiles registration/unlock; open_selected -> archive_open; NativeStream read and explicit close.",
+      "demonstrated_original_entry_subset": [
+        "0x1170",
+        "0x11e0",
+        "0x13b0",
+        "0x1b90",
+        "0x25c0",
+        "0x23e0"
+      ],
+      "excluded_entries": [
+        "0x1820 AddRef",
+        "0x1850 Release",
+        "0x1640 destructor",
+        "0x18a0 dtaOpen wrapper",
+        "0x3730 Seek"
+      ],
+      "codec_exercise": "Only actual block types invoke their codecs; menu/static views establish no specific codec or app WAV use without instrumented type evidence.",
+      "errors": "No retry, lower-archive or loose-file fallback; selected non-ASCII archive names return UnsupportedName. Loose Unicode unchanged.",
+      "zero_length": "Checked immutable-row/hash/suffix/reachability/snapshot accommodation only; original archive_open unconditionally reads first block header."
+    },
+    "synthetic_probe": {
+      "id": "RUST-INSTALLATION-NATIVE-PROVIDER-20261023-PROBES",
+      "sha256": "332ff725668f5aa57864086f31fc79d413fc662a65fffa1d0ddd673951763cd7",
+      "debug_assertions": 45,
+      "release_assertions": 45,
+      "original_runtime_invocations": 0,
+      "source_binding": {
+        "id": "RUST-INSTALLATION-NATIVE-PROVIDER-20261023-PROBE-SOURCE",
+        "sha256": "6281ecadac03aad2b75897f986c1b057cd7a9f7ba8eabe3a0a6179cfd6794015"
+      }
+    },
+    "actual_installation": {
+      "id": "RUST-INSTALLATION-NATIVE-PROVIDER-20261023-ACTUAL",
+      "sha256": "db1ebd58ee363baa390aadcbbc3926c76959680de55f338858a20584af6d026c",
+      "unique_resources": 49,
+      "compared_bytes_per_profile": 26228595,
+      "profiles": [
+        "debug",
+        "release"
+      ],
+      "all_bytes_equal": true,
+      "archives_opened": 6,
+      "winning_archive_sources": 5,
+      "shadow_context": "AA is opened but its selected candidate is shadowed by A8.",
+      "basis": "Current Rust Installation versus frozen Rust baseline, not original game execution."
+    },
+    "rendered_static_interaction": {
+      "id": "RUST-INSTALLATION-NATIVE-PROVIDER-20261023-GRAPHICS",
+      "sha256": "238ca66ca20584cedb3fd7ef03ca83627e9e77bebe985c27e0a9265c3642b90e",
+      "baseline_commit": "1a1a8df9492df0a58cd891b8a26a642bb4e8a99f",
+      "images": 10,
+      "changed_pixels": 0,
+      "headless_images": 3,
+      "windowed_360_frame_images": 3,
+      "keyboard_state_images": 4,
+      "sequence": "Menu -> New Game -> static INTRO -> Escape -> static MISE01 -> Escape -> menu.",
+      "scope": "Rust static inspection only; no authored cinematic, playable mission or original-runtime rendering comparison.",
+      "provenance": {
+        "id": "RUST-INSTALLATION-NATIVE-PROVIDER-20261023-GRAPHICS-PROVENANCE",
+        "sha256": "379aa46357275cae8cccb67977d44816bb19ee1aeca4e2a794239a882d4131ef"
+      }
+    },
+    "apple_check": {
+      "id": "RUST-INSTALLATION-NATIVE-PROVIDER-20261023-APPLE-CHECK",
+      "sha256": "95e497e81e93ba81fbb64341d86c17033c0775f8aa50d925cdd7fbd3761a90ab"
+    },
+    "new_canonical_entries": 0,
+    "new_scoped_contracts": 0,
+    "new_original_runtime_comparisons": 0,
+    "fresh_REA_analysis": false,
+    "contract_integration_counts": {
+      "static_inspection": 20,
+      "not_integrated": 39,
+      "unchanged": true,
+      "reason": "Existing row domains combine entries or loose branches not established by selected archive callers; per-entry subset is recorded separately."
+    },
+    "application_archive_integration": true,
+    "production_texture_worker_integration": false,
+    "audio_playback": false,
+    "campaign_playable": false,
+    "next_dependencies": "Original replay busy predicate and VM wait bridge over live replay state, then state setter and resource-backed owner/load/update with callback/camera/actor ownership; production texture-worker and surface ownership independently open. A countdown timer does not implement missing original replay load/update or advance the first-mission gate.",
+    "scope": "Host selected-source integration, exact retained archive identity and fail-stop checks; no general Win32/concurrency/ABI parity or original dtaOpen fallback equivalence. Prior scoped contracts, observations, history, strict 0/12 and all 25 binary catalog entries are unchanged.",
+    "host_memory_budget": "Checked logical charge includes both retained canonical map-key payloads, catalog path and raw name, plus fixed policy allowance. Transient parsing, returned catalog/Installation clones, allocator capacities/overhead and RSS are excluded.",
+    "next_dependency_handoff": {
+      "id": "PC-GAME-REPLAY-BUSY-VM-HANDOFF-20261023",
+      "sha256": "811babc1ea631a70ccea36bf7a8b57d75c0b083645211ee80350690418b38411"
+    },
+    "source_freeze_manifest_sha256": "712060236e8e16337184d40ec12416d573cc2b91a2844180cb651fdc5fdb319c",
+    "reused_primary_evidence": {
+      "id": "RUST-INSTALLATION-NATIVE-PROVIDER-20261023-REUSED-REA",
+      "sha256": "e46d5d4790125056c51932ac9c8f79f5c9a88bdb6563933f1c32a971f5e58ce4"
+    },
+    "full_suite_receipt": {
+      "id": "RUST-INSTALLATION-NATIVE-PROVIDER-20261023-FULL-TESTS",
+      "sha256": "4837f13593d8283a39174d28af4c1354533dce438ef10001e4263c540d4262b7"
+    },
+    "code_completion": {
+      "id": "RUST-INSTALLATION-NATIVE-PROVIDER-20261023-CODE-COMPLETION",
+      "sha256": "6fab17086a924e80a7eb0cce671b8d22ebf09f3885d18e520c2b08f60328399e"
+    }
   }
 }
