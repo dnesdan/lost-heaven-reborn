@@ -1,8 +1,8 @@
 //! rw_data.dll dtaSeek (PC RVA 0x3730), dtaClose (PC RVA 0x23e0),
-//! and the loose-file branch of dtaRead (PC RVA 0x25c0).
+//! dtaRead (PC RVA 0x25c0), and DeCrypt (PC RVA 0x4690).
 //!
 //! Snapshot admission, copying and release below are host adapters, not dtaOpen,
-//! dtaRead or dtaClose reconstructions. They do not reproduce archive streaming,
+//! dtaRead or dtaClose reconstructions. They do not reproduce archive opening,
 //! cache errors, native ownership or installation priority selection. The mutex
 //! models serialized calls, excluding Win32 recursive critical-section reentry.
 use std::{collections::BTreeSet, sync::Mutex};
@@ -220,6 +220,7 @@ pub enum EffectStage {
 struct NativeState<B> {
     records: Vec<HandleRecord>,
     read_caches: Vec<Option<LooseReadCache>>,
+    archive_caches: Vec<Option<ArchiveReadCache>>,
     effects: B,
     interrupted: Option<EffectStage>,
     admitted_allocations: BTreeSet<u64>,
@@ -235,6 +236,7 @@ impl<B: Effects> Handles<B> {
             state: Mutex::new(NativeState {
                 records: Vec::new(),
                 read_caches: Vec::new(),
+                archive_caches: Vec::new(),
                 effects,
                 interrupted: None,
                 admitted_allocations: BTreeSet::new(),
@@ -280,6 +282,7 @@ impl<B: Effects> Handles<B> {
         if let Some(index) = state.records.iter().position(|r| r.file == FAILURE) {
             state.records[index] = record;
             state.read_caches[index] = None;
+            state.archive_caches[index] = None;
             return Ok(index as u32);
         }
         let index = u32::try_from(state.records.len())
@@ -288,6 +291,7 @@ impl<B: Effects> Handles<B> {
             .ok_or(OperationError::HandleSpaceExhausted)?;
         state.records.push(record);
         state.read_caches.push(None);
+        state.archive_caches.push(None);
         Ok(index)
     }
     pub fn inspect(&self, handle: u32) -> Result<Option<HandleRecord>, OperationError<B::Error>> {
@@ -446,6 +450,7 @@ impl<B: Effects> Handles<B> {
             && let Some(cache) = state.read_caches.get_mut(handle as usize)
         {
             *cache = None;
+            state.archive_caches[handle as usize] = None;
         }
         result
     }
@@ -470,7 +475,66 @@ pub struct LooseReadCache {
     pub block_start_file_pointer: u32,
     pub block_size: u32,
 }
+/// Host projection of a live archive block allocation and native read locals.
+/// Admission is not dtaOpen. The backend owns the shared physical file position.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ArchiveReadCache {
+    pub bytes: Vec<u8>,
+    pub data_offset: u32,
+    pub block_start_file_pointer: u32,
+    pub current_block: u32,
+    pub block_count: u32,
+    pub compressed_block_size: u32,
+    pub previous_compressed_block_size: u32,
+    pub block_size: u32,
+    pub encrypted: bool,
+    pub key: u64,
+}
 impl<B: ReadEffects> Handles<B> {
+    pub fn attach_archive_cache(
+        &self,
+        handle: u32,
+        cache: ArchiveReadCache,
+    ) -> Result<(), OperationError<B::Error>> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| OperationError::LockPoisoned)?;
+        if let Some(stage) = state.interrupted {
+            return Err(OperationError::Interrupted(stage));
+        }
+        let record = state
+            .records
+            .get(handle as usize)
+            .ok_or(OperationError::InvalidRecord)?;
+        if record.file == FAILURE
+            || record.flags & 3 != 0
+            || record.block == 0
+            || cache.bytes.len() != 32768
+            || cache.block_size > 32768
+            || cache.compressed_block_size > 32769
+            || cache.previous_compressed_block_size > 65535
+            || cache.block_count == 0
+            || cache.current_block >= cache.block_count
+        {
+            return Err(OperationError::InvalidRecord);
+        }
+        state.archive_caches[handle as usize] = Some(cache);
+        Ok(())
+    }
+    pub fn inspect_archive_cache(
+        &self,
+        handle: u32,
+    ) -> Result<Option<ArchiveReadCache>, OperationError<B::Error>> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| OperationError::LockPoisoned)?;
+        Ok(state
+            .archive_caches
+            .get(handle as usize)
+            .and_then(Clone::clone))
+    }
     /// Attach native cache state to an admitted record. This is not dtaOpen.
     pub fn attach_loose_cache(
         &self,
@@ -499,7 +563,7 @@ impl<B: ReadEffects> Handles<B> {
         state.read_caches[handle as usize] = Some(cache);
         Ok(())
     }
-    /// Loose-file branch of dtaRead, PC RVA 0x25c0. Archive decoding is excluded.
+    /// Read-mode dtaRead, PC RVA 0x25c0. WAV decoding remains unsupported.
     /// None represents a null native buffer, including for a zero-length call.
     /// Host-unsafe cursor/cache ranges return an error before performing effects.
     /// Native I/O failure returns FAILURE with its completed output/cache prefix;
@@ -526,7 +590,7 @@ impl<B: ReadEffects> Handles<B> {
             return Ok(FAILURE);
         }
         if record.flags & 1 == 0 {
-            return Err(OperationError::UnsupportedRead);
+            return archive_read(&mut state, handle as usize, output);
         }
         if output.len() > u32::MAX as usize || record.cursor.position > record.cursor.size {
             return Err(OperationError::UnsafeReadState);
@@ -650,6 +714,312 @@ impl<B: ReadEffects> Handles<B> {
     }
 }
 
+/// Original DeCrypt, PC RVA 0x4690. The native NOT/XOR/NOT operations
+/// reduce to byte XOR; reverse traversal is preserved for both regions.
+pub fn de_crypt(buffer: &mut [u8], key: u64) {
+    let key = key.to_le_bytes();
+    let chunks = buffer.len() / 8;
+    for chunk in (0..chunks).rev() {
+        for i in 0..8 {
+            buffer[chunk * 8 + i] ^= key[i];
+        }
+    }
+    for i in (chunks * 8..buffer.len()).rev() {
+        buffer[i] ^= key[i - chunks * 8];
+    }
+}
+
+// Bounded translation of the three PC-inlined block decoders. Malformed native
+// memory accesses are host errors, never invented native failure words.
+fn decode_archive_block(input: &[u8], output: &mut [u8]) -> Result<usize, ()> {
+    let kind = *input.first().ok_or(())?;
+    if kind >= 8 {
+        return Err(());
+    }
+    if kind != 1 {
+        let source = &input[1..];
+        output
+            .get_mut(..source.len())
+            .ok_or(())?
+            .copy_from_slice(source);
+        return Ok(source.len());
+    }
+    let mut position = 3;
+    let mut flags = u16::from_be_bytes(input.get(1..3).ok_or(())?.try_into().unwrap());
+    let mut bits = 16;
+    let mut out = 0usize;
+    while position < input.len() {
+        if bits == 0 {
+            flags = u16::from_be_bytes(
+                input
+                    .get(position..position + 2)
+                    .ok_or(())?
+                    .try_into()
+                    .unwrap(),
+            );
+            position += 2;
+            bits = 16;
+        }
+        if flags & 0x8000 == 0 {
+            *output.get_mut(out).ok_or(())? = *input.get(position).ok_or(())?;
+            out += 1;
+            position += 1;
+        } else {
+            let a = *input.get(position).ok_or(())?;
+            let b = *input.get(position + 1).ok_or(())?;
+            let offset = ((a as usize) << 4) + (b as usize >> 4);
+            if offset == 0 {
+                let c = *input.get(position + 2).ok_or(())?;
+                let value = *input.get(position + 3).ok_or(())?;
+                let count =
+                    (((b as u16) << 8).wrapping_add(c as u16).wrapping_add(15)) as usize + 1;
+                output
+                    .get_mut(out..out.checked_add(count).ok_or(())?)
+                    .ok_or(())?
+                    .fill(value);
+                out += count;
+                position += 4;
+            } else {
+                let count = (b & 15) as usize + 3;
+                for _ in 0..count {
+                    let value = *output.get(out.checked_sub(offset).ok_or(())?).ok_or(())?;
+                    *output.get_mut(out).ok_or(())? = value;
+                    out += 1;
+                }
+                position += 2;
+            }
+        }
+        flags <<= 1;
+        bits -= 1;
+    }
+    Ok(out)
+}
+
+fn archive_read<B: ReadEffects>(
+    state: &mut NativeState<B>,
+    index: usize,
+    output: &mut [u8],
+) -> Result<u32, OperationError<B::Error>> {
+    let Some(cache) = state.archive_caches[index].as_ref() else {
+        return Err(OperationError::UnsupportedRead);
+    };
+    let record = &state.records[index];
+    if output.len() > u32::MAX as usize
+        || record.cursor.position > record.cursor.size
+        || record.cursor.block_file_pointer > 32768
+    {
+        return Err(OperationError::UnsafeReadState);
+    }
+
+    // Native copies numeric locals; cache bytes remain in their live allocation.
+    let mut local = ArchiveReadCache {
+        bytes: Vec::new(),
+        data_offset: cache.data_offset,
+        block_start_file_pointer: cache.block_start_file_pointer,
+        current_block: cache.current_block,
+        block_count: cache.block_count,
+        compressed_block_size: cache.compressed_block_size,
+        previous_compressed_block_size: cache.previous_compressed_block_size,
+        block_size: cache.block_size,
+        encrypted: cache.encrypted,
+        key: cache.key,
+    };
+    let mut fp = record.cursor.position;
+    let mut bp = record.cursor.block_file_pointer;
+    let len = (output.len() as u32).min(record.cursor.size - fp) as usize;
+    let file = record.file;
+    let mut failed_stage = None;
+    let result = (|| {
+        let record = &mut state.records[index];
+        let cache = state.archive_caches[index].as_mut().unwrap();
+        let effects = &mut state.effects;
+        macro_rules! seek {
+            ($p:expr) => {{
+                let (position, error) = effects.seek_read_file(file, $p).map_err(|e| {
+                    failed_stage = Some(EffectStage::Seek);
+                    OperationError::Backend(e)
+                })?;
+                if position == FAILURE && error != 0 {
+                    return Ok(FAILURE);
+                }
+            }};
+        }
+        macro_rules! read {
+            ($out:expr,$clear:expr) => {{
+                let out: &mut [u8] = $out;
+                let expected = out.len() as u32;
+                let status = effects.read_file(file, out).map_err(|e| {
+                    failed_stage = Some(EffectStage::Read);
+                    OperationError::Backend(e)
+                })?;
+                if !status.success || status.bytes_read != expected {
+                    if $clear {
+                        record.cache_valid = false;
+                    }
+                    return Ok(FAILURE);
+                }
+            }};
+        }
+        macro_rules! header {
+            ($clear:expr,$previous:expr) => {{
+                let mut header = [0; 4];
+                read!(&mut header, $clear);
+                let value = u32::from_le_bytes(header);
+                local.compressed_block_size = value & 65535;
+                if $previous {
+                    local.previous_compressed_block_size = value >> 16;
+                }
+            }};
+        }
+        macro_rules! decode {
+            ($out:expr,$clear:expr) => {{
+                let compressed = local.compressed_block_size as usize;
+                if compressed == 0 || compressed > 32769 {
+                    return Err(OperationError::UnsafeReadState);
+                }
+                let mut payload = vec![0; compressed];
+                read!(&mut payload, $clear);
+                if local.encrypted {
+                    de_crypt(&mut payload, local.key);
+                }
+                if payload[0] >= 8 {
+                    return Err(OperationError::UnsupportedRead);
+                }
+                decode_archive_block(&payload, $out).map_err(|_| OperationError::UnsafeReadState)?
+                    as u32
+            }};
+        }
+        let target = fp >> 15;
+        if target != local.current_block {
+            if target < local.current_block && target < local.current_block >> 1 {
+                seek!(local.data_offset);
+                local.current_block = 0;
+                local.block_start_file_pointer = 0;
+                header!(false, true);
+            }
+            while target != local.current_block {
+                if target > local.current_block {
+                    local.block_start_file_pointer = local
+                        .block_start_file_pointer
+                        .wrapping_add(local.compressed_block_size + 4);
+                    local.current_block += 1;
+                } else {
+                    local.block_start_file_pointer = local
+                        .block_start_file_pointer
+                        .wrapping_sub(local.previous_compressed_block_size + 4);
+                    local.current_block -= 1;
+                }
+                seek!(
+                    local
+                        .data_offset
+                        .wrapping_add(local.block_start_file_pointer)
+                );
+                header!(false, true);
+            }
+            bp = fp.wrapping_sub(local.current_block << 15);
+            record.cache_valid = false;
+        }
+        if !record.cache_valid {
+            seek!(
+                local
+                    .data_offset
+                    .wrapping_add(local.block_start_file_pointer)
+                    .wrapping_add(4)
+            );
+            local.block_size = decode!(&mut cache.bytes, false);
+            record.cache_valid = true;
+        }
+        if bp > local.block_size || local.block_size > 32768 {
+            return Err(OperationError::UnsafeReadState);
+        }
+        let remaining = (local.block_size - bp) as usize;
+        let result;
+        if remaining >= len {
+            output[..len].copy_from_slice(&cache.bytes[bp as usize..bp as usize + len]);
+            fp += len as u32;
+            bp += len as u32;
+            result = len;
+            if bp == local.block_size && local.current_block.wrapping_add(1) < local.block_count {
+                local.block_start_file_pointer = local
+                    .block_start_file_pointer
+                    .wrapping_add(local.compressed_block_size + 4);
+                local.current_block += 1;
+                seek!(
+                    local
+                        .data_offset
+                        .wrapping_add(local.block_start_file_pointer)
+                );
+                header!(false, true);
+                bp = 0;
+                record.cache_valid = false;
+            }
+        } else {
+            output[..remaining]
+                .copy_from_slice(&cache.bytes[bp as usize..local.block_size as usize]);
+            fp += remaining as u32;
+            bp = 0;
+            let mut written = remaining;
+            let rest = len - remaining;
+            local.block_start_file_pointer = local
+                .block_start_file_pointer
+                .wrapping_add(local.compressed_block_size + 4);
+            seek!(
+                local
+                    .data_offset
+                    .wrapping_add(local.block_start_file_pointer)
+            );
+            for _ in 0..rest / 32768 {
+                header!(true, false);
+                local.current_block = local.current_block.wrapping_add(1);
+                local.block_size = decode!(
+                    output
+                        .get_mut(written..)
+                        .ok_or(OperationError::UnsafeReadState)?,
+                    true
+                );
+                written = written
+                    .checked_add(local.block_size as usize)
+                    .ok_or(OperationError::UnsafeReadState)?;
+                fp = fp.wrapping_add(local.block_size);
+                local.block_start_file_pointer = local
+                    .block_start_file_pointer
+                    .wrapping_add(local.compressed_block_size + 4);
+            }
+            header!(true, true);
+            local.current_block = local.current_block.wrapping_add(1);
+            let tail = rest % 32768;
+            if tail > 0 {
+                local.block_size = decode!(&mut cache.bytes, true);
+                if tail > cache.bytes.len()
+                    || written
+                        .checked_add(tail)
+                        .filter(|&end| end <= output.len())
+                        .is_none()
+                {
+                    return Err(OperationError::UnsafeReadState);
+                }
+                output[written..written + tail].copy_from_slice(&cache.bytes[..tail]);
+                fp = fp.wrapping_add(tail as u32);
+                bp = tail as u32;
+                written += tail;
+            } else {
+                record.cache_valid = false;
+            }
+            result = written;
+        }
+        record.cursor.position = fp;
+        record.cursor.block_file_pointer = bp;
+        // Allocation bytes have already been mutated; numeric locals commit together.
+        local.bytes = std::mem::take(&mut cache.bytes);
+        *cache = local;
+        Ok(result as u32)
+    })();
+    if let Some(stage) = failed_stage {
+        state.interrupted = Some(stage);
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -662,6 +1032,9 @@ mod tests {
         close_failure: bool,
         free_error: bool,
         physical: usize,
+        source: Option<Vec<u8>>,
+        fail_read_at: Option<usize>,
+        reads: usize,
         read_failure: bool,
     }
     struct Backend(Arc<Mutex<Trace>>);
@@ -907,20 +1280,24 @@ mod tests {
         fn read_file(&mut self, _: u32, output: &mut [u8]) -> Result<ReadFileResult, Self::Error> {
             let mut t = self.0.lock().unwrap();
             t.calls.push(format!("read {}", output.len()));
-            let count = if t.read_failure {
+            t.reads += 1;
+            let failure = t.read_failure || t.fail_read_at == Some(t.reads);
+            let count = if failure {
                 output.len().min(2)
             } else {
                 output.len()
             };
             for (i, byte) in output[..count].iter_mut().enumerate() {
-                *byte = (t.physical + i) as u8;
-                if t.read_failure {
+                *byte = t.source.as_ref().map_or((t.physical + i) as u8, |s| {
+                    s.get(t.physical + i).copied().unwrap_or(0)
+                });
+                if failure {
                     *byte = !*byte;
                 }
             }
             t.physical += count;
             Ok(ReadFileResult {
-                success: !t.read_failure,
+                success: !failure,
                 bytes_read: count as u32,
             })
         }
@@ -1028,5 +1405,147 @@ mod tests {
         assert_eq!(trace.lock().unwrap().calls.len(), 2);
         assert!(handles.dta_close(0).unwrap());
         assert_eq!(handles.inspect_loose_cache(0).unwrap(), None);
+    }
+    fn archive(trace: Arc<Mutex<Trace>>, blocks: &[Vec<u8>]) -> Handles<Backend> {
+        let mut physical = Vec::new();
+        let mut previous = 0;
+        for block in blocks {
+            physical.extend_from_slice(&((previous << 16) | block.len() as u32).to_le_bytes());
+            physical.extend_from_slice(block);
+            previous = block.len() as u32;
+        }
+        trace.lock().unwrap().source = Some(physical);
+        let handles = Handles::new(Backend(trace));
+        let mut r = record(0);
+        r.wav = 0;
+        r.cache_valid = false;
+        r.cursor = ReadCursor::new((blocks.len() * 32768) as u32);
+        handles.admit(r).unwrap();
+        handles
+            .attach_archive_cache(
+                0,
+                ArchiveReadCache {
+                    bytes: vec![0xa5; 32768],
+                    data_offset: 0,
+                    block_start_file_pointer: 0,
+                    current_block: 0,
+                    block_count: blocks.len() as u32,
+                    compressed_block_size: blocks[0].len() as u32,
+                    previous_compressed_block_size: 0,
+                    block_size: 0,
+                    encrypted: false,
+                    key: 0,
+                },
+            )
+            .unwrap();
+        handles
+    }
+    #[test]
+    fn archive_raw_lz_navigation_and_exact_boundary_prefetch() {
+        let trace = Arc::new(Mutex::new(Trace::default()));
+        let raw = |v| {
+            let mut b = vec![v; 32769];
+            b[0] = 0;
+            b
+        };
+        // One LZ run of 32768 bytes, followed by raw blocks.
+        let mut lz = vec![1, 0xff, 0];
+        for _ in 0..8 {
+            lz.extend_from_slice(&[0, 0x0f, 0xf0, 7]);
+        }
+        let handles = archive(trace.clone(), &[lz, raw(8), raw(9), raw(10)]);
+        let mut out = vec![0; 32768];
+        assert_eq!(handles.dta_read(0, Some(&mut out)).unwrap(), 32768);
+        assert!(out.iter().all(|&v| v == 7));
+        let cache = handles.inspect_archive_cache(0).unwrap().unwrap();
+        assert_eq!(
+            (cache.current_block, cache.previous_compressed_block_size),
+            (1, 35)
+        );
+        assert!(!handles.inspect(0).unwrap().unwrap().cache_valid);
+        handles.dta_seek(0, 3 * 32768 + 2, 0).unwrap();
+        assert_eq!(handles.dta_read(0, Some(&mut [0; 1])).unwrap(), 1);
+        handles.dta_seek(0, 1, 0).unwrap();
+        let mut byte = [0];
+        handles.dta_read(0, Some(&mut byte)).unwrap();
+        assert_eq!(byte, [7]);
+        assert!(
+            trace
+                .lock()
+                .unwrap()
+                .calls
+                .iter()
+                .filter(|s| *s == "read seek 0")
+                .count()
+                >= 1
+        );
+    }
+    #[test]
+    fn archive_crossing_direct_and_failed_prefetch_keep_prefix() {
+        let raw = |v| {
+            let mut b = vec![v; 32769];
+            b[0] = 0;
+            b
+        };
+        let trace = Arc::new(Mutex::new(Trace::default()));
+        let handles = archive(trace.clone(), &[raw(3), raw(4), raw(5), raw(6)]);
+        handles.dta_read(0, Some(&mut [0; 1])).unwrap();
+        handles.dta_seek(0, 32766, 0).unwrap();
+        let mut out = vec![0; 32772];
+        assert_eq!(handles.dta_read(0, Some(&mut out)).unwrap(), 32772);
+        assert_eq!(&out[..2], &[3, 3]);
+        assert!(out[2..32770].iter().all(|&v| v == 4));
+        assert_eq!(&out[32770..], &[5, 5]);
+        handles.dta_seek(0, 3 * 32768 - 1, 0).unwrap();
+        let prior = handles.inspect(0).unwrap().unwrap();
+        let next = trace.lock().unwrap().reads + 1;
+        trace.lock().unwrap().fail_read_at = Some(next);
+        let mut out = [0xa5];
+        assert_eq!(handles.dta_read(0, Some(&mut out)).unwrap(), FAILURE);
+        assert_eq!(out, [5]);
+        assert_eq!(handles.inspect(0).unwrap().unwrap().cursor, prior.cursor);
+        assert!(handles.inspect(0).unwrap().unwrap().cache_valid);
+    }
+    #[test]
+    fn archive_decoder_overlapping_backreference_and_host_bounds() {
+        let mut out = [0; 16];
+        assert_eq!(
+            decode_archive_block(&[1, 0x10, 0, b'a', b'b', b'c', 0, 0x30], &mut out),
+            Ok(6)
+        );
+        assert_eq!(&out[..6], b"abcabc");
+        assert!(decode_archive_block(&[1, 0x80, 0, 0x10, 0], &mut out).is_err());
+        assert!(decode_archive_block(&[8], &mut out).is_err());
+    }
+    #[test]
+    fn archive_encryption_and_unsupported_wav_are_distinct() {
+        let key = 0x0807060504030201;
+        let mut payload = vec![0; 32769];
+        payload[1..].fill(0x6a);
+        de_crypt(&mut payload, key);
+        let trace = Arc::new(Mutex::new(Trace::default()));
+        let handles = archive(trace.clone(), &[payload]);
+        let mut cache = handles.inspect_archive_cache(0).unwrap().unwrap();
+        cache.encrypted = true;
+        cache.key = key;
+        handles.attach_archive_cache(0, cache).unwrap();
+        let mut out = [0; 9];
+        assert_eq!(handles.dta_read(0, Some(&mut out)).unwrap(), 9);
+        assert_eq!(out, [0x6a; 9]);
+        let trace = Arc::new(Mutex::new(Trace::default()));
+        let handles = archive(trace, &[vec![8; 32]]);
+        assert_eq!(
+            handles.dta_read(0, Some(&mut [0; 1])),
+            Err(OperationError::UnsupportedRead)
+        );
+        assert_eq!(handles.inspect(0).unwrap().unwrap().cursor.position(), 0);
+        let mut bytes = (0..31).collect::<Vec<u8>>();
+        let original = bytes.clone();
+        de_crypt(&mut bytes, key);
+        for (i, &byte) in bytes.iter().enumerate() {
+            assert_eq!(byte, original[i] ^ ((i % 8 + 1) as u8));
+        }
+        de_crypt(&mut bytes, key);
+        assert_eq!(bytes, original);
     }
 }
