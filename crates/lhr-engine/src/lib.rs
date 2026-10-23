@@ -8,6 +8,7 @@ pub mod actor_world;
 pub mod animation_binding;
 pub mod animation_controller;
 pub mod animation_index;
+mod arena_frame_names;
 pub mod buffer_managers;
 pub mod c_str;
 pub mod clock;
@@ -45,6 +46,7 @@ pub mod program_parser;
 pub mod replay_state;
 pub mod rotation_animation;
 pub mod runtime;
+pub mod scene_ownership;
 pub mod scene_tick;
 pub mod script_lookup;
 pub mod script_scheduler;
@@ -75,7 +77,8 @@ pub mod visual_resources;
 /// claiming an additional DLL/Cargo package or a complete LS3DF reconstruction.
 pub mod ls3df {
     pub use crate::{
-        c_str, frame_fast_lookup, frame_lookup, i3d_object, itexture, texture_manager,
+        c_str, frame_fast_lookup, frame_lookup, i3d_object, itexture, scene_ownership,
+        texture_manager,
     };
 }
 

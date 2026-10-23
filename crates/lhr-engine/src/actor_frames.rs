@@ -38,6 +38,7 @@ pub enum ActorFrameError {
     Lookup(FrameLookupError),
     Model(ModelError),
     UnsupportedUserData(FrameReferenceId),
+    UnsupportedSceneEnumeration(FrameReferenceId),
 }
 impl From<ModelError> for ActorFrameError {
     fn from(value: ModelError) -> Self {
@@ -110,7 +111,14 @@ impl<'a> ModelActorFrames<'a> {
         if name.is_empty() || !name.is_ascii() || name.contains(&0) {
             return Err(fail(FrameLookupError::UnsupportedName));
         }
+        let root_reference = root;
         let root = self.resolve(root)?;
+        // FindChildFrame invokes virtual EnumFrames. Scene's RVA 0x49180
+        // override traverses its retained sectors, not the scene-root children.
+        // That enumeration dependency is not represented by this base traversal.
+        if self.arena.state(root)?.kind == FrameKind::Scene {
+            return Err(ActorFrameError::UnsupportedSceneEnumeration(root_reference));
+        }
         let mut pending = Vec::new();
         pending
             .try_reserve(visits + 1)
@@ -679,6 +687,49 @@ mod tests {
     }
 
     #[test]
+    fn scene_set_on_override_is_empty_while_sectors_keep_base_low_byte_behavior() {
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let sectors = arena.scene(scene).unwrap().sectors;
+        for key in std::iter::once(scene.root()).chain(sectors.map(|sector| sector.frame())) {
+            let frame = ModelActorFrames::borrow(&mut arena, true)
+                .reference(key)
+                .unwrap();
+            let original = *arena.state(key).unwrap();
+            for enabled in [0, 1, 0x100, 0x101, 0xffff_ff00, 0x80, u32::MAX] {
+                ModelActorFrames::borrow(&mut arena, true)
+                    .set_enabled(frame, enabled)
+                    .unwrap();
+                let mut expected = original;
+                if key != scene.root() {
+                    expected.flags = (expected.flags & !1) | u32::from(enabled as u8 != 0);
+                }
+                assert_eq!(*arena.state(key).unwrap(), expected);
+            }
+        }
+    }
+    #[test]
+    fn scene_find_child_rejects_unavailable_virtual_sector_enumeration() {
+        let mut model = loaded(vec![named(7, None, b"target")]);
+        let target = model.source_frame_keys()[0];
+        let arena = model.arena_mut();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let primary = arena.scene(scene).unwrap().sectors[0].frame();
+        arena.link_frame(target, Some(primary), 0).unwrap();
+        let frames = ModelActorFrames::borrow(arena, true);
+        let scene_ref = frames.reference(scene.root()).unwrap();
+        let primary_ref = frames.reference(primary).unwrap();
+        let target_ref = frames.reference(target).unwrap();
+        assert_eq!(
+            frames.find_child_frame(scene_ref, b"target", ACTOR_FIND_FLAGS, 8),
+            Err(ActorFrameError::UnsupportedSceneEnumeration(scene_ref))
+        );
+        assert_eq!(
+            frames.find_child_frame(primary_ref, b"target", ACTOR_FIND_FLAGS, 8),
+            Ok(Some(target_ref))
+        );
+    }
+    #[test]
     fn foreign_frame_identity_rejects_every_effect_and_preserves_owner() {
         let mut model = loaded(vec![named(7, None, b"a")]);
         let foreign_model = loaded(vec![]);
@@ -772,7 +823,7 @@ mod tests {
         assert_eq!(model.arena().frame(key).unwrap().references, 1);
         assert_eq!(
             model.arena().frame(key).unwrap().owner,
-            Some(model.model_key())
+            Some(model.model_key().into())
         );
         assert_eq!(*model.arena().state(key).unwrap(), state);
     }

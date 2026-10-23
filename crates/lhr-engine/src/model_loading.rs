@@ -16,7 +16,7 @@ use lhr_assets::Model;
 use std::{fmt, sync::Arc};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct ModelKey(FrameKey);
+pub struct ModelKey(pub(crate) FrameKey);
 impl ModelKey {
     pub fn root(self) -> FrameKey {
         self.0
@@ -26,7 +26,7 @@ impl ModelKey {
 pub struct LoadedFrame {
     pub key: FrameKey,
     pub references: u32,
-    pub owner: Option<ModelKey>,
+    pub owner: Option<crate::scene_ownership::FrameOwner>,
     pub source_index: Option<usize>,
     pub name_bytes: Vec<u8>,
     /// Local original-name (+0x104) projection, distinct from the full current
@@ -42,22 +42,33 @@ pub struct LoadedFrame {
     /// distinct from a null pointer, including when its first word is null.
     pub user_data: crate::actor_frames::FrameUserData,
     alive: bool,
+    pub(crate) name_pointer: crate::frame_fast_lookup::OriginalFrameName,
+    pub(crate) name_is_null: bool,
+    pub(crate) ff_left: Option<FrameKey>,
+    pub(crate) ff_right: Option<FrameKey>,
 }
 #[derive(Debug)]
 pub struct LoadedModel {
     pub key: ModelKey,
     pub frames: Vec<FrameKey>,
-    native_capacity: usize,
-    growth: usize,
+    pub(crate) native_capacity: usize,
+    pub(crate) growth: usize,
     lifecycle_epoch: u64,
     close_cursor: usize,
-    closing: bool,
+    pub(crate) closing: bool,
+}
+impl LoadedModel {
+    pub fn capacity(&self) -> usize {
+        self.native_capacity
+    }
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ModelError {
     Frame(FrameError),
     UnknownModel(ModelKey),
     UnknownFrame(FrameKey),
+    Scene(crate::scene_ownership::SceneOwnerError),
+    FastFrame(crate::frame_fast_lookup::FastFrameError),
     UnsupportedFrame {
         index: usize,
         kind: u8,
@@ -101,14 +112,17 @@ impl fmt::Display for ModelError {
 impl std::error::Error for ModelError {}
 
 /// Stable keys are never reused. The graph owns transform caches; this arena
-/// owns reference counts, model membership and original common-frame metadata.
+/// owns reference counts, model/scene membership, names and fast-tree links.
 #[derive(Debug, Default)]
 pub struct ModelArena {
-    graph: I3dFrameGraph,
-    frames: Vec<LoadedFrame>,
-    models: Vec<LoadedModel>,
+    pub(crate) graph: I3dFrameGraph,
+    pub(crate) frames: Vec<LoadedFrame>,
+    pub(crate) models: Vec<LoadedModel>,
+    pub(crate) scenes: Vec<crate::scene_ownership::SceneFrameOwner>,
+    pub(crate) sectors: Vec<crate::scene_ownership::SectorFrame>,
     destruction_depth: usize,
     lookup_owner: crate::frame_lookup::FrameLookupOwner,
+    pub(crate) fast_tree: crate::arena_frame_names::ArenaFastTree,
     actor_data_records: Vec<crate::actor_frames::ActorDataRecord>,
 }
 impl ModelArena {
@@ -118,7 +132,7 @@ impl ModelArena {
     ) -> crate::script_scheduler::FrameReferenceId {
         self.lookup_owner.reference(key.0)
     }
-    fn insert(
+    pub(crate) fn insert(
         &mut self,
         state: I3dFrameState,
         source_index: Option<usize>,
@@ -143,6 +157,7 @@ impl ModelArena {
         // Native LoadImage skips the name allocation/stores for byte length0.
         let original_name_bytes =
             (source_index.is_some() && !name_bytes.is_empty()).then(|| name_bytes.clone());
+        let name_is_null = original_name_bytes.is_none();
         self.frames.push(LoadedFrame {
             key,
             references: 1,
@@ -155,6 +170,14 @@ impl ModelArena {
             source: None,
             user_data: crate::actor_frames::FrameUserData::Null,
             alive: true,
+            name_is_null,
+            name_pointer: if name_is_null {
+                crate::frame_fast_lookup::OriginalFrameName::Null
+            } else {
+                crate::frame_fast_lookup::OriginalFrameName::Offset(0)
+            },
+            ff_left: None,
+            ff_right: None,
         });
         Ok(key)
     }
@@ -172,7 +195,7 @@ impl ModelArena {
         });
         Ok(key)
     }
-    fn frame_index(&self, key: FrameKey) -> Result<usize, ModelError> {
+    pub(crate) fn frame_index(&self, key: FrameKey) -> Result<usize, ModelError> {
         let i = key.0.checked_sub(1).ok_or(ModelError::UnknownFrame(key))? as usize;
         self.frames
             .get(i)
@@ -180,7 +203,7 @@ impl ModelArena {
             .map(|_| i)
             .ok_or(ModelError::UnknownFrame(key))
     }
-    fn model_index(&self, key: ModelKey) -> Result<usize, ModelError> {
+    pub(crate) fn model_index(&self, key: ModelKey) -> Result<usize, ModelError> {
         self.frame_index(key.root())
             .map_err(|_| ModelError::UnknownModel(key))?;
         self.models
@@ -288,7 +311,11 @@ impl ModelArena {
     }
     pub(crate) fn set_frame_on(&mut self, key: FrameKey, on: u32) -> Result<(), ModelError> {
         self.frame_index(key)?;
-        self.graph.set_on(key, on)?;
+        // Scene's virtual SetOn slot is the empty PC RVA 0x5240 override.
+        // Sector and the other admitted kinds retain base SetOn semantics.
+        if self.graph.state(key)?.kind != FrameKind::Scene {
+            self.graph.set_on(key, on)?;
+        }
         Ok(())
     }
     pub fn model(&self, key: ModelKey) -> Result<&LoadedModel, ModelError> {
@@ -326,26 +353,32 @@ impl ModelArena {
     /// before decrementing the last reference; completed earlier Close releases
     /// remain observable. Dead stable keys never identify a later allocation.
     pub fn release(&mut self, key: FrameKey) -> Result<(), ModelError> {
+        self.check_scene_frame_available(key)?;
+        self.release_inner(key)
+    }
+    pub(crate) fn release_inner(&mut self, key: FrameKey) -> Result<(), ModelError> {
         let i = self.frame_index(key)?;
         if self.frames[i].references > 1 {
             self.frames[i].references -= 1;
             return Ok(());
         }
-        self.graph.check_destruction(key)?;
+        self.graph.check_destruction_with_owned_name(key)?;
         let owner_position = if let Some(owner) = self.frames[i].owner {
-            let mi = self.model_index(owner)?;
-            if self.models[mi].closing {
-                return Err(ModelError::CloseIncomplete(owner));
-            }
-            let position = self.models[mi]
-                .frames
+            self.check_owner_available(owner)?;
+            let position = self
+                .owner_frames(owner)?
                 .iter()
                 .position(|&k| k == key)
-                .ok_or(ModelError::FrameNotOwned {
-                    model: owner,
-                    frame: key,
+                .ok_or_else(|| match owner {
+                    crate::scene_ownership::FrameOwner::Model(model) => {
+                        ModelError::FrameNotOwned { model, frame: key }
+                    }
+                    crate::scene_ownership::FrameOwner::Scene(scene) => {
+                        crate::scene_ownership::SceneOwnerError::FrameNotOwned { scene, frame: key }
+                            .into()
+                    }
                 })?;
-            Some((mi, position))
+            Some((owner, position))
         } else {
             None
         };
@@ -366,10 +399,11 @@ impl ModelArena {
             self.models[mi].native_capacity = 0;
         }
         self.graph.destroy_derived(key)?;
+        self.remove_frame_name_registration(key)?;
         // Derived teardown precedes base owner removal. The zero-count base
         // destructor removes membership without an additional Release.
-        if let Some((mi, position)) = owner_position {
-            self.models[mi].frames.swap_remove(position);
+        if let Some((owner, position)) = owner_position {
+            self.owner_frames_mut(owner)?.swap_remove(position);
             self.frames[i].owner = None;
         }
         self.graph.destroy_base(key)?;
@@ -384,12 +418,13 @@ impl ModelArena {
         Ok(())
     }
     pub fn add_frame(&mut self, model: ModelKey, key: FrameKey) -> Result<(), ModelError> {
+        self.check_scene_frame_available(key)?;
         let mi = self.model_index(model)?;
         let fi = self.frame_index(key)?;
         if self.models[mi].closing {
             return Err(ModelError::CloseIncomplete(model));
         }
-        let mut ancestor = Some(model);
+        let mut ancestor = Some(crate::scene_ownership::FrameOwner::Model(model));
         while let Some(current) = ancestor {
             if current.root() == key {
                 return Err(ModelError::OwnershipCycle);
@@ -397,9 +432,7 @@ impl ModelArena {
             ancestor = self.frame(current.root())?.owner;
         }
         if let Some(previous) = self.frames[fi].owner {
-            if self.models[self.model_index(previous)?].closing {
-                return Err(ModelError::CloseIncomplete(previous));
-            }
+            self.check_owner_available(previous)?;
         }
         self.frames[fi]
             .references
@@ -429,13 +462,13 @@ impl ModelArena {
         // through DeleteFromOwner cannot destroy the frame.
         self.retain(key)?;
         if let Some(previous) = self.frames[fi].owner {
-            self.delete_frame(previous, key)?;
+            self.delete_from_owner_key(previous, key)?;
         }
         if self.models[mi].frames.len() >= self.models[mi].native_capacity {
             self.models[mi].native_capacity += self.models[mi].growth;
         }
         self.models[mi].frames.push(key);
-        self.frames[fi].owner = Some(model);
+        self.frames[fi].owner = Some(model.into());
         Ok(())
     }
     pub fn delete_frame(&mut self, model: ModelKey, key: FrameKey) -> Result<(), ModelError> {
@@ -450,7 +483,7 @@ impl ModelArena {
             .position(|&k| k == key)
             .ok_or(ModelError::FrameNotOwned { model, frame: key })?;
         if self.frames[fi].references <= 1 {
-            self.graph.check_destruction(key)?;
+            self.graph.check_destruction_with_owned_name(key)?;
         }
         self.models[mi].frames.swap_remove(position);
         self.frames[fi].owner = None;
@@ -473,13 +506,13 @@ impl ModelArena {
             let key = self.models[mi].frames[self.models[mi].close_cursor];
             let fi = self.frame_index(key)?;
             if self.frames[fi].references <= 1 {
-                self.graph.check_destruction(key)?;
+                self.graph.check_destruction_with_owned_name(key)?;
             }
             self.frames[fi].owner = None;
             if let Err(error) = self.release(key) {
                 // The unsupported current slot still belongs to this pending
                 // host Close, including a nested model with a completed prefix.
-                self.frames[fi].owner = Some(model);
+                self.frames[fi].owner = Some(model.into());
                 return Err(error);
             }
             self.models[mi].close_cursor += 1;
@@ -518,6 +551,23 @@ impl ModelArena {
             .capacity()
             .checked_mul(std::mem::size_of::<crate::actor_frames::ActorDataRecord>())
             .ok_or(ModelError::AllocationOverflow)?)?;
+        add(self
+            .scenes
+            .capacity()
+            .checked_mul(std::mem::size_of::<crate::scene_ownership::SceneFrameOwner>())
+            .ok_or(ModelError::AllocationOverflow)?)?;
+        add(self
+            .sectors
+            .capacity()
+            .checked_mul(std::mem::size_of::<crate::scene_ownership::SectorFrame>())
+            .ok_or(ModelError::AllocationOverflow)?)?;
+        for scene in &self.scenes {
+            add(scene
+                .frames
+                .capacity()
+                .checked_mul(std::mem::size_of::<FrameKey>())
+                .ok_or(ModelError::AllocationOverflow)?)?;
+        }
         for f in &self.frames {
             add(f.name_bytes.capacity())?;
             if let Some(original) = &f.original_name_bytes {
@@ -780,7 +830,7 @@ impl MaterializedModel {
             && self.source_frame_keys.iter().all(|&key| {
                 self.arena
                     .frame(key)
-                    .is_ok_and(|frame| frame.owner == Some(self.root))
+                    .is_ok_and(|frame| frame.owner == Some(self.root.into()))
             })
     }
     /// Content epoch also changes when callers close the low-level arena.
@@ -1039,7 +1089,7 @@ pub(crate) mod tests {
         for &key in &keys {
             let f = loaded.arena.frame(key).unwrap();
             assert_eq!(f.references, 1);
-            assert_eq!(f.owner, Some(loaded.root));
+            assert_eq!(f.owner, Some(loaded.root.into()));
             assert_eq!(f.properties, [0xff, 0, 0x80]);
         }
         assert_eq!(
@@ -1081,7 +1131,10 @@ pub(crate) mod tests {
             assert_eq!(joint.joint_matrix, None);
             assert_eq!(joint.singlemesh, None);
             assert_eq!(loaded.arena.frame(key).unwrap().references, 1);
-            assert_eq!(loaded.arena.frame(key).unwrap().owner, Some(loaded.root));
+            assert_eq!(
+                loaded.arena.frame(key).unwrap().owner,
+                Some(loaded.root.into())
+            );
         }
     }
 
@@ -1098,7 +1151,7 @@ pub(crate) mod tests {
         let key = failure.partial.source_frame_keys()[0];
         assert_eq!(
             failure.partial.arena.frame(key).unwrap().owner,
-            Some(failure.partial.root)
+            Some(failure.partial.root.into())
         );
         assert_eq!(failure.partial.arena.frame(key).unwrap().references, 1);
     }
@@ -1346,7 +1399,10 @@ pub(crate) mod tests {
         assert!(!partial.is_complete());
         assert_eq!(partial.source_frame_keys().len(), 1);
         let key = partial.source_frame_keys()[0];
-        assert_eq!(partial.arena.frame(key).unwrap().owner, Some(partial.root));
+        assert_eq!(
+            partial.arena.frame(key).unwrap().owner,
+            Some(partial.root.into())
+        );
         assert_eq!(partial.arena.frame(key).unwrap().references, 1);
         assert_eq!(
             partial.arena.graph.links(key).unwrap().parent,
@@ -1368,7 +1424,7 @@ pub(crate) mod tests {
             loaded.arena.model(loaded.root).unwrap().frames,
             [loaded.source_frame_keys()[1]]
         );
-        assert_eq!(loaded.arena.frame(key).unwrap().owner, Some(next));
+        assert_eq!(loaded.arena.frame(key).unwrap().owner, Some(next.into()));
         assert_eq!(loaded.arena.frame(key).unwrap().references, 1);
         loaded.arena.close(next).unwrap();
         assert!(
@@ -1439,7 +1495,7 @@ pub(crate) mod tests {
         assert_eq!(loaded.arena.frame(keys[1]).unwrap().references, 1);
         assert_eq!(
             loaded.arena.frame(keys[1]).unwrap().owner,
-            Some(loaded.root)
+            Some(loaded.root.into())
         );
         assert_eq!(
             loaded.close(),
@@ -1482,7 +1538,10 @@ pub(crate) mod tests {
         .unwrap_err();
         let mut partial = *failure.partial;
         let key = partial.source_frame_keys()[0];
-        assert_eq!(partial.arena.frame(key).unwrap().owner, Some(partial.root));
+        assert_eq!(
+            partial.arena.frame(key).unwrap().owner,
+            Some(partial.root.into())
+        );
         // Constructor registration remains empty after failed reference intake.
         // Its successfully constructed record is owned and can be closed.
         partial.close().unwrap();
@@ -1566,7 +1625,7 @@ pub(crate) mod tests {
             arena.close(outer),
             Err(ModelError::Frame(FrameError::UnsupportedDestruction(mesh)))
         );
-        assert_eq!(arena.frame(inner.root()).unwrap().owner, Some(outer));
+        assert_eq!(arena.frame(inner.root()).unwrap().owner, Some(outer.into()));
         assert_eq!(
             arena.add_frame(other, inner.root()),
             Err(ModelError::CloseIncomplete(outer))

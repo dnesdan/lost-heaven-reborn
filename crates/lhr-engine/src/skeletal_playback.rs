@@ -675,6 +675,9 @@ mod tests {
             .unwrap()
             .owner
             .unwrap();
+        let crate::scene_ownership::FrameOwner::Model(owner) = owner else {
+            panic!("expected model owner")
+        };
         model.arena_mut().close(owner).unwrap();
         assert!(matches!(
             playback.tick(&mut model, 40),

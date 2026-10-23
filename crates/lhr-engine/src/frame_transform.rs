@@ -29,6 +29,8 @@ const DIRTY: u32 = 0x40002000;
 pub struct FrameKey(pub u32);
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FrameKind {
+    Scene,
+    Sector,
     Model,
     Mesh,
     Dummy,
@@ -161,6 +163,7 @@ pub enum FrameError {
     UnsupportedLinkFlags(u32),
     UnsupportedLinkState,
     UnsupportedDestruction(FrameKey),
+    UnsupportedFrameUpdate(FrameKey),
     UnsupportedDestructionRegistrations(FrameKey, u32),
     DirectionFromVectorsUnavailable,
     NotJoint(FrameKey),
@@ -218,7 +221,17 @@ impl I3dFrameGraph {
     /// Preflight the represented model/dummy/joint/Target destructor paths.
     /// Visual resources and external registrations
     /// require their concrete backends. Rejection leaves the graph unchanged.
+    #[cfg(test)]
     pub(crate) fn check_destruction(&self, key: FrameKey) -> Result<(), FrameError> {
+        self.check_destruction_excluding(key, 0)
+    }
+    pub(crate) fn check_destruction_with_owned_name(
+        &self,
+        key: FrameKey,
+    ) -> Result<(), FrameError> {
+        self.check_destruction_excluding(key, 0x2000_0000)
+    }
+    fn check_destruction_excluding(&self, key: FrameKey, handled: u32) -> Result<(), FrameError> {
         let node = self.node(key)?;
         if !matches!(
             node.state.kind,
@@ -226,7 +239,7 @@ impl I3dFrameGraph {
         ) {
             return Err(FrameError::UnsupportedDestruction(key));
         }
-        let registrations = node.state.flags
+        let registrations = (node.state.flags & !handled)
             & (0x20000000
                 | 0x8000
                 | 0x400000
@@ -347,6 +360,16 @@ impl I3dFrameGraph {
         self.check_destruction(key)?;
         self.destroy_derived(key)?;
         self.destroy_base(key)
+    }
+    pub(crate) fn change_flags(
+        &mut self,
+        key: FrameKey,
+        clear: u32,
+        set: u32,
+    ) -> Result<(), FrameError> {
+        let node = self.node_mut(key)?;
+        node.state.flags = (node.state.flags & !clear) | set;
+        Ok(())
     }
     pub fn state(&self, key: FrameKey) -> Result<&I3dFrameState, FrameError> {
         Ok(&self.node(key)?.state)
@@ -838,14 +861,17 @@ impl I3dFrameGraph {
         self.update(key)
     }
     /// Original bound-cache invalidation at RVA0x1cc00, used by model Close.
-    /// All represented kinds differ from native sector type5, which stops the
-    /// original ancestor walk and is deliberately absent from this graph.
+    /// Sector type5 stops both direct receiver and ancestor invalidation before
+    /// any of its flags are cleared.
     pub fn discard_hr_bound_vol(&mut self, key: FrameKey) -> Result<(), FrameError> {
+        if self.state(key)?.kind == FrameKind::Sector {
+            return Ok(());
+        }
         self.node_mut(key)?.state.flags &= 0xfffffebf;
         let mut parent = self.links(key)?.parent;
         while let Some(key) = parent {
             let node = self.node_mut(key)?;
-            if node.state.flags & 0x40 == 0 {
+            if node.state.flags & 0x40 == 0 || node.state.kind == FrameKind::Sector {
                 break;
             }
             node.state.flags &= 0xfffffebf;
@@ -1240,6 +1266,9 @@ impl I3dFrameGraph {
     }
     fn enter_update(&mut self, key: FrameKey) -> Result<Visit, FrameError> {
         let n = self.node_mut(key)?;
+        if matches!(n.state.kind, FrameKind::Scene | FrameKind::Sector) {
+            return Err(FrameError::UnsupportedFrameUpdate(key));
+        }
         // Only the owned binding projection admits the evidenced inherited
         // visual update. The legacy target-only projection remains guarded.
         if n.state.kind == FrameKind::Singlemesh && n.binding.is_none() {
@@ -1263,6 +1292,9 @@ impl I3dFrameGraph {
     /// Observed UpdateV effects for the represented frame kinds. Dummy's
     /// original entry is RVA0x1a330; it clears its own bound flag only if dirty.
     pub fn update_v(&mut self, key: FrameKey) -> Result<(), FrameError> {
+        if matches!(self.state(key)?.kind, FrameKind::Scene | FrameKind::Sector) {
+            return Err(FrameError::UnsupportedFrameUpdate(key));
+        }
         if let Some(error) = self.deferred_error {
             return Err(error);
         }
