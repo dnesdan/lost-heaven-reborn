@@ -1,24 +1,24 @@
 {
   "updated_at": "2026-10-23",
-  "project_status": "Original-data Rust menu, bounded scenes and sequential skeletal playback; 179 scoped entries across 60 reviewed contracts. Bounded live replay state and RECWAITFOREND bridge are available as standalone APIs. Resource-backed replay Load/Update, camera/actor/mission ownership, production texture-worker/surface ownership and audio playback remain open; the first mission is not playable.",
+  "project_status": "Original-data Rust menu, bounded scenes and sequential skeletal playback; 179 scoped entries across 60 reviewed contracts. Standalone scheduler DIM_ACT/DIM_FRM declarations now retain separate borrowed-reference arrays; the authored MISE01 probe stops at findactor on line 4. Actor/frame lookup, mission-world ownership, replay resource Load/Update, production texture-worker/surface ownership and audio playback remain open; the first mission is not playable.",
   "rust_toolchain": "1.99.1",
   "validation": {
-    "status": "Current checks pass 515 Rust tests (104 assets unit, seven assets integration, 378 engine library, 21 application, five renderer), nine REA-wrapper tests and 47 progress tests, plus formatting, locked workspace checking and Clippy. Apple arm64 all-target checking passes for this three-file source freeze; native macOS linking and Metal execution remain untested. Two sequential independent reviews accepted the exact source. Separate synthetic probes pass 76 logical cases in both profiles, counted once; these add no original executions. Original x86 instructions under QEMU match Rust debug/release across 1,161 cases: 345 busy-leaf, 708 setter, 102 bounded-dispatcher and six scheduler cases, counted once across profiles. The 2,972,160 compared bytes per profile are normalized output records, including unused zeroed capacity; they are not complete native-memory or guard comparisons. Controlled callbacks exercise replacement, vector mutation and reentry. The scheduler fixture changes its global after dispatch; it does not run the original replay Update. Replay owner construction, resource-backed Load/Update, camera/actor ownership and first-mission execution remain open. The actual authored MISE01 script probe advances `commandblock` and stops at the unsupported `dim_act` actor-reference declaration on source line 2, before replay loading or waiting. This batch adds no full-game, rendered, interactive or GPU validation. A five-tick timer does not implement replay completion.",
-    "rust_unit_tests": 515,
+    "status": "Current checks pass 521 Rust tests (104 assets unit, seven assets integration, 384 engine library, 21 application, five renderer), nine REA-wrapper tests and 47 progress tests, plus formatting, locked workspace checking and Clippy. Two sequential independent reviews accepted the exact source. Apple arm64 all-target checking passes; native macOS linking and Metal execution remain untested. Separately, 55 logical Rust probes pass in debug/release, counted once, including the authored script frontier; these add no original executions. Original x86 instructions under QEMU match Rust debug/release for 460 unique cases and 492 dispatcher invocations, counted once across profiles. The 618,240 normalized bytes per profile include padding: counts, live reference words and scheduler state compare; raw allocation identities and ordered allocation/free observations remain native-only. Allocator/free bodies are explicitly intercepted to supply successful 4\u201364-byte backing; their implementation and failure behavior are excluded. The actual authored MISE01 probe advances `commandblock`, `dim_act` and `dim_frm`, retaining nine null actor slots and ten null frame slots, then stops at unsupported `findactor` on source line 4 (PC3). Actor/frame lookup, world construction, replay resource Load/Update and first-mission execution remain open. No new rendered, interactive or GPU validation.",
+    "rust_unit_tests": 521,
     "rust_unit_test_split": {
       "lhr_assets": 104,
       "lhr_assets_integration": 7,
-      "lhr_engine_library": 378,
+      "lhr_engine_library": 384,
       "lhr_engine_application": 21,
       "lhr_render": 5
     },
     "rea_wrapper_tests": 9,
     "latest_accepted_baseline": {
-      "source_commit": "ceb988ae5f48543e63b5d8fd4fe267a7dfd69bbc",
-      "rust_unit_tests": 515,
+      "source_commit": "251e05b779e6a0c29c5bc8374a098ec97a3d62b7",
+      "rust_unit_tests": 521,
       "rea_wrapper_tests": 9,
       "progress_tests": 47,
-      "milestone": "179 scoped entries across 60 contracts. Two bounded replay busy/setter entries and the live RECWAITFOREND bridge match 1,161 original-instruction cases under QEMU; 76 separate synthetic probes pass. Contract integration remains 20 static_inspection / 40 not_integrated, strict 0/12. Resource-backed replay Load/Update, camera/actor/mission ownership, application replay and all six first-mission gates remain open."
+      "milestone": "179 scoped entries across 60 contracts. Bounded DIM_ACT/DIM_FRM scheduler declarations add zero canonical entries or contracts; 460 original-instruction QEMU cases match admitted Rust projections and 55 separate Rust logical probes pass, counted once across debug/release. Allocation/free are intercepted; native allocator and failure behavior are excluded. The authored MISE01 probe stops at unsupported findactor, source line 4 / PC3, after three commands. Contract integration remains 20 static_inspection / 40 not_integrated, strict 0/12; all six first-mission gates remain open."
     },
     "progress_tests": 47
   },
@@ -50,7 +50,7 @@
     "probe_results": "INTRO: 16 scripts halt on unsupported commands, one after advancing a prefix. MISE01: 37 halt, seven after advancing a prefix, two empty scripts complete. Prefix counts overlap halted counts.",
     "original_runtime_comparison": "PC-RUST-CONTROL-VM-RUNTIME-02 compares bounded COMMANDBLOCK and WAIT states against original runtime observations; GOTO/END and complete scheduler/caller chain unverified, replay observed only",
     "mission_execution": "not implemented",
-    "current_validation": "Replay owner construction, resource-backed Load/Update, camera/actor ownership and first-mission execution remain open. The actual authored MISE01 script probe advances `commandblock` and stops at the unsupported `dim_act` actor-reference declaration on source line 2, before replay loading or waiting. This batch adds no full-game, rendered, interactive or GPU validation. A five-tick timer does not implement replay completion. Historical selected Installation provider MENU/INTRO/MISE01 static captures and keyboard transitions remain separate prior evidence.",
+    "current_validation": "The actual authored MISE01 probe advances `commandblock`, `dim_act` and `dim_frm`, retaining nine null actor slots and ten null frame slots, then stops at unsupported `findactor` on source line 4 (PC3). Actor/frame lookup, world construction, replay resource Load/Update and first-mission execution remain open. No new rendered, interactive or GPU validation. Historical Installation menu/static scene captures, keyboard transitions and the replay-state comparison retain their earlier scopes.",
     "standalone_replay_wait": "Bounded live RECWAITFOREND (original opcode 0x2e) composes the replay busy predicate with existing scheduler control; no application replay resource/update or mission integration."
   },
   "renderer": {
@@ -121,7 +121,7 @@
   "reset_boundary": "Former Godot prototype implementation/tests and original-game runtime traces are not counted as Rust behavior or validation.",
   "macos_validation": {
     "command": "cargo check --workspace --all-targets --target aarch64-apple-darwin --locked",
-    "result": "Apple arm64 all-target cargo check passed for the exact three-file replay-state freeze at ceb988ae5f48543e63b5d8fd4fe267a7dfd69bbc; native macOS linking and Metal runtime remain untested.",
+    "result": "Apple arm64 all-target cargo check passed for the exact one-file reference-declaration source at 251e05b779e6a0c29c5bc8374a098ec97a3d62b7; native macOS linking and Metal runtime remain untested.",
     "scope": "Compilation only; no macOS link or Metal runtime"
   },
   "phase2": {
@@ -22996,5 +22996,175 @@
     "new_rendered_or_interactive_validation": false,
     "new_GPU_validation": false,
     "next_dependencies": "Resource-backed replay Load/Update and persistent owner/callback/camera/actor lifetime, then original mission actors, control, collision, vehicles and objectives. A five-tick timer does not implement replay completion; production texture-worker/surface ownership remains independently open."
+  },
+  "reference_slots_observation": {
+    "id": "PC-GAME-REFERENCE-SLOTS-20261023",
+    "status": "accepted_bounded_dispatcher_extension_without_new_entry_credit",
+    "source_commit": "251e05b779e6a0c29c5bc8374a098ec97a3d62b7",
+    "source_files": {
+      "crates/lhr-engine/src/script_scheduler.rs": "9b0026e04ddcdf6796d7798153ee260403a5b61a3c133a70276024023f88708f"
+    },
+    "contract": {
+      "id": "PC-GAME-REFERENCE-SLOTS-20261023",
+      "sha256": "f792072fc021f398b3b80f68626486e5a205938ae1dea6628e1599cd74223f2a"
+    },
+    "comparison": {
+      "id": "PC-GAME-REFERENCE-SLOTS-20261023-COMPARE",
+      "sha256": "049f78216954d4ba6a124bcb4490bae4b29f66ed05c29a776df118f1ea903cf4"
+    },
+    "code_completion": {
+      "id": "PC-GAME-REFERENCE-SLOTS-20261023-CODE-COMPLETION",
+      "sha256": "406495f65413e12007336cadb6433f18f5bc1776fa87bd26cef8426ff01774d0"
+    },
+    "reviews": [
+      {
+        "id": "PC-GAME-REFERENCE-SLOTS-20261023-R1",
+        "sha256": "725d0adb6959df4ed110da33301ef0ff602ae7140743aceafb2e49996019524e"
+      },
+      {
+        "id": "PC-GAME-REFERENCE-SLOTS-20261023-R2",
+        "sha256": "424f31a1225e582a7764a7d90eaa4dbfe6b455496f178acf09199601bcbca354"
+      }
+    ],
+    "research": {
+      "contract": {
+        "id": "PC-GAME-REFERENCE-SLOTS-20261023-REA-CONTRACT",
+        "sha256": "b65b7dd031ddf1ec60b6ea0abd233c28940ac5c53d0b690fa07e58d2fd37d065"
+      },
+      "fresh_REA_index": {
+        "id": "PC-GAME-REFERENCE-SLOTS-20261023-REA-INDEX",
+        "sha256": "da5c3dd5daa563094a0981c85b149a9136311fdbf9621e95ee6f6c376b875354"
+      },
+      "source_byte_verification": {
+        "id": "PC-GAME-REFERENCE-SLOTS-20261023-REA-SOURCE-BYTES",
+        "sha256": "1e3b6b4000f638065bc4a3d41736140e7ceca209b421f6be3063c429b02da3fd"
+      }
+    },
+    "commands": [
+      {
+        "name": "DIM_FRM",
+        "opcode": "0x0b"
+      },
+      {
+        "name": "DIM_ACT",
+        "opcode": "0x0c"
+      }
+    ],
+    "behavior": "Separate script-owned arrays of borrowed references; zero clears selected storage, positive smaller/equal retains count and contents, growth replaces with all-null slots. Common advance records previous PC, resets elapsed and increments PC without changing continuation.",
+    "name_provenance": "Original command registry strings; Rust reference identity and storage type names are descriptive adapter names. Arms are not canonical standalone functions.",
+    "host_domain": "Fixed diagnostic literal frontend; successfully allocated nonnegative counts0..65536, stable operands, no native allocator callbacks. Distinct typed borrowed caller IDs; world identity/lifetime validation remains caller responsibility. Checked host indices/counts and reserve errors are host policy.",
+    "allocation_boundary": "Rust reserves replacement before dropping old storage, preserving old slots on reserve failure. Original frees old storage before allocating; native allocator/free and failures excluded from parity.",
+    "lifecycle": "Explicit ControlState owns arrays only; persists across scheduling/END/reset. Native script construction/destruction and program replacement not reconstructed.",
+    "native": {
+      "contract": {
+        "id": "PC-GAME-REFERENCE-SLOTS-20261023-NATIVE-CONTRACT",
+        "sha256": "09de4f2fcf71cb97c9a2214c45f2d7a015ffdf7b6c559aec42573a47f49f70ce"
+      },
+      "comparison": {
+        "id": "PC-GAME-REFERENCE-SLOTS-20261023-NATIVE-COMPARE",
+        "sha256": "965e83f3a9cd7a958aef8e13079b969ba6773676dff64bec552e484660a2445a"
+      },
+      "freeze": {
+        "id": "PC-GAME-REFERENCE-SLOTS-20261023-FROZEN-NATIVE",
+        "sha256": "0287e89205a3cf80ee99cc3e248902468e6372d37b939917bb80fc1f5badcaf5"
+      },
+      "source_identity": {
+        "id": "PC-GAME-REFERENCE-SLOTS-20261023-SOURCE-IDENTITY",
+        "sha256": "0f9602104ee0ac6c682d8e529d956236c2867fee720f249e692f9fb01f7f0f58"
+      },
+      "cases": 460,
+      "cohorts": {
+        "single_declaration_inputs": 452,
+        "sequential_direct_trajectories": 4,
+        "original_scheduler_trajectories": 4
+      },
+      "dispatches": 492,
+      "DIM_dispatches": 490,
+      "END_dispatches": 2,
+      "profiles": [
+        "debug",
+        "release"
+      ],
+      "case_count_policy": "Unique top-level inputs counted once across profiles;492 dispatch snapshots nested within460 inputs.",
+      "normalized_bytes_per_profile": 618240,
+      "normalization": "Fixed1344-byte records include unused zeroed capacity; not complete native memory or guard comparison.",
+      "compared_surfaces": [
+        "Actor and frame slot counts",
+        "All 16 admitted slot words per family, padding beyond live count zero",
+        "PC, lastPC, elapsed, continuation after each dispatch",
+        "Dispatch count and all per-dispatch snapshots including END for scheduler trajectories"
+      ],
+      "native_only_surfaces": [
+        "Raw storage pointer identity (snapshot words40/41)",
+        "Ordered allocation/free interception argument/result and pre-return script fields"
+      ],
+      "execution": "Original Game sections mapped in private QEMU ELF; declaration arms/token accessor/common advance and scheduler execute actual instructions. QEMU hardware-breakpoint return interception models successful4..64-byte allocation/free before those dependency bodies; excludes original allocator/free execution.",
+      "native_count_maximum": 16,
+      "allocator_and_free_bodies_executed": false,
+      "successful_allocator_free_intercepts": 450,
+      "allocation_failure_behavior_compared": false
+    },
+    "synthetic_probe": {
+      "receipt": {
+        "id": "PC-GAME-REFERENCE-SLOTS-20261023-PROBES",
+        "sha256": "0a815d45325ce70b905bb2faadf061114227afb731e77496421d7a8411f4625a"
+      },
+      "logical_cases": 55,
+      "profiles": [
+        "debug",
+        "release"
+      ],
+      "case_count_policy": "Counted once across profiles; zero original executions.",
+      "actual_authored_script_frontier": "MISE01 autosave: commandblock 1, dim_act 9, dim_frm 10 advance to PC3; findactor at source line4 explicitly unsupported; no later line executed",
+      "actor_null_slots": 9,
+      "frame_null_slots": 10,
+      "program_counter": 3,
+      "source_line": 4,
+      "unsupported_command": "findactor",
+      "mission_progress_claimed": false
+    },
+    "full_suite_receipt": {
+      "id": "PC-GAME-REFERENCE-SLOTS-20261023-FULL-TESTS",
+      "sha256": "7830da9e101e7d59a2956501ea5335b34064f778ea175d49c3876f2c139c7601"
+    },
+    "apple_check": {
+      "id": "PC-GAME-REFERENCE-SLOTS-20261023-APPLE-CHECK",
+      "sha256": "ae2bcd63b9cb3198737b69c26b7e0b96aea3e5340c55dcbe60f3f4cda8925cb0"
+    },
+    "native_macOS_link_or_Metal": false,
+    "lookup_handoff": {
+      "contract": {
+        "id": "PC-GAME-REFERENCE-SLOTS-20261023-LOOKUP-HANDOFF",
+        "sha256": "444c91ab898eac82d17cd4d80f07622befb05496290e065b944cffc91ec01309"
+      },
+      "upstream_audit": {
+        "id": "PC-GAME-REFERENCE-SLOTS-20261023-UPSTREAM-AUDIT",
+        "sha256": "3d5fbf24605032fb55b56b6fcd0fabd836370cbaebfb2a9427dee67da7fac7e4"
+      },
+      "behavior_pin": "86a7b15cbfa002bc6222e5542671a81988472882",
+      "observed_upstream": "0c44be32dd152c9722bbd8c2c8e18f112a279c04",
+      "scope": "Static next-dependency and source audit only; no actor/frame lookup implementation or new runtime coverage."
+    },
+    "new_canonical_entries": 0,
+    "new_scoped_contracts": 0,
+    "whole_function_coverage": "N/A",
+    "contract_integration_counts": {
+      "static_inspection": 20,
+      "not_integrated": 40
+    },
+    "strict_system_gate": {
+      "verified": 0,
+      "total": 12
+    },
+    "actor_frame_lookup_or_construction": false,
+    "original_compiler_or_dynamic_operands": false,
+    "native_script_lifecycle": false,
+    "resource_backed_replay_Load_Update": false,
+    "application_integration": false,
+    "campaign_playable": false,
+    "new_full_game_execution": false,
+    "new_rendered_or_interactive_validation": false,
+    "new_GPU_validation": false,
+    "next_dependencies": "Named actor/frame lookup and mission-world ownership, alongside resource-backed replay Load/Update and persistent owner/callback/camera/actor lifetime, then original control, collision, vehicles and mission objectives through completion."
   }
 }
