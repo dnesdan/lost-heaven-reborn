@@ -15,11 +15,11 @@ All gates remain open until corresponding evidence is recorded. Current function
 
 ## Parity with mafia-re
 
-At `da19285`, bounded `FINDACTOR` / `FINDFRAME` now compose with the scheduler and reusable LS3DF frame search. Two canonical LS3DF entries add one reviewed contract: **181 entries / 61 contracts**, **20 static_inspection / 41 not_integrated**, strict **0/12**. Dispatcher arms add zero entry credit; whole-function coverage remains N/A.
+At `d5c6666`, bounded owned base-actor construction, Init, destruction and separate source memberships now compose with actor/frame lookup. Eleven canonical Game entries add one reviewed contract: **192 entries / 62 contracts**, **20 static_inspection / 42 not_integrated**, strict **0/12**. Whole-function coverage remains N/A; the separately seeded Release body adds zero inventory or entry credit.
 
-The actual authored MISE01 probe still stops at source line 4 (PC3): `FINDACTOR` is recognized and reports `UnsupportedWorldBackend` after `commandblock`, `dim_act` and `dim_frm` retain nine null actor and ten null frame slots. No later line executes. Mission-world ownership, resource-backed replay Load/Update and first-mission execution remain open; no new rendered, interactive or GPU validation.
+Actual authored MISE01 still stops at source line 4 / PC3: recognized `FINDACTOR` reports `UnsupportedWorldBackend`, with nine null actor and ten null frame slots. No later script line executes. Kind 1 is absent from the actual MISE01 actor records; original-scene data intake and standalone owner probes establish no mission advancement. All six first-mission gates remain open; no new rendered, interactive or GPU validation.
 
-Next are original mission-world construction and actor/source registration/removal lifetime, resource-backed replay Load/Update and persistent callback/camera/actor ownership, then control, collision, vehicles and objectives through completion. Production texture-worker/surface ownership remains independently open.
+Next are real scene hierarchy and user-data ownership, then kind-5 detector/autosave construction with embedded program source loading, scheduling, payload and cleanup. Kind-4 taxi construction requires C_Vehicle::Init over a type-9 model, BODY, physics, wheels and seats, followed by its separate AE24 payload. Resource-backed replay Load/Update, controls, collision, camera and objectives remain required for a playable mission; production texture-worker/surface ownership stays open.
 
 Historical Installation integration connects existing menu/static scene archive callers to NativeFiles; its asset-equality and static-rendering receipts remain in [PROGRESS.md](PROGRESS.md). That route supplies neither GPU-worker ownership nor mission-world construction.
 
@@ -35,12 +35,14 @@ Bounded standalone managed texture Restore now reconstructs admitted system/defa
 
 Fresh REA/Ghidra instruction evidence and actual registry bytes support the bounded replay state and `RECWAITFOREND` bridge. The registry spelling/opcode is original command evidence; replay helper/type names remain descriptive. Actual PS2 linker replay names and the pinned/current upstream trees establish no cinematic replay-owner correspondence. Resource-backed replay Load/Update and actual first-mission ownership remain separate dependencies.
 
-The next dependency order is:
+The immediate dependency order is:
 
-1. Extend animation dependencies across admitted data: weighted multi-slot evaluation, scale/note channels, remaining numeric domains and original notification boundaries. Preserve controller ownership and original update order as coverage grows.
-2. Recover animation-set/resource cache, animation-machine construction and required TCK paths, adding A4 access when evidenced. InitAnimIndex sort/cleanup and GetTrack over caller-owned records are bounded prerequisites; the original catalog, locale-comparison backend and resource lifetime remain open.
-3. Connect actor/BODY, model and controller ownership to original animation selection. Keep original animation-code/resource mappings outside any dependency on Game.exe at runtime.
-4. Connect bounded lookup to original mission-world construction and actor/source registration/removal lifetime; recover resource-backed replay Load/Update and persistent owner/callback/camera/actor lifetime, then original control lock/release, attachments, collision-backed movement, vehicles, camera, pursuit and mission objectives through completion. Compare original-runtime traces and interactive Rust runs of the same sequence.
+1. Build real owned scene/frame hierarchy and user-data ownership, including required targetE/targetN child traversal and enable effects with flags `0x40`. Preserve original source registration and failure prefixes.
+2. Reconstruct kind-5 detector/autosave construction, embedded program source loading and scheduling, authored payload and destruction, including failed initialization cleanup.
+3. Reconstruct kind-4 car ownership through a real type-9 model, BODY, physics, wheels and seats, then load its separate AE24 payload and preserve derived failure cleanup.
+4. Connect resource-backed replay Load/Update and persistent callbacks/actors to original control, collision-backed movement, camera, pursuit and mission objectives through completion. Compare original-runtime traces and interactive Rust runs of the same sequence.
+
+Animation catalog/cache and animation-machine construction, TCK/resource lifetime, blending, scale/notes, remaining numeric domains and original notification boundaries remain parallel engine dependencies. Connect actor/BODY, model and controller ownership to original animation selection as their real callers become available; retain original update order and keep resource mappings independent of Game.exe at runtime.
 
 The [mafia-re/MafiaUnity source audit](REFERENCE_PROJECTS.md#next-general-engine-work) identifies complementary general-engine dependencies: persistent model/scene resource lifetime, mission-world construction, KLZ-backed collision, material states and sector visibility. Research these alongside the sequence above; upstream scene loaders and prototype mechanics do not replace original actor or script behavior.
 

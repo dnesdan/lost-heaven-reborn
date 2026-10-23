@@ -1,7 +1,7 @@
 # Lost Heaven Reborn
 
 <!-- generated-function-progress:start -->
-As of 2026-10-23 · snapshot `RUST-SCOPED-PORTS-20261023-31`.
+As of 2026-10-23 · snapshot `RUST-SCOPED-PORTS-20261023-32`.
 
 <p align="center"><img src="docs/progress.svg" alt="Progress dashboard: static retained pseudocode, reviewed scoped Rust entries, and strict system verification" width="100%"></p>
 
@@ -14,7 +14,7 @@ As of 2026-10-23 · snapshot `RUST-SCOPED-PORTS-20261023-31`.
 
 Strict full-system gate: **0/12**. Binary-level static counts use the named denominator basis and do not combine into a game-completion percentage. Unknown denominators remain N/A. 1 supplied configuration Setup inventory uses 172 in-image non-thunk procedures. Separately, archive installer bootstrap static inventory: **376 / 376 (100.00%)**; this distribution target is not combined with engine-library counts. The campaign is not playable.
 
-Accepted scoped Rust ports: **181 entries across 61 reviewed contracts**. These remain separate from retained pseudocode and whole-function counts.
+Accepted scoped Rust ports: **192 entries across 62 reviewed contracts**. These remain separate from retained pseudocode and whole-function counts.
 
 Regenerate locally with `python3 scripts/progress.py --write`; verify without writes with `python3 scripts/progress.py --check`. Versioned snapshots are retained in `docs/progress.json`.
 Milestone history and scoped implementation evidence are in [docs/PROGRESS.md](docs/PROGRESS.md).
@@ -23,7 +23,7 @@ Supplied binary catalog (file identities; independent measures):
 | Binary | Platform | Variant | Role | Static retained pseudocode | Scoped Rust entries |
 | --- | --- | --- | --- | ---: | ---: |
 | DrvMgt.dll | PC | Installed game | Driver-management helper, exact runtime use unresolved | N/A | 0 |
-| Game.exe | PC | Installed game | Game and mission executable | 4784 / 4,914 (97.35%) | 33 |
+| Game.exe | PC | Installed game | Game and mission executable | 4784 / 4,914 (97.35%) | 44 |
 | IJoy.dll | PC | Installed game | DirectInput joystick wrapper | N/A | 0 |
 | INet.dll | PC | Installed game | Network helper, exact runtime use unresolved | N/A | 0 |
 | LS3DF.dll | PC | Installed game | 3D, animation, audio and rendering engine | 1555 / 1,714 (90.72%) | 131 |
@@ -63,15 +63,15 @@ Ownership code uses `lhr_engine::ls3df::{c_str, itexture, i3d_object, texture_ma
 
 The immediate goal is **the playable first mission, from the original menu through mission completion**, alongside function-by-function library parity with mafia-re. See the [acceptance gates and dependency order](docs/GOALS.md). PS2 symbol names guide reconstruction; PC behavior and platform differences require original-binary verification.
 
-At `da19285`, bounded `FINDACTOR` / `FINDFRAME` now compose with the scheduler and reusable LS3DF frame search. Two canonical LS3DF entries add one reviewed contract: **181 entries / 61 contracts**, **20 static_inspection / 41 not_integrated**, strict **0/12**. Dispatcher arms add zero entry credit; whole-function coverage remains N/A.
+At `d5c6666`, bounded owned base-actor construction, Init, destruction and separate source memberships now compose with actor/frame lookup. Eleven canonical Game entries add one reviewed contract: **192 entries / 62 contracts**, **20 static_inspection / 42 not_integrated**, strict **0/12**. Whole-function coverage remains N/A; the separately seeded Release body adds zero inventory or entry credit.
 
-Actor lookup preserves reverse primary, forward globals and reverse secondary order; a secondary match can replace a global result, and a total miss preserves the slot. Frame lookup searches primary before backdrop, self before depth-first children, and clears the slot on a miss. The bounded domain uses exact actor names, ASCII scene names, flags `0x4ffff` and separately admitted default-C Game/LS3DF locales. Reached invalid lifetimes, unsupported names and traversal limits fail explicitly.
+The owner applies the recovered constructor writes and preserves caller-supplied bytes that the constructor leaves untouched. It keeps persistent actor identity, ordered primary/active removal and swap removal from the static source. The real kind-1 factory branch allocates a base actor; required collection allocation/free, targetE/targetN child effects and frame release remain explicit backend calls. Unsupported effects and interrupted lifetimes fail with the already-applied prefix. This standalone owner and lookup adapter do not construct a mission world.
 
-Original x86 instructions under QEMU match Rust debug/release for 207 unique inputs: 189 Game dispatcher invocations and 18 direct LS3DF calls, counted once across profiles. Each profile compares 13,248 normalized bytes, including 168 bytes of zero padding. MessageBeep is the sole replaced IAT effect, with six actual callbacks; 35 secondary-phase checkpoints remain native-only. No world/actor construction, allocator, Windows audio or full-game equivalence is claimed.
+Original Game instructions under QEMU provide 93 unique inputs: 88 match Rust debug/release across 85,536 normalized bytes per profile, counted once; five remain native-only (two repeated constructions and three unsupported manager flag-1 cases). Collection growth/copy/commit caller instructions execute, while allocation/free and frame virtuals are controlled required effects. Init requests targetE then targetN with flags 0x40; their LS3DF implementation is unavailable. Release compares AX only; the deleting wrapper's original-this EAX return stays native-only. No whole-game execution is established.
 
-The actual authored MISE01 probe still stops at source line 4 (PC3): `FINDACTOR` is recognized and reports `UnsupportedWorldBackend` after `commandblock`, `dim_act` and `dim_frm` retain nine null actor and ten null frame slots. No later line executes. Mission-world ownership, resource-backed replay Load/Update and first-mission execution remain open; no new rendered, interactive or GPU validation.
+Actual authored MISE01 still stops at source line 4 / PC3: recognized `FINDACTOR` reports `UnsupportedWorldBackend`, with nine null actor and ten null frame slots. No later script line executes. Kind 1 is absent from the actual MISE01 actor records; original-scene data intake and standalone owner probes establish no mission advancement. All six first-mission gates remain open; no new rendered, interactive or GPU validation.
 
-Historical declaration milestone at `251e05b`: DIM_ACT/DIM_FRM added zero entries or contracts, retaining 179/60. Its 460 original-instruction inputs / 492 dispatches, 618,240 normalized bytes per profile and 55 separate Rust probes remain accepted evidence; allocation/free bodies were intercepted and native allocation failures excluded. Its unsupported-command line-4 frontier is superseded by the recognized-command, missing-world-backend frontier above.
+Historical lookup milestone at `da19285`: two canonical LS3DF entries reached 181/61. Its 207 unique original-instruction inputs, 13,248 normalized bytes per profile (168 zero padding), six MessageBeep callbacks and 35 native-only secondary checkpoints remain accepted within their original scope. Separate 108 Rust probes and 168 original-resource checks remain Rust evidence; the three attempted original-model closes stop at existing unsupported derived destruction. The current mission frontier is unchanged.
 
 Historical replay milestone at `ceb988a`: the 1,161-case native comparison and separate 76-probe receipt remain accepted prior evidence; its line-2 declaration frontier is superseded by the current line-4 probe. Details and limits remain in [PROGRESS.md](docs/PROGRESS.md).
 
@@ -127,7 +127,7 @@ Standalone models use the owned original hierarchy and checked first-LOD skin/mo
 
 The `sipka1` command without a sample time retains the earlier single-root position playback path through the recovered clock, model and interpolator. Add `--headless --animation-steps 25 --capture /tmp/animation.png` for 25 controlled 16 ms steps. Captures at 0/25/50 steps verify movement and exact return; inspection camera, handedness, materials and rasterization remain separate from original presentation.
 
-Current checks pass 537 Rust tests (104 assets unit, seven assets integration, 400 engine library, 21 application, five renderer), nine REA-wrapper tests and 47 progress tests, plus formatting, locked workspace checking and Clippy. Two sequential independent reviews accepted the exact source. Apple arm64 all-target checking passes; native macOS linking and Metal execution remain untested. Separate Rust probes pass 108 logical cases (107 synthetic and one actual authored-script intake), counted once across debug/release; these add zero original executions. Next are original mission-world construction and actor/source registration/removal lifetime, resource-backed replay Load/Update and persistent callback/camera/actor ownership, then control, collision, vehicles and objectives through completion. Production texture-worker/surface ownership remains independently open.
+Current checks pass 557 Rust tests (104 assets unit, seven assets integration, 420 engine library, 21 application, five renderer), nine REA-wrapper tests and 47 progress tests, plus formatting, locked workspace checking and Clippy. Two sequential independent reviews accepted the exact source. Apple arm64 all-target typechecking passes; native macOS linking and Metal execution remain untested. Separate Rust probes pass 140 logical cases (138 synthetic and two actual-source intakes), counted once across debug/release with zero original executions. They cover owned actor lifetime, source/lookup/scheduler composition and exact authored script bytes parsed from original scene2 data; they do not construct or advance the actual mission. Next are real scene hierarchy and user-data ownership, then kind-5 detector/autosave construction with embedded program source loading, scheduling, payload and cleanup. Kind-4 taxi construction requires C_Vehicle::Init over a type-9 model, BODY, physics, wheels and seats, followed by its separate AE24 payload. Resource-backed replay Load/Update, controls, collision, camera and objectives remain required for a playable mission; production texture-worker/surface ownership stays open.
 
 `setup.sh --graphics` prepares the Linux software Vulkan tools used for development captures. `scripts/test.sh` checks formatting, compilation, tests, Clippy, REA wrappers and generated progress. On Linux x86_64, X11 input has been checked through menu, static INTRO and the MISE01 neighborhood, including orbit and reload. An Apple arm64 cargo check passes, but macOS linking and Metal runtime have not been tested. iOS is a future compatibility target. The original game's executable and REA are not gameplay runtime dependencies.
 
