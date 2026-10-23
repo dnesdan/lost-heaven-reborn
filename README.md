@@ -1,7 +1,7 @@
 # Lost Heaven Reborn
 
 <!-- generated-function-progress:start -->
-As of 2026-10-23 · snapshot `RUST-SCOPED-PORTS-20261023-41`.
+As of 2026-10-23 · snapshot `RUST-SCOPED-PORTS-20261023-42`.
 
 <p align="center"><img src="docs/progress.svg" alt="Progress dashboard: static retained pseudocode, reviewed scoped Rust entries, and strict system verification" width="100%"></p>
 
@@ -14,7 +14,7 @@ As of 2026-10-23 · snapshot `RUST-SCOPED-PORTS-20261023-41`.
 
 Strict full-system gate: **0/12**. Binary-level static counts use the named denominator basis and do not combine into a game-completion percentage. Unknown denominators remain N/A. 1 supplied configuration Setup inventory uses 172 in-image non-thunk procedures. Separately, archive installer bootstrap static inventory: **376 / 376 (100.00%)**; this distribution target is not combined with engine-library counts. The campaign is not playable.
 
-Accepted scoped Rust ports: **257 entries across 79 reviewed contracts**. These remain separate from retained pseudocode and whole-function counts.
+Accepted scoped Rust ports: **264 entries across 85 reviewed contracts**. These remain separate from retained pseudocode and whole-function counts.
 
 Regenerate locally with `python3 scripts/progress.py --write`; verify without writes with `python3 scripts/progress.py --check`. Versioned snapshots are retained in `docs/progress.json`.
 Milestone history and scoped implementation evidence are in [docs/PROGRESS.md](docs/PROGRESS.md).
@@ -23,7 +23,7 @@ Supplied binary catalog (file identities; independent measures):
 | Binary | Platform | Variant | Role | Static retained pseudocode | Scoped Rust entries |
 | --- | --- | --- | --- | ---: | ---: |
 | DrvMgt.dll | PC | Installed game | Driver-management helper, exact runtime use unresolved | N/A | 0 |
-| Game.exe | PC | Installed game | Game and mission executable | 4784 / 4,914 (97.35%) | 98 |
+| Game.exe | PC | Installed game | Game and mission executable | 4784 / 4,914 (97.35%) | 105 |
 | IJoy.dll | PC | Installed game | DirectInput joystick wrapper | N/A | 0 |
 | INet.dll | PC | Installed game | Network helper, exact runtime use unresolved | N/A | 0 |
 | LS3DF.dll | PC | Installed game | 3D, animation, audio and rendering engine | 1555 / 1,714 (90.72%) | 142 |
@@ -57,19 +57,19 @@ An independent Rust reimplementation of the Mafia: The City of Lost Heaven (2002
 
 The animation path binds original track names, advances one live controller slot, evaluates position and bounded linear/spherical rotation, updates Target and morph state, and uploads CPU-skinned first-LOD geometry. Controller ownership and controls cover eight slots; blended evaluation, scale/note channels, full animation-resource ownership and actor/mission integration remain open. Unsupported inputs fail explicitly. Original models and clips are regression fixtures for this general implementation.
 
-Standalone object/mesh/material ownership includes bounded managed-record creation, Request queue production, pool unload/release/restore and texture/string cleanup. Bounded standalone managed texture Restore now reconstructs admitted system/default pools and reserves the registry through controlled device/storage effects. It composes the accepted Release dependency, selects raw format once, uses returned descriptor Size with signed budgets and wrapping memory arithmetic, grows arrays in 1,024-slot steps and preserves registry entries. RestoreManagedTextures is a pinned mafia-re working name without recovered original PC/PS2 symbol. Full texture Create, worker/upload, real GPU/device implementation, whole-device shutdown, derived LODs, loaded adapters and scene/application integration remain open; no new rendered or interactive validation is claimed.
+Standalone object/mesh/material ownership includes bounded managed-record creation, Request queue production, pool unload/release/restore and texture/string cleanup. Bounded standalone managed texture Restore now reconstructs admitted system/default pools and reserves the registry through controlled device/storage effects. It composes the accepted Release dependency, selects raw format once, uses returned descriptor Size with signed budgets and wrapping memory arithmetic, grows arrays in 1,024-slot steps and preserves registry entries. RestoreManagedTextures is a pinned mafia-re working name without recovered original PC/PS2 symbol. Admitted plain-object loaded resources now connect to CPU ModelArena ownership. Full native texture Create/worker/upload, real GPU/device implementation, whole-device shutdown, derived lit/skin/morph resources and application/mission integration remain open; no new rendered or interactive validation is claimed.
 
 Ownership code uses `lhr_engine::ls3df::{c_str, itexture, i3d_object, texture_manager}`. These logical original-library modules add no DLL or Cargo package; see the [package and name mapping](docs/REFERENCE_PROJECTS.md#rust-organization-and-original-names).
 
 The immediate goal is **the playable first mission, from the original menu through mission completion**, alongside function-by-function library parity with mafia-re. See the [acceptance gates and dependency order](docs/GOALS.md). PS2 symbol names guide reconstruction; PC behavior and platform differences require original-binary verification.
 
-At `43e04ca`, bounded Scene/Sector ownership now shares the model/frame arena and live name tree. The accepted scope is **257 entries / 79 contracts**, **20 static_inspection / 59 not_integrated**, strict **0/12**. Whole-function coverage remains N/A.
+At `75e380d`, vehicle BODYCOL, wheels and admitted CPU visual resources now share the live ModelArena through complete bounded C_Vehicle::Init and explicit destruction. The accepted scope is **264 entries / 85 contracts**, **20 static_inspection / 65 not_integrated**, strict **0/12**. Whole-function coverage remains N/A.
 
-One ModelArena and frame graph now represent Scene/Sector kinds, model-or-scene membership independent of parent links, four retained sectors per scene, and live name registration/lookup. Bounded AddFrame/DeleteFrame retain native owner/refcount and array-update order. Close runs the arena-owned release phase among 13 explicit external resource boundaries and retains completed prefixes on host unavailability.
+Vehicle frame reads/writes, named enumeration, UpdateV, LinkTo, removal and ownership changes operate on the same model/scene frame graph. Admitted plain-object source geometry, LOD descriptors, mesh/material references and decoded color/alpha/environment textures now have CPU storage and actual last-reference cleanup through the existing object/mesh/IB/VB lifetime code. The existing Vehicle Init entry composes wheels, axis state, source parameters, geometry, final Setup and temporary-vector cleanup; explicit destruction preserves original release/free/store order, including rejected-Init persistent ownership.
 
-Scene construction stops at original RVA0x48e29 before driver/resource/global registration completes. Resource callbacks are required effects, with no default production success; readonly callbacks exclude reentrant membership mutation. Emitters, Scene/Sector UpdateV and unavailable last-reference derived destruction fail explicitly. File Open/reload, model-prefix rename, actual vehicle BODYCOL/backend wiring and complete scene/sector teardown remain open.
+Scene construction still stops at 0x48e29, with 13 required scene-resource callbacks and incomplete driver/global ownership. CPU loaded-resource intake is distinct from native Object::Load/File Open, full TextureCreate/worker/upload and GPU execution. Actual Setup flags 0 skips InitSounds; source-parameter flags 2/audio is unavailable, not successful no-op audio. C_car stops at 0x41bdf2 before callback/actor/audio/physics registration or success. Current Light/projector/LOD/texture projections, empty-AXIS InitAxis composition and nonmember callbacks add no new function credit; prior Init/SetRot3/Make credit is unchanged. Contacts/solver/dynamics, driving and genuine mission ownership remain open.
 
-Actual authored MISE01 remains FINDACTOR/UnsupportedWorldBackend at PC3 / source line 4; no later line executes. All six first-mission gates remain open. No runtime gameplay integration or driving mode is established.
+Actual authored MISE01 remains FINDACTOR/UnsupportedWorldBackend at PC 3 / source line 4; no later line executes. All six first-mission gates remain open. No runtime gameplay integration or driving mode is established.
 
 Source-bound validation and immutable historical evidence remain in [PROGRESS.md](docs/PROGRESS.md).
 
@@ -113,7 +113,7 @@ The first command opens the Rust-rendered original menu. Up/Down and Enter selec
 
 Standalone static `--model` loading now builds an owned mesh/dummy hierarchy using recovered common LS3DF fields, parent links, reference transitions and guarded original transforms. `4build81.4ds` exercises three meshes and one dummy. Unsupported frame types, world-space visuals, reflective materials and unverified numeric paths report errors. This route does not establish native world streaming or original lighting/material parity. The MISE01 neighborhood remains a separate static inspection path.
 
-Standalone models use the owned original hierarchy and checked first-LOD skin/morph pose. Earlier skin intake admits 80 of 82 selected paths (37,948 vertices); two remain explicit numeric-domain failures. Separate composed comparisons cover `civil02` and the actual `TommyTAXIDRIVER` model. Connecting recovered ownership to loaded visuals and the GPU backend, full texture Create/Restore and worker/upload, whole-device shutdown and original lighting remain open; the inspection renderer does not use recovered normals for lighting.
+Standalone models use the owned original hierarchy and checked first-LOD skin/morph pose. Earlier skin intake admits 80 of 82 selected paths (37,948 vertices); two remain explicit numeric-domain failures. Separate composed comparisons cover `civil02` and the actual `TommyTAXIDRIVER` model. Admitted loaded plain-object visuals now use recovered CPU ownership; GPU integration, full native texture Create/worker/upload, whole-device shutdown and original lighting remain open. The inspection renderer does not use recovered normals for lighting.
 
 `--skeletal-animation` runs sequential position/rotation playback for a supported model/animation pair. It explicitly requests slot 0, unit weight and loop mode; original game animation selection is not implemented. Windowed playback uses the recovered clock and dispatch path. Add `--headless --animation-steps 25 --capture /tmp/animation.png` for 25 controlled 16 ms steps. Bounds, deformation and rendering are requested by the inspection adapter; this does not establish original renderer scheduling. Spherical rotation admits angles through 1.5 radians only where checked numeric intervals give an unambiguous original float result. Other domains, multi-slot blending, scale and notes fail explicitly.
 
@@ -121,11 +121,11 @@ Standalone models use the owned original hierarchy and checked first-LOD skin/mo
 
 The `sipka1` command without a sample time retains the earlier single-root position playback path through the recovered clock, model and interpolator. Add `--headless --animation-steps 25 --capture /tmp/animation.png` for 25 controlled 16 ms steps. Captures at 0/25/50 steps verify movement and exact return; inspection camera, handedness, materials and rasterization remain separate from original presentation.
 
-Current checks pass 740 Rust tests (108 assets unit, 7 assets integration, 591 engine library, 8 engine integration, 21 application, 5 renderer), 9 REA-wrapper tests and 47 progress tests, plus formatting, locked checking and Clippy. Two sequential independent reviews accepted the final source. Apple arm64 locked all-target typechecking passes for the final source; native macOS linking and Metal execution remain untested.
+Current checks pass 803 Rust tests (108 assets unit, 7 assets integration, 654 engine library, 8 engine integration, 21 application, 5 renderer), 9 REA-wrapper tests and 47 progress tests, plus formatting, locked checking and Clippy. Two sequential independent reviews accepted the final source. Apple arm64 locked all-target typechecking passes for the final source; native macOS linking and Metal execution remain untested.
 
 No new rendered or interactive validation was performed for this library milestone. Prior menu/static-scene and animation evidence remains historical; no new original-rendering or gameplay parity is established.
 
-Next compose this shared arena with vehicle BODYCOL/frame effects and finish driver/resource/File Open ownership, then wheels/parameters and full Init; see [dependency order](docs/GOALS.md).
+Next complete C_car after 0x41bdf2 and real driver/loading ownership, then contacts/dynamics and genuine mission construction; see [dependency order](docs/GOALS.md).
 
 `setup.sh --graphics` prepares the Linux software Vulkan tools used for development captures. `scripts/test.sh` checks formatting, compilation, tests, Clippy, REA wrappers and generated progress. On Linux x86_64, X11 input has been checked through menu, static INTRO and the MISE01 neighborhood, including orbit and reload. An Apple arm64 cargo check passes, but macOS linking and Metal runtime have not been tested. iOS is a future compatibility target. The original game's executable and REA are not gameplay runtime dependencies.
 
