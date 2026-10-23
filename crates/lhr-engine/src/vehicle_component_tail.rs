@@ -22,6 +22,7 @@ pub struct VehicleComponentTailScratch {
     pub address: u32,
     pub bytes: [u8; 0x13c],
 }
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VehicleComponentTailStorage {
     pub bodycol: VehicleBodycolStorage,
@@ -97,6 +98,7 @@ pub trait VehicleComponentTailBackend: VehicleComponentsBackend + VehicleBodycol
 
 /// Live addressable portions of the native call's vehicle and stack. Other
 /// addresses belong to the backend. This view performs no snapshot/copyback.
+/// Use the backend-aware word methods when an address can cross that boundary.
 pub struct VehicleComponentTailMemory<'a> {
     vehicle_address: u32,
     vehicle: &'a mut [u8],
@@ -127,22 +129,82 @@ impl VehicleComponentTailMemory<'_> {
             .bytes
             .get_mut(offset..offset.checked_add(size)?)
     }
+    /// Reads only fully projected words, including adjacent vehicle/stack bytes.
+    /// `None` means at least one byte belongs to external storage.
     pub fn read_word(&self, address: u32) -> Option<u32> {
-        Some(u32::from_le_bytes(
-            self.region(address, 4)?.try_into().ok()?,
-        ))
+        let mut bytes = [0; 4];
+        for (offset, byte) in bytes.iter_mut().enumerate() {
+            *byte = self.read_byte(address.wrapping_add(offset as u32))?;
+        }
+        Some(u32::from_le_bytes(bytes))
     }
     pub fn read_byte(&self, address: u32) -> Option<u8> {
         Some(self.region(address, 1)?[0])
     }
+    /// Writes only fully projected words. On `None`, no byte is changed; callers
+    /// must use `write_word_with_backend` to handle mixed ownership.
     pub fn write_word(&mut self, address: u32, value: u32) -> Option<()> {
-        self.region_mut(address, 4)?
-            .copy_from_slice(&value.to_le_bytes());
+        self.read_word(address)?;
+        for (offset, byte) in value.to_le_bytes().into_iter().enumerate() {
+            self.write_byte(address.wrapping_add(offset as u32), byte)?;
+        }
         Some(())
     }
     pub fn write_byte(&mut self, address: u32, value: u8) -> Option<()> {
         self.region_mut(address, 1)?[0] = value;
         Some(())
+    }
+
+    fn touches_projection(&self, address: u32) -> bool {
+        (0..4).any(|offset| self.read_byte(address.wrapping_add(offset)).is_some())
+    }
+
+    /// Keeps a wholly external read as one backend word operation. Mixed words
+    /// resolve each byte through its live owner, in increasing byte order.
+    pub fn read_word_with_backend<B: VehicleInitBackend>(
+        &self,
+        backend: &mut B,
+        address: u32,
+    ) -> Result<u32, B::Error> {
+        if let Some(value) = self.read_word(address) {
+            return Ok(value);
+        }
+        if !self.touches_projection(address) {
+            return backend.read_word(address);
+        }
+        let mut bytes = [0; 4];
+        for (offset, byte) in bytes.iter_mut().enumerate() {
+            let address = address.wrapping_add(offset as u32);
+            *byte = match self.read_byte(address) {
+                Some(value) => value,
+                None => backend.read_byte(address)?,
+            };
+        }
+        Ok(u32::from_le_bytes(bytes))
+    }
+
+    /// Keeps wholly external writes as backend word operations. Mixed writes
+    /// resolve bytes in increasing order and retain completed stores if a host
+    /// effect is unavailable. This does not model hardware page-fault atomicity.
+    pub fn write_word_with_backend<B: VehicleInitBackend>(
+        &mut self,
+        backend: &mut B,
+        address: u32,
+        value: u32,
+    ) -> Result<(), B::Error> {
+        if self.write_word(address, value).is_some() {
+            return Ok(());
+        }
+        if !self.touches_projection(address) {
+            return backend.write_word(address, value);
+        }
+        for (offset, byte) in value.to_le_bytes().into_iter().enumerate() {
+            let address = address.wrapping_add(offset as u32);
+            if self.write_byte(address, byte).is_none() {
+                backend.write_byte(address, byte)?;
+            }
+        }
+        Ok(())
     }
 }
 struct Projection<'a, B> {
@@ -158,10 +220,7 @@ impl<B: VehicleInitBackend> VehicleInitBackend for Projection<'_, B> {
         }
     }
     fn read_word(&mut self, a: u32) -> Result<u32, Self::Error> {
-        match self.memory.read_word(a) {
-            Some(v) => Ok(v),
-            None => self.backend.read_word(a),
-        }
+        self.memory.read_word_with_backend(self.backend, a)
     }
     fn write_byte(&mut self, a: u32, v: u8) -> Result<(), Self::Error> {
         match self.memory.write_byte(a, v) {
@@ -170,10 +229,7 @@ impl<B: VehicleInitBackend> VehicleInitBackend for Projection<'_, B> {
         }
     }
     fn write_word(&mut self, a: u32, v: u32) -> Result<(), Self::Error> {
-        match self.memory.write_word(a, v) {
-            Some(()) => Ok(()),
-            None => self.backend.write_word(a, v),
-        }
+        self.memory.write_word_with_backend(self.backend, a, v)
     }
     fn free(&mut self, a: u32) -> Result<(), Self::Error> {
         self.backend.free(a)
@@ -1019,5 +1075,238 @@ impl VehicleInitState {
             self.tail_store(0x98 + i * 4, value);
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod projection_tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    #[derive(Default)]
+    struct MemoryBackend {
+        bytes: BTreeMap<u32, u8>,
+        events: Vec<(&'static str, u32)>,
+        fail: Option<u32>,
+    }
+    impl VehicleInitBackend for MemoryBackend {
+        type Error = u32;
+        fn read_byte(&mut self, address: u32) -> Result<u8, u32> {
+            self.events.push(("read_byte", address));
+            if self.fail == Some(address) {
+                return Err(address);
+            }
+            Ok(*self.bytes.get(&address).unwrap_or(&0xee))
+        }
+        fn write_byte(&mut self, address: u32, value: u8) -> Result<(), u32> {
+            self.events.push(("write_byte", address));
+            if self.fail == Some(address) {
+                return Err(address);
+            }
+            self.bytes.insert(address, value);
+            Ok(())
+        }
+        fn read_word(&mut self, address: u32) -> Result<u32, u32> {
+            self.events.push(("read_word", address));
+            Ok(0x12345678)
+        }
+        fn write_word(&mut self, address: u32, _: u32) -> Result<(), u32> {
+            self.events.push(("write_word", address));
+            Ok(())
+        }
+        fn allocate(&mut self, _: u32) -> Result<u32, u32> {
+            unreachable!()
+        }
+        fn free(&mut self, _: u32) -> Result<(), u32> {
+            unreachable!()
+        }
+        fn collect_frame(&mut self, _: &mut VehicleInitFrameVector, _: u32) -> Result<(), u32> {
+            unreachable!()
+        }
+        fn enumerate(
+            &mut self,
+            _: u32,
+            _: VehicleInitQuery,
+            _: &mut VehicleInitEnumeration<'_>,
+        ) -> Result<(), VehicleInitUnavailable<u32>> {
+            unreachable!()
+        }
+    }
+
+    #[test]
+    fn mixed_words_resolve_each_owner_at_both_edges_of_both_projections() {
+        for edge in [0x1000u32, 0x3400, 0x5000, 0x513c] {
+            for preceding in 1..=3 {
+                let mut vehicle = [0x11; 0x2400];
+                let mut scratch = VehicleComponentTailScratch {
+                    address: 0x5000,
+                    bytes: [0x22; 0x13c],
+                };
+                let mut backend = MemoryBackend::default();
+                let mut projection = Projection {
+                    backend: &mut backend,
+                    memory: VehicleComponentTailMemory {
+                        vehicle_address: 0x1000,
+                        vehicle: &mut vehicle,
+                        scratch: &mut scratch,
+                    },
+                };
+                let address = edge - preceding;
+                let expected = std::array::from_fn(|i| {
+                    projection
+                        .memory
+                        .read_byte(address + i as u32)
+                        .unwrap_or(0xee)
+                });
+                assert_eq!(
+                    projection.read_word(address),
+                    Ok(u32::from_le_bytes(expected))
+                );
+                projection.backend.events.clear();
+                assert_eq!(projection.write_word(address, 0x7d008060), Ok(()));
+                for (offset, byte) in [0x60, 0x80, 0, 0x7d].into_iter().enumerate() {
+                    let address = address + offset as u32;
+                    match projection.memory.read_byte(address) {
+                        Some(actual) => {
+                            assert_eq!(actual, byte);
+                            assert!(!projection.backend.bytes.contains_key(&address));
+                        }
+                        None => assert_eq!(projection.backend.bytes.get(&address), Some(&byte)),
+                    }
+                }
+                assert!(projection
+                    .backend
+                    .events
+                    .iter()
+                    .all(|(op, _)| *op == "write_byte"));
+                assert_eq!(projection.read_word(address), Ok(0x7d008060));
+            }
+        }
+    }
+
+    #[test]
+    fn local_only_words_preflight_and_cross_adjacent_projections() {
+        let mut vehicle = [0x11; 8];
+        let mut scratch = VehicleComponentTailScratch {
+            address: 0x1008,
+            bytes: [0x22; 0x13c],
+        };
+        let mut memory = VehicleComponentTailMemory {
+            vehicle_address: 0x1000,
+            vehicle: &mut vehicle,
+            scratch: &mut scratch,
+        };
+        assert_eq!(memory.read_word(0x1006), Some(0x22221111));
+        assert_eq!(memory.write_word(0x1006, 0x44332211), Some(()));
+        assert_eq!(memory.read_word(0x1006), Some(0x44332211));
+        assert_eq!(memory.write_word(0x1006 + 0x13c, 0), None);
+        assert_eq!(memory.read_byte(0x1142), Some(0x22));
+        assert_eq!(memory.read_byte(0x1143), Some(0x22));
+        let mut backend = MemoryBackend::default();
+        assert_eq!(
+            memory.read_word_with_backend(&mut backend, 0x1006),
+            Ok(0x44332211)
+        );
+        assert_eq!(
+            memory.write_word_with_backend(&mut backend, 0x1006, 0),
+            Ok(())
+        );
+        assert!(backend.events.is_empty());
+    }
+
+    #[test]
+    fn wholly_external_words_keep_backend_word_operations() {
+        let mut vehicle = [0; 8];
+        let mut scratch = VehicleComponentTailScratch {
+            address: 0x5000,
+            bytes: [0; 0x13c],
+        };
+        let mut memory = VehicleComponentTailMemory {
+            vehicle_address: 0x1000,
+            vehicle: &mut vehicle,
+            scratch: &mut scratch,
+        };
+        let mut backend = MemoryBackend::default();
+        assert_eq!(
+            memory.read_word_with_backend(&mut backend, 0x4000),
+            Ok(0x12345678)
+        );
+        assert_eq!(
+            memory.write_word_with_backend(&mut backend, 0x4000, 1),
+            Ok(())
+        );
+        assert_eq!(
+            backend.events,
+            [("read_word", 0x4000), ("write_word", 0x4000)]
+        );
+    }
+
+    #[test]
+    fn mixed_word_unavailability_retains_only_completed_byte_effects() {
+        for address in [0xffeu32, 0x1006] {
+            let mut vehicle = [0x11; 8];
+            let mut scratch = VehicleComponentTailScratch {
+                address: 0x5000,
+                bytes: [0; 0x13c],
+            };
+            let mut memory = VehicleComponentTailMemory {
+                vehicle_address: 0x1000,
+                vehicle: &mut vehicle,
+                scratch: &mut scratch,
+            };
+            let failure = if address < 0x1000 { 0xfff } else { 0x1009 };
+            let mut backend = MemoryBackend {
+                fail: Some(failure),
+                ..MemoryBackend::default()
+            };
+            assert_eq!(
+                memory.read_word_with_backend(&mut backend, address),
+                Err(failure)
+            );
+            backend.events.clear();
+            assert_eq!(
+                memory.write_word_with_backend(&mut backend, address, 0x44332211),
+                Err(failure)
+            );
+            assert_eq!(
+                backend.bytes.get(&(failure - 1)),
+                Some(&if address < 0x1000 { 0x11 } else { 0x33 })
+            );
+            assert!(!backend.bytes.contains_key(&failure));
+            if address < 0x1000 {
+                assert_eq!(memory.read_word(0x1000), Some(0x11111111));
+            } else {
+                assert_eq!(memory.read_byte(0x1006), Some(0x11));
+                assert_eq!(memory.read_byte(0x1007), Some(0x22));
+            }
+            assert_eq!(backend.events.last(), Some(&("write_byte", failure)));
+        }
+    }
+
+    #[test]
+    fn mixed_word_addresses_wrap_in_the_native_u32_domain() {
+        let mut vehicle = [0x11; 8];
+        let mut scratch = VehicleComponentTailScratch {
+            address: 0x5000,
+            bytes: [0; 0x13c],
+        };
+        let mut memory = VehicleComponentTailMemory {
+            vehicle_address: 0,
+            vehicle: &mut vehicle,
+            scratch: &mut scratch,
+        };
+        let mut backend = MemoryBackend::default();
+        assert_eq!(
+            memory.read_word_with_backend(&mut backend, u32::MAX - 1),
+            Ok(0x1111eeee)
+        );
+        assert_eq!(
+            memory.write_word_with_backend(&mut backend, u32::MAX - 1, 0x44332211),
+            Ok(())
+        );
+        assert_eq!(memory.read_byte(0), Some(0x33));
+        assert_eq!(memory.read_byte(1), Some(0x44));
+        assert_eq!(backend.bytes.get(&(u32::MAX - 1)), Some(&0x11));
+        assert_eq!(backend.bytes.get(&u32::MAX), Some(&0x22));
     }
 }
