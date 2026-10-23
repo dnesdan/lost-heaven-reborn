@@ -1,4 +1,5 @@
-//! rw_data.dll dtaSeek (PC RVA 0x3730) and dtaClose (PC RVA 0x23e0).
+//! rw_data.dll dtaSeek (PC RVA 0x3730), dtaClose (PC RVA 0x23e0),
+//! and the loose-file branch of dtaRead (PC RVA 0x25c0).
 //!
 //! Snapshot admission, copying and release below are host adapters, not dtaOpen,
 //! dtaRead or dtaClose reconstructions. They do not reproduce archive streaming,
@@ -200,10 +201,13 @@ pub enum OperationError<E> {
     Interrupted(EffectStage),
     HandleSpaceExhausted,
     Backend(E),
+    UnsupportedRead,
+    UnsafeReadState,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EffectStage {
     Seek,
+    Read,
     CloseHandle,
     DeleteFile,
     FileAttributes,
@@ -215,6 +219,7 @@ pub enum EffectStage {
 }
 struct NativeState<B> {
     records: Vec<HandleRecord>,
+    read_caches: Vec<Option<LooseReadCache>>,
     effects: B,
     interrupted: Option<EffectStage>,
     admitted_allocations: BTreeSet<u64>,
@@ -229,6 +234,7 @@ impl<B: Effects> Handles<B> {
         Self {
             state: Mutex::new(NativeState {
                 records: Vec::new(),
+                read_caches: Vec::new(),
                 effects,
                 interrupted: None,
                 admitted_allocations: BTreeSet::new(),
@@ -273,6 +279,7 @@ impl<B: Effects> Handles<B> {
             .extend(allocations.into_iter().filter(|&v| v != 0));
         if let Some(index) = state.records.iter().position(|r| r.file == FAILURE) {
             state.records[index] = record;
+            state.read_caches[index] = None;
             return Ok(index as u32);
         }
         let index = u32::try_from(state.records.len())
@@ -280,6 +287,7 @@ impl<B: Effects> Handles<B> {
             .filter(|&v| v != FAILURE)
             .ok_or(OperationError::HandleSpaceExhausted)?;
         state.records.push(record);
+        state.read_caches.push(None);
         Ok(index)
     }
     pub fn inspect(&self, handle: u32) -> Result<Option<HandleRecord>, OperationError<B::Error>> {
@@ -434,8 +442,211 @@ impl<B: Effects> Handles<B> {
         })();
         if result.is_err() {
             state.interrupted = failed_stage;
+        } else if matches!(result, Ok(true))
+            && let Some(cache) = state.read_caches.get_mut(handle as usize)
+        {
+            *cache = None;
         }
         result
+    }
+}
+
+/// Native ReadFile return and out-count are independent, including on failure.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ReadFileResult {
+    pub success: bool,
+    pub bytes_read: u32,
+}
+/// Read-only native effects. A failed seek is only FAILURE with nonzero last_error.
+pub trait ReadEffects: Effects {
+    fn seek_read_file(&mut self, file: u32, position: u32) -> Result<(u32, u32), Self::Error>;
+    fn read_file(&mut self, file: u32, output: &mut [u8]) -> Result<ReadFileResult, Self::Error>;
+}
+/// Host admission of a loose file's live 32 KiB allocation and numeric cache state.
+/// Bytes include the entire allocation, even when only block_size bytes are valid.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LooseReadCache {
+    pub bytes: Vec<u8>,
+    pub block_start_file_pointer: u32,
+    pub block_size: u32,
+}
+impl<B: ReadEffects> Handles<B> {
+    /// Attach native cache state to an admitted record. This is not dtaOpen.
+    pub fn attach_loose_cache(
+        &self,
+        handle: u32,
+        cache: LooseReadCache,
+    ) -> Result<(), OperationError<B::Error>> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| OperationError::LockPoisoned)?;
+        if let Some(stage) = state.interrupted {
+            return Err(OperationError::Interrupted(stage));
+        }
+        let record = state
+            .records
+            .get(handle as usize)
+            .ok_or(OperationError::InvalidRecord)?;
+        if record.file == FAILURE
+            || record.flags & 1 == 0
+            || record.block == 0
+            || cache.bytes.len() != 32768
+            || cache.block_size > 32768
+        {
+            return Err(OperationError::InvalidRecord);
+        }
+        state.read_caches[handle as usize] = Some(cache);
+        Ok(())
+    }
+    /// Loose-file branch of dtaRead, PC RVA 0x25c0. Archive decoding is excluded.
+    /// None represents a null native buffer, including for a zero-length call.
+    /// Host-unsafe cursor/cache ranges return an error before performing effects.
+    /// Native I/O failure returns FAILURE with its completed output/cache prefix;
+    /// numeric cache and cursor locals commit only on native success.
+    pub fn dta_read(
+        &self,
+        handle: u32,
+        output: Option<&mut [u8]>,
+    ) -> Result<u32, OperationError<B::Error>> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| OperationError::LockPoisoned)?;
+        if let Some(stage) = state.interrupted {
+            return Err(OperationError::Interrupted(stage));
+        }
+        let Some(output) = output else {
+            return Ok(FAILURE);
+        };
+        let Some(record) = state.records.get(handle as usize) else {
+            return Ok(FAILURE);
+        };
+        if record.file == FAILURE || record.flags & 2 != 0 {
+            return Ok(FAILURE);
+        }
+        if record.flags & 1 == 0 {
+            return Err(OperationError::UnsupportedRead);
+        }
+        if output.len() > u32::MAX as usize || record.cursor.position > record.cursor.size {
+            return Err(OperationError::UnsafeReadState);
+        }
+        let Some(cache) = state.read_caches[handle as usize].as_ref() else {
+            return Err(OperationError::UnsupportedRead);
+        };
+        let mut start = cache.block_start_file_pointer;
+        let mut block_size = cache.block_size;
+        let mut fp = record.cursor.position;
+        let mut bp = record.cursor.block_file_pointer;
+        let size = record.cursor.size;
+        let file = record.file;
+        let refill = !record.cache_valid || start > fp || start.wrapping_add(block_size) < fp;
+        if !refill
+            && (start > size
+                || block_size > size - start
+                || bp > block_size
+                || start.checked_add(block_size).is_none()
+                || block_size > 32768)
+        {
+            return Err(OperationError::UnsafeReadState);
+        }
+        let len = (output.len() as u32).min(size - fp) as usize;
+        let mut failed_stage = None;
+        let result = (|| {
+            let NativeState {
+                records,
+                read_caches,
+                effects,
+                ..
+            } = &mut *state;
+            let record = &mut records[handle as usize];
+            let cache = read_caches[handle as usize].as_mut().unwrap();
+            macro_rules! seek {
+                ($position:expr) => {{
+                    let (position, error) =
+                        effects.seek_read_file(file, $position).map_err(|e| {
+                            failed_stage = Some(EffectStage::Seek);
+                            OperationError::Backend(e)
+                        })?;
+                    if position == FAILURE && error != 0 {
+                        return Ok(FAILURE);
+                    }
+                }};
+            }
+            macro_rules! read {
+                ($buffer:expr) => {{
+                    let buffer: &mut [u8] = $buffer;
+                    let expected = buffer.len() as u32;
+                    let status = effects.read_file(file, buffer).map_err(|e| {
+                        failed_stage = Some(EffectStage::Read);
+                        OperationError::Backend(e)
+                    })?;
+                    if !status.success || status.bytes_read != expected {
+                        return Ok(FAILURE);
+                    }
+                }};
+            }
+            if refill {
+                start = fp & !0x7fff;
+                seek!(start);
+                block_size = (size - start).min(32768);
+                read!(&mut cache.bytes[..block_size as usize]);
+                record.cache_valid = true;
+                bp = fp - start;
+            }
+            let remaining = (block_size - bp) as usize;
+            if remaining >= len {
+                output[..len].copy_from_slice(&cache.bytes[bp as usize..bp as usize + len]);
+                fp += len as u32;
+                bp += len as u32;
+                if bp == block_size && fp < size {
+                    start += block_size;
+                    record.cache_valid = false;
+                }
+            } else {
+                output[..remaining].copy_from_slice(&cache.bytes[bp as usize..block_size as usize]);
+                record.cache_valid = false;
+                fp += remaining as u32;
+                bp = 0;
+                start += block_size;
+                seek!(start);
+                block_size = (size - start).min(32768);
+                let rest = len - remaining;
+                if rest >= block_size as usize {
+                    read!(&mut output[remaining..len]);
+                    fp += rest as u32;
+                } else if rest > 0 {
+                    read!(&mut cache.bytes[..block_size as usize]);
+                    output[remaining..len].copy_from_slice(&cache.bytes[..rest]);
+                    fp += rest as u32;
+                    bp = rest as u32;
+                    record.cache_valid = true;
+                }
+            }
+            record.cursor.position = fp;
+            record.cursor.block_file_pointer = bp;
+            cache.block_start_file_pointer = start;
+            cache.block_size = block_size;
+            Ok(len as u32)
+        })();
+        if result.is_err() {
+            state.interrupted = failed_stage;
+        }
+        result
+    }
+    /// Host inspection of cache bytes, including partial native I/O writes.
+    pub fn inspect_loose_cache(
+        &self,
+        handle: u32,
+    ) -> Result<Option<LooseReadCache>, OperationError<B::Error>> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| OperationError::LockPoisoned)?;
+        Ok(state
+            .read_caches
+            .get(handle as usize)
+            .and_then(Clone::clone))
     }
 }
 
@@ -450,6 +661,8 @@ mod tests {
         seeks: VecDeque<u32>,
         close_failure: bool,
         free_error: bool,
+        physical: usize,
+        read_failure: bool,
     }
     struct Backend(Arc<Mutex<Trace>>);
     impl Effects for Backend {
@@ -683,5 +896,137 @@ mod tests {
         assert!(handles.release_snapshot(0).unwrap());
         assert!(handles.release_snapshot(0).unwrap());
         assert_eq!(handles.insert_snapshot(vec![]).unwrap(), 0);
+    }
+    impl ReadEffects for Backend {
+        fn seek_read_file(&mut self, _: u32, position: u32) -> Result<(u32, u32), Self::Error> {
+            let mut t = self.0.lock().unwrap();
+            t.calls.push(format!("read seek {position}"));
+            t.physical = position as usize;
+            Ok((position, 0))
+        }
+        fn read_file(&mut self, _: u32, output: &mut [u8]) -> Result<ReadFileResult, Self::Error> {
+            let mut t = self.0.lock().unwrap();
+            t.calls.push(format!("read {}", output.len()));
+            let count = if t.read_failure {
+                output.len().min(2)
+            } else {
+                output.len()
+            };
+            for (i, byte) in output[..count].iter_mut().enumerate() {
+                *byte = (t.physical + i) as u8;
+                if t.read_failure {
+                    *byte = !*byte;
+                }
+            }
+            t.physical += count;
+            Ok(ReadFileResult {
+                success: !t.read_failure,
+                bytes_read: count as u32,
+            })
+        }
+    }
+    fn loose(trace: Arc<Mutex<Trace>>, size: u32) -> Handles<Backend> {
+        let handles = Handles::new(Backend(trace));
+        let mut r = record(1);
+        r.cursor = ReadCursor::new(size);
+        r.cache_valid = false;
+        handles.admit(r).unwrap();
+        handles
+            .attach_loose_cache(
+                0,
+                LooseReadCache {
+                    bytes: vec![0xa5; 32768],
+                    block_start_file_pointer: 0,
+                    block_size: 0,
+                },
+            )
+            .unwrap();
+        handles
+    }
+    #[test]
+    fn loose_read_cache_seek_and_direct_crossing() {
+        let trace = Arc::new(Mutex::new(Trace::default()));
+        let handles = loose(trace.clone(), 100000);
+        let mut first = [0; 3];
+        assert_eq!(handles.dta_read(0, Some(&mut first)).unwrap(), 3);
+        assert_eq!(first, [0, 1, 2]);
+        assert_eq!(handles.dta_seek(0, 32766, 0).unwrap(), 32766);
+        let mut crossing = vec![0xa5; 40000];
+        assert_eq!(handles.dta_read(0, Some(&mut crossing)).unwrap(), 40000);
+        for (i, byte) in crossing.iter().enumerate() {
+            assert_eq!(*byte, (32766 + i) as u8);
+        }
+        assert!(!handles.inspect(0).unwrap().unwrap().cache_valid);
+        assert_eq!(
+            handles.inspect(0).unwrap().unwrap().cursor.position(),
+            72766
+        );
+        assert_eq!(
+            trace.lock().unwrap().calls,
+            ["read seek 0", "read 32768", "read seek 32768", "read 39998"]
+        );
+    }
+    #[test]
+    fn loose_failed_crossing_preserves_numeric_state_and_output_prefix() {
+        let trace = Arc::new(Mutex::new(Trace::default()));
+        let handles = loose(trace.clone(), 40000);
+        assert_eq!(handles.dta_read(0, Some(&mut [0; 1])).unwrap(), 1);
+        handles.dta_seek(0, 32766, 0).unwrap();
+        let prior = handles.inspect(0).unwrap().unwrap().cursor;
+        trace.lock().unwrap().read_failure = true;
+        let mut output = [0xa5; 8];
+        assert_eq!(handles.dta_read(0, Some(&mut output)).unwrap(), FAILURE);
+        assert_eq!(output, [254, 255, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5]);
+        assert_eq!(handles.inspect(0).unwrap().unwrap().cursor, prior);
+        assert!(!handles.inspect(0).unwrap().unwrap().cache_valid);
+        assert_eq!(
+            handles.inspect_loose_cache(0).unwrap().unwrap().bytes[..2],
+            [255, 254]
+        );
+    }
+    #[test]
+    fn loose_zero_length_eof_and_guard_results() {
+        let trace = Arc::new(Mutex::new(Trace::default()));
+        let handles = loose(trace.clone(), 0);
+        assert_eq!(handles.dta_read(0, None).unwrap(), FAILURE);
+        assert_eq!(handles.dta_read(99, Some(&mut [])).unwrap(), FAILURE);
+        assert_eq!(handles.dta_read(0, Some(&mut [])).unwrap(), 0);
+        assert_eq!(trace.lock().unwrap().calls, ["read seek 0", "read 0"]);
+        handles.dta_seek(0, 1, 2).unwrap();
+        assert_eq!(
+            handles.dta_read(0, Some(&mut [])),
+            Err(OperationError::UnsafeReadState)
+        );
+    }
+    #[test]
+    fn loose_cached_end_is_strict_and_unsafe_projection_is_rejected() {
+        let trace = Arc::new(Mutex::new(Trace::default()));
+        let handles = loose(trace.clone(), 65536);
+        handles.dta_read(0, Some(&mut [0; 1])).unwrap();
+        handles.dta_seek(0, 32768, 0).unwrap();
+        let mut output = [0xa5; 1];
+        // Native strict cache-end comparison plus dtaSeek's modulo block cursor
+        // reuses the first cached byte at this exact boundary.
+        assert_eq!(handles.dta_read(0, Some(&mut output)).unwrap(), 1);
+        assert_eq!(output, [0]);
+        assert_eq!(trace.lock().unwrap().calls.len(), 2);
+        handles
+            .attach_loose_cache(
+                0,
+                LooseReadCache {
+                    bytes: vec![0; 32768],
+                    block_start_file_pointer: 65000,
+                    block_size: 32768,
+                },
+            )
+            .unwrap();
+        handles.dta_seek(0, 65001, 0).unwrap();
+        assert_eq!(
+            handles.dta_read(0, Some(&mut output)),
+            Err(OperationError::UnsafeReadState)
+        );
+        assert_eq!(trace.lock().unwrap().calls.len(), 2);
+        assert!(handles.dta_close(0).unwrap());
+        assert_eq!(handles.inspect_loose_cache(0).unwrap(), None);
     }
 }

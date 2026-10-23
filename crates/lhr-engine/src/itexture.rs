@@ -1586,6 +1586,62 @@ mod tests {
         DeletePool(Option<ManagedPoolAllocation>),
     }
     #[derive(Default)]
+    struct WorkerFileBackend {
+        bytes: Vec<u8>,
+        position: usize,
+    }
+    impl lhr_assets::rw_data::Effects for WorkerFileBackend {
+        type Error = &'static str;
+        fn set_file_pointer(&mut self, _: u32, _: i32, _: u32) -> Result<u32, Self::Error> {
+            unreachable!()
+        }
+        fn close_handle(&mut self, _: u32) -> Result<bool, Self::Error> {
+            Ok(true)
+        }
+        fn delete_file(&mut self, _: &[u8]) -> Result<bool, Self::Error> {
+            unreachable!()
+        }
+        fn file_attributes(&mut self, _: &[u8]) -> Result<u32, Self::Error> {
+            unreachable!()
+        }
+        fn set_file_attributes(&mut self, _: &[u8], _: u32) -> Result<bool, Self::Error> {
+            unreachable!()
+        }
+        fn move_file(&mut self, _: &[u8], _: &[u8]) -> Result<bool, Self::Error> {
+            unreachable!()
+        }
+        fn free_name(&mut self, _: u64) -> Result<(), Self::Error> {
+            unreachable!()
+        }
+        fn free_block(&mut self, allocation: u64) -> Result<(), Self::Error> {
+            assert_eq!(allocation, 1);
+            Ok(())
+        }
+        fn free_wav(&mut self, _: u64) -> Result<(), Self::Error> {
+            unreachable!()
+        }
+    }
+    impl lhr_assets::rw_data::ReadEffects for WorkerFileBackend {
+        fn seek_read_file(&mut self, _: u32, position: u32) -> Result<(u32, u32), Self::Error> {
+            self.position = position as usize;
+            Ok((position, 0))
+        }
+        fn read_file(
+            &mut self,
+            _: u32,
+            output: &mut [u8],
+        ) -> Result<lhr_assets::rw_data::ReadFileResult, Self::Error> {
+            let source = self.bytes.get(self.position..).unwrap_or(&[]);
+            let count = output.len().min(source.len());
+            output[..count].copy_from_slice(&source[..count]);
+            self.position += count;
+            Ok(lhr_assets::rw_data::ReadFileResult {
+                success: true,
+                bytes_read: count as u32,
+            })
+        }
+    }
+    #[derive(Default)]
     struct Backend {
         next: u64,
         events: Vec<Event>,
@@ -1607,7 +1663,7 @@ mod tests {
         worker_fail: Option<ManagedStage>,
         worker_events: Vec<ManagedStage>,
         worker_data: Vec<u8>,
-        worker_snapshots: lhr_assets::rw_data::ReadHandles,
+        worker_files: Option<lhr_assets::rw_data::Handles<WorkerFileBackend>>,
         worker_creates: Vec<ManagedTextureCreate>,
         section_held: bool,
         fail_enter: bool,
@@ -2118,11 +2174,34 @@ mod tests {
             assert!(self.managed_files.contains_key(&f.0));
             assert_eq!(mode, 0);
             self.worker_event(ManagedStage::OpenFile)?;
-            // Host byte snapshot: 22-byte prefix and a short three-byte payload.
-            // This is deliberately not a native dtaOpen/dtaRead implementation.
+            // Host admission, followed by reconstructed dtaSeek/dtaRead/dtaClose.
+            // This synthetic fixture does not reconstruct dtaOpen.
             let mut bytes = vec![0xcc; 22];
             bytes.extend_from_slice(&[1, 2, 3]);
-            let handle = self.worker_snapshots.insert_snapshot(bytes).unwrap();
+            let files = lhr_assets::rw_data::Handles::new(WorkerFileBackend { bytes, position: 0 });
+            let handle = files
+                .admit(lhr_assets::rw_data::HandleRecord {
+                    file: 42,
+                    flags: 1,
+                    cursor: lhr_assets::rw_data::ReadCursor::new(25),
+                    cache_valid: false,
+                    temporary_name: 0,
+                    temporary_name_bytes: vec![],
+                    block: 1,
+                    wav: 0,
+                })
+                .unwrap();
+            files
+                .attach_loose_cache(
+                    handle,
+                    lhr_assets::rw_data::LooseReadCache {
+                        bytes: vec![0; 32768],
+                        block_start_file_pointer: 0,
+                        block_size: 0,
+                    },
+                )
+                .unwrap();
+            self.worker_files = Some(files);
             assert_eq!(handle, 0);
             Ok(Some(ManagedFile(u64::from(handle))))
         }
@@ -2135,7 +2214,9 @@ mod tests {
             assert_eq!((f, o, origin), (ManagedFile(0), 22, 1));
             self.worker_event(ManagedStage::SeekFile)?;
             assert_eq!(
-                self.worker_snapshots
+                self.worker_files
+                    .as_ref()
+                    .unwrap()
                     .dta_seek(f.0 as u32, o, origin)
                     .unwrap(),
                 22
@@ -2152,8 +2233,10 @@ mod tests {
             assert_eq!(m.mapping, 1);
             assert_eq!(n, 64);
             assert_eq!(
-                self.worker_snapshots
-                    .read_snapshot(f.0 as u32, &mut self.worker_data[..n as usize])
+                self.worker_files
+                    .as_ref()
+                    .unwrap()
+                    .dta_read(f.0 as u32, Some(&mut self.worker_data[..n as usize]))
                     .unwrap(),
                 3
             );
@@ -2162,7 +2245,12 @@ mod tests {
         fn close_managed_file(&mut self, f: ManagedFile) -> Result<(), Self::Error> {
             assert_eq!(f, ManagedFile(0));
             self.worker_event(ManagedStage::CloseFile)?;
-            assert!(self.worker_snapshots.release_snapshot(f.0 as u32).unwrap());
+            assert!(self
+                .worker_files
+                .as_ref()
+                .unwrap()
+                .dta_close(f.0 as u32)
+                .unwrap());
             Ok(())
         }
         fn unlock_managed_surface(&mut self, _: TextureSurface) -> Result<(), Self::Error> {
