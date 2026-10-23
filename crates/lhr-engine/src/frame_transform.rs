@@ -351,6 +351,13 @@ impl I3dFrameGraph {
     pub fn state(&self, key: FrameKey) -> Result<&I3dFrameState, FrameError> {
         Ok(&self.node(key)?.state)
     }
+    /// Common SetOn store, PC RVA0x1b400: only the low argument byte controls
+    /// flag bit0. Matrix/volume cache flags and descendants are untouched.
+    pub(crate) fn set_on(&mut self, key: FrameKey, on: u32) -> Result<(), FrameError> {
+        let flags = &mut self.node_mut(key)?.state.flags;
+        *flags = (*flags & !1) | u32::from(on as u8 != 0);
+        Ok(())
+    }
     /// GetFrameInterpolator RVA0x1ea60 marks a newly bound destination.
     pub(crate) fn mark_animated(&mut self, key: FrameKey) -> Result<(), FrameError> {
         self.node_mut(key)?.state.flags |= 0x10000000;

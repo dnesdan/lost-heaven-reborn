@@ -29,11 +29,18 @@ pub struct LoadedFrame {
     pub owner: Option<ModelKey>,
     pub source_index: Option<usize>,
     pub name_bytes: Vec<u8>,
+    /// Local original-name (+0x104) projection, distinct from the full current
+    /// name (+0x100). Parsed materialization has no model-name prefix operation;
+    /// a fresh unnamed model root retains the constructor's null original name.
+    pub original_name_bytes: Option<Vec<u8>>,
     pub properties: Vec<u8>,
     pub dummy_bounds: Option<[[f32; 3]; 2]>,
     /// Immutable host backing, independent of model membership. This is not a
     /// native mesh/LOD resource allocation or filename reference count.
     pub source: Option<Arc<Model>>,
+    /// Common frame+8 userdata pointer projection. A present actor record is
+    /// distinct from a null pointer, including when its first word is null.
+    pub user_data: crate::actor_frames::FrameUserData,
     alive: bool,
 }
 #[derive(Debug)]
@@ -79,6 +86,7 @@ pub enum ModelError {
     CloseIncomplete(ModelKey),
     OwnershipCycle,
     NestedDestructionUnavailable(FrameKey),
+    UnknownActorDataRecord(crate::actor_frames::ActorDataRecordId),
 }
 impl From<FrameError> for ModelError {
     fn from(e: FrameError) -> Self {
@@ -101,6 +109,7 @@ pub struct ModelArena {
     models: Vec<LoadedModel>,
     destruction_depth: usize,
     lookup_owner: crate::frame_lookup::FrameLookupOwner,
+    actor_data_records: Vec<crate::actor_frames::ActorDataRecord>,
 }
 impl ModelArena {
     pub(crate) fn lookup_reference(
@@ -131,15 +140,20 @@ impl ModelArena {
         } else {
             self.graph.insert(state)?
         };
+        // Native LoadImage skips the name allocation/stores for byte length0.
+        let original_name_bytes =
+            (source_index.is_some() && !name_bytes.is_empty()).then(|| name_bytes.clone());
         self.frames.push(LoadedFrame {
             key,
             references: 1,
             owner: None,
             source_index,
             name_bytes,
+            original_name_bytes,
             properties,
             dummy_bounds,
             source: None,
+            user_data: crate::actor_frames::FrameUserData::Null,
             alive: true,
         });
         Ok(key)
@@ -176,6 +190,106 @@ impl ModelArena {
     }
     pub fn frame(&self, key: FrameKey) -> Result<&LoadedFrame, ModelError> {
         Ok(&self.frames[self.frame_index(key)?])
+    }
+    pub fn user_data(
+        &self,
+        key: FrameKey,
+    ) -> Result<crate::actor_frames::FrameUserData, ModelError> {
+        Ok(self.frame(key)?.user_data)
+    }
+    /// Import the caller-owned userdata record projection. This neither writes
+    /// through the native pointer nor creates/retains the actor it refers to.
+    pub fn set_user_data(
+        &mut self,
+        key: FrameKey,
+        data: crate::actor_frames::FrameUserData,
+    ) -> Result<(), ModelError> {
+        let index = self.frame_index(key)?;
+        self.frames[index].user_data = data;
+        Ok(())
+    }
+    pub fn set_actor_data(
+        &mut self,
+        key: FrameKey,
+        data: crate::actor_world::FrameActorData,
+    ) -> Result<(), ModelError> {
+        self.frame_index(key)?;
+        let data = match data {
+            crate::actor_world::FrameActorData::Null => crate::actor_frames::FrameUserData::Null,
+            crate::actor_world::FrameActorData::Present(actor) => {
+                crate::actor_frames::FrameUserData::ActorRecord(
+                    self.create_actor_data_record(actor)?,
+                )
+            }
+        };
+        self.set_user_data(key, data)
+    }
+    /// Import only the first actor word of an externally supplied record. The
+    /// record belongs to this owner independently of every frame pointer to it.
+    pub fn create_actor_data_record(
+        &mut self,
+        actor: Option<crate::script_scheduler::ActorReferenceId>,
+    ) -> Result<crate::actor_frames::ActorDataRecordId, ModelError> {
+        let raw = u32::try_from(self.actor_data_records.len())
+            .ok()
+            .and_then(|index| index.checked_add(1))
+            .ok_or(ModelError::AllocationOverflow)?;
+        self.actor_data_records
+            .try_reserve(1)
+            .map_err(|_| ModelError::AllocationOverflow)?;
+        let identity = crate::actor_frames::ActorDataRecordId(self.lookup_reference(FrameKey(raw)));
+        self.actor_data_records
+            .push(crate::actor_frames::ActorDataRecord {
+                identity,
+                actor,
+                alive: true,
+            });
+        Ok(identity)
+    }
+    fn actor_data_record_index(
+        &self,
+        record: crate::actor_frames::ActorDataRecordId,
+    ) -> Result<usize, ModelError> {
+        let index = record
+            .0
+            .identity()
+            .checked_sub(1)
+            .ok_or(ModelError::UnknownActorDataRecord(record))? as usize;
+        self.actor_data_records
+            .get(index)
+            .filter(|entry| entry.alive && entry.identity == record)
+            .map(|_| index)
+            .ok_or(ModelError::UnknownActorDataRecord(record))
+    }
+    pub fn actor_data_record(
+        &self,
+        record: crate::actor_frames::ActorDataRecordId,
+    ) -> Result<Option<crate::script_scheduler::ActorReferenceId>, ModelError> {
+        Ok(self.actor_data_records[self.actor_data_record_index(record)?].actor)
+    }
+    pub fn set_actor_data_record(
+        &mut self,
+        record: crate::actor_frames::ActorDataRecordId,
+        actor: Option<crate::script_scheduler::ActorReferenceId>,
+    ) -> Result<(), ModelError> {
+        let index = self.actor_data_record_index(record)?;
+        self.actor_data_records[index].actor = actor;
+        Ok(())
+    }
+    /// Explicit host lifetime end of the external record. This is not a native
+    /// record destructor. Any surviving frame pointer then fails closed on read.
+    pub fn retire_actor_data_record(
+        &mut self,
+        record: crate::actor_frames::ActorDataRecordId,
+    ) -> Result<(), ModelError> {
+        let index = self.actor_data_record_index(record)?;
+        self.actor_data_records[index].alive = false;
+        Ok(())
+    }
+    pub(crate) fn set_frame_on(&mut self, key: FrameKey, on: u32) -> Result<(), ModelError> {
+        self.frame_index(key)?;
+        self.graph.set_on(key, on)?;
+        Ok(())
     }
     pub fn model(&self, key: ModelKey) -> Result<&LoadedModel, ModelError> {
         Ok(&self.models[self.model_index(key)?])
@@ -263,8 +377,10 @@ impl ModelArena {
         self.frames[i].alive = false;
         self.frames[i].properties = Vec::new();
         self.frames[i].name_bytes = Vec::new();
+        self.frames[i].original_name_bytes = None;
         self.frames[i].dummy_bounds = None;
         self.frames[i].source = None;
+        self.frames[i].user_data = crate::actor_frames::FrameUserData::Null;
         Ok(())
     }
     pub fn add_frame(&mut self, model: ModelKey, key: FrameKey) -> Result<(), ModelError> {
@@ -397,8 +513,16 @@ impl ModelArena {
             .capacity()
             .checked_mul(std::mem::size_of::<LoadedModel>())
             .ok_or(ModelError::AllocationOverflow)?)?;
+        add(self
+            .actor_data_records
+            .capacity()
+            .checked_mul(std::mem::size_of::<crate::actor_frames::ActorDataRecord>())
+            .ok_or(ModelError::AllocationOverflow)?)?;
         for f in &self.frames {
             add(f.name_bytes.capacity())?;
+            if let Some(original) = &f.original_name_bytes {
+                add(original.capacity())?;
+            }
             add(f.properties.capacity())?;
         }
         for m in &self.models {
@@ -864,9 +988,9 @@ impl MaterializedModel {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
-    fn frame(kind: u8, parent: Option<usize>, position: [f32; 3]) -> lhr_assets::Frame {
+    pub(crate) fn frame(kind: u8, parent: Option<usize>, position: [f32; 3]) -> lhr_assets::Frame {
         lhr_assets::Frame {
             kind,
             visual: (kind == 1).then_some(0),
@@ -1580,5 +1704,80 @@ mod tests {
             Err(FrameLookupError::StaleFrame(child_ref))
         );
         assert_eq!(loaded.arena().frame(root).unwrap().references, 1);
+    }
+
+    #[test]
+    fn actor_child_search_reads_local_original_name_and_preserves_script_full_name_search() {
+        use crate::actor_frames::{ModelActorFrames, ACTOR_FIND_FLAGS};
+        use crate::frame_lookup::{get_child_frame, ModelFrameLookup, SCRIPT_FIND_FLAGS};
+        let mut target = frame(7, None, [0.; 3]);
+        target.name_bytes = b"targetE".to_vec();
+        target.target = Some(lhr_assets::TargetRecord {
+            flags: 0,
+            frame_indices: vec![],
+        });
+        let mut loaded = MaterializedModel::from_parsed(Arc::new(Model {
+            materials: vec![],
+            frames: vec![target],
+        }))
+        .unwrap();
+        let key = loaded.source_frame_keys()[0];
+        // Import the two distinct native fields as a test state. This does not
+        // implement SetModelName's allocation or registration side effects.
+        let index = loaded.arena.frame_index(key).unwrap();
+        loaded.arena.frames[index].name_bytes = b"prefix.targetE".to_vec();
+        let lookup = ModelFrameLookup::borrow(loaded.arena(), true);
+        let root = lookup.reference(loaded.root()).unwrap();
+        let target = lookup.reference(key).unwrap();
+        assert_eq!(
+            get_child_frame(&lookup, root, b"prefix.targetE", SCRIPT_FIND_FLAGS, 2),
+            Ok(Some(target))
+        );
+        assert_eq!(
+            get_child_frame(&lookup, root, b"targetE", SCRIPT_FIND_FLAGS, 2),
+            Ok(None)
+        );
+        let backend = ModelActorFrames::borrow(loaded.arena_mut(), true);
+        assert_eq!(
+            backend.find_child_frame(root, b"targetE", ACTOR_FIND_FLAGS, 1),
+            Ok(Some(target))
+        );
+        assert_eq!(
+            backend.find_child_frame(root, b"prefix.targetE", ACTOR_FIND_FLAGS, 1),
+            Ok(None)
+        );
+    }
+
+    #[test]
+    fn original_name_null_state_follows_constructor_and_zero_length_load_image() {
+        let mut empty = frame(6, None, [0.; 3]);
+        empty.name_bytes.clear();
+        let loaded = MaterializedModel::from_parsed(Arc::new(Model {
+            materials: vec![],
+            frames: vec![empty, frame(6, None, [0.; 3])],
+        }))
+        .unwrap();
+        assert_eq!(
+            loaded
+                .arena()
+                .frame(loaded.root())
+                .unwrap()
+                .original_name_bytes,
+            None
+        );
+        let keys = loaded.source_frame_keys();
+        assert_eq!(
+            loaded.arena().frame(keys[0]).unwrap().original_name_bytes,
+            None
+        );
+        assert_eq!(
+            loaded
+                .arena()
+                .frame(keys[1])
+                .unwrap()
+                .original_name_bytes
+                .as_deref(),
+            Some(b"fixture".as_slice())
+        );
     }
 }

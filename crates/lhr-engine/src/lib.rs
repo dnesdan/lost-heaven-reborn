@@ -1,6 +1,7 @@
 //! Reusable engine components for the Rust rewrite.
 
 pub mod actor_animation;
+pub mod actor_frames;
 pub mod actor_registry;
 pub mod actor_tick;
 pub mod actor_world;
