@@ -3,6 +3,7 @@
 pub mod actor_animation;
 pub mod actor_registry;
 pub mod actor_tick;
+pub mod actor_world;
 pub mod animation_binding;
 pub mod animation_controller;
 pub mod animation_index;
@@ -58,5 +59,5 @@ pub mod ls3df {
 
 /// Original game executable boundary; replay helper names remain descriptive.
 pub mod game {
-    pub use crate::{replay_state, script_lookup, script_scheduler};
+    pub use crate::{actor_world, replay_state, script_lookup, script_scheduler};
 }
