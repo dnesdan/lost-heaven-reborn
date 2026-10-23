@@ -21,7 +21,7 @@ pub(super) struct Owner {
     refs: u32,
     registered: bool,
     key: u64,
-    table: Vec<u8>,
+    pub(super) table: Vec<u8>,
 }
 macro_rules! effect {
     ($s:expr, $stage:ident, $call:expr) => {
@@ -328,7 +328,7 @@ fn loose_open<B: OpenEffects>(
         None,
     )
 }
-fn first_index(table: &[u8], hash: u32) -> Option<usize> {
+pub(super) fn first_index(table: &[u8], hash: u32) -> Option<usize> {
     let count = table.len() / 28;
     if count == 0 {
         return None;

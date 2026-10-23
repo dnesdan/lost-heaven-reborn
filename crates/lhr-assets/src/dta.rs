@@ -11,20 +11,26 @@ use std::{
 type Result<T> = std::result::Result<T, String>;
 const MAX_FILE: usize = 64 * 1024 * 1024;
 const BLOCK: usize = 32768;
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Entry {
     pub path: String,
+    pub(crate) native_name: Vec<u8>,
+    pub(crate) row: u32,
+    pub(crate) table_row: [u8; 28],
     pub size: usize,
     pub(crate) blocks: u32,
-    start: u64,
+    pub(crate) start: u64,
     pub(crate) offset: u64,
     pub(crate) end: u64,
     pub(crate) encrypted: bool,
 }
 pub(crate) struct Archive {
+    #[cfg(test)]
     file: File,
+    #[cfg(test)]
     key: [u8; 8],
     entries: BTreeMap<String, Entry>,
+    #[cfg(test)]
     snapshot: std::fs::Metadata,
 }
 
@@ -129,6 +135,7 @@ fn name(b: &[u8]) -> Result<String> {
     Ok(s)
 }
 impl Archive {
+    #[cfg(test)]
     pub fn open(path: &Path, k1: u32, k2: u32) -> Result<Self> {
         Self::from_file(checked_open(path)?, k1, k2)
     }
@@ -154,7 +161,7 @@ impl Archive {
         let mut t = read(&mut file, length, offset, table_size)?;
         xor(&mut t, &key);
         let mut entries = BTreeMap::new();
-        for row in t.as_chunks::<28>().0 {
+        for (row_number, row) in t.as_chunks::<28>().0.iter().enumerate() {
             let header_offset = u32le(row, 4) as u64;
             let data_offset = u32le(row, 8) as u64;
             let mut h = read(&mut file, length, header_offset, 32)?;
@@ -192,6 +199,9 @@ impl Archive {
                     canon,
                     Entry {
                         path,
+                        native_name: raw.strip_suffix(&[0]).unwrap_or(&raw).to_vec(),
+                        row: row_number as u32,
+                        table_row: *row,
                         size,
                         blocks,
                         start: header_offset,
@@ -217,15 +227,19 @@ impl Archive {
             return Err("archive changed while indexing".into());
         }
         Ok(Self {
+            #[cfg(test)]
             file,
+            #[cfg(test)]
             key,
             entries,
+            #[cfg(test)]
             snapshot,
         })
     }
     pub fn entries(&self) -> impl Iterator<Item = &Entry> {
         self.entries.values()
     }
+    #[cfg(test)]
     pub fn read(&mut self, path: &str, quota: usize) -> Result<Vec<u8>> {
         self.unchanged()?;
         let e = self.entries.get(&canonical(path)?).ok_or("asset absent")?;
@@ -267,6 +281,7 @@ impl Archive {
         self.unchanged()?;
         Ok(output)
     }
+    #[cfg(test)]
     fn unchanged(&self) -> Result<()> {
         let now = self
             .file
@@ -278,6 +293,7 @@ impl Archive {
         Ok(())
     }
 }
+#[cfg(test)]
 fn lz(b: &[u8], limit: usize) -> Result<Vec<u8>> {
     if b.len() < 3 || b[0] != 1 {
         return Err("invalid LZ header".into());
@@ -412,6 +428,7 @@ mod container_tests {
                 .copy_from_slice(&((n as u16) | if encrypted { 32768 } else { 0 }).to_le_bytes());
             xor(&mut h, &key);
             b.extend(h);
+            let upper = name.as_bytes().to_ascii_uppercase();
             let mut name = name.as_bytes().to_vec();
             name.push(0);
             xor(&mut name, &key);
@@ -423,10 +440,17 @@ mod container_tests {
             }
             b.extend(payload);
             let mut row = vec![0; 28];
+            let hash = ((upper.len() as u32) << 16) | upper.iter().map(|&v| v as u32).sum::<u32>();
+            row[..4].copy_from_slice(&hash.to_le_bytes());
+            let suffix = &upper[upper.len().saturating_sub(16)..];
+            row[12..12 + suffix.len()].copy_from_slice(suffix);
             row[4..8].copy_from_slice(&(start as u32).to_le_bytes());
             row[8..12].copy_from_slice(&(data as u32).to_le_bytes());
             rows.extend(row);
         }
+        let mut sorted: Vec<_> = rows.as_chunks::<28>().0.to_vec();
+        sorted.sort_by_key(|row| u32le(row, 0));
+        rows = sorted.into_iter().flatten().collect();
         let offset = b.len();
         xor(&mut rows, &key);
         b.extend(rows);

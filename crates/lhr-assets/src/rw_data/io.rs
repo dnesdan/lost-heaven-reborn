@@ -26,6 +26,7 @@ struct Source {
     file: File,
     snapshot: Metadata,
     entries: BTreeMap<String, CheckedEntry>,
+    catalog: BTreeMap<String, crate::dta::Entry>,
     key: u64,
     read_bounds: Option<(u64, u64)>,
 }
@@ -326,6 +327,7 @@ impl OpenEffects for FilesystemEffects {
                 file,
                 snapshot,
                 entries: BTreeMap::new(),
+                catalog: BTreeMap::new(),
                 key: 0,
                 read_bounds: None,
             },
@@ -362,6 +364,7 @@ impl OpenEffects for FilesystemEffects {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum StreamError {
+    UnsupportedName,
     Native(OperationError<HostError>),
     Failure,
     Bounds,
@@ -385,6 +388,10 @@ pub struct NativeFiles {
     closed: std::sync::atomic::AtomicBool,
 }
 impl NativeFiles {
+    /// The budget covers logical effect allocation charges and retained Source
+    /// string lengths plus a fixed per-entry policy allowance. It excludes
+    /// transient parsing, returned catalog/Installation clones and allocator
+    /// capacity/overhead; it is not a total process memory or RSS limit.
     pub fn new(root: &Path, quota: u32, allocation_budget: u64) -> Result<Self, HostError> {
         if quota > 64 * 1024 * 1024 {
             return Err(HostError::Policy);
@@ -425,10 +432,19 @@ impl NativeFiles {
             // both locks, before UnlockPack's explicit seek. No decoder is called.
             let index = crate::dta::Archive::from_file(clone, (key >> 32) as u32, key as u32)
                 .map_err(|_| StreamError::Bounds)?;
-            let storage = index
-                .entries()
-                .map(|e| e.path.len() as u64 + 256)
-                .sum::<u64>();
+            let storage = index.entries().try_fold(0u64, |total, entry| {
+                let canonical =
+                    crate::dta::canonical(&entry.path).map_err(|_| StreamError::Bounds)?;
+                // Source retains two canonical map keys, one decoded path and
+                // one raw native name. The fixed allowance is policy, not RSS.
+                (canonical.len() as u64)
+                    .checked_mul(2)
+                    .and_then(|n| n.checked_add(entry.path.len() as u64))
+                    .and_then(|n| n.checked_add(entry.native_name.len() as u64))
+                    .and_then(|n| n.checked_add(512))
+                    .and_then(|n| total.checked_add(n))
+                    .ok_or(StreamError::Bounds)
+            })?;
             if s.effects
                 .allocated
                 .checked_add(storage)
@@ -448,6 +464,10 @@ impl NativeFiles {
             s.effects.allocated += storage;
             let source = s.effects.source(file).ok_or(StreamError::Failure)?;
             source.key = key;
+            source.catalog = index
+                .entries()
+                .map(|e| (crate::dta::canonical(&e.path).unwrap(), e.clone()))
+                .collect();
             source.entries = index
                 .entries()
                 .map(|e| {
@@ -468,6 +488,132 @@ impl NativeFiles {
             return Err(StreamError::Failure);
         }
         Ok(owner)
+    }
+    /// Immutable identities admitted from the same retained file used by native IO.
+    pub(crate) fn catalog(&self, owner: u64) -> Result<Vec<crate::dta::Entry>, StreamError> {
+        let _gate = self.gate.lock().map_err(|_| StreamError::Failure)?;
+        let mut state = self
+            .handles
+            .state
+            .lock()
+            .map_err(|_| StreamError::Failure)?;
+        let file = state
+            .owners
+            .iter()
+            .find(|o| o.token == owner)
+            .ok_or(StreamError::Failure)?
+            .file;
+        let source = state.effects.source(file).ok_or(StreamError::Failure)?;
+        Ok(source.catalog.values().cloned().collect())
+    }
+
+    /// Checked Installation selection; never searches another owner or the loose tree.
+    pub(crate) fn read_admitted(
+        &self,
+        owner: u64,
+        entry: &crate::dta::Entry,
+    ) -> Result<Vec<u8>, StreamError> {
+        if !entry.native_name.is_ascii() {
+            return Err(StreamError::UnsupportedName);
+        }
+        {
+            let _gate = self.gate.lock().map_err(|_| StreamError::Failure)?;
+            if self.closed.load(std::sync::atomic::Ordering::Relaxed) {
+                return Err(StreamError::Closed);
+            }
+            let mut state = self
+                .handles
+                .state
+                .lock()
+                .map_err(|_| StreamError::Failure)?;
+            let registered = state
+                .owners
+                .iter()
+                .find(|o| o.token == owner)
+                .ok_or(StreamError::Failure)?;
+            let row = entry.row as usize * 28;
+            if registered.table.get(row..row + 28) != Some(entry.table_row.as_slice()) {
+                return Err(StreamError::Bounds);
+            }
+            if entry.size == 0 {
+                // The host empty accommodation must still select the admitted
+                // native row, including native hash/suffix and table order.
+                let upper = entry.native_name.to_ascii_uppercase();
+                let sum = upper.iter().fold(0u16, |n, &b| n.wrapping_add(b as u16));
+                let hash = ((upper.len() as u32) << 16) | u32::from(sum);
+                let first =
+                    super::open::first_index(&registered.table, hash).ok_or(StreamError::Bounds)?;
+                if (entry.row as usize) < first
+                    || (first..=entry.row as usize).any(|n| {
+                        u32::from_le_bytes(registered.table[n * 28..n * 28 + 4].try_into().unwrap())
+                            != hash
+                    })
+                {
+                    return Err(StreamError::Bounds);
+                }
+                let suffix = &upper[upper.len().saturating_sub(16)..];
+                let mut expected = [0; 16];
+                expected[..suffix.len()].copy_from_slice(suffix);
+                let stored = &entry.table_row[12..28];
+                // Native strncmp ignores bytes after a matching NUL.
+                let compared = suffix.len().saturating_add(1).min(16);
+                if stored[..compared] != expected[..compared] {
+                    return Err(StreamError::Bounds);
+                }
+            }
+            let file = registered.file;
+            let source = state.effects.source(file).ok_or(StreamError::Failure)?;
+            let canonical = crate::dta::canonical(&entry.path).map_err(|_| StreamError::Bounds)?;
+            if source.catalog.get(&canonical) != Some(entry) || entry.size > self.quota as usize {
+                return Err(StreamError::Bounds);
+            }
+            // Native archive_open always fetches a first block. A checked empty
+            // entry instead has exactly zero blocks and no encoded bytes.
+            if entry.size == 0 {
+                let checked = *source.entries.get(&canonical).ok_or(StreamError::Bounds)?;
+                source.validate_entry(checked, None)?;
+                return Ok(Vec::new());
+            }
+        }
+        let mut stream = self.open(&entry.native_name, SelectedSource::Archive(owner))?;
+        let selected = (|| {
+            let handle = stream.live_handle()? as usize;
+            let state = self
+                .handles
+                .state
+                .lock()
+                .map_err(|_| StreamError::Failure)?;
+            let cache = state.archive_caches[handle]
+                .as_ref()
+                .ok_or(StreamError::Bounds)?;
+            let registered = state
+                .owners
+                .iter()
+                .find(|o| o.token == owner)
+                .ok_or(StreamError::Failure)?;
+            if state.records[handle].file != registered.file
+                || cache.data_offset as u64 != entry.offset
+                || cache.block_count != entry.blocks
+                || cache.encrypted != entry.encrypted
+                || state.records[handle].cursor.size() as usize != entry.size
+            {
+                return Err(StreamError::Bounds);
+            }
+            Ok(())
+        })();
+        selected?;
+        let mut output = vec![0; entry.size];
+        let mut position = 0;
+        while position < output.len() {
+            let end = (position + 32768).min(output.len());
+            let count = stream.read(&mut output[position..end])? as usize;
+            if count == 0 || count > end - position {
+                return Err(StreamError::Bounds);
+            }
+            position += count;
+        }
+        stream.close()?;
+        Ok(output)
     }
     pub fn release(&self, owner: u64) -> Result<Option<u32>, StreamError> {
         let _gate = self

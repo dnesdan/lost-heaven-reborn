@@ -879,13 +879,17 @@ fn safe_relative(s: &str) -> Result<()> {
 /// Original installation resources follow the evidenced DTA-first force-registration
 /// order, then fall back to a loose file only when no archive contains the path.
 /// A failed read of the selected DTA copy never falls back to loose or an older copy.
+/// Archive-backed reads use the native ASCII filename domain; selected non-ASCII
+/// archive names return an explicit unsupported error. Loose Unicode paths retain
+/// bounded host IO. Empty archive entries use checked zero-block metadata because
+/// native archive_open unconditionally fetches a first block.
 /// The installation directory tree must be trusted and stable during use. Handle and
 /// metadata checks detect ordinary replacement/mutation; they do not confine hostile
 /// concurrent replacement of parent directories (which requires descriptor-relative IO).
 pub struct Installation {
     root: PathBuf,
-    archives: Vec<std::sync::Mutex<dta::Archive>>,
-    archive_index: std::collections::BTreeMap<String, usize>,
+    archives: rw_data::io::NativeFiles,
+    archive_index: std::collections::BTreeMap<String, (u64, dta::Entry)>,
 }
 impl Installation {
     pub fn open(root: impl AsRef<Path>) -> Result<Self> {
@@ -924,19 +928,28 @@ impl Installation {
                 .position(|candidate| *candidate == name)
                 .unwrap_or(ORDER.len())
         });
-        let mut archives = Vec::new();
+        let archives = rw_data::io::NativeFiles::new(&root, MAX_BYTES as u32, 256 * 1024 * 1024)
+            .map_err(|e| Error(format!("archive provider: {e:?}")))?;
         let mut archive_index = std::collections::BTreeMap::new();
         for (_, (path, (k1, k2))) in discovered {
             verify_contained(&root, &path)?;
-            let archive = dta::Archive::open(&path, k1, k2).map_err(Error)?;
+            let filename = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .ok_or_else(|| Error("archive filename unavailable".into()))?;
+            let owner = archives
+                .register(filename.as_bytes(), native_unlock_key(k1, k2))
+                .map_err(|e| Error(format!("archive registration: {e:?}")))?;
             verify_contained(&root, &path)?;
-            for entry in archive.entries() {
+            for entry in archives
+                .catalog(owner)
+                .map_err(|e| Error(format!("archive catalog: {e:?}")))?
+            {
                 let key = dta::canonical(&entry.path).map_err(Error)?;
-                // dtaSetDtaFirstForce uses the first registered copy. The native
-                // registration order puts A8 ahead of A2/A6/A1/AC/AA for known archives.
-                archive_index.entry(key).or_insert(archives.len());
+                // The first registered archive owns this canonical path, including
+                // its original source row and exact native filename spelling.
+                archive_index.entry(key).or_insert((owner, entry));
             }
-            archives.push(std::sync::Mutex::new(archive));
         }
         Ok(Self {
             root,
@@ -947,12 +960,11 @@ impl Installation {
     pub fn read(&self, name: &str) -> Result<Vec<u8>> {
         safe_relative(name)?;
         let canonical = dta::canonical(name).map_err(Error)?;
-        if let Some(index) = self.archive_index.get(&canonical) {
-            return self.archives[*index]
-                .lock()
-                .map_err(|_| Error("archive reader unavailable".into()))?
-                .read(&canonical, MAX_BYTES)
-                .map_err(Error);
+        if let Some((owner, entry)) = self.archive_index.get(&canonical) {
+            return self
+                .archives
+                .read_admitted(*owner, entry)
+                .map_err(|e| Error(format!("selected archive read: {e:?}")));
         }
         let mut path = self.root.clone();
         let parts: Vec<_> = canonical.split('/').collect();
@@ -984,6 +996,11 @@ impl Installation {
         verify_contained(&self.root, &path)?;
         read_asset_handle(&mut file)
     }
+}
+// Archive intake uses little-endian k2 followed by k1; UnlockPack applies
+// its fixed XOR exactly once. Keep this conversion at registration only.
+fn native_unlock_key(k1: u32, k2: u32) -> u64 {
+    ((u64::from(k1) << 32) | u64::from(k2)) ^ 0x3498576239475694
 }
 fn bounded_children(path: &Path) -> Result<Vec<PathBuf>> {
     let mut children = Vec::new();
@@ -2210,6 +2227,11 @@ mod animation_archive_tests {
         bytes.extend(payload);
         let table_offset = bytes.len();
         let mut row = vec![0; 28];
+        let upper = name[..name.len() - 1].to_ascii_uppercase();
+        let hash = ((upper.len() as u32) << 16) | upper.iter().map(|&v| v as u32).sum::<u32>();
+        row[..4].copy_from_slice(&hash.to_le_bytes());
+        let suffix = &upper[upper.len().saturating_sub(16)..];
+        row[12..12 + suffix.len()].copy_from_slice(suffix);
         row[4..8].copy_from_slice(&20u32.to_le_bytes());
         row[8..12].copy_from_slice(&(data_offset as u32).to_le_bytes());
         xor(&mut row, &key);
