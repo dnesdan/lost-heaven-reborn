@@ -5,6 +5,7 @@
 
 use crate::named_script::{ProgramScheduler, ResetState};
 use crate::replay_state::{self, ReplayError, ReplayOwnerId, ReplayReadBackend};
+use crate::script_lookup::{self, LookupError, LookupWorldBackend};
 use lhr_assets::script::parse_script;
 
 /// Identity of retained eight-byte instruction storage, independent of its live length.
@@ -121,6 +122,11 @@ pub trait ScriptEffects {
         delta: i32,
     ) -> Result<(), Self::Error>;
 
+    /// Lookup commands require an actual live world and a diagnostic backend.
+    fn lookup_world(&mut self) -> Result<&mut dyn LookupWorldBackend, LookupError> {
+        Err(LookupError::UnsupportedWorldBackend)
+    }
+
     /// The original RECWAITFOREND caller needs a live replay predicate. Existing
     /// startup-effect backends remain valid and explicitly reject this dependency.
     fn replay_busy(&mut self) -> Result<bool, ReplayWaitError<Self::Error>> {
@@ -161,6 +167,9 @@ impl<E: ScriptEffects, B: ReplayReadBackend> ScriptEffects for ReplayScriptEffec
             .execute(command, control, state, delta)
             .map_err(ReplayScriptError::Effects)
     }
+    fn lookup_world(&mut self) -> Result<&mut dyn LookupWorldBackend, LookupError> {
+        self.effects.lookup_world()
+    }
     fn replay_busy(&mut self) -> Result<bool, ReplayWaitError<Self::Error>> {
         replay_state::is_busy(self.replay, self.owner)
             .map_err(|error| ReplayWaitError::Backend(ReplayScriptError::Replay(error)))
@@ -187,6 +196,7 @@ pub enum ExecutionError<E> {
     Effects(E),
     Replay(ReplayWaitError<E>),
     ReferenceSlots(ReferenceSlotError),
+    Lookup(LookupError),
 }
 
 #[derive(Clone, Debug)]
@@ -200,6 +210,8 @@ enum Operation {
     CommandBlock(bool),
     DimAct(u32),
     DimFrm(u32),
+    FindActor(i32, Vec<u8>),
+    FindFrame(i32, Vec<u8>),
     End,
     Startup(StartupCommand),
     Unsupported(String),
@@ -217,6 +229,8 @@ impl Operation {
             Self::CommandBlock(_) => 34,
             Self::DimAct(_) => 0x0c,
             Self::DimFrm(_) => 0x0b,
+            Self::FindActor(..) => 0x12,
+            Self::FindFrame(..) => 0x0d,
             Self::Startup(StartupCommand::GameNightMission(_)) => 0x51,
             Self::Startup(StartupCommand::UseLightcache) => 0xb4,
             Self::Startup(StartupCommand::PoliceManagerOn { .. }) => 0x87,
@@ -284,6 +298,14 @@ impl Program {
                     "dim_frm" => argument
                         .parse::<u32>()
                         .map_or_else(|_| unsupported(), Operation::DimFrm),
+                    "findactor" => lookup_literal(argument)
+                        .map_or_else(unsupported, |(index, name)| {
+                            Operation::FindActor(index, name)
+                        }),
+                    "findframe" => lookup_literal(argument)
+                        .map_or_else(unsupported, |(index, name)| {
+                            Operation::FindFrame(index, name)
+                        }),
                     "game_nightmission" => argument.parse::<i32>().map_or_else(
                         |_| unsupported(),
                         |v| Operation::Startup(StartupCommand::GameNightMission(v != 0)),
@@ -319,6 +341,26 @@ impl Program {
     }
 }
 
+/// Diagnostic literal intake, independent of the unreconstructed native compiler.
+/// No escapes, expressions, embedded NUL or non-ASCII source names are admitted.
+fn lookup_literal(argument: &str) -> Option<(i32, Vec<u8>)> {
+    let (index, name) = argument.split_once(',')?;
+    let index = index.trim_matches(' ').parse::<i32>().ok()?;
+    let name = name
+        .trim_matches(' ')
+        .strip_prefix('"')?
+        .strip_suffix('"')?;
+    if name.len() > script_lookup::MAX_LOOKUP_NAME
+        || !name.is_ascii()
+        || name
+            .bytes()
+            .any(|b| b == 0 || b == b'"' || b.is_ascii_control())
+    {
+        return None;
+    }
+    Some((index, name.as_bytes().to_vec()))
+}
+
 fn literal_label(argument: &str, maximum: usize) -> bool {
     !argument.is_empty()
         && argument.len() <= maximum
@@ -344,11 +386,15 @@ pub const MAX_REFERENCE_SLOTS: u32 = 65_536;
 /// and lifetime before use; a stored identity does not keep an actor alive.
 /// Identity zero is valid; `None` in a slot represents native null.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct ActorReferenceId(u32);
+pub struct ActorReferenceId(u32, u64);
 impl ActorReferenceId {
-    /// Explicit intake boundary for an identity already owned by the caller.
+    /// Legacy unscoped caller identity. Built-in live world/tree/model backends
+    /// reject it; use the actual owner's ActorLifetime for checked resolution.
     pub const fn from_existing(identity: u32) -> Self {
-        Self(identity)
+        Self(identity, 0)
+    }
+    pub(crate) const fn scoped(identity: u32, incarnation: u64) -> Self {
+        Self(identity, incarnation)
     }
     pub const fn identity(self) -> u32 {
         self.0
@@ -359,10 +405,15 @@ impl ActorReferenceId {
 /// lifetime obligations as `ActorReferenceId`. The two identity types cannot be
 /// interchanged. Identity zero is valid; `None` represents native null.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct FrameReferenceId(u32);
+pub struct FrameReferenceId(u32, u64);
 impl FrameReferenceId {
+    /// Legacy unscoped identity, rejected by built-in live tree/model backends.
+    /// Retaining it in a slot does not grant permission to dereference it.
     pub const fn from_existing(identity: u32) -> Self {
-        Self(identity)
+        Self(identity, 0)
+    }
+    pub(crate) const fn scoped(identity: u32, incarnation: u64) -> Self {
+        Self(identity, incarnation)
     }
     pub const fn identity(self) -> u32 {
         self.0
@@ -650,6 +701,30 @@ impl<E: ScriptEffects> SchedulerBackend for ProgramBackend<'_, E> {
             Operation::DimFrm(count) => {
                 declare_references(&mut self.control.frame_references, *count)
                     .map_err(ExecutionError::ReferenceSlots)?;
+                self.control.advance(state);
+            }
+            Operation::FindActor(index, name) => {
+                let world = self
+                    .effects
+                    .lookup_world()
+                    .map_err(ExecutionError::Lookup)?;
+                script_lookup::find_actor(self.control, world, *index, name)
+                    .map_err(ExecutionError::Lookup)?;
+                self.control.advance(state);
+            }
+            Operation::FindFrame(index, name) => {
+                // The native guard runs before any owner/scene/world read.
+                if *index < 0 {
+                    return Err(ExecutionError::Lookup(LookupError::NegativeIndex(*index)));
+                }
+                if (*index as usize) < self.control.frame_references.len() {
+                    let world = self
+                        .effects
+                        .lookup_world()
+                        .map_err(ExecutionError::Lookup)?;
+                    script_lookup::find_frame(self.control, world, *index, name)
+                        .map_err(ExecutionError::Lookup)?;
+                }
                 self.control.advance(state);
             }
             Operation::End => {
@@ -1165,7 +1240,7 @@ mod reference_slot_tests {
     }
 
     #[test]
-    fn literal_intake_rejects_unreconstructed_parameters_and_lookup_stops_after_declarations() {
+    fn literal_intake_rejects_unreconstructed_parameters_and_lookup_requires_world() {
         let mut effects = Effects;
         let mut control = ControlState::new(0, 0x3f).unwrap();
         for source in [
@@ -1206,12 +1281,9 @@ mod reference_slot_tests {
         let mut budget = DispatchBudget::new(8).unwrap();
         assert_eq!(
             run_scheduler(&mut state, &mut backend, 5, &mut budget),
-            Err(SchedulerError::Backend(
-                ExecutionError::UnsupportedCommand {
-                    line: 4,
-                    command: "findactor".into(),
-                }
-            ))
+            Err(SchedulerError::Backend(ExecutionError::Lookup(
+                LookupError::UnsupportedWorldBackend
+            )))
         );
         assert_eq!(state.program_counter, 3);
         assert_eq!(control.actor_references(), &[None; 2]);
@@ -1501,5 +1573,50 @@ mod replay_tests {
                 command: "recwaitforend".into()
             })
         );
+    }
+}
+
+#[cfg(test)]
+mod lookup_guard_tests {
+    use super::*;
+    struct NoWorld;
+    impl ScriptEffects for NoWorld {
+        type Error = ();
+        fn execute(
+            &mut self,
+            _: StartupCommand,
+            _: &mut ControlState,
+            _: &mut ResetState,
+            _: i32,
+        ) -> Result<(), ()> {
+            panic!("unexpected effect")
+        }
+    }
+    #[test]
+    fn frame_upper_guard_does_not_require_a_world() {
+        let mut c = ControlState::new(0, 0x3f).unwrap();
+        let mut effects = NoWorld;
+        let p = Program::from_source("findframe 0,\"example\"\nfindframe -1,\"example\"").unwrap();
+        let mut state = ResetState {
+            program_counter: 0,
+            short_stack_begin: 0,
+            short_stack_end: 0,
+            field_44: 0,
+            continuation: 1,
+        };
+        let mut b = ProgramBackend {
+            program: &p,
+            control: &mut c,
+            effects: &mut effects,
+        };
+        b.dispatch(&mut state, 3).unwrap();
+        assert_eq!(state.program_counter, 1);
+        assert_eq!(b.control.elapsed, 0);
+        assert_eq!(
+            b.dispatch(&mut state, 3),
+            Err(ExecutionError::Lookup(LookupError::NegativeIndex(-1)))
+        );
+        assert_eq!(state.program_counter, 1);
+        assert_eq!(b.control.elapsed, 3);
     }
 }

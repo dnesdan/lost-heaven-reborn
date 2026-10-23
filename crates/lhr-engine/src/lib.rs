@@ -12,6 +12,7 @@ pub mod clock;
 pub mod driver_state;
 pub mod frame_delta;
 pub mod frame_dispatch;
+pub mod frame_lookup;
 pub mod frame_transform;
 pub mod i3d_object;
 pub mod interpolator;
@@ -32,6 +33,7 @@ pub mod replay_state;
 pub mod rotation_animation;
 pub mod runtime;
 pub mod scene_tick;
+pub mod script_lookup;
 pub mod script_scheduler;
 pub mod selected_loop;
 pub mod singlemesh_binding;
@@ -51,10 +53,10 @@ pub mod visual_resources;
 /// Original engine-library namespace, without moving existing modules or
 /// claiming an additional DLL/Cargo package or a complete LS3DF reconstruction.
 pub mod ls3df {
-    pub use crate::{c_str, i3d_object, itexture, texture_manager};
+    pub use crate::{c_str, frame_lookup, i3d_object, itexture, texture_manager};
 }
 
 /// Original game executable boundary; replay helper names remain descriptive.
 pub mod game {
-    pub use crate::{replay_state, script_scheduler};
+    pub use crate::{replay_state, script_lookup, script_scheduler};
 }

@@ -100,8 +100,15 @@ pub struct ModelArena {
     frames: Vec<LoadedFrame>,
     models: Vec<LoadedModel>,
     destruction_depth: usize,
+    lookup_owner: crate::frame_lookup::FrameLookupOwner,
 }
 impl ModelArena {
+    pub(crate) fn lookup_reference(
+        &self,
+        key: FrameKey,
+    ) -> crate::script_scheduler::FrameReferenceId {
+        self.lookup_owner.reference(key.0)
+    }
     fn insert(
         &mut self,
         state: I3dFrameState,
@@ -1516,5 +1523,62 @@ mod tests {
         );
         assert!(failure.partial.source_frame_keys().is_empty());
         assert!(!failure.partial.is_complete());
+    }
+
+    #[test]
+    fn lookup_borrows_owned_link_order_and_rejects_deleted_or_foreign_frames() {
+        use crate::frame_lookup::{
+            self, FrameLookupBackend, FrameLookupError, ModelFrameLookup, SCRIPT_FIND_FLAGS,
+        };
+        let source = Arc::new(Model {
+            materials: vec![],
+            frames: vec![frame(6, None, [0.; 3]), frame(6, None, [0.; 3])],
+        });
+        let mut loaded = MaterializedModel::from_parsed(source.clone()).unwrap();
+        let keys = loaded.source_frame_keys().to_vec();
+        let root = loaded.root();
+        let (root_ref, child_ref) = {
+            let lookup = ModelFrameLookup::borrow(loaded.arena(), true);
+            let root_ref = lookup.reference(root).unwrap();
+            let first = lookup.reference(keys[0]).unwrap();
+            let last = lookup.reference(keys[1]).unwrap();
+            // LinkTo prepends: actual child order differs from source file order.
+            assert_eq!(lookup.frame(root_ref).unwrap().child, Some(last));
+            assert_eq!(
+                frame_lookup::get_child_frame(&lookup, root_ref, b"FIXTURE", SCRIPT_FIND_FLAGS, 3),
+                Ok(Some(last))
+            );
+            assert_eq!(
+                frame_lookup::get_child_frame(&lookup, first, b"fixture", SCRIPT_FIND_FLAGS, 1),
+                Ok(Some(first))
+            );
+            assert_eq!(
+                frame_lookup::get_child_frame(&lookup, root_ref, b"", SCRIPT_FIND_FLAGS, 3),
+                Err(FrameLookupError::UnsupportedName)
+            );
+            assert_eq!(loaded.arena().frame(keys[1]).unwrap().references, 1);
+            (root_ref, last)
+        };
+        let other = MaterializedModel::from_parsed(source).unwrap();
+        let foreign = ModelFrameLookup::borrow(other.arena(), true);
+        assert_eq!(
+            foreign.frame(child_ref).unwrap_err(),
+            FrameLookupError::StaleFrame(child_ref)
+        );
+        loaded.close().unwrap();
+        let lookup = ModelFrameLookup::borrow(loaded.arena(), true);
+        assert_eq!(
+            lookup.frame(child_ref).unwrap_err(),
+            FrameLookupError::StaleFrame(child_ref)
+        );
+        assert_eq!(
+            frame_lookup::get_child_frame(&lookup, root_ref, b"fixture", SCRIPT_FIND_FLAGS, 3),
+            Ok(None)
+        );
+        assert_eq!(
+            lookup.reference(keys[1]),
+            Err(FrameLookupError::StaleFrame(child_ref))
+        );
+        assert_eq!(loaded.arena().frame(root).unwrap().references, 1);
     }
 }
