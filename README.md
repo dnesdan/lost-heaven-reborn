@@ -1,7 +1,7 @@
 # Lost Heaven Reborn
 
 <!-- generated-function-progress:start -->
-As of 2026-10-23 · snapshot `RUST-SCOPED-PORTS-20261023-27`.
+As of 2026-10-23 · snapshot `RUST-SCOPED-PORTS-20261023-28`.
 
 <p align="center"><img src="docs/progress.svg" alt="Progress dashboard: static retained pseudocode, reviewed scoped Rust entries, and strict system verification" width="100%"></p>
 
@@ -14,7 +14,7 @@ As of 2026-10-23 · snapshot `RUST-SCOPED-PORTS-20261023-27`.
 
 Strict full-system gate: **0/12**. Binary-level static counts use the named denominator basis and do not combine into a game-completion percentage. Unknown denominators remain N/A. 1 supplied configuration Setup inventory uses 172 in-image non-thunk procedures. Separately, archive installer bootstrap static inventory: **376 / 376 (100.00%)**; this distribution target is not combined with engine-library counts. The campaign is not playable.
 
-Accepted scoped Rust ports: **168 entries across 57 reviewed contracts**. These remain separate from retained pseudocode and whole-function counts.
+Accepted scoped Rust ports: **176 entries across 58 reviewed contracts**. These remain separate from retained pseudocode and whole-function counts.
 
 Regenerate locally with `python3 scripts/progress.py --write`; verify without writes with `python3 scripts/progress.py --check`. Versioned snapshots are retained in `docs/progress.json`.
 Milestone history and scoped implementation evidence are in [docs/PROGRESS.md](docs/PROGRESS.md).
@@ -32,7 +32,7 @@ Ownership code uses `lhr_engine::ls3df::{c_str, itexture, i3d_object, texture_ma
 
 The immediate goal is **the playable first mission, from the original menu through mission completion**, alongside function-by-function library parity with mafia-re. See the [acceptance gates and dependency order](docs/GOALS.md). PS2 symbol names guide reconstruction; PC behavior and platform differences require original-binary verification.
 
-At `76d02a1`, bounded archive dtaRead now compares 68 original-code READ observations (60 nonfailure, eight failure) and 32 SEEK context rows under Wine10/QEMU. Raw and RLE blocks, plain/encrypted, match full destination bytes including sentinels in debug/release, counted once; no hidden Seek observer is inserted. Shared handles, forward/backward block navigation, exact boundaries, EOF, truncation and retry are exercised. Native registration/Open supplies fixture context only. Scoped credit remains 168 entries / 57 contracts; this extends existing RVA 0x25c0 with zero new entries or contracts. Tests use synthetic archives. Native LZ covers repeat/fill tokens only; WAV, Rust native Open/Write, full DLL parity and application/GPU integration remain open.
+At `6439ee2`, bounded native archive registration, unlock, Open and reference lifetime compose with existing Read/Seek/Close: **176 scoped entries / 58 contracts**. Stored synthetic fixtures match 24 native Open calls within 81 log rows and 976 complete-array bytes in debug/release, counted once. Separately, 21 scripted effect cases check Rust ordering; eight installed assets from four archives match 216,799 bytes against the existing Rust Archive loader, not original runtime. The retained archive-read evidence remains 68 READ observations and 32 SEEK context rows. Scope is serialized, bounded ASCII and non-WAV; timestamp metadata is unmodeled, native leaks are abstract effects, and short index reads stop explicitly. Native Write, full DLL parity, application/GPU integration and mission execution remain open. Next: WAV, then application adapters.
 
 | Czech PC menu in Rust | MISE01 static inspection in Rust |
 | --- | --- |
