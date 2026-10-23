@@ -1,7 +1,7 @@
 # Lost Heaven Reborn
 
 <!-- generated-function-progress:start -->
-As of 2026-10-23 · snapshot `RUST-SCOPED-PORTS-20261023-28`.
+As of 2026-10-23 · snapshot `RUST-SCOPED-PORTS-20261023-29`.
 
 <p align="center"><img src="docs/progress.svg" alt="Progress dashboard: static retained pseudocode, reviewed scoped Rust entries, and strict system verification" width="100%"></p>
 
@@ -14,7 +14,7 @@ As of 2026-10-23 · snapshot `RUST-SCOPED-PORTS-20261023-28`.
 
 Strict full-system gate: **0/12**. Binary-level static counts use the named denominator basis and do not combine into a game-completion percentage. Unknown denominators remain N/A. 1 supplied configuration Setup inventory uses 172 in-image non-thunk procedures. Separately, archive installer bootstrap static inventory: **376 / 376 (100.00%)**; this distribution target is not combined with engine-library counts. The campaign is not playable.
 
-Accepted scoped Rust ports: **176 entries across 58 reviewed contracts**. These remain separate from retained pseudocode and whole-function counts.
+Accepted scoped Rust ports: **177 entries across 59 reviewed contracts**. These remain separate from retained pseudocode and whole-function counts.
 
 Regenerate locally with `python3 scripts/progress.py --write`; verify without writes with `python3 scripts/progress.py --check`. Versioned snapshots are retained in `docs/progress.json`.
 Milestone history and scoped implementation evidence are in [docs/PROGRESS.md](docs/PROGRESS.md).
@@ -30,7 +30,7 @@ Supplied binary catalog (file identities; independent measures):
 | Setup.exe (supplied configuration) | PC | Installed game | Installed game configuration utility | 172 / 172 (100.00%) | 5 |
 | binkw32.dll | PC | Installed game | Bink video codec boundary | N/A | 0 |
 | ogg.dll | PC | Installed game | Ogg container library boundary | N/A | 0 |
-| rw_data.dll | PC | Installed game | Game archive and data access library | 176 / 234 (75.21%) | 11 |
+| rw_data.dll | PC | Installed game | Game archive and data access library | 176 / 234 (75.21%) | 12 |
 | vorbis.dll | PC | Installed game | Vorbis codec library boundary | N/A | 0 |
 | vorbisfile.dll | PC | Installed game | Vorbis stream and file library boundary | N/A | 0 |
 | Setup.exe (archive installer bootstrap) | PC | Distribution archive | Distribution installer bootstrap | 376 / 376 (100.00%) | 0 |
@@ -63,7 +63,7 @@ Ownership code uses `lhr_engine::ls3df::{c_str, itexture, i3d_object, texture_ma
 
 The immediate goal is **the playable first mission, from the original menu through mission completion**, alongside function-by-function library parity with mafia-re. See the [acceptance gates and dependency order](docs/GOALS.md). PS2 symbol names guide reconstruction; PC behavior and platform differences require original-binary verification.
 
-At `6439ee2`, bounded native archive registration, unlock, Open and reference lifetime compose with existing Read/Seek/Close: **176 scoped entries / 58 contracts**. Stored synthetic fixtures match 24 native Open calls within 81 log rows and 976 complete-array bytes in debug/release, counted once. Separately, 21 scripted effect cases check Rust ordering; eight installed assets from four archives match 216,799 bytes against the existing Rust Archive loader, not original runtime. The retained archive-read evidence remains 68 READ observations and 32 SEEK context rows. Scope is serialized, bounded ASCII and non-WAV; timestamp metadata is unmodeled, native leaks are abstract effects, and short index reads stop explicitly. Native Write, full DLL parity, application/GPU integration and mission execution remain open. Next: WAV, then application adapters.
+At `f89f542`, bounded PCM16 mono/stereo WAV archive decoding composes with Open/Read/Seek/Close: **177 scoped entries / 59 contracts**. Native comparisons cover 202 Read observations (172 nonfailure, 30 released-handle failures) across 26 archive fixtures plus four supplemental trajectories reusing four fixtures, with 66 explicit Seek context rows. The 510 normalized log rows and 7,280,960 complete-buffer bytes include guards and unrequested regions; debug/release count once. Separately, 128 logical decoder vectors and 18 scripted effects plus four direct-buffer effects check Rust behavior, without native failure injection. Eight fresh REA results support the codec; identical PC/PS2 table constants and PS2 linker names add no PS2 runtime claim. Scope is bounded 16-bit mono/stereo; generic non16 LZ, other channels, Write and full DLL parity remain open. Application/audio playback and first-mission integration remain open; no new rendered or interactive validation.
 
 | Czech PC menu in Rust | MISE01 static inspection in Rust |
 | --- | --- |
@@ -117,6 +117,6 @@ The `sipka1` command without a sample time retains the earlier single-root posit
 
 ## Reverse engineering and assets
 
-REA with Ghidra is the required analysis path for engine behavior. Evidenced original function/type names are preserved, with Rust naming conventions; descriptive working names remain explicitly distinct from recovered symbols. Keep original executables, installations, extracted or converted assets, analysis databases, decompiler output, credentials and private URLs outside Git. Public tests use synthetic fixtures. The reader supports selected PC DTA archives and bounded model, scene, menu and script-data formats; archive audio and checksum verification remain unsupported. Full city simulation, mission execution and campaign play are not implemented. Use a trusted, stable installation tree. PS2 material is used for research and comparison.
+REA with Ghidra is the required analysis path for engine behavior. Evidenced original function/type names are preserved, with Rust naming conventions; descriptive working names remain explicitly distinct from recovered symbols. Keep original executables, installations, extracted or converted assets, analysis databases, decompiler output, credentials and private URLs outside Git. Public tests use synthetic fixtures. The reader supports selected PC DTA archives and bounded model, scene, menu and script-data formats; archive audio playback and checksum verification remain unsupported. Full city simulation, mission execution and campaign play are not implemented. Use a trusted, stable installation tree. PS2 material is used for research and comparison.
 
 Project code is MIT licensed. Game assets and trademarks belong to their respective owners. See [third-party notices](THIRD_PARTY_NOTICES.md), the [mafia-re/MafiaUnity reference audit and PS2 symbol crosscheck](docs/REFERENCE_PROJECTS.md), and the [asset inventory and optional graphics assessment](docs/ASSET_ENHANCEMENT.md).
