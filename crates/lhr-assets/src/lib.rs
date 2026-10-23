@@ -8,6 +8,7 @@ mod cache;
 pub use cache::{CacheObject, CachePart, CityCache, parse_city_cache};
 mod dta;
 mod menu;
+pub mod rw_data;
 mod scene;
 pub mod script;
 pub mod script_vm;

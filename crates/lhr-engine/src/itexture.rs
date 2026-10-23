@@ -1607,6 +1607,7 @@ mod tests {
         worker_fail: Option<ManagedStage>,
         worker_events: Vec<ManagedStage>,
         worker_data: Vec<u8>,
+        worker_snapshots: lhr_assets::rw_data::ReadHandles,
         worker_creates: Vec<ManagedTextureCreate>,
         section_held: bool,
         fail_enter: bool,
@@ -2117,7 +2118,13 @@ mod tests {
             assert!(self.managed_files.contains_key(&f.0));
             assert_eq!(mode, 0);
             self.worker_event(ManagedStage::OpenFile)?;
-            Ok(Some(ManagedFile(0)))
+            // Host byte snapshot: 22-byte prefix and a short three-byte payload.
+            // This is deliberately not a native dtaOpen/dtaRead implementation.
+            let mut bytes = vec![0xcc; 22];
+            bytes.extend_from_slice(&[1, 2, 3]);
+            let handle = self.worker_snapshots.insert_snapshot(bytes).unwrap();
+            assert_eq!(handle, 0);
+            Ok(Some(ManagedFile(u64::from(handle))))
         }
         fn seek_managed_file(
             &mut self,
@@ -2126,7 +2133,14 @@ mod tests {
             origin: u32,
         ) -> Result<(), Self::Error> {
             assert_eq!((f, o, origin), (ManagedFile(0), 22, 1));
-            self.worker_event(ManagedStage::SeekFile)
+            self.worker_event(ManagedStage::SeekFile)?;
+            assert_eq!(
+                self.worker_snapshots
+                    .dta_seek(f.0 as u32, o, origin)
+                    .unwrap(),
+                22
+            );
+            Ok(())
         }
         fn read_managed_file(
             &mut self,
@@ -2137,12 +2151,19 @@ mod tests {
             assert_eq!(f, ManagedFile(0));
             assert_eq!(m.mapping, 1);
             assert_eq!(n, 64);
-            self.worker_data[..3].copy_from_slice(&[1, 2, 3]);
+            assert_eq!(
+                self.worker_snapshots
+                    .read_snapshot(f.0 as u32, &mut self.worker_data[..n as usize])
+                    .unwrap(),
+                3
+            );
             self.worker_event(ManagedStage::ReadFile)
         }
         fn close_managed_file(&mut self, f: ManagedFile) -> Result<(), Self::Error> {
             assert_eq!(f, ManagedFile(0));
-            self.worker_event(ManagedStage::CloseFile)
+            self.worker_event(ManagedStage::CloseFile)?;
+            assert!(self.worker_snapshots.release_snapshot(f.0 as u32).unwrap());
+            Ok(())
         }
         fn unlock_managed_surface(&mut self, _: TextureSurface) -> Result<(), Self::Error> {
             self.worker_event(ManagedStage::UnlockSurface)
