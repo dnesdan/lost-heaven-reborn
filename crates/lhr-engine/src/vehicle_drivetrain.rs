@@ -11,8 +11,21 @@
 pub enum VehicleDrivetrainUnavailable {
     Storage(u32),
     NumericDomain,
-    /// The original external shift routine must run before the remaining stores.
+    /// The original gear sound routine must run before the remaining stores.
     ShiftCallback,
+}
+
+/// Failure in arithmetic/storage or in the supplied original sound effect.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VehicleMotorRotUnavailable<E> {
+    Drivetrain(VehicleDrivetrainUnavailable),
+    Effect(E),
+}
+
+impl<E> From<VehicleDrivetrainUnavailable> for VehicleMotorRotUnavailable<E> {
+    fn from(value: VehicleDrivetrainUnavailable) -> Self {
+        Self::Drivetrain(value)
+    }
 }
 
 type Result<T> = std::result::Result<T, VehicleDrivetrainUnavailable>;
@@ -64,6 +77,9 @@ impl VehicleDrivetrainState {
     }
     pub fn as_bytes(&self) -> &[u8] {
         &self.bytes
+    }
+    pub(crate) fn as_bytes_mut(&mut self) -> &mut [u8] {
+        &mut self.bytes
     }
     pub fn into_bytes(self) -> Vec<u8> {
         self.bytes
@@ -230,6 +246,25 @@ impl VehicleDrivetrainState {
     /// retained unchanged when no synchronization branch writes it. The native
     /// PC entry consumes two floats; PS2's three-float symbol is platform-specific.
     pub fn motor_rot(&mut self, dt: f32, force: f32, direction: &mut u8) -> Result<()> {
+        self.motor_rot_with_shift_effect(dt, force, direction, |_, _| {
+            Err(VehicleDrivetrainUnavailable::ShiftCallback)
+        })
+        .map_err(|error| match error {
+            VehicleMotorRotUnavailable::Drivetrain(error)
+            | VehicleMotorRotUnavailable::Effect(error) => error,
+        })
+    }
+
+    /// Runs the external effect at the original clutch transition. The effect
+    /// observes the reached writes and may mutate storage and the shared byte;
+    /// the pending gear is read only after it returns successfully.
+    pub fn motor_rot_with_shift_effect<E>(
+        &mut self,
+        dt: f32,
+        force: f32,
+        direction: &mut u8,
+        mut effect: impl FnMut(&mut Self, &mut u8) -> std::result::Result<(), E>,
+    ) -> std::result::Result<(), VehicleMotorRotUnavailable<E>> {
         let limit = mul(self.float(0x5d0)?, self.float(0x44)?)?;
         let gear = self.word(0x55c)?;
         let limit = mul(limit, self.float(0x5dc)?)?;
@@ -301,7 +336,7 @@ impl VehicleDrivetrainState {
                 self.store(0x5dc, 0)?;
                 self.store(0x5e8, (flags & !2) | 1)?;
                 if callback {
-                    return Err(VehicleDrivetrainUnavailable::ShiftCallback);
+                    effect(self, direction).map_err(VehicleMotorRotUnavailable::Effect)?;
                 }
                 self.store(0x55c, self.word(0x560)?)?;
             }

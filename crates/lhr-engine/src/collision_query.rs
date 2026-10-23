@@ -77,6 +77,51 @@ pub enum CollisionQueryError {
     NumericDomain,
     UnsupportedDynamicQuery,
     Triangle(QueryError),
+    Volume(crate::collision_volumes::VolumeError),
+    Preparation(crate::collision_prepare::CollisionPreparationError),
+}
+
+/// Shared host view of the original grid fields. This is not a native interface.
+#[derive(Clone, Copy)]
+pub(crate) struct StaticGridGeometry {
+    pub origin_xz: [f32; 2],
+    pub cell_size_xz: [f32; 2],
+    pub width: u32,
+    pub height: u32,
+    pub dynamic_candidates_present: bool,
+}
+
+pub(crate) trait StaticQueryGrid {
+    fn geometry(&self) -> StaticGridGeometry;
+    fn cell_count(&self) -> usize;
+    fn cell(&self, index: usize) -> (f32, u32);
+    fn query_cell(&self, index: usize, query: &mut LineQuery) -> Result<(), CollisionQueryError>;
+}
+
+impl StaticQueryGrid for CollisionQueryGrid<'_> {
+    fn geometry(&self) -> StaticGridGeometry {
+        StaticGridGeometry {
+            origin_xz: self.origin_xz,
+            cell_size_xz: self.cell_size_xz,
+            width: self.width,
+            height: self.height,
+            dynamic_candidates_present: self.dynamic_candidates_present,
+        }
+    }
+
+    fn cell_count(&self) -> usize {
+        self.cells.len()
+    }
+
+    fn cell(&self, index: usize) -> (f32, u32) {
+        (self.cells[index].max_y, self.cells[index].identity)
+    }
+
+    fn query_cell(&self, index: usize, query: &mut LineQuery) -> Result<(), CollisionQueryError> {
+        line_in_tree_level_triangles(self.cells[index].triangles, query)
+            .map(|_| ())
+            .map_err(CollisionQueryError::Triangle)
+    }
 }
 
 fn number(value: f32) -> Result<f32, CollisionQueryError> {
@@ -153,22 +198,38 @@ pub fn test_line_v(
     outputs: &mut CollisionLineOutputs,
     traversal: &mut CollisionTraversalState,
 ) -> Result<Option<CollisionLineHit>, CollisionQueryError> {
+    test_line_v_grid(
+        grid.map(|grid| grid as &dyn StaticQueryGrid),
+        request,
+        outputs,
+        traversal,
+    )
+}
+
+pub(crate) fn test_line_v_grid(
+    grid: Option<&dyn StaticQueryGrid>,
+    request: &CollisionLineRequest,
+    outputs: &mut CollisionLineOutputs,
+    traversal: &mut CollisionTraversalState,
+) -> Result<Option<CollisionLineHit>, CollisionQueryError> {
     let Some(grid) = grid else {
         return Ok(None);
     };
+    let geometry = grid.geometry();
     for value in request
         .origin
         .into_iter()
         .chain(request.delta)
-        .chain(grid.origin_xz)
-        .chain(grid.cell_size_xz)
+        .chain(geometry.origin_xz)
+        .chain(geometry.cell_size_xz)
     {
         number(value)?;
     }
-    if grid.width > i32::MAX as u32
-        || grid.height > i32::MAX as u32
-        || grid.cell_size_xz.iter().any(|&size| size <= 0.0)
-        || (grid.width as usize).checked_mul(grid.height as usize) != Some(grid.cells.len())
+    if geometry.width > i32::MAX as u32
+        || geometry.height > i32::MAX as u32
+        || geometry.cell_size_xz.iter().any(|&size| size <= 0.0)
+        || (geometry.width as usize).checked_mul(geometry.height as usize)
+            != Some(grid.cell_count())
     {
         return Err(CollisionQueryError::InvalidGrid);
     }
@@ -208,19 +269,20 @@ pub fn test_line_v(
     // This value is initialized even when no normal output was requested.
     let [dx, dy, dz] = request.delta;
     number(add(add(mul(dz, dz)?, mul(dy, dy)?)?, mul(dx, dx)?)?)?;
-    if request.selector != -1 && grid.dynamic_candidates_present {
+    if request.selector != -1 && geometry.dynamic_candidates_present {
         return Err(CollisionQueryError::UnsupportedDynamicQuery);
     }
     let mut start = [0; 2];
     let mut stop = [0; 2];
     for axis in 0..2 {
-        let inverse = reciprocal(grid.cell_size_xz[axis])?;
-        start[axis] = grid_integer(mul(sub(min_xz[axis], grid.origin_xz[axis])?, inverse)?)?.max(0);
+        let inverse = reciprocal(geometry.cell_size_xz[axis])?;
+        start[axis] =
+            grid_integer(mul(sub(min_xz[axis], geometry.origin_xz[axis])?, inverse)?)?.max(0);
         stop[axis] = grid_integer(add(
-            mul(sub(max_xz[axis], grid.origin_xz[axis])?, inverse)?,
+            mul(sub(max_xz[axis], geometry.origin_xz[axis])?, inverse)?,
             1.0,
         )?)?
-        .min([grid.width, grid.height][axis] as i32);
+        .min([geometry.width, geometry.height][axis] as i32);
     }
     let mut query = LineQuery {
         origin: request.origin,
@@ -235,13 +297,13 @@ pub fn test_line_v(
     let mut next_traversal = *traversal;
     for z in start[1]..stop[1] {
         for x in start[0]..stop[0] {
-            let cell = &grid.cells[z as usize * grid.width as usize + x as usize];
-            if number(cell.max_y)? >= min_y {
-                line_in_tree_level_triangles(cell.triangles, &mut query)
-                    .map_err(CollisionQueryError::Triangle)?;
+            let index = z as usize * geometry.width as usize + x as usize;
+            let (max_y, identity) = grid.cell(index);
+            if number(max_y)? >= min_y {
+                grid.query_cell(index, &mut query)?;
             }
             next_traversal.last_cell = Some(CollisionCellVisit {
-                identity: cell.identity,
+                identity,
                 x: x as u32,
                 z: z as u32,
             });

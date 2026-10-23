@@ -4,6 +4,10 @@
 //! Addresses are inert 32-bit identities. The backend owns external storage,
 //! references and allocation effects; dropping this projection releases none.
 
+#[path = "vehicle_components.rs"]
+mod components;
+pub use components::*;
+
 /// Original frame enumeration requests in this initialization prefix.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum VehicleInitQuery {
@@ -164,6 +168,9 @@ pub struct VehicleInitState {
     started: bool,
     scratch: Option<VehicleInitFrameVector>,
     head: u32,
+    continuation: Option<VehicleInitFrontier>,
+    name_length: u32,
+    component_scratch: Option<VehicleInitFrameVector>,
 }
 
 impl VehicleInitState {
@@ -173,6 +180,9 @@ impl VehicleInitState {
             started: false,
             scratch: None,
             head: 0,
+            continuation: None,
+            name_length: 0,
+            component_scratch: None,
         }
     }
 
@@ -218,19 +228,25 @@ impl VehicleInitState {
         Ok(if pointer == 0 { 0x0063_d2a0 } else { pointer })
     }
 
+    fn frontier(&mut self, frontier: VehicleInitFrontier) -> VehicleInitOutcome {
+        self.continuation = Some(frontier);
+        VehicleInitOutcome::UnavailableFrontier(frontier)
+    }
+
     /// Executes only the evidenced attachment and discovery prefix.
     ///
     /// Rejections preserve the original retained model reference and allocated
     /// name. A frontier retains any native scratch vector without freeing it;
-    /// later native transforms, BODYCOL, parameters, wheels and cleanup remain
-    /// unavailable. Do not use a stopped projection as a complete vehicle or
-    /// retry Init over it. No native faults or exception unwinding are modeled.
+    /// this method does not execute later transforms, BODYCOL, parameters,
+    /// wheels or cleanup. `continue_components` consumes a retained genuine
+    /// frontier through its separately required dependencies. Do not use a
+    /// stopped projection as a complete vehicle or retry Init over it. No native faults or exception unwinding are modeled.
     pub fn init_prefix<B: VehicleInitBackend>(
         &mut self,
         backend: &mut B,
         model: u32,
     ) -> Result<VehicleInitOutcome, VehicleInitUnavailable<B::Error>> {
-        use VehicleInitOutcome::{Rejected, UnavailableFrontier};
+        use VehicleInitOutcome::Rejected;
         use VehicleInitUnavailable::Effect;
         if self.started {
             return Err(VehicleInitUnavailable::AlreadyStarted);
@@ -315,7 +331,7 @@ impl VehicleInitState {
         if vector.begin != 0 {
             let count = (vector.end.wrapping_sub(vector.begin) as i32) >> 2;
             if count != 0 {
-                return Ok(UnavailableFrontier(VehicleInitFrontier::ExhaustTransform {
+                return Ok(self.frontier(VehicleInitFrontier::ExhaustTransform {
                     index: (count as u32).wrapping_sub(1),
                 }));
             }
@@ -332,9 +348,7 @@ impl VehicleInitState {
         )?;
         let vector = self.scratch.unwrap();
         if vector.begin != 0 && ((vector.end.wrapping_sub(vector.begin) as i32) >> 2) as u32 != 0 {
-            return Ok(UnavailableFrontier(
-                VehicleInitFrontier::SpecialCollisionTransform,
-            ));
+            return Ok(self.frontier(VehicleInitFrontier::SpecialCollisionTransform));
         }
         self.head = 0;
         let attached = self.load::<B::Error>(0x34c)?;
@@ -346,7 +360,7 @@ impl VehicleInitState {
             },
         )?;
         if self.head != 0 {
-            return Ok(UnavailableFrontier(VehicleInitFrontier::HeadTransform));
+            return Ok(self.frontier(VehicleInitFrontier::HeadTransform));
         }
         self.store(0x2d4, 0)?;
         self.store(0x2d8, 0)?;
@@ -362,9 +376,8 @@ impl VehicleInitState {
                 break;
             }
         }
-        Ok(UnavailableFrontier(
-            VehicleInitFrontier::BodyCollisionEnumeration,
-        ))
+        self.name_length = !remaining;
+        Ok(self.frontier(VehicleInitFrontier::BodyCollisionEnumeration))
     }
 }
 
