@@ -29,6 +29,7 @@ pub mod named_script;
 pub mod native_matrix;
 pub mod native_transform;
 pub mod original_config;
+pub mod original_program;
 pub mod player_control;
 pub mod police_state;
 pub mod replay_state;
@@ -60,5 +61,5 @@ pub mod ls3df {
 
 /// Original game executable boundary; replay helper names remain descriptive.
 pub mod game {
-    pub use crate::{actor_world, replay_state, script_lookup, script_scheduler};
+    pub use crate::{actor_world, original_program, replay_state, script_lookup, script_scheduler};
 }

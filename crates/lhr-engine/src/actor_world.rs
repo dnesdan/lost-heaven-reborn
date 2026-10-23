@@ -1,16 +1,21 @@
 //! Owned base actors and their distinct Game source collections.
 //!
-//! This is the base C_actor construction/Init/destruction slice, not derived
-//! actor payload loading, a mission loader, or an LS3DF scene constructor.
+//! Base C_actor construction/Init/destruction and source-only C_detector own
+//! their actual embedded program lifetime. This is not detector GameInit,
+//! compiled instruction execution, a mission loader or an LS3DF scene constructor.
 //! Names C_actor, AddActorToGlobal and C_mission::UnloadActor are corroborated
 //! by original PS2 symbols; field names below remain descriptive PC projections.
 //! Native allocation is an explicit dependency, separate from Rust storage.
 //! Host work/storage bounds allow 65,536 total constructed incarnations (dead
 //! tombstones remain inspectable) and 65,536 entries per source. These are host
 //! admission limits, not native actor limits. Unsupported native allocator
-//! exceptions, allocator callback reentry into collection mutation, derived virtuals and
+//! exceptions, allocator callback reentry into collection mutation, other derived virtuals and
 //! nonzero manager cleanup flags have no implicit successful implementation.
 use crate::frame_lookup::{FrameLookupBackend, SceneRoots};
+use crate::original_program::{
+    CProgram, OwnerFrameName, ProgramBackend, ProgramContext, ProgramError, ProgramReader,
+    ProgramReplacement, ProgramSeed,
+};
 use crate::script_lookup::{ActorLifetime, LookupError, LookupWorldBackend, MAX_ACTOR_SOURCES};
 use crate::script_scheduler::{ActorReferenceId, FrameReferenceId};
 
@@ -75,10 +80,11 @@ impl BaseActorState {
         }
     }
 }
-/// Opaque tags cannot supply derived behavior; only Base is constructed here.
+/// Evidenced primary vtable identities; opaque tags supply no derived behavior.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ActorVtable {
     Base,
+    Detector,
     Opaque(u32),
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -87,6 +93,8 @@ pub enum ActorPhase {
     Ready,
     Initializing,
     InitializationInterrupted,
+    Loading,
+    LoadingInterrupted,
     Destroying,
     DestructionInterrupted,
     Dead,
@@ -96,6 +104,69 @@ struct OwnedActor {
     lifetime: ActorLifetime,
     state: BaseActorState,
     phase: ActorPhase,
+    detector: Option<DetectorState>,
+}
+/// Untouched native detector storage, including the embedded program seed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DetectorSeed {
+    pub program: ProgramSeed,
+    pub bytes_d8_ef: [u8; 24],
+    pub word_f4: u32,
+    pub bytes_105_107: [u8; 3],
+    pub bytes_118_127: [u8; 16],
+}
+/// Actual source-only C_detector storage owned by the same actor incarnation.
+/// The optional program is taken only during a serialized payload operation;
+/// actor phase prevents same-actor reentry while context reads the live owner.
+#[derive(Debug)]
+pub struct DetectorState {
+    program: Option<CProgram>,
+    pub bytes_d8_ef: [u8; 24],
+    pub word_f0: u32,
+    pub word_f4: u32,
+    pub words_f8_100: [u32; 3],
+    pub byte_104: u8,
+    pub bytes_105_107: [u8; 3],
+    pub words_108_114: [u32; 4],
+    pub bytes_118_127: [u8; 16],
+}
+impl DetectorState {
+    pub fn program(&self) -> Option<&CProgram> {
+        self.program.as_ref()
+    }
+    pub fn data_d8(&self) -> u32 {
+        u32::from_le_bytes(self.bytes_d8_ef[..4].try_into().unwrap())
+    }
+}
+/// Read actual current actor attachment and frame full name at the replacement
+/// comparison point. Mission path comes from the caller's mission owner; no
+/// model root or metadata name is promoted to mission context.
+pub struct ActorProgramContext<'a> {
+    pub world: &'a ActorWorld,
+    pub frames: &'a dyn FrameLookupBackend,
+    pub mission_path: Option<&'a [u8]>,
+}
+impl ProgramContext for ActorProgramContext<'_> {
+    fn default_c_locale(&self) -> bool {
+        self.frames.default_c_locale()
+    }
+    fn mission_path(&mut self) -> Result<Option<&[u8]>, String> {
+        Ok(self.mission_path)
+    }
+    fn owner_frame_name(
+        &mut self,
+        owner: Option<ActorReferenceId>,
+    ) -> Result<OwnerFrameName<'_>, String> {
+        let Some(owner) = owner else {
+            return Ok(OwnerFrameName::NoFrame);
+        };
+        let state = self.world.state(owner).map_err(|e| format!("{e:?}"))?;
+        let Some(frame) = state.frame else {
+            return Ok(OwnerFrameName::NoFrame);
+        };
+        let view = self.frames.frame(frame).map_err(|e| format!("{e:?}"))?;
+        Ok(OwnerFrameName::Frame(view.name))
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ActorSource {
@@ -151,6 +222,8 @@ pub enum ActorWorldError {
     UnsupportedManagerFlag,
     MissingAttachedFrame,
     UnsupportedVtable,
+    NotDetector,
+    Program(ProgramError),
     Effect { stage: &'static str, detail: String },
 }
 #[derive(Debug, PartialEq, Eq)]
@@ -220,10 +293,17 @@ pub trait ActorFrameBackend {
         frame: FrameReferenceId,
     ) -> Result<(), String>;
 }
-/// Required allocator for the supported kind-1 factory branch. Returning native
-/// memory and seed does not construct a frame, BODY, program, or mission payload.
+/// Allocator for supported kind1/kind5 factory branches. Returning storage and
+/// seed does not construct a frame, BODY or mission payload.
 pub trait ActorAllocationBackend {
     fn allocate_actor(&mut self, bytes: u32) -> Result<Option<(u32, BaseActorSeed)>, String>;
+    /// Kind5 requires actual larger storage and its untouched allocation seed.
+    fn allocate_detector(
+        &mut self,
+        _bytes: u32,
+    ) -> Result<Option<(u32, BaseActorSeed, DetectorSeed)>, String> {
+        Err("detector allocation unavailable".into())
+    }
 }
 /// Native scalar deleting-wrapper free dependency. Failed host frees retain
 /// backing ownership in this backend; object destruction has already completed.
@@ -345,7 +425,25 @@ impl ActorWorld {
         actor: ActorReferenceId,
     ) -> Result<&mut BaseActorState, ActorWorldError> {
         let i = self.index(actor)?;
+        if self.actors[i].detector.is_some() {
+            return Err(ActorWorldError::UnsupportedVtable);
+        }
         Ok(&mut self.actors[i].state)
+    }
+    fn state_mut_inner(
+        &mut self,
+        actor: ActorReferenceId,
+    ) -> Result<&mut BaseActorState, ActorWorldError> {
+        let i = self.index(actor)?;
+        Ok(&mut self.actors[i].state)
+    }
+    /// Mutable actual attachment for shared base callbacks. Derived vtable/kind
+    /// identity remains protected; native Init rereads this frame between calls.
+    pub fn actor_frame_mut(
+        &mut self,
+        actor: ActorReferenceId,
+    ) -> Result<&mut Option<FrameReferenceId>, ActorWorldError> {
+        Ok(&mut self.state_mut_inner(actor)?.frame)
     }
     pub fn phase(&self, actor: ActorReferenceId) -> Result<ActorPhase, ActorWorldError> {
         Ok(self.actors[self.index(actor)?].phase)
@@ -500,6 +598,7 @@ impl ActorWorld {
             lifetime,
             state: BaseActorState::construct(seed),
             phase: ActorPhase::Constructing,
+            detector: None,
         });
         self.actor_count = self.actor_count.wrapping_add(1);
         self.add_actor_to_global(Some(actor), backend)
@@ -511,8 +610,65 @@ impl ActorWorld {
         self.actors[i].phase = ActorPhase::Ready;
         Ok(actor)
     }
-    /// Supported original factory table branch: kind1 allocates 0x70 then calls
-    /// the actual base constructor. Other derived kinds remain unsupported.
+    /// Base registration completes before the embedded source program and
+    /// detector vtables are installed. No compiler/GameInit is invoked.
+    pub fn construct_detector<B: ActorCollectionBackend + ?Sized>(
+        &mut self,
+        identity: u32,
+        base: BaseActorSeed,
+        mut seed: DetectorSeed,
+        backend: &mut B,
+    ) -> Result<ActorReferenceId, ActorCreationError> {
+        let program_address = identity.checked_add(0x70).ok_or(ActorCreationError {
+            actor: None,
+            source: ActorWorldError::InvalidBacking,
+        })?;
+        identity.checked_add(0x127).ok_or(ActorCreationError {
+            actor: None,
+            source: ActorWorldError::InvalidBacking,
+        })?;
+        seed.program.address_high_byte = (program_address >> 24) as u8;
+        let actor = self.construct_base(identity, base, backend)?;
+        let i = self.index(actor).expect("constructor owns actor");
+        self.actors[i].detector = Some(DetectorState {
+            program: Some(CProgram::construct(seed.program)),
+            bytes_d8_ef: seed.bytes_d8_ef,
+            word_f0: 0,
+            word_f4: seed.word_f4,
+            words_f8_100: [0; 3],
+            byte_104: 0,
+            bytes_105_107: seed.bytes_105_107,
+            words_108_114: [0; 4],
+            bytes_118_127: seed.bytes_118_127,
+        });
+        self.actors[i]
+            .detector
+            .as_mut()
+            .unwrap()
+            .program
+            .as_mut()
+            .unwrap()
+            .set_detector_vtable();
+        self.actors[i].state.vtable = ActorVtable::Detector;
+        self.actors[i].state.word_10 = 5;
+        Ok(actor)
+    }
+    pub fn detector(&self, actor: ActorReferenceId) -> Result<&DetectorState, ActorWorldError> {
+        self.actors[self.index(actor)?]
+            .detector
+            .as_ref()
+            .ok_or(ActorWorldError::NotDetector)
+    }
+    /// Read-only source ownership inspection, including retired/interrupted actors.
+    pub fn inspect_detector(&self, actor: ActorReferenceId) -> Option<&DetectorState> {
+        self.actors
+            .iter()
+            .find(|a| a.lifetime.reference() == actor)?
+            .detector
+            .as_ref()
+    }
+    /// Supported original factory branches: kind1 allocates 0x70, kind5 0x128.
+    /// Other derived kinds remain explicit dependencies.
     pub fn create_actor<B: ActorAllocationBackend + ActorCollectionBackend + ?Sized>(
         &mut self,
         kind: u32,
@@ -520,6 +676,23 @@ impl ActorWorld {
     ) -> Result<Option<ActorReferenceId>, ActorCreationError> {
         if !(1..=38).contains(&kind) {
             return Ok(None);
+        }
+        if kind == 5 {
+            let allocation =
+                backend
+                    .allocate_detector(0x128)
+                    .map_err(|detail| ActorCreationError {
+                        actor: None,
+                        source: ActorWorldError::Effect {
+                            stage: "allocate_detector",
+                            detail,
+                        },
+                    })?;
+            return allocation
+                .map(|(identity, base, seed)| {
+                    self.construct_detector(identity, base, seed, backend)
+                })
+                .transpose();
         }
         if kind != 1 {
             return Err(ActorCreationError {
@@ -552,8 +725,21 @@ impl ActorWorld {
             return Ok(false);
         };
         self.actors[i].phase = ActorPhase::Initializing;
-        let result = self.init_inner(actor, frame, backend);
+        let mut result = self.init_inner(actor, frame, backend);
         let i = self.index(actor)?;
+        if matches!(result, Ok(true)) {
+            if let Some(detector) = &mut self.actors[i].detector {
+                detector.bytes_d8_ef[..4].fill(0);
+                if let Err(error) = detector
+                    .program
+                    .as_mut()
+                    .expect("ready detector program")
+                    .set_owner(Some(actor))
+                {
+                    result = Err(ActorWorldError::Program(error));
+                }
+            }
+        }
         self.actors[i].phase = if result.is_err() {
             ActorPhase::InitializationInterrupted
         } else {
@@ -576,7 +762,7 @@ impl ActorWorld {
         if matches!(data, FrameActorData::Present(Some(owner)) if owner != actor) {
             return Ok(false);
         }
-        self.state_mut(actor)?.frame = Some(frame);
+        self.state_mut_inner(actor)?.frame = Some(frame);
         backend
             .clear_actor_data(self, frame)
             .map_err(|detail| ActorWorldError::Effect {
@@ -585,7 +771,7 @@ impl ActorWorld {
             })?;
         self.attachment_counter = self.attachment_counter.wrapping_add(1);
         let counter = self.attachment_counter;
-        let state = self.state_mut(actor)?;
+        let state = self.state_mut_inner(actor)?;
         state.actor_id = counter;
         state.release_frame = 0;
         // The first null check guards the entire pair. The second native call
@@ -598,7 +784,7 @@ impl ActorWorld {
                 .ok_or(ActorWorldError::MissingAttachedFrame)?;
             self.init_target_child(frame, b"targetN", backend)?;
         }
-        self.state_mut(actor)?.state_1c = 0;
+        self.state_mut_inner(actor)?.state_1c = 0;
         Ok(true)
     }
     fn init_target_child<B: ActorFrameBackend + ?Sized>(
@@ -626,7 +812,7 @@ impl ActorWorld {
     fn remove_from_manager(&mut self, actor: ActorReferenceId) -> Result<bool, ActorWorldError> {
         self.manager.remove_association(actor, false)?;
         if let Some(i) = self.manager.first.iter().position(|a| *a == actor) {
-            self.state_mut(actor)?.flags &= !0x10;
+            self.state_mut_inner(actor)?.flags &= !0x10;
             self.manager.first.remove(i);
             return Ok(true);
         }
@@ -646,6 +832,17 @@ impl ActorWorld {
         backend: &mut B,
     ) -> Result<(), ActorWorldError> {
         let i = self.ready(actor)?;
+        if self.actors[i].detector.is_some() {
+            return Err(ActorWorldError::UnsupportedVtable);
+        }
+        self.destroy_base_inner(actor, backend)
+    }
+    fn destroy_base_inner<B: ActorFrameBackend + ?Sized>(
+        &mut self,
+        actor: ActorReferenceId,
+        backend: &mut B,
+    ) -> Result<(), ActorWorldError> {
+        let i = self.index(actor)?;
         self.actors[i].phase = ActorPhase::Destroying;
         self.actors[i].state.vtable = ActorVtable::Base;
         self.actor_count = self.actor_count.wrapping_sub(1);
@@ -696,13 +893,140 @@ impl ActorWorld {
         backend: &mut B,
     ) -> Result<u16, ActorWorldError> {
         let i = self.ready(actor)?;
-        if self.actors[i].state.vtable != ActorVtable::Base {
+        if self.actors[i].state.vtable != ActorVtable::Base || self.actors[i].detector.is_some() {
             return Err(ActorWorldError::UnsupportedVtable);
         }
         let count = self.actors[i].state.references.wrapping_sub(1);
         self.actors[i].state.references = count;
         if count == 0 {
             self.delete_base(actor, 1, backend)?;
+        }
+        Ok(count)
+    }
+    /// Detector virtual LoadData: the detector's version and raw d8 field precede
+    /// embedded source disposal/reads. Source callbacks borrow only the program;
+    /// they cannot mutate this exclusively borrowed world during replacement.
+    pub fn load_detector_data<R: ProgramReader + ?Sized, P: ProgramBackend + ?Sized>(
+        &mut self,
+        actor: ActorReferenceId,
+        reader: &mut R,
+        replacements: &[ProgramReplacement],
+        mission_path: Option<&[u8]>,
+        frames: &dyn FrameLookupBackend,
+        backend: &mut P,
+    ) -> Result<(), ActorWorldError> {
+        let i = self.ready(actor)?;
+        if self.actors[i].detector.is_none() {
+            return Err(ActorWorldError::NotDetector);
+        }
+        self.actors[i].phase = ActorPhase::Loading;
+        let read = reader.read_exact(&mut [0]).and_then(|()| {
+            reader.read_exact(&mut self.actors[i].detector.as_mut().unwrap().bytes_d8_ef[..4])
+        });
+        if let Err(detail) = read {
+            self.actors[i].phase = ActorPhase::LoadingInterrupted;
+            return Err(ActorWorldError::Effect {
+                stage: "detector_read",
+                detail,
+            });
+        }
+        let mut program = self.actors[i]
+            .detector
+            .as_mut()
+            .unwrap()
+            .program
+            .take()
+            .unwrap();
+        let mut context = ActorProgramContext {
+            world: self,
+            frames,
+            mission_path,
+        };
+        let result = program.load_source_code(reader, replacements, &mut context, backend);
+        self.actors[i].detector.as_mut().unwrap().program = Some(program);
+        self.actors[i].phase = if result.is_ok() {
+            ActorPhase::Ready
+        } else {
+            ActorPhase::LoadingInterrupted
+        };
+        result.map_err(ActorWorldError::Program)
+    }
+    /// Source-only detector destruction: embedded program before the genuine
+    /// base destructor. A source free failure prevents all base destruction.
+    pub fn destroy_detector<F: ActorFrameBackend + ?Sized, P: ProgramBackend + ?Sized>(
+        &mut self,
+        actor: ActorReferenceId,
+        frames: &mut F,
+        backend: &mut P,
+    ) -> Result<(), ActorWorldError> {
+        let i = self.index(actor)?;
+        if !matches!(
+            self.actors[i].phase,
+            ActorPhase::Ready
+                | ActorPhase::LoadingInterrupted
+                | ActorPhase::InitializationInterrupted
+        ) {
+            return Err(ActorWorldError::Busy(actor));
+        }
+        if self.actors[i].detector.is_none() {
+            return Err(ActorWorldError::NotDetector);
+        }
+        self.actors[i].phase = ActorPhase::Destroying;
+        self.actors[i].state.vtable = ActorVtable::Detector;
+        let result = self.actors[i]
+            .detector
+            .as_mut()
+            .unwrap()
+            .program
+            .as_mut()
+            .unwrap()
+            .destruct(backend);
+        if let Err(error) = result {
+            self.actors[i].phase = ActorPhase::DestructionInterrupted;
+            return Err(ActorWorldError::Program(error));
+        }
+        self.destroy_base_inner(actor, frames)
+    }
+    pub fn delete_detector<
+        F: ActorFrameBackend + ?Sized,
+        P: ProgramBackend + ActorDeallocationBackend + ?Sized,
+    >(
+        &mut self,
+        actor: ActorReferenceId,
+        argument: u32,
+        frames: &mut F,
+        backend: &mut P,
+    ) -> Result<(), ActorWorldError> {
+        self.destroy_detector(actor, frames, backend)?;
+        if argument & 1 != 0 {
+            backend
+                .free_actor(self, actor.identity())
+                .map_err(|detail| ActorWorldError::Effect {
+                    stage: "free_detector",
+                    detail,
+                })?;
+        }
+        Ok(())
+    }
+    /// Shared 16-bit Release dispatched to the detector deleting wrapper.
+    pub fn release_detector<
+        F: ActorFrameBackend + ?Sized,
+        P: ProgramBackend + ActorDeallocationBackend + ?Sized,
+    >(
+        &mut self,
+        actor: ActorReferenceId,
+        frames: &mut F,
+        backend: &mut P,
+    ) -> Result<u16, ActorWorldError> {
+        let i = self.ready(actor)?;
+        if self.actors[i].detector.is_none() || self.actors[i].state.vtable != ActorVtable::Detector
+        {
+            return Err(ActorWorldError::NotDetector);
+        }
+        let count = self.actors[i].state.references.wrapping_sub(1);
+        self.actors[i].state.references = count;
+        if count == 0 {
+            self.delete_detector(actor, 1, frames, backend)?;
         }
         Ok(count)
     }
@@ -939,7 +1263,7 @@ mod tests {
             ));
             if name == b"targetE" {
                 if let Some(replacement) = self.replace_after_e {
-                    world.state_mut(actor).unwrap().frame = replacement;
+                    *world.actor_frame_mut(actor).unwrap() = replacement;
                 }
             }
             if self.fail == Some("find") {
@@ -1498,5 +1822,352 @@ mod tests {
         e.fail = Some("allocate_actor");
         assert!(w.create_actor(1, &mut e).is_err());
         assert_eq!(w.actor_count, 0);
+    }
+    fn detector_seed() -> DetectorSeed {
+        DetectorSeed {
+            program: ProgramSeed {
+                address_high_byte: 0xff,
+                padding_0d: [1; 3],
+                words_1c_2c: [2; 5],
+                padding_31: [3; 3],
+                word_40: 4,
+                bytes_64: [5; 4],
+            },
+            bytes_d8_ef: [0xa5; 24],
+            word_f4: 0x12345678,
+            bytes_105_107: [0x63; 3],
+            bytes_118_127: [0x72; 16],
+        }
+    }
+    #[derive(Default)]
+    struct ProgramEffects {
+        next: u64,
+        frees: Vec<(crate::original_program::ProgramBuffer, Option<u64>)>,
+        actor_frees: Vec<u32>,
+        fail_free: bool,
+    }
+    impl ProgramBackend for ProgramEffects {
+        fn allocate(
+            &mut self,
+            _: &CProgram,
+            _: crate::original_program::ProgramBuffer,
+            _: u32,
+        ) -> Result<crate::original_program::ProgramAllocation, String> {
+            self.next += 1;
+            Ok(crate::original_program::ProgramAllocation(self.next))
+        }
+        fn free(
+            &mut self,
+            _: &CProgram,
+            b: crate::original_program::ProgramBuffer,
+            a: Option<crate::original_program::ProgramAllocation>,
+        ) -> Result<(), String> {
+            self.frees.push((b, a.map(|a| a.0)));
+            if self.fail_free {
+                Err("unavailable free".into())
+            } else {
+                Ok(())
+            }
+        }
+    }
+    impl ActorDeallocationBackend for ProgramEffects {
+        fn free_actor(&mut self, world: &ActorWorld, identity: u32) -> Result<(), String> {
+            assert_eq!(world.actor_count, 0);
+            self.actor_frees.push(identity);
+            Ok(())
+        }
+    }
+    fn detector_payload(source: &[u8]) -> Vec<u8> {
+        let mut bytes = vec![0xff, 0x12, 0x34, 0x56, 0x78, 0xfe];
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+        bytes.extend_from_slice(&(source.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(source);
+        bytes
+    }
+    #[test]
+    fn detector_owns_real_frame_init_payload_replacement_and_release() {
+        use crate::actor_frames::{FrameUserData, ModelActorFrames};
+        use crate::frame_lookup::ModelFrameLookup;
+        use crate::model_loading::{tests::frame, MaterializedModel};
+        use crate::original_program::{ProgramPhase, ProgramSliceReader};
+        let mut source = frame(6, None, [0.; 3]);
+        source.name_bytes = b"actual.full.frame".to_vec();
+        let mut model = MaterializedModel::from_parsed(std::sync::Arc::new(lhr_assets::Model {
+            materials: vec![],
+            frames: vec![source],
+        }))
+        .unwrap();
+        let key = model.source_frame_keys()[0];
+        let frame_ref = ModelFrameLookup::borrow(model.arena(), true)
+            .reference(key)
+            .unwrap();
+        let record = model.arena_mut().create_actor_data_record(None).unwrap();
+        model
+            .arena_mut()
+            .set_user_data(key, FrameUserData::ActorRecord(record))
+            .unwrap();
+        let mut w = world();
+        let mut e = Effects::default();
+        let a = w
+            .construct_detector(0x12ffffc0, seed(), detector_seed(), &mut e)
+            .unwrap();
+        let d = w.detector(a).unwrap();
+        assert_eq!(d.program().unwrap().seed().address_high_byte, 0x13);
+        assert_eq!(d.bytes_d8_ef, [0xa5; 24]);
+        assert_eq!(
+            (d.word_f0, d.words_f8_100, d.byte_104, d.words_108_114),
+            (0, [0; 3], 0, [0; 4])
+        );
+        assert_eq!(d.program().unwrap().owner(), None);
+        assert!(w
+            .init(
+                a,
+                Some(frame_ref),
+                &mut ModelActorFrames::borrow(model.arena_mut(), true)
+            )
+            .unwrap());
+        assert_eq!(w.detector(a).unwrap().program().unwrap().owner(), Some(a));
+        assert_eq!(w.detector(a).unwrap().data_d8(), 0);
+        assert_eq!(model.arena().user_data(key), Ok(FrameUserData::Null));
+        let mut p = ProgramEffects::default();
+        let replacement = ProgramReplacement {
+            mission: Some(b"mission".to_vec()),
+            name: None,
+            frame: Some(b"ACTUAL.FULL.FRAME".to_vec()),
+            source: Some(b"replacement\0ignored".to_vec()),
+        };
+        w.load_detector_data(
+            a,
+            &mut ProgramSliceReader::new(&detector_payload(b"uncompiled source")),
+            &[replacement],
+            Some(b"real\\mission"),
+            &ModelFrameLookup::borrow(model.arena(), true),
+            &mut p,
+        )
+        .unwrap();
+        let d = w.detector(a).unwrap();
+        assert_eq!(d.data_d8(), 0x78563412);
+        assert_eq!(
+            d.program().unwrap().source().unwrap().c_bytes(),
+            Some(&b"replacement"[..])
+        );
+        assert_eq!(d.program().unwrap().phase(), ProgramPhase::Source);
+        assert_eq!(model.arena().actor_data_record(record), Ok(None));
+        assert_eq!(
+            w.release_detector(
+                a,
+                &mut ModelActorFrames::borrow(model.arena_mut(), true),
+                &mut p
+            ),
+            Ok(0)
+        );
+        assert_eq!(w.inspect(a).unwrap().0, ActorPhase::Dead);
+        assert_eq!(
+            w.inspect_detector(a).unwrap().program().unwrap().phase(),
+            ProgramPhase::Dead
+        );
+        assert_eq!(p.actor_frees, [a.identity()]);
+        assert!(w.source(ActorSource::Static).is_empty());
+        assert!(model.arena().frame(key).is_ok());
+    }
+    #[test]
+    fn detector_base_bypass_and_failed_source_free_cannot_retire_actor() {
+        use crate::original_program::ProgramSliceReader;
+        let mut w = world();
+        let mut e = Effects::default();
+        let a = w
+            .construct_detector(9, seed(), detector_seed(), &mut e)
+            .unwrap();
+        assert_eq!(w.state_mut(a), Err(ActorWorldError::UnsupportedVtable));
+        // Even a corrupted tag cannot change the actual storage owner.
+        let i = w.index(a).unwrap();
+        w.actors[i].state.vtable = ActorVtable::Base;
+        assert_eq!(
+            w.destroy_base(a, &mut e),
+            Err(ActorWorldError::UnsupportedVtable)
+        );
+        assert_eq!(
+            w.release(a, &mut e),
+            Err(ActorWorldError::UnsupportedVtable)
+        );
+        assert_eq!(w.state(a).unwrap().references, 1);
+        let mut p = ProgramEffects::default();
+        w.load_detector_data(
+            a,
+            &mut ProgramSliceReader::new(&detector_payload(b"source")),
+            &[],
+            None,
+            &Frames(vec![]),
+            &mut p,
+        )
+        .unwrap();
+        p.fail_free = true;
+        assert!(w.destroy_detector(a, &mut e, &mut p).is_err());
+        assert_eq!(w.phase(a), Ok(ActorPhase::DestructionInterrupted));
+        assert_eq!(w.actor_count, 1);
+        assert_eq!(w.source(ActorSource::Static), &[Some(a)]);
+        assert!(matches!(
+            w.destroy_detector(a, &mut e, &mut p),
+            Err(ActorWorldError::Busy(_))
+        ));
+        assert_eq!(p.frees.len(), 1);
+    }
+    #[test]
+    fn interrupted_detector_load_keeps_rawfield_and_can_dispose_owned_prefix() {
+        use crate::original_program::ProgramSliceReader;
+        let mut w = world();
+        let mut e = Effects::default();
+        let a = w
+            .construct_detector(9, seed(), detector_seed(), &mut e)
+            .unwrap();
+        let mut p = ProgramEffects::default();
+        let bytes = detector_payload(b"code");
+        assert!(w
+            .load_detector_data(
+                a,
+                &mut ProgramSliceReader::new(&bytes[..bytes.len() - 1]),
+                &[],
+                None,
+                &Frames(vec![]),
+                &mut p
+            )
+            .is_err());
+        assert_eq!(w.phase(a), Ok(ActorPhase::LoadingInterrupted));
+        assert_eq!(w.detector(a).unwrap().data_d8(), 0x78563412);
+        assert!(
+            !w.detector(a)
+                .unwrap()
+                .program()
+                .unwrap()
+                .source()
+                .unwrap()
+                .complete
+        );
+        w.destroy_detector(a, &mut e, &mut p).unwrap();
+        assert_eq!(w.actor_count, 0);
+    }
+    #[test]
+    fn detector_factory_registers_base_before_derived_construction() {
+        struct Factory;
+        impl ActorAllocationBackend for Factory {
+            fn allocate_actor(&mut self, _: u32) -> Result<Option<(u32, BaseActorSeed)>, String> {
+                panic!("kind5")
+            }
+            fn allocate_detector(
+                &mut self,
+                bytes: u32,
+            ) -> Result<Option<(u32, BaseActorSeed, DetectorSeed)>, String> {
+                assert_eq!(bytes, 0x128);
+                Ok(Some((0x10203040, seed(), detector_seed())))
+            }
+        }
+        impl ActorCollectionBackend for Factory {
+            fn allocate_collection(
+                &mut self,
+                world: &ActorWorld,
+                source: ActorSource,
+                bytes: u32,
+            ) -> Result<ActorStorageId, String> {
+                assert_eq!(
+                    (source, bytes, world.actor_count),
+                    (ActorSource::Static, 4, 1)
+                );
+                let actor = &world.actors[0];
+                assert_eq!(actor.phase, ActorPhase::Constructing);
+                assert_eq!(actor.state.vtable, ActorVtable::Base);
+                assert_eq!(actor.state.word_10, 1);
+                assert!(actor.detector.is_none());
+                Ok(ActorStorageId(33))
+            }
+            fn free_collection(
+                &mut self,
+                _: &ActorWorld,
+                _: ActorSource,
+                old: Option<ActorStorageId>,
+            ) -> Result<(), String> {
+                assert_eq!(old, None);
+                Ok(())
+            }
+        }
+        let mut w = ActorWorld::new(0, 0, backing(0), backing(0), backing(0)).unwrap();
+        let a = w.create_actor(5, &mut Factory).unwrap().unwrap();
+        assert_eq!(w.state(a).unwrap().vtable, ActorVtable::Detector);
+        assert_eq!(w.state(a).unwrap().word_10, 5);
+        assert_eq!(w.detector(a).unwrap().program().unwrap().owner(), None);
+    }
+    #[test]
+    fn detector_init_keeps_derived_identity_while_base_callbacks_change_attachment() {
+        let mut w = world();
+        let mut e = Effects::default();
+        let a = w
+            .construct_detector(9, seed(), detector_seed(), &mut e)
+            .unwrap();
+        let first = FrameLifetime::for_existing(21);
+        let second = FrameLifetime::for_existing(22);
+        e.actor = Some(a);
+        e.replace_after_e = Some(Some(second.reference()));
+        assert_eq!(w.init(a, Some(first.reference()), &mut e), Ok(true));
+        assert_eq!(w.state(a).unwrap().vtable, ActorVtable::Detector);
+        assert_eq!(w.state(a).unwrap().word_10, 5);
+        assert_eq!(w.state(a).unwrap().frame, Some(second.reference()));
+        assert!(e.events.iter().any(|event| matches!(event, Event::Find(frame, name, ..) if *frame == second.reference() && name == b"targetN")));
+        assert_eq!(w.detector(a).unwrap().program().unwrap().owner(), Some(a));
+        let b = w
+            .construct_detector(10, seed(), detector_seed(), &mut e)
+            .unwrap();
+        e.actor = Some(b);
+        e.replace_after_e = Some(None);
+        assert_eq!(
+            w.init(b, Some(first.reference()), &mut e),
+            Err(ActorWorldError::MissingAttachedFrame)
+        );
+        assert_eq!(w.phase(b), Ok(ActorPhase::InitializationInterrupted));
+        assert_eq!(w.detector(b).unwrap().program().unwrap().owner(), None);
+        assert_eq!(w.detector(b).unwrap().data_d8(), 0xa5a5a5a5);
+    }
+    #[test]
+    fn detector_load_uncertain_disposal_is_never_replayed_by_teardown() {
+        use crate::original_program::{ProgramPhase, ProgramSliceReader};
+        let mut w = world();
+        let mut e = Effects::default();
+        let a = w
+            .construct_detector(9, seed(), detector_seed(), &mut e)
+            .unwrap();
+        let mut p = ProgramEffects::default();
+        w.load_detector_data(
+            a,
+            &mut ProgramSliceReader::new(&detector_payload(b"old")),
+            &[],
+            None,
+            &Frames(vec![]),
+            &mut p,
+        )
+        .unwrap();
+        p.fail_free = true;
+        assert!(w
+            .load_detector_data(
+                a,
+                &mut ProgramSliceReader::new(&detector_payload(b"new")),
+                &[],
+                None,
+                &Frames(vec![]),
+                &mut p
+            )
+            .is_err());
+        assert_eq!(
+            w.detector(a).unwrap().program().unwrap().phase(),
+            ProgramPhase::Poisoned
+        );
+        assert_eq!(w.phase(a), Ok(ActorPhase::LoadingInterrupted));
+        assert_eq!(p.frees.len(), 1);
+        assert_eq!(
+            w.destroy_detector(a, &mut e, &mut p),
+            Err(ActorWorldError::Program(ProgramError::Unavailable))
+        );
+        assert_eq!(w.phase(a), Ok(ActorPhase::DestructionInterrupted));
+        assert_eq!(p.frees.len(), 1);
+        assert_eq!(w.actor_count, 1);
+        assert_eq!(w.source(ActorSource::Static), &[Some(a)]);
+        assert!(p.actor_frees.is_empty());
     }
 }
