@@ -15,7 +15,7 @@ All gates remain open until corresponding evidence is recorded. Current function
 
 ## Parity with mafia-re
 
-The bounded serialized worker now has an implementation pending original-code comparison. Static-oracle agreement does not close worker/native-upload parity; the next acceptance step is independent native comparison, followed by real device/DTA adapters and scene integration. The accepted scoped snapshot remains 165/55.
+At `0558568`, bounded `rw_data` read-mode Seek and common loose-file Close match **38 original-code observations** under Wine/QEMU: 32 Seek and six Close results, counted once across debug/release. Accepted scoped totals are **167 entries / 56 contracts**. Decoded-entry snapshot intake and serialized worker composition are host adapters; full native DTA Read/Open/Write, live archive streaming and DLL parity remain open. Worker/native-upload comparison, real device/DTA adapters and scene integration remain acceptance steps.
 
 Use the [pinned reference audit](REFERENCE_PROJECTS.md) as a function and dependency map for LS3DF and supporting libraries. For each candidate, identify the original binary and entry, callers, layout, state changes and resources; recover it with REA, implement it independently in Rust and compare original execution. Upstream source or instruction-comparison percentages do not establish Rust behavioral coverage. Game.exe and first-mission completion require additional original-game research.
 
