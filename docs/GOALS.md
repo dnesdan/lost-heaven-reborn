@@ -15,11 +15,11 @@ All gates remain open until corresponding evidence is recorded. Current function
 
 ## Parity with mafia-re
 
-At `38bd2c4`, original parser/398-row instruction recognition, five C_Vehicle input setters and the triangle-only collision leaf add three bounded contracts: **214 entries / 67 contracts**, **20 static_inspection / 47 not_integrated**, strict **0/12**. Whole-function coverage remains N/A; the checked host placement adapter adds zero entry credit.
+At `46db9f5`, the original PC C_Vehicle constructor and four drivetrain helpers add two bounded contracts: **219 entries / 69 contracts**, **20 static_inspection / 49 not_integrated**, strict **0/12**. Read-only KLZ intake and geometry binding add zero canonical-entry credit; whole-function coverage remains N/A.
 
-Actual authored MISE01 remains FINDACTOR/UnsupportedWorldBackend at PC3 / source line 4; no later line executes. All six first-mission gates remain open. Static GPU/UI and placement checks do not establish driving or mission advancement.
+Actual authored MISE01 remains FINDACTOR/UnsupportedWorldBackend at PC3 / source line 4; no later line executes. All six first-mission gates remain open. No runtime gameplay integration or driving mode is established.
 
-Next are genuine C_Vehicle constructor/Init/cleanup and model/BODY/parameter/wheel ownership, original KLZ binding/grid/primitive contacts, drivetrain helpers and Tick/Engine/Move solver behavior, then application controls/update and camera. Compiler floating operands/LET/IF, all 62 parameter cases and Compile/Init/Done proceed in parallel; actual mission sectors, registration, replay and objectives remain separately required.
+Next are genuine C_Vehicle Init/cleanup with actual model/BODY, component/parameter/wheel ownership; original collision loader effects, frame transforms, grid and primitive contacts; then Tick/Engine/six-float Move and wheel/body solver behavior before application controls/update and camera. Compiler floating operands/LET/IF, all 62 parameter cases and Compile/Init/Done remain parallel; real mission world, scheduling, replay and objectives remain required.
 
 Historical Installation integration connects existing menu/static scene archive callers to NativeFiles; its asset-equality and static-rendering receipts remain in [PROGRESS.md](PROGRESS.md). That route supplies neither GPU-worker ownership nor mission-world construction.
 
@@ -37,13 +37,13 @@ Fresh REA/Ghidra instruction evidence and actual registry bytes support the boun
 
 The immediate dependency order is:
 
-1. Own original C_Vehicle constructor/Init/destructor and failure cleanup over real type-9 model/BODY resources, original parameters and wheel/seat structures. Close C_car callback installation and frame/model ownership; detached setters supply none of these defaults.
-2. Reconstruct original KLZ binding/grid and remaining primitive/contact queries, dynamic registration, wheel geometry/tyre/suspension/surface state and body-contact callbacks. The triangle leaf alone is not a collision world or contact response.
-3. Close drivetrain helpers and real timestep/SetCutTime data, then Tick -> Engine -> Move and wheel/body solver behavior in original numeric order. Preserve six-float Move and original substeps; Update publishes postintegration state rather than replacing dynamics.
-4. Connect real vehicle ownership/physics to original application controls/update, player/camera and repeatable original-runtime versus interactive Rust sequences. Static placement is inspection; no simplified physics or prototype driving mode substitutes for this gate.
-5. In parallel, close floating DecodeOperand, DecodeLet/DecodeIf, all 62 parameter ownership cases and Compile/Init/Done, then detector GameInit/runtime. Three helpers and complete keyword recognition are prerequisites, not implemented command execution. Actual mission sectors/registration/AE24 flow, replay and objectives remain required for first-mission completion.
+1. Close original C_Vehicle Init and destruction/failure cleanup with genuine type-9 model/BODY, component frames, source parameters and wheel resources. The raw constructor preserves original byte writes but owns none of these resources; C_car callbacks and retained references remain required.
+2. Close original collision-loader frame WorldOn/LOD0/lock effects, post-load classifier and missing/degenerate disable 0x20, volume ownership and external child resources. Then reconstruct original grid/cell candidate ordering, _TestLineV/TestLineV and every eligible primitive/dynamic query; read-only binding alone is not query readiness.
+3. Supply genuine body inertia, wheel radius, tyres/suspension/material state and contact callbacks. Preserve recovered SetCutTime/drivetrain arithmetic while closing actual timestep/shared-direction ownership and external gear-shift dependency.
+4. Reconstruct Tick -> Engine -> six-float Move -> DoWheelsCollision in original substep/solver order. Update publishes postintegration state. Then connect real application input, player/camera and repeatable original-versus-Rust driving sequences; no simplified physics substitutes for this gate.
+5. In parallel, close floating DecodeOperand, DecodeLet/DecodeIf, all 62 parameter ownership cases and Compile/Init/Done, then detector runtime and genuine mission scene/actor registration. Keyword recognition is not command execution; replay and objectives remain required.
 
-Vehicle owner/contact/dynamics reconstruction can proceed before complete mission compilation because the direct C_Vehicle call graph does not intrinsically depend on the compiler. Authored mission acceptance remains separately gated on genuine world construction and original scheduling. Animation/catalog work remains a parallel general-engine dependency; preserve original update order and use actual content as regression inputs.
+Vehicle ownership/contact/dynamics can proceed before complete mission compilation because the direct C_Vehicle call graph does not intrinsically depend on the compiler. Authored mission acceptance remains gated on genuine world construction and original scheduling. Animation/catalog work remains a parallel general-engine dependency; preserve original update order and use actual content as regression inputs.
 
 The [mafia-re/MafiaUnity source audit](REFERENCE_PROJECTS.md#next-general-engine-work) identifies complementary general-engine dependencies: persistent model/scene resource lifetime, mission-world construction, KLZ-backed collision, material states and sector visibility. Research these alongside the sequence above; upstream scene loaders and prototype mechanics do not replace original actor or script behavior.
 
