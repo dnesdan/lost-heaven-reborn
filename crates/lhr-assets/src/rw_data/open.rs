@@ -5,6 +5,7 @@ use super::*;
 pub enum OpenAllocation {
     Owner,
     Block,
+    Wav,
 }
 /// Host effects carry native resource identities; allocation zero means failure.
 /// Names are bounded ASCII in this implementation; locale-dependent strupr is excluded.
@@ -417,8 +418,32 @@ fn archive_open<B: OpenEffects>(
             if encrypted {
                 de_crypt(&mut kind, key);
             }
+            let mut wav = 0;
+            let mut wav_header = None;
             if kind[0] >= 8 {
-                return Err(OperationError::UnsupportedOpen);
+                wav = effect!(
+                    s,
+                    Allocate,
+                    s.effects.allocate_open(OpenAllocation::Wav, 44)
+                );
+                if wav == 0 {
+                    return Ok(FAILURE);
+                }
+                if !s.admitted_allocations.insert(wav) {
+                    return Err(OperationError::InvalidRecord);
+                }
+                let mut prefix = [0; 45];
+                prefix[0] = kind[0];
+                let r = effect!(s, Read, s.effects.read_file(file, &mut prefix[1..]));
+                if !r.success || r.bytes_read != 44 {
+                    return Ok(FAILURE);
+                }
+                if encrypted {
+                    de_crypt(&mut prefix, key);
+                } else {
+                    de_crypt(&mut prefix[1..], key);
+                }
+                wav_header = Some(prefix[1..].try_into().unwrap());
             }
             let block = effect!(
                 s,
@@ -426,6 +451,9 @@ fn archive_open<B: OpenEffects>(
                 s.effects.allocate_open(OpenAllocation::Block, 32768)
             );
             if block == 0 {
+                if wav != 0 {
+                    effect!(s, FreeWav, s.effects.free_wav(wav));
+                }
                 return Ok(FAILURE);
             }
             let size = word(&header, 16);
@@ -439,10 +467,11 @@ fn archive_open<B: OpenEffects>(
                     temporary_name: 0,
                     temporary_name_bytes: Vec::new(),
                     block,
-                    wav: 0,
+                    wav,
                 },
                 None,
                 Some(ArchiveReadCache {
+                    wav_header,
                     bytes: vec![0; 32768],
                     data_offset: data,
                     block_start_file_pointer: 0,
@@ -505,8 +534,9 @@ mod tests {
             self.0.lock().unwrap().calls.push(format!("block {n}"));
             Ok(())
         }
-        fn free_wav(&mut self, _: u64) -> Result<(), ()> {
-            unreachable!()
+        fn free_wav(&mut self, n: u64) -> Result<(), ()> {
+            self.0.lock().unwrap().calls.push(format!("wav {n}"));
+            Ok(())
         }
     }
     impl ReadEffects for Backend {
@@ -618,6 +648,76 @@ mod tests {
             disk.lock().unwrap().calls,
             ["close 1", "block 2", "close 0", "block 3", "owner 1"]
         );
+    }
+    fn wav_archive_fixture(encrypted: bool) -> Vec<u8> {
+        let key = 0x3498576239475694;
+        let mut bytes = archive_fixture();
+        let mut file: [u8; 32] = bytes[48..80].try_into().unwrap();
+        de_crypt(&mut file, key);
+        file[16..20].copy_from_slice(&32774u32.to_le_bytes());
+        file[20..24].copy_from_slice(&2u32.to_le_bytes());
+        file[24..28].copy_from_slice(&(1u32 | if encrypted { 0x8000 } else { 0 }).to_le_bytes());
+        de_crypt(&mut file, key);
+        bytes[48..80].copy_from_slice(&file);
+        let mut header = [0; 44];
+        header[..4].copy_from_slice(b"RIFF");
+        header[12..16].copy_from_slice(b"fmt ");
+        header[36..40].copy_from_slice(b"data");
+        header[22..24].copy_from_slice(&1u16.to_le_bytes());
+        header[32..34].copy_from_slice(&2u16.to_le_bytes());
+        let mut first = vec![8];
+        first.extend_from_slice(&header);
+        first.extend_from_slice(&32767i16.to_le_bytes());
+        first.extend(std::iter::repeat_n(1, 16361));
+        let first_size = first.len() as u32;
+        if encrypted {
+            de_crypt(&mut first, key);
+        } else {
+            de_crypt(&mut first[1..45], key);
+        }
+        let mut second = vec![8, 100, 0, 1, 129];
+        if encrypted {
+            de_crypt(&mut second, key);
+        }
+        bytes.truncate(81);
+        bytes.extend_from_slice(&first_size.to_le_bytes());
+        bytes.extend_from_slice(&first);
+        bytes.extend_from_slice(&((first_size << 16) | second.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(&second);
+        bytes
+    }
+    #[test]
+    fn wav_open_read_reload_and_release_preserve_header_lifetime_and_cipher_calls() {
+        for encrypted in [false, true] {
+            let disk = Arc::new(Mutex::new(Disk::default()));
+            disk.lock()
+                .unwrap()
+                .names
+                .insert(b"pack".to_vec(), wav_archive_fixture(encrypted));
+            let handles = Handles::new(Backend(disk.clone()));
+            let owner = handles.dta_create(b"pack").unwrap().unwrap();
+            assert!(handles.unlock_pack(owner, 0).unwrap());
+            let h = handles.dta_open(b"a", true).unwrap();
+            let cache = handles.inspect_archive_cache(h).unwrap().unwrap();
+            assert_eq!(&cache.wav_header.unwrap()[..4], b"RIFF");
+            let mut first = [0; 46];
+            assert_eq!(handles.dta_read(h, Some(&mut first)).unwrap(), 46);
+            assert_eq!(&first[..4], b"RIFF");
+            assert_eq!(&first[44..], &[255, 127]);
+            handles.dta_seek(h, 32768, 0).unwrap();
+            let mut last = [0; 6];
+            assert_eq!(handles.dta_read(h, Some(&mut last)).unwrap(), 6);
+            assert_eq!(last, [100, 0, 101, 0, 100, 0]);
+            handles.dta_seek(h, 0, 0).unwrap();
+            assert_eq!(handles.dta_read(h, Some(&mut first)).unwrap(), 46);
+            assert_eq!(&first[..4], b"RIFF");
+            assert_eq!(handles.release(owner).unwrap(), Some(0));
+            assert!(handles.inspect_archive_cache(h).unwrap().is_none());
+            assert_eq!(
+                disk.lock().unwrap().calls,
+                ["close 0", "block 3", "wav 2", "owner 1"]
+            );
+        }
     }
     #[test]
     fn failed_constructor_retains_native_unsigned_underflow_leak() {

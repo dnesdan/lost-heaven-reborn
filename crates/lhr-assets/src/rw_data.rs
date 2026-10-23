@@ -488,6 +488,8 @@ pub struct LooseReadCache {
 /// Admission is not dtaOpen. The backend owns the shared physical file position.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ArchiveReadCache {
+    /// Saved native 44-byte WAV allocation, retained until close/unregister.
+    pub wav_header: Option<[u8; 44]>,
     pub bytes: Vec<u8>,
     pub data_offset: u32,
     pub block_start_file_pointer: u32,
@@ -519,6 +521,7 @@ impl<B: ReadEffects> Handles<B> {
         if record.file == FAILURE
             || record.flags & 3 != 0
             || record.block == 0
+            || cache.wav_header.is_some() != (record.wav != 0)
             || cache.bytes.len() != 32768
             || cache.block_size > 32768
             || cache.compressed_block_size > 32769
@@ -572,7 +575,8 @@ impl<B: ReadEffects> Handles<B> {
         state.read_caches[handle as usize] = Some(cache);
         Ok(())
     }
-    /// Read-mode dtaRead, PC RVA 0x25c0. WAV decoding remains unsupported.
+    /// Read-mode dtaRead, PC RVA 0x25c0, including bounded PCM16 mono/stereo WAV.
+    /// Other WAV channel layouts and the non-PCM16 fallback remain unsupported.
     /// None represents a null native buffer, including for a zero-length call.
     /// Host-unsafe cursor/cache ranges and malformed archive blocks return errors.
     /// Errors may preserve completed I/O and partial output/cache mutations;
@@ -823,6 +827,7 @@ fn archive_read<B: ReadEffects>(
 
     // Native copies numeric locals; cache bytes remain in their live allocation.
     let mut local = ArchiveReadCache {
+        wav_header: cache.wav_header,
         bytes: Vec::new(),
         data_offset: cache.data_offset,
         block_start_file_pointer: cache.block_start_file_pointer,
@@ -892,11 +897,30 @@ fn archive_read<B: ReadEffects>(
                 if local.encrypted {
                     de_crypt(&mut payload, local.key);
                 }
-                if payload[0] >= 8 {
+                if payload[0] >= 8 && local.wav_header.is_none() {
                     return Err(OperationError::UnsupportedRead);
                 }
-                decode_archive_block(&payload, $out).map_err(|_| OperationError::UnsafeReadState)?
-                    as u32
+                if !local.encrypted && local.current_block == 0 && payload[0] >= 8 {
+                    de_crypt(
+                        payload
+                            .get_mut(1..45)
+                            .ok_or(OperationError::UnsafeReadState)?,
+                        local.key,
+                    );
+                }
+                if payload[0] >= 8 {
+                    let header = local
+                        .wav_header
+                        .as_ref()
+                        .ok_or(OperationError::UnsupportedRead)?;
+                    wav::wav_decompression(&payload, $out, header).map_err(|e| match e {
+                        wav::WavError::Unsupported => OperationError::UnsupportedRead,
+                        wav::WavError::Bounds => OperationError::UnsafeReadState,
+                    })? as u32
+                } else {
+                    decode_archive_block(&payload, $out)
+                        .map_err(|_| OperationError::UnsafeReadState)? as u32
+                }
             }};
         }
         let target = fp >> 15;
@@ -1435,6 +1459,7 @@ mod tests {
             .attach_archive_cache(
                 0,
                 ArchiveReadCache {
+                    wav_header: None,
                     bytes: vec![0xa5; 32768],
                     data_offset: 0,
                     block_start_file_pointer: 0,
@@ -1449,6 +1474,52 @@ mod tests {
             )
             .unwrap();
         handles
+    }
+    #[test]
+    fn archive_admission_requires_wav_allocation_and_header_to_agree() {
+        let trace = Arc::new(Mutex::new(Trace::default()));
+        let handles = archive(trace, &[vec![0, 1]]);
+        let original = handles.inspect_archive_cache(0).unwrap().unwrap();
+        // The coherent absent/zero state is already installed by archive().
+        handles.attach_archive_cache(0, original.clone()).unwrap();
+        let mut with_header = original.clone();
+        with_header.wav_header = Some([0; 44]);
+        assert_eq!(
+            handles.attach_archive_cache(0, with_header.clone()),
+            Err(OperationError::InvalidRecord)
+        );
+        assert_eq!(
+            handles.inspect_archive_cache(0).unwrap(),
+            Some(original.clone())
+        );
+        // Model a nonnull native WAV allocation without changing cache contents.
+        handles.state.lock().unwrap().records[0].wav = 3;
+        assert_eq!(
+            handles.attach_archive_cache(0, original),
+            Err(OperationError::InvalidRecord)
+        );
+        assert_eq!(
+            handles
+                .inspect_archive_cache(0)
+                .unwrap()
+                .unwrap()
+                .wav_header,
+            None
+        );
+        handles
+            .attach_archive_cache(0, with_header.clone())
+            .unwrap();
+        assert_eq!(
+            handles.inspect_archive_cache(0).unwrap(),
+            Some(with_header.clone())
+        );
+        let mut missing_header = with_header.clone();
+        missing_header.wav_header = None;
+        assert_eq!(
+            handles.attach_archive_cache(0, missing_header),
+            Err(OperationError::InvalidRecord)
+        );
+        assert_eq!(handles.inspect_archive_cache(0).unwrap(), Some(with_header));
     }
     #[test]
     fn archive_raw_lz_navigation_and_exact_boundary_prefetch() {
@@ -1561,4 +1632,6 @@ mod tests {
 }
 
 mod open;
+mod wav;
+mod wav_table;
 pub use open::{OpenAllocation, OpenEffects};
