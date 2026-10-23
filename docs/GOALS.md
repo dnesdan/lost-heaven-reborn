@@ -15,11 +15,11 @@ All gates remain open until corresponding evidence is recorded. Current function
 
 ## Parity with mafia-re
 
-At `5eb220a`, bounded C_Vehicle Init attachment/discovery, collision triangle preparation and static-grid `_TestLineV` bring the accepted scope to **222 entries / 72 contracts**, **20 static_inspection / 52 not_integrated**, strict **0/12**. Whole-function coverage remains N/A.
+At `1026880`, bounded Init component continuation, static collision volumes and GearSnd/MotorRot composition bring the accepted scope to **227 entries / 74 contracts**, **20 static_inspection / 54 not_integrated**, strict **0/12**. Whole-function coverage remains N/A.
 
 Actual authored MISE01 remains FINDACTOR/UnsupportedWorldBackend at PC3 / source line 4; no later line executes. All six first-mission gates remain open. No runtime gameplay integration or driving mode is established.
 
-Next are Init's component/parameter/wheel stages and failure/destruction ownership; complete collision-loader/frame transforms, eligible primitive/dynamic queries and contacts; then Tick/Engine/six-float Move and wheel/body solver behavior before application controls/update and camera. Compiler floating operands/LET/IF, all 62 parameter cases and Compile/Init/Done remain parallel; genuine mission-world construction, scheduling, replay and objectives remain required.
+Next close actual BODYCOL record ownership and cleanup (0x4d2050/0x4d2f50/0x4d1360), callback 0x4d1060, descendant callback 0x4d1520 and postpasses 0x4d1490/0x4d17f0, replacing current controlled dependencies. Then continue DOOR/WINDOW/BALLAST/SEAT/CENTRE, source parameters, wheels and genuine failure/destruction ownership. Complete collision-loader/frame transforms, dynamic registration/queries and contacts before Tick/Engine/six-float Move and the original wheel/body solver, application controls/update and camera. Floating compiler operands/LET/IF, all 62 parameter cases and Compile/Init/Done remain parallel; genuine mission-world construction, scheduling, replay and objectives remain required.
 
 Historical Installation integration connects existing menu/static scene archive callers to NativeFiles; its asset-equality and static-rendering receipts remain in [PROGRESS.md](PROGRESS.md). That route supplies neither GPU-worker ownership nor mission-world construction.
 
@@ -37,10 +37,10 @@ Fresh REA/Ghidra instruction evidence and actual registry bytes support the boun
 
 The immediate dependency order is:
 
-1. Continue C_Vehicle Init beyond the explicit EXHAUST/SPECCOLL/HEAD/BODYCOL frontiers, with component transforms, source parameters, wheels and genuine failure/destruction cleanup. The accepted attachment/discovery prefix never returns original Init success; retained references and callbacks still require ownership.
-2. Close collision-loader stream/allocator/frame WorldOn/LOD0/lock effects and original world transforms. Compose accepted preparation/static-grid behavior with every eligible volume/dynamic query and genuine loaded scene ownership; preserve original corner/candidate order and explicit admission errors.
-3. Supply genuine body inertia, wheel radius, tyres/suspension/material state and contact callbacks. Preserve recovered SetCutTime/drivetrain arithmetic while closing actual timestep/shared-direction ownership and external gear-shift dependency.
-4. Reconstruct Tick -> Engine -> six-float Move -> DoWheelsCollision in original substep/solver order. Update publishes postintegration state. Then connect real application input, player/camera and repeatable original-versus-Rust driving sequences; no simplified physics substitutes for this gate.
+1. Close actual BODYCOL record ownership/cleanup (0x4d2050/0x4d2f50/0x4d1360), callback 0x4d1060, descendant callback 0x4d1520 and postpasses 0x4d1490/0x4d17f0, replacing current controlled dependencies and preserving actual frame/vector effects. Establish the unresolved descendant canonical body before any credit. Then continue DOOR/WINDOW/BALLAST/SEAT/CENTRE, source parameters, wheels and genuine failure/destruction cleanup. Reaching DOOR/BALLAST through modeled BODYCOL does not establish original Init success.
+2. Close collision-loader stream/allocator/frame WorldOn/LOD0/lock effects and original world transforms. Compose admitted triangle/volume/static-grid behavior with dynamic registration/query and genuine loaded scene ownership, preserving source order and explicit errors.
+3. Supply genuine body inertia, wheel radius, tyres/suspension/material state and contact callbacks. Preserve accepted drivetrain arithmetic and GearSnd callback order while closing actual timestep/shared-direction and sound-object/audio ownership.
+4. Reconstruct Tick -> Engine -> six-float Move -> DoWheelsCollision in original substep/solver order. Update publishes postintegration state. Then connect application input, player/camera and repeatable original-versus-Rust driving sequences.
 5. In parallel, close floating DecodeOperand, DecodeLet/DecodeIf, all 62 parameter ownership cases and Compile/Init/Done, then detector runtime and genuine mission scene/actor registration. Keyword recognition is not command execution; replay and objectives remain required.
 
 Vehicle ownership/contact/dynamics can proceed before complete mission compilation because the direct C_Vehicle call graph does not intrinsically depend on the compiler. Authored mission acceptance remains gated on genuine world construction and original scheduling. Animation/catalog work remains a parallel general-engine dependency; preserve original update order and use actual content as regression inputs.
