@@ -1,7 +1,7 @@
 # Lost Heaven Reborn
 
 <!-- generated-function-progress:start -->
-As of 2026-10-23 · snapshot `RUST-SCOPED-PORTS-20261023-25`.
+As of 2026-10-23 · snapshot `RUST-SCOPED-PORTS-20261023-26`.
 
 <p align="center"><img src="docs/progress.svg" alt="Progress dashboard: static retained pseudocode, reviewed scoped Rust entries, and strict system verification" width="100%"></p>
 
@@ -14,7 +14,7 @@ As of 2026-10-23 · snapshot `RUST-SCOPED-PORTS-20261023-25`.
 
 Strict full-system gate: **0/12**. Binary-level static counts use the named denominator basis and do not combine into a game-completion percentage. Unknown denominators remain N/A. 1 supplied configuration Setup inventory uses 172 in-image non-thunk procedures. Separately, archive installer bootstrap static inventory: **376 / 376 (100.00%)**; this distribution target is not combined with engine-library counts. The campaign is not playable.
 
-Accepted scoped Rust ports: **167 entries across 56 reviewed contracts**. These remain separate from retained pseudocode and whole-function counts.
+Accepted scoped Rust ports: **168 entries across 57 reviewed contracts**. These remain separate from retained pseudocode and whole-function counts.
 
 Regenerate locally with `python3 scripts/progress.py --write`; verify without writes with `python3 scripts/progress.py --check`. Versioned snapshots are retained in `docs/progress.json`.
 Milestone history and scoped implementation evidence are in [docs/PROGRESS.md](docs/PROGRESS.md).
@@ -32,7 +32,7 @@ Ownership code uses `lhr_engine::ls3df::{c_str, itexture, i3d_object, texture_ma
 
 The immediate goal is **the playable first mission, from the original menu through mission completion**, alongside function-by-function library parity with mafia-re. See the [acceptance gates and dependency order](docs/GOALS.md). PS2 symbol names guide reconstruction; PC behavior and platform differences require original-binary verification.
 
-At `0558568`, bounded `rw_data` read-mode Seek and common loose-file Close match **38 original-code observations** under Wine/QEMU: 32 Seek and six Close results, counted once across debug/release. Accepted scoped totals are **167 entries / 56 contracts**. Decoded-entry snapshot intake and serialized worker composition are host adapters; full native DTA Read/Open/Write, live archive streaming and DLL parity remain open. Worker original-runtime comparisons remain zero; real GPU/upload adapters, concurrent scheduling and application integration remain open.
+At `b4a812d`, bounded loose-file `dtaRead` adds **27 original-code READ observations** under Wine10/QEMU and one scoped entry: **168 entries / 57 contracts**. Existing Seek/Close credit is unchanged. Archive Read, native Open/Write, full `dtaRead`/DLL parity and application integration remain open. Worker original-runtime comparisons remain zero; real GPU/upload adapters and scene integration remain open.
 
 | Czech PC menu in Rust | MISE01 static inspection in Rust |
 | --- | --- |
