@@ -7,7 +7,10 @@
 //! Stored planes, bounds, primitive bytes and ordered cell references remain
 //! available through [`BoundCollisionWorld::source`].
 
-use crate::frame_transform::FrameKey;
+use crate::{
+    collision_links::{CollisionLinkSlot, CollisionLinkWord},
+    frame_transform::FrameKey,
+};
 use lhr_assets::klz::{
     Klz, PrimitiveData, PrimitiveId, PrimitiveKind, PrimitiveRecord, VertexReference,
 };
@@ -33,6 +36,27 @@ pub struct CollisionFrameBinding<'v> {
     /// Hierarchy/placement transforms and instance resolution are caller work.
     /// Volumes only need the owner frame, so their slot may omit this storage.
     pub lod0_world_vertices: Option<&'v [[f32; 3]]>,
+}
+
+/// Geometry owned by an already resolved frame. Name lookup and frame
+/// construction do not create these original-index, world-space vertices.
+#[derive(Clone, Copy, Debug)]
+pub struct CollisionFrameGeometry<'v> {
+    pub frame: FrameKey,
+    pub lod0_world_vertices: Option<&'v [[f32; 3]]>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ResolvedCollisionWorldError {
+    LinkCount {
+        expected: usize,
+        actual: usize,
+    },
+    /// A stopped resolution pass must not become an original null-frame result.
+    UnresolvedLink {
+        link_index: usize,
+    },
+    World(CollisionWorldBindingError),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -320,6 +344,56 @@ pub fn bind_collision_world<'klz, 'data, 'v>(
     source: &'klz Klz<'data>,
     bindings: &[CollisionFrameBinding<'v>],
 ) -> Result<BoundCollisionWorld<'klz, 'data, 'v>, CollisionWorldBindingError> {
+    let count = binding_entry_count(source)?;
+    let slots = frame_slots(source.links.len(), bindings)?;
+    bind_collision_slots(source, &slots, count)
+}
+
+/// Compose completed original link resolution with geometry binding. `links`
+/// must be the slots resolved for this KLZ in its original link order. The
+/// caller retains the real scene/frame owners and supplies their world-space
+/// LOD0 data; this adapter never constructs owners, transforms or geometry.
+///
+/// A resolved volume owner needs no LOD0 array. A triangle with the same owner
+/// still reports MissingLod0Vertices when its array is absent. Repeated geometry
+/// views for one frame remain ambiguous, and resolved null frames remain
+/// missing. All original records and per-record diagnostics are retained.
+pub fn bind_resolved_collision_world<'klz, 'data, 'v>(
+    source: &'klz Klz<'data>,
+    links: &[CollisionLinkSlot<'_>],
+    geometry: &[CollisionFrameGeometry<'v>],
+) -> Result<BoundCollisionWorld<'klz, 'data, 'v>, ResolvedCollisionWorldError> {
+    if links.len() != source.links.len() {
+        return Err(ResolvedCollisionWorldError::LinkCount {
+            expected: source.links.len(),
+            actual: links.len(),
+        });
+    }
+    let count = binding_entry_count(source).map_err(ResolvedCollisionWorldError::World)?;
+    let mut slots = frame_slots(links.len(), &[]).map_err(ResolvedCollisionWorldError::World)?;
+    for (link_index, link) in links.iter().enumerate() {
+        let frame = match link.word {
+            CollisionLinkWord::SourceKind(_) => {
+                return Err(ResolvedCollisionWorldError::UnresolvedLink { link_index });
+            }
+            CollisionLinkWord::Frame(None) => continue,
+            CollisionLinkWord::Frame(Some(frame)) => frame,
+        };
+        let mut matches = geometry.iter().filter(|view| view.frame == frame);
+        let first = matches.next();
+        slots[link_index] = FrameSlot {
+            first: Some(CollisionFrameBinding {
+                link_index,
+                frame,
+                lod0_world_vertices: first.and_then(|view| view.lod0_world_vertices),
+            }),
+            matches: 1 + matches.count(),
+        };
+    }
+    bind_collision_slots(source, &slots, count).map_err(ResolvedCollisionWorldError::World)
+}
+
+fn binding_entry_count(source: &Klz<'_>) -> Result<usize, CollisionWorldBindingError> {
     let count = PrimitiveKind::ALL
         .into_iter()
         .try_fold(0_usize, |count, kind| {
@@ -337,7 +411,14 @@ pub fn bind_collision_world<'klz, 'data, 'v>(
         })
         .filter(|bytes| *bytes <= MAX_BINDING_BYTES)
         .ok_or(CollisionWorldBindingError::StorageQuotaExceeded)?;
-    let slots = frame_slots(source.links.len(), bindings)?;
+    Ok(count)
+}
+
+fn bind_collision_slots<'klz, 'data, 'v>(
+    source: &'klz Klz<'data>,
+    slots: &[FrameSlot<'v>],
+    count: usize,
+) -> Result<BoundCollisionWorld<'klz, 'data, 'v>, CollisionWorldBindingError> {
     let mut entries = Vec::new();
     entries
         .try_reserve_exact(count)
@@ -353,7 +434,7 @@ pub fn bind_collision_world<'klz, 'data, 'v>(
                 } => bind_triangle(
                     vertices,
                     stored_plane,
-                    &slots,
+                    slots,
                     source.world_vertices.len(),
                     |index| source.world_vertices.get(index),
                 )
@@ -362,7 +443,7 @@ pub fn bind_collision_world<'klz, 'data, 'v>(
                     // Every native volume array resolves its u32 record+4 word
                     // through caller slots; this is not a triangle's u16 link.
                     let link_index = u32::from_le_bytes(record.raw()[4..8].try_into().unwrap());
-                    resolve_frame(link_index, &slots).map(|binding| {
+                    resolve_frame(link_index, slots).map(|binding| {
                         BoundCollisionPrimitive::Volume(BoundCollisionVolume {
                             link_index: binding.link_index,
                             frame: binding.frame,
@@ -483,6 +564,140 @@ mod tests {
         }
         bytes.extend_from_slice(&[7, 6, 5, 4, 3, 2, 1, 0]);
         bytes
+    }
+
+    #[test]
+    fn resolved_lookup_binds_real_owner_identity_and_keeps_geometry_separate() {
+        use crate::{
+            collision_links::{resolve_collision_links, CollisionLinkState},
+            frame_fast_lookup::{FastFrameStorage, I3dFastFrameTree, OriginalFrameName},
+        };
+        let bytes = fixture();
+        let original = bytes.clone();
+        let klz = Klz::parse(&bytes).unwrap();
+        let mut tree = I3dFastFrameTree::new(true);
+        for (id, name, kind, parent, scene) in [
+            (40, None, 5, None, Some(7)),
+            (50, None, 5, None, Some(8)),
+            (5, Some(b"f".to_vec()), 1, Some(FrameKey(50)), None),
+            (4, Some(b"f".to_vec()), 1, Some(FrameKey(40)), None),
+        ] {
+            tree.import_frame(FastFrameStorage {
+                frame: FrameKey(id),
+                original_name: if name.is_some() {
+                    OriginalFrameName::Offset(0)
+                } else {
+                    OriginalFrameName::Null
+                },
+                name,
+                frame_type: kind,
+                parent,
+                sector_scene: scene,
+                flags: 0,
+                left: None,
+                right: None,
+            })
+            .unwrap();
+        }
+        // The first name match belongs to a different scene. Both independent
+        // link slots must resolve through the actual duplicate chain.
+        tree.add_to_ff_tree(FrameKey(5)).unwrap();
+        tree.add_to_ff_tree(FrameKey(4)).unwrap();
+        let mut links = [
+            CollisionLinkSlot::unresolved(1, b"f"),
+            CollisionLinkSlot::unresolved(2, b"f"),
+        ];
+        resolve_collision_links(&mut CollisionLinkState {
+            scene: Some(7),
+            links: &mut links,
+            frames: &mut tree,
+        })
+        .unwrap();
+        let without_geometry = bind_resolved_collision_world(&klz, &links, &[]).unwrap();
+        assert_eq!(without_geometry.failures().count(), 2);
+        for (link_index, entry) in without_geometry.entries()[..2].iter().enumerate() {
+            assert_eq!(
+                entry.outcome.err(),
+                Some(CollisionBindingError::MissingLod0Vertices {
+                    link_index,
+                    frame: FrameKey(4),
+                })
+            );
+        }
+        for kind in PrimitiveKind::ALL.into_iter().skip(1) {
+            assert!(matches!(
+                without_geometry
+                    .get(PrimitiveId { kind, index: 0 })
+                    .unwrap()
+                    .outcome,
+                Ok(BoundCollisionPrimitive::Volume(BoundCollisionVolume {
+                    frame: FrameKey(4),
+                    link_index: 1,
+                }))
+            ));
+        }
+        let vertices = [[99.; 3], [1., 2., 3.], [4., 5., 6.], [7., 8., 9.]];
+        let geometry = [CollisionFrameGeometry {
+            frame: FrameKey(4),
+            lod0_world_vertices: Some(&vertices),
+        }];
+        let bound = bind_resolved_collision_world(&klz, &links, &geometry).unwrap();
+        assert_eq!(bound.entries().len(), 8);
+        assert_eq!(bound.failures().count(), 0);
+        let Ok(BoundCollisionPrimitive::Triangle(triangle)) = bound.entries()[0].outcome else {
+            panic!("resolved triangle must retain its original geometry");
+        };
+        assert_eq!(triangle.geometry.indices(), [3, 1, 2]);
+        assert_eq!(
+            triangle.geometry.positions(),
+            [vertices[3], vertices[1], vertices[2]]
+        );
+        assert_eq!(bytes, original);
+    }
+
+    #[test]
+    fn resolved_binding_rejects_unfinished_pass_and_preserves_null_and_ambiguity() {
+        let bytes = fixture();
+        let klz = Klz::parse(&bytes).unwrap();
+        let mut links = [CollisionLinkSlot::unresolved(1, b"f"); 2];
+        assert!(matches!(
+            bind_resolved_collision_world(&klz, &links[..1], &[]),
+            Err(ResolvedCollisionWorldError::LinkCount {
+                expected: 2,
+                actual: 1
+            })
+        ));
+        links[1].word = CollisionLinkWord::Frame(None);
+        assert!(matches!(
+            bind_resolved_collision_world(&klz, &links, &[]),
+            Err(ResolvedCollisionWorldError::UnresolvedLink { link_index: 0 })
+        ));
+        links[0].word = CollisionLinkWord::Frame(Some(FrameKey(4)));
+        let vertices = [[1.; 3]; 4];
+        let geometry = [CollisionFrameGeometry {
+            frame: FrameKey(4),
+            lod0_world_vertices: Some(&vertices),
+        }; 2];
+        let world = bind_resolved_collision_world(&klz, &links, &geometry).unwrap();
+        assert_eq!(world.failures().count(), 7);
+        assert_eq!(
+            world.entries()[0].outcome.err(),
+            Some(CollisionBindingError::AmbiguousFrame {
+                link_index: 0,
+                matches: 2,
+            })
+        );
+        assert_eq!(
+            world.entries()[1].outcome.err(),
+            Some(CollisionBindingError::MissingFrame { link_index: 1 })
+        );
+        assert!(world.entries()[2].outcome.is_ok());
+        for entry in &world.entries()[3..] {
+            assert_eq!(
+                entry.outcome.err(),
+                Some(CollisionBindingError::MissingFrame { link_index: 1 })
+            );
+        }
     }
 
     #[test]

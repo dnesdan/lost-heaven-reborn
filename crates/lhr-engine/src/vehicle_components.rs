@@ -695,6 +695,245 @@ impl VehicleInitState {
     }
 }
 
+/// Opt-in production composition of the three actual BODYCOL functions with
+/// the existing Init continuation. Other native dependencies retain their
+/// explicit backend contracts. The backend must provide disjoint, addressable
+/// callback stack scratch described by `storage`.
+pub struct VehicleBodycolComponents<'a, B: ?Sized> {
+    backend: &'a mut B,
+    storage: crate::vehicle_bodycol::VehicleBodycolStorage,
+}
+impl<'a, B: ?Sized> VehicleBodycolComponents<'a, B> {
+    pub fn new(backend: &'a mut B, storage: crate::vehicle_bodycol::VehicleBodycolStorage) -> Self {
+        Self { backend, storage }
+    }
+}
+fn bodycol_init_error<E>(
+    error: VehicleInitUnavailable<E>,
+) -> VehicleInitUnavailable<crate::vehicle_bodycol::VehicleBodycolUnavailable<E>> {
+    match error {
+        VehicleInitUnavailable::Storage(address) => VehicleInitUnavailable::Storage(address),
+        VehicleInitUnavailable::Effect(error) => VehicleInitUnavailable::Effect(
+            crate::vehicle_bodycol::VehicleBodycolUnavailable::Effect(error),
+        ),
+        VehicleInitUnavailable::AlreadyStarted => VehicleInitUnavailable::AlreadyStarted,
+    }
+}
+impl<B: VehicleComponentsBackend + crate::vehicle_bodycol::VehicleBodycolBackend> VehicleInitBackend
+    for VehicleBodycolComponents<'_, B>
+{
+    type Error = crate::vehicle_bodycol::VehicleBodycolUnavailable<B::Error>;
+    fn read_byte(&mut self, address: u32) -> Result<u8, Self::Error> {
+        self.backend
+            .read_byte(address)
+            .map_err(crate::vehicle_bodycol::VehicleBodycolUnavailable::Effect)
+    }
+    fn read_word(&mut self, address: u32) -> Result<u32, Self::Error> {
+        self.backend
+            .read_word(address)
+            .map_err(crate::vehicle_bodycol::VehicleBodycolUnavailable::Effect)
+    }
+    fn write_byte(&mut self, address: u32, value: u8) -> Result<(), Self::Error> {
+        self.backend
+            .write_byte(address, value)
+            .map_err(crate::vehicle_bodycol::VehicleBodycolUnavailable::Effect)
+    }
+    fn write_word(&mut self, address: u32, value: u32) -> Result<(), Self::Error> {
+        self.backend
+            .write_word(address, value)
+            .map_err(crate::vehicle_bodycol::VehicleBodycolUnavailable::Effect)
+    }
+    fn allocate(&mut self, bytes: u32) -> Result<u32, Self::Error> {
+        self.backend
+            .allocate(bytes)
+            .map_err(crate::vehicle_bodycol::VehicleBodycolUnavailable::Effect)
+    }
+    fn free(&mut self, allocation: u32) -> Result<(), Self::Error> {
+        self.backend
+            .free(allocation)
+            .map_err(crate::vehicle_bodycol::VehicleBodycolUnavailable::Effect)
+    }
+    fn collect_frame(
+        &mut self,
+        vector: &mut VehicleInitFrameVector,
+        frame: u32,
+    ) -> Result<(), Self::Error> {
+        self.backend
+            .collect_frame(vector, frame)
+            .map_err(crate::vehicle_bodycol::VehicleBodycolUnavailable::Effect)
+    }
+    fn enumerate(
+        &mut self,
+        model: u32,
+        query: VehicleInitQuery,
+        target: &mut VehicleInitEnumeration<'_>,
+    ) -> Result<(), VehicleInitUnavailable<Self::Error>> {
+        self.backend
+            .enumerate(model, query, target)
+            .map_err(bodycol_init_error)
+    }
+}
+impl<B: VehicleComponentsBackend + crate::vehicle_bodycol::VehicleBodycolBackend>
+    VehicleComponentsBackend for VehicleBodycolComponents<'_, B>
+{
+    fn prepare_frame_matrix(&mut self, frame: u32) -> Result<(), Self::Error> {
+        self.backend
+            .prepare_frame_matrix(frame)
+            .map_err(crate::vehicle_bodycol::VehicleBodycolUnavailable::Effect)
+    }
+    fn normalize_frame_quaternion(&mut self, frame: u32) -> Result<(), Self::Error> {
+        self.backend
+            .normalize_frame_quaternion(frame)
+            .map_err(crate::vehicle_bodycol::VehicleBodycolUnavailable::Effect)
+    }
+    fn set_frame_rotation_matrix(&mut self, frame: u32) -> Result<(), Self::Error> {
+        self.backend
+            .set_frame_rotation_matrix(frame)
+            .map_err(crate::vehicle_bodycol::VehicleBodycolUnavailable::Effect)
+    }
+    fn insert_exhaust(
+        &mut self,
+        vehicle: &mut [u8],
+        insertion: u32,
+        value: [u32; 6],
+    ) -> Result<(), Self::Error> {
+        self.backend
+            .insert_exhaust(vehicle, insertion, value)
+            .map_err(crate::vehicle_bodycol::VehicleBodycolUnavailable::Effect)
+    }
+    fn insert_special_point(
+        &mut self,
+        vehicle: &mut [u8],
+        insertion: u32,
+        point: [u32; 3],
+    ) -> Result<(), Self::Error> {
+        self.backend
+            .insert_special_point(vehicle, insertion, point)
+            .map_err(crate::vehicle_bodycol::VehicleBodycolUnavailable::Effect)
+    }
+    fn insert_special_control(
+        &mut self,
+        vehicle: &mut [u8],
+        insertion: u32,
+        kind: u32,
+        enabled: u8,
+    ) -> Result<(), Self::Error> {
+        self.backend
+            .insert_special_control(vehicle, insertion, kind, enabled)
+            .map_err(crate::vehicle_bodycol::VehicleBodycolUnavailable::Effect)
+    }
+    fn special_collision_callback(
+        &mut self,
+        function: u32,
+        context: u32,
+        frame: u32,
+        control_pointer: u32,
+        index: u32,
+    ) -> Result<(), Self::Error> {
+        self.backend
+            .special_collision_callback(function, context, frame, control_pointer, index)
+            .map_err(crate::vehicle_bodycol::VehicleBodycolUnavailable::Effect)
+    }
+    fn link_frame(&mut self, frame: u32, parent: u32, flags: u32) -> Result<(), Self::Error> {
+        self.backend
+            .link_frame(frame, parent, flags)
+            .map_err(crate::vehicle_bodycol::VehicleBodycolUnavailable::Effect)
+    }
+    fn remove_model_child(&mut self, model: u32, frame: u32) -> Result<(), Self::Error> {
+        self.backend
+            .remove_model_child(model, frame)
+            .map_err(crate::vehicle_bodycol::VehicleBodycolUnavailable::Effect)
+    }
+    fn enumerate_components(
+        &mut self,
+        model: u32,
+        query: VehicleComponentsQuery,
+        target: &mut VehicleComponentsEnumeration<'_>,
+    ) -> Result<(), VehicleInitUnavailable<Self::Error>> {
+        if let ComponentEnumerationTarget::BodyCollision(vehicle, context) = &mut target.target {
+            let mut actual = crate::vehicle_bodycol::VehicleBodycolEnumeration::components(
+                vehicle,
+                self.storage,
+                *context,
+            );
+            self.backend
+                .bodycol_enumerate(model, query.pattern(), query.mask(), &mut actual)
+                .map_err(VehicleInitUnavailable::Effect)
+        } else {
+            self.backend
+                .enumerate_components(model, query, target)
+                .map_err(bodycol_init_error)
+        }
+    }
+    fn body_collision_callback(
+        &mut self,
+        vehicle: &mut [u8],
+        context: VehicleBodyCollisionContext,
+        frame: u32,
+    ) -> Result<u32, Self::Error> {
+        let mut projection = crate::vehicle_bodycol::VehicleBodycolProjection::new(
+            self.backend,
+            vehicle,
+            self.storage,
+        )?;
+        crate::vehicle_bodycol::bodycol_callback(
+            &mut projection,
+            self.storage.vehicle_address.wrapping_add(0x4ac),
+            context,
+            frame,
+            self.storage.callback_scratch,
+        )
+    }
+    fn finish_body_collision_callbacks(
+        &mut self,
+        vehicle: &mut [u8],
+        context: VehicleBodyCollisionContext,
+    ) -> Result<(), Self::Error> {
+        let mut projection = crate::vehicle_bodycol::VehicleBodycolProjection::new(
+            self.backend,
+            vehicle,
+            self.storage,
+        )?;
+        crate::vehicle_bodycol::bodycol_descendant_pass(
+            &mut projection,
+            self.storage.vehicle_address.wrapping_add(0x4ac),
+            context.name_length_with_nul,
+            self.storage.descendant_scratch,
+        )
+    }
+    fn update_model_world_matrix(&mut self, model: u32) -> Result<(), Self::Error> {
+        self.backend
+            .update_model_world_matrix(model)
+            .map_err(crate::vehicle_bodycol::VehicleBodycolUnavailable::Effect)
+    }
+    fn initialize_body_collision(
+        &mut self,
+        vehicle: &mut [u8],
+        model: u32,
+        name_length_with_nul: u32,
+    ) -> Result<(), Self::Error> {
+        let mut projection = crate::vehicle_bodycol::VehicleBodycolProjection::new(
+            self.backend,
+            vehicle,
+            self.storage,
+        )?;
+        crate::vehicle_bodycol::bodycol_transform_detach(
+            &mut projection,
+            self.storage.vehicle_address.wrapping_add(0x4ac),
+            self.storage.vehicle_address.wrapping_add(0xd28),
+            model,
+            name_length_with_nul,
+            false,
+        )
+        .map(|_| ())
+    }
+    fn parse_component_number(&mut self, address: u32) -> Result<i32, Self::Error> {
+        self.backend
+            .parse_component_number(address)
+            .map_err(crate::vehicle_bodycol::VehicleBodycolUnavailable::Effect)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -732,6 +971,7 @@ mod tests {
         World(u32),
         InitializeBody(u32, u32),
         Parse(u32),
+        BodycolEnumerate(u32),
     }
     #[derive(Clone)]
     struct Backend {
@@ -742,6 +982,8 @@ mod tests {
         doors: bool,
         next_vector: u32,
         callback_returns: Vec<u32>,
+        actual_bodycol: bool,
+        allocation_cursor: Option<u32>,
     }
     fn put_state(bytes: &mut [u8], offset: usize, value: u32) {
         bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
@@ -756,6 +998,8 @@ mod tests {
                 doors,
                 next_vector: 0x10000,
                 callback_returns: vec![],
+                actual_bodycol: false,
+                allocation_cursor: None,
             };
             result.put(MODEL + 4, 1);
             result.put(MODEL + 0x110, 9);
@@ -856,7 +1100,13 @@ mod tests {
         }
         fn allocate(&mut self, bytes: u32) -> Result<u32, Self::Error> {
             self.event(Event::Allocate(bytes))?;
-            Ok(0x13000)
+            if let Some(cursor) = &mut self.allocation_cursor {
+                let result = *cursor;
+                *cursor += bytes.max(0x100).next_multiple_of(0x100);
+                Ok(result)
+            } else {
+                Ok(0x13000)
+            }
         }
         fn collect_frame(
             &mut self,
@@ -987,6 +1237,7 @@ mod tests {
                     name_length_with_nul: 10
                 }
             );
+            assert!(!self.actual_bodycol, "legacy BODYCOL callback reached");
             self.event(Event::BodyCollision(frame))?;
             put_state(vehicle, 0x4b0, 0x15000);
             Ok(0x55)
@@ -996,6 +1247,7 @@ mod tests {
             _vehicle: &mut [u8],
             _context: VehicleBodyCollisionContext,
         ) -> Result<(), Self::Error> {
+            assert!(!self.actual_bodycol, "legacy BODYCOL postpass reached");
             self.event(Event::FinishBody)
         }
         fn update_model_world_matrix(&mut self, model: u32) -> Result<(), Self::Error> {
@@ -1007,6 +1259,7 @@ mod tests {
             model: u32,
             length: u32,
         ) -> Result<(), Self::Error> {
+            assert!(!self.actual_bodycol, "legacy BODYCOL transform reached");
             self.event(Event::InitializeBody(model, length))?;
             assert_eq!(
                 u32::from_le_bytes(vehicle[0xd28..0xd2c].try_into().unwrap()),
@@ -1021,6 +1274,190 @@ mod tests {
         fn parse_component_number(&mut self, address: u32) -> Result<i32, Self::Error> {
             self.event(Event::Parse(address))?;
             Ok(i32::from(self.memory[&address] - b'0'))
+        }
+    }
+    impl crate::vehicle_bodycol::VehicleBodycolBackend for Backend {
+        fn bodycol_update_world(&mut self, frame: u32) -> Result<(), Self::Error> {
+            self.event(Event::World(frame))?;
+            let flags = self.word(frame + 0xac);
+            self.put(frame + 0xac, flags | 0x20);
+            Ok(())
+        }
+        fn bodycol_link_frame(
+            &mut self,
+            frame: u32,
+            parent: u32,
+            flags: u32,
+        ) -> Result<(), Self::Error> {
+            self.link_frame(frame, parent, flags)
+        }
+        fn bodycol_remove_model_child(
+            &mut self,
+            model: u32,
+            frame: u32,
+        ) -> Result<(), Self::Error> {
+            self.remove_model_child(model, frame)
+        }
+        fn bodycol_enumerate(
+            &mut self,
+            frame: u32,
+            pattern: &[u8],
+            mask: u32,
+            target: &mut crate::vehicle_bodycol::VehicleBodycolEnumeration<'_>,
+        ) -> Result<(), crate::vehicle_bodycol::VehicleBodycolUnavailable<Self::Error>> {
+            use crate::vehicle_bodycol::VehicleBodycolUnavailable::Effect;
+            assert!(self.actual_bodycol);
+            assert_eq!(mask, 0x10020);
+            self.event(Event::BodycolEnumerate(frame)).map_err(Effect)?;
+            let frames: &[u32] = match frame {
+                MODEL => {
+                    assert_eq!(pattern, b"BODYCOL*");
+                    &[0x16000, 0x18000]
+                }
+                0x16000 => {
+                    assert_eq!(pattern, b"*");
+                    &[0x18000]
+                }
+                0x18000 => {
+                    assert_eq!(pattern, b"*");
+                    &[0x1a000]
+                }
+                _ => panic!("unexpected BODYCOL enumeration"),
+            };
+            for frame in frames {
+                let value = target.visit(*frame, self)?;
+                assert_eq!(value, 0);
+            }
+            Ok(())
+        }
+    }
+    fn actual_bodycol_backend() -> Backend {
+        let mut backend = Backend::new(false, false);
+        backend.actual_bodycol = true;
+        backend.allocation_cursor = Some(0x30000);
+        for (frame, parent, text, position, translation) in [
+            (
+                0x16000,
+                MODEL,
+                b"synthetic.BODYCOL0\0".as_slice(),
+                [1., 2., 3.],
+                4.,
+            ),
+            (
+                0x18000,
+                0x16000,
+                b"synthetic.BODYCOL1\0".as_slice(),
+                [2., 4., 6.],
+                10.,
+            ),
+            (
+                0x1a000,
+                0x18000,
+                b"synthetic.SOLID0\0".as_slice(),
+                [1., 2., 3.],
+                0.,
+            ),
+        ] {
+            backend.put(frame + 0x120, parent);
+            backend.put(frame + 0x100, frame + 0x1000);
+            backend.put(frame + 0xac, 0x20);
+            backend.text(frame + 0x1000, text);
+            let mut matrix = SMatrix::identity();
+            matrix.elements[12] = translation;
+            backend.put_matrix(frame + 0x10, matrix);
+            for (index, number) in position.into_iter().enumerate() {
+                backend.put(frame + 0x80 + index as u32 * 4, f32::to_bits(number));
+            }
+            for (index, number) in [-1f32, -2., -3., 1., 2., 3.].into_iter().enumerate() {
+                backend.put(frame + 0x140 + index as u32 * 4, number.to_bits());
+            }
+        }
+        backend
+    }
+    fn actual_bodycol_storage() -> crate::vehicle_bodycol::VehicleBodycolStorage {
+        crate::vehicle_bodycol::VehicleBodycolStorage {
+            vehicle_address: 0x100000,
+            callback_scratch: crate::vehicle_bodycol::VehicleBodycolScratch {
+                record: 0x28000,
+                leading_byte: 0xa5,
+                nested_byte: 0x5a,
+            },
+            descendant_scratch: 0x28100,
+        }
+    }
+    #[test]
+    fn actual_bodycol_composes_with_init_and_nested_descendant_ownership() {
+        let mut backend = actual_bodycol_backend();
+        let mut state = state();
+        let mut adapter = VehicleBodycolComponents::new(&mut backend, actual_bodycol_storage());
+        assert_eq!(
+            state.init_components(&mut adapter, MODEL),
+            Ok(VehicleComponentsOutcome::UnavailableFrontier(
+                VehicleComponentsFrontier::BallastEnumeration
+            ))
+        );
+        let top = state.load::<()>(0x4b0).unwrap();
+        assert_eq!(backend.word(top + 0x20), 0);
+        let nested = backend.word(top + 0x14);
+        assert_eq!(backend.word(nested + 0x20), 0);
+        let descendant = backend.word(nested + 4);
+        assert_eq!(backend.word(descendant), 0);
+        assert_eq!(f32::from_bits(backend.word(descendant + 4)), 2.5);
+        let removed: Vec<_> = backend
+            .events
+            .iter()
+            .filter_map(|event| match event {
+                Event::Remove(MODEL, frame) => Some(*frame),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(removed, [0x1a000, 0x18000, 0x16000]);
+    }
+    #[test]
+    fn actual_bodycol_effect_failures_preserve_live_projection_and_consumed_frontier() {
+        let mut reference = actual_bodycol_backend();
+        let mut complete = state();
+        complete
+            .init_components(
+                &mut VehicleBodycolComponents::new(&mut reference, actual_bodycol_storage()),
+                MODEL,
+            )
+            .unwrap();
+        for (failure, event) in reference.events.iter().enumerate() {
+            if !matches!(event, Event::Remove(MODEL, 0x1a000 | 0x18000 | 0x16000)) {
+                continue;
+            }
+            let mut backend = actual_bodycol_backend();
+            backend.fail = Some(failure);
+            let mut state = state();
+            assert!(state
+                .init_components(
+                    &mut VehicleBodycolComponents::new(&mut backend, actual_bodycol_storage()),
+                    MODEL
+                )
+                .is_err());
+            let top = state.load::<()>(0x4b0).unwrap();
+            assert_ne!(top, 0, "live header stores survive failure");
+            assert_eq!(backend.events, reference.events[..=failure]);
+            let nested = backend.word(top + 0x14);
+            let retained = if matches!(event, Event::Remove(MODEL, 0x1a000)) {
+                backend.word(backend.word(nested + 4))
+            } else if matches!(event, Event::Remove(MODEL, 0x18000)) {
+                backend.word(nested + 0x20)
+            } else {
+                backend.word(top + 0x20)
+            };
+            assert_ne!(
+                retained, 0,
+                "slot is nulled only after model removal succeeds"
+            );
+            assert_eq!(
+                state.continue_components(&mut VehicleBodycolComponents::new(
+                    &mut backend,
+                    actual_bodycol_storage()
+                )),
+                Err(VehicleComponentsUnavailable::NoContinuation)
+            );
         }
     }
     fn state() -> VehicleInitState {

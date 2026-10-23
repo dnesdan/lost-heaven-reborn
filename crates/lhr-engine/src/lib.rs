@@ -13,6 +13,7 @@ pub mod c_str;
 pub mod clock;
 pub mod collision_dispatch;
 pub mod collision_line;
+pub mod collision_links;
 pub mod collision_prepare;
 pub mod collision_query;
 pub mod collision_volumes;
@@ -20,6 +21,7 @@ pub mod collision_world;
 pub mod driver_state;
 pub mod frame_delta;
 pub mod frame_dispatch;
+pub mod frame_fast_lookup;
 pub mod frame_lookup;
 pub mod frame_transform;
 pub mod i3d_object;
@@ -58,6 +60,8 @@ pub mod skeletal_playback;
 pub mod target_direction;
 pub mod target_state;
 pub mod texture_manager;
+pub mod vehicle_bodycol;
+pub mod vehicle_bodycol_records;
 pub mod vehicle_controls;
 pub mod vehicle_drivetrain;
 pub mod vehicle_init;
@@ -69,15 +73,18 @@ pub mod visual_resources;
 /// Original engine-library namespace, without moving existing modules or
 /// claiming an additional DLL/Cargo package or a complete LS3DF reconstruction.
 pub mod ls3df {
-    pub use crate::{c_str, frame_lookup, i3d_object, itexture, texture_manager};
+    pub use crate::{
+        c_str, frame_fast_lookup, frame_lookup, i3d_object, itexture, texture_manager,
+    };
 }
 
 /// Original game executable boundary; replay helper names remain descriptive.
 pub mod game {
     pub use crate::{
-        actor_world, collision_dispatch, collision_line, collision_prepare, collision_query,
-        collision_volumes, collision_world, original_program, program_instructions, program_parser,
-        replay_state, script_lookup, script_scheduler, vehicle_controls, vehicle_drivetrain,
+        actor_world, collision_dispatch, collision_line, collision_links, collision_prepare,
+        collision_query, collision_volumes, collision_world, original_program,
+        program_instructions, program_parser, replay_state, script_lookup, script_scheduler,
+        vehicle_bodycol, vehicle_bodycol_records, vehicle_controls, vehicle_drivetrain,
         vehicle_init, vehicle_owner, vehicle_sound,
     };
 }
