@@ -835,6 +835,22 @@ impl TextureResources {
     /// Existing texture graphics must be null: pool graphics are adopted as
     /// separately owned references, then the texture receives only a borrow.
     pub fn install_managed_world(&mut self, input: ManagedWorldIntake) -> Result<(), TextureError> {
+        self.install_managed_world_inner(input, false)
+    }
+    /// Explicit cleanup-world intake. Unlike normal world intake, permits live
+    /// pool owners whose loaded bit is already clear. All ownership, allocation,
+    /// queue and lifetime guards remain; removal guards are unchanged.
+    pub fn install_managed_unload_world(
+        &mut self,
+        input: ManagedWorldIntake,
+    ) -> Result<(), TextureError> {
+        self.install_managed_world_inner(input, true)
+    }
+    fn install_managed_world_inner(
+        &mut self,
+        input: ManagedWorldIntake,
+        allow_unloaded_owners: bool,
+    ) -> Result<(), TextureError> {
         self.available()?;
         for binding in &input.bindings {
             let t = self.textures.live(binding.texture)?;
@@ -864,7 +880,10 @@ impl TextureResources {
                 return Err(ManagerError::InvalidIdentity.into());
             }
         }
-        let bindings = self.textures.manager.install(input)?;
+        let bindings = self
+            .textures
+            .manager
+            .install(input, allow_unloaded_owners)?;
         for binding in bindings {
             let t = self.textures.texture_mut(binding.texture);
             t.flags = binding.flags;
@@ -899,6 +918,38 @@ impl TextureResources {
         self.textures
             .manager
             .request(key, record, flags, frame_counter, effects)
+            .map_err(TextureOperationError::Manager)
+    }
+    /// Standalone UnloadManagedTextures (upstream working name), PC RVA0x7afe0.
+    /// Clears loaded flags and weak owners only; borrowed graphics survive.
+    pub fn unload_managed_textures<B: TextureBackend + ?Sized>(
+        &mut self,
+        b: &mut B,
+    ) -> Result<(), TextureOperationError<<B as BufferBackend>::Error>> {
+        self.available()?;
+        // Cleanup accepts already-unloaded owners, but never dead identities.
+        for owner in self
+            .textures
+            .manager
+            .pools()
+            .iter()
+            .flatten()
+            .filter_map(|s| s.owner)
+        {
+            self.textures.live(owner)?;
+        }
+        let effects = b
+            .managed_texture_effects()
+            .ok_or(TextureError::ManagedUnsupported)?;
+        let slots = &mut self.textures.slots;
+        self.textures
+            .manager
+            .unload(
+                |owner| {
+                    slots[(owner.slot - 1) as usize].as_mut().unwrap().flags &= 0x7fffffff;
+                },
+                effects,
+            )
             .map_err(TextureOperationError::Manager)
     }
     /// Original manager-removal projection. It preserves the texture's raw
@@ -2850,6 +2901,281 @@ mod tests {
             },
             b,
         )
+    }
+    #[test]
+    fn unload_sparse_duplicate_and_already_unloaded_owners_preserves_every_other_resource() {
+        let mut r = TextureResources::new().unwrap();
+        let mut b = Backend {
+            managed_enabled: true,
+            request_enabled: true,
+            ..Backend::default()
+        };
+        let (loaded, mut input) = managed_fixture(&mut r, &mut b, false, false);
+        let unloaded = r.create_texture().unwrap();
+        input.bindings.push(ManagedBinding {
+            texture: unloaded,
+            flags: 0x40000140,
+            record: None,
+            graphics: None,
+        });
+        input.pools[0][1].owner = Some(unloaded);
+        input.pools[1][0].owner = None;
+        input.pools[2][1].owner = Some(loaded);
+        // The ordinary intake remains strict. Cleanup intake changes only the
+        // loaded-bit requirement, admitting its already-unloaded-owner path.
+        assert!(r.install_managed_world(input).is_err());
+        let (loaded2, mut input) = managed_fixture(&mut r, &mut b, false, false);
+        input.bindings.push(ManagedBinding {
+            texture: unloaded,
+            flags: 0x40000140,
+            record: None,
+            graphics: None,
+        });
+        input.pools[0][1].owner = Some(unloaded);
+        input.pools[1][0].owner = None;
+        input.pools[2][1].owner = Some(loaded2);
+        let queue = input.queue;
+        let counters = input.counters;
+        let preserved: Vec<_> = input
+            .pools
+            .iter()
+            .flatten()
+            .map(|s| (s.preserved, s.resources))
+            .collect();
+        r.install_managed_unload_world(input).unwrap();
+        let record = r.texture_manager().active_records()[0];
+        let graphics = r.texture(loaded2).unwrap().graphics;
+        let references = r.texture(loaded2).unwrap().references;
+        let textures = b.textures.clone();
+        let surfaces = b.surfaces.clone();
+        let files = b.managed_files.clone();
+        let records = b.managed_records.clone();
+        assert!(r.request_texture(loaded2, 122, &mut b).unwrap());
+        let record_before = format!("{:?}", r.texture_manager().record(record).unwrap());
+        b.events.clear();
+        r.unload_managed_textures(&mut b).unwrap();
+        assert_eq!(b.events, [Event::Enter, Event::Leave]);
+        assert_eq!(r.texture(loaded2).unwrap().flags, 0x4000014e);
+        assert_eq!(r.texture(unloaded).unwrap().flags, 0x40000140);
+        assert_eq!(r.texture(loaded2).unwrap().graphics, graphics);
+        assert_eq!(r.texture(loaded2).unwrap().references, references);
+        assert_eq!(r.texture_manager().queue(), &queue);
+        assert_eq!(r.texture_manager().counters(), counters);
+        assert_eq!(
+            format!("{:?}", r.texture_manager().record(record).unwrap()),
+            record_before
+        );
+        assert!(r
+            .texture_manager()
+            .pools()
+            .iter()
+            .flatten()
+            .all(|s| s.owner.is_none()));
+        assert_eq!(
+            r.texture_manager()
+                .pools()
+                .iter()
+                .flatten()
+                .map(|s| (s.preserved, s.resources))
+                .collect::<Vec<_>>(),
+            preserved
+        );
+        assert_eq!(
+            (
+                b.textures.clone(),
+                b.surfaces.clone(),
+                b.managed_files.clone(),
+                b.managed_records.clone()
+            ),
+            (textures, surfaces, files, records)
+        );
+        b.events.clear();
+        r.unload_managed_textures(&mut b).unwrap();
+        assert_eq!(b.events, [Event::Enter, Event::Leave]);
+        // Already queued Request refreshes storage but cannot claim availability;
+        // the intentionally stale borrowed graphics survives both operations.
+        assert!(!r.request_texture(loaded2, 123, &mut b).unwrap());
+        assert_eq!(r.texture(loaded2).unwrap().graphics, graphics);
+        assert_eq!(
+            r.texture_manager().record(record).unwrap().last_frame,
+            Some(123)
+        );
+        assert_eq!(r.texture_manager().counters(), counters);
+        assert_eq!(r.texture(loaded).unwrap().flags & 0x40, 0);
+        r.close_texture(loaded2, &mut b).unwrap();
+        assert!(r.texture(loaded2).unwrap().graphics.is_none());
+        assert!(r.texture(loaded2).unwrap().managed_record.is_none());
+        // The texture borrow was cleared, with pool-owned references retained.
+        assert_eq!(b.textures.len(), 12);
+    }
+    #[test]
+    fn unload_loaded_request_becomes_queued_without_releasing_stale_graphics() {
+        let mut r = TextureResources::new().unwrap();
+        let mut b = Backend {
+            managed_enabled: true,
+            request_enabled: true,
+            ..Backend::default()
+        };
+        let (key, mut input) = managed_fixture(&mut r, &mut b, false, false);
+        input.bindings[0].flags &= !0x40000000;
+        input.queue = [None; 256];
+        input.counters.len = 0;
+        r.install_managed_world(input).unwrap();
+        let graphics = r.texture(key).unwrap().graphics;
+        let textures = b.textures.clone();
+        assert!(r.request_texture(key, 5, &mut b).unwrap());
+        r.unload_managed_textures(&mut b).unwrap();
+        assert!(!r.request_texture(key, 6, &mut b).unwrap());
+        assert_eq!(r.texture(key).unwrap().flags & 0xc0000000, 0x40000000);
+        assert_eq!(r.texture_manager().queue()[91], Some(key));
+        assert_eq!(
+            r.texture_manager().counters(),
+            QueueCounters {
+                out: 17,
+                put: 92,
+                len: 1
+            }
+        );
+        assert_eq!(r.texture(key).unwrap().graphics, graphics);
+        assert_eq!(b.textures, textures);
+        r.close_texture(key, &mut b).unwrap();
+        assert!(r.texture(key).unwrap().graphics.is_none());
+        assert_eq!(b.textures, textures);
+    }
+    #[test]
+    fn unload_manager_visits_pool_order_reverse_slots_and_duplicate_owners() {
+        let mut r = TextureResources::new().unwrap();
+        let mut b = Backend {
+            managed_enabled: true,
+            ..Backend::default()
+        };
+        let keys: Vec<_> = (0..4).map(|_| r.create_texture().unwrap()).collect();
+        let mut pools: [Vec<PoolIntake>; 3] = std::array::from_fn(|_| {
+            (0..6)
+                .map(|_| PoolIntake {
+                    owner: None,
+                    preserved: [0; 40],
+                    resources: PoolResources {
+                        graphics: None,
+                        surface: None,
+                    },
+                })
+                .collect()
+        });
+        let visits = [
+            (0, 5, 0),
+            (0, 2, 1),
+            (0, 0, 0),
+            (1, 4, 2),
+            (1, 1, 3),
+            (2, 5, 1),
+            (2, 3, 0),
+        ];
+        for (pool, slot, owner) in visits {
+            pools[pool][slot].owner = Some(keys[owner]);
+        }
+        r.install_managed_unload_world(ManagedWorldIntake {
+            records: vec![],
+            queue: [None; 256],
+            counters: QueueCounters {
+                out: 0,
+                put: 0,
+                len: 0,
+            },
+            pools,
+            bindings: keys
+                .iter()
+                .map(|&texture| ManagedBinding {
+                    texture,
+                    flags: 0x40,
+                    record: None,
+                    graphics: None,
+                })
+                .collect(),
+        })
+        .unwrap();
+        let mut seen = Vec::new();
+        r.textures
+            .manager
+            .unload(|owner| seen.push(owner), &mut b)
+            .unwrap();
+        assert_eq!(seen, visits.map(|(_, _, owner)| keys[owner]));
+        assert!(r
+            .texture_manager()
+            .pools()
+            .iter()
+            .flatten()
+            .all(|s| s.owner.is_none()));
+        seen.clear();
+        r.textures
+            .manager
+            .unload(|owner| seen.push(owner), &mut b)
+            .unwrap();
+        assert!(seen.is_empty());
+        assert_eq!(
+            b.events,
+            [Event::Enter, Event::Leave, Event::Enter, Event::Leave]
+        );
+    }
+    #[test]
+    fn unload_empty_and_missing_backend_have_exact_lock_behavior() {
+        let mut r = TextureResources::new().unwrap();
+        let mut b = Backend::default();
+        assert!(r.unload_managed_textures(&mut b).is_err());
+        assert!(b.events.is_empty());
+        b.managed_enabled = true;
+        r.unload_managed_textures(&mut b).unwrap();
+        assert_eq!(b.events, [Event::Enter, Event::Leave]);
+    }
+    #[test]
+    fn unload_lock_failures_poison_and_retain_the_completed_prefix() {
+        for enter in [true, false] {
+            let mut r = TextureResources::new().unwrap();
+            let mut b = Backend {
+                managed_enabled: true,
+                ..Backend::default()
+            };
+            let (key, input) = managed_fixture(&mut r, &mut b, false, false);
+            r.install_managed_world(input).unwrap();
+            b.fail_enter = enter;
+            b.fail_leave = !enter;
+            b.events.clear();
+            assert_eq!(
+                r.unload_managed_textures(&mut b),
+                Err(TextureOperationError::Manager(
+                    ManagedOperationError::Backend {
+                        stage: if enter {
+                            ManagedStage::Enter
+                        } else {
+                            ManagedStage::Leave
+                        },
+                        error: if enter {
+                            "enter rejected without lock"
+                        } else {
+                            "leave failed"
+                        },
+                        leave_error: None,
+                    }
+                ))
+            );
+            assert_eq!(r.texture(key).unwrap().flags & 0x80000000 != 0, enter);
+            assert_eq!(
+                r.texture_manager().pools()[0][0].owner,
+                if enter { Some(key) } else { None }
+            );
+            assert_eq!(
+                b.events,
+                if enter {
+                    vec![Event::Enter]
+                } else {
+                    vec![Event::Enter, Event::Leave]
+                }
+            );
+            assert!(r.texture_manager().is_poisoned());
+            let count = b.events.len();
+            assert!(r.unload_managed_textures(&mut b).is_err());
+            assert_eq!(b.events.len(), count);
+        }
     }
     #[test]
     fn request_actual_creation_repeat_remove_close_preserves_weak_queue_contract() {

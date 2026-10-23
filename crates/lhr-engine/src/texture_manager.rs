@@ -766,6 +766,7 @@ impl TextureManager {
     pub(crate) fn install(
         &mut self,
         input: ManagedWorldIntake,
+        allow_unloaded_owners: bool,
     ) -> Result<Vec<ManagedBinding>, ManagerError> {
         if self.poisoned {
             return Err(ManagerError::Poisoned);
@@ -808,11 +809,12 @@ impl TextureManager {
                 .flatten()
                 .any(|p| p.owner == Some(b.texture))
                 && b.flags & 0x80000000 == 0
+                && !allow_unloaded_owners
             {
                 return Err(ManagerError::Incoherent);
             }
             if let Some(g) = b.graphics {
-                if b.flags & 0x80000000 == 0
+                if (!allow_unloaded_owners && b.flags & 0x80000000 == 0)
                     || !input
                         .pools
                         .iter()
@@ -857,7 +859,9 @@ impl TextureManager {
         }
         u32::try_from(input.records.len()).map_err(|_| ManagerError::IdentityOverflow)?;
         for pool in &input.pools {
-            u32::try_from(pool.len()).map_err(|_| ManagerError::IdentityOverflow)?;
+            // Native nonzero counts include unsafe negative representations.
+            // Safe intake admits only nonnegative signed list extents.
+            i32::try_from(pool.len()).map_err(|_| ManagerError::InvalidCount)?;
         }
         self.records
             .try_reserve(input.records.len())
@@ -908,6 +912,49 @@ impl TextureManager {
         self.counters = input.counters;
         self.seeded = true;
         Ok(input.bindings)
+    }
+    /// Standalone unload (upstream working name), PC RVA0x7afe0.
+    /// Caller preflights every weak owner as live before supplying flag access.
+    pub(crate) fn unload<E>(
+        &mut self,
+        mut clear_loaded: impl FnMut(TextureKey),
+        effects: &mut dyn ManagedTextureEffects<Error = E>,
+    ) -> Result<(), ManagedOperationError<E>> {
+        if self.poisoned {
+            return Err(ManagerError::Poisoned.into());
+        }
+        if let Err(error) = effects.enter_texture_section() {
+            self.poisoned = true;
+            return Err(ManagedOperationError::Backend {
+                stage: ManagedStage::Enter,
+                error,
+                leave_error: None,
+            });
+        }
+        self.critical = CriticalState::Held;
+        for pool in &mut self.pools {
+            for slot in pool.iter_mut().rev() {
+                if let Some(owner) = slot.owner {
+                    clear_loaded(owner);
+                    slot.owner = None;
+                }
+            }
+        }
+        match effects.leave_texture_section() {
+            Ok(()) => {
+                self.critical = CriticalState::NotHeld;
+                Ok(())
+            }
+            Err(error) => {
+                self.critical = CriticalState::LeaveFailed;
+                self.poisoned = true;
+                Err(ManagedOperationError::Backend {
+                    stage: ManagedStage::Leave,
+                    error,
+                    leave_error: None,
+                })
+            }
+        }
     }
     /// Request is a descriptive upstream working name, not a recovered PS2
     /// symbol. Caller has tested managed bit0x40. No worker/loading runs here.
