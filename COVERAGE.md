@@ -1,5 +1,7 @@
 # Reconstruction coverage
 
+Pending-native worker implementation at `8b57b85`: 119 static-model schedules across three controlled I/O modes compare 357 trials, 300 completed texture loads and 5,190 ordered external events in debug/release using 13 exact production-source copies. This is an independent assembly-derived oracle, with zero original binary executions or runtime comparisons. It covers bounded serialized effects, including consumed-queue lifetime, valid handle zero and short-read tails; Direct3D, DTA internals, changing-frame schedules and concurrency remain excluded. No accepted function, contract or system credit is added.
+
 Status for the Rust rewrite as of 2026-10-23. The 12 rows below preserve the original full-system verification registry: assets and world streaming share one row; audio/UI/localization and save/load have separate rows. A row passes the strict gate only with traceable PC evidence, implementation, and relevant runtime validation; partial parsing, rendering, or a diagnostic probe does not pass it. Substantial code milestones receive two sequential independent reviews. Scoped function contracts are counted separately from complete systems.
 
 | System | Source evidence and recovered behavior | Rust implementation and validation | Gaps |

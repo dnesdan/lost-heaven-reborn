@@ -1,13 +1,13 @@
 {
   "updated_at": "2026-10-23",
-  "project_status": "Original-data Rust menu, bounded scenes and sequential skeletal playback; 165 scoped entries across 55 reviewed contracts. Bounded standalone texture Restore uses controlled device/storage effects. Full texture Create, worker/upload, whole-device shutdown, loaded/application integration and first-mission execution remain open.",
+  "project_status": "Original-data Rust menu, bounded scenes and sequential skeletal playback; 165 scoped entries across 55 reviewed contracts. Bounded standalone texture Restore uses controlled device/storage effects. Full texture Create, worker/upload, whole-device shutdown, loaded/application integration and first-mission execution remain open. A bounded serialized managed-texture worker implementation is pending native validation; no new scoped credit.",
   "rust_toolchain": "1.99.1",
   "validation": {
-    "status": "Frozen standalone Restore code passes 465 Rust, nine REA and 42 progress tests plus formatting, locked checking and Clippy. Two sequential independent code reviews accepted exact source. Apple arm64 checking only; no new application, rendered or interactive validation.",
-    "rust_unit_tests": 465,
+    "status": "Bounded serialized worker code passes 469 Rust, nine REA and 42 progress tests plus formatting, locked checking and Clippy. Two sequential independent reviews accepted final source. Independent static-oracle validation only; zero original-runtime worker comparisons. Apple arm64 checking only; no new application, rendered or interactive validation.",
+    "rust_unit_tests": 469,
     "rust_unit_test_split": {
       "lhr_assets": 78,
-      "lhr_engine_library": 361,
+      "lhr_engine_library": 365,
       "lhr_engine_application": 21,
       "lhr_render": 5
     },

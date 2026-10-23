@@ -15,6 +15,8 @@ All gates remain open until corresponding evidence is recorded. Current function
 
 ## Parity with mafia-re
 
+The bounded serialized worker now has an implementation pending original-code comparison. Static-oracle agreement does not close worker/native-upload parity; the next acceptance step is independent native comparison, followed by real device/DTA adapters and scene integration. The accepted scoped snapshot remains 165/55.
+
 Use the [pinned reference audit](REFERENCE_PROJECTS.md) as a function and dependency map for LS3DF and supporting libraries. For each candidate, identify the original binary and entry, callers, layout, state changes and resources; recover it with REA, implement it independently in Rust and compare original execution. Upstream source or instruction-comparison percentages do not establish Rust behavioral coverage. Game.exe and first-mission completion require additional original-game research.
 
 PS2 symbols help recover original names. Keep three origins distinct: an actual original symbol, an upstream-assigned PC correspondence, and a descriptive working name. Record hashes and addresses privately. The supplied PS2 ELF retains linker symbols; the presence of names does not establish full type/member debug information. Verify PC/PS2 layouts, calling conventions and behavior independently before sharing implementations.

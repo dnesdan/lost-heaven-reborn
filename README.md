@@ -32,6 +32,8 @@ Ownership code uses `lhr_engine::ls3df::{c_str, itexture, i3d_object, texture_ma
 
 The immediate goal is **the playable first mission, from the original menu through mission completion**, alongside function-by-function library parity with mafia-re. See the [acceptance gates and dependency order](docs/GOALS.md). PS2 symbol names guide reconstruction; PC behavior and platform differences require original-binary verification.
 
+A bounded serialized managed-texture worker is implemented at `8b57b85`, pending native validation. Independent static-oracle checks pass, with **zero original-runtime worker comparisons**. Accepted scoped totals remain **165 entries / 55 contracts**; real GPU/upload adapters, concurrent scheduling and application integration remain open.
+
 | Czech PC menu in Rust | MISE01 static inspection in Rust |
 | --- | --- |
 | ![Rust engine showing the Czech menu](docs/screenshots/2026-10-21-menu.webp) | ![Rust engine showing the static MISE01 neighborhood and taxi](docs/screenshots/2026-10-21-mise01.webp) |

@@ -1,5 +1,9 @@
 # Progress
 
+A bounded serialized managed-texture worker is implemented at `8b57b85`, pending native validation. Independent static-oracle checks pass, with **zero original-runtime worker comparisons**. Accepted scoped totals remain **165 entries / 55 contracts**; real GPU/upload adapters, concurrent scheduling and application integration remain open.
+
+Current code checks: 469 Rust tests (78 assets, 365 engine library, 21 application, five renderer), nine REA-wrapper tests and 42 progress tests pass, plus formatting, locked workspace checking and Clippy. Apple arm64 all-target checking passes; native macOS linking and Metal runtime remain untested. Two sequential independent reviews accepted the final source. No new application, rendered or interactive validation was performed. Static-oracle validation covers 119 schedules across three I/O modes: 357 trials, 300 completed loads and 5,190 ordered events; these are not native comparisons.
+
 <!-- generated-function-progress:start -->
 As of 2026-10-23 · snapshot `RUST-SCOPED-PORTS-20261023-24`.
 
