@@ -920,6 +920,45 @@ impl TextureResources {
             .request(key, record, flags, frame_counter, effects)
             .map_err(TextureOperationError::Manager)
     }
+    /// Admits typed fields from existing backend record storage for the worker.
+    pub fn configure_managed_worker_records(
+        &mut self,
+        input: &[(
+            crate::texture_manager::RecordId,
+            crate::texture_manager::ManagedRecordFields,
+        )],
+    ) -> Result<(), TextureError> {
+        self.available()?;
+        self.textures.manager.configure_worker_records(input)?;
+        Ok(())
+    }
+    /// Complete finite scheduled RenderThreadProc (upstream working name),
+    /// PC RVA0x7a9b0. Requires an explicit terminating backend running schedule.
+    pub fn run_managed_texture_worker<B: TextureBackend + ?Sized>(
+        &mut self,
+        input: crate::texture_manager::WorkerInput,
+        b: &mut B,
+    ) -> Result<u32, TextureOperationError<<B as BufferBackend>::Error>> {
+        self.available()?;
+        for key in self.textures.manager.unconsumed_queue_owners().chain(
+            self.textures
+                .manager
+                .pools()
+                .iter()
+                .flatten()
+                .filter_map(|s| s.owner),
+        ) {
+            self.textures.live(key)?;
+        }
+        let forbidden = self.scalar_allocations()?;
+        let effects = b
+            .managed_texture_effects()
+            .ok_or(TextureError::ManagedUnsupported)?;
+        self.textures
+            .manager
+            .worker(input, &forbidden, &mut self.textures.slots, effects)
+            .map_err(TextureOperationError::Manager)
+    }
     /// Adopts release-specific system references and native pool-array storage.
     pub fn configure_managed_release(
         &mut self,
@@ -1562,6 +1601,13 @@ mod tests {
         fail_surface_free: bool,
         fail_texture_free: bool,
         managed_enabled: bool,
+        worker_enabled: bool,
+        worker_checks: u32,
+        worker_frame: u32,
+        worker_fail: Option<ManagedStage>,
+        worker_events: Vec<ManagedStage>,
+        worker_data: Vec<u8>,
+        worker_creates: Vec<ManagedTextureCreate>,
         section_held: bool,
         fail_enter: bool,
         fail_filename: bool,
@@ -1727,6 +1773,24 @@ mod tests {
         }
     }
     impl ManagedTextureEffects for Backend {
+        fn worker_effects(
+            &mut self,
+        ) -> Option<&mut dyn ManagedTextureWorkerEffects<Error = Self::Error>> {
+            if self.worker_enabled {
+                Some(self)
+            } else {
+                None
+            }
+        }
+        fn restore_effects(
+            &mut self,
+        ) -> Option<&mut dyn ManagedTextureRestoreEffects<Error = Self::Error>> {
+            if self.worker_enabled {
+                Some(self)
+            } else {
+                None
+            }
+        }
         type Error = &'static str;
         fn release_effects(
             &mut self,
@@ -2001,6 +2065,167 @@ mod tests {
             _: RawVertexBytesKey,
         ) -> Result<(), &'static str> {
             Err("raw geometry not supplied")
+        }
+    }
+    impl Backend {
+        fn worker_event(&mut self, stage: ManagedStage) -> Result<(), &'static str> {
+            self.worker_events.push(stage);
+            if self.worker_fail == Some(stage) {
+                Err("worker interrupted")
+            } else {
+                Ok(())
+            }
+        }
+    }
+    impl ManagedTextureWorkerEffects for Backend {
+        type Error = &'static str;
+        fn managed_worker_running(&mut self) -> Result<bool, Self::Error> {
+            self.worker_event(ManagedStage::Running)?;
+            let run = self.worker_checks > 0;
+            self.worker_checks = self.worker_checks.saturating_sub(1);
+            Ok(run)
+        }
+        fn managed_worker_frame(&mut self) -> Result<u32, Self::Error> {
+            self.worker_event(ManagedStage::Frame)?;
+            Ok(self.worker_frame)
+        }
+        fn managed_worker_sleep(&mut self, ms: u32) -> Result<(), Self::Error> {
+            assert_eq!(ms, 0);
+            assert!(!self.section_held);
+            self.worker_event(ManagedStage::Sleep)
+        }
+        fn lock_managed_surface(
+            &mut self,
+            s: TextureSurface,
+            flags: u32,
+        ) -> Result<Option<ManagedLockedRect>, Self::Error> {
+            assert!(self.surfaces.contains_key(&s.0));
+            assert_eq!(flags, 0);
+            self.worker_event(ManagedStage::LockSurface)?;
+            self.worker_data = vec![0xa5; 64];
+            Ok(Some(ManagedLockedRect {
+                mapping: 1,
+                pitch: -7,
+                writable_bytes: 64,
+            }))
+        }
+        fn open_managed_file(
+            &mut self,
+            f: ManagedFilenameAllocation,
+            mode: u32,
+        ) -> Result<Option<ManagedFile>, Self::Error> {
+            assert!(self.managed_files.contains_key(&f.0));
+            assert_eq!(mode, 0);
+            self.worker_event(ManagedStage::OpenFile)?;
+            Ok(Some(ManagedFile(0)))
+        }
+        fn seek_managed_file(
+            &mut self,
+            f: ManagedFile,
+            o: i32,
+            origin: u32,
+        ) -> Result<(), Self::Error> {
+            assert_eq!((f, o, origin), (ManagedFile(0), 22, 1));
+            self.worker_event(ManagedStage::SeekFile)
+        }
+        fn read_managed_file(
+            &mut self,
+            f: ManagedFile,
+            m: ManagedLockedRect,
+            n: u32,
+        ) -> Result<(), Self::Error> {
+            assert_eq!(f, ManagedFile(0));
+            assert_eq!(m.mapping, 1);
+            assert_eq!(n, 64);
+            self.worker_data[..3].copy_from_slice(&[1, 2, 3]);
+            self.worker_event(ManagedStage::ReadFile)
+        }
+        fn close_managed_file(&mut self, f: ManagedFile) -> Result<(), Self::Error> {
+            assert_eq!(f, ManagedFile(0));
+            self.worker_event(ManagedStage::CloseFile)
+        }
+        fn unlock_managed_surface(&mut self, _: TextureSurface) -> Result<(), Self::Error> {
+            self.worker_event(ManagedStage::UnlockSurface)
+        }
+        fn update_managed_texture(
+            &mut self,
+            s: TextureGraphics,
+            d: TextureGraphics,
+        ) -> Result<(), Self::Error> {
+            assert!(self.textures.contains_key(&s.0));
+            assert!(self.textures.contains_key(&d.0));
+            assert_eq!(&self.worker_data[..4], &[1, 2, 3, 0xa5]);
+            self.worker_event(ManagedStage::UpdateTexture)
+        }
+        fn release_managed_worker_reference(
+            &mut self,
+            _: TextureKey,
+            refs: u32,
+            g: TextureGraphics,
+            flags: u32,
+        ) -> Result<(), Self::Error> {
+            assert!(self.section_held);
+            assert!(refs >= 2);
+            assert!(self.textures.contains_key(&g.0));
+            assert_eq!(flags & 0xc0000000, 0x80000000);
+            self.worker_event(ManagedStage::ReleaseWorkerReference)
+        }
+    }
+    impl ManagedTextureRestoreEffects for Backend {
+        type Error = &'static str;
+        fn create_managed_texture(
+            &mut self,
+            _: RestoreTarget,
+            r: ManagedTextureCreate,
+        ) -> Result<Option<TextureGraphics>, Self::Error> {
+            self.worker_creates.push(r);
+            assert_eq!(r.width, r.height);
+            assert_eq!(r.levels, 1);
+            assert_eq!(r.usage, 0);
+            let g = TextureGraphics(self.next());
+            self.textures.insert(g.0, 1);
+            self.worker_event(ManagedStage::CreateTexture)?;
+            Ok(Some(g))
+        }
+        fn get_managed_surface_level(
+            &mut self,
+            _: RestoreTarget,
+            _: TextureGraphics,
+            l: u32,
+        ) -> Result<Option<TextureSurface>, Self::Error> {
+            assert_eq!(l, 0);
+            let s = TextureSurface(self.next());
+            self.surfaces.insert(s.0, 1);
+            self.worker_event(ManagedStage::GetSurfaceLevel)?;
+            Ok(Some(s))
+        }
+        fn get_managed_surface_desc(
+            &mut self,
+            _: RestoreTarget,
+            _: TextureSurface,
+        ) -> Result<ManagedSurfaceDesc, Self::Error> {
+            self.worker_event(ManagedStage::GetSurfaceDesc)?;
+            Ok(ManagedSurfaceDesc([23, 3, 0, 2, 64, 0, 0x10009, 0x2000b]))
+        }
+        fn allocate_managed_pool(
+            &mut self,
+            _: u32,
+        ) -> Result<Option<ManagedPoolAllocation>, Self::Error> {
+            let a = ManagedPoolAllocation(self.next());
+            self.pool_arrays.insert(a.0, true);
+            self.worker_event(ManagedStage::AllocatePool)?;
+            Ok(Some(a))
+        }
+        fn copy_managed_pool_slot(
+            &mut self,
+            _: ManagedPoolAllocation,
+            _: ManagedPoolAllocation,
+            _: u32,
+        ) -> Result<(), Self::Error> {
+            self.worker_event(ManagedStage::CopyPool)
+        }
+        fn clear_managed_pool_owner(&mut self, _: RestoreTarget) -> Result<(), Self::Error> {
+            self.worker_event(ManagedStage::WritePoolOwner)
         }
     }
     fn managed_fixture(
@@ -4036,5 +4261,284 @@ mod tests {
         assert!(r.release_managed_textures(&mut b).is_err());
         assert!(b.events.is_empty());
         assert!(!r.texture_manager().is_poisoned());
+    }
+    fn worker_world() -> (TextureResources, Backend, TextureKey) {
+        let mut r = TextureResources::new().unwrap();
+        let mut b = Backend {
+            managed_enabled: true,
+            release_enabled: true,
+            creation_enabled: true,
+            request_enabled: true,
+            worker_enabled: true,
+            worker_checks: 1,
+            worker_frame: 5,
+            ..Backend::default()
+        };
+        let (key, mut world) = managed_fixture(&mut r, &mut b, false, false);
+        world.queue = [None; 256];
+        world.counters = QueueCounters::default();
+        world.bindings[0].flags = 0x40;
+        world.bindings[0].graphics = None;
+        for slot in world.pools.iter_mut().flatten() {
+            slot.owner = None;
+        }
+        let system = std::array::from_fn(|i| world.pools[i][0].resources);
+        let pools = std::array::from_fn(|_| {
+            let a = ManagedPoolAllocation(b.next());
+            b.pool_arrays.insert(a.0, true);
+            ManagedPoolStorage {
+                allocation: Some(a),
+                capacity: 2,
+                growth: 2,
+            }
+        });
+        for resource in system {
+            *b.textures.get_mut(&resource.graphics.unwrap().0).unwrap() += 1;
+            *b.surfaces.get_mut(&resource.surface.unwrap().0).unwrap() += 1;
+        }
+        r.install_managed_world(world).unwrap();
+        r.configure_managed_release(ManagedReleaseIntake {
+            system,
+            pools,
+            pool_memory: [128; 3],
+        })
+        .unwrap();
+        let record = r.texture_manager().active_records()[0];
+        r.configure_managed_worker_records(&[(
+            record,
+            ManagedRecordFields {
+                format: 23,
+                pool: 0,
+                last_frame: 5,
+            },
+        )])
+        .unwrap();
+        r.unload_managed_textures(&mut b).unwrap();
+        // Existing producer queue starts with nulls, exercising skip-to-empty.
+        r.request_texture(key, 5, &mut b).unwrap();
+        (r, b, key)
+    }
+    #[test]
+    fn worker_complete_schedule_restore_request_short_read_and_zero_handle() {
+        let (mut r, mut b, key) = worker_world();
+        r.configure_managed_registry(RegistryIntake {
+            capacity: 4096,
+            growth: 4096,
+            allocation: Some(ManagedRegistryAllocation(b.next())),
+        })
+        .unwrap();
+        r.restore_managed_textures(
+            RestoreInput {
+                flags: 0,
+                formats: CreationFormats { dxt: 0, normal: 23 },
+                dimensions: [8; 3],
+                budgets: [1; 3],
+                max_slots: 8,
+            },
+            &mut b,
+        )
+        .unwrap();
+        // Restore's descriptor dimensions differ from the original table.
+        assert_eq!(r.texture_manager().pools()[0].len(), 1);
+        b.worker_checks = 2;
+        b.worker_events.clear();
+        let refs = r.texture(key).unwrap().references;
+        r.run_managed_texture_worker(
+            WorkerInput {
+                max_running_checks: 3,
+                max_slots: 8,
+                dimensions: [8; 3],
+            },
+            &mut b,
+        )
+        .unwrap();
+        assert_eq!(r.texture(key).unwrap().references, refs);
+        assert_eq!(r.texture(key).unwrap().width, Observed::Value(9));
+        assert_eq!(r.texture(key).unwrap().height, Observed::Value(11));
+        assert_eq!(r.texture(key).unwrap().flags & 0xc0000000, 0x80000000);
+        assert_eq!(&b.worker_data[..4], &[1, 2, 3, 0xa5]);
+        assert!(r.texture_manager().worker_progress().unwrap().complete);
+        assert!(b
+            .worker_events
+            .contains(&ManagedStage::ReleaseWorkerReference));
+        assert!(!b.section_held);
+        // Every producer overwrite, including wrap to a consumed position,
+        // reactivates the weak queue owner without changing historical pointers.
+        for _ in 0..256 {
+            r.unload_managed_textures(&mut b).unwrap();
+            r.request_texture(key, 5, &mut b).unwrap();
+            assert_eq!(r.texture_manager().unconsumed_queue_owners().count(), 1);
+            b.worker_checks = 1;
+            r.run_managed_texture_worker(
+                WorkerInput {
+                    max_running_checks: 2,
+                    max_slots: 8,
+                    dimensions: [8; 3],
+                },
+                &mut b,
+            )
+            .unwrap();
+            assert_eq!(r.texture_manager().unconsumed_queue_owners().count(), 0);
+        }
+    }
+    #[test]
+    fn worker_false_entry_has_only_running_effect_and_failures_keep_prefix() {
+        let (mut r, mut b, _) = worker_world();
+        b.worker_checks = 0;
+        b.worker_events.clear();
+        r.run_managed_texture_worker(
+            WorkerInput {
+                max_running_checks: 1,
+                max_slots: 8,
+                dimensions: [8; 3],
+            },
+            &mut b,
+        )
+        .unwrap();
+        assert_eq!(b.worker_events, [ManagedStage::Running]);
+        for stage in [
+            ManagedStage::LockSurface,
+            ManagedStage::ReadFile,
+            ManagedStage::ReleaseWorkerReference,
+        ] {
+            let (mut r, mut b, key) = worker_world();
+            // Replace arbitrary intake descriptor bytes with real Restore output.
+            r.configure_managed_registry(RegistryIntake {
+                capacity: 4096,
+                growth: 4096,
+                allocation: Some(ManagedRegistryAllocation(b.next())),
+            })
+            .unwrap();
+            r.restore_managed_textures(
+                RestoreInput {
+                    flags: 0,
+                    formats: CreationFormats { dxt: 0, normal: 23 },
+                    dimensions: [8; 3],
+                    budgets: [1; 3],
+                    max_slots: 8,
+                },
+                &mut b,
+            )
+            .unwrap();
+            b.worker_checks = 2;
+            b.worker_fail = Some(stage);
+            let refs = r.texture(key).unwrap().references;
+            assert!(r
+                .run_managed_texture_worker(
+                    WorkerInput {
+                        max_running_checks: 3,
+                        max_slots: 8,
+                        dimensions: [8; 3]
+                    },
+                    &mut b
+                )
+                .is_err());
+            assert!(r.is_poisoned());
+            assert!(!b.section_held);
+            assert_eq!(r.texture(key).unwrap().references, refs + 1);
+            assert_eq!(
+                r.texture_manager()
+                    .worker_progress()
+                    .unwrap()
+                    .temporary_reference,
+                Some(key)
+            );
+            let before = b.worker_events.clone();
+            assert!(r
+                .run_managed_texture_worker(
+                    WorkerInput {
+                        max_running_checks: 3,
+                        max_slots: 8,
+                        dimensions: [8; 3]
+                    },
+                    &mut b
+                )
+                .is_err());
+            assert_eq!(before, b.worker_events);
+        }
+    }
+    #[test]
+    fn worker_later_free_frame_threshold_growth_then_release_and_close() {
+        for frame in [0, 1, 5] {
+            let (mut r, mut b, first) = worker_world();
+            r.configure_managed_registry(RegistryIntake {
+                capacity: 4096,
+                growth: 4096,
+                allocation: Some(ManagedRegistryAllocation(b.next())),
+            })
+            .unwrap();
+            r.restore_managed_textures(
+                RestoreInput {
+                    flags: 0,
+                    formats: CreationFormats { dxt: 0, normal: 23 },
+                    dimensions: [8; 3],
+                    budgets: [65, 1, 1],
+                    max_slots: 8,
+                },
+                &mut b,
+            )
+            .unwrap();
+            b.worker_frame = frame;
+            r.request_texture(first, frame, &mut b).unwrap();
+            b.worker_checks = 1;
+            let input = WorkerInput {
+                max_running_checks: 2,
+                max_slots: 8,
+                dimensions: [8; 3],
+            };
+            r.run_managed_texture_worker(input, &mut b).unwrap();
+            b.arrays.insert(
+                r.texture_manager()
+                    .registry()
+                    .unwrap()
+                    .allocation
+                    .unwrap()
+                    .0,
+                vec![None; 4096],
+            );
+            let second = r.create_texture().unwrap();
+            r.prepare_managed_texture(second, 0x40).unwrap();
+            add(&mut r, &mut b, second, b"second0.bmp", 0).unwrap();
+            r.request_texture(second, frame, &mut b).unwrap();
+            b.worker_checks = 1;
+            r.run_managed_texture_worker(input, &mut b).unwrap();
+            assert_eq!(
+                r.texture_manager().pools()[0].len(),
+                if frame == 1 { 3 } else { 2 }
+            );
+            if frame == 1 {
+                assert_eq!(b.worker_creates.last().unwrap().width, 8);
+                assert_eq!(r.texture_manager().pools()[0][1].owner, None);
+            }
+            r.release_managed_textures(&mut b).unwrap();
+            r.release_texture(first, &mut b).unwrap();
+            r.release_texture(second, &mut b).unwrap();
+            assert!(!r.is_poisoned());
+            // Consumed native pointers still exist after object destruction.
+            // A later stopped worker must not dereference these weak histories.
+            b.worker_checks = 0;
+            r.run_managed_texture_worker(input, &mut b).unwrap();
+        }
+    }
+    #[test]
+    fn worker_stale_skip_consumes_without_sleep_and_keeps_pointer() {
+        let (mut r, mut b, key) = worker_world();
+        r.request_texture(key, 0, &mut b).unwrap();
+        b.worker_checks = 1;
+        b.worker_events.clear();
+        let out = r.texture_manager().counters().out;
+        r.run_managed_texture_worker(
+            WorkerInput {
+                max_running_checks: 2,
+                max_slots: 8,
+                dimensions: [8; 3],
+            },
+            &mut b,
+        )
+        .unwrap();
+        assert_eq!(r.texture_manager().counters().len, 0);
+        assert_eq!(r.texture_manager().queue()[out as usize], Some(key));
+        assert_eq!(r.texture(key).unwrap().flags & 0x40000000, 0);
+        assert!(!b.worker_events.contains(&ManagedStage::Sleep));
     }
 }

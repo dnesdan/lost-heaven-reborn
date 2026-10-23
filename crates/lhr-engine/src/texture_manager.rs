@@ -6,16 +6,19 @@
 //! pointers, and explicit registry growth precede AL1. This excludes full Create.
 //! RVA0x7aee0: reverse first-record match; conditional reverse256 queue clear;
 //! filename delete, record delete, swap removal; three pools' reverse owner
-//! clears; flags &=0x3fffffff; leave critical section; AL1. No worker,
-//! full Create or graphics allocation is reconstructed here. ReleaseManagedTextures
+//! clears; flags &=0x3fffffff; leave critical section; AL1. Full Create
+//! remains outside this module. ReleaseManagedTextures
 //! is an upstream working name, RVA0x7a610: unload prefix, three per-pool
-//! system/slot COM releases and allocator-backed array teardown; no Restore/worker.
+//! system/slot COM releases and allocator-backed array teardown. Restore and
+//! the finite scheduled worker are implemented in child modules.
 //! RVA0x7a910 Request is an upstream working name: frame refresh and weak queue
 //! production only; it does not load a texture.
 //! Snapshot intake/typed identities and failure handling are host adapters.
 use crate::itexture::{ManagedRecordKey, TextureGraphics, TextureKey, TextureSurface};
 mod restore;
+mod worker;
 pub use restore::*;
+pub use worker::*;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ManagedFilenameAllocation(pub u64);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -55,6 +58,11 @@ impl PoolSlotId {
 /// exception/worker recovery. Callbacks are serialized/nonreentrant.
 pub trait ManagedTextureEffects {
     type Error;
+    fn worker_effects(
+        &mut self,
+    ) -> Option<&mut dyn ManagedTextureWorkerEffects<Error = Self::Error>> {
+        None
+    }
     fn restore_effects(
         &mut self,
     ) -> Option<&mut dyn ManagedTextureRestoreEffects<Error = Self::Error>> {
@@ -258,6 +266,17 @@ pub enum ManagedStage {
     AllocatePool,
     CopyPool,
     WritePoolOwner,
+    Running,
+    Frame,
+    Sleep,
+    LockSurface,
+    OpenFile,
+    SeekFile,
+    ReadFile,
+    CloseFile,
+    UnlockSurface,
+    UpdateTexture,
+    ReleaseWorkerReference,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ManagerError {
@@ -278,6 +297,9 @@ pub enum ManagerError {
     RestoreUnavailable,
     UnsupportedGraphics,
     InvalidFilename,
+    WorkerUnavailable,
+    UnsupportedWorker,
+    ScheduleExhausted,
 }
 #[derive(Debug, PartialEq, Eq)]
 pub enum ManagedOperationError<E> {
@@ -365,6 +387,7 @@ pub struct TextureManager {
     records: Vec<ManagedRecord>,
     active: Vec<RecordId>,
     queue: [Option<TextureKey>; 256],
+    consumed_queue: [bool; 256],
     counters: QueueCounters,
     pools: [Vec<PoolSlot>; 3],
     critical: CriticalState,
@@ -377,6 +400,7 @@ pub struct TextureManager {
     released_borrows: Vec<TextureGraphics>,
     restore: Option<RestoreProgress>,
     next_pool_slot: [u32; 3],
+    worker: Option<WorkerProgress>,
 }
 impl TextureManager {
     pub(crate) fn new(identity: u64) -> Self {
@@ -386,6 +410,7 @@ impl TextureManager {
             records: Vec::new(),
             active: Vec::new(),
             queue: [None; 256],
+            consumed_queue: [false; 256],
             counters: QueueCounters::default(),
             pools: [Vec::new(), Vec::new(), Vec::new()],
             critical: CriticalState::NotHeld,
@@ -398,6 +423,7 @@ impl TextureManager {
             released_borrows: Vec::new(),
             restore: None,
             next_pool_slot: [1; 3],
+            worker: None,
         }
     }
     /// Interrupted swap-copy after the original count decrement.
@@ -720,6 +746,12 @@ impl TextureManager {
     pub fn active_records(&self) -> &[RecordId] {
         &self.active
     }
+    pub(crate) fn unconsumed_queue_owners(&self) -> impl Iterator<Item = TextureKey> + '_ {
+        self.queue
+            .iter()
+            .zip(self.consumed_queue)
+            .filter_map(|(key, consumed)| if consumed { None } else { *key })
+    }
     pub fn queue(&self) -> &[Option<TextureKey>; 256] {
         &self.queue
     }
@@ -757,7 +789,7 @@ impl TextureManager {
     }
     pub(crate) fn has_links(&self, texture: TextureKey) -> bool {
         self.record_count(texture) > 0
-            || self.queue.contains(&Some(texture))
+            || self.queue_linked(texture)
             || self
                 .pools
                 .iter()
@@ -765,7 +797,10 @@ impl TextureManager {
                 .any(|s| s.owner == Some(texture))
     }
     fn queue_linked(&self, texture: TextureKey) -> bool {
-        self.queue.contains(&Some(texture))
+        self.queue
+            .iter()
+            .zip(self.consumed_queue)
+            .any(|(key, consumed)| !consumed && *key == Some(texture))
     }
     pub(crate) fn validate_lifetime(
         &self,
@@ -1223,6 +1258,7 @@ impl TextureManager {
             if *flags & 0x40000000 == 0 && self.counters.len < 256 {
                 // Weak owner overwrite: there is no vacancy/occupancy test.
                 self.queue[self.counters.put as usize] = Some(texture);
+                self.consumed_queue[self.counters.put as usize] = false;
                 self.counters.put += 1;
                 if self.counters.put as i32 >= 256 {
                     self.counters.put = 0;
