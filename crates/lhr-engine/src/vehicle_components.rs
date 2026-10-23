@@ -182,7 +182,7 @@ impl VehicleComponentsEnumeration<'_> {
     }
 }
 
-fn read_words<B: VehicleInitBackend, const N: usize>(
+pub(super) fn read_words<B: VehicleInitBackend, const N: usize>(
     backend: &mut B,
     address: u32,
 ) -> Result<[u32; N], VehicleComponentsUnavailable<B::Error>> {
@@ -194,25 +194,25 @@ fn read_words<B: VehicleInitBackend, const N: usize>(
     }
     Ok(out)
 }
-fn matrix(words: [u32; 16]) -> SMatrix {
+pub(super) fn matrix(words: [u32; 16]) -> SMatrix {
     SMatrix {
         elements: words.map(f32::from_bits),
     }
 }
 #[derive(Clone, Copy)]
-enum MatrixSource {
+pub(super) enum MatrixSource {
     Local(SMatrix),
     External(u32),
 }
 #[derive(Clone, Copy)]
-enum PointSource {
+pub(super) enum PointSource {
     Local([u32; 3]),
     External(u32),
 }
 // The existing checked matrix primitive has the same LS3DF export and
 // association. Read operands here in its instruction order; HEAD and SPECCOLL
 // do not copy a complete matrix and never read its homogeneous column.
-fn transform_sources<B: VehicleInitBackend>(
+pub(super) fn transform_sources<B: VehicleInitBackend>(
     backend: &mut B,
     matrix: MatrixSource,
     point: PointSource,
@@ -253,7 +253,9 @@ fn transform_sources<B: VehicleInitBackend>(
 
 // Original inline (Y*Y + Z*Z) + X*X, then PC24 subtraction before
 // comparison with the exact widened f32 constant stored as a double.
-fn normalize_direction<E>(words: [u32; 3]) -> Result<[u32; 3], VehicleComponentsUnavailable<E>> {
+pub(super) fn normalize_direction<E>(
+    words: [u32; 3],
+) -> Result<[u32; 3], VehicleComponentsUnavailable<E>> {
     let fail = || VehicleComponentsUnavailable::NumericDomain("component direction normalization");
     let [x, y, z] = words.map(f32::from_bits);
     let squared = checked_f32_add(
@@ -300,6 +302,16 @@ fn normalize_direction<E>(words: [u32; 3]) -> Result<[u32; 3], VehicleComponents
 }
 
 impl VehicleInitState {
+    // The opt-in tail has an explicit stack mapping. Mirror reached prefix
+    // stores that overlap its record sources; legacy callers have no mapping.
+    fn component_stack_words(&mut self, offset: usize, values: &[u32]) {
+        if let Some(scratch) = self.tail_scratch.as_mut() {
+            for (index, value) in values.iter().enumerate() {
+                let start = offset + index * 4;
+                scratch.bytes[start..start + 4].copy_from_slice(&value.to_le_bytes());
+            }
+        }
+    }
     /// Executes the established prefix and its component continuation. It never
     /// reports successful Init, and retains the same rejection/ownership rules.
     pub fn init_components<B: VehicleComponentsBackend>(
@@ -360,6 +372,17 @@ impl VehicleInitState {
                         MatrixSource::Local(body_matrix),
                         PointSource::Local(direction),
                     )?;
+                    self.component_stack_words(
+                        0x8c,
+                        &[
+                            position[0],
+                            position[1],
+                            position[2],
+                            direction[0],
+                            direction[1],
+                            direction[2],
+                        ],
+                    );
                     let insertion = self.load(0x458)?;
                     backend
                         .insert_exhaust(
@@ -488,13 +511,13 @@ impl VehicleInitState {
             }
             index = index.wrapping_add(1);
         }
-        Ok(VehicleComponentsOutcome::UnavailableFrontier(
-            if self.component_count() != 0 {
-                VehicleComponentsFrontier::DoorSetup { index: 0 }
-            } else {
-                VehicleComponentsFrontier::BallastEnumeration
-            },
-        ))
+        let frontier = if self.component_count() != 0 {
+            VehicleComponentsFrontier::DoorSetup { index: 0 }
+        } else {
+            VehicleComponentsFrontier::BallastEnumeration
+        };
+        self.component_tail = Some(frontier);
+        Ok(VehicleComponentsOutcome::UnavailableFrontier(frontier))
     }
 
     pub fn component_scratch(&self) -> Option<VehicleInitFrameVector> {
@@ -593,7 +616,13 @@ impl VehicleInitState {
                 break;
             }
             let frame = self.scratch_frame(backend, index)?;
-            let bounds: [u32; 6] = read_words(backend, frame.wrapping_add(0x140))?;
+            let mut bounds = [0; 6];
+            for (index, value) in bounds.iter_mut().enumerate() {
+                *value = backend
+                    .read_word(frame.wrapping_add(0x140 + index as u32 * 4))
+                    .map_err(Effect)?;
+                self.component_stack_words(0x8c + index * 4, &[*value]);
+            }
             let frame = self.scratch_frame(backend, index)?;
             backend.prepare_frame_matrix(frame).map_err(Effect)?;
             let first = transform_sources(
@@ -702,10 +731,26 @@ impl VehicleInitState {
 pub struct VehicleBodycolComponents<'a, B: ?Sized> {
     backend: &'a mut B,
     storage: crate::vehicle_bodycol::VehicleBodycolStorage,
+    exhaust_scratch: Option<&'a mut VehicleComponentTailScratch>,
 }
 impl<'a, B: ?Sized> VehicleBodycolComponents<'a, B> {
     pub fn new(backend: &'a mut B, storage: crate::vehicle_bodycol::VehicleBodycolStorage) -> Self {
-        Self { backend, storage }
+        Self {
+            backend,
+            storage,
+            exhaust_scratch: None,
+        }
+    }
+    pub(super) fn with_exhaust_records(
+        backend: &'a mut B,
+        storage: crate::vehicle_bodycol::VehicleBodycolStorage,
+        scratch: &'a mut VehicleComponentTailScratch,
+    ) -> Self {
+        Self {
+            backend,
+            storage,
+            exhaust_scratch: Some(scratch),
+        }
     }
 }
 fn bodycol_init_error<E>(
@@ -797,6 +842,17 @@ impl<B: VehicleComponentsBackend + crate::vehicle_bodycol::VehicleBodycolBackend
         insertion: u32,
         value: [u32; 6],
     ) -> Result<(), Self::Error> {
+        if let Some(scratch) = self.exhaust_scratch.as_deref_mut() {
+            return super::component_tail::insert_exhaust_projection(
+                self.backend,
+                vehicle,
+                self.storage.vehicle_address,
+                scratch,
+                insertion,
+                value,
+            )
+            .map_err(crate::vehicle_bodycol::VehicleBodycolUnavailable::Effect);
+        }
         self.backend
             .insert_exhaust(vehicle, insertion, value)
             .map_err(crate::vehicle_bodycol::VehicleBodycolUnavailable::Effect)
@@ -972,6 +1028,10 @@ mod tests {
         InitializeBody(u32, u32),
         Parse(u32),
         BodycolEnumerate(u32),
+        TailEnumerate(u32, VehicleComponentTailQuery),
+        Materialize(u32),
+        Window(u32),
+        SeatCallback(u32, u32, u32),
     }
     #[derive(Clone)]
     struct Backend {
@@ -984,6 +1044,10 @@ mod tests {
         callback_returns: Vec<u32>,
         actual_bodycol: bool,
         allocation_cursor: Option<u32>,
+        tail_empty_seats: bool,
+        tail_mutation: Option<(u32, u32)>,
+        tail_alias_writes: Vec<(u32, u32, u32)>,
+        tail_link_failure: Option<u32>,
     }
     fn put_state(bytes: &mut [u8], offset: usize, value: u32) {
         bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
@@ -1000,6 +1064,10 @@ mod tests {
                 callback_returns: vec![],
                 actual_bodycol: false,
                 allocation_cursor: None,
+                tail_empty_seats: false,
+                tail_mutation: None,
+                tail_alias_writes: vec![],
+                tail_link_failure: None,
             };
             result.put(MODEL + 4, 1);
             result.put(MODEL + 0x110, 9);
@@ -1199,7 +1267,12 @@ mod tests {
             self.event(Event::Callback(function, context, frame, pointer, index))
         }
         fn link_frame(&mut self, frame: u32, parent: u32, flags: u32) -> Result<(), Self::Error> {
-            self.event(Event::Link(frame, parent, flags))
+            self.event(Event::Link(frame, parent, flags))?;
+            if self.tail_link_failure == Some(frame) {
+                Err("unavailable link")
+            } else {
+                Ok(())
+            }
         }
         fn remove_model_child(&mut self, model: u32, frame: u32) -> Result<(), Self::Error> {
             self.event(Event::Remove(model, frame))
@@ -1330,6 +1403,467 @@ mod tests {
             }
             Ok(())
         }
+    }
+    impl VehicleComponentTailBackend for Backend {
+        fn materialize_frame_quaternion(&mut self, frame: u32) -> Result<(), Self::Error> {
+            self.event(Event::Materialize(frame))?;
+            for (i, value) in [0f32, 0., 0., 1.].into_iter().enumerate() {
+                self.put(frame + 0x9c + i as u32 * 4, value.to_bits());
+            }
+            Ok(())
+        }
+        fn find_window(&mut self, door: u32) -> Result<u32, Self::Error> {
+            self.event(Event::Window(door))?;
+            Ok(if door == 0x7000 { 0xa000 } else { 0 })
+        }
+        fn enumerate_tail(
+            &mut self,
+            root: u32,
+            query: VehicleComponentTailQuery,
+            target: &mut VehicleComponentTailEnumeration<'_>,
+        ) -> Result<(), VehicleInitUnavailable<Self::Error>> {
+            self.event(Event::TailEnumerate(root, query))
+                .map_err(VehicleInitUnavailable::Effect)?;
+            let frames: &[u32] = match query {
+                VehicleComponentTailQuery::Ballast => {
+                    assert_eq!(root, BODY);
+                    &[0x8200, 0x8000, 0x8100]
+                }
+                VehicleComponentTailQuery::Seat if !self.tail_empty_seats => {
+                    assert_eq!(root, MODEL);
+                    &[0x9200, 0x9000, 0x9100]
+                }
+                VehicleComponentTailQuery::Seat => &[],
+            };
+            for frame in frames {
+                assert_eq!(target.visit(*frame, self)?, 0);
+            }
+            Ok(())
+        }
+        fn seat_callback(
+            &mut self,
+            mut memory: VehicleComponentTailMemory<'_>,
+            function: u32,
+            context: u32,
+            frame: u32,
+        ) -> Result<(), Self::Error> {
+            let x = if frame == 0x9000 {
+                12f32
+            } else if frame == 0x9100 {
+                14f32
+            } else {
+                16f32
+            };
+            assert_eq!(memory.read_word(0x29080), Some(x.to_bits()));
+            assert_eq!(memory.read_word(0x29084), Some(26f32.to_bits()));
+            assert_eq!(memory.read_word(0x29088), Some(42f32.to_bits()));
+            if frame != 0x9000 {
+                assert_eq!(memory.read_word(0x29018), Some((-1f32).to_bits()));
+                assert_eq!(memory.read_word(0x29020), Some(4f32.to_bits()));
+                assert_eq!(memory.read_word(0x29030), Some((-1f32).to_bits()));
+                assert_eq!(memory.read_word(0x29138), Some((-4f32).to_bits()));
+            }
+            if let Some((offset, value)) = self.tail_mutation {
+                memory.write_word(0x100000 + offset, value).unwrap();
+            }
+            for (trigger, address, value) in &self.tail_alias_writes {
+                if *trigger == frame {
+                    memory.write_word(*address, *value).unwrap();
+                }
+            }
+            self.event(Event::SeatCallback(function, context, frame))
+        }
+    }
+    fn tail_storage() -> VehicleComponentTailStorage {
+        VehicleComponentTailStorage {
+            bodycol: actual_bodycol_storage(),
+            scratch: VehicleComponentTailScratch {
+                address: 0x29000,
+                bytes: [0xa5; 0x13c],
+            },
+        }
+    }
+    fn tail_backend() -> Backend {
+        let mut b = actual_bodycol_backend();
+        b.doors = true;
+        for (base, kind) in [(0x7000, "DOOR"), (0x8000, "BALLAST"), (0x9000, "SEAT")] {
+            for i in 0..3 {
+                let frame = base + i * 0x100;
+                b.put(frame + 0x120, BODY);
+                b.put(frame + 0xac, if i == 0 { 0 } else { 0x18 });
+                b.put(frame + 0xc, 0xb000);
+                let name = frame + 0x40000;
+                b.put(frame + 0x100, name);
+                // Duplicate BALLAST numbers exercise the native insertion/rewrite.
+                let number = if kind == "BALLAST" && i == 1 { 0 } else { i };
+                b.text(name, format!("synthetic.{kind}{number}\0").as_bytes());
+                for (j, value) in [1. + i as f32, 2., 3.].into_iter().enumerate() {
+                    b.put(frame + 0x80 + j as u32 * 4, value.to_bits());
+                }
+                for (j, value) in [0f32, 0., -2.].into_iter().enumerate() {
+                    b.put(frame + 0x70 + j as u32 * 4, value.to_bits());
+                }
+                for (j, value) in [0f32, 0., 0., 1.].into_iter().enumerate() {
+                    b.put(frame + 0x9c + j as u32 * 4, value.to_bits());
+                }
+            }
+        }
+        b.text(0xb000, b"[I]\0");
+        for (i, value) in [4f32, 5., 6.].into_iter().enumerate() {
+            b.put(0xa080 + i as u32 * 4, value.to_bits());
+        }
+        b
+    }
+    #[test]
+    fn component_tail_composes_actual_bodycol_records_and_live_callback() {
+        let mut backend = tail_backend();
+        backend.tail_mutation = Some((0x304, 0));
+        let mut state = state();
+        state.store::<()>(0x304, 0x1234).unwrap();
+        assert_eq!(
+            state.init_component_tail(&mut backend, MODEL, tail_storage()),
+            Ok(VehicleComponentTailOutcome::UnavailableFrontier(
+                VehicleComponentTailFrontier::WheelEnumeration
+            ))
+        );
+        let doors = state.load::<()>(0xcb4).unwrap();
+        let seats = state.load::<()>(0xca4).unwrap();
+        assert_eq!(state.load::<()>(0xcb8).unwrap() - doors, 3 * 88);
+        assert_eq!(state.load::<()>(0xca8).unwrap() - seats, 3 * 36);
+        assert_eq!(backend.word(doors), 0x7000);
+        assert_eq!(backend.word(doors + 20), 12f32.to_bits());
+        assert_eq!(backend.word(doors + 52), 0xa000);
+        assert_eq!(backend.word(doors + 76), 4.5f32.to_bits());
+        assert_eq!(backend.word(doors + 88 + 52), 0);
+        for i in 0..3 {
+            assert_eq!(backend.word(seats + i * 36 + 32), doors + i * 88);
+        }
+        let ballast = state.load::<()>(0xcc4).unwrap();
+        assert_eq!(backend.word(ballast), 16f32.to_bits());
+        assert_eq!(backend.word(ballast + 28), 12f32.to_bits());
+        assert_eq!(backend.word(ballast + 56), 14f32.to_bits());
+        assert_eq!(state.load::<()>(0x304), Ok(0));
+        assert_eq!(
+            backend
+                .events
+                .iter()
+                .filter(|e| matches!(e, Event::SeatCallback(..)))
+                .count(),
+            1
+        );
+        assert!(backend.events.contains(&Event::Materialize(0x7000)));
+        assert!(!backend.events.iter().any(|e| matches!(
+            e,
+            Event::BodyCollision(_) | Event::FinishBody | Event::InitializeBody(..)
+        )));
+        let before = backend.events.len();
+        assert_eq!(
+            state.continue_component_tail(&mut backend, tail_storage()),
+            Err(VehicleComponentTailUnavailable::NoContinuation)
+        );
+        assert_eq!(backend.events.len(), before);
+        let retained_scratch = state.component_tail_scratch().cloned();
+        let retained_vehicle = state.as_bytes().to_vec();
+        let mut retry_storage = tail_storage();
+        retry_storage.scratch.bytes.fill(0x77);
+        assert_eq!(
+            state.init_component_tail(&mut backend, MODEL, retry_storage),
+            Err(VehicleComponentTailUnavailable::Prefix(
+                VehicleComponentsUnavailable::Init(VehicleInitUnavailable::AlreadyStarted)
+            ))
+        );
+        assert_eq!(state.component_tail_scratch(), retained_scratch.as_ref());
+        assert_eq!(state.as_bytes(), retained_vehicle);
+        assert_eq!(backend.events.len(), before);
+    }
+    #[test]
+    fn component_tail_connects_actual_exhaust_records_before_bodycol() {
+        let mut backend = tail_backend();
+        backend.components = true;
+        let mut state = state();
+        assert_eq!(
+            state.init_component_tail(&mut backend, MODEL, tail_storage()),
+            Ok(VehicleComponentTailOutcome::UnavailableFrontier(
+                VehicleComponentTailFrontier::WheelEnumeration
+            ))
+        );
+        let begin = state.load::<()>(0x454).unwrap();
+        assert_eq!(state.load::<()>(0x458).unwrap() - begin, 48);
+        assert_eq!(backend.word(begin), 12f32.to_bits());
+        assert_eq!(backend.word(begin + 12), 2f32.to_bits());
+        assert!(!backend
+            .events
+            .iter()
+            .any(|e| matches!(e, Event::Exhaust(_))));
+        let door_enumeration = backend
+            .events
+            .iter()
+            .position(|e| *e == Event::EnumerateComponents(VehicleComponentsQuery::Door))
+            .unwrap();
+        let door_prepare = backend
+            .events
+            .iter()
+            .enumerate()
+            .skip(door_enumeration)
+            .find(|(_, e)| **e == Event::Prepare(BODY))
+            .unwrap()
+            .0;
+        let bounds_read = backend
+            .events
+            .iter()
+            .position(|e| *e == Event::ReadWord(SPECIAL + 0x148))
+            .unwrap();
+        for (fail, expected) in [
+            (door_prepare, [1f32, 2., 3., 4., 5., 6.]),
+            (bounds_read, [1f32, 2., 42., 0., 0., 4.]),
+        ] {
+            let mut backend = tail_backend();
+            backend.components = true;
+            backend.fail = Some(fail);
+            let mut stopped = VehicleInitState::from_bytes(vec![0; 0x2008]);
+            stopped.store::<()>(0x31c, 0x12345678).unwrap();
+            stopped.store::<()>(0xc74, 0xabcdef).unwrap();
+            assert!(stopped
+                .init_component_tail(&mut backend, MODEL, tail_storage())
+                .is_err());
+            let scratch = &stopped.component_tail_scratch().unwrap().bytes;
+            for (index, value) in expected.into_iter().enumerate() {
+                let offset = 0x8c + index * 4;
+                assert_eq!(
+                    u32::from_le_bytes(scratch[offset..offset + 4].try_into().unwrap()),
+                    value.to_bits()
+                );
+            }
+        }
+        let allocation = backend
+            .events
+            .iter()
+            .position(|e| *e == Event::Allocate(24))
+            .unwrap();
+        let mut backend = tail_backend();
+        backend.components = true;
+        backend.fail = Some(allocation);
+        let mut failed = VehicleInitState::from_bytes(vec![0; 0x2008]);
+        assert!(failed
+            .init_component_tail(&mut backend, MODEL, tail_storage())
+            .is_err());
+        assert_eq!(failed.load::<()>(0x454), Ok(0));
+        assert!(failed.component_tail_scratch().is_some());
+        assert!(!backend
+            .events
+            .iter()
+            .any(|e| matches!(e, Event::BodycolEnumerate(_))));
+    }
+    #[test]
+    fn component_tail_preserves_each_unavailable_effect_prefix_and_rejects_retry() {
+        let mut baseline = tail_backend();
+        let mut initial = state();
+        initial.store::<()>(0x304, 0x1234).unwrap();
+        initial
+            .init_components(
+                &mut VehicleBodycolComponents::new(&mut baseline, actual_bodycol_storage()),
+                MODEL,
+            )
+            .unwrap();
+        let prefix = baseline.events.len();
+        let start = baseline.clone();
+        initial
+            .continue_component_tail(&mut baseline, tail_storage())
+            .unwrap();
+        for fail in prefix..baseline.events.len() {
+            let mut backend = start.clone();
+            backend.fail = Some(fail);
+            let mut state = state();
+            state.store::<()>(0x304, 0x1234).unwrap();
+            let mut prefix_backend = tail_backend();
+            state
+                .init_components(
+                    &mut VehicleBodycolComponents::new(
+                        &mut prefix_backend,
+                        actual_bodycol_storage(),
+                    ),
+                    MODEL,
+                )
+                .unwrap();
+            assert!(
+                state
+                    .continue_component_tail(&mut backend, tail_storage())
+                    .is_err(),
+                "event {fail}"
+            );
+            assert_eq!(backend.events, &baseline.events[..=fail], "event {fail}");
+            let stopped = state.as_bytes().to_vec();
+            let events = backend.events.len();
+            assert_eq!(
+                state.continue_component_tail(&mut backend, tail_storage()),
+                Err(VehicleComponentTailUnavailable::NoContinuation)
+            );
+            assert_eq!(state.as_bytes(), stopped);
+            assert_eq!(backend.events.len(), events);
+        }
+    }
+    #[test]
+    fn component_tail_requires_real_capability_and_consumes_invalid_overlay() {
+        let mut backend = tail_backend();
+        let mut state = state();
+        assert_eq!(
+            state.continue_component_tail(&mut backend, tail_storage()),
+            Err(VehicleComponentTailUnavailable::NoContinuation)
+        );
+        assert!(backend.events.is_empty());
+        state
+            .init_components(
+                &mut VehicleBodycolComponents::new(&mut backend, actual_bodycol_storage()),
+                MODEL,
+            )
+            .unwrap();
+        let before = backend.events.len();
+        let mut storage = tail_storage();
+        storage.scratch.address = storage.bodycol.vehicle_address + 0x100;
+        assert_eq!(
+            state.continue_component_tail(&mut backend, storage),
+            Err(VehicleComponentTailUnavailable::ProjectionStorage)
+        );
+        assert_eq!(backend.events.len(), before);
+        assert_eq!(
+            state.continue_component_tail(&mut backend, tail_storage()),
+            Err(VehicleComponentTailUnavailable::NoContinuation)
+        );
+        assert_eq!(backend.events.len(), before);
+    }
+    #[test]
+    fn component_tail_callback_mutation_survives_unavailability() {
+        let mut baseline = tail_backend();
+        let mut state0 = state();
+        state0.store::<()>(0x304, 0x1234).unwrap();
+        state0
+            .init_component_tail(&mut baseline, MODEL, tail_storage())
+            .unwrap();
+        let fail = baseline
+            .events
+            .iter()
+            .position(|e| matches!(e, Event::SeatCallback(..)))
+            .unwrap();
+        let mut backend = tail_backend();
+        backend.fail = Some(fail);
+        backend.tail_mutation = Some((0x34c, 0xfeed));
+        let mut state = state();
+        state.store::<()>(0x304, 0x1234).unwrap();
+        assert!(state
+            .init_component_tail(&mut backend, MODEL, tail_storage())
+            .is_err());
+        assert_eq!(state.load::<()>(0x34c), Ok(0xfeed));
+        assert_ne!(state.load::<()>(0xca4), Ok(0));
+        assert!(!backend.events.contains(&Event::Link(0x9000, 0, 0)));
+    }
+    #[test]
+    fn component_tail_callback_vector_aliases_read_live_vehicle_and_stack_before_failure() {
+        for target in [0x10034c, 0x290f0] {
+            let mut backend = tail_backend();
+            backend.put(target, 0); // Deliberately stale external backing.
+            backend.tail_link_failure = Some(MODEL);
+            backend.tail_alias_writes = vec![(0x9000, 0x2904c, target)];
+            if target == 0x290f0 {
+                backend.tail_alias_writes.push((0x9000, target, MODEL));
+            }
+            let mut state = state();
+            state.store::<()>(0x304, 0x1234).unwrap();
+            assert_eq!(
+                state.init_component_tail(&mut backend, MODEL, tail_storage()),
+                Err(VehicleComponentTailUnavailable::Tail(
+                    VehicleComponentsUnavailable::Init(VehicleInitUnavailable::Effect(
+                        "unavailable link"
+                    ))
+                ))
+            );
+            assert_eq!(backend.events.last(), Some(&Event::Link(MODEL, 0, 0)));
+            assert!(!backend.events.contains(&Event::ReadWord(target)));
+            assert!(!backend.events.contains(&Event::Remove(MODEL, MODEL)));
+            assert_eq!(backend.word(target), 0);
+            let vehicle = state.as_bytes().to_vec();
+            let scratch = state.component_tail_scratch().cloned();
+            let events = backend.events.clone();
+            assert_eq!(
+                state.continue_component_tail(&mut backend, tail_storage()),
+                Err(VehicleComponentTailUnavailable::NoContinuation)
+            );
+            assert_eq!(state.as_bytes(), vehicle);
+            assert_eq!(state.component_tail_scratch(), scratch.as_ref());
+            assert_eq!(backend.events, events);
+        }
+    }
+    #[test]
+    fn component_tail_pairing_writes_live_aliased_vehicle_and_stack_records() {
+        for destination in [0x100100, 0x29100] {
+            let mut backend = tail_backend();
+            backend.put(destination + 32, 0xdeadbeef);
+            backend.tail_alias_writes = vec![
+                (0x9200, 0x100ca4, destination),
+                (0x9200, 0x100ca8, destination + 36),
+            ];
+            let mut state = state();
+            state.store::<()>(0x304, 0x1234).unwrap();
+            assert_eq!(
+                state.init_component_tail(&mut backend, MODEL, tail_storage()),
+                Ok(VehicleComponentTailOutcome::UnavailableFrontier(
+                    VehicleComponentTailFrontier::WheelEnumeration
+                ))
+            );
+            let doors = state.load::<()>(0xcb4).unwrap();
+            let actual = if destination == 0x100100 {
+                state.load::<()>(0x120).unwrap()
+            } else {
+                u32::from_le_bytes(
+                    state.component_tail_scratch().unwrap().bytes[0x120..0x124]
+                        .try_into()
+                        .unwrap(),
+                )
+            };
+            assert_eq!(actual, doors);
+            assert_eq!(backend.word(destination + 32), 0xdeadbeef);
+            assert!(!backend.events.iter().any(
+                |event| matches!(event,Event::WriteWord(address,_) if *address==destination+32)
+            ));
+        }
+    }
+    #[test]
+    fn component_tail_missing_seat_frees_native_vectors_and_numeric_failure_is_bounded() {
+        let mut backend = tail_backend();
+        backend.tail_empty_seats = true;
+        let mut state = state();
+        assert_eq!(
+            state.init_component_tail(&mut backend, MODEL, tail_storage()),
+            Ok(VehicleComponentTailOutcome::Rejected(
+                VehicleInitRejection::MissingSeat
+            ))
+        );
+        let frees = backend
+            .events
+            .iter()
+            .rev()
+            .filter_map(|e| {
+                if let Event::Free(a) = e {
+                    Some(*a)
+                } else {
+                    None
+                }
+            })
+            .take(4)
+            .collect::<Vec<_>>();
+        assert_eq!(frees, [0, 0x10000, 0x10100, 0]);
+        assert_eq!(state.scratch().unwrap().begin, 0);
+        assert_eq!(state.component_scratch().unwrap().begin, 0);
+        let mut backend = tail_backend();
+        backend.put(0xa084, f32::INFINITY.to_bits());
+        let mut failed = VehicleInitState::from_bytes(vec![0; 0x2008]);
+        assert_eq!(
+            failed.init_component_tail(&mut backend, MODEL, tail_storage()),
+            Err(VehicleComponentTailUnavailable::Tail(
+                VehicleComponentsUnavailable::NumericDomain("window position subtraction")
+            ))
+        );
+        assert_eq!(failed.load::<()>(0xcb4), Ok(0));
+        assert!(backend.events.contains(&Event::Window(0x7000)));
     }
     fn actual_bodycol_backend() -> Backend {
         let mut backend = Backend::new(false, false);

@@ -7,6 +7,9 @@
 #[path = "vehicle_components.rs"]
 mod components;
 pub use components::*;
+#[path = "vehicle_component_tail.rs"]
+mod component_tail;
+pub use component_tail::*;
 
 /// Original frame enumeration requests in this initialization prefix.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -51,6 +54,7 @@ pub enum VehicleInitRejection {
     WrongFrameType,
     NameAllocation,
     MissingBody,
+    MissingSeat,
 }
 
 /// The next original operation lies outside the implemented prefix.
@@ -171,6 +175,9 @@ pub struct VehicleInitState {
     continuation: Option<VehicleInitFrontier>,
     name_length: u32,
     component_scratch: Option<VehicleInitFrameVector>,
+    component_tail: Option<VehicleComponentsFrontier>,
+    tail_scratch: Option<VehicleComponentTailScratch>,
+    tail_vehicle_address: Option<u32>,
 }
 
 impl VehicleInitState {
@@ -183,6 +190,9 @@ impl VehicleInitState {
             continuation: None,
             name_length: 0,
             component_scratch: None,
+            component_tail: None,
+            tail_scratch: None,
+            tail_vehicle_address: None,
         }
     }
 

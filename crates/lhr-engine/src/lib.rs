@@ -62,6 +62,7 @@ pub mod target_state;
 pub mod texture_manager;
 pub mod vehicle_bodycol;
 pub mod vehicle_bodycol_records;
+pub mod vehicle_component_records;
 pub mod vehicle_controls;
 pub mod vehicle_drivetrain;
 pub mod vehicle_init;
@@ -84,7 +85,7 @@ pub mod game {
         actor_world, collision_dispatch, collision_line, collision_links, collision_prepare,
         collision_query, collision_volumes, collision_world, original_program,
         program_instructions, program_parser, replay_state, script_lookup, script_scheduler,
-        vehicle_bodycol, vehicle_bodycol_records, vehicle_controls, vehicle_drivetrain,
-        vehicle_init, vehicle_owner, vehicle_sound,
+        vehicle_bodycol, vehicle_bodycol_records, vehicle_component_records, vehicle_controls,
+        vehicle_drivetrain, vehicle_init, vehicle_owner, vehicle_sound,
     };
 }
