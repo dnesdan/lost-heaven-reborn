@@ -1,7 +1,7 @@
 # Lost Heaven Reborn
 
 <!-- generated-function-progress:start -->
-As of 2026-10-23 · snapshot `RUST-SCOPED-PORTS-20261023-26`.
+As of 2026-10-23 · snapshot `RUST-SCOPED-PORTS-20261023-27`.
 
 <p align="center"><img src="docs/progress.svg" alt="Progress dashboard: static retained pseudocode, reviewed scoped Rust entries, and strict system verification" width="100%"></p>
 
@@ -32,7 +32,7 @@ Ownership code uses `lhr_engine::ls3df::{c_str, itexture, i3d_object, texture_ma
 
 The immediate goal is **the playable first mission, from the original menu through mission completion**, alongside function-by-function library parity with mafia-re. See the [acceptance gates and dependency order](docs/GOALS.md). PS2 symbol names guide reconstruction; PC behavior and platform differences require original-binary verification.
 
-At `b4a812d`, bounded loose-file `dtaRead` adds **27 original-code READ observations** under Wine10/QEMU and one scoped entry: **168 entries / 57 contracts**. Existing Seek/Close credit is unchanged. Archive Read, native Open/Write, full `dtaRead`/DLL parity and application integration remain open. Worker original-runtime comparisons remain zero; real GPU/upload adapters and scene integration remain open.
+At `76d02a1`, bounded archive dtaRead now compares 68 original-code READ observations (60 nonfailure, eight failure) and 32 SEEK context rows under Wine10/QEMU. Raw and RLE blocks, plain/encrypted, match full destination bytes including sentinels in debug/release, counted once; no hidden Seek observer is inserted. Shared handles, forward/backward block navigation, exact boundaries, EOF, truncation and retry are exercised. Native registration/Open supplies fixture context only. Scoped credit remains 168 entries / 57 contracts; this extends existing RVA 0x25c0 with zero new entries or contracts. Tests use synthetic archives. Native LZ covers repeat/fill tokens only; WAV, Rust native Open/Write, full DLL parity and application/GPU integration remain open.
 
 | Czech PC menu in Rust | MISE01 static inspection in Rust |
 | --- | --- |

@@ -1,13 +1,13 @@
 # Progress
 
-At `b4a812d`, bounded loose-file `dtaRead` adds **27 original-code READ observations** under Wine10/QEMU and one scoped entry: **168 entries / 57 contracts**. Existing Seek/Close credit is unchanged. Archive Read, native Open/Write, full `dtaRead`/DLL parity and application integration remain open.
+At `76d02a1`, bounded archive dtaRead now compares 68 original-code READ observations (60 nonfailure, eight failure) and 32 SEEK context rows under Wine10/QEMU. Raw and RLE blocks, plain/encrypted, match full destination bytes including sentinels in debug/release, counted once; no hidden Seek observer is inserted. Shared handles, forward/backward block navigation, exact boundaries, EOF, truncation and retry are exercised. Native registration/Open supplies fixture context only. Scoped credit remains 168 entries / 57 contracts; this extends existing RVA 0x25c0 with zero new entries or contracts. Tests use synthetic archives. Native LZ covers repeat/fill tokens only; WAV, Rust native Open/Write, full DLL parity and application/GPU integration remain open.
 
-Debug/release count the same 27 READ rows once; 11 SEEK context and four OPEN alignment rows add no credit. The fixture calls Seek(0,CUR) after each Read, changing block-cursor state; replay follows that exact trajectory. Buffers use 32-bit FNV hashes, not bytewise equality. Separately, 2,948 static-model cases compare admitted returns, numeric/cache-validity/physical state and effects. The mutated retry refills after invalidation, so it does not prove reuse of partially overwritten still-valid cache. Fixture exit is zero; one helper shutdown signal11 leaves overall Wine stability unproven. No native hardware, game/GPU, application, rendered or interactive validation; worker original-runtime comparisons remain zero.
+Separately, 13,376 raw-block static-model configurations compare admitted state/effects/output/cache, including unreachable fault ordinals; they are not 13,376 executed failures. Rust tests cover bounded LZ tokens; original-runtime LZ evidence covers repeat/fill tokens only. WAV, Rust native Open/Write, full dtaRead/DLL parity and application integration remain open. No native hardware, game/GPU, rendered or interactive validation; worker original-runtime comparisons remain zero.
 
-Current checks: 478 Rust tests (87 assets, 365 engine library, 21 application, five renderer), nine REA-wrapper tests and 42 progress tests pass, plus formatting, locked workspace checking and Clippy. Apple arm64 all-target checking passes; native macOS linking and Metal execution remain untested. Two sequential independent reviews accepted the final source and bounded comparison.
+Current checks: 482 Rust tests (91 assets, 365 engine library, 21 application, five renderer), nine REA-wrapper tests and 42 progress tests pass, plus formatting, locked workspace checking and Clippy. Apple arm64 all-target checking passes; native macOS linking and Metal execution remain untested. Two sequential independent reviews accepted the final source and bounded comparison.
 
 <!-- generated-function-progress:start -->
-As of 2026-10-23 · snapshot `RUST-SCOPED-PORTS-20261023-26`.
+As of 2026-10-23 · snapshot `RUST-SCOPED-PORTS-20261023-27`.
 
 | Original binary | Static retained pseudocode | Denominator basis | Full contracts | Full Rust ports | Differential runtime verified |
 | --- | ---: | --- | ---: | ---: | ---: |
@@ -112,6 +112,7 @@ These rows describe only the reviewed bounded domains. Their native-derived case
 | `RUST-SCOPED-PORTS-20261023-24` | 2026-10-23 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 165 | 0/12 |
 | `RUST-SCOPED-PORTS-20261023-25` | 2026-10-23 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 167 | 0/12 |
 | `RUST-SCOPED-PORTS-20261023-26` | 2026-10-23 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 168 | 0/12 |
+| `RUST-SCOPED-PORTS-20261023-27` | 2026-10-23 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 168 | 0/12 |
 
 Regenerate locally with `python3 scripts/progress.py --write`; verify without writes with `python3 scripts/progress.py --check`. Versioned snapshots are retained in `docs/progress.json`.
 See the [README overview](../README.md) for the compact dashboard.

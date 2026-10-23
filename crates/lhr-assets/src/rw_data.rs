@@ -565,9 +565,10 @@ impl<B: ReadEffects> Handles<B> {
     }
     /// Read-mode dtaRead, PC RVA 0x25c0. WAV decoding remains unsupported.
     /// None represents a null native buffer, including for a zero-length call.
-    /// Host-unsafe cursor/cache ranges return an error before performing effects.
-    /// Native I/O failure returns FAILURE with its completed output/cache prefix;
-    /// numeric cache and cursor locals commit only on native success.
+    /// Host-unsafe cursor/cache ranges and malformed archive blocks return errors.
+    /// Errors may preserve completed I/O and partial output/cache mutations;
+    /// numeric cache and cursor locals commit only on success.
+    /// Native I/O failure returns FAILURE with its completed output/cache prefix.
     pub fn dta_read(
         &self,
         handle: u32,
