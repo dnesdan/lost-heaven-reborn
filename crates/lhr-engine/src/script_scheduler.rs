@@ -186,6 +186,7 @@ pub enum ExecutionError<E> {
     UnsupportedEndContext,
     Effects(E),
     Replay(ReplayWaitError<E>),
+    ReferenceSlots(ReferenceSlotError),
 }
 
 #[derive(Clone, Debug)]
@@ -197,6 +198,8 @@ enum Operation {
     Wait(u32),
     RecWaitForEnd,
     CommandBlock(bool),
+    DimAct(u32),
+    DimFrm(u32),
     End,
     Startup(StartupCommand),
     Unsupported(String),
@@ -212,6 +215,8 @@ impl Operation {
             Self::RecWaitForEnd => 0x2e,
             Self::End => 6,
             Self::CommandBlock(_) => 34,
+            Self::DimAct(_) => 0x0c,
+            Self::DimFrm(_) => 0x0b,
             Self::Startup(StartupCommand::GameNightMission(_)) => 0x51,
             Self::Startup(StartupCommand::UseLightcache) => 0xb4,
             Self::Startup(StartupCommand::PoliceManagerOn { .. }) => 0x87,
@@ -271,6 +276,14 @@ impl Program {
                     "commandblock" => argument
                         .parse::<i32>()
                         .map_or_else(|_| unsupported(), |v| Operation::CommandBlock(v != 0)),
+                    // Literal adapter only: the original compiler/token evaluator
+                    // is not reconstructed. Host limits are checked on dispatch.
+                    "dim_act" => argument
+                        .parse::<u32>()
+                        .map_or_else(|_| unsupported(), Operation::DimAct),
+                    "dim_frm" => argument
+                        .parse::<u32>()
+                        .map_or_else(|_| unsupported(), Operation::DimFrm),
                     "game_nightmission" => argument.parse::<i32>().map_or_else(
                         |_| unsupported(),
                         |v| Operation::Startup(StartupCommand::GameNightMission(v != 0)),
@@ -322,8 +335,102 @@ fn integer_pair(argument: &str) -> Option<(i32, i32)> {
     ))
 }
 
+/// Host allocation limit, not an original command limit. Declaration parity is
+/// restricted to successful allocations within this nonnegative count domain.
+pub const MAX_REFERENCE_SLOTS: u32 = 65_536;
+
+/// Nonowning identity of an existing actor in the caller's world. This is neither
+/// a native pointer nor actor storage. The world backend must validate identity
+/// and lifetime before use; a stored identity does not keep an actor alive.
+/// Identity zero is valid; `None` in a slot represents native null.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ActorReferenceId(u32);
+impl ActorReferenceId {
+    /// Explicit intake boundary for an identity already owned by the caller.
+    pub const fn from_existing(identity: u32) -> Self {
+        Self(identity)
+    }
+    pub const fn identity(self) -> u32 {
+        self.0
+    }
+}
+
+/// Nonowning identity of an existing frame, with the same caller validation and
+/// lifetime obligations as `ActorReferenceId`. The two identity types cannot be
+/// interchanged. Identity zero is valid; `None` represents native null.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct FrameReferenceId(u32);
+impl FrameReferenceId {
+    pub const fn from_existing(identity: u32) -> Self {
+        Self(identity)
+    }
+    pub const fn identity(self) -> u32 {
+        self.0
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ReferenceSlotError {
+    CountLimit { requested: u32, maximum: u32 },
+    Allocation,
+    IndexOutOfBounds { index: u32, count: u32 },
+}
+
+/// Shared storage behavior of DIM_ACT and DIM_FRM. A replacement is prepared
+/// before dropping old storage: host allocation errors preserve the old slots.
+/// Native free-before-allocation failure behavior is outside the admitted domain.
+fn declare_references<T: Copy>(
+    slots: &mut Vec<Option<T>>,
+    requested: u32,
+) -> Result<(), ReferenceSlotError> {
+    if requested > MAX_REFERENCE_SLOTS {
+        return Err(ReferenceSlotError::CountLimit {
+            requested,
+            maximum: MAX_REFERENCE_SLOTS,
+        });
+    }
+    if requested == 0 {
+        *slots = Vec::new();
+    } else if requested as usize > slots.len() {
+        let mut replacement = Vec::new();
+        replacement
+            .try_reserve_exact(requested as usize)
+            .map_err(|_| ReferenceSlotError::Allocation)?;
+        replacement.resize(requested as usize, None);
+        *slots = replacement;
+    }
+    Ok(())
+}
+
+fn reference_at<T: Copy>(slots: &[Option<T>], index: u32) -> Result<Option<T>, ReferenceSlotError> {
+    slots
+        .get(index as usize)
+        .copied()
+        .ok_or(ReferenceSlotError::IndexOutOfBounds {
+            index,
+            count: slots.len() as u32,
+        })
+}
+
+fn set_reference<T>(
+    slots: &mut [Option<T>],
+    index: u32,
+    reference: Option<T>,
+) -> Result<(), ReferenceSlotError> {
+    let count = slots.len() as u32;
+    let slot = slots
+        .get_mut(index as usize)
+        .ok_or(ReferenceSlotError::IndexOutOfBounds { index, count })?;
+    *slot = reference;
+    Ok(())
+}
+
 /// Selected base-dispatcher fields. The short-stack addresses remain in ResetState;
 /// retained return storage is never shortened when the logical native end shrinks.
+/// This control instance owns declaration arrays, but never the referenced world
+/// objects. Slots persist across scheduling, PC reset and END; replacing/dropping
+/// ControlState drops only its arrays. Native script construction/destruction and
+/// program replacement are not reconstructed by this explicit adapter lifecycle.
 #[derive(Clone, Debug)]
 pub struct ControlState {
     pub last_program_counter: u32,
@@ -332,6 +439,8 @@ pub struct ControlState {
     pub interrupt_on_return: u8,
     pub replacement_program_present: bool,
     return_storage: Vec<u16>,
+    actor_references: Vec<Option<ActorReferenceId>>,
+    frame_references: Vec<Option<FrameReferenceId>>,
 }
 impl ControlState {
     /// Explicit initial state, not an inferred native constructor. CW must describe
@@ -352,6 +461,8 @@ impl ControlState {
             interrupt_on_return: 0,
             replacement_program_present: false,
             return_storage,
+            actor_references: Vec::new(),
+            frame_references: Vec::new(),
         })
     }
     pub fn return_storage(&self) -> &[u16] {
@@ -359,6 +470,41 @@ impl ControlState {
     }
     pub fn return_storage_mut(&mut self) -> &mut [u16] {
         &mut self.return_storage
+    }
+    pub fn actor_references(&self) -> &[Option<ActorReferenceId>] {
+        &self.actor_references
+    }
+    pub fn frame_references(&self) -> &[Option<FrameReferenceId>] {
+        &self.frame_references
+    }
+    pub fn actor_reference(
+        &self,
+        index: u32,
+    ) -> Result<Option<ActorReferenceId>, ReferenceSlotError> {
+        reference_at(&self.actor_references, index)
+    }
+    pub fn frame_reference(
+        &self,
+        index: u32,
+    ) -> Result<Option<FrameReferenceId>, ReferenceSlotError> {
+        reference_at(&self.frame_references, index)
+    }
+    /// Checks declared storage bounds. The world backend must separately validate
+    /// that a supplied nonnull identity still resolves to its existing actor.
+    pub fn set_actor_reference(
+        &mut self,
+        index: u32,
+        reference: Option<ActorReferenceId>,
+    ) -> Result<(), ReferenceSlotError> {
+        set_reference(&mut self.actor_references, index, reference)
+    }
+    /// Checks declared storage bounds; the caller validates existing-frame life.
+    pub fn set_frame_reference(
+        &mut self,
+        index: u32,
+        reference: Option<FrameReferenceId>,
+    ) -> Result<(), ReferenceSlotError> {
+        set_reference(&mut self.frame_references, index, reference)
     }
     fn stack_count<E>(&self, state: &ResetState) -> Result<usize, ExecutionError<E>> {
         let bytes = state
@@ -492,6 +638,18 @@ impl<E: ScriptEffects> SchedulerBackend for ProgramBackend<'_, E> {
             }
             Operation::CommandBlock(enabled) => {
                 state.continuation = u8::from(*enabled);
+                self.control.advance(state);
+            }
+            // Original dispatcher arms 0x46d859/0x46d7e4, not separate functions.
+            // DIM declarations own reference arrays, not actors or frames.
+            Operation::DimAct(count) => {
+                declare_references(&mut self.control.actor_references, *count)
+                    .map_err(ExecutionError::ReferenceSlots)?;
+                self.control.advance(state);
+            }
+            Operation::DimFrm(count) => {
+                declare_references(&mut self.control.frame_references, *count)
+                    .map_err(ExecutionError::ReferenceSlots)?;
                 self.control.advance(state);
             }
             Operation::End => {
@@ -857,6 +1015,228 @@ mod tests {
             wait_threshold::<()>(1, 0x013f),
             Err(ExecutionError::InvalidControlWord(0x013f))
         ));
+    }
+}
+
+#[cfg(test)]
+mod reference_slot_tests {
+    use super::*;
+    use crate::named_script::reset_and_start;
+
+    struct Effects;
+    impl ScriptEffects for Effects {
+        type Error = std::convert::Infallible;
+        fn execute(
+            &mut self,
+            _: StartupCommand,
+            _: &mut ControlState,
+            _: &mut ResetState,
+            _: i32,
+        ) -> Result<(), Self::Error> {
+            panic!("a declaration must not call world effects")
+        }
+    }
+
+    fn state() -> ResetState {
+        ResetState {
+            program_counter: 0,
+            short_stack_begin: 100,
+            short_stack_end: 100,
+            field_44: 0,
+            continuation: 0,
+        }
+    }
+
+    fn declare(control: &mut ControlState, source: &str) {
+        let program = Program::from_source(source).unwrap();
+        let mut state = state();
+        let mut effects = Effects;
+        let mut backend = ProgramBackend {
+            program: &program,
+            control,
+            effects: &mut effects,
+        };
+        backend.dispatch(&mut state, 7).unwrap();
+        assert_eq!(state.program_counter, 1);
+        assert_eq!(state.continuation, 0);
+        assert_eq!(backend.control.last_program_counter, 0);
+        assert_eq!(backend.control.elapsed, 0);
+    }
+
+    #[test]
+    fn actor_grow_clears_all_slots_and_nonzero_smaller_or_equal_retains_count_and_values() {
+        let mut control = ControlState::new(0, 0x3f).unwrap();
+        declare(&mut control, "DIM_ACT 3");
+        assert_eq!(control.actor_references(), &[None; 3]);
+        let actor = ActorReferenceId::from_existing(0);
+        assert_eq!(actor.identity(), 0);
+        control.set_actor_reference(2, Some(actor)).unwrap();
+        for source in ["dim_act 3", "dim_act 1"] {
+            declare(&mut control, source);
+            assert_eq!(control.actor_references(), &[None, None, Some(actor)]);
+        }
+        declare(&mut control, "dim_act 4");
+        assert_eq!(control.actor_references(), &[None; 4]);
+        control.set_actor_reference(0, Some(actor)).unwrap();
+        declare(&mut control, "dim_act 0");
+        assert!(control.actor_references().is_empty());
+        declare(&mut control, "dim_act 0");
+        declare(&mut control, "dim_act 1");
+        assert_eq!(control.actor_references(), &[None]);
+    }
+
+    #[test]
+    fn frame_declarations_are_independent_and_apply_the_same_retention_rules() {
+        let mut control = ControlState::new(0, 0x3f).unwrap();
+        declare(&mut control, "dim_act 1");
+        let actor = ActorReferenceId::from_existing(123);
+        let frame = FrameReferenceId::from_existing(0);
+        assert_eq!(frame.identity(), 0);
+        control.set_actor_reference(0, Some(actor)).unwrap();
+        declare(&mut control, "dim_frm 2");
+        control.set_frame_reference(1, Some(frame)).unwrap();
+        for source in ["dim_frm 1", "dim_frm 2"] {
+            declare(&mut control, source);
+            assert_eq!(control.frame_references(), &[None, Some(frame)]);
+        }
+        declare(&mut control, "dim_frm 3");
+        assert_eq!(control.frame_references(), &[None; 3]);
+        declare(&mut control, "dim_frm 0");
+        assert!(control.frame_references().is_empty());
+        assert_eq!(control.actor_reference(0), Ok(Some(actor)));
+    }
+
+    #[test]
+    fn reference_access_validates_bounds_without_changing_storage() {
+        let mut control = ControlState::new(0, 0x3f).unwrap();
+        assert_eq!(
+            control.actor_reference(0),
+            Err(ReferenceSlotError::IndexOutOfBounds { index: 0, count: 0 })
+        );
+        declare(&mut control, "dim_act 1");
+        declare(&mut control, "dim_frm 1");
+        for index in [1, u32::MAX] {
+            let error = ReferenceSlotError::IndexOutOfBounds { index, count: 1 };
+            assert_eq!(control.actor_reference(index), Err(error.clone()));
+            assert_eq!(control.frame_reference(index), Err(error.clone()));
+            assert_eq!(
+                control.set_actor_reference(index, Some(ActorReferenceId::from_existing(1))),
+                Err(error.clone())
+            );
+            assert_eq!(
+                control.set_frame_reference(index, Some(FrameReferenceId::from_existing(2))),
+                Err(error)
+            );
+        }
+        assert_eq!(control.actor_references(), &[None]);
+        assert_eq!(control.frame_references(), &[None]);
+    }
+
+    #[test]
+    fn host_count_limit_error_preserves_storage_and_pc_after_elapsed_accumulation() {
+        let mut control = ControlState::new(0, 0x3f).unwrap();
+        declare(&mut control, "dim_act 1");
+        let actor = ActorReferenceId::from_existing(31);
+        control.set_actor_reference(0, Some(actor)).unwrap();
+        control.elapsed = 4;
+        control.last_program_counter = 9;
+        let program = Program::from_source("dim_act 65537").unwrap();
+        let mut effects = Effects;
+        let mut backend = ProgramBackend {
+            program: &program,
+            control: &mut control,
+            effects: &mut effects,
+        };
+        let mut state = state();
+        let mut budget = DispatchBudget::new(1).unwrap();
+        assert_eq!(
+            run_scheduler(&mut state, &mut backend, 3, &mut budget),
+            Err(SchedulerError::Backend(ExecutionError::ReferenceSlots(
+                ReferenceSlotError::CountLimit {
+                    requested: 65_537,
+                    maximum: MAX_REFERENCE_SLOTS,
+                }
+            )))
+        );
+        assert_eq!(state.program_counter, 0);
+        assert_eq!(control.elapsed, 7);
+        assert_eq!(control.last_program_counter, 9);
+        assert_eq!(control.actor_reference(0), Ok(Some(actor)));
+    }
+
+    #[test]
+    fn literal_intake_rejects_unreconstructed_parameters_and_lookup_stops_after_declarations() {
+        let mut effects = Effects;
+        let mut control = ControlState::new(0, 0x3f).unwrap();
+        for source in [
+            "dim_act",
+            "dim_act -1",
+            "dim_frm 1.0",
+            "dim_act 1+1",
+            "dim_act $n",
+            "dim_act 4294967296",
+            "dim_act 1,2",
+            "dim_frm 1 // note",
+        ] {
+            let program = Program::from_source(source).unwrap();
+            let backend = ProgramBackend {
+                program: &program,
+                control: &mut control,
+                effects: &mut effects,
+            };
+            assert!(
+                matches!(
+                    backend.opcode(0, 0),
+                    Err(ExecutionError::UnsupportedCommand { .. })
+                ),
+                "{source}"
+            );
+        }
+        let program =
+            Program::from_source("commandblock 1\ndim_act 2\ndim_frm 3\nfindactor 0, \"example\"")
+                .unwrap();
+        let mut backend = ProgramBackend {
+            program: &program,
+            control: &mut control,
+            effects: &mut effects,
+        };
+        assert_eq!(backend.opcode(0, 1), Ok(0x0c));
+        assert_eq!(backend.opcode(0, 2), Ok(0x0b));
+        let mut state = state();
+        let mut budget = DispatchBudget::new(8).unwrap();
+        assert_eq!(
+            run_scheduler(&mut state, &mut backend, 5, &mut budget),
+            Err(SchedulerError::Backend(
+                ExecutionError::UnsupportedCommand {
+                    line: 4,
+                    command: "findactor".into(),
+                }
+            ))
+        );
+        assert_eq!(state.program_counter, 3);
+        assert_eq!(control.actor_references(), &[None; 2]);
+        assert_eq!(control.frame_references(), &[None; 3]);
+    }
+
+    #[test]
+    fn control_instance_retains_reference_arrays_across_explicit_pc_reset_and_end() {
+        let mut control = ControlState::new(0, 0x3f).unwrap();
+        declare(&mut control, "dim_act 1");
+        let actor = ActorReferenceId::from_existing(7);
+        control.set_actor_reference(0, Some(actor)).unwrap();
+        let program = Program::from_source("end").unwrap();
+        let mut effects = Effects;
+        let mut budget = DispatchBudget::new(2).unwrap();
+        let mut state = state();
+        let mut adapter = ProgramAdapter {
+            program: &program,
+            control: &mut control,
+            effects: &mut effects,
+            budget: &mut budget,
+        };
+        reset_and_start(&mut state, &mut adapter).unwrap();
+        assert_eq!(state.continuation, 0);
+        assert_eq!(control.actor_reference(0), Ok(Some(actor)));
     }
 }
 
