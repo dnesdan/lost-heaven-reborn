@@ -2,7 +2,7 @@
 
 At `6439ee2`, bounded native archive registration, unlock, Open and reference lifetime compose with existing Read/Seek/Close: **176 scoped entries / 58 contracts**. Stored synthetic fixtures match 24 native Open calls within 81 log rows and 976 complete-array bytes in debug/release, counted once. Separately, 21 scripted effect cases check Rust ordering; eight installed assets from four archives match 216,799 bytes against the existing Rust Archive loader, not original runtime. The retained archive-read evidence remains 68 READ observations and 32 SEEK context rows. Scope is serialized, bounded ASCII and non-WAV; timestamp metadata is unmodeled, native leaks are abstract effects, and short index reads stop explicitly. Native Write, full DLL parity, application/GPU integration and mission execution remain open. Next: WAV, then application adapters.
 
-Current checks: 484 Rust tests (93 assets, 365 engine library, 21 application, five renderer), nine REA-wrapper tests and 42 progress tests pass, plus formatting, locked workspace checking and Clippy. Apple arm64 all-target checking passes; native macOS linking and Metal execution remain untested. Two sequential independent reviews accepted the final source and bounded comparison.
+Current checks: 484 Rust tests (93 assets, 365 engine library, 21 application, five renderer), nine REA-wrapper tests and 47 progress tests pass, plus formatting, locked workspace checking and Clippy. Apple arm64 all-target checking passes; native macOS linking and Metal execution remain untested. Two sequential independent reviews accepted the final source and bounded comparison.
 
 <!-- generated-function-progress:start -->
 As of 2026-10-23 · snapshot `RUST-SCOPED-PORTS-20261023-28`.
@@ -116,6 +116,37 @@ These rows describe only the reviewed bounded domains. Their native-derived case
 
 Regenerate locally with `python3 scripts/progress.py --write`; verify without writes with `python3 scripts/progress.py --check`. Versioned snapshots are retained in `docs/progress.json`.
 See the [README overview](../README.md) for the compact dashboard.
+Supplied binary catalog (file identities; independent measures):
+
+| Binary | Platform | Variant | Role | Static retained pseudocode | Scoped Rust entries |
+| --- | --- | --- | --- | ---: | ---: |
+| DrvMgt.dll | PC | Installed game | Driver-management helper, exact runtime use unresolved | N/A | 0 |
+| Game.exe | PC | Installed game | Game and mission executable | 4784 / 4,914 (97.35%) | 31 |
+| IJoy.dll | PC | Installed game | DirectInput joystick wrapper | N/A | 0 |
+| INet.dll | PC | Installed game | Network helper, exact runtime use unresolved | N/A | 0 |
+| LS3DF.dll | PC | Installed game | 3D, animation, audio and rendering engine | 1555 / 1,714 (90.72%) | 129 |
+| Setup.exe (supplied configuration) | PC | Installed game | Installed game configuration utility | 172 / 172 (100.00%) | 5 |
+| binkw32.dll | PC | Installed game | Bink video codec boundary | N/A | 0 |
+| ogg.dll | PC | Installed game | Ogg container library boundary | N/A | 0 |
+| rw_data.dll | PC | Installed game | Game archive and data access library | 176 / 234 (75.21%) | 11 |
+| vorbis.dll | PC | Installed game | Vorbis codec library boundary | N/A | 0 |
+| vorbisfile.dll | PC | Installed game | Vorbis stream and file library boundary | N/A | 0 |
+| Setup.exe (archive installer bootstrap) | PC | Distribution archive | Distribution installer bootstrap | 376 / 376 (100.00%) | 0 |
+| SLUS_206.71 | PS2 | PS2 disc executable | PS2 game executable with retained linker symbols | N/A | 0 |
+| CDVDSTM.IRX | PS2 | PS2 disc IOP module | CD and DVD streaming support module | N/A | 0 |
+| IOPRP271.IMG | PS2 | PS2 disc support image | IOP reboot and support image, container contents unmeasured | N/A | 0 |
+| LIBSD.IRX | PS2 | PS2 disc IOP module | Sound support module | N/A | 0 |
+| MCMAN.IRX | PS2 | PS2 disc IOP module | Memory-card management module | N/A | 0 |
+| MCSERV.IRX | PS2 | PS2 disc IOP module | Memory-card service module | N/A | 0 |
+| MTAPMAN.IRX | PS2 | PS2 disc IOP module | Multitap support module | N/A | 0 |
+| PADMAN.IRX | PS2 | PS2 disc IOP module | Controller support module | N/A | 0 |
+| SDRDRV.IRX | PS2 | PS2 disc IOP module | Sound driver module | N/A | 0 |
+| SIO2MAN.IRX | PS2 | PS2 disc IOP module | SIO2 support module | N/A | 0 |
+| SOUND.IRX | PS2 | PS2 disc IOP module | Game-distributed sound module | N/A | 0 |
+| SOUND2.IRX | PS2 | PS2 disc IOP module | Game-distributed sound module | N/A | 0 |
+| SOUND_M.IRX | PS2 | PS2 disc IOP module | Game-distributed sound module | N/A | 0 |
+
+N/A means no measured static procedure ratio. PS2 linker symbol research supplies naming evidence, not static procedure coverage. Scoped entries are absolute reviewed counts joined by binary SHA-256; zero is not 0% coverage. Whole-function and differential runtime coverage remain unmeasured (N/A).
 <!-- generated-function-progress:end -->
 
 Updated 2026-10-23 UTC. The Rust engine supports original-data model inspection and bounded sequential skeletal animation through owned controller, clock, dispatch, Target, morph and CPU skin paths. Bounded model/dummy/unbound-Joint/Target lifetime preserves external survivors and rejects stale playback after parsed-source replacement. Independent material, face-group and mesh-level primitives now have a ten-slot mesh owner with shared references and bounded volume refresh. A standalone managed visual-owner bridge now connects shared mesh/material ownership to actual bounded IB/VB allocation and cleanup. A separate per-object layer now owns ten unique plain LODs and protects shared mesh references. ITexture/C_str lifetime now includes finite managed record/queue/pool removal and Close composition from seeded state. Actual bounded managed-record creation now composes that chain. Bounded Request queue production retains its existing creation/removal and Close composition. Standalone pool unload composes Request/removal from seeded pool state; Close is covered by a separate Rust unit. Bounded standalone managed texture pool release now retires admitted pool state: it clears loaded bits/weak owners under one lock, then releases each pool’s optional system and reverse-visited slot resources, frees its array and resets headers/memory while preserving grow. ReleaseManagedTextures is a pinned mafia-re working name without recovered original PC/PS2 symbol. Full Create/Restore, worker/upload, whole-device shutdown, derived lit/skin/morph LODs and loaded-resource/GPU adapters remain open. Original models and clips remain regression evidence; texture/GPU backends, filename, loaded visual-resource and scene lifetime remain open. The original Czech menu, static INTRO and bounded MISE01 neighborhood remain available. Cinematic and first-mission execution are unimplemented.

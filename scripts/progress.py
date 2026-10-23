@@ -436,6 +436,56 @@ def validate(snapshot):
     raise ValueError('Unsupported progress schema')
 
 
+def validate_catalog(catalog, snapshot):
+    """A file catalog adds visibility, never function or coverage credit."""
+    if not isinstance(catalog, dict) or set(catalog) != {'schema_version', 'binaries'} or type(catalog['schema_version']) is not int or catalog['schema_version'] != 1:
+        raise ValueError('Unexpected binary catalog schema')
+    if not isinstance(catalog['binaries'], list) or not catalog['binaries']:
+        raise ValueError('Binary catalog must be a nonempty list')
+    hashes, names = set(), set()
+    for row in catalog['binaries']:
+        if not isinstance(row, dict) or set(row) != {'name', 'platform', 'variant', 'role', 'binary_sha256'}:
+            raise ValueError('Unexpected binary catalog fields')
+        for field in ['name', 'variant', 'role']:
+            value = row[field]
+            if (not isinstance(value, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9 ._()+,-]{0,95}', value)):
+                raise ValueError('Invalid public binary catalog text')
+        if row['platform'] not in {'PC', 'PS2'}:
+            raise ValueError('Unsupported binary platform')
+        identity = row['binary_sha256']
+        name = row['name'].casefold()
+        if not isinstance(identity, str) or not SHA.fullmatch(identity) or identity in hashes or name in names:
+            raise ValueError('Invalid or duplicate binary catalog identity/name')
+        hashes.add(identity); names.add(name)
+    required = {row['binary_sha256'] for row in snapshot['libraries'] + snapshot.get('other_targets', [])}
+    if not required <= hashes:
+        raise ValueError('Binary catalog omits a tracked library or installer')
+
+
+def catalog_rows(catalog, snapshot):
+    """Join only exact binary hashes; zero scoped entries is an absolute count."""
+    measured = {row['binary_sha256']: row for row in snapshot['libraries'] + snapshot.get('other_targets', [])}
+    counts = {}
+    for port in snapshot['scoped_ports']:
+        for function in port['functions']:
+            key = function['binary_sha256']
+            counts[key] = counts.get(key, 0) + 1
+    for binary in catalog['binaries']:
+        row = measured.get(binary['binary_sha256'])
+        static = ratio(row['retained_pseudocode'], row['inventory_total']) if row and row['inventory_total'] is not None else 'N/A'
+        yield binary, static, counts.get(binary['binary_sha256'], 0)
+
+
+def render_catalog(catalog, snapshot):
+    lines = ['Supplied binary catalog (file identities; independent measures):', '',
+             '| Binary | Platform | Variant | Role | Static retained pseudocode | Scoped Rust entries |',
+             '| --- | --- | --- | --- | ---: | ---: |']
+    for binary, static, count in catalog_rows(catalog, snapshot):
+        lines.append(f"| {binary['name']} | {binary['platform']} | {binary['variant']} | {binary['role']} | {static} | {count} |")
+    lines += ['', 'N/A means no measured static procedure ratio. PS2 linker symbol research supplies naming evidence, not static procedure coverage. Scoped entries are absolute reviewed counts joined by binary SHA-256; zero is not 0% coverage. Whole-function and differential runtime coverage remain unmeasured (N/A).']
+    return '\n'.join(lines)
+
+
 def ratio(value, total):
     if value is None:
         return 'N/A'
@@ -444,7 +494,10 @@ def ratio(value, total):
     return f'{value} / {total:,} ({100 * value / total:.2f}%)'
 
 
-def render(snapshot, include_history=False):
+def render(snapshot, include_history=False, catalog=None):
+    if catalog is not None:
+        fragment = render(snapshot, include_history)
+        return fragment.replace(END, render_catalog(catalog, snapshot) + "\n" + END)
     if snapshot['schema_version'] == 3:
         return render_v3(snapshot, include_history)
     lines = [START, f"As of {snapshot['as_of']} · snapshot `{snapshot['snapshot_id']}`.", '']
@@ -531,10 +584,10 @@ def render_v3(snapshot, include_history=False):
     return '\n'.join(lines)
 
 
-def render_svg(snapshot):
+def render_svg(snapshot, catalog=None):
     """Render an accessible, self-contained dashboard from the validated snapshot."""
     if snapshot['schema_version'] == 3:
-        return render_svg_v3(snapshot)
+        return render_svg_v3(snapshot, catalog)
     rows = {row['name']: row for row in snapshot['libraries']}
     game, ls3df = rows.get('Game.exe'), rows.get('LS3DF.dll')
     ports = snapshot['scoped_ports']
@@ -629,8 +682,8 @@ text{{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-se
 </svg>'''
 
 
-def render_svg_v3(snapshot):
-    """Compact 2x3 dashboard for engine libraries and the separate installer target."""
+def render_svg_v3(snapshot, catalog=None):
+    """Render the supplied-binary catalog, with legacy cards when no catalog is passed."""
     palette = {'ink': '#142b3b', 'muted': '#506577', 'paper': '#f3f7f8', 'card': '#ffffff',
                'line': '#d4e0e5', 'blue': '#176b87', 'green': '#33765a', 'amber': '#9a5a12',
                'track': '#e2ebee', 'softblue': '#e6f2f6', 'softgreen': '#e9f3ed', 'softamber': '#f8efe2'}
@@ -675,6 +728,36 @@ def render_svg_v3(snapshot):
              'In-image non-thunk procedures · distribution target', palette['muted'],
              100*installer['retained_pseudocode']/installer['inventory_total'])])
 
+    history_y = 638
+    if catalog is not None:
+        # The table grows with the verified catalog; history retains its frozen data.
+        cards = ''.join([
+            card(36, 112, 'REVIEWED SCOPED RUST PORTS', f'{entry_count} entries · {len(ports)} contracts',
+                 f'{static_count} used in static inspection · {unrecorded} unrecorded', palette['amber']),
+            card(432, 112, 'STRICT FULL-SYSTEM VERIFICATION', f"{systems['verified']} / {systems['total']}",
+                 'Verified complete systems · strict evidence gate', palette['muted'])])
+        cards += '<text x="36" y="292" class="kicker">ALL SUPPLIED BINARIES · STATIC / SCOPED COUNTS</text>'
+        cards += '<text x="36" y="315" class="detail">Binary · platform · variant / role</text><text x="580" y="315" class="detail">Static retained</text><text x="754" y="315" class="detail">Scoped</text>'
+        measured_by_hash = {row['binary_sha256']: row for row in snapshot['libraries'] + snapshot['other_targets']}
+        for index, (binary, static, count_value) in enumerate(catalog_rows(catalog, snapshot)):
+            y = 346 + index * 70
+            label = f"{binary['name']} · {binary['platform']}"
+            cards += (f'<text x="36" y="{y}" class="label">{escape(label)}</text>'
+                      f'<text x="36" y="{y+19}" class="detail">{escape(binary["role"])}</text>'
+                      f'<text x="36" y="{y+36}" class="detail">{escape(binary["variant"])}</text>'
+                      f'<text x="580" y="{y}" class="detail">{escape(static)}</text>'
+                      f'<text x="776" y="{y}" text-anchor="end" class="detail">{count_value}</text>')
+            measured = measured_by_hash.get(binary['binary_sha256'])
+            if measured is not None and measured['inventory_total'] is not None:
+                percent = 100 * measured['retained_pseudocode'] / measured['inventory_total']
+                cards += (f'<rect class="catalog-static-track bar-track" x="580" y="{y+12}" width="160" height="5" rx="2.5" fill="{palette["track"]}"/>')
+                if percent > 0:
+                    cards += (f'<rect class="catalog-static-fill" x="580" y="{y+12}" width="{160*percent/100:.3f}" height="5" rx="2.5" fill="{palette["blue"]}"/>')
+        note_y = 346 + len(catalog['binaries']) * 70
+        cards += f'<text x="36" y="{note_y}" class="detail">N/A: unmeasured static ratio. PS2 symbols: naming research, no procedure coverage.</text>'
+        cards += f'<text x="36" y="{note_y+20}" class="detail">Scoped: absolute entries by binary SHA-256; zero is not 0% coverage. Full/runtime: N/A.</text>'
+        history_y = note_y + 81
+
     history = []
     previous = None
     for item in snapshot['history']:
@@ -696,7 +779,6 @@ def render_svg_v3(snapshot):
             if values != previous:
                 history.append(f"{item['as_of']}: Game {g['retained_pseudocode']:,}/{g['inventory_total']:,}; LS3DF {l['retained_pseudocode']:,}/{l['inventory_total']:,}")
                 previous = values
-    history_y = 638
     history_svg = ''.join(f'<text x="36" y="{history_y+i*22}" class="history">{escape(line)}</text>' for i,line in enumerate(history))
     if not history_svg:
         history_svg = f'<text x="36" y="{history_y}" class="history">No frozen snapshots match current Game and LS3DF denominators.</text>'
@@ -733,12 +815,15 @@ def render_svg_v3(snapshot):
     installer = snapshot['other_targets'][0]
     installer_count = f"{installer['retained_pseudocode']:,} / {installer['inventory_total']:,} · {100*installer['retained_pseudocode']/installer['inventory_total']:.2f}%"
     desc = escape(f"As of {date_label}. Static retained pseudocode for Game.exe {count(game)}, LS3DF.dll {count(ls3df)}, supplied Setup.exe {count(setup)}, and separate archive installer bootstrap {installer_count}. {entry_count} reviewed scoped entries across {len(ports)} contracts. Strict full-system verification: {systems['verified']} of {systems['total']}; not a game-completion percentage.")
+    if catalog is not None:
+        names = ', '.join(row['name'] for row in catalog['binaries'])
+        desc = escape(f"As of {snapshot['as_of']}. {len(catalog['binaries'])} supplied binaries: {names}. Per-binary static retained pseudocode and absolute scoped Rust entries are separate measures. N/A means no measured static ratio. PS2 linker symbols provide naming evidence only. {entry_count} reviewed scoped entries across {len(ports)} contracts. Strict full-system verification: {systems['verified']} of {systems['total']}; not a game-completion percentage.")
     return f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 840 {height}" role="img" aria-labelledby="dashboard-title dashboard-desc">
 <title id="dashboard-title">Mafia Rust reconstruction progress evidence</title><desc id="dashboard-desc">{desc}</desc>
 <style>text{{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;fill:{palette['ink']}}}.kicker{{font-size:14px;font-weight:700;letter-spacing:1.1px;fill:{palette['muted']}}}.title{{font-size:28px;font-weight:750;letter-spacing:-.35px}}.label{{font-size:13px;font-weight:750;letter-spacing:.5px;fill:{palette['muted']}}}.value{{font-size:25px;font-weight:750;letter-spacing:-.4px}}.detail,.history{{font-size:13px;fill:{palette['muted']}}}.dark-bg{{display:none}}@media(prefers-color-scheme:dark){{.light-bg{{display:none}}.dark-bg{{display:inline}}text{{fill:#edf4f6}}.kicker,.label,.detail,.history{{fill:#b3c5ce}}.card-bg{{fill:#172b39;stroke:#3b5361}}.bar-track{{fill:#314957}}}}</style>
 <rect class="light-bg" width="840" height="{height}" rx="24" fill="{palette['paper']}"/><rect class="dark-bg" width="840" height="{height}" rx="24" fill="#0d1b25"/>
 <text x="36" y="38" class="kicker">LOST HEAVEN REBORN · EVIDENCE SNAPSHOT · {date_label}</text><text x="36" y="75" class="title">Progress measures, separate denominators</text>{cards}
-<text x="36" y="611" class="kicker">FROZEN STATIC HISTORY · MATCHING GAME AND LS3DF DENOMINATORS</text>{history_svg}
+<text x="36" y="{history_y-27}" class="kicker">FROZEN STATIC HISTORY · MATCHING GAME AND LS3DF DENOMINATORS</text>{history_svg}
 <text x="36" y="{scoped_title_y}" class="kicker">ACCEPTED SCOPED RUST ENTRIES · ABSOLUTE COUNTS</text>{scoped_chart_svg}
 <text x="36" y="{footer1}" class="detail">Eligible scoped-function denominator: unknown · scoped ports are not whole-function credits.</text><text x="36" y="{footer2}" class="detail">Static analysis is not implementation coverage; full-system verification is not completion.</text></svg>'''
 
@@ -761,20 +846,26 @@ def main(argv=None):
         document = (ROOT / 'docs/progress.json').read_text()
         if '/workspace/' in document or '/tmp/' in document:
             raise ValueError('Private locator in progress document')
-        snapshot = json.loads(document)['function_progress']
+        public = json.loads(document)
+        snapshot = public['function_progress']
         validate(snapshot)
+        catalog = public.get('binary_catalog')
+        if catalog is not None:
+            validate_catalog(catalog, snapshot)
+        elif snapshot['schema_version'] == 3:
+            raise ValueError('Missing binary catalog')
         changes = []
         for filename in ['README.md', 'docs/PROGRESS.md']:
             path = ROOT / filename
             old = path.read_text()
-            fragment = render(snapshot, include_history=filename == 'docs/PROGRESS.md')
+            fragment = render(snapshot, include_history=filename == 'docs/PROGRESS.md', catalog=catalog)
             new = replace_fragment(old, fragment, filename)
             if old != new:
                 if args.write:
                     path.write_text(new)
                 changes.append(filename)
         svg_path = ROOT / 'docs/progress.svg'
-        svg = render_svg(snapshot)
+        svg = render_svg(snapshot, catalog=catalog)
         if not svg_path.exists() or svg_path.read_text() != svg:
             if args.write:
                 svg_path.write_text(svg)

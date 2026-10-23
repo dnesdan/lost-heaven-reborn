@@ -18,6 +18,37 @@ Accepted scoped Rust ports: **176 entries across 58 reviewed contracts**. These 
 
 Regenerate locally with `python3 scripts/progress.py --write`; verify without writes with `python3 scripts/progress.py --check`. Versioned snapshots are retained in `docs/progress.json`.
 Milestone history and scoped implementation evidence are in [docs/PROGRESS.md](docs/PROGRESS.md).
+Supplied binary catalog (file identities; independent measures):
+
+| Binary | Platform | Variant | Role | Static retained pseudocode | Scoped Rust entries |
+| --- | --- | --- | --- | ---: | ---: |
+| DrvMgt.dll | PC | Installed game | Driver-management helper, exact runtime use unresolved | N/A | 0 |
+| Game.exe | PC | Installed game | Game and mission executable | 4784 / 4,914 (97.35%) | 31 |
+| IJoy.dll | PC | Installed game | DirectInput joystick wrapper | N/A | 0 |
+| INet.dll | PC | Installed game | Network helper, exact runtime use unresolved | N/A | 0 |
+| LS3DF.dll | PC | Installed game | 3D, animation, audio and rendering engine | 1555 / 1,714 (90.72%) | 129 |
+| Setup.exe (supplied configuration) | PC | Installed game | Installed game configuration utility | 172 / 172 (100.00%) | 5 |
+| binkw32.dll | PC | Installed game | Bink video codec boundary | N/A | 0 |
+| ogg.dll | PC | Installed game | Ogg container library boundary | N/A | 0 |
+| rw_data.dll | PC | Installed game | Game archive and data access library | 176 / 234 (75.21%) | 11 |
+| vorbis.dll | PC | Installed game | Vorbis codec library boundary | N/A | 0 |
+| vorbisfile.dll | PC | Installed game | Vorbis stream and file library boundary | N/A | 0 |
+| Setup.exe (archive installer bootstrap) | PC | Distribution archive | Distribution installer bootstrap | 376 / 376 (100.00%) | 0 |
+| SLUS_206.71 | PS2 | PS2 disc executable | PS2 game executable with retained linker symbols | N/A | 0 |
+| CDVDSTM.IRX | PS2 | PS2 disc IOP module | CD and DVD streaming support module | N/A | 0 |
+| IOPRP271.IMG | PS2 | PS2 disc support image | IOP reboot and support image, container contents unmeasured | N/A | 0 |
+| LIBSD.IRX | PS2 | PS2 disc IOP module | Sound support module | N/A | 0 |
+| MCMAN.IRX | PS2 | PS2 disc IOP module | Memory-card management module | N/A | 0 |
+| MCSERV.IRX | PS2 | PS2 disc IOP module | Memory-card service module | N/A | 0 |
+| MTAPMAN.IRX | PS2 | PS2 disc IOP module | Multitap support module | N/A | 0 |
+| PADMAN.IRX | PS2 | PS2 disc IOP module | Controller support module | N/A | 0 |
+| SDRDRV.IRX | PS2 | PS2 disc IOP module | Sound driver module | N/A | 0 |
+| SIO2MAN.IRX | PS2 | PS2 disc IOP module | SIO2 support module | N/A | 0 |
+| SOUND.IRX | PS2 | PS2 disc IOP module | Game-distributed sound module | N/A | 0 |
+| SOUND2.IRX | PS2 | PS2 disc IOP module | Game-distributed sound module | N/A | 0 |
+| SOUND_M.IRX | PS2 | PS2 disc IOP module | Game-distributed sound module | N/A | 0 |
+
+N/A means no measured static procedure ratio. PS2 linker symbol research supplies naming evidence, not static procedure coverage. Scoped entries are absolute reviewed counts joined by binary SHA-256; zero is not 0% coverage. Whole-function and differential runtime coverage remain unmeasured (N/A).
 <!-- generated-function-progress:end -->
 
 Static percentages retain raw analyzer denominators, including external import rows. The audited in-image cohorts now have output for 4,784/4,784 Game, 1,555/1,555 LS3DF and 176/176 rw_data entries. These are recognized cohorts, not exhaustive function discovery or completed Rust rewrites; 491 pinned mafia-re LS3DF addresses still need exact inventory correspondence. Scoped ports, warnings and runtime validation remain separate, with history preserved.

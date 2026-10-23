@@ -524,6 +524,91 @@ class ProgressTests(unittest.TestCase):
         self.assertIn(f"| {port['cases']} |", history)
         self.assertIn(port['scope'], history)
 
+class BinaryCatalogTests(unittest.TestCase):
+    def setUp(self):
+        self.document = json.loads((ROOT / 'docs/progress.json').read_text())
+        self.snapshot = self.document['function_progress']
+        self.catalog = self.document['binary_catalog']
+
+    def test_every_binary_renders_in_both_artifacts(self):
+        progress.validate_catalog(self.catalog, self.snapshot)
+        svg = progress.render_svg(self.snapshot, catalog=self.catalog)
+        for include_history in [False, True]:
+            markdown = progress.render(self.snapshot, include_history, self.catalog)
+            for row in self.catalog['binaries']:
+                for field in ['name', 'platform', 'variant', 'role']:
+                    self.assertIn(row[field], markdown)
+                    self.assertIn(row[field], svg)
+        entries = sum(len(port['functions']) for port in self.snapshot['scoped_ports'])
+        self.assertIn(f"{entries} entries · {len(self.snapshot['scoped_ports'])} contracts", svg)
+        systems = self.snapshot['systems']
+        self.assertIn(f"{systems['verified']} / {systems['total']}", svg)
+
+    def test_unknown_static_stays_na_and_counts_join_by_hash(self):
+        svg = progress.render_svg(self.snapshot, self.catalog)
+        self.assertIn('class="catalog-static-fill"', svg)
+        zero = copy.deepcopy(self.snapshot)
+        for row in zero['libraries'] + zero['other_targets']:
+            row['retained_pseudocode'] = 0
+        zero_svg = progress.render_svg(zero, self.catalog)
+        self.assertNotIn('class="catalog-static-fill"', zero_svg)
+        known = sum(row['inventory_total'] is not None for row in zero['libraries'] + zero['other_targets'])
+        self.assertEqual(zero_svg.count('class="catalog-static-track bar-track"'), known)
+        rows = list(progress.catalog_rows(self.catalog, self.snapshot))
+        measured = {r['binary_sha256'] for r in self.snapshot['libraries'] + self.snapshot['other_targets']}
+        counts = {}
+        for port in self.snapshot['scoped_ports']:
+            for function in port['functions']:
+                key = function['binary_sha256']
+                counts[key] = counts.get(key, 0) + 1
+        for binary, static, count in rows:
+            self.assertEqual(count, counts.get(binary['binary_sha256'], 0))
+            if binary['binary_sha256'] not in measured:
+                self.assertEqual(static, 'N/A')
+                self.assertEqual(count, 0)
+        ps2 = next(row for row in rows if row[0]['platform'] == 'PS2')
+        self.assertEqual(ps2[1:], ('N/A', 0))
+        setup = [row for row in rows if row[0]['name'].startswith('Setup.exe')]
+        self.assertEqual(len(setup), 2)
+        self.assertEqual(len({row[0]['variant'] for row in setup}), 2)
+
+    def test_catalog_rejects_missing_each_tracked_identity(self):
+        for tracked in self.snapshot['libraries'] + self.snapshot['other_targets']:
+            catalog = copy.deepcopy(self.catalog)
+            catalog['binaries'] = [r for r in catalog['binaries'] if r['binary_sha256'] != tracked['binary_sha256']]
+            with self.assertRaises(ValueError):
+                progress.validate_catalog(catalog, self.snapshot)
+
+    def test_catalog_rejects_invalid_public_fields_and_identities(self):
+        mutations = [
+            lambda c: c.update(schema_version=True),
+            lambda c: c.update(schema_version=-1),
+            lambda c: c.update(private_path='/tmp/private'),
+            lambda c: c['binaries'][0].update(binary_sha256='A' * 64),
+            lambda c: c['binaries'][0].update(binary_sha256=12),
+            lambda c: c['binaries'][0].update(platform='unknown'),
+            lambda c: c['binaries'][0].update(role='/workspace/private'),
+            lambda c: c['binaries'][0].update(name='https://private.invalid'),
+            lambda c: c['binaries'][0].update(inventory_total=-1),
+            lambda c: c['binaries'][0].update(scoped_entries=100),
+            lambda c: c['binaries'].append(copy.deepcopy(c['binaries'][0])),
+            lambda c: c['binaries'][1].update(name=c['binaries'][0]['name'], variant=c['binaries'][0]['variant']),
+        ]
+        for mutate in mutations:
+            catalog = copy.deepcopy(self.catalog)
+            mutate(catalog)
+            with self.assertRaises(ValueError):
+                progress.validate_catalog(catalog, self.snapshot)
+
+    def test_render_and_validation_preserve_history(self):
+        before = copy.deepcopy(self.snapshot)
+        progress.validate(self.snapshot)
+        progress.validate_catalog(self.catalog, self.snapshot)
+        progress.render(self.snapshot, True, self.catalog)
+        progress.render_svg(self.snapshot, self.catalog)
+        self.assertEqual(self.snapshot, before)
+        self.assertEqual(progress.hash_history_prefix(self.snapshot['history'][:6]), progress.SCHEMA2_HISTORY_SHA256)
+
 
 if __name__ == '__main__':
     unittest.main()

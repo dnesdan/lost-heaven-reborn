@@ -3,7 +3,7 @@
   "project_status": "Original-data Rust menu, bounded scenes and sequential skeletal playback; 176 scoped entries across 58 reviewed contracts. Bounded native archive registration/Open composes with Read/Seek/Close. WAV, native Write, full DLL parity, application integration and first-mission execution remain open.",
   "rust_toolchain": "1.99.1",
   "validation": {
-    "status": "484 Rust tests (93 assets, 365 engine library, 21 application, five render), nine REA-wrapper tests and 42 progress tests pass, plus formatting, locked workspace checking and Clippy. Apple arm64 all-target checking only. Two sequential independent final-source reviews accepted bounded native archive registration/Open. bounded native archive registration, unlock, Open and reference lifetime compose with existing Read/Seek/Close: **176 scoped entries / 58 contracts**. Stored synthetic fixtures match 24 native Open calls within 81 log rows and 976 complete-array bytes in debug/release, counted once. Separately, 21 scripted effect cases check Rust ordering; eight installed assets from four archives match 216,799 bytes against the existing Rust Archive loader, not original runtime. The retained archive-read evidence remains 68 READ observations and 32 SEEK context rows. Scope is serialized, bounded ASCII and non-WAV; timestamp metadata is unmodeled, native leaks are abstract effects, and short index reads stop explicitly. Native Write, full DLL parity, application/GPU integration and mission execution remain open. Next: WAV, then application adapters. No new rendered or interactive validation; worker original-runtime comparisons remain zero.",
+    "status": "484 Rust tests (93 assets, 365 engine library, 21 application, five render), nine REA-wrapper tests and 47 progress tests pass, plus formatting, locked workspace checking and Clippy. Apple arm64 all-target checking only. Two sequential independent final-source reviews accepted bounded native archive registration/Open. bounded native archive registration, unlock, Open and reference lifetime compose with existing Read/Seek/Close: **176 scoped entries / 58 contracts**. Stored synthetic fixtures match 24 native Open calls within 81 log rows and 976 complete-array bytes in debug/release, counted once. Separately, 21 scripted effect cases check Rust ordering; eight installed assets from four archives match 216,799 bytes against the existing Rust Archive loader, not original runtime. The retained archive-read evidence remains 68 READ observations and 32 SEEK context rows. Scope is serialized, bounded ASCII and non-WAV; timestamp metadata is unmodeled, native leaks are abstract effects, and short index reads stop explicitly. Native Write, full DLL parity, application/GPU integration and mission execution remain open. Next: WAV, then application adapters. No new rendered or interactive validation; worker original-runtime comparisons remain zero.",
     "rust_unit_tests": 484,
     "rust_unit_test_split": {
       "lhr_assets": 93,
@@ -19,7 +19,7 @@
       "progress_tests": 42,
       "milestone": "165 scoped entries across 55 contracts. One bounded standalone Restore entry; existing Release receives zero duplicate credit. Full texture Create, worker/upload, whole-device shutdown, loaded/application integration and all six first-mission gates remain open."
     },
-    "progress_tests": 42
+    "progress_tests": 47
   },
   "assets": {
     "scope": "A8/A2/A6/A1/AC/AA DTA subset; bounded 4DS Joint, skin, morph and Target intake; 5DS position/rotation/scale records, BMP/TGA, menu/text/font, scene2, cache and script intake",
@@ -21251,5 +21251,185 @@
       "basis": "Debug/release once against existing Rust Archive format loader; outside source-review receipts"
     },
     "scope": "Serialized bounded ASCII non-WAV open/lifetime; timestamp metadata unmodeled, native leaks abstract effects, host short-index fail-stop. No full DLL/application/GPU/mission claim."
+  },
+  "binary_catalog": {
+    "schema_version": 1,
+    "binaries": [
+      {
+        "name": "DrvMgt.dll",
+        "platform": "PC",
+        "variant": "Installed game",
+        "role": "Driver-management helper, exact runtime use unresolved",
+        "binary_sha256": "19f0cc5f3fd0c62d5b2cf40a890abaa691d0721615c56d74cffd819e8273b2d4"
+      },
+      {
+        "name": "Game.exe",
+        "platform": "PC",
+        "variant": "Installed game",
+        "role": "Game and mission executable",
+        "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27"
+      },
+      {
+        "name": "IJoy.dll",
+        "platform": "PC",
+        "variant": "Installed game",
+        "role": "DirectInput joystick wrapper",
+        "binary_sha256": "4e7441a927ccc7e7609c11ff6f829bf236c98360e392201611b348300a31fc2d"
+      },
+      {
+        "name": "INet.dll",
+        "platform": "PC",
+        "variant": "Installed game",
+        "role": "Network helper, exact runtime use unresolved",
+        "binary_sha256": "f50990a80093029db2d672286a42831d61baf3672c7831ae20b832565ad61aef"
+      },
+      {
+        "name": "LS3DF.dll",
+        "platform": "PC",
+        "variant": "Installed game",
+        "role": "3D, animation, audio and rendering engine",
+        "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6"
+      },
+      {
+        "name": "Setup.exe (supplied configuration)",
+        "platform": "PC",
+        "variant": "Installed game",
+        "role": "Installed game configuration utility",
+        "binary_sha256": "c6abff923ecedafc26be3f1abdb8fe286f3a0be1e787ea7b659b6c01a077d25d"
+      },
+      {
+        "name": "binkw32.dll",
+        "platform": "PC",
+        "variant": "Installed game",
+        "role": "Bink video codec boundary",
+        "binary_sha256": "aad5bc6765cb44f6a97b1ff1b0a721115112383c9f46e14867e568d99f2b975a"
+      },
+      {
+        "name": "ogg.dll",
+        "platform": "PC",
+        "variant": "Installed game",
+        "role": "Ogg container library boundary",
+        "binary_sha256": "308540dbd488f3bceca2dbadefe02cf29d10a27c4ac096bb3da053e3e0b923ea"
+      },
+      {
+        "name": "rw_data.dll",
+        "platform": "PC",
+        "variant": "Installed game",
+        "role": "Game archive and data access library",
+        "binary_sha256": "67f72c30cc7fe941f5526b8602a0bd2785baa0f22617bbcfd4a71bacd79b8d49"
+      },
+      {
+        "name": "vorbis.dll",
+        "platform": "PC",
+        "variant": "Installed game",
+        "role": "Vorbis codec library boundary",
+        "binary_sha256": "b4fa55cfe7547ade0a2d5b800ef085ce20cdd71f61898d2461ea61eb0241812b"
+      },
+      {
+        "name": "vorbisfile.dll",
+        "platform": "PC",
+        "variant": "Installed game",
+        "role": "Vorbis stream and file library boundary",
+        "binary_sha256": "f44472c6d9a64045c14583d12c0cfab5b4aa268aceb8bc9e3e1236b3008306f2"
+      },
+      {
+        "name": "Setup.exe (archive installer bootstrap)",
+        "platform": "PC",
+        "variant": "Distribution archive",
+        "role": "Distribution installer bootstrap",
+        "binary_sha256": "e25cadc80ea5163e0f1c6fd703479469d9f23b47ade244fac5f22bcdb01b39bd"
+      },
+      {
+        "name": "SLUS_206.71",
+        "platform": "PS2",
+        "variant": "PS2 disc executable",
+        "role": "PS2 game executable with retained linker symbols",
+        "binary_sha256": "adf4944c5cdac23fcc4e9af9ef3ec1ba6234497e57cec2af2ff1a7a15c62a46f"
+      },
+      {
+        "name": "CDVDSTM.IRX",
+        "platform": "PS2",
+        "variant": "PS2 disc IOP module",
+        "role": "CD and DVD streaming support module",
+        "binary_sha256": "39a38b90283da2fd2e6ab15339ff9a177fca31360f60a7c8182a6ebc69e2eee2"
+      },
+      {
+        "name": "IOPRP271.IMG",
+        "platform": "PS2",
+        "variant": "PS2 disc support image",
+        "role": "IOP reboot and support image, container contents unmeasured",
+        "binary_sha256": "8d752d01d3dda7d418ae174ffe645787f4bf3fab4e035ca1c3300a0522ee22f1"
+      },
+      {
+        "name": "LIBSD.IRX",
+        "platform": "PS2",
+        "variant": "PS2 disc IOP module",
+        "role": "Sound support module",
+        "binary_sha256": "57cbd80b7c2f966985e14ca18c03e849e3b3eb1216f06a6f4c1e6ca85084ea37"
+      },
+      {
+        "name": "MCMAN.IRX",
+        "platform": "PS2",
+        "variant": "PS2 disc IOP module",
+        "role": "Memory-card management module",
+        "binary_sha256": "cdb1dfd12cb71f60d4834eb888dbbffeb6f6382e3bdffc1a50122034f7969b6b"
+      },
+      {
+        "name": "MCSERV.IRX",
+        "platform": "PS2",
+        "variant": "PS2 disc IOP module",
+        "role": "Memory-card service module",
+        "binary_sha256": "42790c4999c9deb17bb0fe2ceb155d3b141adf059c3055e11039070be2a8a7a6"
+      },
+      {
+        "name": "MTAPMAN.IRX",
+        "platform": "PS2",
+        "variant": "PS2 disc IOP module",
+        "role": "Multitap support module",
+        "binary_sha256": "4746f998945d04479802c17205e31b364aafff40ee18386c78c4a0919a89fb97"
+      },
+      {
+        "name": "PADMAN.IRX",
+        "platform": "PS2",
+        "variant": "PS2 disc IOP module",
+        "role": "Controller support module",
+        "binary_sha256": "c11d3fffbca7f99f571299eddbbea3a77fa2d0614dbb22ee8f5a4f9a1c22d67f"
+      },
+      {
+        "name": "SDRDRV.IRX",
+        "platform": "PS2",
+        "variant": "PS2 disc IOP module",
+        "role": "Sound driver module",
+        "binary_sha256": "37b615869fed71ec90760543d83170dc7b7608142a4117d665a0cfbe78c3cc52"
+      },
+      {
+        "name": "SIO2MAN.IRX",
+        "platform": "PS2",
+        "variant": "PS2 disc IOP module",
+        "role": "SIO2 support module",
+        "binary_sha256": "0facd5a832d3114c3477ded714f8766d443705a1440deeb84c59927cf0b6968e"
+      },
+      {
+        "name": "SOUND.IRX",
+        "platform": "PS2",
+        "variant": "PS2 disc IOP module",
+        "role": "Game-distributed sound module",
+        "binary_sha256": "015bd3d2ab4fca84cfe55e78516fefc6003339301b294cec8be12c41efb7d110"
+      },
+      {
+        "name": "SOUND2.IRX",
+        "platform": "PS2",
+        "variant": "PS2 disc IOP module",
+        "role": "Game-distributed sound module",
+        "binary_sha256": "3106f6b222187d0ed5e3f93f36011e69b9093195ff4c57100d0a4aa25eee948c"
+      },
+      {
+        "name": "SOUND_M.IRX",
+        "platform": "PS2",
+        "variant": "PS2 disc IOP module",
+        "role": "Game-distributed sound module",
+        "binary_sha256": "db00215eda3ae5e247c78cfa1bf0b1ccb12745ac9328fe66d6c21deab6376413"
+      }
+    ]
   }
 }
