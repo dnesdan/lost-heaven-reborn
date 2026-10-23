@@ -14,6 +14,8 @@
 //! production only; it does not load a texture.
 //! Snapshot intake/typed identities and failure handling are host adapters.
 use crate::itexture::{ManagedRecordKey, TextureGraphics, TextureKey, TextureSurface};
+mod restore;
+pub use restore::*;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ManagedFilenameAllocation(pub u64);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -53,6 +55,11 @@ impl PoolSlotId {
 /// exception/worker recovery. Callbacks are serialized/nonreentrant.
 pub trait ManagedTextureEffects {
     type Error;
+    fn restore_effects(
+        &mut self,
+    ) -> Option<&mut dyn ManagedTextureRestoreEffects<Error = Self::Error>> {
+        None
+    }
     /// Optional unavailable capability, never a successful substitute. Stable
     /// capability/identity domain is required across serialized callbacks.
     fn creation_effects(
@@ -245,6 +252,12 @@ pub enum ManagedStage {
     ReleaseSurface,
     ReleaseGraphics,
     DeletePool,
+    CreateTexture,
+    GetSurfaceLevel,
+    GetSurfaceDesc,
+    AllocatePool,
+    CopyPool,
+    WritePoolOwner,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ManagerError {
@@ -262,6 +275,8 @@ pub enum ManagerError {
     RequestUnavailable,
     ReleaseUnavailable,
     UnsupportedAllocation,
+    RestoreUnavailable,
+    UnsupportedGraphics,
     InvalidFilename,
 }
 #[derive(Debug, PartialEq, Eq)]
@@ -360,6 +375,8 @@ pub struct TextureManager {
     registry_swap: Option<(u32, RecordId)>,
     release: Option<ManagedReleaseIntake>,
     released_borrows: Vec<TextureGraphics>,
+    restore: Option<RestoreProgress>,
+    next_pool_slot: [u32; 3],
 }
 impl TextureManager {
     pub(crate) fn new(identity: u64) -> Self {
@@ -379,6 +396,8 @@ impl TextureManager {
             registry_swap: None,
             release: None,
             released_borrows: Vec::new(),
+            restore: None,
+            next_pool_slot: [1; 3],
         }
     }
     /// Interrupted swap-copy after the original count decrement.
@@ -724,7 +743,7 @@ impl TextureManager {
         }
         self.pools
             .get(id.pool as usize)
-            .and_then(|p| p.get(id.slot.wrapping_sub(1) as usize))
+            .and_then(|p| p.iter().find(|slot| slot.id == id))
             .ok_or(ManagerError::UnknownPool)
     }
     pub(crate) fn requires_creation_effects(&self) -> bool {
@@ -958,6 +977,7 @@ impl TextureManager {
             }
         }
         self.queue = input.queue;
+        self.next_pool_slot = std::array::from_fn(|i| self.pools[i].len() as u32 + 1);
         self.counters = input.counters;
         self.seeded = true;
         Ok(input.bindings)

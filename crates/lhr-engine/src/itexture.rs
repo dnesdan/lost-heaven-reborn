@@ -930,6 +930,40 @@ impl TextureResources {
         self.textures.manager.configure_release(input, &forbidden)?;
         Ok(())
     }
+    /// Finite RestoreManagedTextures (upstream working name), PC RVA0x7a710.
+    pub fn restore_managed_textures<B: TextureBackend + ?Sized>(
+        &mut self,
+        input: crate::texture_manager::RestoreInput,
+        b: &mut B,
+    ) -> Result<(), TextureOperationError<<B as BufferBackend>::Error>> {
+        self.available()?;
+        for owner in self
+            .textures
+            .manager
+            .pools()
+            .iter()
+            .flatten()
+            .filter_map(|s| s.owner)
+        {
+            self.textures.live(owner)?;
+        }
+        let forbidden = self.scalar_allocations()?;
+        let effects = b
+            .managed_texture_effects()
+            .ok_or(TextureError::ManagedUnsupported)?;
+        let slots = &mut self.textures.slots;
+        self.textures
+            .manager
+            .restore(
+                input,
+                &forbidden,
+                |owner| {
+                    slots[(owner.slot - 1) as usize].as_mut().unwrap().flags &= 0x7fffffff;
+                },
+                effects,
+            )
+            .map_err(TextureOperationError::Manager)
+    }
     /// Finite ReleaseManagedTextures (upstream working name), PC RVA0x7a610.
     /// Borrowed texture graphics, records and queue entries survive teardown.
     pub fn release_managed_textures<B: TextureBackend + ?Sized>(
