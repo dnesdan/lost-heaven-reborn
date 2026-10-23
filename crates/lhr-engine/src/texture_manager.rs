@@ -1,4 +1,4 @@
-//! Bounded PC managed-texture creation/removal; globals use descriptive names.
+//! Bounded PC managed-texture creation/Request/removal; globals use descriptive names.
 //! Original LS3DF.dll SHA-256:
 //! e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6.
 //! RVA0x7ad20 AddTextureToTextureManager has original diagnostic-string name
@@ -6,8 +6,10 @@
 //! pointers, and explicit registry growth precede AL1. This excludes full Create.
 //! RVA0x7aee0: reverse first-record match; conditional reverse256 queue clear;
 //! filename delete, record delete, swap removal; three pools' reverse owner
-//! clears; flags &=0x3fffffff; leave critical section; AL1. No worker, Request,
+//! clears; flags &=0x3fffffff; leave critical section; AL1. No worker,
 //! full Create, pool shutdown or graphics allocation/release is reconstructed here.
+//! RVA0x7a910 Request is an upstream working name: frame refresh and weak queue
+//! production only; it does not load a texture.
 //! Snapshot intake/typed identities and failure handling are host adapters.
 use crate::itexture::{ManagedRecordKey, TextureGraphics, TextureKey, TextureSurface};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -56,6 +58,13 @@ pub trait ManagedTextureEffects {
     ) -> Option<&mut dyn ManagedTextureCreationEffects<Error = Self::Error>> {
         None
     }
+    /// Storage capability for Request's record+0x10 write; absent rejects
+    /// before entering the critical section.
+    fn request_effects(
+        &mut self,
+    ) -> Option<&mut dyn ManagedTextureRequestEffects<Error = Self::Error>> {
+        None
+    }
     fn enter_texture_section(&mut self) -> Result<(), Self::Error>;
     fn leave_texture_section(&mut self) -> Result<(), Self::Error>;
     /// The original delete is unconditional, including the null pointer case.
@@ -64,6 +73,19 @@ pub trait ManagedTextureEffects {
         allocation: Option<ManagedFilenameAllocation>,
     ) -> Result<(), Self::Error>;
     fn delete_managed_record(&mut self, allocation: ManagedRecordKey) -> Result<(), Self::Error>;
+}
+/// Explicit storage write for Request (upstream working name), RVA0x7a910.
+/// Serialized callbacks must preserve capability identity and cannot reenter.
+pub trait ManagedTextureRequestEffects {
+    type Error;
+    /// Pure preflight: record belongs to this backend and has writable storage
+    /// for the dword at +0x10 of its native 20-byte record.
+    fn can_write_managed_last_frame(&self, record: ManagedRecordKey) -> bool;
+    fn write_managed_last_frame(
+        &mut self,
+        record: ManagedRecordKey,
+        frame: u32,
+    ) -> Result<(), Self::Error>;
 }
 /// Required storage/allocator effects for original AddTextureToTextureManager,
 /// RVA0x7ad20. Record/array allocation None is an unsupported native unchecked
@@ -194,6 +216,7 @@ pub enum ManagerError {
     HostAllocation,
     IdentityOverflow,
     CreationUnavailable,
+    RequestUnavailable,
     UnsupportedAllocation,
     InvalidFilename,
 }
@@ -259,9 +282,13 @@ pub struct ManagedRecord {
     pub owner: TextureKey,
     pub allocation: ManagedRecordKey,
     pub file_name: Option<ManagedFilenameAllocation>,
+    /// Opaque intake metadata, not a byte-addressed native record image.
     pub preserved: Vec<u8>,
     pub phase: RecordPhase,
     pub fields: Option<ManagedRecordFields>,
+    /// Last acknowledged record+0x10 storage write; seeded storage begins unknown.
+    /// A failed callback may have written storage without acknowledging it.
+    pub last_frame: Option<u32>,
     pub filename_bytes: Option<Vec<u8>>,
 }
 #[derive(Debug, PartialEq, Eq)]
@@ -602,6 +629,7 @@ impl TextureManager {
                 file_name: Some(file),
                 preserved: Vec::new(),
                 phase: RecordPhase::Live,
+                last_frame: Some(progress.fields.last_frame),
                 fields: Some(progress.fields),
                 filename_bytes: Some(progress.filename_bytes),
             });
@@ -745,6 +773,8 @@ impl TextureManager {
         if self.seeded {
             return Err(ManagerError::AlreadySeeded);
         }
+        // Host intake policy excludes negative signed lengths; Request itself
+        // retains the native signed comparison and never counts occupied slots.
         if !(0..=256).contains(&input.counters.len) {
             return Err(ManagerError::InvalidCount);
         }
@@ -854,6 +884,7 @@ impl TextureManager {
                 preserved: r.preserved,
                 phase: RecordPhase::Live,
                 fields: None,
+                last_frame: None,
                 filename_bytes: None,
             });
             self.active.push(id);
@@ -877,6 +908,99 @@ impl TextureManager {
         self.counters = input.counters;
         self.seeded = true;
         Ok(input.bindings)
+    }
+    /// Request is a descriptive upstream working name, not a recovered PS2
+    /// symbol. Caller has tested managed bit0x40. No worker/loading runs here.
+    pub(crate) fn request<E>(
+        &mut self,
+        texture: TextureKey,
+        record: Option<ManagedRecordKey>,
+        flags: &mut u32,
+        frame: u32,
+        effects: &mut dyn ManagedTextureEffects<Error = E>,
+    ) -> Result<bool, ManagedOperationError<E>> {
+        if self.poisoned {
+            return Err(ManagerError::Poisoned.into());
+        }
+        let slot = self
+            .records
+            .iter()
+            .position(|r| {
+                r.owner == texture
+                    && Some(r.allocation) == record
+                    && r.phase == RecordPhase::Live
+                    && self.active.contains(&r.id)
+            })
+            .ok_or(ManagerError::UnknownRecord)?;
+        // All host guards precede the first external effect. A stale pointer
+        // after direct removal is never dereferenced, including loaded requests.
+        if *flags & 0xc0000000 == 0 && self.counters.len < 256 && self.counters.put >= 256 {
+            return Err(ManagerError::InvalidCount.into());
+        }
+        if !effects.request_effects().is_some_and(|storage| {
+            storage.can_write_managed_last_frame(self.records[slot].allocation)
+        }) {
+            return Err(ManagerError::RequestUnavailable.into());
+        }
+        if let Err(error) = effects.enter_texture_section() {
+            self.poisoned = true;
+            return Err(ManagedOperationError::Backend {
+                stage: ManagedStage::Enter,
+                error,
+                leave_error: None,
+            });
+        }
+        self.critical = CriticalState::Held;
+        let body = (|| {
+            effects
+                .request_effects()
+                .unwrap()
+                .write_managed_last_frame(self.records[slot].allocation, frame)
+                .map_err(|e| (ManagedStage::WriteRecord, e))?;
+            self.records[slot].last_frame = Some(frame);
+            if let Some(fields) = &mut self.records[slot].fields {
+                fields.last_frame = frame;
+            }
+            if *flags & 0x80000000 != 0 {
+                return Ok(true);
+            }
+            if *flags & 0x40000000 == 0 && self.counters.len < 256 {
+                // Weak owner overwrite: there is no vacancy/occupancy test.
+                self.queue[self.counters.put as usize] = Some(texture);
+                self.counters.put += 1;
+                if self.counters.put as i32 >= 256 {
+                    self.counters.put = 0;
+                }
+                self.counters.len += 1;
+                *flags |= 0x40000000;
+            }
+            Ok(false)
+        })();
+        let leave = effects.leave_texture_section();
+        self.critical = if leave.is_ok() {
+            CriticalState::NotHeld
+        } else {
+            CriticalState::LeaveFailed
+        };
+        match (body, leave) {
+            (Ok(value), Ok(())) => Ok(value),
+            (Err((stage, error)), leave) => {
+                self.poisoned = true;
+                Err(ManagedOperationError::Backend {
+                    stage,
+                    error,
+                    leave_error: leave.err(),
+                })
+            }
+            (Ok(_), Err(error)) => {
+                self.poisoned = true;
+                Err(ManagedOperationError::Backend {
+                    stage: ManagedStage::Leave,
+                    error,
+                    leave_error: None,
+                })
+            }
+        }
     }
     pub(crate) fn remove<E>(
         &mut self,

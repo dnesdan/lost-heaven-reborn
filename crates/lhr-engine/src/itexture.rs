@@ -874,6 +874,33 @@ impl TextureResources {
         }
         Ok(())
     }
+    /// Finite Request producer (upstream working name), PC RVA0x7a910.
+    /// Returns current availability; enqueueing returns false. Frame is copied
+    /// bit-for-bit to record+0x10 before testing loaded/queued/full state.
+    pub fn request_texture<B: TextureBackend + ?Sized>(
+        &mut self,
+        key: TextureKey,
+        frame_counter: u32,
+        b: &mut B,
+    ) -> Result<bool, TextureOperationError<<B as BufferBackend>::Error>> {
+        self.available()?;
+        let t = self.textures.live(key)?;
+        if t.flags & 0x40 == 0 {
+            return Ok(true);
+        }
+        let record = t.managed_record;
+        let effects = b
+            .managed_texture_effects()
+            .ok_or(TextureError::ManagedUnsupported)?;
+        let flags = &mut self.textures.slots[(key.slot - 1) as usize]
+            .as_mut()
+            .unwrap()
+            .flags;
+        self.textures
+            .manager
+            .request(key, record, flags, frame_counter, effects)
+            .map_err(TextureOperationError::Manager)
+    }
     /// Original manager-removal projection. It preserves the texture's raw
     /// managed-record and borrowed graphics pointers, including stale identity.
     pub fn remove_managed_texture<B: TextureBackend + ?Sized>(
@@ -1390,6 +1417,7 @@ mod tests {
         ArrayWrite(u32, ManagedRecordKey),
         DeleteArray(Option<ManagedRegistryAllocation>),
         LowMemory,
+        LastFrame(ManagedRecordKey, u32),
     }
     #[derive(Default)]
     struct Backend {
@@ -1415,6 +1443,8 @@ mod tests {
         managed_files: BTreeMap<u64, bool>,
         managed_records: BTreeMap<u64, bool>,
         creation_enabled: bool,
+        request_enabled: bool,
+        fail_last_frame: bool,
         filename_none: bool,
         record_none: bool,
         array_none: bool,
@@ -1576,6 +1606,15 @@ mod tests {
                 None
             }
         }
+        fn request_effects(
+            &mut self,
+        ) -> Option<&mut dyn ManagedTextureRequestEffects<Error = Self::Error>> {
+            if self.request_enabled {
+                Some(self)
+            } else {
+                None
+            }
+        }
         fn enter_texture_section(&mut self) -> Result<(), Self::Error> {
             self.events.push(Event::Enter);
             assert!(!self.section_held);
@@ -1615,6 +1654,26 @@ mod tests {
             assert_eq!(self.managed_records.remove(&a.0), Some(true));
             if self.fail_record {
                 Err("record freed then failed")
+            } else {
+                Ok(())
+            }
+        }
+    }
+    impl ManagedTextureRequestEffects for Backend {
+        type Error = &'static str;
+        fn can_write_managed_last_frame(&self, record: ManagedRecordKey) -> bool {
+            self.managed_records.contains_key(&record.0)
+        }
+        fn write_managed_last_frame(
+            &mut self,
+            record: ManagedRecordKey,
+            frame: u32,
+        ) -> Result<(), Self::Error> {
+            assert!(self.section_held);
+            assert!(self.managed_records.contains_key(&record.0));
+            self.events.push(Event::LastFrame(record, frame));
+            if self.fail_last_frame {
+                Err("frame write failed")
             } else {
                 Ok(())
             }
@@ -2791,6 +2850,249 @@ mod tests {
             },
             b,
         )
+    }
+    #[test]
+    fn request_actual_creation_repeat_remove_close_preserves_weak_queue_contract() {
+        let (mut r, mut b, t) = creation_world(0x40);
+        b.request_enabled = true;
+        add(&mut r, &mut b, t, b"one0.bmp", 0).unwrap();
+        let id = r.texture_manager().active_records()[0];
+        let record = r.texture(t).unwrap().managed_record.unwrap();
+        b.events.clear();
+        assert!(!r.request_texture(t, u32::MAX, &mut b).unwrap());
+        assert_eq!(
+            b.events,
+            vec![
+                Event::Enter,
+                Event::LastFrame(record, u32::MAX),
+                Event::Leave
+            ]
+        );
+        assert_eq!(
+            r.texture_manager().counters(),
+            QueueCounters {
+                out: 0,
+                put: 1,
+                len: 1
+            }
+        );
+        assert_eq!(r.texture_manager().queue()[0], Some(t));
+        assert_eq!(r.texture(t).unwrap().references, 1);
+        assert!(!r.request_texture(t, 7, &mut b).unwrap());
+        assert_eq!(r.texture_manager().counters().len, 1);
+        assert_eq!(
+            r.texture_manager()
+                .record(id)
+                .unwrap()
+                .fields
+                .unwrap()
+                .last_frame,
+            7
+        );
+        r.remove_managed_texture(t, &mut b).unwrap();
+        assert_eq!(r.texture_manager().queue()[0], None);
+        assert_eq!(r.texture_manager().counters().len, 1);
+        b.events.clear();
+        assert!(r.request_texture(t, 8, &mut b).is_err());
+        assert!(b.events.is_empty());
+        r.close_texture(t, &mut b).unwrap();
+        r.release_texture(t, &mut b).unwrap();
+        assert!(b.managed_records.is_empty());
+    }
+    #[test]
+    fn request_seeded_loaded_queued_full_and_wrap_refresh_before_return() {
+        for (flags, len, put, expected, enqueue) in [
+            (0x80000040, 3, 999, true, false),
+            (0x40000040, 3, 999, false, false),
+            (0x40, 256, 999, false, false),
+            (0x40, 3, 255, false, true),
+        ] {
+            let mut r = TextureResources::new().unwrap();
+            let mut b = Backend {
+                managed_enabled: true,
+                request_enabled: true,
+                ..Backend::default()
+            };
+            let (t, mut input) = managed_fixture(&mut r, &mut b, false, false);
+            // Keep adopted graphics owned by pools, but avoid falsely binding
+            // borrowed graphics to a texture outside its loaded route.
+            input.bindings[0].flags = flags;
+            input.bindings[0].graphics = None;
+            for pool in &mut input.pools {
+                for slot in pool {
+                    slot.owner = None;
+                }
+            }
+            input.queue = [None; 256];
+            if enqueue {
+                input.queue[255] = Some(t);
+                input.bindings[0].flags |= 0x40000000;
+            }
+            input.counters = QueueCounters { out: 19, put, len };
+            r.install_managed_world(input).unwrap();
+            if enqueue {
+                r.textures.texture_mut(t).flags &= !0x40000000;
+            }
+            let id = r.texture_manager().active_records()[0];
+            b.events.clear();
+            assert_eq!(r.request_texture(t, 0x87654321, &mut b).unwrap(), expected);
+            assert_eq!(
+                r.texture_manager().record(id).unwrap().last_frame,
+                Some(0x87654321)
+            );
+            assert_eq!(b.events.len(), 3);
+            assert_eq!(
+                r.texture_manager().counters(),
+                QueueCounters {
+                    out: 19,
+                    put: if enqueue { 0 } else { put },
+                    len: len + i32::from(enqueue)
+                }
+            );
+            assert_eq!(
+                r.texture_manager().queue()[255],
+                if enqueue { Some(t) } else { None }
+            );
+        }
+    }
+    #[test]
+    fn request_nonmanaged_shortcut_and_missing_capability_are_preeffect() {
+        let (mut r, mut b, t) = creation_world(0);
+        assert!(r.request_texture(t, 99, &mut b).unwrap());
+        assert!(b.events.is_empty());
+        let (mut r, mut b, t) = creation_world(0x40);
+        add(&mut r, &mut b, t, b"one0.bmp", 0).unwrap();
+        b.events.clear();
+        assert!(matches!(
+            r.request_texture(t, 1, &mut b),
+            Err(TextureOperationError::Manager(
+                ManagedOperationError::State(ManagerError::RequestUnavailable)
+            ))
+        ));
+        assert!(b.events.is_empty());
+        assert!(!r.is_poisoned());
+    }
+    #[test]
+    fn request_storage_domain_enter_and_leave_failures_preserve_exact_prefix() {
+        for failure in 0..3 {
+            let (mut r, mut b, t) = creation_world(0x40);
+            add(&mut r, &mut b, t, b"one0.bmp", 0).unwrap();
+            b.request_enabled = true;
+            let record = r.texture(t).unwrap().managed_record.unwrap();
+            if failure == 0 {
+                b.managed_records.remove(&record.0);
+            }
+            b.fail_enter = failure == 1;
+            b.fail_leave = failure == 2;
+            b.events.clear();
+            assert!(r.request_texture(t, 5, &mut b).is_err());
+            assert_eq!(b.events.len(), [0, 1, 3][failure]);
+            assert_eq!(r.is_poisoned(), failure != 0);
+            assert_eq!(r.texture_manager().counters().len, i32::from(failure == 2));
+            assert_eq!(r.texture(t).unwrap().flags & 0x40000000 != 0, failure == 2);
+        }
+    }
+    #[test]
+    fn request_leave_failure_retains_completed_enqueue_and_frame_without_retry() {
+        let (mut r, mut b, t) = creation_world(0x40);
+        add(&mut r, &mut b, t, b"one0.bmp", 0).unwrap();
+        let id = r.texture_manager().active_records()[0];
+        b.request_enabled = true;
+        b.fail_leave = true;
+        b.events.clear();
+        assert_eq!(
+            r.request_texture(t, 77, &mut b),
+            Err(TextureOperationError::Manager(
+                ManagedOperationError::Backend {
+                    stage: ManagedStage::Leave,
+                    error: "leave failed",
+                    leave_error: None
+                }
+            ))
+        );
+        assert_eq!(
+            r.texture_manager()
+                .record(id)
+                .unwrap()
+                .fields
+                .unwrap()
+                .last_frame,
+            77
+        );
+        assert_eq!(r.texture_manager().record(id).unwrap().last_frame, Some(77));
+        assert_eq!(r.texture_manager().queue()[0], Some(t));
+        assert_eq!(
+            r.texture_manager().counters(),
+            QueueCounters {
+                out: 0,
+                put: 1,
+                len: 1
+            }
+        );
+        assert_eq!(r.texture(t).unwrap().flags, 0x40000040);
+        assert_eq!(
+            r.texture_manager().critical_state(),
+            CriticalState::LeaveFailed
+        );
+        assert!(r.is_poisoned());
+        assert_eq!(b.events.len(), 3);
+        assert!(r.request_texture(t, 78, &mut b).is_err());
+        assert_eq!(b.events.len(), 3);
+    }
+    #[test]
+    fn request_invalid_put_is_host_guard_before_enter_or_record_write() {
+        let mut r = TextureResources::new().unwrap();
+        let mut b = Backend {
+            managed_enabled: true,
+            request_enabled: true,
+            ..Backend::default()
+        };
+        let (t, mut input) = managed_fixture(&mut r, &mut b, false, false);
+        input.bindings[0].flags = 0x40;
+        input.bindings[0].graphics = None;
+        input.queue = [None; 256];
+        for pool in &mut input.pools {
+            for slot in pool {
+                slot.owner = None;
+            }
+        }
+        input.counters.put = 256;
+        r.install_managed_world(input).unwrap();
+        b.events.clear();
+        assert_eq!(
+            r.request_texture(t, 5, &mut b),
+            Err(TextureOperationError::Manager(
+                ManagedOperationError::State(ManagerError::InvalidCount)
+            ))
+        );
+        assert!(b.events.is_empty());
+        assert!(!r.is_poisoned());
+    }
+    #[test]
+    fn request_write_and_leave_failure_preserve_both_errors_without_queue_mutation() {
+        let (mut r, mut b, t) = creation_world(0x40);
+        add(&mut r, &mut b, t, b"one0.bmp", 0).unwrap();
+        b.request_enabled = true;
+        b.fail_last_frame = true;
+        b.fail_leave = true;
+        b.events.clear();
+        assert_eq!(
+            r.request_texture(t, 3, &mut b),
+            Err(TextureOperationError::Manager(
+                ManagedOperationError::Backend {
+                    stage: ManagedStage::WriteRecord,
+                    error: "frame write failed",
+                    leave_error: Some("leave failed")
+                }
+            ))
+        );
+        assert_eq!(b.events.len(), 3);
+        assert_eq!(r.texture_manager().counters(), QueueCounters::default());
+        assert_eq!(r.texture(t).unwrap().flags, 0x40);
+        assert!(r.is_poisoned());
+        let count = b.events.len();
+        assert!(r.request_texture(t, 4, &mut b).is_err());
+        assert_eq!(b.events.len(), count);
     }
     #[test]
     fn actual_add_prepared_close_releases_record_and_keeps_caller_flags_unchanged() {
