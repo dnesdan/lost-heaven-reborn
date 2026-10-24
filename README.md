@@ -94,7 +94,7 @@ Original code runs under masked CW007f PC24/RN; normalized Rust results/effects
 and its modeled logical sticky P are compared. Rust/native host hardware
 CW/MXCSR equivalence is unclaimed.
 Both sequential independent non-author reviews approved the bounded Source4
-milestone with no open findings. Source-commit binding remains pending.
+milestone with no open findings. The accepted source is commit `78c130e`.
 
 [![Original taxi during the continuous driving capture](docs/screenshots/2026-10-24-car-driving-verified.webp)](docs/videos/2026-10-24-car-driving.mp4)
 
@@ -174,8 +174,7 @@ all-target Clippy. The 264-file source guard agrees before and after the gate.
 Headless trajectories, legacy pixels, windowed driving controls and the release
 video have separate source-bound receipts. The scoped native closure passes in
 both Cargo profiles, and both sequential independent reviews are approved.
-Source-commit binding remains pending;
-original renderer parity and complete-system acceptance stay separate.
+Original renderer parity and complete-system acceptance stay separate.
 
 Linux software Vulkan uses the same initialized CPU arena for the car, lights,
 shadow and skid models. Compatible draws receive vertex updates; visibility or

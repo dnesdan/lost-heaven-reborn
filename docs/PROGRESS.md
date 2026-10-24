@@ -32,7 +32,7 @@ original-resource stereo audio at 48 kHz. Software capture and simulation timing
 diverge by up to 0.706 seconds; audio is neither padded nor stretched. Original
 renderer/audio parity, perfect synchronization and hardware audio output remain
 unverified. Both sequential independent non-author reviews approved the bounded
-Source4 milestone with no open findings. Source-commit binding remains pending.
+Source4 milestone with no open findings, bound to code/docs/media commit `78c130e`.
 
 The sealed native comparison passes all admitted current-source Cargo opt0/opt3
 cases under 135 matching 264-file source guards. Its count categories remain

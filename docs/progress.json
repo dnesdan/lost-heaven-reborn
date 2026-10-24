@@ -1,9 +1,9 @@
 {
   "updated_at": "2026-10-24",
-  "project_status": "Bounded original-data standalone driving accepted after two sequential independent reviews of frozen Source4; 309 scoped entries / 113 contracts. Source-commit binding pending. Campaign not playable.",
+  "project_status": "Bounded original-data standalone driving accepted after two sequential independent reviews of frozen Source4; 309 scoped entries / 113 contracts. Campaign not playable.",
   "rust_toolchain": "1.99.1",
   "validation": {
-    "status": "Frozen Source4 passes 1066 Rust tests (110 assets unit, 7 assets integration, 910 engine library, 8 engine integration, 26 application, 5 renderer), 9 REA-wrapper tests and 47 progress tests, plus formatting, locked all-target checking and all-target Clippy. The 264-file source guard agrees before and after the gate. Three original-input headless trajectories pass in both actual opt0/opt3 profiles, with owned cleanup zero and five separate caller-owned Scene-prefix frames. Both windowed profiles pass 26 negative CLI cases, exact legacy taxi/police/MISE01 pixels and driving controls, focus loss and R reload. A continuous 18-second release capture demonstrates 55.038 metres maximum displacement and recorded original-resource stereo audio, with documented timing limits. All admitted original-instruction comparisons pass against actual current-source Cargo opt0/opt3 builds with 135 matching source guards; cohort counts and controlled CPU/world/resource/projection scopes remain separate. Two sequential independent non-author Sol reviews accepted the bounded Source4 freeze with no open findings. Source-commit binding remains pending. Historical accepted baseline bf8b170 is unchanged. Apple arm64 checking remains blocked by missing CoreAudio SDK headers; native macOS and Metal remain untested.",
+    "status": "Frozen Source4 passes 1066 Rust tests (110 assets unit, 7 assets integration, 910 engine library, 8 engine integration, 26 application, 5 renderer), 9 REA-wrapper tests and 47 progress tests, plus formatting, locked all-target checking and all-target Clippy. The 264-file source guard agrees before and after the gate. Three original-input headless trajectories pass in both actual opt0/opt3 profiles, with owned cleanup zero and five separate caller-owned Scene-prefix frames. Both windowed profiles pass 26 negative CLI cases, exact legacy taxi/police/MISE01 pixels and driving controls, focus loss and R reload. A continuous 18-second release capture demonstrates 55.038 metres maximum displacement and recorded original-resource stereo audio, with documented timing limits. All admitted original-instruction comparisons pass against actual current-source Cargo opt0/opt3 builds with 135 matching source guards; cohort counts and controlled CPU/world/resource/projection scopes remain separate. Two sequential independent non-author Sol reviews accepted the bounded Source4 freeze with no open findings. The current integration is bound to its recorded code/docs/media commit. Historical accepted baseline bf8b170 is unchanged. Apple arm64 checking remains blocked by missing CoreAudio SDK headers; native macOS and Metal remain untested.",
     "rust_unit_tests": 1066,
     "rust_unit_test_split": {
       "lhr_assets": 110,
@@ -22,7 +22,7 @@
       "milestone": "Bounded original vehicle prerequisites, native contact alias validation, original-DTA level tables and initialized-wheel preview."
     },
     "progress_tests": 47,
-    "current_source_status": "Bounded Source4 full checks, scoped native comparisons, runtime/media evidence and both sequential independent reviews accepted; source-commit binding pending",
+    "current_source_status": "Bounded Source4 full checks, scoped native comparisons, runtime/media evidence and both sequential independent reviews accepted; bound to the recorded code/docs/media commit",
     "current_source_freeze": {
       "id": "SOURCE-v4",
       "files": 264,
@@ -41184,10 +41184,10 @@
   },
   "driving_integration_observation": {
     "id": "RUST-ORIGINAL-DATA-DRIVING-INTEGRATION-20261024",
-    "status": "accepted_bounded_source4_pending_source_commit_binding",
-    "source_commit": null,
+    "status": "accepted_bounded_source4_source_bound",
+    "source_commit": "78c130ebd8843886d4f3cd675e0539c1e7cd371f",
     "source_tree_sha256": "f3d4a8a9193777297e056dc9d7ad901700cdff432fcc823688c8baf40040ce16",
-    "source_freeze_sha256": null,
+    "source_freeze_sha256": "75ef7420cd0fe8ee3ff3a097caeb55dca8b259e421f50d90825d3c91b3c499e4",
     "accepted_prerequisite_baseline": "bf8b170f7dada50854293f761afdff5f45d52bb3",
     "accepted_scoped_entries": 309,
     "accepted_scoped_contracts": 113,
@@ -41410,11 +41410,8 @@
       "Reached particle, scratch-projection, unsupported actor-class and resource dependencies retain explicit availability errors; there is no hidden static-only or geometry-drop fallback.",
       "Source3 reports and failed/prefix captures remain immutable history and are not final Source4 validation."
     ],
-    "source_identity_status": "Frozen Source4 tree accepted by both sequential independent reviews; source-commit binding pending",
+    "source_identity_status": "Bound to committed code/docs/media 78c130ebd8843886d4f3cd675e0539c1e7cd371f and the reviewed 264-file Source4 freeze",
     "runtime_original_executable_or_DLL_reads": false,
-    "pending_receipts": [
-      "Actual code/docs/media commit SHA for a subsequent metadata-only source binding"
-    ],
     "source_file_count": 264,
     "headless_regressions": {
       "receipt": {

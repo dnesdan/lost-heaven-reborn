@@ -42,7 +42,7 @@ distinct frames and 55.038 metres maximum displacement over 18 seconds. Its
 software capture and simulation timing diverge by up to 0.706 seconds. These
 results establish no perfect audiovisual synchronization or physical audio-device
 validation. Both sequential independent non-author reviews approved the bounded
-Source4 milestone with no open findings. Source-commit binding remains pending.
+Source4 milestone with no open findings, bound to code/docs/media commit `78c130e`.
 
 All admitted original-instruction comparisons pass against actual current-source
 Cargo opt0/opt3 builds, with 135 matching guards over the 264-file freeze. Counts
