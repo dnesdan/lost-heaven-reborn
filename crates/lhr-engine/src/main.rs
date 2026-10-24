@@ -26,6 +26,7 @@ struct Options {
     textures: String,
     synthetic: bool,
     mission: Option<String>,
+    car_inspection: bool,
 }
 fn options() -> Result<Options, String> {
     let mut result = Options {
@@ -42,6 +43,7 @@ fn options() -> Result<Options, String> {
         textures: "maps".into(),
         synthetic: false,
         mission: None,
+        car_inspection: false,
     };
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -59,9 +61,11 @@ fn options() -> Result<Options, String> {
             "--frames" => result.frames = args.next().ok_or("Missing frame count")?.parse().map_err(|_| "Invalid frame count")?,
             "--synthetic" => result.synthetic = true,
             "--mission" => result.mission = Some(args.next().ok_or("Missing mission argument")?),
+            "--car-inspection" => result.car_inspection = true,
             "--help" => return Err(concat!(
                 "Usage: lhr-engine [--synthetic | --root DIRECTORY [--model RELATIVE_4DS [--animation RELATIVE_5DS] | --mission NAME]] ",
-                "[--textures RELATIVE_DIRECTORY] [--headless --capture PNG [--animation-steps N]] [--frames N] [--linear]. ",
+                "[--car-inspection] [--textures RELATIVE_DIRECTORY] [--headless --capture PNG [--animation-steps N]] [--frames N] [--linear]. ",
+                "--car-inspection requires --root and --model; constructs and initializes the CPU car, then renders that same live arena's first LOD with unlit base color/texture and supported alpha masks with a host 0.5 cutoff. Lighting, other material effects, driving and GameInit are unavailable. R reloads the car explicitly. ",
                 "Headless --animation-steps 0..600 uses controlled 16 ms inspection-clock steps; omit it for one platform-clock step. ",
                 "Root alone opens the supported original Czech main-menu subset (New Game/Exit). ",
                 "Menu: arrows/Enter or mouse. New Game loads static INTRO; Esc loads static MISE01, then returns to menu. ",
@@ -95,6 +99,15 @@ fn options() -> Result<Options, String> {
     }
     if result.model.is_some() && result.root.is_none() {
         return Err("A model requires an installation root".into());
+    }
+    if result.car_inspection
+        && (result.root.is_none()
+            || result.model.is_none()
+            || result.animation.is_some()
+            || result.mission.is_some()
+            || result.textures != "maps")
+    {
+        return Err("--car-inspection requires --root and --model, original maps, and no animation or mission selection".into());
     }
     if result.mission.is_some() && (result.root.is_none() || result.model.is_some()) {
         return Err("A mission requires an installation root and no model".into());
@@ -197,6 +210,7 @@ struct LoadedScene {
     camera: Camera,
     runtime: lhr_engine::runtime::RetainedScene,
     animation: Option<AnimationPlayback>,
+    car: Option<lhr_engine::car_runtime::CarRuntime>,
 }
 fn load(options: &Options) -> Result<LoadedScene, String> {
     let Some(root) = &options.root else {
@@ -207,10 +221,17 @@ fn load(options: &Options) -> Result<LoadedScene, String> {
             camera,
             runtime: lhr_engine::runtime::RetainedScene::default(),
             animation: None,
+            car: None,
         });
     };
     let installation = lhr_assets::Installation::open(root)
         .map_err(|e| format!("Cannot open asset installation: {e}"))?;
+    if options.car_inspection {
+        return load_car(
+            installation,
+            options.model.as_deref().ok_or("Car model absent")?,
+        );
+    }
     if options
         .mission
         .as_deref()
@@ -341,7 +362,56 @@ fn load(options: &Options) -> Result<LoadedScene, String> {
         camera,
         runtime,
         animation,
+        car: None,
     })
+}
+fn close_car(car: &mut Option<lhr_engine::car_runtime::CarRuntime>) -> Result<(), String> {
+    if let Some(owner) = car.as_mut() {
+        let cleanup = owner.shutdown()?;
+        println!("Car/model resources released; actor registrations {}, CPU heap blocks {}, visual buffers {}, textures {}; host scene prefix retained",cleanup.actor_registry_entries,cleanup.heap_allocations,cleanup.graphics,cleanup.textures);
+    }
+    *car = None;
+    Ok(())
+}
+fn load_car(installation: lhr_assets::Installation, path: &str) -> Result<LoadedScene, String> {
+    let mut owner =
+        match lhr_engine::car_runtime::CarRuntime::open(installation, path, Default::default()) {
+            Ok(owner) => owner,
+            Err(mut failure) => {
+                let cleanup = failure.partial.shutdown();
+                return Err(format!(
+                    "{}; explicit inspection cleanup: {cleanup:?}",
+                    failure.message
+                ));
+            }
+        };
+    let result: Result<(Scene, Camera), String> = (|| {
+        let root = owner.model().ok_or("Car model absent")?.root();
+        let snapshot = lhr_engine::car_inspection::snapshot_car_arena(owner.arena_mut(), root)?;
+        let camera = Camera::fit(&snapshot.scene)?;
+        println!("CPU car constructed and initialized: {} seats, {} cached animation tracks; {} visible meshes, {} draws",owner.summary().seats,owner.summary().cached_tracks,snapshot.visible_meshes,snapshot.scene.meshes.len());
+        println!("Car inspection: same initialized frame graph and CPU buffers; first LOD, unlit base color/texture, supported masks clipped at host cutoff 0.5; {} draws contain unsupported material effects. Driving, missions and C_car::GameInit are unavailable.",snapshot.omitted_material_effects);
+        if snapshot.unsupported_alpha_masks != 0 {
+            println!(
+                "Car inspection: {} draws keep unsupported non-grayscale alpha masks opaque",
+                snapshot.unsupported_alpha_masks
+            );
+        }
+        Ok((snapshot.scene, camera))
+    })();
+    match result {
+        Ok((scene, camera)) => Ok(LoadedScene {
+            scene,
+            camera,
+            runtime: Default::default(),
+            animation: None,
+            car: Some(owner),
+        }),
+        Err(error) => {
+            let cleanup = owner.shutdown();
+            Err(format!("{error}; explicit inspection cleanup: {cleanup:?}"))
+        }
+    }
 }
 fn authored_camera(
     installation: &lhr_assets::Installation,
@@ -397,6 +467,7 @@ struct App {
     camera: Camera,
     runtime: lhr_engine::runtime::RetainedScene,
     animation: Option<AnimationPlayback>,
+    car: Option<lhr_engine::car_runtime::CarRuntime>,
     runtime_engine: lhr_engine::runtime::RuntimeEngine,
     clock_backend: lhr_engine::runtime::PlatformClock,
     options: Options,
@@ -442,18 +513,35 @@ impl App {
             camera,
             runtime,
             animation,
+            mut car,
         } = load(&self.options)?;
         if mode == AppMode::Menu {
             scene
                 .meshes
                 .push(menu::quad(self.ui.as_ref().unwrap().pixels()));
         }
-        let renderer = pollster::block_on(Renderer::with_adapter(
+        let result = pollster::block_on(Renderer::with_adapter(
             self.adapter.as_ref().ok_or("Graphics adapter absent")?,
             &scene,
             self.config.as_ref().unwrap().format,
             self.options.linear,
-        ))?;
+        ));
+        let mut renderer = match result {
+            Ok(renderer) => renderer,
+            Err(error) => {
+                let cleanup = close_car(&mut car);
+                return Err(format!("{error}; car cleanup: {cleanup:?}"));
+            }
+        };
+        renderer.set_inspection_alpha_cutout(self.options.car_inspection);
+        if let Some(old) = &self.renderer {
+            old.device.poll(wgpu::Maintain::Wait);
+        }
+        if let Err(error) = close_car(&mut self.car) {
+            renderer.device.poll(wgpu::Maintain::Wait);
+            let cleanup = close_car(&mut car);
+            return Err(format!("{error}; new car cleanup: {cleanup:?}"));
+        }
         self.surface
             .as_ref()
             .unwrap()
@@ -463,6 +551,7 @@ impl App {
         self.camera = camera;
         self.runtime = runtime;
         self.animation = animation;
+        self.car = car;
         self.runtime_engine.reset_clock(&mut self.clock_backend);
         self.mode = mode;
         self.keys.clear();
@@ -475,6 +564,14 @@ impl App {
         self.error = Some(message.into());
         event_loop.exit();
     }
+    fn reload_car(&mut self) -> Result<(), String> {
+        if let Some(renderer) = &self.renderer {
+            renderer.device.poll(wgpu::Maintain::Wait);
+        }
+        close_car(&mut self.car)?;
+        self.renderer = None;
+        self.transition(AppMode::Inspection)
+    }
 }
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
@@ -483,7 +580,11 @@ impl ApplicationHandler for App {
         }
         let Ok(window) = event_loop.create_window(
             Window::default_attributes()
-                .with_title("Lost Heaven Reborn — original menu / static scene inspection")
+                .with_title(if self.options.car_inspection {
+                    "Lost Heaven Reborn — initialized car inspection"
+                } else {
+                    "Lost Heaven Reborn — original menu / static scene inspection"
+                })
                 .with_inner_size(winit::dpi::LogicalSize::new(
                     if self.mode == AppMode::Menu { 640 } else { 960 },
                     if self.mode == AppMode::Menu { 480 } else { 640 },
@@ -514,7 +615,7 @@ impl ApplicationHandler for App {
             self.fail(event_loop, "No presentation configuration");
             return;
         };
-        let renderer = match pollster::block_on(Renderer::with_adapter(
+        let mut renderer = match pollster::block_on(Renderer::with_adapter(
             &adapter,
             &self.scene,
             config.format,
@@ -526,6 +627,7 @@ impl ApplicationHandler for App {
                 return;
             }
         };
+        renderer.set_inspection_alpha_cutout(self.options.car_inspection);
         surface.configure(&renderer.device, &config);
         self.adapter = Some(adapter);
         self.window = Some(window);
@@ -557,6 +659,10 @@ impl ApplicationHandler for App {
                                 KeyCode::Enter | KeyCode::NumpadEnter => self.activate(event_loop),
                                 KeyCode::Escape => event_loop.exit(),
                                 _ => {}
+                            }
+                        } else if code == KeyCode::KeyR && self.options.car_inspection {
+                            if let Err(error) = self.reload_car() {
+                                self.fail(event_loop, &error);
                             }
                         } else if code == KeyCode::Escape {
                             let next = if self.mode == AppMode::IntroScene {
@@ -637,7 +743,7 @@ impl ApplicationHandler for App {
                         return;
                     }
                 };
-                if self.count == 0 {
+                if self.count == 0 && self.car.is_none() {
                     println!(
                         "Bound runtime: raw delta {}, modified {}, driver time {}, {} retained model ticks dispatched; authored actors/scripts remain unbound",
                         step.raw_delta,
@@ -791,6 +897,7 @@ fn run() -> Result<(), String> {
         camera,
         mut runtime,
         mut animation,
+        mut car,
     } = load(&options)?;
     let ui = match &options.root {
         Some(root) if options.model.is_none() && options.mission.is_none() => {
@@ -815,9 +922,13 @@ fn run() -> Result<(), String> {
     }
     println!(
         "Original-data {} inspection; provisional {} texture sampling; {} indexed mesh groups",
-        animation
-            .as_ref()
-            .map_or("menu/static scene", AnimationPlayback::description),
+        if options.car_inspection {
+            "initialized car"
+        } else {
+            animation
+                .as_ref()
+                .map_or("menu/static scene", AnimationPlayback::description)
+        },
         if options.linear { "linear" } else { "nearest" },
         scene.meshes.len()
     );
@@ -845,6 +956,28 @@ fn run() -> Result<(), String> {
         animation.as_ref().map_or("static model guards only", AnimationPlayback::description)
     );
     if options.headless {
+        if car.is_some() {
+            let result = (|| {
+                let instance = lhr_render::instance();
+                let mut renderer = pollster::block_on(Renderer::new(
+                    &instance,
+                    None,
+                    &scene,
+                    wgpu::TextureFormat::Rgba8UnormSrgb,
+                    options.linear,
+                ))?;
+                renderer.set_inspection_alpha_cutout(true);
+                let result =
+                    renderer.capture(960, 640, &camera, options.capture.as_deref().unwrap());
+                renderer.device.poll(wgpu::Maintain::Wait);
+                result
+            })();
+            let cleanup = close_car(&mut car);
+            result?;
+            cleanup?;
+            println!("Initialized car GPU readback capture complete");
+            return Ok(());
+        }
         if let Some(steps) = options.animation_steps {
             runtime_engine = lhr_engine::runtime::RuntimeEngine::from_sample(0);
             let mut inspection_clock = InspectionClock(0);
@@ -897,7 +1030,15 @@ fn run() -> Result<(), String> {
         println!("GPU readback capture complete");
         return Ok(());
     }
-    let event_loop = EventLoop::new().map_err(|_| "Cannot initialize window event loop")?;
+    let event_loop = match EventLoop::new() {
+        Ok(event_loop) => event_loop,
+        Err(_) => {
+            let cleanup = close_car(&mut car);
+            return Err(format!(
+                "Cannot initialize window event loop; car cleanup: {cleanup:?}"
+            ));
+        }
+    };
     let mut app = App {
         mode,
         ui,
@@ -908,6 +1049,7 @@ fn run() -> Result<(), String> {
         runtime,
         runtime_engine,
         animation,
+        car,
         clock_backend,
         options,
         window: None,
@@ -918,9 +1060,15 @@ fn run() -> Result<(), String> {
         count: 0,
         error: None,
     };
-    event_loop
+    let event_result = event_loop
         .run_app(&mut app)
-        .map_err(|_| "Window event loop failed")?;
+        .map_err(|_| "Window event loop failed");
+    if let Some(renderer) = &app.renderer {
+        renderer.device.poll(wgpu::Maintain::Wait);
+    }
+    let cleanup = close_car(&mut app.car);
+    event_result?;
+    cleanup?;
     if let Some(error) = app.error {
         return Err(error);
     }

@@ -12,3 +12,10 @@ struct Output { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f3
 @fragment fn fragment(input: Output) -> @location(0) vec4<f32> {
  return textureSample(color_texture, color_sampler, input.uv);
 }
+
+// Host inspection cutoff, not reconstructed original alpha-test behavior.
+@fragment fn fragment_inspection_cutout(input: Output) -> @location(0) vec4<f32> {
+ let color = textureSample(color_texture, color_sampler, input.uv);
+ if color.a < 0.5 { discard; }
+ return color;
+}

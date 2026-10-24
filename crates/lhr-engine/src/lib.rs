@@ -12,6 +12,8 @@ mod arena_frame_names;
 pub mod buffer_managers;
 pub mod c_str;
 pub mod car_effects;
+pub mod car_inspection;
+pub mod car_runtime;
 pub mod clock;
 pub mod collision_dispatch;
 pub mod collision_line;
@@ -92,7 +94,7 @@ pub mod ls3df {
 /// Original game executable boundary; replay helper names remain descriptive.
 pub mod game {
     pub use crate::{
-        actor_world, car_effects, collision_dispatch, collision_line, collision_links,
+        actor_world, car_effects, car_runtime, collision_dispatch, collision_line, collision_links,
         collision_prepare, collision_query, collision_volumes, collision_world, original_program,
         program_instructions, program_parser, replay_state, script_lookup, script_scheduler,
         vehicle_bodycol, vehicle_bodycol_records, vehicle_component_records, vehicle_controls,

@@ -111,6 +111,8 @@ pub struct Renderer {
     pub queue: wgpu::Queue,
     format: wgpu::TextureFormat,
     pipeline: wgpu::RenderPipeline,
+    inspection_cutout_pipeline: wgpu::RenderPipeline,
+    inspection_alpha_cutout: bool,
     overlay_pipeline: wgpu::RenderPipeline,
     overlay_buffer: wgpu::Buffer,
     overlay_group: wgpu::BindGroup,
@@ -119,6 +121,11 @@ pub struct Renderer {
     draws: Vec<Draw>,
 }
 impl Renderer {
+    /// Opt-in host inspection policy: discard sampled alpha below 0.5.
+    /// The default scene renderer and overlay retain their previous behavior.
+    pub fn set_inspection_alpha_cutout(&mut self, enabled: bool) {
+        self.inspection_alpha_cutout = enabled;
+    }
     pub async fn new(
         instance: &wgpu::Instance,
         surface: Option<&wgpu::Surface<'_>>,
@@ -210,44 +217,48 @@ impl Renderer {
             bind_group_layouts: &[&camera_layout, &texture_layout],
             push_constant_ranges: &[],
         });
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: None,
-            layout: Some(&layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vertex"),
-                buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: 20,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x2],
-                }],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fragment"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: None,
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: Default::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                cull_mode: None,
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less,
-                stencil: Default::default(),
-                bias: Default::default(),
-            }),
-            multisample: Default::default(),
-            multiview: None,
-            cache: None,
-        });
+        let scene_pipeline = |fragment_entry| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: None,
+                layout: Some(&layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vertex"),
+                    buffers: &[wgpu::VertexBufferLayout {
+                        array_stride: 20,
+                        step_mode: wgpu::VertexStepMode::Vertex,
+                        attributes: &wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x2],
+                    }],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some(fragment_entry),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    cull_mode: None,
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth32Float,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::Less,
+                    stencil: Default::default(),
+                    bias: Default::default(),
+                }),
+                multisample: Default::default(),
+                multiview: None,
+                cache: None,
+            })
+        };
+        let pipeline = scene_pipeline("fragment");
+        let inspection_cutout_pipeline = scene_pipeline("fragment_inspection_cutout");
         let overlay_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: None,
             layout: Some(&layout),
@@ -422,6 +433,8 @@ impl Renderer {
             queue,
             format,
             pipeline,
+            inspection_cutout_pipeline,
+            inspection_alpha_cutout: false,
             overlay_pipeline,
             overlay_buffer,
             overlay_group,
@@ -574,7 +587,11 @@ impl Renderer {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-            pass.set_pipeline(&self.pipeline);
+            pass.set_pipeline(if self.inspection_alpha_cutout {
+                &self.inspection_cutout_pipeline
+            } else {
+                &self.pipeline
+            });
             pass.set_bind_group(0, &self.camera_group, &[]);
             let count = self
                 .draws

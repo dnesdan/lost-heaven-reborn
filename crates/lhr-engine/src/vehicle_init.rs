@@ -10,6 +10,9 @@ mod car_state;
 mod components;
 pub use car_state::*;
 use car_state::{CarInitMemory, CarInitOwned};
+#[path = "car_construction.rs"]
+mod car_construction;
+pub use car_construction::*;
 #[path = "car_init.rs"]
 mod car_init;
 pub use car_init::*;

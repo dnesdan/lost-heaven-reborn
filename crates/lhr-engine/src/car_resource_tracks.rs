@@ -13,6 +13,7 @@ pub enum CarTrackError {
     InvalidCatalogIndex(i32),
     DuplicateCatalogCode(u32),
     CatalogUnavailable,
+    UnsupportedAnimationId(u32),
     Truncated { offset: usize, bytes: usize },
     Extent,
     MissingPositions,
@@ -100,6 +101,7 @@ pub struct CarTrackResources {
     catalog: Vec<CarAnimationResource>,
     index: AnimationIndexTable,
     cache: Vec<(Vec<u8>, CarTrack)>,
+    bounded_catalog: bool,
 }
 
 impl CarTrackResources {
@@ -110,6 +112,7 @@ impl CarTrackResources {
             catalog,
             index,
             cache: Vec::new(),
+            bounded_catalog: false,
         }
     }
     /// Convenience admission for catalogs whose codes are unique. Duplicate
@@ -140,6 +143,9 @@ impl CarTrackResources {
     pub fn animation_name(&self, id: u32) -> Result<Option<Vec<u8>>, CarTrackError> {
         let index = self.index.get_anim_index(id);
         if index < 0 {
+            if self.bounded_catalog {
+                return Err(CarTrackError::UnsupportedAnimationId(id));
+            }
             return Ok(None);
         }
         let resource = self
@@ -147,6 +153,12 @@ impl CarTrackResources {
             .get(index as usize)
             .ok_or(CarTrackError::InvalidCatalogIndex(index))?;
         Ok(Some(resource.name.clone()))
+    }
+    /// An explicitly bounded reconstructed catalog cannot classify other Game
+    /// animation identifiers as native NotFound.
+    pub fn restrict_to_supplied_catalog(mut self) -> Self {
+        self.bounded_catalog = true;
+        self
     }
     pub fn cached_tracks(&self) -> impl Iterator<Item = (&[u8], &CarTrack)> {
         self.cache

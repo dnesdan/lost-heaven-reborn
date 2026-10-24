@@ -20,6 +20,11 @@ use std::{
     collections::BTreeMap,
     sync::atomic::{AtomicU64, Ordering},
 };
+#[path = "car_inspection_resources.rs"]
+mod car_inspection_resources;
+pub use car_inspection_resources::{CpuInspectionGroup, CpuInspectionMesh};
+#[path = "car_inspection_texture.rs"]
+mod car_inspection_texture;
 static NEXT_STORAGE_KEY: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -86,6 +91,7 @@ struct CpuTexture {
     /// Other Create75f50 fields/bits are not represented by CPU storage.
     flags: u32,
     request_flags: u32,
+    inspection_rgba8_color_key: bool,
 }
 #[derive(Debug, Default)]
 pub struct CpuVisualStorage {
@@ -221,6 +227,7 @@ impl CpuVisualStorage {
                 alpha,
                 flags: flags & 0x10e,
                 request_flags,
+                inspection_rgba8_color_key: false,
             },
         );
         Ok(TextureKey(id))
@@ -376,6 +383,7 @@ struct PreparedMaterial {
     color: Option<lhr_assets::Texture>,
     alpha: Option<lhr_assets::Texture>,
     environment: Option<lhr_assets::Texture>,
+    inspection_rgba8_color_key: bool,
 }
 /// Driver words consumed by original material Load2bd50. This context controls
 /// CPU resource admission; it does not claim a created renderer or GPU device.
@@ -478,6 +486,7 @@ pub struct LoadedVisualResources {
     sources: BTreeMap<(u64, u32), Vec<lhr_assets::Material>>,
     incomplete: bool,
     material_load_context: MaterialLoadContext,
+    inspection_rgba8_color_key: bool,
 }
 impl std::fmt::Debug for LoadedVisualResources {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -496,6 +505,7 @@ impl LoadedVisualResources {
             sources: BTreeMap::new(),
             incomplete: false,
             material_load_context: MaterialLoadContext::ORIGINAL_DRIVER_INIT_DEFAULTS,
+            inspection_rgba8_color_key: false,
         })
     }
     pub fn material_load_context(&self) -> MaterialLoadContext {
@@ -503,6 +513,17 @@ impl LoadedVisualResources {
     }
     pub fn set_material_load_context(&mut self, context: MaterialLoadContext) {
         self.material_load_context = context;
+    }
+    /// Explicit host inspection destination. Existing CPU admissions stay
+    /// unchanged unless this is selected before any textures are loaded.
+    pub fn enable_inspection_rgba8_color_key(&mut self) -> Result<()> {
+        if !self.backend.textures.is_empty() || !self.sources.is_empty() {
+            return Err(LoadedVisualError::Backend(
+                "inspection format selected after resource admission",
+            ));
+        }
+        self.inspection_rgba8_color_key = true;
+        Ok(())
     }
     pub fn backend(&self) -> &CpuVisualStorage {
         &self.backend
@@ -667,8 +688,22 @@ impl LoadedVisualResources {
                     }
                     .map_err(|e| LoadedVisualError::Asset(format!("{path}: {e}")))
                 };
+                let mut inspection_keyed = false;
                 let color = if m.texture.is_empty() {
                     None
+                } else if self.inspection_rgba8_color_key
+                    && self.material_load_context.base_texture_flags(&m)? & 0xe == 8
+                    && m.alpha_texture.as_ref().is_none_or(|name| name.is_empty())
+                    && !m.texture.to_ascii_lowercase().ends_with(".tga")
+                {
+                    let path = format!("maps/{}", m.texture);
+                    let raw = installation
+                        .read(&path)
+                        .map_err(|e| LoadedVisualError::Asset(format!("{path}: {e}")))?;
+                    let (image, keyed) = car_inspection_texture::decode_rgba8_color_key(&raw)
+                        .map_err(|e| LoadedVisualError::Asset(format!("{path}: {e}")))?;
+                    inspection_keyed = keyed;
+                    Some(image)
                 } else {
                     Some(decode(&m.texture)?)
                 };
@@ -699,6 +734,7 @@ impl LoadedVisualResources {
                         color,
                         alpha,
                         environment,
+                        inspection_rgba8_color_key: inspection_keyed,
                     },
                 );
             }
@@ -768,6 +804,15 @@ impl LoadedVisualResources {
                         .base_texture_request_flags(&m.source),
                     self.material_load_context.base_texture_flags(&m.source)?,
                 )?;
+                if m.inspection_rgba8_color_key {
+                    self.backend
+                        .textures
+                        .get_mut(&texture.0)
+                        .ok_or(LoadedVisualError::Backend(
+                            "inspection color-key texture unavailable",
+                        ))?
+                        .inspection_rgba8_color_key = true;
+                }
                 self.objects.adopt_loaded_material_texture(
                     key,
                     Some(texture),
