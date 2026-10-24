@@ -1,7 +1,7 @@
 # Lost Heaven Reborn
 
 <!-- generated-function-progress:start -->
-As of 2026-10-24 · snapshot `RUST-SCOPED-PORTS-20261024-44`.
+As of 2026-10-24 · snapshot `RUST-SCOPED-PORTS-20261024-45`.
 
 <p align="center"><img src="docs/progress.svg" alt="Progress dashboard: static retained pseudocode, reviewed scoped Rust entries, and strict system verification" width="100%"></p>
 
@@ -14,7 +14,7 @@ As of 2026-10-24 · snapshot `RUST-SCOPED-PORTS-20261024-44`.
 
 Strict full-system gate: **0/12**. Binary-level static counts use the named denominator basis and do not combine into a game-completion percentage. Unknown denominators remain N/A. 1 supplied configuration Setup inventory uses 172 in-image non-thunk procedures. Separately, archive installer bootstrap static inventory: **376 / 376 (100.00%)**; this distribution target is not combined with engine-library counts. The campaign is not playable.
 
-Accepted scoped Rust ports: **272 entries across 93 reviewed contracts**. These remain separate from retained pseudocode and whole-function counts.
+Accepted scoped Rust ports: **309 entries across 113 reviewed contracts**. These remain separate from retained pseudocode and whole-function counts.
 
 Regenerate locally with `python3 scripts/progress.py --write`; verify without writes with `python3 scripts/progress.py --check`. Versioned snapshots are retained in `docs/progress.json`.
 Milestone history and scoped implementation evidence are in [docs/PROGRESS.md](docs/PROGRESS.md).
@@ -23,10 +23,10 @@ Supplied binary catalog (file identities; independent measures):
 | Binary | Platform | Variant | Role | Static retained pseudocode | Scoped Rust entries |
 | --- | --- | --- | --- | ---: | ---: |
 | DrvMgt.dll | PC | Installed game | Driver-management helper, exact runtime use unresolved | N/A | 0 |
-| Game.exe | PC | Installed game | Game and mission executable | 4784 / 4,914 (97.35%) | 113 |
+| Game.exe | PC | Installed game | Game and mission executable | 4784 / 4,914 (97.35%) | 149 |
 | IJoy.dll | PC | Installed game | DirectInput joystick wrapper | N/A | 0 |
 | INet.dll | PC | Installed game | Network helper, exact runtime use unresolved | N/A | 0 |
-| LS3DF.dll | PC | Installed game | 3D, animation, audio and rendering engine | 1555 / 1,714 (90.72%) | 142 |
+| LS3DF.dll | PC | Installed game | 3D, animation, audio and rendering engine | 1555 / 1,714 (90.72%) | 143 |
 | Setup.exe (supplied configuration) | PC | Installed game | Installed game configuration utility | 172 / 172 (100.00%) | 5 |
 | binkw32.dll | PC | Installed game | Bink video codec boundary | N/A | 0 |
 | ogg.dll | PC | Installed game | Ogg container library boundary | N/A | 0 |
@@ -63,21 +63,21 @@ Ownership code uses `lhr_engine::ls3df::{c_str, itexture, i3d_object, texture_ma
 
 The immediate goal is **the playable first mission, from the original menu through mission completion**, alongside function-by-function library parity with mafia-re. See the [acceptance gates and dependency order](docs/GOALS.md). PS2 symbol names guide reconstruction; PC behavior and platform differences require original-binary verification.
 
-At `5b28728`, Rust C_car construction now feeds bounded primary Init, explicit cleanup and a real initialized-car inspection mode. The accepted scope is **272 entries / 93 contracts**, **21 static_inspection / 72 not_integrated**, strict **0/12**. Whole-function coverage remains N/A.
+At `bf8b170`, the accepted scope is **309 entries / 113 reviewed contracts**, **23 static_inspection / 90 not_integrated**, strict **0/12**. Whole-function coverage remains N/A.
 
-The allocator-supplied bytes, base Actor registration, embedded Vehicle, caller scratch markers and RNG state now pass through the actual Rust Car constructor into the same Init/destructor owner. The production `--car-inspection` path exports indexed first-LOD geometry and CPU materials/textures from that initialized arena. Existing Init, destructor, Actor/Vehicle and FindChild entries receive no duplicate credit. The bounded twenty-ID animation name rules are functional engine behavior; runtime requires the original assets, without the original executable or a native constructor fixture.
+Original car level tables now load from the user's DTA data through the reconstructed loader and packed-parameter converter. Eight distinct model/allocator configurations pass in both profiles (16 executions), including repeat-load rejection and explicit cleanup with zero tracked Car/Game/model resources. Five host Scene-prefix frames remain explicit context. Runtime needs original assets without opening an original executable or DLL.
 
-The actual C_car constructor now runs in Rust from allocator bytes; source context still supplies initial Game/driver defaults. The native contract excludes allocator internals, general C++ exception/Win32 SEH compatibility, all internal Car-write timing and lower dead callee stack. Actual C_car::GameInit at virtual +0x64 / 0x41ed00 remains open; primary Init is +0x48 / 0x41bd80, and 0x42e3a0 is C_car_ex::Init. The twenty-ID semantic engine catalog does not implement the complete 576-row catalog/InitAnimIndex construction. Five Scene-prefix frames remain explicit host context. Scene construction stops before viewport/weather/shared Snow at 0x48e29; the thirteen required Scene effects belong to Close, which is not completed. Scene CPU texture identities differ from managed TextureResources identities.
+The new bounded contracts cover Car/Actor/Vehicle GameInit and cleanup, Engine/Move/Tick scheduling, wheel publication, contacts and static sphere/box queries. Original-instruction comparisons retain declared raw entry state, original numeric order and explicit world/resource boundaries. Internal Move phases, alternate APIs and build profiles add no duplicate entry credit. Required external backends remain incomplete; full application GameInit, body simulation, driving and mission execution remain unavailable.
 
-Actual authored MISE01 remains FINDACTOR/UnsupportedWorldBackend at PC 3 / source line 4; no later line executes. All six first-mission gates remain open. No runtime gameplay integration or driving mode is established.
+The car inspection mode now previews recovered steering on the same initialized wheel frames. Hold A or D to turn the wheels; arrows and W/S control the camera, and R explicitly reloads the Car and resets input. The car body stays stationary.
 
-Source-bound validation and immutable historical evidence remain in [PROGRESS.md](docs/PROGRESS.md).
+Actual authored MISE01 remains FINDACTOR/UnsupportedWorldBackend at PC 3 / source line 4; no later line executes. All six first-mission gates remain open, with strict verification 0/12.
 
-| Rust-constructed taxi · 960 × 640 · 11.1 KiB | Rust-constructed police car · 960 × 640 · 7.8 KiB |
-| --- | --- |
-| ![Initialized original taxi in the Rust car inspection mode](docs/screenshots/2026-10-24-car-inspection-taxi.webp) | ![Initialized original police car in the Rust car inspection mode](docs/screenshots/2026-10-24-car-inspection-police.webp) |
+| Taxi steering left · 960 × 640 · 47.5 KiB | Taxi steering right · 960 × 640 · 50.2 KiB | Police steering · 960 × 640 · 48.8 KiB |
+| --- | --- | --- |
+| ![Original taxi with recovered left wheel steering](docs/screenshots/2026-10-24-car-steering-taxi-left.webp) | ![Original taxi with recovered right wheel steering](docs/screenshots/2026-10-24-car-steering-taxi-right.webp) | ![Original police car with recovered wheel steering](docs/screenshots/2026-10-24-car-steering-police.webp) |
 
-Real Linux software Vulkan captures from the same initialized Car/ModelArena resources. Unlit first-LOD inspection with host cutouts; camera and R reload are verified. These cars cannot be driven. [Reproduction and limits](docs/screenshots/README.md#2026-10-24--rust-car-construction-and-initialized-inspection).
+Actual release-build Linux software Vulkan captures, dated 2026-10-24. Lossless WebP exports retain every captured pixel. Rendering is unlit first LOD; the images demonstrate wheel steering without body motion or playable driving. [Reproduction and limits](docs/screenshots/README.md#2026-10-24--recovered-car-wheel-steering).
 
 | Czech PC menu in Rust | MISE01 static inspection in Rust |
 | --- | --- |
@@ -108,6 +108,7 @@ Build the native engine binary with `cargo build --locked -p lhr-engine` from th
 ```sh
 ./scripts/run.sh --root /path/to/Mafia
 ./scripts/run.sh --root /path/to/Mafia --model models/taxi00.4ds --car-inspection
+./scripts/run.sh --root /path/to/Mafia --model models/taxi00.4ds --car-inspection --steer 1 --steer-steps 120
 ./scripts/run.sh --root /path/to/Mafia --mission mise01
 ./scripts/run.sh --root /path/to/Mafia --model models/4build81.4ds
 ./scripts/run.sh --root /path/to/Mafia --model models/civil02.4ds
@@ -117,6 +118,8 @@ Build the native engine binary with `cargo build --locked -p lhr-engine` from th
 ```
 
 The first command opens the Rust-rendered original menu. Up/Down and Enter select options; only New Game and Exit work, and there is no profile chooser. New Game switches to a static intro scene; Escape switches to the bounded MISE01 spawn-neighborhood inspection. This temporary inspection path does not play the original video/cinematic or execute missions or gameplay. Add `--headless --capture /tmp/scene.png` to either inspection command for a one-frame GPU capture, or `--frames N` to bound a window run. Camera inspection uses arrow keys and W/S. See [coverage](COVERAGE.md) for exact evidence and limits.
+
+`--steer` accepts a finite request from -1 to 1. `--steer-steps` accepts 0 through 600 and defaults to 1; each step uses a controlled 16 ms host inspection clock. With no steering request, the existing static inspection route is unchanged.
 
 Standalone static `--model` loading now builds an owned mesh/dummy hierarchy using recovered common LS3DF fields, parent links, reference transitions and guarded original transforms. `4build81.4ds` exercises three meshes and one dummy. Unsupported frame types, world-space visuals, reflective materials and unverified numeric paths report errors. This route does not establish native world streaming or original lighting/material parity. The MISE01 neighborhood remains a separate static inspection path.
 
