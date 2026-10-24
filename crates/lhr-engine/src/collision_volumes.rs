@@ -3,7 +3,7 @@
 //! the OBB record's two-sided local Y=0 rectangle and the infinite Y cylinder.
 //!
 //! Arithmetic admits the same CW `0x007f`, round-to-nearest precision-24 and
-//! zero-or-`2^-40..=2^40` used operand/intermediate domain as `collision_line`.
+//! normal-or-zero, magnitude at most `2^40`, used operand/intermediate domain as `collision_line`.
 //! The host must supply ordinary IEEE round-to-nearest arithmetic. Floating-point
 //! status, traps, other precision profiles and extended exponent behavior are
 //! outside this contract. Errors are transactional host policy. Unused stored
@@ -72,32 +72,34 @@ pub enum VolumeError {
 
 const EPSILON: f32 = 1.0e-8;
 fn number(value: f32) -> Result<f32, VolumeError> {
-    if value.is_finite()
-        && (value == 0.0
-            || ((1.0 / (1_u64 << 40) as f32)..=(1_u64 << 40) as f32).contains(&value.abs()))
-    {
+    if (value == 0.0 || value.is_normal()) && value.abs() <= (1_u64 << 40) as f32 {
         Ok(value)
     } else {
         Err(VolumeError::NumericDomain)
     }
 }
 fn add(a: f32, b: f32) -> Result<f32, VolumeError> {
-    number(number(a)? + number(b)?)
+    let value = crate::collision_swept::add(number(a)?, number(b)?)
+        .map_err(|_| VolumeError::NumericDomain)?;
+    number(value)
 }
 fn sub(a: f32, b: f32) -> Result<f32, VolumeError> {
-    number(number(a)? - number(b)?)
+    let value = crate::collision_swept::sub(number(a)?, number(b)?)
+        .map_err(|_| VolumeError::NumericDomain)?;
+    number(value)
 }
 fn mul(a: f32, b: f32) -> Result<f32, VolumeError> {
-    number(number(a)? * number(b)?)
+    let value = crate::collision_swept::mul(number(a)?, number(b)?)
+        .map_err(|_| VolumeError::NumericDomain)?;
+    number(value)
 }
 fn div(a: f32, b: f32) -> Result<f32, VolumeError> {
-    if b == 0.0 {
-        return Err(VolumeError::NumericDomain);
-    }
-    number(number(a)? / number(b)?)
+    let value = crate::collision_swept::div(number(a)?, number(b)?)
+        .map_err(|_| VolumeError::NumericDomain)?;
+    number(value)
 }
 fn sqrt(value: f32) -> Result<f32, VolumeError> {
-    number(number(value)?.sqrt())
+    number(crate::collision_swept::sqrt(number(value)?).map_err(|_| VolumeError::NumericDomain)?)
 }
 
 /// The imported *mutating* vector transform (LS3DF RVA `0x2e920`). Its

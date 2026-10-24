@@ -35,7 +35,8 @@ pub struct VehicleContactHit {
 /// replace native temporary addresses; persistent addresses remain raw words.
 #[derive(Debug, PartialEq)]
 pub enum VehicleContactEffect<'a> {
-    /// PC 0x4d5610(point, down, 0.2, magnitude, 0, 0).
+    /// Historical label: this is original DoDamage, PC0x4d5610,
+    /// called as (point,down,0.2,magnitude,0,0), not a particle-only effect.
     ImpactParticles {
         point: u32,
         down: u32,

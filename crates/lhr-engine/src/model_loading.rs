@@ -10,6 +10,10 @@
 //! close-first loading, fresh/shared filename descriptors and model prefixes.
 //! Loader callbacks/animation failure paths and GPU resource creation remain
 //! separate; the actual Installation adapter is not a full native LoadImage.
+#[path = "model_crash_duplicate.rs"]
+mod crash_duplicate;
+#[path = "model_glass.rs"]
+mod glass;
 use crate::frame_transform::{FrameError, FrameKey, FrameKind, I3dFrameGraph, I3dFrameState};
 use crate::joint_state::{I3dJointState, SinglemeshInvalidationState};
 use crate::native_transform::{SMatrix, SQuat};
@@ -212,6 +216,22 @@ pub struct ModelArena {
     loaded_visual_resources: Option<crate::loaded_visual_resources::LoadedVisualResources>,
 }
 impl ModelArena {
+    /// A real sound node in the shared hierarchy, with the base constructor's
+    /// reference and transform ownership. The audio owner supplies its tail.
+    pub fn create_sound_frame(&mut self) -> Result<FrameKey, ModelError> {
+        self.insert(I3dFrameState::sound(), None, Vec::new(), Vec::new(), None)
+    }
+    /// Host frame publication boundary: unlock the actual retained manager
+    /// buffers before CPU inspection/draw or explicit resource destruction.
+    /// This is not a reconstruction of the original driver's whole frame loop.
+    pub fn publish_runtime_buffers(&mut self) -> Result<(), ModelError> {
+        if let Some(owner) = self.loaded_visual_resources.as_mut() {
+            owner
+                .game_unlock_frame_buffers()
+                .map_err(ModelError::LoadedVisual)?;
+        }
+        Ok(())
+    }
     pub(crate) fn lookup_reference(
         &self,
         key: FrameKey,
@@ -1279,6 +1299,7 @@ impl ModelArena {
         if self.frames[i].projector.is_some() {
             self.release_projector_resources(key)?;
         }
+        self.release_light_sectors(key)?;
         self.graph.destroy_derived(key)?;
         self.remove_frame_name_registration(key)?;
         // Derived teardown precedes base owner removal. The zero-count base

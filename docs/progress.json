@@ -1,16 +1,16 @@
 {
   "updated_at": "2026-10-24",
-  "project_status": "Bounded vehicle prerequisites, original level tables and initialized-wheel preview; 309 scoped entries / 113 contracts. Campaign not playable.",
+  "project_status": "Bounded original-data standalone driving accepted after two sequential independent reviews of frozen Source4; 309 scoped entries / 113 contracts. Source-commit binding pending. Campaign not playable.",
   "rust_toolchain": "1.99.1",
   "validation": {
-    "status": "Current checks pass 922 Rust tests (109 assets unit, 7 assets integration, 772 engine library, 8 engine integration, 21 application, 5 renderer), 9 REA-wrapper tests and 47 progress tests, plus formatting, locked checking and Clippy. Two sequential independent reviews accept this exact source. Apple ARM64 locked all-target checking passes; native macOS execution and Metal remain untested. Source-bound original-instruction validation uses 27 Cargo dev and release binaries; expected-disagreement precision controls remain separate from equivalence evidence. Original-data table loading passes eight configurations in both profiles. Actual camera, A/D, key release, focus loss, reload and cleanup checks establish initialized-wheel preview only; full GameInit, body motion, driving and mission gameplay remain unavailable.",
-    "rust_unit_tests": 922,
+    "status": "Frozen Source4 passes 1066 Rust tests (110 assets unit, 7 assets integration, 910 engine library, 8 engine integration, 26 application, 5 renderer), 9 REA-wrapper tests and 47 progress tests, plus formatting, locked all-target checking and all-target Clippy. The 264-file source guard agrees before and after the gate. Three original-input headless trajectories pass in both actual opt0/opt3 profiles, with owned cleanup zero and five separate caller-owned Scene-prefix frames. Both windowed profiles pass 26 negative CLI cases, exact legacy taxi/police/MISE01 pixels and driving controls, focus loss and R reload. A continuous 18-second release capture demonstrates 55.038 metres maximum displacement and recorded original-resource stereo audio, with documented timing limits. All admitted original-instruction comparisons pass against actual current-source Cargo opt0/opt3 builds with 135 matching source guards; cohort counts and controlled CPU/world/resource/projection scopes remain separate. Two sequential independent non-author Sol reviews accepted the bounded Source4 freeze with no open findings. Source-commit binding remains pending. Historical accepted baseline bf8b170 is unchanged. Apple arm64 checking remains blocked by missing CoreAudio SDK headers; native macOS and Metal remain untested.",
+    "rust_unit_tests": 1066,
     "rust_unit_test_split": {
-      "lhr_assets": 109,
+      "lhr_assets": 110,
       "lhr_assets_integration": 7,
-      "lhr_engine_library": 772,
+      "lhr_engine_library": 910,
       "lhr_engine_integration": 8,
-      "lhr_engine_application": 21,
+      "lhr_engine_application": 26,
       "lhr_render": 5
     },
     "rea_wrapper_tests": 9,
@@ -21,22 +21,36 @@
       "progress_tests": 47,
       "milestone": "Bounded original vehicle prerequisites, native contact alias validation, original-DTA level tables and initialized-wheel preview."
     },
-    "progress_tests": 47
+    "progress_tests": 47,
+    "current_source_status": "Bounded Source4 full checks, scoped native comparisons, runtime/media evidence and both sequential independent reviews accepted; source-commit binding pending",
+    "current_source_freeze": {
+      "id": "SOURCE-v4",
+      "files": 264,
+      "tree_sha256": "f3d4a8a9193777297e056dc9d7ad901700cdff432fcc823688c8baf40040ce16"
+    },
+    "full_gate": {
+      "id": "RUST-DRIVING-SOURCE4-FULL-GATE-20261024",
+      "sha256": "9464da34061f2d6a7074e2f1eb9eae17dd953c0dda1ecaebead6e21440714c37"
+    },
+    "native_final": {
+      "id": "PLAYABLE-DRIVING-20261024-SOURCE-v4-NATIVE-FINAL-v1",
+      "sha256": "1d364a36e76926a8a37b9783fb42bf2a67f592ceb3a986c0031158651394a40a"
+    }
   },
   "assets": {
     "scope": "A8/A2/A6/A1/AC/AA DTA subset; bounded 4DS Joint, skin, morph and Target intake; 5DS position/rotation/scale records, BMP/TGA, menu/text/font, scene2, cache and script intake",
     "archive_order_basis": "Original PC registration order restricted to the supported archive subset; AC is between A1 and AA, cross-checked with original rw_data key decoding.",
     "read_fallback": "Selected archive errors propagate with no retry, lower-archive or loose-file fallback; existing host policy is stricter than original dtaOpen fallback.",
     "checksum_verification": false,
-    "audio_codecs": "Bounded native PCM16 mono/stereo WAV archive decoding; no application audio playback.",
-    "scene_streaming": "Bounded MISE01 inspection crop only; native streaming, visibility, pooling and PVS not implemented",
-    "collision": "not implemented",
+    "audio_codecs": "Bounded native PCM16 mono/stereo WAV archive decoding, original-data mixing, optional CPAL output and WAV capture; current-source audio and hardware playback evidence remain separate.",
+    "scene_streaming": "Standalone driving retains the source scene and refreshes nearby original cache-model render subsets; native streaming, visibility, pooling and PVS remain unimplemented.",
+    "collision": "Original KLZ intake and scoped static line/sphere/box workers are implemented. The standalone driving candidate composes canonical dynamic registration and queries with the original static world; full mission/world equivalence is unestablished.",
     "directory_assumption": "Trusted stable installation tree required; not descriptor-relative confinement against hostile concurrent parent replacement",
     "installation_archive_provider": "Existing Installation::read callers use NativeFiles with original raw ASCII name, original table row and selected archive owner; non-ASCII archive names return UnsupportedName, loose Unicode behavior unchanged. Checked empty entries are a host accommodation."
   },
   "menu": {
     "implementation": "Czech PC menu layout/localization display and keyboard/pointer selection",
-    "current_validation": "Current selected-native-provider keyboard sequence: menu \u2192 New Game \u2192 static INTRO \u2192 Escape \u2192 static MISE01 \u2192 Escape \u2192 menu, with four unchanged exact-baseline state captures. Earlier pointer, selection, orbit and reload evidence remains historical; no authored cutscene or gameplay.",
+    "current_validation": "Accepted historical menu keyboard captures remain tied to their recorded source. Current Source4 debug/release checks reproduce exact legacy taxi/police/static-MISE01 pixels and verify legacy inspection plus standalone driving controls, focus loss and reload. New Game still follows the static inspection route; authored cutscene and mission execution are unimplemented.",
     "profile_chooser": "not implemented",
     "unsupported_menu_actions": "not implemented",
     "new_game_flow": "Static intro geometry; Escape switches to static MISE01 spawn-neighborhood inspection with original static taxi, then returns to menu. No cinematic or mission execution.",
@@ -51,7 +65,7 @@
     "probe_results": "INTRO: 16 scripts halt on unsupported commands, one after advancing a prefix. MISE01: 37 halt, seven after advancing a prefix, two empty scripts complete. Prefix counts overlap halted counts.",
     "original_runtime_comparison": "PC-RUST-CONTROL-VM-RUNTIME-02 compares bounded COMMANDBLOCK and WAIT states against original runtime observations; GOTO/END and complete scheduler/caller chain unverified, replay observed only",
     "mission_execution": "not implemented",
-    "current_validation": "Actual authored MISE01 remains FINDACTOR/UnsupportedWorldBackend at PC 3 / source line 4; no later line executes. All six first-mission gates remain open. Bounded isolated GameInit bodies are implemented separately; full application GameInit, mission-world ownership and driving remain unavailable.",
+    "current_validation": "Actual authored MISE01 remains FINDACTOR/UnsupportedWorldBackend at PC 3 / source line 4; no later line executes. Standalone driving composes its own Car/GameInit scene-prefix context and does not advance mission scripts. All six first-mission gates remain open.",
     "standalone_replay_wait": "Bounded live RECWAITFOREND (original opcode 0x2e) composes the replay busy predicate with existing scheduler control; no application replay resource/update or mission integration.",
     "bounded_world_lookup": "Standalone FINDACTOR/FINDFRAME and LS3DF exact ASCII frame search through required live backends; no initialized mission world or application integration.",
     "bounded_actor_ownership": "Standalone owned base actor fields/lifetime, kind-1 factory branch and ordered source memberships through required explicit effects; lookup adapter has no actual mission-world backend.",
@@ -62,7 +76,7 @@
   "renderer": {
     "target": "wgpu Vulkan on Linux, Metal on macOS",
     "latest_accepted_baseline": "At 9c7003bb6e256a7202c6412d48f2a97dd2885b81, owned model/Joint/Target hierarchy and loaded change-counter bounds caching support bounded sequential position/rotation playback, morph and first-LOD CPU skin upload. A 206-step original-code comparison matches 1413160 state/frame/bone/vertex/bounds words; final 360-step software Vulkan output matches the prior regression capture exactly. Inspection requests bounds, CPU deformation and rendering explicitly; original renderer scheduling, driver lifetime, lighting and graphics parity remain open.",
-    "current_menu_scene_validation": "Ten current images equal exact frozen Rust baseline 1a1a8df with zero changed pixels: three headless MENU/INTRO/MISE01, three 360-frame windowed runs and four keyboard-transition states. Earlier skeletal/static/sample and position-animation evidence remains separate. No original rendering parity, authored cutscene or playable mission.",
+    "current_menu_scene_validation": "Frozen Source4 debug/release reproduces exact legacy taxi/police/static-MISE01 baseline pixels and windowed inspection controls. The continuous release driving video uses genuine X11/software-Vulkan frames from original assets. Historical menu captures retain their original source binding. Original renderer parity, authored cutscene and playable mission remain unverified.",
     "omitted_effect_material_counts": {
       "MENU": 33,
       "INTRO": 12,
@@ -70,7 +84,7 @@
       "meaning": "Materials with unsupported effects; diagnostics do not mean every counted material is omitted in full"
     },
     "original_render_parity": "not established",
-    "macos_metal": "Apple arm64 all-target cargo check passes for the exact three-file replay-state freeze; native macOS linking and Metal execution remain untested."
+    "macos_metal": "Historical Apple arm64 checks do not cover the new CoreAudio dependency. Current-source cross-target checking requires Apple SDK headers; native macOS linking and Metal execution remain untested."
   },
   "campaign_playable": false,
   "historical_analysis": {
@@ -127,8 +141,10 @@
   "reset_boundary": "Former Godot prototype implementation/tests and original-game runtime traces are not counted as Rust behavior or validation.",
   "macos_validation": {
     "command": "cargo check --workspace --all-targets --target aarch64-apple-darwin --offline --locked",
-    "result": "Pass for the exact final source; native macOS execution and Metal remain untested.",
-    "scope": "Cross-target type checking only"
+    "result": "Current Apple arm64 checking is blocked in this Linux environment by missing AudioUnit/AudioUnit.h for the CoreAudio dependency. Native macOS linking and Metal execution remain untested.",
+    "scope": "Cross-target type checking only",
+    "accepted_baseline_source_commit": "bf8b170f7dada50854293f761afdff5f45d52bb3",
+    "accepted_baseline_result": "Pass for the exact final source; native macOS execution and Metal remain untested."
   },
   "phase2": {
     "status": "Implementation and evidence frozen; two sequential independent reviews accepted",
@@ -158,7 +174,7 @@
   },
   "function_progress": {
     "schema_version": 3,
-    "snapshot_id": "RUST-SCOPED-PORTS-20261024-45",
+    "snapshot_id": "RUST-SCOPED-PORTS-20261024-46",
     "as_of": "2026-10-24",
     "source_baseline": "bf8b170f7dada50854293f761afdff5f45d52bb3",
     "recount_sha256": "e6e1541d0234192c3141005b19381a60ffd4186b43d94274b094920c4f13c462",
@@ -29030,6 +29046,985 @@
           }
         ],
         "history_prefix_sha256": "05f0ac45cfcd557409c81aada74d39c6369c488e31097d0c1ab523ca8bfda43a"
+      },
+      {
+        "snapshot_id": "RUST-SCOPED-PORTS-20261024-46",
+        "as_of": "2026-10-24",
+        "libraries": [
+          {
+            "name": "Game.exe",
+            "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+            "inventory_total": 4914,
+            "retained_pseudocode": 4784,
+            "rust_ported": null,
+            "differential_verified": null,
+            "inventory_basis": "raw_profile_union",
+            "inventory_profiles": [
+              "7810ea9437da59780820ec6fedb47ce47390841a95d527ddb6c3b3700fe180cb",
+              "adc7f7a80b29038c74df6f4cf084b2b01d7ea637b30d3ff72b4a4921c6a5506f"
+            ],
+            "inventory_membership_sha256": "bd82dbdaecf1981548dd73c0793264b520dc08191fb7e8dc8cc8e3bc244e186b"
+          },
+          {
+            "name": "rw_data.dll",
+            "binary_sha256": "67f72c30cc7fe941f5526b8602a0bd2785baa0f22617bbcfd4a71bacd79b8d49",
+            "inventory_total": 234,
+            "retained_pseudocode": 176,
+            "rust_ported": null,
+            "differential_verified": null,
+            "inventory_basis": "raw_profile_union",
+            "inventory_profiles": [
+              "0ab01856f74d9ae53a8bdf87cad9d330cec9b83fb2e0602b2b0078736849f6cf",
+              "5fb8141f282b82b7a78df6b2d631f00eb93729605b53b333297ebfb4ff03fe9f"
+            ],
+            "inventory_membership_sha256": "7009f3d176d9977c056719cff89645a1c81ffdf581b773c731e97cfa9e355850"
+          },
+          {
+            "name": "LS3DF.dll",
+            "binary_sha256": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6",
+            "inventory_total": 1714,
+            "retained_pseudocode": 1555,
+            "rust_ported": null,
+            "differential_verified": null,
+            "inventory_basis": "raw_profile_union",
+            "inventory_profiles": [
+              "0c1148c7491bbcdf5b3a0f9ea8ba9aad2523b95135b48b9e8385e31b815e1c1a",
+              "20f79d3fb10ba69c5463530c8267a6e2a8f5d0d7232ea59fe159849342ec5d7e",
+              "274abe8f77db68a07f35a04e0cf1f5ccd82a7e1af5ede3d2235572a935bebf05",
+              "32952d80e0c5001373e6b5a7e0cab3e36ede4dfb0d8f977cded5b0ec0ad03537",
+              "46301268618f6f9f27a2856e15858155a42599f674def681aa6a56df9fe13c64",
+              "5fb8141f282b82b7a78df6b2d631f00eb93729605b53b333297ebfb4ff03fe9f",
+              "6f969b0ae0cb8d4c7bed986a7fbf7c7588015d44b785ffa449d811eead7a2e6c",
+              "d91e39ecb7a8e9e659b00f5d7322ec046ab116b32b211da85106de74f0592ba9",
+              "f419ff26a361f07991be79a8a9f8ea6f5454ae7ae76d108606e0cfc0d3f4940c"
+            ],
+            "inventory_membership_sha256": "1781a328bd7eae8cf5ebe12624ff411ffa20fdc60dc1f1a8c75eedd70a0bee37"
+          },
+          {
+            "name": "Setup.exe (supplied configuration)",
+            "binary_sha256": "c6abff923ecedafc26be3f1abdb8fe286f3a0be1e787ea7b659b6c01a077d25d",
+            "inventory_total": 172,
+            "retained_pseudocode": 172,
+            "rust_ported": null,
+            "differential_verified": null,
+            "inventory_basis": "in_image_non_thunk_procedures",
+            "inventory_profiles": [
+              "7810ea9437da59780820ec6fedb47ce47390841a95d527ddb6c3b3700fe180cb"
+            ],
+            "inventory_membership_sha256": "e0ccf8c5121747ba0608317068c72542b155fd2c758c784b518fd30f983e23df"
+          }
+        ],
+        "systems": {
+          "verified": 0,
+          "total": 12
+        },
+        "scoped_ports": [
+          {
+            "contract_id": "PC-CLOCK-ORACLE-STEP2-20261021",
+            "source_commit": "ed69df16899657065602a8a368f2f6abbda8d642",
+            "entries": 2,
+            "cases": 20,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "1d9209151fcc0fbd937f624431d99110d46071f6ef0ce9c4caf684417fe2032b"
+          },
+          {
+            "contract_id": "PC-SCENE-ORACLE-STEP3-20261021",
+            "source_commit": "8c647af43989f23f28499a307668bef53ad9f59e",
+            "entries": 1,
+            "cases": 13,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "1d9209151fcc0fbd937f624431d99110d46071f6ef0ce9c4caf684417fe2032b"
+          },
+          {
+            "contract_id": "PC-IPOL-CALLBACK-ORACLE-STEP3-20261021",
+            "source_commit": "6fa388aba1071168209f1eac708dd6f37ede2a82",
+            "entries": 1,
+            "cases": 31,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "8746cbec0d40b0e84ecc4d26cbc3701f6f3811a32e1ad1fb4fef96d21f223b68"
+          },
+          {
+            "contract_id": "PC-GAME-PHASE-STATIC-20261021",
+            "source_commit": "4101e0b8923a3babd2b54933866a159386cbf0cc",
+            "entries": 1,
+            "cases": 22576,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "1d9209151fcc0fbd937f624431d99110d46071f6ef0ce9c4caf684417fe2032b"
+          },
+          {
+            "contract_id": "PC-ACTOR-TICK-ORACLE-STEP3-20261021",
+            "source_commit": "305f96e4c3f654c17287a1a540af3468c642d3c0",
+            "entries": 1,
+            "cases": 26,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-FRAME-DISPATCH-20261021",
+            "source_commit": "0d634fbc9e02941d70de7c2991cdf2e411156b6e",
+            "entries": 1,
+            "cases": 1509,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "1d9209151fcc0fbd937f624431d99110d46071f6ef0ce9c4caf684417fe2032b"
+          },
+          {
+            "contract_id": "PC-MODEL-TICK-20261021",
+            "source_commit": "0d634fbc9e02941d70de7c2991cdf2e411156b6e",
+            "entries": 1,
+            "cases": 7,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "1d9209151fcc0fbd937f624431d99110d46071f6ef0ce9c4caf684417fe2032b"
+          },
+          {
+            "contract_id": "PC-GAME-SELECTED-LOOP-20261021",
+            "source_commit": "b1ead79fc2d33889560dc41c0754500b962f0f8a",
+            "entries": 1,
+            "cases": 123,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-5DS-POSITION-CHANNEL-002",
+            "source_commit": "671cf2bdc092cc796fd230dcb77b0917aff49a91",
+            "entries": 1,
+            "cases": 2684,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "8746cbec0d40b0e84ecc4d26cbc3701f6f3811a32e1ad1fb4fef96d21f223b68"
+          },
+          {
+            "contract_id": "PC-NAMED-LOOKUP-CONTROLLED-CONTRACT-20261021",
+            "source_commit": "cbeeead64d131b824987d037641166c261a787a8",
+            "entries": 2,
+            "cases": 13,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-PROGRAM-RESET-START-CONTRACT-20261021",
+            "source_commit": "cbeeead64d131b824987d037641166c261a787a8",
+            "entries": 1,
+            "cases": 9,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-NATIVE-TRANSFORM-001",
+            "source_commit": "149d4fcf5de6a1ec5e2a212b057b5ea303f29416",
+            "entries": 7,
+            "cases": 531,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-QUATERNION-NORMALIZE-001",
+            "source_commit": "f08a0b9cc65854f3390a020998edd76263d44e1b",
+            "entries": 1,
+            "cases": 809,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-ORIGINAL-CONFIG-20261021-001",
+            "source_commit": "866d80ed97f1f36bb14f36c8ac2dfb0b69681ff2",
+            "entries": 6,
+            "cases": 1577,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-SCRIPT-SCHEDULER-003",
+            "source_commit": "8fc4da3f558c7fd8f108dbde32007cfc01b307ea",
+            "entries": 2,
+            "cases": 440,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-STARTUP-EFFECTS-CONTRACT-001",
+            "source_commit": "68b4c62d05a7d5908c617ee32c63c37945f8632e",
+            "entries": 5,
+            "cases": 6825,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-NATIVE-TRANSFORM-DEPENDENCIES-001",
+            "source_commit": "8a3221a71f3cd0b77cb528a5591e32fdf3b8f3d9",
+            "entries": 2,
+            "cases": 1063,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-NUMERIC-FRAME-20261022",
+            "source_commit": "a7395701f90c0aeeaf2436a39299c5ae830ccaa7",
+            "entries": 8,
+            "cases": 7800,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "b8ef8e8204a402d100fbca4650f3cbe2b7077e3787ca66675d48110cee0036b5"
+          },
+          {
+            "contract_id": "PC-LS3DF-MAKE-CONTRACT-20261022-002",
+            "source_commit": "6fefd62903047bb0bae8e98226cf7cb815adc11e",
+            "entries": 2,
+            "cases": 18123,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS3DF-POLICE-20261022",
+            "source_commit": "79f7e2968c2aa8145ab86471f97c4a61e6537d3a",
+            "entries": 2,
+            "cases": 245,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS3DF-MATRIX-20261022",
+            "source_commit": "79f7e2968c2aa8145ab86471f97c4a61e6537d3a",
+            "entries": 1,
+            "cases": 10423,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS3DF-SCALE-DIRECTION-CONTRACT-20261022",
+            "source_commit": "6fefd62903047bb0bae8e98226cf7cb815adc11e",
+            "entries": 2,
+            "cases": 21809,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LIFECYCLE-ARENA-EXTENSION-20261022",
+            "source_commit": "f8cc8f91ff2541d7d85be732b43f9b695769e8d1",
+            "entries": 8,
+            "cases": 1022,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "6d0b2855e4c9b882d072a961a912dc84803f1bc71328a69711087a84bd0bd263"
+          },
+          {
+            "contract_id": "PC-PHASE2-ACTOR-CACHE-20261022",
+            "source_commit": "f6d0ddf22cbacdbe29380b923635b9c0cbdd7198",
+            "entries": 2,
+            "cases": 1260,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-POLICE-MANAGER-RAW-20261022",
+            "source_commit": "f41da7012ee5ca1bb9aae475c73f024385fde199",
+            "entries": 2,
+            "cases": 1756,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-PHASE4-PLAYER-CONTROL-20261022",
+            "source_commit": "e82f1b3cf30b9ee04700c397089fccdd782ec478",
+            "entries": 5,
+            "cases": 6284,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-RUST-JOINT-OWNED-20261022",
+            "source_commit": "82ea83196b213af2412813a50de46c17813919bf",
+            "entries": 3,
+            "cases": 1335,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "ae02c0d7967f561458aa1e7f4b4132addfb8b675a52bcb7b50a9eeb3cc79597e"
+          },
+          {
+            "contract_id": "PC-GAME-GET-ANIM-INDEX-20261022",
+            "source_commit": "82ea83196b213af2412813a50de46c17813919bf",
+            "entries": 1,
+            "cases": 1636,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS3DF-SINGLEMESH-BINDING-20261022",
+            "source_commit": "31d2bf600104f5ae0b656d892072f524bbc5b7a6",
+            "entries": 3,
+            "cases": 902,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "ae02c0d7967f561458aa1e7f4b4132addfb8b675a52bcb7b50a9eeb3cc79597e"
+          },
+          {
+            "contract_id": "PC-LS3DF-SINGLEMESH-DEFORMATION-20261022",
+            "source_commit": "31d2bf600104f5ae0b656d892072f524bbc5b7a6",
+            "entries": 4,
+            "cases": 4296,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "ae02c0d7967f561458aa1e7f4b4132addfb8b675a52bcb7b50a9eeb3cc79597e"
+          },
+          {
+            "contract_id": "PC-LS3DF-SINGLEMESH-BOUNDS-20261022",
+            "source_commit": "31d2bf600104f5ae0b656d892072f524bbc5b7a6",
+            "entries": 1,
+            "cases": 1024,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "ae02c0d7967f561458aa1e7f4b4132addfb8b675a52bcb7b50a9eeb3cc79597e"
+          },
+          {
+            "contract_id": "PC-GAME-CROUCH-COLLISION-FILTER-20261022",
+            "source_commit": "31d2bf600104f5ae0b656d892072f524bbc5b7a6",
+            "entries": 3,
+            "cases": 2836,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-ANIM-INDEX-20261022",
+            "source_commit": "d735e53971d7cd7d3c75fe985d021253a8ec7cb3",
+            "entries": 2,
+            "cases": 756,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS3DF-MORPH-20261022",
+            "source_commit": "d735e53971d7cd7d3c75fe985d021253a8ec7cb3",
+            "entries": 3,
+            "cases": 280,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "2c82054ce6f892269f8b4b222f9075562151bc7151220594fd7700fb04d0ded6"
+          },
+          {
+            "contract_id": "PC-ROTATION-LINEAR-20261022",
+            "source_commit": "9c7003bb6e256a7202c6412d48f2a97dd2885b81",
+            "entries": 1,
+            "cases": 22103,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "8746cbec0d40b0e84ecc4d26cbc3701f6f3811a32e1ad1fb4fef96d21f223b68"
+          },
+          {
+            "contract_id": "PC-LIFECYCLE-TARGET-20261022",
+            "source_commit": "f8cc8f91ff2541d7d85be732b43f9b695769e8d1",
+            "entries": 6,
+            "cases": 675,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "6d0b2855e4c9b882d072a961a912dc84803f1bc71328a69711087a84bd0bd263"
+          },
+          {
+            "contract_id": "PC-LS3DF-SETDIRWORLD-20261022",
+            "source_commit": "d735e53971d7cd7d3c75fe985d021253a8ec7cb3",
+            "entries": 1,
+            "cases": 70,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "2c82054ce6f892269f8b4b222f9075562151bc7151220594fd7700fb04d0ded6"
+          },
+          {
+            "contract_id": "PC-LS3DF-DIRECTION-20261022",
+            "source_commit": "d735e53971d7cd7d3c75fe985d021253a8ec7cb3",
+            "entries": 1,
+            "cases": 4493,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "2c82054ce6f892269f8b4b222f9075562151bc7151220594fd7700fb04d0ded6"
+          },
+          {
+            "contract_id": "PC-IPOL-OWNED-LIFECYCLE-20261022",
+            "source_commit": "9c7003bb6e256a7202c6412d48f2a97dd2885b81",
+            "entries": 13,
+            "cases": 27,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "8746cbec0d40b0e84ecc4d26cbc3701f6f3811a32e1ad1fb4fef96d21f223b68"
+          },
+          {
+            "contract_id": "PC-GAME-GETTRACK-20261022",
+            "source_commit": "9c7003bb6e256a7202c6412d48f2a97dd2885b81",
+            "entries": 1,
+            "cases": 69226,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS3DF-LOADED-BOUNDS-CACHE-20261022",
+            "source_commit": "9c7003bb6e256a7202c6412d48f2a97dd2885b81",
+            "entries": 1,
+            "cases": 206,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "8746cbec0d40b0e84ecc4d26cbc3701f6f3811a32e1ad1fb4fef96d21f223b68"
+          },
+          {
+            "contract_id": "PC-LIFECYCLE-MODEL-20261022",
+            "source_commit": "f8cc8f91ff2541d7d85be732b43f9b695769e8d1",
+            "entries": 2,
+            "cases": 7,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LIFECYCLE-GRAPH-20261022",
+            "source_commit": "f8cc8f91ff2541d7d85be732b43f9b695769e8d1",
+            "entries": 3,
+            "cases": 10,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS3DF-VISUAL-RESOURCES-20261022",
+            "source_commit": "6adabfcd16bf679354a828b54a247e6a4f02e22d",
+            "entries": 9,
+            "cases": 6,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS3DF-MESH-OBJECT-20261022",
+            "source_commit": "acc9dae14a9b4c8a4ac3d67834b5a7b0f044b9dd",
+            "entries": 3,
+            "cases": 10,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS3DF-BUFFER-MANAGERS-20261022",
+            "source_commit": "87c7e3f30842cca8aa888f8e6a960d97b17827ad",
+            "entries": 18,
+            "cases": 14,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS3DF-OBJECT-LOD-20261022",
+            "source_commit": "73f8151215d6249dce391376bf23383da08a9fcc",
+            "entries": 4,
+            "cases": 8,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS3DF-C-STR-20261022",
+            "source_commit": "7650970aca7728ec11aabce966ed46ff7fd5741a",
+            "entries": 3,
+            "cases": 10,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS3DF-I-TEXTURE-20261022",
+            "source_commit": "7650970aca7728ec11aabce966ed46ff7fd5741a",
+            "entries": 5,
+            "cases": 8,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-MANAGED-TEXTURE-REMOVAL-20261022",
+            "source_commit": "a69b5f695fce48b5a1af633069c919efb8a61e37",
+            "entries": 1,
+            "cases": 7,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-MANAGED-TEXTURE-CREATE-20261022",
+            "source_commit": "97eea211f64ed2d146a1f19e6bfb20620aa0d4fd",
+            "entries": 1,
+            "cases": 5,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-MANAGED-TEXTURE-REQUEST-20261023",
+            "source_commit": "1a335f24589aa1fe020e0d723c1384a6dcb63572",
+            "entries": 1,
+            "cases": 8,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-MANAGED-TEXTURE-UNLOAD-20261023",
+            "source_commit": "553e3ab6ccec0514faf02b66aff7f4d1ddb2cc4a",
+            "entries": 1,
+            "cases": 3,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-MANAGED-TEXTURE-RELEASE-20261023",
+            "source_commit": "3ed1a477ac9574f70a29a929a743d639c5382752",
+            "entries": 1,
+            "cases": 3,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-MANAGED-TEXTURE-RESTORE-20261023",
+            "source_commit": "71b121960bc3bdd7cac1e1ed8dbfecbc8ed8841b",
+            "entries": 1,
+            "cases": 6,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-RWDATA-READ-CURSOR-CLOSE-20261023",
+            "source_commit": "055856824090efe7795499a49b9ba7a3f355eb2f",
+            "entries": 2,
+            "cases": 38,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-RWDATA-LOOSE-READ-20261023",
+            "source_commit": "b4a812d1889b860fde1e454838d341285693aeae",
+            "entries": 1,
+            "cases": 27,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-RWDATA-NATIVE-OPEN-20261023",
+            "source_commit": "6439ee2ce51b3b1aef4d17b5dc052626f8babef3",
+            "entries": 8,
+            "cases": 24,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-RWDATA-WAV-20261023",
+            "source_commit": "f89f54298d66de69cd06f8106c0239ee6145be42",
+            "entries": 1,
+            "cases": 202,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-REPLAY-STATE-20261023",
+            "source_commit": "ceb988ae5f48543e63b5d8fd4fe267a7dfd69bbc",
+            "entries": 2,
+            "cases": 1161,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS-SCRIPT-LOOKUP-20261023",
+            "source_commit": "da192854c093b03e1bafecfb12d6e68ba89e1007",
+            "entries": 2,
+            "cases": 207,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-ACTOR-WORLD-20261023",
+            "source_commit": "d5c66667ea1891e3684da3ffa0e7039d6b464fdf",
+            "entries": 11,
+            "cases": 88,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS3DF-ACTOR-FRAMES-20261023",
+            "source_commit": "4c420685a40d50fad38e2d5bfb19b9ca8de2de63",
+            "entries": 3,
+            "cases": 151,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-PROGRAM-SOURCE-20261023",
+            "source_commit": "2be45de872b57c31e010e9ac4a0d6a4e77aabd9d",
+            "entries": 9,
+            "cases": 382,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-PARSER-20261023",
+            "source_commit": "38bd2c4100b5e39c2279b9395997bf83dfe7209f",
+            "entries": 4,
+            "cases": 4727,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-VEHICLE-CONTROLS-20261023",
+            "source_commit": "38bd2c4100b5e39c2279b9395997bf83dfe7209f",
+            "entries": 5,
+            "cases": 2373,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-COLLISION-TRIANGLES-20261023",
+            "source_commit": "38bd2c4100b5e39c2279b9395997bf83dfe7209f",
+            "entries": 1,
+            "cases": 1287,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-VEHICLE-CONSTRUCTOR-20261023",
+            "source_commit": "46db9f5653b7b6527e0f89bda940c0c8b7612a3b",
+            "entries": 1,
+            "cases": 1024,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-VEHICLE-DRIVETRAIN-20261023",
+            "source_commit": "46db9f5653b7b6527e0f89bda940c0c8b7612a3b",
+            "entries": 4,
+            "cases": 5215,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-VEHICLE-INIT-PREFIX-20261023",
+            "source_commit": "5eb220aa0202ba4832943945803af5af53aeb2e7",
+            "entries": 1,
+            "cases": 239,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-COLLISION-PREPARATION-20261023",
+            "source_commit": "5eb220aa0202ba4832943945803af5af53aeb2e7",
+            "entries": 1,
+            "cases": 293,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-COLLISION-STATIC-QUERY-20261023",
+            "source_commit": "5eb220aa0202ba4832943945803af5af53aeb2e7",
+            "entries": 1,
+            "cases": 2845,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-STATIC-VOLUMES-20261023",
+            "source_commit": "10268800a66f320c60ad65fe177ab27b4beec64f",
+            "entries": 4,
+            "cases": 7304,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-VEHICLE-GEAR-SOUND-20261023",
+            "source_commit": "10268800a66f320c60ad65fe177ab27b4beec64f",
+            "entries": 1,
+            "cases": 4031,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-BODYCOL-RECORD-LIFECYCLE-20261023",
+            "source_commit": "494ede8a5326eb3866be1822ed3e38c5279ddadd",
+            "entries": 11,
+            "cases": 478,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-BODYCOL-CALLBACK-PASSES-20261023",
+            "source_commit": "494ede8a5326eb3866be1822ed3e38c5279ddadd",
+            "entries": 3,
+            "cases": 164,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS3DF-FAST-FRAME-LIFECYCLE-20261023",
+            "source_commit": "494ede8a5326eb3866be1822ed3e38c5279ddadd",
+            "entries": 4,
+            "cases": 31,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-VEHICLE-COMPONENT-RECORDS-20261023",
+            "source_commit": "21c555bd84461f07aff2022f1e91dc235ab3b752",
+            "entries": 10,
+            "cases": 1153,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-LS3DF-SCENE-ADD-CLOSE-20261023",
+            "source_commit": "43e04cac1ce4c0e49a44fe1091fec50aa757f9f5",
+            "entries": 2,
+            "cases": 321,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-VEHICLE-DESTRUCTOR-20261023",
+            "source_commit": "75e380defc8d934fafbf6532fb4368b55e1d7dca",
+            "entries": 1,
+            "cases": 7,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-VEHICLE-UPDATE-AXIS-20261023",
+            "source_commit": "75e380defc8d934fafbf6532fb4368b55e1d7dca",
+            "entries": 1,
+            "cases": 84,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-VEHICLE-SOURCE-PARAMS-FLAGS-0-1-20261023",
+            "source_commit": "75e380defc8d934fafbf6532fb4368b55e1d7dca",
+            "entries": 1,
+            "cases": 3710,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-VEHICLE-AXIS-RECORDS-20261023",
+            "source_commit": "75e380defc8d934fafbf6532fb4368b55e1d7dca",
+            "entries": 1,
+            "cases": 242,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-VEHICLE-SETUP-RECORDS-20261023",
+            "source_commit": "75e380defc8d934fafbf6532fb4368b55e1d7dca",
+            "entries": 1,
+            "cases": 242,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-VEHICLE-SPECIAL-POINT-CONTROL-20261023",
+            "source_commit": "75e380defc8d934fafbf6532fb4368b55e1d7dca",
+            "entries": 2,
+            "cases": 164,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-CAR-INIT-20261024",
+            "source_commit": "df50d2f0e1b3093345391339c427cfe00b32c043",
+            "entries": 1,
+            "cases": 32,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-CAR-DTOR-20261024",
+            "source_commit": "df50d2f0e1b3093345391339c427cfe00b32c043",
+            "entries": 1,
+            "cases": 3,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-CAR-RECORDS-20261024",
+            "source_commit": "df50d2f0e1b3093345391339c427cfe00b32c043",
+            "entries": 1,
+            "cases": 9,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-CAR-SEAT-20261024",
+            "source_commit": "df50d2f0e1b3093345391339c427cfe00b32c043",
+            "entries": 1,
+            "cases": 13,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-CAR-ANIMATION-ID-20261024",
+            "source_commit": "df50d2f0e1b3093345391339c427cfe00b32c043",
+            "entries": 1,
+            "cases": 32,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-CAR-PLACEMENT-WRAPPER-20261024",
+            "source_commit": "df50d2f0e1b3093345391339c427cfe00b32c043",
+            "entries": 1,
+            "cases": 2,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-GAME-ANIMATION-PLACEMENT-20261024",
+            "source_commit": "df50d2f0e1b3093345391339c427cfe00b32c043",
+            "entries": 1,
+            "cases": 20,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-GAME-CAR-CONSTRUCTOR-20261024",
+            "source_commit": "5b28728751235bfac76014e97f54db6370bf14d1",
+            "entries": 1,
+            "cases": 34,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "d8cf29e5ac0057cbd0d7025dee582f05503b02cb72017f965910828f6d124b84"
+          },
+          {
+            "contract_id": "PC-DRIVING-CAR-VEHICLE-GAMEINIT-20261024",
+            "source_commit": "bf8b170f7dada50854293f761afdff5f45d52bb3",
+            "entries": 2,
+            "cases": 40,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-DRIVING-ACTOR-GAMEINIT-20261024",
+            "source_commit": "bf8b170f7dada50854293f761afdff5f45d52bb3",
+            "entries": 1,
+            "cases": 8,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-DRIVING-CAR-ACTOR-GAMEDONE-20261024",
+            "source_commit": "bf8b170f7dada50854293f761afdff5f45d52bb3",
+            "entries": 2,
+            "cases": 18,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-DRIVING-VEHICLE-RESOURCES-20261024",
+            "source_commit": "bf8b170f7dada50854293f761afdff5f45d52bb3",
+            "entries": 9,
+            "cases": 44,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-DRIVING-VEHICLE-GAMEDONE-20261024",
+            "source_commit": "bf8b170f7dada50854293f761afdff5f45d52bb3",
+            "entries": 1,
+            "cases": 6,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-DRIVING-CAR-LEVEL-TABLES-20261024",
+            "source_commit": "bf8b170f7dada50854293f761afdff5f45d52bb3",
+            "entries": 2,
+            "cases": 39,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "9961cd224d2754206c4e947adf599585ec0a41ce5013630eddefb98e449ce6b7"
+          },
+          {
+            "contract_id": "PC-DRIVING-HANDBRAKE-20261024",
+            "source_commit": "bf8b170f7dada50854293f761afdff5f45d52bb3",
+            "entries": 1,
+            "cases": 73,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-DRIVING-WHEEL-STEERING-20261024",
+            "source_commit": "bf8b170f7dada50854293f761afdff5f45d52bb3",
+            "entries": 1,
+            "cases": 31,
+            "integration": "static_inspection",
+            "integration_receipt_sha256": "370a16b1d9997956999d2b0125cf3db1a3188a0eba03b0b08ae5213600ea43dd"
+          },
+          {
+            "contract_id": "PC-DRIVING-WHEEL-ROTATION-20261024",
+            "source_commit": "bf8b170f7dada50854293f761afdff5f45d52bb3",
+            "entries": 1,
+            "cases": 36,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-DRIVING-VEHICLE-ENGINE-20261024",
+            "source_commit": "bf8b170f7dada50854293f761afdff5f45d52bb3",
+            "entries": 1,
+            "cases": 147,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-DRIVING-VEHICLE-MOVE-20261024",
+            "source_commit": "bf8b170f7dada50854293f761afdff5f45d52bb3",
+            "entries": 1,
+            "cases": 79,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-DRIVING-VEHICLE-TICK-20261024",
+            "source_commit": "bf8b170f7dada50854293f761afdff5f45d52bb3",
+            "entries": 1,
+            "cases": 64,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-DRIVING-VEHICLE-UPDATE-20261024",
+            "source_commit": "bf8b170f7dada50854293f761afdff5f45d52bb3",
+            "entries": 1,
+            "cases": 52,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-DRIVING-WHEEL-CONTACTS-20261024",
+            "source_commit": "bf8b170f7dada50854293f761afdff5f45d52bb3",
+            "entries": 1,
+            "cases": 84,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-DRIVING-BODY-COLLISION-20261024",
+            "source_commit": "bf8b170f7dada50854293f761afdff5f45d52bb3",
+            "entries": 1,
+            "cases": 8,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-DRIVING-LS3DF-ANGLE-20261024",
+            "source_commit": "bf8b170f7dada50854293f761afdff5f45d52bb3",
+            "entries": 1,
+            "cases": 202,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-DRIVING-SPHERE-FACE-EDGE-20261024",
+            "source_commit": "bf8b170f7dada50854293f761afdff5f45d52bb3",
+            "entries": 2,
+            "cases": 944,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-DRIVING-SPHERE-VOLUMES-20261024",
+            "source_commit": "bf8b170f7dada50854293f761afdff5f45d52bb3",
+            "entries": 2,
+            "cases": 926,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-DRIVING-SPHERE-STATIC-WORLD-20261024",
+            "source_commit": "bf8b170f7dada50854293f761afdff5f45d52bb3",
+            "entries": 2,
+            "cases": 172,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          },
+          {
+            "contract_id": "PC-DRIVING-SWEPT-BOX-20261024",
+            "source_commit": "bf8b170f7dada50854293f761afdff5f45d52bb3",
+            "entries": 4,
+            "cases": 77,
+            "integration": "not_integrated",
+            "integration_receipt_sha256": null
+          }
+        ],
+        "history_prefix_sha256": "5df1cda50740a21ed618bf4d5b2309773e3d7ba26dd3bf3d19028a99d8231d01"
       }
     ],
     "scoped_ports": [
@@ -40186,5 +41181,318 @@
       "Sparse DoLights, optional GetMaxMoment helper and host/internal phases receive no new entry credit.",
       "Campaign and first mission remain unplayable; strict gate stays0/12."
     ]
+  },
+  "driving_integration_observation": {
+    "id": "RUST-ORIGINAL-DATA-DRIVING-INTEGRATION-20261024",
+    "status": "accepted_bounded_source4_pending_source_commit_binding",
+    "source_commit": null,
+    "source_tree_sha256": "f3d4a8a9193777297e056dc9d7ad901700cdff432fcc823688c8baf40040ce16",
+    "source_freeze_sha256": null,
+    "accepted_prerequisite_baseline": "bf8b170f7dada50854293f761afdff5f45d52bb3",
+    "accepted_scoped_entries": 309,
+    "accepted_scoped_contracts": 113,
+    "new_scoped_entries": 0,
+    "new_scoped_contracts": 0,
+    "contract_integration_counts": {
+      "static_inspection": 23,
+      "not_integrated": 90
+    },
+    "whole_function_coverage": "N/A",
+    "strict_full_system_gate": {
+      "verified": 0,
+      "total": 12
+    },
+    "implemented_composition": [
+      "Car construction, Init, GameInit, Tick/Engine/Move/Update and explicit GameDone/destruction share one live car/frame/resource owner.",
+      "Original KLZ static geometry and canonical heap-owned dynamic registration/query workers supply contacts; no fabricated ground or raycast sphere replacement.",
+      "Original material/tyre tables and authored scene placement come from Installation assets. Runtime does not read an original executable or DLL.",
+      "Original crash-model replacement hides the original source frames and disables their KLZ descriptors. New models and physical debris share the existing ModelArena.",
+      "Original plain-glass subdivision and fragment lifetime/rotation workers are bound. The bounded 900-step probe observes damaged glass material only; exhausted-window fragments and their sound are not exercised.",
+      "Original static/cache geometry, the car and dynamic resource visibility feed unlit first-LOD rendering with a host chase camera.",
+      "Original PCM16 WAV resources feed the mixer, optional CPAL output and WAV capture; audio evidence is separately recorded.",
+      "Generic C_crash_obj creation, physical update and canonical dynamic line/sphere/box contact paths are bound; other actor classes and contexts retain explicit availability limits."
+    ],
+    "controls": "W/S acceleration and brake; A/D full steering request; Space handbrake; R explicit reload; focus loss clears held input.",
+    "reproduction": "./scripts/run.sh --root /path/to/Mafia --model models/taxi00.4ds --car-driving",
+    "native": {
+      "status": "sealed_all_admitted_comparisons_passed",
+      "receipt": {
+        "id": "PLAYABLE-DRIVING-20261024-SOURCE-v4-NATIVE-FINAL-v1",
+        "sha256": "1d364a36e76926a8a37b9783fb42bf2a67f592ceb3a986c0031158651394a40a"
+      },
+      "manifest_sha256": "a855bcbed950920cede86da820cf62fb40a82977d1fc550df8cf60870881257b",
+      "scope_receipt": {
+        "id": "PLAYABLE-DRIVING-20261024-SOURCE-v4-NATIVE-SCOPE-COUNTS",
+        "sha256": "d648de69cce3ba8a7c24c000cb70e80f28b13c3f51695c585853f7924d9100c3"
+      },
+      "floating_point_receipt": {
+        "id": "PLAYABLE-DRIVING-20261024-SOURCE-v4-NATIVE-FP-SCOPE",
+        "sha256": "7d414bd38762c3194efb720ad9d88331e8f8f44c823be531075a47b5acae41ba"
+      },
+      "profiles_nonadditive": [
+        "Actual Cargo opt_level0",
+        "Actual Cargo opt_level3"
+      ],
+      "source_files": 264,
+      "source_guard_checks": 135,
+      "all_source_guards_passed": true,
+      "count_classes": {
+        "baseline": {
+          "named_inputs": 480,
+          "unique_semantic_capsules": 377,
+          "negative_controls_reported_separately": 5
+        },
+        "new_methods_and_kernels": {
+          "named_inputs": 631,
+          "includes_typed_projections_and_precision_controls": true
+        },
+        "genuine_library_owner_queries": {
+          "cases": 4
+        },
+        "new_availability_negative_controls": {
+          "cases": 4,
+          "scope": "Rust rejection only; no positive equivalence credit."
+        }
+      },
+      "count_policy": "These scope classes are separate and have no combined positive or unique total. API wrappers, optimization profiles, incoming-P mirrors, allocator-fill variants, partial caller blocks and typed projections do not multiply semantic or function coverage. Original-data aliases are not new geometry.",
+      "selected_cohorts": {
+        "MoveBox": {
+          "named_inputs": 12,
+          "parameter_profiles": 6,
+          "incoming_P_profiles": [
+            0,
+            1
+          ],
+          "original_corner_rays_per_input": 14,
+          "scope": "Original MoveCount/CollisionCount/Filter and ignore-group worker execute. Frame-update/translation and analytic infinite-floor APIs are controlled leaves; no full original World or FrameArena credit."
+        },
+        "fragment": {
+          "named_inputs": 6,
+          "triangle_profiles": 3,
+          "incoming_P_profiles": [
+            0,
+            1
+          ],
+          "scope": "300-byte typed position/quaternion/flags/world/geometry/result/P projection; resource leaves controlled, no full constructor/allocator/resource-owner equivalence."
+        },
+        "glass_Tick": {
+          "named_inputs": 26,
+          "active_row_profiles": 13,
+          "incoming_P_profiles": [
+            0,
+            1
+          ],
+          "scope": "Original active-row Tick and DLL SetDir, represented state/Game.data/P and declared effects; completed-entry, merge, ring transition and eviction receive no native credit."
+        },
+        "spatial_sound": {
+          "named_inputs": 29,
+          "caller_profiles": 27,
+          "incoming_P_controls": 2,
+          "scope": "Original sound entries and a partial Game Tick caller block; Game.data, declared effects and P. Factory/cache/FrameSound interfaces remain controlled, not whole Game Tick or library equivalence."
+        },
+        "genuine_library_owner_queries": {
+          "cases": 4,
+          "scope": "Actual original Model/Object/FaceGroup/MeshLevel/MeshObject/material and buffer-manager constructors, CPU-backed COM interfaces, geometry upload/bounds/parenting/query/teardown. No GPU/full Scene or normal/distance-output parity."
+        }
+      },
+      "floating_point": {
+        "native_profile": "Physical x86 original instructions run under masked CW007f, PC24/RN; the native control word is checked as 127.",
+        "Rust_profile": "Actual Cargo dependency crate with one canonical Pc24PrecisionState per call/pipeline; no copied numeric workers or duplicate TLS",
+        "compared": [
+          "Normalized Rust/native results and effects",
+          "Rust modeled persistent logical sticky P"
+        ],
+        "retained_native_FP_snapshot_bytes": 512,
+        "excluded": "Rust/native host hardware CW/MXCSR equivalence is unclaimed; the Rust output stream has no hardware-CW field and native_precision preserves the host hardware environment. Other native exception and condition bits, including I/Z for invalid-conversion/division profiles, are not modeled or claimed. Availability-negative controls assert Rust rejection only."
+      },
+      "baseline_lifecycle_limit": "The native baseline lifecycle retains four bytes of global actor-registry capacity after Car destruction under controlled resource APIs. It makes no whole-application zero-heap claim.",
+      "other_limits": [
+        "Pure CPU kernels receive no original Game-function credit.",
+        "CutMesh and FrameSetDir typed projections retain their own exclusions; no whole CutMesh/SetDir or allocator/material parity is inferred.",
+        "No whole original application, complete Scene, GPU, runtime-loader or full-world library parity.",
+        "No broader live debris generation, completed glass merge/ring/eviction or complete crash-model/resource choreography credit."
+      ],
+      "owned_same_birth_children_remaining": 0,
+      "process_audit_receipt": {
+        "id": "PLAYABLE-DRIVING-20261024-SOURCE-v4-NATIVE-PROCESS-AUDIT",
+        "sha256": "5d5995406c509746d8ba1803a74071a00545d4c65b25f6759747299af18e4a05"
+      },
+      "floating_point_clarification": {
+        "id": "PLAYABLE-DRIVING-20261024-SOURCE-v4-FP-SCOPE-CLARIFICATION-v1",
+        "sha256": "501ff1f71c9d4412a379da31a1d4dd1bdcf6b15cfe86116eda93c57f8fb64748"
+      }
+    },
+    "checks": {
+      "rust_test_total": 1066,
+      "rust_test_split": {
+        "lhr_assets": 110,
+        "lhr_assets_integration": 7,
+        "lhr_engine_library": 910,
+        "lhr_engine_integration": 8,
+        "lhr_engine_application": 26,
+        "lhr_render": 5
+      },
+      "rea_wrapper_tests": 9,
+      "progress_tests": 47,
+      "format_check_clippy": "passed for the frozen 264-file Source4 tree",
+      "strict_release_drive": "passed: two 900-step trajectories and 1800 idle steps in both actual opt0/opt3 profiles",
+      "rendered_regressions": "passed: exact legacy taxi/police/static-MISE01 pixels in both profiles",
+      "interactive_input_reload_cleanup": "passed: W/S, full A/D requests and applied signs, S braking, Space, focus loss, R reload and two explicit cleanups in both profiles",
+      "audio_capture": "passed: actual original-resource stereo PCM at 48 kHz; 17.44 seconds in the selected release recording; physical audio-device output unverified",
+      "full_gate": {
+        "id": "RUST-DRIVING-SOURCE4-FULL-GATE-20261024",
+        "sha256": "9464da34061f2d6a7074e2f1eb9eae17dd953c0dda1ecaebead6e21440714c37"
+      },
+      "source_guards": {
+        "files": 264,
+        "before_after_match": true
+      },
+      "native_comparisons": "passed: all admitted current-source original-instruction comparisons in actual Cargo opt0/opt3; counts and scopes remain separate"
+    },
+    "reviews": [
+      {
+        "id": "PLAYABLE-DRIVING-20261024-SOURCE-v4-FIRST-INDEPENDENT-REVIEW",
+        "sha256": "b72966e6798f782778c9cfdb8944fc3c0154e20f30a0ce281807a573a74c5ff6",
+        "sequence": 1,
+        "independent_non_author": true,
+        "model": "Sol",
+        "status": "approved_bounded_SOURCE_v4"
+      },
+      {
+        "id": "PLAYABLE-DRIVING-20261024-SOURCE-v4-SECOND-INDEPENDENT-REVIEW",
+        "sha256": "d5063219dde2869e4e79dc0f0be06a996c483df2e2fe41471616c6da10e6b4fc",
+        "sequence": 2,
+        "independent_non_author": true,
+        "model": "Sol",
+        "status": "approved_bounded_SOURCE_v4"
+      }
+    ],
+    "media": [
+      {
+        "kind": "continuous_release_driving_video",
+        "public_path": "docs/videos/2026-10-24-car-driving.mp4",
+        "sha256": "0191e6e99be71877641e94901ec961e8415b8d29f9286d2419db23162a8aa36c",
+        "bytes": 5721316,
+        "dimensions": [
+          640,
+          426
+        ],
+        "duration_seconds": 18,
+        "decoded_frames": 540,
+        "distinct_decoded_frames": 330,
+        "max_horizontal_displacement_metres": 55.03767135617656,
+        "original_resource_PCM_sample_rate": 48000,
+        "original_resource_PCM_channels": 2,
+        "source_audio_duration_seconds": 17.44,
+        "audio_video_duration_difference_seconds": 0.56,
+        "maximum_source_wall_clock_divergence_seconds": 0.7056799316406241,
+        "no_padding_stretching_or_synthetic_frames": true,
+        "scope": "Genuine continuous original-asset Rust release capture. Software presentation and the capped simulation clock diverge by up to 0.706 seconds; no perfect audio/video synchronization, physical audio-device or original renderer/audio parity claim."
+      },
+      {
+        "kind": "frame_from_same_video",
+        "public_path": "docs/screenshots/2026-10-24-car-driving-verified.webp",
+        "sha256": "f3895031e6813eb19c0d8758b96b24126e798174fe7f7330cd2b41fee4bd315d",
+        "bytes": 105890,
+        "dimensions": [
+          640,
+          426
+        ],
+        "compression": "WebP quality 95; compression only",
+        "video_sha256": "0191e6e99be71877641e94901ec961e8415b8d29f9286d2419db23162a8aa36c"
+      }
+    ],
+    "campaign_playable": false,
+    "mission_frontier": "Authored MISE01: FINDACTOR/UnsupportedWorldBackend at PC 3 / source line 4; no later line executes.",
+    "limits": [
+      "Standalone host driving context and chase camera; original Game/player/mission ownership, traffic, occupants, objectives and save/load are not complete.",
+      "Rendering remains unlit first LOD. Native GPU/lighting/reflection/blending parity and Metal execution are unverified.",
+      "Reached particle, scratch-projection, unsupported actor-class and resource dependencies retain explicit availability errors; there is no hidden static-only or geometry-drop fallback.",
+      "Source3 reports and failed/prefix captures remain immutable history and are not final Source4 validation."
+    ],
+    "source_identity_status": "Frozen Source4 tree accepted by both sequential independent reviews; source-commit binding pending",
+    "runtime_original_executable_or_DLL_reads": false,
+    "pending_receipts": [
+      "Actual code/docs/media commit SHA for a subsequent metadata-only source binding"
+    ],
+    "source_file_count": 264,
+    "headless_regressions": {
+      "receipt": {
+        "id": "PLAYABLE-DRIVING-20261024-SOURCE-v4-HEADLESS-FINAL-v1",
+        "sha256": "10dd927a0857b2f49d9f47d921ea6614aea48cb84943137bf19947cfd5177de7"
+      },
+      "status": "passed",
+      "distinct_input_traces": 3,
+      "profile_runs": 6,
+      "profiles_nonadditive": [
+        "Cargo opt_level0",
+        "Cargo opt_level3"
+      ],
+      "input_traces": [
+        {
+          "name": "original-prop-collision",
+          "steps": 900
+        },
+        {
+          "name": "glass-damage-with-camera-listener-PCM",
+          "steps": 900
+        },
+        {
+          "name": "idle",
+          "steps": 1800
+        }
+      ],
+      "verbatim_inputs_preserved": true,
+      "recorded_source_guards": 19,
+      "guarded_files": 264,
+      "all_guard_checks_passed": true,
+      "owned_resources_after_cleanup": 0,
+      "separate_caller_owned_scene_prefix_frames": 5,
+      "actual_physical_prop_count_in_prop_trace": 1,
+      "glass_material_damage_observed": true,
+      "exhausted_window_fragments_observed": false,
+      "exhausted_window_sound_observed": false,
+      "owned_processes_closed": true,
+      "scope": "Original-input runtime regressions using the production Rust implementation and original assets; these headless trajectories establish no display or video evidence."
+    },
+    "interaction_media": {
+      "receipt": {
+        "id": "PLAYABLE-DRIVING-20261024-SOURCE-v4-INTERACTION-MEDIA-v1",
+        "sha256": "a01a3c786472aeca8f7f0ef26e69181506b99f6cff6a1c59af6332277865355a"
+      },
+      "status": "passed",
+      "true_profile_binaries": {
+        "debug": "bb4a46e5bf7b3b9248b34a81391574a14930bb8a92bf383f5da1db479814cc0b",
+        "release": "f98934c7aea98c6f92bda11556d8a67cb7d1539bfe210d6f6ae03e8039a042ba"
+      },
+      "negative_CLI_cases_per_profile": 26,
+      "legacy_pixels_identical_in_both_profiles": true,
+      "legacy_wheel_key_release_focus_camera_reload_cleanup": true,
+      "driving_controls": [
+        "W",
+        "S",
+        "A",
+        "D",
+        "Space",
+        "focus loss",
+        "R reload"
+      ],
+      "full_steering_requests_and_applied_signs_verified": true,
+      "two_explicit_cleanups_per_windowed_profile": true,
+      "owned_cleanup_remaining": 0,
+      "max_displacement_metres": {
+        "debug": 12.224211504060289,
+        "release": 46.14090424995375
+      },
+      "hardware_audio_output_verified": false,
+      "owned_processes_closed": true
+    },
+    "review_scope": {
+      "source_files": 264,
+      "source_tree_sha256": "f3d4a8a9193777297e056dc9d7ad901700cdff432fcc823688c8baf40040ce16",
+      "sequential_independent_non_author_reviews": 2,
+      "open_findings": 0,
+      "scope": "Bounded standalone original-asset driving; no full campaign, whole-function, full Scene, renderer/audio or hardware-environment parity. Existing ledger counts and strict system gate remain unchanged."
+    }
   }
 }

@@ -14,7 +14,58 @@ use crate::collision_query::{
     CollisionQueryError, CollisionTraversalState, StaticGridGeometry, StaticQueryGrid,
 };
 use crate::collision_volumes::{line_in_volume, Volume, VolumeError, VolumeGeometry};
-use lhr_assets::klz::{PrimitiveData, PrimitiveKind};
+use lhr_assets::klz::{PrimitiveData, PrimitiveKind, PrimitiveRecord};
+
+/// Stored static nonface geometry is already in query coordinates. The loader
+/// rewrites record+4 to an owner pointer, including null, without changing any
+/// shape field. The static line and swept-sphere workers never read that owner.
+/// Keeping this projection separate avoids inventing a frame for a null owner.
+pub fn static_volume_from_source(
+    source: PrimitiveRecord<'_>,
+    identity: u32,
+) -> Result<Volume, VolumeError> {
+    let geometry = match source.data() {
+        PrimitiveData::Aabb { min, max, .. } => VolumeGeometry::Aabb { min, max },
+        PrimitiveData::XtObb {
+            min,
+            max,
+            extent_min,
+            extent_max,
+            matrix,
+            inverse,
+            ..
+        } => VolumeGeometry::XtObb {
+            min,
+            max,
+            extent_min,
+            extent_max,
+            matrix,
+            inverse,
+        },
+        PrimitiveData::Sphere { center, radius, .. } => VolumeGeometry::Sphere { center, radius },
+        PrimitiveData::Obb {
+            extent_min,
+            extent_max,
+            matrix,
+            inverse,
+            ..
+        } => VolumeGeometry::Obb {
+            extent_min,
+            extent_max,
+            matrix,
+            inverse,
+        },
+        PrimitiveData::Cylinder { center, radius, .. } => {
+            VolumeGeometry::Cylinder { center, radius }
+        }
+        PrimitiveData::Triangle { .. } => return Err(VolumeError::UnsupportedClassification),
+    };
+    Ok(Volume {
+        properties: source.properties().word(),
+        identity,
+        geometry,
+    })
+}
 
 #[derive(Clone, Copy, Debug)]
 pub enum CollisionPrimitive {
@@ -60,51 +111,7 @@ pub fn primitive_from_prepared(
             CollisionPrimitive::Triangle(triangle.line_triangle(identity))
         }
         Ok(PreparedCollisionPrimitive::Volume(_)) => {
-            let geometry = match entry.source.data() {
-                PrimitiveData::Aabb { min, max, .. } => VolumeGeometry::Aabb { min, max },
-                PrimitiveData::XtObb {
-                    min,
-                    max,
-                    extent_min,
-                    extent_max,
-                    matrix,
-                    inverse,
-                    ..
-                } => VolumeGeometry::XtObb {
-                    min,
-                    max,
-                    extent_min,
-                    extent_max,
-                    matrix,
-                    inverse,
-                },
-                PrimitiveData::Sphere { center, radius, .. } => {
-                    VolumeGeometry::Sphere { center, radius }
-                }
-                PrimitiveData::Obb {
-                    extent_min,
-                    extent_max,
-                    matrix,
-                    inverse,
-                    ..
-                } => VolumeGeometry::Obb {
-                    extent_min,
-                    extent_max,
-                    matrix,
-                    inverse,
-                },
-                PrimitiveData::Cylinder { center, radius, .. } => {
-                    VolumeGeometry::Cylinder { center, radius }
-                }
-                PrimitiveData::Triangle { .. } => {
-                    return Err(VolumeError::UnsupportedClassification);
-                }
-            };
-            CollisionPrimitive::Volume(Volume {
-                properties: entry.source.properties().word(),
-                identity,
-                geometry,
-            })
+            CollisionPrimitive::Volume(static_volume_from_source(entry.source, identity)?)
         }
     })
 }

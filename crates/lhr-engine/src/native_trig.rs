@@ -81,6 +81,35 @@ impl Interval {
         }
         self.mul(Self::exact(value as f64)).rounded()
     }
+    #[cfg(any(test, not(any(target_arch = "x86", target_arch = "x86_64"))))]
+    fn rounded_pc24(self) -> Result<f64, MakeUnavailable> {
+        fn round(value: f64) -> f64 {
+            let bits = value.to_bits();
+            let discarded = bits & ((1_u64 << 29) - 1);
+            let mut retained = bits >> 29;
+            if discarded > 1_u64 << 28 || discarded == 1_u64 << 28 && retained & 1 != 0 {
+                retained += 1;
+            }
+            f64::from_bits(retained << 29)
+        }
+        let first = round(self.lo);
+        let last = round(self.hi);
+        if first.to_bits() != last.to_bits()
+            || !first.is_finite()
+            || first != 0. && !first.is_normal()
+        {
+            return Err(MakeUnavailable::RoundingUncertain);
+        }
+        if crate::native_precision::current_precision() == Some(false) {
+            if first < self.lo || first > self.hi {
+                crate::native_precision::record_precision(true);
+            } else if self.lo != first || self.hi != first {
+                return Err(MakeUnavailable::RoundingUncertain);
+            }
+        }
+        Ok(first)
+    }
+    #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
     pub(super) fn squared(self) -> Result<f32, MakeUnavailable> {
         self.mul(self).rounded()
     }
@@ -114,7 +143,14 @@ pub(super) fn sin_cos(x: f32) -> Result<(Interval, Interval), MakeUnavailable> {
     }
     // First omitted terms <=1/42! and1/43!, both <2^-120.
     let error = (f64::from_bits(903 << 52) + f64::from_bits(963 << 52)).next_up();
-    Ok((sin.expand(error), cos.expand(error)))
+    // For |x|<=1, the omitted sine tail is bounded by |x|/43!,
+    // rather than the cosine's constant 1/42! bound. An extended sine
+    // ulp is also at most |x|*2^-63 in this unreduced input interval;
+    // |x|*2^-60 therefore conservatively covers the original x87 error.
+    // Preserve the retained sine enclosure until its later products: an
+    // early binary32 sine spill would change exact-product tie cases.
+    let sine_error = (error * x.lo.abs().max(x.hi.abs())).next_up();
+    Ok((sin.expand(sine_error), cos.expand(error)))
 }
 
 /// Extended reduced-angle domain needed by frame SetDir. Taylor evaluation
@@ -124,6 +160,9 @@ pub(super) fn sin_cos(x: f32) -> Result<(Interval, Interval), MakeUnavailable> {
 pub(super) fn sin_cos_frame(x: f32) -> Result<(Interval, Interval), MakeUnavailable> {
     if !x.is_finite() || x.abs() > 4. || x == 0. {
         return Err(MakeUnavailable::UnrecoveredAxisAngle);
+    }
+    if x.abs() <= 1. {
+        return sin_cos(x);
     }
     crate::native_precision::record_precision(true);
     let quadrant = ((x as f64) / std::f64::consts::FRAC_PI_2).round() as i32;

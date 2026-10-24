@@ -28,20 +28,20 @@ pub enum VehicleGearSoundUnavailable {
     NullSound(VehicleGearSoundCall),
 }
 
-pub struct VehicleGearSoundContext<'a> {
-    pub vehicle: &'a mut VehicleDrivetrainState,
+pub struct VehicleGearSoundContext<'a, T = Vec<u8>> {
+    pub vehicle: &'a mut VehicleDrivetrainState<T>,
     pub direction: &'a mut u8,
     pub globals: &'a mut VehicleGearSoundGlobals,
 }
 
 /// Implementations supply sound behavior and retain any writes made before an
 /// unavailable effect. Default methods report the exact unresolved call.
-pub trait VehicleGearSoundEffects {
+pub trait VehicleGearSoundEffects<T = Vec<u8>> {
     fn is_playing(
         &mut self,
         sound: u32,
         query_flag: bool,
-        _context: VehicleGearSoundContext<'_>,
+        _context: VehicleGearSoundContext<'_, T>,
     ) -> Result<u8, VehicleGearSoundUnavailable> {
         Err(VehicleGearSoundUnavailable::Effect(
             VehicleGearSoundCall::IsPlaying { sound, query_flag },
@@ -52,7 +52,7 @@ pub trait VehicleGearSoundEffects {
         &mut self,
         sound: u32,
         enabled: bool,
-        _context: VehicleGearSoundContext<'_>,
+        _context: VehicleGearSoundContext<'_, T>,
     ) -> Result<(), VehicleGearSoundUnavailable> {
         Err(VehicleGearSoundUnavailable::Effect(
             VehicleGearSoundCall::SetOn { sound, enabled },
@@ -63,7 +63,7 @@ pub trait VehicleGearSoundEffects {
         &mut self,
         sound: u32,
         volume_bits: u32,
-        _context: VehicleGearSoundContext<'_>,
+        _context: VehicleGearSoundContext<'_, T>,
     ) -> Result<(), VehicleGearSoundUnavailable> {
         Err(VehicleGearSoundUnavailable::Effect(
             VehicleGearSoundCall::SetVolume { sound, volume_bits },
@@ -71,7 +71,10 @@ pub trait VehicleGearSoundEffects {
     }
 }
 
-fn byte(state: &VehicleDrivetrainState, offset: u32) -> Result<u8, VehicleGearSoundUnavailable> {
+fn byte<T: AsRef<[u8]> + AsMut<[u8]>>(
+    state: &VehicleDrivetrainState<T>,
+    offset: u32,
+) -> Result<u8, VehicleGearSoundUnavailable> {
     state
         .as_bytes()
         .get(offset as usize)
@@ -79,7 +82,10 @@ fn byte(state: &VehicleDrivetrainState, offset: u32) -> Result<u8, VehicleGearSo
         .ok_or(VehicleGearSoundUnavailable::Storage(offset))
 }
 
-fn word(state: &VehicleDrivetrainState, offset: u32) -> Result<u32, VehicleGearSoundUnavailable> {
+fn word<T: AsRef<[u8]> + AsMut<[u8]>>(
+    state: &VehicleDrivetrainState<T>,
+    offset: u32,
+) -> Result<u32, VehicleGearSoundUnavailable> {
     let start = offset as usize;
     let end = start
         .checked_add(4)
@@ -91,8 +97,8 @@ fn word(state: &VehicleDrivetrainState, offset: u32) -> Result<u32, VehicleGearS
     Ok(u32::from_le_bytes(bytes.try_into().unwrap()))
 }
 
-fn store(
-    state: &mut VehicleDrivetrainState,
+fn store<T: AsRef<[u8]> + AsMut<[u8]>>(
+    state: &mut VehicleDrivetrainState<T>,
     offset: u32,
     value: u32,
 ) -> Result<(), VehicleGearSoundUnavailable> {
@@ -108,14 +114,17 @@ fn store(
     Ok(())
 }
 
-fn sound(state: &VehicleDrivetrainState, bank: u32) -> Result<u32, VehicleGearSoundUnavailable> {
+fn sound<T: AsRef<[u8]> + AsMut<[u8]>>(
+    state: &VehicleDrivetrainState<T>,
+    bank: u32,
+) -> Result<u32, VehicleGearSoundUnavailable> {
     word(
         state,
         bank.wrapping_add(word(state, 0x200)?.wrapping_mul(4)),
     )
 }
 
-impl VehicleDrivetrainState {
+impl<T: AsRef<[u8]> + AsMut<[u8]>> VehicleDrivetrainState<T> {
     /// Original GearSnd: query both current sounds, choose a random variant only
     /// when neither plays, enable the selected sound, then reread its handle and
     /// shared volume. The sound-enable byte is checked by MotorRot, not here.
@@ -123,7 +132,7 @@ impl VehicleDrivetrainState {
         &mut self,
         direction: &mut u8,
         globals: &mut VehicleGearSoundGlobals,
-        effects: &mut impl VehicleGearSoundEffects,
+        effects: &mut impl VehicleGearSoundEffects<T>,
     ) -> Result<(), VehicleGearSoundUnavailable> {
         if byte(self, 0xc68)? & 0x20 == 0 {
             return Ok(());
@@ -213,7 +222,7 @@ impl VehicleDrivetrainState {
         force: f32,
         direction: &mut u8,
         globals: &mut VehicleGearSoundGlobals,
-        effects: &mut impl VehicleGearSoundEffects,
+        effects: &mut impl VehicleGearSoundEffects<T>,
     ) -> Result<(), VehicleMotorRotUnavailable<VehicleGearSoundUnavailable>> {
         self.motor_rot_with_shift_effect(dt, force, direction, |vehicle, direction| {
             vehicle.gear_snd(direction, globals, effects)

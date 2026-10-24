@@ -143,7 +143,10 @@ fn remove_actor_from_static<B: VehicleInitBackend>(b: &mut B, actor: u32) -> Res
     }
     Ok(())
 }
-fn actor_destruct<B: VehicleDestructorBackend>(b: &mut B, actor: u32) -> Result<(), B::Error> {
+pub(crate) fn actor_destruct<B: VehicleDestructorBackend>(
+    b: &mut B,
+    actor: u32,
+) -> Result<(), B::Error> {
     b.write_word(actor, 0x623248)?;
     let count = b.read_word(0x63d2c8)?;
     b.write_word(0x63d2c8, count.wrapping_sub(1))?;

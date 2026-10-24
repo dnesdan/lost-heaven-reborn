@@ -48,17 +48,55 @@ fn write_vector<B: VehicleInitBackend>(b: &mut B, a: u32, v: [f32; 3]) -> Out<()
     }
     Ok(())
 }
-fn square<E>(v: [f32; 3]) -> Out<f32, E> {
-    Ok(add(
-        add(mul(v[0], v[0])?, mul(v[1], v[1])?)?,
-        mul(v[2], v[2])?,
-    )?)
+// Original inline squared lengths keep every product on the x87 stack until
+// the sum's FST. A tiny product can be below binary32's exponent range while
+// its final sum remains ordinary. All terms here are nonnegative, so an f64
+// sum of two PC24 values is exact whenever the smaller term can affect PC24
+// rounding (exponent distance <=24); otherwise it cannot cross a midpoint.
+fn square_wide_ordered<E>(v: [f32; 3], order: [usize; 3]) -> Out<f64, E> {
+    for x in v {
+        number(x)?;
+    }
+    fn pc24(value: f64) -> f64 {
+        let bits = value.to_bits();
+        let discarded = bits & ((1_u64 << 29) - 1);
+        let mut retained = bits >> 29;
+        let halfway = 1_u64 << 28;
+        if discarded > halfway || discarded == halfway && retained & 1 != 0 {
+            retained += 1;
+        }
+        f64::from_bits(retained << 29)
+    }
+    let product = |x: f32| {
+        let x = f64::from(x);
+        let value = pc24(x * x);
+        crate::native_precision::record_wide_pc24_mul(x, x, value);
+        value
+    };
+    let first = product(v[order[0]]);
+    let second = product(v[order[1]]);
+    let partial = pc24(first + second);
+    crate::native_precision::record_wide_pc24_add(first, second, partial);
+    let third = product(v[order[2]]);
+    let wide = pc24(partial + third);
+    crate::native_precision::record_wide_pc24_add(partial, third, wide);
+    Ok(wide)
+}
+fn square<E>(v: [f32; 3]) -> Out<f64, E> {
+    // These callers compare the retained sum directly (for example
+    // PC0x4e314c); introducing an FST here would change sticky precision.
+    square_wide_ordered(v, [0, 1, 2])
 }
 fn square_yzx<E>(v: [f32; 3]) -> Out<f32, E> {
-    Ok(add(
-        add(mul(v[1], v[1])?, mul(v[2], v[2])?)?,
-        mul(v[0], v[0])?,
-    )?)
+    let wide = square_wide_ordered(v, [1, 2, 0])?;
+    // These original inline length/normalization copies do FST before their
+    // raw binary32 cutoff. Preserve actual subnormal/zero rounding here.
+    let value = wide as f32;
+    if !value.is_finite() {
+        return Err(VehicleMovePrepareUnavailable::NumericDomain.into());
+    }
+    crate::native_precision::record_precision(f64::from(value) != wide);
+    Ok(value)
 }
 fn scale<E>(v: [f32; 3], s: f32) -> Out<[f32; 3], E> {
     Ok([mul(v[0], s)?, mul(v[1], s)?, mul(v[2], s)?])
@@ -89,6 +127,13 @@ fn root<E>(s: f32) -> Out<f32, E> {
     Ok(value)
 }
 fn near_unit<E>(s: f32) -> Out<bool, E> {
+    if s.is_subnormal() {
+        // A squared-length FST can be subnormal. Original FSUB one rounds
+        // exactly to -1 under PC24, raising precision before the small-vector
+        // fallback; it does not perform binary32 subnormal arithmetic.
+        crate::native_precision::record_wide_pc24_sub(f64::from(s), 1., -1.);
+        return Ok(false);
+    }
     Ok((sub(s, 1.)? as f64).abs() < 1e-8)
 }
 fn length_yzx<E>(v: [f32; 3]) -> Out<f32, E> {
@@ -159,7 +204,9 @@ fn slip_force<B: VehicleInitBackend>(
         store_float(b, w.wrapping_add(0x108), sine)?;
         let squared = square_yzx(force)?;
         if (squared.to_bits() as i32) >= 0x322bcc77 && !near_unit(squared)? && root(squared)? > 1. {
-            if sine > number(float(b, w.wrapping_add(0x170))?)? && square(velocity)? > 0.0001_f32 {
+            if sine > number(float(b, w.wrapping_add(0x170))?)?
+                && square(velocity)? > f64::from(0.0001_f32)
+            {
                 let flags = word(b, w.wrapping_add(0x120))?;
                 store(b, w.wrapping_add(0x120), flags | 0x10)?;
             }
@@ -366,7 +413,7 @@ fn motor_force<B: VehicleInitBackend>(
     if sub(prepared.wheel_speed, float(b, v.wrapping_add(0x59c))?)?.abs() > 2.
         && number(float(b, w.wrapping_add(0xa0))?)? < amount.abs()
     {
-        if square(velocity)? > 0.1_f32 {
+        if square(velocity)? > f64::from(0.1_f32) {
             let flags = word(b, w.wrapping_add(0x120))?;
             store(b, w.wrapping_add(0x120), flags | 0x10)?;
         }
@@ -532,5 +579,53 @@ impl From<VehicleMoveWheelForces> for crate::vehicle_dynamics_body::VehicleMoveB
             any_contact: value.any_contact,
             drive_force_sum: value.drive_force_sum,
         }
+    }
+}
+
+#[cfg(test)]
+mod retained_square_tests {
+    use super::*;
+    fn dyadic(exponent: u32) -> f32 {
+        f32::from_bits((127 - exponent) << 23)
+    }
+    #[test]
+    fn retained_tiny_products_survive_until_the_normal_sum() {
+        let mut precision = crate::native_precision::Pc24PrecisionState::default();
+        let squared =
+            precision.run(|| square_yzx::<()>([dyadic(60), dyadic(85), dyadic(70)]).unwrap());
+        assert_eq!(squared.to_bits(), ((127 - 120) << 23) | 8);
+        assert!(precision.precision_raised());
+        let mut spill = crate::native_precision::Pc24PrecisionState::default();
+        assert_eq!(
+            spill.run(|| square_yzx::<()>([dyadic(100), 0., 0.]).unwrap()),
+            0.
+        );
+        assert!(spill.precision_raised());
+        let mut retained = crate::native_precision::Pc24PrecisionState::default();
+        assert_eq!(
+            retained.run(|| square::<()>([dyadic(100), 0., 0.]).unwrap()),
+            2_f64.powi(-200)
+        );
+        assert!(!retained.precision_raised());
+        assert_eq!(length_yzx::<()>([dyadic(70), 0., 0.]).unwrap(), 0.);
+        assert_eq!(
+            square_yzx::<()>([dyadic(70), 0., 0.]).unwrap().to_bits(),
+            1 << 9
+        );
+    }
+    #[test]
+    fn retained_square_tracks_exact_and_lost_small_terms() {
+        let mut exact = crate::native_precision::Pc24PrecisionState::default();
+        assert_eq!(
+            exact.run(|| square_yzx::<()>([dyadic(60), 0., 0.]).unwrap()),
+            dyadic(120)
+        );
+        assert!(!exact.precision_raised());
+        let mut inexact = crate::native_precision::Pc24PrecisionState::default();
+        assert_eq!(
+            inexact.run(|| square_yzx::<()>([dyadic(60), dyadic(100), 0.]).unwrap()),
+            dyadic(120)
+        );
+        assert!(inexact.precision_raised());
     }
 }

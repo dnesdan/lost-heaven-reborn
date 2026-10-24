@@ -9,3 +9,4 @@ wgpu = { version = "=24.0.5", default-features = false, features = ["wgsl", "met
 winit = { version = "=0.30.12", default-features = false, features = ["rwh_06", "x11"] }
 pollster = "=0.4.0"
 glam = "=0.29.3"
+cpal = "=0.15.3"

@@ -1251,6 +1251,17 @@ impl VisualResources {
     }
 }
 
+impl VisualResources {
+    pub(crate) fn clear_mesh_level_environment(
+        &mut self,
+        level: MeshLevelKey,
+    ) -> Result<(), VisualResourceError> {
+        self.available()?;
+        self.mesh_level_mut(level)?.mesh_flags &= !8;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

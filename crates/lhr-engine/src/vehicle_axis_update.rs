@@ -102,7 +102,38 @@ fn up_vector(v: [f32; 3], left: bool) -> Result<[f32; 3], ()> {
     ])
 }
 
-impl VehicleInitState {
+struct AxisUpdate<'a> {
+    memory: VehicleComponentTailMemory<'a>,
+    vehicle: u32,
+}
+impl AxisUpdate<'_> {
+    fn word<B: VehicleInitBackend>(&mut self, b: &mut B, address: u32) -> AxisResult<B, u32> {
+        self.memory
+            .read_word_with_backend(b, address)
+            .map_err(|e| VehicleInitUnavailable::Effect(e).into())
+    }
+    fn byte<B: VehicleInitBackend>(&mut self, b: &mut B, address: u32) -> AxisResult<B, u8> {
+        self.memory
+            .read_byte_with_backend(b, address)
+            .map_err(|e| VehicleInitUnavailable::Effect(e).into())
+    }
+    fn store<B: VehicleInitBackend>(
+        &mut self,
+        b: &mut B,
+        address: u32,
+        value: u32,
+    ) -> AxisResult<B, ()> {
+        self.memory
+            .write_word_with_backend(b, address, value)
+            .map_err(|e| VehicleInitUnavailable::Effect(e).into())
+    }
+    fn relative_word<B: VehicleInitBackend>(
+        &mut self,
+        b: &mut B,
+        offset: u32,
+    ) -> AxisResult<B, u32> {
+        self.word(b, self.vehicle.wrapping_add(offset))
+    }
     fn update_axis_vector<B: VehicleInitBackend>(
         &mut self,
         b: &mut B,
@@ -110,25 +141,30 @@ impl VehicleInitState {
     ) -> AxisResult<B, [f32; 3]> {
         let mut out = [0.; 3];
         for (i, value) in out.iter_mut().enumerate() {
-            *value = f32::from_bits(self.wheel_word(b, address.wrapping_add(i as u32 * 4))?);
+            *value = f32::from_bits(self.word(b, address.wrapping_add(i as u32 * 4))?);
         }
         Ok(out)
     }
-    fn update_axis_count<E>(&self, begin: u32, end: u32) -> Result<u32, VehicleInitUnavailable<E>> {
-        let p = self.load::<E>(begin)?;
-        Ok(if p == 0 {
+    fn update_axis_count<B: VehicleInitBackend>(
+        &mut self,
+        b: &mut B,
+        begin: u32,
+        end: u32,
+    ) -> AxisResult<B, u32> {
+        let pointer = self.relative_word(b, begin)?;
+        Ok(if pointer == 0 {
             0
         } else {
-            ((self.load::<E>(end)?.wrapping_sub(p) as i32) / 24) as u32
+            ((self.relative_word(b, end)?.wrapping_sub(pointer) as i32) / 24) as u32
         })
     }
     fn update_axis_record<B: VehicleInitBackend>(
         &mut self,
-        _b: &mut B,
+        b: &mut B,
         header: u32,
         offset: u32,
     ) -> AxisResult<B, u32> {
-        let begin = self.load::<B::Error>(header)?;
+        let begin = self.relative_word(b, header)?;
         Ok(begin.wrapping_add(offset))
     }
     fn update_axis_wheel<B: VehicleInitBackend>(
@@ -136,8 +172,8 @@ impl VehicleInitState {
         b: &mut B,
         index: u32,
     ) -> AxisResult<B, u32> {
-        let order = self.load::<B::Error>(0xc38)?;
-        self.wheel_word(b, order.wrapping_add(index.wrapping_mul(4)))
+        let order = self.relative_word(b, 0xc38)?;
+        self.word(b, order.wrapping_add(index.wrapping_mul(4)))
     }
     fn update_axis_wheel_frame<B: VehicleInitBackend>(
         &mut self,
@@ -145,7 +181,7 @@ impl VehicleInitState {
         index: u32,
     ) -> AxisResult<B, u32> {
         let wheel = self.update_axis_wheel(b, index)?;
-        self.wheel_word(b, wheel.wrapping_add(8))
+        self.word(b, wheel.wrapping_add(8))
     }
     fn update_axis_anchor<B: VehicleAxisUpdateBackend>(
         &mut self,
@@ -156,9 +192,13 @@ impl VehicleInitState {
         let frame = self.update_axis_wheel_frame(b, index)?;
         b.prepare_frame_matrix(frame).map_err(Effect)?;
         let wheel = self.update_axis_wheel(b, index)?;
-        let source = self.wheel_word(b, wheel.wrapping_add(4))?;
+        let source = self.word(b, wheel.wrapping_add(4))?;
+        let mut projection = super::component_tail::Projection {
+            backend: b,
+            memory: self.memory.reborrow(),
+        };
         let result = super::components::transform_sources(
-            &mut self.tail_projection(b, self.tail_vehicle_address.unwrap()),
+            &mut projection,
             super::components::MatrixSource::External(frame.wrapping_add(0x50)),
             super::components::PointSource::External(source.wrapping_add(0x80)),
         )
@@ -176,14 +216,14 @@ impl VehicleInitState {
     ) -> AxisResult<B, ()> {
         use VehicleInitUnavailable::Effect;
         for (offset, value) in [(0x90, 1f32), (0x94, 1f32), (0x98, z)] {
-            self.wheel_store(b, frame.wrapping_add(offset), value.to_bits())?;
+            self.store(b, frame.wrapping_add(offset), value.to_bits())?;
         }
-        let flags = self.wheel_word(b, frame.wrapping_add(0xac))?;
+        let flags = self.word(b, frame.wrapping_add(0xac))?;
         if flags & 8 == 0 {
             b.materialize_frame_quaternion(frame).map_err(Effect)?;
         }
-        let flags = self.wheel_word(b, frame.wrapping_add(0xac))?;
-        self.wheel_store(
+        let flags = self.word(b, frame.wrapping_add(0xac))?;
+        self.store(
             b,
             frame.wrapping_add(0xac),
             (flags & 0xffff_fecb) | 0x4000_0008,
@@ -198,9 +238,9 @@ impl VehicleInitState {
         order: [usize; 3],
     ) -> AxisResult<B, [f32; 3]> {
         use VehicleInitUnavailable::Effect;
-        let flags = self.wheel_word(b, frame.wrapping_add(0xac))?;
+        let flags = self.word(b, frame.wrapping_add(0xac))?;
         if flags & 0x10 == 0 {
-            self.wheel_store(b, frame.wrapping_add(0xac), flags | 0x10)?;
+            self.store(b, frame.wrapping_add(0xac), flags | 0x10)?;
             b.normalize_frame_quaternion(frame).map_err(Effect)?;
             b.set_frame_rotation_matrix(frame).map_err(Effect)?;
             self.update_axis_vector(b, frame.wrapping_add(0x70))
@@ -218,8 +258,8 @@ impl VehicleInitState {
     ) -> AxisResult<B, ()> {
         b.set_axis_matrix_direction(frame, direction.map(f32::to_bits), up.map(f32::to_bits))
             .map_err(VehicleInitUnavailable::Effect)?;
-        let flags = self.wheel_word(b, frame.wrapping_add(0xac))?;
-        self.wheel_store(
+        let flags = self.word(b, frame.wrapping_add(0xac))?;
+        self.store(
             b,
             frame.wrapping_add(0xac),
             (flags & 0xffff_fed3) | 0x4000_0010,
@@ -228,36 +268,36 @@ impl VehicleInitState {
     /// Executes both reverse axis-record passes and the original enable-state
     /// transition. Existing wheel order and AXIS records must be genuine Init
     /// output. A normal return here does not complete the parent Init.
-    pub fn update_axes<B: VehicleAxisUpdateBackend>(&mut self, b: &mut B) -> AxisResult<B, ()> {
+    fn update_axes<B: VehicleAxisUpdateBackend>(&mut self, b: &mut B) -> AxisResult<B, ()> {
         use VehicleInitUnavailable::Effect;
-        let current = self.load::<B::Error>(0xc68)? & 1;
-        if self.load::<B::Error>(0xc6c)? & 1 != current {
+        let current = self.relative_word(b, 0xc68)? & 1;
+        if self.relative_word(b, 0xc6c)? & 1 != current {
             for (begin, end) in [(0x340, 0x344), (0x330, 0x334)] {
-                let mut remaining = self.update_axis_count::<B::Error>(begin, end)?;
+                let mut remaining = self.update_axis_count(b, begin, end)?;
                 let mut offset = remaining.wrapping_mul(24);
                 while remaining != 0 {
                     offset = offset.wrapping_sub(24);
                     let record = self.update_axis_record(b, begin, offset)?;
-                    let frame = self.wheel_word(b, record)?;
+                    let frame = self.word(b, record)?;
                     b.set_axis_frame_on(frame, current).map_err(Effect)?;
                     remaining = remaining.wrapping_sub(1);
                 }
             }
         }
-        if self.load::<B::Error>(0xc68)? & 1 == 0 {
+        if self.relative_word(b, 0xc68)? & 1 == 0 {
             return Ok(());
         }
-        let mut remaining = self.update_axis_count::<B::Error>(0x340, 0x344)?;
+        let mut remaining = self.update_axis_count(b, 0x340, 0x344)?;
         let mut offset = remaining.wrapping_mul(24);
         while remaining != 0 {
             offset = offset.wrapping_sub(24);
             let record = self.update_axis_record(b, 0x340, offset)?;
-            let left = self.wheel_byte(b, record.wrapping_add(0x14))? != 0;
-            let axle = self.wheel_word(b, record.wrapping_add(4))?;
+            let left = self.byte(b, record.wrapping_add(0x14))? != 0;
+            let axle = self.word(b, record.wrapping_add(4))?;
             let index = axle.wrapping_mul(2).wrapping_add(u32::from(!left));
             let anchor = self.update_axis_anchor(b, index)?;
             let displacement = self.update_axis_vector(b, record.wrapping_add(8))?;
-            let frame = self.wheel_word(b, record)?;
+            let frame = self.word(b, record)?;
             let position = self.update_axis_vector(b, frame.wrapping_add(0x80))?;
             let mut direction = [0.; 3];
             for i in [2, 1, 0] {
@@ -268,17 +308,17 @@ impl VehicleInitState {
             let distance = length(direction, [0, 1, 2])
                 .map_err(|_| VehicleWheelsUnavailable::NumericDomain)?;
             let record = self.update_axis_record(b, 0x340, offset)?;
-            let frame = self.wheel_word(b, record)?;
+            let frame = self.word(b, record)?;
             self.update_axis_scale(b, frame, distance)?;
             let direction = normalize(direction, [0, 2, 1])
                 .map_err(|_| VehicleWheelsUnavailable::NumericDomain)?;
             let record = self.update_axis_record(b, 0x340, offset)?;
-            let frame = self.wheel_word(b, record)?;
+            let frame = self.word(b, record)?;
             b.set_axis_frame_direction(frame, direction.map(f32::to_bits))
                 .map_err(Effect)?;
             let record = self.update_axis_record(b, 0x340, offset)?;
-            if self.wheel_byte(b, record.wrapping_add(0x15))? != 0 {
-                let left = self.wheel_byte(b, record.wrapping_add(0x14))? != 0;
+            if self.byte(b, record.wrapping_add(0x15))? != 0 {
+                let left = self.byte(b, record.wrapping_add(0x14))? != 0;
                 let up = up_vector(direction, left)
                     .map_err(|_| VehicleWheelsUnavailable::NumericDomain)?;
                 let frame = self.update_axis_wheel_frame(b, index)?;
@@ -288,12 +328,12 @@ impl VehicleInitState {
             }
             remaining = remaining.wrapping_sub(1);
         }
-        let mut remaining = self.update_axis_count::<B::Error>(0x330, 0x334)?;
+        let mut remaining = self.update_axis_count(b, 0x330, 0x334)?;
         let mut offset = remaining.wrapping_mul(24);
         while remaining != 0 {
             offset = offset.wrapping_sub(24);
             let record = self.update_axis_record(b, 0x330, offset)?;
-            let index = self.wheel_word(b, record.wrapping_add(4))?.wrapping_mul(2);
+            let index = self.word(b, record.wrapping_add(4))?.wrapping_mul(2);
             let mut displacement = self.update_axis_vector(b, record.wrapping_add(8))?;
             displacement[0] = -displacement[0];
             let anchor = self.update_axis_anchor(b, index.wrapping_add(1))?;
@@ -321,13 +361,13 @@ impl VehicleInitState {
                     .map_err(|_| VehicleWheelsUnavailable::NumericDomain)?;
             }
             let record = self.update_axis_record(b, 0x330, offset)?;
-            let frame = self.wheel_word(b, record)?;
-            if self.wheel_byte(b, frame.wrapping_add(0xac))? & 0x80 == 0 {
+            let frame = self.word(b, record)?;
+            if self.byte(b, frame.wrapping_add(0xac))? & 0x80 == 0 {
                 for (i, value) in right.iter().enumerate() {
-                    self.wheel_store(b, frame.wrapping_add(0x80 + i as u32 * 4), value.to_bits())?;
+                    self.store(b, frame.wrapping_add(0x80 + i as u32 * 4), value.to_bits())?;
                 }
-                let flags = self.wheel_word(b, frame.wrapping_add(0xac))?;
-                self.wheel_store(
+                let flags = self.word(b, frame.wrapping_add(0xac))?;
+                self.store(
                     b,
                     frame.wrapping_add(0xac),
                     (flags & 0xffff_fedf) | 0x4000_0000,
@@ -336,16 +376,16 @@ impl VehicleInitState {
             let distance =
                 length(delta, [1, 0, 2]).map_err(|_| VehicleWheelsUnavailable::NumericDomain)?;
             let record = self.update_axis_record(b, 0x330, offset)?;
-            let frame = self.wheel_word(b, record)?;
+            let frame = self.word(b, record)?;
             self.update_axis_scale(b, frame, distance)?;
             let direction = normalize(direction, [2, 1, 0])
                 .map_err(|_| VehicleWheelsUnavailable::NumericDomain)?;
             let record = self.update_axis_record(b, 0x330, offset)?;
-            let frame = self.wheel_word(b, record)?;
+            let frame = self.word(b, record)?;
             b.set_axis_frame_direction(frame, direction.map(f32::to_bits))
                 .map_err(Effect)?;
             let record = self.update_axis_record(b, 0x330, offset)?;
-            if self.wheel_byte(b, record.wrapping_add(0x15))? != 0 {
+            if self.byte(b, record.wrapping_add(0x15))? != 0 {
                 let up = up_vector(direction, true)
                     .map_err(|_| VehicleWheelsUnavailable::NumericDomain)?;
                 let frame = self.update_axis_wheel_frame(b, index)?;
@@ -362,6 +402,27 @@ impl VehicleInitState {
             remaining = remaining.wrapping_sub(1);
         }
         Ok(())
+    }
+}
+
+/// UpdateAxis on an existing live car/vehicle projection. No temporary vehicle
+/// owner or copyback is created, including at GameInit and simulation callsites.
+pub fn update_vehicle_axes<B: VehicleAxisUpdateBackend>(
+    backend: &mut B,
+    memory: VehicleComponentTailMemory<'_>,
+    vehicle: u32,
+) -> AxisResult<B, ()> {
+    AxisUpdate { memory, vehicle }.update_axes(backend)
+}
+impl VehicleInitState {
+    pub fn update_axes<B: VehicleAxisUpdateBackend>(
+        &mut self,
+        backend: &mut B,
+    ) -> AxisResult<B, ()> {
+        let vehicle = self
+            .tail_vehicle_address
+            .ok_or(VehicleWheelsUnavailable::NoContinuation)?;
+        update_vehicle_axes(backend, self.live_tail_memory(), vehicle)
     }
 }
 

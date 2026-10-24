@@ -1,5 +1,6 @@
 //! Original-data menu and static scene inspection; mission scripts are not executed.
 mod assembly;
+mod driving_view;
 mod menu;
 mod neighborhood;
 use glam::{Mat4, Quat, Vec3};
@@ -27,6 +28,8 @@ struct Options {
     synthetic: bool,
     mission: Option<String>,
     car_inspection: bool,
+    car_driving: bool,
+    audio_capture: Option<PathBuf>,
     steer: Option<f32>,
     steer_steps: u32,
 }
@@ -46,6 +49,8 @@ fn options() -> Result<Options, String> {
         synthetic: false,
         mission: None,
         car_inspection: false,
+        car_driving: false,
+        audio_capture: None,
         steer: None,
         steer_steps: 1,
     };
@@ -67,11 +72,15 @@ fn options() -> Result<Options, String> {
             "--synthetic" => result.synthetic = true,
             "--mission" => result.mission = Some(args.next().ok_or("Missing mission argument")?),
             "--car-inspection" => result.car_inspection = true,
+            "--car-driving" => result.car_driving = true,
+            "--audio-capture" => result.audio_capture = Some(args.next().ok_or("Missing audio capture output")?.into()),
             "--steer" => result.steer = Some(args.next().ok_or("Missing steering request")?.parse().map_err(|_| "Invalid steering request")?),
             "--steer-steps" => { steer_steps_set = true; result.steer_steps = args.next().ok_or("Missing steering preview step count")?.parse().map_err(|_| "Invalid steering preview step count")?; },
             "--help" => return Err(concat!(
                 "Usage: lhr-engine [--synthetic | --root DIRECTORY [--model RELATIVE_4DS [--animation RELATIVE_5DS] | --mission NAME]] ",
-                "[--car-inspection [--steer VALUE [--steer-steps N]]] [--textures RELATIVE_DIRECTORY] [--headless --capture PNG [--animation-steps N]] [--frames N] [--linear]. ",
+                "[--car-driving | --car-inspection [--steer VALUE [--steer-steps N]]] [--textures RELATIVE_DIRECTORY] [--headless --capture PNG [--animation-steps N]] [--frames N] [--linear]. ",
+                "--audio-capture WAV records the actual mixed driving audio and requires --car-driving. ",
+                "--car-driving requires --root and --model and opens the original MISE01 driving world. W accelerates, S brakes, A/D steer, Space applies the handbrake; R reloads and Escape exits. The chase camera is a host view. ",
                 "--car-inspection requires --root and --model; constructs and initializes the CPU car, then renders that same live arena's first LOD with unlit base color/texture and supported alpha masks with a host 0.5 cutoff. A/D previews the original wheel-steering update; arrows/W/S control the camera. R explicitly reloads the car and resets live input. Lighting, other material effects, body simulation, driving and mission execution are unavailable. ",
                 "--steer accepts a finite normalized request in [-1,1]; --steer-steps 0..600 (default 1) applies that request through controlled 16 ms host inspection-clock steps before presentation. This previews actual initialized wheel frames, without translating the car or claiming a driving simulation. ",
                 "Headless --animation-steps 0..600 uses controlled 16 ms inspection-clock steps; omit it for one platform-clock step. ",
@@ -116,6 +125,22 @@ fn options() -> Result<Options, String> {
             || result.textures != "maps")
     {
         return Err("--car-inspection requires --root and --model, original maps, and no animation or mission selection".into());
+    }
+    if result.audio_capture.is_some() && !result.car_driving {
+        return Err("--audio-capture requires --car-driving".into());
+    }
+    if result.car_driving
+        && (result.root.is_none()
+            || result.model.is_none()
+            || result.car_inspection
+            || result.animation.is_some()
+            || result.mission.is_some()
+            || result.textures != "maps"
+            || result.headless
+            || result.steer.is_some()
+            || steer_steps_set)
+    {
+        return Err("--car-driving requires --root and --model, original maps, a window, and excludes inspection, steering preview, animation and mission selection".into());
     }
     if result
         .steer
@@ -249,12 +274,13 @@ fn load(options: &Options) -> Result<LoadedScene, String> {
     };
     let installation = lhr_assets::Installation::open(root)
         .map_err(|e| format!("Cannot open asset installation: {e}"))?;
-    if options.car_inspection {
+    if options.car_inspection || options.car_driving {
         return load_car(
             installation,
             options.model.as_deref().ok_or("Car model absent")?,
             options.steer,
             options.steer_steps,
+            options.car_driving,
         );
     }
     if options
@@ -390,6 +416,46 @@ fn load(options: &Options) -> Result<LoadedScene, String> {
         car: None,
     })
 }
+type DrivingWorldView = ([i32; 2], u64);
+
+fn live_draw_state(
+    car: &mut Option<lhr_engine::car_runtime::CarRuntime>,
+    driving: bool,
+) -> Result<(usize, Option<DrivingWorldView>), String> {
+    let Some(owner) = car.as_mut() else {
+        return Ok((0, None));
+    };
+    let root = owner.model().ok_or("Car model absent")?.root();
+    if driving {
+        let position = owner
+            .arena_mut()
+            .world_matrix(root)
+            .map_err(|e| e.to_string())?
+            .try_transform_point([0.; 3])
+            .map_err(|e| format!("Driving world position: {e:?}"))?;
+        let render_root = owner.driving_scene_root()?;
+        let draws =
+            lhr_engine::car_inspection::snapshot_arena_tree(owner.arena_mut(), render_root)?
+                .scene
+                .meshes
+                .len();
+        Ok((
+            draws,
+            Some((
+                driving_view::world_bucket(position)?,
+                owner.driving_world_render_revision()?,
+            )),
+        ))
+    } else {
+        Ok((
+            lhr_engine::car_inspection::snapshot_car_arena(owner.arena_mut(), root)?
+                .scene
+                .meshes
+                .len(),
+            None,
+        ))
+    }
+}
 fn close_car(car: &mut Option<lhr_engine::car_runtime::CarRuntime>) -> Result<(), String> {
     if let Some(owner) = car.as_mut() {
         let cleanup = owner.shutdown()?;
@@ -403,19 +469,34 @@ fn load_car(
     path: &str,
     steer: Option<f32>,
     steer_steps: u32,
+    driving: bool,
 ) -> Result<LoadedScene, String> {
-    let mut owner =
-        match lhr_engine::car_runtime::CarRuntime::open(installation, path, Default::default()) {
-            Ok(owner) => owner,
-            Err(mut failure) => {
-                let cleanup = failure.partial.shutdown();
-                return Err(format!(
-                    "{}; explicit inspection cleanup: {cleanup:?}",
-                    failure.message
-                ));
-            }
-        };
+    let opened = if driving {
+        lhr_engine::car_runtime::CarRuntime::open_driving(
+            installation,
+            path,
+            Default::default(),
+            "mise01",
+        )
+    } else {
+        lhr_engine::car_runtime::CarRuntime::open(installation, path, Default::default())
+    };
+    let mut owner = match opened {
+        Ok(owner) => owner,
+        Err(mut failure) => {
+            let cleanup = failure.partial.shutdown();
+            return Err(format!(
+                "{}; explicit inspection cleanup: {cleanup:?}",
+                failure.message
+            ));
+        }
+    };
     let result: Result<(Scene, Camera), String> = (|| {
+        let static_scene = if driving {
+            Some(owner.start_driving("mise01")?)
+        } else {
+            None
+        };
         if let Some(request) = steer {
             for _ in 0..steer_steps {
                 owner.preview_wheel_steering(request, 0.016)?;
@@ -423,17 +504,37 @@ fn load_car(
             println!("Wheel steering preview: request {request}, {steer_steps} controlled 16 ms host inspection-clock steps; actual initialized wheel frames, no body movement or driving simulation");
         }
         let root = owner.model().ok_or("Car model absent")?.root();
-        let snapshot = lhr_engine::car_inspection::snapshot_car_arena(owner.arena_mut(), root)?;
-        let camera = Camera::fit(&snapshot.scene)?;
+        let snapshot = if driving {
+            let render_root = owner.driving_scene_root()?;
+            lhr_engine::car_inspection::snapshot_arena_tree(owner.arena_mut(), render_root)?
+        } else {
+            lhr_engine::car_inspection::snapshot_car_arena(owner.arena_mut(), root)?
+        };
+        let camera = if driving {
+            driving_view::chase_camera(owner.arena_mut(), root)?
+        } else {
+            Camera::fit(&snapshot.scene)?
+        };
+        if driving {
+            driving_view::sync_audio_listener(&owner, &camera)?;
+        }
         println!("CPU car constructed and initialized: {} seats, {} cached animation tracks; {} visible meshes, {} draws",owner.summary().seats,owner.summary().cached_tracks,snapshot.visible_meshes,snapshot.scene.meshes.len());
-        println!("Car inspection: same initialized frame graph and CPU buffers; first LOD, unlit base color/texture, supported masks clipped at host cutoff 0.5; {} draws contain unsupported material effects. A/D previews original wheel steering; body simulation, driving and missions are unavailable.",snapshot.omitted_material_effects);
+        if !driving {
+            println!("Car inspection: same initialized frame graph and CPU buffers; first LOD, unlit base color/texture, supported masks clipped at host cutoff 0.5; {} draws contain unsupported material effects. A/D previews original wheel steering; body simulation, driving and missions are unavailable.",snapshot.omitted_material_effects);
+        } else {
+            println!("Driving controls: W throttle, S brake, A/D steer, Space handbrake; R reload, Escape exit. Fixed 16 ms simulation, live native car frames, original static world; host chase camera and unlit rendering.");
+        }
         if snapshot.unsupported_alpha_masks != 0 {
             println!(
                 "Car inspection: {} draws keep unsupported non-grayscale alpha masks opaque",
                 snapshot.unsupported_alpha_masks
             );
         }
-        Ok((snapshot.scene, camera))
+        let mut scene = snapshot.scene;
+        if let Some(world) = static_scene {
+            scene.meshes.extend(world.meshes);
+        }
+        Ok((scene, camera))
     })();
     match result {
         Ok((scene, camera)) => Ok(LoadedScene {
@@ -513,6 +614,12 @@ struct App {
     config: Option<wgpu::SurfaceConfiguration>,
     keys: HashSet<KeyCode>,
     steering_preview_active: bool,
+    driving_clock: driving_view::FixedClock,
+    driving_controls: driving_view::Controls,
+    car_draws: usize,
+    world_bucket: Option<DrivingWorldView>,
+    audio_capture: Option<lhr_engine::runtime_audio::StereoWavCapture>,
+    audio_output: Option<lhr_engine::runtime_audio::DeviceAudioOutput>,
     count: u32,
     error: Option<String>,
 }
@@ -552,6 +659,13 @@ impl App {
             animation,
             mut car,
         } = load(&self.options)?;
+        let (car_draws, world_bucket) = match live_draw_state(&mut car, self.options.car_driving) {
+            Ok(draws) => draws,
+            Err(error) => {
+                let cleanup = close_car(&mut car);
+                return Err(format!("{error}; new car cleanup: {cleanup:?}"));
+            }
+        };
         if mode == AppMode::Menu {
             scene
                 .meshes
@@ -570,7 +684,8 @@ impl App {
                 return Err(format!("{error}; car cleanup: {cleanup:?}"));
             }
         };
-        renderer.set_inspection_alpha_cutout(self.options.car_inspection);
+        renderer
+            .set_inspection_alpha_cutout(self.options.car_inspection || self.options.car_driving);
         if let Some(old) = &self.renderer {
             old.device.poll(wgpu::Maintain::Wait);
         }
@@ -589,13 +704,19 @@ impl App {
         self.runtime = runtime;
         self.animation = animation;
         self.car = car;
+        self.car_draws = car_draws;
+        self.world_bucket = world_bucket;
         self.runtime_engine.reset_clock(&mut self.clock_backend);
         self.mode = mode;
         self.keys.clear();
         self.steering_preview_active = false;
-        println!(
-            "Application state: {mode:?}; scene assets loaded; gameplay and cutscene execution unsupported"
-        );
+        self.driving_clock.reset();
+        self.driving_controls = driving_view::Controls::default();
+        if self.options.car_driving {
+            println!("Application state: {mode:?}; driving car and original static world loaded; mission scripts and traffic are not executed");
+        } else {
+            println!("Application state: {mode:?}; scene assets loaded; gameplay and cutscene execution unsupported");
+        }
         Ok(())
     }
     fn fail(&mut self, event_loop: &ActiveEventLoop, message: &str) {
@@ -603,12 +724,104 @@ impl App {
         event_loop.exit();
     }
     fn reload_car(&mut self) -> Result<(), String> {
+        if let Some(output) = &mut self.audio_output {
+            let discarded = output.clear_queue().map_err(|e| e.to_string())?;
+            println!(
+                "Driving reload discarded {discarded} queued PCM frames from the previous car"
+            );
+        }
         if let Some(renderer) = &self.renderer {
             renderer.device.poll(wgpu::Maintain::Wait);
         }
         close_car(&mut self.car)?;
         self.renderer = None;
         self.transition(AppMode::Inspection)
+    }
+    fn drive_car(&mut self, elapsed_ms: u32) -> Result<(), String> {
+        if !self.options.car_driving {
+            return Ok(());
+        }
+        let old_ticks = self.driving_clock.ticks;
+        let ticks = self.driving_clock.advance(elapsed_ms);
+        if ticks == 0 {
+            return Ok(());
+        }
+        let controls = driving_view::Controls::from_keys(&self.keys);
+        let owner = self.car.as_mut().ok_or("Driving car owner absent")?;
+        let mut state = None;
+        let mut steering_limit_at_input = None;
+        for _ in 0..ticks {
+            steering_limit_at_input =
+                Some(owner.driving_control_feedback()?.steering_limit_radians);
+            state = Some(owner.driving_step(
+                driving_view::STEP_MS,
+                lhr_engine::car_runtime::CarDrivingInput {
+                    throttle: controls.throttle,
+                    brake: controls.brake,
+                    steer: controls.steer,
+                    handbrake: controls.handbrake,
+                },
+            )?);
+            let root = owner.model().ok_or("Driving car model absent")?.root();
+            self.camera = driving_view::chase_camera(owner.arena_mut(), root)?;
+            driving_view::sync_audio_listener(owner, &self.camera)?;
+            let mut samples = [0.0_f32; 1536];
+            owner.driving_mix_audio(48_000, &mut samples)?;
+            if let Some(capture) = &mut self.audio_capture {
+                capture.push(&samples).map_err(|e| e.to_string())?;
+            }
+            if let Some(output) = &mut self.audio_output {
+                output.push(&samples).map_err(|e| e.to_string())?;
+            }
+        }
+        let state = state.ok_or("Driving scheduler dispatched no tick")?;
+        if self.audio_capture.is_some()
+            || controls != self.driving_controls
+            || old_ticks / 63 != self.driving_clock.ticks / 63
+        {
+            let audio_frames = self
+                .audio_capture
+                .as_ref()
+                .map_or(0, |capture| capture.frames());
+            let host_unix_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|e| e.to_string())?
+                .as_millis();
+            let feedback = owner.driving_control_feedback()?;
+            let steering_limit_at_input =
+                steering_limit_at_input.ok_or("Driving scheduler dispatched no input feedback")?;
+            println!("Driving state: {{\"tick\":{},\"position\":{:?},\"speed\":{},\"contacts\":{},\"throttle\":{},\"brake\":{},\"steer\":{},\"handbrake\":{},\"audio_frames\":{},\"host_unix_ms\":{},\"actual_throttle\":{},\"actual_brake\":{},\"steering_requested_radians\":{},\"steering_applied_radians\":{},\"steering_limit_radians\":{},\"steering_limit_at_input_radians\":{},\"handbrake_force\":{},\"gear\":{}}}", self.driving_clock.ticks, state.position, state.speed, state.contacts, controls.throttle, controls.brake, controls.steer, controls.handbrake, audio_frames, host_unix_ms, feedback.throttle, feedback.brake, feedback.steering_requested_radians, feedback.steering_applied_radians, feedback.steering_limit_radians, steering_limit_at_input, feedback.handbrake_force, feedback.gear);
+        }
+        self.driving_controls = controls;
+        let render_root = owner.driving_scene_root()?;
+        let snapshot =
+            lhr_engine::car_inspection::snapshot_arena_tree(owner.arena_mut(), render_root)?;
+        let renderer = self.renderer.as_mut().ok_or("Driving renderer absent")?;
+        let next = snapshot.scene.meshes;
+        let (old_range, new_range) =
+            driving_view::mesh_replacement_ranges(&self.scene.meshes[..self.car_draws], &next);
+        if !old_range.is_empty() || !new_range.is_empty() {
+            renderer.replace_meshes(old_range, &next[new_range.clone()])?;
+        }
+        for (index, mesh) in next.iter().enumerate() {
+            if !new_range.contains(&index) {
+                renderer.update_mesh_vertices(index, &mesh.vertices)?;
+            }
+        }
+        let next_count = next.len();
+        self.scene.meshes.splice(0..self.car_draws, next);
+        self.car_draws = next_count;
+        let bucket = driving_view::world_bucket(state.position)?;
+        let revision = owner.driving_world_render_revision()?;
+        if self.world_bucket != Some((bucket, revision)) {
+            let world = owner.driving_render_world_near(state.position, 200.)?;
+            renderer.replace_meshes(self.car_draws..self.scene.meshes.len(), &world.meshes)?;
+            self.scene.meshes.truncate(self.car_draws);
+            self.scene.meshes.extend(world.meshes);
+            self.world_bucket = Some((bucket, owner.driving_world_render_revision()?));
+            println!("Driving world presentation refreshed at source bucket {bucket:?}; {} actual static draws", self.scene.meshes.len() - self.car_draws);
+        }
+        Ok(())
     }
     fn preview_car_steering(&mut self, elapsed_ms: u32) -> Result<(), String> {
         if !self.steering_preview_active {
@@ -667,7 +880,9 @@ impl ApplicationHandler for App {
         }
         let Ok(window) = event_loop.create_window(
             Window::default_attributes()
-                .with_title(if self.options.car_inspection {
+                .with_title(if self.options.car_driving {
+                    "Lost Heaven Reborn — original-data driving"
+                } else if self.options.car_inspection {
                     "Lost Heaven Reborn — car inspection / wheel steering preview"
                 } else {
                     "Lost Heaven Reborn — original menu / static scene inspection"
@@ -714,7 +929,8 @@ impl ApplicationHandler for App {
                 return;
             }
         };
-        renderer.set_inspection_alpha_cutout(self.options.car_inspection);
+        renderer
+            .set_inspection_alpha_cutout(self.options.car_inspection || self.options.car_driving);
         surface.configure(&renderer.device, &config);
         self.adapter = Some(adapter);
         self.window = Some(window);
@@ -747,7 +963,9 @@ impl ApplicationHandler for App {
                                 KeyCode::Escape => event_loop.exit(),
                                 _ => {}
                             }
-                        } else if code == KeyCode::KeyR && self.options.car_inspection {
+                        } else if code == KeyCode::KeyR
+                            && (self.options.car_inspection || self.options.car_driving)
+                        {
                             if let Err(error) = self.reload_car() {
                                 self.fail(event_loop, &error);
                             }
@@ -845,6 +1063,10 @@ impl ApplicationHandler for App {
                         step.models_dispatched
                     );
                 }
+                if let Err(error) = self.drive_car(step.raw_delta) {
+                    self.fail(event_loop, &error);
+                    return;
+                }
                 if let Err(error) = self.preview_car_steering(step.modified_delta) {
                     self.fail(event_loop, &error);
                     return;
@@ -863,12 +1085,12 @@ impl ApplicationHandler for App {
                 let mut zoom = 1.0;
                 for key in &self.keys {
                     match key {
-                        KeyCode::ArrowLeft => yaw += 0.025,
-                        KeyCode::ArrowRight => yaw -= 0.025,
-                        KeyCode::ArrowUp => pitch += 0.025,
-                        KeyCode::ArrowDown => pitch -= 0.025,
-                        KeyCode::KeyW => zoom *= 0.98,
-                        KeyCode::KeyS => zoom *= 1.02,
+                        KeyCode::ArrowLeft if !self.options.car_driving => yaw += 0.025,
+                        KeyCode::ArrowRight if !self.options.car_driving => yaw -= 0.025,
+                        KeyCode::ArrowUp if !self.options.car_driving => pitch += 0.025,
+                        KeyCode::ArrowDown if !self.options.car_driving => pitch -= 0.025,
+                        KeyCode::KeyW if !self.options.car_driving => zoom *= 0.98,
+                        KeyCode::KeyS if !self.options.car_driving => zoom *= 1.02,
                         _ => {}
                     }
                 }
@@ -1019,7 +1241,9 @@ fn run() -> Result<(), String> {
     }
     println!(
         "Original-data {} inspection; provisional {} texture sampling; {} indexed mesh groups",
-        if options.car_inspection {
+        if options.car_driving {
+            "driving car and world"
+        } else if options.car_inspection {
             "initialized car"
         } else {
             animation
@@ -1136,6 +1360,40 @@ fn run() -> Result<(), String> {
             ));
         }
     };
+    let (car_draws, world_bucket) = match live_draw_state(&mut car, options.car_driving) {
+        Ok(draws) => draws,
+        Err(error) => {
+            let cleanup = close_car(&mut car);
+            return Err(format!("{error}; car cleanup: {cleanup:?}"));
+        }
+    };
+    let audio_capture = match options.audio_capture.as_ref() {
+        Some(path) => match lhr_engine::runtime_audio::StereoWavCapture::create(path, 48_000) {
+            Ok(capture) => Some(capture),
+            Err(error) => {
+                let cleanup = close_car(&mut car);
+                return Err(format!("{error}; car cleanup: {cleanup:?}"));
+            }
+        },
+        None => None,
+    };
+    let audio_output = if options.car_driving {
+        match lhr_engine::runtime_audio::DeviceAudioOutput::open_default(48_000) {
+            Ok(output) => {
+                println!(
+                    "Driving native audio output: {} at 48000 Hz; same PCM as capture",
+                    output.device_name()
+                );
+                Some(output)
+            }
+            Err(error) => {
+                println!("Driving native audio output unavailable: {error}; actual PCM mixing remains active");
+                None
+            }
+        }
+    } else {
+        None
+    };
     let mut app = App {
         mode,
         ui,
@@ -1155,6 +1413,12 @@ fn run() -> Result<(), String> {
         config: None,
         keys: HashSet::new(),
         steering_preview_active: false,
+        driving_clock: driving_view::FixedClock::default(),
+        driving_controls: driving_view::Controls::default(),
+        car_draws,
+        world_bucket,
+        audio_capture,
+        audio_output,
         count: 0,
         error: None,
     };
@@ -1164,9 +1428,24 @@ fn run() -> Result<(), String> {
     if let Some(renderer) = &app.renderer {
         renderer.device.poll(wgpu::Maintain::Wait);
     }
+    if let Some(output) = &app.audio_output {
+        println!("Driving native audio output status: {:?}", output.status());
+    }
+    app.audio_output = None;
     let cleanup = close_car(&mut app.car);
+    let audio_result = match app.audio_capture.take() {
+        Some(capture) => {
+            println!(
+                "Driving audio capture: {} actual mixed stereo frames at 48000 Hz",
+                capture.frames()
+            );
+            capture.finish().map_err(|e| e.to_string())
+        }
+        None => Ok(()),
+    };
     event_result?;
     cleanup?;
+    audio_result?;
     if let Some(error) = app.error {
         return Err(error);
     }

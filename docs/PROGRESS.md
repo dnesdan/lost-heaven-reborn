@@ -1,5 +1,60 @@
 # Progress
 
+## Current standalone driving integration
+
+Frozen Source4 composes the original-data Car lifecycle, static and dynamic
+collision, material/tyre tables, crash-model replacement, physical `C_crash_obj`
+debris and sound through canonical owners. Plain-glass geometry and fragment
+lifetime workers are bound. Runtime requires original assets and does not open
+an original executable or DLL. Full Game/player/mission ownership and whole-world
+library parity remain open.
+
+The full gate passes 1066 Rust tests (110 assets unit, seven assets integration,
+910 engine library, eight engine integration, 26 application and five renderer),
+nine REA-wrapper tests and 47 progress tests, plus formatting, locked all-target
+checking and all-target Clippy. The 264-file source guard agrees before and after
+the gate. Current Apple arm64 checking is blocked by missing CoreAudio SDK headers;
+native macOS and Metal execution remain untested.
+
+Three verbatim original-input trajectories pass in both actual opt0/opt3 profiles:
+900 prop-collision steps, 900 glass-damage steps with chase-camera/listener/PCM
+updates, and 1800 idle steps. One physical prop is created in the prop trace.
+All six runs leave zero owned resources, with five separate caller-owned
+Scene-prefix frames. Only damaged glass material is observed; exhausted-window
+fragments and their sound remain unexercised.
+
+Both windowed profiles pass 26 negative CLI cases, exact legacy taxi/police/MISE01
+pixels, live W/S/A/D/Space controls, focus loss, R reload and two cleanups. Maximum
+displacement is 12.224 metres in debug and 46.141 metres in release. The genuine
+18-second release video records 55.038 metres maximum displacement, with 540
+decoded frames and 330 distinct frames. It includes 17.44 seconds of actual
+original-resource stereo audio at 48 kHz. Software capture and simulation timing
+diverge by up to 0.706 seconds; audio is neither padded nor stretched. Original
+renderer/audio parity, perfect synchronization and hardware audio output remain
+unverified. Both sequential independent non-author reviews approved the bounded
+Source4 milestone with no open findings. Source-commit binding remains pending.
+
+The sealed native comparison passes all admitted current-source Cargo opt0/opt3
+cases under 135 matching 264-file source guards. Its count categories remain
+separate: 480 baseline named inputs / 377 semantic capsules and five negative
+controls; 631 new named method/kernel inputs including projections and precision
+controls; four genuine library-owner queries; and four new availability-negative
+controls. These categories have no combined positive or unique total, and profiles
+add no duplicate credit. Controlled world/resource boundaries, CPU kernels and
+typed projections retain their individual scopes. Original code runs under masked
+CW007f PC24/RN; normalized Rust results/effects and its modeled logical sticky P
+are compared. Rust/native host hardware CW/MXCSR equivalence and other
+exception/condition bits are unclaimed.
+Whole Game, complete Scene, GPU and whole-function parity remain unclaimed.
+
+This integration adds zero accepted entries or contracts: **309 / 113**, with
+**23 static_inspection / 90 not_integrated** and strict **0/12** unchanged.
+The authored MISE01 VM still stops at FINDACTOR/UnsupportedWorldBackend on
+PC 3 / source line 4. The accepted `bf8b170` prerequisite baseline and all dated
+snapshots retain their original scopes.
+
+## Previous bounded prerequisite milestone
+
 At `bf8b170`, the accepted scope is **309 entries / 113 reviewed contracts**, **23 static_inspection / 90 not_integrated**, strict **0/12**. Whole-function coverage remains N/A.
 
 Original car level tables now load from the user's DTA data through the reconstructed loader and packed-parameter converter. Eight distinct model/allocator configurations pass in both profiles (16 executions), including repeat-load rejection and explicit cleanup with zero tracked Car/Game/model resources. Five host Scene-prefix frames remain explicit context. Runtime needs original assets without opening an original executable or DLL.
@@ -51,7 +106,7 @@ Historical filesystem milestone: At `f04cc43`, read-only `FilesystemEffects`, `N
 Historical WAV milestone: At `f89f542`, bounded PCM16 mono/stereo WAV archive decoding composes with Open/Read/Seek/Close: **177 scoped entries / 59 contracts**. Native comparisons cover 202 Read observations (172 nonfailure, 30 released-handle failures) across 26 archive fixtures plus four supplemental trajectories reusing four fixtures, with 66 explicit Seek context rows. The 510 normalized log rows and 7,280,960 complete-buffer bytes include guards and unrequested regions; debug/release count once. Separately, 128 logical decoder vectors and 18 scripted effects plus four direct-buffer effects check Rust behavior, without native failure injection. Eight fresh REA results support the codec; identical PC/PS2 table constants and PS2 linker names add no PS2 runtime claim. Scope is bounded 16-bit mono/stereo; generic non16 LZ, other channels, Write and full DLL parity remain open. Application/audio playback and first-mission integration remain open; no new rendered or interactive validation.
 
 <!-- generated-function-progress:start -->
-As of 2026-10-24 · snapshot `RUST-SCOPED-PORTS-20261024-45`.
+As of 2026-10-24 · snapshot `RUST-SCOPED-PORTS-20261024-46`.
 
 | Original binary | Static retained pseudocode | Denominator basis | Full contracts | Full Rust ports | Differential runtime verified |
 | --- | ---: | --- | ---: | ---: | ---: |
@@ -231,6 +286,7 @@ These rows describe only the reviewed bounded domains. Their native-derived case
 | `RUST-SCOPED-PORTS-20261024-43` | 2026-10-24 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 271 | 0/12 |
 | `RUST-SCOPED-PORTS-20261024-44` | 2026-10-24 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 272 | 0/12 |
 | `RUST-SCOPED-PORTS-20261024-45` | 2026-10-24 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 309 | 0/12 |
+| `RUST-SCOPED-PORTS-20261024-46` | 2026-10-24 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 309 | 0/12 |
 
 Regenerate locally with `python3 scripts/progress.py --write`; verify without writes with `python3 scripts/progress.py --check`. Versioned snapshots are retained in `docs/progress.json`.
 See the [README overview](../README.md) for the compact dashboard.

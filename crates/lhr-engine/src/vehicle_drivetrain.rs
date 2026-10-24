@@ -73,27 +73,36 @@ fn div(a: f32, b: f32) -> Result<f32> {
     Ok(result)
 }
 
-/// Detached storage projection; construction does not initialize a native car.
+/// Owned or borrowed storage projection; construction never initializes a car.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct VehicleDrivetrainState {
-    bytes: Vec<u8>,
+pub struct VehicleDrivetrainState<T = Vec<u8>> {
+    bytes: T,
 }
 
 impl VehicleDrivetrainState {
     pub fn from_bytes(bytes: Vec<u8>) -> Self {
         Self { bytes }
     }
-    pub fn as_bytes(&self) -> &[u8] {
-        &self.bytes
-    }
-    pub(crate) fn as_bytes_mut(&mut self) -> &mut [u8] {
-        &mut self.bytes
-    }
     pub fn into_bytes(self) -> Vec<u8> {
         self.bytes
     }
+}
+impl<'a> VehicleDrivetrainState<&'a mut [u8]> {
+    /// Ordered drivetrain stores act directly on the canonical vehicle owner.
+    pub fn from_bytes_mut(bytes: &'a mut [u8]) -> Self {
+        Self { bytes }
+    }
+}
+impl<T: AsRef<[u8]> + AsMut<[u8]>> VehicleDrivetrainState<T> {
+    pub fn as_bytes(&self) -> &[u8] {
+        self.bytes.as_ref()
+    }
+    pub(crate) fn as_bytes_mut(&mut self) -> &mut [u8] {
+        self.bytes.as_mut()
+    }
     fn byte(&self, offset: u32) -> Result<u8> {
         self.bytes
+            .as_ref()
             .get(offset as usize)
             .copied()
             .ok_or(VehicleDrivetrainUnavailable::Storage(offset))
@@ -105,6 +114,7 @@ impl VehicleDrivetrainState {
             .ok_or(VehicleDrivetrainUnavailable::Storage(offset))?;
         let bytes = self
             .bytes
+            .as_ref()
             .get(start..end)
             .ok_or(VehicleDrivetrainUnavailable::Storage(offset))?;
         Ok(u32::from_le_bytes(bytes.try_into().unwrap()))
@@ -118,6 +128,7 @@ impl VehicleDrivetrainState {
             .checked_add(4)
             .ok_or(VehicleDrivetrainUnavailable::Storage(offset))?;
         self.bytes
+            .as_mut()
             .get_mut(start..end)
             .ok_or(VehicleDrivetrainUnavailable::Storage(offset))?
             .copy_from_slice(&value.to_le_bytes());
@@ -416,6 +427,36 @@ mod tests {
         s.store(0x560, 2).unwrap();
         s.bytes[0xc2c] = 1;
         s
+    }
+
+    #[test]
+    fn borrowed_workers_keep_ordered_stores_in_the_original_owner() {
+        let mut owned = state();
+        let mut bytes = owned.as_bytes().to_vec();
+        let mut direction_owned = 1;
+        let mut direction_borrowed = direction_owned;
+        {
+            let mut borrowed = VehicleDrivetrainState::from_bytes_mut(&mut bytes);
+            assert_eq!(owned.set_cut_time(16), borrowed.set_cut_time(16));
+            assert_eq!(
+                owned.motor_force(0.016, 0.7),
+                borrowed.motor_force(0.016, 0.7)
+            );
+            assert_eq!(
+                owned.motor_rot(0.016, 3., &mut direction_owned),
+                borrowed.motor_rot(0.016, 3., &mut direction_borrowed)
+            );
+        }
+        assert_eq!(owned.as_bytes(), bytes);
+        assert_eq!(direction_owned, direction_borrowed);
+        // A short live projection retains the force prefix on the same failed
+        // downstream access; no temporary owner's successful copyback is needed.
+        let mut short = bytes[..0x600].to_vec();
+        let mut detached = VehicleDrivetrainState::from_bytes(short.clone());
+        let result = VehicleDrivetrainState::from_bytes_mut(&mut short).motor_force(0.016, 0.8);
+        assert_eq!(result, detached.motor_force(0.016, 0.8));
+        assert!(result.is_err());
+        assert_eq!(short, detached.as_bytes());
     }
 
     #[test]

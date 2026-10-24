@@ -9,17 +9,23 @@ The goal is a standalone Rust engine that runs the original game's models, anima
 | Mission progression | Original replay/cutscene transitions, objectives, required actors, pursuit and events run to the original completion transition. |
 | Presentation needed for play | Original models, animation, materials, mission text/HUD and required audio are available; remaining visual differences are recorded. |
 | Repeatability | Restart and repeated runs are tested; original-runtime traces and interactive Rust runs exercise the same representative sequence. |
-| Standalone execution | User-owned assets suffice; original executables, REA and analysis databases are development inputs only. Linux execution is tested and macOS build compatibility maintained. |
+| Standalone execution | User-owned assets suffice; original executables, REA and analysis databases are development inputs only. Linux execution is tested. The current Apple cross-check is blocked by the missing AudioUnit SDK; native macOS and Metal remain untested. |
 
 All gates remain open until corresponding evidence is recorded. Current functionality and scoped counts are in [PROGRESS.md](PROGRESS.md); the one full-system coverage table remains [COVERAGE.md](../COVERAGE.md).
 
 ## Parity with mafia-re
 
-At `5b28728`, Rust C_car construction now feeds bounded primary Init, explicit cleanup and a real initialized-car inspection mode. The accepted scope is **272 entries / 93 contracts**, **21 static_inspection / 72 not_integrated**, strict **0/12**. Whole-function coverage remains N/A.
+Standalone original-data driving now composes the Car constructor, Init,
+GameInit, Tick/Engine/Move/Update and explicit GameDone/destruction over one live
+owner. Original static collision, material/tyre tables, WAV sound and host input/
+chase presentation are connected. The accepted canonical-entry ledger stays
+309 entries / 113 contracts; full-system verification remains 0/12.
 
-Actual authored MISE01 remains FINDACTOR/UnsupportedWorldBackend at PC 3 / source line 4; no later line executes. All six first-mission gates remain open. No runtime gameplay integration or driving mode is established.
-
-Recover actual C_car::GameInit at 0x41ed00 separately from the observed mission CreateActor → primary Init → AddActor route. Complete Scene viewport/weather/shared Snow construction beyond 0x48e29 and the thirteen actual Scene Close effects with their correct resource identities, then original File Open/reload and mission-world ownership. Source-parameter flags 2/audio remains unavailable.
+Actual authored MISE01 still stops at FINDACTOR/UnsupportedWorldBackend,
+PC 3 / source line 4. All six first-mission gates remain open. Complete original
+Game/Scene/player construction, foreign dynamic actors, live particle/projection
+pools and remaining severe-damage effects are separate dependencies. Standalone
+source-parameter flags 2 and audio no longer form the initial driving frontier.
 
 Historical Installation integration connects existing menu/static scene archive callers to NativeFiles; its asset-equality and static-rendering receipts remain in [PROGRESS.md](PROGRESS.md). That route supplies neither GPU-worker ownership nor mission-world construction.
 
@@ -37,8 +43,8 @@ Fresh REA/Ghidra instruction evidence and actual registry bytes support the boun
 
 The immediate dependency order is:
 
-1. Recover actual C_car::GameInit at 0x41ed00 separately from the observed mission CreateActor → primary Init → AddActor route. Complete Scene viewport/weather/shared Snow construction beyond 0x48e29 and the thirteen actual Scene Close effects with their correct resource identities, then original File Open/reload and mission-world ownership. Source-parameter flags 2/audio remains unavailable.
-2. Close collision-loader geometry/world transforms and dynamic body/wheel contacts, then reconstruct Tick -> Engine -> six-float Move -> DoWheelsCollision in original substep/solver order. Preserve accepted drivetrain/GearSnd behavior and bounded Vehicle initialization while closing timestep, direction and audio ownership; connect input, player/camera and repeatable original-versus-Rust driving sequences.
+1. Integrate the recovered standalone Car GameInit/driving lifecycle into the original Game, player and authored actor lifecycle. Complete Scene viewport/weather/shared Snow construction beyond 0x48e29 and the thirteen actual Scene Close effects with their correct resource identities, then original File Open/reload and mission-world ownership. Standalone source-parameter flags 2 and original WAV audio are now bound; live particle and projection pools remain open.
+2. Extend the standalone original-world Tick -> Engine -> six-float Move -> DoWheelsCollision composition to live foreign dynamic actors, occupants and remaining severe-damage effects. Preserve original solver order, canonical ownership and the source-bound native profiles. Replace the host chase/input bridge with original player/camera scheduling and connect repeatable full-game driving sequences.
 3. Complete floating DecodeOperand, DecodeLet/DecodeIf, all 62 parameter ownership cases and Compile/Init/Done, then detector runtime and genuine mission scene/actor registration. Replay, objectives and original scheduling remain required. Actual authored MISE01 remains FINDACTOR/UnsupportedWorldBackend at PC 3 / source line 4.
 
 Standalone vehicle initialization and CPU ownership can be exercised before complete mission compilation; they do not supply the missing enclosing Game/world/driver and authored mission paths. Original models are regression inputs for general behavior. Animation and rendering resource dependencies remain independent work.

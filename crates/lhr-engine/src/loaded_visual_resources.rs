@@ -25,6 +25,10 @@ mod car_inspection_resources;
 pub use car_inspection_resources::{CpuInspectionGroup, CpuInspectionMesh};
 #[path = "car_inspection_texture.rs"]
 mod car_inspection_texture;
+#[path = "loaded_glass.rs"]
+mod glass;
+#[path = "loaded_vertex_access.rs"]
+mod vertex_access;
 static NEXT_STORAGE_KEY: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -482,6 +486,9 @@ impl MaterialLoadContext {
 /// further admissions; it is never reported as an empty successful object.
 pub struct LoadedVisualResources {
     objects: ObjectResources,
+    glass_pending_resources: Vec<glass::GlassResource>,
+    #[cfg(test)]
+    glass_fault_after_vertex_upload: bool,
     backend: CpuVisualStorage,
     sources: BTreeMap<(u64, u32), Vec<lhr_assets::Material>>,
     incomplete: bool,
@@ -501,6 +508,9 @@ impl LoadedVisualResources {
     pub fn new() -> Result<Self> {
         Ok(Self {
             objects: ObjectResources::new()?,
+            glass_pending_resources: Vec::new(),
+            #[cfg(test)]
+            glass_fault_after_vertex_upload: false,
             backend: CpuVisualStorage::default(),
             sources: BTreeMap::new(),
             incomplete: false,
@@ -958,6 +968,8 @@ impl LoadedVisualResources {
 
 #[path = "vehicle_deform_resources.rs"]
 mod deform_resources;
+#[path = "vehicle_glass_resources.rs"]
+mod vehicle_glass_resources;
 
 #[cfg(test)]
 mod tests {

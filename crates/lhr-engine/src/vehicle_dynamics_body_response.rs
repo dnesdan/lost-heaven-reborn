@@ -1,12 +1,14 @@
-//! Static-body impulse/friction branch of original BodyCollision. Dynamic owner
-//! response remains a different dependency; this phase never applies a static
-//! impulse to an unresolved dynamic contact.
+//! Original BodyCollision contact response. Static impulse/friction and the
+//! two-body dynamic response share the original point/approach prefix.
+#[path = "vehicle_dynamics_body_dynamic_response.rs"]
+mod dynamic_response;
 use crate::native_transform::{try_vector_angle_sine_scaled, MakeUnavailable, SMatrix};
 use crate::vehicle_dynamics_body::{transform_assign, VehicleBodyCollisionCall};
 use crate::vehicle_dynamics_prepare::{
     add, div, float, mul, number, result, store, store_float, sub, word,
 };
 use crate::vehicle_init::VehicleInitBackend;
+pub use dynamic_response::*;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct VehicleBodyStaticContact {
@@ -37,7 +39,12 @@ pub enum VehicleBodyStaticEffect {
         point: [f32; 3],
         radius: f32,
         velocity: [f32; 3],
+        /// Original fifth stack argument, reloaded from shared63d9e4.
+        dynamic_owner: u32,
+        /// Static response passes null in the original sixth stack argument.
         descriptor: u32,
+        /// Original seventh stack argument, zero for this static caller.
+        flags: u32,
     },
     Sound {
         strength: f32,
@@ -45,6 +52,73 @@ pub enum VehicleBodyStaticEffect {
     },
 }
 pub trait VehicleBodyStaticResponseBackend: VehicleInitBackend {
+    /// Scene adapters resolve these through their owned opaque descriptors.
+    fn body_static_descriptor_properties(
+        &mut self,
+        descriptor: u32,
+    ) -> std::result::Result<u32, Self::Error> {
+        self.read_word(descriptor)
+    }
+    fn body_static_descriptor_owner(
+        &mut self,
+        descriptor: u32,
+    ) -> std::result::Result<u32, Self::Error> {
+        self.read_word(descriptor.wrapping_add(0x44))
+    }
+
+    fn body_dynamic_flags(
+        &mut self,
+        _vehicle: u32,
+        descriptor: u32,
+        _damage_allowed: &mut bool,
+    ) -> std::result::Result<bool, VehicleBodyStaticUnavailable<Self::Error>> {
+        let owner = self
+            .body_static_descriptor_owner(descriptor)
+            .map_err(VehicleBodyStaticUnavailable::Effect)?;
+        Err(VehicleBodyStaticUnavailable::DynamicOwner(owner))
+    }
+    fn body_dynamic_properties(
+        &mut self,
+        _vehicle: u32,
+        descriptor: u32,
+        _point: [f32; 3],
+        _normal: [f32; 3],
+        _output: &mut crate::vehicle_car_body_dynamic::VehicleCarOtherBody,
+    ) -> std::result::Result<bool, VehicleBodyStaticUnavailable<Self::Error>> {
+        let owner = self
+            .body_static_descriptor_owner(descriptor)
+            .map_err(VehicleBodyStaticUnavailable::Effect)?;
+        Err(VehicleBodyStaticUnavailable::DynamicOwner(owner))
+    }
+    fn body_dynamic_apply(
+        &mut self,
+        _vehicle: u32,
+        descriptor: u32,
+        _point: &mut [f32; 3],
+        _impulse: &mut [f32; 3],
+        _normal: &mut [f32; 3],
+        _self_mass: f32,
+    ) -> std::result::Result<(), VehicleBodyStaticUnavailable<Self::Error>> {
+        let owner = self
+            .body_static_descriptor_owner(descriptor)
+            .map_err(VehicleBodyStaticUnavailable::Effect)?;
+        Err(VehicleBodyStaticUnavailable::DynamicOwner(owner))
+    }
+
+    fn body_dynamic_static_notify(
+        &mut self,
+        _vehicle: u32,
+        descriptor: u32,
+        _point: &mut [f32; 3],
+        _linear_velocity: &mut [f32; 3],
+        _normal: &mut [f32; 3],
+    ) -> std::result::Result<(), VehicleBodyStaticUnavailable<Self::Error>> {
+        let owner = self
+            .body_static_descriptor_owner(descriptor)
+            .map_err(VehicleBodyStaticUnavailable::Effect)?;
+        Err(VehicleBodyStaticUnavailable::DynamicOwner(owner))
+    }
+
     fn body_static_effect(
         &mut self,
         vehicle: u32,
@@ -204,17 +278,18 @@ pub fn vehicle_body_static_response<B: VehicleBodyStaticResponseBackend>(
     contact: VehicleBodyStaticContact,
     call: &mut VehicleBodyCollisionCall,
 ) -> Out<bool, B::Error> {
-    let flags = word(b, contact.descriptor)?;
+    let flags = b
+        .body_static_descriptor_properties(contact.descriptor)
+        .map_err(VehicleBodyStaticUnavailable::Effect)?;
     if flags & 0x10000 != 0 {
         b.write_byte(vehicle.wrapping_add(0x28), 1)
             .map_err(VehicleBodyStaticUnavailable::Effect)?;
     }
     if flags & 0x40 != 0 {
-        let owner = word(b, contact.descriptor.wrapping_add(0x44))?;
+        let owner = b
+            .body_static_descriptor_owner(contact.descriptor)
+            .map_err(VehicleBodyStaticUnavailable::Effect)?;
         store(b, 0x63d9e4, owner)?;
-        if owner != 0 {
-            return Err(VehicleBodyStaticUnavailable::DynamicOwner(owner));
-        }
     } else {
         store(b, 0x63d9e4, 0)?;
     }
@@ -269,13 +344,35 @@ pub fn vehicle_body_static_response<B: VehicleBodyStaticResponseBackend>(
     } else {
         [0.; 3]
     };
+    let mut damage_allowed = true;
+    let mut notify_static = false;
+    if word(b, 0x63d9e4)? != 0 {
+        let static_only = b.body_dynamic_flags(vehicle, contact.descriptor, &mut damage_allowed)?;
+        notify_static = static_only;
+        if word(b, 0x63d9e4)? != 0 && !static_only {
+            return vehicle_body_dynamic_response(
+                b,
+                vehicle,
+                contact,
+                call,
+                VehicleBodyDynamicPrefix {
+                    point,
+                    arm,
+                    velocity,
+                    normal: n,
+                    correction,
+                    damage_allowed,
+                },
+            );
+        }
+    }
     let response = coefficient(b, vehicle, material, 0x1c, 0x390)?;
     let numerator = mul(-response, approach)?;
     let angular_response = inverse_inertia(b, vehicle, cross(arm, n)?)?;
     let lever = cross(angular_response, arm)?;
     let inverse_mass = div(1., float(b, vehicle.wrapping_add(0x5f4))?)?;
     let mut denominator = add(dot_xzy(lever, n)?, inverse_mass)?;
-    if f64::from(denominator.abs()) < 1e-6 {
+    if f64::from(denominator.abs()) < f64::from(f32::from_bits(0x358637bd)) {
         denominator = 1e-6;
     }
     let strength = div(numerator, denominator)?;
@@ -301,7 +398,7 @@ pub fn vehicle_body_static_response<B: VehicleBodyStaticResponseBackend>(
         call.auxiliary_vector = impulse;
     }
     let config = word(b, vehicle.wrapping_add(0xc68))?;
-    if config & 0x8000 != 0 {
+    if damage_allowed && config & 0x8000 != 0 {
         let mut effect = VehicleBodyStaticEffect::Damage {
             point,
             normal: n,
@@ -318,7 +415,7 @@ pub fn vehicle_body_static_response<B: VehicleBodyStaticResponseBackend>(
         }
         outcome.map_err(VehicleBodyStaticUnavailable::Effect)?;
     }
-    if word(b, vehicle.wrapping_add(0xc68))? & 0x4000 != 0 {
+    if damage_allowed && word(b, vehicle.wrapping_add(0xc68))? & 0x4000 != 0 {
         b.body_static_effect(
             vehicle,
             &mut VehicleBodyStaticEffect::AdditionalDamage {
@@ -338,7 +435,9 @@ pub fn vehicle_body_static_response<B: VehicleBodyStaticResponseBackend>(
             point,
             radius: contact.radius,
             velocity,
-            descriptor: contact.descriptor,
+            dynamic_owner: word(b, 0x63d9e4)?,
+            descriptor: 0,
+            flags: 0,
         };
         let outcome = b.body_static_effect(vehicle, &mut effect);
         if let VehicleBodyStaticEffect::Callback {
@@ -385,7 +484,30 @@ pub fn vehicle_body_static_response<B: VehicleBodyStaticResponseBackend>(
         }
     }
     if square_xyz(call.correction_first)? < dot_xzy(correction, correction)? {
-        call.correction_first = correction;
+        let mut accept = true;
+        if word(b, 0x63d9e4)? != 0 {
+            let mut other = empty_other_body();
+            // Original static fallback ignores the callback's AL result and
+            // reads only its correction-allowed output byte.
+            b.body_dynamic_properties(vehicle, contact.descriptor, point, n, &mut other)?;
+            accept = other.correction_allowed != 0;
+        }
+        if accept {
+            call.correction_first = correction;
+        }
+    }
+    if notify_static && word(b, vehicle.wrapping_add(0x2e8))? != 0 {
+        let mut linear_velocity = vec(b, vehicle.wrapping_add(0x1f90))?;
+        b.body_dynamic_static_notify(
+            vehicle,
+            contact.descriptor,
+            &mut point,
+            &mut linear_velocity,
+            &mut n,
+        )?;
+        for (i, value) in linear_velocity.into_iter().enumerate() {
+            store_float(b, vehicle.wrapping_add(0x1f90 + i as u32 * 4), value)?;
+        }
     }
     let direction = normalize(velocity)?;
     let tangent = normalize(cross(cross(direction, n)?, n)?)?;

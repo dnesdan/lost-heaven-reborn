@@ -7,11 +7,13 @@
 //! unsupported-query limits are those of `collision_query` and its workers.
 
 use crate::{
-    collision_dispatch::{line_in_tree_level, primitive_from_prepared, CollisionPrimitive},
+    collision_dispatch::{
+        line_in_tree_level, primitive_from_prepared, static_volume_from_source, CollisionPrimitive,
+    },
     collision_links::CollisionLinkSlot,
     collision_prepare::{
         prepare_bound_collision_world, CollisionPreparationError, CollisionWorldPreparationError,
-        PreparedCollisionWorld,
+        PreparedCollisionPrimitive, PreparedCollisionWorld,
     },
     collision_query::{
         test_line_v_grid, CollisionLineHit, CollisionLineOutputs, CollisionLineRequest,
@@ -19,7 +21,8 @@ use crate::{
     },
     collision_volumes::VolumeError,
     collision_world::{
-        bind_resolved_collision_world, CollisionFrameGeometry, ResolvedCollisionWorldError,
+        bind_resolved_collision_world, BoundCollisionVolume, CollisionBindingError,
+        CollisionFrameGeometry, ResolvedCollisionWorldError,
     },
     frame_transform::{FrameError, FrameKey, I3dFrameGraph},
 };
@@ -71,6 +74,13 @@ pub struct DrivingCollisionPrimitiveInfo {
     pub source_offset: usize,
     pub properties: u32,
     pub unavailable: Option<CollisionPreparationError>,
+    /// Owner binding audit, independent of static nonface query availability.
+    /// A null volume owner does not remove the stored original static shape.
+    pub owner_unavailable: Option<CollisionPreparationError>,
+    /// Successful original nonface record+4 frame binding. This is a key into
+    /// the owning scene graph, never a canonical heap address or actor+0x44.
+    /// Failed/null bindings remain distinguished by `owner_unavailable`.
+    pub bound_volume: Option<BoundCollisionVolume>,
 }
 
 impl DrivingCollisionPrimitiveInfo {
@@ -95,6 +105,7 @@ pub struct DrivingCollisionWorld {
     cells: Vec<Cell>,
     candidates: Vec<CollisionPrimitive>,
     primitives: Vec<DrivingCollisionPrimitiveInfo>,
+    descriptors: Vec<CollisionPrimitive>,
 }
 
 fn reserve<T>(values: &mut Vec<T>, count: usize) -> Result<(), DrivingCollisionWorldError> {
@@ -165,14 +176,36 @@ impl DrivingCollisionWorld {
                 kind: entry.source.kind(),
                 index: entry.source.index,
             };
-            let candidate = primitive_from_prepared(entry, identity)
-                .map_err(|error| DrivingCollisionWorldError::Projection { primitive, error })?;
+            let owner_unavailable = entry.outcome.err().filter(|error| {
+                primitive.kind != PrimitiveKind::Triangle
+                    && matches!(error, CollisionPreparationError::Binding(_))
+            });
+            let candidate = if primitive.kind != PrimitiveKind::Triangle
+                && matches!(
+                    owner_unavailable,
+                    Some(CollisionPreparationError::Binding(
+                        CollisionBindingError::MissingFrame { .. }
+                    ))
+                ) {
+                static_volume_from_source(entry.source, identity).map(CollisionPrimitive::Volume)
+            } else {
+                primitive_from_prepared(entry, identity)
+            }
+            .map_err(|error| DrivingCollisionWorldError::Projection { primitive, error })?;
             primitives.push(DrivingCollisionPrimitiveInfo {
                 identity,
                 primitive,
                 source_offset: entry.source.offset,
                 properties: candidate.properties(),
-                unavailable: entry.outcome.err(),
+                unavailable: match candidate {
+                    CollisionPrimitive::Unavailable { error, .. } => Some(error),
+                    _ => None,
+                },
+                owner_unavailable,
+                bound_volume: match entry.outcome {
+                    Ok(PreparedCollisionPrimitive::Volume(volume)) => Some(volume),
+                    _ => None,
+                },
             });
             projected.push(candidate);
         }
@@ -212,6 +245,7 @@ impl DrivingCollisionWorld {
             cells,
             candidates,
             primitives,
+            descriptors: projected,
         })
     }
 
@@ -289,6 +323,17 @@ impl DrivingCollisionWorld {
         self.geometry
     }
 
+    pub fn grid_geometry(&self) -> StaticGridGeometry {
+        self.geometry
+    }
+
+    /// Read-only original cell membership and order for inspectable captures.
+    /// Primitive descriptors contain owned values, never process pointers.
+    pub fn cell_candidates(&self, index: usize) -> Option<(f32, u32, &[CollisionPrimitive])> {
+        self.cells.get(index)?;
+        Some(self.query_cell_candidates(index))
+    }
+
     pub(crate) fn query_cell_candidates(&self, index: usize) -> (f32, u32, &[CollisionPrimitive]) {
         let cell = self.cells[index];
         (
@@ -321,6 +366,65 @@ impl DrivingCollisionWorld {
         self.primitives.get(identity.checked_sub(1)? as usize)
     }
 
+    /// Owned query descriptor for an opaque primitive identity. Geometry here
+    /// is independent of host vehicle memory and original process addresses.
+    pub fn primitive_descriptor(&self, identity: u32) -> Option<CollisionPrimitive> {
+        self.descriptors
+            .get(identity.checked_sub(1)? as usize)
+            .copied()
+    }
+
+    /// Original GetFrameCollisions5ca5c0 array scan order. Triangles have
+    /// vertex pointers at +4 and do not participate in this frame-owner scan.
+    pub fn frame_primitives(&self, frame: FrameKey) -> Vec<u32> {
+        let mut result = Vec::new();
+        for kind in [
+            PrimitiveKind::XtObb,
+            PrimitiveKind::Aabb,
+            PrimitiveKind::Sphere,
+            PrimitiveKind::Obb,
+            PrimitiveKind::Cylinder,
+        ] {
+            result.extend(
+                self.primitives
+                    .iter()
+                    .filter(|entry| {
+                        entry.primitive.kind == kind
+                            && entry.bound_volume.is_some_and(|owner| owner.frame == frame)
+                    })
+                    .map(|entry| entry.identity),
+            );
+        }
+        result
+    }
+
+    /// The ModelCollisionsOFF430bb0 reached property store. Synchronize each
+    /// borrowed-cell projection of the same original descriptor identity.
+    pub fn disable_frame_collisions(&mut self, frame: FrameKey) -> Vec<u32> {
+        let identities = self.frame_primitives(frame);
+        for identity in &identities {
+            self.primitives[*identity as usize - 1].properties |= 0x20;
+            for descriptor in std::iter::once(&mut self.descriptors[*identity as usize - 1]).chain(
+                self.candidates
+                    .iter_mut()
+                    .filter(|candidate| match candidate {
+                        CollisionPrimitive::Triangle(value) => value.identity == *identity,
+                        CollisionPrimitive::Volume(value) => value.identity == *identity,
+                        CollisionPrimitive::Unavailable {
+                            identity: value, ..
+                        } => *value == *identity,
+                    }),
+            ) {
+                match descriptor {
+                    CollisionPrimitive::Triangle(value) => value.properties |= 0x20,
+                    CollisionPrimitive::Volume(value) => value.properties |= 0x20,
+                    CollisionPrimitive::Unavailable { properties, .. } => *properties |= 0x20,
+                }
+            }
+        }
+        identities
+    }
+
     pub fn test_line_v(
         &self,
         request: &CollisionLineRequest,
@@ -328,6 +432,60 @@ impl DrivingCollisionWorld {
         traversal: &mut CollisionTraversalState,
     ) -> Result<Option<CollisionLineHit>, CollisionQueryError> {
         test_line_v_grid(Some(self), request, outputs, traversal)
+    }
+
+    /// Original body sphere arguments retain the two native trailing words:
+    /// the first selects dynamic registration, the second rejects properties.
+    /// Callers retain the reached point/normal outputs and the original
+    /// collision-manager traversal storage across coarse and fine passes.
+    pub fn body_sphere(
+        &self,
+        request: &crate::vehicle_dynamics_body_collision::VehicleBodySphereSweep,
+        outputs: &mut CollisionLineOutputs,
+        traversal: &mut crate::collision_swept_world::SphereTraversalState,
+    ) -> Result<
+        Option<crate::collision_swept_world::SphereSweepHit>,
+        crate::collision_swept::SphereSweepError,
+    > {
+        crate::collision_swept_world::test_sphere_b(
+            Some(self),
+            &crate::collision_swept::SphereSweepRequest {
+                origin: request.start,
+                delta: request.displacement,
+                radius: request.radius,
+                selector: request.mask as i32,
+                reject_mask: request.flags,
+            },
+            outputs,
+            traversal,
+        )
+    }
+
+    /// Original body box predicate. Bounds are decoded from the caller-owned
+    /// collision volume record, independently of the opaque KLZ descriptors.
+    /// The original worker returns a predicate, without a contact descriptor.
+    pub fn body_volume(
+        &self,
+        request: &crate::vehicle_dynamics_body_collision::VehicleBodyVolumeSweep,
+        bounds: [[f32; 3]; 2],
+    ) -> Result<bool, crate::collision_swept_box::BoxSweepError> {
+        use crate::collision_swept_box::{test_d_box, BoxDynamicQuery, BoxSweepRequest};
+        test_d_box(
+            Some(self),
+            if self.geometry.dynamic_candidates_present {
+                BoxDynamicQuery::Unavailable
+            } else {
+                BoxDynamicQuery::Absent
+            },
+            &BoxSweepRequest {
+                bounds,
+                first_matrix: request.previous,
+                second_matrix: request.current,
+                vectors: [request.displacement, request.auxiliary, request.up],
+                dynamic_mask: request.mask,
+                static_mask: request.flags,
+            },
+        )
     }
 }
 
@@ -355,8 +513,10 @@ impl StaticQueryGrid for DrivingCollisionWorld {
 mod tests {
     use super::*;
     use crate::{
-        collision_links::CollisionLinkWord, collision_world::bind_collision_world,
-        frame_transform::I3dFrameState, native_transform::SQuat,
+        collision_links::CollisionLinkWord,
+        collision_world::{bind_collision_world, CollisionFrameBinding},
+        frame_transform::I3dFrameState,
+        native_transform::SQuat,
     };
 
     fn put(bytes: &mut [u8], offset: usize, value: u32) {
@@ -427,6 +587,160 @@ mod tests {
             selector: -1,
             reject_mask: 0,
         }
+    }
+
+    #[test]
+    fn null_volume_owner_retains_real_static_shape_for_line_and_sweep() {
+        let mut bytes = vec![0; 36 + 104];
+        bytes[..4].copy_from_slice(b"GifC");
+        for (offset, value) in [(4, 5), (8, 36), (12, 1), (24, 28), (28, 1)] {
+            put(&mut bytes, offset, value);
+        }
+        bytes[32] = b'f';
+        for (index, value) in [0_f32, 0., 10., 10., 10., 10.].into_iter().enumerate() {
+            put(&mut bytes, 36 + index * 4, value.to_bits());
+        }
+        for offset in [24, 28, 0x40] {
+            put(&mut bytes, 36 + offset, 1);
+        }
+        for value in [0_f32, 10., 0., 10.] {
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
+        bytes.extend_from_slice(&[0; 4]);
+        let shape = bytes.len();
+        bytes.resize(shape + 32, 0);
+        put(&mut bytes, shape, 0x0900_0081);
+        for (axis, value) in [0_f32, 0., 0., 2., 2., 2.].into_iter().enumerate() {
+            put(&mut bytes, shape + 8 + axis * 4, value.to_bits());
+        }
+        bytes.extend_from_slice(&[0; 4]);
+        let cell = bytes.len();
+        bytes.resize(cell + 28, 0);
+        put(&mut bytes, cell, 2);
+        put(&mut bytes, cell + 12, 10_f32.to_bits());
+        put(&mut bytes, cell + 16, 0x8100_0000);
+        put(&mut bytes, cell + 20, 0x8100_0000);
+        let source = Klz::parse(&bytes).unwrap();
+        let bound = bind_collision_world(&source, &[]).unwrap();
+        assert_eq!(bound.failures().count(), 1);
+        let prepared = prepare_bound_collision_world(&bound).unwrap();
+        let world = DrivingCollisionWorld::from_prepared(&prepared, false).unwrap();
+        let info = world.primitive(1).unwrap();
+        assert!(info.owner_unavailable.is_some());
+        assert_eq!(info.unavailable, None);
+        assert_eq!(info.material(), 9);
+        let request = CollisionLineRequest {
+            origin: [1., 3., 1.],
+            delta: [0., -4., 0.],
+            selector: -1,
+            reject_mask: 0,
+        };
+        let mut output = outputs();
+        let hit = world
+            .test_line_v(
+                &request,
+                &mut output,
+                &mut CollisionTraversalState::default(),
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            hit,
+            CollisionLineHit {
+                primitive: 1,
+                fraction: 0.25
+            }
+        );
+        assert_eq!(output.point, Some([1., 2., 1.]));
+        let request = crate::collision_swept::SphereSweepRequest {
+            origin: request.origin,
+            delta: request.delta,
+            radius: 0.25,
+            selector: -1,
+            reject_mask: 0,
+        };
+        assert!(crate::collision_swept_world::test_sphere_b(
+            Some(&world),
+            &request,
+            &mut output,
+            &mut Default::default()
+        )
+        .unwrap()
+        .is_some());
+        let body_sphere = crate::vehicle_dynamics_body_collision::VehicleBodySphereSweep {
+            record: 123,
+            start: request.origin,
+            displacement: request.delta,
+            radius: request.radius,
+            mask: u32::MAX,
+            flags: 0,
+        };
+        assert!(world
+            .body_sphere(&body_sphere, &mut output, &mut Default::default())
+            .unwrap()
+            .is_some());
+        let mut body_box = crate::vehicle_dynamics_body_collision::VehicleBodyVolumeSweep {
+            record: 123,
+            volume: 456,
+            previous: crate::native_transform::SMatrix::identity(),
+            current: crate::native_transform::SMatrix::identity(),
+            displacement: [0.; 3],
+            auxiliary: [0.; 3],
+            up: [0., 1., 0.],
+            mask: u32::MAX,
+            flags: 0,
+        };
+        let bounds = [[0.5; 3], [1.5; 3]];
+        assert_eq!(world.body_volume(&body_box, bounds), Ok(true));
+        body_box.flags = u32::MAX;
+        assert_eq!(world.body_volume(&body_box, bounds), Ok(false));
+
+        let owner = FrameKey(456);
+        let bound = bind_collision_world(
+            &source,
+            &[CollisionFrameBinding {
+                link_index: 0,
+                frame: owner,
+                lod0_world_vertices: None,
+            }],
+        )
+        .unwrap();
+        let prepared = prepare_bound_collision_world(&bound).unwrap();
+        let mut owned = DrivingCollisionWorld::from_prepared(&prepared, false).unwrap();
+        assert_eq!(
+            owned.primitive(1).unwrap().bound_volume,
+            Some(crate::collision_world::BoundCollisionVolume {
+                link_index: 0,
+                frame: owner,
+            })
+        );
+        assert_eq!(owned.frame_primitives(FrameKey(999)), Vec::<u32>::new());
+        assert_eq!(owned.disable_frame_collisions(owner), vec![1]);
+        assert_eq!(owned.primitive(1).unwrap().properties, 0x0900_00a1);
+        assert_eq!(
+            owned.primitive_descriptor(1).unwrap().properties(),
+            0x0900_00a1
+        );
+        assert_eq!(owned.cell_candidates(0).unwrap().2.len(), 2);
+        assert!(owned
+            .cell_candidates(0)
+            .unwrap()
+            .2
+            .iter()
+            .all(|entry| entry.properties() == 0x0900_00a1));
+        assert_eq!(
+            owned.test_line_v(
+                &CollisionLineRequest {
+                    origin: [1., 3., 1.],
+                    delta: [0., -4., 0.],
+                    selector: -1,
+                    reject_mask: 0,
+                },
+                &mut outputs(),
+                &mut Default::default()
+            ),
+            Ok(None)
+        );
     }
     fn outputs() -> CollisionLineOutputs {
         CollisionLineOutputs {

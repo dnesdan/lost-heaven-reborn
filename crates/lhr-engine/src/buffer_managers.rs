@@ -1171,6 +1171,9 @@ impl BufferManagers {
     }
 }
 
+#[path = "buffer_vertex_access.rs"]
+mod vertex_access;
+
 #[cfg(test)]
 mod tests {
     use super::*;

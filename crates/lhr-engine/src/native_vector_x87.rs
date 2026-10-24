@@ -244,6 +244,32 @@ pub(crate) fn try_retained_vector_angle(
 }
 
 impl RetainedVectorAngle {
+    /// FCOMP m32real preserves the unspilled AngleTo return through the
+    /// caller's branch. Only the comparison condition codes are observed.
+    pub(crate) fn compare(&self, operand: f32) -> Result<std::cmp::Ordering, MakeUnavailable> {
+        number(operand)?;
+        let mut state = Context::new(Input::cosine(0.));
+        state.scalar = operand;
+        let mut saved = SavedEnvironment([0; SAVED_BYTES]);
+        // SAFETY: all operands are live disjoint locals; the original complete
+        // environment is restored before any Rust call or availability check.
+        unsafe {
+            asm!(
+                save_environment!(), "fldcw word ptr [{state}+0]",
+                "fld tbyte ptr [{value}]", "fcomp dword ptr [{state}+4]",
+                "fnstsw word ptr [{state}+72]", restore_environment!(),
+                state=in(reg)&mut state,saved=in(reg)&mut saved,value=in(reg)self.value.as_ptr(),
+                options(nostack),
+            );
+        }
+        state.finish()?;
+        match state.status & 0x4500 {
+            0 => Ok(std::cmp::Ordering::Greater),
+            0x0100 => Ok(std::cmp::Ordering::Less),
+            0x4000 => Ok(std::cmp::Ordering::Equal),
+            _ => Err(MakeUnavailable::InputOutsideVerifiedDomain),
+        }
+    }
     /// The caller's FST binary32 result, without changing the retained token.
     pub(crate) fn spill(&self) -> Result<f32, MakeUnavailable> {
         self.evaluate(None)
@@ -338,6 +364,62 @@ pub(crate) fn try_vector_angle_sine_scaled(
         number(x)?;
     }
     Ok(out)
+}
+
+/// C_PhThing CollisionCount45e510's retained AngleTo/FSIN suffix. The
+/// magnitude product and clamp occur before the three component FST stores.
+pub(crate) fn try_ph_thing_friction_products(
+    first: [f32; 3],
+    second: [f32; 3],
+    magnitude: f32,
+    friction: f32,
+    timestep: f32,
+    mass: f32,
+    axis: [f32; 3],
+) -> Result<[f32; 3], MakeUnavailable> {
+    let input = Input::vectors(first, second)?;
+    for value in [magnitude, friction, timestep, mass]
+        .into_iter()
+        .chain(axis)
+    {
+        number(value)?;
+    }
+    let mut out = [0_f32; 4];
+    expression!(
+        input,
+        &mut out,
+        [magnitude, friction, timestep, mass, 3., axis[0], axis[1], axis[2]],
+        "fsin",
+        "fld dword ptr [{params}]",
+        "fmul dword ptr [{params}+4]",
+        "fmulp st(1), st(0)",
+        "fld dword ptr [{params}+8]",
+        "fmul dword ptr [{params}+4]",
+        "fmul dword ptr [{params}+12]",
+        "fmul dword ptr [{params}+16]",
+        "fstp dword ptr [{out}+12]",
+        "fcom dword ptr [{out}+12]",
+        "fnstsw ax",
+        "and eax, 0x4100",
+        "jnz 81f",
+        "fstp st(0)",
+        "fld dword ptr [{out}+12]",
+        "81:",
+        "fld dword ptr [{params}+20]",
+        "fmul st(0), st(1)",
+        "fstp dword ptr [{out}]",
+        "fld dword ptr [{params}+24]",
+        "fmul st(0), st(1)",
+        "fstp dword ptr [{out}+4]",
+        "fld dword ptr [{params}+28]",
+        "fmul st(0), st(1)",
+        "fstp dword ptr [{out}+8]",
+        "fstp st(0)",
+    );
+    for value in out {
+        number(value)?;
+    }
+    Ok([out[0], out[1], out[2]])
 }
 
 /// Move PC e3d47..e3db7, preserving the division/multiply order and every spill.
@@ -467,6 +549,106 @@ const _: () = {
     assert!(std::mem::offset_of!(Context, incoming_precision) == 80);
 };
 
+#[repr(C, align(16))]
+struct AxisAngleContext {
+    control: u16,
+    status: u16,
+    angle: f32,
+    axis: [f32; 3],
+    result: [f32; 4],
+    norm: f32,
+    half: f32,
+    one: f32,
+    cutoff: f32,
+    reserved: u32,
+    epsilon: f64,
+}
+
+/// Original S_quat::Make(axis,angle), LS3DF RVA0x2ee00. FCOS remains in ST0
+/// after its binary32 output store and feeds the original norm calculation;
+/// FSIN remains retained through each axis product. No binary is loaded.
+pub(crate) fn try_make_axis_angle(axis: [f32; 3], angle: f32) -> Result<[f32; 4], MakeUnavailable> {
+    for value in axis.into_iter().chain([angle]) {
+        number(value)?;
+    }
+    // The original feeds angle*0.5 directly to FSIN/FCOS. Their supported
+    // magnitude is strictly below 2^63; preserve the raw argument and reject
+    // the first binary32 angle whose half reaches that hardware boundary.
+    if angle.abs() >= f32::from_bits(0x5f80_0000) {
+        return Err(MakeUnavailable::InputOutsideVerifiedDomain);
+    }
+    let mut state = AxisAngleContext {
+        control: 0x007f,
+        status: 0,
+        angle,
+        axis,
+        result: [0.; 4],
+        norm: 0.,
+        half: 0.5,
+        one: 1.,
+        cutoff: 1e-8,
+        reserved: 0,
+        epsilon: 1e-8,
+    };
+    let mut saved = SavedEnvironment([0; SAVED_BYTES]);
+    // SAFETY: both aligned locals remain live and disjoint for the complete
+    // block. The x87 sequence follows the original instruction order, uses
+    // at most seven registers, and restores every incoming FP/SIMD register,
+    // tag/control/status bit and instruction/data pointer before returning.
+    unsafe {
+        asm!(
+            save_environment!(),
+            "fldcw word ptr [{state}+0]",
+            "fld dword ptr [{state}+4]", "fmul dword ptr [{state}+40]",
+            "fld st(0)", "fcos", "fld st(0)", "fstp dword ptr [{state}+20]",
+            "fxch st(1)", "fsin",
+            "fld st(0)", "fmul dword ptr [{state}+8]", "fstp dword ptr [{state}+24]",
+            "fld st(0)", "fmul dword ptr [{state}+12]", "fstp dword ptr [{state}+28]",
+            "fmul dword ptr [{state}+16]", "fstp dword ptr [{state}+32]",
+            "fld dword ptr [{state}+32]", "fld dword ptr [{state}+28]", "fld dword ptr [{state}+24]",
+            "fld st(0)", "fmul st(0), st(1)",
+            "fld st(2)", "fmul st(0), st(3)", "faddp st(1), st(0)",
+            "fld st(3)", "fmul st(0), st(4)", "faddp st(1), st(0)",
+            "fld st(4)", "fmul st(0), st(5)", "faddp st(1), st(0)",
+            "fstp dword ptr [{state}+36]", "fstp st(0)", "fstp st(0)", "fstp st(0)", "fstp st(0)",
+            "fld dword ptr [{state}+36]", "fsub dword ptr [{state}+44]", "fabs",
+            "fcomp qword ptr [{state}+56]", "fnstsw ax", "test ah, 5", "jnp 4f",
+            "fld dword ptr [{state}+36]", "fcomp dword ptr [{state}+48]", "fnstsw ax", "test ah, 5", "jp 3f",
+            "mov dword ptr [{state}+24], 0", "mov dword ptr [{state}+28], 0", "mov dword ptr [{state}+32], 0",
+            "mov dword ptr [{state}+20], 0x3f800000", "jmp 4f",
+            "3:", "fld dword ptr [{state}+36]", "fsqrt", "fdivr dword ptr [{state}+44]",
+            "fld st(0)", "fmul dword ptr [{state}+24]", "fstp dword ptr [{state}+24]",
+            "fld st(0)", "fmul dword ptr [{state}+28]", "fstp dword ptr [{state}+28]",
+            "fld st(0)", "fmul dword ptr [{state}+32]", "fstp dword ptr [{state}+32]",
+            "fmul dword ptr [{state}+20]", "fstp dword ptr [{state}+20]",
+            "4:", "fnstsw word ptr [{state}+2]",
+            restore_environment!(),
+            state=in(reg)&mut state,saved=in(reg)&mut saved,out("eax")_,options(nostack),
+        );
+    }
+    crate::native_precision::record_precision(state.status & 0x20 != 0);
+    if state.status & 0x1f != 0 {
+        return Err(MakeUnavailable::InputOutsideVerifiedDomain);
+    }
+    number(state.norm)?;
+    for value in state.result {
+        number(value)?;
+    }
+    Ok(state.result)
+}
+const _: () = {
+    assert!(std::mem::offset_of!(AxisAngleContext, control) == 0);
+    assert!(std::mem::offset_of!(AxisAngleContext, status) == 2);
+    assert!(std::mem::offset_of!(AxisAngleContext, angle) == 4);
+    assert!(std::mem::offset_of!(AxisAngleContext, axis) == 8);
+    assert!(std::mem::offset_of!(AxisAngleContext, result) == 20);
+    assert!(std::mem::offset_of!(AxisAngleContext, norm) == 36);
+    assert!(std::mem::offset_of!(AxisAngleContext, half) == 40);
+    assert!(std::mem::offset_of!(AxisAngleContext, one) == 44);
+    assert!(std::mem::offset_of!(AxisAngleContext, cutoff) == 48);
+    assert!(std::mem::offset_of!(AxisAngleContext, epsilon) == 56);
+};
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -578,10 +760,15 @@ mod tests {
         let result = try_wheel_friction_limit([3., 0.5, -2.], [1., 0., 0.], 30., 20.);
         let scaled = try_vector_angle_sine_scaled([1., 0., 0.], [0., 1., 0.], [2., -3., 0.]);
         let cosine = try_cosine_product(100., 0.05);
+        let quaternion = try_make_axis_angle([0.25, 0., -1.], f32::from_bits((127 - 44) << 23));
         let retained = try_retained_vector_angle([1., 0., 0.], [0., 1., 0.]);
-        let (spill, quotient) = match retained {
-            Ok(value) => (value.spill(), value.divide_numerator(1.7)),
-            Err(error) => (Err(error), Err(error)),
+        let (spill, quotient, comparison) = match retained {
+            Ok(value) => (
+                value.spill(),
+                value.divide_numerator(1.7),
+                value.compare(0.78),
+            ),
+            Err(error) => (Err(error), Err(error), Err(error)),
         };
         unsafe {
             asm!("fnsave [{after}]","frstor [{caller}]",after=in(reg)after.as_mut_ptr(),caller=in(reg)caller.as_ptr(),clobber_abi("C"),options(nostack));
@@ -589,8 +776,10 @@ mod tests {
         assert!(result.is_ok());
         assert!(scaled.is_ok());
         assert!(cosine.is_ok());
+        assert!(quaternion.is_ok());
         assert!(spill.is_ok());
         assert!(quotient.is_ok());
+        assert_eq!(comparison, Ok(std::cmp::Ordering::Greater));
         assert_eq!(before, after);
     }
     #[cfg(target_arch = "x86")]
@@ -649,10 +838,15 @@ mod tests {
         let result = try_wheel_friction_limit([3., 0.5, -2.], [1., 0., 0.], 30., 20.);
         let scaled = try_vector_angle_sine_scaled([1., 0., 0.], [0., 1., 0.], [2., -3., 0.]);
         let cosine = try_cosine_product(100., 0.05);
+        let quaternion = try_make_axis_angle([0.25, 0., -1.], f32::from_bits((127 - 44) << 23));
         let retained = try_retained_vector_angle([1., 0., 0.], [0., 1., 0.]);
-        let (spill, quotient) = match retained {
-            Ok(value) => (value.spill(), value.divide_numerator(1.7)),
-            Err(error) => (Err(error), Err(error)),
+        let (spill, quotient, comparison) = match retained {
+            Ok(value) => (
+                value.spill(),
+                value.divide_numerator(1.7),
+                value.compare(0.78),
+            ),
+            Err(error) => (Err(error), Err(error), Err(error)),
         };
         unsafe {
             asm!("fxsave64 [{after}]", "fxrstor64 [{caller}]",after=in(reg)&mut after,caller=in(reg)&caller,clobber_abi("C"),options(nostack));
@@ -660,8 +854,10 @@ mod tests {
         assert!(result.is_ok());
         assert!(scaled.is_ok());
         assert!(cosine.is_ok());
+        assert!(quaternion.is_ok());
         assert!(spill.is_ok());
         assert!(quotient.is_ok());
+        assert_eq!(comparison, Ok(std::cmp::Ordering::Greater));
         let fip = u64::from_le_bytes(before.0[8..16].try_into().unwrap());
         let fdp = u64::from_le_bytes(before.0[16..24].try_into().unwrap());
         assert!(fip > u64::from(u32::MAX));

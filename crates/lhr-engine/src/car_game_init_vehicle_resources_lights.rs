@@ -1,6 +1,8 @@
-//! The original DoLights scalar body and extinguished-light branches needed
-//! by GameDone. Illuminated projector branches remain explicitly unavailable.
+//! Original DoLights request state, visual activation and shared projector
+//! positioning. Every frame operation uses the existing canonical owner.
 use super::*;
+#[path = "car_game_init_vehicle_lights_active.rs"]
+mod active;
 impl<B: CarGameInitResourceBackend> GameInit<'_, B> {
     pub(in super::super) fn resource_do_lights(&mut self, seconds: u32) -> Out<B, ()> {
         let v = self.car + 0x70;
@@ -89,40 +91,59 @@ impl<B: CarGameInitResourceBackend> GameInit<'_, B> {
             let record = self.resource_light_record(i)?;
             let kind = self.read(record + 0x10)? & 0xffff;
             if (1..=9).contains(&kind) {
-                // GameDone clears the request word. Its timer may set only
-                // the blink phase. A callback can change the word, so reload
-                // it before each record and reject the unported branch.
-                if self.read(v + 0x11c)? & !0x1000_0000 != 0 {
-                    let entries = [
-                        0x4d7f05, 0x4d88fa, 0x4d92b9, 0x4da5e3, 0x4dad6f, 0x4db131, 0x4db4f3,
-                        0x4db914, 0x4dbcd8,
-                    ];
-                    return Err(CarGameInitUnavailable::Dependency {
-                        entry: entries[kind as usize - 1],
-                    });
-                }
-                let frame = self.read(record + 4)?;
-                if frame != 0 {
-                    self.resource_virtual(frame, 0x24, &[0])?;
-                }
-                let record = self.resource_light_record(i)?;
-                let light = self.read(record + 8)?;
-                if light != 0 {
-                    let flags = self.read(record + 0x14)?;
-                    let mut shared_on = false;
-                    if (flags as i32) < 0 {
-                        let index = self.read(record + 0x1c)? & 0xffff;
-                        let begin = self.read(v + 0x110)?;
-                        shared_on = self.byte(begin + index * 0x1c + 0x18)? & 0x80 != 0;
+                // These are the actual per-type request tests. Capability
+                // bits such as automatic braking/reverse/steering do not by
+                // themselves illuminate a light. Reload before every record.
+                let requests = self.read(v + 0x11c)?;
+                let requested = match kind {
+                    1 => requests & 1 != 0 && requests & 0x1000_0000 != 0,
+                    2 => requests & 2 != 0 && requests & 0x1000_0000 != 0,
+                    3 => {
+                        if requests & 1 != 0 {
+                            requests & 0x1000_0000 != 0
+                        } else {
+                            requests & 0x100 != 0
+                        }
                     }
-                    if !shared_on {
-                        let record = self.resource_light_record(i)?;
-                        let light = self.read(record + 8)?;
-                        self.resource_virtual(light, 0x24, &[0])?;
-                        let record = self.resource_light_record(i)?;
-                        let light = self.read(record + 0xc)?;
-                        self.resource_virtual(light, 0x24, &[0])?;
+                    4 => {
+                        if requests & 2 != 0 {
+                            requests & 0x1000_0000 != 0
+                        } else {
+                            requests & 0x100 != 0
+                        }
                     }
+                    5 => requests & 0x10 != 0,
+                    6 => requests & 0x20 != 0,
+                    7 => requests & 0x10000 != 0,
+                    8 => requests & 0x100 != 0,
+                    9 => requests & 0x1000 != 0,
+                    _ => false,
+                };
+                let enabled = requested
+                    && self.byte(record + 0x14)? & 1 == 0
+                    && self.byte(v + 0xc68)? & 0x80 != 0;
+                if enabled {
+                    let frame = self.read(record + 4)?;
+                    if frame != 0 {
+                        self.resource_virtual(frame, 0x24, &[1])?;
+                    }
+                    let detail = match kind {
+                        1 | 2 => 0x100000,
+                        3 | 4 => 0x400000,
+                        5 | 6 => 0x200000,
+                        7 => 0x800000,
+                        8 => 0x1000000,
+                        9 => 0x2000000,
+                        _ => 0,
+                    };
+                    if self.read(v + 0x11c)? & detail != 0 {
+                        let record = self.resource_light_record(i)?;
+                        if self.read(record + 8)? != 0 {
+                            self.resource_active_projectors(i, kind, requests)?;
+                        }
+                    }
+                } else {
+                    self.resource_extinguish_light_record(i)?;
                 }
             }
             let record = self.resource_light_record(i)?;

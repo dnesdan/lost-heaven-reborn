@@ -108,7 +108,13 @@ pub struct VehicleComponentTailMemory<'a> {
     pub(super) scratch: &'a mut VehicleComponentTailScratch,
 }
 impl VehicleComponentTailMemory<'_> {
-    pub(crate) fn reborrow(&mut self) -> VehicleComponentTailMemory<'_> {
+    /// Borrows the canonical embedded vehicle for ordered arithmetic workers.
+    pub fn vehicle_bytes_mut(&mut self) -> &mut [u8] {
+        self.vehicle
+    }
+
+    /// Creates a shorter live projection without copying or transferring ownership.
+    pub fn reborrow(&mut self) -> VehicleComponentTailMemory<'_> {
         VehicleComponentTailMemory {
             car: self.car.as_mut().map(CarInitMemory::reborrow),
             vehicle_address: self.vehicle_address,

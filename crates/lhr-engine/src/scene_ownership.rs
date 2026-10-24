@@ -58,6 +58,8 @@ pub struct SectorFrame {
     pub bounds: Option<[[f32; 3]; 2]>,
     pub bounding_sphere: Option<[f32; 4]>,
     pub next_visual: Option<FrameKey>,
+    /// Native non-owning I3D_light pointer list; light.sectors is reciprocal.
+    pub lights: Vec<FrameKey>,
 }
 #[derive(Debug)]
 pub struct SceneFrameOwner {
@@ -153,6 +155,8 @@ pub enum SceneOwnerError {
     BackendUnavailable(SceneCloseEffect),
     AllocationIncomplete(SceneKey),
     LinkRejected { scene: SceneKey, result: u32 },
+    SectorGeometryUnavailable(SceneKey),
+    LightnessUnavailable(SectorKey),
 }
 impl From<SceneOwnerError> for ModelError {
     fn from(error: SceneOwnerError) -> Self {
@@ -200,6 +204,7 @@ impl ModelArena {
                 bounds: (index < 2).then_some([[-10000.; 3], [10000.; 3]]),
                 bounding_sphere: (index < 2).then_some([0., 0., 0., f32::from_bits(0x46875104)]),
                 next_visual: None,
+                lights: Vec::new(),
             });
             sectors.push(sector);
         }
@@ -456,6 +461,163 @@ impl ModelArena {
         }
         Ok(self.graph.link_to_with_flags(key, parent, flags)?)
     }
+    pub fn sector_lights_changed(&self, sector: SectorKey) -> Result<u32, ModelError> {
+        self.sector(sector)?;
+        Ok(self
+            .graph
+            .sector_light_changes
+            .get(&sector.frame().0)
+            .copied()
+            .unwrap_or(0))
+    }
+    /// AddLight (PC RVA0x4f3d0), for the admitted non-fog light types1..4.
+    /// These arrays contain borrowed pointers; registration acquires no refs.
+    pub fn sector_add_light(
+        &mut self,
+        sector: SectorKey,
+        light: FrameKey,
+    ) -> Result<(), ModelError> {
+        self.sector(sector)?;
+        self.light(light)?;
+        let si = self.sectors.iter().position(|s| s.key == sector).unwrap();
+        if self.sectors[si].lights.contains(&light) {
+            return Ok(());
+        }
+        if !(1..=4).contains(&self.graph.light_state(light)?.light_type) {
+            return Err(crate::frame_transform::FrameError::UnsupportedFrameUpdate(light).into());
+        }
+        let changed = self
+            .graph
+            .sector_light_changes
+            .entry(sector.frame().0)
+            .or_default();
+        *changed = changed.wrapping_add(1);
+        self.sectors[si]
+            .lights
+            .try_reserve(1)
+            .map_err(|_| ModelError::AllocationOverflow)?;
+        self.sectors[si].lights.push(light);
+        let sectors = &mut self.graph.light_state_mut(light)?.sectors;
+        if !sectors.contains(&sector.frame()) {
+            sectors
+                .try_reserve(1)
+                .map_err(|_| ModelError::AllocationOverflow)?;
+            sectors.push(sector.frame());
+        }
+        Ok(())
+    }
+    pub fn sector_delete_light(
+        &mut self,
+        sector: SectorKey,
+        light: FrameKey,
+    ) -> Result<u32, ModelError> {
+        self.sector(sector)?;
+        self.light(light)?;
+        let si = self.sectors.iter().position(|s| s.key == sector).unwrap();
+        let Some(index) = self.sectors[si]
+            .lights
+            .iter()
+            .position(|&frame| frame == light)
+        else {
+            return Ok(0x80000006);
+        };
+        let changed = self
+            .graph
+            .sector_light_changes
+            .entry(sector.frame().0)
+            .or_default();
+        *changed = changed.wrapping_add(1);
+        let sectors = &mut self.graph.light_state_mut(light)?.sectors;
+        if let Some(index) = sectors.iter().position(|&frame| frame == sector.frame()) {
+            sectors.swap_remove(index);
+        }
+        self.sectors[si].lights.swap_remove(index);
+        Ok(0)
+    }
+    pub(crate) fn release_light_sectors(&mut self, light: FrameKey) -> Result<(), ModelError> {
+        if self.state(light)?.kind != FrameKind::Light {
+            return Ok(());
+        }
+        while let Some(&sector) = self.graph.light_state(light)?.sectors.first() {
+            self.sector_delete_light(SectorKey(sector), light)?;
+        }
+        Ok(())
+    }
+    /// GetSector's constructor-only spatial-list domain. A loaded spatial
+    /// sector requires its real CheckPoint geometry before position selection.
+    pub fn scene_sector_at_position(
+        &self,
+        scene: SceneKey,
+        _position: [f32; 3],
+    ) -> Result<Option<SectorKey>, ModelError> {
+        let owner = self.scene(scene)?;
+        if self
+            .sectors
+            .iter()
+            .any(|sector| sector.scene == scene && !owner.sectors.contains(&sector.key))
+        {
+            return Err(SceneOwnerError::SectorGeometryUnavailable(scene).into());
+        }
+        Ok(Some(owner.sectors[0]))
+    }
+    /// GetLightness's reached empty-list branch, using GetSector's actual
+    /// primary fallback. Loaded spatial sectors and nonempty lighting remain
+    /// explicit dependencies rather than an invented lightness result.
+    pub fn scene_empty_lightness(
+        &self,
+        scene: SceneKey,
+        _position: [f32; 3],
+    ) -> Result<f32, ModelError> {
+        let owner = self.scene(scene)?;
+        if self
+            .sectors
+            .iter()
+            .any(|sector| sector.scene == scene && !owner.sectors.contains(&sector.key))
+        {
+            return Err(SceneOwnerError::SectorGeometryUnavailable(scene).into());
+        }
+        let primary = owner.sectors[0];
+        if !self.sector(primary)?.lights.is_empty() {
+            return Err(SceneOwnerError::LightnessUnavailable(primary).into());
+        }
+        Ok(0.)
+    }
+    /// SetFrameSectorPos (PC RVA0x4a280) for scenes containing only the four
+    /// constructor sectors. GetSector's empty spatial-sector list returns the
+    /// primary sector. Loaded spatial sectors require their CheckPoint geometry.
+    pub fn set_frame_sector_pos(
+        &mut self,
+        scene: SceneKey,
+        frame: FrameKey,
+        _position: [f32; 3],
+    ) -> Result<u32, ModelError> {
+        let si = self.scene_index(scene)?;
+        self.frame(frame)?;
+        let mut ancestor = self.links(frame)?.parent;
+        while let Some(key) = ancestor {
+            if self.state(key)?.kind == FrameKind::Sector {
+                let flags = self.sector(SectorKey(key))?.sector_flags;
+                if flags & (0x1000 | 0x2000) != 0 {
+                    return Ok(0);
+                }
+                break;
+            }
+            ancestor = self.links(key)?.parent;
+        }
+        let sectors = self.scenes[si].sectors;
+        if self
+            .sectors
+            .iter()
+            .any(|sector| sector.scene == scene && !sectors.contains(&sector.key))
+        {
+            return Err(SceneOwnerError::SectorGeometryUnavailable(scene).into());
+        }
+        let primary = sectors[0].frame();
+        if ancestor == Some(primary) {
+            return Ok(0);
+        }
+        self.link_frame(frame, Some(primary), 1)
+    }
     pub fn get_sector(&self, key: FrameKey) -> Result<Option<SectorKey>, ModelError> {
         let mut current = Some(key);
         while let Some(key) = current {
@@ -501,6 +663,69 @@ mod tests {
         arena.set_frame_name(key, Some(name)).unwrap();
         key
     }
+    #[test]
+    fn sector_light_registration_is_reciprocal_nonowning_and_invalidated_by_setters() {
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let sectors = arena.scene(scene).unwrap().sectors;
+        let light = arena.create_light().unwrap();
+        let references = arena.frame(light).unwrap().references;
+        arena.sector_add_light(sectors[0], light).unwrap();
+        arena.sector_add_light(sectors[1], light).unwrap();
+        arena.sector_add_light(sectors[0], light).unwrap();
+        assert_eq!(arena.sector(sectors[0]).unwrap().lights, [light]);
+        assert_eq!(
+            arena.light(light).unwrap().sectors,
+            [sectors[0].frame(), sectors[1].frame()]
+        );
+        assert_eq!(arena.frame(light).unwrap().references, references);
+        assert_eq!(arena.sector_lights_changed(sectors[0]), Ok(1));
+        assert!(arena.scene_empty_lightness(scene, [0.; 3]).is_err());
+        arena.graph.set_light_diffuse_power(light, 0.5).unwrap();
+        assert_eq!(arena.sector_lights_changed(sectors[0]), Ok(2));
+        assert_eq!(arena.sector_delete_light(sectors[0], light), Ok(0));
+        assert_eq!(arena.sector_delete_light(sectors[0], light), Ok(0x80000006));
+        assert_eq!(arena.scene_empty_lightness(scene, [0.; 3]), Ok(0.));
+        arena.release(light).unwrap();
+        assert!(arena.sector(sectors[1]).unwrap().lights.is_empty());
+        assert_eq!(arena.sector_lights_changed(sectors[1]), Ok(3));
+    }
+
+    #[test]
+    fn empty_spatial_sector_search_reparents_to_primary_and_retains_backdrop() {
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let sectors = arena.scene(scene).unwrap().sectors;
+        let model = arena.create_model().unwrap();
+        arena
+            .graph
+            .projected_state_mut(model.root())
+            .unwrap()
+            .local
+            .elements[12] = 3.;
+        let references = arena.frame(model.root()).unwrap().references;
+        assert_eq!(
+            arena.set_frame_sector_pos(scene, model.root(), [3., 2., 1.]),
+            Ok(0)
+        );
+        assert_eq!(
+            arena.links(model.root()).unwrap().parent,
+            Some(sectors[0].frame())
+        );
+        assert_eq!(arena.frame(model.root()).unwrap().references, references);
+        arena
+            .link_frame(model.root(), Some(sectors[1].frame()), 0)
+            .unwrap();
+        assert_eq!(
+            arena.set_frame_sector_pos(scene, model.root(), [100., 200., 300.]),
+            Ok(0)
+        );
+        assert_eq!(
+            arena.links(model.root()).unwrap().parent,
+            Some(sectors[1].frame())
+        );
+    }
+
     #[test]
     fn construction_prefix_retains_four_distinct_sectors_without_membership_or_parenting() {
         let mut arena = ModelArena::default();

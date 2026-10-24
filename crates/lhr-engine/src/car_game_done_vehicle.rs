@@ -16,6 +16,21 @@ pub fn vehicle_game_done<B: CarGameInitResourceBackend>(
     }
     .vehicle_game_done_body()
 }
+pub fn vehicle_end_skid<B: CarGameInitResourceBackend>(
+    backend: &mut B,
+    memory: VehicleComponentTailMemory<'_>,
+    vehicle: u32,
+    stack: u32,
+    index: u32,
+) -> Out<B, ()> {
+    GameInit {
+        backend,
+        memory,
+        car: vehicle.wrapping_sub(0x70),
+        stack,
+    }
+    .resource_end_skid(index)
+}
 impl<B: CarGameInitResourceBackend> GameInit<'_, B> {
     fn vehicle_game_done_body(&mut self) -> Out<B, ()> {
         let v = self.car + 0x70;

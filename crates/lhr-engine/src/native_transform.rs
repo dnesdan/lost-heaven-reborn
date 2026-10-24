@@ -16,6 +16,8 @@ use crate::native_precision::{add, div, mul, sqrt, sub};
 mod frame_direction;
 #[path = "native_retained_angle.rs"]
 mod retained_angle;
+#[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+pub(crate) use native_trig::vector_angle::try_ph_thing_friction_products;
 pub use native_trig::vector_angle::try_vector_angle_to;
 #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
 pub use native_trig::vector_angle::{
@@ -28,8 +30,8 @@ pub use retained_angle::{try_retained_vector_angle, RetainedVectorAngle};
 mod vector_x87;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub(crate) use vector_x87::{
-    try_acos_sin_cos_products, try_cosine_product, try_vector_angle_sine,
-    try_vector_angle_sine_scaled, try_wheel_friction_limit,
+    try_acos_sin_cos_products, try_cosine_product, try_ph_thing_friction_products,
+    try_vector_angle_sine, try_vector_angle_sine_scaled, try_wheel_friction_limit,
 };
 #[path = "native_trig.rs"]
 pub(crate) mod native_trig;
@@ -187,16 +189,18 @@ impl SQuat {
     }
 
     /// Original `S_quat::Make(S_vector const&, float)`, RVA0x2ee00.
-    /// Nonzero angles are bounded to [-2,2] radians and use outward enclosures
-    /// of retained x87 sin/cos. An ambiguous PC24 rounding returns an error.
-    /// Signed zero angles retain the previously admitted full finite-axis domain.
+    /// Nonzero angles are bounded to [-2,2] radians. On x86, the CPU retains
+    /// original x87 sine/cosine values under an isolated PC24/RN environment;
+    /// other architectures use outward enclosures and reject ambiguous rounding.
+    /// Signed zero angles retain the admitted full finite-axis domain.
     pub fn try_make_axis_angle(axis: [f32; 3], angle: f32) -> Result<Self, MakeUnavailable> {
         Self::make_axis_angle_domain(axis, angle, false)
     }
-    /// The same original Make entry using the retained reduced-angle enclosure
-    /// already required by frame SetDir. It admits finite angles within [-8,8]
-    /// radians, including the original wheel phase range, and still rejects an
-    /// ambiguous PC24 rounding. This is an expanded host availability domain,
+    /// The same original Make entry used by frame SetDir. On x86 the raw angle
+    /// may have magnitude below 2^64: its half stays inside the original x87
+    /// FSIN/FCOS argument range. Portable enclosures retain their [-8,8] domain
+    /// and reject uncertain rounding. No angle reduction is performed here.
+    /// This is an expanded host availability domain,
     /// not a separate original function or an approximation of vehicle motion.
     pub fn try_make_axis_angle_reduced(
         axis: [f32; 3],
@@ -217,6 +221,7 @@ impl SQuat {
                 wxyz: [1., angle * axis[0], angle * axis[1], angle * axis[2]],
             });
         }
+        #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
         if !axis.into_iter().all(is_verified_scalar) {
             return Err(MakeUnavailable::InputOutsideVerifiedDomain);
         }
@@ -224,42 +229,56 @@ impl SQuat {
         if !half.is_normal() {
             return Err(MakeUnavailable::InputOutsideVerifiedDomain);
         }
-        let (sine, cosine) = if frame_domain {
-            native_trig::sin_cos_frame(half)?
-        } else {
-            native_trig::sin_cos(half)?
-        };
-        let w = cosine.rounded()?;
-        let [x, y, z] = [
-            sine.product(axis[0])?,
-            sine.product(axis[1])?,
-            sine.product(axis[2])?,
-        ];
-        let arithmetic = native_trig::Arithmetic::new();
-        let f = |v| arithmetic.input(v);
-        let [px, py, pz] = [x, y, z].map(f);
-        let norm = ((px * px + py * py) + pz * pz) + f(cosine.squared()?);
-        let mut out = Self { wxyz: [w, x, y, z] };
-        if f64::from((norm - f(1.)).abs().value) >= 1e-8 {
-            if norm.value < 1e-8 {
-                arithmetic.finish()?;
-                return Ok(Self {
-                    wxyz: [1., 0., 0., 0.],
-                });
-            }
-            let reciprocal = f(1.) / norm.sqrt();
-            for i in [1, 2, 3, 0] {
-                out.wxyz[i] = (f(out.wxyz[i]) * reciprocal).value;
-            }
+        if !frame_domain && half.abs() > 1. {
+            return Err(MakeUnavailable::UnrecoveredAxisAngle);
         }
-        arithmetic.finish()?;
-        Ok(out)
+        #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+        if frame_domain && half.abs() > 4. {
+            return Err(MakeUnavailable::UnrecoveredAxisAngle);
+        }
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        {
+            vector_x87::try_make_axis_angle(axis, angle).map(|wxyz| Self { wxyz })
+        }
+        #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+        {
+            let (sine, cosine) = if frame_domain {
+                native_trig::sin_cos_frame(half)?
+            } else {
+                native_trig::sin_cos(half)?
+            };
+            let w = cosine.rounded()?;
+            let [x, y, z] = [
+                sine.product(axis[0])?,
+                sine.product(axis[1])?,
+                sine.product(axis[2])?,
+            ];
+            let arithmetic = native_trig::Arithmetic::new();
+            let f = |v| arithmetic.input(v);
+            let [px, py, pz] = [x, y, z].map(f);
+            let norm = ((px * px + py * py) + pz * pz) + f(cosine.squared()?);
+            let mut out = Self { wxyz: [w, x, y, z] };
+            if f64::from((norm - f(1.)).abs().value) >= 1e-8 {
+                if norm.value < 1e-8 {
+                    arithmetic.finish()?;
+                    return Ok(Self {
+                        wxyz: [1., 0., 0., 0.],
+                    });
+                }
+                let reciprocal = f(1.) / norm.sqrt();
+                for i in [1, 2, 3, 0] {
+                    out.wxyz[i] = (f(out.wxyz[i]) * reciprocal).value;
+                }
+            }
+            arithmetic.finish()?;
+            Ok(out)
+        }
     }
 
     /// Original `S_quat::Make(S_matrix const&)`, RVA0x2eef0, in a guarded domain.
     /// Nondegenerate matrices follow the original two axis-angle factors and
-    /// composition. Internal factors use the checked reduced x87 sin/cos
-    /// enclosure, including angles up to the original pi branch.
+    /// composition. Internal factors use retained x87 operations on x86 and
+    /// checked portable enclosures elsewhere, through the original pi branch.
     /// PC24 exponent edges and uncertain transcendental rounding return errors.
     /// Retains the admitted zero-length and exact diagonal identity branches.
     /// Matrix admission checks each PC24 intermediate, including row lengths;
@@ -411,7 +430,14 @@ impl SQuat {
             ],
         };
         arithmetic.finish()?;
-        if !result.is_verified_input() {
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        let result_valid = result
+            .wxyz
+            .into_iter()
+            .all(|value| value == 0. || value.is_normal());
+        #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+        let result_valid = result.is_verified_input();
+        if !result_valid {
             return Err(MakeUnavailable::InputOutsideVerifiedDomain);
         }
         Ok(result)
@@ -469,6 +495,55 @@ impl SQuat {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    #[test]
+    fn frame_roll_keeps_raw_angles_through_the_x87_argument_boundary() {
+        for angle in [8.000001, -13.9, 1000., -65536., f32::from_bits(0x5f7f_ffff)] {
+            let value = SQuat::try_make_axis_angle_reduced([0., 0., 1.], angle).unwrap();
+            assert!(value.wxyz.into_iter().all(f32::is_finite));
+            let frame = SQuat::try_make_frame_direction([0., 0., 1.], angle).unwrap();
+            assert_eq!(frame.wxyz, value.wxyz);
+        }
+        assert_eq!(
+            SQuat::try_make_axis_angle([0., 0., 1.], 10.),
+            Err(MakeUnavailable::UnrecoveredAxisAngle)
+        );
+        for angle in [f32::from_bits(0x5f80_0000), -f32::from_bits(0x5f80_0000)] {
+            assert_eq!(
+                SQuat::try_make_axis_angle_reduced([0., 0., 1.], angle),
+                Err(MakeUnavailable::InputOutsideVerifiedDomain)
+            );
+        }
+    }
+
+    #[test]
+    fn tiny_axis_angles_keep_the_retained_sine_products_nonzero() {
+        // Synthetic dyadic values avoid borrowing any authored game fixture.
+        // All squared components remain in the normal binary32 domain.
+        for exponent in [-32, -44, -55, -59] {
+            for sign in [1., -1.] {
+                let angle = sign * 2f32.powi(exponent);
+                let expected = [1., angle * 0.125, angle * 0., -angle * 0.5];
+                for reduced in [false, true] {
+                    let mut precision = crate::native_precision::Pc24PrecisionState::default();
+                    let result = precision
+                        .run(|| {
+                            if reduced {
+                                SQuat::try_make_axis_angle_reduced([0.25, 0., -1.], angle)
+                            } else {
+                                SQuat::try_make_axis_angle([0.25, 0., -1.], angle)
+                            }
+                        })
+                        .unwrap();
+                    assert_eq!(result.wxyz.map(f32::to_bits), expected.map(f32::to_bits));
+                    assert_ne!(result.wxyz[1], 0.);
+                    assert_ne!(result.wxyz[3], 0.);
+                    assert!(precision.precision_raised());
+                }
+            }
+        }
+    }
+
     #[test]
     fn general_make_matches_original_nonzero_axis_and_matrix_paths() {
         assert_eq!(
@@ -521,9 +596,18 @@ mod tests {
 
     #[test]
     fn general_make_fails_closed_for_unrecovered_or_uncertain_numeric_paths() {
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        assert_eq!(
+            SQuat::try_make_axis_angle([1., 0., 0.], 1e-20)
+                .unwrap()
+                .wxyz,
+            [1., 5e-21, 0., 0.]
+        );
+        #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
         assert_eq!(
             SQuat::try_make_axis_angle([1., 0., 0.], 1e-20),
-            Err(MakeUnavailable::RoundingUncertain)
+            // The portable profile keeps its explicit binary32 exponent edge.
+            Err(MakeUnavailable::InputOutsideVerifiedDomain)
         );
         assert_eq!(
             SQuat::try_make_axis_angle([1., 0., 0.], f32::from_bits(1)),

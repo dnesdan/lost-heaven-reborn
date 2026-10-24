@@ -6,21 +6,21 @@ const LOD: u32 = 0xc200_0000;
 const GROUP: u32 = 0xc300_0000;
 const MATERIAL: u32 = 0xc400_0000;
 const WIDTH: u32 = 0x0100_0000;
-fn address<E>(base: u32, slot: u32) -> Result<u32, VehicleFrameError<E>> {
-    slot.checked_mul(16)
+pub(super) fn address<E>(base: u32, slot: u32) -> Result<u32, VehicleFrameError<E>> {
+    slot.checked_mul(256)
         .filter(|v| *v < WIDTH)
         .and_then(|v| base.checked_add(v))
         .ok_or(VehicleFrameError::Address(base))
 }
-fn slot<E>(base: u32, p: u32) -> Result<u32, VehicleFrameError<E>> {
-    if !(base..base + WIDTH).contains(&p) || !(p - base).is_multiple_of(16) {
+pub(super) fn slot<E>(base: u32, p: u32) -> Result<u32, VehicleFrameError<E>> {
+    if !(base..base + WIDTH).contains(&p) || !(p - base).is_multiple_of(256) {
         Err(VehicleFrameError::Address(p))
     } else {
-        Ok((p - base) / 16)
+        Ok((p - base) / 256)
     }
 }
 impl<B: VehicleInitBackend> VehicleFrameBackend<'_, B> {
-    fn resource_owner(
+    pub(super) fn resource_owner(
         &self,
     ) -> Result<&crate::loaded_visual_resources::LoadedVisualResources, VehicleFrameError<B::Error>>
     {
@@ -30,25 +30,25 @@ impl<B: VehicleInitBackend> VehicleFrameBackend<'_, B> {
                 "visual resource owner",
             ))
     }
-    fn mesh_key(&self, p: u32) -> Result<MeshObjectKey, VehicleFrameError<B::Error>> {
+    pub(super) fn mesh_key(&self, p: u32) -> Result<MeshObjectKey, VehicleFrameError<B::Error>> {
         Ok(self
             .resource_owner()?
             .lookup_mesh(slot(MESH, p)?)
             .map_err(ModelError::LoadedVisual)?)
     }
-    fn lod_key(&self, p: u32) -> Result<MeshLevelKey, VehicleFrameError<B::Error>> {
+    pub(super) fn lod_key(&self, p: u32) -> Result<MeshLevelKey, VehicleFrameError<B::Error>> {
         Ok(self
             .resource_owner()?
             .lookup_lod(slot(LOD, p)?)
             .map_err(ModelError::LoadedVisual)?)
     }
-    fn group_key(&self, p: u32) -> Result<FaceGroupKey, VehicleFrameError<B::Error>> {
+    pub(super) fn group_key(&self, p: u32) -> Result<FaceGroupKey, VehicleFrameError<B::Error>> {
         Ok(self
             .resource_owner()?
             .lookup_face_group(slot(GROUP, p)?)
             .map_err(ModelError::LoadedVisual)?)
     }
-    fn material_key(&self, p: u32) -> Result<MaterialKey, VehicleFrameError<B::Error>> {
+    pub(super) fn material_key(&self, p: u32) -> Result<MaterialKey, VehicleFrameError<B::Error>> {
         Ok(self
             .resource_owner()?
             .lookup_material(slot(MATERIAL, p)?)

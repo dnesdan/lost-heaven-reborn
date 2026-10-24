@@ -779,6 +779,67 @@ impl ObjectResources {
     }
 }
 
+impl ObjectResources {
+    pub(crate) fn lock_mesh_level_vertices<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        level: MeshLevelKey,
+        flags: u32,
+        backend: &mut B,
+    ) -> Result<bool, ObjectOperationError<B::Error>> {
+        self.available()?;
+        managed_result(self.managed.lock_level_vertices(level, flags, backend))
+    }
+    pub(crate) fn unlock_mesh_level_vertices<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        level: MeshLevelKey,
+        backend: &mut B,
+    ) -> Result<(), ObjectOperationError<B::Error>> {
+        self.available()?;
+        managed_result(self.managed.unlock_level_vertices(level, backend))
+    }
+    pub(crate) fn update_object_vertices(
+        &mut self,
+        object: ObjectResourceKey,
+        index: u32,
+    ) -> Result<(), ObjectError> {
+        self.available()?;
+        if index >= 10 {
+            return Err(ObjectError::InvalidIndex(index));
+        }
+        if let Some(lod) = self.object(object)?.lods[index as usize] {
+            let index = self.index(lod.arena, lod.slot)?;
+            self.lods[index]
+                .as_mut()
+                .ok_or(ObjectError::UnknownLod(lod))?
+                .dirty = true;
+        }
+        Ok(())
+    }
+}
+
+impl ObjectResources {
+    pub(crate) fn lock_face_group_indices<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        group: FaceGroupKey,
+        backend: &mut B,
+    ) -> Result<bool, ObjectOperationError<B::Error>> {
+        self.available()?;
+        managed_result(self.managed.lock_group_indices(group, backend))
+    }
+}
+
+impl ObjectResources {
+    pub(crate) fn clear_mesh_level_environment(
+        &mut self,
+        level: MeshLevelKey,
+    ) -> Result<(), ObjectError> {
+        self.available()?;
+        self.managed
+            .clear_mesh_level_environment(level)
+            .map_err(Into::into)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

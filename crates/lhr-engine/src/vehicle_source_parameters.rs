@@ -893,6 +893,12 @@ pub(super) fn apply_parameters<B: VehicleSourceParametersBackend>(
         (0x19a, 0x1f0, 1., false),
         (0x19b, 0x1f4, 1., false),
     ] {
+        // PC MOV copies retain the source word; some are integer fields whose
+        // bit patterns are subnormal when interpreted as floating point.
+        if scale == 1. && !gravity {
+            p.copy_source(si, vo)?;
+            continue;
+        }
         let mut x = mul(p.sf(si)?, scale)?;
         if gravity {
             x = mul(x, p.vf(0x5f4)?)?;
@@ -910,6 +916,11 @@ pub(super) fn apply_parameters<B: VehicleSourceParametersBackend>(
             (0x19d, 0x19c, 0.2777778, true),
             (0x19f, 0x194, 1., false),
         ] {
+            if scale == 1. && !gravity {
+                let bits = p.word(source + si * 4)?;
+                p.put(w + wo, bits)?;
+                continue;
+            }
             let mut x = mul(p.sf(si)?, scale)?;
             if gravity {
                 x = mul(x, p.vf(0x5f4)?)?;
@@ -924,6 +935,12 @@ pub(super) fn apply_parameters<B: VehicleSourceParametersBackend>(
         (0x1c2, 0xd0, 1., false),
         (0x1c3, 0xd4, 1., false),
     ] {
+        // PC MOV copies retain the source word; some are integer fields whose
+        // bit patterns are subnormal when interpreted as floating point.
+        if scale == 1. && !gravity {
+            p.copy_source(si, vo)?;
+            continue;
+        }
         let mut x = mul(p.sf(si)?, scale)?;
         if gravity {
             x = mul(x, p.vf(0x5f4)?)?;

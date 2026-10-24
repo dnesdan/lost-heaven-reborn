@@ -2,9 +2,8 @@
 //! Actual PS2 I3D_light symbols corroborate SetLightType, SetDiffuse,
 //! SetDiffusePower, SetRange, SetCone, UpdateV and SetMode; PC layouts govern.
 //! Original PC entries:201f0,20760,20800,20930,20a90,20b20,20c30,20d10,21440.
-//! Sector registration/rendering is not synthesized: the represented lights
-//! own the constructor-empty sector array; registration requires its separate
-//! real sector backend before those paths can be admitted.
+//! Sector registration shares the ModelArena's sector lists and the graph's
+//! reciprocal light lists. Rendering and fog-derived light types remain separate.
 use crate::{
     frame_transform::{FrameError, FrameKey, FrameKind, I3dFrameGraph, I3dFrameState},
     model_loading::{ModelArena, ModelError},
@@ -38,6 +37,7 @@ pub struct I3dLightState {
     pub cone_radius: f32,
     pub sphere_center: [f32; 3],
     pub sphere_radius: f32,
+    pub sectors: Vec<FrameKey>,
 }
 impl I3dLightState {
     pub(crate) fn constructor_prefix() -> Self {
@@ -63,6 +63,7 @@ impl I3dLightState {
             cone_radius: 0.,
             sphere_center: [0.; 3],
             sphere_radius: 0.,
+            sectors: Vec::new(),
         }
     }
 }
@@ -134,6 +135,15 @@ fn normalize(mut v: [f32; 3]) -> Result<[f32; 3], FrameError> {
     Ok(v)
 }
 impl I3dFrameGraph {
+    fn dirty_light_sectors(&mut self, key: FrameKey) -> Result<(), FrameError> {
+        let count = self.light_state(key)?.sectors.len();
+        for index in (0..count).rev() {
+            let sector = self.light_state(key)?.sectors[index];
+            let changed = self.sector_light_changes.entry(sector.0).or_default();
+            *changed = changed.wrapping_add(1);
+        }
+        Ok(())
+    }
     fn light_scaled_range(&mut self, key: FrameKey) -> Result<(), FrameError> {
         let scale = self.state(key)?.world_scale;
         let range = self.light_state(key)?.range;
@@ -181,6 +191,7 @@ impl I3dFrameGraph {
             return Err(FrameError::UnsupportedFrameUpdate(key));
         }
         self.projected_state_mut(key)?.update_count = self.state(key)?.update_count.wrapping_add(1);
+        self.dirty_light_sectors(key)?;
         match self.light_state(key)?.light_type {
             1 => {
                 let world = self.world_matrix(key)?;
@@ -215,6 +226,7 @@ impl I3dFrameGraph {
             return Err(FrameError::UnsupportedFrameUpdate(key));
         }
         self.projected_state_mut(key)?.update_count = self.state(key)?.update_count.wrapping_add(1);
+        self.dirty_light_sectors(key)?;
         self.light_state_mut(key)?.light_type = kind;
         if kind == 2 {
             let l = self.light_state(key)?;
@@ -229,6 +241,7 @@ impl I3dFrameGraph {
             self.light_state_mut(key)?.mode = mode;
             self.projected_state_mut(key)?.update_count =
                 self.state(key)?.update_count.wrapping_add(1);
+            self.dirty_light_sectors(key)?;
         }
         Ok(())
     }
@@ -241,6 +254,7 @@ impl I3dFrameGraph {
         ];
         self.light_state_mut(key)?.scaled_color = color;
         self.projected_state_mut(key)?.update_count = self.state(key)?.update_count.wrapping_add(1);
+        self.dirty_light_sectors(key)?;
         Ok(())
     }
     fn set_light_diffuse_inner(
@@ -268,6 +282,7 @@ impl I3dFrameGraph {
         self.light_state_mut(key)?.range = [near, if far > near { far } else { near }];
         self.light_scaled_range(key)?;
         self.projected_state_mut(key)?.update_count = self.state(key)?.update_count.wrapping_add(1);
+        self.dirty_light_sectors(key)?;
         if self.light_state(key)?.light_type == 2 {
             let l = self.light_state(key)?;
             let radius = light_cone_radius(l.cone[1], l.range[1])
@@ -285,6 +300,7 @@ impl I3dFrameGraph {
         self.light_state_mut(key)?.cone = [inner, outer];
         self.light_cone_cache(key)?;
         self.projected_state_mut(key)?.update_count = self.state(key)?.update_count.wrapping_add(1);
+        self.dirty_light_sectors(key)?;
         if self.light_state(key)?.light_type == 2 {
             let l = self.light_state(key)?;
             let radius = light_cone_radius(l.cone[1], l.range[1])

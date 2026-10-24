@@ -612,6 +612,166 @@ pub fn vehicle_body_collision<B: VehicleBodyCollisionResponseBackend>(
     Ok(matches!(outcome, VehicleBodyCollisionOutcome::Contact))
 }
 
+/// Host availability errors of the canonical single-element collision-order
+/// insertion. The original body caller always supplies count one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum VehicleCollisionOrderUnavailable<E> {
+    Effect(E),
+    StorageRange,
+    AllocationFailed,
+}
+struct CollisionOrderAccess<'a, B: ?Sized>(&'a mut B);
+impl<B: VehicleInitBackend + ?Sized> CollisionOrderAccess<'_, B> {
+    fn read_word(
+        &mut self,
+        a: u32,
+    ) -> std::result::Result<u32, VehicleCollisionOrderUnavailable<B::Error>> {
+        self.0
+            .read_word(a)
+            .map_err(VehicleCollisionOrderUnavailable::Effect)
+    }
+    fn write_word(
+        &mut self,
+        a: u32,
+        value: u32,
+    ) -> std::result::Result<(), VehicleCollisionOrderUnavailable<B::Error>> {
+        self.0
+            .write_word(a, value)
+            .map_err(VehicleCollisionOrderUnavailable::Effect)
+    }
+    fn allocate(
+        &mut self,
+        n: u32,
+    ) -> std::result::Result<u32, VehicleCollisionOrderUnavailable<B::Error>> {
+        self.0
+            .allocate(n)
+            .map_err(VehicleCollisionOrderUnavailable::Effect)
+    }
+    fn free(
+        &mut self,
+        a: u32,
+    ) -> std::result::Result<(), VehicleCollisionOrderUnavailable<B::Error>> {
+        self.0
+            .free(a)
+            .map_err(VehicleCollisionOrderUnavailable::Effect)
+    }
+}
+/// Original 4eaa00 collision-order insertion, restricted to the reached
+/// eight-byte, count-one call contract. Position is an element index. Header
+/// reloads after allocator/free effects preserve the original publication order.
+pub fn insert_collision_order<B: VehicleInitBackend + ?Sized>(
+    b: &mut B,
+    h: u32,
+    position: u32,
+    index: u32,
+    distance: f32,
+) -> std::result::Result<(), VehicleCollisionOrderUnavailable<B::Error>> {
+    let mut access = CollisionOrderAccess(b);
+    let begin = access.read_word(h + 4)?;
+    let end = access.read_word(h + 8)?;
+    let capacity = access.read_word(h + 12)?;
+    let length = if begin == 0 {
+        0
+    } else {
+        end.checked_sub(begin)
+            .filter(|n| n % 8 == 0)
+            .ok_or(VehicleCollisionOrderUnavailable::StorageRange)?
+            / 8
+    };
+    if position > length {
+        return Err(VehicleCollisionOrderUnavailable::StorageRange);
+    }
+    if capacity.wrapping_sub(end) / 8 >= 1 {
+        for i in (position..length).rev() {
+            let a = access.read_word(begin + i * 8)?;
+            let b = access.read_word(begin + i * 8 + 4)?;
+            access.write_word(begin + (i + 1) * 8, a)?;
+            access.write_word(begin + (i + 1) * 8 + 4, b)?;
+        }
+        access.write_word(begin + position * 8, index)?;
+        access.write_word(begin + position * 8 + 4, distance.to_bits())?;
+        let end = access.read_word(h + 8)?;
+        return access.write_word(h + 8, end + 8);
+    }
+    let slots = length
+        .checked_add(length.max(1))
+        .ok_or(VehicleCollisionOrderUnavailable::StorageRange)?;
+    let next = access.allocate(
+        slots
+            .checked_mul(8)
+            .ok_or(VehicleCollisionOrderUnavailable::StorageRange)?,
+    )?;
+    if next == 0 {
+        return Err(VehicleCollisionOrderUnavailable::AllocationFailed);
+    }
+    // Preserve the original prefix/value/suffix copy and publication order.
+    let insertion = begin.wrapping_add(position.wrapping_mul(8));
+    let mut source = access.read_word(h + 4)?;
+    let mut target = next;
+    while source != insertion {
+        let first = access.read_word(source)?;
+        let second = access.read_word(source + 4)?;
+        access.write_word(target, first)?;
+        access.write_word(target + 4, second)?;
+        source = source.wrapping_add(8);
+        target = target.wrapping_add(8);
+    }
+    access.write_word(target, index)?;
+    access.write_word(target + 4, distance.to_bits())?;
+    target = target.wrapping_add(8);
+    let live_end = access.read_word(h + 8)?;
+    let mut source = insertion;
+    while source != live_end {
+        let a = access.read_word(source)?;
+        let b = access.read_word(source + 4)?;
+        access.write_word(target, a)?;
+        access.write_word(target + 4, b)?;
+        source = source.wrapping_add(8);
+        target = target.wrapping_add(8);
+    }
+    let old = access.read_word(h + 4)?;
+    access.free(old)?;
+    access.write_word(h + 12, next + slots * 8)?;
+    let old = access.read_word(h + 4)?;
+    let count = if old == 0 {
+        0
+    } else {
+        access.read_word(h + 8)?.wrapping_sub(old) / 8
+    };
+    access.write_word(h + 4, next)?;
+    access.write_word(h + 8, next + (count + 1) * 8)
+}
+
+/// Original5c3d10/5c3d60 owner-filter writes on the shared collision manager.
+/// The list pointer and singleton identity are preserved by the zero-owner path.
+pub fn set_body_collision_filter<B: VehicleInitBackend + ?Sized>(
+    b: &mut B,
+    filter: VehicleBodyCollisionFilter,
+) -> std::result::Result<(), B::Error> {
+    const MANAGER: u32 = 0x647f48;
+    match filter {
+        VehicleBodyCollisionFilter::Group(group) => {
+            if group != 0 {
+                b.write_word(MANAGER + 0x2bc, 1)?;
+                b.write_word(MANAGER + 0x2b8, MANAGER + 0x2b4)?;
+                b.write_word(MANAGER + 0x2b4, group)?;
+            } else {
+                b.write_word(MANAGER + 0x2bc, 0)?;
+            }
+            b.write_word(MANAGER + 0x2b0, 0)
+        }
+        VehicleBodyCollisionFilter::Clear => {
+            b.write_word(MANAGER + 0x2bc, 0)?;
+            b.write_word(MANAGER + 0x2b0, 0)
+        }
+        VehicleBodyCollisionFilter::Actors { begin, count } => {
+            b.write_word(MANAGER + 0x2b8, begin)?;
+            b.write_word(MANAGER + 0x2bc, count)?;
+            b.write_word(MANAGER + 0x2b0, 0)
+        }
+    }
+}
+
 #[cfg(test)]
 #[path = "vehicle_dynamics_body_collision_tests.rs"]
 mod tests;

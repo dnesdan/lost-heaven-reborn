@@ -7,7 +7,7 @@
 //!
 //! Arithmetic models x87 precision 24, round-to-nearest (CW `0x007f`) on a host
 //! with ordinary IEEE round-to-nearest arithmetic. Used operands/intermediates
-//! must be zero or have magnitude in `2^-40..=2^40`. Floating-point status/traps,
+//! must be normal or zero and have magnitude at most `2^40`. Floating-point status/traps,
 //! other control words and the extended x87 exponent range are outside scope.
 //! Errors and allocation quotas are host policy, not original loader results.
 //! This module does not establish scene ownership, candidate order, volume
@@ -19,7 +19,7 @@ use crate::collision_world::{
 };
 use lhr_assets::klz::{Klz, PrimitiveId, PrimitiveKind, PrimitiveRecord};
 
-const MIN_MAGNITUDE: f32 = 1.0 / ((1_u64 << 40) as f32);
+#[cfg(test)]
 const MAX_MAGNITUDE: f32 = (1_u64 << 40) as f32;
 const MAX_PREPARATION_BYTES: usize = 64 * 1024 * 1024;
 
@@ -66,8 +66,7 @@ impl PreparedCollisionTriangle {
 }
 
 fn number(value: f32) -> Result<f32, CollisionPreparationError> {
-    if value.is_finite() && (value == 0.0 || (MIN_MAGNITUDE..=MAX_MAGNITUDE).contains(&value.abs()))
-    {
+    if (value == 0.0 || value.is_normal()) && value.abs() <= (1_u64 << 40) as f32 {
         Ok(value)
     } else {
         Err(CollisionPreparationError::NumericDomain)
@@ -75,16 +74,34 @@ fn number(value: f32) -> Result<f32, CollisionPreparationError> {
 }
 
 fn sub(a: f32, b: f32) -> Result<f32, CollisionPreparationError> {
-    number(a - b)
+    let value = crate::collision_swept::sub(number(a)?, number(b)?)
+        .map_err(|_| CollisionPreparationError::NumericDomain)?;
+    number(value)
 }
 
 fn squared_distance(a: [f32; 3], b: [f32; 3]) -> Result<f32, CollisionPreparationError> {
     let [dx, dy, dz] = [sub(a[0], b[0])?, sub(a[1], b[1])?, sub(a[2], b[2])?];
     // Original instruction order: z*z + y*y, then + x*x. Do not fuse.
-    let zz = number(dz * dz)?;
-    let yy = number(dy * dy)?;
-    let xx = number(dx * dx)?;
-    number(number(zz + yy)? + xx)
+    let zz = number(
+        crate::collision_swept::mul(dz, dz)
+            .map_err(|_| CollisionPreparationError::NumericDomain)?,
+    )?;
+    let yy = number(
+        crate::collision_swept::mul(dy, dy)
+            .map_err(|_| CollisionPreparationError::NumericDomain)?,
+    )?;
+    let xx = number(
+        crate::collision_swept::mul(dx, dx)
+            .map_err(|_| CollisionPreparationError::NumericDomain)?,
+    )?;
+    let zy = number(
+        crate::collision_swept::add(zz, yy)
+            .map_err(|_| CollisionPreparationError::NumericDomain)?,
+    )?;
+    number(
+        crate::collision_swept::add(zy, xx)
+            .map_err(|_| CollisionPreparationError::NumericDomain)?,
+    )
 }
 
 fn load_triangle(

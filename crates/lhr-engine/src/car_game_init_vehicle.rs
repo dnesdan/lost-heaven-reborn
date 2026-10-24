@@ -133,7 +133,7 @@ impl<B: CarGameInitBackend> GameInit<'_, B> {
         let frame = self.read(v + 0x34c)?;
         self.world_frame(frame)?;
         self.copy(frame + 0x40, v + 0x320, 3)?;
-        self.put(self.stack - 0xbc, v + 0x320)?;
+        self.put(self.stack - 0xb4, v + 0x320)?;
         let mut matrix = SMatrix { elements: [0.; 16] };
         let mut point = [0.; 3];
         for (i, x) in matrix.elements.iter_mut().enumerate() {
@@ -204,7 +204,7 @@ impl<B: CarGameInitBackend> GameInit<'_, B> {
                 let radius = self.bounds_radius(lo, hi)?;
                 let shapes = self.read(v + 0x1ffc)?;
                 let shape = self.read(shapes + i * 8)?;
-                let record = self.stack - 0x54;
+                let record = self.stack - 0x4c;
                 self.collision_record(v, record, [lo, hi], 0x201, radius, shape)?;
                 let insertion = self.read(v + 0x1fe8)?;
                 self.effect(CarGameInitEffect::InsertVehicleCollision {
@@ -229,12 +229,12 @@ impl<B: CarGameInitBackend> GameInit<'_, B> {
                 break;
             }
             let object = begin + index * 0x48;
-            self.put(self.stack - 0xe4, object)?;
+            self.put(self.stack - 0xdc, object)?;
             let insertion = self.read(v + 0x1fd8)?;
             self.effect(CarGameInitEffect::InsertVehicleCollisionPointer {
                 header: v + 0x1fd0,
                 insertion,
-                source: self.stack - 0xe4,
+                source: self.stack - 0xdc,
             })?;
             index += 1;
         }
@@ -358,7 +358,7 @@ impl<B: CarGameInitBackend> GameInit<'_, B> {
         if self.byte(v + 0xc70)? & 1 == 0 {
             self.effect(CarGameInitEffect::InitializeSkidModels {
                 vehicle: v,
-                position_pointer_slot: self.stack - 0xbc,
+                position_pointer_slot: self.stack - 0xb4,
             })?;
         }
         let doors = self.read(v + 0xca4)?;
@@ -411,7 +411,7 @@ impl<B: CarGameInitBackend> GameInit<'_, B> {
             self.put_byte(v + o, b)?;
         }
         self.vehicle_dependency(0x4d6840, [0, 0])?;
-        let position = self.read(self.stack - 0xbc)?;
+        let position = self.read(self.stack - 0xb4)?;
         self.put(v + 4, 0)?;
         self.copy(position, v + 8, 3)
     }

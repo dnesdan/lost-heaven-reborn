@@ -14,8 +14,13 @@ use crate::{
 #[path = "car_runtime_catalog.rs"]
 mod catalog;
 pub use catalog::CarInitAnimationCatalog;
+#[path = "car_runtime_driving.rs"]
+mod driving;
+pub use driving::{CarDrivingControlFeedback, CarDrivingInput, CarDrivingState};
 #[path = "car_runtime_game.rs"]
 mod game;
+#[path = "car_runtime_tables.rs"]
+mod tables;
 
 const CAR: u32 = 0x10000;
 const INIT_STACK: u32 = 0x800000;
@@ -69,6 +74,8 @@ pub struct CarRuntimeCleanup {
     pub graphics: usize,
     pub textures: usize,
     pub cpu_allocations: usize,
+    pub audio_sounds: usize,
+    pub audio_sources: usize,
     /// Host inspection uses the bounded Scene constructor prefix only; these
     /// frames are not reported as a completed native Scene destruction.
     pub retained_scene_prefix_frames: usize,
@@ -85,6 +92,12 @@ impl std::fmt::Display for CarRuntimeOpenFailure {
 
 pub struct CarRuntime {
     precision: Pc24PrecisionState,
+    services: driving::CarRuntimeServices,
+    driving: Option<driving::DrivingSession>,
+    game_init_started: bool,
+    game_initialized: bool,
+    game_done_started: bool,
+    game_done_complete: bool,
     game: game::CarRuntimeGameState,
     game_scratch: CarGameInitScratch,
     level_table_started: bool,
@@ -135,9 +148,35 @@ impl CarRuntime {
         path: &str,
         options: CarRuntimeOptions,
     ) -> Result<Self, CarRuntimeOpenFailure> {
+        Self::open_context(installation, path, options, None)
+    }
+    /// Establishes the authored model transform before construction and Init.
+    pub fn open_driving(
+        installation: lhr_assets::Installation,
+        path: &str,
+        options: CarRuntimeOptions,
+        mission: &str,
+    ) -> Result<Self, CarRuntimeOpenFailure> {
+        Self::open_context(installation, path, options, Some(mission))
+    }
+    fn open_context(
+        installation: lhr_assets::Installation,
+        path: &str,
+        options: CarRuntimeOptions,
+        mission: Option<&str>,
+    ) -> Result<Self, CarRuntimeOpenFailure> {
         let tracks = CarInitAnimationCatalog::resources().expect("bounded unique semantic catalog");
         let mut runtime = Self {
             precision: Pc24PrecisionState::default(),
+            services: driving::CarRuntimeServices {
+                allocator_fill: options.allocator_fill,
+                ..Default::default()
+            },
+            driving: None,
+            game_init_started: false,
+            game_initialized: false,
+            game_done_started: false,
+            game_done_complete: false,
             game: game::CarRuntimeGameState::default(),
             game_scratch: CarGameInitScratch {
                 memory: VehicleComponentTailScratch {
@@ -174,7 +213,7 @@ impl CarRuntime {
             wheel_preview_started: false,
             wheel_preview_failed: false,
         };
-        if let Err(message) = runtime.initialize(path, options) {
+        if let Err(message) = runtime.initialize(path, options, mission) {
             return Err(CarRuntimeOpenFailure {
                 message,
                 partial: Box::new(runtime),
@@ -182,15 +221,28 @@ impl CarRuntime {
         }
         Ok(runtime)
     }
-    fn initialize(&mut self, path: &str, options: CarRuntimeOptions) -> Result<(), String> {
+    fn initialize(
+        &mut self,
+        path: &str,
+        options: CarRuntimeOptions,
+        mission: Option<&str>,
+    ) -> Result<(), String> {
         Pc24PrecisionState::run_owner(
             self,
             |owner| &mut owner.precision,
-            |owner| owner.initialize_inner(path, options),
+            |owner| owner.initialize_inner(path, options, mission),
         )
     }
-    fn initialize_inner(&mut self, path: &str, options: CarRuntimeOptions) -> Result<(), String> {
-        self.prepare_game_context(options)?;
+    fn initialize_inner(
+        &mut self,
+        path: &str,
+        options: CarRuntimeOptions,
+        mission: Option<&str>,
+    ) -> Result<(), String> {
+        self.prepare_game_context(options, mission.is_some())?;
+        if let Some(mission) = mission {
+            self.prepare_driving_world(path, mission)?;
+        }
         self.arena
             .visual_resource_owner_mut()
             .map_err(|e| e.to_string())?
@@ -229,6 +281,29 @@ impl CarRuntime {
         self.arena
             .link_frame(model.root(), Some(sector), 0)
             .map_err(|e| e.to_string())?;
+        if let Some(driving) = self.driving.as_ref() {
+            self.arena
+                .graph
+                .assign_position(model.root(), driving.spawn.position)
+                .map_err(|e| format!("Driving spawn position: {e:?}"))?;
+            self.arena
+                .graph
+                .assign_rotation(
+                    model.root(),
+                    crate::native_transform::SQuat {
+                        wxyz: driving.spawn.rotation_wxyz,
+                    },
+                )
+                .map_err(|e| format!("Driving spawn rotation: {e:?}"))?;
+            self.arena
+                .graph
+                .assign_scale(model.root(), driving.spawn.scale)
+                .map_err(|e| format!("Driving spawn scale: {e:?}"))?;
+            self.arena
+                .graph
+                .update(model.root())
+                .map_err(|e| format!("Driving spawn publication: {e:?}"))?;
+        }
         let registers = CarInitRegisters {
             ebx: 0,
             ebp: 0,
@@ -325,7 +400,11 @@ impl CarRuntime {
         self.summary.cached_tracks = self.tracks.cached_tracks().count();
         Ok(())
     }
-    fn prepare_game_context(&mut self, options: CarRuntimeOptions) -> Result<(), String> {
+    fn prepare_game_context(
+        &mut self,
+        options: CarRuntimeOptions,
+        driving: bool,
+    ) -> Result<(), String> {
         let fill = options.allocator_fill;
         let regions: Vec<(u32, Vec<u8>)> = vec![
             // Caller storage below the canonical GameInit scratch. The level
@@ -345,6 +424,8 @@ impl CarRuntime {
             (0x647908, vec![0; 8]),
             (0x647918, vec![0; 8]),
             (0x647998, vec![0; 8]),
+            // This standalone caller has no original player/camera actors.
+            (0x647f28, vec![0; 8]),
             (0x63d2bc, vec![0; 16]),
             (0x63a200, options.random_seed.to_le_bytes().to_vec()),
         ];
@@ -352,6 +433,57 @@ impl CarRuntime {
             self.memory
                 .map_bytes(address, &bytes)
                 .map_err(|e| format!("Game inspection context: {e:?}"))?;
+        }
+        if driving {
+            self.memory
+                .map_bytes(0x870000, &[fill; 24])
+                .map_err(|e| format!("Game spatial sound caller stack: {e:?}"))?;
+            // Primary PC literal used by C_car::Break_Glass (4262f0).
+            self.memory
+                .map_bytes(0x6323b8, b"lustr1.wav\0")
+                .map_err(|e| format!("Glass sound literal: {e:?}"))?;
+            self.memory
+                .map_bytes(0x63d6d4, &[0; 4])
+                .map_err(|e| format!("Crash actor counter context: {e:?}"))?;
+            self.memory
+                .map_bytes(0x63d2a4, &[0; 16])
+                .map_err(|e| format!("Game frame-pair context: {e:?}"))?;
+            // Original BSS containers and their C_game startup resets:
+            // 531130 sets the first manager's selector to -1; the remaining
+            // empty-vector branches (532da0/534ec0) retain zero extents.
+            let mut managers = [0u8; 76];
+            managers[..4].copy_from_slice(&u32::MAX.to_le_bytes());
+            self.memory
+                .map_bytes(0x646d44, &managers)
+                .map_err(|e| format!("Game actor manager context: {e:?}"))?;
+            let mut sound_manager = [0u8; 28];
+            sound_manager[..4].copy_from_slice(&0x625410u32.to_le_bytes());
+            self.memory
+                .map_bytes(0x646f50, &sound_manager)
+                .map_err(|e| format!("Indexed sound manager context: {e:?}"))?;
+            // Original model-cache startup state (5bd080), including the
+            // Models directory registered by the game caller. These pointers
+            // own actual caller allocations rather than borrowed file data.
+            let mut cache = [0u8; 40];
+            cache[..4].copy_from_slice(&0x625cf4u32.to_le_bytes());
+            cache[36..40].copy_from_slice(&256u32.to_le_bytes());
+            self.memory
+                .map_bytes(0x647dd0, &cache)
+                .map_err(|e| format!("Model cache context: {e:?}"))?;
+            let mut directory = [0u8; 16];
+            directory[..4].copy_from_slice(&1u32.to_le_bytes());
+            directory[4..8].copy_from_slice(&7u32.to_le_bytes());
+            directory[8..].copy_from_slice(b"Models\\\0");
+            let directory = self.own_game_table(&directory)?;
+            let vector = self.own_game_table(&directory.to_le_bytes())?;
+            for (address, value) in [
+                (0x647de8, vector),
+                (0x647dec, vector + 4),
+                (0x647df0, vector + 4),
+            ] {
+                VehicleInitBackend::write_word(&mut self.memory, address, value)
+                    .map_err(|e| format!("Model cache directory: {e:?}"))?;
+            }
         }
         Ok(())
     }
@@ -552,6 +684,10 @@ impl CarRuntime {
         )
     }
     fn destruct_car_inner(&mut self) -> Result<(), String> {
+        self.cleanup_driving_actors_inner()?;
+        if self.game_init_started && !self.game_done_complete {
+            self.finish_game()?;
+        }
         if self.car_destructor_started {
             return Err("Car destruction already started".into());
         }
@@ -631,6 +767,51 @@ impl CarRuntime {
             VehicleInitBackend::write_word(&mut self.memory, address, 0)
                 .map_err(|e| format!("Actor registry reset: {e:?}"))?;
         }
+        if self.game_init_started {
+            // C_car removes its entries; the standalone caller still owns the
+            // C_using_object vector capacity in its game context.
+            let header = 0x680000 + 0x29ec;
+            let begin = VehicleInitBackend::read_word(&mut self.memory, header + 4)
+                .map_err(|e| format!("Using-object registry: {e:?}"))?;
+            let end = VehicleInitBackend::read_word(&mut self.memory, header + 8)
+                .map_err(|e| format!("Using-object registry: {e:?}"))?;
+            if begin != end {
+                return Err("Car cleanup retained a using-object registration".into());
+            }
+            VehicleInitBackend::free(&mut self.memory, begin)
+                .map_err(|e| format!("Using-object capacity release: {e:?}"))?;
+            for offset in [4, 8, 12] {
+                VehicleInitBackend::write_word(&mut self.memory, header + offset, 0)
+                    .map_err(|e| format!("Using-object registry reset: {e:?}"))?;
+            }
+            // CreateCrashModel retains borrowed world identities here. The
+            // standalone game caller owns only the pointer-vector capacity;
+            // world model references remain with the world graph.
+            let header = 0x680000 + 0x10;
+            let begin = VehicleInitBackend::read_word(&mut self.memory, header + 4)
+                .map_err(|e| format!("Hidden world models: {e:?}"))?;
+            VehicleInitBackend::free(&mut self.memory, begin)
+                .map_err(|e| format!("Hidden world model capacity release: {e:?}"))?;
+            for offset in [4, 8, 12] {
+                VehicleInitBackend::write_word(&mut self.memory, header + offset, 0)
+                    .map_err(|e| format!("Hidden world model registry reset: {e:?}"))?;
+            }
+        }
+        if self.game_init_started {
+            if let Some(session) = self.driving.as_mut() {
+                session.simulation.cleanup(&mut self.memory)?;
+                self.memory
+                    .map_bytes(0x860000, &[self.services.allocator_fill; 16])
+                    .map_err(|e| format!("Driving world cleanup caller: {e:?}"))?;
+                crate::dynamic_collision_manager::release_owned_dynamic_grid(
+                    &mut self.memory,
+                    0x647f48,
+                    0x860000,
+                )
+                .map_err(|e| format!("Driving world cleanup: {e:?}"))?;
+            }
+        }
+        self.release_driving_tables()?;
         self.tracks.reset_track_cache();
         self.game.release_host_handles();
         let cpu = self.arena.loaded_visual_resources().map(|r| r.backend());
@@ -641,6 +822,16 @@ impl CarRuntime {
             graphics: cpu.map_or(0, |r| r.live_graphics()),
             textures: cpu.map_or(0, |r| r.live_textures()),
             cpu_allocations: cpu.map_or(0, |r| r.live_allocations()),
+            audio_sounds: self
+                .services
+                .audio
+                .live_sound_count()
+                .map_err(|e| e.to_string())?,
+            audio_sources: self
+                .services
+                .audio
+                .live_source_count()
+                .map_err(|e| e.to_string())?,
             retained_scene_prefix_frames: self
                 .scene
                 .and_then(|scene| self.arena.scene(scene).ok())
@@ -650,11 +841,15 @@ impl CarRuntime {
             || cleanup.graphics != 0
             || cleanup.textures != 0
             || cleanup.cpu_allocations != 0
+            || cleanup.audio_sounds != 0
+            || cleanup.audio_sources != 0
         {
             return Err(format!(
-                "Car inspection retained CPU resources: {cleanup:?}"
+                "Car inspection retained CPU resources: {cleanup:?}; remaining heap: {:?}",
+                self.memory.allocations().collect::<Vec<_>>()
             ));
         }
+        self.driving = None;
         Ok(cleanup)
     }
 }

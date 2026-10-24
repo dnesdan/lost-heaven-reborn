@@ -190,7 +190,7 @@ pub fn sphere_in_tree_level(candidates: &[CollisionPrimitive], q: &mut SpherePar
         }
         match candidate {
             CollisionPrimitive::Unavailable { error, .. } => {
-                return Err(SphereSweepError::Preparation(*error))
+                return Err(SphereSweepError::Preparation(*error));
             }
             CollisionPrimitive::Volume(volume) => {
                 hit |= sphere_in_nonface(volume, q)?;
@@ -264,12 +264,24 @@ pub fn test_sphere_b(
     {
         return Err(SphereSweepError::InvalidGrid);
     }
-    let mut query = SphereParam::new(request)?;
+    let query = SphereParam::new(request)?;
     if request.selector != -1 && g.dynamic_candidates_present {
         return Err(SphereSweepError::UnsupportedDynamicQuery);
     }
+    test_sphere_b_continue(grid, request, outputs, traversal, query, false)
+}
+/// Continue the same original query after canonical dynamic traversal. The
+/// dynamic return flag stays distinct from its retained nearest descriptor.
+pub(crate) fn test_sphere_b_continue(
+    grid: &dyn SphereStaticGrid,
+    request: &SphereSweepRequest,
+    outputs: &mut CollisionLineOutputs,
+    traversal: &mut SphereTraversalState,
+    mut query: SphereParam,
+    mut hit: bool,
+) -> Out<Option<SphereSweepHit>> {
+    let g = grid.sphere_geometry();
     let mut next = *traversal;
-    let mut hit = false;
     if request.reject_mask != u32::MAX {
         let min_y = sub(
             if query.end[1] <= query.origin[1] {

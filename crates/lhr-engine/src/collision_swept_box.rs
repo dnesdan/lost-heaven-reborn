@@ -276,22 +276,9 @@ pub fn box_in_dynamic(grid: &BoxDynamicGrid<'_>, param: &BoxParam) -> Out<bool> 
                     continue;
                 }
                 match (candidate.properties as u8, candidate.geometry) {
-                    (0x40 | 0x42 | 0x44, BoxDynamicGeometry::SphereBound { center, radius }) => {
-                        let delta = difference(param.center, center)?;
-                        let distance = dot(delta, delta, [1, 2, 0])?;
-                        let sum = add(radius, param.half_diagonal_squared)?;
-                        if distance <= mul(sum, sum)? {
-                            return Ok(true);
-                        }
-                    }
-                    (0x41, BoxDynamicGeometry::Aabb { min, max }) => {
-                        let hit = number(min[0])? <= number(param.world_max[0])?
-                            && number(min[1])? <= number(param.world_max[1])?
-                            && number(min[2])? <= number(param.world_max[2])?
-                            && number(param.world_min[0])? <= number(max[0])?
-                            && number(param.world_min[1])? <= number(max[1])?
-                            && number(param.world_min[2])? <= number(max[2])?;
-                        if hit {
+                    (0x40 | 0x42 | 0x44, geometry @ BoxDynamicGeometry::SphereBound { .. })
+                    | (0x41, geometry @ BoxDynamicGeometry::Aabb { .. }) => {
+                        if box_dynamic_overlap(param, geometry)? {
                             return Ok(true);
                         }
                     }
@@ -303,6 +290,39 @@ pub fn box_in_dynamic(grid: &BoxDynamicGrid<'_>, param: &BoxParam) -> Out<bool> 
     }
     Ok(false)
 }
+/// The original dynamic bound predicate, shared by the typed fixture view
+/// and the canonical descriptor walker. Differences and squared values stay
+/// in PC24's wider exponent range until the original FCOMPP.
+pub(crate) fn box_dynamic_overlap(param: &BoxParam, geometry: BoxDynamicGeometry) -> Out<bool> {
+    use crate::ph_thing_response::PhThingNumber;
+    let n = |x: f32| PhThingNumber::load(x).map_err(|_| BoxSweepError::NumericDomain);
+    let host = |_| BoxSweepError::NumericDomain;
+    match geometry {
+        BoxDynamicGeometry::SphereBound { center, radius } => {
+            let x = n(param.center[0])?.sub(n(center[0])?).map_err(host)?;
+            let y = n(param.center[1])?.sub(n(center[1])?).map_err(host)?;
+            let z = n(param.center[2])?.sub(n(center[2])?).map_err(host)?;
+            let sum = n(radius)?
+                .add(n(param.half_diagonal_squared)?)
+                .map_err(host)?;
+            let distance = z
+                .mul(z)
+                .and_then(|v| y.mul(y).and_then(|y| v.add(y)))
+                .and_then(|v| x.mul(x).and_then(|x| v.add(x)))
+                .map_err(host)?;
+            Ok(sum.mul(sum).map_err(host)?.value() >= distance.value())
+        }
+        BoxDynamicGeometry::Aabb { min, max } => Ok(n(min[0])?.value()
+            <= n(param.world_max[0])?.value()
+            && n(min[1])?.value() <= n(param.world_max[1])?.value()
+            && n(min[2])?.value() <= n(param.world_max[2])?.value()
+            && n(max[0])?.value() >= n(param.world_min[0])?.value()
+            && n(max[1])?.value() >= n(param.world_min[1])?.value()
+            && n(max[2])?.value() >= n(param.world_min[2])?.value()),
+        BoxDynamicGeometry::Ignored => Ok(false),
+    }
+}
+
 /// Original BoxInNonFace, PC RVA0x1c44b0. These predicates intentionally retain
 /// the original bound tests, rather than substituting a line cast or SAT test.
 pub fn box_in_non_face(volume: &Volume, param: &BoxParam) -> Out<bool> {
@@ -458,18 +478,26 @@ pub fn test_d_box<G: BoxStaticGrid + ?Sized>(
             }
         }
     }
+    test_d_box_static(grid, &param)
+}
+
+/// Original static continuation after BoxInDynamic has returned false.
+pub(crate) fn test_d_box_static<G: BoxStaticGrid + ?Sized>(
+    grid: &G,
+    param: &BoxParam,
+) -> Out<bool> {
     if param.static_mask == u32::MAX {
         return Ok(false);
     }
     let geometry = grid.geometry();
     grid_valid(geometry, grid.cell_count())?;
-    let (begin, end) = cell_range(geometry, &param, false)?;
+    let (begin, end) = cell_range(geometry, param, false)?;
     let mut result = false;
     for z in begin[1]..end[1] {
         for x in begin[0]..end[0] {
             let cell = grid.cell(z as usize * geometry.width as usize + x as usize);
             if param.world_min[1] < number(cell.max_y)? {
-                result |= box_in_tree_level(cell.candidates, &param)?;
+                result |= box_in_tree_level(cell.candidates, param)?;
             }
         }
     }

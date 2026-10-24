@@ -1,5 +1,67 @@
 # Reconstruction coverage
 
+
+Standalone driving composes the original-data car lifecycle, world collisions,
+material/tyre projections, input setters, simulation, sound and explicit cleanup.
+The source keeps one canonical car/frame/heap owner. Native comparisons and
+original-data rendered/input evidence have separate scopes; the campaign stays
+unplayable and strict system verification remains **0/12**. No new canonical-entry
+credit is inferred from this integration, so the accepted ledger stays **309
+entries / 113 contracts**.
+
+The driving view includes original static collision, nearby cache-model geometry,
+canonical light/skid visibility, a host chase camera and original WAV mixing.
+Generic `C_crash_obj` creation and physical debris use the canonical dynamic collision
+context. Original renderer parity, mission actors/traffic, other actor classes,
+live particle templates and occupied scratch-projection pools remain open.
+Unsupported reached dependencies retain their completed prefix and fail explicitly.
+
+Frozen Source4 passes 1066 Rust tests (110 assets unit, seven assets integration,
+910 engine library, eight engine integration, 26 application and five renderer),
+nine REA-wrapper tests and 47 progress tests, formatting, locked all-target checking
+and all-target Clippy. All 264 guarded source files agree before and after the gate.
+Apple arm64 checking is blocked by
+the new CoreAudio dependency's missing Apple SDK headers in this Linux environment;
+no current macOS runtime or Metal claim is made.
+
+Three original-input headless trajectories pass in both actual opt0/opt3 profiles:
+900 prop-collision steps, 900 glass-damage steps with camera/listener/PCM updates,
+and 1800 idle steps. The prop trace creates one physical object. All six runs
+finish with zero owned resources; five caller-owned Scene-prefix frames remain
+separate context. Nineteen recorded source guards and additional checks retain
+the frozen 264-file tree. Damaged glass material is observed; exhausted-window
+fragments and their sound are not exercised.
+
+Both windowed profiles pass 26 negative CLI cases, exact legacy taxi/police/MISE01
+pixels, inspection controls and live driving inputs. W/S, full A/D requests and
+applied steering signs, Space, focus loss, R reload and two explicit cleanups are
+verified. Maximum displacement is 12.224 metres in debug and 46.141 metres in
+release. The separate continuous release video has 540 decoded frames, 330
+distinct frames and 55.038 metres maximum displacement over 18 seconds. Its
+17.44-second original-resource stereo audio is neither padded nor stretched;
+software capture and simulation timing diverge by up to 0.706 seconds. These
+results establish no perfect audiovisual synchronization or physical audio-device
+validation. Both sequential independent non-author reviews approved the bounded
+Source4 milestone with no open findings. Source-commit binding remains pending.
+
+All admitted original-instruction comparisons pass against actual current-source
+Cargo opt0/opt3 builds, with 135 matching guards over the 264-file freeze. Counts
+remain separate: the baseline has 480 named inputs / 377 semantic capsules and
+five separately reported negative controls; new method/kernel cohorts have 631
+named inputs including projections and precision controls. Four genuine library
+owner-query cases and four new availability-negative controls are separate
+categories. There is no combined positive/unique total or duplicate profile credit.
+
+The new cohorts include 12 MoveBox inputs with 14 original corner rays each,
+six fragment projections, 26 active-row glass Tick inputs and 29 sound inputs.
+Controlled world/resource interfaces and pure CPU kernels retain their declared
+limits. Original code runs under masked CW007f PC24/RN; normalized Rust
+results/effects and its modeled logical sticky P are compared. Rust/native host
+hardware CW/MXCSR equivalence and other exception/condition bits are unclaimed.
+This establishes no whole Game, complete Scene, GPU or whole-function parity.
+
+## Previous bounded prerequisite milestone
+
 At `bf8b170`, the accepted scope is **309 entries / 113 reviewed contracts**, **23 static_inspection / 90 not_integrated**, strict **0/12**. Whole-function coverage remains N/A.
 
 Original car level tables now load from the user's DTA data through the reconstructed loader and packed-parameter converter. Eight distinct model/allocator configurations pass in both profiles (16 executions), including repeat-load rejection and explicit cleanup with zero tracked Car/Game/model resources. Five host Scene-prefix frames remain explicit context. Runtime needs original assets without opening an original executable or DLL.
@@ -52,17 +114,17 @@ Status for the Rust rewrite as of 2026-10-24. The 12 rows below preserve the ori
 
 | System | Source evidence and recovered behavior | Rust implementation and validation | Gaps |
 | --- | --- | --- | --- |
-| Assets and world streaming | PC/PS2 evidence separates Car construction, primary Init, GameInit and mission factory call sites. | Original DTA level tables and packed conversion compose with the live initialized owner; eight original-data configurations pass both profiles with explicit cleanup. | Full application GameInit, native resource/scene factories, complete Scene construction/Close and mission-world ownership. |
+| Assets and world streaming | PC/PS2 evidence separates Car construction, Init, GameInit and original cache transforms. | Original DTA levels, material/tyre projections and nearby cache geometry compose with the live car. Visible world subsets refresh without dropping the source scene. | Full Game/Scene factories, complete Scene Close, billboard resources and mission-world ownership. |
 | Rendering and materials | Native indexed conversion fragments establish bounded binary alpha for palette-zero RGB keys; host rendering choices remain separate. | Real software Vulkan taxi/police captures use the initialized arena; supported indexed/grayscale masks clip at host 0.5. Pixel repetition, GPU depth holes/overlay preservation and bounded X11 camera/R reload pass. | Unlit first LOD/nearest inspection, opaque unsupported non-grayscale masks, no environment reflections/blending, native GPU/lighting/full-renderer parity or Metal validation. |
 | Animation | PC REA/native comparisons cover eight-slot controls, clock/dispatch, bounded evaluators and cached bounds; PS2 names have separate ABI evidence. | One live unit-weight slot updates an owned hierarchy, Targets, morphs and CPU skinning. Persistent native regression and original track samples retain their accepted domains. | Blending, scale/notes, remaining numeric domains, original animation-resource/catalog ownership and gameplay selection. |
-| Collision and physics | Original ordered KLZ, bounded line/volume, sphere and box workers have distinct canonical contracts. | Static sphere/box workers retain original planes, candidate order, nearest identity and explicit unavailable geometry; contacts have 58 returns and 26 placement prefixes. | Complete actual scene construction, live dynamic actor ownership, dirty-frame/physical response breadth and original-road driving. |
-| Vehicles | Bounded original constructor, primary Init, GameInit/GameDone, scheduling, Move and wheel publication remain separate contracts. | Actual level-table loading and interactive initialized-wheel steering compose with the live CPU arena; native solver tests retain controlled world/resource effects. | Same-owner full lifecycle, complete GameInit dependencies, real road contact/body movement and controllable mission driving. |
+| Collision and physics | Ordered KLZ, line/volume, sphere/box and solver contracts retain distinct scopes. | Original-road contacts, body movement, curb/wall response and canonical dynamic registration compose in standalone driving, including the bound C_crash_obj path. Original-source ray/sweep and native worker comparisons are separate evidence. | Complete native scene construction, actor classes beyond C_crash_obj and remaining response breadth. |
+| Vehicles | Constructor, Init, GameInit/GameDone, scheduling, Move and wheel contracts remain distinct. | One canonical owner runs the complete standalone lifecycle, original-data road driving, steering/braking and sound, with explicit cleanup. Native lifecycle fixtures retain controlled frame/resource boundaries. | Original player/mission integration, occupants and some severe-damage dependencies. |
 | Characters and combat | Base and source-only detector lifetime, program source/name ownership and source membership join prior dispatch, control and cache contracts. | Owned base/kind-5 source-only actors compose with real ModelArena frame effects. Payload/replacement and program-before-base cleanup preserve bounded ownership; compiled execution remains absent. | Actual mission actors, derived behavior, animation-machine/resource construction, gameplay motion/combat and complete actor/BODY/model ownership. Kind 1 is absent from MISE01. |
 | Traffic and pedestrians | Resource presence is known. | Absent. | Spawn, routing and simulation remain unreconstructed. |
 | AI, navigation and police | REA and native state comparisons cover selected manager initialization/reset and startup dependencies. | Two isolated manager entries retain 1,756 original-state comparisons. | Resource-backed police ON, actor/navigation registration, pursuit and general AI. |
 | Scripts and cutscenes | Scheduler, lookup, replay and actor source-order contracts remain bounded; actual mission traces are historical. | Source-only detector and original parser/full 398-keyword recognition remain bounded; 400 actual line recognition inputs do not execute MISE01, whose PC3/source4 missing-world frontier is unchanged. | Floating operands/LET/IF, all 62 parameter cases, Compile/Init/Done and running-detector cleanup; real mission context/sectors, scheduling, replay and objectives. |
-| Camera and input | Recovered lock/unlock prefixes and selected control resets have original-code evidence. | Prior bounded raw/composed control and animation-stop comparisons; X11 inspection input was separately exercised. | Original gameplay camera, complete controls and controllable first mission. |
-| Audio, UI and localization | Czech menu/text/font data and bounded menu/configuration contracts. | Original Czech menu displays; New Game/Exit work. Six settings contracts retain controlled registry/UI/DirectX evidence. | Profile chooser, HUD/gameplay UI, audio playback, original Setup GUI and application integration of settings. |
+| Camera and input | Recovered setters/control resets have original-code evidence. | Host W/S, A/D, Space, focus loss and R drive the same original setters; the chase view reads the live car matrix. | Original gameplay camera, full player scheduling and controllable first mission. |
+| Audio, UI and localization | Czech menu data, PCM16 WAV/archive and vehicle sound contracts. | Original WAV engine/contact/skid sources mix to stereo PCM, optional CPAL output and capture; original Czech menu displays. | Hardware audibility in this environment, broader codecs, HUD/profile chooser, original Setup GUI and full settings integration. |
 | Save and load | No persistence schema or behavior is recovered; autosave actor construction is a separate program dependency. | Absent. | Save/load, persistence and recovery behavior. |
 
 Historical standalone-Restore validation at `71b1219`: `scripts/test.sh` passes 465 Rust tests (78 assets, 361 engine library, 21 application, five renderer), nine REA wrapper tests and 42 progress tests, plus formatting, locked workspace checking and Clippy. Three Rust tests were added over 462. Final source differs from the tested/native-compared freeze only by a corrected wrapper comment; both final reviews bind that exact source. Two sequential independent reviews accepted exact source; Apple arm64 all-target checking passes. Native macOS linking and Metal runtime remain untested. No new application, rendered or interactive validation was performed.
@@ -99,4 +161,4 @@ The audited static unions retain 4,784/4,914 Game.exe, 1,555/1,714 LS3DF.dll and
 
 Default REA still fails at Game RVA `0xab910`. An isolated derived REA/Ghidra profile applies an instruction-supported prototype correction and now returns pseudocode with 13 warnings. The complete 14,392-byte body, instruction listing and 4,914-row membership are unchanged. The earlier direct-Ghidra experiment has 14 warnings and remains a separate artifact. This adds static availability only, with no semantic or Rust-function credit. REA/Ghidra PC evidence is cross-checked with actual PS2 symbol bytes; no PS2 runtime equivalence is claimed.
 
-All six first-mission acceptance gates remain open. The strict full-system gate remains **0/12**. Static research ratios, reviewed scoped ports and runtime use are separate measures in the [generated dashboard](README.md); no overall completion percentage is claimed. PC evidence is the baseline, with separately indexed PS2 cross-checks and platform differences. Earlier Godot work and original-game reference play do not count as Rust implementation. The campaign, driving and first-mission gameplay are not playable.
+All six first-mission acceptance gates remain open. The strict full-system gate remains **0/12**. Static research ratios, reviewed scoped ports and runtime use are separate measures in the [generated dashboard](README.md); no overall completion percentage is claimed. PC evidence is the baseline, with separately indexed PS2 cross-checks and platform differences. Earlier Godot work and original-game reference play do not count as Rust implementation. Standalone driving is available; the campaign and first-mission gameplay remain unplayable.

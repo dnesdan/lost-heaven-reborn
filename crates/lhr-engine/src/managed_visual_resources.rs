@@ -912,6 +912,21 @@ impl ManagedVisualResources {
     }
 }
 
+#[path = "managed_vertex_access.rs"]
+mod vertex_access;
+
+impl ManagedVisualResources {
+    pub(crate) fn clear_mesh_level_environment(
+        &mut self,
+        level: MeshLevelKey,
+    ) -> Result<(), ManagedError> {
+        self.available()?;
+        self.resources
+            .clear_mesh_level_environment(level)
+            .map_err(Into::into)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

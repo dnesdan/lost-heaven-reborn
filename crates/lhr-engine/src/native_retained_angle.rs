@@ -23,6 +23,11 @@ pub fn try_retained_vector_angle(
     })
 }
 impl RetainedVectorAngle {
+    /// Original FCOM/FCOMP against a binary32 memory operand, without spilling
+    /// the retained 80-bit return. Portable overlap stays unavailable.
+    pub fn compare(&self, operand: f32) -> Result<std::cmp::Ordering, MakeUnavailable> {
+        self.value.compare(operand)
+    }
     /// Original FST binary32, retaining the angle for subsequent arithmetic.
     pub fn spill(&self) -> Result<f32, MakeUnavailable> {
         self.value.spill()

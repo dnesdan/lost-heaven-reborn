@@ -6,7 +6,7 @@
 //! loading/preparing collision data does not establish those prerequisites.
 //!
 //! Arithmetic has the same CW `0x007f`, precision-24, round-to-nearest and
-//! zero-or-`2^-40..=2^40` operand/intermediate contract as `collision_line`.
+//! normal-or-zero, magnitude at most `2^40`, operand/intermediate contract as `collision_line`.
 //! The host floating-point environment is neither inspected nor changed.
 //! Conversion to grid coordinates additionally requires signed-32-bit results.
 //! Unsupported dynamic dispatch and eligible volume records fail explicitly.
@@ -83,7 +83,7 @@ pub enum CollisionQueryError {
 
 /// Shared host view of the original grid fields. This is not a native interface.
 #[derive(Clone, Copy)]
-pub(crate) struct StaticGridGeometry {
+pub struct StaticGridGeometry {
     pub origin_xz: [f32; 2],
     pub cell_size_xz: [f32; 2],
     pub width: u32,
@@ -125,33 +125,41 @@ impl StaticQueryGrid for CollisionQueryGrid<'_> {
 }
 
 fn number(value: f32) -> Result<f32, CollisionQueryError> {
-    if value.is_finite()
-        && (value == 0.0
-            || ((1.0 / (1_u64 << 40) as f32)..=(1_u64 << 40) as f32).contains(&value.abs()))
-    {
+    if (value == 0.0 || value.is_normal()) && value.abs() <= (1_u64 << 40) as f32 {
         Ok(value)
     } else {
         Err(CollisionQueryError::NumericDomain)
     }
 }
 fn add(a: f32, b: f32) -> Result<f32, CollisionQueryError> {
-    number(a + b)
+    let value = crate::collision_swept::add(number(a)?, number(b)?)
+        .map_err(|_| CollisionQueryError::NumericDomain)?;
+    number(value)
 }
 fn sub(a: f32, b: f32) -> Result<f32, CollisionQueryError> {
-    number(a - b)
+    let value = crate::collision_swept::sub(number(a)?, number(b)?)
+        .map_err(|_| CollisionQueryError::NumericDomain)?;
+    number(value)
 }
 fn mul(a: f32, b: f32) -> Result<f32, CollisionQueryError> {
-    number(a * b)
+    let value = crate::collision_swept::mul(number(a)?, number(b)?)
+        .map_err(|_| CollisionQueryError::NumericDomain)?;
+    number(value)
 }
 fn reciprocal(value: f32) -> Result<f32, CollisionQueryError> {
-    number(1.0 / value)
+    number(
+        crate::collision_swept::div(1.0, number(value)?)
+            .map_err(|_| CollisionQueryError::NumericDomain)?,
+    )
 }
 
 fn grid_integer(value: f32) -> Result<i32, CollisionQueryError> {
     // The original conversion helper temporarily selects truncation. The
     // admitted range avoids its wider-integer/low-word overflow behavior.
     if (-2147483648.0..2147483648.0).contains(&value) {
-        Ok(value as i32)
+        let result = value as i32;
+        crate::native_precision::record_precision(result as f32 != value);
+        Ok(result)
     } else {
         Err(CollisionQueryError::NumericDomain)
     }
@@ -233,6 +241,17 @@ pub(crate) fn test_line_v_grid(
     {
         return Err(CollisionQueryError::InvalidGrid);
     }
+    let (query, min_y) = prepare_line_query(request)?;
+    if request.selector != -1 && geometry.dynamic_candidates_present {
+        return Err(CollisionQueryError::UnsupportedDynamicQuery);
+    }
+    test_line_v_grid_continue(grid, request, outputs, traversal, query, min_y)
+}
+
+/// Prepare the original shared line parameter before dynamic/static dispatch.
+pub(crate) fn prepare_line_query(
+    request: &CollisionLineRequest,
+) -> Result<(LineQuery, f32), CollisionQueryError> {
     let mut end = [0.0; 3];
     for (axis, value) in end.iter_mut().enumerate() {
         *value = add(request.origin[axis], request.delta[axis])?;
@@ -269,9 +288,31 @@ pub(crate) fn test_line_v_grid(
     // This value is initialized even when no normal output was requested.
     let [dx, dy, dz] = request.delta;
     number(add(add(mul(dz, dz)?, mul(dy, dy)?)?, mul(dx, dx)?)?)?;
-    if request.selector != -1 && geometry.dynamic_candidates_present {
-        return Err(CollisionQueryError::UnsupportedDynamicQuery);
-    }
+    let query = LineQuery {
+        origin: request.origin,
+        delta: request.delta,
+        min_xz,
+        max_xz,
+        reject_mask: request.reject_mask | 0x20,
+        best_fraction: 1.0,
+        normal: [0.0; 3],
+        primitive: None,
+    };
+    Ok((query, min_y))
+}
+
+/// Continue the static walk using the same parameter after LineInDynamics.
+pub(crate) fn test_line_v_grid_continue(
+    grid: &dyn StaticQueryGrid,
+    request: &CollisionLineRequest,
+    outputs: &mut CollisionLineOutputs,
+    traversal: &mut CollisionTraversalState,
+    mut query: LineQuery,
+    min_y: f32,
+) -> Result<Option<CollisionLineHit>, CollisionQueryError> {
+    let geometry = grid.geometry();
+    let min_xz = query.min_xz;
+    let max_xz = query.max_xz;
     let mut start = [0; 2];
     let mut stop = [0; 2];
     for axis in 0..2 {
@@ -284,16 +325,6 @@ pub(crate) fn test_line_v_grid(
         )?)?
         .min([geometry.width, geometry.height][axis] as i32);
     }
-    let mut query = LineQuery {
-        origin: request.origin,
-        delta: request.delta,
-        min_xz,
-        max_xz,
-        reject_mask: request.reject_mask | 0x20,
-        best_fraction: 1.0,
-        normal: [0.0; 3],
-        primitive: None,
-    };
     let mut next_traversal = *traversal;
     for z in start[1]..stop[1] {
         for x in start[0]..stop[0] {

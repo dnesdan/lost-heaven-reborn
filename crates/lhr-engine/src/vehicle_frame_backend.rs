@@ -18,19 +18,31 @@ use crate::{
 
 #[path = "vehicle_frame_game.rs"]
 mod game;
+#[path = "vehicle_frame_game_host.rs"]
+mod game_host;
+pub use game_host::{VehicleFrameDamageNotification, VehicleFrameGameHost};
 #[path = "vehicle_frame_memory.rs"]
 mod memory;
 pub use memory::{VehicleFrameMemory, VehicleMemoryError};
+#[path = "runtime_audio_frame.rs"]
+mod audio;
 #[path = "car_frame_backend.rs"]
 mod car;
 #[path = "car_frame_effects.rs"]
 mod car_effects;
+#[path = "vehicle_frame_crash.rs"]
+mod crash;
 #[path = "vehicle_frame_deform.rs"]
 mod deform;
+#[path = "vehicle_frame_glass.rs"]
+mod glass;
 #[path = "vehicle_frame_lights.rs"]
 mod lights;
+#[path = "vehicle_frame_vertex_access.rs"]
+mod vertex_access;
 #[path = "vehicle_frame_wheel_pose.rs"]
 mod wheel_pose;
+pub use audio::sync_runtime_audio_frames;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VehicleFrameError<E> {
@@ -44,8 +56,10 @@ pub enum VehicleFrameError<E> {
     BodycolAdapterRequired,
     UnavailableFrameMethod(&'static str),
     UnavailableGameDependency(u32),
+    UnavailableGameEffect(String),
     CarTrack(crate::car_effects::CarTrackError),
     UnsupportedCarLocale(u32),
+    Audio(String),
 }
 impl<E> From<ModelError> for VehicleFrameError<E> {
     fn from(error: ModelError) -> Self {
@@ -95,12 +109,13 @@ fn native_literal_byte(address: u32) -> Option<u8> {
     })
 }
 
-pub struct VehicleFrameBackend<'a, B> {
+pub struct VehicleFrameBackend<'a, B: VehicleInitBackend> {
     arena: &'a mut ModelArena,
     host: &'a mut B,
     installation: Option<&'a lhr_assets::Installation>,
     car_tracks: Option<&'a mut crate::car_effects::CarTrackResources>,
     game_init_stack: Option<u32>,
+    game_host: Option<&'a mut dyn VehicleFrameGameHost<B::Error>>,
 }
 impl<'a, B: VehicleInitBackend> VehicleFrameBackend<'a, B> {
     pub fn new(arena: &'a mut ModelArena, host: &'a mut B) -> Self {
@@ -110,6 +125,7 @@ impl<'a, B: VehicleInitBackend> VehicleFrameBackend<'a, B> {
             installation: None,
             car_tracks: None,
             game_init_stack: None,
+            game_host: None,
         }
     }
     pub fn with_installation(
@@ -123,6 +139,7 @@ impl<'a, B: VehicleInitBackend> VehicleFrameBackend<'a, B> {
             installation: Some(installation),
             car_tracks: None,
             game_init_stack: None,
+            game_host: None,
         }
     }
     /// Borrows the Game-owned animation-track cache used by car components.
@@ -138,6 +155,10 @@ impl<'a, B: VehicleInitBackend> VehicleFrameBackend<'a, B> {
     /// already supplied caller storage, never an adapter-created stack.
     pub fn with_game_init_stack(mut self, stack: u32) -> Self {
         self.game_init_stack = Some(stack);
+        self
+    }
+    pub fn with_game_host(mut self, host: &'a mut dyn VehicleFrameGameHost<B::Error>) -> Self {
+        self.game_host = Some(host);
         self
     }
     pub fn arena(&self) -> &ModelArena {
@@ -200,6 +221,15 @@ impl<'a, B: VehicleInitBackend> VehicleFrameBackend<'a, B> {
         let frame = self.arena.frame(key)?;
         let state = self.arena.state(key)?;
         Ok(match offset {
+            0x210 if state.kind == FrameKind::Scene => self.frame_address(
+                self.arena
+                    .scene(crate::scene_ownership::SceneKey(key))?
+                    .sectors[0]
+                    .frame(),
+            )?,
+            0x140..=0x1e8 if state.kind == FrameKind::Sound && offset.is_multiple_of(4) => {
+                return self.game_audio_read_word(key, offset);
+            }
             4 => frame.references,
             8 => match frame.user_data {
                 crate::actor_frames::FrameUserData::Null => 0,
@@ -265,6 +295,7 @@ impl<'a, B: VehicleInitBackend> VehicleFrameBackend<'a, B> {
             0x110 => match state.kind {
                 FrameKind::Mesh | FrameKind::Singlemesh | FrameKind::Projector => 1,
                 FrameKind::Light => 2,
+                FrameKind::Sound => 4,
                 FrameKind::Sector => 5,
                 FrameKind::Dummy => 6,
                 FrameKind::Model => 9,
@@ -274,6 +305,11 @@ impl<'a, B: VehicleInitBackend> VehicleFrameBackend<'a, B> {
                     return Err(VehicleFrameError::UnsupportedField { frame: key, offset });
                 }
             },
+            // Immutable visual-family tags established by the original
+            // object, singlemesh and projector constructors.
+            0x1d4 if state.kind == FrameKind::Mesh => 0x5f4a424f,
+            0x1d4 if state.kind == FrameKind::Singlemesh => 0x4d474e53,
+            0x1d4 if state.kind == FrameKind::Projector => 0x4a4f5250,
             0x10c => self.pointer(frame.owner.map(|owner| owner.root()))?,
             0x114 => state.world_scale.to_bits(),
             0x118 => state.update_count,
@@ -282,6 +318,7 @@ impl<'a, B: VehicleInitBackend> VehicleFrameBackend<'a, B> {
             0x124 => self.pointer(self.arena.links(key)?.child)?,
             0x128 => self.pointer(self.arena.links(key)?.previous)?,
             0x12c => self.pointer(self.arena.links(key)?.next)?,
+            0x13c => state.render_number,
             0x154 if state.kind == FrameKind::Model => {
                 match self.arena.model_filename(ModelKey(key))? {
                     Some(filename) => self.filename_address(filename)?,
@@ -305,6 +342,9 @@ impl<'a, B: VehicleInitBackend> VehicleFrameBackend<'a, B> {
         value: u32,
     ) -> Result<(), VehicleFrameError<B::Error>> {
         self.arena.frame(key)?;
+        if self.arena.state(key)?.kind == FrameKind::Sound && (0x140..=0x1e8).contains(&offset) {
+            return self.game_audio_write_word(key, offset, value);
+        }
         if offset == 8 {
             self.arena.set_user_data(
                 key,
@@ -497,6 +537,7 @@ impl<'a, B: VehicleInitBackend> VehicleFrameBackend<'a, B> {
             let kind_mask = match state.kind {
                 FrameKind::Mesh | FrameKind::Singlemesh | FrameKind::Projector => 1,
                 FrameKind::Light => 2,
+                FrameKind::Sound => 8,
                 FrameKind::Sector => 0x10,
                 FrameKind::Dummy => 0x20,
                 FrameKind::Target => 0x40,
@@ -614,6 +655,9 @@ impl<B: VehicleInitBackend> VehicleInitBackend for VehicleFrameBackend<'_, B> {
             return self.live_filename_byte(address);
         }
         if (RESOURCE_BASE..RESOURCE_END).contains(&address) {
+            if let Some(value) = self.game_resource_byte(address)? {
+                return Ok(value);
+            }
             return Err(VehicleFrameError::Address(address));
         }
         if let Some((key, offset)) = Self::field(address) {
@@ -654,7 +698,11 @@ impl<B: VehicleInitBackend> VehicleInitBackend for VehicleFrameBackend<'_, B> {
     }
     fn read_word(&mut self, address: u32) -> Result<u32, Self::Error> {
         if (RESOURCE_BASE..RESOURCE_END).contains(&address) {
-            return Err(VehicleFrameError::Address(address));
+            let mut bytes = [0; 4];
+            for (i, byte) in bytes.iter_mut().enumerate() {
+                *byte = self.read_byte(address.wrapping_add(i as u32))?;
+            }
+            return Ok(u32::from_le_bytes(bytes));
         }
         if let Some((key, offset)) = Self::field(address) {
             if offset.is_multiple_of(4) {
@@ -677,6 +725,9 @@ impl<B: VehicleInitBackend> VehicleInitBackend for VehicleFrameBackend<'_, B> {
             .map_err(VehicleFrameError::Host)
     }
     fn write_byte(&mut self, address: u32, value: u8) -> Result<(), Self::Error> {
+        if self.game_write_resource_byte(address, value)? {
+            return Ok(());
+        }
         if (RESOURCE_BASE..FILENAME_END).contains(&address)
             || native_literal_byte(address).is_some()
         {
@@ -695,6 +746,12 @@ impl<B: VehicleInitBackend> VehicleInitBackend for VehicleFrameBackend<'_, B> {
             .map_err(VehicleFrameError::Host)
     }
     fn write_word(&mut self, address: u32, value: u32) -> Result<(), Self::Error> {
+        if (0xc500_0000..0xf000_0000).contains(&address) {
+            for (i, byte) in value.to_le_bytes().into_iter().enumerate() {
+                self.write_byte(address.wrapping_add(i as u32), byte)?;
+            }
+            return Ok(());
+        }
         if (RESOURCE_BASE..FILENAME_END).contains(&address)
             || (0..4).any(|offset| native_literal_byte(address.wrapping_add(offset)).is_some())
         {
@@ -1725,7 +1782,7 @@ impl<B: VehicleComponentTailBackend> VehicleAxisUpdateBackend for VehicleFrameBa
     }
 }
 
-impl<B: VehicleSourceParametersBackend> VehicleSourceParametersBackend
+impl<B: VehicleSourceParametersBackend + VehicleComponentTailBackend> VehicleSourceParametersBackend
     for VehicleFrameBackend<'_, B>
 {
     fn parameter_update_frame_world(&mut self, frame: u32) -> Result<(), Self::Error> {
@@ -1753,8 +1810,13 @@ impl<B: VehicleSourceParametersBackend> VehicleSourceParametersBackend
         vehicle: u32,
         source: u32,
     ) -> Result<(), Self::Error> {
-        self.host
-            .parameter_initialize_sounds(memory, vehicle, source)
-            .map_err(VehicleFrameError::Host)
+        if let Some(memory) = memory {
+            self.game_vehicle_dependency(memory, vehicle, 0x4eac70, [source, 0])?;
+            Ok(())
+        } else {
+            self.host
+                .parameter_initialize_sounds(None, vehicle, source)
+                .map_err(VehicleFrameError::Host)
+        }
     }
 }

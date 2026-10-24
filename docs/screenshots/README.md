@@ -2,6 +2,57 @@
 
 Actual captures from the Rust application using separately supplied PC game data. Images are compressed WebP previews; uncompressed validation captures remain private. Add dated images for visible milestones, up to 960 pixels wide and 200 KiB per image, rather than a capture for every commit. Game content retains its original ownership.
 
+## 2026-10-24 — continuous driving preview
+
+[![Original taxi during the verified driving capture](2026-10-24-car-driving-verified.webp)](../videos/2026-10-24-car-driving.mp4)
+
+[Watch the actual 18-second driving capture](../videos/2026-10-24-car-driving.mp4)
+· 640 × 426 · 330 distinct decoded frames.
+
+Continuous Rust X11/software-Vulkan capture from SOURCE-v4 using the original
+taxi, road geometry and textures. W, both A/D steering directions, S and Space
+drive the actual recovered vehicle workers; the taxi stops 55.038 metres from
+its starting point. Separate debug/release window tests also verify focus loss,
+R reload and explicit resource cleanup. The image is a compressed frame from
+the same recording; source, binary, input and process receipts remain private.
+
+The clip contains 17.44 seconds of actual original-WAV stereo PCM at 48 kHz.
+Software capture and the capped simulation clock diverge by up to 0.706 seconds;
+audio was neither stretched nor padded. This preview does not claim perfect
+audio/video synchronization or physical audio-device validation. Rendering uses
+the unlit first-LOD inspection bridge. Mission completion and full original
+renderer/audio parity remain unverified.
+
+## 2026-10-24 — interrupted collision and physical-piece construction
+
+![Original taxi at the interrupted collision prefix](2026-10-24-car-crash-construction.webp)
+
+Interrupted collision prefix, not completed driving gate. This actual 960 × 640
+Rust software-Vulkan capture follows 573 completed 16 ms simulation steps;
+step 574 stopped at an unfinished dynamic-object collision response. The live
+primary-sector graph contains the newly constructed original breakable-object
+piece, and the original world uses its updated visibility state. The camera
+reads the reached car pose; no further physics or body movement was applied
+after the error. Rendering uses the unlit first-LOD inspection bridge.
+Explicit shutdown released all counted car, heap, graphics and audio resources.
+The WebP preview is 188,164 bytes; the original PNG, exact input replay,
+source/binary hashes and process receipts remain private. This is a development
+still, without a completed long driving run, mission gate or final video.
+
+## 2026-10-24 — driving through the original world
+
+![Original taxi driving through the original street](2026-10-24-car-driving-world.webp)
+
+Actual 960 × 640 Rust X11/software-Vulkan capture during the SOURCE-v2 keyboard
+test. The taxi moved through original road collisions using recovered Tick and
+Update workers; W/S, both steering directions, Space, focus loss and R were
+exercised. That run travelled 36.4 metres and released its car, heap, graphics
+and audio resources. Original sounds supplied nonzero stereo PCM; this machine
+has no physical audio output device. The image shows the real live frame graph,
+with unlit first-LOD rendering. It does not establish mission gameplay or full
+renderer parity. A subsequent longer recording exposed a separate breakable
+object dependency; this still image is evidence for the passing controls run.
+
 ## 2026-10-21 — menu and static MISE01 inspection
 
 Linux software Vulkan captures. Keyboard/mouse transitions, camera orbit and repeat-load pixel equality were checked. The retained model graph and recovered static tick path are connected to the application. These images do not demonstrate animation, driving, mission execution or original lighting/material parity.
@@ -82,3 +133,16 @@ cargo run --locked --release -p lhr-engine -- --root /path/to/Mafia --model mode
 These captures use 120 controlled 16 ms host inspection-clock steps. `--steer-steps` defaults to 1 and accepts 0 through 600. Zero steering or zero steps reproduces the default image; repeated captures and debug/release RGB pixels agree. Omit the headless/capture arguments for interactive mode: hold A or D to steer, use arrows and W/S for the camera, and press R for explicit cleanup and reload. Key release, focus loss and reload reset live input.
 
 Rendering remains unlit first LOD with nearest sampling and the documented host 0.5 cutoff for admitted masks. Original lighting, reflections, blending, native GPU behavior and Metal execution remain unverified. The car body stays stationary; these images establish wheel steering without road-contact, driving or mission gameplay. Runtime uses original assets without an original executable.
+
+## 2026-10-24 — Original world and car GameInit
+
+![Initialized original taxi in the original street](2026-10-24-car-game-init-world.webp)
+
+Actual Rust software Vulkan capture after original-data car construction, Init
+and GameInit. The view combines the same live car/primary-sector frame graph
+with original world geometry, textures and nearby cache-model placements.
+This development capture contains no simulation ticks and is not driving
+verification. Rendering uses the unlit inspection bridge; unsupported billboard
+resources and original lighting/shadow presentation remain outside this image.
+The 960 × 640 WebP preview is 194,066 bytes; the original PNG and source/process
+receipts are retained privately.

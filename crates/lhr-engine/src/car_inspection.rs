@@ -96,6 +96,19 @@ pub fn snapshot_car_arena(
     if arena.state(root).map_err(|e| e.to_string())?.kind != FrameKind::Model {
         return Err("Car inspection requires its initialized model root".into());
     }
+    let snapshot = snapshot_arena_tree(arena, root)?;
+    if snapshot.scene.meshes.is_empty() {
+        return Err("Initialized car has no supported visible CPU geometry".into());
+    }
+    Ok(snapshot)
+}
+/// Snapshot the actual visible subtree, including sector-owned car effects.
+/// Unlike car inspection, an empty visible tree is a valid presentation state.
+/// The same bounded CPU geometry, first-LOD and material policies apply.
+pub fn snapshot_arena_tree(
+    arena: &mut ModelArena,
+    root: FrameKey,
+) -> Result<CarInspectionScene, String> {
     let mut pending = vec![root];
     let mut seen = BTreeSet::new();
     let mut frames = Vec::new();
@@ -126,6 +139,16 @@ pub fn snapshot_car_arena(
         } else if matches!(state.kind, FrameKind::Singlemesh) {
             return Err("Car inspection cannot substitute undeformed singlemesh vertices".into());
         }
+    }
+    if frames.is_empty() {
+        return Ok(CarInspectionScene {
+            scene: Scene { meshes: Vec::new() },
+            visited_frames: seen.len(),
+            visible_meshes: 0,
+            omitted_material_effects: 0,
+            unsupported_alpha_masks: 0,
+            budgeted_bytes: 0,
+        });
     }
     let resources = arena
         .loaded_visual_resources()
@@ -265,9 +288,6 @@ pub fn snapshot_car_arena(
             });
         }
     }
-    if meshes.is_empty() {
-        return Err("Initialized car has no supported visible CPU geometry".into());
-    }
     Ok(CarInspectionScene {
         scene: Scene { meshes },
         visited_frames: seen.len(),
@@ -281,6 +301,23 @@ pub fn snapshot_car_arena(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn empty_visible_trees_are_valid_while_car_inspection_keeps_its_model_gate() {
+        let mut arena = ModelArena::default();
+        let model = arena.create_model().unwrap();
+        let snapshot = snapshot_arena_tree(&mut arena, model.root()).unwrap();
+        assert_eq!(snapshot.visited_frames, 1);
+        assert!(snapshot.scene.meshes.is_empty());
+        assert!(snapshot_car_arena(&mut arena, model.root()).is_err());
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let primary = arena.scene(scene).unwrap().sectors[0].frame();
+        assert!(snapshot_arena_tree(&mut arena, primary)
+            .unwrap()
+            .scene
+            .meshes
+            .is_empty());
+        assert!(snapshot_car_arena(&mut arena, primary).is_err());
+    }
     #[test]
     fn non_gray_optional_mask_is_opaque_and_reported_without_guessing_a_channel() {
         let color = lhr_assets::Texture {

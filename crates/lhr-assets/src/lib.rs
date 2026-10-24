@@ -905,6 +905,7 @@ impl Installation {
                 continue;
             };
             let key = match name.to_ascii_uppercase().as_str() {
+                "A0.DTA" => Some((0xd8d0a975, 0x467acde0)),
                 "A1.DTA" => Some((0x3d98766c, 0xde7009cd)),
                 "A2.DTA" => Some((0x82a1c97b, 0x2d5085d4)),
                 "A4.DTA" => Some((0x43876fea, 0x900cdba8)),
@@ -923,8 +924,8 @@ impl Installation {
             }
         }
         let mut discovered: Vec<_> = discovered.into_iter().collect();
-        const ORDER: [&str; 7] = [
-            "A8.DTA", "A2.DTA", "A6.DTA", "A1.DTA", "AC.DTA", "A4.DTA", "AA.DTA",
+        const ORDER: [&str; 8] = [
+            "A8.DTA", "A2.DTA", "A6.DTA", "A0.DTA", "A1.DTA", "AC.DTA", "A4.DTA", "AA.DTA",
         ];
         discovered.sort_by_key(|(name, _)| {
             ORDER
@@ -2339,5 +2340,34 @@ mod animation_archive_tests {
         fs::remove_file(directory.0.join("a4.dta")).unwrap();
         let installation = Installation::open(&directory.0).unwrap();
         assert_eq!(installation.read_original_path(original).unwrap(), b"loose");
+    }
+
+    #[test]
+    fn a0_audio_archive_key_and_precedence_preserve_selected_source_errors() {
+        let path = std::env::temp_dir().join(format!("lhr-a0-registration-{}", std::process::id()));
+        fs::create_dir(&path).unwrap();
+        let directory = Directory(path);
+        for (name, data, k1, k2) in [
+            ("A6.dta", b"A6", 0x64cd8d0a, 0x4bc97b2d),
+            ("a0.DTA", b"A0", 0xd8d0a975, 0x467acde0),
+            ("A1.dta", b"A1", 0x3d98766c, 0xde7009cd),
+        ] {
+            fs::write(directory.0.join(name), archive(data, k1, k2)).unwrap();
+        }
+        let read = || {
+            Installation::open(&directory.0)
+                .unwrap()
+                .read("ANIMS/SYNTHETIC.5DS")
+        };
+        assert_eq!(read().unwrap(), b"A6");
+        fs::remove_file(directory.0.join("A6.dta")).unwrap();
+        assert_eq!(read().unwrap(), b"A0");
+        let mut corrupted = archive(b"A0", 0xd8d0a975, 0x467acde0);
+        let data_offset = 20 + 32 + b"Anims\\Synthetic.5DS\0".len();
+        corrupted[data_offset + 4] = 0xff;
+        fs::write(directory.0.join("a0.DTA"), corrupted).unwrap();
+        assert!(read().unwrap_err().0.contains("selected archive read"));
+        fs::remove_file(directory.0.join("a0.DTA")).unwrap();
+        assert_eq!(read().unwrap(), b"A1");
     }
 }

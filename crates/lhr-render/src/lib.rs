@@ -3,6 +3,7 @@ use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3};
 use std::{
     collections::HashMap,
+    ops::Range,
     path::Path,
     sync::{mpsc, Arc},
 };
@@ -119,6 +120,8 @@ pub struct Renderer {
     camera_buffer: wgpu::Buffer,
     camera_group: wgpu::BindGroup,
     draws: Vec<Draw>,
+    texture_layout: wgpu::BindGroupLayout,
+    linear: bool,
 }
 impl Renderer {
     /// Opt-in host inspection policy: discard sampled alpha below 0.5.
@@ -304,130 +307,7 @@ impl Renderer {
                 resource: overlay_buffer.as_entire_binding(),
             }],
         });
-        let mut draws = Vec::new();
-        let mut materials = HashMap::<(usize, [bool; 2]), (wgpu::Texture, wgpu::BindGroup)>::new();
-        for mesh in &scene.meshes {
-            if mesh.indices.is_empty()
-                || mesh.indices.len() % 3 != 0
-                || mesh
-                    .indices
-                    .iter()
-                    .any(|&i| i as usize >= mesh.vertices.len())
-            {
-                return Err("Invalid mesh triangle indices".into());
-            }
-            if mesh
-                .vertices
-                .iter()
-                .any(|v| v.position.iter().chain(&v.uv).any(|x| !x.is_finite()))
-            {
-                return Err("Nonfinite mesh vertex".into());
-            }
-            let tex = mesh
-                .texture
-                .as_ref()
-                .ok_or("Mesh material has no texture or diffuse color")?;
-            if tex.width == 0
-                || tex.height == 0
-                || tex.width > 8192
-                || tex.height > 8192
-                || tex.rgba.len() != tex.width as usize * tex.height as usize * 4
-            {
-                return Err("Invalid texture dimensions or data".into());
-            }
-            let key = (Arc::as_ptr(tex) as usize, tex.repeat);
-            let (texture, material) = if let Some(cached) = materials.get(&key) {
-                cached.clone()
-            } else {
-                let texture = device.create_texture(&wgpu::TextureDescriptor {
-                    label: None,
-                    size: wgpu::Extent3d {
-                        width: tex.width,
-                        height: tex.height,
-                        depth_or_array_layers: 1,
-                    },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    format: wgpu::TextureFormat::Rgba8UnormSrgb,
-                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                    view_formats: &[],
-                });
-                queue.write_texture(
-                    wgpu::TexelCopyTextureInfo {
-                        texture: &texture,
-                        mip_level: 0,
-                        origin: wgpu::Origin3d::ZERO,
-                        aspect: wgpu::TextureAspect::All,
-                    },
-                    &tex.rgba,
-                    wgpu::TexelCopyBufferLayout {
-                        offset: 0,
-                        bytes_per_row: Some(tex.width * 4),
-                        rows_per_image: Some(tex.height),
-                    },
-                    texture.size(),
-                );
-                let filter = if linear {
-                    wgpu::FilterMode::Linear
-                } else {
-                    wgpu::FilterMode::Nearest
-                };
-                let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-                    mag_filter: filter,
-                    min_filter: filter,
-                    address_mode_u: if tex.repeat[0] {
-                        wgpu::AddressMode::Repeat
-                    } else {
-                        wgpu::AddressMode::ClampToEdge
-                    },
-                    address_mode_v: if tex.repeat[1] {
-                        wgpu::AddressMode::Repeat
-                    } else {
-                        wgpu::AddressMode::ClampToEdge
-                    },
-                    ..Default::default()
-                });
-                let material = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: None,
-                    layout: &texture_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: wgpu::BindingResource::TextureView(
-                                &texture.create_view(&Default::default()),
-                            ),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: wgpu::BindingResource::Sampler(&sampler),
-                        },
-                    ],
-                });
-                materials.insert(key, (texture.clone(), material.clone()));
-                (texture, material)
-            };
-            draws.push(Draw {
-                vertex: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: None,
-                    contents: bytemuck::cast_slice(&mesh.vertices),
-                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                }),
-                vertex_count: mesh.vertices.len(),
-                index: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: None,
-                    contents: bytemuck::cast_slice(&mesh.indices),
-                    usage: wgpu::BufferUsages::INDEX,
-                }),
-                count: mesh
-                    .indices
-                    .len()
-                    .try_into()
-                    .map_err(|_| "Too many indices")?,
-                material,
-                texture,
-            });
-        }
+        let draws = upload_meshes(&device, &queue, &texture_layout, linear, &scene.meshes)?;
         Ok(Self {
             device,
             queue,
@@ -441,7 +321,31 @@ impl Renderer {
             camera_buffer,
             camera_group,
             draws,
+            texture_layout,
+            linear,
         })
+    }
+    /// Replace a contiguous set of draws on the existing device. Unaffected
+    /// draws, camera state and pipelines remain owned by this renderer.
+    /// Empty ranges insert draws; an empty slice removes the selected draws.
+    /// Invalid input leaves the existing draw list intact.
+    pub fn replace_meshes(&mut self, range: Range<usize>, meshes: &[Mesh]) -> Result<(), String> {
+        if range.start > range.end || range.end > self.draws.len() {
+            return Err("Replacement mesh range is unavailable".into());
+        }
+        if range.is_empty() && meshes.is_empty() {
+            return Ok(());
+        }
+        let next = upload_meshes(
+            &self.device,
+            &self.queue,
+            &self.texture_layout,
+            self.linear,
+            meshes,
+        )?;
+        self.device.poll(wgpu::Maintain::Wait);
+        self.draws.splice(range, next);
+        Ok(())
     }
     pub fn render(
         &self,
@@ -773,6 +677,139 @@ impl Renderer {
             .map_err(|_| "Cannot write capture image")?;
         Ok(())
     }
+}
+fn upload_meshes(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    texture_layout: &wgpu::BindGroupLayout,
+    linear: bool,
+    meshes: &[Mesh],
+) -> Result<Vec<Draw>, String> {
+    let mut draws = Vec::new();
+    let mut materials = HashMap::<(usize, [bool; 2]), (wgpu::Texture, wgpu::BindGroup)>::new();
+    for mesh in meshes {
+        if mesh.indices.is_empty()
+            || mesh.indices.len() % 3 != 0
+            || mesh
+                .indices
+                .iter()
+                .any(|&i| i as usize >= mesh.vertices.len())
+        {
+            return Err("Invalid mesh triangle indices".into());
+        }
+        if mesh
+            .vertices
+            .iter()
+            .any(|v| v.position.iter().chain(&v.uv).any(|x| !x.is_finite()))
+        {
+            return Err("Nonfinite mesh vertex".into());
+        }
+        let tex = mesh
+            .texture
+            .as_ref()
+            .ok_or("Mesh material has no texture or diffuse color")?;
+        if tex.width == 0
+            || tex.height == 0
+            || tex.width > 8192
+            || tex.height > 8192
+            || tex.rgba.len() != tex.width as usize * tex.height as usize * 4
+        {
+            return Err("Invalid texture dimensions or data".into());
+        }
+        let key = (Arc::as_ptr(tex) as usize, tex.repeat);
+        let (texture, material) = if let Some(cached) = materials.get(&key) {
+            cached.clone()
+        } else {
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: None,
+                size: wgpu::Extent3d {
+                    width: tex.width,
+                    height: tex.height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            });
+            queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                &tex.rgba,
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(tex.width * 4),
+                    rows_per_image: Some(tex.height),
+                },
+                texture.size(),
+            );
+            let filter = if linear {
+                wgpu::FilterMode::Linear
+            } else {
+                wgpu::FilterMode::Nearest
+            };
+            let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+                mag_filter: filter,
+                min_filter: filter,
+                address_mode_u: if tex.repeat[0] {
+                    wgpu::AddressMode::Repeat
+                } else {
+                    wgpu::AddressMode::ClampToEdge
+                },
+                address_mode_v: if tex.repeat[1] {
+                    wgpu::AddressMode::Repeat
+                } else {
+                    wgpu::AddressMode::ClampToEdge
+                },
+                ..Default::default()
+            });
+            let material = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout: texture_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(
+                            &texture.create_view(&Default::default()),
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&sampler),
+                    },
+                ],
+            });
+            materials.insert(key, (texture.clone(), material.clone()));
+            (texture, material)
+        };
+        draws.push(Draw {
+            vertex: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents: bytemuck::cast_slice(&mesh.vertices),
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            }),
+            vertex_count: mesh.vertices.len(),
+            index: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents: bytemuck::cast_slice(&mesh.indices),
+                usage: wgpu::BufferUsages::INDEX,
+            }),
+            count: mesh
+                .indices
+                .len()
+                .try_into()
+                .map_err(|_| "Too many indices")?,
+            material,
+            texture,
+        });
+    }
+    Ok(draws)
 }
 fn validate_vertex_replacement(expected: usize, vertices: &[Vertex]) -> Result<(), String> {
     if vertices.len() != expected {

@@ -1,7 +1,7 @@
 # Lost Heaven Reborn
 
 <!-- generated-function-progress:start -->
-As of 2026-10-24 · snapshot `RUST-SCOPED-PORTS-20261024-45`.
+As of 2026-10-24 · snapshot `RUST-SCOPED-PORTS-20261024-46`.
 
 <p align="center"><img src="docs/progress.svg" alt="Progress dashboard: static retained pseudocode, reviewed scoped Rust entries, and strict system verification" width="100%"></p>
 
@@ -63,11 +63,46 @@ Ownership code uses `lhr_engine::ls3df::{c_str, itexture, i3d_object, texture_ma
 
 The immediate goal is **the playable first mission, from the original menu through mission completion**, alongside function-by-function library parity with mafia-re. See the [acceptance gates and dependency order](docs/GOALS.md). PS2 symbol names guide reconstruction; PC behavior and platform differences require original-binary verification.
 
-At `bf8b170`, the accepted scope is **309 entries / 113 reviewed contracts**, **23 static_inspection / 90 not_integrated**, strict **0/12**. Whole-function coverage remains N/A.
+Standalone original-data driving now composes Car construction, Init and
+GameInit with the recovered Tick/Engine/Move/Update workers, original world
+collision and vehicle material/tyre tables. One live owner supplies the car,
+wheels, lights, skid models, sound frames and explicit GameDone/destruction.
+Nearby original cache-model draw subsets refresh as the car moves. Generic
+`C_crash_obj` creation and physical debris share the canonical dynamic collision
+context. Original WAV engine and collision sounds feed the mixer, optional CPAL
+output and WAV capture; runtime requires assets without opening an original
+executable or DLL.
 
-Original car level tables now load from the user's DTA data through the reconstructed loader and packed-parameter converter. Eight distinct model/allocator configurations pass in both profiles (16 executions), including repeat-load rejection and explicit cleanup with zero tracked Car/Game/model resources. Five host Scene-prefix frames remain explicit context. Runtime needs original assets without opening an original executable or DLL.
+Use `--car-driving`: W/S accelerate and brake, A/D request full steering,
+Space applies the handbrake, and R reloads the standalone context. This mode
+uses the authored MISE01 car placement and a host chase camera. Mission scripts,
+traffic, occupants and original presentation effects remain separate work.
+Rendering is unlit first LOD; remaining particle, projection, actor-class and
+resource paths fail explicitly. The accepted entry ledger remains **309 / 113 contracts**;
+this integration milestone adds no whole-function or campaign credit.
 
-The new bounded contracts cover Car/Actor/Vehicle GameInit and cleanup, Engine/Move/Tick scheduling, wheel publication, contacts and static sphere/box queries. Original-instruction comparisons retain declared raw entry state, original numeric order and explicit world/resource boundaries. Internal Move phases, alternate APIs and build profiles add no duplicate entry credit. Required external backends remain incomplete; full application GameInit, body simulation, driving and mission execution remain unavailable.
+The frozen Source4 passes the full check suite and three headless trajectories
+in both actual debug/release profiles: 900 collision steps, 900 glass-damage
+steps with camera/listener/PCM updates, and 1800 idle steps. Owned resources
+return to zero; five caller-owned Scene-prefix frames remain separate context.
+Windowed tests in both profiles verify acceleration, full A/D steering requests,
+S braking, Space, focus loss and R reload. Damaged glass material is observed;
+exhausted-window fragments and their sound remain unexercised. All admitted
+original-instruction comparisons pass in actual Cargo opt0/opt3 builds, retaining
+controlled world/resource interfaces and separate CPU/projection scopes.
+Original code runs under masked CW007f PC24/RN; normalized Rust results/effects
+and its modeled logical sticky P are compared. Rust/native host hardware
+CW/MXCSR equivalence is unclaimed.
+Both sequential independent non-author reviews approved the bounded Source4
+milestone with no open findings. Source-commit binding remains pending.
+
+[![Original taxi during the continuous driving capture](docs/screenshots/2026-10-24-car-driving-verified.webp)](docs/videos/2026-10-24-car-driving.mp4)
+
+[Watch the 18-second release driving video](docs/videos/2026-10-24-car-driving.mp4)
+· 640 × 426 · 55.038 metres maximum displacement. It includes 17.44 seconds of
+original-resource stereo audio at 48 kHz. Software capture and the capped
+simulation clock diverge by up to 0.706 seconds; audio was neither stretched nor
+padded. [Capture scope and limits](docs/screenshots/README.md#2026-10-24--continuous-driving-preview).
 
 The car inspection mode now previews recovered steering on the same initialized wheel frames. Hold A or D to turn the wheels; arrows and W/S control the camera, and R explicitly reloads the Car and resets input. The car body stays stationary.
 
@@ -95,7 +130,7 @@ Actual 1,000 ms pose sample, original geometry and textures, inspected through X
 
 ## Build and run
 
-Requires Rust 1.99.1, installed by the setup script. Linux uses wgpu with Vulkan; macOS is intended to use Metal. Dependencies are pinned in `Cargo.lock`.
+Requires Rust 1.99.1, installed by the setup script. Linux uses wgpu with Vulkan and requires `pkg-config` plus ALSA development files (`libasound2-dev` on Debian/Ubuntu) for native audio. macOS is intended to use Metal and requires an Apple SDK for CoreAudio bindings. Dependencies are pinned in `Cargo.lock`.
 
 ```sh
 ./scripts/setup.sh
@@ -108,6 +143,7 @@ Build the native engine binary with `cargo build --locked -p lhr-engine` from th
 ```sh
 ./scripts/run.sh --root /path/to/Mafia
 ./scripts/run.sh --root /path/to/Mafia --model models/taxi00.4ds --car-inspection
+./scripts/run.sh --root /path/to/Mafia --model models/taxi00.4ds --car-driving
 ./scripts/run.sh --root /path/to/Mafia --model models/taxi00.4ds --car-inspection --steer 1 --steer-steps 120
 ./scripts/run.sh --root /path/to/Mafia --mission mise01
 ./scripts/run.sh --root /path/to/Mafia --model models/4build81.4ds
@@ -123,7 +159,7 @@ The first command opens the Rust-rendered original menu. Up/Down and Enter selec
 
 Standalone static `--model` loading now builds an owned mesh/dummy hierarchy using recovered common LS3DF fields, parent links, reference transitions and guarded original transforms. `4build81.4ds` exercises three meshes and one dummy. Unsupported frame types, world-space visuals, reflective materials and unverified numeric paths report errors. This route does not establish native world streaming or original lighting/material parity. The MISE01 neighborhood remains a separate static inspection path.
 
-Standalone models use the owned original hierarchy and checked first-LOD skin/morph pose. Earlier skin intake admits 80 of 82 selected paths (37,948 vertices); two remain explicit numeric-domain failures. Separate composed comparisons cover `civil02` and the actual `TommyTAXIDRIVER` model. Admitted loaded plain-object visuals now use recovered CPU ownership; GPU integration, full native texture Create/worker/upload, whole-device shutdown and original lighting remain open. The inspection renderer does not use recovered normals for lighting.
+Standalone models use the owned original hierarchy and checked first-LOD skin/morph pose. Earlier skin intake admits 80 of 82 selected paths (37,948 vertices); two remain explicit numeric-domain failures. Separate composed comparisons cover `civil02` and the actual `TommyTAXIDRIVER` model. Admitted loaded plain-object visuals now use recovered CPU ownership; original GPU upload integration, full native texture Create/worker/upload, whole-device shutdown and original lighting remain open. The inspection renderer does not use recovered normals for lighting.
 
 `--skeletal-animation` runs sequential position/rotation playback for a supported model/animation pair. It explicitly requests slot 0, unit weight and loop mode; original game animation selection is not implemented. Windowed playback uses the recovered clock and dispatch path. Add `--headless --animation-steps 25 --capture /tmp/animation.png` for 25 controlled 16 ms steps. Bounds, deformation and rendering are requested by the inspection adapter; this does not establish original renderer scheduling. Spherical rotation admits angles through 1.5 radians only where checked numeric intervals give an unambiguous original float result. Other domains, multi-slot blending, scale and notes fail explicitly.
 
@@ -131,16 +167,32 @@ Standalone models use the owned original hierarchy and checked first-LOD skin/mo
 
 The `sipka1` command without a sample time retains the earlier single-root position playback path through the recovered clock, model and interpolator. Add `--headless --animation-steps 25 --capture /tmp/animation.png` for 25 controlled 16 ms steps. Captures at 0/25/50 steps verify movement and exact return; inspection camera, handedness, materials and rasterization remain separate from original presentation.
 
-Current checks pass 835 Rust tests (109 assets unit, 7 assets integration, 685 engine library, 8 engine integration, 21 application, 5 renderer), 9 REA-wrapper tests and 47 progress tests, plus formatting, locked checking and Clippy. Two sequential independent reviews accepted the final source. Apple arm64 locked all-target typechecking passes for the final source; native macOS linking and Metal execution remain untested.
+Current Source4 checks pass 1066 Rust tests (110 assets unit, 7 assets integration,
+910 engine library, 8 engine integration, 26 application, 5 renderer), nine
+REA-wrapper tests and 47 progress tests, plus formatting, locked checking and
+all-target Clippy. The 264-file source guard agrees before and after the gate.
+Headless trajectories, legacy pixels, windowed driving controls and the release
+video have separate source-bound receipts. The scoped native closure passes in
+both Cargo profiles, and both sequential independent reviews are approved.
+Source-commit binding remains pending;
+original renderer parity and complete-system acceptance stay separate.
 
-New Linux software Vulkan captures render initialized taxi and police cars from the same CPU arena/resources. Repeated and cross-profile pixels agree; the old default MISE01 control is unchanged. Bounded X11 checks verify camera orbit and R-triggered fresh reload with cleanup and restored pixels. Indexed color-key/grayscale masks use an opt-in host cutoff of 0.5; non-grayscale separate masks remain opaque and are reported per draw. Rendering is unlit first LOD with nearest sampling; environment reflections, blending, original GPU/lighting parity, Metal, driving and mission play remain unverified.
+Linux software Vulkan uses the same initialized CPU arena for the car, lights,
+shadow and skid models. Compatible draws receive vertex updates; visibility or
+material changes replace only the affected GPU draw range. Default taxi/police
+and static MISE01 regression pixels remain unchanged. Rendering is unlit first
+LOD with nearest sampling and the supported host 0.5 mask cutoff; original
+lighting, reflections, blending and native GPU parity remain unverified.
 
-Recover actual C_car::GameInit at 0x41ed00 separately from the observed mission CreateActor → primary Init → AddActor route. Complete Scene viewport/weather/shared Snow construction beyond 0x48e29 and the thirteen actual Scene Close effects with their correct resource identities, then original File Open/reload and mission-world ownership. Source-parameter flags 2/audio remains unavailable.
+The next goal is integration with original Game/player/mission ownership and
+scheduling, complete Scene construction/Close and remaining live resource
+factories. Standalone flags 2/audio and Car GameInit are bound; authored mission
+execution remains at FINDACTOR/UnsupportedWorldBackend.
 
-`setup.sh --graphics` prepares the Linux software Vulkan tools used for development captures. `scripts/test.sh` checks formatting, compilation, tests, Clippy, REA wrappers and generated progress. On Linux x86_64, X11 input has been checked through menu, static INTRO and the MISE01 neighborhood, including orbit and reload. An Apple arm64 cargo check passes, but macOS linking and Metal runtime have not been tested. iOS is a future compatibility target. The original game's executable and REA are not gameplay runtime dependencies.
+`setup.sh --graphics` prepares the Linux software Vulkan tools used for development captures. `scripts/test.sh` checks formatting, compilation, tests, Clippy, REA wrappers and generated progress. On Linux x86_64, X11 input has been checked through menu, static INTRO and the MISE01 neighborhood, including orbit and reload. The current Apple arm64 check reaches the new CoreAudio dependency and is blocked in this Linux environment by missing `AudioUnit/AudioUnit.h`; the earlier source's successful check remains historical. macOS linking and Metal runtime have not been tested. iOS is a future compatibility target. The original game's executable and REA are not gameplay runtime dependencies.
 
 ## Reverse engineering and assets
 
-REA with Ghidra is the required analysis path for engine behavior. Evidenced original function/type names are preserved, with Rust naming conventions; descriptive working names remain explicitly distinct from recovered symbols. Keep original executables, installations, extracted or converted assets, analysis databases, decompiler output, credentials and private URLs outside Git. Public tests use synthetic fixtures. The reader supports selected PC DTA archives and bounded model, scene, menu and script-data formats; archive audio playback and checksum verification remain unsupported. Full city simulation, mission execution and campaign play are not implemented. Use a trusted, stable installation tree. PS2 material is used for research and comparison.
+REA with Ghidra is the required analysis path for engine behavior. Evidenced original function/type names are preserved, with Rust naming conventions; descriptive working names remain explicitly distinct from recovered symbols. Keep original executables, installations, extracted or converted assets, analysis databases, decompiler output, credentials and private URLs outside Git. Public tests use synthetic fixtures. The reader supports selected PC DTA archives, bounded model/scene/menu/script formats and PCM16 mono/stereo WAV archive audio. Other audio codecs and archive checksum verification remain open. Full city simulation, mission execution and campaign play are not implemented. Use a trusted, stable installation tree. PS2 material is used for research and comparison.
 
 Project code is MIT licensed. Game assets and trademarks belong to their respective owners. See [third-party notices](THIRD_PARTY_NOTICES.md), the [mafia-re/MafiaUnity reference audit and PS2 symbol crosscheck](docs/REFERENCE_PROJECTS.md), and the [asset inventory and optional graphics assessment](docs/ASSET_ENHANCEMENT.md).

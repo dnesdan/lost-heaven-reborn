@@ -3,7 +3,10 @@ use super::*;
 use crate::visual_resources::TextureKey;
 const TEXTURE_END: u32 = 0xc100_0000;
 impl<B: VehicleInitBackend> VehicleFrameBackend<'_, B> {
-    fn texture_address(&self, key: TextureKey) -> Result<u32, VehicleFrameError<B::Error>> {
+    pub(super) fn texture_address(
+        &self,
+        key: TextureKey,
+    ) -> Result<u32, VehicleFrameError<B::Error>> {
         let owner = self
             .arena
             .loaded_visual_resources()

@@ -10,7 +10,7 @@ pub use vehicle_resources::{
 };
 #[path = "car_game_done_vehicle.rs"]
 mod vehicle_game_done;
-pub use vehicle_game_done::vehicle_game_done;
+pub use vehicle_game_done::{vehicle_end_skid, vehicle_game_done};
 #[path = "car_game_done.rs"]
 mod game_done;
 pub use game_done::{actor_game_done, CarGameDoneBackend, CarGameDoneEffect};
@@ -105,6 +105,11 @@ pub enum CarGameInitEffect {
     SetFrameOn {
         frame: u32,
         enabled: bool,
+    },
+    /// Inherited SetDir with zero roll; direction words are caller values.
+    SetFrameDirection {
+        frame: u32,
+        direction: [u32; 3],
     },
     MaterializeQuaternion {
         frame: u32,

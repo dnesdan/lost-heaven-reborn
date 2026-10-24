@@ -38,6 +38,7 @@ pub enum FrameKind {
     /// Native visual type1, projector subtype PROJ.
     Projector,
     Light,
+    Sound,
     Dummy,
     Joint,
     Target,
@@ -56,6 +57,9 @@ pub struct I3dFrameState {
     pub flags: u32,
     pub world_scale: f32,
     pub update_count: u32,
+    /// Original frame+0x13c: the driver's render number of the last render.
+    /// Constructor value only; actual rendering writes require its producer.
+    pub render_number: u32,
     pub visual_flags: u32,
     /// Native dummy-only field at +0x198; independent of mesh visual flags.
     pub dummy_flags: u32,
@@ -76,6 +80,7 @@ impl I3dFrameState {
             flags: 0x4000003d,
             world_scale: 1.,
             update_count: 0,
+            render_number: u32::MAX,
             visual_flags: 0,
             dummy_flags: 0,
             projector_cache_258: 0,
@@ -94,6 +99,13 @@ impl I3dFrameState {
     pub fn dummy() -> Self {
         let mut state = Self::model();
         state.kind = FrameKind::Dummy;
+        state
+    }
+    /// Common I3D_frame constructor used by I3D_sound, PC RVA0x57650.
+    /// Sound sources, playback and the derived tail are owned by RuntimeAudio.
+    pub fn sound() -> Self {
+        let mut state = Self::model();
+        state.kind = FrameKind::Sound;
         state
     }
     /// Common base-frame projection of the PC Joint constructor, RVA0x1ed30.
@@ -160,6 +172,8 @@ pub struct I3dFrameGraph {
     targets: TargetRegistry,
     target_updates: TargetUpdateQueue,
     deferred_error: Option<FrameError>,
+    /// Sector +0x140 invalidation counters shared with registered lights.
+    pub(crate) sector_light_changes: std::collections::BTreeMap<u32, u32>,
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FrameError {
@@ -269,6 +283,7 @@ impl I3dFrameGraph {
                 | FrameKind::Joint
                 | FrameKind::Target
                 | FrameKind::Light
+                | FrameKind::Sound
         ) && !(plain_visual && matches!(node.state.kind, FrameKind::Mesh | FrameKind::Projector))
         {
             return Err(FrameError::UnsupportedDestruction(key));

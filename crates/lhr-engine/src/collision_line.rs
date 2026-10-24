@@ -7,7 +7,7 @@
 //! provided the host uses ordinary IEEE round-to-nearest arithmetic. This helper
 //! does not inspect or change the host floating-point environment. Floating-point
 //! status flags, traps and other rounding/precision profiles are outside its contract.
-//! Every used arithmetic value must be zero or have magnitude in `2^-40..=2^40`;
+//! Every used arithmetic value must be normal or zero and have magnitude at most `2^40`;
 //! this bounded domain avoids x87/SSE exponent-range differences. Other x87
 //! precision modes, degenerate divisions and nonfinite inputs are unsupported.
 //!
@@ -53,30 +53,32 @@ pub enum QueryError {
     InvalidBounds,
 }
 
-const MIN_MAGNITUDE: f32 = 1.0 / ((1_u64 << 40) as f32);
-const MAX_MAGNITUDE: f32 = (1_u64 << 40) as f32;
-
 fn number(x: f32) -> Result<f32, QueryError> {
-    if x.is_finite() && (x == 0.0 || (MIN_MAGNITUDE..=MAX_MAGNITUDE).contains(&x.abs())) {
+    if (x == 0.0 || x.is_normal()) && x.abs() <= (1_u64 << 40) as f32 {
         Ok(x)
     } else {
         Err(QueryError::NumericDomain)
     }
 }
 fn add(a: f32, b: f32) -> Result<f32, QueryError> {
-    number(a + b)
+    let value = crate::collision_swept::add(number(a)?, number(b)?)
+        .map_err(|_| QueryError::NumericDomain)?;
+    number(value)
 }
 fn sub(a: f32, b: f32) -> Result<f32, QueryError> {
-    number(a - b)
+    let value = crate::collision_swept::sub(number(a)?, number(b)?)
+        .map_err(|_| QueryError::NumericDomain)?;
+    number(value)
 }
 fn mul(a: f32, b: f32) -> Result<f32, QueryError> {
-    number(a * b)
+    let value = crate::collision_swept::mul(number(a)?, number(b)?)
+        .map_err(|_| QueryError::NumericDomain)?;
+    number(value)
 }
 fn div(a: f32, b: f32) -> Result<f32, QueryError> {
-    if b == 0.0 {
-        return Err(QueryError::NumericDomain);
-    }
-    number(a / b)
+    let value = crate::collision_swept::div(number(a)?, number(b)?)
+        .map_err(|_| QueryError::NumericDomain)?;
+    number(value)
 }
 
 /// Project the original ordered triangle path, preserving no-hit output fields.
@@ -301,6 +303,21 @@ mod tests {
                 primitive: Some(100),
             },
         )
+    }
+
+    #[test]
+    fn small_normal_components_are_kept_and_real_underflow_is_unavailable() {
+        let (mut triangle, mut query) = fixture(3);
+        triangle.plane[0] = 1.0e-15;
+        assert_eq!(
+            line_in_tree_level_triangles(&[triangle], &mut query),
+            Ok(true)
+        );
+        assert_eq!(query.normal[0].to_bits(), triangle.plane[0].to_bits());
+        assert_eq!(query.primitive, Some(triangle.identity));
+        // The stored component is normal, but this product would require the
+        // x87 extended exponent range and must not silently round to zero.
+        assert_eq!(mul(f32::MIN_POSITIVE, 0.5), Err(QueryError::NumericDomain));
     }
 
     #[test]

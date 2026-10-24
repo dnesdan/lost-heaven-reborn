@@ -225,6 +225,28 @@ pub fn vehicle_seat_records_insert<B: VehicleInitBackend + ?Sized>(
     )
 }
 
+/// The inlined 20-byte skid-model-pair insertion in Vehicle GameInit. Its
+/// placement copy is PC0x537910 and preserves all five source words.
+pub(crate) fn vehicle_skid_model_pairs_insert<B: VehicleInitBackend + ?Sized>(
+    backend: &mut B,
+    container: u32,
+    position: u32,
+    source: u32,
+) -> Result<(), B::Error> {
+    insert(backend, container, position, 1, source, 0x14)
+}
+
+/// Original PC 0x4d26e0: insert full 72-byte Vehicle collision records.
+pub fn vehicle_collision_records_insert<B: VehicleInitBackend + ?Sized>(
+    backend: &mut B,
+    container: u32,
+    position: u32,
+    count: u32,
+    source: u32,
+) -> Result<(), B::Error> {
+    insert(backend, container, position, count, source, 0x48)
+}
+
 /// Original PC 0x448cc0: pointer insertion used by BALLAST reordering.
 pub fn vehicle_component_pointers_insert<B: VehicleInitBackend + ?Sized>(
     b: &mut B,
@@ -494,7 +516,7 @@ mod tests {
 
     #[test]
     fn insertion_branches_preserve_all_record_words() {
-        for stride in [4, 28, 36, 88] {
+        for stride in [4, 20, 28, 36, 72, 88] {
             for length in 0..5 {
                 for capacity in length..7 {
                     for position in 0..=length {
@@ -527,7 +549,7 @@ mod tests {
 
     #[test]
     fn alias_reads_observe_shift_before_fill() {
-        for stride in [4, 28, 36, 88] {
+        for stride in [4, 20, 28, 36, 72, 88] {
             let mut b = Memory::fixture(stride, 4, 8);
             let before = b.records(OLD, 4, stride);
             insert(&mut b, HEADER, OLD, 1, OLD + stride, stride).unwrap();
@@ -546,7 +568,7 @@ mod tests {
 
     #[test]
     fn failure_stops_at_each_exact_storage_or_effect_prefix() {
-        for stride in [4, 28, 36, 88] {
+        for stride in [4, 20, 28, 36, 72, 88] {
             for (length, capacity, position, count) in [(3, 3, 1, 2), (3, 8, 2, 4), (3, 8, 0, 1)] {
                 let initial = Memory::fixture(stride, length, capacity);
                 let mut full = initial.clone();

@@ -55,6 +55,21 @@ pub(crate) fn try_portable_retained_vector_angle(
 }
 #[cfg(any(test, not(any(target_arch = "x86", target_arch = "x86_64"))))]
 impl PortableRetainedVectorAngle {
+    pub(crate) fn compare(&self, operand: f32) -> Result<std::cmp::Ordering, MakeUnavailable> {
+        if operand != 0. && !operand.is_normal() {
+            return Err(MakeUnavailable::InputOutsideVerifiedDomain);
+        }
+        let operand = f64::from(operand);
+        if self.angle.hi < operand {
+            Ok(std::cmp::Ordering::Less)
+        } else if self.angle.lo > operand {
+            Ok(std::cmp::Ordering::Greater)
+        } else if self.angle.lo == operand && self.angle.hi == operand {
+            Ok(std::cmp::Ordering::Equal)
+        } else {
+            Err(MakeUnavailable::RoundingUncertain)
+        }
+    }
     pub(crate) fn spill(&self) -> Result<f32, MakeUnavailable> {
         self.angle.rounded()
     }
@@ -130,6 +145,84 @@ pub fn try_vector_angle_sine_scaled(
         sine.product(factors[1])?,
         sine.product(factors[2])?,
     ])
+}
+
+#[cfg(any(test, not(any(target_arch = "x86", target_arch = "x86_64"))))]
+pub(crate) fn try_ph_thing_friction_products(
+    first: [f32; 3],
+    second: [f32; 3],
+    magnitude: f32,
+    friction: f32,
+    timestep: f32,
+    mass: f32,
+    axis: [f32; 3],
+) -> Result<[f32; 3], MakeUnavailable> {
+    for value in [magnitude, friction, timestep, mass]
+        .into_iter()
+        .chain(axis)
+    {
+        if value != 0. && !value.is_normal() {
+            return Err(MakeUnavailable::InputOutsideVerifiedDomain);
+        }
+    }
+    let sine = sine_cosine(angle_interval(first, second)?)?.0;
+    fn product(a: f64, b: f64) -> Result<f64, MakeUnavailable> {
+        let value = a * b;
+        let bits = value.to_bits();
+        let discarded = bits & ((1_u64 << 29) - 1);
+        let mut retained = bits >> 29;
+        if discarded > 1_u64 << 28 || discarded == 1_u64 << 28 && retained & 1 != 0 {
+            retained += 1;
+        }
+        let result = f64::from_bits(retained << 29);
+        crate::native_precision::record_wide_pc24_mul(a, b, result);
+        if result.is_finite() && (result == 0. || result.is_normal()) {
+            Ok(result)
+        } else {
+            Err(MakeUnavailable::InputOutsideVerifiedDomain)
+        }
+    }
+    let factor = product(f64::from(magnitude), f64::from(friction))?;
+    let magnitude = if sine.lo == 0. && sine.hi == 0. {
+        sine.lo * factor
+    } else if factor == 0. {
+        if sine.lo > 0. {
+            factor
+        } else if sine.hi < 0. {
+            -factor
+        } else {
+            return Err(MakeUnavailable::RoundingUncertain);
+        }
+    } else {
+        sine.mul(Interval::exact(factor)).rounded_pc24()?
+    };
+    let retained_limit = product(
+        product(
+            product(f64::from(timestep), f64::from(friction))?,
+            f64::from(mass),
+        )?,
+        3.,
+    )?;
+    let limit = retained_limit as f32;
+    crate::native_precision::record_precision(f64::from(limit) != retained_limit);
+    if limit != 0. && !limit.is_normal() {
+        return Err(MakeUnavailable::InputOutsideVerifiedDomain);
+    }
+    let clamped = if magnitude > f64::from(limit) {
+        f64::from(limit)
+    } else {
+        magnitude
+    };
+    let mut result = [0.; 3];
+    for (out, value) in result.iter_mut().zip(axis) {
+        let retained = product(clamped, f64::from(value))?;
+        *out = retained as f32;
+        crate::native_precision::record_precision(f64::from(*out) != retained);
+        if *out != 0. && !out.is_normal() {
+            return Err(MakeUnavailable::InputOutsideVerifiedDomain);
+        }
+    }
+    Ok(result)
 }
 
 /// Original Move friction ellipse arithmetic, retaining FPTAN until each
@@ -221,6 +314,81 @@ mod tests {
     use super::*;
     use crate::native_transform::vector_x87;
     #[test]
+    fn physical_friction_portable_enclosures_match_retained_native_suffix() {
+        let mut admitted = 0;
+        for (first, second, magnitude, friction, timestep, mass, axis) in [
+            (
+                [1., -2., 0.],
+                [0., 1., 0.],
+                2.,
+                0.5,
+                0.125,
+                2.,
+                [-1., 0., 0.],
+            ),
+            ([0.; 3], [0., 1., 0.], 2., 0.5, 0.125, 2., [-1., 0., 0.]),
+            ([1., 0., 0.], [0., 1., 0.], 1., 1., 1., 1., [-1., 0., 0.]),
+            (
+                [0.25, -1., 0.5],
+                [0., 1., 0.],
+                1.,
+                0.5,
+                1.,
+                2.,
+                [0.125, -0.5, 0.25],
+            ),
+            (
+                [1., -2., 0.],
+                [0., 1., 0.],
+                2.,
+                0.,
+                0.125,
+                2.,
+                [-1., 0., 0.],
+            ),
+        ] {
+            let mut portable_precision = crate::native_precision::Pc24PrecisionState::default();
+            let portable = portable_precision.run(|| {
+                try_ph_thing_friction_products(
+                    first, second, magnitude, friction, timestep, mass, axis,
+                )
+            });
+            if let Ok(portable) = portable {
+                let mut native_precision = crate::native_precision::Pc24PrecisionState::default();
+                let native = native_precision
+                    .run(|| {
+                        vector_x87::try_ph_thing_friction_products(
+                            first, second, magnitude, friction, timestep, mass, axis,
+                        )
+                    })
+                    .unwrap();
+                assert_eq!(portable.map(f32::to_bits), native.map(f32::to_bits));
+                assert_eq!(portable_precision, native_precision);
+                admitted += 1;
+            }
+        }
+        assert!(
+            admitted >= 3,
+            "only {admitted} portable physical suffix cases admitted"
+        );
+    }
+    #[test]
+    fn retained_comparison_rejects_overlapping_portable_bounds() {
+        let operand = 0.78_f32;
+        let value = f64::from(operand);
+        let token = PortableRetainedVectorAngle {
+            angle: Interval::bounds(value.next_down(), value.next_up()),
+        };
+        assert_eq!(
+            token.compare(operand),
+            Err(MakeUnavailable::RoundingUncertain)
+        );
+        let zero = PortableRetainedVectorAngle {
+            angle: Interval::exact(0.),
+        };
+        assert_eq!(zero.compare(0.), Ok(std::cmp::Ordering::Equal));
+    }
+    #[test]
     fn admitted_portable_enclosures_match_the_x87_expressions() {
         let mut admitted = 0;
         for i in 1..40 {
@@ -233,6 +401,16 @@ mod tests {
                 portable.spill().unwrap().to_bits(),
                 native.spill().unwrap().to_bits()
             );
+            for threshold in [
+                f32::from_bits(0x3f47ae14),
+                f32::from_bits(0x4016b852),
+                f32::from_bits(0x402ccccd),
+            ] {
+                assert_eq!(
+                    portable.compare(threshold).unwrap(),
+                    native.compare(threshold).unwrap()
+                );
+            }
             if let Ok(value) = portable.divide_numerator(0.375) {
                 assert_eq!(
                     value.to_bits(),

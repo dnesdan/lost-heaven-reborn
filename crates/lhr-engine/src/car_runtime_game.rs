@@ -369,6 +369,21 @@ impl<B: CarGameInitSupportBackend + VehicleSourceParametersBackend> CarGameInitS
     }
 }
 
+impl<B> CarGameDoneBackend for CarRuntimeGameBackend<'_, B>
+where
+    B: CarGameDoneBackend + CarGameInitSupportBackend + VehicleSourceParametersBackend,
+{
+    fn game_done_effect(
+        &mut self,
+        memory: VehicleComponentTailMemory<'_>,
+        effect: CarGameDoneEffect,
+    ) -> Result<(), Self::Error> {
+        self.inner
+            .game_done_effect(memory, effect)
+            .map_err(CarRuntimeGameError::Backend)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
