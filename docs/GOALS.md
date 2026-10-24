@@ -15,11 +15,11 @@ All gates remain open until corresponding evidence is recorded. Current function
 
 ## Parity with mafia-re
 
-At `75e380d`, vehicle BODYCOL, wheels and admitted CPU visual resources now share the live ModelArena through complete bounded C_Vehicle::Init and explicit destruction. The accepted scope is **264 entries / 85 contracts**, **20 static_inspection / 65 not_integrated**, strict **0/12**. Whole-function coverage remains N/A.
+At `df50d2f`, bounded C_car Init now completes callback installation and seat/model metadata setup, with explicit Car cleanup and Game-owned typed TCK resources. The accepted scope is **271 entries / 92 contracts**, **20 static_inspection / 72 not_integrated**, strict **0/12**. Whole-function coverage remains N/A.
 
 Actual authored MISE01 remains FINDACTOR/UnsupportedWorldBackend at PC 3 / source line 4; no later line executes. All six first-mission gates remain open. No runtime gameplay integration or driving mode is established.
 
-Next complete the actual C_car path after 0x41bdf2 and real driver/scene-resource ownership, then original model/resource File Open/reload and genuine collision-loader geometry/world transforms. Close dynamic body/wheel contacts and the original Tick/Engine/Move solver order before input/camera and repeatable driving comparisons. Compiler parameter ownership, genuine mission scene/actor construction, scheduling, replay, objectives and first-mission completion remain required.
+Reconstruct the original enclosing Game Init and its ownership/state transition into C_car, then genuine scene/driver resource ownership and original File Open/reload. Scene construction still stops at 0x48e29 with 13 required resource callbacks; source-parameter flags 2/audio remains unavailable. Contacts/solver/dynamics, driving and genuine mission ownership remain open.
 
 Historical Installation integration connects existing menu/static scene archive callers to NativeFiles; its asset-equality and static-rendering receipts remain in [PROGRESS.md](PROGRESS.md). That route supplies neither GPU-worker ownership nor mission-world construction.
 
@@ -37,11 +37,11 @@ Fresh REA/Ghidra instruction evidence and actual registry bytes support the boun
 
 The immediate dependency order is:
 
-1. Complete actual C_car::Init after the bounded Vehicle success frontier 0x41bdf2, including callback installation and actor/audio/physics registration, together with genuine driver/scene-resource ownership and original File Open/reload. Current CPU loaded-visual intake and all 13 explicit Scene resource boundaries do not close those packages. Source-parameter flags 2/audio requires actual unavailable effects to be reconstructed, not no-op success.
+1. Reconstruct the original enclosing Game Init and its ownership/state transition into C_car, then genuine scene/driver resource ownership and original File Open/reload. Scene construction still stops at 0x48e29 with 13 required resource callbacks; source-parameter flags 2/audio remains unavailable. Contacts/solver/dynamics, driving and genuine mission ownership remain open.
 2. Close collision-loader geometry/world transforms and dynamic body/wheel contacts, then reconstruct Tick -> Engine -> six-float Move -> DoWheelsCollision in original substep/solver order. Preserve accepted drivetrain/GearSnd behavior and bounded Vehicle initialization while closing timestep, direction and audio ownership; connect input, player/camera and repeatable original-versus-Rust driving sequences.
 3. Complete floating DecodeOperand, DecodeLet/DecodeIf, all 62 parameter ownership cases and Compile/Init/Done, then detector runtime and genuine mission scene/actor registration. Replay, objectives and original scheduling remain required. Actual authored MISE01 remains FINDACTOR/UnsupportedWorldBackend at PC 3 / source line 4.
 
-Standalone vehicle initialization and CPU ownership can be exercised before complete mission compilation; they do not supply the missing original car/world/driver and authored mission paths. Original models are regression inputs for general behavior. Animation and rendering resource dependencies remain independent work.
+Standalone vehicle initialization and CPU ownership can be exercised before complete mission compilation; they do not supply the missing enclosing Game/world/driver and authored mission paths. Original models are regression inputs for general behavior. Animation and rendering resource dependencies remain independent work.
 
 The [mafia-re/MafiaUnity source audit](REFERENCE_PROJECTS.md#next-general-engine-work) identifies complementary general-engine dependencies: persistent model/scene resource lifetime, mission-world construction, KLZ-backed collision, material states and sector visibility. Research these alongside the sequence above; upstream scene loaders and prototype mechanics do not replace original actor or script behavior.
 
