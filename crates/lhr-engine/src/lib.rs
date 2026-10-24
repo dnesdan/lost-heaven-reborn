@@ -20,8 +20,15 @@ pub mod collision_line;
 pub mod collision_links;
 pub mod collision_prepare;
 pub mod collision_query;
+pub mod collision_swept;
+pub mod collision_swept_aabox;
+pub mod collision_swept_box;
+pub mod collision_swept_volumes;
+pub mod collision_swept_world;
 pub mod collision_volumes;
 pub mod collision_world;
+pub mod collision_world_driving;
+pub mod collision_world_driving_contacts;
 pub mod driver_state;
 pub mod frame_delta;
 pub mod frame_dispatch;
@@ -43,6 +50,7 @@ pub mod model_loading;
 pub mod model_tick;
 pub mod named_script;
 pub mod native_matrix;
+pub mod native_precision;
 pub mod native_transform;
 pub mod original_config;
 pub mod original_program;
@@ -72,12 +80,25 @@ pub mod texture_manager;
 pub mod vehicle_bodycol;
 pub mod vehicle_bodycol_records;
 pub mod vehicle_component_records;
+pub mod vehicle_contacts;
 pub mod vehicle_controls;
 pub mod vehicle_drivetrain;
+pub mod vehicle_dynamics;
+pub mod vehicle_dynamics_body;
+pub mod vehicle_dynamics_body_collision;
+pub mod vehicle_dynamics_body_response;
+pub mod vehicle_dynamics_forces;
+pub mod vehicle_dynamics_move;
+pub mod vehicle_dynamics_prepare;
+pub mod vehicle_dynamics_tail;
+pub mod vehicle_dynamics_tick;
+pub mod vehicle_dynamics_update;
+pub mod vehicle_dynamics_wheel_forces;
 pub mod vehicle_frame_backend;
 pub mod vehicle_init;
 pub mod vehicle_owner;
 pub mod vehicle_sound;
+pub mod vehicle_wheel_pose;
 
 pub mod visual_resources;
 
@@ -95,9 +116,16 @@ pub mod ls3df {
 pub mod game {
     pub use crate::{
         actor_world, car_effects, car_runtime, collision_dispatch, collision_line, collision_links,
-        collision_prepare, collision_query, collision_volumes, collision_world, original_program,
-        program_instructions, program_parser, replay_state, script_lookup, script_scheduler,
-        vehicle_bodycol, vehicle_bodycol_records, vehicle_component_records, vehicle_controls,
-        vehicle_drivetrain, vehicle_frame_backend, vehicle_init, vehicle_owner, vehicle_sound,
+        collision_prepare, collision_query, collision_swept, collision_swept_aabox,
+        collision_swept_box, collision_swept_volumes, collision_swept_world, collision_volumes,
+        collision_world, collision_world_driving, collision_world_driving_contacts,
+        original_program, program_instructions, program_parser, replay_state, script_lookup,
+        script_scheduler, vehicle_bodycol, vehicle_bodycol_records, vehicle_component_records,
+        vehicle_contacts, vehicle_controls, vehicle_drivetrain, vehicle_dynamics,
+        vehicle_dynamics_body, vehicle_dynamics_body_collision, vehicle_dynamics_body_response,
+        vehicle_dynamics_forces, vehicle_dynamics_move, vehicle_dynamics_prepare,
+        vehicle_dynamics_tail, vehicle_dynamics_tick, vehicle_dynamics_update,
+        vehicle_dynamics_wheel_forces, vehicle_frame_backend, vehicle_init, vehicle_owner,
+        vehicle_sound, vehicle_wheel_pose,
     };
 }

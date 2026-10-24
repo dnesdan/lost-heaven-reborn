@@ -16,6 +16,9 @@ pub use car_construction::*;
 #[path = "car_init.rs"]
 mod car_init;
 pub use car_init::*;
+#[path = "car_game_init.rs"]
+mod car_game_init;
+pub use car_game_init::*;
 #[path = "car_caller_cleanup.rs"]
 mod car_caller_cleanup;
 pub use car_caller_cleanup::*;
@@ -351,6 +354,21 @@ impl VehicleInitState {
 
     pub fn as_bytes(&self) -> &[u8] {
         &self.bytes
+    }
+
+    /// Applies reconstructed input setters to this owner's embedded vehicle.
+    /// This borrow neither initializes dynamics nor advances simulation.
+    pub fn controls(&mut self) -> crate::vehicle_controls::VehicleControlState<&mut [u8]> {
+        crate::vehicle_controls::VehicleControlState::from_bytes_mut(&mut self.bytes)
+    }
+
+    /// Borrows the canonical storage for the reconstructed simulation worker.
+    pub fn dynamics(&mut self) -> crate::vehicle_dynamics::VehicleDynamicsState<'_> {
+        crate::vehicle_dynamics::VehicleDynamicsState::from_bytes(&mut self.bytes)
+    }
+
+    pub fn wheel_pose(&mut self) -> crate::vehicle_wheel_pose::VehicleWheelPoseState<'_> {
+        crate::vehicle_wheel_pose::VehicleWheelPoseState::from_bytes(&mut self.bytes)
     }
 
     pub fn scratch(&self) -> Option<VehicleInitFrameVector> {

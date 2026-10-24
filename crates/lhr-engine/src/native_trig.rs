@@ -6,6 +6,8 @@ use super::MakeUnavailable;
 
 #[path = "car_resource_math.rs"]
 pub(crate) mod car_resource_math;
+#[path = "native_vector_angle.rs"]
+pub(super) mod vector_angle;
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Interval {
@@ -51,6 +53,17 @@ impl Interval {
         let a = self.lo as f32;
         let b = self.hi as f32;
         if a.to_bits() == b.to_bits() && a.is_finite() && (a == 0. || a.is_normal()) {
+            if crate::native_precision::current_precision() == Some(false) {
+                let rounded = f64::from(a);
+                if rounded < self.lo || rounded > self.hi {
+                    crate::native_precision::record_precision(true);
+                } else if self.lo != rounded || self.hi != rounded {
+                    // A proved value rounding does not always prove whether
+                    // the original store was exact. Keep that status boundary
+                    // unavailable while later CRT policy can still observe it.
+                    return Err(MakeUnavailable::RoundingUncertain);
+                }
+            }
             Ok(a)
         } else {
             Err(MakeUnavailable::RoundingUncertain)
@@ -80,6 +93,7 @@ pub(super) fn sin_cos(x: f32) -> Result<(Interval, Interval), MakeUnavailable> {
     if !x.is_finite() || x.abs() > 1. || x == 0. {
         return Err(MakeUnavailable::UnrecoveredAxisAngle);
     }
+    crate::native_precision::record_precision(true);
     let x = Interval::exact(x as f64);
     let square = x.mul(x);
     let mut sin = x;
@@ -111,6 +125,7 @@ pub(super) fn sin_cos_frame(x: f32) -> Result<(Interval, Interval), MakeUnavaila
     if !x.is_finite() || x.abs() > 4. || x == 0. {
         return Err(MakeUnavailable::UnrecoveredAxisAngle);
     }
+    crate::native_precision::record_precision(true);
     let quadrant = ((x as f64) / std::f64::consts::FRAC_PI_2).round() as i32;
     // Split pi/2 preserves a narrow enclosure after cancellation near its
     // single-precision approximations. The low-part interval brackets the
@@ -186,6 +201,9 @@ fn atan2_positive_interval(y: f32, x: f32) -> Result<Interval, MakeUnavailable> 
             Err(MakeUnavailable::RoundingUncertain)
         };
     }
+    // Original nonzero FPATAN sets precision before its CRT spill policy.
+    // The host interval evaluation below is not original arithmetic.
+    crate::native_precision::record_precision(true);
     let a = x.abs() as f64;
     let b = y as f64;
     if a == 0. {
@@ -318,21 +336,27 @@ impl Float<'_> {
         }
     }
     pub(super) fn sqrt(self) -> Self {
-        self.arithmetic.result((self.value as f64).sqrt())
+        let result = self.arithmetic.result((self.value as f64).sqrt());
+        crate::native_precision::record_sqrt(self.value, result.value);
+        result
     }
 }
 macro_rules! operation {
- ($trait:ident,$name:ident,$operator:tt)=>{
+ ($trait:ident,$name:ident,$operator:tt,$record:ident)=>{
   impl<'a> std::ops::$trait for Float<'a> {
    type Output=Self;
-   fn $name(self,right:Self)->Self {self.arithmetic.result((self.value as f64) $operator (right.value as f64))}
+   fn $name(self,right:Self)->Self {
+    let result=self.arithmetic.result((self.value as f64) $operator (right.value as f64));
+    crate::native_precision::$record(self.value,right.value,result.value);
+    result
+   }
   }
  }
 }
-operation!(Add,add,+);
-operation!(Sub,sub,-);
-operation!(Mul,mul,*);
-operation!(Div,div,/);
+operation!(Add,add,+,record_add);
+operation!(Sub,sub,-,record_sub);
+operation!(Mul,mul,*,record_mul);
+operation!(Div,div,/,record_div);
 impl std::ops::Neg for Float<'_> {
     type Output = Self;
     fn neg(self) -> Self {
@@ -396,6 +420,23 @@ pub(crate) fn light_cone_radius(outer: f32, range: f32) -> Result<f32, MakeUnava
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn equal_animation_angles_preserve_the_two_original_fpatan_exceptions() {
+        for (axis, raised) in [
+            ([1., 0., 1.], true),
+            ([-1., 0., 0.], true),
+            ([1., 0., 0.], false),
+            ([0., 0., 0.], false),
+            ([-0., 0., 0.], true),
+        ] {
+            let mut state = crate::native_precision::Pc24PrecisionState::default();
+            assert_eq!(
+                state.run(|| car_resource_math::animation_angle(axis, axis)),
+                Ok(0.)
+            );
+            assert_eq!(state.precision_raised(), raised);
+        }
+    }
     #[test]
     fn rounding_enclosures_reject_midpoints_signed_zeros_and_subnormals() {
         let a = 1.0f32;

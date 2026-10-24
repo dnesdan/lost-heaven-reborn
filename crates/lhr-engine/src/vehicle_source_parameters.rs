@@ -54,7 +54,9 @@ fn mul<E>(a: f32, b: f32) -> Result<f32, VehicleWheelsUnavailable<E>> {
     checked_f32_mul(a, b).map_err(|_| VehicleWheelsUnavailable::NumericDomain)
 }
 fn div<E>(a: f32, b: f32) -> Result<f32, VehicleWheelsUnavailable<E>> {
-    numeric(a / b)
+    let result = numeric(a / b)?;
+    crate::native_precision::record_div(a, b, result);
+    Ok(result)
 }
 struct Parameters<'a, B: VehicleSourceParametersBackend> {
     b: &'a mut B,
@@ -334,7 +336,7 @@ pub fn vehicle_init_car_parameters<B: VehicleSourceParametersBackend>(
     }
     Ok(accepted)
 }
-fn apply_parameters<B: VehicleSourceParametersBackend>(
+pub(super) fn apply_parameters<B: VehicleSourceParametersBackend>(
     b: &mut B,
     vehicle: u32,
     source: u32,
@@ -696,9 +698,13 @@ fn apply_parameters<B: VehicleSourceParametersBackend>(
             return Ok(false);
         }
         let old = p.vw(0x568)? as i32;
-        p.set(source + 0x13 * 4, old as f32)?;
+        let restored = old as f32;
+        crate::native_precision::record_precision(i64::from(old) != restored as i64);
+        p.set(source + 0x13 * 4, restored)?;
     } else {
-        p.vc(0x568, (gear.trunc() as i32) as u32)?;
+        let integral = gear.trunc() as i32;
+        crate::native_precision::record_precision(integral as f32 != gear);
+        p.vc(0x568, integral as u32)?;
     }
     for i in 0..10 {
         field!(0x15 + i, 0x574 + i * 4, 0.);
@@ -1032,10 +1038,12 @@ fn apply_parameters<B: VehicleSourceParametersBackend>(
                 add(p.vf(0x608)?, f32::from_bits(0x3fc90fdb))?,
             )?;
             // FCOS retains its extended result until the following PC24 division.
+            crate::native_precision::record_precision(angle != 0.0);
             let cosine = f64::from(angle).cos();
             let ratio = numeric((f64::from(length) / cosine) as f32)?;
             let square = sub(mul(ratio, ratio)?, mul(length, length)?)?;
             let radius = numeric(square.sqrt())?;
+            crate::native_precision::record_sqrt(square, radius);
             p.vs(0x354, radius)?;
             if front_steer && rear_steer {
                 p.vs(0x354, mul(radius, 0.5)?)?;

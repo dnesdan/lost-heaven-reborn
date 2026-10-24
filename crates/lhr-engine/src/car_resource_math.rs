@@ -36,10 +36,16 @@ pub(crate) fn animation_angle(first: [f32; 3], last: [f32; 3]) -> Result<f32, Ma
     {
         // The two identical FPATAN instructions produce identical retained
         // values, so their subtraction is exact even near zero.
+        // They still raise precision for a nonzero angle, including pi on
+        // the negative X axis. The value shortcut must preserve that history.
+        crate::native_precision::record_precision(first[2] != 0.0 || first[0].is_sign_negative());
         return Ok(0.);
     }
     fn angle(x: f32, y: f32) -> Result<Interval, MakeUnavailable> {
         let value = atan2_positive_interval(y.abs(), x)?;
+        // This caller executes FPATAN even on the negative axis, whereas the
+        // CRT acos endpoint represented by the shared enclosure uses FLDPI.
+        crate::native_precision::record_precision(y == 0.0 && x < 0.0);
         Ok(if y.is_sign_negative() {
             value.neg()
         } else {

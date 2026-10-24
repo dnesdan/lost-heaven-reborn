@@ -10,9 +10,27 @@
 //! Legacy arithmetic methods do not reject values outside that domain. The
 //! `try_make` entries enforce their documented bounded domains and rounding
 //! enclosures, assuming the host default IEEE round-to-nearest arithmetic.
+use crate::native_precision::{add, div, mul, sqrt, sub};
 
 #[path = "native_frame_direction.rs"]
 mod frame_direction;
+#[path = "native_retained_angle.rs"]
+mod retained_angle;
+pub use native_trig::vector_angle::try_vector_angle_to;
+#[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+pub use native_trig::vector_angle::{
+    try_acos_sin_cos_products, try_cosine_product, try_vector_angle_sine,
+    try_vector_angle_sine_scaled, try_wheel_friction_limit,
+};
+pub use retained_angle::{try_retained_vector_angle, RetainedVectorAngle};
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[path = "native_vector_x87.rs"]
+mod vector_x87;
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+pub(crate) use vector_x87::{
+    try_acos_sin_cos_products, try_cosine_product, try_vector_angle_sine,
+    try_vector_angle_sine_scaled, try_wheel_friction_limit,
+};
 #[path = "native_trig.rs"]
 pub(crate) mod native_trig;
 
@@ -29,13 +47,13 @@ pub fn is_verified_scalar(value: f32) -> bool {
 /// squared lengths within 1e-8 of one. Callers must guard each input scalar.
 pub fn vector_length(vector: [f32; 3]) -> f32 {
     let [x, y, z] = vector;
-    let squared = (x * x + y * y) + z * z;
+    let squared = add(add(mul(x, x), mul(y, y)), mul(z, z));
     if (squared.to_bits() as i32) < 0x322b_cc77 {
         0.0
-    } else if (squared - 1.0).abs() < 1e-8 {
+    } else if sub(squared, 1.0).abs() < 1e-8 {
         1.0
     } else {
-        squared.sqrt()
+        sqrt(squared)
     }
 }
 
@@ -86,28 +104,28 @@ impl SMatrix {
             }
             return;
         }
-        let x2 = x + x;
-        let y2 = y + y;
-        let z2 = z + z;
-        let xx = x2 * x;
-        let xy = y2 * x;
-        let xz = z2 * x;
-        let yy = y2 * y;
-        let yz = z2 * y;
-        let zz = z2 * z;
-        let wx = x2 * w;
-        let wy = y2 * w;
-        let wz = z2 * w;
+        let x2 = add(x, x);
+        let y2 = add(y, y);
+        let z2 = add(z, z);
+        let xx = mul(x2, x);
+        let xy = mul(y2, x);
+        let xz = mul(z2, x);
+        let yy = mul(y2, y);
+        let yz = mul(z2, y);
+        let zz = mul(z2, z);
+        let wx = mul(x2, w);
+        let wy = mul(y2, w);
+        let wz = mul(z2, w);
         let basis = [
-            1.0 - (zz + yy),
-            xy - wz,
-            wy + xz,
-            wz + xy,
-            1.0 - (zz + xx),
-            yz - wx,
-            xz - wy,
-            wx + yz,
-            1.0 - (yy + xx),
+            sub(1.0, add(zz, yy)),
+            sub(xy, wz),
+            add(wy, xz),
+            add(wz, xy),
+            sub(1.0, add(zz, xx)),
+            sub(yz, wx),
+            sub(xz, wy),
+            add(wx, yz),
+            sub(1.0, add(yy, xx)),
         ];
         for (index, value) in indices.into_iter().zip(basis) {
             self.elements[index] = value;
@@ -131,15 +149,15 @@ impl SMatrix {
         let mut result = Self::identity();
         for row in 0..4 {
             for column in 0..3 {
-                let first = a[row * 4] * b[column];
-                let second = a[row * 4 + 1] * b[4 + column];
-                let third = a[row * 4 + 2] * b[8 + column];
+                let first = mul(a[row * 4], b[column]);
+                let second = mul(a[row * 4 + 1], b[4 + column]);
+                let third = mul(a[row * 4 + 2], b[8 + column]);
                 let initial = if row == 3 {
-                    first + b[12 + column]
+                    add(first, b[12 + column])
                 } else {
                     first
                 };
-                result.elements[row * 4 + column] = (initial + second) + third;
+                result.elements[row * 4 + column] = add(add(initial, second), third);
             }
         }
         result
@@ -154,11 +172,11 @@ impl SMatrix {
     pub fn transform_point(&self, vector: [f32; 3]) -> [f32; 3] {
         let mut out = [0.; 3];
         for (column, output) in out.iter_mut().enumerate() {
-            let first = vector[0] * self.elements[column];
-            let translated = first + self.elements[12 + column];
-            let second = vector[1] * self.elements[4 + column];
-            let third = vector[2] * self.elements[8 + column];
-            *output = (translated + second) + third;
+            let first = mul(vector[0], self.elements[column]);
+            let translated = add(first, self.elements[12 + column]);
+            let second = mul(vector[1], self.elements[4 + column]);
+            let third = mul(vector[2], self.elements[8 + column]);
+            *output = add(add(translated, second), third);
         }
         out
     }
@@ -174,6 +192,17 @@ impl SQuat {
     /// Signed zero angles retain the previously admitted full finite-axis domain.
     pub fn try_make_axis_angle(axis: [f32; 3], angle: f32) -> Result<Self, MakeUnavailable> {
         Self::make_axis_angle_domain(axis, angle, false)
+    }
+    /// The same original Make entry using the retained reduced-angle enclosure
+    /// already required by frame SetDir. It admits finite angles within [-8,8]
+    /// radians, including the original wheel phase range, and still rejects an
+    /// ambiguous PC24 rounding. This is an expanded host availability domain,
+    /// not a separate original function or an approximation of vehicle motion.
+    pub fn try_make_axis_angle_reduced(
+        axis: [f32; 3],
+        angle: f32,
+    ) -> Result<Self, MakeUnavailable> {
+        Self::make_axis_angle_domain(axis, angle, true)
     }
     fn make_axis_angle_domain(
         axis: [f32; 3],
@@ -394,13 +423,13 @@ impl SQuat {
     pub fn compose(self, right: Self) -> Self {
         let [w, x, y, z] = self.wxyz;
         let [rw, rx, ry, rz] = right.wxyz;
-        let dot = (z * rz + y * ry) + x * rx;
+        let dot = add(add(mul(z, rz), mul(y, ry)), mul(x, rx));
         Self {
             wxyz: [
-                w * rw - dot,
-                (rx * w + x * rw) + (rz * y - ry * z),
-                (ry * w + y * rw) + (rx * z - rz * x),
-                (rz * w + z * rw) + (ry * x - y * rx),
+                sub(mul(w, rw), dot),
+                add(add(mul(rx, w), mul(x, rw)), sub(mul(rz, y), mul(ry, z))),
+                add(add(mul(ry, w), mul(y, rw)), sub(mul(rx, z), mul(rz, x))),
+                add(add(mul(rz, w), mul(z, rw)), sub(mul(ry, x), mul(y, rx))),
             ],
         }
     }
@@ -410,7 +439,7 @@ impl SQuat {
     /// an all-zero quaternion therefore becomes [0,0,1,0], not identity.
     pub fn normalize(&mut self) {
         let [w, x, y, z] = self.wxyz;
-        let norm_squared = ((w * w + x * x) + y * y) + z * z;
+        let norm_squared = add(add(add(mul(w, w), mul(x, x)), mul(y, y)), mul(z, z));
         if norm_squared <= 1e-8 {
             self.wxyz[0] = 0.0;
             let axis = if x != 0.0 {
@@ -421,10 +450,10 @@ impl SQuat {
                 2
             };
             self.wxyz[axis] = if self.wxyz[axis] < 0.0 { -1.0 } else { 1.0 };
-        } else if (norm_squared - 1.0).abs() >= 1e-8 {
-            let reciprocal = 1.0 / norm_squared.sqrt();
+        } else if sub(norm_squared, 1.0).abs() >= 1e-8 {
+            let reciprocal = div(1.0, sqrt(norm_squared));
             for axis in [1, 2, 3, 0] {
-                self.wxyz[axis] *= reciprocal;
+                self.wxyz[axis] = mul(self.wxyz[axis], reciprocal);
             }
         }
     }

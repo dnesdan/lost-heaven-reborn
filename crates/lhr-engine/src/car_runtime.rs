@@ -5,6 +5,7 @@ use crate::{
     car_effects::CarTrackResources,
     loaded_visual_resources::MaterialLoadContext,
     model_loading::{ModelArena, ModelKey},
+    native_precision::Pc24PrecisionState,
     scene_ownership::SceneKey,
     vehicle_bodycol::{VehicleBodycolScratch, VehicleBodycolStorage},
     vehicle_frame_backend::{VehicleFrameBackend, VehicleFrameMemory, VehicleMemoryError},
@@ -13,11 +14,14 @@ use crate::{
 #[path = "car_runtime_catalog.rs"]
 mod catalog;
 pub use catalog::CarInitAnimationCatalog;
+#[path = "car_runtime_game.rs"]
+mod game;
 
 const CAR: u32 = 0x10000;
 const INIT_STACK: u32 = 0x800000;
 const VEHICLE_STACK: u32 = INIT_STACK - 0x1d0;
 const CONSTRUCTOR_STACK: u32 = 0x820000;
+const GAME_STACK: u32 = 0x840000;
 
 #[derive(Clone, Copy, Debug)]
 pub struct CarRuntimeOptions {
@@ -43,6 +47,20 @@ pub struct CarRuntimeSummary {
     pub cached_tracks: usize,
     pub source_frames: usize,
 }
+#[derive(Clone, Debug, PartialEq)]
+pub struct CarSteeringPreviewState {
+    pub maximum_angle: f32,
+    pub requested_angle: f32,
+    pub applied_angle: f32,
+    pub wheels: usize,
+    pub steerable_wheels: usize,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CarRuntimeLevelTableSummary {
+    /// Original loader success byte. A parsed table can contain no match.
+    pub loaded: bool,
+    pub records: usize,
+}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CarRuntimeCleanup {
     pub actor_count: u32,
@@ -66,6 +84,10 @@ impl std::fmt::Display for CarRuntimeOpenFailure {
 }
 
 pub struct CarRuntime {
+    precision: Pc24PrecisionState,
+    game: game::CarRuntimeGameState,
+    game_scratch: CarGameInitScratch,
+    level_table_started: bool,
     installation: lhr_assets::Installation,
     arena: ModelArena,
     memory: VehicleFrameMemory,
@@ -78,6 +100,8 @@ pub struct CarRuntime {
     car_destructor_started: bool,
     car_destructor_complete: bool,
     shutdown_started: bool,
+    wheel_preview_started: bool,
+    wheel_preview_failed: bool,
 }
 struct ConstructorBackend<'a>(&'a mut VehicleFrameMemory);
 impl CarConstructionBackend for ConstructorBackend<'_> {
@@ -113,6 +137,22 @@ impl CarRuntime {
     ) -> Result<Self, CarRuntimeOpenFailure> {
         let tracks = CarInitAnimationCatalog::resources().expect("bounded unique semantic catalog");
         let mut runtime = Self {
+            precision: Pc24PrecisionState::default(),
+            game: game::CarRuntimeGameState::default(),
+            game_scratch: CarGameInitScratch {
+                memory: VehicleComponentTailScratch {
+                    address: GAME_STACK - 0x120,
+                    bytes: [options.allocator_fill; VEHICLE_INIT_STACK_BYTES],
+                },
+                stack: GAME_STACK,
+                registers: CarInitRegisters {
+                    ebx: 0,
+                    ebp: 0,
+                    esi: 0,
+                    edi: 0,
+                },
+            },
+            level_table_started: false,
             installation,
             arena: ModelArena::default(),
             memory: VehicleFrameMemory::default(),
@@ -131,6 +171,8 @@ impl CarRuntime {
             car_destructor_started: false,
             car_destructor_complete: false,
             shutdown_started: false,
+            wheel_preview_started: false,
+            wheel_preview_failed: false,
         };
         if let Err(message) = runtime.initialize(path, options) {
             return Err(CarRuntimeOpenFailure {
@@ -141,6 +183,13 @@ impl CarRuntime {
         Ok(runtime)
     }
     fn initialize(&mut self, path: &str, options: CarRuntimeOptions) -> Result<(), String> {
+        Pc24PrecisionState::run_owner(
+            self,
+            |owner| &mut owner.precision,
+            |owner| owner.initialize_inner(path, options),
+        )
+    }
+    fn initialize_inner(&mut self, path: &str, options: CarRuntimeOptions) -> Result<(), String> {
         self.prepare_game_context(options)?;
         self.arena
             .visual_resource_owner_mut()
@@ -279,6 +328,10 @@ impl CarRuntime {
     fn prepare_game_context(&mut self, options: CarRuntimeOptions) -> Result<(), String> {
         let fill = options.allocator_fill;
         let regions: Vec<(u32, Vec<u8>)> = vec![
+            // Caller storage below the canonical GameInit scratch. The level
+            // loader's original large stack frame must not alias a second
+            // copy of that scratch or of the live car.
+            (GAME_STACK - 0x2400, vec![fill; 0x22e0]),
             (0x600000, vec![fill; 0x200]),
             (INIT_STACK - 0x10000, vec![fill; 0xfe30]),
             (INIT_STACK - 8, vec![fill; 8]),
@@ -317,9 +370,188 @@ impl CarRuntime {
     pub fn cached_track_count(&self) -> usize {
         self.tracks.cached_tracks().count()
     }
+
+    /// Runs the original LoadLevelTables against this car's initialized name
+    /// and the installation's vehicles.bin. Records remain owned by this car
+    /// and are released by its original destructor. This does not select a
+    /// level, invoke GameInit, or start simulation. A failed call is retained
+    /// for explicit cleanup rather than replayed.
+    pub fn load_level_table(&mut self) -> Result<CarRuntimeLevelTableSummary, String> {
+        Pc24PrecisionState::run_owner(
+            self,
+            |owner| &mut owner.precision,
+            |owner| owner.load_level_table_inner(),
+        )
+    }
+    fn load_level_table_inner(&mut self) -> Result<CarRuntimeLevelTableSummary, String> {
+        if !self.summary.initialized
+            || self.car_destructor_started
+            || self.shutdown_started
+            || self.level_table_started
+        {
+            return Err(
+                "Level tables require a live initialized car and a fresh table call".into(),
+            );
+        }
+        self.level_table_started = true;
+        let car = self
+            .car
+            .as_mut()
+            .ok_or("Level table has no initialized car")?;
+        let mut frames = VehicleFrameBackend::with_installation(
+            &mut self.arena,
+            &mut self.memory,
+            &self.installation,
+        )
+        .with_game_init_stack(GAME_STACK);
+        let mut backend = game::CarRuntimeGameBackend::new(
+            &mut frames,
+            &self.installation,
+            &mut self.game,
+            GAME_STACK,
+        );
+        let mut memory = car
+            .car_live_memory(&mut self.game_scratch.memory)
+            .ok_or("Level table has no canonical car storage")?;
+        let result = backend
+            .game_init_effect(
+                memory.reborrow(),
+                CarGameInitEffect::CarDependency {
+                    entry: 0x41e270,
+                    car: CAR,
+                    argument: 0,
+                },
+            )
+            .map_err(|e| format!("Car level table: {e}"))?;
+        let begin = memory
+            .read_word_with_backend(&mut backend, CAR + 0x21b4)
+            .map_err(|e| format!("Car level table begin: {e}"))?;
+        let end = memory
+            .read_word_with_backend(&mut backend, CAR + 0x21b8)
+            .map_err(|e| format!("Car level table end: {e}"))?;
+        let bytes = end
+            .checked_sub(begin)
+            .filter(|n| n.is_multiple_of(0x113c))
+            .ok_or("Car level table produced an invalid record extent")?;
+        if self.game.open_handles() != 0 {
+            return Err("Car level table retained an open original file handle".into());
+        }
+        Ok(CarRuntimeLevelTableSummary {
+            loaded: result as u8 != 0,
+            records: bytes as usize / 0x113c,
+        })
+    }
+
+    /// Read-only control diagnostics from the canonical vehicle and wheel heap.
+    pub fn steering_preview_state(&mut self) -> Result<CarSteeringPreviewState, String> {
+        let bytes = self
+            .car
+            .as_ref()
+            .ok_or("Car is not constructed")?
+            .as_bytes();
+        let word = |offset: usize| -> Result<u32, String> {
+            Ok(u32::from_le_bytes(
+                bytes
+                    .get(offset..offset + 4)
+                    .ok_or("Incomplete steering state")?
+                    .try_into()
+                    .unwrap(),
+            ))
+        };
+        let count = word(0x4c4)? as usize;
+        if count > 1024 {
+            return Err("Wheel diagnostics exceed their storage budget".into());
+        }
+        let order = word(0xc38)?;
+        let mut steerable = 0;
+        for i in 0..count {
+            let wheel =
+                VehicleInitBackend::read_word(&mut self.memory, order.wrapping_add(i as u32 * 4))
+                    .map_err(|e| format!("Wheel diagnostics: {e:?}"))?;
+            let flags = VehicleInitBackend::read_byte(&mut self.memory, wheel.wrapping_add(0x120))
+                .map_err(|e| format!("Wheel diagnostics: {e:?}"))?;
+            steerable += usize::from(flags & 1 != 0);
+        }
+        Ok(CarSteeringPreviewState {
+            maximum_angle: f32::from_bits(word(0x610)?),
+            requested_angle: f32::from_bits(word(0x624)?),
+            applied_angle: f32::from_bits(word(0x628)?),
+            wheels: count,
+            steerable_wheels: steerable,
+        })
+    }
+
+    /// Host wheel preview on the same initialized car. It calls the original
+    /// SetSteer and UpdateSteeringWheels; it does not run GameInit or dynamics.
+    /// A zero-time first update establishes the original speed-dependent steer
+    /// limit before the first input. Later calls retain smoothing state.
+    pub fn preview_wheel_steering(&mut self, input: f32, dt_seconds: f32) -> Result<(), String> {
+        Pc24PrecisionState::run_owner(
+            self,
+            |owner| &mut owner.precision,
+            |owner| owner.preview_wheel_steering_inner(input, dt_seconds),
+        )
+    }
+    fn preview_wheel_steering_inner(&mut self, input: f32, dt_seconds: f32) -> Result<(), String> {
+        if !input.is_finite()
+            || !(-1.0..=1.0).contains(&input)
+            || !dt_seconds.is_finite()
+            || !(0.0..=83.0_f32 * 0.001_f32).contains(&dt_seconds)
+        {
+            return Err(
+                "Wheel preview requires steer in [-1,1] and elapsed seconds in [0,0.083]".into(),
+            );
+        }
+        if !self.summary.initialized
+            || self.car_destructor_started
+            || self.shutdown_started
+            || self.wheel_preview_failed
+        {
+            return Err(
+                "Wheel preview requires a live initialized car without a previous preview failure"
+                    .into(),
+            );
+        }
+        self.wheel_preview_failed = true;
+        let car = self
+            .car
+            .as_mut()
+            .ok_or("Wheel preview has no initialized car")?;
+        let mut backend = VehicleFrameBackend::new(&mut self.arena, &mut self.memory);
+        if !self.wheel_preview_started {
+            car.wheel_pose()
+                .update_steering_wheels(0.0, &mut backend)
+                .map_err(|e| format!("Initial wheel steering update: {e:?}"))?;
+            self.wheel_preview_started = true;
+        }
+        if !car
+            .controls()
+            .set_steer(input)
+            .map_err(|e| format!("SetSteer: {e:?}"))?
+        {
+            return Err("Original SetSteer rejected the wheel preview input".into());
+        }
+        car.wheel_pose()
+            .update_steering_wheels(dt_seconds, &mut backend)
+            .map_err(|e| format!("Wheel steering update: {e:?}"))?;
+        let model = self.model.ok_or("Wheel preview has no initialized model")?;
+        self.arena
+            .graph
+            .update(model.root())
+            .map_err(|e| format!("Wheel frame publication: {e:?}"))?;
+        self.wheel_preview_failed = false;
+        Ok(())
+    }
     /// Runs only C_car destruction. Shared Game track metadata and actor-vector
     /// capacity remain owned until the later explicit Game-context shutdown.
     pub fn destruct_car(&mut self) -> Result<(), String> {
+        Pc24PrecisionState::run_owner(
+            self,
+            |owner| &mut owner.precision,
+            |owner| owner.destruct_car_inner(),
+        )
+    }
+    fn destruct_car_inner(&mut self) -> Result<(), String> {
         if self.car_destructor_started {
             return Err("Car destruction already started".into());
         }
@@ -400,6 +632,7 @@ impl CarRuntime {
                 .map_err(|e| format!("Actor registry reset: {e:?}"))?;
         }
         self.tracks.reset_track_cache();
+        self.game.release_host_handles();
         let cpu = self.arena.loaded_visual_resources().map(|r| r.backend());
         let cleanup = CarRuntimeCleanup {
             actor_count,

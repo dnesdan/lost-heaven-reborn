@@ -27,6 +27,8 @@ struct Options {
     synthetic: bool,
     mission: Option<String>,
     car_inspection: bool,
+    steer: Option<f32>,
+    steer_steps: u32,
 }
 fn options() -> Result<Options, String> {
     let mut result = Options {
@@ -44,8 +46,11 @@ fn options() -> Result<Options, String> {
         synthetic: false,
         mission: None,
         car_inspection: false,
+        steer: None,
+        steer_steps: 1,
     };
     let mut args = std::env::args().skip(1);
+    let mut steer_steps_set = false;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--textures" => result.textures = args.next().ok_or("Missing textures argument")?,
@@ -62,10 +67,13 @@ fn options() -> Result<Options, String> {
             "--synthetic" => result.synthetic = true,
             "--mission" => result.mission = Some(args.next().ok_or("Missing mission argument")?),
             "--car-inspection" => result.car_inspection = true,
+            "--steer" => result.steer = Some(args.next().ok_or("Missing steering request")?.parse().map_err(|_| "Invalid steering request")?),
+            "--steer-steps" => { steer_steps_set = true; result.steer_steps = args.next().ok_or("Missing steering preview step count")?.parse().map_err(|_| "Invalid steering preview step count")?; },
             "--help" => return Err(concat!(
                 "Usage: lhr-engine [--synthetic | --root DIRECTORY [--model RELATIVE_4DS [--animation RELATIVE_5DS] | --mission NAME]] ",
-                "[--car-inspection] [--textures RELATIVE_DIRECTORY] [--headless --capture PNG [--animation-steps N]] [--frames N] [--linear]. ",
-                "--car-inspection requires --root and --model; constructs and initializes the CPU car, then renders that same live arena's first LOD with unlit base color/texture and supported alpha masks with a host 0.5 cutoff. Lighting, other material effects, driving and GameInit are unavailable. R reloads the car explicitly. ",
+                "[--car-inspection [--steer VALUE [--steer-steps N]]] [--textures RELATIVE_DIRECTORY] [--headless --capture PNG [--animation-steps N]] [--frames N] [--linear]. ",
+                "--car-inspection requires --root and --model; constructs and initializes the CPU car, then renders that same live arena's first LOD with unlit base color/texture and supported alpha masks with a host 0.5 cutoff. A/D previews the original wheel-steering update; arrows/W/S control the camera. R explicitly reloads the car and resets live input. Lighting, other material effects, body simulation, driving and mission execution are unavailable. ",
+                "--steer accepts a finite normalized request in [-1,1]; --steer-steps 0..600 (default 1) applies that request through controlled 16 ms host inspection-clock steps before presentation. This previews actual initialized wheel frames, without translating the car or claiming a driving simulation. ",
                 "Headless --animation-steps 0..600 uses controlled 16 ms inspection-clock steps; omit it for one platform-clock step. ",
                 "Root alone opens the supported original Czech main-menu subset (New Game/Exit). ",
                 "Menu: arrows/Enter or mouse. New Game loads static INTRO; Esc loads static MISE01, then returns to menu. ",
@@ -108,6 +116,21 @@ fn options() -> Result<Options, String> {
             || result.textures != "maps")
     {
         return Err("--car-inspection requires --root and --model, original maps, and no animation or mission selection".into());
+    }
+    if result
+        .steer
+        .is_some_and(|value| !value.is_finite() || !(-1.0..=1.0).contains(&value))
+    {
+        return Err("--steer requires a finite value in [-1,1]".into());
+    }
+    if (result.steer.is_some() && !result.car_inspection)
+        || (steer_steps_set && result.steer.is_none())
+        || result.steer_steps > 600
+    {
+        return Err(
+            "Steering preview requires --car-inspection; --steer-steps 0..600 requires --steer"
+                .into(),
+        );
     }
     if result.mission.is_some() && (result.root.is_none() || result.model.is_some()) {
         return Err("A mission requires an installation root and no model".into());
@@ -230,6 +253,8 @@ fn load(options: &Options) -> Result<LoadedScene, String> {
         return load_car(
             installation,
             options.model.as_deref().ok_or("Car model absent")?,
+            options.steer,
+            options.steer_steps,
         );
     }
     if options
@@ -373,7 +398,12 @@ fn close_car(car: &mut Option<lhr_engine::car_runtime::CarRuntime>) -> Result<()
     *car = None;
     Ok(())
 }
-fn load_car(installation: lhr_assets::Installation, path: &str) -> Result<LoadedScene, String> {
+fn load_car(
+    installation: lhr_assets::Installation,
+    path: &str,
+    steer: Option<f32>,
+    steer_steps: u32,
+) -> Result<LoadedScene, String> {
     let mut owner =
         match lhr_engine::car_runtime::CarRuntime::open(installation, path, Default::default()) {
             Ok(owner) => owner,
@@ -386,11 +416,17 @@ fn load_car(installation: lhr_assets::Installation, path: &str) -> Result<Loaded
             }
         };
     let result: Result<(Scene, Camera), String> = (|| {
+        if let Some(request) = steer {
+            for _ in 0..steer_steps {
+                owner.preview_wheel_steering(request, 0.016)?;
+            }
+            println!("Wheel steering preview: request {request}, {steer_steps} controlled 16 ms host inspection-clock steps; actual initialized wheel frames, no body movement or driving simulation");
+        }
         let root = owner.model().ok_or("Car model absent")?.root();
         let snapshot = lhr_engine::car_inspection::snapshot_car_arena(owner.arena_mut(), root)?;
         let camera = Camera::fit(&snapshot.scene)?;
         println!("CPU car constructed and initialized: {} seats, {} cached animation tracks; {} visible meshes, {} draws",owner.summary().seats,owner.summary().cached_tracks,snapshot.visible_meshes,snapshot.scene.meshes.len());
-        println!("Car inspection: same initialized frame graph and CPU buffers; first LOD, unlit base color/texture, supported masks clipped at host cutoff 0.5; {} draws contain unsupported material effects. Driving, missions and C_car::GameInit are unavailable.",snapshot.omitted_material_effects);
+        println!("Car inspection: same initialized frame graph and CPU buffers; first LOD, unlit base color/texture, supported masks clipped at host cutoff 0.5; {} draws contain unsupported material effects. A/D previews original wheel steering; body simulation, driving and missions are unavailable.",snapshot.omitted_material_effects);
         if snapshot.unsupported_alpha_masks != 0 {
             println!(
                 "Car inspection: {} draws keep unsupported non-grayscale alpha masks opaque",
@@ -476,6 +512,7 @@ struct App {
     renderer: Option<Renderer>,
     config: Option<wgpu::SurfaceConfiguration>,
     keys: HashSet<KeyCode>,
+    steering_preview_active: bool,
     count: u32,
     error: Option<String>,
 }
@@ -555,6 +592,7 @@ impl App {
         self.runtime_engine.reset_clock(&mut self.clock_backend);
         self.mode = mode;
         self.keys.clear();
+        self.steering_preview_active = false;
         println!(
             "Application state: {mode:?}; scene assets loaded; gameplay and cutscene execution unsupported"
         );
@@ -572,6 +610,55 @@ impl App {
         self.renderer = None;
         self.transition(AppMode::Inspection)
     }
+    fn preview_car_steering(&mut self, elapsed_ms: u32) -> Result<(), String> {
+        if !self.steering_preview_active {
+            return Ok(());
+        }
+        let owner = self.car.as_mut().ok_or("Wheel steering owner absent")?;
+        let request = u8::from(self.keys.contains(&KeyCode::KeyD)) as f32
+            - u8::from(self.keys.contains(&KeyCode::KeyA)) as f32;
+        // The original C_car AI/Update callers cap elapsed time at 83 ms.
+        owner.preview_wheel_steering(request, elapsed_ms.min(83) as f32 * 0.001)?;
+        let root = owner.model().ok_or("Car model absent")?.root();
+        let snapshot = lhr_engine::car_inspection::snapshot_car_arena(owner.arena_mut(), root)?;
+        if snapshot.scene.meshes.len() != self.scene.meshes.len() {
+            return Err("Wheel steering changed draw topology; vertex upload unavailable".into());
+        }
+        let renderer = self
+            .renderer
+            .as_ref()
+            .ok_or("Wheel steering renderer absent")?;
+        for (index, (current, next)) in self
+            .scene
+            .meshes
+            .iter_mut()
+            .zip(snapshot.scene.meshes)
+            .enumerate()
+        {
+            let same_texture = match (&current.texture, &next.texture) {
+                (None, None) => true,
+                (Some(a), Some(b)) => {
+                    a.width == b.width
+                        && a.height == b.height
+                        && a.repeat == b.repeat
+                        && a.rgba == b.rgba
+                }
+                _ => false,
+            };
+            if current.vertices.len() != next.vertices.len()
+                || current.indices != next.indices
+                || !same_texture
+            {
+                return Err(
+                    "Wheel steering changed mesh topology/material; vertex upload unavailable"
+                        .into(),
+                );
+            }
+            renderer.update_mesh_vertices(index, &next.vertices)?;
+            current.vertices = next.vertices;
+        }
+        Ok(())
+    }
 }
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
@@ -581,7 +668,7 @@ impl ApplicationHandler for App {
         let Ok(window) = event_loop.create_window(
             Window::default_attributes()
                 .with_title(if self.options.car_inspection {
-                    "Lost Heaven Reborn — initialized car inspection"
+                    "Lost Heaven Reborn — car inspection / wheel steering preview"
                 } else {
                     "Lost Heaven Reborn — original menu / static scene inspection"
                 })
@@ -680,6 +767,12 @@ impl ApplicationHandler for App {
                         }
                     }
                     if self.mode != AppMode::Menu {
+                        if self.options.car_inspection
+                            && matches!(code, KeyCode::KeyA | KeyCode::KeyD)
+                            && event.state == ElementState::Pressed
+                        {
+                            self.steering_preview_active = true;
+                        }
                         if event.state == ElementState::Pressed {
                             self.keys.insert(code);
                         } else {
@@ -751,6 +844,10 @@ impl ApplicationHandler for App {
                         step.driver_time,
                         step.models_dispatched
                     );
+                }
+                if let Err(error) = self.preview_car_steering(step.modified_delta) {
+                    self.fail(event_loop, &error);
+                    return;
                 }
                 if let Some(renderer) = &self.renderer {
                     if let Err(error) =
@@ -1057,6 +1154,7 @@ fn run() -> Result<(), String> {
         renderer: None,
         config: None,
         keys: HashSet::new(),
+        steering_preview_active: false,
         count: 0,
         error: None,
     };

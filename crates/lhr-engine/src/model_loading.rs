@@ -1092,7 +1092,12 @@ impl ModelArena {
         data: crate::actor_frames::FrameUserData,
     ) -> Result<(), ModelError> {
         let index = self.frame_index(key)?;
-        self.frames[index].user_data = data;
+        self.frames[index].user_data = match data {
+            crate::actor_frames::FrameUserData::ExternalRecord(0) => {
+                crate::actor_frames::FrameUserData::Null
+            }
+            value => value,
+        };
         Ok(())
     }
     pub fn set_actor_data(

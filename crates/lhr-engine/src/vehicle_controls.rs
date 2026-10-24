@@ -21,8 +21,8 @@ pub enum VehicleControlUnavailable {
 /// Typed owner of an explicitly supplied vehicle storage projection. No native
 /// constructor, default parameters, frame ownership or physics is implied.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct VehicleControlState {
-    bytes: Vec<u8>,
+pub struct VehicleControlState<T = Vec<u8>> {
+    bytes: T,
 }
 
 type Result<T> = std::result::Result<T, VehicleControlUnavailable>;
@@ -48,22 +48,30 @@ fn arithmetic(value: f32, widened: f64) -> Result<f32> {
 
 fn add(a: f32, b: f32) -> Result<f32> {
     let (a, b) = (operand(a)?, operand(b)?);
-    arithmetic(a + b, a as f64 + b as f64)
+    let result = arithmetic(a + b, a as f64 + b as f64)?;
+    crate::native_precision::record_add(a, b, result);
+    Ok(result)
 }
 
 fn sub(a: f32, b: f32) -> Result<f32> {
     let (a, b) = (operand(a)?, operand(b)?);
-    arithmetic(a - b, a as f64 - b as f64)
+    let result = arithmetic(a - b, a as f64 - b as f64)?;
+    crate::native_precision::record_sub(a, b, result);
+    Ok(result)
 }
 
 fn mul(a: f32, b: f32) -> Result<f32> {
     let (a, b) = (operand(a)?, operand(b)?);
-    arithmetic(a * b, a as f64 * b as f64)
+    let result = arithmetic(a * b, a as f64 * b as f64)?;
+    crate::native_precision::record_mul(a, b, result);
+    Ok(result)
 }
 
 fn div(a: f32, b: f32) -> Result<f32> {
     let (a, b) = (operand(a)?, operand(b)?);
-    arithmetic(a / b, a as f64 / b as f64)
+    let result = arithmetic(a / b, a as f64 / b as f64)?;
+    crate::native_precision::record_div(a, b, result);
+    Ok(result)
 }
 
 // `RangeInclusive::contains` would reject unordered values, unlike the native
@@ -77,17 +85,27 @@ impl VehicleControlState {
     pub fn from_bytes(bytes: Vec<u8>) -> Self {
         Self { bytes }
     }
-
-    pub fn as_bytes(&self) -> &[u8] {
-        &self.bytes
-    }
-
     pub fn into_bytes(self) -> Vec<u8> {
         self.bytes
+    }
+}
+
+impl<'a> VehicleControlState<&'a mut [u8]> {
+    /// Borrows the existing vehicle bytes. Setters retain their ordered writes
+    /// directly in that owner, including writes preceding an unavailable read.
+    pub fn from_bytes_mut(bytes: &'a mut [u8]) -> Self {
+        Self { bytes }
+    }
+}
+
+impl<T: AsRef<[u8]> + AsMut<[u8]>> VehicleControlState<T> {
+    pub fn as_bytes(&self) -> &[u8] {
+        self.bytes.as_ref()
     }
 
     fn byte(&self, offset: u32) -> Result<u8> {
         self.bytes
+            .as_ref()
             .get(offset as usize)
             .copied()
             .ok_or(VehicleControlUnavailable::Storage(offset))
@@ -100,6 +118,7 @@ impl VehicleControlState {
             .ok_or(VehicleControlUnavailable::Storage(offset))?;
         let bytes = self
             .bytes
+            .as_ref()
             .get(start..end)
             .ok_or(VehicleControlUnavailable::Storage(offset))?;
         Ok(u32::from_le_bytes(bytes.try_into().unwrap()))
@@ -115,6 +134,7 @@ impl VehicleControlState {
             .checked_add(4)
             .ok_or(VehicleControlUnavailable::Storage(offset))?;
         self.bytes
+            .as_mut()
             .get_mut(start..end)
             .ok_or(VehicleControlUnavailable::Storage(offset))?
             .copy_from_slice(&value.to_le_bytes());
@@ -254,6 +274,27 @@ impl VehicleControlState {
         };
         let value = mul(shaped, self.float(0x610)?)?;
         self.store_float(0x624, value)?;
+        Ok(true)
+    }
+
+    /// Original PC SetHandbrake. The pressed branch retains the ramp write
+    /// before clamping and scaling; release clears force before ramp storage.
+    /// The PC entry accepts one boolean, unlike the PS2 two-boolean symbol.
+    pub fn set_handbrake(&mut self, pressed: bool) -> Result<bool> {
+        if pressed {
+            let sum = add(self.float(0x4c8)?, self.float(0x3b8)?)?;
+            self.store_float(0x3b8, sum)?;
+            let maximum = self.float(0x3b4)?;
+            if sum > maximum {
+                self.store_float(0x3b8, maximum)?;
+            }
+            let ratio = div(self.float(0x3b8)?, self.float(0x3b4)?)?;
+            let force = mul(ratio, self.float(0x3b0)?)?;
+            self.store_float(0x434, force)?;
+        } else {
+            self.store(0x434, 0)?;
+            self.store(0x3b8, 0)?;
+        }
         Ok(true)
     }
 
@@ -397,5 +438,107 @@ mod tests {
         assert_eq!(state.word(0x560), Ok(u32::MAX));
         assert_eq!(state.word(0x494), Ok(0));
         assert_eq!(state.word(0x5e8), Ok(0xa5a5_a522));
+    }
+
+    #[test]
+    fn handbrake_ramps_clamps_and_releases_only_original_fields() {
+        let mut state = state();
+        state.store_float(0x4c8, 0.25).unwrap();
+        state.store_float(0x3b8, 0.5).unwrap();
+        state.store_float(0x3b4, 1.0).unwrap();
+        state.store_float(0x3b0, 20.0).unwrap();
+        let mut expected = state.as_bytes().to_vec();
+        expected[0x3b8..0x3bc].copy_from_slice(&0.75f32.to_le_bytes());
+        expected[0x434..0x438].copy_from_slice(&15.0f32.to_le_bytes());
+        assert_eq!(state.set_handbrake(true), Ok(true));
+        assert_eq!(state.as_bytes(), expected);
+        assert_eq!(state.set_handbrake(true), Ok(true));
+        assert_eq!(state.float(0x3b8), Ok(1.0));
+        assert_eq!(state.float(0x434), Ok(20.0));
+        assert_eq!(state.set_handbrake(true), Ok(true));
+        assert_eq!(state.float(0x3b8), Ok(1.0));
+        expected[0x3b8..0x3bc].fill(0);
+        expected[0x434..0x438].fill(0);
+        assert_eq!(state.set_handbrake(false), Ok(true));
+        assert_eq!(state.as_bytes(), expected);
+    }
+
+    #[test]
+    fn handbrake_retains_ramp_prefix_on_numeric_and_storage_frontiers() {
+        let mut state = state();
+        state.store_float(0x4c8, 0.25).unwrap();
+        state.store_float(0x3b8, 0.25).unwrap();
+        state.store_float(0x3b4, 0.0).unwrap();
+        let mut expected = state.as_bytes().to_vec();
+        expected[0x3b8..0x3bc].fill(0);
+        assert_eq!(
+            state.set_handbrake(true),
+            Err(VehicleControlUnavailable::NumericDomain)
+        );
+        assert_eq!(state.as_bytes(), expected);
+
+        let mut short = VehicleControlState::from_bytes(vec![0xa5; 0x4cb]);
+        let expected = short.clone();
+        assert_eq!(
+            short.set_handbrake(true),
+            Err(VehicleControlUnavailable::Storage(0x4c8))
+        );
+        assert_eq!(short, expected);
+        let mut short = VehicleControlState::from_bytes(vec![0xa5; 0x437]);
+        let expected = short.clone();
+        assert_eq!(
+            short.set_handbrake(false),
+            Err(VehicleControlUnavailable::Storage(0x434))
+        );
+        assert_eq!(short, expected);
+    }
+
+    #[test]
+    fn borrowed_controls_match_owned_setters_in_the_actual_caller_storage() {
+        let mut owned = state();
+        owned.store(0xb8, 0).unwrap();
+        owned.bytes[0x4cc] = 0;
+        owned.bytes[0x4aa] = 1;
+        owned.bytes[0x4ab] = 0;
+        owned.bytes[0x4a8] = 0;
+        owned.bytes[0xc2c] = 1;
+        owned.store_float(0x610, 0.75).unwrap();
+        owned.store_float(0x4c8, 0.25).unwrap();
+        owned.store_float(0x3b8, 0.25).unwrap();
+        owned.store_float(0x3b4, 1.0).unwrap();
+        owned.store_float(0x3b0, 20.0).unwrap();
+        owned.store(0x568, 5).unwrap();
+        owned.store(0x560, 2).unwrap();
+        owned.store(0xc68, 0).unwrap();
+        owned.store(0x5e8, 0).unwrap();
+        let mut caller_bytes = owned.as_bytes().to_vec();
+        {
+            let mut borrowed = VehicleControlState::from_bytes_mut(&mut caller_bytes);
+            assert_eq!(owned.set_power(0.5, true), borrowed.set_power(0.5, true));
+            assert_eq!(owned.set_brake(0.25), borrowed.set_brake(0.25));
+            assert_eq!(owned.set_clutch(0.75), borrowed.set_clutch(0.75));
+            assert_eq!(owned.set_steer(-0.5), borrowed.set_steer(-0.5));
+            assert_eq!(owned.set_handbrake(true), borrowed.set_handbrake(true));
+            assert_eq!(owned.set_gear(-1), borrowed.set_gear(-1));
+            assert_eq!(owned.as_bytes(), borrowed.as_bytes());
+        }
+        assert_eq!(owned.as_bytes(), caller_bytes);
+    }
+
+    #[test]
+    fn borrowed_storage_retains_partial_writes_when_a_later_access_fails() {
+        let mut owned = VehicleControlState::from_bytes(vec![0xa5; 0x4cd]);
+        owned.store(0xb8, 0).unwrap();
+        owned.bytes[0x4cc] = 0;
+        let mut caller_bytes = owned.as_bytes().to_vec();
+        let expected = Err(VehicleControlUnavailable::Storage(0xc2c));
+        assert_eq!(owned.set_power(0.5, true), expected);
+        {
+            let mut borrowed = VehicleControlState::from_bytes_mut(&mut caller_bytes);
+            assert_eq!(borrowed.set_power(0.5, true), expected);
+        }
+        assert_eq!(owned.as_bytes(), caller_bytes);
+        assert_eq!(&caller_bytes[0x3a8..0x3ac], &[0; 4]);
+        assert_eq!(&caller_bytes[0x3a4..0x3a8], &[0xa5; 4]);
     }
 }

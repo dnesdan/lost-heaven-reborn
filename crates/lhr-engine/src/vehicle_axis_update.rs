@@ -63,7 +63,9 @@ fn normalize(mut v: [f32; 3], order: [usize; 3]) -> Result<[f32; 3], ()> {
         v[axis] = if v[axis] < 0. { -1. } else { 1. };
     } else {
         let root = n.sqrt();
+        crate::native_precision::record_sqrt(n, root);
         let inverse = 1. / root;
+        crate::native_precision::record_div(1., root, inverse);
         if !root.is_normal() || !inverse.is_normal() {
             return Err(());
         }
@@ -82,6 +84,7 @@ fn length(v: [f32; 3], order: [usize; 3]) -> Result<f32, ()> {
         return Ok(1.);
     }
     let result = n.sqrt();
+    crate::native_precision::record_sqrt(n, result);
     if result == 0. || result.is_normal() {
         Ok(result)
     } else {
@@ -359,5 +362,36 @@ impl VehicleInitState {
             remaining = remaining.wrapping_sub(1);
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn axis_normalization_tracks_reciprocal_and_length_tracks_sqrt() {
+        let mut exact = crate::native_precision::Pc24PrecisionState::default();
+        assert_eq!(
+            exact.run(|| normalize([0., 0., 2.], [0, 1, 2])).unwrap(),
+            [0., 0., 1.]
+        );
+        assert!(!exact.precision_raised());
+        // Squared length 9, square root 3 and all final products by 1 or 2
+        // are exact. Only the original reciprocal raises precision here.
+        let mut reciprocal = crate::native_precision::Pc24PrecisionState::default();
+        assert_eq!(
+            reciprocal
+                .run(|| normalize([1., 2., 2.], [0, 1, 2]))
+                .unwrap(),
+            [1. / 3., 2. / 3., 2. / 3.]
+        );
+        assert!(reciprocal.precision_raised());
+        let mut sqrt = crate::native_precision::Pc24PrecisionState::default();
+        assert_eq!(
+            sqrt.run(|| length([1., 1., 0.], [0, 1, 2])).unwrap(),
+            2_f32.sqrt()
+        );
+        assert!(sqrt.precision_raised());
     }
 }

@@ -16,13 +16,19 @@ fn checked(value: f32, exact: f64) -> Result<f32, InverseUnavailable> {
     }
 }
 fn mul(a: f32, b: f32) -> Result<f32, InverseUnavailable> {
-    checked(a * b, a as f64 * b as f64)
+    let result = checked(a * b, a as f64 * b as f64)?;
+    crate::native_precision::record_mul(a, b, result);
+    Ok(result)
 }
 fn add(a: f32, b: f32) -> Result<f32, InverseUnavailable> {
-    checked(a + b, a as f64 + b as f64)
+    let result = checked(a + b, a as f64 + b as f64)?;
+    crate::native_precision::record_add(a, b, result);
+    Ok(result)
 }
 fn sub(a: f32, b: f32) -> Result<f32, InverseUnavailable> {
-    checked(a - b, a as f64 - b as f64)
+    let result = checked(a - b, a as f64 - b as f64)?;
+    crate::native_precision::record_sub(a, b, result);
+    Ok(result)
 }
 fn minor(a: f32, b: f32, c: f32, d: f32) -> Result<f32, InverseUnavailable> {
     sub(mul(a, b)?, mul(c, d)?)
@@ -75,7 +81,9 @@ fn normalized(v: [f32; 3]) -> Result<[f32; 3], InverseUnavailable> {
     }
     if length2 as f64 >= 1e-8_f32 as f64 {
         let length = checked(length2.sqrt(), (length2 as f64).sqrt())?;
+        crate::native_precision::record_sqrt(length2, length);
         let reciprocal = checked(1.0 / length, 1.0 / length as f64)?;
+        crate::native_precision::record_div(1.0, length, reciprocal);
         return Ok([
             mul(reciprocal, v[0])?,
             mul(reciprocal, v[1])?,
@@ -125,37 +133,53 @@ impl SMatrix {
                 }
                 f64::from_bits((bits & (1_u64 << 63)) | (retained << 29))
             }
+            fn add(a: f64, b: f64) -> f64 {
+                let result = pc24(a + b);
+                crate::native_precision::record_wide_pc24_add(a, b, result);
+                result
+            }
+            fn sub(a: f64, b: f64) -> f64 {
+                let result = pc24(a - b);
+                crate::native_precision::record_wide_pc24_sub(a, b, result);
+                result
+            }
+            fn mul(a: f64, b: f64) -> f64 {
+                let result = pc24(a * b);
+                crate::native_precision::record_wide_pc24_mul(a, b, result);
+                result
+            }
             fn spill(value: f64) -> Result<f64, MatrixArithmeticUnavailable> {
-                let value = value as f32;
-                if value.is_finite() {
-                    Ok(value as f64)
+                let narrowed = value as f32;
+                crate::native_precision::record_precision(f64::from(narrowed) != value);
+                if narrowed.is_finite() {
+                    Ok(narrowed as f64)
                 } else {
                     Err(MatrixArithmeticUnavailable)
                 }
             }
             let [w, x, y, z] = [w, x, y, z].map(f64::from);
-            let x2 = pc24(x + x);
-            let y2 = pc24(y + y);
-            let z2 = spill(pc24(z + z))?;
-            let xx = spill(pc24(x2 * x))?;
-            let xy = spill(pc24(y2 * x))?;
-            let xz = spill(pc24(z2 * x))?;
-            let yy = spill(pc24(y2 * y))?;
-            let yz = spill(pc24(z2 * y))?;
-            let zz = spill(pc24(z2 * z))?;
-            let wx = spill(pc24(x2 * w))?;
-            let wy = pc24(y2 * w);
-            let wz = pc24(z2 * w);
+            let x2 = add(x, x);
+            let y2 = add(y, y);
+            let z2 = spill(add(z, z))?;
+            let xx = spill(mul(x2, x))?;
+            let xy = spill(mul(y2, x))?;
+            let xz = spill(mul(z2, x))?;
+            let yy = spill(mul(y2, y))?;
+            let yz = spill(mul(z2, y))?;
+            let zz = spill(mul(z2, z))?;
+            let wx = spill(mul(x2, w))?;
+            let wy = mul(y2, w);
+            let wz = mul(z2, w);
             let values = [
-                pc24(1.0 - pc24(zz + yy)),
-                pc24(xy - wz),
-                pc24(wy + xz),
-                pc24(wz + xy),
-                pc24(1.0 - pc24(zz + xx)),
-                pc24(yz - wx),
-                pc24(xz - wy),
-                pc24(wx + yz),
-                pc24(1.0 - pc24(yy + xx)),
+                sub(1.0, add(zz, yy)),
+                sub(xy, wz),
+                add(wy, xz),
+                add(wz, xy),
+                sub(1.0, add(zz, xx)),
+                sub(yz, wx),
+                sub(xz, wy),
+                add(wx, yz),
+                sub(1.0, add(yy, xx)),
             ];
             let mut basis = [0.; 9];
             for (target, value) in basis.iter_mut().zip(values) {
@@ -278,14 +302,16 @@ impl SMatrix {
             {
                 return Err(ScaleUnavailable);
             }
-            let length = (|| {
+            let length = (|| -> Result<f32, InverseUnavailable> {
                 let squared = add(add(mul(v[0], v[0])?, mul(v[1], v[1])?)?, mul(v[2], v[2])?)?;
                 if (squared.to_bits() as i32) < 0x322bcc77 {
                     Ok(0.0)
                 } else if (sub(squared, 1.0)? as f64).abs() < 1e-8_f32 as f64 {
                     Ok(1.0)
                 } else {
-                    checked(squared.sqrt(), (squared as f64).sqrt())
+                    let length = checked(squared.sqrt(), (squared as f64).sqrt())?;
+                    crate::native_precision::record_sqrt(squared, length);
+                    Ok(length)
                 }
             })()
             .map_err(|_| ScaleUnavailable)?;
@@ -316,6 +342,7 @@ impl SMatrix {
             return Ok((Self::identity(), false));
         }
         let r = checked(1.0 / det, 1.0 / det as f64)?;
+        crate::native_precision::record_div(1.0, det, r);
         let mut o = [0.0; 16];
         o[0] = mul(r, c0)?;
         o[1] = -mul(minor(a[10], a[1], a[9], a[2])?, r)?;
@@ -347,6 +374,45 @@ impl SMatrix {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn checked_rotation_records_wide_pc24_rounding_and_explicit_spills() {
+        for (x, expected_precision) in [
+            (0.5_f32, false),
+            (0.2_f32, true),
+            (2_f32.powi(-30), true),
+            (f32::from_bits(1), true),
+        ] {
+            let mut matrix = SMatrix::identity();
+            let mut state = crate::native_precision::Pc24PrecisionState::default();
+            state
+                .run(|| {
+                    matrix.try_set_rot3(SQuat {
+                        wxyz: [0.5, x, 0., 0.],
+                    })
+                })
+                .unwrap();
+            assert_eq!(state.precision_raised(), expected_precision, "x={x:?}");
+            if x == f32::from_bits(1) {
+                assert_eq!(matrix.elements[6].to_bits(), 0x8000_0001);
+                assert_eq!(matrix.elements[9].to_bits(), 0x0000_0001);
+            }
+        }
+    }
+
+    #[test]
+    fn normalization_records_inexact_reciprocal_with_exact_sqrt_and_products() {
+        let mut exact = crate::native_precision::Pc24PrecisionState::default();
+        assert_eq!(
+            exact.run(|| normalized([0., 0., 2.])).unwrap(),
+            [0., 0., 1.]
+        );
+        assert!(!exact.precision_raised());
+        let mut inexact = crate::native_precision::Pc24PrecisionState::default();
+        let result = inexact.run(|| normalized([1., 2., 2.])).unwrap();
+        assert_eq!(result, [1. / 3., 2. / 3., 2. / 3.]);
+        assert!(inexact.precision_raised());
+    }
 
     #[test]
     fn checked_rotation_uses_needed_operands_and_preflights_rejected_arithmetic() {

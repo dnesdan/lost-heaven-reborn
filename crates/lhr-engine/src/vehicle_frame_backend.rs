@@ -16,6 +16,8 @@ use crate::{
     vehicle_init::*,
 };
 
+#[path = "vehicle_frame_game.rs"]
+mod game;
 #[path = "vehicle_frame_memory.rs"]
 mod memory;
 pub use memory::{VehicleFrameMemory, VehicleMemoryError};
@@ -27,6 +29,8 @@ mod car_effects;
 mod deform;
 #[path = "vehicle_frame_lights.rs"]
 mod lights;
+#[path = "vehicle_frame_wheel_pose.rs"]
+mod wheel_pose;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VehicleFrameError<E> {
@@ -39,6 +43,7 @@ pub enum VehicleFrameError<E> {
     NumericDomain(&'static str),
     BodycolAdapterRequired,
     UnavailableFrameMethod(&'static str),
+    UnavailableGameDependency(u32),
     CarTrack(crate::car_effects::CarTrackError),
     UnsupportedCarLocale(u32),
 }
@@ -95,6 +100,7 @@ pub struct VehicleFrameBackend<'a, B> {
     host: &'a mut B,
     installation: Option<&'a lhr_assets::Installation>,
     car_tracks: Option<&'a mut crate::car_effects::CarTrackResources>,
+    game_init_stack: Option<u32>,
 }
 impl<'a, B: VehicleInitBackend> VehicleFrameBackend<'a, B> {
     pub fn new(arena: &'a mut ModelArena, host: &'a mut B) -> Self {
@@ -103,6 +109,7 @@ impl<'a, B: VehicleInitBackend> VehicleFrameBackend<'a, B> {
             host,
             installation: None,
             car_tracks: None,
+            game_init_stack: None,
         }
     }
     pub fn with_installation(
@@ -115,6 +122,7 @@ impl<'a, B: VehicleInitBackend> VehicleFrameBackend<'a, B> {
             host,
             installation: Some(installation),
             car_tracks: None,
+            game_init_stack: None,
         }
     }
     /// Borrows the Game-owned animation-track cache used by car components.
@@ -124,6 +132,12 @@ impl<'a, B: VehicleInitBackend> VehicleFrameBackend<'a, B> {
         resources: &'a mut crate::car_effects::CarTrackResources,
     ) -> Self {
         self.car_tracks = Some(resources);
+        self
+    }
+    /// Native ESP after the outer C_car::GameInit prologue. It identifies
+    /// already supplied caller storage, never an adapter-created stack.
+    pub fn with_game_init_stack(mut self, stack: u32) -> Self {
+        self.game_init_stack = Some(stack);
         self
     }
     pub fn arena(&self) -> &ModelArena {
@@ -189,6 +203,7 @@ impl<'a, B: VehicleInitBackend> VehicleFrameBackend<'a, B> {
             4 => frame.references,
             8 => match frame.user_data {
                 crate::actor_frames::FrameUserData::Null => 0,
+                crate::actor_frames::FrameUserData::ExternalRecord(address) => address,
                 _ => return Err(VehicleFrameError::UnsupportedField { frame: key, offset }),
             },
             0xc => {
@@ -290,9 +305,15 @@ impl<'a, B: VehicleInitBackend> VehicleFrameBackend<'a, B> {
         value: u32,
     ) -> Result<(), VehicleFrameError<B::Error>> {
         self.arena.frame(key)?;
-        if offset == 8 && value == 0 {
-            self.arena
-                .set_user_data(key, crate::actor_frames::FrameUserData::Null)?;
+        if offset == 8 {
+            self.arena.set_user_data(
+                key,
+                if value == 0 {
+                    crate::actor_frames::FrameUserData::Null
+                } else {
+                    crate::actor_frames::FrameUserData::ExternalRecord(value)
+                },
+            )?;
             return Ok(());
         }
         if offset == 4 {
@@ -1407,6 +1428,51 @@ mod owned_memory_tests {
         arena.release(key).unwrap();
         arena.link_frame(key, Some(model.root()), 0).unwrap();
         key
+    }
+    #[test]
+    fn external_actor_records_share_the_live_heap_without_frame_ownership() {
+        let mut arena = ModelArena::default();
+        let model = arena.create_model().unwrap();
+        let first = add(&mut arena, model, b"first");
+        let second = add(&mut arena, model, b"second");
+        let mut memory = VehicleFrameMemory::default();
+        let record;
+        {
+            let mut backend = VehicleFrameBackend::new(&mut arena, &mut memory);
+            record = backend.allocate(4).unwrap();
+            for key in [first, second] {
+                let address = backend.frame_address(key).unwrap();
+                backend.write_word(address + 8, record).unwrap();
+                assert_eq!(backend.read_word(address + 8), Ok(record));
+            }
+            assert_eq!(
+                backend.read_word(record),
+                Err(VehicleFrameError::Host(VehicleMemoryError::Uninitialized(
+                    record
+                )))
+            );
+            backend.write_word(record, 0x1234).unwrap();
+        }
+        let reference = arena.lookup_reference(second);
+        assert_eq!(
+            crate::actor_frames::ModelActorFrames::borrow(&mut arena, true).actor_data(reference),
+            Err(crate::actor_frames::ActorFrameError::UnsupportedUserData(
+                reference
+            ))
+        );
+        {
+            let mut backend = VehicleFrameBackend::new(&mut arena, &mut memory);
+            assert_eq!(backend.read_word(record), Ok(0x1234));
+            let first_address = backend.frame_address(first).unwrap();
+            backend.write_word(first_address + 8, 0).unwrap();
+            assert_eq!(backend.read_word(record), Ok(0x1234));
+            backend.free(record).unwrap();
+            let second_address = backend.frame_address(second).unwrap();
+            assert_eq!(backend.read_word(second_address + 8), Ok(record));
+            assert!(backend.read_word(record).is_err());
+            backend.write_word(second_address + 8, 0).unwrap();
+        }
+        assert_eq!(memory.allocations().count(), 0);
     }
     #[test]
     fn concrete_heap_composes_init_bodycol_and_seat_tail_without_host_frame_callbacks() {

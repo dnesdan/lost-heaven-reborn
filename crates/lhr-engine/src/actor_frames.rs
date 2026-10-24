@@ -21,6 +21,10 @@ pub const ACTOR_FIND_FLAGS: u32 = 0x40;
 pub enum FrameUserData {
     Null,
     ActorRecord(ActorDataRecordId),
+    /// Non-owning pointer into an explicitly supplied addressable owner. The
+    /// vehicle frame adapter resolves it through that owner's live storage;
+    /// mission actor lookup cannot treat it as an ActorWorld record.
+    ExternalRecord(u32),
     Opaque,
 }
 /// Independent owner-backed record identity. Several frame userdata pointers
@@ -79,7 +83,9 @@ impl<'a> ModelActorFrames<'a> {
             FrameUserData::ActorRecord(record) => Ok(FrameActorData::Present(
                 self.arena.actor_data_record(record)?,
             )),
-            FrameUserData::Opaque => Err(ActorFrameError::UnsupportedUserData(frame)),
+            FrameUserData::Opaque | FrameUserData::ExternalRecord(_) => {
+                Err(ActorFrameError::UnsupportedUserData(frame))
+            }
         }
     }
     pub fn clear_actor_data(&mut self, frame: FrameReferenceId) -> Result<(), ActorFrameError> {

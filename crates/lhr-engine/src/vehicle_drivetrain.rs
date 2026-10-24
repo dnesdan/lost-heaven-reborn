@@ -50,19 +50,27 @@ fn arithmetic(x: f32, wide: f64) -> Result<f32> {
 }
 fn add(a: f32, b: f32) -> Result<f32> {
     let (a, b) = (operand(a)?, operand(b)?);
-    arithmetic(a + b, a as f64 + b as f64)
+    let result = arithmetic(a + b, a as f64 + b as f64)?;
+    crate::native_precision::record_add(a, b, result);
+    Ok(result)
 }
 fn sub(a: f32, b: f32) -> Result<f32> {
     let (a, b) = (operand(a)?, operand(b)?);
-    arithmetic(a - b, a as f64 - b as f64)
+    let result = arithmetic(a - b, a as f64 - b as f64)?;
+    crate::native_precision::record_sub(a, b, result);
+    Ok(result)
 }
 fn mul(a: f32, b: f32) -> Result<f32> {
     let (a, b) = (operand(a)?, operand(b)?);
-    arithmetic(a * b, a as f64 * b as f64)
+    let result = arithmetic(a * b, a as f64 * b as f64)?;
+    crate::native_precision::record_mul(a, b, result);
+    Ok(result)
 }
 fn div(a: f32, b: f32) -> Result<f32> {
     let (a, b) = (operand(a)?, operand(b)?);
-    arithmetic(a / b, a as f64 / b as f64)
+    let result = arithmetic(a / b, a as f64 / b as f64)?;
+    crate::native_precision::record_div(a, b, result);
+    Ok(result)
 }
 
 /// Detached storage projection; construction does not initialize a native car.
@@ -189,7 +197,9 @@ impl VehicleDrivetrainState {
                 if (delta as f64) < 1e-8 {
                     false
                 } else {
-                    operand(squared.sqrt())? < 0.5
+                    let root = operand(squared.sqrt())?;
+                    crate::native_precision::record_sqrt(squared, root);
+                    root < 0.5
                 }
             };
             if small && self.word(0x55c)? != 0 {
