@@ -25,7 +25,7 @@ pub enum VehicleCarInitOutcome {
     BaseActorRejected,
     VehicleRejected(VehicleCompleteInitRejection),
     /// Native C_car::Init VA 0x41bdf2, after Vehicle::Init succeeded and before
-    /// callback installation, actor/audio/physics registration, or car success.
+    /// callback installation, seat/model metadata setup, or car success.
     PostVehicleFrontier,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -154,6 +154,9 @@ impl VehicleInitState {
                 Ok(VehicleCarInitOutcome::VehicleRejected(reason))
             }
             VehicleCompleteInitOutcome::Initialized => {
+                if let Some(owned) = &mut self.car {
+                    owned.post_vehicle_ready = true;
+                }
                 Ok(VehicleCarInitOutcome::PostVehicleFrontier)
             }
         }

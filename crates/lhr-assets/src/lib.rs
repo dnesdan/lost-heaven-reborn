@@ -907,6 +907,7 @@ impl Installation {
             let key = match name.to_ascii_uppercase().as_str() {
                 "A1.DTA" => Some((0x3d98766c, 0xde7009cd)),
                 "A2.DTA" => Some((0x82a1c97b, 0x2d5085d4)),
+                "A4.DTA" => Some((0x43876fea, 0x900cdba8)),
                 "A6.DTA" => Some((0x64cd8d0a, 0x4bc97b2d)),
                 "A8.DTA" => Some((0xd8dd8fac, 0x5324ace5)),
                 "AA.DTA" => Some((0x5342760c, 0xedeac652)),
@@ -922,7 +923,9 @@ impl Installation {
             }
         }
         let mut discovered: Vec<_> = discovered.into_iter().collect();
-        const ORDER: [&str; 6] = ["A8.DTA", "A2.DTA", "A6.DTA", "A1.DTA", "AC.DTA", "AA.DTA"];
+        const ORDER: [&str; 7] = [
+            "A8.DTA", "A2.DTA", "A6.DTA", "A1.DTA", "AC.DTA", "A4.DTA", "AA.DTA",
+        ];
         discovered.sort_by_key(|(name, _)| {
             ORDER
                 .iter()
@@ -957,6 +960,16 @@ impl Installation {
             archives,
             archive_index,
         })
+    }
+    /// Read an admitted original Windows relative filename. Separator conversion
+    /// happens only at this host IO boundary; the caller's name stays unchanged.
+    /// Archive precedence, selected-source errors and loose-path checks are the
+    /// same as `read`. Original non-ASCII filename encodings remain unavailable.
+    pub fn read_original_path(&self, name: &str) -> Result<Vec<u8>> {
+        if !name.is_ascii() {
+            return err("non-ASCII original filename unsupported");
+        }
+        self.read(&name.replace('\\', "/"))
     }
     pub fn read(&self, name: &str) -> Result<Vec<u8>> {
         safe_relative(name)?;
@@ -2252,16 +2265,16 @@ mod animation_archive_tests {
         }
     }
     #[test]
-    fn ac_registration_uses_native_precedence_and_archive_first_lookup() {
-        let directory = Directory(
-            std::env::temp_dir().join(format!("lhr-ac-registration-{}", std::process::id())),
-        );
-        fs::create_dir(&directory.0).unwrap();
+    fn animation_archives_preserve_native_precedence_and_archive_first_lookup() {
+        let path = std::env::temp_dir().join(format!("lhr-ac-registration-{}", std::process::id()));
+        fs::create_dir(&path).unwrap();
+        let directory = Directory(path);
         fs::create_dir(directory.0.join("anims")).unwrap();
         fs::write(directory.0.join("anims/synthetic.5ds"), b"loose").unwrap();
         for (name, data, k1, k2) in [
             ("A1.dta", b"A1", 0x3d98766c, 0xde7009cd),
             ("aC.DtA", b"AC", 0x43876fea, 0x900cdba8),
+            ("a4.DtA", b"A4", 0x43876fea, 0x900cdba8),
             ("AA.dta", b"AA", 0x5342760c, 0xedeac652),
         ] {
             fs::write(directory.0.join(name), archive(data, k1, k2)).unwrap();
@@ -2285,8 +2298,46 @@ mod animation_archive_tests {
         );
         fs::remove_file(directory.0.join("AC.dta")).unwrap();
         fs::remove_file(directory.0.join("aC.DtA")).unwrap();
+        assert_eq!(read(), b"A4");
+        fs::remove_file(directory.0.join("a4.DtA")).unwrap();
         assert_eq!(read(), b"AA");
         fs::remove_file(directory.0.join("AA.dta")).unwrap();
         assert_eq!(read(), b"loose");
+    }
+
+    #[test]
+    fn original_windows_paths_share_archive_precedence_and_keep_host_path_checks() {
+        let path = std::env::temp_dir().join(format!("lhr-original-path-{}", std::process::id()));
+        fs::create_dir(&path).unwrap();
+        let directory = Directory(path);
+        fs::create_dir(directory.0.join("anims")).unwrap();
+        fs::write(directory.0.join("anims/synthetic.5ds"), b"loose").unwrap();
+        fs::write(
+            directory.0.join("a4.dta"),
+            archive(b"original", 0x43876fea, 0x900cdba8),
+        )
+        .unwrap();
+        let installation = Installation::open(&directory.0).unwrap();
+        let original = r"ANIMS\SYNTHETIC.5DS";
+        assert_eq!(
+            installation.read_original_path(original).unwrap(),
+            b"original"
+        );
+        assert!(installation.read(original).is_err());
+        for invalid in [
+            r"anims\..\outside",
+            r"C:\outside",
+            r"\outside",
+            "anims/é.5ds",
+        ] {
+            assert!(
+                installation.read_original_path(invalid).is_err(),
+                "{invalid}"
+            );
+        }
+        drop(installation);
+        fs::remove_file(directory.0.join("a4.dta")).unwrap();
+        let installation = Installation::open(&directory.0).unwrap();
+        assert_eq!(installation.read_original_path(original).unwrap(), b"loose");
     }
 }

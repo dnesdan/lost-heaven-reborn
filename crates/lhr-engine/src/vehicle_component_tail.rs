@@ -102,12 +102,26 @@ pub trait VehicleComponentTailBackend: VehicleComponentsBackend + VehicleBodycol
 /// addresses belong to the backend. This view performs no snapshot/copyback.
 /// Use the backend-aware word methods when an address can cross that boundary.
 pub struct VehicleComponentTailMemory<'a> {
+    pub(super) car: Option<CarInitMemory<'a>>,
     pub(super) vehicle_address: u32,
     pub(super) vehicle: &'a mut [u8],
     pub(super) scratch: &'a mut VehicleComponentTailScratch,
 }
 impl VehicleComponentTailMemory<'_> {
+    pub(crate) fn reborrow(&mut self) -> VehicleComponentTailMemory<'_> {
+        VehicleComponentTailMemory {
+            car: self.car.as_mut().map(CarInitMemory::reborrow),
+            vehicle_address: self.vehicle_address,
+            vehicle: self.vehicle,
+            scratch: self.scratch,
+        }
+    }
     fn region(&self, address: u32, size: usize) -> Option<&[u8]> {
+        if let Some(car) = &self.car {
+            if let Some(bytes) = car.region(address, size) {
+                return Some(bytes);
+            }
+        }
         if let Some(offset) = address.checked_sub(self.vehicle_address) {
             if let Some(bytes) = self
                 .vehicle
@@ -120,6 +134,11 @@ impl VehicleComponentTailMemory<'_> {
         self.scratch.bytes.get(offset..offset.checked_add(size)?)
     }
     fn region_mut(&mut self, address: u32, size: usize) -> Option<&mut [u8]> {
+        if let Some(car) = &mut self.car {
+            if car.region(address, size).is_some() {
+                return car.region_mut(address, size);
+            }
+        }
         if let Some(offset) = address.checked_sub(self.vehicle_address) {
             let start = offset as usize;
             if start.checked_add(size)? <= self.vehicle.len() {
@@ -289,6 +308,7 @@ pub(super) fn insert_exhaust_projection<B: VehicleInitBackend>(
         &mut Projection {
             backend,
             memory: VehicleComponentTailMemory {
+                car: None,
                 vehicle_address,
                 vehicle,
                 scratch,
@@ -326,6 +346,7 @@ fn count(v: VehicleInitFrameVector) -> u32 {
     }
 }
 pub struct VehicleComponentTailEnumeration<'a> {
+    car: Option<CarInitMemory<'a>>,
     scratch: &'a mut VehicleComponentTailScratch,
     vehicle: &'a mut [u8],
     vehicle_address: u32,
@@ -340,6 +361,7 @@ impl VehicleComponentTailEnumeration<'_> {
         let header = self.scratch.address.wrapping_add(self.offset as u32);
         backend.collect_frame_projected(
             VehicleComponentTailMemory {
+                car: self.car.as_mut().map(CarInitMemory::reborrow),
                 vehicle_address: self.vehicle_address,
                 vehicle: self.vehicle,
                 scratch: self.scratch,
@@ -438,12 +460,18 @@ impl VehicleInitState {
         storage: &VehicleComponentTailStorage,
     ) -> TailResult<B, ()> {
         let base = storage.bodycol.vehicle_address;
-        let spans = [
-            (base, self.bytes.len()),
+        let object = self.car.as_ref().map_or((base, self.bytes.len()), |car| {
+            (car.address, self.bytes.len() + 0x70)
+        });
+        let mut spans = vec![
+            object,
             (storage.scratch.address, storage.scratch.bytes.len()),
             (storage.bodycol.callback_scratch.record, 116),
             (storage.bodycol.descendant_scratch, 60),
         ];
+        if let Some(car) = &self.car {
+            spans.push((car.scratch.address, car.scratch.bytes.len()));
+        }
         for (i, (a, n)) in spans.iter().copied().enumerate() {
             let end = a
                 .checked_add(
@@ -462,8 +490,9 @@ impl VehicleInitState {
         }
         Ok(())
     }
-    pub(super) fn live_tail_memory(&mut self) -> VehicleComponentTailMemory<'_> {
+    pub(crate) fn live_tail_memory(&mut self) -> VehicleComponentTailMemory<'_> {
         VehicleComponentTailMemory {
+            car: self.car.as_mut().map(CarInitOwned::memory),
             vehicle_address: self.tail_vehicle_address.unwrap(),
             vehicle: &mut self.bytes,
             scratch: self.tail_scratch.as_mut().unwrap(),
@@ -588,6 +617,7 @@ impl VehicleInitState {
             root,
             query,
             &mut VehicleComponentTailEnumeration {
+                car: self.car.as_mut().map(CarInitOwned::memory),
                 scratch,
                 offset,
                 vehicle: &mut self.bytes,
@@ -604,6 +634,7 @@ impl VehicleInitState {
         Projection {
             backend: b,
             memory: VehicleComponentTailMemory {
+                car: self.car.as_mut().map(CarInitOwned::memory),
                 vehicle_address: base,
                 vehicle: &mut self.bytes,
                 scratch: self.tail_scratch.as_mut().unwrap(),
@@ -1059,6 +1090,7 @@ impl VehicleInitState {
                 let frame = self.tail_frame(b, 0x48, index)?;
                 let context = self.load(0xc74)?;
                 let memory = VehicleComponentTailMemory {
+                    car: self.car.as_mut().map(CarInitOwned::memory),
                     vehicle_address: base,
                     vehicle: &mut self.bytes,
                     scratch: self.tail_scratch.as_mut().unwrap(),
@@ -1158,22 +1190,14 @@ impl VehicleInitState {
 
 pub(super) fn insert_special_point_projection<B: VehicleInitBackend>(
     backend: &mut B,
-    vehicle: &mut [u8],
-    vehicle_address: u32,
-    scratch: &mut VehicleComponentTailScratch,
+    memory: VehicleComponentTailMemory<'_>,
     insertion: u32,
     source_offset: u32,
 ) -> Result<(), B::Error> {
-    let source = scratch.address.wrapping_add(source_offset);
+    let vehicle_address = memory.vehicle_address;
+    let source = memory.scratch.address.wrapping_add(source_offset);
     vehicle_special_points_insert(
-        &mut Projection {
-            backend,
-            memory: VehicleComponentTailMemory {
-                vehicle_address,
-                vehicle,
-                scratch,
-            },
-        },
+        &mut Projection { backend, memory },
         vehicle_address.wrapping_add(0x1fb0),
         insertion,
         source,
@@ -1182,21 +1206,13 @@ pub(super) fn insert_special_point_projection<B: VehicleInitBackend>(
 }
 pub(super) fn insert_special_control_projection<B: VehicleInitBackend>(
     backend: &mut B,
-    vehicle: &mut [u8],
-    vehicle_address: u32,
-    scratch: &mut VehicleComponentTailScratch,
+    memory: VehicleComponentTailMemory<'_>,
     insertion: u32,
 ) -> Result<(), B::Error> {
-    let source = scratch.address.wrapping_add(0x20);
+    let vehicle_address = memory.vehicle_address;
+    let source = memory.scratch.address.wrapping_add(0x20);
     vehicle_special_controls_insert(
-        &mut Projection {
-            backend,
-            memory: VehicleComponentTailMemory {
-                vehicle_address,
-                vehicle,
-                scratch,
-            },
-        },
+        &mut Projection { backend, memory },
         vehicle_address.wrapping_add(0x1ff8),
         insertion,
         source,
@@ -1205,21 +1221,13 @@ pub(super) fn insert_special_control_projection<B: VehicleInitBackend>(
 }
 pub(super) fn insert_exhaust_live_projection<B: VehicleInitBackend>(
     backend: &mut B,
-    vehicle: &mut [u8],
-    vehicle_address: u32,
-    scratch: &mut VehicleComponentTailScratch,
+    memory: VehicleComponentTailMemory<'_>,
     insertion: u32,
 ) -> Result<(), B::Error> {
-    let source = scratch.address.wrapping_add(0x8c);
+    let vehicle_address = memory.vehicle_address;
+    let source = memory.scratch.address.wrapping_add(0x8c);
     vehicle_exhaust_records_insert(
-        &mut Projection {
-            backend,
-            memory: VehicleComponentTailMemory {
-                vehicle_address,
-                vehicle,
-                scratch,
-            },
-        },
+        &mut Projection { backend, memory },
         vehicle_address.wrapping_add(0x450),
         insertion,
         source,
@@ -1300,6 +1308,7 @@ mod projection_tests {
                 let mut projection = Projection {
                     backend: &mut backend,
                     memory: VehicleComponentTailMemory {
+                        car: None,
                         vehicle_address: 0x1000,
                         vehicle: &mut vehicle,
                         scratch: &mut scratch,
@@ -1346,6 +1355,7 @@ mod projection_tests {
             bytes: [0x22; VEHICLE_INIT_STACK_BYTES],
         };
         let mut memory = VehicleComponentTailMemory {
+            car: None,
             vehicle_address: 0x1000,
             vehicle: &mut vehicle,
             scratch: &mut scratch,
@@ -1379,6 +1389,7 @@ mod projection_tests {
             bytes: [0; VEHICLE_INIT_STACK_BYTES],
         };
         let mut memory = VehicleComponentTailMemory {
+            car: None,
             vehicle_address: 0x1000,
             vehicle: &mut vehicle,
             scratch: &mut scratch,
@@ -1407,6 +1418,7 @@ mod projection_tests {
                 bytes: [0; VEHICLE_INIT_STACK_BYTES],
             };
             let mut memory = VehicleComponentTailMemory {
+                car: None,
                 vehicle_address: 0x1000,
                 vehicle: &mut vehicle,
                 scratch: &mut scratch,
@@ -1448,6 +1460,7 @@ mod projection_tests {
             bytes: [0; VEHICLE_INIT_STACK_BYTES],
         };
         let mut memory = VehicleComponentTailMemory {
+            car: None,
             vehicle_address: 0,
             vehicle: &mut vehicle,
             scratch: &mut scratch,

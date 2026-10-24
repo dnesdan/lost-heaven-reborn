@@ -88,6 +88,30 @@ pub struct VehicleBodyCollisionContext {
 /// 0x4d1490/0x4d17f0 remain explicit recursive-container dependencies. No
 /// reference is implicitly acquired/released by constructing Rust values.
 pub trait VehicleComponentsBackend: VehicleInitBackend {
+    fn body_collision_callback_projected(
+        &mut self,
+        _memory: VehicleComponentTailMemory<'_>,
+        _context: VehicleBodyCollisionContext,
+        _frame: u32,
+    ) -> Result<u32, VehicleInitUnavailable<Self::Error>> {
+        Err(VehicleInitUnavailable::ProjectionBackendUnavailable)
+    }
+    fn finish_body_collision_callbacks_projected(
+        &mut self,
+        _memory: VehicleComponentTailMemory<'_>,
+        _context: VehicleBodyCollisionContext,
+    ) -> Result<(), VehicleComponentsUnavailable<Self::Error>> {
+        Err(VehicleComponentsUnavailable::ProjectionBackendUnavailable)
+    }
+    fn initialize_body_collision_projected(
+        &mut self,
+        _memory: VehicleComponentTailMemory<'_>,
+        _model: u32,
+        _name_length_with_nul: u32,
+    ) -> Result<(), VehicleComponentsUnavailable<Self::Error>> {
+        Err(VehicleComponentsUnavailable::ProjectionBackendUnavailable)
+    }
+
     fn prepare_frame_matrix(&mut self, frame: u32) -> Result<(), Self::Error>;
     fn normalize_frame_quaternion(&mut self, frame: u32) -> Result<(), Self::Error>;
     fn set_frame_rotation_matrix(&mut self, frame: u32) -> Result<(), Self::Error>;
@@ -119,8 +143,7 @@ pub trait VehicleComponentsBackend: VehicleInitBackend {
     /// untouched bytes and stores visible to allocator callbacks.
     fn insert_exhaust_projected(
         &mut self,
-        _vehicle: &mut [u8],
-        _scratch: &mut VehicleComponentTailScratch,
+        _memory: VehicleComponentTailMemory<'_>,
         _insertion: u32,
         _value: [u32; 6],
     ) -> Result<(), VehicleComponentsUnavailable<Self::Error>> {
@@ -128,8 +151,7 @@ pub trait VehicleComponentsBackend: VehicleInitBackend {
     }
     fn insert_special_point_projected(
         &mut self,
-        _vehicle: &mut [u8],
-        _scratch: &mut VehicleComponentTailScratch,
+        _memory: VehicleComponentTailMemory<'_>,
         _insertion: u32,
         _source_offset: u32,
         _point: [u32; 3],
@@ -138,8 +160,7 @@ pub trait VehicleComponentsBackend: VehicleInitBackend {
     }
     fn insert_special_control_projected(
         &mut self,
-        _vehicle: &mut [u8],
-        _scratch: &mut VehicleComponentTailScratch,
+        _memory: VehicleComponentTailMemory<'_>,
         _insertion: u32,
         _kind: u32,
         _enabled: u8,
@@ -198,6 +219,7 @@ pub struct VehicleComponentsEnumeration<'a> {
 }
 enum ComponentEnumerationTarget<'a> {
     BodyCollision(&'a mut [u8], VehicleBodyCollisionContext),
+    BodyCollisionProjected(VehicleComponentTailMemory<'a>, VehicleBodyCollisionContext),
     Collect(&'a mut VehicleInitState),
 }
 impl VehicleComponentsEnumeration<'_> {
@@ -207,6 +229,9 @@ impl VehicleComponentsEnumeration<'_> {
         backend: &mut B,
     ) -> Result<u32, VehicleInitUnavailable<B::Error>> {
         match &mut self.target {
+            ComponentEnumerationTarget::BodyCollisionProjected(memory, context) => {
+                backend.body_collision_callback_projected(memory.reborrow(), *context, frame)
+            }
             ComponentEnumerationTarget::BodyCollision(vehicle, context) => backend
                 .body_collision_callback(vehicle, *context, frame)
                 .map_err(VehicleInitUnavailable::Effect),
@@ -485,10 +510,9 @@ impl VehicleInitState {
                         direction[1],
                         direction[2],
                     ];
-                    if let Some(scratch) = self.tail_scratch.as_mut() {
+                    if self.tail_scratch.is_some() {
                         backend.insert_exhaust_projected(
-                            &mut self.bytes,
-                            scratch,
+                            self.live_tail_memory(),
                             insertion,
                             value,
                         )?;
@@ -537,16 +561,23 @@ impl VehicleInitState {
                 self.tail_vehicle_address.unwrap_or(0).wrapping_add(0x4ac),
             ],
         );
+        let target = if self.tail_scratch.is_some() {
+            ComponentEnumerationTarget::BodyCollisionProjected(self.live_tail_memory(), context)
+        } else {
+            ComponentEnumerationTarget::BodyCollision(&mut self.bytes, context)
+        };
         backend.enumerate_components(
             model,
             VehicleComponentsQuery::BodyCollision,
-            &mut VehicleComponentsEnumeration {
-                target: ComponentEnumerationTarget::BodyCollision(&mut self.bytes, context),
-            },
+            &mut VehicleComponentsEnumeration { target },
         )?;
-        backend
-            .finish_body_collision_callbacks(&mut self.bytes, context)
-            .map_err(Effect)?;
+        if self.tail_scratch.is_some() {
+            backend.finish_body_collision_callbacks_projected(self.live_tail_memory(), context)?;
+        } else {
+            backend
+                .finish_body_collision_callbacks(&mut self.bytes, context)
+                .map_err(Effect)?;
+        }
         let model = self.load(0x34c)?;
         if backend
             .read_byte(model.wrapping_add(0xac))
@@ -577,9 +608,14 @@ impl VehicleInitState {
         }
         self.scan_component_name(backend)?;
         let model = self.load(0x34c)?;
-        backend
-            .initialize_body_collision(&mut self.bytes, model, self.name_length)
-            .map_err(Effect)?;
+        if self.tail_scratch.is_some() {
+            let length = self.name_length;
+            backend.initialize_body_collision_projected(self.live_tail_memory(), model, length)?;
+        } else {
+            backend
+                .initialize_body_collision(&mut self.bytes, model, self.name_length)
+                .map_err(Effect)?;
+        }
         self.component_scratch = Some(VehicleInitFrameVector {
             begin: 0,
             end: 0,
@@ -771,10 +807,9 @@ impl VehicleInitState {
                 0x80,
             )?;
             let insertion = self.load(0x1fb8)?;
-            if let Some(scratch) = self.tail_scratch.as_mut() {
+            if self.tail_scratch.is_some() {
                 backend.insert_special_point_projected(
-                    &mut self.bytes,
-                    scratch,
+                    self.live_tail_memory(),
                     insertion,
                     0x80,
                     first,
@@ -793,10 +828,9 @@ impl VehicleInitState {
                 0x130,
             )?;
             let insertion = self.load(0x1fb8)?;
-            if let Some(scratch) = self.tail_scratch.as_mut() {
+            if self.tail_scratch.is_some() {
                 backend.insert_special_point_projected(
-                    &mut self.bytes,
-                    scratch,
+                    self.live_tail_memory(),
                     insertion,
                     0x130,
                     second,
@@ -809,10 +843,9 @@ impl VehicleInitState {
             let insertion = self.load(0x2000)?;
             self.component_stack_words(0x20, &[0x40]);
             self.component_stack_byte(0x24, 1);
-            if let Some(scratch) = self.tail_scratch.as_mut() {
+            if self.tail_scratch.is_some() {
                 backend.insert_special_control_projected(
-                    &mut self.bytes,
-                    scratch,
+                    self.live_tail_memory(),
                     insertion,
                     0x40,
                     1,
@@ -940,6 +973,9 @@ fn bodycol_init_error<E>(
             crate::vehicle_bodycol::VehicleBodycolUnavailable::Effect(error),
         ),
         VehicleInitUnavailable::AlreadyStarted => VehicleInitUnavailable::AlreadyStarted,
+        VehicleInitUnavailable::ProjectionBackendUnavailable => {
+            VehicleInitUnavailable::ProjectionBackendUnavailable
+        }
     }
 }
 impl<B: VehicleComponentsBackend + crate::vehicle_bodycol::VehicleBodycolBackend> VehicleInitBackend
@@ -1024,6 +1060,57 @@ fn projected_component_error<E>(
 impl<B: VehicleComponentsBackend + crate::vehicle_bodycol::VehicleBodycolBackend>
     VehicleComponentsBackend for VehicleBodycolComponents<'_, B>
 {
+    fn body_collision_callback_projected(
+        &mut self,
+        memory: VehicleComponentTailMemory<'_>,
+        context: VehicleBodyCollisionContext,
+        frame: u32,
+    ) -> Result<u32, VehicleInitUnavailable<Self::Error>> {
+        let mut projection =
+            crate::vehicle_bodycol::VehicleBodycolProjection::projected(self.backend, memory);
+        crate::vehicle_bodycol::bodycol_callback(
+            &mut projection,
+            self.storage.vehicle_address.wrapping_add(0x4ac),
+            context,
+            frame,
+            self.storage.callback_scratch,
+        )
+        .map_err(VehicleInitUnavailable::Effect)
+    }
+    fn finish_body_collision_callbacks_projected(
+        &mut self,
+        memory: VehicleComponentTailMemory<'_>,
+        context: VehicleBodyCollisionContext,
+    ) -> Result<(), VehicleComponentsUnavailable<Self::Error>> {
+        let mut projection =
+            crate::vehicle_bodycol::VehicleBodycolProjection::projected(self.backend, memory);
+        crate::vehicle_bodycol::bodycol_descendant_pass(
+            &mut projection,
+            self.storage.vehicle_address.wrapping_add(0x4ac),
+            context.name_length_with_nul,
+            self.storage.descendant_scratch,
+        )
+        .map_err(|e| VehicleInitUnavailable::Effect(e).into())
+    }
+    fn initialize_body_collision_projected(
+        &mut self,
+        memory: VehicleComponentTailMemory<'_>,
+        model: u32,
+        length: u32,
+    ) -> Result<(), VehicleComponentsUnavailable<Self::Error>> {
+        let mut projection =
+            crate::vehicle_bodycol::VehicleBodycolProjection::projected(self.backend, memory);
+        crate::vehicle_bodycol::bodycol_transform_detach(
+            &mut projection,
+            self.storage.vehicle_address.wrapping_add(0x4ac),
+            self.storage.vehicle_address.wrapping_add(0xd28),
+            model,
+            length,
+            false,
+        )
+        .map(|_| ())
+        .map_err(|e| VehicleInitUnavailable::Effect(e).into())
+    }
     fn prepare_frame_matrix(&mut self, frame: u32) -> Result<(), Self::Error> {
         self.backend
             .prepare_frame_matrix(frame)
@@ -1083,33 +1170,23 @@ impl<B: VehicleComponentsBackend + crate::vehicle_bodycol::VehicleBodycolBackend
     }
     fn insert_exhaust_projected(
         &mut self,
-        vehicle: &mut [u8],
-        scratch: &mut VehicleComponentTailScratch,
+        memory: VehicleComponentTailMemory<'_>,
         insertion: u32,
         _value: [u32; 6],
     ) -> Result<(), VehicleComponentsUnavailable<Self::Error>> {
-        super::component_tail::insert_exhaust_live_projection(
-            self.backend,
-            vehicle,
-            self.storage.vehicle_address,
-            scratch,
-            insertion,
-        )
-        .map_err(projected_component_error)
+        super::component_tail::insert_exhaust_live_projection(self.backend, memory, insertion)
+            .map_err(projected_component_error)
     }
     fn insert_special_point_projected(
         &mut self,
-        vehicle: &mut [u8],
-        scratch: &mut VehicleComponentTailScratch,
+        memory: VehicleComponentTailMemory<'_>,
         insertion: u32,
         source_offset: u32,
         _point: [u32; 3],
     ) -> Result<(), VehicleComponentsUnavailable<Self::Error>> {
         super::component_tail::insert_special_point_projection(
             self.backend,
-            vehicle,
-            self.storage.vehicle_address,
-            scratch,
+            memory,
             insertion,
             source_offset,
         )
@@ -1117,20 +1194,13 @@ impl<B: VehicleComponentsBackend + crate::vehicle_bodycol::VehicleBodycolBackend
     }
     fn insert_special_control_projected(
         &mut self,
-        vehicle: &mut [u8],
-        scratch: &mut VehicleComponentTailScratch,
+        memory: VehicleComponentTailMemory<'_>,
         insertion: u32,
         _kind: u32,
         _enabled: u8,
     ) -> Result<(), VehicleComponentsUnavailable<Self::Error>> {
-        super::component_tail::insert_special_control_projection(
-            self.backend,
-            vehicle,
-            self.storage.vehicle_address,
-            scratch,
-            insertion,
-        )
-        .map_err(projected_component_error)
+        super::component_tail::insert_special_control_projection(self.backend, memory, insertion)
+            .map_err(projected_component_error)
     }
     fn special_collision_callback(
         &mut self,
@@ -1160,7 +1230,21 @@ impl<B: VehicleComponentsBackend + crate::vehicle_bodycol::VehicleBodycolBackend
         query: VehicleComponentsQuery,
         target: &mut VehicleComponentsEnumeration<'_>,
     ) -> Result<(), VehicleInitUnavailable<Self::Error>> {
-        if let ComponentEnumerationTarget::BodyCollision(vehicle, context) = &mut target.target {
+        if let ComponentEnumerationTarget::BodyCollisionProjected(memory, context) =
+            &mut target.target
+        {
+            let mut actual =
+                crate::vehicle_bodycol::VehicleBodycolEnumeration::components_projected(
+                    memory.reborrow(),
+                    self.storage,
+                    *context,
+                );
+            self.backend
+                .bodycol_enumerate(model, query.pattern(), query.mask(), &mut actual)
+                .map_err(VehicleInitUnavailable::Effect)
+        } else if let ComponentEnumerationTarget::BodyCollision(vehicle, context) =
+            &mut target.target
+        {
             let mut actual = crate::vehicle_bodycol::VehicleBodycolEnumeration::components(
                 vehicle,
                 self.storage,

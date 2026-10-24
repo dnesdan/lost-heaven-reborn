@@ -10,7 +10,7 @@ use crate::vehicle_bodycol_records::{
 use crate::{
     native_matrix::{checked_f32_add, checked_f32_mul},
     native_transform::SMatrix,
-    vehicle_init::{VehicleBodyCollisionContext, VehicleInitBackend},
+    vehicle_init::{VehicleBodyCollisionContext, VehicleComponentTailMemory, VehicleInitBackend},
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -65,6 +65,17 @@ pub struct VehicleBodycolEnumeration<'a> {
     target: BodycolEnumerationTarget<'a>,
 }
 enum BodycolEnumerationTarget<'a> {
+    ProjectedComponents {
+        memory: VehicleComponentTailMemory<'a>,
+        storage: VehicleBodycolStorage,
+        context: VehicleBodyCollisionContext,
+    },
+    ProjectedDescendants {
+        memory: VehicleComponentTailMemory<'a>,
+        parent_record: u32,
+        name_length_with_nul: u32,
+        temporary: u32,
+    },
     Descendants {
         parent_record: u32,
         name_length_with_nul: u32,
@@ -77,6 +88,19 @@ enum BodycolEnumerationTarget<'a> {
     },
 }
 impl<'a> VehicleBodycolEnumeration<'a> {
+    pub(crate) fn components_projected(
+        memory: VehicleComponentTailMemory<'a>,
+        storage: VehicleBodycolStorage,
+        context: VehicleBodyCollisionContext,
+    ) -> Self {
+        Self {
+            target: BodycolEnumerationTarget::ProjectedComponents {
+                memory,
+                storage,
+                context,
+            },
+        }
+    }
     pub(crate) fn components(
         vehicle: &'a mut [u8],
         storage: VehicleBodycolStorage,
@@ -96,6 +120,37 @@ impl<'a> VehicleBodycolEnumeration<'a> {
         backend: &mut B,
     ) -> Result<u32, VehicleBodycolUnavailable<B::Error>> {
         match &mut self.target {
+            BodycolEnumerationTarget::ProjectedComponents {
+                memory,
+                storage,
+                context,
+            } => {
+                let mut projection =
+                    VehicleBodycolProjection::projected(backend, memory.reborrow());
+                bodycol_callback(
+                    &mut projection,
+                    storage.vehicle_address.wrapping_add(0x4ac),
+                    *context,
+                    frame,
+                    storage.callback_scratch,
+                )
+            }
+            BodycolEnumerationTarget::ProjectedDescendants {
+                memory,
+                parent_record,
+                name_length_with_nul,
+                temporary,
+            } => {
+                let mut projection =
+                    VehicleBodycolProjection::projected(backend, memory.reborrow());
+                bodycol_descendant_callback(
+                    &mut projection,
+                    *parent_record,
+                    *name_length_with_nul,
+                    frame,
+                    *temporary,
+                )
+            }
             BodycolEnumerationTarget::Descendants {
                 parent_record,
                 name_length_with_nul,
@@ -591,10 +646,22 @@ pub fn bodycol_transform_detach<B: VehicleBodycolBackend + ?Sized>(
 /// external records and scratch only, so they can visit the underlying backend.
 pub(crate) struct VehicleBodycolProjection<'a, B: ?Sized> {
     backend: &'a mut B,
-    vehicle: &'a mut [u8],
+    storage: BodycolMemory<'a>,
     base: u32,
 }
+enum BodycolMemory<'a> {
+    Legacy(&'a mut [u8]),
+    Projected(VehicleComponentTailMemory<'a>),
+}
+
 impl<'a, B: VehicleInitBackend + ?Sized> VehicleBodycolProjection<'a, B> {
+    pub(crate) fn projected(backend: &'a mut B, memory: VehicleComponentTailMemory<'a>) -> Self {
+        Self {
+            backend,
+            base: 0,
+            storage: BodycolMemory::Projected(memory),
+        }
+    }
     pub(crate) fn new(
         backend: &'a mut B,
         vehicle: &'a mut [u8],
@@ -628,57 +695,90 @@ impl<'a, B: VehicleInitBackend + ?Sized> VehicleBodycolProjection<'a, B> {
         }
         Ok(Self {
             backend,
-            vehicle,
+            storage: BodycolMemory::Legacy(vehicle),
             base: storage.vehicle_address,
         })
     }
     fn offset(&self, address: u32, bytes: usize) -> Option<usize> {
+        let BodycolMemory::Legacy(vehicle) = &self.storage else {
+            return None;
+        };
         let offset = address.checked_sub(self.base)? as usize;
         offset
             .checked_add(bytes)
-            .filter(|end| *end <= self.vehicle.len())
+            .filter(|end| *end <= vehicle.len())
             .map(|_| offset)
     }
 }
 impl<B: VehicleInitBackend + ?Sized> VehicleInitBackend for VehicleBodycolProjection<'_, B> {
     type Error = B::Error;
     fn read_byte(&mut self, address: u32) -> Result<u8, Self::Error> {
+        if let BodycolMemory::Projected(memory) = &mut self.storage {
+            return memory.read_byte_with_backend(self.backend, address);
+        }
         if let Some(offset) = self.offset(address, 1) {
-            Ok(self.vehicle[offset])
+            let BodycolMemory::Legacy(vehicle) = &self.storage else {
+                unreachable!()
+            };
+            Ok(vehicle[offset])
         } else {
             self.backend.read_byte(address)
         }
     }
     fn read_word(&mut self, address: u32) -> Result<u32, Self::Error> {
+        if let BodycolMemory::Projected(memory) = &mut self.storage {
+            return memory.read_word_with_backend(self.backend, address);
+        }
         if let Some(offset) = self.offset(address, 4) {
+            let BodycolMemory::Legacy(vehicle) = &self.storage else {
+                unreachable!()
+            };
             Ok(u32::from_le_bytes(
-                self.vehicle[offset..offset + 4].try_into().unwrap(),
+                vehicle[offset..offset + 4].try_into().unwrap(),
             ))
         } else {
             self.backend.read_word(address)
         }
     }
     fn write_byte(&mut self, address: u32, value: u8) -> Result<(), Self::Error> {
+        if let BodycolMemory::Projected(memory) = &mut self.storage {
+            return memory.write_byte_with_backend(self.backend, address, value);
+        }
         if let Some(offset) = self.offset(address, 1) {
-            self.vehicle[offset] = value;
+            let BodycolMemory::Legacy(vehicle) = &mut self.storage else {
+                unreachable!()
+            };
+            vehicle[offset] = value;
             Ok(())
         } else {
             self.backend.write_byte(address, value)
         }
     }
     fn write_word(&mut self, address: u32, value: u32) -> Result<(), Self::Error> {
+        if let BodycolMemory::Projected(memory) = &mut self.storage {
+            return memory.write_word_with_backend(self.backend, address, value);
+        }
         if let Some(offset) = self.offset(address, 4) {
-            self.vehicle[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+            let BodycolMemory::Legacy(vehicle) = &mut self.storage else {
+                unreachable!()
+            };
+            vehicle[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
             Ok(())
         } else {
             self.backend.write_word(address, value)
         }
     }
     fn free(&mut self, allocation: u32) -> Result<(), Self::Error> {
-        self.backend.free(allocation)
+        match &mut self.storage {
+            BodycolMemory::Projected(memory) => self.backend.free_projected(memory, allocation),
+            BodycolMemory::Legacy(_) => self.backend.free(allocation),
+        }
     }
     fn allocate(&mut self, bytes: u32) -> Result<u32, Self::Error> {
-        self.backend.allocate(bytes)
+        match &mut self.storage {
+            BodycolMemory::Projected(memory) => self.backend.allocate_projected(memory, bytes),
+            BodycolMemory::Legacy(_) => self.backend.allocate(bytes),
+        }
     }
     fn collect_frame(
         &mut self,
@@ -718,6 +818,26 @@ impl<B: VehicleBodycolBackend + ?Sized> VehicleBodycolBackend for VehicleBodycol
         mask: u32,
         target: &mut VehicleBodycolEnumeration<'_>,
     ) -> Result<(), VehicleBodycolUnavailable<Self::Error>> {
+        if let BodycolMemory::Projected(memory) = &mut self.storage {
+            if let BodycolEnumerationTarget::Descendants {
+                parent_record,
+                name_length_with_nul,
+                temporary,
+            } = &target.target
+            {
+                let mut projected = VehicleBodycolEnumeration {
+                    target: BodycolEnumerationTarget::ProjectedDescendants {
+                        memory: memory.reborrow(),
+                        parent_record: *parent_record,
+                        name_length_with_nul: *name_length_with_nul,
+                        temporary: *temporary,
+                    },
+                };
+                return self
+                    .backend
+                    .bodycol_enumerate(frame, pattern, mask, &mut projected);
+            }
+        }
         self.backend.bodycol_enumerate(frame, pattern, mask, target)
     }
 }
@@ -859,5 +979,179 @@ mod tests {
             ));
             assert!(memory.stores.is_empty());
         }
+    }
+}
+
+#[cfg(test)]
+mod car_projection_tests {
+    use super::*;
+    use crate::vehicle_init::{
+        CarInitRegisters, CarInitScratch, VehicleComponentTailScratch, VehicleInitEnumeration,
+        VehicleInitFrameVector, VehicleInitQuery, VehicleInitState, VehicleInitUnavailable,
+        CAR_INIT_STACK_BYTES, VEHICLE_INIT_STACK_BYTES,
+    };
+    use std::collections::BTreeMap;
+    #[derive(Default)]
+    struct Memory {
+        bytes: BTreeMap<u32, u8>,
+        frees: usize,
+        fail_free: bool,
+    }
+    impl VehicleInitBackend for Memory {
+        type Error = ();
+        fn read_byte(&mut self, p: u32) -> Result<u8, ()> {
+            Ok(*self.bytes.get(&p).unwrap_or(&0))
+        }
+        fn read_word(&mut self, p: u32) -> Result<u32, ()> {
+            let mut v = [0; 4];
+            for (i, b) in v.iter_mut().enumerate() {
+                *b = self.read_byte(p + i as u32)?;
+            }
+            Ok(u32::from_le_bytes(v))
+        }
+        fn write_byte(&mut self, p: u32, v: u8) -> Result<(), ()> {
+            self.bytes.insert(p, v);
+            Ok(())
+        }
+        fn write_word(&mut self, p: u32, v: u32) -> Result<(), ()> {
+            for (i, b) in v.to_le_bytes().into_iter().enumerate() {
+                self.write_byte(p + i as u32, b)?;
+            }
+            Ok(())
+        }
+        fn free(&mut self, _: u32) -> Result<(), ()> {
+            panic!("BODYCOL free lost its canonical projection")
+        }
+        fn allocate(&mut self, _: u32) -> Result<u32, ()> {
+            panic!("BODYCOL allocation lost its canonical projection")
+        }
+        fn allocate_projected(
+            &mut self,
+            m: &mut VehicleComponentTailMemory<'_>,
+            _: u32,
+        ) -> Result<u32, ()> {
+            m.write_word(0x10018, 0x11111111).unwrap();
+            m.write_word(0x121d8, 0x22222222).unwrap();
+            m.write_word(0x80100, 0x33333333).unwrap();
+            Ok(0x90000)
+        }
+        fn free_projected(
+            &mut self,
+            m: &mut VehicleComponentTailMemory<'_>,
+            _: u32,
+        ) -> Result<(), ()> {
+            self.frees += 1;
+            m.write_word(0x1001c, 0x44444444).unwrap();
+            if self.fail_free {
+                Err(())
+            } else {
+                Ok(())
+            }
+        }
+        fn collect_frame(&mut self, _: &mut VehicleInitFrameVector, _: u32) -> Result<(), ()> {
+            unreachable!()
+        }
+        fn enumerate(
+            &mut self,
+            _: u32,
+            _: VehicleInitQuery,
+            _: &mut VehicleInitEnumeration<'_>,
+        ) -> Result<(), VehicleInitUnavailable<()>> {
+            unreachable!()
+        }
+    }
+    impl VehicleBodycolBackend for Memory {
+        fn bodycol_update_world(&mut self, _: u32) -> Result<(), ()> {
+            unreachable!()
+        }
+        fn bodycol_link_frame(&mut self, _: u32, _: u32, _: u32) -> Result<(), ()> {
+            unreachable!()
+        }
+        fn bodycol_remove_model_child(&mut self, _: u32, _: u32) -> Result<(), ()> {
+            unreachable!()
+        }
+        fn bodycol_enumerate(
+            &mut self,
+            _: u32,
+            _: &[u8],
+            _: u32,
+            target: &mut VehicleBodycolEnumeration<'_>,
+        ) -> Result<(), VehicleBodycolUnavailable<()>> {
+            target.visit(0x6000, self).map(|_| ())
+        }
+    }
+    fn run(
+        fail_free: bool,
+    ) -> (
+        VehicleInitState,
+        Memory,
+        Result<(), VehicleBodycolUnavailable<()>>,
+    ) {
+        let mut bytes = vec![0; 0x2370];
+        bytes[0x1000 + 0x20..0x1000 + 0x24].copy_from_slice(&0u32.to_le_bytes());
+        let mut state = VehicleInitState::from_car_bytes(
+            0x10000,
+            bytes,
+            CarInitScratch {
+                address: 0x80000,
+                bytes: [0xa5; CAR_INIT_STACK_BYTES],
+            },
+            CarInitRegisters {
+                ebx: 1,
+                ebp: 2,
+                esi: 3,
+                edi: 4,
+            },
+        )
+        .unwrap();
+        let mut scratch = VehicleComponentTailScratch {
+            address: 0x7fe30,
+            bytes: [0x7d; VEHICLE_INIT_STACK_BYTES],
+        };
+        let mut b = Memory {
+            fail_free,
+            ..Default::default()
+        };
+        b.write_word(0x6100, 0x7000).unwrap();
+        b.write_byte(0x7000, b'X').unwrap();
+        for p in [0x6090, 0x6094, 0x6098] {
+            b.write_word(p, 1f32.to_bits()).unwrap();
+        }
+        let memory = state.car_live_memory(&mut scratch).unwrap();
+        let mut projection = VehicleBodycolProjection::projected(&mut b, memory);
+        let mut target = VehicleBodycolEnumeration {
+            target: BodycolEnumerationTarget::Descendants {
+                parent_record: 0x11000,
+                name_length_with_nul: 0,
+                temporary: 0x80100,
+            },
+        };
+        let result = projection.bodycol_enumerate(0x5000, b"*", 0, &mut target);
+        (state, b, result)
+    }
+    #[test]
+    fn nested_bodycol_allocation_and_free_observe_one_car_and_both_stack_owners() {
+        let (state, mut b, result) = run(false);
+        assert_eq!(result, Ok(()));
+        let bytes = state.car_bytes().unwrap();
+        assert_eq!(&bytes[0x18..0x1c], &0x11111111u32.to_le_bytes());
+        assert_eq!(&bytes[0x1c..0x20], &0x44444444u32.to_le_bytes());
+        assert_eq!(&bytes[0x21d8..0x21dc], &0x22222222u32.to_le_bytes());
+        assert_eq!(b.read_word(0x90000), Ok(0x33333333));
+        assert_eq!(
+            &state.car_init_scratch().unwrap().bytes[0x100..0x104],
+            &0x33333333u32.to_le_bytes()
+        );
+        assert_eq!(b.frees, 1);
+    }
+    #[test]
+    fn nested_bodycol_failed_free_keeps_canonical_allocator_mutations_and_copy_prefix() {
+        let (state, mut b, result) = run(true);
+        assert_eq!(result, Err(VehicleBodycolUnavailable::Effect(())));
+        let bytes = state.car_bytes().unwrap();
+        assert_eq!(&bytes[0x1c..0x20], &0x44444444u32.to_le_bytes());
+        assert_eq!(&bytes[0x21d8..0x21dc], &0x22222222u32.to_le_bytes());
+        assert_eq!(b.read_word(0x90000), Ok(0x33333333));
+        assert_eq!(&bytes[0x1004..0x1008], &0u32.to_le_bytes());
     }
 }

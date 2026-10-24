@@ -32,6 +32,7 @@ impl VehicleSetupEnumeration<'_> {
             let mut projection = super::component_tail::Projection {
                 backend: b,
                 memory: VehicleComponentTailMemory {
+                    car: self.memory.car.as_mut().map(CarInitMemory::reborrow),
                     vehicle_address: self.memory.vehicle_address,
                     vehicle: self.memory.vehicle,
                     scratch: self.memory.scratch,

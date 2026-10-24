@@ -44,7 +44,7 @@ impl VehicleFrameMemory {
         if bytes.is_empty()
             || address == 0
             || address < FRAME_END && FRAME_BASE < end
-            || address < RESOURCE_END && PROPERTY_BASE < end
+            || address < FILENAME_END && PROPERTY_BASE < end
             || address < self.limit && self.cursor < end
         {
             return Err(VehicleMemoryError::Overlap(address));

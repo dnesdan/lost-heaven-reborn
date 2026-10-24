@@ -61,6 +61,7 @@ impl VehicleLightEnumeration<'_> {
                 &mut component_tail::Projection {
                     backend: b,
                     memory: VehicleComponentTailMemory {
+                        car: memory.car.as_mut().map(CarInitMemory::reborrow),
                         vehicle_address: memory.vehicle_address,
                         vehicle: &mut *memory.vehicle,
                         scratch: &mut *memory.scratch,
@@ -481,40 +482,32 @@ impl<B: VehicleComponentsBackend> VehicleComponentsBackend for component_tail::P
     }
     fn insert_exhaust_projected(
         &mut self,
-        _vehicle: &mut [u8],
-        _scratch: &mut VehicleComponentTailScratch,
+        memory: VehicleComponentTailMemory<'_>,
         _insertion: u32,
         _value: [u32; 6],
     ) -> Result<(), VehicleComponentsUnavailable<Self::Error>> {
         self.backend
-            .insert_exhaust_projected(_vehicle, _scratch, _insertion, _value)
+            .insert_exhaust_projected(memory, _insertion, _value)
     }
     fn insert_special_point_projected(
         &mut self,
-        _vehicle: &mut [u8],
-        _scratch: &mut VehicleComponentTailScratch,
+        memory: VehicleComponentTailMemory<'_>,
         _insertion: u32,
         _source_offset: u32,
         _point: [u32; 3],
     ) -> Result<(), VehicleComponentsUnavailable<Self::Error>> {
-        self.backend.insert_special_point_projected(
-            _vehicle,
-            _scratch,
-            _insertion,
-            _source_offset,
-            _point,
-        )
+        self.backend
+            .insert_special_point_projected(memory, _insertion, _source_offset, _point)
     }
     fn insert_special_control_projected(
         &mut self,
-        _vehicle: &mut [u8],
-        _scratch: &mut VehicleComponentTailScratch,
+        memory: VehicleComponentTailMemory<'_>,
         _insertion: u32,
         _kind: u32,
         _enabled: u8,
     ) -> Result<(), VehicleComponentsUnavailable<Self::Error>> {
         self.backend
-            .insert_special_control_projected(_vehicle, _scratch, _insertion, _kind, _enabled)
+            .insert_special_control_projected(memory, _insertion, _kind, _enabled)
     }
     fn special_collision_callback(
         &mut self,
@@ -678,6 +671,7 @@ impl<B: VehicleInitBackend + ?Sized> component_tail::Projection<'_, B> {
         let mut target = VehicleLightEnumeration {
             header,
             memory: Some(VehicleComponentTailMemory {
+                car: self.memory.car.as_mut().map(CarInitMemory::reborrow),
                 vehicle_address: self.memory.vehicle_address,
                 vehicle: &mut *self.memory.vehicle,
                 scratch: &mut *self.memory.scratch,
@@ -841,6 +835,7 @@ mod projection_tests {
             let result = component_tail::Projection {
                 backend: &mut backend,
                 memory: VehicleComponentTailMemory {
+                    car: None,
                     vehicle_address: VEHICLE,
                     vehicle: &mut vehicle,
                     scratch: &mut scratch,

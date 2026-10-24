@@ -81,6 +81,11 @@ pub struct ModelFileNameKey {
     arena: crate::script_scheduler::FrameReferenceId,
     slot: usize,
 }
+impl ModelFileNameKey {
+    pub(crate) fn projection_slot(self) -> usize {
+        self.slot
+    }
+}
 #[derive(Debug)]
 pub struct ModelFileName {
     bytes: Vec<u8>,
@@ -747,6 +752,19 @@ impl ModelArena {
             .and_then(Option::as_ref)
             .ok_or(ModelError::UnknownFilename(key))
     }
+    /// Resolves a projected filename allocation identity through this arena's
+    /// current owner. Slots are stable and never reused after their last Close.
+    pub(crate) fn projected_filename_key(
+        &self,
+        slot: usize,
+    ) -> Result<ModelFileNameKey, ModelError> {
+        let key = ModelFileNameKey {
+            arena: self.lookup_owner.reference(0),
+            slot,
+        };
+        self.filename(key)?;
+        Ok(key)
+    }
     fn allocate_model_filename(&mut self, model: ModelKey, bytes: &[u8]) -> Result<(), ModelError> {
         let mi = self.model_index(model)?;
         if self.models[mi].filename.is_some() {
@@ -1001,12 +1019,13 @@ impl ModelArena {
             self.fast_tree.enabled = false;
         }
         let loaded = (|| {
-            let bytes = installation
-                .read(&path)
-                .map_err(|error| SharedModelLoadFailure {
-                    error: ModelError::Asset(error.to_string()),
-                    partial: empty(),
-                })?;
+            let bytes =
+                installation
+                    .read_original_path(&path)
+                    .map_err(|error| SharedModelLoadFailure {
+                        error: ModelError::Asset(error.to_string()),
+                        partial: empty(),
+                    })?;
             let source = lhr_assets::parse_four_ds_scene(&bytes).map_err(|error| {
                 SharedModelLoadFailure {
                     error: ModelError::Asset(error.to_string()),
@@ -2003,6 +2022,75 @@ pub(crate) mod tests {
         );
     }
     #[test]
+    fn vehicle_projection_reads_live_filename_ownership_and_rejects_stale_or_oversize() {
+        use crate::vehicle_frame_backend::{
+            VehicleFrameBackend, VehicleFrameError, VehicleFrameMemory,
+        };
+        use crate::vehicle_init::VehicleInitBackend;
+        let mut arena = ModelArena::default();
+        let a = arena.create_model().unwrap();
+        let b = arena.create_model().unwrap();
+        let c = arena.create_model().unwrap();
+        let oversized = arena.create_model().unwrap();
+        let raw_name = b"models\\car.i3d";
+        arena.allocate_model_filename(a, raw_name).unwrap();
+        arena.allocate_model_filename(b, raw_name).unwrap();
+        arena.copy_model_filename_reference(c, a).unwrap();
+        arena
+            .allocate_model_filename(oversized, &vec![b'x'; 0x10000])
+            .unwrap();
+        let mut heap = VehicleFrameMemory::default();
+        let mut backend = VehicleFrameBackend::new(&mut arena, &mut heap);
+        let a_frame = backend.frame_address(a.root()).unwrap();
+        let b_frame = backend.frame_address(b.root()).unwrap();
+        let c_frame = backend.frame_address(c.root()).unwrap();
+        let oversized_frame = backend.frame_address(oversized.root()).unwrap();
+        let pointer = backend.read_word(a_frame + 0x154).unwrap();
+        assert_ne!(pointer, backend.read_word(b_frame + 0x154).unwrap());
+        assert_eq!(pointer, backend.read_word(c_frame + 0x154).unwrap());
+        assert_eq!(backend.read_word(pointer - 4).unwrap(), 2);
+        for (offset, expected) in raw_name.iter().copied().chain([0]).enumerate() {
+            assert_eq!(
+                backend.read_byte(pointer + offset as u32).unwrap(),
+                expected
+            );
+        }
+        let beyond = pointer + raw_name.len() as u32 + 1;
+        assert_eq!(
+            backend.read_byte(beyond),
+            Err(VehicleFrameError::Address(beyond))
+        );
+        assert_eq!(
+            backend.write_byte(pointer, b'X'),
+            Err(VehicleFrameError::Address(pointer))
+        );
+        assert_eq!(
+            backend.free(pointer),
+            Err(VehicleFrameError::Address(pointer))
+        );
+        assert!(matches!(
+            backend.read_word(oversized_frame + 0x154),
+            Err(VehicleFrameError::Address(_))
+        ));
+        backend.arena_mut().close(a).unwrap();
+        assert_eq!(backend.read_word(a_frame + 0x154).unwrap(), 0);
+        assert_eq!(backend.read_word(pointer - 4).unwrap(), 1);
+        backend.arena_mut().close(c).unwrap();
+        assert!(matches!(
+            backend.read_byte(pointer),
+            Err(VehicleFrameError::Arena(ModelError::UnknownFilename(_)))
+        ));
+        backend
+            .arena_mut()
+            .allocate_model_filename(a, raw_name)
+            .unwrap();
+        assert_ne!(pointer, backend.read_word(a_frame + 0x154).unwrap());
+        assert!(matches!(
+            backend.read_byte(pointer),
+            Err(VehicleFrameError::Arena(ModelError::UnknownFilename(_)))
+        ));
+    }
+    #[test]
     fn original_static_path_rewrites_and_preserves_the_native_extension_rejection() {
         assert_eq!(
             original_static_geometry_path(b"models/example.i3d").unwrap(),
@@ -2047,7 +2135,9 @@ pub(crate) mod tests {
         bytes.extend(29u16.to_le_bytes());
         bytes.extend([0; 8]);
         bytes.extend([0; 5]);
-        std::fs::write(path.join("fixture.4ds"), bytes).unwrap();
+        std::fs::write(path.join("fixture.4ds"), &bytes).unwrap();
+        std::fs::create_dir(path.join("models")).unwrap();
+        std::fs::write(path.join("models/fixture.4ds"), &bytes).unwrap();
         let installation = lhr_assets::Installation::open(&path).unwrap();
         let mut arena = ModelArena::default();
         let model = arena.create_model().unwrap();
@@ -2067,6 +2157,15 @@ pub(crate) mod tests {
         assert_eq!(
             arena.filename(original_filename).unwrap().bytes(),
             b"fixture.i3d"
+        );
+        arena
+            .open_original_static_model(model, &installation, "models\\fixture.i3d")
+            .unwrap();
+        assert!(arena.filename(original_filename).is_err());
+        let original_filename = arena.model_filename(model).unwrap().unwrap();
+        assert_eq!(
+            arena.filename(original_filename).unwrap().bytes(),
+            b"models\\fixture.i3d"
         );
         let rejected = arena
             .open_original_static_model(model, &installation, "fixture.4ds")

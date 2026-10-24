@@ -4,6 +4,9 @@
 //! are included before any single-precision rounding decision is admitted.
 use super::MakeUnavailable;
 
+#[path = "car_resource_math.rs"]
+pub(crate) mod car_resource_math;
+
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Interval {
     lo: f64,

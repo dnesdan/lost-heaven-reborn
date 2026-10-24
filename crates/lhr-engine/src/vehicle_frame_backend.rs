@@ -4,6 +4,8 @@
 //! storage or acquire references merely by binding an address. Native heap and
 //! gameplay callback effects remain owned by the supplied backend. Frame reads,
 //! writes, enumeration, updates and ownership changes never use that backend.
+//! Car CRT helpers cover the original initial C locale; locale mutation and its
+//! OS conversion paths are outside this adapter's supported domain.
 use crate::{
     frame_transform::{FrameKey, FrameKind},
     model_loading::{ModelArena, ModelError, ModelKey},
@@ -17,6 +19,10 @@ use crate::{
 #[path = "vehicle_frame_memory.rs"]
 mod memory;
 pub use memory::{VehicleFrameMemory, VehicleMemoryError};
+#[path = "car_frame_backend.rs"]
+mod car;
+#[path = "car_frame_effects.rs"]
+mod car_effects;
 #[path = "vehicle_frame_deform.rs"]
 mod deform;
 #[path = "vehicle_frame_lights.rs"]
@@ -33,6 +39,8 @@ pub enum VehicleFrameError<E> {
     NumericDomain(&'static str),
     BodycolAdapterRequired,
     UnavailableFrameMethod(&'static str),
+    CarTrack(crate::car_effects::CarTrackError),
+    UnsupportedCarLocale(u32),
 }
 impl<E> From<ModelError> for VehicleFrameError<E> {
     fn from(error: ModelError) -> Self {
@@ -54,11 +62,39 @@ const PROPERTY_END: u32 = 0x4000_0000;
 const PROPERTY_SLOT: u32 = 0x2000;
 const RESOURCE_BASE: u32 = 0xc000_0000;
 const RESOURCE_END: u32 = 0xf000_0000;
+// Filename allocation slots are separate from frame/name/resource identities.
+// The native reference word precedes the C string by four bytes. Arena slots
+// are never reused, so a released filename pointer cannot alias a later Open.
+const FILENAME_BASE: u32 = RESOURCE_END;
+const FILENAME_END: u32 = 0xff00_0000;
+const FILENAME_SLOT: u32 = 0x10000;
+const NATIVE_LITERALS: &[(u32, &[u8])] = &[
+    (0x6322f0, b"TANK\0"),
+    (0x6322f8, b"FUEL\0"),
+    (0x632300, b"POLIMTUD\0"),
+    (0x63230c, b"POLIMFOR\0"),
+    (0x632318, b"POLI\0"),
+    (0x632320, b"POLCAD\0"),
+    (0x632328, b"LG%d*\0"),
+    (0x632330, b"SM%d*\0"),
+    (0x632338, b"AI01\0"),
+    (0x632340, b"AI00\0"),
+    (0x634944, b"2ft19r.bmp\0"),
+    (0x634950, b"2ft19r+.bmp\0"),
+];
+fn native_literal_byte(address: u32) -> Option<u8> {
+    NATIVE_LITERALS.iter().find_map(|(base, bytes)| {
+        address
+            .checked_sub(*base)
+            .and_then(|offset| bytes.get(offset as usize).copied())
+    })
+}
 
 pub struct VehicleFrameBackend<'a, B> {
     arena: &'a mut ModelArena,
     host: &'a mut B,
     installation: Option<&'a lhr_assets::Installation>,
+    car_tracks: Option<&'a mut crate::car_effects::CarTrackResources>,
 }
 impl<'a, B: VehicleInitBackend> VehicleFrameBackend<'a, B> {
     pub fn new(arena: &'a mut ModelArena, host: &'a mut B) -> Self {
@@ -66,6 +102,7 @@ impl<'a, B: VehicleInitBackend> VehicleFrameBackend<'a, B> {
             arena,
             host,
             installation: None,
+            car_tracks: None,
         }
     }
     pub fn with_installation(
@@ -77,7 +114,17 @@ impl<'a, B: VehicleInitBackend> VehicleFrameBackend<'a, B> {
             arena,
             host,
             installation: Some(installation),
+            car_tracks: None,
         }
+    }
+    /// Borrows the Game-owned animation-track cache used by car components.
+    /// The model arena and this temporary adapter acquire no ownership of it.
+    pub fn with_car_track_resources(
+        mut self,
+        resources: &'a mut crate::car_effects::CarTrackResources,
+    ) -> Self {
+        self.car_tracks = Some(resources);
+        self
     }
     pub fn arena(&self) -> &ModelArena {
         self.arena
@@ -220,6 +267,12 @@ impl<'a, B: VehicleInitBackend> VehicleFrameBackend<'a, B> {
             0x124 => self.pointer(self.arena.links(key)?.child)?,
             0x128 => self.pointer(self.arena.links(key)?.previous)?,
             0x12c => self.pointer(self.arena.links(key)?.next)?,
+            0x154 if state.kind == FrameKind::Model => {
+                match self.arena.model_filename(ModelKey(key))? {
+                    Some(filename) => self.filename_address(filename)?,
+                    None => 0,
+                }
+            }
             0x140..=0x154 if offset.is_multiple_of(4) => {
                 let bounds = frame
                     .dummy_bounds
@@ -300,6 +353,44 @@ impl<'a, B: VehicleInitBackend> VehicleFrameBackend<'a, B> {
                 .ok_or(VehicleFrameError::Address(address))
         }
     }
+    fn filename_address(
+        &self,
+        key: crate::model_loading::ModelFileNameKey,
+    ) -> Result<u32, VehicleFrameError<B::Error>> {
+        let filename = self.arena.filename(key)?;
+        if filename.bytes().len() >= (FILENAME_SLOT - 4) as usize {
+            return Err(VehicleFrameError::Address(FILENAME_BASE));
+        }
+        u32::try_from(key.projection_slot())
+            .ok()
+            .and_then(|slot| slot.checked_mul(FILENAME_SLOT))
+            .and_then(|offset| FILENAME_BASE.checked_add(offset))
+            .filter(|base| *base < FILENAME_END)
+            .and_then(|base| base.checked_add(4))
+            .ok_or(VehicleFrameError::Address(FILENAME_BASE))
+    }
+    fn live_filename_byte(&self, address: u32) -> Result<u8, VehicleFrameError<B::Error>> {
+        let relative = address - FILENAME_BASE;
+        let key = self
+            .arena
+            .projected_filename_key((relative / FILENAME_SLOT) as usize)?;
+        self.filename_address(key)?;
+        let offset = relative % FILENAME_SLOT;
+        let filename = self.arena.filename(key)?;
+        if offset < 4 {
+            return Ok(filename.references().to_le_bytes()[offset as usize]);
+        }
+        let index = (offset - 4) as usize;
+        if index == filename.bytes().len() {
+            Ok(0)
+        } else {
+            filename
+                .bytes()
+                .get(index)
+                .copied()
+                .ok_or(VehicleFrameError::Address(address))
+        }
+    }
     /// Base EnumFrames/EnumSubtree over live child links. The callback may
     /// mutate this arena; the next sibling is captured before calling it.
     /// Returns 2 on native callback cancellation, 0 after normal traversal.
@@ -322,6 +413,18 @@ impl<'a, B: VehicleInitBackend> VehicleFrameBackend<'a, B> {
         root: u32,
         pattern: &[u8],
         mask: u32,
+        callback: impl FnMut(&mut Self, u32, u32) -> Result<u32, E>,
+    ) -> Result<u32, E>
+    where
+        E: From<VehicleFrameError<B::Error>>,
+    {
+        self.enumerate_frames_with_optional_pattern(root, Some(pattern), mask, callback)
+    }
+    fn enumerate_frames_with_optional_pattern<E>(
+        &mut self,
+        root: u32,
+        pattern: Option<&[u8]>,
+        mask: u32,
         mut callback: impl FnMut(&mut Self, u32, u32) -> Result<u32, E>,
     ) -> Result<u32, E>
     where
@@ -339,7 +442,7 @@ impl<'a, B: VehicleInitBackend> VehicleFrameBackend<'a, B> {
         {
             return Err(E::from(VehicleFrameError::UnsupportedEnumeration(mask)));
         }
-        if !pattern.is_ascii() || pattern.contains(&0) {
+        if pattern.is_some_and(|pattern| !pattern.is_ascii() || pattern.contains(&0)) {
             return Err(E::from(VehicleFrameError::UnsupportedName(key)));
         }
         let mut next = self
@@ -382,23 +485,34 @@ impl<'a, B: VehicleInitBackend> VehicleFrameBackend<'a, B> {
             };
             let mut result = 0;
             if mask & 0xffff == 0xffff || mask & kind_mask != 0 {
-                if let Some(name) = self
-                    .arena
-                    .frame(current)
-                    .map_err(VehicleFrameError::from)
-                    .map_err(E::from)?
-                    .original_name_bytes
-                    .as_deref()
-                {
-                    if !name.is_ascii() || name.contains(&0) {
-                        return Err(E::from(VehicleFrameError::UnsupportedName(current)));
-                    }
-                    if name_matches(pattern, name, mask) {
-                        let address = self.frame_address(current).map_err(E::from)?;
-                        result = callback(self, address, depth)?;
-                        if result == 2 {
-                            return Ok(2);
+                let matches = match pattern {
+                    None => true,
+                    Some(pattern) => {
+                        match self
+                            .arena
+                            .frame(current)
+                            .map_err(VehicleFrameError::from)
+                            .map_err(E::from)?
+                            .original_name_bytes
+                            .as_deref()
+                        {
+                            Some(name) => {
+                                if !name.is_ascii() || name.contains(&0) {
+                                    return Err(E::from(VehicleFrameError::UnsupportedName(
+                                        current,
+                                    )));
+                                }
+                                name_matches(pattern, name, mask)
+                            }
+                            None => false,
                         }
+                    }
+                };
+                if matches {
+                    let address = self.frame_address(current).map_err(E::from)?;
+                    result = callback(self, address, depth)?;
+                    if result == 2 {
+                        return Ok(2);
                     }
                 }
             }
@@ -475,6 +589,9 @@ impl<E> From<VehicleFrameError<E>> for VehicleBodycolUnavailable<VehicleFrameErr
 impl<B: VehicleInitBackend> VehicleInitBackend for VehicleFrameBackend<'_, B> {
     type Error = VehicleFrameError<B::Error>;
     fn read_byte(&mut self, address: u32) -> Result<u8, Self::Error> {
+        if (FILENAME_BASE..FILENAME_END).contains(&address) {
+            return self.live_filename_byte(address);
+        }
         if (RESOURCE_BASE..RESOURCE_END).contains(&address) {
             return Err(VehicleFrameError::Address(address));
         }
@@ -504,15 +621,8 @@ impl<B: VehicleInitBackend> VehicleInitBackend for VehicleFrameBackend<'_, B> {
                     .ok_or(VehicleFrameError::Address(address))
             };
         }
-        for (base, bytes) in [
-            (0x634944u32, b"2ft19r.bmp\0".as_slice()),
-            (0x634950, b"2ft19r+.bmp\0".as_slice()),
-        ] {
-            if let Some(offset) = address.checked_sub(base) {
-                if let Some(byte) = bytes.get(offset as usize) {
-                    return Ok(*byte);
-                }
-            }
+        if let Some(byte) = native_literal_byte(address) {
+            return Ok(byte);
         }
         if address == 0x63d2a0 {
             return Ok(0);
@@ -530,7 +640,11 @@ impl<B: VehicleInitBackend> VehicleInitBackend for VehicleFrameBackend<'_, B> {
                 return self.field_word(key, offset);
             }
         }
-        if Self::field(address).is_some() || (PROPERTY_BASE..NAME_END).contains(&address) {
+        if Self::field(address).is_some()
+            || (PROPERTY_BASE..NAME_END).contains(&address)
+            || (FILENAME_BASE..FILENAME_END).contains(&address)
+            || (0..4).any(|offset| native_literal_byte(address.wrapping_add(offset)).is_some())
+        {
             let mut bytes = [0; 4];
             for (i, v) in bytes.iter_mut().enumerate() {
                 *v = self.read_byte(address.wrapping_add(i as u32))?;
@@ -542,7 +656,9 @@ impl<B: VehicleInitBackend> VehicleInitBackend for VehicleFrameBackend<'_, B> {
             .map_err(VehicleFrameError::Host)
     }
     fn write_byte(&mut self, address: u32, value: u8) -> Result<(), Self::Error> {
-        if (RESOURCE_BASE..RESOURCE_END).contains(&address) {
+        if (RESOURCE_BASE..FILENAME_END).contains(&address)
+            || native_literal_byte(address).is_some()
+        {
             return Err(VehicleFrameError::Address(address));
         }
         if let Some((key, offset)) = Self::field(address) {
@@ -558,7 +674,9 @@ impl<B: VehicleInitBackend> VehicleInitBackend for VehicleFrameBackend<'_, B> {
             .map_err(VehicleFrameError::Host)
     }
     fn write_word(&mut self, address: u32, value: u32) -> Result<(), Self::Error> {
-        if (RESOURCE_BASE..RESOURCE_END).contains(&address) {
+        if (RESOURCE_BASE..FILENAME_END).contains(&address)
+            || (0..4).any(|offset| native_literal_byte(address.wrapping_add(offset)).is_some())
+        {
             return Err(VehicleFrameError::Address(address));
         }
         if let Some((key, offset)) = Self::field(address) {
@@ -577,7 +695,9 @@ impl<B: VehicleInitBackend> VehicleInitBackend for VehicleFrameBackend<'_, B> {
             .map_err(VehicleFrameError::Host)
     }
     fn free(&mut self, address: u32) -> Result<(), Self::Error> {
-        if (RESOURCE_BASE..RESOURCE_END).contains(&address) {
+        if (RESOURCE_BASE..FILENAME_END).contains(&address)
+            || native_literal_byte(address).is_some()
+        {
             return Err(VehicleFrameError::Address(address));
         }
         if Self::field(address).is_some() || (PROPERTY_BASE..NAME_END).contains(&address) {
@@ -594,7 +714,7 @@ impl<B: VehicleInitBackend> VehicleInitBackend for VehicleFrameBackend<'_, B> {
             if [
                 (FRAME_BASE, FRAME_END),
                 (PROPERTY_BASE, NAME_END),
-                (RESOURCE_BASE, RESOURCE_END),
+                (RESOURCE_BASE, FILENAME_END),
             ]
             .into_iter()
             .any(|(a, b)| address < b && a < end)
@@ -620,7 +740,7 @@ impl<B: VehicleInitBackend> VehicleInitBackend for VehicleFrameBackend<'_, B> {
             if [
                 (FRAME_BASE, FRAME_END),
                 (PROPERTY_BASE, NAME_END),
-                (RESOURCE_BASE, RESOURCE_END),
+                (RESOURCE_BASE, FILENAME_END),
             ]
             .into_iter()
             .any(|(a, b)| address < b && a < end)
@@ -635,7 +755,7 @@ impl<B: VehicleInitBackend> VehicleInitBackend for VehicleFrameBackend<'_, B> {
         memory: &mut VehicleComponentTailMemory<'_>,
         allocation: u32,
     ) -> Result<(), Self::Error> {
-        if Self::field(allocation).is_some() || (PROPERTY_BASE..RESOURCE_END).contains(&allocation)
+        if Self::field(allocation).is_some() || (PROPERTY_BASE..FILENAME_END).contains(&allocation)
         {
             return Err(VehicleFrameError::Address(allocation));
         }

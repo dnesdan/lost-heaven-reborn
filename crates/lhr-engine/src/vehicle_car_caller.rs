@@ -110,10 +110,37 @@ impl VehicleInitState {
             .map_err(|_| VehicleCarCallerUnavailable::Storage)?;
         self.tail_vehicle_address = Some(storage.bodycol.vehicle_address);
         self.tail_scratch = Some(storage.scratch.clone());
+        if let Some(owned) = &mut self.car {
+            if owned.address != car
+                || owned.scratch.address.checked_sub(0x1d0) != Some(storage.scratch.address)
+            {
+                return Err(VehicleCarCallerUnavailable::Storage);
+            }
+            let regs = owned.registers;
+            for (offset, value) in [(0, regs.edi), (4, regs.esi), (8, regs.ebp), (12, regs.ebx)] {
+                owned.scratch.bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+            }
+            if u32::from_le_bytes(owned.scratch.bytes[0x26c..0x270].try_into().unwrap()) != model {
+                return Err(VehicleCarCallerUnavailable::Storage);
+            }
+        }
+        let car_stack = self.car.as_ref().map(|owned| owned.scratch.address);
         let mut memory = self.tail_projection(b, storage.bodycol.vehicle_address);
         memory
             .write_word(car.wrapping_add(0x21d8), 0)
             .map_err(|e| VehicleCarCallerUnavailable::Init(VehicleInitUnavailable::Effect(e)))?;
+        if let Some(stack) = car_stack {
+            memory
+                .write_word(stack.wrapping_sub(4), model)
+                .map_err(|e| {
+                    VehicleCarCallerUnavailable::Init(VehicleInitUnavailable::Effect(e))
+                })?;
+            memory
+                .write_word(stack.wrapping_sub(8), 0x41bda1)
+                .map_err(|e| {
+                    VehicleCarCallerUnavailable::Init(VehicleInitUnavailable::Effect(e))
+                })?;
+        }
         if !vehicle_actor_init(&mut memory, car, model)
             .map_err(|e| VehicleCarCallerUnavailable::Init(VehicleInitUnavailable::Effect(e)))?
         {
@@ -135,6 +162,18 @@ impl VehicleInitState {
         memory
             .write_byte(car.wrapping_add(0x20c8), 0)
             .map_err(|e| VehicleCarCallerUnavailable::Init(VehicleInitUnavailable::Effect(e)))?;
+        if let Some(stack) = car_stack {
+            memory
+                .write_word(stack.wrapping_sub(4), model)
+                .map_err(|e| {
+                    VehicleCarCallerUnavailable::Init(VehicleInitUnavailable::Effect(e))
+                })?;
+            memory
+                .write_word(stack.wrapping_sub(8), 0x41bdea)
+                .map_err(|e| {
+                    VehicleCarCallerUnavailable::Init(VehicleInitUnavailable::Effect(e))
+                })?;
+        }
         self.car_caller_ready = true;
         Ok(true)
     }

@@ -4,8 +4,18 @@
 //! Addresses are inert 32-bit identities. The backend owns external storage,
 //! references and allocation effects; dropping this projection releases none.
 
+#[path = "car_state.rs"]
+mod car_state;
 #[path = "vehicle_components.rs"]
 mod components;
+pub use car_state::*;
+use car_state::{CarInitMemory, CarInitOwned};
+#[path = "car_init.rs"]
+mod car_init;
+pub use car_init::*;
+#[path = "car_caller_cleanup.rs"]
+mod car_caller_cleanup;
+pub use car_caller_cleanup::*;
 pub use components::*;
 #[path = "vehicle_component_tail.rs"]
 mod component_tail;
@@ -135,6 +145,7 @@ pub enum VehicleInitUnavailable<E> {
     Effect(E),
     /// Re-entering a stopped prefix would overwrite retained native ownership.
     AlreadyStarted,
+    ProjectionBackendUnavailable,
 }
 
 /// Explicit dependencies of the original initialization prefix.
@@ -270,6 +281,7 @@ impl VehicleInitEnumeration<'_> {
 #[derive(Debug, PartialEq, Eq)]
 pub struct VehicleInitState {
     bytes: Vec<u8>,
+    car: Option<CarInitOwned>,
     started: bool,
     scratch: Option<VehicleInitFrameVector>,
     head: u32,
@@ -314,6 +326,7 @@ impl VehicleInitState {
     pub fn from_bytes(bytes: Vec<u8>) -> Self {
         Self {
             bytes,
+            car: None,
             started: false,
             scratch: None,
             head: 0,
