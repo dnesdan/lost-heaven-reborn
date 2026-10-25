@@ -71,12 +71,14 @@ impl MenuUi {
             .iter()
             .position(|byte| *byte == 0)
             .ok_or("Unterminated menu font suffix")?;
-        // _lat is the evidenced font family. Other families need their own
-        // font-layout/runtime contract; never substitute Czech or Latin data.
-        let suffix = match &suffix_bytes[..suffix_end] {
-            b"_lat" => "_lat",
-            _ => return Err("Unsupported menu font suffix".into()),
-        };
+        let suffix_bytes = &suffix_bytes[..suffix_end];
+        if !suffix_bytes
+            .iter()
+            .all(|byte| byte.is_ascii_graphic() && !matches!(byte, b'/' | b'\\' | b':'))
+        {
+            return Err("Unsupported menu font suffix".into());
+        }
+        let suffix = std::str::from_utf8(suffix_bytes).unwrap();
         let decode = |name: &str| lhr_assets::decode_tga(&read(name)?).map_err(|e| e.to_string());
         let selected = definition
             .items
@@ -671,7 +673,7 @@ mod tests {
     }
 
     #[test]
-    fn menu_keeps_source_uppercase_behavior_and_rejects_foreign_font_families() {
+    fn menu_uses_the_selected_font_family_and_preserves_source_uppercase_behavior() {
         let resources = Resources::new();
         let installation = Installation::open(&resources.0).unwrap();
         resources.write("tables/version.txt", b"EN");
@@ -682,7 +684,35 @@ mod tests {
         resources.write("tables/version.txt", b"en");
         let mut language = std::fs::read(resources.0.join("tables/lang_en.def")).unwrap();
         language[40..56].fill(0);
-        language[40..44].copy_from_slice(b"_cyr");
+        language[40..45].copy_from_slice(b"_test");
+        let mut font = std::fs::read(resources.0.join("tables/font1_lat.gmf")).unwrap();
+        let width_offset = 28 + 5 * 16 + 12;
+        font[width_offset..width_offset + 4].copy_from_slice(&1f32.to_le_bytes());
+        for index in [1, 2] {
+            resources.write(&format!("tables/font{index}_test.gmf"), &font);
+            let atlas =
+                std::fs::read(resources.0.join(format!("maps/font{index}_lat.tga"))).unwrap();
+            resources.write(&format!("maps/font{index}_test.tga"), &atlas);
+        }
+        resources.write("tables/lang_en.def", &language);
+        let menu = MenuUi::load(&installation).unwrap();
+        assert_eq!(
+            menu.text(
+                &mut Canvas::new(),
+                &menu.labels[1],
+                [0., 0., 100., 20.],
+                false,
+                [0; 3]
+            ),
+            25.0
+        );
+        std::fs::remove_file(resources.0.join("tables/font1_test.gmf")).unwrap();
+        assert!(MenuUi::load(&installation)
+            .err()
+            .unwrap()
+            .contains("font1_test.gmf"));
+        language[40..56].fill(0);
+        language[40..46].copy_from_slice(b"../bad");
         resources.write("tables/lang_en.def", &language);
         assert_eq!(
             MenuUi::load(&installation).err().unwrap(),
