@@ -55,8 +55,8 @@ impl<'a> Chunk<'a> {
     }
     pub(crate) fn words(&mut self, destination: &mut [u32]) {
         if let Some(bytes) = self.read(destination.len() * 4) {
-            for (out, bytes) in destination.iter_mut().zip(bytes.chunks_exact(4)) {
-                *out = u32::from_le_bytes(bytes.try_into().unwrap());
+            for (out, bytes) in destination.iter_mut().zip(bytes.as_chunks::<4>().0) {
+                *out = u32::from_le_bytes(*bytes);
             }
         }
     }
