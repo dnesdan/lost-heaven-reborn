@@ -29,7 +29,9 @@ function coverage or original-runtime validation credit.
 - Both canonical sound-frame synchronization paths copy the graph's existing
   `world_scale` after its world matrix has been resolved. Range attenuation
   and range gates use scaled distances. `ForceUpdate` also refreshes that
-  frame input. Scaled range and half-cone cosine reads reflect current values.
+  frame input. Scaled ranges retain constructor/cache values until an eligible
+  update refreshes dirty range/scale fields; half-cone cosine reads follow the
+  current angles.
 - `Open` preserves an existing voice only for an exact filename match. A
   different filename releases the previous source and voice before lookup or
   file decoding, including when replacement fails. Shared-source lookup is
@@ -56,12 +58,12 @@ game camera controller.
 Synthetic PCM tests cover replacement failure and retry, exact versus
 case-insensitive opens, deferred/immediate play, real/logical queries, stop,
 loop restart, paused seek and expiry, range pause/resume, absent camera, missing
-and matching sectors, scaled range, cone-derived fields, and vehicle audio
-callers. Bridge tests cover inherited scale after a real parent update,
+and matching sectors, scaled range cache/update guards, zero and very small
+cone vectors, cone-derived fields, and vehicle audio callers. Bridge tests cover inherited scale after a real parent update,
 camera-position sector selection, primary fallback, and preservation of the
 last sector hint on invalid listener input.
 
-Targeted verification: `cargo test -p lhr-engine --lib audio` passes 17 tests
+Targeted verification: `cargo test -p lhr-engine --lib audio` passes 19 tests
 with a dedicated Stage 6 Cargo target directory. Full workspace verification
 and two sequential independent reviews are separate integration gates. No
 rendered, interactive, audible-device, or original-runtime comparison is

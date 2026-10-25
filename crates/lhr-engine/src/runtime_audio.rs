@@ -323,12 +323,33 @@ impl SoundState {
     }
 
     fn scaled_range(&self) -> (f32, f32, f32) {
+        let field = |offset: usize| f32::from_bits(self.native_tail[(offset - 0x140) / 4]);
+        (field(0x16c), field(0x174), field(0x180))
+    }
+
+    fn scaled_far_squared(&self) -> f32 {
+        f32::from_bits(self.native_tail[(0x178 - 0x140) / 4])
+    }
+
+    fn refresh_scaled_range(&mut self) {
+        if self.native_tail[0] & 0x84 == 0 {
+            return;
+        }
         let far = self.range[1] * self.world_scale;
         let mut near = self.range[0] * self.world_scale;
         if near >= far - 1e-8 {
             near = far - 1e-8;
         }
-        (near, far, near + self.range[2] * (far - near))
+        let middle = near + self.range[2] * (far - near);
+        for (offset, value) in [
+            (0x16c, near),
+            (0x174, far),
+            (0x178, far * far),
+            (0x180, middle),
+        ] {
+            self.native_tail[(offset - 0x140) / 4] = value.to_bits();
+        }
+        self.native_tail[0] &= !0x84;
     }
 }
 
@@ -441,10 +462,6 @@ impl RuntimeAudio {
             0x150 => sound.start_time,
             0x154 => sound.pause_time,
             0x158 => sound.pause_pos,
-            0x16c => sound.scaled_range().0.to_bits(),
-            0x174 => sound.scaled_range().1.to_bits(),
-            0x178 => sound.scaled_range().1.powi(2).to_bits(),
-            0x180 => sound.scaled_range().2.to_bits(),
             0x1a4 => (sound.cone[0] * 0.5).cos().to_bits(),
             0x1ac => (sound.cone[1] * 0.5).cos().to_bits(),
             0x164 => u32::from(sound.looping),
@@ -585,6 +602,7 @@ impl RuntimeAudio {
             sound.cone = [std::f32::consts::FRAC_PI_3, std::f32::consts::FRAC_PI_2];
         }
         sound.source = Some(source);
+        sound.native_tail[0] |= 0x84;
         if sound.on {
             sound.set_on(true, camera, sector);
         }
@@ -627,7 +645,12 @@ impl RuntimeAudio {
 
     pub fn set_world_scale(&self, handle: u32, scale: f32) -> Result<()> {
         finite(&[scale])?;
-        sound_mut(&mut *self.lock()?, handle)?.world_scale = scale;
+        let mut mixer = self.lock()?;
+        let sound = sound_mut(&mut mixer, handle)?;
+        if sound.world_scale != scale {
+            sound.world_scale = scale;
+            sound.native_tail[0] |= 0x80;
+        }
         Ok(())
     }
 
@@ -681,11 +704,11 @@ impl RuntimeAudio {
             Ok(value)
         };
         match slot {
-            0x18 | 0x90 => update_sound(sound, camera, sector, mixer_listener),
+            0x18 | 0x90 => update_sound(sound, camera, sector, mixer_listener)?,
             0x24 | 0x88 => {
                 sound.set_on(arguments[0] != 0, camera, sector);
                 if slot == 0x88 && arguments[1] != 0 {
-                    update_sound(sound, camera, sector, mixer_listener);
+                    update_sound(sound, camera, sector, mixer_listener)?;
                 }
             }
             0x2c => sound.parent = arguments[0],
@@ -707,7 +730,13 @@ impl RuntimeAudio {
                         arguments[0]
                     };
             }
-            0x5c => sound.range = [float(0)?, float(1)?, float(2)?, float(3)?],
+            0x5c => {
+                let range = [float(0)?, float(1)?, float(2)?, float(3)?];
+                if sound.range != range {
+                    sound.range = range;
+                    sound.native_tail[0] |= 0x4;
+                }
+            }
             0x60 => {
                 sound.cone = [
                     float(0)?.min(std::f32::consts::PI),
@@ -761,13 +790,13 @@ impl RuntimeAudio {
         let next_clock =
             mixer.clock_ms + (output.len() / 2) as f64 * 1000.0 / f64::from(sample_rate);
         for sound in mixer.sounds.values_mut() {
-            update_sound(sound, camera, sector, listener);
+            update_sound(sound, camera, sector, listener)?;
             if !sound.voice_playing {
                 sound.clock_ms = next_clock as u64 as u32;
                 continue;
             }
             let source = sound.source.as_ref().unwrap();
-            let (left_gain, right_gain) = gains(sound, listener, right, sector);
+            let (left_gain, right_gain) = gains(sound, listener, right, sector)?;
             let increment =
                 f64::from(source.sample_rate) / f64::from(sample_rate) * f64::from(sound.frequency);
             let frames = source.frames();
@@ -881,23 +910,68 @@ fn sound_mut(mixer: &mut Mixer, handle: u32) -> Result<&mut SoundState> {
         .ok_or_else(|| AudioError(format!("unowned sound {handle:#x}")))
 }
 
+/// Source S_vector::Normalize chooses X, then Z, then Y when squared
+/// magnitude is below 1e-8, retaining the other components. Even zero becomes +Y.
+/// Overflow/nonfinite arithmetic remains an explicit host PCM boundary.
+fn normalize_cone_vector(mut vector: [f32; 3]) -> Result<[f32; 3]> {
+    finite(&vector)?;
+    let squared = vector[0] * vector[0] + vector[1] * vector[1] + vector[2] * vector[2];
+    finite(&[squared])?;
+    if (squared - 1.0).abs() < 1e-8 {
+        return Ok(vector);
+    }
+    if squared < 1e-8 {
+        let axis = if vector[0] != 0.0 {
+            0
+        } else if vector[2] != 0.0 {
+            2
+        } else {
+            1
+        };
+        vector[axis] = if vector[axis] < 0.0 { -1.0 } else { 1.0 };
+    } else {
+        let reciprocal = 1.0 / squared.sqrt();
+        for component in &mut vector {
+            *component *= reciprocal;
+        }
+    }
+    finite(&vector)?;
+    Ok(vector)
+}
+
+fn cone_cosine(sound: &SoundState, listener: [f32; 3]) -> Result<f32> {
+    let to_camera =
+        normalize_cone_vector(std::array::from_fn(|i| listener[i] - sound.position[i]))?;
+    let direction = normalize_cone_vector(sound.direction)?;
+    let cosine =
+        direction[0] * to_camera[0] + direction[1] * to_camera[1] + direction[2] * to_camera[2];
+    finite(&[cosine])?;
+    Ok(cosine)
+}
+
 /// The source's update boundary decides when the independently owned host voice runs.
-fn update_sound(sound: &mut SoundState, camera: bool, sector: Option<u32>, listener: [f32; 3]) {
+fn update_sound(
+    sound: &mut SoundState,
+    camera: bool,
+    sector: Option<u32>,
+    listener: [f32; 3],
+) -> Result<()> {
     if sound.state == PlaybackState::Stop || !sound.on || !camera || sound.source.is_none() {
-        return;
+        return Ok(());
     }
     if sound.state == PlaybackState::NoCamera {
         sound.set_on(true, camera, sector);
     }
     if sound.sound_type == 0 {
         sound.set_on(false, camera, sector);
-        return;
+        return Ok(());
     }
     if !sound.is_playing() {
         sound.state = PlaybackState::Stop;
         sound.pending_play = false;
-        return;
+        return Ok(());
     }
+    sound.refresh_scaled_range();
     let distance_squared = sound
         .position
         .iter()
@@ -906,23 +980,17 @@ fn update_sound(sound: &mut SoundState, camera: bool, sector: Option<u32>, liste
         .sum::<f32>();
     let outside_sector =
         !sound.sectors.is_empty() && !sector.is_some_and(|sector| sound.sectors.contains(&sector));
-    let outside_range = sound.sound_type != 3 && distance_squared >= sound.scaled_range().1.powi(2);
-    let outside_cone = if sound.sound_type == 2 && distance_squared > f32::EPSILON {
-        let length = sound.direction.iter().map(|v| v * v).sum::<f32>().sqrt();
-        let cosine = sound
-            .direction
-            .iter()
-            .zip(sound.position.iter().zip(listener))
-            .map(|(dir, (pos, cam))| dir * (cam - pos))
-            .sum::<f32>()
-            / (distance_squared.sqrt() * length);
-        cosine <= (sound.cone[1] * 0.5).cos() && sound.out_volume.abs() < 1e-8
-    } else {
-        false
-    };
-    if outside_sector || outside_range || outside_cone {
+    let outside_range = sound.sound_type != 3 && distance_squared >= sound.scaled_far_squared();
+    if outside_sector || outside_range {
         sound.pause();
-        return;
+        return Ok(());
+    }
+    if sound.sound_type == 2
+        && cone_cosine(sound, listener)? <= (sound.cone[1] * 0.5).cos()
+        && sound.out_volume.abs() < 1e-8
+    {
+        sound.pause();
+        return Ok(());
     }
     if sound.state == PlaybackState::Pause {
         sound.state = PlaybackState::Resume;
@@ -935,6 +1003,7 @@ fn update_sound(sound: &mut SoundState, camera: bool, sector: Option<u32>, liste
         sound.voice_playing = true;
         sound.pending_play = false;
     }
+    Ok(())
 }
 
 fn gains(
@@ -942,12 +1011,12 @@ fn gains(
     listener: [f32; 3],
     right: [f32; 3],
     sector: Option<u32>,
-) -> (f32, f32) {
+) -> Result<(f32, f32)> {
     if !sound.sectors.is_empty() && !sector.is_some_and(|s| sound.sectors.contains(&s)) {
-        return (0.0, 0.0);
+        return Ok((0.0, 0.0));
     }
     if sound.sound_type == 3 {
-        return (sound.volume.max(0.0), sound.volume.max(0.0));
+        return Ok((sound.volume.max(0.0), sound.volume.max(0.0)));
     }
     let delta = std::array::from_fn::<_, 3, _>(|i| sound.position[i] - listener[i]);
     let distance = delta.iter().map(|v| v * v).sum::<f32>().sqrt();
@@ -965,25 +1034,17 @@ fn gains(
         0.0
     };
     let mut volume = sound.volume.max(0.0) * attenuation.clamp(0.0, 1.0);
-    if sound.sound_type == 2 && distance > f32::EPSILON {
-        let length = sound.direction.iter().map(|v| v * v).sum::<f32>().sqrt();
-        if length > f32::EPSILON {
-            let cosine = -delta
-                .iter()
-                .zip(sound.direction)
-                .map(|(a, b)| a * b)
-                .sum::<f32>()
-                / (distance * length);
-            let inner = (sound.cone[0] * 0.5).cos();
-            let outer = (sound.cone[1] * 0.5).cos();
-            volume *= if cosine >= inner {
-                1.0
-            } else if cosine <= outer || inner <= outer {
-                sound.out_volume
-            } else {
-                sound.out_volume + (1.0 - sound.out_volume) * (cosine - outer) / (inner - outer)
-            };
-        }
+    if sound.sound_type == 2 {
+        let cosine = cone_cosine(sound, listener)?;
+        let inner = (sound.cone[0] * 0.5).cos();
+        let outer = (sound.cone[1] * 0.5).cos();
+        volume *= if cosine <= outer {
+            sound.out_volume
+        } else if cosine > inner {
+            1.0
+        } else {
+            sound.out_volume + (1.0 - sound.out_volume) * (cosine - outer) / (inner - outer)
+        };
     }
     let pan = if distance > f32::EPSILON {
         delta.iter().zip(right).map(|(a, b)| a * b).sum::<f32>() / distance
@@ -992,7 +1053,7 @@ fn gains(
     }
     .clamp(-1.0, 1.0);
     // A centered point source preserves the original mono amplitude per channel.
-    (volume * (1.0 - pan.max(0.0)), volume * (1.0 + pan.min(0.0)))
+    Ok((volume * (1.0 - pan.max(0.0)), volume * (1.0 + pan.min(0.0))))
 }
 
 /// Streaming capture of the actual PCM output. A placeholder header is repaired
@@ -1382,5 +1443,96 @@ mod tests {
             f32::from_bits(audio.read_sound_word(0x1000, 0x1ac).unwrap()),
             std::f32::consts::FRAC_PI_2.cos()
         );
+    }
+
+    #[test]
+    fn scaled_ranges_are_cached_until_an_eligible_update() {
+        let audio = RuntimeAudio::default();
+        audio.create_sound_at(0x1000).unwrap();
+        let cached = || {
+            [0x16c, 0x174, 0x178, 0x180]
+                .map(|offset| f32::from_bits(audio.read_sound_word(0x1000, offset).unwrap()))
+        };
+        assert_eq!(cached(), [1.0, 10.0, 100.0, 0.0]);
+        audio
+            .sound_virtual(
+                0x1000,
+                0x5c,
+                &[2f32.to_bits(), 20f32.to_bits(), 0.5f32.to_bits(), 0],
+            )
+            .unwrap();
+        audio.set_world_scale(0x1000, 3.0).unwrap();
+        audio.sound_virtual(0x1000, 0x90, &[]).unwrap();
+        assert_eq!(cached(), [1.0, 10.0, 100.0, 0.0]);
+        audio
+            .load_sound_with(0x1000, "synthetic.wav", || {
+                Ok(wav(&[0, 8192, 16384, -8192], 1, 4))
+            })
+            .unwrap();
+        audio.sound_virtual(0x1000, 0x58, &[3]).unwrap();
+        audio.sound_virtual(0x1000, 0x24, &[1]).unwrap();
+        audio.sound_virtual(0x1000, 0x90, &[]).unwrap();
+        assert_eq!(audio.sound(0x1000).unwrap().state, PlaybackState::NoCamera);
+        assert_eq!(cached(), [1.0, 10.0, 100.0, 0.0]);
+        audio.set_listener([0.0; 3], [1.0, 0.0, 0.0], None).unwrap();
+        audio.sound_virtual(0x1000, 0x90, &[]).unwrap();
+        assert_eq!(cached(), [6.0, 60.0, 3600.0, 33.0]);
+        assert_eq!(audio.read_sound_word(0x1000, 0x140).unwrap() & 0x84, 0);
+        audio
+            .sound_virtual(
+                0x1000,
+                0x5c,
+                &[3f32.to_bits(), 40f32.to_bits(), 0.25f32.to_bits(), 0],
+            )
+            .unwrap();
+        audio.set_world_scale(0x1000, 2.0).unwrap();
+        assert_eq!(cached(), [6.0, 60.0, 3600.0, 33.0]);
+        audio.clear_listener().unwrap();
+        audio.sound_virtual(0x1000, 0x90, &[]).unwrap();
+        assert_eq!(cached(), [6.0, 60.0, 3600.0, 33.0]);
+        audio.set_listener([0.0; 3], [1.0, 0.0, 0.0], None).unwrap();
+        audio.sound_virtual(0x1000, 0x90, &[]).unwrap();
+        assert_eq!(cached(), [6.0, 80.0, 6400.0, 24.5]);
+        audio.mix_stereo(4, &mut [0.0; 8]).unwrap();
+        audio.set_world_scale(0x1000, 4.0).unwrap();
+        audio.sound_virtual(0x1000, 0x90, &[]).unwrap();
+        // The IsPlaying(false) guard precedes cache refresh too.
+        assert_eq!(audio.sound(0x1000).unwrap().state, PlaybackState::Stop);
+        assert_eq!(cached(), [6.0, 80.0, 6400.0, 24.5]);
+    }
+
+    #[test]
+    fn spot_cone_normalizes_zero_and_small_vectors_before_gating() {
+        for (listener, direction, audible) in [
+            ([0.0; 3], [0.0, 0.0, 1.0], false),
+            ([0.0, 0.0, 1e-6], [0.0, 0.0, 1.0], true),
+            ([0.0, 0.0, -1e-6], [0.0, 0.0, 1.0], false),
+            ([1e-6, 0.0, 1e-6], [1.0, 0.0, 0.0], true),
+            ([0.0; 3], [0.0; 3], true),
+            ([0.0, 0.0, 1.0], [0.0; 3], false),
+        ] {
+            let audio = loaded();
+            audio.set_position(0x1000, [0.0; 3], direction).unwrap();
+            audio.set_listener(listener, [1.0, 0.0, 0.0], None).unwrap();
+            audio.sound_virtual(0x1000, 0x58, &[2]).unwrap();
+            audio.sound_virtual(0x1000, 0x88, &[1, 1]).unwrap();
+            assert_eq!(
+                playing(&audio, true),
+                u32::from(audible),
+                "{listener:?} {direction:?}"
+            );
+        }
+        let audio = loaded();
+        audio.sound_virtual(0x1000, 0x58, &[2]).unwrap();
+        audio
+            .sound_virtual(0x1000, 0x64, &[0.25f32.to_bits()])
+            .unwrap();
+        audio.sound_virtual(0x1000, 0x88, &[1, 1]).unwrap();
+        let mut output = [0.0; 4];
+        audio.mix_stereo(4, &mut output).unwrap();
+        assert_eq!(output, [0.0, 0.0, 0.0625, 0.0625]);
+        // Finite input that overflows normalization does not silently become a cone decision.
+        audio.set_position(0x1000, [0.0; 3], [f32::MAX; 3]).unwrap();
+        assert!(audio.sound_virtual(0x1000, 0x90, &[]).is_err());
     }
 }
