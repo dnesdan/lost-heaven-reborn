@@ -5,6 +5,7 @@ They describe their original source and validation scope, not current behavior.
 The generated ledger history remains in [progress](../PROGRESS.md) and the
 immutable observations/snapshots remain in [progress.json](../progress.json).
 
+- [Fresh startup/mission audit, full frontier and preceding camera/sector record](2026-10-25-original-startup-mission-audit.md)
 - [Previous README narrative](2026-10-25-readme-narrative.md)
 - [Previous reconstruction coverage](2026-10-25-coverage-narrative.md)
 - [Previous milestone narrative](2026-10-25-progress-narrative.md)

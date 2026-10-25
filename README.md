@@ -10,17 +10,16 @@ animation, and standalone original-data driving with collision, vehicle damage,
 WAV mixing and explicit cleanup. Rendering is unlit first LOD with a host chase
 camera. Original player/camera scheduling, mission scripts and traffic remain open.
 
-The original-engine path now includes real camera construction, projection and
-view/frustum updates, active-camera ownership, sector sound data and ordered Game
-loader steps. Scene Close retains the active camera; final Scene destruction
-releases it. Native audio and device behavior remain open.
+The original-engine library now includes bounded startup/shutdown, Windows, logo
+and joystick callers; real mission/support construction and constructor-empty
+teardown; and cache/string ownership. A real installed-archive provider follows
+the original fourteen-name setup to the unavailable original graphics driver.
 
-The proved bounded loader checkpoint reaches the kind-12 occluder factory at
-cursor 469 after original camera setup, top fields and primary-sector sound data.
-Full mission/model-cache/occluder/player/script behavior remains open. The visible
-application remains standalone driving; this CPU prefix is not mission rendering.
+Device/platform callbacks remain dependencies. Active mission Close, populated
+owners, effects-table parsing, full Mission Open and gameplay remain open.
+The visible application is standalone driving; these callers do not render a mission.
 
-Accepted code: `44fa875`; [source-bound validation](COVERAGE.md).
+Accepted code: 8067e3d; [source-bound validation](COVERAGE.md).
 
 See [current evidence and limits](COVERAGE.md), [progress](docs/PROGRESS.md),
 [remaining goals](docs/GOALS.md) and [dated history](docs/history/README.md).
@@ -104,10 +103,10 @@ window run. [More commands and historical validation](docs/history/2026-10-25-re
 
 ## Actual Rust captures
 
-![Original-data driving regression after camera/sector changes](docs/screenshots/2026-10-25-original-camera-sector.webp)
+![Standalone original-data driving during the startup/mission regression](docs/screenshots/2026-10-25-original-startup-mission.webp)
 
-The new still records an actual window regression. It does not show weather drawing
-or establish original renderer, full Scene/device or mission gameplay parity.
+Actual standalone driving and reload regression; host chase camera and unlit
+rendering. The startup/mission CPU callers are validated separately.
 [Capture evidence](docs/screenshots/README.md).
 
 [![Original taxi during the continuous driving capture](docs/screenshots/2026-10-24-car-driving-verified.webp)](docs/videos/2026-10-24-car-driving.mp4)

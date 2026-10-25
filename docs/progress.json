@@ -1,42 +1,62 @@
 {
   "updated_at": "2026-10-25",
-  "project_status": "Bounded original camera/sector sound and ordered loader prefix accepted at Source-v3; next kind12 occluder cursor469. 311 scoped entries/114 contracts, strict 0/12; campaign not playable.",
+  "project_status": "Bounded original startup/mission/support/cache callers and actual installed-archive prefix accepted at Source-v1; complete original boot/menu/mission remains open. 311 scoped entries/114 contracts, strict 0/12; campaign not playable.",
   "rust_toolchain": "1.99.1",
   "validation": {
-    "status": "Final Source-v3 passes 1136 Rust tests, 9 REA-wrapper/47 progress tests and all format/check/Clippy/build checks; two sequential source reviews approve. Both Rust profiles match declared sound/camera/loader cases; camera prefix stops remain separate. Standalone UI and independent original-DTA prefix replay retain distinct scopes.",
-    "rust_unit_tests": 1136,
+    "status": "Final Source-v1 passes 1168 Rust tests, 9 REA-wrapper/47 progress tests and format/check/Clippy/build; two sequential source reviews approve. Both Rust profiles match 86 complete declared cases and 7 typed prefixes. InitSystem successful tail is static-only; installed-DTA integration and standalone UI are separate.",
+    "rust_unit_tests": 1168,
     "rust_unit_test_split": {
-      "lhr_assets": 114,
-      "lhr_assets_integration": 7,
-      "lhr_engine_library": 976,
+      "lhr_assets": 117,
+      "lhr_assets_integration": 8,
+      "lhr_engine_library": 1004,
       "lhr_engine_integration": 8,
       "lhr_engine_application": 26,
       "lhr_render": 5
     },
     "rea_wrapper_tests": 9,
     "latest_accepted_baseline": {
-      "source_commit": "44fa875e3a5da82d7a1d305d7c9122994832971b",
-      "rust_unit_tests": 1136,
+      "source_commit": "8067e3d2dea6e7deaff3f5d5fe972d33b0f1ebe9",
+      "rust_unit_tests": 1168,
       "rea_wrapper_tests": 9,
       "progress_tests": 47,
-      "milestone": "Real camera ownership/projection/UpdateV, sector sound data and ordered Game prefix to kind12 cursor469; full mission/modelcache/player/scripts remain open."
+      "milestone": "Bounded original startup/shutdown/windows/logo/Joy, seeded mission/Game/support/cache ownership and real 13-archive prefix to unavailable IGraph; no full boot or mission claim."
     },
     "progress_tests": 47,
-    "current_source_status": "Accepted final Source-v3 at code 44fa875e3a5da82d7a1d305d7c9122994832971b; 277 guarded files. Earlier Source-v1/v2 attempts are not current accepted evidence.",
+    "current_source_status": "Accepted final Source-v1 at code 8067e3d2dea6e7deaff3f5d5fe972d33b0f1ebe9; 286 guarded source files; two sequential independent reviews.",
     "current_source_freeze": {
-      "id": "ORIGINAL-CAMERA-SECTOR-20261025-SOURCE-v3",
-      "files": 277,
-      "tree_sha256": "5fd74189f03a15abb73819f94f1b9a34e855fa8f16962d07cd8fc71060deddd7",
-      "freeze_sha256": "d5e89f16e373781fa6c06002289e3247e3ec817ffcf97dca0528f82bd864188a"
+      "id": "MAFIA-PARITY-20261025-SOURCE-v1",
+      "files": 286,
+      "tree_sha256": "511b9b916b2c278f8ab3193b6db98d543645267a1cd4f1f03d33846c3d6e2767",
+      "freeze_sha256": "1a3da8e8c9b5a811bacf5d7528380dc6d512b4dbe5d7bcbec7942a8918bbaf8c"
     },
     "full_gate": {
-      "id": "ORIGINAL-CAMERA-SECTOR-20261025-SOURCE-v3-VERIFICATION",
-      "sha256": "9a0c4e739a570c60dcd043a76d4506a5ffe4f12a49c780ccac7041ecd25da230",
-      "log_sha256": "1128968401283b5cb144f3bc9f88766a957804dda31d4813a384b9a6a19728d2"
+      "id": "MAFIA-PARITY-20261025-SOURCE-v1-VERIFICATION",
+      "sha256": "208a69c366e588bce87b908caeeffd0b29b01e22697a7540ecb11be05e2c3e43",
+      "log_sha256": "df5f5724c1e12fd53db44cd0eaf9ae8f95443ab4da2a2d56893edda7274606ae"
     },
     "native_final": {
-      "id": "ORIGINAL-CAMERA-SECTOR-NATIVE-VALIDATION-SOURCE-v3",
-      "sha256": "dc79f7b64977db92b439fe42681c7630f8432c63e8d7a184d82955e113a416f6"
+      "artifact": "FINAL-RESULTS.json",
+      "sha256": "61d7ab57860ae967545be0abe3ae2a98205f0ce768e7b7e517aafcde42f40322",
+      "source_freeze": "MAFIA-PARITY-20261025-SOURCE-v1",
+      "profiles": [
+        "debug",
+        "release"
+      ],
+      "counts_per_profile": {
+        "total_named_comparison_cases": 93,
+        "complete_declared_domain": 86,
+        "typed_capability_or_fault_prefix": 7,
+        "mismatches": 0,
+        "game": 4,
+        "system_init": 10,
+        "logo": 14,
+        "system_close": 5,
+        "windows": 10,
+        "mission": 21,
+        "cache": 15,
+        "joystick": 5,
+        "leaf": 9
+      }
     },
     "historical_driving_source4": {
       "rust_unit_tests": 1066,
@@ -179,6 +199,43 @@
       "native_final": {
         "id": "MISSION-RAILWAY-DRIVER-NATIVE-20261025-FINAL-SOURCE-v2",
         "sha256": "66b07b85c620cd190145b34ef3a14714e8309821df9e6fd48ea9693ab1571763"
+      }
+    },
+    "historical_camera_sector_source_v3": {
+      "status": "Final Source-v3 passes 1136 Rust tests, 9 REA-wrapper/47 progress tests and all format/check/Clippy/build checks; two sequential source reviews approve. Both Rust profiles match declared sound/camera/loader cases; camera prefix stops remain separate. Standalone UI and independent original-DTA prefix replay retain distinct scopes.",
+      "rust_unit_tests": 1136,
+      "rust_unit_test_split": {
+        "lhr_assets": 114,
+        "lhr_assets_integration": 7,
+        "lhr_engine_library": 976,
+        "lhr_engine_integration": 8,
+        "lhr_engine_application": 26,
+        "lhr_render": 5
+      },
+      "rea_wrapper_tests": 9,
+      "latest_accepted_baseline": {
+        "source_commit": "44fa875e3a5da82d7a1d305d7c9122994832971b",
+        "rust_unit_tests": 1136,
+        "rea_wrapper_tests": 9,
+        "progress_tests": 47,
+        "milestone": "Real camera ownership/projection/UpdateV, sector sound data and ordered Game prefix to kind12 cursor469; full mission/modelcache/player/scripts remain open."
+      },
+      "progress_tests": 47,
+      "current_source_status": "Accepted final Source-v3 at code 44fa875e3a5da82d7a1d305d7c9122994832971b; 277 guarded files. Earlier Source-v1/v2 attempts are not current accepted evidence.",
+      "current_source_freeze": {
+        "id": "ORIGINAL-CAMERA-SECTOR-20261025-SOURCE-v3",
+        "files": 277,
+        "tree_sha256": "5fd74189f03a15abb73819f94f1b9a34e855fa8f16962d07cd8fc71060deddd7",
+        "freeze_sha256": "d5e89f16e373781fa6c06002289e3247e3ec817ffcf97dca0528f82bd864188a"
+      },
+      "full_gate": {
+        "id": "ORIGINAL-CAMERA-SECTOR-20261025-SOURCE-v3-VERIFICATION",
+        "sha256": "9a0c4e739a570c60dcd043a76d4506a5ffe4f12a49c780ccac7041ecd25da230",
+        "log_sha256": "1128968401283b5cb144f3bc9f88766a957804dda31d4813a384b9a6a19728d2"
+      },
+      "native_final": {
+        "id": "ORIGINAL-CAMERA-SECTOR-NATIVE-VALIDATION-SOURCE-v3",
+        "sha256": "dc79f7b64977db92b439fe42681c7630f8432c63e8d7a184d82955e113a416f6"
       }
     }
   },
@@ -36971,7 +37028,7 @@
       },
       "fixture_intake_boolean_rows": 13,
       "underlying_manager_AL_observed": 13,
-      "intake_interpretation": "fixture helpers call actual manager Alloc and carry its AL success into post-admission storage setup; production fa\u00e7ade bool is host allocation/admission status. These are not native CreateFaces/CreateVertexMesh factory return comparisons.",
+      "intake_interpretation": "fixture helpers call actual manager Alloc and carry its AL success into post-admission storage setup; production façade bool is host allocation/admission status. These are not native CreateFaces/CreateVertexMesh factory return comparisons.",
       "synthetic_void_fixture_status_rows": 42,
       "synthetic_status_notes": "constructor native self pointers discarded; direct fixture chain/bbox/raw retain setup and void calls are zero statuses; no factory pointer return claim",
       "nonnull_free_wrappers": "originals executed; source void contracts, incidental child AL discarded, no numeric return credit"
@@ -43013,7 +43070,7 @@
         },
         "fixture_intake_boolean_rows": 13,
         "underlying_manager_AL_observed": 13,
-        "intake_interpretation": "fixture helpers call actual manager Alloc and carry its AL success into post-admission storage setup; production fa\u00e7ade bool is host allocation/admission status. These are not native CreateFaces/CreateVertexMesh factory return comparisons.",
+        "intake_interpretation": "fixture helpers call actual manager Alloc and carry its AL success into post-admission storage setup; production façade bool is host allocation/admission status. These are not native CreateFaces/CreateVertexMesh factory return comparisons.",
         "synthetic_void_fixture_status_rows": 42,
         "synthetic_status_notes": "constructor native self pointers discarded; direct fixture chain/bbox/raw retain setup and void calls are zero statuses; no factory pointer return claim",
         "nonnull_free_wrappers": "originals executed; source void contracts, incidental child AL discarded, no numeric return credit"
@@ -48908,13 +48965,13 @@
       "profiles_not_additive": true,
       "scope": {
         "driver_scope": [
-          "actual193e0type13 plus recursive actualsector factory/ctors, actual48ab0\u2192Snow factory missing\u2192actualGetViewport\u21924a9c0\u2192registry append",
-          "malformed/negative/overflow/nonzero/PC24integer-origin cases;33scenes secondgrowth32\u219264; swap removal and retainedScene",
+          "actual193e0type13 plus recursive actualsector factory/ctors, actual48ab0→Snow factory missing→actualGetViewport→4a9c0→registry append",
+          "malformed/negative/overflow/nonzero/PC24integer-origin cases;33scenes secondgrowth32→64; swap removal and retainedScene",
           "actualScene/sectordestructors and driver removal; CPU Device14 remains typed UNEXECUTED/uncredited; absentnativeaudio only",
           "registry allocation/capacity retained after all scenes; driver15670 storage teardown NOT compared; no full driver destructor claim"
         ],
         "railway_scope": [
-          "actual53f7d0kind8 allocator branch\u21924865b0 +405d20/407d50 +4832e0; full0x370 seeded bytes compared including unknown untouched bytes",
+          "actual53f7d0kind8 allocator branch→4865b0 +405d20/407d50 +4832e0; full0x370 seeded bytes compared including unknown untouched bytes",
           "actual4868c0/405dd0 with actualModelCtor33410, fresh ModelArena+ModelActorFrames Rust bridge, null and wrongSoundtype4",
           "actual486a20/404d80 against bounded read-mode payload, realMISE01salina3ae24payload25, truncation0..26, genericversions/rawNaN/Infwords; nofloat/versionvalidation invented",
           "actual486760/486740 +33890(nullcontroller) +405d90/599010/407f50; sevenNULLvectorfrees in exact callsite order then scalarflag0/1; preserved EBX/EBP/ESI/EDI/ESP",
@@ -49257,5 +49314,1233 @@
       "Legacy model and canonical weather texture ownership remain separate; original missing Snow stays null."
     ],
     "campaign_playable": false
+  },
+  "historical_observation_index_at_14f5ad8": {
+    "baseline_commit": "14f5ad8e032ea9642fabf8c34d180a363b668a5d",
+    "method": "SHA256 of UTF8 JSON sorted keys, compact separators, ensure_ascii false; dictionaries remain at original top-level keys",
+    "observations": {
+      "native_phase_observation": "3505f8d795a01ef54722ff6f2a799a731e70cab2fc7aed7360f4115858d9771f",
+      "prototype_recovery_observation": "7f78b5cf3f7e16dfcc78756709ff81a7b7a19832f8bdcccf0cb0e2612edb55aa",
+      "native_mission_observation": "1f17823f4985f943dea3e72bc087db8666275996ec3ffb8c06548aa0e2b2eccb",
+      "managed_visual_resource_observation": "9f28cfa9af2b4a0ebc4b0b7b4782e2aa968a2590ffb2b0d35cdb3ab7d117e01d",
+      "managed_texture_close_observation": "0bfee084efd89b406ab9fd6642c1c38c7c9a1deac9a7dee29aa9457633c8dd44",
+      "rw_data_archive_read_observation": "27dcc89f0f02ed7f646807944cc9e64d67f8ad9bd556f8ebdbfb5fcbb7ca0db3",
+      "rw_data_native_open_observation": "ca1a524045085a250c9cde7d82f0d5df1031c7f364fe7bf8281c2bfa21afeed8",
+      "rw_data_filesystem_observation": "04edd9bd6a617cbd92fbf5e8d4bdce0f09a0bf804b4f9eb27be17381f68d30e9",
+      "replay_dependency_observation": "b9f0a456b9a987039df2967b054fc5eeb5830343795a6d911fc4efe11bea96bd",
+      "installation_native_provider_observation": "da11326e577b08827722ef142e33c43530c6a8bb5dc81bd5f58a2a490c9ef4a7",
+      "replay_state_observation": "df547e89c5136b7fd3232d02b0ba235129b8dc6549785009252ab726fb70d477",
+      "reference_slots_observation": "9c6e463861d2526b6e2b06791e0793410d3936af155006fe143b9621b2186d82",
+      "lookup_observation": "3bc2226278e5c18e52af9be5dd7e4096f2cfa76f8b2f13c30f1ae9089b764d61",
+      "actor_world_observation": "d3a1dc5bd22717cd22cbe9ebab0e35268f76d99c3bf71999f2726543084a65d1",
+      "actor_frames_observation": "2b6f4aafb12e5430c20954a8125f316f6b506cdf011008804023eb854d5402eb",
+      "program_source_observation": "b4fb0a49fe952bd0bb115c1710301537c7d75c7031817060ef55408ace445eb9",
+      "driving_dependencies_observation": "d420b14d483dbcdb6edd547a32586015c99b280af99e5aeb6f152e6ff79227bd",
+      "vehicle_world_observation": "59c780d9476a120b5f048bc410aadeb32c2d203800a38f2b87d8f6faac96ff68",
+      "vehicle_init_collision_observation": "81fdb13feb41b3f078d106c99121c5a69cede676dc3f709d66c07d8b5fdbe3f8",
+      "vehicle_components_collision_sound_observation": "2fa366e91f1a8cb870d45d358f8bd4a4ffb79ff26159fc3aa6c3065c53c7f3ff",
+      "bodycol_fast_frame_observation": "452cf7e701ff94a55a828f65c3fdad22be14a663f81bfd9e174d572951b43f6e",
+      "vehicle_component_tail_observation": "ffa91dfd40a12939dbd2aeda42b898a16be70b55e90130379571ff056d25c207",
+      "scene_frame_owner_observation": "bc3c01e4c234f689133c9f3e718d884e6bca44e9b97fcdb58f1e61e2ecf76e27",
+      "vehicle_shared_resource_init_observation": "4d3868998c30a909e0375ff91d677f6a9a39b98a6ee08b49f3639e23939edb56",
+      "car_init_observation": "1f367685e2cb77fcb7da7e2d410154600945b1e2bcedd6453a93ec3f1b6877c7",
+      "car_construction_runtime_observation": "32c28642ad7bbb730473dfa48dfbfe7710c3f06e5077ee0b970b05cc82a72455",
+      "driving_prerequisites_observation": "eea65504adfcf256d7b16b1b1828694c3ef09f9f302ef3b37a6a8051a7a2e72c",
+      "driving_integration_observation": "ef19af7e22f2f00ec98e2b9aba90136cbaa34818d0fbcb5690c09e6623fcef4a",
+      "scene_weather_resource_observation": "d8e6bbd608c3e62140d239615c32a97637b2c93ed027a7b1089a3879da3f972c",
+      "texture_scene_mission_observation": "3e4ed222dea5e93cdf1b86c4163fd2c5735355a291f066eb9e09d413d933ddec",
+      "driver_railway_load_map_observation": "558e0ddb023ec975e4cc0995412ba4cc3a59a7c7542e2a616695bd25ba1f3356",
+      "camera_sector_sound_loader_observation": "81e042fc3836c5323ac8ee48d8075d74d29277b5aeb0fa32eb82626f2936a712"
+    }
+  },
+  "original_startup_mission_observation": {
+    "status": "ACCEPTED_SOURCE_BOUND_BOUNDED_BEHAVIOR",
+    "source_commit": "8067e3d2dea6e7deaff3f5d5fe972d33b0f1ebe9",
+    "source_freeze": {
+      "id": "MAFIA-PARITY-20261025-SOURCE-v1",
+      "files": 286,
+      "tree_sha256": "511b9b916b2c278f8ab3193b6db98d543645267a1cd4f1f03d33846c3d6e2767",
+      "freeze_sha256": "1a3da8e8c9b5a811bacf5d7528380dc6d512b4dbe5d7bcbec7942a8918bbaf8c"
+    },
+    "source_files": {
+      "Cargo.lock": "2f71bc71b51257159855b098e57b06b878747b58a8657014f893c7d8812574cf",
+      "Cargo.toml": "74904eaf266e02d32e5b5be68b9d657334e27a18c984366b2aa4b1be86423901",
+      "crates/lhr-assets/Cargo.toml": "19115c8d4e477678c9c3ee1acc2a5084fc67f7cc1bc389aa002243936afb2589",
+      "crates/lhr-assets/UPSTREAM_LICENSE": "6276e4d3927a0548291d3e118944f40382d0b6d7f3b5e8d24007fe5c35d6e833",
+      "crates/lhr-assets/examples/inspect.rs": "66488fdf847587cb77fe4f7e96a5288730bf24607e48b1881444cca7eceaff02",
+      "crates/lhr-assets/examples/inspect_scripts.rs": "23e10d6e66f240019c058caadde1dff8f75c9ea72e354a5a23843af58c31b07c",
+      "crates/lhr-assets/src/animation.rs": "d3803d9422a16219d9b5a630cb97c1bd8a9e21de160b3e3fcfddbfb0d9b6e5d1",
+      "crates/lhr-assets/src/cache.rs": "d5d7033a6134d19a03afd81cf73d9a84f80659bd1da7b214a6becbe3d5858b06",
+      "crates/lhr-assets/src/dta.rs": "623a83cc8e27246e3dc8721d1703bbd4bfdb7b9a2020d7bafca69cf997afb6aa",
+      "crates/lhr-assets/src/klz.rs": "6475f42df3692773c975190a4ef8d7110e2b33b60769134a673fc8bed7f10e92",
+      "crates/lhr-assets/src/lib.rs": "fe98611314470a0a03f547dfdd9e0ffc48014f0cbe184a604f8cc03e1ee1d4cb",
+      "crates/lhr-assets/src/menu.rs": "1e2650343327fec022f333e87075b169d4ca4f5034cca001571e6165c47454f6",
+      "crates/lhr-assets/src/rw_data.rs": "d5c10747852bfa662a061e11913d0caca5c89c5a5df7c1676c1c928194ab7777",
+      "crates/lhr-assets/src/rw_data/io.rs": "e6ce35a5059d6573ec3afe28d4894947e42bf464db03e1ae771b82f0cc7769e5",
+      "crates/lhr-assets/src/rw_data/open.rs": "31fb1f9d2123f6670e15f25b60916e95e9bc44e52f63f26f5ab1cab951224547",
+      "crates/lhr-assets/src/rw_data/wav.rs": "07824da7e2c33366f8ff8765914c5790dc5c1c4fb69ede777dd361f70b0a8584",
+      "crates/lhr-assets/src/rw_data/wav_table.rs": "f4012701342e366405e303c01ddb4f4ec134c6565eff769f7b1e32b9ce9bce2e",
+      "crates/lhr-assets/src/scene.rs": "e33da4ca4229092f11e38f0e50f517449d250f26c8cc13f4e1a611d6ff24ff5c",
+      "crates/lhr-assets/src/scene_actor_stream.rs": "b6fdf2571894d6862aea8386f0301374ae02b6ff158e05dbe3b4430733c38d5d",
+      "crates/lhr-assets/src/script.rs": "0dae29271fc6133ebb2d99aa0b5a026e500e62220ee99c0537be4a5c26ed14f6",
+      "crates/lhr-assets/src/script_vm.rs": "108a92efabccc8bbfdb18db6ef503dbe5e72d3304cdcad7acbf7c5add1dc876d",
+      "crates/lhr-assets/src/startup_archives.rs": "a00b11c831ddc328d1ae201fac8d94a5e250510e230a906581cf3c47f9968818",
+      "crates/lhr-assets/src/texture_source.rs": "363edad912178b198a5ae8268c548f77cb82949fb7a8bf3f61971299b2ec3d25",
+      "crates/lhr-assets/src/tga.rs": "9a2081f04ef1aa9f0ea878b2e179a252e56e45c30a68048dd6f346c1120031c1",
+      "crates/lhr-assets/tests/installation_native.rs": "537e794b1ee9533e4484f049a7539fb2c371b19b99ecc797c5a107c63be43a9d",
+      "crates/lhr-engine/Cargo.toml": "e8c032e81702cce158cc8de3060a32719882c3b5459f31157c9174c05ba9dcf5",
+      "crates/lhr-engine/src/actor_animation.rs": "82c42fd8ce66a69b47d91a51aaa85f8a24dce6d9af79d9f737586a35c0c6a5ea",
+      "crates/lhr-engine/src/actor_frames.rs": "97975b7b70bb1ef3345b5e682618fc5f3943a0b4a5f33ccffe8f0a23e0676788",
+      "crates/lhr-engine/src/actor_registry.rs": "50ca5c721f956349830aee4de61cd17fe03e186435d9a27c669b2c312c3cff85",
+      "crates/lhr-engine/src/actor_tick.rs": "9a246bb7a3e2ebc1978019c244f5b17078e6eb7b8f652e475717be0a98061422",
+      "crates/lhr-engine/src/actor_world.rs": "37282eae756ad06a1df79c5053cbe86d44be26dd63c6430243bb97840205492f",
+      "crates/lhr-engine/src/animation_binding.rs": "e222179f05bef753127c4b2224d1cb16a7b684551c006677d06518302cc36333",
+      "crates/lhr-engine/src/animation_controller.rs": "bcb6edfff39591e55d095236942723571a4faf4e6e257dbb594f0dd2dc29b688",
+      "crates/lhr-engine/src/animation_index.rs": "d888a0202123abaf2668e49277476821a4d73064544385bc68a948223ed4549d",
+      "crates/lhr-engine/src/arena_frame_names.rs": "5137d89adef60dbb1c13e323a6398a029af4b65557771c3878436517a54aa266",
+      "crates/lhr-engine/src/assembly.rs": "98a56f0636ab20778716dc4a2a1ce9f9f67255e42c994975ce36f196142e5eb5",
+      "crates/lhr-engine/src/break_plain_glass.rs": "d9110cfd9058a74dfb5dfcd3a404888f8867cbcb0a43b6cc81e09b55a95790b9",
+      "crates/lhr-engine/src/break_plain_glass_lifecycle.rs": "79fa19d783ea1c3a2e7527caea3d46add8f8438f0c12ffceae090f6eaa61a4d6",
+      "crates/lhr-engine/src/break_plain_glass_lifecycle_tests.rs": "99842ba40c6c3a3e1f1aabe14e64580380d43d5d06cd242e277995dc494009c8",
+      "crates/lhr-engine/src/break_plain_glass_merge.rs": "e3f7c50c91b2a70a651969d915ac5698eef9d2a26fb6a33f526c539173a9b85c",
+      "crates/lhr-engine/src/break_plain_glass_update.rs": "dd0f8e411e1252f7beef99c8b7d9a77ae0154ceb03ea3ced17e1c6f307ec7842",
+      "crates/lhr-engine/src/buffer_managers.rs": "1ce3eb138eca09df73db2102ba19b291ac143c82208fd43770bd82f019603897",
+      "crates/lhr-engine/src/buffer_vertex_access.rs": "d65c377005afa64cafbdf4390929168c9903f06d61a184e8d0098ca7869a0315",
+      "crates/lhr-engine/src/c_str.rs": "f544cd0a3b5933bcbdad3d34b7297f114d487c884d70baa2e62b182c2c4a1640",
+      "crates/lhr-engine/src/car_caller_cleanup.rs": "f4f61215a440d0a2cb2eb79ccca83969e6a04ea7d2fc5aef596eabc71d0a653b",
+      "crates/lhr-engine/src/car_construction.rs": "583c906c99fc58902225953d182cafc19afb77ccffa10e72ab280c805d8c26e8",
+      "crates/lhr-engine/src/car_effect_records.rs": "1d6a9efd019e46a730fe9e320315674f4c09b5f3a32fdd3da5ebc5bb67026254",
+      "crates/lhr-engine/src/car_effects.rs": "9939fc27a574f5296420ee25011f8e696b156bfe4fdeb9772fc74f3ad4ecdb53",
+      "crates/lhr-engine/src/car_frame_backend.rs": "4e9296767cda5f50eca8921aea75543fc5dbd9113c03233985af201b7f2e9071",
+      "crates/lhr-engine/src/car_frame_effects.rs": "140aff3dc308d44eb350a1e00c0a4058662b2edb6a4457f6685b822dad345476",
+      "crates/lhr-engine/src/car_game_done.rs": "fd19e05112077c2cf370e9ebac81d1e2a5a525069f7dd11936946e5cbb3915e7",
+      "crates/lhr-engine/src/car_game_done_vehicle.rs": "0e868145322a84b5b634c4c83f12806c81ba7ff65469973e361fbd8ffdc2244c",
+      "crates/lhr-engine/src/car_game_init.rs": "5de995c2f5eb257aa8e0a87408ef7439022ccd63e4997ed603dea5d5c04643c7",
+      "crates/lhr-engine/src/car_game_init_actor.rs": "c77ca6b1dc1477ffca8b5e8f4667ade87b94e38f3c478dc9dea62b56a037c4ac",
+      "crates/lhr-engine/src/car_game_init_dependencies.rs": "dc297a5609b342663ee80c99f04b14f8d30d46643e07601bdc8511650978fb4d",
+      "crates/lhr-engine/src/car_game_init_levels.rs": "0def85dd5533450f247042e66cf7b345eceed3474bb6d6fd527e2ae27a5ec09b",
+      "crates/lhr-engine/src/car_game_init_levels_convert.rs": "e2a48130cfaf303c77641aee6107b6eab34345265d1b0c6b5ea1a831de899cd9",
+      "crates/lhr-engine/src/car_game_init_support.rs": "8945070f22f70c98c3fb5f8800b7b1bfd3a2ffce7690300454e5882a594c0b80",
+      "crates/lhr-engine/src/car_game_init_vehicle.rs": "659eacf728ed009700d2c1e3524ba536d62c410c141a670fa434f3b192a565c5",
+      "crates/lhr-engine/src/car_game_init_vehicle_lights_active.rs": "194b39947d741d6c5a8b9d0529b42aa945d8d06e4cd6866f46f110a3bcccf6b5",
+      "crates/lhr-engine/src/car_game_init_vehicle_resources.rs": "df8b9eca79c282e4f56c1826e978fc821386f862c62e096bc541d6b6f5cb3e03",
+      "crates/lhr-engine/src/car_game_init_vehicle_resources_lights.rs": "6c18acbbebf8f0a772d13200abd2034b5bf2b297133e8e23c161acba6fc8351d",
+      "crates/lhr-engine/src/car_init.rs": "306e30db8cd5edf8548933ce04e8ca4f4b9cf4b9eff098f9e83f3b0dbd48d763",
+      "crates/lhr-engine/src/car_inspection.rs": "8968a2b6be1201cab8eaf953fe2396e8e70757066fe871d2f668656054a31a06",
+      "crates/lhr-engine/src/car_inspection_resources.rs": "5f50f67a17958b4f0d0d2939b8a3c007e8b231fa8b868ff418bbeb75369fe8d9",
+      "crates/lhr-engine/src/car_inspection_texture.rs": "63adb8c4f367b095811b682eafa45e8290a1a50d6763a77a95f56ff1f7ec970b",
+      "crates/lhr-engine/src/car_resource_math.rs": "04c389c7237c32d52c9c34a87da32fbfdb1d369f561b61038876b496b5bf3a37",
+      "crates/lhr-engine/src/car_resource_tracks.rs": "fc6203d63b1e670c5acbfb58601a3f9de89a22351e3887f4d8104d5df0879aa8",
+      "crates/lhr-engine/src/car_runtime.rs": "300644d0608376296d7dd0aa88f542b12ec4350f65b02884ccac02dbd8392c65",
+      "crates/lhr-engine/src/car_runtime_catalog.rs": "1401c66467ab0accf58ca54d06a4f7a5c1f078733ce8d5373412cff4b82d3edc",
+      "crates/lhr-engine/src/car_runtime_driving.rs": "8c103f4002cc7e67a25a2207e263a0d86dbf0719aef9f6534dd148570f7fe02d",
+      "crates/lhr-engine/src/car_runtime_game.rs": "213f9d78afe5b23170d76f37c7db24ea60d07a6fca8f2b7b4d5ceafde009f505",
+      "crates/lhr-engine/src/car_runtime_services.rs": "5e02bd717a6977f28461bd8c0af8ed7e3077adf972c7b9ec5b627668a9130610",
+      "crates/lhr-engine/src/car_runtime_simulation.rs": "2438e02379344396ab8f201b4fd1ca5bda18fdcd144e6bdb8ec8afd8ba1a3438",
+      "crates/lhr-engine/src/car_runtime_simulation_crash.rs": "2b4385c766ea783bbdcf9c16a113684152fa11bf3d9799c7e5c3a9d37db6e285",
+      "crates/lhr-engine/src/car_runtime_simulation_crash_actor.rs": "49300a84602982a4a410152edbdbe0732d39867c582913c513c3bc72ae9965df",
+      "crates/lhr-engine/src/car_runtime_simulation_crash_ai.rs": "ad2dac8a6bc4bdcbee96a522d58039b11a26c2f70887d64bcc848d5d6c27c0e0",
+      "crates/lhr-engine/src/car_runtime_simulation_crash_models.rs": "5173e9527992813d28c182d20f01a4de74e95879fdf8d1f8a04b0cbc415048ea",
+      "crates/lhr-engine/src/car_runtime_simulation_crash_response.rs": "33ff7e2903429d4bdf0fb7172611e8d3bbb2e12d95a2108c7b4f940ca041f55f",
+      "crates/lhr-engine/src/car_runtime_simulation_crash_sound.rs": "9816f7730d6de65150a45f522de58134147a2c024bb4d76ede2d73143886bfc6",
+      "crates/lhr-engine/src/car_runtime_simulation_dynamic.rs": "1c081d064d10ccf4f2addb0dd2db626a651e02184a73e649747d73c9d5ab6d55",
+      "crates/lhr-engine/src/car_runtime_simulation_effects.rs": "4996c64e63dd33312ce1ddc38ac9411d3e3f29246a1d23d205d1d93e1585929c",
+      "crates/lhr-engine/src/car_runtime_simulation_glass.rs": "574b4516ced926a9dbff4351c97201756b5d06f730862e74d657a83b85523cb1",
+      "crates/lhr-engine/src/car_runtime_simulation_glass_lifecycle.rs": "fa782a492c18d0de6a3a7aabe4d47005206a8c96e51e087504e2d4c9e1440560",
+      "crates/lhr-engine/src/car_runtime_simulation_glass_resources.rs": "b42b3acd338cf05acc42fbfdda246b5580dc2d940b9ab25a7c4d4e474560e064",
+      "crates/lhr-engine/src/car_runtime_simulation_spatial_sound.rs": "cb451eedb26e0f1caaf740db8d2938b1bd8115911deca59ea87964cba4aff56a",
+      "crates/lhr-engine/src/car_runtime_tables.rs": "5d0480034a739b8de0e912f442dc4362a332b0827f4360f5248f44e314576eb8",
+      "crates/lhr-engine/src/car_state.rs": "52a30cdf393dd1cdb768cf0ca726115eafc6d714a9f97f71697bca90991b2b45",
+      "crates/lhr-engine/src/clock.rs": "735d729bad3ba50d85226f2af6e99fe89b478f5f5db8e1df74efe0dc211fc918",
+      "crates/lhr-engine/src/collision_dispatch.rs": "bec0b84c74fcbd6d2c0f32a77eebf4a6bc2cd2f184f8d8f98fc5565c0ee21ee9",
+      "crates/lhr-engine/src/collision_line.rs": "6e8e960f8144c4ba6022402f7a7309613f7f9657ff524b3247bb08f9afc648d9",
+      "crates/lhr-engine/src/collision_links.rs": "90cd1cb3e7081760c4da37951817e1fbb758a40857cecf14162e974a6946e58b",
+      "crates/lhr-engine/src/collision_prepare.rs": "9cc0bd1b43c0405b01bd9e9933d685ba3ac80229f3f02c485c4c56a796a69a62",
+      "crates/lhr-engine/src/collision_query.rs": "58afe32225e6a7fa8e9035faefe9d4f40f7b6f2007fffcceb7a5cae9a6a95c25",
+      "crates/lhr-engine/src/collision_swept.rs": "888d47110356fb447def2ee4f7725ffb1defce86f4a508d07f40c2f766f69e75",
+      "crates/lhr-engine/src/collision_swept_aabox.rs": "e293ddbb547b1c17e3bfea84dfab6fa51bc12afbf14f64169c371946b2040fe6",
+      "crates/lhr-engine/src/collision_swept_box.rs": "61f150883ff156d077b3c6dfcbbe31945b33d7ffb632706f08715ee3a68a7ae7",
+      "crates/lhr-engine/src/collision_swept_volumes.rs": "f92d12277c23b17a6acc9b7d1690aea63ab6714fd3db1fc2d4f8072e031b944b",
+      "crates/lhr-engine/src/collision_swept_world.rs": "db2e2e01831864425bc62c722a2187428b938a3c5d2a094665e065344e363cc4",
+      "crates/lhr-engine/src/collision_volumes.rs": "628a80755381409ed9d083a4f42d3da0fdafdf1e3a794d532c976a2b4e29baf3",
+      "crates/lhr-engine/src/collision_world.rs": "2725469394f47f03c98214116ca4d348d5697796c281b454489b74b5cb158b4c",
+      "crates/lhr-engine/src/collision_world_driving.rs": "0d84869f265531c0d8316a8d36a39b907505d3938b08cec1fe72d76f4271ba1e",
+      "crates/lhr-engine/src/collision_world_driving_contacts.rs": "b73078f7de335a31868ecd220a34052673e3802bd85df624b3c304483c9aba6e",
+      "crates/lhr-engine/src/crash_actor.rs": "328887f6c08b073222b7147f255cb6fa36d4c4731345fea6c0a7604986446a0d",
+      "crates/lhr-engine/src/crash_actor_bindings.rs": "1d290ffca2ce940886f990e0b8b097c4264edc6d310fae4960d04018ce2f90b3",
+      "crates/lhr-engine/src/crash_actor_cleanup.rs": "05816125d98cdd83eeeb697a5fe484032a04aaae9d9d953b32c6f47d0f435f73",
+      "crates/lhr-engine/src/crash_actor_dispatch.rs": "736c3b1f42c20f42a356ced73520c8bb5fb4d2c79a80a2a144d14c25aad4190b",
+      "crates/lhr-engine/src/crash_actor_game.rs": "b78150e0ee5c9de57542f79da3d0a252548737d04ee02a2dd717c059206b8aa4",
+      "crates/lhr-engine/src/crash_actor_tests.rs": "f4a45ecb00bcf03c7c541c186685078cd97d451079f15dc7af64a71ff7b5acfe",
+      "crates/lhr-engine/src/crash_actors.rs": "10b8e77b01a7d344b5fa2d9363cf379b6b14a45c7d785ec7507786597e793a96",
+      "crates/lhr-engine/src/debris.rs": "3d09314994a64bac7b5bf54fcee760e9b4e6157990a0aa257eabf5672eda175b",
+      "crates/lhr-engine/src/driver_scene.rs": "3aca08ef36a77973002c1d132b16ada6889d4374f9a3da6db2245a4e4af8f0d9",
+      "crates/lhr-engine/src/driver_state.rs": "8c3cd26f64017fccbac30a8e860be5de9ae0f872d9940855f4b75038430db2b1",
+      "crates/lhr-engine/src/driving_vehicle_tables.rs": "3ad3c38e2bf84db0c5ab85f21651224b0f1e1add7417a53a06e053ecdf9e7258",
+      "crates/lhr-engine/src/driving_view.rs": "08bbeb6ee274b1385b4b1766687f8e92574b8d855a9f93963613067caf1a899d",
+      "crates/lhr-engine/src/driving_world_assets.rs": "3cb5d340e7338b6f6b5e02da7f12b683f40e491f1452868432607cf12011b047",
+      "crates/lhr-engine/src/dynamic_collision_box.rs": "098aff20045beb8b79e926c426850dd89f78d9295acc6a4498bc2bf607d60a35",
+      "crates/lhr-engine/src/dynamic_collision_manager.rs": "38fb5053bee368bd1cac8af0b7edc8e2fba693abb36381d88792be0705ab13e8",
+      "crates/lhr-engine/src/dynamic_collision_queries.rs": "211985dce6400e2dd6e3ad385df1c9d08d9e2ad0bd75b30db9cd30c932c75fe2",
+      "crates/lhr-engine/src/dynamic_collision_sphere.rs": "a7d38e410d2d68aa12e80c2568e73bb6bb958cb36d214a31b7bea09917526ac3",
+      "crates/lhr-engine/src/frame_camera.rs": "09b4c058707640f57f18d43edd14142f86fae534118af0c7a27a9ff248aa1f06",
+      "crates/lhr-engine/src/frame_delta.rs": "55a2d283f7d68eea303923adfa79fcd610a532388ae15cb3aa81eea2f1a7285b",
+      "crates/lhr-engine/src/frame_dispatch.rs": "fc7a7935f112b8765f330102d9aec8016714a69508afcd1664b1e4a9e76cd5d3",
+      "crates/lhr-engine/src/frame_fast_lookup.rs": "51699ea9b863607c8215e99de817af12146e3c0b92b8391a776ea10b5497eba8",
+      "crates/lhr-engine/src/frame_hierarchy_bounds.rs": "2ec4718fef7bb7144ad18ee5f34e54577fef98132d63ffda47715517d5c7976a",
+      "crates/lhr-engine/src/frame_light.rs": "483c8f43374969fb96676827fd18df7e8a41543801c70d2612372abfff94fa95",
+      "crates/lhr-engine/src/frame_lookup.rs": "0bdf5a033c7ff41e715e4ef0e2060d41c57bb4cee327b17a0e790ad044457e6d",
+      "crates/lhr-engine/src/frame_projector.rs": "3001900629234200076e65c7fc8bd986eac93a608b444d395cf70c6f6c67bf4e",
+      "crates/lhr-engine/src/frame_transform.rs": "f1cca941d0e8c7902c8cca84ed74f6e250651f29fdb215efa35eea224c28717e",
+      "crates/lhr-engine/src/game_camera_projection.rs": "36f90ada94b05e6506b7876b0e6c621a99901567323d242941cf7cdc2695d2bc",
+      "crates/lhr-engine/src/game_crash_registry.rs": "7ba0e05093102bbe08dde4954836d6615e53be9f604698cc3a2e589b9354a209",
+      "crates/lhr-engine/src/game_spatial_sound.rs": "6bc2b9cadef50505fb65ed63e1c6fd21bdcf38b2d56bb5823bbc180ff70ecd59",
+      "crates/lhr-engine/src/game_spatial_sound_tests.rs": "89ee629b23838135dd444d3f3a763245a4cd4de7f62ffd945cd19e630b2cd9df",
+      "crates/lhr-engine/src/glass_subdivision.rs": "148ce3aaa77b5307d616550172b46b6e60ac71655f82d58a2125e023080cf589",
+      "crates/lhr-engine/src/i3d_object.rs": "0ee803faad9c74dc3ed7334dca33b90dc97adcee45d0a1f3526b78cc0a213215",
+      "crates/lhr-engine/src/indexed_sound_manager.rs": "e1febe3a9fb21920791f0df40f9cc38223fa0117d4764a743f97b02f4e37f775",
+      "crates/lhr-engine/src/interpolator.rs": "495da78e52aa8f6228a44e66cc118b3ba1c4845703bf1c8bcd4106bc21c0f17a",
+      "crates/lhr-engine/src/itexture.rs": "0a58589f4bce42ed8599c22a8084a57dafb99b396fe7c7a2ef0032b37f4afe12",
+      "crates/lhr-engine/src/joint_state.rs": "ba9dd3d3fe3a34a97ff57f41fb26952946f2a08505619f23de1c5953896ffae6",
+      "crates/lhr-engine/src/lib.rs": "dc94b8a5f5c6a2e4b06e5cf945b5d61208fb8244c89b3f2ef22420a0d836146a",
+      "crates/lhr-engine/src/loaded_glass.rs": "c758b263ba081fad9becbd736474fe880b7c2c6233a7961a4c0026e770727b14",
+      "crates/lhr-engine/src/loaded_vertex_access.rs": "c2f513f3c40943a9d95bbfd3d772802844b1bc4873c4542412dc27d2451faf9a",
+      "crates/lhr-engine/src/loaded_visual_resources.rs": "dd258fb5d27c7b274f6dc0d250b63380eb339bf11052054e253ac238caf08353",
+      "crates/lhr-engine/src/main.rs": "0e95c63200c2390ce0a0ebcf2e9151e7c2ec8bbefd372217670abd152b56e649",
+      "crates/lhr-engine/src/managed_vertex_access.rs": "d38266ebc803906ed5faae6fbe03855411bca8a1d6add493af94d98dde3bbb4d",
+      "crates/lhr-engine/src/managed_visual_resources.rs": "ab61cc7a04ed834c1d10db6a9e136e30acf0f544a57b00a59fc6a889ccac4409",
+      "crates/lhr-engine/src/menu.rs": "fc44a4fafd462884c4236f13b1c9203d71d45b77c5cde2563a3ef49a1ee664c7",
+      "crates/lhr-engine/src/mesh_bounds.rs": "87c530f0acb9c98fb5b0a1a171b63a009ca2608f405d68610d88d681c21cd4d2",
+      "crates/lhr-engine/src/mission_actor_stream.rs": "2fd593f2e7c2d6490d9788c9794f31403c048d113648e51fa88c6deeea43b317",
+      "crates/lhr-engine/src/mission_components.rs": "bf42fa7bd23f656066adaad80e50ff4362d14613a37d1b52e2968f8ac213a90b",
+      "crates/lhr-engine/src/mission_effects.rs": "9f2a597035223d11cb162f95b839de5b1d32361a95314bb6dbd28b873e588101",
+      "crates/lhr-engine/src/mission_game.rs": "5b263d4e0f7f13443b414cd7b019de84dcff620704107292e8060aea334e95bd",
+      "crates/lhr-engine/src/mission_lifecycle.rs": "d6cd532a27ca081b7bcf1095bd1b9fa14f0a440492d27f4ab208c03e9b5e5777",
+      "crates/lhr-engine/src/mission_resources.rs": "e060447ac2f6b7f5db3dff4b441ee1a87d318a37afa6f5f1c75f83d465d2c279",
+      "crates/lhr-engine/src/mission_scene_loading.rs": "c5f00529c8dc4cae1894ed1fa4b0d5902cbdbf7fb145134de806b93a1f69049d",
+      "crates/lhr-engine/src/mission_scene_stream.rs": "3b624cc5049d754e0aefcc888f89687d0feea7551964f975f7f4cdf31052da12",
+      "crates/lhr-engine/src/model_crash_duplicate.rs": "7ef2592a7b6008d1cd2986a791e5a36dab50919f814f8c73969ef12a75c2405c",
+      "crates/lhr-engine/src/model_glass.rs": "e6509039e76d94fe0c16f7497886690c8d4de2bb793d81598b19494055049433",
+      "crates/lhr-engine/src/model_loading.rs": "5b2c354109b62ff4f1ffb0dafa15c6f34607085da226d37770a50817f90e60f2",
+      "crates/lhr-engine/src/model_tick.rs": "baae0599cbce10c21b1f0013887a9180ecac44bf73cacfcc3c95cd8b163fb7d8",
+      "crates/lhr-engine/src/named_script.rs": "219a29efca26b9b3aa1dfbde14398cddeccba3e409db310a9ee91e6506183d1b",
+      "crates/lhr-engine/src/native_frame_direction.rs": "5d222663c4a52379394aabedcfef750e9e3094153b2b330d01588a481c918006",
+      "crates/lhr-engine/src/native_matrix.rs": "79f0e01d6672eaa131fb9c641412f91299f0f9bb3fffe3fae9d902b6f2e7393f",
+      "crates/lhr-engine/src/native_precision.rs": "1533d6479ae4b8c4d2556f3072fe048d9015dc9438883fcaa93190c87bbf9c73",
+      "crates/lhr-engine/src/native_retained_angle.rs": "154cdb3cab363cefa121e3c0224b98493995cfcc859728e4d39daa004fc7e332",
+      "crates/lhr-engine/src/native_transform.rs": "50ef1828d195118a570c21b21a9a6f717760ae214c2e2b9312ae7ccbc766a21c",
+      "crates/lhr-engine/src/native_trig.rs": "f7a2cdb3e124ef7397c31032063e052b8a5a357de0bb69de9aece7859226e7eb",
+      "crates/lhr-engine/src/native_vector_angle.rs": "3194da3738f2827539f43555469e24da021dbf2b89dfb16d73a3e82730e2c124",
+      "crates/lhr-engine/src/native_vector_x87.rs": "b3846f6a727246b362baffd5893e581939dfa4323b0f98c9796942e8a9918c4d",
+      "crates/lhr-engine/src/neighborhood.rs": "259e78ab10a663157ede70e98fce93cdc204227ea69eceb93ba568528d2ff287",
+      "crates/lhr-engine/src/original_config.rs": "477d8931da9ad1cb9df9701cf252a9e99dd18f8dea98b8e03fdd8d839ce389cc",
+      "crates/lhr-engine/src/original_logo.rs": "8760cf87dc06626fab50917b00537c76ec514d52acbda25e1e93fc22f525d15c",
+      "crates/lhr-engine/src/original_program.rs": "3e5b7b2b625470da2ddda0449b964e243cabf41372cf73bddcb7f7d6b6e9bd5d",
+      "crates/lhr-engine/src/original_system.rs": "2105ca02d703b8198209848a0a2ddf03a65732ecefe4fd82043f3928a76be5b2",
+      "crates/lhr-engine/src/original_windows.rs": "236d2b176bcfd48af9b8b0ac6cd10d845616b529f5f2a51328188318383e9ed5",
+      "crates/lhr-engine/src/ph_thing_ai.rs": "f97bbcebb7ca9885588b576c8d9f027e49907e59d23a58069a30fb0a1fc1f260",
+      "crates/lhr-engine/src/ph_thing_response.rs": "4bfcd6dfdde2454fa11b75851543ab5dc019ef78f428310f3dd3d91b81ed5a93",
+      "crates/lhr-engine/src/ph_thing_update.rs": "f335d401501ef1cb964ec682cd884a73912bee8d4272f097fa25fea2593b60a1",
+      "crates/lhr-engine/src/player_control.rs": "dcbdf5afd1b3e55da0ffed3499f9ba23b60163d5fe2d5ff67eeca8179aa89335",
+      "crates/lhr-engine/src/police_state.rs": "7d27090cd14ca634aeabd2bf25f43f35d06d16aa14260f8f7e993a0e96c2dbb8",
+      "crates/lhr-engine/src/program_instructions.rs": "ec9db26ab1b5cf32d2387bd63c2f8747b514c345ab9c6ba0f65ac19fd22d3b7f",
+      "crates/lhr-engine/src/program_parser.rs": "3f96a08ba6e56b61ba728d53c81e76582b40d52b7a2603c28e522c1c9218dd2d",
+      "crates/lhr-engine/src/railway_actor.rs": "eb58ddee600c516c81bed3ba51c35fa9341cfe6c637b72b5015d7af16f4940dd",
+      "crates/lhr-engine/src/replay_state.rs": "20715edd67d2530c2c9527fabe85239e9f861a120e197c605dbf52fc4d694099",
+      "crates/lhr-engine/src/rotation_animation.rs": "341218b7f85e6e0382960f01a0cec30f4e123001ec1aaad4ac377107d596dd1e",
+      "crates/lhr-engine/src/runtime.rs": "53b672dfa2da4efeaec1807d27d13413229793861db81002e4cb8d07d5cf11bc",
+      "crates/lhr-engine/src/runtime_audio.rs": "dc212dc73f385cb150518045a8718243b7b8fa1326c1fd5c33b58661fb8d6671",
+      "crates/lhr-engine/src/runtime_audio_device.rs": "8a7febd7c09343c808b94569461de0d994d9fa5bf853bd23334454957bc74e17",
+      "crates/lhr-engine/src/runtime_audio_frame.rs": "18f71d94af2a584022d8e8ab42eb2a01699a01c6d755fbf4d217c523e4e7a6a9",
+      "crates/lhr-engine/src/runtime_vehicle_audio.rs": "fcdef3fc5cb2c398599c59b66c03f97cf29887a8c0f62707e6e96ea42fb7b051",
+      "crates/lhr-engine/src/scene_lightness.rs": "ada0808251a519e00c7d34d771f02d9763451759e4e1520726a9b175805a4337",
+      "crates/lhr-engine/src/scene_ownership.rs": "436d78431f7c3b6d3aa221881643f19f81af0e605d2a6bec0649c02956484b31",
+      "crates/lhr-engine/src/scene_resources.rs": "6618af4abf112764e0d4eeadc74429c416329e6af777b7e4d09630795faadf35",
+      "crates/lhr-engine/src/scene_tick.rs": "788a009ecab95ce08cd2266b38da07a02e9a8514a91e31c22d2f79f492e3521b",
+      "crates/lhr-engine/src/scene_weather.rs": "13c3e65c0e71012ef662ea1b299a972057c75d6bfba2a59688a07a7c98855531",
+      "crates/lhr-engine/src/script_lookup.rs": "7c344592fb2c7497e2a131b6d2d322fa0f688327483d08dad02f88d68110828e",
+      "crates/lhr-engine/src/script_scheduler.rs": "cb8907aff25a3d94556b47c247def82e9510800bd043bbcd1efc8e19cd2d2f31",
+      "crates/lhr-engine/src/sector_sound_data.rs": "b17f350c1345b3d41876e8441184b0a9f66d9ef607d2436132b955b926b84ebc",
+      "crates/lhr-engine/src/selected_loop.rs": "b7ca7a0570f493b413b006e84aa6a00de235dd53f4789d46b8df992144c5e533",
+      "crates/lhr-engine/src/singlemesh_binding.rs": "7a70c68c5d2ef6b3f60773d5c2c36705aa8f8ef84f4412210092d53607bb4ec4",
+      "crates/lhr-engine/src/singlemesh_bounds.rs": "ae0e8a7b1fb6ef2cb082f90df6a82fe3d36feb38ca61964bb2c0b22f7339f5e2",
+      "crates/lhr-engine/src/singlemesh_deformation.rs": "887df96e47b3397b3aaac3521191433a90e7723e149e2731d1f1168824c9a8b5",
+      "crates/lhr-engine/src/singlemesh_pose.rs": "044ec7f33b3efad697b8fcc38b025610e1802dd7dde0a5823f1c6eb15d38cbd4",
+      "crates/lhr-engine/src/singlemorph_state.rs": "dad718fbef65b3e0f931a5d2f2e600999f0675e8d0d375cb88262f6852e9e091",
+      "crates/lhr-engine/src/skeletal_animation.rs": "872327f9303e1e48a46f699fc8b440d9ed893184d17e4265c3e69ff2c1d3bd28",
+      "crates/lhr-engine/src/skeletal_playback.rs": "0df955c69ed7d1bdcbbaf2c2a35b30488d9078ca0e326412e79d8da20843393a",
+      "crates/lhr-engine/src/startup_asset_backend.rs": "5248f7faa78a0d6c97bab5cb97b835c2bd431d636f058fc911e2ff4748cfa428",
+      "crates/lhr-engine/src/target_direction.rs": "3f4d7aa5e5bf51bc98f00580430c66ad0c8f0739e395d8f5adcac2436bf36ead",
+      "crates/lhr-engine/src/target_state.rs": "4cd6da60d2a8746dd8f7cfcd8e951e5914be7e83d01119c3d9528ff12fb3a544",
+      "crates/lhr-engine/src/texture_factory.rs": "aca409a5a4c347b15eecdf3607caaedea1cbfe1cf89ab3800bbba15ef2fb519c",
+      "crates/lhr-engine/src/texture_manager.rs": "b11a809f479b6c779be05265764ca43de050b2e04de86690747415adf73ed00f",
+      "crates/lhr-engine/src/texture_manager/restore.rs": "e84c5ee2dcf30964eabedc502155a575c673836325aea6ec1533daf2adff2495",
+      "crates/lhr-engine/src/texture_manager/worker.rs": "4333c87ebd15e46573fb8e7c73df0a0713a0311ebdcf7f1c246b5c14c89e8d02",
+      "crates/lhr-engine/src/vehicle_axis.rs": "f469bb2c0a5a17afb199abe1a2b64498c07af96ebcceed3f654f52d0f859146c",
+      "crates/lhr-engine/src/vehicle_axis_records.rs": "e0989bdb94faf5dec9d4fda3c216c33d9bc93a98cb904929b2f1bd04be098f01",
+      "crates/lhr-engine/src/vehicle_axis_update.rs": "cee947ff41a5e9e7056c09edd6c7fdedf0c744606697fa6a336cad72e5a10ffd",
+      "crates/lhr-engine/src/vehicle_bodycol.rs": "fa80b40c2fd8b9937b9877f98fe0439a5f5388aad73a2f00d98ab2a3b7785cff",
+      "crates/lhr-engine/src/vehicle_bodycol_records.rs": "5d4e7763b31dcc59a6c49e9b0033d81c6c6c9975727c08d5d24a08bcd791e3bc",
+      "crates/lhr-engine/src/vehicle_car_body_dynamic.rs": "e9f1547958cb5b9ebb8514b7f5e824f6bf7d74d58ecb6e444bf74aa68983bd63",
+      "crates/lhr-engine/src/vehicle_car_body_dynamic_tests.rs": "c3595038ecbb3d7caed268f35dbeba6aae0fdcabc68504317f91e83b64df1b24",
+      "crates/lhr-engine/src/vehicle_car_caller.rs": "1c9cc4dc665ce273363ceffb89882c671e0fe71f8249a42ae0e257ef54a4c88e",
+      "crates/lhr-engine/src/vehicle_car_contacts.rs": "ebd91240d028339c877b376b73808c4b2144a7bf12415ec022dc68b65d6c5e1c",
+      "crates/lhr-engine/src/vehicle_component_records.rs": "7db77de6cd43c95ed8b4fab48be069c289deaa8f658ec2ca38fea92d6612d131",
+      "crates/lhr-engine/src/vehicle_component_tail.rs": "5fd9c6a42ea4611facecfeea4f9352c2c3803f0179f877df72d050c9e116e41c",
+      "crates/lhr-engine/src/vehicle_components.rs": "3b786b508bb4dc4ddc7a68fa8ddd8f63a457ff401851a0947e215ea19c294d9b",
+      "crates/lhr-engine/src/vehicle_contacts.rs": "ae5107508c1966e9579adce265919534e58a015b5e3ada7e01c916dbe2131b6d",
+      "crates/lhr-engine/src/vehicle_contacts_response.rs": "27006b6942903fbfb7ce114d260e8120b53c8e58f35964ff0eef8dc3abebd46d",
+      "crates/lhr-engine/src/vehicle_controls.rs": "9cb6c9d96d7bc0fc282ec70a873b45a163f3bf997017ecede96cf522de3a2413",
+      "crates/lhr-engine/src/vehicle_crash_model.rs": "e6724577140330770013589c79fd7896bcc562a9af3de438e83254bc814ed8cf",
+      "crates/lhr-engine/src/vehicle_damage.rs": "eae1c95d4c86ce85140dbae5853d2a4f974c9c8ef6d2c47fc27044abc33171e9",
+      "crates/lhr-engine/src/vehicle_damage_glass.rs": "53a58238dcc7e04682c3de78a6ac0511517227d9c57274e9df24181e11a4f7b5",
+      "crates/lhr-engine/src/vehicle_damage_glass_tests.rs": "d7e444a4cb20ad929593c93e40f535df2d53c694dd1e8ae84b5e7c2cd73f3b82",
+      "crates/lhr-engine/src/vehicle_damage_mesh.rs": "7b56375c429ee9aa83f65a599c89b3fe10b3d5b3bb24d2852fe5ff0871ccc65f",
+      "crates/lhr-engine/src/vehicle_deform.rs": "89842e133a062df8078c190989646b41ba1d134cd7f346bb2176465c52053e86",
+      "crates/lhr-engine/src/vehicle_deform_resources.rs": "773b5521d8305acae9c2fe14d91940565a5cbabc385ddeaa3e84e3c42e71fbaf",
+      "crates/lhr-engine/src/vehicle_destructor.rs": "738d7313ace1bb8871b381cf4b1a71ee218b717ab0e500c695510e967cce4f2d",
+      "crates/lhr-engine/src/vehicle_drivetrain.rs": "2e47345a369efbe69cf1f1c4e0dc62c3e7d1ed5623bd73f1e8dd4411e62f2ffd",
+      "crates/lhr-engine/src/vehicle_dynamics.rs": "54045dcf6ea0cbc6df475c057d2b9e581294a1368c3eac215e543b354a3db3e1",
+      "crates/lhr-engine/src/vehicle_dynamics_body.rs": "c78883136906e181ecf85df2bf7e0e29c93c4a614b19a223ba3fa030bd40b8b6",
+      "crates/lhr-engine/src/vehicle_dynamics_body_collision.rs": "ad4c94d4b74ce32775cc1b112e3ff5d6417c84a7b9c264a25064931d5b1b5e2b",
+      "crates/lhr-engine/src/vehicle_dynamics_body_collision_tests.rs": "3d2e9076b219b79f8294af9e1f95041ca28e180954867a38078934708d8ac9a6",
+      "crates/lhr-engine/src/vehicle_dynamics_body_dynamic_response.rs": "2a6a5c4b7358270f59378c166fff78c6a08dcfdb66b6cce00f4b8b5696d56b4e",
+      "crates/lhr-engine/src/vehicle_dynamics_body_response.rs": "c2b77f6ecc8f4030c14968cbc3ea085dc568562a4b2e603cb77145df8cd31cbe",
+      "crates/lhr-engine/src/vehicle_dynamics_forces.rs": "e5d3fac65c9ee223d19b7e652b3ccd38fd8747678020f36295e201b8a4b830db",
+      "crates/lhr-engine/src/vehicle_dynamics_move.rs": "1c098778adeeb5c352baf78b3126d03668385a873499b0ccf3df4b9ce778045e",
+      "crates/lhr-engine/src/vehicle_dynamics_prepare.rs": "b11831bdb1b823266443db9592c895524500cded06c04847c0482dd611879d02",
+      "crates/lhr-engine/src/vehicle_dynamics_tail.rs": "b871ce7385a3075048010320406a04d7cf2901cee9620fe9afd1fda21a8619cd",
+      "crates/lhr-engine/src/vehicle_dynamics_tick.rs": "c427ea29a1f7c906e39ac6d9c894c955cd51a2557c9767ed51cf3bbed17a4b2e",
+      "crates/lhr-engine/src/vehicle_dynamics_update.rs": "7db4b9bc47fb09ea9bbc955d197cb9c5bba7db4f2729ad319a03ce9f4ea1436e",
+      "crates/lhr-engine/src/vehicle_dynamics_wheel_forces.rs": "9b15ac069c4de7b1d8066d9787b8b7a3255e357f854fd9d47b154c2dfbd004d1",
+      "crates/lhr-engine/src/vehicle_engine_state.rs": "0d04248686bd99c4630239fb881553c27e2e0846a97d63b6680350acae6e2b5c",
+      "crates/lhr-engine/src/vehicle_frame_backend.rs": "d54fa0d686b2409ddcdc372f81493b78653e92fc3659c0657e141eb64898cd6f",
+      "crates/lhr-engine/src/vehicle_frame_crash.rs": "f61dc10936c4e2abdddf312a4dbfc5d3ef185b674dff1e3bc1feb3e5752be7e4",
+      "crates/lhr-engine/src/vehicle_frame_deform.rs": "644c75b122727e9ca8f4c93a57299b5712cc4a5f2d23012b30d1f115b1814b21",
+      "crates/lhr-engine/src/vehicle_frame_game.rs": "37c4c17aae13f7c07b42aa8c460be8101ea320cc8cb37f1a983fe4aae29dcd53",
+      "crates/lhr-engine/src/vehicle_frame_game_host.rs": "f2a200735fb3ecbfb0c369fbd977807df2dcb1e8b17a31c0cf6cc49400a613cd",
+      "crates/lhr-engine/src/vehicle_frame_glass.rs": "c0c0dd58bd79c5c0e57aaeba72117057f72d96791cd4e400f7573ba8966af499",
+      "crates/lhr-engine/src/vehicle_frame_lights.rs": "c9a3a4a15fe2cab4c944d3c51d4a31b2ce808095bfee7ab8fdc2538d1aab0899",
+      "crates/lhr-engine/src/vehicle_frame_memory.rs": "fce9f7a8d336e039ef55c715fdea33336217b46128e1e9701e58d8a300195dd0",
+      "crates/lhr-engine/src/vehicle_frame_skid.rs": "9a857155e234ab22830aacf8961f1a0c6e0cd6d850fe6266313d024bcb2b3add",
+      "crates/lhr-engine/src/vehicle_frame_vertex_access.rs": "eaba18b87a171ba3886b55acc84114148012df3018435f16a3a5620e4e31b304",
+      "crates/lhr-engine/src/vehicle_frame_wheel_pose.rs": "5f49e57cab32afbf5adbc56c60a507fff48fc0f7a75395ede9f3e2924f1c90c6",
+      "crates/lhr-engine/src/vehicle_glass_resources.rs": "224a2d133d86fe456792676c14371a16498edc78363f423af6535e30c9972e57",
+      "crates/lhr-engine/src/vehicle_init.rs": "6a8c52d10af6666ecc87dca2fa6093eff983b46bbf4611f5348e627fe294c8da",
+      "crates/lhr-engine/src/vehicle_init_complete.rs": "a67743df19b2bd188985f9bafefb79a220a1276aa267f91006db0c9445070f51",
+      "crates/lhr-engine/src/vehicle_init_finish.rs": "7468a3fb6a05aabbcd9ffc5e3eae7e3b8859b0386608663d8a64f104662e2e07",
+      "crates/lhr-engine/src/vehicle_light_init.rs": "727dfa19c536be002de15909c36789435a444b130c333dee5a19b10d9ef7ac89",
+      "crates/lhr-engine/src/vehicle_light_projectors.rs": "85abd7845dbc49dfb218aca69509662d45b68e0ef407b6a1278e6f38643688ce",
+      "crates/lhr-engine/src/vehicle_owner.rs": "1140fc14965281c4382159454519e2021e0505122d69f17c65c1d25eab55e150",
+      "crates/lhr-engine/src/vehicle_setup.rs": "9ff61f05325e7906e48953c6ff87f49e9f8a7e8bbe124e38a67f7e67a30bc3b5",
+      "crates/lhr-engine/src/vehicle_setup_defaults.rs": "5243911834103b7e5cecf7d5f69735001fa707ad546fe0c37765b5cd9c8ec01d",
+      "crates/lhr-engine/src/vehicle_setup_records.rs": "50e521b366c71353c2e9019ba94d4bd49e7ff2060a76e3fda6cdc49ffeeff522",
+      "crates/lhr-engine/src/vehicle_skid_effects.rs": "f73cd80edfabd41690e3606c7a09b299c79bd464a50d53faaa5302f811f29ed5",
+      "crates/lhr-engine/src/vehicle_sound.rs": "f33cd35b0563ec19f2008cb5fe8b57909dada7fa39758a9a3c9ffd276e1efbe9",
+      "crates/lhr-engine/src/vehicle_source_parameters.rs": "fc8b13fdd4b279df4fc4e5130ff62126a0fd4120d9586430dfc2fb8b0c3f1922",
+      "crates/lhr-engine/src/vehicle_special_records.rs": "601f57e5fc0f5b42351a852e9afa064061086bf8450ab7711b2749962818a572",
+      "crates/lhr-engine/src/vehicle_wheel_pose.rs": "74e8053c48b490b5f53afab9fad3d14fee71d90d8e279186f4ee75f2733ca04d",
+      "crates/lhr-engine/src/vehicle_wheels.rs": "048a7efd9a3133b1fb7f3e7b77d35aafaf49d7086e0dd38ef50c438203eb0537",
+      "crates/lhr-engine/src/visual_resources.rs": "a4ad9c07cef64ef63d3577ea5ee0cf0cc6077b13b7cf3decb75e61256eb84b70",
+      "crates/lhr-engine/tests/original_program.rs": "18ddd2bbb1c77b9496d4ce3044abac4861f522a2cf9a3302505c8a585249b994",
+      "crates/lhr-render/Cargo.toml": "f419e8b243af141a56b527d7eea1396fbfca1c295eb66d7121a4a965e70d681d",
+      "crates/lhr-render/src/lib.rs": "fb70239f01d2442a4c99055848b0474183c9def784496fa065c8601a0cd41662",
+      "crates/lhr-render/src/scene.wgsl": "4a31e3f550b844586b7978edebc18fbf2fd01019553f534beb9b349e1128c66b",
+      "rust-toolchain.toml": "d13306be0ecda81ce779baa290ffb417380d525928477f16200884b5169cca33",
+      "scripts/common.sh": "501f75b41593162c816668e8fc154e43e3054a85c7aed67db70a7cd822546b14",
+      "scripts/test.sh": "3c31305511307cd39d2eefe203c239be59c10ff2e2932a66002910a7ed5c4e3e"
+    },
+    "reference": {
+      "fresh_observed_revision": "1ee42a56214afeb54c536b85a4b16b5c4f4d86e3",
+      "retained_behavior_pin": "86a7b15cbfa002bc6222e5542671a81988472882",
+      "new_upstream_annotations": 28,
+      "unique_new_addresses": 27,
+      "original_primary_address_matches": 27,
+      "static_research_bodies": 78,
+      "static_research_receipts": 234,
+      "annotation_catalog_game_sha256": "e960397f87a6a2549e9e126a512a6e53d51d17be77af0c13d26ba3640907866d",
+      "supplied_game_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+      "static_counts_are_not_function_or_native_credit": true
+    },
+    "address_inventory": [
+      {
+        "canonical_rva": "0x49080",
+        "upstream_assigned_names": [
+          "C_effects::C_effects"
+        ],
+        "source_file": "crates/lhr-engine/src/mission_components.rs",
+        "source_sha256": "bf42fa7bd23f656066adaad80e50ff4362d14613a37d1b52e2968f8ac213a90b",
+        "rust_symbol": "MissionComponent::construct_effects_prefix + finish_effects_constructor",
+        "provider": "Allocator.open_effects_table required; real present table parser unavailable",
+        "remaining_boundary": "Only actual missing-file Load branch can finish; seeded empty vectors, callback allocator.",
+        "primary": {
+          "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+          "entry": "0x449080",
+          "ranges": [
+            {
+              "start": "0x449080",
+              "end": "0x4490f8",
+              "bytes": 121,
+              "sha256": "0e48a674f50997c872b99f5067a6bcb815a8fdd5ed3e27e608831075611765ca"
+            }
+          ],
+          "evidence_id": "ev_925e8356b7883049b45d93e043d0a02725c4a39424817d75e9d9a84317333c0e"
+        },
+        "whole_function_credit": false
+      },
+      {
+        "canonical_rva": "0x49100",
+        "upstream_assigned_names": [
+          "C_effects::~C_effects"
+        ],
+        "source_file": "crates/lhr-engine/src/mission_components.rs",
+        "source_sha256": "bf42fa7bd23f656066adaad80e50ff4362d14613a37d1b52e2968f8ac213a90b",
+        "rust_symbol": "MissionComponent::destroy (Effects)",
+        "provider": "MissionAllocator::free; same owned allocation",
+        "remaining_boundary": "Constructor-empty vectors only; standalone populated Clear/resource destruction unavailable.",
+        "primary": {
+          "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+          "entry": "0x449100",
+          "ranges": [
+            {
+              "start": "0x449100",
+              "end": "0x449176",
+              "bytes": 119,
+              "sha256": "0898f303a4cfc74b29b2b7a1a9d79a5f33410cad48357b59b7ee855b157dcb85"
+            }
+          ],
+          "evidence_id": "ev_6aa363d3a531af5784751b864c267a7c722c268b3c25e5896ba552913e1e77d1"
+        },
+        "whole_function_credit": false
+      },
+      {
+        "canonical_rva": "0x4a350",
+        "upstream_assigned_names": [
+          "C_effects::Clear"
+        ],
+        "source_file": "crates/lhr-engine/src/mission_components.rs",
+        "source_sha256": "bf42fa7bd23f656066adaad80e50ff4362d14613a37d1b52e2968f8ac213a90b",
+        "rust_symbol": "MissionComponent::clear_effects",
+        "provider": "Direct API on same constructed Effects owner",
+        "remaining_boundary": "Constructor-empty traversal only; retains array capacity, populated element destruction unavailable.",
+        "primary": {
+          "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+          "entry": "0x44a350",
+          "ranges": [
+            {
+              "start": "0x44a350",
+              "end": "0x44a39a",
+              "bytes": 75,
+              "sha256": "d72ccc008a27202fc2abc3980d958157f757bce00f0a8bdcd7911695d44c70a2"
+            }
+          ],
+          "evidence_id": "ev_a24deca27135805b076586ad972897ab02521e1b306419b31ba274a2b08dd9bb"
+        },
+        "whole_function_credit": false
+      },
+      {
+        "canonical_rva": "0x446a0",
+        "upstream_assigned_names": [
+          "C_ff_manager::Reset"
+        ],
+        "source_file": "crates/lhr-engine/src/original_system.rs",
+        "source_sha256": "2105ca02d703b8198209848a0a2ddf03a65732ecefe4fd82043f3928a76be5b2",
+        "rust_symbol": "ForceFeedbackManagerRecord::reset",
+        "provider": "Borrowed existing >=0x24 record view; no allocation or callback",
+        "remaining_boundary": "Exact+0x20 write only; no full force-feedback object ctor/effects/driver claim.",
+        "primary": {
+          "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+          "entry": "0x4446a0",
+          "ranges": [
+            {
+              "start": "0x4446a0",
+              "end": "0x4446a7",
+              "bytes": 8,
+              "sha256": "4451e6dd24a365d7e1f4ee85f4f410e9a4e18022733d35ffbfab2b112991647a"
+            }
+          ],
+          "evidence_id": "ev_af7e75cc8c28e4baaa94bfa342db6c87c353a373776c4aadc29740c138c8e0c5"
+        },
+        "whole_function_credit": false
+      },
+      {
+        "canonical_rva": "0xaabe0",
+        "upstream_assigned_names": [
+          "C_ff_manager::Close",
+          "C_web_path::DrawConnections"
+        ],
+        "source_file": "crates/lhr-engine/src/original_system.rs",
+        "source_sha256": "2105ca02d703b8198209848a0a2ddf03a65732ecefe4fd82043f3928a76be5b2",
+        "rust_symbol": "ForceFeedbackManagerRecord::close + MissionComponent::draw_connections",
+        "provider": "Borrowed force-feedback record and same owned WebPath; both return without effects",
+        "remaining_boundary": "One canonical native address with two source names; never count twice. No whole force-feedback/pathfinding system claim.",
+        "primary": {
+          "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+          "entry": "0x4aabe0",
+          "ranges": [
+            {
+              "start": "0x4aabe0",
+              "end": "0x4aabe0",
+              "bytes": 1,
+              "sha256": "ae3f4619b0413d70d3004b9131c3752153074e45725be13b9a148978895e359e"
+            }
+          ],
+          "evidence_id": "ev_7f80bbbc662b64a56129f743865f514a61f73865c37dd3edef9a11a0ee190fc4"
+        },
+        "whole_function_credit": false
+      },
+      {
+        "canonical_rva": "0x1bd5f0",
+        "upstream_assigned_names": [
+          "InitJoy"
+        ],
+        "source_file": "crates/lhr-engine/src/original_system.rs",
+        "source_sha256": "2105ca02d703b8198209848a0a2ddf03a65732ecefe4fd82043f3928a76be5b2",
+        "rust_symbol": "JoystickState::init_joy",
+        "provider": "JoystickBackend callbacks, no native IJoy production backend",
+        "remaining_boundary": "Opaque device creator refs; null-success pointer cases explicit Unsupported; callback failures retain prefix.",
+        "primary": {
+          "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+          "entry": "0x5bd5f0",
+          "ranges": [
+            {
+              "start": "0x5bd5f0",
+              "end": "0x5bd869",
+              "bytes": 634,
+              "sha256": "112df552e3524e5ef49263ff593d8cf0ac0815c6aeddc96ad1f9e4ef0ca1b7cb"
+            }
+          ],
+          "evidence_id": "ev_2b625dcfe3191e8908b2f088d4c00f9e52bf5f39dc26d96e65c328e8900fb40a"
+        },
+        "whole_function_credit": false
+      },
+      {
+        "canonical_rva": "0x1bd870",
+        "upstream_assigned_names": [
+          "CloseJoy"
+        ],
+        "source_file": "crates/lhr-engine/src/original_system.rs",
+        "source_sha256": "2105ca02d703b8198209848a0a2ddf03a65732ecefe4fd82043f3928a76be5b2",
+        "rust_symbol": "JoystickState::close_joy",
+        "provider": "JoystickBackend releases; capacity retained",
+        "remaining_boundary": "No native IJoy implementation or full device/force-feedback equivalence.",
+        "primary": {
+          "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+          "entry": "0x5bd870",
+          "ranges": [
+            {
+              "start": "0x5bd870",
+              "end": "0x5bd8cd",
+              "bytes": 94,
+              "sha256": "82543a3beaf0cdd2c45cb62494461b4edf10e419d2bf0569691646c2c374a881"
+            }
+          ],
+          "evidence_id": "ev_0da20921016128e2a36a7511dab499ad1096ba047b2022ea4374a9921cb68e14"
+        },
+        "whole_function_credit": false
+      },
+      {
+        "canonical_rva": "0x1beb00",
+        "upstream_assigned_names": [
+          "GraphErrorHandler"
+        ],
+        "source_file": "crates/lhr-engine/src/original_system.rs",
+        "source_sha256": "2105ca02d703b8198209848a0a2ddf03a65732ecefe4fd82043f3928a76be5b2",
+        "rust_symbol": "graph_error_handler",
+        "provider": "GraphErrorBackend settings/graph/desktop/nonreturning exit callbacks",
+        "remaining_boundary": "No production graph/settings/desktop/exit backend; null graph explicit frontier.",
+        "primary": {
+          "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+          "entry": "0x5beb00",
+          "ranges": [
+            {
+              "start": "0x5beb00",
+              "end": "0x5bebc6",
+              "bytes": 199,
+              "sha256": "ae551dc1baa85d38a7b8afb723db4272319f685211a8c26115ce1ca62239f705"
+            }
+          ],
+          "evidence_id": "ev_554627d8c140eb8c65d99c997c60e0ff3da0bdc6c0ca64b78f3f739b75e18b0b"
+        },
+        "whole_function_credit": false
+      },
+      {
+        "canonical_rva": "0x1bf5a0",
+        "upstream_assigned_names": [
+          "InitSystem"
+        ],
+        "source_file": "crates/lhr-engine/src/original_system.rs",
+        "source_sha256": "2105ca02d703b8198209848a0a2ddf03a65732ecefe4fd82043f3928a76be5b2",
+        "rust_symbol": "SystemState::init_system",
+        "provider": "StartupAssetBackend real NativeFiles archive/file prefix",
+        "remaining_boundary": "Stops at original IGraph owner on matching versions; CD fallback/missing dialog may stop earlier. Later SystemEffects remain dependencies.",
+        "primary": {
+          "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+          "entry": "0x5bf5a0",
+          "ranges": [
+            {
+              "start": "0x5bf5a0",
+              "end": "0x5bfea8",
+              "bytes": 2313,
+              "sha256": "f9cfe9eb234fc4ae7de2317c0225dd571b3dd804411e9bf2476835be3ecabe7b"
+            }
+          ],
+          "evidence_id": "ev_d43d8b9cf82360a40f7c3137b28da8a78242f6017629dba400d48d824665a83a"
+        },
+        "whole_function_credit": false
+      },
+      {
+        "canonical_rva": "0x1bfec0",
+        "upstream_assigned_names": [
+          "InitErrorMessageBox"
+        ],
+        "source_file": "crates/lhr-engine/src/original_system.rs",
+        "source_sha256": "2105ca02d703b8198209848a0a2ddf03a65732ecefe4fd82043f3928a76be5b2",
+        "rust_symbol": "init_error_message_box + init_error_text",
+        "provider": "MessageBoxBackend::message_box with NULL hwnd, Init error caption,0x10; native reply ignored",
+        "remaining_boundary": "Direct caller now present; no production desktop MessageBox backend.",
+        "primary": {
+          "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+          "entry": "0x5bfec0",
+          "ranges": [
+            {
+              "start": "0x5bfec0",
+              "end": "0x5c001e",
+              "bytes": 351,
+              "sha256": "5aaf2c6a57064b558698ea2bb1dc109237835a16e23d8d8a2f80e78af5a3a02f"
+            }
+          ],
+          "evidence_id": "ev_0f6b1e6d47a6603ddeb511b0479cfd9d3a70817fccf5af05072754e9e402fffa"
+        },
+        "whole_function_credit": false
+      },
+      {
+        "canonical_rva": "0x1c0080",
+        "upstream_assigned_names": [
+          "CloseSystem"
+        ],
+        "source_file": "crates/lhr-engine/src/original_system.rs",
+        "source_sha256": "2105ca02d703b8198209848a0a2ddf03a65732ecefe4fd82043f3928a76be5b2",
+        "rust_symbol": "SystemState::close_system",
+        "provider": "SystemEffects callbacks; StartupAssetBackend implements archive Release only among shutdown subsystems",
+        "remaining_boundary": "Real provider stops at ProfileClose before reaching archive release; no mission/cache/device/system backend composition.",
+        "primary": {
+          "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+          "entry": "0x5c0080",
+          "ranges": [
+            {
+              "start": "0x5c0080",
+              "end": "0x5c028d",
+              "bytes": 526,
+              "sha256": "1fb4d3cd8ccc1cbf69435b213219a3495e411b8abf7b34287ab55b91e3525bed"
+            }
+          ],
+          "evidence_id": "ev_cd85f80ec6bd5271984756cbb4ec0c8811e9f827479ab2b99ae4629e481c9c7f"
+        },
+        "whole_function_credit": false
+      },
+      {
+        "canonical_rva": "0x13f010",
+        "upstream_assigned_names": [
+          "C_mission::C_mission"
+        ],
+        "source_file": "crates/lhr-engine/src/mission_lifecycle.rs",
+        "source_sha256": "d6cd532a27ca081b7bcf1095bd1b9fa14f0a440492d27f4ab208c03e9b5e5777",
+        "rust_symbol": "MissionLifecycle::construct",
+        "provider": "Caller-supplied raw allocation and observer identity",
+        "remaining_boundary": "Preserves unwritten bytes; not a mission Open/GameInit or original allocator implementation.",
+        "primary": {
+          "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+          "entry": "0x53f010",
+          "ranges": [
+            {
+              "start": "0x53f010",
+              "end": "0x53f109",
+              "bytes": 250,
+              "sha256": "7ba838dff814be821f43ec5af724fb2067b9a07126205e388f9387cc4aa77f23"
+            }
+          ],
+          "evidence_id": "ev_03d2034fbc9e084485fb85fad5d4d4d7785823398b6b7e8fdd1b5cec3de1aeac"
+        },
+        "whole_function_credit": false
+      },
+      {
+        "canonical_rva": "0x13f110",
+        "upstream_assigned_names": [
+          "C_mission::~C_mission"
+        ],
+        "source_file": "crates/lhr-engine/src/mission_lifecycle.rs",
+        "source_sha256": "d6cd532a27ca081b7bcf1095bd1b9fa14f0a440492d27f4ab208c03e9b5e5777",
+        "rust_symbol": "MissionLifecycle::destruct",
+        "provider": "Same MissionCaches/DriverSceneOwner/MissionAllocator",
+        "remaining_boundary": "Unopened Close; empty vectors; owned component/null members only. Active mission/populated arrays/unknown68 unavailable.",
+        "primary": {
+          "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+          "entry": "0x53f110",
+          "ranges": [
+            {
+              "start": "0x53f110",
+              "end": "0x53f229",
+              "bytes": 282,
+              "sha256": "c679f4b98e99e67663b9ef84ebba375e9865b31633a9ee2e2ef1cda60f0c7732"
+            }
+          ],
+          "evidence_id": "ev_723a2fa6eedae5d8e2b7bf9e7ff12ebb4f9b8fcd8c3f7a992f968c0735b589c5"
+        },
+        "whole_function_credit": false
+      },
+      {
+        "canonical_rva": "0x13f230",
+        "upstream_assigned_names": [
+          "C_mission::Init"
+        ],
+        "source_file": "crates/lhr-engine/src/mission_lifecycle.rs",
+        "source_sha256": "d6cd532a27ca081b7bcf1095bd1b9fa14f0a440492d27f4ab208c03e9b5e5777",
+        "rust_symbol": "MissionLifecycle::init",
+        "provider": "Existing actual DriverSceneOwner/ModelArena + allocation/effects callbacks",
+        "remaining_boundary": "Lazy actual Scene owner, seeded components; present effects table parser unavailable; allocation/callback boundaries retain prefix.",
+        "primary": {
+          "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+          "entry": "0x53f230",
+          "ranges": [
+            {
+              "start": "0x53f230",
+              "end": "0x53f3a5",
+              "bytes": 374,
+              "sha256": "48b88e2a860f7def0ccc39a3fa5c2c578bdf31f86b4603c7dc637f14f3d26176"
+            }
+          ],
+          "evidence_id": "ev_0ea6966761f83ddff7d377f200eb487efad3ee869a9760b5d18dbc51e0cf5601"
+        },
+        "whole_function_credit": false
+      },
+      {
+        "canonical_rva": "0x13f3b0",
+        "upstream_assigned_names": [
+          "C_mission::UnInit"
+        ],
+        "source_file": "crates/lhr-engine/src/mission_lifecycle.rs",
+        "source_sha256": "d6cd532a27ca081b7bcf1095bd1b9fa14f0a440492d27f4ab208c03e9b5e5777",
+        "rust_symbol": "MissionLifecycle::uninit",
+        "provider": "Same MissionCaches/DriverSceneOwner/MissionAllocator",
+        "remaining_boundary": "Sound/model/animation cache order; unopened Close and constructor-empty owned components only.",
+        "primary": {
+          "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+          "entry": "0x53f3b0",
+          "ranges": [
+            {
+              "start": "0x53f3b0",
+              "end": "0x53f51e",
+              "bytes": 367,
+              "sha256": "a1d4021b9564d60658c3fe5a567c65b65f06133c1766ffc97a7dc3136a985a26"
+            }
+          ],
+          "evidence_id": "ev_a75015e2dd044a9124f7bf90bfcd95f8ec52e3f9e00e0e4f0f49d66e2ff3872d"
+        },
+        "whole_function_credit": false
+      },
+      {
+        "canonical_rva": "0x1662a0",
+        "upstream_assigned_names": [
+          "LoadResString"
+        ],
+        "source_file": "crates/lhr-engine/src/original_windows.rs",
+        "source_sha256": "236d2b176bcfd48af9b8b0ac6cd10d845616b529f5f2a51328188318383e9ed5",
+        "rust_symbol": "load_resource_string",
+        "provider": "WindowsBackend::load_string",
+        "remaining_boundary": "No Windows resource/OS provider; primitive operation is dependency.",
+        "primary": {
+          "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+          "entry": "0x5662a0",
+          "ranges": [
+            {
+              "start": "0x5662a0",
+              "end": "0x5662b4",
+              "bytes": 21,
+              "sha256": "5c3489fa177dcbe6ec3f8fc6eddc6d7e7271c7cdd3933f21a16697df98fffc40"
+            }
+          ],
+          "evidence_id": "ev_aa358b5c9fdc230555e835254a1ae16f20e1747d4cc6377a5a5aaa1bff4588ad"
+        },
+        "whole_function_credit": false
+      },
+      {
+        "canonical_rva": "0x1662c0",
+        "upstream_assigned_names": [
+          "SetWindowIcon"
+        ],
+        "source_file": "crates/lhr-engine/src/original_windows.rs",
+        "source_sha256": "236d2b176bcfd48af9b8b0ac6cd10d845616b529f5f2a51328188318383e9ed5",
+        "rust_symbol": "set_window_icon",
+        "provider": "WindowsBackend::load_icon_one/set_class_icon",
+        "remaining_boundary": "No real desktop window/icon backend.",
+        "primary": {
+          "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+          "entry": "0x5662c0",
+          "ranges": [
+            {
+              "start": "0x5662c0",
+              "end": "0x5662db",
+              "bytes": 28,
+              "sha256": "1519912bb5c501c5a96876408046f521e765783a50fc43dfdf3a215f4a1d01d8"
+            }
+          ],
+          "evidence_id": "ev_ebcb14e7f53fa39dfaf6eabc7ec32147e7db4d3f1e4f02b686764b630947cf4a"
+        },
+        "whole_function_credit": false
+      },
+      {
+        "canonical_rva": "0x1662e0",
+        "upstream_assigned_names": [
+          "FindGameFile"
+        ],
+        "source_file": "crates/lhr-engine/src/original_windows.rs",
+        "source_sha256": "236d2b176bcfd48af9b8b0ac6cd10d845616b529f5f2a51328188318383e9ed5",
+        "rust_symbol": "find_game_file",
+        "provider": "WindowsBackend file/drive/volume callbacks",
+        "remaining_boundary": "Bounded path; actual CD/Windows drive provider absent. StartupAssetBackend fallback returns Unsupported.",
+        "primary": {
+          "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+          "entry": "0x5662e0",
+          "ranges": [
+            {
+              "start": "0x5662e0",
+              "end": "0x5663c7",
+              "bytes": 232,
+              "sha256": "25fb8b8df00e1f13d377bada917829a64b0ef479dd6f349e0bacade477bef38e"
+            }
+          ],
+          "evidence_id": "ev_bc15afec24057fafaaa9e56ae37467be459664eb19b7a15b153560e064156981"
+        },
+        "whole_function_credit": false
+      },
+      {
+        "canonical_rva": "0x149f90",
+        "upstream_assigned_names": [
+          "C_web_node::~C_web_node"
+        ],
+        "source_file": "crates/lhr-engine/src/mission_components.rs",
+        "source_sha256": "bf42fa7bd23f656066adaad80e50ff4362d14613a37d1b52e2968f8ac213a90b",
+        "rust_symbol": "WebNode::adopt/destroy",
+        "provider": "MissionAllocation connections cookie/count backing, same MissionMemoryDomain allocator; actual empty element dtor404990",
+        "remaining_boundary": "Explicit typed adoption, exact cookie/extent/identity required; no general raw heap/array allocator implementation or path/node construction claim.",
+        "primary": {
+          "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+          "entry": "0x549f90",
+          "ranges": [
+            {
+              "start": "0x549f90",
+              "end": "0x549fb6",
+              "bytes": 39,
+              "sha256": "1f97854d0932bcb75524279f2338522202c71e84a1c6e719ebb72cec7f08162f"
+            }
+          ],
+          "evidence_id": "ev_4845549038be6ebdec2d6146fd115f74e1b509747849f980f87ffe396f847f9b"
+        },
+        "whole_function_credit": false
+      },
+      {
+        "canonical_rva": "0x14a1e0",
+        "upstream_assigned_names": [
+          "C_web_path::~C_web_path"
+        ],
+        "source_file": "crates/lhr-engine/src/mission_components.rs",
+        "source_sha256": "bf42fa7bd23f656066adaad80e50ff4362d14613a37d1b52e2968f8ac213a90b",
+        "rust_symbol": "MissionComponent::destroy (WebPath)",
+        "provider": "Same seeded component + MissionAllocator",
+        "remaining_boundary": "Only nodes==null/unknown14==null; populated nodes/connectors unavailable.",
+        "primary": {
+          "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+          "entry": "0x54a1e0",
+          "ranges": [
+            {
+              "start": "0x54a1e0",
+              "end": "0x54a21c",
+              "bytes": 61,
+              "sha256": "6bc1cbd24c73bf743110c74f9796ce815d27fa05a6444702ceb5ee9ac2085e2d"
+            }
+          ],
+          "evidence_id": "ev_7bbd40c93fe91d57f2ef948fec83959e49243105b68d4f0223df77d349e611a2"
+        },
+        "whole_function_credit": false
+      },
+      {
+        "canonical_rva": "0x1e3fd0",
+        "upstream_assigned_names": [
+          "C_web_path::SelectLine"
+        ],
+        "source_file": "crates/lhr-engine/src/mission_components.rs",
+        "source_sha256": "bf42fa7bd23f656066adaad80e50ff4362d14613a37d1b52e2968f8ac213a90b",
+        "rust_symbol": "MissionComponent::select_line",
+        "provider": "Same typed WebPath owner",
+        "remaining_boundary": "Literal returning leaf on same WebPath owner; primary receipt/source freeze/full gate complete; no dedicated native runtime comparison.",
+        "primary": {
+          "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+          "entry": "0x5e3fd0",
+          "ranges": [
+            {
+              "start": "0x5e3fd0",
+              "end": "0x5e3fd4",
+              "bytes": 5,
+              "sha256": "3df6af1ec778d46a61b8d7160523ba89fe1af814222acb1175be5a7b1748e06b"
+            }
+          ],
+          "evidence_id": "ev_84cfa7f2a0def3d9ad12795b4f8eb6012d7ade32d40509671649c6c9c4c81744"
+        },
+        "whole_function_credit": false
+      },
+      {
+        "canonical_rva": "0x6ca70",
+        "upstream_assigned_names": [
+          "C_web_path::DebugFindPath"
+        ],
+        "source_file": "crates/lhr-engine/src/mission_components.rs",
+        "source_sha256": "bf42fa7bd23f656066adaad80e50ff4362d14613a37d1b52e2968f8ac213a90b",
+        "rust_symbol": "MissionComponent::debug_find_path",
+        "provider": "Same typed WebPath owner",
+        "remaining_boundary": "Literal returning leaf on same WebPath owner; primary receipt/source freeze/full gate complete; no dedicated native runtime comparison.",
+        "primary": {
+          "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+          "entry": "0x46ca70",
+          "ranges": [
+            {
+              "start": "0x46ca70",
+              "end": "0x46ca72",
+              "bytes": 3,
+              "sha256": "1d10894625976bca9d8906f3ecf1e766b94e9219ec3bf1c30e02feea5e18e45a"
+            }
+          ],
+          "evidence_id": "ev_836c0a2957a563f359a3cb9eb974c9f934aa78316362159113220fc781e7e04e"
+        },
+        "whole_function_credit": false
+      },
+      {
+        "canonical_rva": "0x159cd0",
+        "upstream_assigned_names": [
+          "C_roads::C_roads"
+        ],
+        "source_file": "crates/lhr-engine/src/mission_components.rs",
+        "source_sha256": "bf42fa7bd23f656066adaad80e50ff4362d14613a37d1b52e2968f8ac213a90b",
+        "rust_symbol": "MissionComponent::construct (Roads)",
+        "provider": "Same typed owned allocation",
+        "remaining_boundary": "Two empty vectors/vtable seed projection, no road loading/pathfinding algorithms.",
+        "primary": {
+          "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+          "entry": "0x559cd0",
+          "ranges": [
+            {
+              "start": "0x559cd0",
+              "end": "0x559cfc",
+              "bytes": 45,
+              "sha256": "a3af402a85b9a9909d0b9cbc8b24e1f0ab6a08c73699165538748fa89977cfa4"
+            }
+          ],
+          "evidence_id": "ev_91f2fa848ff99c362fda5e287d6e3afd0a99f5471e9f011454c996fc5fcb2160"
+        },
+        "whole_function_credit": false
+      },
+      {
+        "canonical_rva": "0x159d00",
+        "upstream_assigned_names": [
+          "C_roads::~C_roads"
+        ],
+        "source_file": "crates/lhr-engine/src/mission_components.rs",
+        "source_sha256": "bf42fa7bd23f656066adaad80e50ff4362d14613a37d1b52e2968f8ac213a90b",
+        "rust_symbol": "MissionComponent::destroy (Roads)",
+        "provider": "MissionAllocator::free",
+        "remaining_boundary": "Empty two vectors only; no populated network element ownership.",
+        "primary": {
+          "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+          "entry": "0x559d00",
+          "ranges": [
+            {
+              "start": "0x559d00",
+              "end": "0x559d35",
+              "bytes": 54,
+              "sha256": "7385f1086b95615b2e8c5229574fbe387601926f3d164a9a00b19b4895f29275"
+            }
+          ],
+          "evidence_id": "ev_886c1e6db07fb9c5f8d315383dad85ef29329c1d448b7b1da72cca2ec92de5bb"
+        },
+        "whole_function_credit": false
+      },
+      {
+        "canonical_rva": "0x15d460",
+        "upstream_assigned_names": [
+          "PlayLogo"
+        ],
+        "source_file": "crates/lhr-engine/src/original_logo.rs",
+        "source_sha256": "8760cf87dc06626fab50917b00537c76ec514d52acbda25e1e93fc22f525d15c",
+        "rust_symbol": "play_logo",
+        "provider": "LogoBackend file/show/screen/play/render/release callbacks",
+        "remaining_boundary": "Bounded PC24 dimensions/screen arithmetic; no real AVI/Bink decoder/IShow/presentation backend.",
+        "primary": {
+          "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+          "entry": "0x55d460",
+          "ranges": [
+            {
+              "start": "0x55d460",
+              "end": "0x55d767",
+              "bytes": 776,
+              "sha256": "4a92da6f9c1ac7218e6547c734ff6f46b0d52564c3175aded09f8eff4ff0f6ea"
+            }
+          ],
+          "evidence_id": "ev_875a3cd9ec8de26959700ed846338829b60c1d2029f4ebf237ec423a6691fe08"
+        },
+        "whole_function_credit": false
+      },
+      {
+        "canonical_rva": "0x1604f0",
+        "upstream_assigned_names": [
+          "C_tshift::C_tshift"
+        ],
+        "source_file": "crates/lhr-engine/src/mission_components.rs",
+        "source_sha256": "bf42fa7bd23f656066adaad80e50ff4362d14613a37d1b52e2968f8ac213a90b",
+        "rust_symbol": "MissionComponent::construct (Tshift)",
+        "provider": "Same typed owned allocation",
+        "remaining_boundary": "Seeded vector control/end/size/cap writes; no Tick gameplay.",
+        "primary": {
+          "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+          "entry": "0x5604f0",
+          "ranges": [
+            {
+              "start": "0x5604f0",
+              "end": "0x560505",
+              "bytes": 22,
+              "sha256": "26c9ba36582c268eac544e017652c1a4270594b30ff0ad24f3145b934ab2d0a5"
+            }
+          ],
+          "evidence_id": "ev_b7083f81b93dea0f318fcd86ae0b9295e546890bfa9c7aa562826b54cd8573a0"
+        },
+        "whole_function_credit": false
+      },
+      {
+        "canonical_rva": "0x12000",
+        "upstream_assigned_names": [
+          "C_tshift::~C_tshift"
+        ],
+        "source_file": "crates/lhr-engine/src/mission_components.rs",
+        "source_sha256": "bf42fa7bd23f656066adaad80e50ff4362d14613a37d1b52e2968f8ac213a90b",
+        "rust_symbol": "MissionComponent::destroy (Tshift)",
+        "provider": "MissionAllocator::free",
+        "remaining_boundary": "Empty vector destruction only; populated resource owner unavailable.",
+        "primary": {
+          "binary_sha256": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+          "entry": "0x412000",
+          "ranges": [
+            {
+              "start": "0x412000",
+              "end": "0x41201b",
+              "bytes": 28,
+              "sha256": "0305e69101d4bba36e5fe02355fb8cbfe4de985211606ee237466d59c5dde440"
+            }
+          ],
+          "evidence_id": "ev_b80b62c8005fcf31cf403c531e5c1a59ad1800ae96b19a76e69ac06ff85baf95"
+        },
+        "whole_function_credit": false
+      }
+    ],
+    "reviews": [
+      {
+        "id": "MAFIA-PARITY-20261025-INDEPENDENT-REVIEW-ONE-SOURCE-v1",
+        "sha256": "6afc3ddb429e40d35ca66a9ab327897a079847fd66d3e2645030e90472a441f1",
+        "decision": "APPROVED_BOUNDED_SOURCE_PENDING_SECOND_INDEPENDENT_REVIEW",
+        "non_author": true
+      },
+      {
+        "id": "MAFIA-PARITY-20261025-INDEPENDENT-REVIEW-TWO-SOURCE-v1",
+        "sha256": "376348bd25601bb39428cacbc23b52240ebf5d71feb2f482cbcde7d529c5d0c7",
+        "decision": "APPROVED_BOUNDED_SOURCE",
+        "non_author": true
+      }
+    ],
+    "native": {
+      "artifact": "FINAL-RESULTS.json",
+      "sha256": "61d7ab57860ae967545be0abe3ae2a98205f0ce768e7b7e517aafcde42f40322",
+      "source_freeze": "MAFIA-PARITY-20261025-SOURCE-v1",
+      "profiles": [
+        "debug",
+        "release"
+      ],
+      "counts_per_profile": {
+        "total_named_comparison_cases": 93,
+        "complete_declared_domain": 86,
+        "typed_capability_or_fault_prefix": 7,
+        "mismatches": 0,
+        "game": 4,
+        "system_init": 10,
+        "logo": 14,
+        "system_close": 5,
+        "windows": 10,
+        "mission": 21,
+        "cache": 15,
+        "joystick": 5,
+        "leaf": 9
+      },
+      "deep_lane_counts": {
+        "mission": {
+          "cases": 21,
+          "snapshots": 46,
+          "normal": 20,
+          "game_null_fault_prefix": 1
+        },
+        "cache": {
+          "cases": 15,
+          "snapshots": 84,
+          "normal": 12,
+          "prefixes": 3,
+          "native_unsafe_array_null_continuation_excluded": 1
+        },
+        "joystick": {
+          "cases": 5,
+          "snapshots": 13,
+          "normal": 4,
+          "null_fault_prefix": 1
+        },
+        "leaf": {
+          "cases": 9,
+          "web_node": 4,
+          "force_feedback_record": 3,
+          "check_cd_wait_cd": 2
+        }
+      },
+      "physical_scope": {
+        "physical_canonical_fixture_cases": 100,
+        "logical_compared_cases": 93,
+        "native_only_effects_constructor_prefix_cases": 3,
+        "extra_game_ctor_only_physical_fixtures": 4,
+        "native_O0_O3_meaningful_observations_equal": true,
+        "raw_byte_identity_not_universally_claimed": true,
+        "whole_Game_and_LS_text_rdata_unchanged_in_successful_canonical_harness_runs": true,
+        "binaries": {
+          "Game.exe": "08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27",
+          "LS3DF.dll": "e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6"
+        }
+      },
+      "profile_binary_hashes": {
+        "debug": {
+          "engine": "d3faf31a97175175b2d402fe6a8c4f851d1303e726b10b543df8c9f92182c097",
+          "assets": "7509d98ec946e324e5998723e2f5d39d1520fc9d2d1001b1997a1195bd46c1b4"
+        },
+        "release": {
+          "engine": "2e6f8807775bbaa42bb8a1f3403d4d8b53b1ea30c7de8fcc23dbc2e894fc9a16",
+          "assets": "96ddfe4e532838a0d3ea67de107888502ad4271abd9c942ee80cf892b0d5fbeb"
+        }
+      },
+      "limits": [
+        "Counts are named test cases, not reconstructed-function or gameplay-coverage counts; related constructor/cleanup scenarios are separately identified.",
+        "Native original instructions execute only in development harnesses, not application runtime.",
+        "Mission raw220 bytes and full live/retained component storage, allocator ordering, WS count, sector version, frame lifetime count and genuine SceneDriver registration/capacity match. Only unopened Close and constructor-empty support resources are admitted. Effects table missing-file path is real; present-table parsing is unavailable.",
+        "Native Device virtual14 BODY is unexecuted/uncredited under controlled external callback. Rust uses explicit CPU projection with native_device_virtual14_executed=false; no managed-GPU-residency or audio-driver parity claim.",
+        "Unknown padding survives caller-provided seeds. No-argument trace payload and unspecified stack bytes are not silently treated as defined outputs.",
+        "Mission constructor stack residue is captured BEFORE first callee instruction at entrySP-21 or entrySP-17 and supplied as explicit constructor input, never copied from poststate.",
+        "Returning-NULL allocator replies are controlled primitive cases, not claims about OS OOM, original operator-new global policy, SEH/unwind or rollback. Cache array-NULL comparison stops at the measured allocation boundary before unsafe header publication; native invalid continuation remains preserved.",
+        "Logo, Windows, startup and shutdown external archive/desktop/device/video/profile operations are controlled and uncredited. Cache literal formatter/static CRT instructions genuinely execute; percent formatting is outside source admission.",
+        "CheckCD canonical four bytes33c040c3 and WaitCD immediate success match after the preserved early source mismatch was corrected. Unreachable drive-scan tail is not credited.",
+        "Joystick GetWindow/CreateBase is grouped as a typed external dependency. Logical slots/capacity/effect order match; raw Rust Vec allocation addresses are not native allocator parity.",
+        "The six earlier railway native-only frontiers remain unchanged. Real13-archive provider/UI/full Cargo gate are separately sealed parent verification, not added to native case counts.",
+        "33 raw differences in unused void-call payloads are explicitly excluded from defined observations; universal raw-byte equality is not claimed."
+      ],
+      "artifact_hashes": {
+        "final-v1/root-lanes/ROOT-LANES-FINAL.json": "9c9da990f27dd72126ad51f345d7b100ea35a5815f585e1f707ac7aab405ed30",
+        "final-v1/root-lanes/windows/WINDOWS-FINAL.json": "6111b66eb4cb564ddf57b0087e9d35913835f3a91077e36deba1df94bd34459a",
+        "final-v1/LEAF-release-COMPARISON.json": "fccb0a5f2229e5441643c95ad3415dccd4c6fb41d21da6dfdbef52fd86c2edbc",
+        "final-v1/JOY-release-COMPARISON.json": "7bff207c9210532b62bce48cf0b01ce440bd9c1161f1a9533613c0a0679b81d1",
+        "final-v1/CACHE-release-COMPARISON.json": "7df738760e32bbd12d5182600a7c0009e2fed765ad194009ae094a4a29c56ae4",
+        "final-v1/MISSION-release-COMPARISON.json": "219f2cc548eddc4959011c7e82dde93b99bf0fd0c9d59ff859f3eb63170a1761",
+        "final-v1/JOY-debug-COMPARISON.json": "74f1ee1fe86ba8f30f64caca26615e85b5069d67b0fa8f9775f319a02ea4caa6",
+        "final-v1/MISSION-debug-COMPARISON.json": "9b91ab68687ea61a16b4038b18079844e78d536c5cf80a0ba8a033bb917b8406",
+        "final-v1/LEAF-debug-COMPARISON.json": "42fcece0c1134e876f41b770c754b66fe794cb1d71847ab25677027c5537013f",
+        "final-v1/CACHE-debug-COMPARISON.json": "308a3a1d0ef8c065fdba9a85cd5fca8f5389c9a5a65541d9cb84648201f8449d",
+        "final-v1/MISSION-PRECONSTRUCTOR-INPUTS.json": "1f8c42cf8cda52916da702227eca69335fc79fcd1510abcaa1814858f95a12a1",
+        "final-v1/GUARD-BUILD-BEFORE.json": "abe5bae61824e0ad1601bdd34f0d1f597f8e8034af1147ab1971d381ba68a0e8",
+        "final-v1/GUARD-BUILD-AFTER.json": "abe5bae61824e0ad1601bdd34f0d1f597f8e8034af1147ab1971d381ba68a0e8",
+        "final-v1/GUARD-COMPARISONS-AFTER.json": "abe5bae61824e0ad1601bdd34f0d1f597f8e8034af1147ab1971d381ba68a0e8",
+        "final-v1/FINAL-SOURCE-v1.json": "1a3da8e8c9b5a811bacf5d7528380dc6d512b4dbe5d7bcbec7942a8918bbaf8c",
+        "final-v1/FINAL-PROCESS-AUDIT.json": "d713483f764a459025468791fe635c0995986417016cd20a1988049174697c7d"
+      }
+    },
+    "checks": {
+      "id": "MAFIA-PARITY-20261025-SOURCE-v1-VERIFICATION",
+      "sha256": "208a69c366e588bce87b908caeeffd0b29b01e22697a7540ecb11be05e2c3e43",
+      "log_sha256": "df5f5724c1e12fd53db44cd0eaf9ae8f95443ab4da2a2d56893edda7274606ae",
+      "rust_tests": 1168,
+      "rust_split": {
+        "assets_unit": 117,
+        "assets_integration": 8,
+        "engine_unit": 1004,
+        "application_unit": 26,
+        "engine_integration": 8,
+        "render_unit": 5
+      },
+      "rea_wrapper_tests": 9,
+      "progress_tests": 47,
+      "format_check_clippy_build": "PASS",
+      "full_gate_return_code": 0
+    },
+    "actual_installed_data": {
+      "profile": "immutable frozen debug",
+      "installed_archives": 13,
+      "optional_b8_absent": true,
+      "version_bytes": "cz",
+      "fatal_byte_before_and_after": "0xa5",
+      "archive_owners_at_graph_boundary": 13,
+      "streams_at_graph_boundary": 0,
+      "archive_owners_after_manual_release": 0,
+      "manual_release_is_close_system": false,
+      "original_native_differential": false,
+      "native_failed_optional_owner_retained_until_host_disposal": true,
+      "limits": [
+        "Actual installed-data Rust integration; not original-native complete startup parity.",
+        "Original graphics/device/audio/movie/profile providers remain unavailable.",
+        "Manual admitted archive release is separate from full CloseSystem."
+      ]
+    },
+    "media": {
+      "path": "docs/screenshots/2026-10-25-original-startup-mission.webp",
+      "sha256": "4745c11d5e8dbb2952cdb3ff329a80e3b1fbc86263058bf4a655978cbbb75cf7",
+      "bytes": 133648,
+      "dimensions": [
+        960,
+        640
+      ],
+      "root_viewed": true,
+      "caption": "Actual standalone original-data driving regression before reload; host chase camera and unlit rendering. This is not original startup/menu or mission rendering."
+    },
+    "new_scoped_entries": 0,
+    "new_scoped_contracts": 0,
+    "accepted_scoped_entries": 311,
+    "accepted_scoped_contracts": 114,
+    "whole_function_coverage": "UNVERIFIED",
+    "strict_full_system_gate": "0/12",
+    "campaign_playable": false,
+    "limits": [
+      "No complete original boot/menu/mission integration or real original graphics/audio/movie provider.",
+      "SystemEffect callbacks do not automatically bridge startup to MissionLifecycle/cache owners.",
+      "Active MissionClose, present effects parser, populated Game/support resources, sound/animation cache owners and tracks remain open.",
+      "Actual native CheckCD returns true; upstream drive/retry tail is unreachable for supplied PC binary.",
+      "Existing accepted camera/sector/Scene/driver/texture/railway domains retained; complete occluder/modelcache/player/AI/scripts/objectives/completion remain open.",
+      "Ten InitSystem native cases exercise early returns; successful sound/input/mission/logo/profile startup tail remains static-only. Separate leaf lanes do not validate that composed tail."
+    ],
+    "ui": {
+      "actual_inputs": [
+        "W",
+        "A",
+        "D",
+        "S",
+        "Space",
+        "R",
+        "Escape"
+      ],
+      "reloads": 3,
+      "shutdowns": 4,
+      "owned_counters_per_shutdown": 7,
+      "all_owned_counters_zero": true,
+      "native_device14_executed": false,
+      "final_app_xvfb_harness_return_codes": 0,
+      "processes_reaped": true,
+      "failed_initial_attempt": "Xvfb not on PATH before any UI processes; preserved historical attempt; final activated environment passed"
+    },
+    "id": "MAFIA-PARITY-STARTUP-MISSION-20261025-SOURCE-v1"
   }
 }

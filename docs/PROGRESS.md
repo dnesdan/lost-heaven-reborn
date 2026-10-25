@@ -2,37 +2,32 @@
 
 ## Current milestone — 2026-10-25
 
-The original-engine path now includes real camera construction, projection and
-view/frustum updates, active-camera ownership, sector sound data and ordered Game
-loader steps. Scene Close retains the active camera; final Scene destruction
-releases it. Native audio and device behavior remain open.
+The original-engine library now includes bounded startup/shutdown, Windows, logo
+and joystick callers; real mission/support construction and constructor-empty
+teardown; and cache/string ownership. A real installed-archive provider follows
+the original fourteen-name setup to the unavailable original graphics driver.
 
-The proved bounded loader checkpoint reaches the kind-12 occluder factory at
-cursor 469 after original camera setup, top fields and primary-sector sound data.
-Full mission/model-cache/occluder/player/script behavior remains open. The visible
-application remains standalone driving; this CPU prefix is not mission rendering.
+Device/platform callbacks remain dependencies. Active mission Close, populated
+owners, effects-table parsing, full Mission Open and gameplay remain open.
+The visible application is standalone driving; these callers do not render a mission.
 
-Sector sound and real constructor-sector Update extend the existing driver/Scene/
-railway foundation. Shared camera ownership is preserved across Close; final
-Scene destruction releases it. Numeric prefix stops retain their produced state.
+Actual startup archive/file ownership and controlled original caller comparisons
+remain distinct. They do not supply an original graphics/audio/movie backend or
+complete startup/menu/mission integration.
 
-Code `44fa875` has two sequential independent non-author source approvals.
-Source-v3 passes 1136 Rust tests, 9 REA-wrapper and 47 progress tests, plus
-formatting, locked checking, Clippy and the application build. Both Cargo profiles
-match 74 sound cases, 39 complete camera cases and 12 numeric-prefix stops,
-plus 14 ordered-prefix cases; prefix stops do not count as complete cameras.
-An independent original-DTA replay matches new/existing-camera checkpoints.
-Standalone debug input covers three reloads and four zero-owned CPU cleanups.
-Detailed partitions, numeric limits and controlled backends remain in the records.
+Code `8067e3d` has two sequential independent non-author source approvals.
+Source-v1 passes 1168 Rust tests, 9 REA-wrapper/47 progress tests and all
+format/check/Clippy/build checks. Both profiles match 86 complete declared cases
+and 7 typed prefix stops, with zero differences. Ten InitSystem cases cover early
+returns; its successful sound/input/mission/logo/profile tail is static-only.
+Real 13-archive setup stops at graphics; manual Release is separate from CloseSystem.
+Standalone input covers three reloads and four cleanups with seven CPU counters zero.
 
-[Detailed source-bound evidence](progress.json).
+No new canonical contract or whole-function credit is assigned. The ledger remains
+**311 scoped entries / 114 contracts**, strict **0/12**; all six mission gates are open.
 
-No new canonical contract or whole-function credit is assigned to these composed
-or projected cohorts. The accepted ledger remains **311 entries / 114 contracts**,
-strict verification **0/12**; all six first-mission gates remain open.
-
-[Coverage and limits](../COVERAGE.md) · [remaining goals](GOALS.md) ·
-[actual screenshot evidence](screenshots/README.md) · [history index](history/README.md).
+[Coverage](../COVERAGE.md) · [goals](GOALS.md) · [source-bound evidence](progress.json) ·
+[fresh reference/frontier and preceding camera/sector record](history/2026-10-25-original-startup-mission-audit.md).
 
 ## Earlier milestones
 

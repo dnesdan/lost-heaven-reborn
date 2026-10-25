@@ -1,6 +1,15 @@
 # Reference-project audit
 
-## Current source audit — 2026-10-25
+## Fresh mafia-re inspection — 2026-10-25
+
+Observed [`1ee42a56`](https://github.com/Marvisak/mafia-re/tree/1ee42a56214afeb54c536b85a4b16b5c4f4d86e3), nine commits/81 files beyond `109954d6`.
+All 27 new unique annotated addresses have original-PC primary receipts and
+bounded Rust callers/owned-state implementations; this is not whole-function parity.
+The behavior pin remains `86a7b15c`; supplied-PC CheckCD returns true and the
+upstream drive/retry tail is unreachable. See the [17-family frontier and evidence
+limits](history/2026-10-25-original-startup-mission-audit.md). Older audits follow unchanged.
+
+## Previous source audit — 2026-10-25
 
 Rechecked all three requested projects against Rust baseline `261ff0d`.
 Repository metadata and branch heads were freshly fetched; inspected source and
