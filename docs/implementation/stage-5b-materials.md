@@ -20,14 +20,19 @@ Reference: `mafia-re` commit
   normal transparency branch is reached; emission lighting itself is separate.
 - `ls3df/I3D/I3D.h:4266` and `ls3df/IGraph/IGraph.cpp:1494`: blend enables alpha
   testing with reference 1; the comparison is GREATER_EQUAL. Color-key-only
-  material uses the configured reference. `game/Main.cpp:728` sets it to 200.
+  material uses the configured reference. `game/Main.cpp:728` sets it to 200;
+  the bridge selects that game-initialization value explicitly.
 - `ls3df/I3D/render/render.h:15-42`: SrcAlpha/InvSrcAlpha and SrcAlpha/One use
   the same factors for color and destination alpha.
-- `ls3df/I3D/render/T_l.cpp:419-422,690-699`: textured materials without
-  KEEP_DIFFUSE take white instead of material diffuse. The source vertex alpha
-  is packed from material alpha times object fade/transparency. This bridge
-  explicitly admits fade/transparency/lightness equal to one and uses the
-  round-to-nearest-even packed material alpha.
+- `ls3df/I3D/render/T_l.cpp:419-422,690-699`: PrepareLights uses level flags
+  and the first face group's material; VertexLightingProcess separately uses
+  per-material TEXTURE/KEEP_DIFFUSE flags to select white versus material
+  ambient/diffuse. This bridge implements an explicit per-material unlit scalar
+  following the latter selection rule. It does not reconstruct PrepareLights'
+  level aggregation, shared vertex lighting or first-group color/alpha contract.
+  The source packs vertex alpha from material alpha times object fade and
+  transparency; this bridge admits those object factors/lightness equal to one
+  and packs its per-material alpha under round-to-nearest-even.
 - `ls3df/I3D/frames/I3d_portal.cpp:214-226`: transparent sort distance comes
   from the world hierarchy bound center's signed view-plane depth, offset by
   10000 and scaled by 1000. It is not radial distance from the camera.
@@ -71,10 +76,14 @@ radix-sort details, portal sectors and weather passes are not reconstructed.
 
 ## Explicit remaining limits
 
-Object fade/transparency/lightness producers, lighting/emissive color, fog,
+Dynamic IGraph alpha-reference updates, object fade/transparency/lightness
+producers, lighting/emissive color, fog,
 environment maps, full mipmap/texture-format selection, billboards, morphs and
 singlemesh rendering remain separate. Existing bounded color-key/grayscale
 mask intake is retained; unsupported non-grayscale masks remain reported.
+Native embedded-image alpha/BPP flag selection is still explicitly rejected
+by MaterialLoadContext outside its existing admitted managed branch; no such
+texture capability is added by these draw-state or grayscale-mask changes.
 The host texture sampling color space is unchanged; this is not a D3D8
 colorimetric parity claim. Raw assembly/world material effects remain reported
 as unsupported. The opt-in legacy inspection cutoff of 0.5 is separate and
@@ -91,3 +100,27 @@ KEEP_DIFFUSE and packed opacity. A populated ModelArena-to-snapshot fixture
 checks shared unmodified pixels, material alpha/diffuse policy and the genuine
 world hierarchy bound center. These are host pipeline/source-contract checks;
 no original-runtime screenshot or interactive gameplay comparison is claimed.
+
+
+## Validation results
+
+Rust 1.99.1 with isolated target-stage5b:
+
+- `scripts/test.sh`: formatting and workspace/all-targets check passed. Engine
+  library: 1,055 passed, one opt-in GPU test ignored, and only the two established
+  high-FIP x87 baseline environment failures. No repository test was disabled.
+- Complete workspace tests with only those two test names excluded: assets
+  library 121 passed; native installation integration 8 passed; engine library
+  1,055 passed/one GPU ignored; engine binary 26 passed; program integration
+  8 passed; renderer 5 passed/three GPU tests ignored. Doc-tests passed.
+- Renderer tests with `--include-ignored`: 8 passed, including actual GPU
+  readbacks. Material producer tests with `--include-ignored`: 2 passed,
+  including the producer-to-GPU KEEP_DIFFUSE/packed-opacity readback.
+- Workspace/all-targets Clippy with `-D warnings`: passed.
+- Python process-boundary tests with host process visibility: 9 passed.
+  Python progress tests: 47 passed; generated progress check passed unchanged.
+
+The available Vulkan device is Mesa llvmpipe (LLVM 20.1.2), a software device.
+GPU pixel checks verify this host pipeline's decisions. They are not captures
+from the original renderer, lighting comparisons, FPS measurements or an
+interactive gameplay validation.
