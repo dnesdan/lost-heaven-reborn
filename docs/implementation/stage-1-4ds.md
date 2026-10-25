@@ -1,6 +1,6 @@
 # Stage 1: 4DS version 29 source compatibility
 
-Reference: local `dnesdan/mafia-re` checkout pinned to
+Reference: local `Marvisak/mafia-re` checkout pinned to
 `29b65b0e5bcf77f1f36c4fceeaa2b64eb644087c`. This stage uses the
 user-authorized source-only audit route. It adds no binary reconstruction,
 original-runtime comparison, function-credit or progress-credit claim.
@@ -31,7 +31,10 @@ original-runtime comparison, function-credit or progress-credit claim.
   first-LOD presentation remains unchanged.
 - The existing BMP/TGA decoder path now accepts either extension in base,
   alpha and environment material names. The same relative-path checks apply
-  to both formats. This does not expand the decoder's supported TGA encodings.
+  to both formats. Static scene assembly checks format-specific dimensions before
+  charging its decoded image budget, then uses the matching decoder and the
+  existing optional diffuse fallback policy. This does not expand the decoder's
+  supported TGA encodings.
 - `I3D/I3D.h` defines `MATF_KEEP_PIXELS` as `0x8000`;
   `I3d_material.cpp::GetTextureFlags` maps it to `ITC_KEEP_PIXELS`. Strict
   static intake and inspection diagnostics no longer classify it as a shader
