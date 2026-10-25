@@ -11,7 +11,8 @@
 //!
 //! `Lod` is the PC diagnostic class name. Lighting/dirty field labels follow
 //! descriptive upstream names; they are not claimed original linker symbols.
-//! `I3dObjectResources` is only the resource-owning projection of I3D_object.
+//! `I3dObjectResources` projects resource ownership plus ordinary cur_lod/fade
+//! render state of the same I3D_object; it is not a complete native layout.
 //! This host arena does not implement native Create, SetMesh, visual/frame base
 //! destruction, loaded derived resources or uploads. Primitive retirement uses
 //! host tombstones, without native allocator/delete or pointer-return credit.
@@ -123,13 +124,28 @@ pub enum ObjectCleanupPhase {
     DestroyingLods,
     ReleasingMesh,
 }
-#[derive(Debug, PartialEq, Eq)]
+/// Actual class admitted by the owning constructor, not guessed from a frame
+/// label. Derived owners extend this witness before entering their own render.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ObjectVisualType {
+    Plain,
+}
+#[derive(Debug, PartialEq)]
 pub struct I3dObjectResources {
+    visual_type: ObjectVisualType,
     /// Raw native mesh pointer projection; it is not nulled during destruction.
     pub mesh: Option<MeshObjectKey>,
+    /// Ordinary render state on this same owner; constructor values from source.
+    pub cur_lod: u32,
+    pub fade: f32,
     /// All ten slots are cleared together only after all LOD deletes succeed.
     pub lods: [Option<PlainLodKey>; 10],
     pub phase: ObjectCleanupPhase,
+}
+impl I3dObjectResources {
+    pub fn visual_type(&self) -> ObjectVisualType {
+        self.visual_type
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LodBinding {
@@ -235,7 +251,10 @@ impl ObjectResources {
             self.managed.retain_mesh_object(mesh)?;
         }
         self.objects.push(Some(I3dObjectResources {
+            visual_type: ObjectVisualType::Plain,
             mesh,
+            cur_lod: 0,
+            fade: 1.,
             lods: [None; 10],
             phase: ObjectCleanupPhase::Alive,
         }));
@@ -1071,6 +1090,54 @@ mod tests {
         (mesh, level, material)
     }
     #[test]
+    fn render_lod_early_returns_preserve_cur_state_and_scale_is_lazy() {
+        let mut r = ObjectResources::new().unwrap();
+        let mut b = Backend::default();
+        let (mesh, level, _) = shared_mesh(&mut r, &mut b);
+        let object = r.create_object_resources(Some(mesh)).unwrap();
+        r.objects[(object.slot - 1) as usize]
+            .as_mut()
+            .unwrap()
+            .cur_lod = 7;
+        assert_eq!(r.get_object_lod(object, f32::NAN, f32::NAN, 0.), Ok(0));
+        assert_eq!(r.object(object).unwrap().cur_lod, 7); // lod_dist<=0 early return
+        r.install_loaded_lod_distance(level, 100.).unwrap();
+        assert_eq!(r.get_object_lod(object, 100., 1., 1.), Ok(0));
+        assert_eq!(r.get_object_lod(object, 100.01, 1., 1.), Ok(1));
+        assert_eq!(r.object(object).unwrap().cur_lod, 1); // cull sentinel is stored, not a level
+        assert_eq!(
+            r.get_object_lod(object, 50., 1., 0.),
+            Err(ObjectLodError::NumericDomain)
+        );
+        assert_eq!(r.object(object).unwrap().cur_lod, 1);
+    }
+    #[test]
+    fn render_fade_skips_null_mesh_and_hidden_private_lod_slots_after_truncation() {
+        let mut r = ObjectResources::new().unwrap();
+        let mut b = Backend::default();
+        let null = r.create_object_resources(None).unwrap();
+        r.set_render_fade(null, f32::NAN).unwrap();
+        assert_eq!(r.object(null).unwrap().fade, 1.);
+        let (mesh, level, _) = shared_mesh(&mut r, &mut b);
+        r.set_lod(mesh, Some(level), 1, &mut b).unwrap();
+        let object = r.create_object_resources(Some(mesh)).unwrap();
+        let first = r.create_plain_lod().unwrap();
+        let hidden = r.create_plain_lod().unwrap();
+        r.adopt_plain_lod(object, 0, first).unwrap();
+        r.adopt_plain_lod(object, 1, hidden).unwrap();
+        r.set_lod(mesh, None, 1, &mut b).unwrap(); // actual num_lods truncation, object slot1 retained
+        r.set_render_fade(object, 0.5).unwrap();
+        assert!(r.lod(first).unwrap().alpha_dirty);
+        assert!(!r.lod(hidden).unwrap().alpha_dirty);
+        r.lods[(first.slot - 1) as usize]
+            .as_mut()
+            .unwrap()
+            .alpha_dirty = false;
+        r.set_render_fade(object, 0.5001).unwrap();
+        assert_eq!(r.object(object).unwrap().fade, 0.5001);
+        assert!(!r.lod(first).unwrap().alpha_dirty); // same packed byte, still stores float
+    }
+    #[test]
     fn constructor_nondelete_and_null_object_preserve_represented_fields_without_fake_callbacks() {
         let mut r = crate::ls3df::i3d_object::ObjectResources::new().unwrap();
         let mut b = Backend::default();
@@ -1394,3 +1461,8 @@ mod tests {
         assert!(b.allocations.is_empty());
     }
 }
+
+#[path = "object_lod.rs"]
+mod object_lod;
+pub(crate) use object_lod::render_fade;
+pub use object_lod::ObjectLodError;
