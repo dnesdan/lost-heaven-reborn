@@ -669,6 +669,99 @@ mod tests {
     }
 
     #[test]
+    fn missing_matrix_rows_follow_source_cross_order_for_each_axis() {
+        // A rotated basis with exactly representable row lengths. These
+        // controls spell out the source cross products independently.
+        let basis = [[0., -1., 0.], [1., 0., 0.], [0., 0., 1.]];
+        let expected_rows = [[0., -1., 0.], [-1., 0., 0.], [0., 0., 1.]];
+        for row in 0..3 {
+            let mut matrix = SMatrix::identity();
+            for (i, values) in basis.into_iter().enumerate() {
+                matrix.elements[i * 4..i * 4 + 3].copy_from_slice(&values);
+            }
+            matrix.elements[12..15].copy_from_slice(&[10., 20., 30.]);
+            matrix.elements[row * 4..row * 4 + 3].fill(0.);
+            let mut reconstructed = matrix;
+            reconstructed.elements[row * 4..row * 4 + 3].copy_from_slice(&expected_rows[row]);
+            let original = matrix;
+            let got = SQuat::try_make_from_matrix(&matrix).unwrap();
+            let expected = SQuat::try_make_from_matrix(&reconstructed).unwrap();
+            assert_eq!(
+                got.wxyz.map(f32::to_bits),
+                expected.wxyz.map(f32::to_bits),
+                "axis {row}"
+            );
+            assert_eq!(matrix, original); // reconstruction copies; it does not repair the caller's matrix
+        }
+    }
+
+    #[test]
+    fn multiple_missing_rows_read_original_rows_and_use_unit_fallbacks() {
+        let expected = [1f32.to_bits(), 0, 0, 0];
+        let mut matrix = SMatrix::identity();
+        matrix.elements[..3].fill(0.);
+        matrix.elements[4..7].fill(0.);
+        matrix.elements[8..11].copy_from_slice(&[1., 1., 1.]);
+        // X and Y both cross original zero rows and fall back to their unit
+        // axes. Reading rebuilt X while reconstructing Y would change this.
+        assert_eq!(
+            SQuat::try_make_from_matrix(&matrix)
+                .unwrap()
+                .wxyz
+                .map(f32::to_bits),
+            expected
+        );
+        matrix.elements[4..7].copy_from_slice(&[0., 1., 0.]);
+        matrix.elements[8..11].copy_from_slice(&[0., 2., 0.]);
+        // Two present but parallel rows also select the X fallback.
+        assert_eq!(
+            SQuat::try_make_from_matrix(&matrix)
+                .unwrap()
+                .wxyz
+                .map(f32::to_bits),
+            expected
+        );
+    }
+
+    #[test]
+    fn small_scale_product_rechecks_scale_and_preserves_numeric_admission() {
+        let expected = [1f32.to_bits(), 0, 0, 0];
+        let mut matrix = SMatrix::identity();
+        matrix.elements[0] = 0.001;
+        matrix.elements[5] = 0.;
+        matrix.elements[6] = -0.001;
+        matrix.elements[9] = 0.001;
+        matrix.elements[10] = 0.;
+        // Every row length exceeds MRG_ZERO, so none is replaced, but their
+        // product stays below it: source's second scale test returns identity.
+        assert_eq!(
+            SQuat::try_make_from_matrix(&matrix)
+                .unwrap()
+                .wxyz
+                .map(f32::to_bits),
+            expected
+        );
+        matrix = SMatrix::identity();
+        matrix.elements[0] = 0.00001; // Magnitude's squared-length cutoff gives zero
+        assert_eq!(
+            SQuat::try_make_from_matrix(&matrix)
+                .unwrap()
+                .wxyz
+                .map(f32::to_bits),
+            expected
+        );
+        matrix.elements[..3].fill(0.);
+        matrix.elements[4..7].copy_from_slice(&[1e10, 0., 0.]);
+        matrix.elements[8..11].copy_from_slice(&[0., 1e10, 0.]);
+        // Reconstructed row's square overflows the admitted f32 exponent
+        // domain. Do not turn that unavailable arithmetic into a unit fallback.
+        assert_eq!(
+            SQuat::try_make_from_matrix(&matrix),
+            Err(MakeUnavailable::InputOutsideVerifiedDomain)
+        );
+    }
+
+    #[test]
     fn general_make_fails_closed_for_unrecovered_or_uncertain_numeric_paths() {
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         assert_eq!(
