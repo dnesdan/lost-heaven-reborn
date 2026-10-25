@@ -957,12 +957,22 @@ impl LoadedVisualResources {
         self.sources.remove(&(key.arena(), key.slot()));
         Ok(())
     }
-    /// Separate FreeUnusedIB/FreeUnusedVB resource maintenance, after owners
-    /// have released their blocks. Individual object destruction does not run it.
-    pub fn reclaim_unused_buffers(&mut self) -> Result<()> {
-        self.objects.reclaim_unused_indices(&mut self.backend)?;
+    /// FreeUnusedVB maintenance over this owner's actual shared manager.
+    /// Referenced blocks survive; individual object destruction does not sweep.
+    pub fn reclaim_unused_vertices(&mut self) -> Result<()> {
         self.objects.reclaim_unused_vertices(&mut self.backend)?;
         Ok(())
+    }
+    /// FreeUnusedIB maintenance, independently callable after the vertex stage.
+    pub fn reclaim_unused_indices(&mut self) -> Result<()> {
+        self.objects.reclaim_unused_indices(&mut self.backend)?;
+        Ok(())
+    }
+    /// Scene Close orders FreeUnusedVB (0x69820) before FreeUnusedIB (0x5b9d0).
+    /// A failed vertex stage must not run the subsequent index stage.
+    pub fn reclaim_unused_buffers(&mut self) -> Result<()> {
+        self.reclaim_unused_vertices()?;
+        self.reclaim_unused_indices()
     }
 }
 
@@ -1147,17 +1157,26 @@ mod tests {
             .all(Option::is_none));
         owner.destroy_object(object).unwrap();
         assert_eq!(owner.backend.live_textures(), 1);
-        assert!(owner.backend.live_graphics() > 0);
+        let retained = owner.backend.live_graphics();
+        assert!(retained > 0);
+        owner.reclaim_unused_buffers().unwrap();
+        assert_eq!(owner.backend.live_graphics(), retained);
         owner.destroy_object(instance).unwrap();
         assert_eq!(owner.backend.live_textures(), 0);
         assert!(owner.backend.live_graphics() > 0);
-        owner.reclaim_unused_buffers().unwrap();
+        owner.reclaim_unused_vertices().unwrap();
+        assert!(!owner.backend.graphics.is_empty());
+        assert!(owner
+            .backend
+            .graphics
+            .values()
+            .all(|g| g.kind == BufferKind::Index));
+        owner.reclaim_unused_indices().unwrap();
         assert_eq!(owner.backend.live_allocations(), 0);
         assert_eq!(owner.backend.live_graphics(), 0);
     }
-    #[test]
-    fn loaded_group_order_and_cached_array_upload_survive_two_objects() {
-        let mut frame = lhr_assets::Frame {
+    fn plain_frame_fixture() -> lhr_assets::Frame {
+        lhr_assets::Frame {
             kind: 1,
             visual: Some(0),
             render_flags: 0,
@@ -1202,7 +1221,11 @@ mod tests {
                     })
                     .collect(),
             }],
-        };
+        }
+    }
+    #[test]
+    fn loaded_group_order_and_cached_array_upload_survive_two_objects() {
+        let mut frame = plain_frame_fixture();
         frame.lods[0].distance = 17.25;
         let mut second = frame.lods[0].clone();
         second.distance = 93.5;
@@ -1261,6 +1284,158 @@ mod tests {
         owner.reclaim_unused_buffers().unwrap();
         assert_eq!(owner.backend.live_allocations(), 0);
         assert_eq!(owner.backend.graphics_bytes(), 0);
+    }
+    fn admit_live_vertex_buffer(owner: &mut LoadedVisualResources) -> MeshLevelKey {
+        let level = owner.objects.create_mesh_level().unwrap();
+        assert!(owner
+            .objects
+            .allocate_level_vertices(
+                level,
+                3,
+                VertexRequest {
+                    fvf: 0x112,
+                    usage: 0,
+                    stride: 32,
+                    count: 3,
+                    format: 0,
+                    exclusive: false,
+                },
+                None,
+                &mut owner.backend
+            )
+            .unwrap());
+        level
+    }
+    #[test]
+    fn scene_resource_stages_preserve_live_vertices_and_survivor_then_reclaim_indices() {
+        let frame = plain_frame_fixture();
+        // Scene stages use the installed arena owner, including a mesh survivor.
+        let mut arena = crate::model_loading::ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let resources = arena.visual_resource_owner_mut().unwrap();
+        let original = resources
+            .admit_plain_object(&frame, BTreeMap::new())
+            .unwrap();
+        let survivor = resources.load_plain_instance(original).unwrap();
+        resources.destroy_object(original).unwrap();
+        let retained = resources.backend.live_graphics();
+        use crate::scene_ownership::SceneCloseEffect::{
+            FreeUnusedIndexBuffers, FreeUnusedVertexBuffers,
+        };
+        arena
+            .apply_scene_loaded_resource_effect(scene, FreeUnusedVertexBuffers)
+            .unwrap();
+        arena
+            .apply_scene_loaded_resource_effect(scene, FreeUnusedIndexBuffers)
+            .unwrap();
+        assert_eq!(
+            arena
+                .loaded_visual_resources()
+                .unwrap()
+                .backend
+                .live_graphics(),
+            retained
+        );
+        arena
+            .visual_resource_owner_mut()
+            .unwrap()
+            .destroy_object(survivor)
+            .unwrap();
+        let level = admit_live_vertex_buffer(arena.visual_resource_owner_mut().unwrap());
+        assert!(arena
+            .loaded_visual_resources()
+            .unwrap()
+            .backend
+            .graphics
+            .values()
+            .any(|g| g.kind == BufferKind::Vertex));
+        arena
+            .apply_scene_loaded_resource_effect(scene, FreeUnusedVertexBuffers)
+            .unwrap();
+        assert!(arena
+            .loaded_visual_resources()
+            .unwrap()
+            .backend
+            .graphics
+            .values()
+            .any(|g| g.kind == BufferKind::Vertex));
+        // Fully freed vertex buffers are destroyed by the targeted owner release.
+        let resources = arena.visual_resource_owner_mut().unwrap();
+        resources
+            .objects
+            .release_mesh_level(level, &mut resources.backend)
+            .unwrap();
+        assert!(arena
+            .loaded_visual_resources()
+            .unwrap()
+            .backend
+            .graphics
+            .values()
+            .all(|g| g.kind == BufferKind::Index));
+        assert!(
+            arena
+                .loaded_visual_resources()
+                .unwrap()
+                .backend
+                .live_graphics()
+                > 0
+        );
+        arena
+            .apply_scene_loaded_resource_effect(scene, FreeUnusedIndexBuffers)
+            .unwrap();
+        assert_eq!(
+            arena
+                .loaded_visual_resources()
+                .unwrap()
+                .backend
+                .live_allocations(),
+            0
+        );
+        assert_eq!(
+            arena
+                .loaded_visual_resources()
+                .unwrap()
+                .backend
+                .live_graphics(),
+            0
+        );
+    }
+    #[test]
+    fn combined_reclamation_stops_before_indices_after_vertex_release_failure() {
+        let frame = plain_frame_fixture();
+        // A failed targeted vertex release poisons the shared manager;
+        // combined maintenance must stop before touching cached index buffers.
+        let mut interrupted = LoadedVisualResources::new().unwrap();
+        let object = interrupted
+            .admit_plain_object(&frame, BTreeMap::new())
+            .unwrap();
+        interrupted.destroy_object(object).unwrap();
+        let level = admit_live_vertex_buffer(&mut interrupted);
+        let indices: Vec<_> = interrupted
+            .backend
+            .graphics
+            .iter()
+            .filter(|(_, g)| g.kind == BufferKind::Index)
+            .map(|(id, _)| *id)
+            .collect();
+        assert!(!indices.is_empty());
+        // Controlled loss of CPU backing exercises an actual backend error.
+        let vertex = interrupted
+            .backend
+            .graphics
+            .iter()
+            .find(|(_, g)| g.kind == BufferKind::Vertex)
+            .map(|(id, _)| *id)
+            .unwrap();
+        interrupted.backend.graphics.remove(&vertex);
+        assert!(interrupted
+            .objects
+            .release_mesh_level(level, &mut interrupted.backend)
+            .is_err());
+        assert!(interrupted.reclaim_unused_buffers().is_err());
+        assert!(indices
+            .iter()
+            .all(|id| interrupted.backend.graphics.contains_key(id)));
     }
 }
 

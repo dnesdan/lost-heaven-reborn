@@ -83,6 +83,7 @@ pub mod runtime_audio;
 pub mod scene_lightness;
 pub mod scene_ownership;
 pub mod scene_tick;
+pub mod scene_weather;
 pub mod script_lookup;
 pub mod script_scheduler;
 pub mod selected_loop;
@@ -135,7 +136,7 @@ pub mod ls3df {
     pub use crate::{
         c_str, frame_fast_lookup, frame_hierarchy_bounds, frame_light, frame_lookup,
         frame_projector, i3d_object, itexture, loaded_visual_resources, scene_ownership,
-        texture_manager,
+        scene_weather, texture_manager,
     };
 }
 

@@ -746,7 +746,10 @@ impl CarRuntime {
             }
         }
         self.arena
-            .reclaim_unused_visual_buffers()
+            .reclaim_unused_visual_vertices()
+            .map_err(|e| e.to_string())?;
+        self.arena
+            .reclaim_unused_visual_indices()
             .map_err(|e| e.to_string())?;
         let begin = VehicleInitBackend::read_word(&mut self.memory, 0x63d2bc)
             .map_err(|e| format!("Actor registry: {e:?}"))?;

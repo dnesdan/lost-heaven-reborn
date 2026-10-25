@@ -78,6 +78,13 @@ pub enum MakeUnavailable {
     RoundingUncertain,
 }
 
+/// Rounded FSIN/FCOS stores for the admitted reduced-angle domain. Reuses the
+/// retained x87 enclosures and the active owner's sticky precision state.
+pub(crate) fn try_rounded_sin_cos(angle: f32) -> Result<(f32, f32), MakeUnavailable> {
+    let (sine, cosine) = native_trig::sin_cos(angle)?;
+    Ok((sine.rounded()?, cosine.rounded()?))
+}
+
 impl SMatrix {
     pub fn is_verified_input(&self) -> bool {
         self.elements.iter().copied().all(is_verified_scalar)

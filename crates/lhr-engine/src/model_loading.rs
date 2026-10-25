@@ -728,13 +728,52 @@ impl ModelArena {
     }
     /// Explicit manager-cache reclamation used after object/scene releases.
     /// Object deletion itself frees its blocks while shared arrays stay cached.
-    pub fn reclaim_unused_visual_buffers(&mut self) -> Result<(), ModelError> {
+    pub fn reclaim_unused_visual_vertices(&mut self) -> Result<(), ModelError> {
         if let Some(owner) = &mut self.loaded_visual_resources {
             owner
-                .reclaim_unused_buffers()
+                .reclaim_unused_vertices()
                 .map_err(ModelError::LoadedVisual)?;
         }
         Ok(())
+    }
+    pub fn reclaim_unused_visual_indices(&mut self) -> Result<(), ModelError> {
+        if let Some(owner) = &mut self.loaded_visual_resources {
+            owner
+                .reclaim_unused_indices()
+                .map_err(ModelError::LoadedVisual)?;
+        }
+        Ok(())
+    }
+    pub fn reclaim_unused_visual_buffers(&mut self) -> Result<(), ModelError> {
+        self.reclaim_unused_visual_vertices()?;
+        self.reclaim_unused_visual_indices()
+    }
+    /// Execute only the two loaded-resource maintenance stages of Scene Close.
+    /// This is not a complete SceneCloseBackend: all other effects remain explicit
+    /// boundaries, as does a scene without an installed loaded-resource owner.
+    pub fn apply_scene_loaded_resource_effect(
+        &mut self,
+        scene: crate::scene_ownership::SceneKey,
+        effect: crate::scene_ownership::SceneCloseEffect,
+    ) -> Result<(), ModelError> {
+        use crate::scene_ownership::{SceneCloseEffect, SceneOwnerError};
+        self.scene(scene)?;
+        if !matches!(
+            effect,
+            SceneCloseEffect::FreeUnusedVertexBuffers | SceneCloseEffect::FreeUnusedIndexBuffers
+        ) {
+            return Err(SceneOwnerError::BackendUnavailable(effect).into());
+        }
+        let owner = self
+            .loaded_visual_resources
+            .as_mut()
+            .ok_or(SceneOwnerError::BackendUnavailable(effect))?;
+        match effect {
+            SceneCloseEffect::FreeUnusedVertexBuffers => owner.reclaim_unused_vertices(),
+            SceneCloseEffect::FreeUnusedIndexBuffers => owner.reclaim_unused_indices(),
+            _ => unreachable!(),
+        }
+        .map_err(ModelError::LoadedVisual)
     }
     fn check_frame_destruction(&self, key: FrameKey) -> Result<(), ModelError> {
         if let Some(object) = self.frame(key)?.object_resources {
@@ -2986,6 +3025,42 @@ pub(crate) mod tests {
                 .original_name_bytes
                 .as_deref(),
             Some(b"fixture".as_slice())
+        );
+    }
+    #[test]
+    fn scene_resource_stage_rejects_unbound_and_unimplemented_effects() {
+        use crate::scene_ownership::{SceneCloseEffect, SceneOwnerError};
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        for effect in [
+            SceneCloseEffect::FreeUnusedVertexBuffers,
+            SceneCloseEffect::FreeUnusedIndexBuffers,
+        ] {
+            assert!(
+                matches!(arena.apply_scene_loaded_resource_effect(scene, effect),
+                Err(ModelError::Scene(SceneOwnerError::BackendUnavailable(actual))) if actual == effect)
+            );
+        }
+        assert!(arena.loaded_visual_resources().is_none());
+        arena.visual_resource_owner_mut().unwrap();
+        let owner = arena.loaded_visual_resources().unwrap() as *const _;
+        assert!(matches!(
+            arena
+                .apply_scene_loaded_resource_effect(scene, SceneCloseEffect::UnloadManagedTextures),
+            Err(ModelError::Scene(SceneOwnerError::BackendUnavailable(
+                SceneCloseEffect::UnloadManagedTextures
+            )))
+        ));
+        arena
+            .apply_scene_loaded_resource_effect(scene, SceneCloseEffect::FreeUnusedVertexBuffers)
+            .unwrap();
+        arena
+            .apply_scene_loaded_resource_effect(scene, SceneCloseEffect::FreeUnusedIndexBuffers)
+            .unwrap();
+        assert_eq!(arena.loaded_visual_resources().unwrap() as *const _, owner);
+        assert_eq!(
+            arena.scene(scene).unwrap().close_phase(),
+            crate::scene_ownership::ClosePhase::Idle
         );
     }
 }
