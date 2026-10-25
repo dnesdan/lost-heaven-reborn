@@ -577,9 +577,13 @@ fn authored_camera(
         if let (Some(p), Some(q)) = (object.position, object.rotation_wxyz) {
             let rotation = source_rotation(q)?;
             let forward = rotation * Vec3::Z;
+            let up = rotation * Vec3::Y;
             camera.eye = Vec3::new(p[0], p[1], -p[2]);
             camera.target = camera.eye + Vec3::new(forward.x, forward.y, -forward.z);
-            camera.up = Vec3::Y;
+            // I3D_camera::UpdateV uses the complete frame basis. Preserve the
+            // authored roll through the same PC-to-host reflection as forward.
+            // This host metadata view does not resolve original camera ownership.
+            camera.up = Vec3::new(up.x, up.y, -up.z);
             println!("Authored camera: {name}; provisional 50-degree field of view");
         }
     } else {
@@ -1465,6 +1469,118 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct AuthoredViewFixture(PathBuf);
+    impl AuthoredViewFixture {
+        fn new(position: [f32; 3], rotation: [f32; 4]) -> Self {
+            static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let root = std::env::temp_dir().join(format!(
+                "lhr-authored-view-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            ));
+            std::fs::create_dir_all(root.join("missions/synthetic")).unwrap();
+            let chunk = |kind: u16, payload: &[u8]| {
+                let mut bytes = kind.to_le_bytes().to_vec();
+                bytes.extend((payload.len() as u32 + 6).to_le_bytes());
+                bytes.extend(payload);
+                bytes
+            };
+            let mut object = chunk(0x10, b"authored_view\0");
+            object.extend(chunk(
+                0x20,
+                &position
+                    .into_iter()
+                    .flat_map(f32::to_le_bytes)
+                    .collect::<Vec<_>>(),
+            ));
+            object.extend(chunk(
+                0x22,
+                &rotation
+                    .into_iter()
+                    .flat_map(f32::to_le_bytes)
+                    .collect::<Vec<_>>(),
+            ));
+            std::fs::write(
+                root.join("missions/synthetic/scene2.bin"),
+                chunk(0x4c53, &chunk(0x4000, &chunk(0x4010, &object))),
+            )
+            .unwrap();
+            Self(root)
+        }
+        fn load(
+            &self,
+            retained: &mut lhr_engine::runtime::RetainedScene,
+        ) -> Result<Camera, String> {
+            let scene = synthetic();
+            authored_camera(
+                &lhr_assets::Installation::open(&self.0).unwrap(),
+                &scene,
+                "synthetic",
+                "AUTHORED_VIEW",
+                retained,
+            )
+        }
+    }
+    impl Drop for AuthoredViewFixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    fn close_vector(actual: Vec3, expected: Vec3) {
+        assert!(
+            (actual - expected).abs().max_element() < 1.0e-5,
+            "{actual:?} != {expected:?}"
+        );
+    }
+    #[test]
+    fn authored_camera_preserves_roll_and_reflects_the_entire_source_basis() {
+        let half = std::f32::consts::FRAC_1_SQRT_2;
+        // Source SetRot3 rows for q=(cos45,0,0,sin45): up=+X, forward=+Z.
+        let fixture = AuthoredViewFixture::new([2., 3., 4.], [half, 0., 0., half]);
+        let mut retained = lhr_engine::runtime::RetainedScene::default();
+        let camera = fixture.load(&mut retained).unwrap();
+        close_vector(camera.eye, Vec3::new(2., 3., -4.));
+        close_vector(camera.target - camera.eye, Vec3::NEG_Z);
+        close_vector(camera.up, Vec3::X);
+        // A world point along source camera up must appear above its center.
+        let view = Mat4::look_at_rh(camera.eye, camera.target, camera.up);
+        close_vector(view.transform_point3(camera.eye + Vec3::X), Vec3::Y);
+        let metadata = retained.metadata().unwrap();
+        assert_eq!(
+            metadata.objects[0].rotation_wxyz,
+            Some([half, 0., 0., half])
+        );
+        assert_eq!(metadata.objects[0].position, Some([2., 3., 4.]));
+    }
+    #[test]
+    fn authored_camera_accepts_vertical_forward_with_its_authored_up() {
+        let half = std::f32::consts::FRAC_1_SQRT_2;
+        // Source rows: forward=+Y, up=-Z. Z reflection makes host up=+Z.
+        let fixture = AuthoredViewFixture::new([0.; 3], [half, half, 0., 0.]);
+        let mut retained = lhr_engine::runtime::RetainedScene::default();
+        let camera = fixture.load(&mut retained).unwrap();
+        close_vector(camera.target - camera.eye, Vec3::Y);
+        close_vector(camera.up, Vec3::Z);
+        camera.validate().unwrap();
+        assert!(retained.metadata().is_some());
+    }
+    #[test]
+    fn authored_camera_invalid_inputs_do_not_retain_metadata_or_supply_a_fallback() {
+        for (position, rotation) in [
+            ([0.; 3], [0.; 4]),
+            ([0.; 3], [2., 0., 0., 0.]),
+            ([0.; 3], [f32::NAN, 0., 0., 0.]),
+            ([f32::INFINITY, 0., 0.], [1., 0., 0., 0.]),
+            // Finite eye too large for the host renderer's supported basis.
+            ([1.0e9, 0., 0.], [1., 0., 0., 0.]),
+        ] {
+            let fixture = AuthoredViewFixture::new(position, rotation);
+            let mut retained = lhr_engine::runtime::RetainedScene::default();
+            assert!(fixture.load(&mut retained).is_err());
+            assert!(retained.metadata().is_none());
+        }
+    }
     #[test]
     fn effect_diagnostics_include_flag_only_materials_without_optional_payloads() {
         let mut material = lhr_assets::Material {
