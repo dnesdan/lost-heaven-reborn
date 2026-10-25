@@ -66,8 +66,9 @@ Rust 1.99.1 validation used an isolated build target:
   engine library ran 1,056 passing tests and the two previously established
   high-FIP x87 environment failures. No test was changed or disabled for them.
 - `cargo test --workspace --locked` with only those two test names excluded:
-  1,216 passed across assets, engine library/binary, program integration and
-  renderer tests. Documentation test targets also passed.
+  assets library 121 passed, native installation integration 8 passed, engine
+  library 1,056 passed, engine binary 26 passed, program integration 8 passed,
+  renderer 5 passed. Documentation test targets also passed.
 - Workspace/all-targets Clippy with `-D warnings`: passed.
 - Python progress tests: 47 passed; generated progress check passed unchanged.
 - Python binary-analysis boundary tests: 9 passed with host process visibility.
