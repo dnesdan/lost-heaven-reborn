@@ -192,13 +192,7 @@ pub fn snapshot_arena_tree(
                 || material.alpha != 1.
                 || material.emissive != [0.; 3]
                 || material.flags
-                    & (0x8000
-                        | 0x80000
-                        | 0x01000000
-                        | 0x04000000
-                        | 0x20000000
-                        | 0x40000000
-                        | 0x80000000)
+                    & (0x80000 | 0x01000000 | 0x04000000 | 0x20000000 | 0x40000000 | 0x80000000)
                     != 0
             {
                 omitted += 1;
