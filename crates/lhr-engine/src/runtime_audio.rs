@@ -3,7 +3,7 @@
 //! The call slots follow the PC I3D_sound vtable. The host supplies canonical
 //! object addresses and resolves pointer arguments; no original DLL is loaded.
 //! Mixing and device playback are host implementations, not a claim of exact
-//! DirectSound, sector fade, cone, reverb, or voice prioritization equivalence.
+//! DirectSound, sector fade, reverb, Doppler, or voice prioritization equivalence.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
@@ -132,6 +132,17 @@ impl PcmSource {
     }
 }
 
+/// Source-backed I3D state values. The upstream names are descriptive guesses.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u32)]
+pub enum PlaybackState {
+    Stop = 1,
+    Play = 2,
+    Pause = 3,
+    Resume = 4,
+    NoCamera = 5,
+}
+
 #[derive(Clone, Debug)]
 pub struct SoundState {
     pub handle: u32,
@@ -152,7 +163,16 @@ pub struct SoundState {
     pub sectors: BTreeSet<u32>,
     /// Derived native fields; the common frame portion stays in ModelArena.
     pub native_tail: [u32; 43],
+    pub state: PlaybackState,
+    pub world_scale: f32,
+    /// Host PCM voice status, separate from the logical I3D lifetime.
+    pub voice_playing: bool,
     frame_position: f64,
+    clock_ms: u32,
+    start_time: u32,
+    pause_time: u32,
+    pause_pos: u32,
+    pending_play: bool,
 }
 
 impl SoundState {
@@ -198,6 +218,14 @@ impl SoundState {
             sectors: BTreeSet::new(),
             native_tail: tail,
             frame_position: 0.0,
+            state: PlaybackState::Stop,
+            world_scale: 1.0,
+            voice_playing: false,
+            clock_ms: 0,
+            start_time: 0,
+            pause_time: 0,
+            pause_pos: 0,
+            pending_play: false,
         }
     }
 
@@ -208,12 +236,99 @@ impl SoundState {
     }
 
     pub fn is_playing(&self) -> bool {
-        self.on
-            && self.sound_type != 0
-            && self
-                .source
-                .as_ref()
-                .is_some_and(|s| self.looping || self.frame_position < s.frames() as f64)
+        if self.source.is_none() || self.state == PlaybackState::Stop {
+            return false;
+        }
+        let since = if matches!(self.state, PlaybackState::Pause | PlaybackState::Resume) {
+            self.pause_time
+        } else {
+            self.start_time
+        };
+        self.looping
+            || self
+                .pause_pos
+                .wrapping_add(self.clock_ms.wrapping_sub(since))
+                < self.logical_duration_ms()
+    }
+
+    fn logical_duration_ms(&self) -> u32 {
+        self.source.as_ref().map_or(0, |source| {
+            (source.duration_ms() as f32 / self.frequency) as u32
+        })
+    }
+
+    fn pause(&mut self) {
+        if self.state != PlaybackState::Pause {
+            self.pause_time = self.clock_ms;
+            self.pause_pos = self.current_time_ms();
+            self.state = PlaybackState::Pause;
+            self.pending_play = false;
+            self.voice_playing = false;
+        }
+    }
+
+    fn seek(&mut self, time: u32) {
+        let Some(source) = &self.source else { return };
+        self.start_time = self.clock_ms.wrapping_sub(time);
+        if matches!(self.state, PlaybackState::Pause | PlaybackState::Resume) {
+            self.pause_time = self.clock_ms;
+            self.pause_pos = time;
+            if self.state == PlaybackState::Pause {
+                return;
+            }
+        }
+        // PCM is the host voice: retain its independent, frozen cursor while paused.
+        self.frame_position = f64::from(time) * f64::from(source.sample_rate) / 1000.0;
+        if self.looping {
+            self.frame_position %= source.frames() as f64;
+        }
+    }
+
+    fn set_on(&mut self, on: bool, camera: bool, sector: Option<u32>) {
+        self.on = on;
+        if self.source.is_none() {
+            return;
+        }
+        if !on || self.sound_type == 0 {
+            self.state = PlaybackState::Stop;
+            self.voice_playing = false;
+            self.pending_play = false;
+        } else if !camera {
+            self.state = PlaybackState::NoCamera;
+        } else if !self.sectors.is_empty()
+            && !sector.is_some_and(|sector| self.sectors.contains(&sector))
+        {
+            self.pause();
+        } else {
+            if matches!(self.state, PlaybackState::Pause | PlaybackState::Resume) {
+                let elapsed = self.clock_ms.wrapping_sub(self.pause_time);
+                let duration = self.logical_duration_ms();
+                if duration == 0
+                    || (!self.looping && self.pause_pos.wrapping_add(elapsed) >= duration)
+                {
+                    self.state = PlaybackState::Stop;
+                    return;
+                }
+                let time = ((self.pause_pos.wrapping_add(elapsed) % duration) as f32
+                    * self.frequency) as u32;
+                self.seek(time);
+                self.pause_pos = time;
+            } else {
+                self.pause_pos = 0;
+            }
+            self.state = PlaybackState::Play;
+            self.pending_play = true;
+            self.start_time = self.clock_ms;
+        }
+    }
+
+    fn scaled_range(&self) -> (f32, f32, f32) {
+        let far = self.range[1] * self.world_scale;
+        let mut near = self.range[0] * self.world_scale;
+        if near >= far - 1e-8 {
+            near = far - 1e-8;
+        }
+        (near, far, near + self.range[2] * (far - near))
     }
 }
 
@@ -224,6 +339,8 @@ struct Mixer {
     listener_position: [f32; 3],
     listener_right: [f32; 3],
     listener_sector: Option<u32>,
+    camera_present: bool,
+    clock_ms: f64,
     mixed_frames: u64,
     source_projections: BTreeMap<String, SourceProjection>,
     load_failures: Vec<AudioLoadFailure>,
@@ -256,6 +373,8 @@ impl Default for RuntimeAudio {
             listener_position: [0.0; 3],
             listener_right: [1.0, 0.0, 0.0],
             listener_sector: None,
+            camera_present: false,
+            clock_ms: 0.0,
             mixed_frames: 0,
             source_projections: BTreeMap::new(),
             load_failures: Vec::new(),
@@ -318,13 +437,16 @@ impl RuntimeAudio {
             });
         }
         Ok(match offset {
-            0x144 => {
-                if sound.is_playing() {
-                    2
-                } else {
-                    1
-                }
-            }
+            0x144 => sound.state as u32,
+            0x150 => sound.start_time,
+            0x154 => sound.pause_time,
+            0x158 => sound.pause_pos,
+            0x16c => sound.scaled_range().0.to_bits(),
+            0x174 => sound.scaled_range().1.to_bits(),
+            0x178 => sound.scaled_range().1.powi(2).to_bits(),
+            0x180 => sound.scaled_range().2.to_bits(),
+            0x1a4 => (sound.cone[0] * 0.5).cos().to_bits(),
+            0x1ac => (sound.cone[1] * 0.5).cos().to_bits(),
             0x164 => u32::from(sound.looping),
             0x168 => sound.range[0].to_bits(),
             0x170 => sound.range[1].to_bits(),
@@ -379,7 +501,9 @@ impl RuntimeAudio {
         if handle == 0 || mixer.sounds.contains_key(&handle) {
             return Err(AudioError("invalid or already owned sound address".into()));
         }
-        mixer.sounds.insert(handle, SoundState::new(handle));
+        let mut sound = SoundState::new(handle);
+        sound.clock_ms = mixer.clock_ms as u64 as u32;
+        mixer.sounds.insert(handle, sound);
         Ok(())
     }
 
@@ -413,36 +537,64 @@ impl RuntimeAudio {
     }
 
     pub fn load_sound(&self, handle: u32, name: &str, installation: &Installation) -> Result<()> {
-        self.sound(handle)?;
+        self.load_sound_with(handle, name, || {
+            installation
+                .read_original_path(name)
+                .map_err(|e| AudioError(format!("sound source {name}: {e:?}")))
+        })
+    }
+
+    fn load_sound_with(
+        &self,
+        handle: u32,
+        name: &str,
+        read: impl FnOnce() -> Result<Vec<u8>>,
+    ) -> Result<()> {
         let canonical = canonical_name(name);
-        let cached = self.lock()?.sources.get(&canonical).and_then(Weak::upgrade);
+        let cached = {
+            let mut mixer = self.lock()?;
+            let sound = sound_mut(&mut mixer, handle)?;
+            // Open's strcmp fast path is exact, unlike its shared-source stricmp lookup.
+            if sound
+                .source
+                .as_ref()
+                .is_some_and(|source| source.name == name)
+            {
+                return Ok(());
+            }
+            // Release the old voice and source BEFORE opening the replacement.
+            sound.source = None;
+            sound.voice_playing = false;
+            sound.pending_play = false;
+            sound.frame_position = 0.0;
+            mixer.sources.get(&canonical).and_then(Weak::upgrade)
+        };
         let source = match cached {
             Some(source) => source,
-            None => {
-                let bytes = installation
-                    .read_original_path(name)
-                    .map_err(|e| AudioError(format!("sound source {name}: {e:?}")))?;
-                Arc::new(PcmSource::from_wav(name, &bytes)?)
-            }
+            None => Arc::new(PcmSource::from_wav(name, &read()?)?),
         };
         let mut mixer = self.lock()?;
         mixer.sources.insert(canonical, Arc::downgrade(&source));
-        let sound = mixer
-            .sounds
-            .get_mut(&handle)
-            .ok_or_else(|| AudioError("sound released during load".into()))?;
-        if sound
-            .source
-            .as_ref()
-            .is_some_and(|old| Arc::ptr_eq(old, &source))
-        {
-            return Ok(());
-        }
+        let camera = mixer.camera_present;
+        let sector = mixer.listener_sector;
+        let sound = sound_mut(&mut mixer, handle)?;
         if source.channels > 1 && sound.sound_type != 0 {
             sound.sound_type = 3;
         }
+        if source.channels == 1 {
+            sound.cone = [std::f32::consts::FRAC_PI_3, std::f32::consts::FRAC_PI_2];
+        }
         sound.source = Some(source);
-        sound.frame_position = 0.0;
+        if sound.on {
+            sound.set_on(true, camera, sector);
+        }
+        sound.seek(0);
+        Ok(())
+    }
+
+    /// No active camera is distinct from a camera with no assigned sector.
+    pub fn clear_listener(&self) -> Result<()> {
+        self.lock()?.camera_present = false;
         Ok(())
     }
 
@@ -455,6 +607,7 @@ impl RuntimeAudio {
         finite(&position)?;
         finite(&right)?;
         let mut m = self.lock()?;
+        m.camera_present = true;
         m.listener_position = position;
         m.listener_right = right;
         m.listener_sector = sector;
@@ -469,6 +622,12 @@ impl RuntimeAudio {
         let sound = sound_mut(&mut mixer, handle)?;
         sound.position = position;
         sound.direction = direction;
+        Ok(())
+    }
+
+    pub fn set_world_scale(&self, handle: u32, scale: f32) -> Result<()> {
+        finite(&[scale])?;
+        sound_mut(&mut *self.lock()?, handle)?.world_scale = scale;
         Ok(())
     }
 
@@ -512,6 +671,9 @@ impl RuntimeAudio {
             mixer.sources.retain(|_, source| source.strong_count() != 0);
             return Ok(0);
         }
+        let camera = mixer.camera_present;
+        let sector = mixer.listener_sector;
+        let mixer_listener = mixer.listener_position;
         let sound = sound_mut(&mut mixer, handle)?;
         let float = |i| -> Result<f32> {
             let value = f32::from_bits(arguments[i]);
@@ -519,15 +681,21 @@ impl RuntimeAudio {
             Ok(value)
         };
         match slot {
-            0x18 | 0x90 => {} // State is applied synchronously by the mixer.
+            0x18 | 0x90 => update_sound(sound, camera, sector, mixer_listener),
             0x24 | 0x88 => {
-                sound.on = arguments[0] != 0;
-                if sound.on {
-                    sound.frame_position = 0.0;
+                sound.set_on(arguments[0] != 0, camera, sector);
+                if slot == 0x88 && arguments[1] != 0 {
+                    update_sound(sound, camera, sector, mixer_listener);
                 }
             }
             0x2c => sound.parent = arguments[0],
-            0x54 => return Ok(u32::from(sound.is_playing())),
+            0x54 => {
+                return Ok(u32::from(if arguments[0] != 0 {
+                    sound.voice_playing
+                } else {
+                    sound.is_playing()
+                }))
+            }
             0x58 => {
                 if arguments[0] > 3 {
                     return Err(AudioError("unsupported sound type".into()));
@@ -548,16 +716,13 @@ impl RuntimeAudio {
             }
             0x64 => sound.out_volume = float(0)?,
             0x68 => sound.volume = float(0)?,
-            0x6c => sound.looping = arguments[0] != 0,
-            0x70 => {
-                if let Some(source) = &sound.source {
-                    sound.frame_position =
-                        f64::from(arguments[0]) * f64::from(source.sample_rate) / 1000.0;
-                    if sound.looping {
-                        sound.frame_position %= source.frames() as f64;
-                    }
+            0x6c => {
+                sound.looping = arguments[0] != 0;
+                if sound.on {
+                    sound.set_on(true, camera, sector);
                 }
             }
+            0x70 => sound.seek(arguments[0]),
             0x74 => {
                 let value = float(0)?;
                 if value <= 0.0 {
@@ -579,8 +744,8 @@ impl RuntimeAudio {
     }
 
     /// Render interleaved stereo. The same path serves a native device callback
-    /// and deterministic capture; rendering advances every enabled source even
-    /// if it is outside the listener's range or current sector.
+    /// and deterministic capture. The render duration drives the logical clock;
+    /// paused voices retain their PCM cursor while their logical lifetime runs.
     pub fn mix_stereo(&self, sample_rate: u32, output: &mut [f32]) -> Result<()> {
         if sample_rate == 0 || !output.len().is_multiple_of(2) {
             return Err(AudioError(
@@ -592,8 +757,13 @@ impl RuntimeAudio {
         let listener = mixer.listener_position;
         let right = mixer.listener_right;
         let sector = mixer.listener_sector;
+        let camera = mixer.camera_present;
+        let next_clock =
+            mixer.clock_ms + (output.len() / 2) as f64 * 1000.0 / f64::from(sample_rate);
         for sound in mixer.sounds.values_mut() {
-            if !sound.is_playing() {
+            update_sound(sound, camera, sector, listener);
+            if !sound.voice_playing {
+                sound.clock_ms = next_clock as u64 as u32;
                 continue;
             }
             let source = sound.source.as_ref().unwrap();
@@ -604,6 +774,7 @@ impl RuntimeAudio {
             for out in output.as_chunks_mut::<2>().0 {
                 if sound.frame_position >= frames as f64 {
                     if !sound.looping {
+                        sound.voice_playing = false;
                         break;
                     }
                     sound.frame_position %= frames as f64;
@@ -627,7 +798,14 @@ impl RuntimeAudio {
                 }
                 sound.frame_position += increment;
             }
+            if sound.looping {
+                sound.frame_position %= frames as f64;
+            } else if sound.frame_position >= frames as f64 {
+                sound.voice_playing = false;
+            }
+            sound.clock_ms = next_clock as u64 as u32;
         }
+        mixer.clock_ms = next_clock;
         for sample in output.iter_mut() {
             *sample = sample.clamp(-1.0, 1.0);
         }
@@ -641,7 +819,7 @@ impl RuntimeAudio {
 }
 
 fn canonical_name(name: &str) -> String {
-    name.replace('\\', "/").to_ascii_lowercase()
+    name.to_ascii_lowercase()
 }
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> crate::vehicle_sound::VehicleGearSoundEffects<T>
@@ -703,13 +881,69 @@ fn sound_mut(mixer: &mut Mixer, handle: u32) -> Result<&mut SoundState> {
         .ok_or_else(|| AudioError(format!("unowned sound {handle:#x}")))
 }
 
+/// The source's update boundary decides when the independently owned host voice runs.
+fn update_sound(sound: &mut SoundState, camera: bool, sector: Option<u32>, listener: [f32; 3]) {
+    if sound.state == PlaybackState::Stop || !sound.on || !camera || sound.source.is_none() {
+        return;
+    }
+    if sound.state == PlaybackState::NoCamera {
+        sound.set_on(true, camera, sector);
+    }
+    if sound.sound_type == 0 {
+        sound.set_on(false, camera, sector);
+        return;
+    }
+    if !sound.is_playing() {
+        sound.state = PlaybackState::Stop;
+        sound.pending_play = false;
+        return;
+    }
+    let distance_squared = sound
+        .position
+        .iter()
+        .zip(listener)
+        .map(|(a, b)| (a - b) * (a - b))
+        .sum::<f32>();
+    let outside_sector =
+        !sound.sectors.is_empty() && !sector.is_some_and(|sector| sound.sectors.contains(&sector));
+    let outside_range = sound.sound_type != 3 && distance_squared >= sound.scaled_range().1.powi(2);
+    let outside_cone = if sound.sound_type == 2 && distance_squared > f32::EPSILON {
+        let length = sound.direction.iter().map(|v| v * v).sum::<f32>().sqrt();
+        let cosine = sound
+            .direction
+            .iter()
+            .zip(sound.position.iter().zip(listener))
+            .map(|(dir, (pos, cam))| dir * (cam - pos))
+            .sum::<f32>()
+            / (distance_squared.sqrt() * length);
+        cosine <= (sound.cone[1] * 0.5).cos() && sound.out_volume.abs() < 1e-8
+    } else {
+        false
+    };
+    if outside_sector || outside_range || outside_cone {
+        sound.pause();
+        return;
+    }
+    if sound.state == PlaybackState::Pause {
+        sound.state = PlaybackState::Resume;
+        sound.set_on(true, camera, sector);
+    }
+    if sound.pending_play {
+        if sound.pause_pos == 0 {
+            sound.frame_position = 0.0;
+        }
+        sound.voice_playing = true;
+        sound.pending_play = false;
+    }
+}
+
 fn gains(
     sound: &SoundState,
     listener: [f32; 3],
     right: [f32; 3],
     sector: Option<u32>,
 ) -> (f32, f32) {
-    if sector.is_some_and(|s| !sound.sectors.is_empty() && !sound.sectors.contains(&s)) {
+    if !sound.sectors.is_empty() && !sector.is_some_and(|s| sound.sectors.contains(&s)) {
         return (0.0, 0.0);
     }
     if sound.sound_type == 3 {
@@ -717,8 +951,8 @@ fn gains(
     }
     let delta = std::array::from_fn::<_, 3, _>(|i| sound.position[i] - listener[i]);
     let distance = delta.iter().map(|v| v * v).sum::<f32>().sqrt();
-    let [near, far, middle, middle_volume] = sound.range;
-    let mid = near + (far - near) * middle;
+    let (near, far, mid) = sound.scaled_range();
+    let middle_volume = sound.range[3];
     let attenuation = if distance <= near {
         1.0
     } else if distance >= far {
@@ -876,6 +1110,7 @@ mod tests {
             .insert("synthetic.wav".into(), Arc::downgrade(&source));
         m.sounds.get_mut(&0x1000).unwrap().source = Some(source);
         drop(m);
+        audio.set_listener([0.0; 3], [1.0, 0.0, 0.0], None).unwrap();
         audio.sound_virtual(0x1000, 0x58, &[3]).unwrap();
         audio
     }
@@ -910,6 +1145,7 @@ mod tests {
         assert_eq!(out, [0.25, 0.25, 0.0, 0.0]);
         assert_eq!(audio.sound_virtual(0x1000, 0x54, &[0]).unwrap(), 0);
         audio.sound_virtual(0x1000, 0x6c, &[1]).unwrap();
+        audio.sound_virtual(0x1000, 0x90, &[]).unwrap();
         audio.sound_virtual(0x1000, 0x70, &[250]).unwrap();
         audio
             .sound_virtual(0x1000, 0x74, &[1.0f32.to_bits()])
@@ -925,7 +1161,7 @@ mod tests {
     }
 
     #[test]
-    fn positioned_sector_sound_advances_while_inaudible() {
+    fn positioned_sector_sound_resumes_at_elapsed_position() {
         let audio = loaded();
         audio.sound_virtual(0x1000, 0x58, &[1]).unwrap();
         audio
@@ -958,5 +1194,193 @@ mod tests {
         assert_eq!(out, [0.0, 0.25]);
         audio.delete_sector_sound(1, 0x1000).unwrap();
         assert!(audio.sound(0x1000).unwrap().sectors.is_empty());
+    }
+
+    fn playing(audio: &RuntimeAudio, real: bool) -> u32 {
+        audio
+            .sound_virtual(0x1000, 0x54, &[u32::from(real)])
+            .unwrap()
+    }
+
+    #[test]
+    fn replacement_failure_releases_old_voice_source_and_projection() {
+        let audio = loaded();
+        audio.sound_virtual(0x1000, 0x88, &[1, 1]).unwrap();
+        audio
+            .bind_source_projection(
+                "synthetic.wav",
+                SourceProjection {
+                    source: 8,
+                    name: 16,
+                },
+            )
+            .unwrap();
+        assert!(audio
+            .load_sound_with(0x1000, "missing.wav", || {
+                assert!(audio.sound(0x1000).unwrap().source.is_none());
+                assert_eq!(playing(&audio, true), 0);
+                Err(AudioError("synthetic missing file".into()))
+            })
+            .is_err());
+        assert_eq!(playing(&audio, false), 0);
+        assert_eq!(audio.live_source_count().unwrap(), 0);
+        assert_eq!(
+            audio.take_unused_source_projections().unwrap(),
+            vec![SourceProjection {
+                source: 8,
+                name: 16
+            }]
+        );
+        assert!(audio.sound(0x1000).unwrap().on);
+        audio
+            .load_sound_with(0x1000, "replacement.wav", || Ok(wav(&[8192; 4], 1, 4)))
+            .unwrap();
+        audio.mix_stereo(4, &mut [0.0; 2]).unwrap();
+        assert_eq!(playing(&audio, true), 1);
+    }
+
+    #[test]
+    fn exact_name_preserves_voice_but_case_cache_match_reopens() {
+        let audio = loaded();
+        audio.sound_virtual(0x1000, 0x88, &[1, 1]).unwrap();
+        audio.mix_stereo(4, &mut [0.0; 2]).unwrap();
+        audio
+            .load_sound_with(0x1000, "synthetic.wav", || {
+                panic!("exact Open must not read")
+            })
+            .unwrap();
+        assert_eq!(audio.sound(0x1000).unwrap().current_time_ms(), 250);
+        // A second owner keeps the case-insensitive source cache alive across release.
+        audio.create_sound_at(0x2000).unwrap();
+        audio
+            .load_sound_with(0x2000, "SYNTHETIC.WAV", || {
+                panic!("shared source must not read")
+            })
+            .unwrap();
+        let source = audio.sound(0x2000).unwrap().source.unwrap();
+        audio
+            .load_sound_with(0x1000, "SYNTHETIC.WAV", || {
+                panic!("cache match must not read")
+            })
+            .unwrap();
+        let reopened = audio.sound(0x1000).unwrap();
+        assert!(Arc::ptr_eq(&source, reopened.source.as_ref().unwrap()));
+        assert_eq!(reopened.current_time_ms(), 0);
+        assert!(!reopened.voice_playing);
+        assert!(reopened.is_playing());
+    }
+
+    #[test]
+    fn deferred_play_real_flag_stop_restart_and_loop_restart() {
+        let audio = loaded();
+        audio.sound_virtual(0x1000, 0x24, &[1]).unwrap();
+        assert_eq!(playing(&audio, false), 1);
+        assert_eq!(playing(&audio, true), 0);
+        audio.sound_virtual(0x1000, 0x90, &[]).unwrap();
+        assert_eq!(playing(&audio, true), 1);
+        audio.mix_stereo(4, &mut [0.0; 4]).unwrap();
+        audio.sound_virtual(0x1000, 0x6c, &[1]).unwrap();
+        let mut output = [0.0; 4];
+        audio.mix_stereo(4, &mut output).unwrap();
+        assert_eq!(output, [0.0, 0.0, 0.25, 0.25]);
+        audio.sound_virtual(0x1000, 0x24, &[0]).unwrap();
+        assert_eq!((playing(&audio, false), playing(&audio, true)), (0, 0));
+        assert_eq!(audio.read_sound_word(0x1000, 0x144).unwrap(), 1);
+        audio.sound_virtual(0x1000, 0x88, &[1, 1]).unwrap();
+        assert_eq!(audio.sound(0x1000).unwrap().current_time_ms(), 0);
+    }
+
+    #[test]
+    fn no_camera_waits_and_sector_none_is_not_an_unrestricted_camera() {
+        let audio = loaded();
+        audio.clear_listener().unwrap();
+        audio.sound_virtual(0x1000, 0x24, &[1]).unwrap();
+        assert_eq!(audio.sound(0x1000).unwrap().state, PlaybackState::NoCamera);
+        audio.mix_stereo(4, &mut [0.0; 4]).unwrap();
+        assert_eq!(playing(&audio, true), 0);
+        audio.add_sector_sound(7, 0x1000).unwrap();
+        audio.set_listener([0.0; 3], [1.0, 0.0, 0.0], None).unwrap();
+        audio.sound_virtual(0x1000, 0x90, &[]).unwrap();
+        assert_eq!(audio.sound(0x1000).unwrap().state, PlaybackState::Pause);
+        assert_eq!(playing(&audio, true), 0);
+        audio
+            .set_listener([0.0; 3], [1.0, 0.0, 0.0], Some(7))
+            .unwrap();
+        audio.sound_virtual(0x1000, 0x90, &[]).unwrap();
+        assert_eq!(playing(&audio, true), 1);
+    }
+
+    #[test]
+    fn paused_seek_keeps_voice_cursor_and_expires_by_logical_clock() {
+        let audio = loaded();
+        audio.sound_virtual(0x1000, 0x88, &[1, 1]).unwrap();
+        audio.mix_stereo(4, &mut [0.0; 2]).unwrap();
+        audio.add_sector_sound(7, 0x1000).unwrap();
+        audio.sound_virtual(0x1000, 0x90, &[]).unwrap();
+        assert_eq!((playing(&audio, false), playing(&audio, true)), (1, 0));
+        audio.sound_virtual(0x1000, 0x70, &[500]).unwrap();
+        assert_eq!(audio.sound_virtual(0x1000, 0x80, &[]).unwrap(), 250);
+        audio.mix_stereo(4, &mut [0.0; 4]).unwrap();
+        assert_eq!(playing(&audio, false), 0);
+        audio
+            .set_listener([0.0; 3], [1.0, 0.0, 0.0], Some(7))
+            .unwrap();
+        audio.sound_virtual(0x1000, 0x90, &[]).unwrap();
+        assert_eq!(audio.sound(0x1000).unwrap().state, PlaybackState::Stop);
+    }
+
+    #[test]
+    fn range_pause_freezes_voice_then_loop_resume_uses_elapsed_time() {
+        let audio = loaded();
+        audio.sound_virtual(0x1000, 0x58, &[1]).unwrap();
+        audio.sound_virtual(0x1000, 0x6c, &[1]).unwrap();
+        audio.sound_virtual(0x1000, 0x88, &[1, 1]).unwrap();
+        audio.mix_stereo(4, &mut [0.0; 2]).unwrap();
+        audio
+            .set_position(0x1000, [20.0, 0.0, 0.0], [0.0, 0.0, 1.0])
+            .unwrap();
+        audio.mix_stereo(4, &mut [0.0; 4]).unwrap();
+        assert_eq!(audio.sound(0x1000).unwrap().current_time_ms(), 250);
+        assert_eq!((playing(&audio, false), playing(&audio, true)), (1, 0));
+        audio
+            .set_position(0x1000, [0.0; 3], [0.0, 0.0, 1.0])
+            .unwrap();
+        let mut output = [0.0; 2];
+        audio.mix_stereo(4, &mut output).unwrap();
+        assert_eq!(output, [-0.25, -0.25]);
+        assert_eq!(audio.sound(0x1000).unwrap().current_time_ms(), 0);
+    }
+
+    #[test]
+    fn world_scale_controls_range_and_derived_cone_fields_follow_setters() {
+        let audio = loaded();
+        audio.sound_virtual(0x1000, 0x58, &[1]).unwrap();
+        audio
+            .set_position(0x1000, [15.0, 0.0, 0.0], [0.0, 0.0, 1.0])
+            .unwrap();
+        audio.sound_virtual(0x1000, 0x88, &[1, 1]).unwrap();
+        assert_eq!(playing(&audio, true), 0);
+        audio.set_world_scale(0x1000, 2.0).unwrap();
+        audio.sound_virtual(0x1000, 0x90, &[]).unwrap();
+        assert_eq!(playing(&audio, true), 1);
+        assert_eq!(
+            f32::from_bits(audio.read_sound_word(0x1000, 0x174).unwrap()),
+            20.0
+        );
+        audio
+            .sound_virtual(0x1000, 0x60, &[1.0f32.to_bits(), 7.0f32.to_bits()])
+            .unwrap();
+        assert_eq!(
+            f32::from_bits(audio.read_sound_word(0x1000, 0x1a4).unwrap()),
+            0.5f32.cos()
+        );
+        assert_eq!(
+            f32::from_bits(audio.read_sound_word(0x1000, 0x1a8).unwrap()),
+            std::f32::consts::PI
+        );
+        assert_eq!(
+            f32::from_bits(audio.read_sound_word(0x1000, 0x1ac).unwrap()),
+            std::f32::consts::FRAC_PI_2.cos()
+        );
     }
 }
