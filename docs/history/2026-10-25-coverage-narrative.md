@@ -1,0 +1,199 @@
+> Historical narrative from `COVERAGE.md` at baseline `0da90fb`, before the texture/Scene/actor-loader publication. Original narrative wording is retained below; only relative link destinations are rebased for this archive location. Current status is in [README](../../README.md), [coverage](../../COVERAGE.md), [progress](../PROGRESS.md) and [goals](../GOALS.md).
+
+# Reconstruction coverage
+
+## Scene weather and resource maintenance — 2026-10-25
+
+Code commit `89308ce` adds `I3D_scene::WeatherSystemReset` and
+`S_sector_sound_properties::SetupDefaults`, with actual PS2 symbol correspondence
+and original PC instruction comparisons. Eight hundred direct inputs comprise
+736 weather and 64 sound-default cases, including incoming precision P0/P1.
+Full 65,536-byte fixture arenas and logical sticky P match actual Cargo debug and
+release builds; native O0/O3 wrappers add no cases. Original fixed-angle math runs
+without numeric mocks. Host CW/MXCSR equivalence remains unclaimed.
+
+Loaded resources now expose separate vertex and index reclamation stages, and
+standalone Car shutdown executes vertex before index over its actual owner.
+Shared meshes and live vertex buffers survive maintenance. A synthetic CPU
+backing-loss test checks poisoned-manager refusal without native failure credit.
+The Scene helper admits only these two effects and rejects other boundaries.
+
+The 265-file Source-v2 passes 1071 Rust tests, nine REA-wrapper and 47 progress
+tests, formatting, locked all-target checking and Clippy. A fresh debug window
+exercises three W driving runs, three R reloads and four zero-owned-resource
+cleanups; five caller-owned Scene-prefix frames remain explicit.
+[New screenshot](../screenshots/2026-10-25-resource-reload.webp).
+Two sequential independent non-author reviews accepted the bounded source.
+
+The accepted ledger is **311 entries / 114 contracts**, with
+**23 static_inspection / 91 not_integrated**; strict verification remains **0/12**
+and whole-function coverage N/A. Weather/default workers are not yet called by
+the live Scene constructor. Viewport, shared Snow creation/lifetime, full Close,
+original File Open/reload and mission ownership remain open. The authored MISE01
+program probe still stops at FINDACTOR/UnsupportedWorldBackend, PC 3 / line 4;
+the application does not yet execute its mission scripts.
+
+## Previous standalone driving integration
+
+
+Standalone driving composes the original-data car lifecycle, world collisions,
+material/tyre projections, input setters, simulation, sound and explicit cleanup.
+The source keeps one canonical car/frame/heap owner. Native comparisons and
+original-data rendered/input evidence have separate scopes; the campaign stays
+unplayable and strict system verification remains **0/12**. That integration added
+no canonical entries; its accepted ledger was **309 entries / 113 contracts**.
+The current Scene dependency ledger is stated above.
+
+The driving view includes original static collision, nearby cache-model geometry,
+canonical light/skid visibility, a host chase camera and original WAV mixing.
+Generic `C_crash_obj` creation and physical debris use the canonical dynamic collision
+context. Original renderer parity, mission actors/traffic, other actor classes,
+live particle templates and occupied scratch-projection pools remain open.
+Unsupported reached dependencies retain their completed prefix and fail explicitly.
+
+Frozen Source4 passes 1066 Rust tests (110 assets unit, seven assets integration,
+910 engine library, eight engine integration, 26 application and five renderer),
+nine REA-wrapper tests and 47 progress tests, formatting, locked all-target checking
+and all-target Clippy. All 264 guarded source files agree before and after the gate.
+Apple arm64 checking is blocked by
+the new CoreAudio dependency's missing Apple SDK headers in this Linux environment;
+no current macOS runtime or Metal claim is made.
+
+Three original-input headless trajectories pass in both actual opt0/opt3 profiles:
+900 prop-collision steps, 900 glass-damage steps with camera/listener/PCM updates,
+and 1800 idle steps. The prop trace creates one physical object. All six runs
+finish with zero owned resources; five caller-owned Scene-prefix frames remain
+separate context. Nineteen recorded source guards and additional checks retain
+the frozen 264-file tree. Damaged glass material is observed; exhausted-window
+fragments and their sound are not exercised.
+
+Both windowed profiles pass 26 negative CLI cases, exact legacy taxi/police/MISE01
+pixels, inspection controls and live driving inputs. W/S, full A/D requests and
+applied steering signs, Space, focus loss, R reload and two explicit cleanups are
+verified. Maximum displacement is 12.224 metres in debug and 46.141 metres in
+release. The separate continuous release video has 540 decoded frames, 330
+distinct frames and 55.038 metres maximum displacement over 18 seconds. Its
+17.44-second original-resource stereo audio is neither padded nor stretched;
+software capture and simulation timing diverge by up to 0.706 seconds. These
+results establish no perfect audiovisual synchronization or physical audio-device
+validation. Both sequential independent non-author reviews approved the bounded
+Source4 milestone with no open findings, bound to code/docs/media commit `78c130e`.
+
+All admitted original-instruction comparisons pass against actual current-source
+Cargo opt0/opt3 builds, with 135 matching guards over the 264-file freeze. Counts
+remain separate: the baseline has 480 named inputs / 377 semantic capsules and
+five separately reported negative controls; new method/kernel cohorts have 631
+named inputs including projections and precision controls. Four genuine library
+owner-query cases and four new availability-negative controls are separate
+categories. There is no combined positive/unique total or duplicate profile credit.
+
+The new cohorts include 12 MoveBox inputs with 14 original corner rays each,
+six fragment projections, 26 active-row glass Tick inputs and 29 sound inputs.
+Controlled world/resource interfaces and pure CPU kernels retain their declared
+limits. Original code runs under masked CW007f PC24/RN; normalized Rust
+results/effects and its modeled logical sticky P are compared. Rust/native host
+hardware CW/MXCSR equivalence and other exception/condition bits are unclaimed.
+This establishes no whole Game, complete Scene, GPU or whole-function parity.
+
+## Previous bounded prerequisite milestone
+
+At `bf8b170`, the accepted scope is **309 entries / 113 reviewed contracts**, **23 static_inspection / 90 not_integrated**, strict **0/12**. Whole-function coverage remains N/A.
+
+Original car level tables now load from the user's DTA data through the reconstructed loader and packed-parameter converter. Eight distinct model/allocator configurations pass in both profiles (16 executions), including repeat-load rejection and explicit cleanup with zero tracked Car/Game/model resources. Five host Scene-prefix frames remain explicit context. Runtime needs original assets without opening an original executable or DLL.
+
+The new bounded contracts cover Car/Actor/Vehicle GameInit and cleanup, Engine/Move/Tick scheduling, wheel publication, contacts and static sphere/box queries. Original-instruction comparisons retain declared raw entry state, original numeric order and explicit world/resource boundaries. Internal Move phases, alternate APIs and build profiles add no duplicate entry credit. Required external backends remain incomplete; full application GameInit, body simulation, driving and mission execution remain unavailable.
+
+Contacts compare 84 distinct original configurations: 58 complete returns and 26 placement-frontier prefixes. Twelve full-return impact cases preserve the shared mutable impulse referenced by both original callback arguments, post-callback mass/impulse reads and particles/sound/callback/damage ordering. The effect callees remain controlled boundaries. BodyCollision's separate eight-case proof excludes mutable damage/descriptor-mapper callbacks and live dynamic-owner response.
+
+Build and logic checks pass 922 Rust tests and 56 Python tests, plus formatting, locked workspace checking and Clippy. Apple ARM64 all-target checking passes; native macOS execution and Metal remain untested. Native validation binds 27 actual Cargo dev/release implementations to the same frozen source. Expected-disagreement precision controls remain separate from positive equivalence evidence.
+
+Repeated and cross-profile rendering agrees; default taxi/police and static MISE01 controls stay unchanged. X11 checks exercise A/D, key release, focus loss, camera input and explicit R reload with cleanup. The same initialized wheel frames feed the renderer. Existing dated WebP pixels remain valid through exact executable identity, reproduced release pixels and the current-source binding. Rendering remains unlit first LOD with nearest sampling and the admitted host 0.5 mask cutoff; original lighting, reflections, blending and native GPU parity are unverified.
+
+Actual authored MISE01 remains FINDACTOR/UnsupportedWorldBackend at PC 3 / source line 4; no later line executes. All six first-mission gates remain open, with strict verification 0/12.
+
+Historical Car construction/runtime milestone at `5b28728` retains 272 entries / 93 contracts: 34 native constructor completions plus four separate prefixes, and 96 separate constructor/primary-Init/destructor inputs. Eleven original models share the initialized CPU owner and explicit cleanup. Its allocator, native stack, Scene context and lack of GameInit/driving integration remain immutable in the dated contracts and observations.
+
+Historical bounded Car Init milestone at `df50d2f` retains 271 entries / 92 contracts: 14 AL1, 18 AL0 and 60 host-prefix main inputs, separate helper comparisons and eleven-original-model CPU lifecycle composition. Its native-constructor intake and lack of new rendering remain immutable in the dated scope and observation; the current constructor/runtime milestone adds separate source-bound evidence.
+
+Historical same-arena Vehicle milestone at `75e380d` retains 264 entries / 85 contracts: bounded Vehicle Init and explicit destruction, flags 0/1 parameters, AXIS24/Setup12/point/control records and six-original-car CPU composition. Its original C_car prefix frontier and controlled outer effects remain immutable in dated scopes and observations; the current Car milestone supersedes that frontier only within its new bounded context.
+
+Historical shared Scene/Sector milestone at `43e04ca` retains 257 entries / 79 contracts, with 372 unique bounded AddFrame/Close inputs: 321 normal completions and 51 separate controlled host-effect prefixes. Three original models with 92 source frames composed with one live ModelArena per fixture, two ownership-prefix scenes and eight retained sectors. Constructor, resource/driver callbacks, loaded-visual destruction and native raw-heap limits remain immutable in its source-bound contract and observation.
+
+Historical vehicle-component milestone at `21c555b` retains 255 entries / 78 contracts: 1,159 unique record-helper inputs (1,153 normal completions and six fault prefixes), 311 bounded Init-tail inputs and 591 earlier vehicle regressions. Original-data taxi composition preserved 67 frames and stopped before wheel enumeration under explicit constructor/frame/allocator controls. Its source-bound contracts, postprefix opaque-stack limits, failure-prefix policy and lack of complete Init/driving acceptance remain immutable.
+
+Historical BODYCOL/fast-tree milestone at `494ede8` retains 245 entries / 77 contracts: 478 record observations (477 completions and one fault prefix), 164 physical BODYCOL cases and 31 fast-tree/loader cases with 1,436 ordered operations. Its source-bound controlled effects and ownership limits remain immutable. The resolved-slot bridge retained 119,019 records / 348,677 references and 2,044 rays: 288 hits, 575 misses and 1,181 explicit errors, without original scene construction or whole-map native parity.
+
+Historical component/volume/sound milestone at `1026880` retains 227 entries / 74 contracts: 7,304 of 7,371 direct-volume matches (67 exclusions), 2,129 mixed-query matches, 4,031 physical sound/shift inputs and 188 new Init inputs. Direct/mixed volume physical and QEMU outputs agree; mixed-query fraction remains independently unverified. Original audio methods and BODYCOL passes were explicit boundaries at that freeze. Its immutable contracts and observations retain those limits.
+
+Historical Init/collision milestone at `5eb220a` retains 222 entries / 72 contracts: 239 Init-prefix matches, 293 of 322 preparation matches (26 numeric and three binding exclusions), and 2,845 of 2,869 static-query matches. Physical classifier evidence resolves seven QEMU threshold discrepancies; partial-loader degeneracy remains controlled QEMU evidence. Its immutable scopes and earlier observations retain their accepted source and limits.
+
+Historical vehicle-world milestone at `46db9f5` retains 219 entries / 69 contracts: 1,024 constructor configurations, 32 separate constructor-to-controls trajectories and 5,215 admitted drivetrain configurations with 52 numeric exclusions. Its 79-member KLZ intake and controlled loader/geometry-binding evidence retain their original limits.
+
+Historical driving-prerequisite milestone at `38bd2c4` reached 214/67 with original parser/398-row recognition, five detached input setters and the triangle-only collision leaf. Its static GPU/UI and placement evidence remains historical. Earlier source, frame, actor and resource observations retain their original limits.
+
+Historical frame milestone at `4c42068` reached 195/63 with 151 admitted matches from 474 original-instruction inputs and 166 separate Rust cases. Its Target/original-name search, shared user-data records and bounded release retain their accepted domains. Actual Tommy targetN was exercised in Rust; no actual targetE or successful original-model Close was claimed.
+
+Historical actor-world milestone at `d5c6666` reached 192/62 with 88 admitted matches from 93 original-instruction inputs and 140 separate Rust probes. Its base-actor/source ownership remains accepted. The frame virtuals were controlled dependencies at that freeze; the current model adapter now supplies that bounded path. Allocator internals, derived actors and mission-world wiring remain open.
+
+Historical replay milestone at `ceb988a`: the 1,161-case native comparison and separate 76-probe receipt remain accepted prior evidence; its line-2 declaration frontier is superseded by the current line-4 probe. Details and limits remain in [PROGRESS.md](../PROGRESS.md).
+
+Historical Installation milestone: At `b856d76`, existing `Installation::read` archive callers now use `NativeFiles` with the selected original name, table row and archive owner. First-archive precedence remains A8, A2, A6, A1, AC, AA; read errors propagate without retry or fallback. Menu and static scene loading exercise this route. Independent checks match all bytes of 49 original resources / 26,228,595 bytes per debug/release profile against the frozen Rust baseline `1a1a8df`; this is Rust–Rust evidence. Ten rendered/keyboard-interaction captures match that exact baseline with zero changed pixels. Counts remain **177 entries / 59 contracts**, strict **0/12**: no new canonical entries, contract credit or original-runtime comparisons. Audio playback and the first mission remain unimplemented. Selected non-ASCII archive names fail explicitly with `UnsupportedName`; loose Unicode behavior is unchanged. Checked zero-length entries are a host accommodation: the original archive-open path still reads its first block header. The selected route bypasses the `dtaOpen` wrapper and demonstrates no AddRef/Release/destructor or Seek use, nor WAV playback.
+
+Validation for that historical source freeze passes 502 Rust tests (104 assets unit, seven assets integration, 365 engine library, 21 application, five renderer), nine REA-wrapper tests and 47 progress tests, plus formatting, locked checking and Clippy. Apple arm64 all-target checking passes; native macOS linking and Metal execution remain untested. At that freeze the replay busy predicate and VM bridge were still pending.
+
+Historical WAV milestone at `f89f542`: bounded PCM16 mono/stereo WAV archive decoding composes with Open/Read/Seek/Close: **177 scoped entries / 59 contracts**. Native comparisons cover 202 Read observations (172 nonfailure, 30 released-handle failures) across 26 archive fixtures plus four supplemental trajectories reusing four fixtures, with 66 explicit Seek context rows. The 510 normalized log rows and 7,280,960 complete-buffer bytes include guards and unrequested regions; debug/release count once. Separately, 128 logical decoder vectors and 18 scripted effects plus four direct-buffer effects check Rust behavior, without native failure injection. Eight fresh REA results support the codec; identical PC/PS2 table constants and PS2 linker names add no PS2 runtime claim. Scope is bounded 16-bit mono/stereo; generic non16 LZ, other channels, Write and full DLL parity remain open. Application/audio playback and first-mission integration remain open; no new rendered or interactive validation.
+
+Pending-native worker implementation at `8b57b85`: 119 static-model schedules across three controlled I/O modes compare 357 trials, 300 completed texture loads and 5,190 ordered external events in debug/release using 13 exact production-source copies. This is an independent assembly-derived oracle, with zero original binary executions or runtime comparisons. It covers bounded serialized effects, including consumed-queue lifetime, valid handle zero and short-read tails; Direct3D, DTA internals, changing-frame schedules and concurrency remain excluded. No accepted function, contract or system credit is added.
+
+Status for the Rust rewrite as of 2026-10-24. The 12 rows below preserve the original full-system verification registry: assets and world streaming share one row; audio/UI/localization and save/load have separate rows. A row passes the strict gate only with traceable PC evidence, implementation, and relevant runtime validation; partial parsing, rendering, or a diagnostic probe does not pass it. Substantial code milestones receive two sequential independent reviews. Scoped function contracts are counted separately from complete systems.
+
+| System | Source evidence and recovered behavior | Rust implementation and validation | Gaps |
+| --- | --- | --- | --- |
+| Assets and world streaming | PC/PS2 evidence separates Car construction, Init, GameInit and original cache transforms. | Original DTA levels, material/tyre projections and nearby cache geometry compose with the live car. Visible world subsets refresh without dropping the source scene. | Full Game/Scene factories, complete Scene Close, billboard resources and mission-world ownership. |
+| Rendering and materials | Native indexed conversion fragments establish bounded binary alpha for palette-zero RGB keys; host rendering choices remain separate. | Real software Vulkan taxi/police captures use the initialized arena; supported indexed/grayscale masks clip at host 0.5. Pixel repetition, GPU depth holes/overlay preservation and bounded X11 camera/R reload pass. | Unlit first LOD/nearest inspection, opaque unsupported non-grayscale masks, no environment reflections/blending, native GPU/lighting/full-renderer parity or Metal validation. |
+| Animation | PC REA/native comparisons cover eight-slot controls, clock/dispatch, bounded evaluators and cached bounds; PS2 names have separate ABI evidence. | One live unit-weight slot updates an owned hierarchy, Targets, morphs and CPU skinning. Persistent native regression and original track samples retain their accepted domains. | Blending, scale/notes, remaining numeric domains, original animation-resource/catalog ownership and gameplay selection. |
+| Collision and physics | Ordered KLZ, line/volume, sphere/box and solver contracts retain distinct scopes. | Original-road contacts, body movement, curb/wall response and canonical dynamic registration compose in standalone driving, including the bound C_crash_obj path. Original-source ray/sweep and native worker comparisons are separate evidence. | Complete native scene construction, actor classes beyond C_crash_obj and remaining response breadth. |
+| Vehicles | Constructor, Init, GameInit/GameDone, scheduling, Move and wheel contracts remain distinct. | One canonical owner runs the complete standalone lifecycle, original-data road driving, steering/braking and sound, with explicit cleanup. Native lifecycle fixtures retain controlled frame/resource boundaries. | Original player/mission integration, occupants and some severe-damage dependencies. |
+| Characters and combat | Base and source-only detector lifetime, program source/name ownership and source membership join prior dispatch, control and cache contracts. | Owned base/kind-5 source-only actors compose with real ModelArena frame effects. Payload/replacement and program-before-base cleanup preserve bounded ownership; compiled execution remains absent. | Actual mission actors, derived behavior, animation-machine/resource construction, gameplay motion/combat and complete actor/BODY/model ownership. Kind 1 is absent from MISE01. |
+| Traffic and pedestrians | Resource presence is known. | Absent. | Spawn, routing and simulation remain unreconstructed. |
+| AI, navigation and police | REA and native state comparisons cover selected manager initialization/reset and startup dependencies. | Two isolated manager entries retain 1,756 original-state comparisons. | Resource-backed police ON, actor/navigation registration, pursuit and general AI. |
+| Scripts and cutscenes | Scheduler, lookup, replay and actor source-order contracts remain bounded; actual mission traces are historical. | Source-only detector and original parser/full 398-keyword recognition remain bounded; 400 actual line recognition inputs do not execute MISE01, whose PC3/source4 missing-world frontier is unchanged. | Floating operands/LET/IF, all 62 parameter cases, Compile/Init/Done and running-detector cleanup; real mission context/sectors, scheduling, replay and objectives. |
+| Camera and input | Recovered setters/control resets have original-code evidence. | Host W/S, A/D, Space, focus loss and R drive the same original setters; the chase view reads the live car matrix. | Original gameplay camera, full player scheduling and controllable first mission. |
+| Audio, UI and localization | Czech menu data, PCM16 WAV/archive and vehicle sound contracts. | Original WAV engine/contact/skid sources mix to stereo PCM, optional CPAL output and capture; original Czech menu displays. | Hardware audibility in this environment, broader codecs, HUD/profile chooser, original Setup GUI and full settings integration. |
+| Save and load | No persistence schema or behavior is recovered; autosave actor construction is a separate program dependency. | Absent. | Save/load, persistence and recovery behavior. |
+
+Historical standalone-Restore validation at `71b1219`: `scripts/test.sh` passes 465 Rust tests (78 assets, 361 engine library, 21 application, five renderer), nine REA wrapper tests and 42 progress tests, plus formatting, locked workspace checking and Clippy. Three Rust tests were added over 462. Final source differs from the tested/native-compared freeze only by a corrected wrapper comment; both final reviews bind that exact source. Two sequential independent reviews accepted exact source; Apple arm64 all-target checking passes. Native macOS linking and Metal runtime remain untested. No new application, rendered or interactive validation was performed.
+
+Bounded standalone managed texture Restore now reconstructs admitted system/default pools and reserves the registry through controlled device/storage effects. It composes the accepted Release dependency, selects raw format once, uses returned descriptor Size with signed budgets and wrapping memory arithmetic, grows arrays in 1,024-slot steps and preserves registry entries. RestoreManagedTextures is a pinned mafia-re working name without recovered original PC/PS2 symbol. Six admitted cases compare 5,565 ordered effect rows and 1,109 state rows once across debug/release. They span eight Restore and ten existing Release calls, including six effect-only cleanup phases; existing Release receives no duplicate credit. No return/status or Rust instruction/store comparison is made. The saved native-only capture includes seven cases, nine Restore calls, 87,496 instruction steps, 7,410 stores and 1,024 copies of 44 bytes. Native case six has fully backed registry count 4,097/capacity 4,096 but is excluded by host coherence. Final comparison reused saved native captures without native reexecution; Rust debug/release used 12 hash-bound copied production modules. The required host owner flag 0x40 is unused by these operations and changes no expected projection. Valid controlled COM outputs, including failing HRESULTs, are exercised; no real GPU or COM implementation is established. Coherent extents, live identities, separately owned alias references, representable lengths, nonreentrant backends and bounded terminating reconstruction constrain admission. Full texture Create, worker/upload, real GPU/device implementation, whole-device shutdown, derived LODs, loaded adapters and scene/application integration remain open; no new rendered or interactive validation is claimed.
+
+Earlier release evidence: Three seeded scenarios compare six release calls: six state rows, six synthetic void return-class rows and 108 ordered effects (12 lock callbacks, 78 controlled COM Release callbacks and 18 allocator calls), counted once across debug/release. Native EAX is unspecified. Controlled COM identities start with 100 references; actual Direct3D destruction is untested. Native fixture Create is context only, with no Rust Create comparison. Native-only tracing observes 1,404 instructions and 106 stores with surrounding-byte preservation; Rust intermediate store observer parity is excluded. Nonnegative bounded extents, live owners, valid slot COM identities and allocator ownership, sufficient alias lifetimes and nonreentrant/nonconcurrent backends bound admission. Full texture Create/Restore, worker/upload, whole-device shutdown, derived LODs, loaded/GPU adapters and scene/application integration remain open; no new rendered or interactive validation is claimed.
+
+The earlier unload comparison retains three admitted cases comparing five standalone unload calls plus one existing Request and one removal call: seven return rows, seven state rows and 17 ordered effects in debug/release, counted once. Rust seeds the pre-Unload state; native creation and pre-Unload loaded Request remain context only. The native trace observes 439 body instructions and 16 stores; surrounding-byte preservation includes borrowed graphics, whose raw-byte evidence is native-only. A separate Rust unit verifies retained borrowed graphics. Exact internal store timing is not differential observer parity. Managed flags, record/queue coherence, live identities and bounded extents are host admission checks; native unload tests only owner pointers and nonzero counts. Full Create, Release/Restore, worker/upload, pool shutdown, whole SceneClose and GPU/application integration remain open.
+
+5 admitted original-call cases cover 55 phases of actual record/filename creation, genuine filename-allocation rejection, registry append/growth and existing removal/Close composition. Ordered effects distinguish 114 external calls from 98 explicit storage-write/copy events observed with unpatched original instructions; these are not extra native functions or arbitrary memory/allocator parity. Thirteen Add invocations include twelve true results and one genuine filename-allocation false. Original publication stores remain native-only evidence, without Rust internal callback alias/publication timing parity. Preparation, bounded arithmetic, stable format/list state, compatible allocation identities and no-address-reuse are host policies. Unchecked record/list allocation failure and backend-error poisoning are not native false-return or rollback matches. The helper preserves caller flags/initialization and does not load images, produce worker requests, upload, retire all pools or admit loaded/application/GPU teardown.
+
+The earlier managed-removal comparison at `a69b5f6` retains six admitted direct cases across 24 phases and one composed resource case across 28 phases. Their 1,142 state rows compare 28,638 applicable projection cells and 193 required effects. Included cells contain 4,740 opaque record/pool preservation words and 104 queue out/put preservation cells; these are not recovered accessed members. Active record order is compared, with inactive backing slots/capacity and dead payload excluded. Six helper AL booleans, eleven reference results, four native success statuses normalized to Rust unit success, three fixture admissions and 28 synthetic statuses remain separate. Record/filename deletion and 13 critical-section Enter/Leave pairs compose actual Close/final resource cleanup; texture graphics Release is zero and pool payload survives. Two native-only guard cases/four phases and original instruction-order tracing are excluded from admitted parity. Seeded intake, bounds/coherence guards and backend-error poison are host policies; no worker/concurrency, creation/upload, pool shutdown, GPU or loaded/application implementation is claimed.
+
+The earlier nonmanaged texture/string comparison at `7650970` retains nine direct cases across 54 phases and one composed object/mesh/material/texture/IB/VB case across 28 phases. Together they compare 792 normalized state rows, 7,084 applicable projection cells and 126 required allocator/COM/driver effects. Sixteen reference-count results, eight original success statuses normalized to Rust operation success, three fixture-admission booleans carrying actual manager AL and 55 synthetic statuses remain separate. Constructor-unwritten fields stay unavailable until host intake; the low-word level projection excludes the high word and padding. Native primitive selfdelete, pointer ABI and internal callback alias/publication equality remain excluded. Allocation-returning-null and effectful backend failures are static/host-unit evidence only. Managed state, duplicate cache intake, native Create/Lock/upload, GPU/backend implementations and loaded/application teardown remain outside this comparison.
+
+The earlier object-resource comparison at `73f8151` retains 8 original-call trajectories across 73 phases of represented plain Lod construction, nondeleting/deleting cleanup and the object resource cleanup prefix. All ten slot cleanups finish before the whole array clears and shared mesh Release begins; the raw mesh field stays unchanged. Machine vtable/padding, primitive allocator/pointer-return parity and the lower visual/frame phase are excluded. Native scalar entry evidence stays distinct from standalone nondelete. Fresh mesh attachment/allocation are host intake adapters, without SetMesh/Create/upload parity. Actual texture lifetime, derived LOD resources and loaded/application teardown remain open.
+
+The earlier standalone bridge comparison at `7f21f8f` retains four composed original-call trajectories across 81 phases through unchanged mesh/material and actual IB/VB manager bodies with nonnull descriptors. They match 10,095 applicable normalized state cells and 100 required effects: 52 buffer/block allocator boundaries and 48 COM/driver effects. The 26 direct numeric returns are separate from 13 fixture-admission booleans and 42 synthetic statuses. Original visual heap deletes and container allocations remain native-only; dead payload fields are excluded. Stable owner leases connect primitive cleanup to manager coalescing, deferred IB reclamation and immediate last-block VB reclamation. Fixture construction/intake and controlled allocator/COM/driver boundaries remain explicit; the host bridge does not reconstruct native creation, replacement, Lock/upload or embedded-descriptor publication during callbacks. That earlier bridge integration adds zero canonical entries or scoped contracts and excludes per-object LOD ownership, loaded adapters, actual texture/GPU backends and application teardown.
+
+The earlier buffer-manager comparison at `87c7e3f` retains fourteen complete original-call trajectories across 85 phases, 1,062 normalized state rows and 352 ordered required boundary effects. A separate five-phase prefix adds 82 rows and 20 effects before a host guard rejects new insertion into an unsorted mutable-key tree; the native continuation is excluded. Returns distinguish 49 AL booleans and one full-width base-or-minus-one result from 40 synthetic statuses. Controlled allocator, COM, driver and diagnostic callbacks establish bounded manager behavior, without implementing those backends. Extra host callback parameters and VC6 container allocations are excluded; returning fatal-handler fixtures do not establish whole-game out-of-memory recovery. Three composed constructors receive no new entry credit. That earlier comparison excludes visual-owner bridging, loaded teardown and application integration.
+
+The earlier mesh-object comparison at `acc9dae` retains ten persistent original-call lifetime scenarios across 142 phases, 166 normalized mesh snapshots and 360 dependency snapshots. They match 79 real numeric returns and 63 synthetic void/host-intake statuses. Eighteen original-triggered IB/VB callbacks use null descriptors; they do not establish native manager behavior. Separately, 83 admitted numeric cases match ten raw bounds fields each; six wider cases are host-domain rejections, not native behavior matches. Selected original methods remain unchanged within a controlled-boundary oracle. For that earlier comparison, allocator events, pointer returns, backend implementations, loaded visual teardown and application integration remain excluded. Fresh bounds analysis and comparisons add no canonical entry for the helper absent from the frozen inventory.
+
+The earlier resource-primitives comparison at `6adabfc` retains six persistent original-call scenarios across 43 phases and 172 normalized snapshots: 1,260 applicable original-resource state cells, including identity/kind/liveness, and 254 separate external fixture cells. Twenty original-triggered dependency effects match; eight fixture-only texture releases remain separate. Returns comprise 26 real numeric results, 14 synthetic void statuses and three mock-backend results. Selected original bodies are unchanged within an isolated oracle with controlled texture, buffer-manager, allocator and diagnostic boundaries. Positive signed references, nonreentrant backends and unique chain/block ownership bound the domain. That earlier primitive comparison gives no credit to native texture/IB/VB implementations, allocator and pointer-return parity, animated materials, mesh-object/LOD ownership or loaded Model/Frame integration.
+
+Earlier frame/model lifecycle validation at `f8cc8f9` retains ten persistent original-call scenarios across 104 operation phases and 313 snapshots: 3,139 applicable state cells, 163 registry cells and 126 Target identity/count/order cells match. The 34 real numeric-return comparisons are separate from 70 synthetic replay statuses. Selected original code spans remain unchanged while external allocation/error/loading boundaries are controlled; this is not whole-game execution. Native filenames, controller teardown, intermediate allocator events and associated-singlemesh Joint cleanup are not differentially compared. Native global last-destroyed-frame bookkeeping and loaded visual resources remain unrepresented. Parsed-content reopen checks preserve old and new source-backed survivors without final visual-resource release.
+
+The inspection route uses the recovered clock, frame-delta modifier, frame coordinator, empty Scene, shared driver time and model dispatch. Position and skeletal routes bind recovered IPol control and evaluators; skeletal playback also preserves owned controller/model identity, memory limits and checked skin uploads. Native comparisons cover 22,576 delta cases, 1,509 coordinator cases and six driver edge cases. Seven model-dispatch Rust tests project selected behavior from an 11-case native oracle; they are not a full 11-case state differential. The selected Game-loop controller has 123 native comparisons but is not the application's full loop: mission initialization, input helpers and original list population remain open.
+
+The sequential native comparison preserves controller, evaluator, hierarchy, Target queue, morph and skin state between operations. It exercises stop/resume, same-resource restart, stop/loop boundaries and disabled/zero-delta ticks. The caller explicitly requests bounds and CPU deformation after each tick. A retained earlier comparison without those bounds queries matches other state but leaves 2,060 native bounds words stale; the final comparison uses the recovered loaded-cache gate. Its separate 206-record probe covers 203 changed-counter and three unchanged entries, then a second unchanged query per record. This establishes the admitted cache behavior, not native graphics scheduling.
+
+The audited static unions retain 4,784/4,914 Game.exe, 1,555/1,714 LS3DF.dll and 176/234 rw_data.dll raw inventory entries. All recognized in-image entries in those cohorts have retained output; the raw denominators also include external import records. These inventories are not exhaustive discovery: 491 pinned upstream LS3DF entry candidates still lack exact correspondence. Supplied configuration Setup.exe retains 172/172 recognized non-thunk procedures; the separate installer retains 376/376. Historical snapshots remain unchanged.
+
+Default REA still fails at Game RVA `0xab910`. An isolated derived REA/Ghidra profile applies an instruction-supported prototype correction and now returns pseudocode with 13 warnings. The complete 14,392-byte body, instruction listing and 4,914-row membership are unchanged. The earlier direct-Ghidra experiment has 14 warnings and remains a separate artifact. This adds static availability only, with no semantic or Rust-function credit. REA/Ghidra PC evidence is cross-checked with actual PS2 symbol bytes; no PS2 runtime equivalence is claimed.
+
+All six first-mission acceptance gates remain open. The strict full-system gate remains **0/12**. Static research ratios, reviewed scoped ports and runtime use are separate measures in the [generated dashboard](../../README.md); no overall completion percentage is claimed. PC evidence is the baseline, with separately indexed PS2 cross-checks and platform differences. Earlier Godot work and original-game reference play do not count as Rust implementation. Standalone driving is available; the campaign and first-mission gameplay remain unplayable.

@@ -1,41 +1,42 @@
 {
   "updated_at": "2026-10-25",
-  "project_status": "Bounded original-data standalone driving accepted after two sequential independent reviews of frozen Source4; 309 scoped entries / 113 contracts. Campaign not playable.",
+  "project_status": "Bounded original-data driving plus immediate texture/Scene CPU lifetime and ordered actor-loader interfaces accepted at Source-v5; 311 scoped entries / 114 contracts, strict 0/12. Campaign not playable.",
   "rust_toolchain": "1.99.1",
   "validation": {
-    "status": "Scene dependency Source-v2 passes 1071 Rust tests (110 assets unit, 7 assets integration, 915 engine library, 26 application, 8 engine integration, 5 renderer), 9 REA-wrapper and 47 progress tests, formatting, locked all-target checking and Clippy. All 265 guarded source files agree. Eight hundred direct original-instruction inputs (736 weather, 64 sound, including P0/P1) match current debug/release full fixture arenas and logical sticky P. Actual debug driving exercises W, three R reloads and four zero-owned-resource cleanups; five caller-owned Scene-prefix frames remain separate. Two sequential independent non-author reviews accept the bounded code. Weather rendering, complete Scene/Snow lifetime, original File Open and mission progression remain open. Historical Source4 driving/native/media evidence retains its dated scope.",
-    "rust_unit_tests": 1071,
+    "status": "Source-v5 bounded texture/Scene CPU lifetime and ordered actor-loader interfaces pass the full gate, separate texture/Scene native projections and actual debug driving/reload checks after two sequential independent reviews; campaign remains unplayable.",
+    "rust_unit_tests": 1093,
     "rust_unit_test_split": {
-      "lhr_assets": 110,
+      "lhr_assets": 114,
       "lhr_assets_integration": 7,
-      "lhr_engine_library": 915,
+      "lhr_engine_library": 933,
       "lhr_engine_integration": 8,
       "lhr_engine_application": 26,
       "lhr_render": 5
     },
     "rea_wrapper_tests": 9,
     "latest_accepted_baseline": {
-      "source_commit": "89308ce300cc44241eb1d4ec6eb7ac9bc246fc5a",
-      "rust_unit_tests": 1071,
+      "source_commit": "c84bcff114ac88bd4730ec64828f5f9a070d88f5",
+      "rust_unit_tests": 1093,
       "rea_wrapper_tests": 9,
       "progress_tests": 47,
-      "milestone": "Scene weather and sector sound defaults; loaded-resource vertex-before-index maintenance. Full Scene/Snow/mission integration remains open."
+      "milestone": "Bounded immediate texture/cache lifetime, constructor-owned Scene CPU lifecycle and ordered actor-loader interfaces; full Mission Open/player/camera/scripts remain open."
     },
     "progress_tests": 47,
-    "current_source_status": "Scene weather/resource Source-v2 full checks, 800 scoped native comparisons, debug driving/reload evidence and two sequential independent source reviews accepted; bound to code commit 89308ce",
+    "current_source_status": "Accepted bounded Source-v5 at code commit c84bcff114ac88bd4730ec64828f5f9a070d88f5; texture and Scene native comparisons retain explicit CPU projection limits; actor caller observations and Rust tests are separate.",
     "current_source_freeze": {
-      "id": "SCENE-WEATHER-20261025-SOURCE-v2",
-      "files": 265,
-      "tree_sha256": "7255850680ca8557543f3238cb3f0c2db07c4dadcc47acdfe85c47ee5de73d14",
-      "freeze_sha256": "174ba127e096358153746a6004c0f857961b3b6fa74c567e476e9f28f5fe76b2"
+      "id": "TEXTURE-SCENE-MISSION-20261025-SOURCE-v5",
+      "files": 270,
+      "tree_sha256": "34934915ccf6043a0336cf6ced18c5b242810a068a1712ea8825d94755b634fd",
+      "freeze_sha256": "fe9ce691db187bbd07ca7f8ccda3ceac172d578288ff28f4f7c949731948a077"
     },
     "full_gate": {
-      "id": "SCENE-WEATHER-20261025-SOURCE-v2-FULL-GATE",
-      "sha256": "6fdbb25187ddb5d3d609a27ff270cf5f08d6f0cd6a97b42f3c01cbc5f7081599"
+      "id": "TEXTURE-SCENE-MISSION-20261025-SOURCE-v5-VERIFICATION",
+      "sha256": "999bf68abc96330da8386f9bd77e20111b3d3f2984d04aa5067042c80e6d0cb4",
+      "log_sha256": "416f843fcb143f2806d2918e954cea3e8511842c0adc8eaf2a2171ca273772fd"
     },
     "native_final": {
-      "id": "PC-LS3DF-SCENE-WEATHER-SOUND-DEFAULTS-20261025-FINAL",
-      "sha256": "3c222449d88a5eb8a66ae8648087c6cb29785c08bb49498b3b9a9d04a7b4461e"
+      "id": "TEXTURE-SCENE-NATIVE-20261025-FINAL-v5",
+      "sha256": "ea8cc53a0e5a32add1b7de13fe8a6ae9b5bec5aca37424f1c34f7e4b1e863ac4"
     },
     "historical_driving_source4": {
       "rust_unit_tests": 1066,
@@ -67,6 +68,42 @@
         "rea_wrapper_tests": 9,
         "progress_tests": 47,
         "milestone": "Bounded original vehicle prerequisites, native contact alias validation, original-DTA level tables and initialized-wheel preview."
+      }
+    },
+    "historical_scene_weather_source_v2": {
+      "status": "Scene dependency Source-v2 passes 1071 Rust tests (110 assets unit, 7 assets integration, 915 engine library, 26 application, 8 engine integration, 5 renderer), 9 REA-wrapper and 47 progress tests, formatting, locked all-target checking and Clippy. All 265 guarded source files agree. Eight hundred direct original-instruction inputs (736 weather, 64 sound, including P0/P1) match current debug/release full fixture arenas and logical sticky P. Actual debug driving exercises W, three R reloads and four zero-owned-resource cleanups; five caller-owned Scene-prefix frames remain separate. Two sequential independent non-author reviews accept the bounded code. Weather rendering, complete Scene/Snow lifetime, original File Open and mission progression remain open. Historical Source4 driving/native/media evidence retains its dated scope.",
+      "rust_unit_tests": 1071,
+      "rust_unit_test_split": {
+        "lhr_assets": 110,
+        "lhr_assets_integration": 7,
+        "lhr_engine_library": 915,
+        "lhr_engine_integration": 8,
+        "lhr_engine_application": 26,
+        "lhr_render": 5
+      },
+      "rea_wrapper_tests": 9,
+      "latest_accepted_baseline": {
+        "source_commit": "89308ce300cc44241eb1d4ec6eb7ac9bc246fc5a",
+        "rust_unit_tests": 1071,
+        "rea_wrapper_tests": 9,
+        "progress_tests": 47,
+        "milestone": "Scene weather and sector sound defaults; loaded-resource vertex-before-index maintenance. Full Scene/Snow/mission integration remains open."
+      },
+      "progress_tests": 47,
+      "current_source_status": "Scene weather/resource Source-v2 full checks, 800 scoped native comparisons, debug driving/reload evidence and two sequential independent source reviews accepted; bound to code commit 89308ce",
+      "current_source_freeze": {
+        "id": "SCENE-WEATHER-20261025-SOURCE-v2",
+        "files": 265,
+        "tree_sha256": "7255850680ca8557543f3238cb3f0c2db07c4dadcc47acdfe85c47ee5de73d14",
+        "freeze_sha256": "174ba127e096358153746a6004c0f857961b3b6fa74c567e476e9f28f5fe76b2"
+      },
+      "full_gate": {
+        "id": "SCENE-WEATHER-20261025-SOURCE-v2-FULL-GATE",
+        "sha256": "6fdbb25187ddb5d3d609a27ff270cf5f08d6f0cd6a97b42f3c01cbc5f7081599"
+      },
+      "native_final": {
+        "id": "PC-LS3DF-SCENE-WEATHER-SOUND-DEFAULTS-20261025-FINAL",
+        "sha256": "3c222449d88a5eb8a66ae8648087c6cb29785c08bb49498b3b9a9d04a7b4461e"
       }
     }
   },
@@ -36859,7 +36896,7 @@
       },
       "fixture_intake_boolean_rows": 13,
       "underlying_manager_AL_observed": 13,
-      "intake_interpretation": "fixture helpers call actual manager Alloc and carry its AL success into post-admission storage setup; production façade bool is host allocation/admission status. These are not native CreateFaces/CreateVertexMesh factory return comparisons.",
+      "intake_interpretation": "fixture helpers call actual manager Alloc and carry its AL success into post-admission storage setup; production fa\u00e7ade bool is host allocation/admission status. These are not native CreateFaces/CreateVertexMesh factory return comparisons.",
       "synthetic_void_fixture_status_rows": 42,
       "synthetic_status_notes": "constructor native self pointers discarded; direct fixture chain/bbox/raw retain setup and void calls are zero statuses; no factory pointer return claim",
       "nonnull_free_wrappers": "originals executed; source void contracts, incidental child AL discarded, no numeric return credit"
@@ -42666,6 +42703,175 @@
       "Original File Open/reload and mission-world ownership remain open.",
       "The authored MISE01 program probe stops at FINDACTOR/UnsupportedWorldBackend; application mission scripting remains unavailable.",
       "Host chase camera, unlit first-LOD rendering and physical audio device limits remain unchanged."
+    ]
+  },
+  "texture_scene_mission_observation": {
+    "id": "TEXTURE-SCENE-MISSION-20261025",
+    "status": "accepted_source_bound",
+    "source_commit": "c84bcff114ac88bd4730ec64828f5f9a070d88f5",
+    "source_freeze_id": "TEXTURE-SCENE-MISSION-20261025-SOURCE-v5",
+    "source_freeze_sha256": "fe9ce691db187bbd07ca7f8ccda3ceac172d578288ff28f4f7c949731948a077",
+    "source_tree_sha256": "34934915ccf6043a0336cf6ced18c5b242810a068a1712ea8825d94755b634fd",
+    "source_file_count": 270,
+    "source_files": {
+      "crates/lhr-assets/src/lib.rs": "d70e368ff5ef286eba405b0ce8dee2d2c39dfd7e46d227e21dbe50b7521ba71c",
+      "crates/lhr-assets/src/scene_actor_stream.rs": "b6fdf2571894d6862aea8386f0301374ae02b6ff158e05dbe3b4430733c38d5d",
+      "crates/lhr-assets/src/texture_source.rs": "363edad912178b198a5ae8268c548f77cb82949fb7a8bf3f61971299b2ec3d25",
+      "crates/lhr-assets/src/tga.rs": "9a2081f04ef1aa9f0ea878b2e179a252e56e45c30a68048dd6f346c1120031c1",
+      "crates/lhr-engine/src/actor_world.rs": "fae2adfc9e5aedf9b1ddd4c9f83da51c5b3d791568eb421e5623ac50644d3682",
+      "crates/lhr-engine/src/car_runtime.rs": "05ebddf006078e49dae28e3691d3280c1db853f7991356270d785fbf96a7df26",
+      "crates/lhr-engine/src/frame_transform.rs": "491ff7b1465b8c6ebd2d612509461572538c26e997cb653b7f7af4ce31bbb3fc",
+      "crates/lhr-engine/src/itexture.rs": "0a58589f4bce42ed8599c22a8084a57dafb99b396fe7c7a2ef0032b37f4afe12",
+      "crates/lhr-engine/src/lib.rs": "1a6ad7696cc729dc4b54c72d52030d0efcc2001661397f765532d6d5eafcabfa",
+      "crates/lhr-engine/src/loaded_visual_resources.rs": "dd258fb5d27c7b274f6dc0d250b63380eb339bf11052054e253ac238caf08353",
+      "crates/lhr-engine/src/main.rs": "82ceaeecb764c02f83eecdfc93eb4de1cc4fd3ac57ece3634bc878530a0ffad0",
+      "crates/lhr-engine/src/mission_actor_stream.rs": "581852b2f628bfd0a284af45683adc6d24f372ae627aed8b542838c224dee57c",
+      "crates/lhr-engine/src/model_loading.rs": "8c84b678f4ee48bcee6ec069d57554ca2aa22b296ec7544de9696d7b16c11e2f",
+      "crates/lhr-engine/src/scene_ownership.rs": "5e37ca8a3055a0c39d1249845ebfe59450b1cf7c980624e14337620b48f36088",
+      "crates/lhr-engine/src/scene_resources.rs": "607d2eef9b4923536d7e982f657b060917825b9c25c6a665567ee161cd26b0ed",
+      "crates/lhr-engine/src/texture_factory.rs": "aca409a5a4c347b15eecdf3607caaedea1cbfe1cf89ab3800bbba15ef2fb519c"
+    },
+    "new_scoped_entries": 0,
+    "new_scoped_contracts": 0,
+    "accepted_scoped_entries": 311,
+    "accepted_scoped_contracts": 114,
+    "contract_integration_counts": {
+      "static_inspection": 23,
+      "not_integrated": 91
+    },
+    "whole_function_coverage": null,
+    "strict_full_system_gate": {
+      "verified": 0,
+      "total": 12
+    },
+    "reviews": [
+      {
+        "id": "TEXTURE-SCENE-MISSION-20261025-INDEPENDENT-REVIEW-ONE-v5",
+        "sha256": "054bad63a73c3331a70e903afde0bc2241df316e05f4b4c28c796170828fd7b6"
+      },
+      {
+        "id": "TEXTURE-SCENE-MISSION-20261025-REVIEW-2",
+        "sha256": "a420cff41826cf5e52f495cb15193bae78472c7fffc133c9d496be93210dd5dc"
+      }
+    ],
+    "native": {
+      "id": "TEXTURE-SCENE-NATIVE-20261025-FINAL-v5",
+      "sha256": "ea8cc53a0e5a32add1b7de13fe8a6ae9b5bec5aca37424f1c34f7e4b1e863ac4",
+      "texture_source_cases": 46,
+      "scene_scenarios": 3,
+      "scene_phases": 16,
+      "rust_profiles": [
+        "debug",
+        "release"
+      ],
+      "mismatches": 0,
+      "cohorts_and_profiles_not_additive": true,
+      "texture_scope": [
+        "color sourceBPP8 BMP;16/24/32 TGA",
+        "selected caps min1/max1024 and hardware/DXTcaps0; all three uncompressed format globals21; tested2x2 and4x1 only",
+        "2x2 power-of-two; flags0,2,8,0x1000,0x400000,0x200000 combinations",
+        "tight alpha24 TGA; tight indexed alpha8 BMP 4x1 with nonidentity/non-grayscale palette; source16 high-bit and source32 alpha",
+        "request/effective flags; UID boundary public factory allocation prelude; color_key; levels; memory_size",
+        "filename ASCII case and flags cache identity; references; BGRA surface and retained ARGB bytes",
+        "typed errors mapped explicitly to selected controlled native backend HRESULTs, outputnull and actual destructor cleanup"
+      ],
+      "scene_scope": [
+        "two fully executed original constructors and destructors",
+        "external Snow reference acquired by actual factory cachehit, survives last scene then final Release",
+        "missing Snow constructor still returns; second scene retries factory",
+        "external sector caller reference survives scene destruction then actual Frame::Release -> sector destructor/ring; external retain increment is controlled caller input and earns no engine function credit",
+        "original Close with empty managed pools, valid empty vertex/index manager rings; actual all four sector constructor/destructor bodies",
+        "viewport; exact written weather words only;26soundwords; global sector version; shared refs and retained sector refs"
+      ],
+      "controlled_backends": [
+        "allocator and scalar delete use a monotonic test arena and record actual allocation/free calls",
+        "image metadata IGraph+0x84 and LoadImage79150 supply explicit deterministic decoded buffers; their own bodies are excluded",
+        "Windows graphics object/surface allocation, descriptions, locks/unlocks/releases and device binding",
+        "Windows SetRect and critical-section imports",
+        "device virtual14 is controlled; Rust records it UNEXECUTED, explicitly projects CPU absence of managed residency",
+        "ASCII case compare CRT callback; FindMapFile and C_str bodies execute normally"
+      ],
+      "limits": [
+        "no original game binary runtime requirement or launch",
+        "no rendering/interactive validation in this harness",
+        "no driver CreateFrame193e0/listener/driver registration parity",
+        "no general nonempty scene arrays/manager-ring content claim",
+        "no native-Rust Scene/Close completion claim; only accepted constructor-owned CPU projection",
+        "padded-alpha rows are an explicit Rust hostUnsupported boundary; prior native padding-bug exploration is excluded from positive parity",
+        "unwritten ctor words and padding are not normalized as recovered zero; only selected observed fields and actual weather writes"
+      ]
+    },
+    "mission_actor_loader": {
+      "controlled_original_caller_traces": 8,
+      "separate_rust_unit_tests": 6,
+      "direct_differential_comparison": false,
+      "literal_base_load_data_leaf": "bounded original-instruction evidence; no full actor-class credit",
+      "preceding_load_map": "Caller-supplied genuine preceding construction/LoadMap context is required; API does not execute or prove this phase.",
+      "original_mission_open_implemented": false,
+      "first_mise01_kind8_railway_chain": "Researched constructor/Init/LoadData/GameInit; not ported."
+    },
+    "texture_domains": {
+      "legacy_loaded_model_key": "visual_resources::TextureKey(u64)",
+      "legacy_loaded_owner": "ModelArena LoadedVisualResources",
+      "live_legacy_textures_at_unload": 19,
+      "legacy_cpu_close_admission": "No managed flag 0x40 texture.",
+      "canonical_weather_key": "itexture::TextureKey { arena, slot }",
+      "model_textures_migrated_to_canonical_domain": false
+    },
+    "original_assets": {
+      "dta_archives": 14,
+      "entries": 36311,
+      "snow_tga_present": false,
+      "missing_snow": "Native constructor ignores factory failure and retains null; second scene retries.",
+      "actual_factory_regression": "#kom03.bmp cache/ref/last-release with zero final ownership"
+    },
+    "checks": {
+      "id": "TEXTURE-SCENE-MISSION-20261025-SOURCE-v5-VERIFICATION",
+      "sha256": "999bf68abc96330da8386f9bd77e20111b3d3f2984d04aa5067042c80e6d0cb4",
+      "rust_tests": 1093,
+      "rust_test_split": {
+        "lhr_assets": 114,
+        "lhr_assets_integration": 7,
+        "lhr_engine_library": 933,
+        "lhr_engine_integration": 8,
+        "lhr_engine_application": 26,
+        "lhr_render": 5
+      },
+      "rea_wrapper_tests": 9,
+      "progress_tests": 47,
+      "full_gate_log_sha256": "416f843fcb143f2806d2918e954cea3e8511842c0adc8eaf2a2171ca273772fd",
+      "debug_inputs": [
+        "W",
+        "A",
+        "D",
+        "S",
+        "Space",
+        "R",
+        "Escape"
+      ],
+      "debug_R_reloads": 3,
+      "zero_owned_cpu_cleanups": 4,
+      "owned_scene_frames_after_cleanup": 0,
+      "native_device_virtual_14_executed": false,
+      "app_xvfb_exited_zero_and_reaped": true,
+      "outer_wrapper_note": "UI shell wrapper reported 1; retained result, source guards, actual app/Xvfb exit0 and independent verification pass establish the declared UI scope."
+    },
+    "media": {
+      "path": "docs/screenshots/2026-10-25-scene-lifetime.webp",
+      "sha256": "cf6f476dfab27927b3bc75b864235f414c7bc063e46f74105a5589817b7c5151",
+      "bytes": 118386,
+      "width": 960,
+      "height": 640,
+      "scope": "Actual debug original-data driving/reload window regression; no weather drawing or full renderer parity."
+    },
+    "campaign_playable": false,
+    "runtime_original_executable_or_DLL_reads": false,
+    "limits": [
+      "CPU projection does not complete native Scene Close; device virtual14 is explicitly unexecuted and strict low-level interface rejects it.",
+      "Driver CreateFrame/listener/viewport override and general nonempty Scene/manager behavior remain open.",
+      "Original Mission Open, preceding mission construction, authored actor classes, player/camera/scripts and completion are not implemented.",
+      "The authored MISE01 script probe remains FINDACTOR/UnsupportedWorldBackend at PC3/source line4.",
+      "Legacy model texture ownership and canonical weather ownership remain separate; no all-texture migration claim."
     ]
   }
 }

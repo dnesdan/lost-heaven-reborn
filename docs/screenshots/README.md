@@ -161,3 +161,23 @@ verification. Rendering uses the unlit inspection bridge; unsupported billboard
 resources and original lighting/shadow presentation remain outside this image.
 The 960 × 640 WebP preview is 194,066 bytes; the original PNG and source/process
 receipts are retained privately.
+
+
+## 2026-10-25 — constructor-owned Scene CPU lifetime
+
+![Original taxi during the Scene lifetime driving/reload regression](2026-10-25-scene-lifetime.webp)
+
+Actual current debug Rust window capture from code `c84bcff`, using original
+assets and Linux software Vulkan. The 960 × 640 WebP is 118,386 bytes. The
+source-bound window regression exercises W/A/D/S/Space, three R reloads and
+Escape, with four zero-owned CPU cleanups including the Scene. App and Xvfb
+exit successfully and are reaped. The still is from the first W run before R.
+
+Reproduce with `./scripts/run.sh --root /path/to/Mafia --model models/taxi00.4ds --car-driving`.
+Rendering is unlit first LOD with a host chase camera. The supplied data has no
+Snow texture; this image does not show weather drawing, full native Scene/device
+behavior, original renderer parity or mission gameplay. CPU audio mixing does
+not establish hardware audibility. No new video was created.
+
+[Current scope](../../COVERAGE.md) · [source-bound records](../progress.json) ·
+[earlier documentation](../history/README.md).
