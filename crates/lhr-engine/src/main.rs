@@ -184,6 +184,7 @@ fn options() -> Result<Options, String> {
 fn synthetic() -> Scene {
     Scene {
         meshes: vec![Mesh {
+            material: Default::default(),
             vertices: vec![
                 Vertex {
                     position: [-1., -1., 0.],
@@ -806,6 +807,7 @@ impl App {
         for (index, mesh) in next.iter().enumerate() {
             if !new_range.contains(&index) {
                 renderer.update_mesh_vertices(index, &mesh.vertices)?;
+                renderer.update_render_material(index, mesh.material)?;
             }
         }
         let next_count = next.len();
@@ -839,7 +841,7 @@ impl App {
         }
         let renderer = self
             .renderer
-            .as_ref()
+            .as_mut()
             .ok_or("Wheel steering renderer absent")?;
         for (index, (current, next)) in self
             .scene
@@ -868,7 +870,9 @@ impl App {
                 );
             }
             renderer.update_mesh_vertices(index, &next.vertices)?;
+            renderer.update_render_material(index, next.material)?;
             current.vertices = next.vertices;
+            current.material = next.material;
         }
         Ok(())
     }

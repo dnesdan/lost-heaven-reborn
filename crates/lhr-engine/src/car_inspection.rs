@@ -282,6 +282,7 @@ pub fn snapshot_arena_tree(
                 indices.push(index);
             }
             meshes.push(Mesh {
+                material: Default::default(),
                 vertices,
                 indices,
                 texture: Some(texture),

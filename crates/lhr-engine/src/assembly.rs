@@ -364,6 +364,7 @@ impl<'a> SceneBuilder<'a> {
                     source_vertices,
                 });
                 self.meshes.push(Mesh {
+                    material: Default::default(),
                     vertices,
                     indices,
                     texture,

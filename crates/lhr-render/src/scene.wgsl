@@ -19,3 +19,13 @@ struct Output { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f3
  if color.a < 0.5 { discard; }
  return color;
 }
+
+struct MaterialParameters { color: vec4<f32>, cutoff: vec4<f32> };
+@group(2) @binding(0) var<uniform> material: MaterialParameters;
+// Original material decisions only; legacy inspection and menu shaders above
+// keep their separately selected presentation policy.
+@fragment fn fragment_original(input: Output) -> @location(0) vec4<f32> {
+ let color = textureSample(color_texture, color_sampler, input.uv) * material.color;
+ if color.a < material.cutoff.x { discard; }
+ return color;
+}
