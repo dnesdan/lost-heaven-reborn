@@ -42,3 +42,29 @@ missing files do not add changes. `UnloadPatchFiles` releases records in reverse
 existing `CProgram`/mission actor loaders; their reverse-priority consumer is
 unchanged. A real mission/actor source loader must pass that slice alongside its
 actual owner/frame/mission context; context is never inferred from patch data.
+
+## Animation catalog
+
+`game/actors/C_actor.cpp` `_anim_info_` (PC global `0x62e488`) supplies all 576
+filename/code records and the final null-resource/`0xffff` sentinel, in original
+order and spelling. The resource word is a filename pointer, not an animation
+object handle. `animation_catalog` publishes the source catalog and a producer
+that requests actual retained filename-storage identities from their owner;
+zero identities fail explicitly. `init_original_animation_index` connects the
+producer to the existing sorted animation index, preserving the original
+resource positions used by lookup results.
+
+`StartupAssetBackend` still rejects `InitAnimIndex`/`DoneAnimIndex`: it owns files,
+not the required filename-storage identity owner or animation-index allocator.
+Their genuine implementations must be supplied before startup can cross that
+boundary. No `handle = 1` or fabricated resource identity fills it.
+
+## Validation scope
+
+Synthetic tests exercise nested effects/defaults/overrides/clear/reload and
+malformed admission, genuine loose effects streams through the mission
+component constructor and destruction, XOR key wrapping/null strings/per-file
+index reset/order/unload, startup patch effects with missing files, and the
+complete animation catalog through the existing sorted-index consumer. These
+are logic and file-owner integration checks; rendered and interactive gameplay
+and original-runtime comparison remain unverified.

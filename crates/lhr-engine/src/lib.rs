@@ -6,6 +6,7 @@ pub mod actor_registry;
 pub mod actor_tick;
 pub mod actor_world;
 pub mod animation_binding;
+pub mod animation_catalog;
 pub mod animation_controller;
 pub mod animation_index;
 mod arena_frame_names;
