@@ -371,8 +371,10 @@ impl<'a> SceneBuilder<'a> {
                             .and_then(|n| n.checked_mul(4))
                             .ok_or("Texture size overflow")?;
                         charge_scene(&mut self.bytes, texture_bytes, MAX_SCENE_BYTES)?;
-                        let decoded = match lhr_assets::decode_bmp_original(&bytes) {
-                            Ok(decoded) => decoded,
+                        let (decoded, cache_source_image) = match lhr_assets::decode_bmp_original(
+                            &bytes,
+                        ) {
+                            Ok(decoded) => (decoded, true),
                             Err(error) if !strict && self.allow_texture_fallback && !lit => {
                                 eprintln!(
                                     "Static subset: {name} unavailable ({error}); source diffuse color fallback"
@@ -383,11 +385,14 @@ impl<'a> SceneBuilder<'a> {
                                     .map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8)
                                     .collect();
                                 rgba.push(255);
-                                lhr_assets::Texture {
-                                    width: 1,
-                                    height: 1,
-                                    rgba,
-                                }
+                                (
+                                    lhr_assets::Texture {
+                                        width: 1,
+                                        height: 1,
+                                        rgba,
+                                    },
+                                    false,
+                                )
                             }
                             Err(error) => {
                                 return Err(format!(
@@ -401,7 +406,11 @@ impl<'a> SceneBuilder<'a> {
                             rgba: decoded.rgba,
                             repeat,
                         });
-                        self.texture_cache.insert(key, texture.clone());
+                        // A fallback belongs to this material's diffuse color.
+                        // Sharing it would also bypass strict/Lit decode errors.
+                        if cache_source_image {
+                            self.texture_cache.insert(key, texture.clone());
+                        }
                         Some(texture)
                     }
                 };
@@ -1055,7 +1064,7 @@ mod tests {
         bmp[26..28].copy_from_slice(&1u16.to_le_bytes());
         bmp[28..30].copy_from_slice(&24u16.to_le_bytes());
         bmp[54..57].copy_from_slice(&[32, 64, 128]);
-        std::fs::write(path.join("maps/lit.bmp"), bmp).unwrap();
+        std::fs::write(path.join("maps/lit.bmp"), &bmp).unwrap();
         let installation = Installation::open(&path).unwrap();
         let mut visual = frame(None, [0.; 3]);
         visual.visual = Some(1);
@@ -1116,6 +1125,52 @@ mod tests {
                 }
             );
         }
+        // A malformed image shared with Plain cannot enter Lit through a
+        // cached diffuse fallback. Each Plain material keeps its own color.
+        bmp[30..34].copy_from_slice(&1u32.to_le_bytes());
+        std::fs::write(path.join("maps/lit.bmp"), &bmp).unwrap();
+        source.materials[0].texture = "lit.bmp".into();
+        source.materials[0].flags = 0x40000;
+        let mut builder = SceneBuilder::new(&installation, "maps");
+        for diffuse in [[1., 0., 0.], [0., 1., 0.]] {
+            let mut plain = source.clone();
+            plain.frames[0].visual = Some(0);
+            plain.materials[0].diffuse = diffuse;
+            plain.materials[0].opacity = 1.;
+            plain.materials[0].emission = [0.; 3];
+            builder
+                .append_retained(
+                    "plain-fallback",
+                    Arc::new(plain),
+                    Mat4::IDENTITY,
+                    None,
+                    false,
+                    None,
+                )
+                .unwrap();
+        }
+        assert!(builder
+            .append_retained(
+                "lit-same-image",
+                Arc::new(source.clone()),
+                Mat4::IDENTITY,
+                None,
+                false,
+                None
+            )
+            .is_err());
+        assert_eq!(builder.meshes.len(), 2);
+        assert!(builder.texture_cache.is_empty());
+        let (scene, _) = builder.finish().unwrap();
+        assert_eq!(
+            scene.meshes[0].texture.as_ref().unwrap().rgba,
+            [255, 0, 0, 255]
+        );
+        assert_eq!(
+            scene.meshes[1].texture.as_ref().unwrap().rgba,
+            [0, 255, 0, 255]
+        );
+
         source.materials[0].texture = "missing.bmp".into();
         for flags in [0x20000000, 0x40000000, 0x80000000] {
             source.materials[0].flags = flags | 0x40000;

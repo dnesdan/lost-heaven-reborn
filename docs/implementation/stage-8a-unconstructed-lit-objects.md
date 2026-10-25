@@ -89,6 +89,10 @@ ordinary-effect rejection; a material also used by ordinary geometry retains
 that ordinary guard. Unsupported lit flags, animation, unassigned groups,
 instances and texture-driven/world-space branches fail before scene charges or
 reads. Selected lit image decode failures do not become diffuse fallbacks.
+Only successfully decoded source images enter the shared texture cache. A
+Plain diffuse fallback belongs to that material and cannot satisfy a later
+Lit request for the same filename/repeat pair. The actual SceneBuilder test
+covers two different Plain fallback colors followed by a rejected Lit draw.
 This does not claim canonical saved-lighting ownership for SceneBuilder.
 
 ## Explicit remaining boundary
