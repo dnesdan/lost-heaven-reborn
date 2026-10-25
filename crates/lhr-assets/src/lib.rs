@@ -75,6 +75,9 @@ pub const UNASSIGNED_MATERIAL: usize = usize::MAX;
 pub struct Lod {
     pub distance: f32,
     pub vertices: Vec<Vertex>,
+    /// A 0xffff source count stores only LOD0-count texture coordinates. Such a
+    /// level owns no vertex mesh or computed bounds; runtime evaluation is separate.
+    pub uv_only: Option<Vec<[f32; 2]>>,
     pub groups: Vec<FaceGroup>,
 }
 #[derive(Debug, Clone)]
@@ -654,7 +657,7 @@ fn parse_four_ds_impl(
         let mut sector = None;
         let mut skin = None;
         let mut morph = None;
-        let mut lods = Vec::new();
+        let mut lods: Vec<Lod> = Vec::new();
         let mut instance = None;
         if kind == 6 {
             let bytes = r.take(24)?;
@@ -765,19 +768,37 @@ fn parse_four_ds_impl(
                 };
                 for _ in 0..n {
                     let distance = r.f()?;
-                    let n = r.u16()? as usize;
+                    let source_count = r.u16()?;
+                    let n = if source_count == u16::MAX {
+                        lods.first()
+                            .ok_or_else(|| Error("UV-only LOD requires an earlier LOD0".into()))?
+                            .vertices
+                            .len()
+                    } else {
+                        source_count as usize
+                    };
                     total_vertices += n;
                     if total_vertices > 1_000_000 {
                         return err("vertex quota exceeded");
                     };
                     let mut vertices = Vec::new();
-                    for _ in 0..n {
-                        vertices.push(Vertex {
-                            position: r.vec()?,
-                            normal: r.vec()?,
-                            uv: r.vec()?,
-                        });
-                    }
+                    let uv_only = if source_count == u16::MAX {
+                        let mut coordinates = Vec::with_capacity(n);
+                        for _ in 0..n {
+                            coordinates.push(r.vec()?);
+                        }
+                        Some(coordinates)
+                    } else {
+                        for _ in 0..n {
+                            vertices.push(Vertex {
+                                position: r.vec()?,
+                                normal: r.vec()?,
+                                uv: r.vec()?,
+                            });
+                        }
+                        None
+                    };
+                    let index_limit = n;
                     let groups = r.u8()?;
                     let mut faces = Vec::new();
                     for _ in 0..groups {
@@ -789,7 +810,7 @@ fn parse_four_ds_impl(
                         let mut indices = Vec::new();
                         for _ in 0..n {
                             let index = r.u16()? as usize;
-                            if index >= vertices.len() {
+                            if index >= index_limit {
                                 return err("triangle index outside vertex array");
                             };
                             indices.push(index as u32)
@@ -806,6 +827,7 @@ fn parse_four_ds_impl(
                     lods.push(Lod {
                         distance,
                         vertices,
+                        uv_only,
                         groups: faces,
                     });
                 }
@@ -1489,6 +1511,68 @@ mod mesh_tests {
         b.extend(1u16.to_le_bytes());
         b.push(0);
         b
+    }
+    fn mesh_with_uv_only_lods() -> Vec<u8> {
+        let mut bytes = mesh();
+        bytes[114] = 3;
+        let mut suffix = Vec::new();
+        for (distance, uv) in [(20f32, [0.125f32, 0.875f32]), (40., [0.5, 0.25])] {
+            suffix.extend(distance.to_le_bytes());
+            suffix.extend(u16::MAX.to_le_bytes());
+            for value in uv {
+                suffix.extend(value.to_le_bytes());
+            }
+            suffix.push(1);
+            suffix.extend(1u16.to_le_bytes());
+            suffix.extend([0; 6]);
+            suffix.extend(1u16.to_le_bytes());
+        }
+        bytes.splice(bytes.len() - 1..bytes.len() - 1, suffix);
+        bytes
+    }
+    #[test]
+    fn uv_only_lods_preserve_uvs_and_groups_without_inventing_geometry() {
+        let bytes = mesh_with_uv_only_lods();
+        for model in [
+            parse_four_ds(&bytes).unwrap(),
+            parse_four_ds_scene(&bytes).unwrap(),
+        ] {
+            let lods = &model.frames[0].lods;
+            assert_eq!(lods.len(), 3);
+            assert_eq!(lods[0].vertices[0].position, [1., 2., 3.]);
+            assert!(lods[0].uv_only.is_none());
+            for (index, uv) in [(1, [0.125, 0.875]), (2, [0.5, 0.25])] {
+                assert!(lods[index].vertices.is_empty());
+                assert_eq!(lods[index].uv_only.as_deref(), Some([uv].as_slice()));
+                assert_eq!(lods[index].groups[0].indices, [0, 0, 0]);
+                assert_eq!(lods[index].groups[0].material, 0);
+            }
+            assert_eq!(lods[1].distance, 20.);
+            assert_eq!(lods[2].distance, 40.);
+        }
+        for end in 0..bytes.len() {
+            assert!(parse_four_ds_scene(&bytes[..end]).is_err(), "{end}");
+        }
+    }
+    #[test]
+    fn uv_only_lod_rejects_missing_base_invalid_indices_and_materials() {
+        let mut bytes = mesh();
+        bytes[119..121].copy_from_slice(&u16::MAX.to_le_bytes());
+        assert!(
+            parse_four_ds_scene(&bytes)
+                .unwrap_err()
+                .0
+                .contains("earlier LOD0")
+        );
+        let bytes = mesh_with_uv_only_lods();
+        for offset in [bytes.len() - 9, bytes.len() - 3] {
+            let mut invalid = bytes.clone();
+            invalid[offset..offset + 2].copy_from_slice(&2u16.to_le_bytes());
+            assert!(parse_four_ds_scene(&invalid).is_err());
+        }
+        let mut trailing = bytes;
+        trailing.push(0);
+        assert!(parse_four_ds_scene(&trailing).is_err());
     }
     #[test]
     fn source_order_and_invalid_references() {

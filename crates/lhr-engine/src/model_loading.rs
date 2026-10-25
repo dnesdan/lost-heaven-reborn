@@ -2701,6 +2701,7 @@ pub(crate) mod tests {
         mesh.render_flags = 0;
         mesh.lods.push(lhr_assets::Lod {
             distance: 0.,
+            uv_only: None,
             vertices: vec![
                 lhr_assets::Vertex {
                     position: [1., 2., 3.],

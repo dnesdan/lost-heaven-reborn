@@ -1307,6 +1307,7 @@ mod tests {
             lods: if kind == 1 {
                 vec![lhr_assets::Lod {
                     distance: 0.,
+                    uv_only: None,
                     vertices: vec![lhr_assets::Vertex {
                         position: [1., 0., 0.],
                         normal: [0., 1., 0.],

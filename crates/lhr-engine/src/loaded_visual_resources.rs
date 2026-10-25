@@ -662,6 +662,11 @@ impl LoadedVisualResources {
         }
         let mut materials = BTreeMap::new();
         for lod in &frame.lods {
+            if lod.uv_only.is_some() {
+                return Err(LoadedVisualError::Backend(
+                    "UV-only LOD runtime materialization unavailable",
+                ));
+            }
             if lod.vertices.is_empty()
                 || lod
                     .vertices
@@ -1255,6 +1260,7 @@ mod tests {
             instance: None,
             lods: vec![lhr_assets::Lod {
                 distance: 0.,
+                uv_only: None,
                 vertices: vec![
                     lhr_assets::Vertex {
                         position: [-1., 0., 0.],
@@ -1280,6 +1286,37 @@ mod tests {
                     .collect(),
             }],
         }
+    }
+    #[test]
+    fn uv_only_lod_has_an_explicit_runtime_boundary_before_owned_allocation() {
+        let root = std::env::temp_dir().join(format!(
+            "lhr-uv-only-{}-{}",
+            std::process::id(),
+            identity().unwrap()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let installation = lhr_assets::Installation::open(&root).unwrap();
+        let mut frame = plain_frame_fixture();
+        let mut uv_lod = frame.lods[0].clone();
+        uv_lod.uv_only = Some(uv_lod.vertices.iter().map(|v| v.uv).collect());
+        uv_lod.vertices.clear();
+        frame.lods.push(uv_lod);
+        let source = lhr_assets::Model {
+            materials: vec![],
+            frames: vec![frame],
+        };
+        let mut owner = LoadedVisualResources::new().unwrap();
+        let error = owner
+            .load_plain_object(&source, 0, &installation)
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            LoadedVisualError::Backend("UV-only LOD runtime materialization unavailable")
+        ));
+        assert!(owner.sources.is_empty());
+        assert!(!owner.incomplete);
+        drop(installation);
+        std::fs::remove_dir(root).unwrap();
     }
     #[test]
     fn loaded_group_order_and_cached_array_upload_survive_two_objects() {

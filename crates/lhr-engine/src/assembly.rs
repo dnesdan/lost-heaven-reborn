@@ -551,6 +551,7 @@ mod tests {
     fn lod(points: &[[f32; 3]]) -> Lod {
         Lod {
             distance: 0.0,
+            uv_only: None,
             vertices: points
                 .iter()
                 .map(|p| lhr_assets::Vertex {

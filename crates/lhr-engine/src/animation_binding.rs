@@ -138,6 +138,7 @@ mod tests {
                 instance: None,
                 lods: vec![lhr_assets::Lod {
                     distance: 0.,
+                    uv_only: None,
                     vertices: vec![],
                     groups: vec![],
                 }],

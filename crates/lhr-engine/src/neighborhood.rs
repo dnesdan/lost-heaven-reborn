@@ -216,6 +216,9 @@ pub(super) fn model_storage_bytes(model: &Model) -> Result<usize, String> {
             std::mem::size_of::<lhr_assets::Lod>(),
         )?;
         for lod in &frame.lods {
+            if let Some(coordinates) = &lod.uv_only {
+                add(coordinates.capacity(), std::mem::size_of::<[f32; 2]>())?;
+            }
             add(
                 lod.vertices.capacity(),
                 std::mem::size_of::<lhr_assets::Vertex>(),
@@ -566,6 +569,7 @@ mod tests {
         let vertices = Vec::<lhr_assets::Vertex>::with_capacity(1024);
         model.frames[0].lods.push(lhr_assets::Lod {
             distance: 1000.0,
+            uv_only: None,
             vertices,
             groups: vec![lhr_assets::FaceGroup {
                 material: lhr_assets::UNASSIGNED_MATERIAL,
@@ -576,6 +580,10 @@ mod tests {
         assert!(
             after - before
                 >= 1024 * (std::mem::size_of::<lhr_assets::Vertex>() + std::mem::size_of::<u32>())
+        );
+        model.frames[0].lods[0].uv_only = Some(Vec::with_capacity(1024));
+        assert!(
+            model_storage_bytes(&model).unwrap() - after >= 1024 * std::mem::size_of::<[f32; 2]>()
         );
         let mut budget = SourceBudget {
             decoded: MAX_PARSED_MODEL_BYTES - before,

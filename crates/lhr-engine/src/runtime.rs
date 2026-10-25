@@ -1255,6 +1255,7 @@ mod tests {
                 instance: None,
                 lods: vec![Lod {
                     distance: 0.,
+                    uv_only: None,
                     vertices: vec![
                         lhr_assets::Vertex {
                             position: [1., 2., 3.],
