@@ -516,7 +516,7 @@ fn load_car(
             Camera::fit(&snapshot.scene)?
         };
         if driving {
-            driving_view::sync_audio_listener(&owner, &camera)?;
+            driving_view::sync_audio_listener(&mut owner, &camera)?;
         }
         println!("CPU car constructed and initialized: {} seats, {} cached animation tracks; {} visible meshes, {} draws",owner.summary().seats,owner.summary().cached_tracks,snapshot.visible_meshes,snapshot.scene.meshes.len());
         if !driving {
