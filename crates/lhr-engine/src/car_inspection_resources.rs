@@ -104,26 +104,64 @@ impl LoadedVisualResources {
             ));
         }
         let index = index as usize;
-        let Some(level) = mesh.levels[index] else {
+        let Some(level_key) = mesh.levels[index] else {
             return Ok(None);
         };
         let level = resources
-            .mesh_level(level)
+            .mesh_level(level_key)
             .map_err(|e| LoadedVisualError::Object(ObjectError::Managed(e.into())))?;
         if level.num_fgroups as usize > maximum_groups {
             return Err(LoadedVisualError::Backend("inspection draw quota"));
         }
         let mut vertices = level.vertex_buffer;
+        let mut vertex_owner = self
+            .objects
+            .managed()
+            .vertex_bindings()
+            .iter()
+            .find(|binding| {
+                binding.level == level_key
+                    && binding.state == crate::managed_visual_resources::BindingState::Installed
+            })
+            .map(|binding| binding.owner);
         let mut uv_offset = [0.; 2];
-        if let Some(lod) = object.lods[index] {
-            let lod = self.objects.lod(lod)?;
+        if let Some(lod_key) = object.lods[index] {
+            let lod = self.objects.lod(lod_key)?;
             if lod.state != LodState::Constructed {
                 return Err(LoadedVisualError::Backend("inspection LOD was destroyed"));
             }
             if lod.vertex_buffer.buffer.is_some() || lod.vertex_buffer.graphics.is_some() {
                 vertices = lod.vertex_buffer;
+                vertex_owner = self
+                    .objects
+                    .lod_bindings()
+                    .iter()
+                    .find(|binding| {
+                        binding.lod == lod_key
+                            && binding.state
+                                == crate::managed_visual_resources::BindingState::Installed
+                    })
+                    .map(|binding| binding.owner);
             }
             uv_offset = [lod.u_ofs, lod.v_ofs];
+        }
+        let configuration = self
+            .objects
+            .managed()
+            .vertex_storage_configuration(
+                vertex_owner.ok_or(LoadedVisualError::Backend(
+                    "inspection vertex ownership unavailable",
+                ))?,
+                vertices,
+                level.num_vertices,
+            )
+            .map_err(|_| {
+                LoadedVisualError::Backend("inspection vertex descriptor/manager mismatch")
+            })?;
+        if configuration.fvf != 0x112 || configuration.stride != Some(32) {
+            return Err(LoadedVisualError::Backend(
+                "inspection UV-only or unknown vertex layout",
+            ));
         }
         let vertex_bytes = self.inspection_graphics(
             GraphicsBuffer::Vertex(
@@ -315,6 +353,85 @@ mod tests {
             .unwrap();
         assert!(matches!(
             owner.inspection_mesh_at_lod(object, 1, 1),
+            Err(LoadedVisualError::Backend(
+                "inspection UV-only or unknown vertex layout"
+            ))
+        ));
+        // A later request64 may reuse the original actual32 buffer.
+        // Prove that read admission follows retained layout, not requested64.
+        owner
+            .objects
+            .set_lod(mesh, Some(level), 2, &mut owner.backend)
+            .unwrap();
+        let reused = owner.objects.create_plain_lod().unwrap();
+        owner
+            .objects
+            .allocate_plain_lod_vertices(
+                reused,
+                VertexRequest {
+                    stride: 64,
+                    ..request
+                },
+                &mut owner.backend,
+            )
+            .unwrap();
+        owner.objects.adopt_plain_lod(object, 2, reused).unwrap();
+        let descriptor = owner.objects.lod(reused).unwrap().vertex_buffer;
+        let binding = owner
+            .objects
+            .lod_bindings()
+            .iter()
+            .find(|binding| binding.lod == reused)
+            .unwrap();
+        assert_eq!(
+            owner
+                .objects
+                .managed()
+                .vertex_storage_configuration(binding.owner, descriptor, 3)
+                .unwrap()
+                .stride,
+            Some(32)
+        );
+        owner
+            .backend
+            .upload_graphics(
+                GraphicsBuffer::Vertex(descriptor.graphics.unwrap()),
+                descriptor.base as usize * 32,
+                &private_bytes,
+            )
+            .unwrap();
+        owner
+            .objects
+            .unlock_all_vertices(&mut owner.backend)
+            .unwrap();
+        let view = owner.inspection_mesh_at_lod(object, 2, 1).unwrap().unwrap();
+        assert_eq!(&view.vertex_bytes[..4], &42f32.to_le_bytes());
+        // Same FVF does not imply the byte stride. A fresh exclusive64
+        // allocation must be rejected using retained manager configuration.
+        owner
+            .objects
+            .set_lod(mesh, Some(level), 3, &mut owner.backend)
+            .unwrap();
+        let wide = owner.objects.create_plain_lod().unwrap();
+        owner
+            .objects
+            .allocate_plain_lod_vertices(
+                wide,
+                VertexRequest {
+                    stride: 64,
+                    exclusive: true,
+                    ..request
+                },
+                &mut owner.backend,
+            )
+            .unwrap();
+        owner.objects.adopt_plain_lod(object, 3, wide).unwrap();
+        owner
+            .objects
+            .unlock_all_vertices(&mut owner.backend)
+            .unwrap();
+        assert!(matches!(
+            owner.inspection_mesh_at_lod(object, 3, 1),
             Err(LoadedVisualError::Backend(
                 "inspection UV-only or unknown vertex layout"
             ))

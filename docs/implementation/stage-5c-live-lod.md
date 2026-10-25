@@ -41,8 +41,14 @@ own dispatch. The ordinary selection/fade adapter explicitly requires Plain.
 No callback dispatch, Texture::Request or derived-class render is substituted.
 
 The selected view reads mesh.levels[index] and the corresponding private
-object.lods[index] override. Actual CPU graphics metadata must prove FVF0x112
-(XYZ/normal/UV, 32 bytes). UV-only or unknown layouts fail explicitly. A cull
+object.lods[index] override. Installed owner/block/descriptor identities are
+validated through the manager's active descriptor and visual-token mapping.
+The retained manager VertexConfiguration must prove FVF0x112 with stride32,
+and its graphics identity must match the copied descriptor before bytes are
+read. Requested stride is insufficient: source reuse intentionally ignores
+requested stride/format, and that behavior is unchanged. UV-only, fresh
+same-FVF/stride64 and unknown layouts fail explicitly; request64 that actually
+reuses a proven retained stride32 buffer remains admitted. A cull
 sentinel never indexes the level array and never falls back to LOD0.
 
 Camera-aware snapshots combine that selected owned geometry with object fade
