@@ -124,6 +124,7 @@ mod tests {
                 name_bytes: b"n".to_vec(),
                 properties: Vec::new(),
                 dummy_bounds: None,
+                light: None,
                 joint: None,
                 skin: None,
                 morph: None,

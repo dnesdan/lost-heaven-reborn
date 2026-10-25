@@ -357,6 +357,25 @@ impl I3dFrameGraph {
         self.light_effect(key, |graph| graph.set_light_cone_inner(key, inner, outer))
     }
 }
+impl I3dFrameGraph {
+    /// PC LoadImage writes mode through cone_out after common-frame intake.
+    /// Keep constructor caches and counters intact; the subsequent Update path
+    /// owns recomputation, and malformed numerical domains fail there.
+    pub(crate) fn apply_light_load_image_fields(
+        &mut self,
+        key: FrameKey,
+        record: &lhr_assets::LightRecord,
+    ) -> Result<(), FrameError> {
+        let light = self.light_state_mut(key)?;
+        light.mode = record.mode;
+        light.light_type = record.light_type;
+        light.intensity = record.power;
+        light.color = record.diffuse;
+        light.range = record.range;
+        light.cone = record.cone;
+        Ok(())
+    }
+}
 impl ModelArena {
     pub fn light(&self, key: FrameKey) -> Result<&I3dLightState, ModelError> {
         let state = self.graph.light_state(key)?;
@@ -375,6 +394,12 @@ impl ModelArena {
         let mut state = I3dFrameState::model();
         state.kind = FrameKind::Light;
         let key = self.insert(state, None, Vec::new(), Vec::new(), None)?;
+        self.finish_light_constructor(key)
+    }
+    pub(crate) fn finish_light_constructor(
+        &mut self,
+        key: FrameKey,
+    ) -> Result<FrameKey, ModelError> {
         let result: Result<FrameKey, ModelError> = (|| {
             self.graph.begin_light_constructor(key)?;
             let rotation = SQuat::try_make_frame_direction([1., -1., 1.], 0.)

@@ -115,6 +115,17 @@ pub struct TargetRecord {
     /// Original u16 reference words; the source u8 count is this vector's length.
     pub frame_indices: Vec<u16>,
 }
+/// Exact kind-2 suffix after the common frame prefix. Numeric words remain raw
+/// source data; LoadImage does not run light setters or validate these fields.
+#[derive(Debug, Clone)]
+pub struct LightRecord {
+    pub mode: u32,
+    pub light_type: u32,
+    pub power: f32,
+    pub diffuse: [f32; 3],
+    pub range: [f32; 2],
+    pub cone: [f32; 2],
+}
 /// Original PC kind-12 suffix consumed by I3D_occluder::LoadImage (RVA
 /// 0x3c9b0): two u32 counts followed by packed vertices and triangle indices.
 /// This is file data only; no native Build, planes or runtime identity is implied.
@@ -231,6 +242,8 @@ pub struct Frame {
     pub properties: Vec<u8>,
     /// Original dummy bounding box. Retained as data, not a collision shape.
     pub dummy_bounds: Option<[[f32; 3]; 2]>,
+    /// Exact kind-2 light suffix, without setter evaluation.
+    pub light: Option<LightRecord>,
     /// Original kind-10 joint suffix, retained by scene and singlemesh intake.
     pub joint: Option<JointRecord>,
     /// Original kind-7 target metadata, without link resolution or evaluation.
@@ -634,6 +647,7 @@ fn parse_four_ds_impl(
         let property_length = r.u8()? as usize;
         let properties = r.take(property_length)?.to_vec();
         let mut dummy_bounds = None;
+        let mut light = None;
         let mut joint = None;
         let mut target = None;
         let mut occluder = None;
@@ -661,7 +675,14 @@ fn parse_four_ds_impl(
                 index: u32::from_le_bytes(bytes[64..68].try_into().unwrap()),
             });
         } else if kind == 2 {
-            r.take(84)?;
+            light = Some(LightRecord {
+                mode: r.u32()?,
+                light_type: r.u32()?,
+                power: f32::from_bits(r.u32()?),
+                diffuse: r.raw_vec()?,
+                range: r.raw_vec()?,
+                cone: r.raw_vec()?,
+            });
         } else if kind == 5 || kind == 12 {
             let sector_header = if kind == 5 {
                 Some([r.u32()?, r.u32()?])
@@ -948,6 +969,7 @@ fn parse_four_ds_impl(
             name_bytes,
             properties,
             dummy_bounds,
+            light,
             joint,
             target,
             occluder,
@@ -1827,6 +1849,68 @@ mod scene_model_tests {
         for n in 0..b.len() {
             assert!(parse_four_ds_scene(&b[..n]).is_err(), "{n}");
         }
+    }
+    #[test]
+    fn light_suffix_is_exactly_forty_bytes_and_keeps_following_frame_aligned() {
+        let mut bytes = b"4DS\0".to_vec();
+        bytes.extend(29u16.to_le_bytes());
+        bytes.extend([0; 8]);
+        bytes.extend(0u16.to_le_bytes());
+        bytes.extend(2u16.to_le_bytes());
+        let words = [
+            0x87654321u32,
+            5,
+            0x80000000,
+            0x7fc01234,
+            1,
+            0x3f800000,
+            0x7f800000,
+            0xff800000,
+            0x7f801234,
+            0xffc05678,
+        ];
+        for (kind, name) in [(2, b"Lamp".as_slice()), (6, b"Tail".as_slice())] {
+            bytes.push(kind);
+            bytes.extend(0u16.to_le_bytes());
+            for value in [0f32, 0., 0., 1., 1., 1., 1., 0., 0., 0.] {
+                bytes.extend(value.to_le_bytes());
+            }
+            bytes.extend([0, name.len() as u8]);
+            bytes.extend(name);
+            bytes.extend([3, 0xff, 0, 0x80]);
+            if kind == 2 {
+                for word in words {
+                    bytes.extend(word.to_le_bytes());
+                }
+            } else {
+                bytes.extend([0; 24]);
+            }
+        }
+        bytes.push(0);
+        let model = parse_four_ds_scene(&bytes).unwrap();
+        let light = model.frames[0].light.as_ref().unwrap();
+        assert_eq!(light.mode, words[0]);
+        assert_eq!(light.light_type, words[1]);
+        let floats = [
+            light.power,
+            light.diffuse[0],
+            light.diffuse[1],
+            light.diffuse[2],
+            light.range[0],
+            light.range[1],
+            light.cone[0],
+            light.cone[1],
+        ];
+        assert_eq!(floats.map(f32::to_bits), words[2..]);
+        assert_eq!(model.frames[0].properties, [0xff, 0, 0x80]);
+        assert_eq!(model.frames[1].name, "Tail");
+        assert!(model.frames[1].light.is_none());
+        for end in 0..bytes.len() {
+            assert!(parse_four_ds_scene(&bytes[..end]).is_err(), "{end}");
+        }
+        assert!(parse_four_ds(&bytes).is_err());
+        bytes.push(0);
+        assert!(parse_four_ds_scene(&bytes).is_err());
     }
     #[test]
     fn animated_material_suffix_preserves_signed_fields_and_following_mesh() {

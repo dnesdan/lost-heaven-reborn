@@ -1292,6 +1292,7 @@ mod tests {
             name_bytes: b"synthetic".to_vec(),
             properties: Vec::new(),
             dummy_bounds: None,
+            light: None,
             joint: None,
             target: None,
             occluder: None,

@@ -1241,6 +1241,7 @@ mod tests {
                 name_bytes: b"source".to_vec(),
                 properties: Vec::new(),
                 dummy_bounds: None,
+                light: None,
                 joint: None,
                 skin: None,
                 morph: None,
