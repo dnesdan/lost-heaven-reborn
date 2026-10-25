@@ -10,6 +10,11 @@
 //! close-first loading, fresh/shared filename descriptors and model prefixes.
 //! Loader callbacks/animation failure paths and GPU resource creation remain
 //! separate; the actual Installation adapter is not a full native LoadImage.
+#[path = "scene_world_intake.rs"]
+mod scene_world_intake;
+pub use scene_world_intake::{
+    CpuSceneWorldError, CpuSceneWorldFailure, CpuSceneWorldPhase, CpuSceneWorldProgress,
+};
 #[path = "model_cache_duplicate.rs"]
 mod cache_duplicate;
 #[path = "model_crash_duplicate.rs"]
@@ -140,6 +145,8 @@ pub enum ModelError {
     Frame(FrameError),
     Camera(crate::frame_camera::CameraError),
     Occluder(crate::frame_occluder::OccluderError),
+    Portal(crate::frame_portal::PortalError),
+    Sector(crate::frame_sector::SectorError),
     UnknownModel(ModelKey),
     UnsupportedActiveModelController(ModelKey),
     UnknownFrame(FrameKey),
@@ -232,6 +239,11 @@ pub struct ModelArena {
     pub(crate) models: Vec<LoadedModel>,
     pub(crate) scenes: Vec<crate::scene_ownership::SceneFrameOwner>,
     pub(crate) sectors: Vec<crate::scene_ownership::SectorFrame>,
+    pub(crate) portal_frames: Vec<crate::frame_portal::PortalFrame>,
+    pub(crate) portal_version: u32,
+    pub(crate) portal_allocation_calls: usize,
+    pub(crate) portal_fail_on_call: Option<usize>,
+    pub(crate) sector_storage: crate::frame_sector::SectorStorage,
     pub(crate) cameras: Vec<crate::frame_camera::CameraFrame>,
     pub(crate) occluders: Vec<crate::frame_occluder::OccluderFrame>,
     pub(crate) occluder_storage: crate::frame_occluder::OccluderStorage,
@@ -361,6 +373,12 @@ impl ModelArena {
                 state.kind = FrameKind::Singlemesh;
                 state
             }
+            (5, None) => {
+                let mut state = I3dFrameState::model();
+                state.kind = FrameKind::Sector;
+                state.flags |= 0x08080000;
+                state
+            }
             (6, None) => I3dFrameState::dummy(),
             (7, None) => I3dFrameState::target(),
             (10, None) => I3dFrameState::joint(),
@@ -378,6 +396,9 @@ impl ModelArena {
                 });
             }
         };
+        if source.kind == 5 && source.sector.is_none() {
+            return Err(crate::frame_sector::SectorError::MissingRecord.into());
+        }
         if source.kind == 12 && source.occluder.is_none() {
             return Err(crate::frame_occluder::OccluderError::GeometryUnavailable.into());
         }
@@ -438,6 +459,11 @@ impl ModelArena {
                 .try_reserve(1)
                 .map_err(|_| ModelError::AllocationOverflow)?;
         }
+        if source.kind == 5 {
+            self.sectors
+                .try_reserve(1)
+                .map_err(|_| ModelError::AllocationOverflow)?;
+        }
         let key = self.insert(
             state,
             Some(index),
@@ -447,6 +473,9 @@ impl ModelArena {
         )?;
         if source.kind == 12 {
             self.finish_occluder_constructor(key);
+        }
+        if source.kind == 5 {
+            self.finish_sector_constructor(crate::scene_ownership::SectorKey(key));
         }
         let fi = self.frame_index(key)?;
         self.frames[fi].source = Some(Arc::clone(source_model));
@@ -477,6 +506,14 @@ impl ModelArena {
                 },
                 joint.index,
             )?;
+        }
+        if source.kind == 5 {
+            if let Some(error) = self.load_sector_record(
+                crate::scene_ownership::SectorKey(key),
+                source.sector.as_ref().unwrap(),
+            )? {
+                return Err(ModelError::NativeModelOpenResult(error));
+            }
         }
         if source.kind == 12 {
             let record = source.occluder.as_ref().unwrap();
@@ -636,6 +673,27 @@ impl ModelArena {
         key: FrameKey,
     ) -> Result<Option<crate::i3d_object::ObjectResourceKey>, ModelError> {
         Ok(self.frame(key)?.object_resources)
+    }
+    /// Actual OBJ_ class word written by plain-object constructor367b0 at+1d4.
+    /// A live canonical plain-object resource identity proves this class; the
+    /// 4DS visual ordinal is not the native FourCC and is never substituted.
+    pub(crate) fn plain_object_visual_type(&self, key: FrameKey) -> Result<u32, ModelError> {
+        if self.state(key)?.kind != FrameKind::Mesh {
+            return Err(ModelError::OriginalModelOpenUnavailable(
+                "plain object class witness unavailable",
+            ));
+        }
+        let object = self
+            .frame(key)?
+            .object_resources
+            .ok_or(ModelError::VisualBoundsUnavailable(key))?;
+        self.loaded_visual_resources
+            .as_ref()
+            .ok_or(ModelError::VisualBoundsUnavailable(key))?
+            .objects()
+            .object(object)
+            .map_err(|_| ModelError::VisualBoundsUnavailable(key))?;
+        Ok(0x5f4a424f)
     }
     /// Original object SetMesh (PC RVA 0x368e0), including same-pointer bound
     /// recopy and the null-mesh constructor bounds. Resource replacement owns
@@ -851,6 +909,11 @@ impl ModelArena {
                 );
             }
         }
+        if self.state(key)?.kind == FrameKind::Sector {
+            self.check_sector_destruction_domain(crate::scene_ownership::SectorKey(key))?;
+            self.graph.check_empty_scene_base_destruction(key)?;
+            return Ok(());
+        }
         if let Some(object) = self.frame(key)?.object_resources {
             let owner = self
                 .loaded_visual_resources
@@ -959,6 +1022,14 @@ impl ModelArena {
         model: ModelKey,
         source: Arc<Model>,
     ) -> Result<SharedModelContent, SharedModelLoadFailure> {
+        self.load_parsed_into_model_for_root(model, source, None)
+    }
+    pub(crate) fn load_parsed_into_model_for_root(
+        &mut self,
+        model: ModelKey,
+        source: Arc<Model>,
+        root_parent: Option<FrameKey>,
+    ) -> Result<SharedModelContent, SharedModelLoadFailure> {
         let mut content = SharedModelContent {
             model,
             frames: Vec::new(),
@@ -1010,13 +1081,13 @@ impl ModelArena {
                 }
             }
         }
-        if let Err(error) = self.transfer_shared_model_content(&mut content) {
+        if let Err(error) = self.transfer_shared_model_content_for_root(&mut content, root_parent) {
             return Err(SharedModelLoadFailure {
                 error,
                 partial: content,
             });
         }
-        if result.is_ok() {
+        if result.is_ok() && root_parent.is_none() {
             result = self.mark_loaded_model_root(model.root());
         }
         match result {
@@ -1034,6 +1105,13 @@ impl ModelArena {
         &mut self,
         content: &mut SharedModelContent,
     ) -> Result<(), ModelError> {
+        self.transfer_shared_model_content_for_root(content, None)
+    }
+    fn transfer_shared_model_content_for_root(
+        &mut self,
+        content: &mut SharedModelContent,
+        root_parent: Option<FrameKey>,
+    ) -> Result<(), ModelError> {
         if content.arena != self.lookup_owner.reference(0) {
             return Err(ModelError::ForeignArena);
         }
@@ -1043,7 +1121,7 @@ impl ModelArena {
         while content.transferred_frames < content.frames.len() {
             let key = content.frames[content.transferred_frames];
             if self.graph.links(key)?.parent.is_none() {
-                self.link_frame(key, Some(content.model.root()), 0)?;
+                self.link_frame(key, Some(root_parent.unwrap_or(content.model.root())), 0)?;
             }
             self.add_frame(content.model, key)?;
             self.release(key)?;
@@ -1441,6 +1519,9 @@ impl ModelArena {
         if self.graph.state(key)?.kind == FrameKind::Occluder {
             self.destroy_occluder_derived(self.occluder_key(key)?)?;
         }
+        if self.graph.state(key)?.kind == FrameKind::Sector {
+            self.destroy_sector_derived(crate::scene_ownership::SectorKey(key))?;
+        }
         if self.graph.state(key)?.kind == FrameKind::Model {
             // Host guard for independently constructed ownership graphs. This
             // is an explicit availability bound, not a recovered native limit.
@@ -1488,6 +1569,7 @@ impl ModelArena {
         self.frames[i].dummy_bounds = None;
         self.frames[i].source = None;
         self.frames[i].user_data = crate::actor_frames::FrameUserData::Null;
+        self.sectors.retain(|sector| sector.key.frame() != key);
         Ok(())
     }
     pub fn add_frame(&mut self, model: ModelKey, key: FrameKey) -> Result<(), ModelError> {
@@ -2159,6 +2241,7 @@ pub(crate) mod tests {
             morph: None,
             target: None,
             occluder: None,
+            sector: None,
             parent,
             position,
             scale: [1.; 3],
@@ -2779,14 +2862,14 @@ pub(crate) mod tests {
     fn unsupported_frame_preserves_loaded_prefix_ownership() {
         let source = Arc::new(Model {
             materials: Vec::new(),
-            frames: vec![frame(6, None, [0.; 3]), frame(5, None, [0.; 3])],
+            frames: vec![frame(6, None, [0.; 3]), frame(0xfe, None, [0.; 3])],
         });
         let failure = MaterializedModel::from_parsed(source).unwrap_err();
         assert_eq!(
             failure.error,
             ModelError::UnsupportedFrame {
                 index: 1,
-                kind: 5,
+                kind: 0xfe,
                 visual: None
             }
         );

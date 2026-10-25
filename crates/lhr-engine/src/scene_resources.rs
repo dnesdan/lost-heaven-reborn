@@ -399,13 +399,16 @@ impl SceneResources {
         for frame in arena.scene(scene)?.frames() {
             if matches!(
                 arena.state(*frame)?.kind,
-                crate::frame_transform::FrameKind::Sound
-                    | crate::frame_transform::FrameKind::Scene
-                    | crate::frame_transform::FrameKind::Sector
+                crate::frame_transform::FrameKind::Sound | crate::frame_transform::FrameKind::Scene
             ) {
                 return Err(SceneResourceError::UnsupportedDomain(
                     "foreign derived scene-frame resources",
                 ));
+            }
+        }
+        for &frame in arena.scene(scene)?.frames() {
+            if arena.state(frame)?.kind == crate::frame_transform::FrameKind::Sector {
+                arena.check_sector_destruction_domain(crate::scene_ownership::SectorKey(frame))?;
             }
         }
         let legacy_immediate_textures_before_close = arena
@@ -585,33 +588,7 @@ impl SceneResources {
             .graph
             .check_empty_scene_base_destruction(sector.frame())
             .map_err(ModelError::from)?;
-        // 4ee80 entry and the actual nonnull-scene -> null transition in
-        // 4f260(NULL), with constructor ring links and portal arrays null.
-        arena.sector_version = arena.sector_version.wrapping_add(2);
-        // Actual 4ee80 removes each raw sector pointer from the light's list
-        // without invoking SectorDeleteLight or incrementing light-change state.
-        if let Some(occluder) = arena.sector(sector)?.hull_occluder {
-            arena.clear_occluder_sector_backpointer(occluder)?;
-        }
-        let lights = arena.sector(sector)?.lights.clone();
-        for light in lights {
-            let reciprocal = &mut arena
-                .graph
-                .light_state_mut(light)
-                .map_err(ModelError::from)?
-                .sectors;
-            if let Some(index) = reciprocal.iter().position(|&value| value == sector.frame()) {
-                reciprocal.swap_remove(index);
-            }
-        }
-        let si = arena
-            .sectors
-            .iter()
-            .position(|value| value.key == sector)
-            .unwrap();
-        arena.sectors[si].hull_occluder = None;
-        arena.sectors[si].lights = Vec::new();
-
+        arena.destroy_sector_derived(sector)?;
         arena.destroy_empty_scene_base(sector.frame())?;
         arena.sectors.retain(|entry| entry.key != sector);
         Ok(())
@@ -936,7 +913,7 @@ mod tests {
                 .release_scene(&mut arena, scene, &mut textures, &mut storage)
                 .unwrap();
             assert_eq!(arena.frame(sector.frame()).unwrap().references, 1);
-            assert_eq!(arena.sector(sector).unwrap().scene, scene);
+            assert_eq!(arena.sector(sector).unwrap().scene, Some(scene));
             assert_eq!(arena.global_sector_version(), 10);
             shared.release_retained_sector(&mut arena, sector).unwrap();
             assert!(arena.frame(sector.frame()).is_err());

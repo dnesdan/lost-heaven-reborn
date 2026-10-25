@@ -552,6 +552,7 @@ mod tests {
                 morph: None,
                 target: None,
                 occluder: None,
+                sector: None,
                 parent: None,
                 position: [0.0; 3],
                 scale: [1.0; 3],

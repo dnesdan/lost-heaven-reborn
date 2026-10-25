@@ -133,6 +133,7 @@ pub struct MissionObjectFields {
     pub parent_name: Option<Vec<u8>>,
     pub geometry_build_result: Option<u32>,
     pub visual_subtype_request: Option<u32>,
+    pub visual_subtype_current: Option<u32>,
 }
 impl Default for MissionObjectFields {
     fn default() -> Self {
@@ -146,6 +147,7 @@ impl Default for MissionObjectFields {
             parent_name: None,
             geometry_build_result: None,
             visual_subtype_request: None,
+            visual_subtype_current: None,
         }
     }
 }
@@ -851,10 +853,14 @@ impl MissionSceneLoader {
         ) {
             return Ok(());
         }
-        Err((
-            0x543a35,
-            "original visual subtype getter/replacement requires its actual class owner".into(),
-        ))
+        let current = arena
+            .plain_object_visual_type(key)
+            .map_err(|e| (0x543a35, format!("{e:?}")))?;
+        self.object_fields.visual_subtype_current = Some(current);
+        if current == requested {
+            return Ok(());
+        }
+        Err((0x543a4b,format!("original CreateVisual/replacement unavailable: current={current:08x} requested={requested:08x}")))
     }
     fn read_model_open(
         &mut self,

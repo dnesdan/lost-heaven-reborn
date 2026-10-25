@@ -1295,6 +1295,7 @@ mod tests {
             joint: None,
             target: None,
             occluder: None,
+            sector: None,
             skin: None,
             morph: None,
             parent,

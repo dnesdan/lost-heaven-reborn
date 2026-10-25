@@ -573,6 +573,7 @@ mod tests {
             morph: None,
             target: None,
             occluder: None,
+            sector: None,
             parent,
             position,
             scale: [1.0; 3],

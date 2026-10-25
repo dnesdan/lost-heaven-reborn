@@ -205,11 +205,12 @@ impl CpuVisualStorage {
         request_flags: u32,
         flags: u32,
     ) -> Result<TextureKey> {
-        if let Some(a) = &alpha {
-            if (a.width, a.height) != (color.width, color.height) {
-                return Err(LoadedVisualError::Backend("alpha image extent"));
-            }
-        }
+        let alpha = alpha
+            .map(|a| {
+                crate::itexture::resize_loaded_texture(a, color.width, color.height)
+                    .map_err(|_| LoadedVisualError::Backend("alpha image resize"))
+            })
+            .transpose()?;
         let asset_key = asset_key.to_ascii_lowercase();
         let same_image = |a: &lhr_assets::Texture, b: &lhr_assets::Texture| {
             a.width == b.width && a.height == b.height && a.rgba == b.rgba
@@ -734,11 +735,13 @@ impl LoadedVisualResources {
                 if color.is_none() && alpha.is_some() {
                     return Err(LoadedVisualError::Backend("alpha without color"));
                 }
-                if let (Some(c), Some(a)) = (&color, &alpha) {
-                    if (c.width, c.height) != (a.width, a.height) {
-                        return Err(LoadedVisualError::Backend("alpha image extent"));
-                    }
-                }
+                let alpha = match (&color, alpha) {
+                    (Some(c), Some(a)) => Some(
+                        crate::itexture::resize_loaded_texture(a, c.width, c.height)
+                            .map_err(|_| LoadedVisualError::Backend("alpha image resize"))?,
+                    ),
+                    (_, alpha) => alpha,
+                };
                 let environment = m
                     .environment_texture
                     .as_deref()
@@ -1049,6 +1052,50 @@ mod tests {
         assert_eq!(storage.decoded_texture_bytes(), 0);
     }
     #[test]
+    fn unequal_alpha_cpu_owner_uses_primary_extent_and_native_row_selection() {
+        let mut storage = CpuVisualStorage::default();
+        let color = lhr_assets::Texture {
+            width: 16,
+            height: 16,
+            rgba: [1, 2, 3, 255].repeat(256),
+        };
+        let alpha = lhr_assets::Texture {
+            width: 2,
+            height: 64,
+            rgba: (0..64u8)
+                .flat_map(|y| [y, 1, 2, 255, y, 3, 4, 255])
+                .collect(),
+        };
+        let key = storage
+            .admit_texture_with_flags(
+                "maps/light.bmp|alpha.bmp",
+                color.clone(),
+                Some(alpha.clone()),
+                0x1384,
+                4,
+            )
+            .unwrap();
+        let actual = storage.textures[&key.0].alpha.as_ref().unwrap();
+        assert_eq!((actual.width, actual.height), (16, 16));
+        for y in 0..16 {
+            for x in 0..16 {
+                let offset = (y * 16 + x) * 4;
+                assert_eq!(actual.rgba[offset], (3 + y * 4) as u8);
+                assert_eq!(actual.rgba[offset + 1], if x < 8 { 1 } else { 3 });
+            }
+        }
+        assert_eq!(storage.textures[&key.0].color.rgba, color.rgba);
+        let hit = storage
+            .admit_texture_with_flags("MAPS/LIGHT.BMP|ALPHA.BMP", color, Some(alpha), 0x1384, 4)
+            .unwrap();
+        assert_eq!(key, hit);
+        assert_eq!(storage.texture_references(key), Some(2));
+        storage.release_texture(key).unwrap();
+        assert_eq!(storage.decoded_texture_bytes(), 16 * 16 * 8);
+        storage.release_texture(hit).unwrap();
+        assert_eq!(storage.decoded_texture_bytes(), 0);
+    }
+    #[test]
     fn graphics_owns_written_bytes_and_rejects_foreign_or_locked_release() {
         let mut storage = CpuVisualStorage::default();
         let mut foreign = CpuVisualStorage::default();
@@ -1197,6 +1244,7 @@ mod tests {
             joint: None,
             target: None,
             occluder: None,
+            sector: None,
             skin: None,
             morph: None,
             parent: None,

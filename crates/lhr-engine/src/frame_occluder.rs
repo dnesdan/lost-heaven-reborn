@@ -721,7 +721,7 @@ impl ModelArena {
                             }
                             remaining -= 1;
                             if self.state(frame)?.kind == FrameKind::Sector {
-                                scene = Some(self.sector(SectorKey(frame))?.scene);
+                                scene = self.sector(SectorKey(frame))?.scene;
                                 break;
                             }
                             at = self.links(frame)?.parent;
@@ -772,11 +772,13 @@ impl ModelArena {
         let old = graph
             .closest_sector(old)?
             .map(|frame| self.sector(SectorKey(frame)).map(|sector| sector.scene))
-            .transpose()?;
+            .transpose()?
+            .flatten();
         let new = graph
             .closest_sector(new)?
             .map(|frame| self.sector(SectorKey(frame)).map(|sector| sector.scene))
-            .transpose()?;
+            .transpose()?
+            .flatten();
         if old == new {
             return Ok(());
         }
@@ -795,17 +797,11 @@ impl ModelArena {
         Ok(())
     }
     fn sector_ring_same_scene(
-        &self,
+        &mut self,
         sector: SectorKey,
         scene: Option<SceneKey>,
     ) -> Result<(), ModelError> {
-        // Actual 4f260 first compares old/new and returns immediately if equal.
-        // Changing the sector ring requires the independent sector/portal owner.
-        if scene == Some(self.sector(sector)?.scene) {
-            Ok(())
-        } else {
-            Err(OccluderError::SectorTransitionUnavailable.into())
-        }
+        self.sector_add_to_scene_ring(sector, scene)
     }
     fn link_enum_transition(
         &mut self,

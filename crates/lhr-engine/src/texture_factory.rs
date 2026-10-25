@@ -5,7 +5,7 @@
 //! Admission also excludes dimensions above 1024 with ANYSIZE; that exclusion is
 //! host policy rather than an original Create error.
 //! It executes channel/alpha conversion into owned BGRA surface storage. Device
-//! upload, presaved files, resizing, mipmaps, compression and managed Create are
+//! upload, presaved files, primary-image resizing, mipmaps, compression and managed Create are
 //! outside this adapter and reject explicitly, rather than pretending to execute.
 use super::*;
 use crate::buffer_managers::{
@@ -309,6 +309,74 @@ fn full_name(
     Ok(full)
 }
 type Image = lhr_assets::texture_source::DecodedTextureImage;
+/// LoadImage RVA0x79706 nearest-pixel resize, before Create's alpha extraction.
+/// Decoding each source pixel before selecting it preserves palette/channel
+/// expansion while the asset decoder accounts for the original source pitch.
+/// LoadImage samples bottom-up rows; this result uses the decoder's top-down
+/// representation. Vertical reversal must surround sampling, not precede it.
+/// Scale spills and FMUL use PC24 round-to-nearest; the source index truncates.
+pub(crate) fn resize_loaded_texture(
+    image: lhr_assets::Texture,
+    width: u32,
+    height: u32,
+) -> Result<lhr_assets::Texture, TextureFactoryError> {
+    let invalid = || TextureFactoryError::Unsupported("image resize dimensions");
+    let source_len = image
+        .width
+        .checked_mul(image.height)
+        .and_then(|n| n.checked_mul(4))
+        .ok_or_else(invalid)?;
+    let target_len = width
+        .checked_mul(height)
+        .and_then(|n| n.checked_mul(4))
+        .ok_or_else(invalid)?;
+    if image.width == 0
+        || image.height == 0
+        || width == 0
+        || height == 0
+        || image.rgba.len() != source_len as usize
+    {
+        return Err(invalid());
+    }
+    if (image.width, image.height) == (width, height) {
+        return Ok(image);
+    }
+    let sx = crate::native_precision::pc24_integer_ratio(
+        i64::from(image.width),
+        i32::try_from(width).map_err(|_| invalid())?,
+    );
+    let sy = crate::native_precision::pc24_integer_ratio(
+        i64::from(image.height),
+        i32::try_from(height).map_err(|_| invalid())?,
+    );
+    let mut rgba = Vec::new();
+    rgba.try_reserve_exact(target_len as usize)
+        .map_err(|_| TextureError::HostAllocation)?;
+    for y in 0..height {
+        let source_bottom_y = ((height - 1 - y) as f32 * sy).trunc() as u32;
+        if source_bottom_y >= image.height {
+            return Err(TextureFactoryError::Unsupported(
+                "image resize sampling coordinate",
+            ));
+        }
+        let source_y = image.height - 1 - source_bottom_y;
+        for x in 0..width {
+            let source_x = (x as f32 * sx).trunc() as u32;
+            if source_x >= image.width || source_y >= image.height {
+                return Err(TextureFactoryError::Unsupported(
+                    "image resize sampling coordinate",
+                ));
+            }
+            let offset = ((source_y * image.width + source_x) * 4) as usize;
+            rgba.extend_from_slice(&image.rgba[offset..offset + 4]);
+        }
+    }
+    Ok(lhr_assets::Texture {
+        width,
+        height,
+        rgba,
+    })
+}
 fn decode_error(e: lhr_assets::texture_source::TextureImageDecodeError) -> TextureImageError {
     match e {
         lhr_assets::texture_source::TextureImageDecodeError::Unsupported(_) => {
@@ -542,7 +610,7 @@ impl TextureResources {
             if let Some(alpha) = alpha {
                 let field = t.alpha_file_name;
                 self.strings.assign(field, Some(alpha), storage)?;
-                let a = decode(
+                let mut a = decode(
                     &source
                         .read_image(alpha)
                         .map_err(TextureFactoryError::AlphaImage)?,
@@ -551,16 +619,20 @@ impl TextureResources {
                 if !matches!(a.bpp, 8 | 24) {
                     return Err(TextureFactoryError::Unsupported("alpha source depth"));
                 }
-                if a.source_pitch != a.texture.width * u32::from(a.bpp) / 8 {
-                    // Native alpha extraction walks consecutive pixels without
-                    // skipping BMP row padding. That behavior is not reproduced
-                    // by the packed RGBA decoder; reject rather than repair it.
-                    return Err(TextureFactoryError::Unsupported("alpha source row padding"));
-                }
                 if (a.texture.width, a.texture.height)
                     != (image.texture.width, image.texture.height)
                 {
-                    return Err(TextureFactoryError::Unsupported("alpha resize"));
+                    // Create passes the primary SOURCE dimensions to LoadImage.
+                    // Its resize reads the padded source pitch and writes tight
+                    // rows before brightness extraction (unlike the bypass).
+                    a.texture = resize_loaded_texture(
+                        a.texture,
+                        image.texture.width,
+                        image.texture.height,
+                    )?;
+                    a.source_pitch = a.texture.width * u32::from(a.bpp) / 8;
+                } else if a.source_pitch != a.texture.width * u32::from(a.bpp) / 8 {
+                    return Err(TextureFactoryError::Unsupported("alpha source row padding"));
                 }
                 let rep = self
                     .strings
@@ -904,5 +976,120 @@ mod tests {
             assert!(!error.is_native_creation_failure());
             assert_eq!(b.resident_bytes(), 0);
         }
+    }
+    fn padded_alpha_bmp(height: u32) -> Vec<u8> {
+        let offset = 54 + 256 * 4;
+        let mut bytes = vec![0u8; offset + height as usize * 4];
+        let size = bytes.len() as u32;
+        bytes[..2].copy_from_slice(b"BM");
+        bytes[2..6].copy_from_slice(&size.to_le_bytes());
+        bytes[10..14].copy_from_slice(&(offset as u32).to_le_bytes());
+        bytes[14..18].copy_from_slice(&40u32.to_le_bytes());
+        bytes[18..22].copy_from_slice(&2u32.to_le_bytes());
+        bytes[22..26].copy_from_slice(&height.to_le_bytes());
+        bytes[26..28].copy_from_slice(&1u16.to_le_bytes());
+        bytes[28..30].copy_from_slice(&8u16.to_le_bytes());
+        for index in 0..256 {
+            bytes[54 + index * 4..58 + index * 4].copy_from_slice(&[
+                index as u8 ^ 0x55,
+                255 - index as u8,
+                index as u8,
+                0,
+            ]);
+        }
+        for y in 0..height as usize {
+            let row = offset + (height as usize - 1 - y) * 4;
+            bytes[row..row + 4].copy_from_slice(&[(y * 2) as u8, (y * 2 + 1) as u8, 0xfd, 0xfe]);
+        }
+        bytes
+    }
+    #[test]
+    fn unequal_padded_alpha_uses_native_bottom_up_nearest_before_palette_brightness() {
+        let (mut resources, mut storage, mut source) = setup(24, &[]);
+        let mut color = tga(24, &[3, 2, 1].repeat(256));
+        color[12..14].copy_from_slice(&16u16.to_le_bytes());
+        color[14..16].copy_from_slice(&16u16.to_le_bytes());
+        source.files.insert(b"Maps\\color.tga".to_vec(), color);
+        source
+            .files
+            .insert(b"Maps\\alpha.bmp".to_vec(), padded_alpha_bmp(64));
+        let key = resources
+            .create_texture_from_file(
+                Some(b"color.tga"),
+                Some(b"alpha.bmp"),
+                4,
+                &mut source,
+                &mut storage,
+            )
+            .unwrap();
+        let surface = storage
+            .surface(resources.texture(key).unwrap().graphics.unwrap())
+            .unwrap();
+        assert_eq!((surface.width, surface.height), (16, 16));
+        for y in 0..16 {
+            for x in 0..16 {
+                // BMP stays bottom-up during native resize: logical rows3,7,..63.
+                let index = ((3 + y * 4) * 2 + x / 8) as u32;
+                let alpha = ((index * 77 + (255 - index) * 154 + (index ^ 0x55) * 25) >> 8) as u8;
+                assert_eq!(
+                    &surface.bgra[(y * 16 + x) * 4..(y * 16 + x + 1) * 4],
+                    &[3, 2, 1, alpha]
+                );
+            }
+        }
+        let hit = resources
+            .create_texture_from_file(
+                Some(b"COLOR.TGA"),
+                Some(b"ALPHA.BMP"),
+                4,
+                &mut source,
+                &mut storage,
+            )
+            .unwrap();
+        assert_eq!(key, hit);
+        assert_eq!(source.reads.len(), 2);
+        resources.release_texture(key, &mut storage).unwrap();
+        assert_eq!(storage.live_graphics(), 1);
+        resources.release_texture(hit, &mut storage).unwrap();
+        assert_eq!(storage.resident_bytes(), 0);
+    }
+    #[test]
+    fn same_size_padded_alpha_retains_explicit_extraction_boundary_and_failure_cleanup() {
+        let (mut resources, mut storage, mut source) = setup(24, &[3, 2, 1].repeat(4));
+        source
+            .files
+            .insert(b"Maps\\alpha.bmp".to_vec(), padded_alpha_bmp(2));
+        let error = resources
+            .create_texture_from_file(
+                Some(b"color.tga"),
+                Some(b"alpha.bmp"),
+                4,
+                &mut source,
+                &mut storage,
+            )
+            .unwrap_err();
+        assert_eq!(
+            error,
+            TextureFactoryError::Unsupported("alpha source row padding")
+        );
+        assert!(!error.is_native_creation_failure());
+        assert_eq!(storage.resident_bytes(), 0);
+        assert!(resources.cached().is_empty());
+    }
+    #[test]
+    fn load_image_nearest_upsampling_keeps_raw_row_origin_and_channels() {
+        let image = lhr_assets::Texture {
+            width: 2,
+            height: 2,
+            rgba: vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+        };
+        let image = resize_loaded_texture(image, 3, 3).unwrap();
+        assert_eq!(
+            image.rgba,
+            [
+                1, 2, 3, 4, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 9, 10, 11, 12, 13, 14, 15, 16,
+                9, 10, 11, 12, 9, 10, 11, 12, 13, 14, 15, 16,
+            ]
+        );
     }
 }

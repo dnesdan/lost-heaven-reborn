@@ -17,9 +17,9 @@
 //! Required allocator/graphics callbacks have no implicit no-op implementation.
 //!
 //! Manager traversal retains its original in-order sequence as num_free mutates.
-//! New insertion is admitted only while that sequence is nondecreasing, when
-//! upper-bound insertion is topology independent. Existing reuse remains allowed
-//! in stale order. This does not reconstruct a general mutable-key native RB tree.
+//! New insertion follows current unsigned num_free comparisons through retained
+//! red-black parent/child links. Rotations and successor-splice erasure preserve
+//! native topology even when mutable keys no longer form a sorted sequence.
 //! Raw owner descriptors stay stale after block free. Separate leases reject
 //! stale wrapper frees; buffer destruction zeros only still-used descriptors.
 //! This module does not attach copied VisualResourceBackend descriptors or GPU
@@ -216,12 +216,191 @@ impl<E> From<BufferError> for OperationError<E> {
     }
 }
 
+// Host-owned projection of the MSVC node links/color (VB insert RVA 0x6a600,
+// IB insert 0x5c7f0). None is the original black nil; root has no host parent.
+#[derive(Debug)]
+struct ManagerNode {
+    key: BufferKey,
+    parent: Option<usize>,
+    child: [Option<usize>; 2],
+    red: bool,
+    live: bool,
+}
+#[derive(Debug, Default)]
+struct ManagerTree {
+    root: Option<usize>,
+    nodes: Vec<ManagerNode>,
+}
+impl ManagerTree {
+    fn red(&self, n: Option<usize>) -> bool {
+        n.is_some_and(|n| self.nodes[n].red)
+    }
+    fn paint(&mut self, n: Option<usize>, red: bool) {
+        if let Some(n) = n {
+            self.nodes[n].red = red;
+        }
+    }
+    fn child(&self, n: Option<usize>, side: usize) -> Option<usize> {
+        n.and_then(|n| self.nodes[n].child[side])
+    }
+    fn replace(&mut self, old: usize, replacement: Option<usize>) {
+        let parent = self.nodes[old].parent;
+        if let Some(p) = parent {
+            let side = usize::from(self.nodes[p].child[1] == Some(old));
+            self.nodes[p].child[side] = replacement;
+        } else {
+            self.root = replacement;
+        }
+        if let Some(r) = replacement {
+            self.nodes[r].parent = parent;
+        }
+    }
+    // Promote the requested child. Native rotations do not compare payloads.
+    fn rotate(&mut self, n: usize, side: usize) {
+        let pivot = self.nodes[n].child[side].unwrap();
+        let middle = self.nodes[pivot].child[1 - side];
+        self.nodes[n].child[side] = middle;
+        if let Some(m) = middle {
+            self.nodes[m].parent = Some(n);
+        }
+        self.replace(n, Some(pivot));
+        self.nodes[pivot].child[1 - side] = Some(n);
+        self.nodes[n].parent = Some(pivot);
+    }
+    fn insert(&mut self, key: BufferKey, parent: Option<usize>, side: usize) {
+        let mut n = self.nodes.len();
+        self.nodes.push(ManagerNode {
+            key,
+            parent,
+            child: [None, None],
+            red: true,
+            live: true,
+        });
+        if let Some(p) = parent {
+            self.nodes[p].child[side] = Some(n);
+        } else {
+            self.root = Some(n);
+        }
+        while let Some(p) = self.nodes[n].parent {
+            if !self.nodes[p].red {
+                break;
+            }
+            let g = self.nodes[p].parent.unwrap();
+            let s = usize::from(self.nodes[g].child[1] == Some(p));
+            let uncle = self.nodes[g].child[1 - s];
+            if self.red(uncle) {
+                self.nodes[p].red = false;
+                self.paint(uncle, false);
+                self.nodes[g].red = true;
+                n = g;
+            } else {
+                if self.nodes[p].child[1 - s] == Some(n) {
+                    n = p;
+                    self.rotate(n, 1 - s);
+                }
+                let p = self.nodes[n].parent.unwrap();
+                let g = self.nodes[p].parent.unwrap();
+                self.nodes[p].red = false;
+                self.nodes[g].red = true;
+                self.rotate(g, s);
+            }
+        }
+        self.paint(self.root, false);
+    }
+    fn erase(&mut self, key: BufferKey) {
+        let z = self
+            .nodes
+            .iter()
+            .position(|n| n.live && n.key == key)
+            .unwrap();
+        let mut y = z;
+        if self.nodes[z].child.iter().all(Option::is_some) {
+            y = self.nodes[z].child[1].unwrap();
+            while let Some(left) = self.nodes[y].child[0] {
+                y = left;
+            }
+        }
+        let was_red = self.nodes[y].red;
+        let x = self.nodes[y].child[usize::from(self.nodes[y].child[0].is_none())];
+        let mut parent;
+        if y == z {
+            parent = self.nodes[z].parent;
+            self.replace(z, x);
+        } else {
+            if self.nodes[y].parent == Some(z) {
+                parent = Some(y);
+                if let Some(x) = x {
+                    self.nodes[x].parent = Some(y);
+                }
+            } else {
+                parent = self.nodes[y].parent;
+                self.replace(y, x);
+                self.nodes[y].child[1] = self.nodes[z].child[1];
+                let r = self.nodes[y].child[1].unwrap();
+                self.nodes[r].parent = Some(y);
+            }
+            self.replace(z, Some(y));
+            self.nodes[y].child[0] = self.nodes[z].child[0];
+            let l = self.nodes[y].child[0].unwrap();
+            self.nodes[l].parent = Some(y);
+            self.nodes[y].red = self.nodes[z].red;
+        }
+        self.nodes[z].live = false;
+        if !was_red {
+            let mut x = x;
+            while x != self.root && !self.red(x) {
+                let p = parent.unwrap();
+                let side = usize::from(self.nodes[p].child[1] == x);
+                let mut sibling = self.nodes[p].child[1 - side];
+                if self.red(sibling) {
+                    self.paint(sibling, false);
+                    self.nodes[p].red = true;
+                    self.rotate(p, 1 - side);
+                    sibling = self.nodes[p].child[1 - side];
+                }
+                if !self.red(self.child(sibling, 0)) && !self.red(self.child(sibling, 1)) {
+                    self.paint(sibling, true);
+                    x = Some(p);
+                    parent = self.nodes[p].parent;
+                } else {
+                    if !self.red(self.child(sibling, 1 - side)) {
+                        self.paint(self.child(sibling, side), false);
+                        self.paint(sibling, true);
+                        self.rotate(sibling.unwrap(), side);
+                        sibling = self.nodes[p].child[1 - side];
+                    }
+                    self.paint(sibling, self.nodes[p].red);
+                    self.nodes[p].red = false;
+                    self.paint(self.child(sibling, 1 - side), false);
+                    self.rotate(p, 1 - side);
+                    x = self.root;
+                    parent = None;
+                }
+            }
+            self.paint(x, false);
+        }
+    }
+    fn inorder(&self, out: &mut Vec<BufferKey>) {
+        fn visit(tree: &ManagerTree, n: Option<usize>, out: &mut Vec<BufferKey>) {
+            if let Some(n) = n {
+                visit(tree, tree.nodes[n].child[0], out);
+                out.push(tree.nodes[n].key);
+                visit(tree, tree.nodes[n].child[1], out);
+            }
+        }
+        out.clear();
+        visit(self, self.root, out);
+    }
+}
+
 #[derive(Debug)]
 pub struct BufferManagers {
     identity: u64,
     buffers: Vec<Option<BufferState>>,
     owners: Vec<OwnerState>,
     blocks: Vec<Option<BlockState>>,
+    index_tree: ManagerTree,
+    vertex_tree: ManagerTree,
     index_order: Vec<BufferKey>,
     vertex_order: Vec<BufferKey>,
     index_locked: Vec<BufferKey>,
@@ -274,6 +453,8 @@ impl BufferManagers {
             buffers: Vec::new(),
             owners: Vec::new(),
             blocks: Vec::new(),
+            index_tree: ManagerTree::default(),
+            vertex_tree: ManagerTree::default(),
             index_order: Vec::new(),
             vertex_order: Vec::new(),
             index_locked,
@@ -392,6 +573,28 @@ impl BufferManagers {
             BufferKind::Index => &mut self.index_order,
             BufferKind::Vertex => &mut self.vertex_order,
         }
+    }
+    fn tree(&self, kind: BufferKind) -> &ManagerTree {
+        match kind {
+            BufferKind::Index => &self.index_tree,
+            BufferKind::Vertex => &self.vertex_tree,
+        }
+    }
+    fn tree_mut(&mut self, kind: BufferKind) -> &mut ManagerTree {
+        match kind {
+            BufferKind::Index => &mut self.index_tree,
+            BufferKind::Vertex => &mut self.vertex_tree,
+        }
+    }
+    fn refresh_order(&mut self, kind: BufferKind) {
+        match kind {
+            BufferKind::Index => self.index_tree.inorder(&mut self.index_order),
+            BufferKind::Vertex => self.vertex_tree.inorder(&mut self.vertex_order),
+        }
+    }
+    fn erase_buffer(&mut self, key: BufferKey) {
+        self.tree_mut(key.kind()).erase(key);
+        self.refresh_order(key.kind());
     }
     fn locked(&self, kind: BufferKind) -> &Vec<BufferKey> {
         match kind {
@@ -595,6 +798,10 @@ impl BufferManagers {
         self.buffers
             .try_reserve(1)
             .map_err(|_| BufferError::HostAllocation)?;
+        self.tree_mut(kind)
+            .nodes
+            .try_reserve(1)
+            .map_err(|_| BufferError::HostAllocation)?;
         self.order_mut(kind)
             .try_reserve(1)
             .map_err(|_| BufferError::HostAllocation)?;
@@ -748,22 +955,19 @@ impl BufferManagers {
         self.locked_mut(key.kind()).push(key);
         Ok(true)
     }
-    fn insertion_available(&self, kind: BufferKind) -> Result<(), BufferError> {
-        for pair in self.order(kind).windows(2) {
-            if self.buffer(pair[0])?.num_free > self.buffer(pair[1])?.num_free {
-                return Err(BufferError::UnsupportedManagerInsertion(kind));
-            }
-        }
-        Ok(())
-    }
     fn insert_buffer(&mut self, key: BufferKey) -> Result<(), BufferError> {
         let free = self.buffer(key)?.num_free;
-        let position = self
-            .order(key.kind())
-            .iter()
-            .position(|k| self.buffer(*k).unwrap().num_free > free)
-            .unwrap_or(self.order(key.kind()).len());
-        self.order_mut(key.kind()).insert(position, key);
+        let tree = self.tree(key.kind());
+        let mut current = tree.root;
+        let mut parent = None;
+        let mut side = 0;
+        while let Some(node) = current {
+            parent = Some(node);
+            side = usize::from(free >= self.buffer(tree.nodes[node].key)?.num_free);
+            current = tree.nodes[node].child[side];
+        }
+        self.tree_mut(key.kind()).insert(key, parent, side);
+        self.refresh_order(key.kind());
         Ok(())
     }
     fn publish(&mut self, owner: OwnerKey, key: BufferKey, base: u32) -> Result<(), BufferError> {
@@ -808,8 +1012,6 @@ impl BufferManagers {
                 }
             }
         }
-        // No sorting or synthetic insertion key: only this new-node path is
-        // unavailable when current values violate the retained tree order.
         if !backend.driver_present() {
             return Err(BufferError::DriverUnavailable.into());
         }
@@ -825,7 +1027,6 @@ impl BufferManagers {
         } else if count.checked_mul(2).is_none_or(|n| n > i32::MAX as u32) {
             return Err(BufferError::InvalidExtent.into());
         }
-        self.insertion_available(kind)?;
         let key = self.new_buffer(kind, backend)?;
         if !self.init_buffer(key, usage, count, vertex, backend)? {
             self.destroy_buffer(key, backend)?;
@@ -935,9 +1136,7 @@ impl BufferManagers {
             && self.buffer(key)?.num_free == self.buffer(key)?.capacity
         {
             // The targeted VB path erases manager membership BEFORE destruction.
-            if let Some(position) = self.order(key.kind()).iter().position(|k| *k == key) {
-                self.order_mut(key.kind()).remove(position);
-            }
+            self.erase_buffer(key);
             if let Err(error) = self.destroy_buffer(key, backend) {
                 self.poisoned = true;
                 return Err(error);
@@ -1100,8 +1299,7 @@ impl BufferManagers {
                 self.poisoned = true;
                 return Err(error);
             }
-            let index = self.order(kind).iter().position(|k| *k == key).unwrap();
-            self.order_mut(kind).remove(index);
+            self.erase_buffer(key);
         }
         Ok(())
     }
@@ -1525,12 +1723,86 @@ mod tests {
         assert_eq!(m.index_owner(freed).unwrap().descriptor, raw);
         assert!(b.graphics.is_empty());
     }
+    fn assert_manager_tree(tree: &ManagerTree) {
+        fn inspect(tree: &ManagerTree, node: Option<usize>, parent: Option<usize>) -> usize {
+            let Some(n) = node else {
+                return 1;
+            };
+            let node = &tree.nodes[n];
+            assert!(node.live);
+            assert_eq!(node.parent, parent);
+            if node.red {
+                assert!(!tree.red(node.child[0]));
+                assert!(!tree.red(node.child[1]));
+            }
+            let left = inspect(tree, node.child[0], Some(n));
+            let right = inspect(tree, node.child[1], Some(n));
+            assert_eq!(left, right);
+            left + usize::from(!node.red)
+        }
+        assert!(!tree.red(tree.root));
+        inspect(tree, tree.root, None);
+        let mut order = Vec::new();
+        tree.inorder(&mut order);
+        assert_eq!(order.len(), tree.nodes.iter().filter(|n| n.live).count());
+    }
     #[test]
-    fn stale_manager_order_allows_reuse_and_blocks_only_new_insertion_before_effects() {
+    fn manager_rotations_and_identity_erase_keep_balanced_links_through_cleanup() {
+        let mut m = BufferManagers::new().unwrap();
+        let mut b = Backend::default();
+        let mut owners = Vec::new();
+        let mut keys = Vec::new();
+        for _ in 0..31 {
+            let owner = m.create_vertex_owner().unwrap();
+            let mut request = vertex(10);
+            request.exclusive = true;
+            assert!(m.allocate_vertex(owner, request, &mut b).unwrap());
+            owners.push(owner);
+            keys.push(BufferKey::Vertex(vertex_key(&m, owner)));
+            assert_manager_tree(&m.vertex_tree);
+        }
+        assert_eq!(m.vertex_buffers(), keys);
+        // Remove a root with two children first, then alternate extremes. This
+        // exercises successor identity, nil replacement and both fixup mirrors.
+        let root = m.vertex_tree.nodes[m.vertex_tree.root.unwrap()].key;
+        let root_position = keys.iter().position(|k| *k == root).unwrap();
+        let mut remaining = keys.clone();
+        let mut positions = vec![root_position];
+        for i in 0..31 {
+            if i != root_position {
+                positions.push(if i % 2 == 0 { i / 2 } else { 30 - i / 2 });
+            }
+        }
+        // Use explicit identity lookup to avoid duplicate removals in the sweep.
+        positions.extend(0..31);
+        for position in positions {
+            let key = keys[position];
+            let Some(order_index) = remaining.iter().position(|k| *k == key) else {
+                continue;
+            };
+            m.free_vertex(owners[position], &mut b).unwrap();
+            remaining.remove(order_index);
+            assert_eq!(m.vertex_buffers(), remaining);
+            assert_manager_tree(&m.vertex_tree);
+        }
+        assert!(m.vertex_buffers().is_empty());
+        assert!(m.vertex_locked().is_empty());
+        assert!(b.graphics.is_empty());
+        assert!(!m.is_poisoned());
+        // Last-node erasure must leave a usable empty manager/header.
+        let owner = m.create_vertex_owner().unwrap();
+        assert!(m.allocate_vertex(owner, vertex(3), &mut b).unwrap());
+        assert_manager_tree(&m.vertex_tree);
+        m.free_vertex(owner, &mut b).unwrap();
+        assert_manager_tree(&m.vertex_tree);
+        assert!(b.graphics.is_empty());
+    }
+    #[test]
+    fn stale_manager_order_reuses_and_inserts_through_retained_tree() {
         let mut m = BufferManagers::new().unwrap();
         let mut b = Backend::default();
         let owners: Vec<_> = (0..3).map(|_| m.create_index_owner().unwrap()).collect();
-        for (&owner, count) in owners.iter().zip([60000, 60000, 10000]) {
+        for (&owner, count) in owners.iter().zip([70000, 60000, 10000]) {
             m.allocate_index(owner, 0x10, count, &mut b).unwrap();
         }
         let order = m.index_buffers().to_vec();
@@ -1540,7 +1812,7 @@ mod tests {
             .iter()
             .map(|k| m.buffer(*k).unwrap().num_free)
             .collect();
-        assert_eq!(free, [65536, 5536, 55536]);
+        assert_eq!(free, [70000, 5536, 55536]);
         let reuse = m.create_index_owner().unwrap();
         m.allocate_index(reuse, 0x10, 100, &mut b).unwrap();
         assert_eq!(
@@ -1549,13 +1821,13 @@ mod tests {
         );
         assert_eq!(m.index_buffers(), order);
         let new = m.create_index_owner().unwrap();
-        let before = b.events.len();
-        assert_eq!(
-            m.allocate_index(new, 0x20, 1, &mut b),
-            Err(BufferError::UnsupportedManagerInsertion(BufferKind::Index).into())
-        );
-        assert_eq!(b.events.len(), before);
-        assert_eq!(m.index_owner(new).unwrap().lease, OwnerLease::Vacant);
+        assert!(m.allocate_index(new, 0x20, 1, &mut b).unwrap());
+        let new_key = m.index_owner(new).unwrap().descriptor.buffer.unwrap();
+        assert_eq!(m.index_buffers(), [order[0], order[1], order[2], new_key]);
+        // A flat upper-bound scan would insert before order[0] (69900 free).
+        // Native descent instead follows root order[1], then order[2], right.
+        // The original left subtree remains first despite its greater free key.
+        assert!(m.buffer(order[0]).unwrap().num_free > m.buffer(order[1]).unwrap().num_free);
         assert!(!m.is_poisoned());
         m.free_all_indices(&mut b).unwrap();
     }

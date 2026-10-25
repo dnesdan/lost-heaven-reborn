@@ -126,6 +126,26 @@ pub struct OccluderRecord {
     /// range validation. The u32 vertex count is not narrowed to the index width.
     pub faces: Vec<[u16; 3]>,
 }
+/// Original kind-5 source payload only, without sector preparation or visibility.
+#[derive(Debug, Clone)]
+pub struct SectorRecord {
+    pub flags: u32,
+    pub group: u32,
+    /// Source order and f32 bits, including nonfinite values.
+    pub vertices: Vec<[f32; 3]>,
+    /// Original indices without range validation or reordering.
+    pub faces: Vec<[u16; 3]>,
+    /// Raw six source float words, without numerical validation.
+    pub bounds: [[f32; 3]; 2],
+    pub portals: Vec<SectorPortalRecord>,
+}
+#[derive(Debug, Clone)]
+pub struct SectorPortalRecord {
+    /// Complete fixed source prefix; field semantics remain unresolved here.
+    pub prefix: [u8; 28],
+    /// Source point order and f32 bits, including nonfinite values.
+    pub vertices: Vec<[f32; 3]>,
+}
 /// Original PC singlemesh skin suffix. This preserves file records; it does not
 /// establish a complete joint binding or admit the model to static rendering.
 #[derive(Debug, Clone)]
@@ -216,6 +236,8 @@ pub struct Frame {
     pub target: Option<TargetRecord>,
     /// Original kind-12 source geometry, without native Build or runtime creation.
     pub occluder: Option<OccluderRecord>,
+    /// Original kind-5 hull and portal metadata, without runtime preparation.
+    pub sector: Option<SectorRecord>,
     /// Inherited skin metadata, retained by scene and explicit character intake.
     pub skin: Option<SkinRecord>,
     /// Retained only by explicit singlemorph intake; requires runtime validation.
@@ -292,6 +314,63 @@ impl<'a> Reader<'a> {
         }
         Ok(String::from_utf8(b.to_vec()).unwrap())
     }
+}
+// Parse the complete source suffix with a shared decoded-storage budget.
+fn read_sector_suffix(
+    r: &mut Reader<'_>,
+    vertices: usize,
+    faces: usize,
+    geometry_bytes: usize,
+    header: [u32; 2],
+    total_sector_bytes: &mut usize,
+) -> Result<SectorRecord> {
+    // Prove the complete variable suffix before retaining any arrays.
+    let start = r.p;
+    let mut probe = Reader { b: r.b, p: start };
+    probe.take(geometry_bytes)?;
+    probe.take(24)?;
+    let portal_count = probe.u8()? as usize;
+    let mut decoded_bytes = geometry_bytes
+        + std::mem::size_of::<SectorRecord>()
+        + portal_count * std::mem::size_of::<SectorPortalRecord>();
+    for _ in 0..portal_count {
+        let points = probe.u8()? as usize;
+        probe.take(28 + points * 12)?;
+        decoded_bytes += points * 12;
+    }
+    *total_sector_bytes = total_sector_bytes
+        .checked_add(decoded_bytes)
+        .filter(|&bytes| bytes <= MAX_BYTES)
+        .ok_or_else(|| Error("sector decoded storage quota exceeded".into()))?;
+    let mut hull_vertices = Vec::with_capacity(vertices);
+    for _ in 0..vertices {
+        hull_vertices.push(r.raw_vec()?);
+    }
+    let mut hull_faces = Vec::with_capacity(faces);
+    for _ in 0..faces {
+        hull_faces.push([r.u16()?, r.u16()?, r.u16()?]);
+    }
+    let bounds = [r.raw_vec()?, r.raw_vec()?];
+    let count = r.u8()? as usize;
+    let mut portals = Vec::with_capacity(count);
+    for _ in 0..count {
+        let points = r.u8()? as usize;
+        let prefix = r.take(28)?.try_into().unwrap();
+        let mut vertices = Vec::with_capacity(points);
+        for _ in 0..points {
+            vertices.push(r.raw_vec()?);
+        }
+        portals.push(SectorPortalRecord { prefix, vertices });
+    }
+    let [flags, group] = header;
+    Ok(SectorRecord {
+        flags,
+        group,
+        vertices: hull_vertices,
+        faces: hull_faces,
+        bounds,
+        portals,
+    })
 }
 pub fn parse_four_ds(b: &[u8]) -> Result<Model> {
     parse_four_ds_impl(b, false, false, false, false).map(|(model, _)| model)
@@ -496,6 +575,7 @@ fn parse_four_ds_impl(
     let mut total_morph_channels = 0usize;
     let mut total_morph_bytes = 0usize;
     let mut total_occluder_bytes = 0usize;
+    let mut total_sector_bytes = 0usize;
     let mut unsupported_billboard = false;
     for _ in 0..count {
         let kind = r.u8()?;
@@ -555,6 +635,7 @@ fn parse_four_ds_impl(
         let mut joint = None;
         let mut target = None;
         let mut occluder = None;
+        let mut sector = None;
         let mut skin = None;
         let mut morph = None;
         let mut lods = Vec::new();
@@ -580,9 +661,11 @@ fn parse_four_ds_impl(
         } else if kind == 2 {
             r.take(84)?;
         } else if kind == 5 || kind == 12 {
-            if kind == 5 {
-                r.take(8)?;
-            }
+            let sector_header = if kind == 5 {
+                Some([r.u32()?, r.u32()?])
+            } else {
+                None
+            };
             let vertices = r.u32()? as usize;
             let faces = r.u32()? as usize;
             if vertices > 1_000_000 || faces > 1_000_000 {
@@ -625,15 +708,14 @@ fn parse_four_ds_impl(
                         .collect(),
                 });
             } else {
-                r.take(geometry_bytes)?;
-            }
-            if kind == 5 {
-                r.take(24)?;
-                let portals = r.u8()?;
-                for _ in 0..portals {
-                    let points = r.u8()? as usize;
-                    r.take(28 + points * 12)?;
-                }
+                sector = Some(read_sector_suffix(
+                    &mut r,
+                    vertices,
+                    faces,
+                    geometry_bytes,
+                    sector_header.unwrap(),
+                    &mut total_sector_bytes,
+                )?);
             }
         } else if kind == 7 {
             let flags = r.u16()?;
@@ -867,6 +949,7 @@ fn parse_four_ds_impl(
             joint,
             target,
             occluder,
+            sector,
             skin,
             morph,
             parent: parent.checked_sub(1),
@@ -1797,6 +1880,110 @@ mod scene_model_tests {
         let mut huge = b.clone();
         huge[72..76].copy_from_slice(&u32::MAX.to_le_bytes());
         assert!(parse_four_ds_scene(&huge).is_err());
+    }
+    #[test]
+    fn sector_retains_raw_hull_bounds_portal_prefix_and_order() {
+        let mut bytes = super::mesh_tests::mesh();
+        // Reuse only the synthetic file header and replace the entire frame body.
+        bytes.clear();
+        bytes.extend(b"4DS\0");
+        bytes.extend(29u16.to_le_bytes());
+        bytes.extend([0; 8]);
+        bytes.extend(0u16.to_le_bytes());
+        bytes.extend(2u16.to_le_bytes());
+        for kind in [5, 6] {
+            bytes.push(kind);
+            bytes.extend(0u16.to_le_bytes());
+            for value in [0f32, 0., 0., 1., 1., 1., 1., 0., 0., 0.] {
+                bytes.extend(value.to_le_bytes());
+            }
+            bytes.extend([0, 0, 0]);
+            if kind == 5 {
+                bytes.extend(0x801u32.to_le_bytes());
+                bytes.extend(0xabcdef01u32.to_le_bytes());
+                bytes.extend(1u32.to_le_bytes());
+                bytes.extend(1u32.to_le_bytes());
+                for word in [0x80000000u32, 0x7f801234, 0xffc05678] {
+                    bytes.extend(word.to_le_bytes());
+                }
+                for index in [65535u16, 7, 0] {
+                    bytes.extend(index.to_le_bytes());
+                }
+                for word in [0x7f800000u32, 1, 2, 3, 4, 0xff800000] {
+                    bytes.extend(word.to_le_bytes());
+                }
+                bytes.push(2);
+                for points in [0u8, 2] {
+                    bytes.push(points);
+                    bytes.extend(0u8..28);
+                    for _ in 0..points {
+                        for word in [0x7f801234u32, 0x80000000, 1] {
+                            bytes.extend(word.to_le_bytes());
+                        }
+                    }
+                }
+            } else {
+                bytes.extend([0; 24]);
+            }
+        }
+        bytes.push(0);
+        let model = parse_four_ds_scene(&bytes).unwrap();
+        let sector = model.frames[0].sector.as_ref().unwrap();
+        assert_eq!((sector.flags, sector.group), (0x801, 0xabcdef01));
+        assert_eq!(
+            sector.vertices[0].map(f32::to_bits),
+            [0x80000000, 0x7f801234, 0xffc05678]
+        );
+        assert_eq!(sector.faces, [[65535, 7, 0]]);
+        assert_eq!(sector.bounds[0].map(f32::to_bits), [0x7f800000, 1, 2]);
+        assert_eq!(sector.bounds[1].map(f32::to_bits), [3, 4, 0xff800000]);
+        assert_eq!(sector.portals.len(), 2);
+        assert!(sector.portals[0].vertices.is_empty());
+        assert_eq!(sector.portals[1].prefix, std::array::from_fn(|i| i as u8));
+        assert_eq!(sector.portals[1].vertices.len(), 2);
+        assert_eq!(
+            sector.portals[1].vertices[1].map(f32::to_bits),
+            [0x7f801234, 0x80000000, 1]
+        );
+        assert_eq!(model.frames[1].kind, 6);
+        assert!(model.frames[1].sector.is_none());
+        assert!(parse_four_ds(&bytes).is_err());
+        for length in 0..bytes.len() {
+            assert!(parse_four_ds_scene(&bytes[..length]).is_err(), "{length}");
+        }
+    }
+    #[test]
+    fn sector_portal_decoded_quota_is_aggregate_and_accepts_exact_boundary() {
+        // Complete empty hull/bounds and one one-point portal. Exercise the
+        // parser used by scene intake with prior sectors already using budget.
+        let mut bytes = vec![0; 24];
+        bytes.extend([1, 1]);
+        bytes.extend([0x5a; 28]);
+        bytes.extend([0; 12]);
+        let mut initial = Reader { b: &bytes, p: 0 };
+        let mut charge = 0;
+        let first = read_sector_suffix(&mut initial, 0, 0, 0, [0x801, 0], &mut charge).unwrap();
+        assert_eq!(initial.p, bytes.len());
+        assert_eq!(first.portals[0].vertices.len(), 1);
+        assert!(charge > bytes.len());
+
+        let mut at_limit = Reader { b: &bytes, p: 0 };
+        let mut budget = MAX_BYTES - charge;
+        let record = read_sector_suffix(&mut at_limit, 0, 0, 0, [0x801, 0], &mut budget).unwrap();
+        assert_eq!(budget, MAX_BYTES);
+        assert_eq!(at_limit.p, bytes.len());
+        assert_eq!(record.portals[0].prefix, [0x5a; 28]);
+
+        let mut over_limit = Reader { b: &bytes, p: 0 };
+        let mut budget = MAX_BYTES - charge + 1;
+        let previous = budget;
+        let error =
+            read_sector_suffix(&mut over_limit, 0, 0, 0, [0x801, 0], &mut budget).unwrap_err();
+        assert!(error.0.contains("sector decoded storage quota exceeded"));
+        // Rejection occurs in preflight, before the source cursor or aggregate
+        // budget changes and before a decoded record can be returned.
+        assert_eq!(over_limit.p, 0);
+        assert_eq!(budget, previous);
     }
     fn occluder_scene(vertices: &[[u32; 3]], faces: &[[u16; 3]]) -> Vec<u8> {
         let mut bytes = b"4DS\0".to_vec();

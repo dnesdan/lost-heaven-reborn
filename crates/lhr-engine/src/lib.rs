@@ -50,7 +50,9 @@ pub mod frame_hierarchy_bounds;
 pub mod frame_light;
 pub mod frame_lookup;
 pub mod frame_occluder;
+pub mod frame_portal;
 pub mod frame_projector;
+pub mod frame_sector;
 pub mod frame_transform;
 pub mod game_camera_projection;
 pub mod game_crash_registry;
@@ -152,8 +154,8 @@ pub mod visual_resources;
 pub mod ls3df {
     pub use crate::{
         c_str, driver_scene, frame_camera, frame_fast_lookup, frame_hierarchy_bounds, frame_light,
-        frame_lookup, frame_occluder, frame_projector, i3d_object, itexture,
-        loaded_visual_resources, scene_ownership, scene_resources, scene_weather,
+        frame_lookup, frame_occluder, frame_portal, frame_projector, frame_sector, i3d_object,
+        itexture, loaded_visual_resources, scene_ownership, scene_resources, scene_weather,
         sector_sound_data, texture_manager,
     };
 }

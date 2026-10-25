@@ -181,6 +181,48 @@ impl DriverSceneOwner {
     }
     /// Original CreateFrame type12: direct constructor reference, no registry
     /// append or additional AddRef in this arm.
+    /// CPU world-data composition with real Scene ownership. This is not native
+    /// SceneOpen and never substitutes a no-op loadingUI callback.
+    pub fn load_scene_world_cpu(
+        &mut self,
+        arena: &mut ModelArena,
+        resources: &SceneResources,
+        scene: SceneKey,
+        installation: &lhr_assets::Installation,
+        name: &str,
+    ) -> Result<
+        crate::model_loading::CpuSceneWorldProgress,
+        crate::model_loading::CpuSceneWorldFailure,
+    > {
+        if let Err(error) = self.validate_scene_domain(arena, resources, scene) {
+            return Err(crate::model_loading::CpuSceneWorldFailure {
+                error: crate::model_loading::CpuSceneWorldError::DriverDomain(format!("{error:?}")),
+                progress: crate::model_loading::CpuSceneWorldProgress::empty(arena, scene),
+            });
+        }
+        arena.load_scene_world_cpu(scene, installation, name)
+    }
+    pub fn discard_scene_world_staging_cpu(
+        &mut self,
+        arena: &mut ModelArena,
+        resources: &SceneResources,
+        progress: &mut crate::model_loading::CpuSceneWorldProgress,
+    ) -> Result<(), DriverSceneError<std::convert::Infallible>> {
+        self.validate_scene_domain(arena, resources, progress.scene())?;
+        arena
+            .discard_scene_world_staging_cpu(progress)
+            .map_err(DriverSceneError::Model)
+    }
+    /// Original driver type5: constructor-owned reference1, without SceneAddFrame.
+    pub fn create_sector_frame(
+        &mut self,
+        arena: &mut ModelArena,
+        resources: &SceneResources,
+        scene: SceneKey,
+    ) -> Result<crate::scene_ownership::SectorKey, DriverSceneError<std::convert::Infallible>> {
+        self.validate_scene_domain(arena, resources, scene)?;
+        arena.create_sector_frame().map_err(DriverSceneError::Model)
+    }
     pub fn create_occluder_frame(
         &mut self,
         arena: &mut ModelArena,

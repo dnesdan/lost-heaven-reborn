@@ -60,7 +60,7 @@ impl ModelArena {
                         let mut parent = Some(key);
                         while let Some(at) = parent {
                             if self.state(at)?.kind == FrameKind::Sector
-                                && self.sector(SectorKey(at))?.scene == scene
+                                && self.sector(SectorKey(at))?.scene == Some(scene)
                             {
                                 return Ok(Some(key));
                             }

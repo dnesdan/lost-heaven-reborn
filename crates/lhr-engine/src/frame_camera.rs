@@ -2,11 +2,11 @@
 //! SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6.
 //! CameraKey identifies the existing ModelArena frame; unknown native words
 //! remain unavailable rather than becoming invented constructor values.
-use crate::frame_transform::{FrameError, FrameKey, FrameKind, I3dFrameGraph, I3dFrameState};
+use crate::frame_transform::{FrameError, FrameKey, FrameKind, I3dFrameState};
 use crate::model_loading::{ModelArena, ModelError};
 use crate::native_precision::{add, div, mul, sqrt, sub};
 use crate::native_transform::{SMatrix, SQuat};
-use crate::scene_ownership::{SceneFrameOwner, SceneKey, SectorFrame, SectorKey};
+use crate::scene_ownership::{SceneKey, SectorKey};
 use crate::scene_resources::SceneScreen;
 
 pub const CAMERA_WORDS: usize = 0x4f4 / 4;
@@ -549,7 +549,7 @@ impl ModelArena {
             let position = self.world_matrix(camera.frame())?.elements[12..15]
                 .try_into()
                 .unwrap();
-            let sector = self.scene_sector_at_position(scene, position)?;
+            let sector = Some(self.scene_get_sector(scene, position, None)?);
             let state = self.camera_mut(camera)?;
             state.sector = sector;
             state.words[0x3f8 / 4] = sector.is_none().then_some(0);
@@ -590,41 +590,50 @@ impl ModelArena {
         Ok(self.scene(scene)?.field_220)
     }
     pub fn update_frame(&mut self, key: FrameKey) -> Result<(), ModelError> {
-        let cameras = &mut self.cameras;
-        let occluders = &mut self.occluders;
-        let occluder_storage = &mut self.occluder_storage;
-        let scenes = &self.scenes;
-        let sectors = &self.sectors;
-        self.graph.update_with_camera(key, |graph, key| {
+        let mut graph = std::mem::take(&mut self.graph);
+        let mut payload_error = None;
+        let result = graph.update_with_camera(key, |graph, key| {
             if graph.state(key)?.kind == FrameKind::Occluder {
-                let occluder = occluders
+                let occluder = self
+                    .occluders
                     .iter_mut()
                     .find(|value| value.key.frame() == key)
                     .ok_or(FrameError::UnsupportedFrameUpdate(key))?;
-                return crate::frame_occluder::update_occluder_v(graph, occluder, occluder_storage)
-                    .map_err(|_| FrameError::NumericDomain("occluder UpdateV"));
+                return crate::frame_occluder::update_occluder_v(
+                    graph,
+                    occluder,
+                    &mut self.occluder_storage,
+                )
+                .map_err(|_| FrameError::NumericDomain("occluder UpdateV"));
             }
             if graph.state(key)?.kind == FrameKind::Sector {
-                let sector = sectors
-                    .iter()
-                    .find(|sector| sector.key.frame() == key)
-                    .ok_or(FrameError::UnsupportedFrameUpdate(key))?;
-                // Actual sector UpdateV4f6d0 calls4f710, whose flags+1d0
-                // bit4-clear branch performs no geometry writes. All owned
-                // SectorFrame instances originate in the empty constructor;
-                // no portal population API exists in this admitted domain.
-                if sector.sector_flags & 4 != 0 {
-                    return Err(FrameError::UnsupportedFrameUpdate(key));
-                }
-                return Ok(());
+                return self
+                    .sector_update_with_graph(graph, crate::scene_ownership::SectorKey(key))
+                    .map_err(|error| {
+                        payload_error = Some(error);
+                        FrameError::UnsupportedFrameUpdate(key)
+                    });
             }
-            let camera = cameras
-                .iter_mut()
-                .find(|camera| camera.key.frame() == key)
+            let index = self
+                .cameras
+                .iter()
+                .position(|camera| camera.key.frame() == key)
                 .ok_or(FrameError::UnsupportedFrameUpdate(key))?;
-            update_camera_v(graph, camera, scenes, sectors)
-                .map_err(|_| FrameError::NumericDomain("camera UpdateV"))
-        })?;
+            let mut camera = self.cameras.remove(index);
+            std::mem::swap(&mut self.graph, graph);
+            let result = update_camera_v(self, &mut camera);
+            std::mem::swap(&mut self.graph, graph);
+            self.cameras.insert(index, camera);
+            result.map_err(|error| {
+                payload_error = Some(error);
+                FrameError::NumericDomain("camera UpdateV")
+            })
+        });
+        self.graph = graph;
+        if let Some(error) = payload_error {
+            return Err(error);
+        }
+        result?;
         Ok(())
     }
     pub fn camera_update(&mut self, key: CameraKey) -> Result<(), ModelError> {
@@ -694,34 +703,21 @@ fn plane(a: [f32; 3], b: [f32; 3], c: [f32; 3], norm_xzy: bool, dot_yzx: bool) -
     }
     (n, -dot(n, a, dot_yzx))
 }
-fn update_camera_v(
-    graph: &mut I3dFrameGraph,
-    camera: &mut CameraFrame,
-    scenes: &[SceneFrameOwner],
-    sectors: &[SectorFrame],
-) -> Result<(), CameraError> {
+fn update_camera_v(arena: &mut ModelArena, camera: &mut CameraFrame) -> Result<(), ModelError> {
     if !camera.projection_complete {
-        return Err(CameraError::IncompleteProjection(camera.key));
+        return Err(CameraError::IncompleteProjection(camera.key).into());
     }
     camera.view_incomplete = true;
     if camera.scene.is_none() {
         camera.clear_sector();
     }
-    let world = graph
+    let world = arena
+        .graph
         .world_matrix(camera.key.frame())
         .map_err(|_| CameraError::NumericUnavailable("camera world matrix"))?;
     if let Some(scene) = camera.scene {
-        let owner = scenes
-            .iter()
-            .find(|owner| owner.key == scene)
-            .ok_or(CameraError::SceneGeometryUnavailable(scene))?;
-        if sectors
-            .iter()
-            .any(|sector| sector.scene == scene && !owner.sectors.contains(&sector.key))
-        {
-            return Err(CameraError::SceneGeometryUnavailable(scene));
-        }
-        camera.sector = Some(owner.sectors[0]);
+        let position = world.elements[12..15].try_into().unwrap();
+        camera.sector = Some(arena.scene_get_sector(scene, position, camera.sector)?);
         camera.words[0x3f8 / 4] = None;
     }
     let mut view = SMatrix::identity();
@@ -825,9 +821,7 @@ fn update_camera_v(
         if let Some(bits) = camera.words[offset / 4] {
             let value = f32::from_bits(bits);
             if !value.is_finite() || value != 0. && !value.is_normal() {
-                return Err(CameraError::NumericUnavailable(
-                    "camera view/frustum exponent",
-                ));
+                return Err(CameraError::NumericUnavailable("camera view/frustum exponent").into());
             }
         }
     }
@@ -1154,6 +1148,57 @@ mod tests {
         });
     }
     #[test]
+    fn camera_activation_and_update_select_a_real_loaded_sector_then_primary_outside() {
+        Pc24PrecisionState::default().run(|| {
+            let mut world = World::new();
+            let sector = world
+                .driver
+                .create_sector_frame(&mut world.arena, &world.resources, world.scene)
+                .unwrap();
+            let record = lhr_assets::SectorRecord {
+                flags: 0x801,
+                group: 0,
+                vertices: vec![[0., 0., 0.], [1., 0., 0.], [0., 1., 0.]],
+                faces: vec![[0, 1, 2]],
+                bounds: [[0.; 3], [1., 1., 0.]],
+                portals: Vec::new(),
+            };
+            assert_eq!(
+                world.arena.load_sector_record(sector, &record).unwrap(),
+                None
+            );
+            world
+                .arena
+                .scene_add_frame(world.scene, sector.frame())
+                .unwrap();
+            world.arena.release(sector.frame()).unwrap();
+            let primary = world.arena.scene(world.scene).unwrap().sectors[0];
+            world
+                .arena
+                .link_frame(sector.frame(), Some(primary.frame()), 0)
+                .unwrap();
+            world.arena.sector_make_ready(sector).unwrap();
+            let camera = world.camera();
+            world
+                .arena
+                .scene_set_active_camera(world.scene, Some(camera))
+                .unwrap();
+            assert_eq!(world.arena.camera(camera).unwrap().sector, Some(sector));
+            world.arena.camera_update(camera).unwrap();
+            assert_eq!(world.arena.camera(camera).unwrap().sector, Some(sector));
+            world
+                .arena
+                .camera_set_position(camera, [10., 5., 10.])
+                .unwrap();
+            world.arena.camera_update(camera).unwrap();
+            assert_eq!(world.arena.camera(camera).unwrap().sector, Some(primary));
+            world.arena.release(camera.frame()).unwrap();
+            world.destroy_scene();
+            assert_eq!(world.arena.live_frame_count(), 0);
+            assert_eq!(world.arena.sector_storage().live_allocations(), 0);
+        });
+    }
+    #[test]
     fn foreign_camera_key_does_not_alias_same_numeric_frame_in_another_arena() {
         Pc24PrecisionState::default().run(|| {
             let mut a = World::new();
@@ -1212,7 +1257,15 @@ mod tests {
                 .find(|entry| entry.key == sector)
                 .unwrap()
                 .sector_flags |= 4;
-            assert!(world.arena.update_frame(sector.frame()).is_err());
+            world.arena.update_frame(sector.frame()).unwrap();
+            assert_eq!(world.arena.sector(sector).unwrap().geometry.plane_count, 0);
+            assert!(world
+                .arena
+                .sector(sector)
+                .unwrap()
+                .geometry
+                .portals
+                .is_empty());
             world
                 .arena
                 .sectors

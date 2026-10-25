@@ -51,7 +51,8 @@ impl From<SceneKey> for FrameOwner {
 pub struct SectorFrame {
     pub key: SectorKey,
     /// Sector +0x214, independent of membership and hierarchy parent.
-    pub scene: SceneKey,
+    pub scene: Option<SceneKey>,
+    pub geometry: crate::frame_sector::SectorGeometry,
     pub sector_flags: u32,
     /// Only primary/backdrop receive SetBoundVolume. None denotes the untouched
     /// invalid constructor bounds, not a valid empty bounding box.
@@ -69,6 +70,13 @@ pub struct SectorFrame {
 pub struct SceneFrameOwner {
     pub key: SceneKey,
     pub(crate) current_camera: Option<crate::frame_camera::CameraKey>,
+    pub(crate) portal_head: Option<crate::frame_portal::PortalKey>,
+    pub(crate) portal_count: u32,
+    pub(crate) portal_version: u32,
+    /// Host CPU intake guard, not a reconstructed native field.
+    pub(crate) cpu_world_intake_active: bool,
+    pub(crate) sector_head: Option<SectorKey>,
+    pub(crate) sector_count: u32,
     pub(crate) occluder_head: Option<crate::frame_occluder::OccluderKey>,
     pub(crate) occluder_count: u32,
     pub(crate) occluder_flag_274: bool,
@@ -216,7 +224,8 @@ impl ModelArena {
             }
             self.sectors.push(SectorFrame {
                 key: sector,
-                scene: key,
+                scene: Some(key),
+                geometry: crate::frame_sector::SectorGeometry::default(),
                 sector_flags: 0x801 | flags,
                 bounds: (index < 2).then_some([[-10000.; 3], [10000.; 3]]),
                 bounding_sphere: (index < 2).then_some([0., 0., 0., f32::from_bits(0x46875104)]),
@@ -232,6 +241,12 @@ impl ModelArena {
         self.scenes.push(SceneFrameOwner {
             key,
             current_camera: None,
+            portal_head: None,
+            portal_count: 0,
+            portal_version: 0,
+            cpu_world_intake_active: false,
+            sector_head: None,
+            sector_count: 0,
             occluder_head: None,
             occluder_count: 0,
             occluder_flag_274: false,
@@ -619,7 +634,7 @@ impl ModelArena {
         if self
             .sectors
             .iter()
-            .any(|sector| sector.scene == scene && !owner.sectors.contains(&sector.key))
+            .any(|sector| sector.scene == Some(scene) && !owner.sectors.contains(&sector.key))
         {
             return Err(SceneOwnerError::SectorGeometryUnavailable(scene).into());
         }
@@ -637,7 +652,7 @@ impl ModelArena {
         if self
             .sectors
             .iter()
-            .any(|sector| sector.scene == scene && !owner.sectors.contains(&sector.key))
+            .any(|sector| sector.scene == Some(scene) && !owner.sectors.contains(&sector.key))
         {
             return Err(SceneOwnerError::SectorGeometryUnavailable(scene).into());
         }
@@ -673,7 +688,7 @@ impl ModelArena {
         if self
             .sectors
             .iter()
-            .any(|sector| sector.scene == scene && !sectors.contains(&sector.key))
+            .any(|sector| sector.scene == Some(scene) && !sectors.contains(&sector.key))
         {
             return Err(SceneOwnerError::SectorGeometryUnavailable(scene).into());
         }
@@ -820,7 +835,7 @@ mod tests {
                 arena.state(key).unwrap().flags,
                 FAST_FRAME_TREE_FLAG | if i < 2 { 0x4808_00fd } else { 0x4808_00bd }
             );
-            assert_eq!(arena.sector(sectors[i]).unwrap().scene, scene);
+            assert_eq!(arena.sector(sectors[i]).unwrap().scene, Some(scene));
             assert_eq!(
                 arena.sector(sectors[i]).unwrap().sector_flags,
                 [0xa01, 0x1801, 0x2801, 0x4801][i]
@@ -948,7 +963,7 @@ mod tests {
         assert!(matches!(arena.frame(c), Err(ModelError::UnknownFrame(_))));
     }
     #[test]
-    fn lookup_reads_retained_graph_prefix_before_unavailable_sector_ring_transition() {
+    fn lookup_and_sector_ring_follow_a_real_cross_scene_transition() {
         let mut arena = ModelArena::default();
         let a = arena.construct_scene_owner_prefix().unwrap();
         let b = arena.construct_scene_owner_prefix().unwrap();
@@ -963,15 +978,13 @@ mod tests {
         assert_eq!(arena.find_frame_fast(a, b"same").unwrap(), Some(second));
         assert_eq!(arena.find_frame_fast(b, b"same").unwrap(), Some(first));
         assert_eq!(arena.frame(second).unwrap().owner, None);
-        // The base Link prefix changes hierarchy before its independent
-        // cross-scene SectorRing dependency. Preserve and inspect that prefix;
-        // do not claim the formerly omitted ring transition succeeded.
-        assert!(matches!(
-            arena.link_frame(sb, Some(sa), 0),
-            Err(ModelError::Occluder(
-                crate::frame_occluder::OccluderError::SectorTransitionUnavailable
-            ))
-        ));
+        arena.link_frame(sb, Some(sa), 0).unwrap();
+        assert_eq!(arena.sector(SectorKey(sb)).unwrap().scene, Some(a));
+        let ai = arena.scene_index(a).unwrap();
+        let bi = arena.scene_index(b).unwrap();
+        assert_eq!(arena.scenes[ai].sector_head, Some(SectorKey(sb)));
+        assert_eq!(arena.scenes[ai].sector_count, 1);
+        assert_eq!(arena.scenes[bi].sector_count, 0);
         assert_eq!(arena.find_frame_fast(a, b"same").unwrap(), Some(first));
         arena.link_frame(first, None, 0).unwrap();
         assert_eq!(arena.find_frame_fast(b, b"same").unwrap(), None);
