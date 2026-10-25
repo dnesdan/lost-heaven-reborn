@@ -361,7 +361,9 @@ mod tests {
             ],
         });
         let source = Arc::new(lhr_assets::Model {
-            materials: vec![material(0x40000, 1.), material(0x08040000, 0.5)],
+            // Stage 1's KEEP_PIXELS storage flag remains compatible with the
+            // live material path and must not count as an omitted draw effect.
+            materials: vec![material(0x48000, 1.), material(0x08048000, 0.5)],
             frames: vec![visual],
         });
         let installation = lhr_assets::Installation::open(&path).unwrap();
