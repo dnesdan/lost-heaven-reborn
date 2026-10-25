@@ -71,6 +71,8 @@ shared Snow ownership and mission integration remain open; see [progress](docs/P
 
 The immediate goal is **the playable first mission, from the original menu through mission completion**, alongside function-by-function library parity with mafia-re. See the [acceptance gates and dependency order](docs/GOALS.md). PS2 symbol names guide reconstruction; PC behavior and platform differences require original-binary verification.
 
+The [fresh mafia-re, MafiaUnity and OpenMF-Archived audit](docs/REFERENCE_PROJECTS.md#current-source-audit--2026-10-25) identifies the next dependency: real file-backed texture/cache ownership for Scene construction, then shared weather lifetime and original mission ownership. This source inspection adds no implementation or coverage credit.
+
 Standalone original-data driving now composes Car construction, Init and
 GameInit with the recovered Tick/Engine/Move/Update workers, original world
 collision and vehicle material/tyre tables. One live owner supplies the car,

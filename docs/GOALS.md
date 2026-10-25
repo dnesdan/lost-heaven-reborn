@@ -46,15 +46,24 @@ Weather reset and sector sound defaults are reconstructed and compared separatel
 They are not yet bound to live Scene construction; viewport and actual Snow
 texture creation/shared destruction remain the next constructor dependencies.
 
+The next bounded implementation is the file-backed `IGraph::CreateITexture`
+path required by the Scene constructor: filename/cache lookup, immediate
+flags-2 Create, source-BPP/alpha behavior and real last-reference Release.
+Snow's texture flag `2` is distinct from managed texture flag `0x40`.
+The current constructor-only texture allocation and admitted cache records
+cannot substitute for that factory. Validate shared Snow across two scenes and
+external survivors before claiming shared Scene resource teardown; full managed
+texture conversion remains separate.
+
 The immediate dependency order is:
 
 1. Integrate the recovered standalone Car GameInit/driving lifecycle into the original Game, player and authored actor lifecycle. Complete Scene viewport/weather/shared Snow construction beyond 0x48e29 and the thirteen actual Scene Close effects with their correct resource identities, then original File Open/reload and mission-world ownership. Standalone source-parameter flags 2 and original WAV audio are now bound; live particle and projection pools remain open.
 2. Extend the standalone original-world Tick -> Engine -> six-float Move -> DoWheelsCollision composition to live foreign dynamic actors, occupants and remaining severe-damage effects. Preserve original solver order, canonical ownership and the source-bound native profiles. Replace the host chase/input bridge with original player/camera scheduling and connect repeatable full-game driving sequences.
-3. Complete floating DecodeOperand, DecodeLet/DecodeIf, all 62 parameter ownership cases and Compile/Init/Done, then detector runtime and genuine mission scene/actor registration. Replay, objectives and original scheduling remain required. Actual authored MISE01 remains FINDACTOR/UnsupportedWorldBackend at PC 3 / source line 4.
+3. Complete floating DecodeOperand, DecodeLet/DecodeIf, all 62 parameter ownership cases and Compile/Init/Done, then detector runtime and genuine mission scene/actor registration. Replay, objectives and original scheduling remain required. The authored MISE01 program probe remains FINDACTOR/UnsupportedWorldBackend at PC 3 / source line 4; application mission scripting is still unavailable.
 
 Standalone vehicle initialization and CPU ownership can be exercised before complete mission compilation; they do not supply the missing enclosing Game/world/driver and authored mission paths. Original models are regression inputs for general behavior. Animation and rendering resource dependencies remain independent work.
 
-The [mafia-re/MafiaUnity source audit](REFERENCE_PROJECTS.md#next-general-engine-work) identifies complementary general-engine dependencies: persistent model/scene resource lifetime, mission-world construction, KLZ-backed collision, material states and sector visibility. Research these alongside the sequence above; upstream scene loaders and prototype mechanics do not replace original actor or script behavior.
+The [2026-10-25 audit of mafia-re, MafiaUnity and OpenMF-Archived](REFERENCE_PROJECTS.md#next-general-engine-work) refines this order: immediate texture creation and cache identity, shared Scene weather lifetime, then genuine mission ownership and scheduling. The new mafia-re `main` body supplies a caller map, while Mission Open/Close and the main loop remain stubs. The other projects supply useful name/patch/geometry cross-checks. Existing native-backed Rust collision, animation and resource contracts remain authoritative.
 
 Work on independent dependencies in parallel using Astra and Sol agents. Integrate verified functions when their real callers and ownership are ready; unavailable paths continue to fail explicitly. Keep library contracts, asset inspection and complete first-mission behavior as separate evidence claims.
 

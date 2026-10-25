@@ -1,5 +1,85 @@
 # Reference-project audit
 
+## Current source audit — 2026-10-25
+
+Rechecked all three requested projects against Rust baseline `261ff0d`.
+Repository metadata and branch heads were freshly fetched; inspected source and
+per-file hashes are retained privately. This was source inspection only: no
+reference build, comparison regeneration, REA analysis or original execution.
+The Rust ledger remains **311 scoped entries / 114 contracts**, strict **0/12**.
+The mafia-re behavior reference stays pinned to `86a7b15c`; observing new source
+neither advances that pin nor grants implementation credit.
+
+| Project | Freshly observed revision | Useful contribution and boundary |
+| --- | --- | --- |
+| [mafia-re](https://github.com/Marvisak/mafia-re/tree/109954d6aaf7dd36f2d9dacb336797c0d062a925) | `109954d6`, master; 17 commits beyond `9b793967` | New `main` body maps menu, intro and MISE01 callers. Mission loading, initialization and the game loop still have explicit stubs. |
+| [MafiaUnity](https://github.com/MafiaHub/MafiaUnity/tree/0d7a12f03ce4385173377c3e9f457dcc2e891f24) | `0d7a12f0`, develop; unchanged, archived | Scene resource composition, name references and a separate patch pass. Unity lifetime and prototype actors do not supply native Scene ownership or mission execution. |
+| [OpenMF-Archived](https://github.com/MafiaHub/OpenMF-Archived/tree/7167e74d65eeced643aa51fb56bb62b8556d8389) | `7167e74d`, master; archived | Inspectable scene/name/KLZ joining and format utilities. Its abandoned renderer/physics/player prototypes do not replace the existing Rust implementation. |
+
+### New mafia-re findings
+
+The 17-commit delta changes 48 files. The most useful addition is
+[`main`'s NEW_GAME path](https://github.com/Marvisak/mafia-re/blob/109954d6aaf7dd36f2d9dacb336797c0d062a925/game/Main.cpp#L150-L179):
+close the old mission, open intro, load its collision, initialize and run it,
+close it, then open MISE01, load collision, reset new-game state, initialize,
+run and close. This is a source map for subsequent Game.exe research.
+[`GameLoopSingle`](https://github.com/Marvisak/mafia-re/blob/109954d6aaf7dd36f2d9dacb336797c0d062a925/game/Main.cpp#L38-L44),
+[`InitSystem`](https://github.com/Marvisak/mafia-re/blob/109954d6aaf7dd36f2d9dacb336797c0d062a925/game/Main.cpp#L350-L365)
+and [Mission Open/Close](https://github.com/Marvisak/mafia-re/blob/109954d6aaf7dd36f2d9dacb336797c0d062a925/game/Mission.cpp#L1-L21)
+are stubs; Open returns an error and InitSystem returns false. The committed
+Game card reports nine matched bodies, not a working campaign. Scene, IGraph
+and ITexture bodies are unchanged from the previous observed revision; the
+LS3DF delta mainly adjusts compiler-expression matching.
+
+The [Scene constructor](https://github.com/Marvisak/mafia-re/blob/109954d6aaf7dd36f2d9dacb336797c0d062a925/ls3df/I3D/I3d_scene.cpp#L88-L180)
+requests `CreateITexture("Snow.tga", NULL, 2, ...)`. This is the immediate,
+image-alpha path; managed creation uses `0x40`. The
+[filename factory](https://github.com/Marvisak/mafia-re/blob/109954d6aaf7dd36f2d9dacb336797c0d062a925/ls3df/IGraph/IGraph.cpp#L570-L622)
+leads to cache matching, retained references, map-directory lookup, Create and
+failure Release. Its upstream address is LS3DF VA `0x1006c2c0`; the reached
+[Create path](https://github.com/Marvisak/mafia-re/blob/109954d6aaf7dd36f2d9dacb336797c0d062a925/ls3df/IGraph/ITexture.cpp#L223-L310)
+is VA `0x10075f50`. These addresses and flag labels remain source leads until
+independently checked against original PC instructions and naming evidence.
+Our [material adapter](../crates/lhr-engine/src/loaded_visual_resources.rs)
+explicitly rejects immediate bit `2` because source-BPP/alpha behavior remains
+unresolved. Existing managed-record creation does not close that dependency.
+
+### MafiaUnity and OpenMF findings
+
+MafiaUnity's [MissionManager](https://github.com/MafiaHub/MafiaUnity/blob/0d7a12f03ce4385173377c3e9f457dcc2e891f24/Assets/Scripts/Core/Managers/MissionManager.cs#L33-L88)
+loads scene.4ds, cache, scene2 and KLZ; its
+[SceneGenerator](https://github.com/MafiaHub/MafiaUnity/blob/0d7a12f03ce4385173377c3e9f457dcc2e891f24/Assets/Scripts/Internal/Generators/SceneGenerator.cs#L42-L200)
+registers names before patching references and selectively applying local
+transforms. That suggests duplicate-name, external-reference and patch-order
+regression inputs. The names are not an original actor registry. Its
+[actor dispatch](https://github.com/MafiaHub/MafiaUnity/blob/0d7a12f03ce4385173377c3e9f457dcc2e891f24/Assets/Scripts/Game/ObjectDefinition.cs#L107-L150)
+covers Physical, Character and Door; Player, Car and original mission-script
+execution are absent from that dispatch. C# mod `ScriptMain` is a separate
+mechanism. Unload delegates to Unity object/resource lifetime; there is no
+native shared Snow or thirteen-effect Scene Close implementation here.
+
+OpenMF's [mission assembly](https://github.com/MafiaHub/OpenMF-Archived/blob/7167e74d65eeced643aa51fb56bb62b8556d8389/components/mission/mission_impl.cpp#L18-L122)
+and [collision-name lookup](https://github.com/MafiaHub/OpenMF-Archived/blob/7167e74d65eeced643aa51fb56bb62b8556d8389/components/mission/mission_impl.cpp#L193-L287)
+are useful cross-checks for data relationships. Its
+[special-record merge](https://github.com/MafiaHub/OpenMF-Archived/blob/7167e74d65eeced643aa51fb56bb62b8556d8389/components/scene2_bin/parser_scene2bin.cpp#L77-L103)
+requires an already-seen base object and drops unmatched specials.
+[Character support is TODO and player start creates a generic visual](https://github.com/MafiaHub/OpenMF-Archived/blob/7167e74d65eeced643aa51fb56bb62b8556d8389/components/mission/mission_impl.cpp#L310-L390).
+[KLZ conversion](https://github.com/MafiaHub/OpenMF-Archived/blob/7167e74d65eeced643aa51fb56bb62b8556d8389/components/klz/bullet_klz.cpp#L71-L189)
+assumes grouped first-link faces and hardcodes cylinder height; the
+[renderer](https://github.com/MafiaHub/OpenMF-Archived/blob/7167e74d65eeced643aa51fb56bb62b8556d8389/components/4ds/osg_4ds.cpp#L227-L248)
+reduces skin/morph forms to standard geometry. No connected original mission VM
+was found in the inspected engine loop. Keep our native-backed collision,
+animation and archive behavior; use these projects to challenge missing data
+relationships rather than adopt their prototype mechanics.
+
+The next bounded implementation and its acceptance criteria are listed under
+[Next general-engine work](#next-general-engine-work).
+
+## Historical source audit — 2026-10-22/23
+
+The following dated observations retain their original implementation limits;
+they do not describe the current standalone driving milestone.
+
 Historical source audit refreshed on 2026-10-22 against Rust engine commit [`5903942`](https://github.com/dnesdan/lost-heaven-reborn/commit/5903942266c212c6cd5e88b75df688973e6b447b), extending the earlier audit at `a739570`. Four independent research assignments inspected mafia-re and MafiaUnity formats, runtime and rendering. That historical inspection retained the same mafia-re revision. A source-only refresh on 2026-10-23 observes upstream `0c44be32dd152c9722bbd8c2c8e18f112a279c04`, 19 commits beyond the behavior pin. It adds instruction matching, a Game.exe bootstrap and additional version targets; no upstream build, regenerated comparison or original execution was performed for this refresh. No reference application was built or run, and this refresh performed no new REA analysis or original-runtime comparison. The audit baseline was 110 scoped entries across 41 contracts; the audit itself adds no implementation or gameplay credit. The later bounded frame/model lifecycle snapshot retained 117 scoped entries across 43 contracts. The subsequent resource-primitives snapshot retained 126 scoped entries across 44 contracts. The subsequent mesh-object snapshot retained 129 scoped entries across 45 contracts. The buffer-manager snapshot retained 147 scoped entries across 46 contracts. The subsequent standalone bridge retained 147 scoped entries across 46 contracts with zero new canonical entries. The per-object plain LOD snapshot retained 151 scoped entries across 47 contracts. The nonmanaged texture/string snapshot retained 159 scoped entries across 49 contracts. The managed-removal snapshot retained 160 scoped entries across 50 contracts; managed-record creation retained 161 entries across 51 contracts. The Request-producer snapshot retained 162 entries across 52 contracts. The standalone-unload snapshot retained 163 entries across 53 contracts. The prior release snapshot retained 164 entries across 54 contracts. The Restore snapshot retained 165 scoped entries / 55 contracts. The Seek/Close snapshot retained 167 entries / 56 contracts. The loose-file dtaRead snapshot retained **168 scoped entries / 57 contracts; 0/12 strict full-system gates**. The archive-read extension retained those counts and its 68 original-code READ observations and 32 SEEK context rows. The prior bounded native archive registration/Open milestone retained **176 scoped entries / 58 contracts**, with 24 native opens among 81 log rows and 976 compared bytes. The later bounded PCM16 mono/stereo WAV milestone reached **177 scoped entries / 59 contracts**. Native Write, generic non16 decoding, other channels, full DLL parity and app audio playback integration remain open. Existing creation/removal/Close composition adds no duplicate entry. Current admitted plain-object CPU loaded-resource ownership is distinct from full native texture Create/worker/upload, whole-device shutdown, derived LOD/GPU adapters and the first mission, which remain open. See [coverage](../COVERAGE.md) and [progress](PROGRESS.md).
 
 | Reference | Audited revision | Useful evidence |
@@ -33,7 +113,7 @@ Ownership code uses `lhr_engine::ls3df::{c_str, itexture, i3d_object, texture_ma
 
 | Original boundary | Current Rust organization and limit |
 | --- | --- |
-| LS3DF.dll | Recovered engine/resource components in `lhr-engine`; logical `ls3df::{c_str, itexture, i3d_object, texture_manager}` modules. `lhr-render` supplies wgpu presentation, without IGraph/Direct3D DLL parity or original sound lifetime. |
+| LS3DF.dll | Recovered engine/resource components in `lhr-engine`; logical `ls3df::{c_str, itexture, i3d_object, texture_manager}` modules. `lhr-render` supplies wgpu presentation, without full IGraph/Direct3D or audio-library parity. |
 | rw_data.dll | Bounded archive/provider behavior in `lhr-assets`; no complete DLL parity. |
 | Game.exe | Scoped gameplay policies and the host application share `lhr-engine`; their origin remains separate from LS3DF. |
 | IJoy.dll | Host winit input in `lhr-engine` is an adapter, without original input-DLL parity. |
@@ -58,6 +138,9 @@ The [weight equations](https://github.com/kirill-mapper/LS3D_FaceAnim/blob/a2570
 Mafia's 25 FPS and H&D2's 50 FPS are manual editor settings, not an encoded timing contract. New controllers default to Bezier; optional Step changes interpolation. Retained PC REA identifies candidate file/audio/state processing with 40 ms timing, but incomplete float recovery still needs instruction analysis and original-call probes. No Max execution, original facial playback comparison or H&D2/PS2 compatibility was established.
 
 ## mafia-re
+
+This section retains the earlier pin and 2026-10-23 observations; the current
+`109954d6` source refresh is recorded above.
 
 The historical pinned [LS3DF card](https://github.com/Marvisak/mafia-re/blob/86a7b15cbfa002bc6222e5542671a81988472882/docs/progress/LS3DF.svg) reports 97.60%, 1,350/1,361 source-associated functions and 98.39% average accuracy. The [current card](https://github.com/Marvisak/mafia-re/blob/0c44be32dd152c9722bbd8c2c8e18f112a279c04/docs/progress/LS3DF.svg) reports **98.46%**, the same **1,350/1,361** and **99.27% average accuracy**. This is improved instruction matching, with no increase in source-associated function count; average accuracy is not the percentage of exactly matching functions. These are upstream comparison results, not a playable-game percentage or Rust validation.
 
@@ -121,15 +204,47 @@ Useful architecture leads are the mission lifetime boundary, staged named-object
 
 ## Next general-engine work
 
-The [accepted gameplay dependency order](GOALS.md#parity-with-mafia-re) remains in force. These source findings specify reusable engine work alongside it, with original content used as regression input rather than special-case code:
+The next bounded milestone is **the real file-backed IGraph → ITexture path
+needed by the Scene constructor**, followed by its shared weather ownership.
+Whole managed-texture conversion is a separate dependency. The current
+`TextureResources::create_texture` creates blank constructor state;
+`install_texture` and `register_cache` explicitly admit host state. They do not
+perform filename lookup, image creation or factory cache acquisition.
 
-1. **Persistent model/scene resources:** finish real backend identities, shared mesh/material references, derived destruction, reopen/close and failed-load state around existing owned model/controller machinery. First acceptance case: reopen a model while preserving externally shared resources; then repeated scene load/unload. Verify native ownership and failure prefixes rather than assume transactional rollback.
-2. **General mission-world construction:** connect existing scene/cache readers, stable frame identities, named references, patches and original actor/BODY construction. Resolve the missing animation-resource and evaluator dependencies in GOALS before admitting actors that require them. Visual load completion must not imply gameplay readiness.
-3. **Geometry-backed collision:** recover KLZ intake/grid/link semantics through Game.exe REA, then connect original scene ray/sphere queries and game contact/material behavior. Validate translated/nested/shared geometry, filters and nearest-hit order before movement or vehicles depend on it.
-4. **Material and visibility execution:** reconstruct material states and texture variants, sector/portal membership, LOD and lit draw queues through LS3DF. These can be researched in parallel with gameplay dependencies; they are not evidence that those dependencies are complete.
-5. **Original script-to-world integration:** bind the existing scheduler/control flow to recovered actors, events, controls, collision, vehicles and cameras; then mission objectives, audio/UI and completion. MafiaUnity supplies dependency examples, while Game.exe behavior still requires independent reconstruction.
+1. **Immediate texture creation and identity.** Recover the filename/cache
+   factory and reached flags-2 Create path using REA, actual PS2 naming evidence
+   and original-instruction comparisons. Reuse the accepted ITexture/string/
+   Close/Release ownership with real storage effects. Check source BPP and alpha,
+   cache hit/miss and name/flag distinctions, returned references, failure output
+   and actual graphics/pixel/string cleanup. Use synthetic format fixtures and
+   original images as regression inputs, without a Snow-specific algorithm.
+   A bounded canonical owner can precede conversion of other model textures;
+   it must not claim that their separate CPU/managed lifetimes are now unified.
+2. **Scene construction and shared teardown.** Bind viewport dimensions,
+   weather reset, conditional shared Snow creation and sound defaults in the
+   recovered order. Two admitted scenes must share one Snow identity: removing
+   the first preserves it; the native last-scene condition releases the shared
+   reference, while an external retained reference survives. Close does not
+   own Snow release. Preserve the original unchecked Create result rather than
+   inventing constructor rollback. Driver registration, optional listener,
+   remaining Close effects and complete destructor/Open/reload each require
+   their actual owners before receiving completion credit. Existing VB → IB
+   cleanup remains bound; unavailable effects must still fail explicitly.
+3. **Original mission ownership and scheduling.** Use the new `main` source
+   map to research enclosing Mission Open/Close, Game initialization, actor
+   factories/registration and the original player/camera loop. Then bind the
+   existing script scheduler/world effects, replay and objectives. MafiaUnity
+   and OpenMF provide name/patch regression ideas, not an original actor order.
+   The authored MISE01 program probe remains at FINDACTOR/UnsupportedWorldBackend;
+   application mission scripting is still unavailable.
 
-Each implementation milestone requires canonical binary/address evidence, independently authored Rust, original-call or runtime comparisons where available, and two sequential reviews. This source audit changes no function count, graphical progress bar or first-mission status.
+Repeated resource create/release and scene construction/destruction must return
+real allocations to the admitted baseline, preserving external survivors and
+native failure prefixes. Each code milestone still needs binary-keyed contracts,
+independent Rust implementation, appropriate original execution evidence and
+two sequential independent reviews. Material/sector/portal rendering and
+foreign dynamic actors remain parallel research dependencies. This source audit
+changes no coverage count, graphical progress bar or first-mission gate.
 
 ## Direct PS2 symbol crosscheck
 

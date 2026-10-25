@@ -1,5 +1,20 @@
 # Progress
 
+## Reference source audit — 2026-10-25
+
+A fresh [three-project audit](REFERENCE_PROJECTS.md#current-source-audit--2026-10-25)
+observes mafia-re `109954d6` (17 commits beyond the last source observation),
+unchanged MafiaUnity `0d7a12f0`, and OpenMF-Archived `7167e74d`. The new mafia-re
+`main` supplies a startup/mission caller map; its mission and game-loop bodies
+remain stubs. The immediate dependency is real flags-2 texture creation/cache/
+Release for the Scene constructor, then shared weather lifetime and original
+mission ownership. Managed `0x40` creation is a separate path.
+
+This is source inspection only, with no upstream build, fresh REA/original
+execution, new Rust implementation or rendered/interactive evidence. The
+behavior pin `86a7b15c`, **311 entries / 114 contracts**, **0/12** gates and all
+historical snapshots are unchanged.
+
 ## Scene weather and resource maintenance — 2026-10-25
 
 Code commit `89308ce` adds `I3D_scene::WeatherSystemReset` and
