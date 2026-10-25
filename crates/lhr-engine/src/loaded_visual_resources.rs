@@ -1032,7 +1032,7 @@ impl LoadedVisualResources {
                 }
                 let descriptor = self.objects.lod(key)?.vertex_buffer;
                 let mut bytes = vec![0; lod.vertices.len() * 32];
-                for (vertex, bytes) in lod.vertices.iter().zip(bytes.chunks_exact_mut(32)) {
+                for (vertex, bytes) in lod.vertices.iter().zip(bytes.as_chunks_mut::<32>().0) {
                     for (offset, value) in [0, 4, 8, 16, 20]
                         .into_iter()
                         .zip(vertex.position.into_iter().chain(vertex.uv))
