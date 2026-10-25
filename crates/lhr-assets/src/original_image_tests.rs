@@ -84,3 +84,93 @@ fn original_bmp_depth_extensions_keep_compression_extent_and_dimension_guards() 
         assert!(decode_bmp_original(&invalid).is_err());
     }
 }
+
+fn indexed_tga(descriptor: u8, indices: &[u8]) -> Vec<u8> {
+    let mut bytes = vec![0u8; 18];
+    bytes[0] = 3;
+    bytes[1] = 1;
+    bytes[2] = 1;
+    bytes[5..7].copy_from_slice(&256u16.to_le_bytes());
+    bytes[7] = 24;
+    bytes[12..14].copy_from_slice(&2u16.to_le_bytes());
+    bytes[14..16].copy_from_slice(&2u16.to_le_bytes());
+    bytes[16] = 8;
+    bytes[17] = descriptor;
+    bytes.extend(*b"id!");
+    for index in 0..256u16 {
+        bytes.extend([index as u8, 255 - index as u8, index as u8 ^ 0x55]);
+    }
+    bytes.extend(indices);
+    bytes
+}
+#[test]
+fn indexed_tga_retains_palette_key_pitch_and_top_down_pixels() {
+    let bytes = indexed_tga(0, &[0, 255, 1, 128]);
+    let image = texture_source::decode_texture_image(&bytes).unwrap();
+    assert_eq!(image.bpp, 8);
+    assert_eq!(image.source_pitch, 2);
+    assert_eq!(image.palette_key, Some([0x55, 255, 0]));
+    assert_eq!(
+        image.texture.rgba,
+        [
+            0x54, 254, 1, 255, 0xd5, 127, 128, 255, 0x55, 255, 0, 255, 0xaa, 0, 255, 255
+        ]
+    );
+    let top_down = indexed_tga(0x20, &[1, 128, 0, 255]);
+    assert_eq!(
+        texture_source::decode_texture_image(&top_down)
+            .unwrap()
+            .texture
+            .rgba,
+        image.texture.rgba
+    );
+    // Generic orientation support remains separate from native right-origin
+    // semantics, which only diagnose that bit and do not reverse the row.
+    let right_origin = indexed_tga(0x30, &[128, 1, 255, 0]);
+    assert_eq!(
+        super::decode_tga(&right_origin).unwrap().rgba,
+        image.texture.rgba
+    );
+    assert!(texture_source::decode_texture_image(&right_origin).is_err());
+}
+#[test]
+fn indexed_tga_extents_unsupported_palette_layouts_and_footer_are_bounded() {
+    let bytes = indexed_tga(0x20, &[0, 1, 2, 255]);
+    for end in 0..bytes.len() {
+        assert!(super::decode_tga(&bytes[..end]).is_err(), "{end}");
+    }
+    for (offset, value) in [
+        (1, 0),
+        (2, 9),
+        (3, 1),
+        (5, 255),
+        (6, 0),
+        (7, 16),
+        (7, 32),
+        (16, 16),
+        (17, 1),
+        (17, 0x40),
+        (17, 0x80),
+    ] {
+        let mut invalid = bytes.clone();
+        invalid[offset] = value;
+        assert!(super::decode_tga(&invalid).is_err(), "{offset}/{value}");
+    }
+    for (offset, value) in [(12, 0u16), (12, 8193), (14, 0), (14, 8193)] {
+        let mut invalid = bytes.clone();
+        invalid[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
+        assert!(super::decode_tga(&invalid).is_err());
+    }
+    let mut footer = bytes.clone();
+    footer.extend([0; 8]);
+    footer.extend(b"TRUEVISION-XFILE.\0");
+    assert_eq!(
+        super::decode_tga(&footer).unwrap().rgba,
+        super::decode_tga(&bytes).unwrap().rgba
+    );
+    footer.push(0);
+    assert!(super::decode_tga(&footer).is_err());
+    let mut extra = bytes;
+    extra.push(0);
+    assert!(super::decode_tga(&extra).is_err());
+}

@@ -93,21 +93,25 @@ pub fn decode_texture_image(bytes: &[u8]) -> Result<DecodedTextureImage, Texture
         })
     } else {
         if bytes.len() >= 18
-            && (bytes[1] != 0
-                || bytes[2] != 2
+            && (!crate::tga::supported_pixel_layout(bytes)
                 || bytes[17] & 0xd0 != 0
-                || !matches!(info.bpp, 16 | 24 | 32)
-                || (info.bpp == 24 && bytes[17] & 0x0f != 0))
+                || (matches!(info.bpp, 8 | 24) && bytes[17] & 0x0f != 0))
         {
             // The reusable decoder handles right-origin images, but original
             // LoadImage only diagnoses that bit. Do not claim equivalent pixels.
             return Err(TextureImageDecodeError::Unsupported("TGA source layout"));
         }
         let texture = crate::decode_tga(bytes)?;
+        let palette_key = if info.bpp == 8 {
+            let start = 18 + bytes[0] as usize;
+            Some([bytes[start + 2], bytes[start + 1], bytes[start]])
+        } else {
+            None
+        };
         Ok(DecodedTextureImage {
             texture,
             bpp: info.bpp,
-            palette_key: None,
+            palette_key,
             source_pitch: info.width * u32::from(info.bpp) / 8,
         })
     }
