@@ -47,7 +47,7 @@ impl LitObjectResources {
 }
 impl I3dObjectResources {
     pub fn lit_object(&self) -> Option<&LitObjectResources> {
-        self.lit_object.as_ref()
+        self.lit_object.as_deref()
     }
 }
 impl ObjectResources {
@@ -55,10 +55,11 @@ impl ObjectResources {
         &mut self,
         mesh: Option<MeshObjectKey>,
     ) -> Result<ObjectResourceKey, ObjectError> {
+        let lit = Box::new(LitObjectResources::new());
         let key = self.create_object_resources(mesh)?;
         let record = self.objects[(key.slot - 1) as usize].as_mut().unwrap();
         record.visual_type = ObjectVisualType::LitUnconstructed;
-        record.lit_object = Some(LitObjectResources::new());
+        record.lit_object = Some(lit);
         Ok(key)
     }
     pub(crate) fn finish_unconstructed_lit_geometry(

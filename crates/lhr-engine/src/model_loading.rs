@@ -779,6 +779,9 @@ impl ModelArena {
     /// the original plain ObjectResources lifecycle. Completed bindings remain
     /// owned on error. Original Create/worker/upload and GPU rendering are not
     /// implemented by this adapter; unsupported derived subtypes stay closed.
+    /// Historical entry name: explicit dispatch admits plain objects and the
+    /// bounded unconstructed LitObject constructor. Canonical owner subtype
+    /// remains distinct throughout class witnesses, rendering and teardown.
     pub fn load_plain_visual_resources(
         &mut self,
         model: ModelKey,

@@ -1,4 +1,4 @@
-//! CPU ownership for admitted loaded plain objects, using the existing visual
+//! CPU ownership for admitted plain and unconstructed lit objects, using the existing visual
 //! and buffer-manager lifetimes. This host intake is not native Object::Load,
 //! texture Create, graphics-driver execution, or a renderer. Source vertex and
 //! index bytes and decoded color/alpha/environment images remain owned until
@@ -1678,7 +1678,8 @@ pub enum RenderLodSelection {
     Culled { index: u32 },
 }
 impl LoadedVisualResources {
-    /// Source ordinary/no-callback selection on the SAME live object owner.
+    /// Source no-callback selection on the SAME live object owner. Lit objects
+    /// use common GetObjectLOD but skip the ordinary SetFade block.
     /// No Texture::Request, callback dispatch or special visual is invented.
     pub fn select_render_lod(
         &mut self,
@@ -1736,7 +1737,7 @@ impl LoadedVisualResources {
         let index = self
             .objects
             .get_object_lod(object, distance_squared, quality, world_scale)
-            .map_err(|_| LoadedVisualError::Backend("ordinary GetObjectLOD unavailable"))?;
+            .map_err(|_| LoadedVisualError::Backend("GetObjectLOD unavailable"))?;
         if index as usize == count {
             return Ok(RenderLodSelection::Culled { index });
         }

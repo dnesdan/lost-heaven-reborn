@@ -14,8 +14,9 @@
 //! `I3dObjectResources` projects resource ownership plus ordinary cur_lod/fade
 //! render state of the same I3D_object; it is not a complete native layout.
 //! This host arena does not implement native Create, SetMesh, visual/frame base
-//! destruction, loaded derived resources or uploads. Primitive retirement uses
-//! host tombstones, without native allocator/delete or pointer-return credit.
+//! destruction or native uploads. The bounded unconstructed lit subtype owns
+//! its separate constructor state and inherited-buffer projections below.
+//! Primitive retirement uses host tombstones, without native allocator/delete or pointer-return credit.
 //!
 //! One compatible backend domain and serialized nonreentrant callbacks are
 //! required throughout. Explicit cleanup must occur before that backend goes
@@ -139,7 +140,7 @@ pub struct I3dObjectResources {
     /// All ten slots are cleared together only after all LOD deletes succeed.
     pub lods: [Option<PlainLodKey>; 10],
     pub phase: ObjectCleanupPhase,
-    pub(crate) lit_object: Option<LitObjectResources>,
+    pub(crate) lit_object: Option<Box<LitObjectResources>>,
 }
 impl I3dObjectResources {
     pub fn visual_type(&self) -> ObjectVisualType {
@@ -432,29 +433,34 @@ impl ObjectResources {
                 .mesh_object(mesh)
                 .map_err(ManagedError::from)?;
         }
+        let has_lit = current.lit_object.is_some();
         let index = (object.slot - 1) as usize;
         self.objects[index].as_mut().unwrap().phase = ObjectCleanupPhase::DestroyingLods;
         let result = (|| {
             // Derived destructor runs before I3D_object base cleanup.
-            for level in 0..6 {
-                for index in 0..10 {
-                    let lod = self.objects[(object.slot - 1) as usize]
-                        .as_ref()
-                        .unwrap()
-                        .lit_object
-                        .as_ref()
-                        .and_then(|lit| lit.levels[level].lods[index]);
-                    if let Some(lod) = lod {
-                        self.cleanup_lod(lod, backend)?;
-                        self.lods[(lod.slot - 1) as usize] = None;
-                        self.objects[(object.slot - 1) as usize]
-                            .as_mut()
+            if has_lit {
+                for level in 0..6 {
+                    for lod_index in 0..10 {
+                        let lod = self.objects[index]
+                            .as_ref()
                             .unwrap()
                             .lit_object
-                            .as_mut()
+                            .as_ref()
                             .unwrap()
                             .levels[level]
-                            .lods[index] = None;
+                            .lods[lod_index];
+                        if let Some(lod) = lod {
+                            self.cleanup_lod(lod, backend)?;
+                            self.lods[(lod.slot - 1) as usize] = None;
+                            self.objects[index]
+                                .as_mut()
+                                .unwrap()
+                                .lit_object
+                                .as_mut()
+                                .unwrap()
+                                .levels[level]
+                                .lods[lod_index] = None;
+                        }
                     }
                 }
             }
