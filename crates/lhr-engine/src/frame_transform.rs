@@ -2685,11 +2685,11 @@ mod tests {
     }
 
     #[test]
-    fn missing_matrix_quaternion_keeps_prior_scale_store_and_flag_order() {
+    fn numeric_matrix_quaternion_failure_keeps_prior_scale_store_and_flag_order() {
         let mut graph = I3dFrameGraph::default();
         let mut state = mesh([0.; 3]);
         state.flags = 0x10;
-        state.local.elements[0] = 0.0;
+        state.local.elements[0] = f32::from_bits(1);
         let key = graph.insert(state).unwrap();
         assert_eq!(
             graph.assign_scale(key, [2., 3., 4.]),
@@ -2705,7 +2705,7 @@ mod tests {
         for flags in [0x30, 0x34] {
             let mut cached = mesh([0.; 3]);
             cached.flags = flags;
-            cached.local.elements[0] = 0.0;
+            cached.local.elements[0] = f32::from_bits(1);
             let key = graph.insert(cached).unwrap();
             assert!(graph.world_matrix(key).is_ok());
             assert_eq!(

@@ -59,6 +59,24 @@ pub fn vector_length(vector: [f32; 3]) -> f32 {
     }
 }
 
+/// Checked counterpart of the existing Magnitude arithmetic, shared by
+/// GetScale and the missing-row reconstruction. All intermediate results stay
+/// in the same admitted PC24 exponent domain as the rest of Make.
+fn matrix_row_length(row: [f32; 3], arithmetic: &native_trig::Arithmetic) -> f32 {
+    let [x, y, z] = row.map(|value| arithmetic.input(value));
+    let squared = (x * x + y * y) + z * z;
+    if (squared.value.to_bits() as i32) < 0x322b_cc77 {
+        0.
+    } else if (squared - arithmetic.input(1.)).abs().value < 1e-8 {
+        1.
+    } else {
+        squared.sqrt().value
+    }
+}
+fn matrix_row_lengths(matrix: &SMatrix, arithmetic: &native_trig::Arithmetic) -> [f32; 3] {
+    [0, 4, 8].map(|i| matrix_row_length(matrix.elements[i..i + 3].try_into().unwrap(), arithmetic))
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SMatrix {
     pub elements: [f32; 16],
@@ -290,7 +308,9 @@ impl SQuat {
     /// Retains the admitted zero-length and exact diagonal identity branches.
     /// Matrix admission checks each PC24 intermediate, including row lengths;
     /// ordinary small basis components need not satisfy the legacy scalar guard.
-    /// Missing-row reconstruction remains unavailable.
+    /// Missing rows follow the pinned source's cross-product/fallback and
+    /// second-scale check before re-entering the existing nondegenerate path.
+    /// This branch is source-grounded; native runtime parity is not established.
     pub fn try_make_from_matrix(matrix: &SMatrix) -> Result<Self, MakeUnavailable> {
         let arithmetic = native_trig::Arithmetic::new();
         let f = |value| arithmetic.input(value);
@@ -299,17 +319,7 @@ impl SQuat {
         }
         arithmetic.finish()?;
         let m = &matrix.elements;
-        let lengths = [0, 4, 8].map(|i| {
-            let [x, y, z] = [m[i], m[i + 1], m[i + 2]].map(f);
-            let squared = (x * x + y * y) + z * z;
-            if (squared.value.to_bits() as i32) < 0x322b_cc77 {
-                0.
-            } else if (squared - f(1.)).abs().value < 1e-8 {
-                1.
-            } else {
-                squared.sqrt().value
-            }
-        });
+        let lengths = matrix_row_lengths(matrix, &arithmetic);
         let empty_basis = ((f(lengths[2]) + f(lengths[1])) + f(lengths[0])).value < 1e-8;
         arithmetic.finish()?;
         let diagonal = [1, 2, 4, 6, 8, 9].into_iter().all(|i| m[i].to_bits() == 0);
@@ -334,8 +344,10 @@ impl SQuat {
         let f = |v| arithmetic.input(v);
         let [one, zero] = [f(1.), f(0.)];
         let [lx, ly, lz] = lengths.map(f);
-        if ((lz * ly) * lx).value < 1e-8 {
-            return Err(MakeUnavailable::UnrecoveredMatrix);
+        let missing_axis = ((lz * ly) * lx).value < 1e-8;
+        arithmetic.finish()?;
+        if missing_axis {
+            return Self::make_missing_axis_matrix(matrix, lengths);
         }
         let m = matrix.elements.map(f);
         let ix = one / lx;
@@ -448,6 +460,61 @@ impl SQuat {
             return Err(MakeUnavailable::InputOutsideVerifiedDomain);
         }
         Ok(result)
+    }
+
+    /// Source-only missing-axis branch from I3d_math.cpp at pinned mafia-re
+    /// 29b65b0. Cross products ALWAYS read the original matrix, including when
+    /// multiple rows are missing. In particular the Y row is X cross Z; changing
+    /// this to the more usual Z cross X changes the original behavior.
+    fn make_missing_axis_matrix(
+        matrix: &SMatrix,
+        lengths: [f32; 3],
+    ) -> Result<Self, MakeUnavailable> {
+        let arithmetic = native_trig::Arithmetic::new();
+        let f = |v| arithmetic.input(v);
+        let original = [0, 4, 8].map(|i| {
+            [
+                matrix.elements[i],
+                matrix.elements[i + 1],
+                matrix.elements[i + 2],
+            ]
+            .map(f)
+        });
+        let mut rebuilt = *matrix;
+        for (row, (left, right)) in [(1, 2), (0, 2), (0, 1)].into_iter().enumerate() {
+            if lengths[row] >= 1e-8 {
+                continue;
+            }
+            let [a, b] = [original[left], original[right]];
+            let cross = [
+                a[1] * b[2] - a[2] * b[1],
+                a[2] * b[0] - a[0] * b[2],
+                a[0] * b[1] - a[1] * b[0],
+            ]
+            .map(|v| v.value);
+            arithmetic.finish()?;
+            let length = matrix_row_length(cross, &arithmetic);
+            arithmetic.finish()?;
+            let value = if length < 1e-8 {
+                let mut unit = [0.; 3];
+                unit[row] = 1.;
+                unit
+            } else {
+                cross
+            };
+            rebuilt.elements[row * 4..row * 4 + 3].copy_from_slice(&value);
+        }
+        let [lx, ly, lz] = matrix_row_lengths(&rebuilt, &arithmetic).map(f);
+        let still_degenerate = ((lz * ly) * lx).value < 1e-8;
+        arithmetic.finish()?;
+        if still_degenerate {
+            return Ok(Self {
+                wxyz: [1., 0., 0., 0.],
+            });
+        }
+        // The identical checked scale-product condition above guarantees this
+        // re-entry takes the nondegenerate path instead of recurring again.
+        Self::try_make_from_matrix(&rebuilt)
     }
 
     /// Descriptive mapping of the internal quaternion-composition helper,
@@ -635,8 +702,8 @@ mod tests {
         matrix = SMatrix::identity();
         matrix.elements[0] = 0.;
         assert_eq!(
-            SQuat::try_make_from_matrix(&matrix),
-            Err(MakeUnavailable::UnrecoveredMatrix)
+            SQuat::try_make_from_matrix(&matrix).unwrap().wxyz,
+            [1., 0., 0., 0.]
         );
     }
 
@@ -737,11 +804,14 @@ mod tests {
             expected
         );
         matrix.elements[0] = 0.001;
-        // This near-parallel basis still needs the unrecovered missing-row
-        // branch; admitting the larger factor angle does not close that path.
+        // Both short rows use their axis fallbacks; the surviving X row and
+        // all nonbasis elements are retained for the recursive Make call.
+        let mut rebuilt = matrix;
+        rebuilt.elements[4..7].copy_from_slice(&[0., 1., 0.]);
+        rebuilt.elements[8..11].copy_from_slice(&[0., 0., 1.]);
         assert_eq!(
             SQuat::try_make_from_matrix(&matrix),
-            Err(MakeUnavailable::UnrecoveredMatrix)
+            SQuat::try_make_from_matrix(&rebuilt)
         );
         matrix.elements[0] = f32::NAN;
         assert!(SQuat::try_make_from_matrix(&matrix).is_err());
