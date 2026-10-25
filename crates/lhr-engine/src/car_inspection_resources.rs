@@ -19,6 +19,8 @@ pub struct CpuInspectionMesh<'a> {
     /// Admitted plain FVF0x112 vertices: XYZ, normal XYZ, UV, 32-byte stride.
     pub vertex_bytes: &'a [u8],
     pub vertex_count: u32,
+    pub visual_type: crate::i3d_object::ObjectVisualType,
+    pub uv_byte_offset: usize,
     pub uv_offset: [f32; 2],
     pub groups: Vec<CpuInspectionGroup<'a>>,
 }
@@ -28,6 +30,7 @@ impl LoadedVisualResources {
         graphics: GraphicsBuffer,
         offset: usize,
         bytes: usize,
+        expected_fvf: Option<u32>,
     ) -> Result<&[u8]> {
         let buffer = self
             .backend
@@ -46,7 +49,7 @@ impl LoadedVisualResources {
                 "inspection graphics kind or active lock",
             ));
         }
-        if matches!(graphics, GraphicsBuffer::Vertex(_)) && buffer.fvf != Some(0x112) {
+        if matches!(graphics, GraphicsBuffer::Vertex(_)) && buffer.fvf != expected_fvf {
             return Err(LoadedVisualError::Backend(
                 "inspection UV-only or unknown vertex layout",
             ));
@@ -125,7 +128,18 @@ impl LoadedVisualResources {
             })
             .map(|binding| binding.owner);
         let mut uv_offset = [0.; 2];
-        if let Some(lod_key) = object.lods[index] {
+        let visual_type = object.visual_type();
+        let (private_lod, uv_byte_offset) = if let Some(lit) = object.lit_object() {
+            if lit.active_level != 0 || lit.levels[0].constructed {
+                return Err(LoadedVisualError::Backend(
+                    "constructed lit inspection unavailable",
+                ));
+            }
+            (lit.levels[0].lods[index], 16)
+        } else {
+            (object.lods[index], 24)
+        };
+        if let Some(lod_key) = private_lod {
             let lod = self.objects.lod(lod_key)?;
             if lod.state != LodState::Constructed {
                 return Err(LoadedVisualError::Backend("inspection LOD was destroyed"));
@@ -158,7 +172,8 @@ impl LoadedVisualResources {
             .map_err(|_| {
                 LoadedVisualError::Backend("inspection vertex descriptor/manager mismatch")
             })?;
-        if configuration.fvf != 0x112 || configuration.stride != Some(32) {
+        let expected = if uv_byte_offset == 16 { (0x242, 1) } else { (0x112, 6) };
+        if configuration.fvf != expected.0 || configuration.stride != Some(32) || configuration.format != expected.1 {
             return Err(LoadedVisualError::Backend(
                 "inspection UV-only or unknown vertex layout",
             ));
@@ -173,6 +188,7 @@ impl LoadedVisualResources {
             (level.num_vertices as usize)
                 .checked_mul(32)
                 .ok_or(LoadedVisualError::InvalidGeometry)?,
+            Some(if uv_byte_offset == 16 { 0x242 } else { 0x112 }),
         )?;
         let mut groups = Vec::new();
         groups
@@ -198,6 +214,7 @@ impl LoadedVisualResources {
                 (group.num_faces as usize)
                     .checked_mul(6)
                     .ok_or(LoadedVisualError::InvalidGeometry)?,
+                None,
             )?;
             let texture = material
                 .texture
@@ -224,6 +241,8 @@ impl LoadedVisualResources {
         Ok(Some(CpuInspectionMesh {
             vertex_bytes,
             vertex_count: level.num_vertices,
+            visual_type,
+            uv_byte_offset,
             uv_offset,
             groups,
         }))

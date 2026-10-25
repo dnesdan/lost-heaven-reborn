@@ -82,6 +82,33 @@ pub fn live_material_with_fade(
     }))
 }
 
+/// I3d_lit_object.cpp m_RenderFGroup's unconstructed branch. Alpha/add/key
+/// textures remain outside this bounded path. Diffuse, opacity and object fade
+/// do not alter the source cyan texture factor; texture alpha SELECTARG1 is
+/// preserved by the raw texture producer and opaque framebuffer write.
+pub fn unconstructed_lit_material(
+    material: &I3dMaterial,
+    has_texture: bool,
+    sort_center: [f32; 3],
+    front_face: FrontFace,
+) -> Result<RenderMaterial, String> {
+    if has_texture && material.flags & 0xe0000000 != 0 {
+        return Err("Unconstructed lit texture alpha/add/color-key unavailable".into());
+    }
+    if !sort_center.into_iter().all(f32::is_finite) {
+        return Err("Unconstructed lit sort center is nonfinite".into());
+    }
+    Ok(RenderMaterial::Original(OriginalMaterial {
+        color: [0., 1., 1., 1.],
+        alpha: AlphaMode::Opaque,
+        queue: MaterialQueue::Opaque,
+        color_key_reference: 200,
+        two_sided: material.flags & 0x10000000 != 0,
+        front_face,
+        sort_center,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -270,6 +270,7 @@ fn snapshot_arena_tree_inner(
                     .and_then(|n| index_count.checked_mul(4).and_then(|i| n.checked_add(i)))
                     .ok_or("Car geometry size overflow")?,
             )?;
+            let lit = view.visual_type == crate::i3d_object::ObjectVisualType::LitUnconstructed;
             let material = group.material;
             let has_texture = material.flags & 0x40000 != 0 && group.texture.is_some();
             let effective_texture = has_texture.then_some(group.texture).flatten();
@@ -278,20 +279,13 @@ fn snapshot_arena_tree_inner(
                 has_texture.then_some(group.texture_alpha).flatten(),
                 has_texture && group.inspection_rgba8_color_key,
             )?;
-            let policy = crate::presentation_material::live_material_with_fade(
-                material,
-                has_texture,
-                *center,
-                FrontFace::CounterClockwise,
-                *fade,
-            )?;
-            if alpha.omitted {
-                unsupported_alpha_masks += 1;
-            }
-            if alpha.omitted
-                || material.env_texture.is_some()
-                || material.emissive != [0.; 3]
-                || material.flags & (0x80000 | 0x01000000 | 0x04000000) != 0
+            let policy = if lit {
+                crate::presentation_material::unconstructed_lit_material(material,has_texture,*center,FrontFace::CounterClockwise)?
+            } else {
+                crate::presentation_material::live_material_with_fade(material,has_texture,*center,FrontFace::CounterClockwise,*fade)?
+            };
+            if alpha.omitted { unsupported_alpha_masks += 1; }
+            if !lit && (alpha.omitted || material.env_texture.is_some() || material.emissive != [0.;3] || material.flags & (0x80000 | 0x01000000 | 0x04000000) != 0)
             {
                 omitted += 1;
             }
@@ -306,7 +300,7 @@ fn snapshot_arena_tree_inner(
                 } else {
                     0
                 },
-                material.flags & 0x30000,
+                (material.flags & 0x30000) | if lit { 0x80000000 } else { 0 },
             );
             let texture = if let Some(texture) = textures.get(&key) {
                 texture.clone()
@@ -328,7 +322,11 @@ fn snapshot_arena_tree_inner(
                     .map_err(|_| "Car texture allocation unavailable")?;
                 for (index, pixel) in source.as_chunks::<4>().0.iter().enumerate() {
                     rgba.extend_from_slice(&pixel[..3]);
-                    rgba.push(alpha.alpha(index, pixel));
+                    rgba.push(if lit {
+                        pixel[3]
+                    } else {
+                        alpha.alpha(index, pixel)
+                    });
                 }
                 let texture = Arc::new(Texture {
                     width,
@@ -349,8 +347,8 @@ fn snapshot_arena_tree_inner(
                     .try_transform_point(point)
                     .map_err(|_| "Car world transform outside verified arithmetic domain")?;
                 let uv = [
-                    word(vertex, 24)? + view.uv_offset[0],
-                    word(vertex, 28)? + view.uv_offset[1],
+                    word(vertex, view.uv_byte_offset)? + view.uv_offset[0],
+                    word(vertex, view.uv_byte_offset + 4)? + view.uv_offset[1],
                 ];
                 if !uv.into_iter().all(f32::is_finite) {
                     return Err("Car UV transform overflow".into());
