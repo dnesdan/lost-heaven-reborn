@@ -115,3 +115,18 @@ and reads cyan with no texture and texture times cyan, including raw alpha 17.
 The existing host upload samples sRGB texture data into a linear Unorm target;
 its expected readback is documented as that host behavior, not an original-game
 image comparison. No original assets or interactive gameplay were exercised.
+
+Validation uses the isolated `target-stage8a` on the exact reviewed Stage 5c
+base `26330de8d42002a29260add52acede76c0837ab3`. The mandatory
+`scripts/test.sh` passes formatting and workspace/all-target check, then exits
+on only the two pre-existing x87 high-FIP-address assertions:
+`preserves_full_fxsave64_state_with_pending_exception_and_live_sse` and
+`preserves_long_mode_x87_pointers_across_actual_helpers`. Running the workspace
+suite with exactly those two command-line skips passes: assets 121,
+installation 8, engine 1067, binary 27, program 8, renderer 6 and all doc tests.
+No test implementation was changed to hide either baseline failure. Existing
+ignored tests remain ignored; the new owned lit GPU test is also run explicitly
+and passes. The typed lit layout regression checks actual stride 64, wrong
+vertex format, and valid `0x242`/32/format 1. All-target workspace Clippy with
+`-D warnings`, host binary-boundary tests 9/9, progress tests 47/47 and generated
+progress check pass.
