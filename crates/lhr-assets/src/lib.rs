@@ -15,6 +15,7 @@ mod scene;
 pub mod scene_actor_stream;
 pub mod script;
 pub mod script_vm;
+pub mod startup_archives;
 mod tga;
 pub use menu::{
     FontGlyph, FontMetrics, LanguageFontMap, MenuDefinition, MenuItem, TextDb, TextDbEntry,
@@ -906,50 +907,33 @@ impl Installation {
             let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
                 continue;
             };
-            let key = match name.to_ascii_uppercase().as_str() {
-                "A0.DTA" => Some((0xd8d0a975, 0x467acde0)),
-                "A1.DTA" => Some((0x3d98766c, 0xde7009cd)),
-                "A2.DTA" => Some((0x82a1c97b, 0x2d5085d4)),
-                "A4.DTA" => Some((0x43876fea, 0x900cdba8)),
-                "A6.DTA" => Some((0x64cd8d0a, 0x4bc97b2d)),
-                "A8.DTA" => Some((0xd8dd8fac, 0x5324ace5)),
-                "AA.DTA" => Some((0x5342760c, 0xedeac652)),
-                "AC.DTA" => Some((0x43876fea, 0x900cdba8)),
-                _ => None,
-            };
-            if let Some(keys) = key
-                && discovered
-                    .insert(name.to_ascii_uppercase(), (path, keys))
-                    .is_some()
+            let ordinal = startup_archives::ARCHIVE_NAMES
+                .iter()
+                .position(|candidate| candidate.eq_ignore_ascii_case(name.as_bytes()));
+            if let Some(ordinal) = ordinal
+                && discovered.insert(ordinal, path).is_some()
             {
                 return err("ambiguous duplicate archive filename");
             }
         }
-        let mut discovered: Vec<_> = discovered.into_iter().collect();
-        const ORDER: [&str; 8] = [
-            "A8.DTA", "A2.DTA", "A6.DTA", "A0.DTA", "A1.DTA", "AC.DTA", "A4.DTA", "AA.DTA",
-        ];
-        discovered.sort_by_key(|(name, _)| {
-            ORDER
-                .iter()
-                .position(|candidate| *candidate == name)
-                .unwrap_or(ORDER.len())
-        });
         let archives = rw_data::io::NativeFiles::new(&root, MAX_BYTES as u32, 256 * 1024 * 1024)
             .map_err(|e| Error(format!("archive provider: {e:?}")))?;
         let mut archive_index = std::collections::BTreeMap::new();
-        for (_, (path, (k1, k2))) in discovered {
+        for (ordinal, path) in discovered {
             verify_contained(&root, &path)?;
             let filename = path
                 .file_name()
                 .and_then(|n| n.to_str())
                 .ok_or_else(|| Error("archive filename unavailable".into()))?;
             let owner = archives
-                .register(filename.as_bytes(), native_unlock_key(k1, k2))
+                .register(
+                    filename.as_bytes(),
+                    startup_archives::ARCHIVE_UNLOCK_KEYS[ordinal],
+                )
                 .map_err(|e| Error(format!("archive registration: {e:?}")))?;
             verify_contained(&root, &path)?;
             for entry in archives
-                .catalog(owner)
+                .admitted_catalog(owner)
                 .map_err(|e| Error(format!("archive catalog: {e:?}")))?
             {
                 let key = dta::canonical(&entry.path).map_err(Error)?;
@@ -1013,11 +997,6 @@ impl Installation {
         verify_contained(&self.root, &path)?;
         read_asset_handle(&mut file)
     }
-}
-// Archive intake uses little-endian k2 followed by k1; UnlockPack applies
-// its fixed XOR exactly once. Keep this conversion at registration only.
-fn native_unlock_key(k1: u32, k2: u32) -> u64 {
-    ((u64::from(k1) << 32) | u64::from(k2)) ^ 0x3498576239475694
 }
 fn bounded_children(path: &Path) -> Result<Vec<PathBuf>> {
     let mut children = Vec::new();

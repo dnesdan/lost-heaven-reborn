@@ -27,6 +27,7 @@ struct Source {
     snapshot: Metadata,
     entries: BTreeMap<String, CheckedEntry>,
     catalog: BTreeMap<String, crate::dta::Entry>,
+    catalog_charge: u32,
     key: u64,
     read_bounds: Option<(u64, u64)>,
 }
@@ -328,6 +329,7 @@ impl OpenEffects for FilesystemEffects {
                 snapshot,
                 entries: BTreeMap::new(),
                 catalog: BTreeMap::new(),
+                catalog_charge: 0,
                 key: 0,
                 read_bounds: None,
             },
@@ -381,6 +383,14 @@ pub enum SelectedSource {
     Loose,
     Archive(u64),
 }
+/// Read-only metadata admitted from the retained archive file. Native spelling
+/// is kept so callers can select that owner's stream without a host path lookup.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ArchiveCatalogEntry {
+    pub path: String,
+    pub native_name: Vec<u8>,
+    pub size: usize,
+}
 pub struct NativeFiles {
     handles: Handles<FilesystemEffects>,
     quota: u32,
@@ -403,8 +413,9 @@ impl NativeFiles {
             closed: std::sync::atomic::AtomicBool::new(false),
         })
     }
-    /// Key is the native UnlockPack argument, before its fixed XOR.
-    pub fn register(&self, name: &[u8], unlock_key: u64) -> Result<u64, StreamError> {
+    /// Run only dtaCreate. Invalid constructors retain the native failed-owner
+    /// effects and return None; archive intake and UnlockPack happen separately.
+    pub fn create_archive(&self, name: &[u8]) -> Result<Option<u64>, StreamError> {
         let _gate = self
             .gate
             .lock()
@@ -412,13 +423,30 @@ impl NativeFiles {
         if self.closed.load(std::sync::atomic::Ordering::Relaxed) {
             return Err(StreamError::Closed);
         }
-        let owner = self.handles.dta_create(name)?.ok_or(StreamError::Failure)?;
+        Ok(self.handles.dta_create(name)?)
+    }
+    /// Key is the native UnlockPack argument, before its fixed XOR. Admission
+    /// checks and UnlockPack use the same retained constructor owner.
+    pub fn unlock_archive(&self, owner: u64, unlock_key: u64) -> Result<(), StreamError> {
+        let _gate = self
+            .gate
+            .lock()
+            .map_err(|_| StreamError::Native(OperationError::LockPoisoned))?;
+        if self.closed.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err(StreamError::Closed);
+        }
+        self.unlock_archive_locked(owner, unlock_key)
+    }
+    fn unlock_archive_locked(&self, owner: u64, unlock_key: u64) -> Result<(), StreamError> {
         {
             let mut s = self
                 .handles
                 .state
                 .lock()
                 .map_err(|_| StreamError::Native(OperationError::LockPoisoned))?;
+            if let Some(stage) = s.interrupted {
+                return Err(StreamError::Native(OperationError::Interrupted(stage)));
+            }
             let file = s
                 .owners
                 .iter()
@@ -426,6 +454,7 @@ impl NativeFiles {
                 .ok_or(StreamError::Failure)?
                 .file;
             let source = s.effects.source(file).ok_or(StreamError::Failure)?;
+            let previous_charge = source.catalog_charge;
             let clone = source.file.try_clone().map_err(|_| StreamError::Failure)?;
             let key = unlock_key ^ 0x3498576239475694;
             // The duplicate shares the cursor, but this entire intake runs under
@@ -445,9 +474,11 @@ impl NativeFiles {
                     .and_then(|n| total.checked_add(n))
                     .ok_or(StreamError::Bounds)
             })?;
+            let storage = u32::try_from(storage).map_err(|_| StreamError::Bounds)?;
             if s.effects
                 .allocated
-                .checked_add(storage)
+                .checked_sub(u64::from(previous_charge))
+                .and_then(|n| n.checked_add(u64::from(storage)))
                 .is_none_or(|n| n > s.effects.budget)
             {
                 return Err(StreamError::Bounds);
@@ -459,10 +490,13 @@ impl NativeFiles {
                 .ok_or(StreamError::Bounds)?;
             allocation.1 = allocation
                 .1
-                .checked_add(u32::try_from(storage).map_err(|_| StreamError::Bounds)?)
+                .checked_sub(previous_charge)
+                .and_then(|n| n.checked_add(storage))
                 .ok_or(StreamError::Bounds)?;
-            s.effects.allocated += storage;
+            s.effects.allocated =
+                s.effects.allocated - u64::from(previous_charge) + u64::from(storage);
             let source = s.effects.source(file).ok_or(StreamError::Failure)?;
+            source.catalog_charge = storage;
             source.key = key;
             source.catalog = index
                 .entries()
@@ -487,11 +521,54 @@ impl NativeFiles {
         if !self.handles.unlock_pack(owner, unlock_key)? {
             return Err(StreamError::Failure);
         }
+        Ok(())
+    }
+    /// Convenience constructor and unlock, serialized as one operation. Failures
+    /// preserve owner allocation, retained files and any completed native effects.
+    pub fn register(&self, name: &[u8], unlock_key: u64) -> Result<u64, StreamError> {
+        let _gate = self
+            .gate
+            .lock()
+            .map_err(|_| StreamError::Native(OperationError::LockPoisoned))?;
+        if self.closed.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err(StreamError::Closed);
+        }
+        let owner = self.handles.dta_create(name)?.ok_or(StreamError::Failure)?;
+        self.unlock_archive_locked(owner, unlock_key)?;
         Ok(owner)
     }
+    pub fn dta_first_force(&self) -> Result<(), StreamError> {
+        let _gate = self
+            .gate
+            .lock()
+            .map_err(|_| StreamError::Native(OperationError::LockPoisoned))?;
+        if self.closed.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err(StreamError::Closed);
+        }
+        Ok(self.handles.dta_set_dta_first_force()?)
+    }
+    /// Catalog admission failures are returned to the caller, never treated as
+    /// an absent archive that could trigger a search of another provider.
+    pub fn catalog(&self, owner: u64) -> Result<Vec<ArchiveCatalogEntry>, StreamError> {
+        Ok(self
+            .admitted_catalog(owner)?
+            .into_iter()
+            .map(|entry| ArchiveCatalogEntry {
+                path: entry.path,
+                native_name: entry.native_name,
+                size: entry.size,
+            })
+            .collect())
+    }
     /// Immutable identities admitted from the same retained file used by native IO.
-    pub(crate) fn catalog(&self, owner: u64) -> Result<Vec<crate::dta::Entry>, StreamError> {
+    pub(crate) fn admitted_catalog(
+        &self,
+        owner: u64,
+    ) -> Result<Vec<crate::dta::Entry>, StreamError> {
         let _gate = self.gate.lock().map_err(|_| StreamError::Failure)?;
+        if self.closed.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err(StreamError::Closed);
+        }
         let mut state = self
             .handles
             .state
@@ -950,6 +1027,97 @@ mod tests {
         out.extend_from_slice(&(block.len() as u32).to_le_bytes());
         out.extend(block);
         out
+    }
+    #[test]
+    fn phased_archive_creation_unlock_and_repeated_admission_share_one_owner() {
+        let dir = Directory::new();
+        std::fs::write(dir.0.join("pack"), pack(true)).unwrap();
+        let files = NativeFiles::new(&dir.0, 100, 600).unwrap();
+        let owner = files.create_archive(b"pack").unwrap().unwrap();
+        assert!(files.catalog(owner).unwrap().is_empty());
+        {
+            let state = files.handles.state.lock().unwrap();
+            assert_eq!(state.owners.len(), 1);
+            assert!(state.owners[0].table.is_empty());
+            assert_eq!(state.effects.allocated, 12);
+            assert_eq!(state.effects.files.len(), 1);
+        }
+        files.unlock_archive(owner, 0).unwrap();
+        let entries = files.catalog(owner).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, "a");
+        assert_eq!(entries[0].native_name, b"a");
+        assert_eq!(entries[0].size, 3);
+        let charged = files.handles.state.lock().unwrap().effects.allocated;
+        files.unlock_archive(owner, 0).unwrap();
+        assert_eq!(
+            files.handles.state.lock().unwrap().effects.allocated,
+            charged
+        );
+        assert_eq!(files.handles.state.lock().unwrap().owners.len(), 1);
+        files.release(owner).unwrap();
+        assert_eq!(files.handles.state.lock().unwrap().effects.allocated, 0);
+        let readable = NativeFiles::new(&dir.0, 100, 100000).unwrap();
+        let owner = readable.create_archive(b"pack").unwrap().unwrap();
+        readable.unlock_archive(owner, 0).unwrap();
+        let mut stream = readable.open(b"a", SelectedSource::Archive(owner)).unwrap();
+        let mut bytes = [0; 3];
+        assert_eq!(stream.read(&mut bytes), Ok(3));
+        assert_eq!(bytes, [7, 8, 9]);
+    }
+    #[test]
+    fn failed_constructor_and_failed_unlock_keep_completed_owner_effects() {
+        let dir = Directory::new();
+        std::fs::write(dir.0.join("bad"), b"not an archive").unwrap();
+        std::fs::write(dir.0.join("truncated"), b"ISD0").unwrap();
+        let files = NativeFiles::new(&dir.0, 100, 100000).unwrap();
+        assert_eq!(files.create_archive(b"missing"), Ok(None));
+        assert_eq!(files.create_archive(b"bad"), Ok(None));
+        let owner = files.create_archive(b"truncated").unwrap().unwrap();
+        assert_eq!(files.unlock_archive(owner, 0), Err(StreamError::Bounds));
+        {
+            let state = files.handles.state.lock().unwrap();
+            assert_eq!(state.owners.len(), 3);
+            assert_eq!(state.effects.allocated, 36);
+            assert_eq!(state.effects.files.len(), 2);
+        }
+        assert_eq!(files.unlock_archive(u64::MAX, 0), Err(StreamError::Failure));
+        assert_eq!(files.release(owner), Ok(Some(0)));
+        assert_eq!(files.handles.state.lock().unwrap().owners.len(), 2);
+        assert_eq!(files.handles.state.lock().unwrap().effects.allocated, 24);
+        let exhausted = NativeFiles::new(&dir.0, 100, 11).unwrap();
+        assert_eq!(exhausted.create_archive(b"truncated"), Ok(None));
+        assert!(exhausted.handles.state.lock().unwrap().owners.is_empty());
+    }
+    #[test]
+    fn phased_operations_observe_snapshot_interrupt_and_shutdown_guards() {
+        let dir = Directory::new();
+        let path = dir.0.join("pack");
+        std::fs::write(&path, pack(false)).unwrap();
+        let files = NativeFiles::new(&dir.0, 100, 100000).unwrap();
+        let owner = files.create_archive(b"pack").unwrap().unwrap();
+        std::fs::write(&path, b"changed").unwrap();
+        assert_eq!(files.unlock_archive(owner, 0), Err(StreamError::Failure));
+        assert!(
+            files.handles.state.lock().unwrap().owners[0]
+                .table
+                .is_empty()
+        );
+        files.dta_first_force().unwrap();
+        assert!(files.handles.state.lock().unwrap().dta_first_force);
+        files.handles.state.lock().unwrap().interrupted = Some(EffectStage::Read);
+        assert_eq!(
+            files.unlock_archive(owner, 0),
+            Err(StreamError::Native(OperationError::Interrupted(
+                EffectStage::Read
+            )))
+        );
+        files.handles.state.lock().unwrap().interrupted = None;
+        files.shutdown().unwrap();
+        assert_eq!(files.create_archive(b"pack"), Err(StreamError::Closed));
+        assert_eq!(files.unlock_archive(owner, 0), Err(StreamError::Closed));
+        assert_eq!(files.dta_first_force(), Err(StreamError::Closed));
+        assert_eq!(files.catalog(owner), Err(StreamError::Closed));
     }
     #[test]
     fn real_files_lz_and_pcm16_wav_plain_and_cipher_mono_and_stereo() {

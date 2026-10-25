@@ -210,6 +210,54 @@ fn priority_selected_errors_and_later_only_paths() {
     assert!(installation.read("same").is_err());
 }
 #[test]
+fn installation_admits_all_original_archive_slots_in_native_order() {
+    let dir = Directory::new();
+    // Independent fixture keys are already decoded for the synthetic encoder.
+    let archives = [
+        ("A8.DTA", A8),
+        ("b8.dta", (0x8297d55d, 0x40a54a4f)),
+        ("A2.DTA", A2),
+        ("A6.DTA", (0x64cd8d0a, 0x4bc97b2d)),
+        ("A0.DTA", (0xd8d0a975, 0x467acde0)),
+        ("A1.DTA", (0x3d98766c, 0xde7009cd)),
+        ("A3.DTA", (0x43876fea, 0x900cdba8)),
+        ("AC.DTA", (0x43876fea, 0x900cdba8)),
+        ("A4.DTA", (0x43876fea, 0x900cdba8)),
+        ("AA.DTA", (0x5342760c, 0xedeac652)),
+        ("A5.DTA", (0xdeac5342, 0x760ce652)),
+        ("A7.DTA", (0xd6fea900, 0xcdb76ce6)),
+        ("A9.DTA", (0x6fee6324, 0xacda4783)),
+        ("AB.DTA", (0xd8d0a975, 0x467acde0)),
+    ];
+    for (slot, (name, key)) in archives.iter().enumerate() {
+        let mut entries = vec![Entry::raw(name.as_bytes(), name.as_bytes())];
+        // Each adjacent pair shares a path; its earlier native slot must win.
+        if slot > 0 {
+            entries.push(Entry::raw(
+                format!("pair{}", slot - 1).as_bytes(),
+                name.as_bytes(),
+            ));
+        }
+        if slot + 1 < archives.len() {
+            entries.push(Entry::raw(
+                format!("pair{slot}").as_bytes(),
+                name.as_bytes(),
+            ));
+        }
+        dir.pack(name, &entries, *key);
+    }
+    let installation = Installation::open(&dir.0).unwrap();
+    for (slot, (name, _)) in archives.iter().enumerate() {
+        assert_eq!(installation.read(name).unwrap(), name.as_bytes());
+        if slot + 1 < archives.len() {
+            assert_eq!(
+                installation.read(&format!("pair{slot}")).unwrap(),
+                name.as_bytes()
+            );
+        }
+    }
+}
+#[test]
 fn malformed_native_index_and_block_bounds_never_fall_back() {
     for fault in 0..5 {
         let dir = Directory::new();

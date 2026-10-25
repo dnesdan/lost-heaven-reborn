@@ -64,7 +64,10 @@ pub mod loaded_visual_resources;
 pub mod managed_visual_resources;
 pub mod mesh_bounds;
 pub mod mission_actor_stream;
+pub mod mission_components;
 pub mod mission_effects;
+pub mod mission_lifecycle;
+pub mod mission_resources;
 pub mod mission_scene_loading;
 pub mod mission_scene_stream;
 pub mod model_loading;
@@ -74,7 +77,10 @@ pub mod native_matrix;
 pub mod native_precision;
 pub mod native_transform;
 pub mod original_config;
+pub mod original_logo;
 pub mod original_program;
+pub mod original_system;
+pub mod original_windows;
 pub mod ph_thing_ai;
 pub mod ph_thing_response;
 pub mod ph_thing_update;
@@ -101,6 +107,7 @@ pub mod singlemesh_bounds;
 pub mod singlemesh_deformation;
 pub mod singlemesh_pose;
 pub mod singlemorph_state;
+pub mod startup_asset_backend;
 #[path = "car_runtime_simulation_effects.rs"]
 pub mod vehicle_runtime_effects;
 
@@ -156,14 +163,15 @@ pub mod game {
         collision_prepare, collision_query, collision_swept, collision_swept_aabox,
         collision_swept_box, collision_swept_volumes, collision_swept_world, collision_volumes,
         collision_world, collision_world_driving, collision_world_driving_contacts,
-        game_camera_projection, mission_actor_stream, mission_scene_loading, mission_scene_stream,
-        original_program, program_instructions, program_parser, railway_actor, replay_state,
-        script_lookup, script_scheduler, vehicle_bodycol, vehicle_bodycol_records,
-        vehicle_component_records, vehicle_contacts, vehicle_controls, vehicle_drivetrain,
-        vehicle_dynamics, vehicle_dynamics_body, vehicle_dynamics_body_collision,
-        vehicle_dynamics_body_response, vehicle_dynamics_forces, vehicle_dynamics_move,
-        vehicle_dynamics_prepare, vehicle_dynamics_tail, vehicle_dynamics_tick,
-        vehicle_dynamics_update, vehicle_dynamics_wheel_forces, vehicle_frame_backend,
-        vehicle_init, vehicle_owner, vehicle_sound, vehicle_wheel_pose,
+        game_camera_projection, mission_actor_stream, mission_components, mission_lifecycle,
+        mission_resources, mission_scene_loading, mission_scene_stream, original_logo,
+        original_program, original_system, original_windows, program_instructions, program_parser,
+        railway_actor, replay_state, script_lookup, script_scheduler, vehicle_bodycol,
+        vehicle_bodycol_records, vehicle_component_records, vehicle_contacts, vehicle_controls,
+        vehicle_drivetrain, vehicle_dynamics, vehicle_dynamics_body,
+        vehicle_dynamics_body_collision, vehicle_dynamics_body_response, vehicle_dynamics_forces,
+        vehicle_dynamics_move, vehicle_dynamics_prepare, vehicle_dynamics_tail,
+        vehicle_dynamics_tick, vehicle_dynamics_update, vehicle_dynamics_wheel_forces,
+        vehicle_frame_backend, vehicle_init, vehicle_owner, vehicle_sound, vehicle_wheel_pose,
     };
 }
