@@ -1,4 +1,4 @@
-//! Bounded PCM16 WavDecompression (PC RVA 0x4250).
+//! Bounded WavDecompression (PC RVA 0x4250): PCM16 mono/stereo and raw/LZ fallback.
 //! Name and table identity are corroborated by PS2 linker symbols.
 use super::wav_table::WAV_TABLE;
 
@@ -10,7 +10,7 @@ pub(super) enum WavError {
 
 /// Native predictor arithmetic wraps in 16 bits. Header matching compares only
 /// three saved identifiers; it imposes no RIFF, PCM tag or sample-rate validation.
-/// Truncated native scratch reads and non-PCM16 fallback are outside this domain.
+/// Truncated native scratch reads and zero-channel division are outside this domain.
 pub(super) fn wav_decompression(
     input: &[u8],
     output: &mut [u8],
@@ -55,7 +55,12 @@ pub(super) fn wav_decompression(
         return Err(WavError::Unsupported);
     }
     let align = u16::from_le_bytes([header[32], header[33]]) as usize;
-    if !matches!(channels, 1 | 2) || align / channels != 2 {
+    if align / channels != 2 {
+        let count = super::decode_compression(&input[source..], &mut output[written..])
+            .map_err(|_| WavError::Bounds)?;
+        return Ok(written + count);
+    }
+    if !matches!(channels, 1 | 2) {
         return Err(WavError::Unsupported);
     }
     let mut samples = [0u16; 2];
@@ -142,14 +147,80 @@ mod tests {
             Err(WavError::Bounds)
         );
         assert_eq!(&out[..6], &[1, 0, 2, 0, 2, 0]);
-        let mut h = header(1);
-        h[32] = 1;
+        let h = header(0);
         assert_eq!(
             wav_decompression(&[8; 45], &mut out, &h),
             Err(WavError::Unsupported)
         );
         assert_eq!(
             wav_decompression(&[8, b'R', b'I', b'F', b'F'], &mut out, &header(1)),
+            Err(WavError::Bounds)
+        );
+    }
+    #[test]
+    fn non_pcm16_uses_general_raw_and_nonzero_lz_after_optional_header() {
+        for (channels, align) in [(1u16, 1u16), (2, 6), (3, 3)] {
+            let mut h = header(channels);
+            h[32..34].copy_from_slice(&align.to_le_bytes());
+            for (encoded, expected) in [
+                (vec![0, 7, 8, 9, 10], vec![7, 8, 9, 10]),
+                (
+                    vec![1, 0x10, 0, b'a', b'b', b'c', 0, 0x30],
+                    b"abcabc".to_vec(),
+                ),
+                (vec![99, 0, 0, 7, 8, 9], vec![7, 8, 9]),
+            ] {
+                let mut input = vec![8];
+                input.extend(h);
+                input.extend(&encoded);
+                let mut output = vec![0xa5; 44 + expected.len()];
+                assert_eq!(wav_decompression(&input, &mut output, &h), Ok(output.len()));
+                assert_eq!(&output[..44], &h);
+                assert_eq!(&output[44..], &expected);
+                // Subsequent archive blocks need no duplicate WAV header.
+                let mut continuation = vec![32];
+                continuation.extend(&encoded);
+                let mut output = vec![0xa5; expected.len()];
+                assert_eq!(
+                    wav_decompression(&continuation, &mut output, &h),
+                    Ok(expected.len())
+                );
+                assert_eq!(output, expected);
+            }
+        }
+    }
+    #[test]
+    fn fallback_bounds_keep_header_and_completed_lz_output_prefix() {
+        let mut h = header(1);
+        h[32] = 1;
+        let mut input = vec![8];
+        input.extend(h);
+        // First literal succeeds, then a backreference addresses before output.
+        input.extend([1, 0x40, 0, b'x', 0x10, 0]);
+        let mut output = [0xa5; 50];
+        assert_eq!(
+            wav_decompression(&input, &mut output, &h),
+            Err(WavError::Bounds)
+        );
+        assert_eq!(&output[..44], &h);
+        assert_eq!(output[44], b'x');
+        assert_eq!(&output[45..], &[0xa5; 5]);
+        let mut input = vec![8];
+        input.extend(h);
+        input.extend([0, 7, 8, 9, 10]);
+        let mut short = [0xa5; 46];
+        assert_eq!(
+            wav_decompression(&input, &mut short, &h),
+            Err(WavError::Bounds)
+        );
+        assert_eq!(&short[..44], &h);
+        assert_eq!(&short[44..], &[0xa5; 2]);
+        let mut huge = vec![8];
+        huge.extend(h);
+        huge.push(0);
+        huge.extend(std::iter::repeat_n(1, 32725));
+        assert_eq!(
+            wav_decompression(&huge, &mut [0; 32769], &h),
             Err(WavError::Bounds)
         );
     }

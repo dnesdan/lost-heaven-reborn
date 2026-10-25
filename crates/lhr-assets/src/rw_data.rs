@@ -575,8 +575,9 @@ impl<B: ReadEffects> Handles<B> {
         state.read_caches[handle as usize] = Some(cache);
         Ok(())
     }
-    /// Read-mode dtaRead, PC RVA 0x25c0, including bounded PCM16 mono/stereo WAV.
-    /// Other WAV channel layouts and the non-PCM16 fallback remain unsupported.
+    /// Read-mode dtaRead, PC RVA 0x25c0, including bounded PCM16 mono/stereo WAV
+    /// and the source's general Decompression fallback for other sample widths.
+    /// Zero channels and other PCM16 channel layouts remain outside the safe domain.
     /// None represents a null native buffer, including for a zero-length call.
     /// Host-unsafe cursor/cache ranges and malformed archive blocks return errors.
     /// Errors may preserve completed I/O and partial output/cache mutations;
@@ -757,6 +758,21 @@ fn decode_archive_block(input: &[u8], output: &mut [u8]) -> Result<usize, ()> {
             .ok_or(())?
             .copy_from_slice(source);
         return Ok(source.len());
+    }
+    decode_compression(input, output)
+}
+
+/// Original Decompression, also called inside WavDecompression's non-16-bit
+/// branch. Its inner selector is raw only for zero; every nonzero value is LZ.
+/// Archive dispatch above separately treats non-1, non-WAV outer tags as raw.
+fn decode_compression(input: &[u8], output: &mut [u8]) -> Result<usize, ()> {
+    if *input.first().ok_or(())? == 0 {
+        let bytes = &input[1..];
+        output
+            .get_mut(..bytes.len())
+            .ok_or(())?
+            .copy_from_slice(bytes);
+        return Ok(bytes.len());
     }
     let mut position = 3;
     let mut flags = u16::from_be_bytes(input.get(1..3).ok_or(())?.try_into().unwrap());
