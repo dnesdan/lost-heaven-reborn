@@ -57,13 +57,7 @@ pub fn decode_tga(b: &[u8]) -> Result<Texture> {
             let dst = (y * width + x) * 4;
             if depth == 16 {
                 let c = u16::from_le_bytes([b[src], b[src + 1]]);
-                // Preserve native X1R5G5B5 source expansion and high alpha bit.
-                rgba[dst..dst + 4].copy_from_slice(&[
-                    ((c & 0x7c00) >> 7) as u8,
-                    ((c & 0x03e0) >> 2) as u8,
-                    ((c & 0x001f) << 3) as u8,
-                    if c & 0x8000 != 0 { 255 } else { 0 },
-                ]);
+                rgba[dst..dst + 4].copy_from_slice(&super::decode_x1r5g5b5(c));
             } else {
                 rgba[dst..dst + 4].copy_from_slice(&[
                     b[src + 2],

@@ -1215,17 +1215,30 @@ pub fn read_asset_file(path: impl AsRef<Path>) -> Result<Vec<u8>> {
     }
     Ok(b)
 }
+/// Source conversion used by original 16-bit BMP and TGA creation. Do not
+/// replicate low bits: the native shifts expand the channels to 0..248.
+fn decode_x1r5g5b5(word: u16) -> [u8; 4] {
+    [
+        ((word & 0x7c00) >> 7) as u8,
+        ((word & 0x03e0) >> 2) as u8,
+        ((word & 0x001f) << 3) as u8,
+        if word & 0x8000 != 0 { 255 } else { 0 },
+    ]
+}
+#[cfg(test)]
+mod original_image_tests;
 /// Uncompressed Windows BMP, 8-bit indexed or 24-bit BGR. Output is top-down RGBA.
 pub fn decode_bmp(b: &[u8]) -> Result<Texture> {
     decode_bmp_impl(b, false)
 }
-/// Original-loader compatibility: initialize all 256 indexed palette slots to
-/// black before reading the declared entries. Some shipped BMPs use an omitted
-/// palette index. Strict decode_bmp keeps rejecting such files.
+/// Original-loader compatibility: BI_RGB indexed8, X1R5G5B5, BGR24 and BGRA32.
+/// Source alpha bits are retained for the texture factory's flag-dependent use.
+/// Indexed palettes initialize all 256 slots to black before declared entries;
+/// strict decode_bmp retains its existing 8/24-bit and full-palette policy.
 pub fn decode_bmp_original(b: &[u8]) -> Result<Texture> {
     decode_bmp_impl(b, true)
 }
-fn decode_bmp_impl(b: &[u8], original_palette: bool) -> Result<Texture> {
+fn decode_bmp_impl(b: &[u8], original_compatibility: bool) -> Result<Texture> {
     if b.len() > MAX_BYTES {
         return err("BMP exceeds 64 MiB quota");
     };
@@ -1254,8 +1267,8 @@ fn decode_bmp_impl(b: &[u8], original_palette: bool) -> Result<Texture> {
         return err("invalid BMP planes");
     };
     let depth = r.u16()?;
-    if depth != 8 && depth != 24 {
-        return err("only indexed 8-bit and BGR24 BMP supported");
+    if !matches!(depth, 8 | 24) && !(original_compatibility && matches!(depth, 16 | 32)) {
+        return err("unsupported BMP source depth");
     };
     if r.u32()? != 0 {
         return err("compressed BMP unsupported");
@@ -1276,7 +1289,7 @@ fn decode_bmp_impl(b: &[u8], original_palette: bool) -> Result<Texture> {
         let c = r.take(4)?;
         palette.push([c[2], c[1], c[0], 255]);
     }
-    if depth == 8 && original_palette {
+    if depth == 8 && original_compatibility {
         palette.resize(256, [0, 0, 0, 255]);
     }
     if offset < r.p || size != b.len() {
@@ -1300,8 +1313,15 @@ fn decode_bmp_impl(b: &[u8], original_palette: bool) -> Result<Texture> {
                 *palette
                     .get(b[p] as usize)
                     .ok_or_else(|| Error("BMP palette index out of range".into()))?
+            } else if depth == 16 {
+                decode_x1r5g5b5(u16::from_le_bytes([b[p], b[p + 1]]))
             } else {
-                [b[p + 2], b[p + 1], b[p], 255]
+                [
+                    b[p + 2],
+                    b[p + 1],
+                    b[p],
+                    if depth == 32 { b[p + 3] } else { 255 },
+                ]
             };
             rgba[(y * w + x) * 4..(y * w + x + 1) * 4].copy_from_slice(&color);
         }

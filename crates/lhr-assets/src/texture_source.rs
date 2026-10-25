@@ -72,12 +72,13 @@ pub fn decode_texture_image(bytes: &[u8]) -> Result<DecodedTextureImage, Texture
         {
             return Err(TextureImageDecodeError::Unsupported("BMP source layout"));
         }
-        if !matches!(info.bpp, 8 | 24) {
+        if !matches!(info.bpp, 8 | 16 | 24 | 32) {
             return Err(TextureImageDecodeError::Unsupported("BMP source depth"));
         }
         let texture = crate::decode_bmp_original(bytes)?;
         // The validated BMP decoder requires a 40-byte BITMAPINFOHEADER and
-        // admits only indexed8/BGR24; palette entry0 is its color-key source.
+        // admits BI_RGB indexed8/X1R5G5B5/BGR24/BGRA32; indexed palette entry0
+        // is its color-key source.
         let bpp = info.bpp;
         let palette_key = if bpp == 8 {
             Some([bytes[56], bytes[55], bytes[54]])
