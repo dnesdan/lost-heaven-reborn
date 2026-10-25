@@ -766,7 +766,7 @@ mod tests {
         }
         let successes = workers
             .into_iter()
-            .filter_map(|worker| worker.join().ok())
+            .map(|worker| worker.join().expect("write admission worker panicked"))
             .filter(|&success| success)
             .count();
         assert_eq!(successes, 1);
