@@ -521,7 +521,7 @@ fn load_car(
         }
         println!("CPU car constructed and initialized: {} seats, {} cached animation tracks; {} visible meshes, {} draws",owner.summary().seats,owner.summary().cached_tracks,snapshot.visible_meshes,snapshot.scene.meshes.len());
         if !driving {
-            println!("Car inspection: same initialized frame graph and CPU buffers; first LOD, unlit base color/texture, supported masks clipped at host cutoff 0.5; {} draws contain unsupported material effects. A/D previews original wheel steering; body simulation, driving and missions are unavailable.",snapshot.omitted_material_effects);
+            println!("Car inspection: same initialized frame graph and CPU buffers; first LOD, unlit texture/diffuse with source material transparency and sidedness; {} draws contain unsupported material effects. A/D previews original wheel steering; body simulation, driving and missions are unavailable.",snapshot.omitted_material_effects);
         } else {
             println!("Driving controls: W throttle, S brake, A/D steer, Space handbrake; R reload, Escape exit. Fixed 16 ms simulation, live native car frames, original static world; host chase camera and unlit rendering.");
         }
