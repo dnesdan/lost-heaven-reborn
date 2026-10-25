@@ -1,7 +1,7 @@
 # Lost Heaven Reborn
 
 <!-- generated-function-progress:start -->
-As of 2026-10-24 · snapshot `RUST-SCOPED-PORTS-20261024-46`.
+As of 2026-10-25 · snapshot `RUST-SCOPED-PORTS-20261025-47`.
 
 <p align="center"><img src="docs/progress.svg" alt="Progress dashboard: static retained pseudocode, reviewed scoped Rust entries, and strict system verification" width="100%"></p>
 
@@ -14,7 +14,7 @@ As of 2026-10-24 · snapshot `RUST-SCOPED-PORTS-20261024-46`.
 
 Strict full-system gate: **0/12**. Binary-level static counts use the named denominator basis and do not combine into a game-completion percentage. Unknown denominators remain N/A. 1 supplied configuration Setup inventory uses 172 in-image non-thunk procedures. Separately, archive installer bootstrap static inventory: **376 / 376 (100.00%)**; this distribution target is not combined with engine-library counts. The campaign is not playable.
 
-Accepted scoped Rust ports: **309 entries across 113 reviewed contracts**. These remain separate from retained pseudocode and whole-function counts.
+Accepted scoped Rust ports: **311 entries across 114 reviewed contracts**. These remain separate from retained pseudocode and whole-function counts.
 
 Regenerate locally with `python3 scripts/progress.py --write`; verify without writes with `python3 scripts/progress.py --check`. Versioned snapshots are retained in `docs/progress.json`.
 Milestone history and scoped implementation evidence are in [docs/PROGRESS.md](docs/PROGRESS.md).
@@ -26,7 +26,7 @@ Supplied binary catalog (file identities; independent measures):
 | Game.exe | PC | Installed game | Game and mission executable | 4784 / 4,914 (97.35%) | 149 |
 | IJoy.dll | PC | Installed game | DirectInput joystick wrapper | N/A | 0 |
 | INet.dll | PC | Installed game | Network helper, exact runtime use unresolved | N/A | 0 |
-| LS3DF.dll | PC | Installed game | 3D, animation, audio and rendering engine | 1555 / 1,714 (90.72%) | 143 |
+| LS3DF.dll | PC | Installed game | 3D, animation, audio and rendering engine | 1555 / 1,714 (90.72%) | 145 |
 | Setup.exe (supplied configuration) | PC | Installed game | Installed game configuration utility | 172 / 172 (100.00%) | 5 |
 | binkw32.dll | PC | Installed game | Bink video codec boundary | N/A | 0 |
 | ogg.dll | PC | Installed game | Ogg container library boundary | N/A | 0 |
@@ -61,6 +61,14 @@ Standalone object/mesh/material ownership includes bounded managed-record creati
 
 Ownership code uses `lhr_engine::ls3df::{c_str, itexture, i3d_object, texture_manager}`. These logical original-library modules add no DLL or Cargo package; see the [package and name mapping](docs/REFERENCE_PROJECTS.md#rust-organization-and-original-names).
 
+Scene dependencies now include recovered weather reset and sector sound defaults,
+compared against original instructions in 800 inputs including precision controls.
+Standalone resource cleanup follows vertex → index order with shared-owner and
+failure-prefix checks. A fresh driving regression exercises three reloads and four
+zero-owned-resource cleanups; [view its screenshot](docs/screenshots/2026-10-25-resource-reload.webp).
+Full Scene construction,
+shared Snow ownership and mission integration remain open; see [progress](docs/PROGRESS.md).
+
 The immediate goal is **the playable first mission, from the original menu through mission completion**, alongside function-by-function library parity with mafia-re. See the [acceptance gates and dependency order](docs/GOALS.md). PS2 symbol names guide reconstruction; PC behavior and platform differences require original-binary verification.
 
 Standalone original-data driving now composes Car construction, Init and
@@ -78,8 +86,8 @@ Space applies the handbrake, and R reloads the standalone context. This mode
 uses the authored MISE01 car placement and a host chase camera. Mission scripts,
 traffic, occupants and original presentation effects remain separate work.
 Rendering is unlit first LOD; remaining particle, projection, actor-class and
-resource paths fail explicitly. The accepted entry ledger remains **309 / 113 contracts**;
-this integration milestone adds no whole-function or campaign credit.
+resource paths fail explicitly. That driving integration added no new canonical
+entries, whole-function or campaign credit.
 
 The frozen Source4 passes the full check suite and three headless trajectories
 in both actual debug/release profiles: 900 collision steps, 900 glass-damage

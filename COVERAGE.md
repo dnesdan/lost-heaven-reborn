@@ -1,13 +1,46 @@
 # Reconstruction coverage
 
+## Scene weather and resource maintenance — 2026-10-25
+
+Code commit `89308ce` adds `I3D_scene::WeatherSystemReset` and
+`S_sector_sound_properties::SetupDefaults`, with actual PS2 symbol correspondence
+and original PC instruction comparisons. Eight hundred direct inputs comprise
+736 weather and 64 sound-default cases, including incoming precision P0/P1.
+Full 65,536-byte fixture arenas and logical sticky P match actual Cargo debug and
+release builds; native O0/O3 wrappers add no cases. Original fixed-angle math runs
+without numeric mocks. Host CW/MXCSR equivalence remains unclaimed.
+
+Loaded resources now expose separate vertex and index reclamation stages, and
+standalone Car shutdown executes vertex before index over its actual owner.
+Shared meshes and live vertex buffers survive maintenance. A synthetic CPU
+backing-loss test checks poisoned-manager refusal without native failure credit.
+The Scene helper admits only these two effects and rejects other boundaries.
+
+The 265-file Source-v2 passes 1071 Rust tests, nine REA-wrapper and 47 progress
+tests, formatting, locked all-target checking and Clippy. A fresh debug window
+exercises three W driving runs, three R reloads and four zero-owned-resource
+cleanups; five caller-owned Scene-prefix frames remain explicit.
+[New screenshot](docs/screenshots/2026-10-25-resource-reload.webp).
+Two sequential independent non-author reviews accepted the bounded source.
+
+The accepted ledger is **311 entries / 114 contracts**, with
+**23 static_inspection / 91 not_integrated**; strict verification remains **0/12**
+and whole-function coverage N/A. Weather/default workers are not yet called by
+the live Scene constructor. Viewport, shared Snow creation/lifetime, full Close,
+original File Open/reload and mission ownership remain open. The authored MISE01
+program probe still stops at FINDACTOR/UnsupportedWorldBackend, PC 3 / line 4;
+the application does not yet execute its mission scripts.
+
+## Previous standalone driving integration
+
 
 Standalone driving composes the original-data car lifecycle, world collisions,
 material/tyre projections, input setters, simulation, sound and explicit cleanup.
 The source keeps one canonical car/frame/heap owner. Native comparisons and
 original-data rendered/input evidence have separate scopes; the campaign stays
-unplayable and strict system verification remains **0/12**. No new canonical-entry
-credit is inferred from this integration, so the accepted ledger stays **309
-entries / 113 contracts**.
+unplayable and strict system verification remains **0/12**. That integration added
+no canonical entries; its accepted ledger was **309 entries / 113 contracts**.
+The current Scene dependency ledger is stated above.
 
 The driving view includes original static collision, nearby cache-model geometry,
 canonical light/skid visibility, a host chase camera and original WAV mixing.

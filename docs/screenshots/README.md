@@ -2,6 +2,21 @@
 
 Actual captures from the Rust application using separately supplied PC game data. Images are compressed WebP previews; uncompressed validation captures remain private. Add dated images for visible milestones, up to 960 pixels wide and 200 KiB per image, rather than a capture for every commit. Game content retains its original ownership.
 
+## 2026-10-25 — driving and repeated resource reload
+
+![Original taxi during the current driving/reload regression](2026-10-25-resource-reload.webp)
+
+Actual debug Rust X11/software-Vulkan capture with the original taxi and MISE01
+world. The run exercises three W driving sequences, three R reloads and final
+Escape; each of four cleanups reports zero owned actor registrations, heap
+blocks, visual buffers and textures. Five caller-owned Scene-prefix frames
+remain explicit context. The 960 × 640 preview is 99,706 bytes.
+
+This is a resource/driving regression after the Scene dependency changes.
+Weather reset and sound defaults are compared separately against original code;
+they are not yet bound to live Scene construction or rendering. The image uses
+the existing host chase camera and unlit first-LOD renderer.
+
 ## 2026-10-24 — continuous driving preview
 
 [![Original taxi during the verified driving capture](2026-10-24-car-driving-verified.webp)](../videos/2026-10-24-car-driving.mp4)

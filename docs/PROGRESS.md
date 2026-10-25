@@ -1,6 +1,37 @@
 # Progress
 
-## Current standalone driving integration
+## Scene weather and resource maintenance — 2026-10-25
+
+Code commit `89308ce` adds `I3D_scene::WeatherSystemReset` and
+`S_sector_sound_properties::SetupDefaults`, with actual PS2 symbol correspondence
+and original PC instruction comparisons. Eight hundred direct inputs comprise
+736 weather and 64 sound-default cases, including incoming precision P0/P1.
+Full 65,536-byte fixture arenas and logical sticky P match actual Cargo debug and
+release builds; native O0/O3 wrappers add no cases. Original fixed-angle math runs
+without numeric mocks. Host CW/MXCSR equivalence remains unclaimed.
+
+Loaded resources now expose separate vertex and index reclamation stages, and
+standalone Car shutdown executes vertex before index over its actual owner.
+Shared meshes and live vertex buffers survive maintenance. A synthetic CPU
+backing-loss test checks poisoned-manager refusal without native failure credit.
+The Scene helper admits only these two effects and rejects other boundaries.
+
+The 265-file Source-v2 passes 1071 Rust tests, nine REA-wrapper and 47 progress
+tests, formatting, locked all-target checking and Clippy. A fresh debug window
+exercises three W driving runs, three R reloads and four zero-owned-resource
+cleanups; five caller-owned Scene-prefix frames remain explicit.
+[New screenshot](screenshots/2026-10-25-resource-reload.webp).
+Two sequential independent non-author reviews accepted the bounded source.
+
+The accepted ledger is **311 entries / 114 contracts**, with
+**23 static_inspection / 91 not_integrated**; strict verification remains **0/12**
+and whole-function coverage N/A. Weather/default workers are not yet called by
+the live Scene constructor. Viewport, shared Snow creation/lifetime, full Close,
+original File Open/reload and mission ownership remain open. The authored MISE01
+program probe still stops at FINDACTOR/UnsupportedWorldBackend, PC 3 / line 4;
+the application does not yet execute its mission scripts.
+
+## Previous standalone driving integration
 
 Frozen Source4 composes the original-data Car lifecycle, static and dynamic
 collision, material/tyre tables, crash-model replacement, physical `C_crash_obj`
@@ -106,7 +137,7 @@ Historical filesystem milestone: At `f04cc43`, read-only `FilesystemEffects`, `N
 Historical WAV milestone: At `f89f542`, bounded PCM16 mono/stereo WAV archive decoding composes with Open/Read/Seek/Close: **177 scoped entries / 59 contracts**. Native comparisons cover 202 Read observations (172 nonfailure, 30 released-handle failures) across 26 archive fixtures plus four supplemental trajectories reusing four fixtures, with 66 explicit Seek context rows. The 510 normalized log rows and 7,280,960 complete-buffer bytes include guards and unrequested regions; debug/release count once. Separately, 128 logical decoder vectors and 18 scripted effects plus four direct-buffer effects check Rust behavior, without native failure injection. Eight fresh REA results support the codec; identical PC/PS2 table constants and PS2 linker names add no PS2 runtime claim. Scope is bounded 16-bit mono/stereo; generic non16 LZ, other channels, Write and full DLL parity remain open. Application/audio playback and first-mission integration remain open; no new rendered or interactive validation.
 
 <!-- generated-function-progress:start -->
-As of 2026-10-24 · snapshot `RUST-SCOPED-PORTS-20261024-46`.
+As of 2026-10-25 · snapshot `RUST-SCOPED-PORTS-20261025-47`.
 
 | Original binary | Static retained pseudocode | Denominator basis | Full contracts | Full Rust ports | Differential runtime verified |
 | --- | ---: | --- | ---: | ---: | ---: |
@@ -117,7 +148,7 @@ As of 2026-10-24 · snapshot `RUST-SCOPED-PORTS-20261024-46`.
 
 Strict full-system gate: **0/12**. Binary-level static counts use the named denominator basis and do not combine into a game-completion percentage. Unknown denominators remain N/A. 1 supplied configuration Setup inventory uses 172 in-image non-thunk procedures. Separately, archive installer bootstrap static inventory: **376 / 376 (100.00%)**; this distribution target is not combined with engine-library counts. The campaign is not playable.
 
-Accepted scoped Rust ports: **309 entries across 113 reviewed contracts**. These remain separate from retained pseudocode and whole-function counts.
+Accepted scoped Rust ports: **311 entries across 114 reviewed contracts**. These remain separate from retained pseudocode and whole-function counts.
 
 | Rust contract | Source | Original entries | Native-derived cases | Runtime use | Verified scope |
 | --- | --- | ---: | ---: | --- | --- |
@@ -234,6 +265,7 @@ Accepted scoped Rust ports: **309 entries across 113 reviewed contracts**. These
 | Game bounded SphereInNonface and SphereInAABox | [crates/lhr-engine/src/collision_swept_world.rs](../crates/lhr-engine/src/collision_swept_world.rs) | 2 | 926 | No integration recorded | Nine hundred twenty-six distinct original direct-entry capsules comprise five hundred ninety Nonface and three hundred thirty-six AABox inputs. Sphere, infinite cylinder, selected AABox faces, transformed OBB and XTOBB paths preserve native edge, vertex and transform order. Source planes and local radius are retained. Complete state and defined boolean compare within the bounded numeric domain; no actor or dynamic-world owner is invented. |
 | Game bounded static TestSphereB worker and tree traversal | [crates/lhr-engine/src/collision_swept_world.rs](../crates/lhr-engine/src/collision_swept_world.rs) | 2 | 172 | No integration recorded | One hundred seventy-two unique full capsules from one hundred seventy-three named direct _TestSphereB requests execute the actual nested SphereInTreeLevel body. Complete state, original primitive identity, strict nearest distance, masks and optional output preservation compare. A separate native PC marker confirms Tree reachability; there are no standalone Tree entry prestates. Dynamic-grid presence and reached missing geometry remain typed unavailable. TestSphereB thunk and host-world adapter gain no credit. |
 | Game bounded DBox collision worker and dependencies | [crates/lhr-engine/src/collision_swept_box.rs](../crates/lhr-engine/src/collision_swept_box.rs) | 4 | 77 | No integration recorded | Seventy-seven distinct original direct-entry inputs comprise twenty-eight _TestDBox, fifteen BoxInTreeLevel, seventeen BoxInNonFace and seventeen BoxInDynamic cases. Defined boolean results agree and original source memory remains read-only. Original tangent rules, stored squared extents, ordering and required owner availability are retained. Actual live dynamic actor registration and original-world driving are not established. |
+| LS3DF Scene weather reset and sector sound defaults | [crates/lhr-engine/src/scene_weather.rs](../crates/lhr-engine/src/scene_weather.rs) | 2 | 800 | No integration recorded | Eight hundred direct original-instruction inputs comprise 736 WeatherSystemReset and 64 sector sound defaults inputs, including incoming precision P0/P1. Full 65536-byte fixture arenas and logical sticky P match actual Cargo debug/release; native O0/O3 wrappers add no cases. Original fixed-angle math executes without numeric mocks. Unknown Scene words and signed zeros are retained. Scene construction, shared Snow ownership, full Close, driver/global ownership and mission integration remain open. |
 
 These rows describe only the reviewed bounded domains. Their native-derived cases do not establish whole-function completion.
 
@@ -287,6 +319,7 @@ These rows describe only the reviewed bounded domains. Their native-derived case
 | `RUST-SCOPED-PORTS-20261024-44` | 2026-10-24 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 272 | 0/12 |
 | `RUST-SCOPED-PORTS-20261024-45` | 2026-10-24 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 309 | 0/12 |
 | `RUST-SCOPED-PORTS-20261024-46` | 2026-10-24 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 309 | 0/12 |
+| `RUST-SCOPED-PORTS-20261025-47` | 2026-10-25 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 311 | 0/12 |
 
 Regenerate locally with `python3 scripts/progress.py --write`; verify without writes with `python3 scripts/progress.py --check`. Versioned snapshots are retained in `docs/progress.json`.
 See the [README overview](../README.md) for the compact dashboard.
@@ -298,7 +331,7 @@ Supplied binary catalog (file identities; independent measures):
 | Game.exe | PC | Installed game | Game and mission executable | 4784 / 4,914 (97.35%) | 149 |
 | IJoy.dll | PC | Installed game | DirectInput joystick wrapper | N/A | 0 |
 | INet.dll | PC | Installed game | Network helper, exact runtime use unresolved | N/A | 0 |
-| LS3DF.dll | PC | Installed game | 3D, animation, audio and rendering engine | 1555 / 1,714 (90.72%) | 143 |
+| LS3DF.dll | PC | Installed game | 3D, animation, audio and rendering engine | 1555 / 1,714 (90.72%) | 145 |
 | Setup.exe (supplied configuration) | PC | Installed game | Installed game configuration utility | 172 / 172 (100.00%) | 5 |
 | binkw32.dll | PC | Installed game | Bink video codec boundary | N/A | 0 |
 | ogg.dll | PC | Installed game | Ogg container library boundary | N/A | 0 |

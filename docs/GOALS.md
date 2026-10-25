@@ -18,10 +18,11 @@ All gates remain open until corresponding evidence is recorded. Current function
 Standalone original-data driving now composes the Car constructor, Init,
 GameInit, Tick/Engine/Move/Update and explicit GameDone/destruction over one live
 owner. Original static collision, material/tyre tables, WAV sound and host input/
-chase presentation are connected. The accepted canonical-entry ledger stays
-309 entries / 113 contracts; full-system verification remains 0/12.
+chase presentation are connected. The accepted canonical-entry ledger is now
+311 entries / 114 contracts after the separate weather/default dependencies;
+full-system verification remains 0/12.
 
-Actual authored MISE01 still stops at FINDACTOR/UnsupportedWorldBackend,
+The authored MISE01 program probe still stops at FINDACTOR/UnsupportedWorldBackend,
 PC 3 / source line 4. All six first-mission gates remain open. Complete original
 Game/Scene/player construction, foreign dynamic actors, live particle/projection
 pools and remaining severe-damage effects are separate dependencies. Standalone
@@ -40,6 +41,10 @@ Bounded parsed-model lifetime covers admitted model, dummy, unbound Joint and Ta
 Bounded standalone managed texture Restore now reconstructs admitted system/default pools and reserves the registry through controlled device/storage effects. It composes the accepted Release dependency, selects raw format once, uses returned descriptor Size with signed budgets and wrapping memory arithmetic, grows arrays in 1,024-slot steps and preserves registry entries. RestoreManagedTextures is a pinned mafia-re working name without recovered original PC/PS2 symbol. Admitted plain-object loaded resources now connect to CPU ModelArena ownership. Full native texture Create/worker/upload, real GPU/device implementation, whole-device shutdown, derived lit/skin/morph resources and application/mission integration remain open; these standalone resource contracts establish no original-renderer parity.
 
 Fresh REA/Ghidra instruction evidence and actual registry bytes support the bounded replay state and `RECWAITFOREND` bridge. The registry spelling/opcode is original command evidence; replay helper/type names remain descriptive. Actual PS2 linker replay names and the pinned/current upstream trees establish no cinematic replay-owner correspondence. Resource-backed replay Load/Update and actual first-mission ownership remain separate dependencies.
+
+Weather reset and sector sound defaults are reconstructed and compared separately.
+They are not yet bound to live Scene construction; viewport and actual Snow
+texture creation/shared destruction remain the next constructor dependencies.
 
 The immediate dependency order is:
 
