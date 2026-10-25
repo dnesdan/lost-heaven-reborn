@@ -1,4 +1,4 @@
-//! CPU ownership for admitted loaded plain objects, using the existing visual
+//! CPU ownership for admitted plain and unconstructed lit objects, using the existing visual
 //! and buffer-manager lifetimes. This host intake is not native Object::Load,
 //! texture Create, graphics-driver execution, or a renderer. Source vertex and
 //! index bytes and decoded color/alpha/environment images remain owned until
@@ -625,6 +625,9 @@ impl LoadedVisualResources {
             return Err(LoadedVisualError::IncompleteAdmission);
         }
         let source = self.objects.object(original)?;
+        if source.visual_type() != crate::i3d_object::ObjectVisualType::Plain {
+            return Err(LoadedVisualError::UnsupportedVisual(Some(1)));
+        }
         let mesh = source.mesh;
         let materials = self.source_materials(original)?.to_vec();
         let result = (|| {
@@ -644,6 +647,37 @@ impl LoadedVisualResources {
         index: usize,
         installation: &lhr_assets::Installation,
     ) -> Result<ObjectResourceKey> {
+        let frame = source
+            .frames
+            .get(index)
+            .ok_or(LoadedVisualError::InvalidGeometry)?;
+        if frame.kind != 1 || frame.visual != Some(0) {
+            return Err(LoadedVisualError::UnsupportedVisual(frame.visual));
+        }
+        self.load_base_object(source, index, installation)
+    }
+    /// Distinct derived-class admission; constructed lighting has no producer.
+    pub fn load_unconstructed_lit_object(
+        &mut self,
+        source: &lhr_assets::Model,
+        index: usize,
+        installation: &lhr_assets::Installation,
+    ) -> Result<ObjectResourceKey> {
+        let frame = source
+            .frames
+            .get(index)
+            .ok_or(LoadedVisualError::InvalidGeometry)?;
+        if frame.kind != 1 || frame.visual != Some(1) {
+            return Err(LoadedVisualError::UnsupportedVisual(frame.visual));
+        }
+        self.load_base_object(source, index, installation)
+    }
+    fn load_base_object(
+        &mut self,
+        source: &lhr_assets::Model,
+        index: usize,
+        installation: &lhr_assets::Installation,
+    ) -> Result<ObjectResourceKey> {
         if self.incomplete {
             return Err(LoadedVisualError::IncompleteAdmission);
         }
@@ -656,11 +690,33 @@ impl LoadedVisualResources {
                 "instance must share prior loaded mesh",
             ));
         }
-        if frame.kind != 1 || frame.visual != Some(0) {
+        if frame.kind != 1 || !matches!(frame.visual, Some(0 | 1)) {
             return Err(LoadedVisualError::UnsupportedVisual(frame.visual));
         }
         if frame.lods.len() > 10 {
             return Err(LoadedVisualError::InvalidGeometry);
+        }
+        if frame.visual == Some(1) {
+            // Native null-material draw inherits culling. This bounded host
+            // path requires an assigned material instead of guessing that state.
+            for group in frame.lods.iter().flat_map(|lod| &lod.groups) {
+                let material =
+                    source
+                        .materials
+                        .get(group.material)
+                        .ok_or(LoadedVisualError::Backend(
+                            "unconstructed lit requires assigned material",
+                        ))?;
+                if !material.texture.is_empty()
+                    && (self.material_load_context.loaded_material_flags(material) & 0xe0000000
+                        != 0
+                        || self.material_load_context.base_texture_flags(material)? & 0xe != 0)
+                {
+                    return Err(LoadedVisualError::Backend(
+                        "unconstructed lit texture alpha/add/color-key unavailable",
+                    ));
+                }
+            }
         }
         let mut materials = BTreeMap::new();
         for lod in &frame.lods {
@@ -784,7 +840,12 @@ impl LoadedVisualResources {
         materials: BTreeMap<usize, PreparedMaterial>,
     ) -> Result<ObjectResourceKey> {
         let mesh = self.objects.create_mesh_object()?;
-        let object = self.objects.create_object_resources(Some(mesh))?;
+        let object = if frame.visual == Some(1) {
+            self.objects
+                .create_unconstructed_lit_object_resources(Some(mesh))?
+        } else {
+            self.objects.create_object_resources(Some(mesh))?
+        };
         self.objects.release_mesh_object(mesh, &mut self.backend)?;
         let mut mapped: BTreeMap<usize, MaterialKey> = BTreeMap::new();
         let mut source_materials = Vec::new();
@@ -959,6 +1020,44 @@ impl LoadedVisualResources {
             self.objects.install_mesh_level_bbox(level, bbox)?;
             self.objects
                 .set_lod(mesh, Some(level), index as u32, &mut self.backend)?;
+            if frame.visual == Some(1) {
+                let key = self.objects.create_unconstructed_lit_lod(object, index)?;
+                let request = VertexRequest {
+                    fvf: 0x242,
+                    format: 1,
+                    ..request
+                };
+                if !self
+                    .objects
+                    .allocate_plain_lod_vertices(key, request, &mut self.backend)?
+                {
+                    return Err(LoadedVisualError::Backend(
+                        "CPU lit vertex allocation rejected",
+                    ));
+                }
+                let descriptor = self.objects.lod(key)?.vertex_buffer;
+                let mut bytes = vec![0; lod.vertices.len() * 32];
+                for (vertex, bytes) in lod.vertices.iter().zip(bytes.as_chunks_mut::<32>().0) {
+                    for (offset, value) in [0, 4, 8, 16, 20]
+                        .into_iter()
+                        .zip(vertex.position.into_iter().chain(vertex.uv))
+                    {
+                        bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+                    }
+                }
+                // Source hardware litLod::Create writes XYZ and UV1 only.
+                // Host zero bytes in diffuse/UV2 are not original vertex data.
+                self.backend.upload_graphics(
+                    GraphicsBuffer::Vertex(
+                        descriptor
+                            .graphics
+                            .ok_or(LoadedVisualError::InvalidGeometry)?,
+                    ),
+                    descriptor.base as usize * 32,
+                    &bytes,
+                )?;
+                self.objects.finish_unconstructed_lit_geometry(key)?;
+            }
             self.objects.release_mesh_level(level, &mut self.backend)?;
         }
         for material in mapped.into_values() {
@@ -1618,7 +1717,8 @@ pub enum RenderLodSelection {
     Culled { index: u32 },
 }
 impl LoadedVisualResources {
-    /// Source ordinary/no-callback selection on the SAME live object owner.
+    /// Source no-callback selection on the SAME live object owner. Lit objects
+    /// use common GetObjectLOD but skip the ordinary SetFade block.
     /// No Texture::Request, callback dispatch or special visual is invented.
     pub fn select_render_lod(
         &mut self,
@@ -1641,11 +1741,7 @@ impl LoadedVisualResources {
             ));
         }
         let record = self.objects.object(object)?;
-        if record.visual_type() != crate::i3d_object::ObjectVisualType::Plain {
-            return Err(LoadedVisualError::Backend(
-                "ordinary LOD subtype unavailable",
-            ));
-        }
+        let lit = record.visual_type() == crate::i3d_object::ObjectVisualType::LitUnconstructed;
         let Some(mesh) = record.mesh else {
             return Ok(RenderLodSelection::Missing { index: 0 });
         };
@@ -1680,7 +1776,7 @@ impl LoadedVisualResources {
         let index = self
             .objects
             .get_object_lod(object, distance_squared, quality, world_scale)
-            .map_err(|_| LoadedVisualError::Backend("ordinary GetObjectLOD unavailable"))?;
+            .map_err(|_| LoadedVisualError::Backend("GetObjectLOD unavailable"))?;
         if index as usize == count {
             return Ok(RenderLodSelection::Culled { index });
         }
@@ -1696,6 +1792,11 @@ impl LoadedVisualResources {
         if level.fgroups.is_none() || level.num_vertices == 0 {
             return Ok(RenderLodSelection::Missing { index });
         }
+        // Source lit m_AddFGroups calls GetObjectLOD but has no ordinary
+        // last-LOD SetFade block. Do not mutate fade or base alpha-dirty slots.
+        if lit {
+            return Ok(RenderLodSelection::Selected { index, fade: 1. });
+        }
         let fade = crate::i3d_object::render_fade(
             distance_squared,
             quality,
@@ -1708,5 +1809,92 @@ impl LoadedVisualResources {
             .set_render_fade(object, fade)
             .map_err(|_| LoadedVisualError::Backend("SetFade unavailable"))?;
         Ok(RenderLodSelection::Selected { index, fade })
+    }
+}
+
+#[cfg(test)]
+mod unconstructed_lit_admission_tests {
+    use super::*;
+    #[test]
+    fn lit_rejects_unsupported_material_branches_before_asset_reads_or_owned_creation() {
+        let path = std::env::temp_dir().join(format!(
+            "lhr-lit-boundary-{}-{}",
+            std::process::id(),
+            crate::frame_lookup::incarnation()
+        ));
+        std::fs::create_dir(&path).unwrap();
+        let installation = lhr_assets::Installation::open(&path).unwrap();
+        let mut frame = crate::model_loading::tests::frame(1, None, [0.; 3]);
+        frame.visual = Some(1);
+        frame.lods = vec![lhr_assets::Lod {
+            distance: 0.,
+            vertices: vec![
+                lhr_assets::Vertex {
+                    position: [0.; 3],
+                    normal: [0.; 3],
+                    uv: [0.; 2]
+                };
+                3
+            ],
+            groups: vec![lhr_assets::FaceGroup {
+                material: 0,
+                indices: vec![0, 1, 2],
+            }],
+        }];
+        let mut source = lhr_assets::Model {
+            frames: vec![frame],
+            materials: vec![lhr_assets::Material {
+                flags: 0x40000,
+                ambient: [0.; 3],
+                diffuse: [1.; 3],
+                texture: "missing.bmp".into(),
+                emission: [0.; 3],
+                opacity: 1.,
+                alpha_texture: None,
+                reflection: None,
+                environment_texture: None,
+                animation: None,
+            }],
+        };
+        for flags in [0x20000000, 0x40000000, 0x80000000] {
+            source.materials[0].flags = flags | 0x40000;
+            let mut owner = LoadedVisualResources::new().unwrap();
+            assert!(matches!(
+                owner.load_unconstructed_lit_object(&source, 0, &installation),
+                Err(LoadedVisualError::Backend(
+                    "unconstructed lit texture alpha/add/color-key unavailable"
+                ))
+            ));
+            assert_eq!(owner.backend.live_allocations(), 0);
+            assert_eq!(owner.backend.live_graphics(), 0);
+            assert_eq!(owner.backend.live_textures(), 0);
+            assert!(owner.sources.is_empty());
+            assert!(!owner.incomplete);
+        }
+        source.materials[0].flags = 0x40000;
+        source.materials[0].alpha_texture = Some("missing-alpha.bmp".into());
+        let mut owner = LoadedVisualResources::new().unwrap();
+        assert!(matches!(
+            owner.load_unconstructed_lit_object(&source, 0, &installation),
+            Err(LoadedVisualError::Backend(
+                "unconstructed lit texture alpha/add/color-key unavailable"
+            ))
+        ));
+        source.frames[0].lods[0].groups[0].material = lhr_assets::UNASSIGNED_MATERIAL;
+        assert!(matches!(
+            owner.load_unconstructed_lit_object(&source, 0, &installation),
+            Err(LoadedVisualError::Backend(
+                "unconstructed lit requires assigned material"
+            ))
+        ));
+        assert!(owner.load_plain_object(&source, 0, &installation).is_err());
+        source.frames[0].visual = Some(4);
+        assert_eq!(
+            owner.load_unconstructed_lit_object(&source, 0, &installation),
+            Err(LoadedVisualError::UnsupportedVisual(Some(4)))
+        );
+        assert_eq!(owner.backend.live_allocations(), 0);
+        assert!(!owner.incomplete);
+        std::fs::remove_dir_all(path).unwrap();
     }
 }

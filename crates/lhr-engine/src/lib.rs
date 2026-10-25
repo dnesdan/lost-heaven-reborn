@@ -189,3 +189,6 @@ pub mod game {
 
 #[cfg(test)]
 mod live_lod_tests;
+
+#[cfg(test)]
+mod lit_object_tests;
