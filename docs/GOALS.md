@@ -23,12 +23,12 @@ Apple cross-check is blocked by missing CoreAudio SDK headers.
 
 ## Remaining dependency order
 
-1. Connect original startup/menu/mission owners through genuine graphics, input,
-   audio, profiles and tables. Current archive setup and bounded lifecycle callers
-   stop at explicit provider/resource boundaries; active mission Close remains open.
-2. Complete the next genuine loader dependencies: kind-12 occluder creation,
-   occluder lights/build/link and original model-cache preparation. Preserve
-   the camera/top-field/sector sound order and explicit unsupported frontier.
+1. Complete the genuine ModelCacheOpen boundary reached after seven scene records
+   and the next unloaded Model9. Preserve the actual request/cursor and resource
+   ownership; current CPU occluder/light loading does not supply a complete mission.
+2. Connect original startup/menu/mission owners through genuine graphics, input,
+   audio, profiles and tables. Active mission Close and original device providers
+   remain open; current file setup is a separate bounded prefix.
 3. Extend camera/sector numeric and resource-filled domains through actual
    callers. Native audio/listener, device discard and complete driver/Scene
    shutdown remain separate from CPU ownership and projected evidence.

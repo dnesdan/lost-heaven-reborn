@@ -2,6 +2,17 @@
 
 Actual captures from the Rust application using separately supplied PC game data. Images are compressed WebP previews; uncompressed validation captures remain private. Add dated images for visible milestones, up to 960 pixels wide and 200 KiB per image, rather than a capture for every commit. Game content retains its original ownership.
 
+## 2026-10-25 — driving after CPU occluder/light loader changes
+
+![Standalone original-data driving during the regression](2026-10-25-occluder-light-prefix.webp)
+
+Actual frozen Source-v1 debug Rust X11/software-Vulkan capture, 960 × 640,
+133,778 bytes, before the first reload. W/A/D/S/Space, three R reloads and Escape
+were exercised; four cleanups have seven zero CPU ownership counters.
+The host chase camera and unlit scene remain the visible standalone-driving mode.
+The seven-record CPU loader prefix and retained-output checks have separate proofs;
+this image does not establish mission execution or original occlusion rendering.
+
 ## 2026-10-25 — standalone driving after startup/mission reconstruction
 
 ![Original-data standalone driving during the regression](2026-10-25-original-startup-mission.webp)

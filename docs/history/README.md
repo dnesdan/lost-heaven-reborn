@@ -1,5 +1,7 @@
 # Documentation history
 
+- [Current occluder/light loader scope and preceding startup record](2026-10-25-occluder-light-loader.md)
+
 These dated documents preserve the prior narrative at baseline `0da90fb`.
 They describe their original source and validation scope, not current behavior.
 The generated ledger history remains in [progress](../PROGRESS.md) and the

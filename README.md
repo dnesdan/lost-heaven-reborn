@@ -10,16 +10,16 @@ animation, and standalone original-data driving with collision, vehicle damage,
 WAV mixing and explicit cleanup. Rendering is unlit first LOD with a host chase
 camera. Original player/camera scheduling, mission scripts and traffic remain open.
 
-The original-engine library now includes bounded startup/shutdown, Windows, logo
-and joystick callers; real mission/support construction and constructor-empty
-teardown; and cache/string ownership. A real installed-archive provider follows
-the original fourteen-name setup to the unavailable original graphics driver.
+The original-data CPU loader now owns occluder geometry, scene membership and
+borrowed light registrations. It completes seven records: primary sector, one
+occluder and five lights. The next unloaded Model9 is genuinely constructed before
+ModelCacheOpen requests an `.i3d` resource and stops at cursor 2086 (Game `54220a`).
 
-Device/platform callbacks remain dependencies. Active mission Close, populated
-owners, effects-table parsing, full Mission Open and gameplay remain open.
-The visible application is standalone driving; these callers do not render a mission.
+This is Rust execution of actual data. Original-runtime equivalence for the
+expanded loader, light/ring/HR behavior and nonidentity updates remains unverified.
+The visible application remains standalone driving; the campaign is not playable.
 
-Accepted code: 8067e3d; [source-bound validation](COVERAGE.md).
+Accepted code: 41365c0; [source-bound validation](COVERAGE.md).
 
 See [current evidence and limits](COVERAGE.md), [progress](docs/PROGRESS.md),
 [remaining goals](docs/GOALS.md) and [dated history](docs/history/README.md).
@@ -103,10 +103,10 @@ window run. [More commands and historical validation](docs/history/2026-10-25-re
 
 ## Actual Rust captures
 
-![Standalone original-data driving during the startup/mission regression](docs/screenshots/2026-10-25-original-startup-mission.webp)
+![Standalone original-data driving after CPU occluder/light changes](docs/screenshots/2026-10-25-occluder-light-prefix.webp)
 
 Actual standalone driving and reload regression; host chase camera and unlit
-rendering. The startup/mission CPU callers are validated separately.
+rendering. The CPU loader and retained-output comparisons are validated separately.
 [Capture evidence](docs/screenshots/README.md).
 
 [![Original taxi during the continuous driving capture](docs/screenshots/2026-10-24-car-driving-verified.webp)](docs/videos/2026-10-24-car-driving.mp4)

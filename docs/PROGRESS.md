@@ -2,32 +2,31 @@
 
 ## Current milestone — 2026-10-25
 
-The original-engine library now includes bounded startup/shutdown, Windows, logo
-and joystick callers; real mission/support construction and constructor-empty
-teardown; and cache/string ownership. A real installed-archive provider follows
-the original fourteen-name setup to the unavailable original graphics driver.
+The original-data CPU loader now owns occluder geometry, scene membership and
+borrowed light registrations. It completes seven records: primary sector, one
+occluder and five lights. The next unloaded Model9 is genuinely constructed before
+ModelCacheOpen requests an `.i3d` resource and stops at cursor 2086 (Game `54220a`).
 
-Device/platform callbacks remain dependencies. Active mission Close, populated
-owners, effects-table parsing, full Mission Open and gameplay remain open.
-The visible application is standalone driving; these callers do not render a mission.
+This is Rust execution of actual data. Original-runtime equivalence for the
+expanded loader, light/ring/HR behavior and nonidentity updates remains unverified.
+The visible application remains standalone driving; the campaign is not playable.
 
-Actual startup archive/file ownership and controlled original caller comparisons
-remain distinct. They do not supply an original graphics/audio/movie backend or
-complete startup/menu/mission integration.
-
-Code `8067e3d` has two sequential independent non-author source approvals.
-Source-v1 passes 1168 Rust tests, 9 REA-wrapper/47 progress tests and all
-format/check/Clippy/build checks. Both profiles match 86 complete declared cases
-and 7 typed prefix stops, with zero differences. Ten InitSystem cases cover early
-returns; its successful sound/input/mission/logo/profile tail is static-only.
-Real 13-archive setup stops at graphics; manual Release is separate from CloseSystem.
+Code `41365c0` has two sequential independent non-author source approvals.
+Source-v1 passes 1186 Rust tests, 9 REA-wrapper/47 progress tests and all
+format/check/Clippy/build checks. Both profiles match retained 19-case/60-snapshot
+Build/NULL observations and four enum callback projections. Allocation statistics
+are aggregate counts/bytes/call count; exact event order and full enum API are unverified.
+The Rust 2086-prefix cleanup has six zero counters after final owner/storage release.
 Standalone input covers three reloads and four cleanups with seven CPU counters zero.
 
-No new canonical contract or whole-function credit is assigned. The ledger remains
-**311 scoped entries / 114 contracts**, strict **0/12**; all six mission gates are open.
+Complete model-cache loading, full Mission Open, player/camera scheduling, scripts
+and objectives remain open. Native Device14, audio and full renderer parity remain open.
+
+The accepted ledger stays **311 scoped entries / 114 contracts**, strict **0/12**;
+all six first-mission gates remain open. No whole-function credit is added.
 
 [Coverage](../COVERAGE.md) · [goals](GOALS.md) · [source-bound evidence](progress.json) ·
-[fresh reference/frontier and preceding camera/sector record](history/2026-10-25-original-startup-mission-audit.md).
+[current limits and preceding startup record](history/2026-10-25-occluder-light-loader.md).
 
 ## Earlier milestones
 

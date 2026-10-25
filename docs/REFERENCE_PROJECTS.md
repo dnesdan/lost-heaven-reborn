@@ -1,5 +1,13 @@
 # Reference-project audit
 
+## Current occluder/light scope — 2026-10-25
+
+Code `41365c0` advances the actual-data Rust scene loader through seven records
+and an unloaded Model9 to ModelCacheOpen. Current comparisons reuse retained
+original observations; ring/HR/light/nonidentity and the new 2086 native prefix
+remain unverified. [Scope, proof partitions and preceding startup record](history/2026-10-25-occluder-light-loader.md).
+Observed mafia-re `1ee42a56` and behavior pin `86a7b15c` remain unchanged.
+
 ## Fresh mafia-re inspection — 2026-10-25
 
 Observed [`1ee42a56`](https://github.com/Marvisak/mafia-re/tree/1ee42a56214afeb54c536b85a4b16b5c4f4d86e3), nine commits/81 files beyond `109954d6`.
