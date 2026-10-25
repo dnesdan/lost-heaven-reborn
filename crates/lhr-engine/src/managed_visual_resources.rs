@@ -197,7 +197,6 @@ impl ManagedVisualResources {
             }
         })
     }
-    /// Allocates three indices per face. No index bytes are uploaded.
     /// Read-only proof of a retained vertex descriptor and its ACTUAL manager
     /// layout. Reuse intentionally ignores requested stride/format, so callers
     /// must inspect this configuration instead of the later allocation request.
@@ -234,6 +233,7 @@ impl ManagedVisualResources {
             .ok_or(ManagedError::BindingMismatch)
     }
 
+    /// Allocates three indices per face. No index bytes are uploaded.
     /// Graphics rejection returns false and leaves a retryable vacant owner.
     /// Once manager allocation is entered, any error conservatively makes the
     /// façade unavailable; a manager State error can follow partial publication.

@@ -90,3 +90,28 @@ camera-selected geometry/fade and the SAME main refresh helper through count
 changes, zero draws and re-entry while trailing world pixels survive. These
 are host/source-contract checks, not original runtime screenshots, measured
 FPS gains or interactive gameplay validation.
+
+
+## Validation results
+
+Rust 1.99.1 with isolated target-stage5c-lod:
+
+- `scripts/test.sh` was run on the final production code including the retained
+  manager-stride fix: formatting and workspace/all-targets check passed; engine
+  library 1,062 passed, two GPU tests ignored, and only the two established
+  high-FIP x87 baseline environment failures. No repository test was disabled.
+- Complete workspace tests excluding only those two known test names: assets
+  library 121 passed; native installation integration 8 passed; engine library
+  1,062 passed/two GPU ignored; engine binary 26 passed/one GPU ignored; program
+  integration 8 passed; renderer 6 passed/three GPU ignored. Doc-tests passed.
+- Live LOD producer/consumer tests with GPU opt-in: 5 passed. The actual main
+  refresh helper GPU regression passed separately. Renderer tests with GPU
+  opt-in: 9 passed, including the inherited material/resource checks.
+- Retained-layout regression and workspace/all-targets Clippy with `-D warnings`:
+  passed. Read admission rejects fresh same-FVF stride64 and accepts requested64
+  only when the retained manager actually reused stride32.
+- Python process-boundary tests with host process visibility: 9 passed.
+  Python progress tests: 47 passed; generated progress check passed unchanged.
+
+GPU checks use the available Mesa llvmpipe software Vulkan device. Interactive
+window gameplay and original-runtime image/numeric equivalence are unverified.
