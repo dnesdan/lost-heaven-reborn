@@ -10,18 +10,19 @@ animation, and standalone original-data driving with collision, vehicle damage,
 WAV mixing and explicit cleanup. Rendering is unlit first LOD with a host chase
 camera. Original player/camera scheduling, mission scripts and traffic remain open.
 
-The original-data CPU loader now loads, copies and caches static Mesh/Dummy
-models with genuine shared resources and cache miss/hit/growth ownership. An
-actual-data Rust probe completes 43 records and seven cache entries. Its next
-lookup, `base247`, belongs to the original world scene, which has not yet been
-loaded by the constructor-only Scene probe.
+The original-data CPU world loader now owns 1415 scene frames, five sectors
+and 14 portals with 36 hull planes. It supplies the real `base247` object before
+the ordered scene2 loader, which completes 43 records and then reaches the
+required `OBJ_` → `LMAP` visual replacement at cursor 8013 (Game `543a4b`).
 
-This is static original-code reconstruction and Rust actual-data testing;
-original-runtime cache equivalence is unverified. Genuine SceneOpen with live
-sector/portal ownership and loading-progress UI is the next dependency.
-The visible application remains standalone driving; the campaign is not playable.
+Live sector/portal ownership, spatial queries, mutable-key buffer trees and
+unequal-size alpha maps now share the genuine CPU resource path. Original
+SceneOpen presentation, the loading-progress UI and `LMAP` replacement remain
+open. This is Rust actual-data execution; native composed-loader parity and
+complete MissionOpen are unverified. The visible application remains standalone
+driving; the campaign is not playable.
 
-Accepted code: a171632; [source-bound validation](COVERAGE.md).
+Accepted code: 085f31e; [source-bound validation](COVERAGE.md).
 
 See [current evidence and limits](COVERAGE.md), [progress](docs/PROGRESS.md),
 [remaining goals](docs/GOALS.md) and [dated history](docs/history/README.md).
@@ -105,11 +106,11 @@ window run. [More commands and historical validation](docs/history/2026-10-25-re
 
 ## Actual Rust captures
 
-![Standalone original-data driving; unchanged executable regression](docs/screenshots/2026-10-25-model-cache-prefix.webp)
+![Standalone original-data driving after CPU world-loader changes](docs/screenshots/2026-10-25-world-sector-prefix.webp)
 
-Prior standalone driving capture, carried forward through the byte-identical final
-executable; no new UI run. Host chase camera and unlit rendering remain visible.
-The cache probe and retained-output comparisons are validated separately.
+Actual new standalone driving/reload capture; host chase camera and unlit rendering.
+The CPU world probe and retained-buffer comparisons are validated separately.
+This is not mission or original-world rendering.
 [Capture evidence](docs/screenshots/README.md).
 
 [![Original taxi during the continuous driving capture](docs/screenshots/2026-10-24-car-driving-verified.webp)](docs/videos/2026-10-24-car-driving.mp4)

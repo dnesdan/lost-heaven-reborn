@@ -2,6 +2,17 @@
 
 Actual captures from the Rust application using separately supplied PC game data. Images are compressed WebP previews; uncompressed validation captures remain private. Add dated images for visible milestones, up to 960 pixels wide and 200 KiB per image, rather than a capture for every commit. Game content retains its original ownership.
 
+## 2026-10-25 — standalone driving after CPU world-loader changes
+
+![Actual standalone original-data driving](2026-10-25-world-sector-prefix.webp)
+
+New frozen Source-v4 Rust X11/software-Vulkan capture, 960 × 640, 201,290 bytes,
+visually inspected by the root. W/A/D/S/Space, three R reloads and Escape were
+exercised; four cleanups have seven zero CPU counters and owned processes reaped.
+The host chase camera and unlit driving remain visible. The 1415-frame CPU world
+probe has separate evidence; this image is not canonical world/mission rendering,
+native SceneOpen, loading-progress UI or original-renderer parity. No new video.
+
 ## 2026-10-25 — standalone driving, identical-executable carryover
 
 ![Standalone original-data driving](2026-10-25-model-cache-prefix.webp)

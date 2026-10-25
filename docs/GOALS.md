@@ -23,9 +23,9 @@ Apple cross-check is blocked by missing CoreAudio SDK headers.
 
 ## Remaining dependency order
 
-1. Load the original world scene through genuine SceneOpen before applying scene2.
-   Reconstruct live sector hulls, planes, portals and progress presentation; the
-   constructor-only probe reaches `base247`, which exists in the unloaded world.
+1. Reconstruct the genuine `LMAP` visual factory/replacement reached after CPU
+   world loading and 43 scene2 records. Complete SceneOpen progress presentation;
+   CPU geometry/resources do not supply the original loading UI or MissionOpen.
 2. Connect original startup/menu/mission owners through genuine graphics, input,
    audio, profiles and tables. Active mission Close and original device providers
    remain open; current file setup is a separate bounded prefix.

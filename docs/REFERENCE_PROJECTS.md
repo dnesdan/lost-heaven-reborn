@@ -1,5 +1,14 @@
 # Reference-project audit
 
+## Current CPU world-sector scope — 2026-10-25
+
+Code `085f31e` supplies 1415 genuine CPU world frames with live sectors/portals,
+spatial queries, mutable-key buffer trees and unequal alpha processing. The real
+`base247` now reaches required `OBJ_` → `LMAP` replacement after 43 scene2 records.
+Original SceneOpen loading UI, native composed-loader parity and MissionOpen
+remain open. [Scope and preceding record](history/2026-10-25-world-sector-loader.md).
+Observed mafia-re `1ee42a56` and behavior pin `86a7b15c` remain unchanged.
+
 ## Current static-model cache scope — 2026-10-25
 
 Code `a171632` reconstructs bounded cache miss/hit/copy/growth and advances the

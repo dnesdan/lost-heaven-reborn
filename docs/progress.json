@@ -1,63 +1,66 @@
 {
   "updated_at": "2026-10-25",
-  "project_status": "Bounded static-model cache miss/hit/copy/growth and genuine resource ownership; actual-data constructor-Scene probe43objects/seven cache entries at missing base247/cursor8019. Original worldSceneOpen/loading UI and fullmission remain open. No new nativecache comparison. Ledger311entries/114contracts, strict0/12; campaign not playable.",
+  "project_status": "CPU world loader owns1415frames/five sectors/14portals/36planes with realresources; orderedscene2 completes43records then requiresOBJ_toLMAP replacement at8013/543a4b. NativeSceneOpen/loadingUI/MissionOpen/render parity unverified. Ledger311entries/114contracts strict0/12; campaign not playable.",
   "rust_toolchain": "1.99.1",
   "validation": {
-    "status": "Accepted Source-v4:1202 Rust tests,9 wrapper/47 progress,format/check/Clippy/application+release builds PASS; two sequential source approvals. Fifteen adjacent retained cases compare both profiles; cache Open/new entries/expanded loader native-unverified. Actual-data constructor-Scene probe43/cache7 at8019; UI uses byte-identical executable carryover, no new UI run.",
-    "rust_unit_tests": 1202,
+    "status": "Accepted Source-v4:1222Rust/9wrapper/47progress and format/check/Clippy/application+release builds PASS; two sequential source reviews. Both Rust profiles match15retainedbuffer trajectories92phases, separately from actual-data1415world/43scene2prefix and newstandaloneUI. No new original runtime or completeSceneOpen/MissionOpen/render parity.",
+    "rust_unit_tests": 1222,
     "rust_unit_test_split": {
-      "lhr_assets": 119,
+      "lhr_assets": 121,
       "lhr_assets_integration": 8,
-      "lhr_engine_library": 1036,
+      "lhr_engine_library": 1054,
       "lhr_engine_application": 26,
       "lhr_engine_integration": 8,
       "lhr_render": 5
     },
     "rea_wrapper_tests": 9,
     "latest_accepted_baseline": {
-      "source_commit": "a171632328a635fa88f89e32c085286a49629649",
-      "rust_unit_tests": 1202,
+      "source_commit": "085f31eefbfaefd861bf3987d72b9ed5e76b1907",
+      "rust_unit_tests": 1222,
       "rea_wrapper_tests": 9,
       "progress_tests": 47,
-      "milestone": "Bounded static-model cache; constructor-Scene43objects/seven entries, missingbase247/cursor8019; originalworld/MissionOpen notimplemented."
+      "milestone": "CPU world1415frames/5sectors/14portals/36planes and realbase247; ordered43scene2records then LMAP at8013; nativeMissionOpen/UI/world parity notimplemented."
     },
     "progress_tests": 47,
-    "current_source_status": "Accepted Source-v4 code a171632328a635fa88f89e32c085286a49629649;289 guarded source files; two sequential independent reviews.",
+    "current_source_status": "Accepted Source-v4 code 085f31eefbfaefd861bf3987d72b9ed5e76b1907;293 guarded files; two sequential independent source approvals.",
     "current_source_freeze": {
-      "id": "MODEL-CACHE-20261025-SOURCE-v4",
-      "sha256": "184e1d931f433185be9238a0fbf0a38569b524f765c108e7f5e032cf03395c36",
-      "files": 289,
-      "tree_sha256": "ca1889eadb8bccd97f6d423e2621d0a72955dfc8db741b3b5fb3c314700b53e7",
-      "source_commit": "a171632328a635fa88f89e32c085286a49629649"
+      "id": "WORLD-SECTOR-20261025-SOURCE-v4",
+      "sha256": "2c4f867d40946277d52f5ef9b691daf40a8d5b3dd37433fb0d9c29fd1e5ccddb",
+      "files": 293,
+      "tree_sha256": "9bcb1e02ee549db65d4a903a6d694ecad017f159d52f0fc4662f274caf95bbf8",
+      "source_commit": "085f31eefbfaefd861bf3987d72b9ed5e76b1907"
     },
     "full_gate": {
-      "id": "MODEL-CACHE-20261025-VERIFICATION-v4",
-      "sha256": "87d4f758cb27ab0b27e3057ccc34b8dd70a55f704c2b46890c926782fb5b4ae1",
-      "log_sha256": "57a23192557402cb079958a2ddb398ca4a9b1ff3014b894fc745e6a3d8b379a2",
-      "rust_tests": 1202,
+      "id": "WORLD-SECTOR-20261025-VERIFICATION-v4",
+      "sha256": "95794cb74baddb0bb55554dc170e449b8cfe33ca2bd171e42971d5d11c854afa",
+      "log_sha256": "3910b3b657ed89760f0f2bcda5207e37aa9ea17e60a3b4e278d7eb5fa7b7c941",
+      "rust_tests": 1222,
       "rea_wrapper_tests": 9,
       "progress_tests": 47,
       "release_build": "PASS"
     },
     "native_final": {
-      "artifact": "FINAL-OFFLINE-CACHE-RESULTS-v4.json",
-      "sha256": "303612be706e93bb8b10f33a1c61733dd179611e50dedb079ecf7b168ad92ddb",
-      "source_freeze": "MODEL-CACHE-20261025-SOURCE-v4",
-      "method": "OFFLINE_RETAINED_ADJACENT_OBSERVATIONS_ONLY",
+      "artifact": "FINAL-OFFLINE-BUFFER-RESULTS-v4.json",
+      "sha256": "603e86e0f33437c43bdb622fbc3220b38757ef8dda9e778a7a67c82826438b06",
+      "source_freeze": "WORLD-SECTOR-20261025-SOURCE-v4",
+      "method": "OFFLINE_RETAINED_BUFFER_TRAJECTORIES_ONLY",
       "original_execution_during_final_validation": false,
-      "scope": "Adjacent directory/CString/array lifecycle only; new cache Open/model entries native-unverified",
       "profiles": [
         "debug",
         "release"
       ],
-      "cases_per_profile": 15,
-      "snapshots_per_profile": 84,
-      "normal_cases": 12,
-      "typed_prefixes": 3,
-      "excluded": "ordinal5 unsafe original NULL-array continuation",
-      "new_original_executions": 0,
-      "retained_files_unchanged": 36,
-      "result_sha256": "303612be706e93bb8b10f33a1c61733dd179611e50dedb079ecf7b168ad92ddb"
+      "trajectories": 15,
+      "phases": 92,
+      "state_rows": 1182,
+      "return_projection_rows": 92,
+      "ordered_effects": 414,
+      "differences": 0,
+      "native_original_profiles": "Retained O0/O2 raw bytes identical",
+      "defined_returns": "50 AL booleans,1 defined full32 base/-1,41 synthetic void markers; undefined full EAX not claimed",
+      "new_original_execution": false,
+      "old_files_unchanged": 15,
+      "result_sha256": "603e86e0f33437c43bdb622fbc3220b38757ef8dda9e778a7a67c82826438b06",
+      "scope": "Controlled buffer GPU/driver/diagnostic/container allocator effects, not complete renderer/hardware."
     },
     "historical_driving_source4": {
       "rust_unit_tests": 1066,
@@ -347,6 +350,64 @@
         "aggregate_allocation_stats_only": true,
         "allocation_free_event_order_compared": false,
         "expanded_native_domains": "UNVERIFIED"
+      }
+    },
+    "historical_model_cache_source_v4": {
+      "status": "Accepted Source-v4:1202 Rust tests,9 wrapper/47 progress,format/check/Clippy/application+release builds PASS; two sequential source approvals. Fifteen adjacent retained cases compare both profiles; cache Open/new entries/expanded loader native-unverified. Actual-data constructor-Scene probe43/cache7 at8019; UI uses byte-identical executable carryover, no new UI run.",
+      "rust_unit_tests": 1202,
+      "rust_unit_test_split": {
+        "lhr_assets": 119,
+        "lhr_assets_integration": 8,
+        "lhr_engine_library": 1036,
+        "lhr_engine_application": 26,
+        "lhr_engine_integration": 8,
+        "lhr_render": 5
+      },
+      "rea_wrapper_tests": 9,
+      "latest_accepted_baseline": {
+        "source_commit": "a171632328a635fa88f89e32c085286a49629649",
+        "rust_unit_tests": 1202,
+        "rea_wrapper_tests": 9,
+        "progress_tests": 47,
+        "milestone": "Bounded static-model cache; constructor-Scene43objects/seven entries, missingbase247/cursor8019; originalworld/MissionOpen notimplemented."
+      },
+      "progress_tests": 47,
+      "current_source_status": "Accepted Source-v4 code a171632328a635fa88f89e32c085286a49629649;289 guarded source files; two sequential independent reviews.",
+      "current_source_freeze": {
+        "id": "MODEL-CACHE-20261025-SOURCE-v4",
+        "sha256": "184e1d931f433185be9238a0fbf0a38569b524f765c108e7f5e032cf03395c36",
+        "files": 289,
+        "tree_sha256": "ca1889eadb8bccd97f6d423e2621d0a72955dfc8db741b3b5fb3c314700b53e7",
+        "source_commit": "a171632328a635fa88f89e32c085286a49629649"
+      },
+      "full_gate": {
+        "id": "MODEL-CACHE-20261025-VERIFICATION-v4",
+        "sha256": "87d4f758cb27ab0b27e3057ccc34b8dd70a55f704c2b46890c926782fb5b4ae1",
+        "log_sha256": "57a23192557402cb079958a2ddb398ca4a9b1ff3014b894fc745e6a3d8b379a2",
+        "rust_tests": 1202,
+        "rea_wrapper_tests": 9,
+        "progress_tests": 47,
+        "release_build": "PASS"
+      },
+      "native_final": {
+        "artifact": "FINAL-OFFLINE-CACHE-RESULTS-v4.json",
+        "sha256": "303612be706e93bb8b10f33a1c61733dd179611e50dedb079ecf7b168ad92ddb",
+        "source_freeze": "MODEL-CACHE-20261025-SOURCE-v4",
+        "method": "OFFLINE_RETAINED_ADJACENT_OBSERVATIONS_ONLY",
+        "original_execution_during_final_validation": false,
+        "scope": "Adjacent directory/CString/array lifecycle only; new cache Open/model entries native-unverified",
+        "profiles": [
+          "debug",
+          "release"
+        ],
+        "cases_per_profile": 15,
+        "snapshots_per_profile": 84,
+        "normal_cases": 12,
+        "typed_prefixes": 3,
+        "excluded": "ordinal5 unsafe original NULL-array continuation",
+        "new_original_executions": 0,
+        "retained_files_unchanged": 36,
+        "result_sha256": "303612be706e93bb8b10f33a1c61733dd179611e50dedb079ecf7b168ad92ddb"
       }
     }
   },
@@ -51360,5 +51421,201 @@
     "whole_function_coverage": "N/A",
     "strict_full_system_gate": "0/12",
     "campaign_playable": false
+  },
+  "historical_observation_index_at_ec4145": {
+    "baseline_commit": "ec4145040048486a482f9bb6cedbe5a54940cc30",
+    "method": "Canonical sorted-JSON SHA256; old dictionaries unchanged at original top-level keys",
+    "observations": {
+      "native_phase_observation": "3505f8d795a01ef54722ff6f2a799a731e70cab2fc7aed7360f4115858d9771f",
+      "prototype_recovery_observation": "7f78b5cf3f7e16dfcc78756709ff81a7b7a19832f8bdcccf0cb0e2612edb55aa",
+      "native_mission_observation": "1f17823f4985f943dea3e72bc087db8666275996ec3ffb8c06548aa0e2b2eccb",
+      "managed_visual_resource_observation": "1940cc084618b687396d0107436bfbd455ff3c30ffc56e366da88d2de0483c54",
+      "managed_texture_close_observation": "0bfee084efd89b406ab9fd6642c1c38c7c9a1deac9a7dee29aa9457633c8dd44",
+      "rw_data_archive_read_observation": "27dcc89f0f02ed7f646807944cc9e64d67f8ad9bd556f8ebdbfb5fcbb7ca0db3",
+      "rw_data_native_open_observation": "ca1a524045085a250c9cde7d82f0d5df1031c7f364fe7bf8281c2bfa21afeed8",
+      "rw_data_filesystem_observation": "04edd9bd6a617cbd92fbf5e8d4bdce0f09a0bf804b4f9eb27be17381f68d30e9",
+      "replay_dependency_observation": "b9f0a456b9a987039df2967b054fc5eeb5830343795a6d911fc4efe11bea96bd",
+      "installation_native_provider_observation": "da11326e577b08827722ef142e33c43530c6a8bb5dc81bd5f58a2a490c9ef4a7",
+      "replay_state_observation": "df547e89c5136b7fd3232d02b0ba235129b8dc6549785009252ab726fb70d477",
+      "reference_slots_observation": "9c6e463861d2526b6e2b06791e0793410d3936af155006fe143b9621b2186d82",
+      "lookup_observation": "3bc2226278e5c18e52af9be5dd7e4096f2cfa76f8b2f13c30f1ae9089b764d61",
+      "actor_world_observation": "d3a1dc5bd22717cd22cbe9ebab0e35268f76d99c3bf71999f2726543084a65d1",
+      "actor_frames_observation": "2b6f4aafb12e5430c20954a8125f316f6b506cdf011008804023eb854d5402eb",
+      "program_source_observation": "b4fb0a49fe952bd0bb115c1710301537c7d75c7031817060ef55408ace445eb9",
+      "driving_dependencies_observation": "d420b14d483dbcdb6edd547a32586015c99b280af99e5aeb6f152e6ff79227bd",
+      "vehicle_world_observation": "59c780d9476a120b5f048bc410aadeb32c2d203800a38f2b87d8f6faac96ff68",
+      "vehicle_init_collision_observation": "81fdb13feb41b3f078d106c99121c5a69cede676dc3f709d66c07d8b5fdbe3f8",
+      "vehicle_components_collision_sound_observation": "2fa366e91f1a8cb870d45d358f8bd4a4ffb79ff26159fc3aa6c3065c53c7f3ff",
+      "bodycol_fast_frame_observation": "452cf7e701ff94a55a828f65c3fdad22be14a663f81bfd9e174d572951b43f6e",
+      "vehicle_component_tail_observation": "ffa91dfd40a12939dbd2aeda42b898a16be70b55e90130379571ff056d25c207",
+      "scene_frame_owner_observation": "bc3c01e4c234f689133c9f3e718d884e6bca44e9b97fcdb58f1e61e2ecf76e27",
+      "vehicle_shared_resource_init_observation": "4d3868998c30a909e0375ff91d677f6a9a39b98a6ee08b49f3639e23939edb56",
+      "car_init_observation": "1f367685e2cb77fcb7da7e2d410154600945b1e2bcedd6453a93ec3f1b6877c7",
+      "car_construction_runtime_observation": "32c28642ad7bbb730473dfa48dfbfe7710c3f06e5077ee0b970b05cc82a72455",
+      "driving_prerequisites_observation": "eea65504adfcf256d7b16b1b1828694c3ef09f9f302ef3b37a6a8051a7a2e72c",
+      "driving_integration_observation": "ef19af7e22f2f00ec98e2b9aba90136cbaa34818d0fbcb5690c09e6623fcef4a",
+      "scene_weather_resource_observation": "d8e6bbd608c3e62140d239615c32a97637b2c93ed027a7b1089a3879da3f972c",
+      "texture_scene_mission_observation": "3e4ed222dea5e93cdf1b86c4163fd2c5735355a291f066eb9e09d413d933ddec",
+      "driver_railway_load_map_observation": "21a2518f61aa180baf1c5602ea2af719f2b76126c36119b9d3c16e0182e62403",
+      "camera_sector_sound_loader_observation": "81e042fc3836c5323ac8ee48d8075d74d29277b5aeb0fa32eb82626f2936a712",
+      "original_startup_mission_observation": "fe9edc4342413f90c19ec6d9f01873336b58ee17080cc2dd2177267df98d7da2",
+      "occluder_light_loader_observation": "805f4ef16c733a67364e79526b47ed9805c446ec5b16b2bfc55408406902a8cb",
+      "model_cache_loader_observation": "c70fddf9ea96a9bd34a3e8cb714c93f13772f6d5a568dabb822e176dc3962853"
+    }
+  },
+  "world_sector_loader_observation": {
+    "status": "ACCEPTED_SOURCE_BOUND",
+    "id": "WORLD-SECTOR-20261025-SOURCE-v4-OBSERVATION",
+    "source_commit": "085f31eefbfaefd861bf3987d72b9ed5e76b1907",
+    "source_freeze": {
+      "id": "WORLD-SECTOR-20261025-SOURCE-v4",
+      "sha256": "2c4f867d40946277d52f5ef9b691daf40a8d5b3dd37433fb0d9c29fd1e5ccddb",
+      "files": 293,
+      "tree_sha256": "9bcb1e02ee549db65d4a903a6d694ecad017f159d52f0fc4662f274caf95bbf8",
+      "source_commit": "085f31eefbfaefd861bf3987d72b9ed5e76b1907"
+    },
+    "reviews": [
+      {
+        "artifact": "REVIEW-ONE-SOURCE-v4.json",
+        "sha256": "397a286802b7d7996807ab627135173badd0b7fcb128e6db17451d602c17ccb1",
+        "status": "APPROVED"
+      },
+      {
+        "artifact": "REVIEW-TWO-SOURCE-v4.json",
+        "sha256": "d77c3093088a96089745bcda8f7bb90003c0af34385adcefd90869f38978855a",
+        "status": "APPROVED"
+      }
+    ],
+    "checks": {
+      "id": "WORLD-SECTOR-20261025-VERIFICATION-v4",
+      "sha256": "95794cb74baddb0bb55554dc170e449b8cfe33ca2bd171e42971d5d11c854afa",
+      "log_sha256": "3910b3b657ed89760f0f2bcda5207e37aa9ea17e60a3b4e278d7eb5fa7b7c941",
+      "rust_tests": 1222,
+      "rea_wrapper_tests": 9,
+      "progress_tests": 47,
+      "release_build": "PASS"
+    },
+    "actual_rust_world": {
+      "profiles": [
+        "debug",
+        "release"
+      ],
+      "outputs_byte_identical": true,
+      "world_frames": 1415,
+      "world_frame_kinds": {
+        "plain_mesh": 1394,
+        "dummy": 16,
+        "sector": 5
+      },
+      "scene_owned_world_frames": 1415,
+      "sector_ring": 5,
+      "portal_ring": 14,
+      "hull_vertices": 83,
+      "hull_faces": 60,
+      "derived_planes": 36,
+      "all_live_frames_scanned": 1564,
+      "objects_tracked_including_cache_templates": 1431,
+      "mesh_objects": 1401,
+      "mesh_levels": 1416,
+      "face_groups": 4020,
+      "materials": 3972,
+      "cleanup": "All tracked keys invalid after release; cache heap allocations/bytes0; backend graphics/bytes/textures/allocations0 BEFORE extra buffer reclaim; frames/portals/sector buffers/bytes/driver registry/working-set refs0.",
+      "scene2_completed": 43,
+      "scene2_cursor": 8013,
+      "scene2_entry": "0x543a4b",
+      "frame_name": "base247",
+      "current_visual": "OBJ_ 0x5f4a424f",
+      "requested_visual": "LMAP 0x50414d4c",
+      "scope": "CPU Scene world adapter/extra staging, not original SceneOpen UI/MissionOpen/GPU/parity",
+      "artifact": "FROZEN-ACTUAL-v4.json",
+      "artifact_sha256": "ccfaf38a3d96cf7167ab5d7cce8d367ae805211476ce1dbf98cb7c57b3af05ee",
+      "blocked_packet": {
+        "kind": "0x4090",
+        "offset": 8003,
+        "size": 10,
+        "requested_class": "LMAP"
+      }
+    },
+    "retained_original_buffer_comparison": {
+      "profiles": [
+        "debug",
+        "release"
+      ],
+      "trajectories": 15,
+      "phases": 92,
+      "state_rows": 1182,
+      "return_projection_rows": 92,
+      "ordered_effects": 414,
+      "differences": 0,
+      "native_original_profiles": "Retained O0/O2 raw bytes identical",
+      "defined_returns": "50 AL booleans,1 defined full32 base/-1,41 synthetic void markers; undefined full EAX not claimed",
+      "new_original_execution": false,
+      "old_files_unchanged": 15,
+      "result_sha256": "603e86e0f33437c43bdb622fbc3220b38757ef8dda9e778a7a67c82826438b06",
+      "scope": "Controlled buffer GPU/driver/diagnostic/container allocator effects, not complete renderer/hardware."
+    },
+    "ui": {
+      "inputs": "W/A/D/S/Space +3Rreloads +Escape",
+      "cleanups": 4,
+      "cpu_counters_zero_per_cleanup": 7,
+      "actual_frozen_binary_sha256": "70d200a2c05497b38b271f71ed67a82d404b7972e58585b81e47e67ff4a4eac8",
+      "media": "2026-10-25-world-sector-prefix.webp",
+      "media_sha256": "d377e23cf6684e2b8fd91cbe364b4b66ffc5f9bfb592c2dc3c94dd129c88407f",
+      "root_visually_inspected": true,
+      "scope": "Actual standalone unlit host-chase driving regression; not mission or canonical world rendering.",
+      "receipt": "UI-SEALED-RECEIPT.json",
+      "receipt_sha256": "f1d7cda690d2bcc5c782f082bd9148107852d026575891f2dfde57d5a4c09dc2",
+      "new_ui_run": true,
+      "native_device14_executed": false
+    },
+    "media": {
+      "path": "docs/screenshots/2026-10-25-world-sector-prefix.webp",
+      "sha256": "d377e23cf6684e2b8fd91cbe364b4b66ffc5f9bfb592c2dc3c94dd129c88407f",
+      "bytes": 201290,
+      "width": 960,
+      "height": 640,
+      "root_visually_inspected": true,
+      "scope": "Actual new standalone unlit host-chase driving; not canonical world/mission rendering"
+    },
+    "primary_evidence": {
+      "method": "Hash-verified retained REA/Ghidra original bodies plus targeted fresh static functions and actual PS2 symbols",
+      "new_original_execution": false,
+      "static_cohorts": {
+        "world_sector_portal": "771ff6557fd0cbcce3377ff27c3da2d71fc29ea8805e7727c1726f40a6fcac2e",
+        "loading_progress": "8ee13fdfcf1593410c2e5ab9a9c23fd8d1557831e39239beaf699a4506e0c070",
+        "numeric": "ade5c7a2a7f6f53890b82afaa0578b8c1521fa56f7b05491240e0ded5079a8e9",
+        "buffer_tree": "640bc5203f33463449c9294b66d1e9aeca055df6244eee3d0a753ce64c27d824",
+        "spatial": "92499b877aad15c179ff20a101f10db4f6b0d44e8b14b85b6b4205299e85f710",
+        "unequal_alpha": "4a08dd91893f4399385958417e758b0fd4aed1b8538bd6bbb5b8807a457c6422"
+      }
+    },
+    "scope": "Genuine CPU static-world frame/sector/portal ownership, spatial queries, mutable-key manager trees, source-backed unequal alpha and ordered scene2 prefix",
+    "limits": [
+      "LMAP visual creation/replacement and lightmap payload/rendering",
+      "Original SceneOpen flags6/7 with genuine5bcc10 loading UI/graph provider",
+      "CompleteMissionOpen/authoredactors/player-camera/script objectives andcompletion",
+      "Newworld/alpha/spatial original-runtime equivalence andGPU/audio parity",
+      "Borrowed cross-scene lifetime requires explicit detach or owner-first destruction; original stale-pointer behavior is not silently repaired.",
+      "Retained-buffer controlled allocator/GPU/driver projections are separate from original hardware/full renderer.",
+      "Earlier poisoned failure prefixes remain preserved; only positive final-source probe has zero-cleanup claim."
+    ],
+    "source_review_repair": "MakeReady rejects interrupted host-failure retries before flag4 early success, while preserving genuine final-plane NULL normal return/retry. Sector focused tests8 PASS; all previously captured observations retained.",
+    "original_stock_runtime_preflight": {
+      "game_process_launched": false,
+      "original_runtime_validation": false,
+      "filtered_harness_retried": false
+    },
+    "reference": {
+      "observed_mafia_re": "1ee42a56214afeb54c536b85a4b16b5c4f4d86e3",
+      "behavior_pin": "86a7b15cbfa002bc6222e5542671a81988472882"
+    },
+    "new_scoped_entries": 0,
+    "new_scoped_contracts": 0,
+    "accepted_scoped_entries": 311,
+    "accepted_scoped_contracts": 114,
+    "whole_function_coverage": "N/A",
+    "strict_full_system_gate": "0/12",
+    "campaign_playable": false,
+    "native_device14_executed": false
   }
 }

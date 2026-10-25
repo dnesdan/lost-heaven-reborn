@@ -6,26 +6,27 @@ completion percentage. The campaign and first mission remain unplayable.
 
 ## Current bounded milestone
 
-The original-data CPU loader now loads, copies and caches static Mesh/Dummy
-models with genuine shared resources and cache miss/hit/growth ownership. An
-actual-data Rust probe completes 43 records and seven cache entries. Its next
-lookup, `base247`, belongs to the original world scene, which has not yet been
-loaded by the constructor-only Scene probe.
+The original-data CPU world loader now owns 1415 scene frames, five sectors
+and 14 portals with 36 hull planes. It supplies the real `base247` object before
+the ordered scene2 loader, which completes 43 records and then reaches the
+required `OBJ_` → `LMAP` visual replacement at cursor 8013 (Game `543a4b`).
 
-This is static original-code reconstruction and Rust actual-data testing;
-original-runtime cache equivalence is unverified. Genuine SceneOpen with live
-sector/portal ownership and loading-progress UI is the next dependency.
-The visible application remains standalone driving; the campaign is not playable.
+Live sector/portal ownership, spatial queries, mutable-key buffer trees and
+unequal-size alpha maps now share the genuine CPU resource path. Original
+SceneOpen presentation, the loading-progress UI and `LMAP` replacement remain
+open. This is Rust actual-data execution; native composed-loader parity and
+complete MissionOpen are unverified. The visible application remains standalone
+driving; the campaign is not playable.
 
-Code `a171632` has two sequential independent source approvals. Source-v4 passes
-1202 Rust tests, 9 REA-wrapper/47 progress tests and format/check/Clippy/build checks.
-Both profiles match 15 adjacent retained-observation cases; new cache Open and the
-expanded loader have no native comparison. The actual-data probe ends at cursor
-8019 with zero owned resources after cleanup. Prior standalone controls, three
-reloads and four cleanups are carried forward through the byte-identical final
-executable; no new UI run is claimed. [Source-bound details](docs/progress.json).
+Code `085f31e` has two sequential independent source approvals. Source-v4 passes
+1222 Rust tests, 9 REA-wrapper/47 progress tests and format/check/Clippy/build checks.
+Both Rust profiles match 15 retained buffer trajectories/92 phases; this is separate
+from the actual-data CPU world probes. Those probes reach `LMAP` and release all
+tracked resources. New standalone W/A/D/S/Space, three reloads and four cleanups
+have seven zero CPU counters. Neither probe nor capture establishes native
+SceneOpen, loading UI, mission execution or original rendering parity.
 
-[Current scope and preceding occluder/light record](docs/history/2026-10-25-model-cache-loader.md).
+[Current scope and preceding cache record](docs/history/2026-10-25-world-sector-loader.md).
 
 ## Strict system registry
 
@@ -49,6 +50,6 @@ Partial support below does not pass a system gate.
 
 Actual UI evidence is separate from native CPU projections. Host CW/MXCSR,
 original rendering/audio parity and native macOS/Metal are unclaimed.
-[Current screenshot](docs/screenshots/2026-10-25-model-cache-prefix.webp) ·
+[Current screenshot](docs/screenshots/2026-10-25-world-sector-prefix.webp) ·
 [full dated validation history](docs/history/2026-10-25-coverage-narrative.md) ·
 [progress](docs/PROGRESS.md) · [acceptance goals](docs/GOALS.md).
