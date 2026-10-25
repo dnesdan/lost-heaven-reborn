@@ -92,11 +92,12 @@ pub struct Material {
 }
 #[derive(Debug, Clone)]
 pub struct TextureAnimation {
-    pub frames: u32,
-    pub unknown: u16,
-    pub delay: u32,
-    pub unknown2: u32,
-    pub unknown3: u32,
+    pub num_frames: u8,
+    pub env_num_frames: u8,
+    pub loop_frame: i32,
+    pub frame_delay: i32,
+    pub env_loop_frame: i32,
+    pub env_frame_delay: i32,
 }
 #[derive(Debug, Clone)]
 pub struct JointRecord {
@@ -541,11 +542,12 @@ fn parse_four_ds_impl(
             };
         let animation = if flags & 0x04000000 != 0 {
             Some(TextureAnimation {
-                frames: r.u32()?,
-                unknown: r.u16()?,
-                delay: r.u32()?,
-                unknown2: r.u32()?,
-                unknown3: r.u32()?,
+                num_frames: r.u8()?,
+                env_num_frames: r.u8()?,
+                loop_frame: r.u32()? as i32,
+                frame_delay: r.u32()? as i32,
+                env_loop_frame: r.u32()? as i32,
+                env_frame_delay: r.u32()? as i32,
             })
         } else {
             None
@@ -1825,6 +1827,29 @@ mod scene_model_tests {
         for n in 0..b.len() {
             assert!(parse_four_ds_scene(&b[..n]).is_err(), "{n}");
         }
+    }
+    #[test]
+    fn animated_material_suffix_preserves_signed_fields_and_following_mesh() {
+        let mut bytes = super::mesh_tests::mesh();
+        bytes[16..20].copy_from_slice(&0x04000000u32.to_le_bytes());
+        let mut suffix = vec![7, 13];
+        for value in [-1i32, 0x12345678, i32::MIN, -50] {
+            suffix.extend(value.to_le_bytes());
+        }
+        assert_eq!(suffix.len(), 18);
+        bytes.splice(61..61, suffix);
+        let model = parse_four_ds_scene(&bytes).unwrap();
+        let animation = model.materials[0].animation.as_ref().unwrap();
+        assert_eq!((animation.num_frames, animation.env_num_frames), (7, 13));
+        assert_eq!(animation.loop_frame, -1);
+        assert_eq!(animation.frame_delay, 0x12345678);
+        assert_eq!(animation.env_loop_frame, i32::MIN);
+        assert_eq!(animation.env_frame_delay, -50);
+        assert_eq!(model.frames[0].lods[0].vertices[0].position, [1., 2., 3.]);
+        for end in 0..bytes.len() {
+            assert!(parse_four_ds_scene(&bytes[..end]).is_err(), "{end}");
+        }
+        assert!(parse_four_ds(&bytes).is_err());
     }
     #[test]
     fn embedded_key_and_additive_flags_suppress_separate_alpha_payload() {
