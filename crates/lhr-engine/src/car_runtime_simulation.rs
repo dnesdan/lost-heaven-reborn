@@ -937,6 +937,7 @@ where
             FrameKind::Target => 7,
             FrameKind::Model => 9,
             FrameKind::Joint => 10,
+            FrameKind::Occluder => 12,
             FrameKind::Scene => return Err("Crash worker needs a source frame, not scene".into()),
         })
     }

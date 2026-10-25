@@ -572,6 +572,7 @@ mod tests {
             skin: None,
             morph: None,
             target: None,
+            occluder: None,
             parent,
             position,
             scale: [1.0; 3],

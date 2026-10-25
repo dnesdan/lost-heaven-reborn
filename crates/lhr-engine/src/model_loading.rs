@@ -137,6 +137,7 @@ pub struct SharedModelLoadFailure {
 pub enum ModelError {
     Frame(FrameError),
     Camera(crate::frame_camera::CameraError),
+    Occluder(crate::frame_occluder::OccluderError),
     UnknownModel(ModelKey),
     UnsupportedActiveModelController(ModelKey),
     UnknownFrame(FrameKey),
@@ -211,6 +212,8 @@ pub struct ModelArena {
     pub(crate) scenes: Vec<crate::scene_ownership::SceneFrameOwner>,
     pub(crate) sectors: Vec<crate::scene_ownership::SectorFrame>,
     pub(crate) cameras: Vec<crate::frame_camera::CameraFrame>,
+    pub(crate) occluders: Vec<crate::frame_occluder::OccluderFrame>,
+    pub(crate) occluder_storage: crate::frame_occluder::OccluderStorage,
     pub(crate) sector_version: u32,
     destruction_depth: usize,
     pub(crate) light_random: crate::frame_light::LightCrtRandom,
@@ -223,6 +226,10 @@ pub struct ModelArena {
     loaded_visual_resources: Option<crate::loaded_visual_resources::LoadedVisualResources>,
 }
 impl ModelArena {
+    pub(crate) fn mark_loaded_model_root(&mut self, key: FrameKey) -> Result<(), ModelError> {
+        self.graph.mark_loaded_root_fields(key)?;
+        self.update_frame(key)
+    }
     /// Actual live arena slots, excluding retained host tombstone metadata.
     pub fn live_frame_count(&self) -> usize {
         self.frames.iter().filter(|frame| frame.alive).count()
@@ -335,6 +342,12 @@ impl ModelArena {
             (6, None) => I3dFrameState::dummy(),
             (7, None) => I3dFrameState::target(),
             (10, None) => I3dFrameState::joint(),
+            (12, None) => {
+                let mut state = I3dFrameState::model();
+                state.kind = FrameKind::Occluder;
+                state.flags |= 0x08100000;
+                state
+            }
             _ => {
                 return Err(ModelError::UnsupportedFrame {
                     index,
@@ -343,6 +356,9 @@ impl ModelArena {
                 });
             }
         };
+        if source.kind == 12 && source.occluder.is_none() {
+            return Err(crate::frame_occluder::OccluderError::GeometryUnavailable.into());
+        }
         if source.kind == 6 && source.dummy_bounds.is_none() {
             return Err(ModelError::MissingDummyBounds(index));
         }
@@ -395,6 +411,11 @@ impl ModelArena {
         morph_poses
             .try_reserve(1)
             .map_err(|_| ModelError::AllocationOverflow)?;
+        if source.kind == 12 {
+            self.occluders
+                .try_reserve(1)
+                .map_err(|_| ModelError::AllocationOverflow)?;
+        }
         let key = self.insert(
             state,
             Some(index),
@@ -402,6 +423,9 @@ impl ModelArena {
             source.properties.clone(),
             source.dummy_bounds,
         )?;
+        if source.kind == 12 {
+            self.finish_occluder_constructor(key);
+        }
         let fi = self.frame_index(key)?;
         self.frames[fi].source = Some(Arc::clone(source_model));
         morph_poses.push(morph);
@@ -411,7 +435,7 @@ impl ModelArena {
         }
         // LoadImage links earlier parents before storing the common local SRT.
         if parent.is_some() {
-            self.graph.link_to(key, parent)?;
+            self.link_frame(key, parent, 0)?;
         }
         self.graph.apply_common_load_image_fields(
             key,
@@ -431,6 +455,15 @@ impl ModelArena {
                 },
                 joint.index,
             )?;
+        }
+        if source.kind == 12 {
+            let record = source.occluder.as_ref().unwrap();
+            let key = self.occluder_key(key)?;
+            let mut image_error = 0;
+            self.occluder_load_geometry(key, &record.vertices, &record.faces, &mut image_error)?;
+            if image_error != 0 {
+                return Err(crate::frame_occluder::OccluderError::ImageError(image_error).into());
+            }
         }
         Ok(())
     }
@@ -962,10 +995,7 @@ impl ModelArena {
             });
         }
         if result.is_ok() {
-            result = self
-                .graph
-                .mark_loaded_root(model.root())
-                .map_err(ModelError::from);
+            result = self.mark_loaded_model_root(model.root());
         }
         match result {
             Ok(()) => Ok(content),
@@ -991,7 +1021,7 @@ impl ModelArena {
         while content.transferred_frames < content.frames.len() {
             let key = content.frames[content.transferred_frames];
             if self.graph.links(key)?.parent.is_none() {
-                self.graph.link_to(key, Some(content.model.root()))?;
+                self.link_frame(key, Some(content.model.root()), 0)?;
             }
             self.add_frame(content.model, key)?;
             self.release(key)?;
@@ -1356,6 +1386,9 @@ impl ModelArena {
         };
         if self.graph.state(key)?.kind == FrameKind::Camera {
             self.destroy_camera_derived(self.camera_key(key)?)?;
+        }
+        if self.graph.state(key)?.kind == FrameKind::Occluder {
+            self.destroy_occluder_derived(self.occluder_key(key)?)?;
         }
         if self.graph.state(key)?.kind == FrameKind::Model {
             // Host guard for independently constructed ownership graphs. This
@@ -1736,9 +1769,9 @@ impl MaterializedModel {
                 partial: Box::new(result),
             });
         }
-        if let Err(error) = result.arena.graph.mark_loaded_root(root.root()) {
+        if let Err(error) = result.arena.mark_loaded_model_root(root.root()) {
             return Err(ModelLoadFailure {
-                error: error.into(),
+                error,
                 partial: Box::new(result),
             });
         }
@@ -1773,7 +1806,7 @@ impl MaterializedModel {
         while self.transferred_frames < self.source_frame_keys.len() {
             let key = self.source_frame_keys[self.transferred_frames];
             if self.arena.graph.links(key)?.parent.is_none() {
-                self.arena.graph.link_to(key, Some(self.root.root()))?;
+                self.arena.link_frame(key, Some(self.root.root()), 0)?;
             }
             self.arena.add_frame(self.root, key)?;
             self.arena.release(key)?;
@@ -1831,7 +1864,7 @@ impl MaterializedModel {
             return Err(self.transfer_loaded_frames().err().unwrap_or(error));
         }
         self.transfer_loaded_frames()?;
-        self.arena.graph.mark_loaded_root(self.root.root())?;
+        self.arena.mark_loaded_model_root(self.root.root())?;
         self.content_epoch = self.lifecycle_epoch()?;
         self.complete = true;
         Ok(())
@@ -1863,7 +1896,7 @@ impl MaterializedModel {
     }
     pub(crate) fn update_animation_model(&mut self) -> Result<(), ModelError> {
         self.skin_pose = None;
-        self.arena.graph.update(self.root.root())?;
+        self.arena.update_frame(self.root.root())?;
         Ok(())
     }
     pub fn root(&self) -> FrameKey {
@@ -1923,7 +1956,7 @@ impl MaterializedModel {
                     .apply_evaluated_rotation(sample.frame, rotation)?;
             }
         }
-        self.arena.graph.update(self.root.root())?;
+        self.arena.update_frame(self.root.root())?;
         Ok(())
     }
     /// Build an immutable first-LOD CPU skin pose from the unchanged source and
@@ -2047,6 +2080,7 @@ pub(crate) mod tests {
             skin: None,
             morph: None,
             target: None,
+            occluder: None,
             parent,
             position,
             scale: [1.; 3],

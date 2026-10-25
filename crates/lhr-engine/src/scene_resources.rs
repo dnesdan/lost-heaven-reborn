@@ -361,7 +361,7 @@ impl SceneResources {
     }
     /// Close admitted constructor-owned state. Arrays absent in the original
     /// constructor stay genuinely unallocated. Foreign driver/listener/camera,
-    /// managed CPU textures and nonempty sector-light domains are not admitted.
+    /// managed CPU textures and unavailable derived resources are not admitted.
     /// Loaded vertex/index resources use the arena's actual owner, in native order.
     pub fn close_constructed_scene(
         &mut self,
@@ -415,14 +415,20 @@ impl SceneResources {
             textures.cached().len() + textures.uncached().len();
         let loaded_buffers = arena.loaded_visual_resources().is_some();
         let sectors = arena.scene(scene)?.sectors;
-        if sectors.iter().any(|sector| {
-            arena
-                .sector(*sector)
-                .is_ok_and(|sector| !sector.lights.is_empty())
-        }) {
-            return Err(SceneResourceError::UnsupportedDomain(
-                "nonempty sector lights",
-            ));
+        for sector in sectors {
+            for &light in &arena.sector(sector)?.lights {
+                if arena.state(light)?.kind != crate::frame_transform::FrameKind::Light {
+                    return Err(SceneResourceError::UnsupportedDomain(
+                        "noncanonical sector light",
+                    ));
+                }
+                let light = arena.graph.light_state(light).map_err(ModelError::from)?;
+                if (5..8).contains(&light.light_type) {
+                    return Err(SceneResourceError::UnsupportedDomain(
+                        "sector fog light cleanup",
+                    ));
+                }
+            }
         }
         struct Backend<'a> {
             words: &'a mut [u32; SCENE_WORDS],
@@ -567,8 +573,8 @@ impl SceneResources {
             arena.release(sector.frame())?;
             return Ok(());
         }
-        if !arena.sector(sector)?.lights.is_empty() {
-            return Err(SceneResourceError::UnsupportedDomain("sector lights"));
+        for &light in &arena.sector(sector)?.lights {
+            arena.graph.light_state(light).map_err(ModelError::from)?;
         }
         if arena.frame(sector.frame())?.owner.is_some() {
             return Err(SceneResourceError::UnsupportedDomain(
@@ -582,6 +588,30 @@ impl SceneResources {
         // 4ee80 entry and the actual nonnull-scene -> null transition in
         // 4f260(NULL), with constructor ring links and portal arrays null.
         arena.sector_version = arena.sector_version.wrapping_add(2);
+        // Actual 4ee80 removes each raw sector pointer from the light's list
+        // without invoking SectorDeleteLight or incrementing light-change state.
+        if let Some(occluder) = arena.sector(sector)?.hull_occluder {
+            arena.clear_occluder_sector_backpointer(occluder)?;
+        }
+        let lights = arena.sector(sector)?.lights.clone();
+        for light in lights {
+            let reciprocal = &mut arena
+                .graph
+                .light_state_mut(light)
+                .map_err(ModelError::from)?
+                .sectors;
+            if let Some(index) = reciprocal.iter().position(|&value| value == sector.frame()) {
+                reciprocal.swap_remove(index);
+            }
+        }
+        let si = arena
+            .sectors
+            .iter()
+            .position(|value| value.key == sector)
+            .unwrap();
+        arena.sectors[si].hull_occluder = None;
+        arena.sectors[si].lights = Vec::new();
+
         arena.destroy_empty_scene_base(sector.frame())?;
         arena.sectors.retain(|entry| entry.key != sector);
         Ok(())

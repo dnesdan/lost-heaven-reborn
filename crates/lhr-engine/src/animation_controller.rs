@@ -553,6 +553,7 @@ mod tests {
                     dummy_bounds: None,
                     joint: None,
                     target: None,
+                    occluder: None,
                     skin: None,
                     morph: None,
                     parent: None,

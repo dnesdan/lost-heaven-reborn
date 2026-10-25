@@ -302,6 +302,7 @@ impl<'a, B: VehicleInitBackend> VehicleFrameBackend<'a, B> {
                 FrameKind::Model => 9,
                 FrameKind::Joint => 10,
                 FrameKind::Target => 7,
+                FrameKind::Occluder => 12,
                 FrameKind::Scene => {
                     return Err(VehicleFrameError::UnsupportedField { frame: key, offset });
                 }
@@ -545,7 +546,9 @@ impl<'a, B: VehicleInitBackend> VehicleFrameBackend<'a, B> {
                 FrameKind::Target => 0x40,
                 FrameKind::Model => 0x80,
                 FrameKind::Joint => 0x400,
-                FrameKind::Scene => 0,
+                // Actual EnumSubtree RVA0x1c020 skips kinds12/13 for
+                // every partial mask; the all-types sentinel below bypasses it.
+                FrameKind::Occluder | FrameKind::Scene => 0,
             };
             let mut result = 0;
             if mask & 0xffff == 0xffff || mask & kind_mask != 0 {

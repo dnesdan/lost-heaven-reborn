@@ -179,6 +179,40 @@ impl DriverSceneOwner {
             })?;
         arena.create_camera(screen)
     }
+    /// Original CreateFrame type12: direct constructor reference, no registry
+    /// append or additional AddRef in this arm.
+    pub fn create_occluder_frame(
+        &mut self,
+        arena: &mut ModelArena,
+        resources: &SceneResources,
+        scene: SceneKey,
+    ) -> Result<crate::frame_occluder::OccluderKey, DriverSceneError<std::convert::Infallible>>
+    {
+        self.validate_scene_domain(arena, resources, scene)?;
+        arena.create_occluder().map_err(DriverSceneError::Model)
+    }
+    /// Original type2 arm delegates the existing canonical light constructor
+    /// and CRT stream; lights have no scene registry append here.
+    pub fn create_light_frame(
+        &mut self,
+        arena: &mut ModelArena,
+        resources: &SceneResources,
+        scene: SceneKey,
+    ) -> Result<crate::frame_transform::FrameKey, DriverSceneError<std::convert::Infallible>> {
+        self.validate_scene_domain(arena, resources, scene)?;
+        arena.create_light().map_err(DriverSceneError::Model)
+    }
+    /// Original type9 direct model constructor arm. Scene membership remains
+    /// a distinct caller operation; the model's creator reference is returned.
+    pub fn create_model_frame(
+        &mut self,
+        arena: &mut ModelArena,
+        resources: &SceneResources,
+        scene: SceneKey,
+    ) -> Result<crate::model_loading::ModelKey, DriverSceneError<std::convert::Infallible>> {
+        self.validate_scene_domain(arena, resources, scene)?;
+        arena.create_model().map_err(DriverSceneError::Model)
+    }
     /// Executes only original CreateFrame's scene arm. A host allocation or
     /// dependency failure preserves its executed prefix; no native null-return
     /// success or invented constructor rollback is introduced.

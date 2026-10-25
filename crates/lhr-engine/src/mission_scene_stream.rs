@@ -91,6 +91,19 @@ impl<'a> MissionSceneInput<'a> {
         self.levels.pop();
         Ok(())
     }
+    /// Original CloseChunk for an entered container: seek its declared end,
+    /// including unread nested successors, and pop exactly one level.
+    pub fn close_container(&mut self) -> Result<(), String> {
+        if self.current.is_some() {
+            return Err("current scene child remains open".into());
+        }
+        if self.levels.len() <= 1 {
+            return Err("cannot close LS root".into());
+        }
+        let level = self.levels.pop().unwrap();
+        self.cursor = level.end;
+        Ok(())
+    }
     pub fn read(&mut self, length: usize) -> Result<&'a [u8], String> {
         let chunk = self.current.ok_or("no current scene chunk")?;
         let start = self.cursor - chunk.offset;

@@ -114,6 +114,18 @@ pub struct TargetRecord {
     /// Original u16 reference words; the source u8 count is this vector's length.
     pub frame_indices: Vec<u16>,
 }
+/// Original PC kind-12 suffix consumed by I3D_occluder::LoadImage (RVA
+/// 0x3c9b0): two u32 counts followed by packed vertices and triangle indices.
+/// This is file data only; no native Build, planes or runtime identity is implied.
+#[derive(Debug, Clone)]
+pub struct OccluderRecord {
+    /// Source vertex order and f32 bits, including nonfinite values. Consumers
+    /// must validate their supported numerical domain before evaluating geometry.
+    pub vertices: Vec<[f32; 3]>,
+    /// Original three u16 indices per face, without conversion, reordering or
+    /// range validation. The u32 vertex count is not narrowed to the index width.
+    pub faces: Vec<[u16; 3]>,
+}
 /// Original PC singlemesh skin suffix. This preserves file records; it does not
 /// establish a complete joint binding or admit the model to static rendering.
 #[derive(Debug, Clone)]
@@ -202,6 +214,8 @@ pub struct Frame {
     pub joint: Option<JointRecord>,
     /// Original kind-7 target metadata, without link resolution or evaluation.
     pub target: Option<TargetRecord>,
+    /// Original kind-12 source geometry, without native Build or runtime creation.
+    pub occluder: Option<OccluderRecord>,
     /// Inherited skin metadata, retained by scene and explicit character intake.
     pub skin: Option<SkinRecord>,
     /// Retained only by explicit singlemorph intake; requires runtime validation.
@@ -283,7 +297,7 @@ pub fn parse_four_ds(b: &[u8]) -> Result<Model> {
     parse_four_ds_impl(b, false, false, false, false).map(|(model, _)| model)
 }
 /// Broader scene intake: retains material effects as metadata and accepts sector,
-/// light, target and joint frames, and visual-2 singlemesh skin records. Joint
+/// light, target, occluder and joint frames, and visual-2 singlemesh skin records. Joint
 /// and skin suffixes are raw metadata, without skinning or joint-runtime
 /// behavior. Morph visuals and singlemesh instances remain unsupported.
 /// Callers must implement or report material
@@ -481,6 +495,7 @@ fn parse_four_ds_impl(
     let mut total_morph_samples = 0usize;
     let mut total_morph_channels = 0usize;
     let mut total_morph_bytes = 0usize;
+    let mut total_occluder_bytes = 0usize;
     let mut unsupported_billboard = false;
     for _ in 0..count {
         let kind = r.u8()?;
@@ -539,6 +554,7 @@ fn parse_four_ds_impl(
         let mut dummy_bounds = None;
         let mut joint = None;
         let mut target = None;
+        let mut occluder = None;
         let mut skin = None;
         let mut morph = None;
         let mut lods = Vec::new();
@@ -572,7 +588,45 @@ fn parse_four_ds_impl(
             if vertices > 1_000_000 || faces > 1_000_000 {
                 return err("sector/occluder quota exceeded");
             }
-            r.take(vertices * 12 + faces * 6)?;
+            let geometry_bytes = vertices
+                .checked_mul(12)
+                .and_then(|bytes| faces.checked_mul(6).and_then(|n| bytes.checked_add(n)))
+                .ok_or_else(|| Error("sector/occluder extent overflow".into()))?;
+            if kind == 12 {
+                // Retained storage is bounded in aggregate as well as by the
+                // existing per-record host count policy; neither is a native limit.
+                total_occluder_bytes = total_occluder_bytes
+                    .checked_add(geometry_bytes)
+                    .filter(|&bytes| bytes <= MAX_BYTES)
+                    .ok_or_else(|| Error("occluder decoded storage quota exceeded".into()))?;
+                // Prove the complete source extent before allocating either array.
+                let bytes = r.take(geometry_bytes)?;
+                let (vertex_bytes, face_bytes) = bytes.split_at(vertices * 12);
+                occluder = Some(OccluderRecord {
+                    vertices: vertex_bytes
+                        .as_chunks::<12>()
+                        .0
+                        .iter()
+                        .map(|vertex| {
+                            std::array::from_fn(|i| {
+                                f32::from_le_bytes(vertex[i * 4..i * 4 + 4].try_into().unwrap())
+                            })
+                        })
+                        .collect(),
+                    faces: face_bytes
+                        .as_chunks::<6>()
+                        .0
+                        .iter()
+                        .map(|face| {
+                            std::array::from_fn(|i| {
+                                u16::from_le_bytes(face[i * 2..i * 2 + 2].try_into().unwrap())
+                            })
+                        })
+                        .collect(),
+                });
+            } else {
+                r.take(geometry_bytes)?;
+            }
             if kind == 5 {
                 r.take(24)?;
                 let portals = r.u8()?;
@@ -812,6 +866,7 @@ fn parse_four_ds_impl(
             dummy_bounds,
             joint,
             target,
+            occluder,
             skin,
             morph,
             parent: parent.checked_sub(1),
@@ -1742,6 +1797,101 @@ mod scene_model_tests {
         let mut huge = b.clone();
         huge[72..76].copy_from_slice(&u32::MAX.to_le_bytes());
         assert!(parse_four_ds_scene(&huge).is_err());
+    }
+    fn occluder_scene(vertices: &[[u32; 3]], faces: &[[u16; 3]]) -> Vec<u8> {
+        let mut bytes = b"4DS\0".to_vec();
+        bytes.extend(29u16.to_le_bytes());
+        bytes.extend([0; 8]);
+        bytes.extend(0u16.to_le_bytes());
+        bytes.extend(2u16.to_le_bytes());
+        for (kind, name) in [(12, b"Occluder".as_slice()), (6, b"Tail".as_slice())] {
+            bytes.push(kind);
+            bytes.extend(0u16.to_le_bytes());
+            for value in [0f32, 0., 0., 1., 1., 1., 1., 0., 0., 0.] {
+                bytes.extend(value.to_le_bytes());
+            }
+            bytes.extend([0, name.len() as u8]);
+            bytes.extend(name);
+            bytes.push(0);
+            if kind == 12 {
+                bytes.extend((vertices.len() as u32).to_le_bytes());
+                bytes.extend((faces.len() as u32).to_le_bytes());
+                for vertex in vertices {
+                    for word in vertex {
+                        bytes.extend(word.to_le_bytes());
+                    }
+                }
+                for face in faces {
+                    for index in face {
+                        bytes.extend(index.to_le_bytes());
+                    }
+                }
+            } else {
+                bytes.extend([0; 24]);
+            }
+        }
+        bytes.push(0);
+        bytes
+    }
+    #[test]
+    fn occluder_geometry_preserves_raw_words_face_order_and_following_frame() {
+        let vertices = [
+            [0x80000000, 0x7f801234, 1],
+            [0x7f800000, 0xff800000, 0xffc05678],
+        ];
+        // Out-of-range references remain raw source data, including u16::MAX.
+        let faces = [[u16::MAX, 1, 0], [0, 0, 7]];
+        let bytes = occluder_scene(&vertices, &faces);
+        let model = parse_four_ds_scene(&bytes).unwrap();
+        let frame = &model.frames[0];
+        assert_eq!(frame.kind, 12);
+        assert!(frame.lods.is_empty());
+        let record = frame.occluder.as_ref().unwrap();
+        assert_eq!(
+            record
+                .vertices
+                .iter()
+                .map(|v| v.map(f32::to_bits))
+                .collect::<Vec<_>>(),
+            vertices
+        );
+        assert_eq!(record.faces, faces);
+        assert_eq!(model.frames[1].name, "Tail");
+        assert!(model.frames[1].occluder.is_none());
+        assert!(parse_four_ds(&bytes).is_err());
+        for length in 0..bytes.len() {
+            assert!(parse_four_ds_scene(&bytes[..length]).is_err(), "{length}");
+        }
+        let empty = parse_four_ds_scene(&occluder_scene(&[], &[])).unwrap();
+        let record = empty.frames[0].occluder.as_ref().unwrap();
+        assert!(record.vertices.is_empty() && record.faces.is_empty());
+    }
+    #[test]
+    fn occluder_u32_counts_keep_existing_host_quota_and_exact_extents() {
+        let mut bytes = occluder_scene(&[], &[]);
+        // The suffix follows the common name/property bytes at this fixed fixture offset.
+        let counts = 18 + 1 + 2 + 40 + 1 + 1 + b"Occluder".len() + 1;
+        for count_offset in [counts, counts + 4] {
+            bytes[count_offset..count_offset + 4].copy_from_slice(&u32::MAX.to_le_bytes());
+            assert!(
+                parse_four_ds_scene(&bytes)
+                    .unwrap_err()
+                    .0
+                    .contains("sector/occluder quota")
+            );
+            bytes[count_offset..count_offset + 4].fill(0);
+        }
+        // Counts wider than a face index are retained without narrowing.
+        let vertices = vec![[0; 3]; 65_536];
+        let model = parse_four_ds_scene(&occluder_scene(&vertices, &[[65_535; 3]])).unwrap();
+        assert_eq!(
+            model.frames[0].occluder.as_ref().unwrap().vertices.len(),
+            65_536
+        );
+        assert_eq!(
+            model.frames[0].occluder.as_ref().unwrap().faces,
+            [[65_535; 3]]
+        );
     }
     #[test]
     fn cp1250_names_are_exact_and_undefined_bytes_rejected() {

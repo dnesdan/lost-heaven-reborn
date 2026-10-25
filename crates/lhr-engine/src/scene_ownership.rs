@@ -60,6 +60,8 @@ pub struct SectorFrame {
     pub next_visual: Option<FrameKey>,
     /// Native non-owning I3D_light pointer list; light.sectors is reciprocal.
     pub lights: Vec<FrameKey>,
+    pub(crate) hull_occluder: Option<crate::frame_occluder::OccluderKey>,
+    pub(crate) occluder_list: Option<crate::frame_occluder::OccluderKey>,
     pub sound_properties: [u32; crate::scene_weather::SECTOR_SOUND_PROPERTIES_WORDS],
     pub sound_words_1e8_1ec: [u32; 2],
 }
@@ -67,6 +69,10 @@ pub struct SectorFrame {
 pub struct SceneFrameOwner {
     pub key: SceneKey,
     pub(crate) current_camera: Option<crate::frame_camera::CameraKey>,
+    pub(crate) occluder_head: Option<crate::frame_occluder::OccluderKey>,
+    pub(crate) occluder_count: u32,
+    pub(crate) occluder_flag_274: bool,
+    pub(crate) occluders_changed: bool,
     pub(crate) backdrop_range: [f32; 2],
     pub(crate) field_220: [u32; 3],
     /// Primary, backdrop, omni and near, in the original retained-reference order.
@@ -216,6 +222,8 @@ impl ModelArena {
                 bounding_sphere: (index < 2).then_some([0., 0., 0., f32::from_bits(0x46875104)]),
                 next_visual: None,
                 lights: Vec::new(),
+                hull_occluder: None,
+                occluder_list: None,
                 sound_properties,
                 sound_words_1e8_1ec: [0; 2],
             });
@@ -224,6 +232,10 @@ impl ModelArena {
         self.scenes.push(SceneFrameOwner {
             key,
             current_camera: None,
+            occluder_head: None,
+            occluder_count: 0,
+            occluder_flag_274: false,
+            occluders_changed: false,
             backdrop_range: [1., 10000.],
             field_220: [0, 0x3f000000, 0x3ecccccd],
             sectors: sectors.try_into().unwrap(),
@@ -498,10 +510,13 @@ impl ModelArena {
             }
             .into());
         }
+        if self.state(key)?.kind == FrameKind::Occluder {
+            return self.link_occluder_frame_derived(key, parent, flags);
+        }
         if let Some(parent) = parent {
             self.frame(parent)?;
         }
-        Ok(self.graph.link_to_with_flags(key, parent, flags)?)
+        self.link_frame_base(key, parent, flags)
     }
     pub fn sector_lights_changed(&self, sector: SectorKey) -> Result<u32, ModelError> {
         self.sector(sector)?;
@@ -554,7 +569,7 @@ impl ModelArena {
         light: FrameKey,
     ) -> Result<u32, ModelError> {
         self.sector(sector)?;
-        self.light(light)?;
+        self.graph.light_state(light)?;
         let si = self.sectors.iter().position(|s| s.key == sector).unwrap();
         let Some(index) = self.sectors[si]
             .lights
@@ -563,6 +578,9 @@ impl ModelArena {
         else {
             return Ok(0x80000006);
         };
+        if (5..8).contains(&self.graph.light_state(light)?.light_type) {
+            return Err(crate::frame_transform::FrameError::UnsupportedFrameUpdate(light).into());
+        }
         let changed = self
             .graph
             .sector_light_changes
@@ -580,9 +598,14 @@ impl ModelArena {
         if self.state(light)?.kind != FrameKind::Light {
             return Ok(());
         }
-        while let Some(&sector) = self.graph.light_state(light)?.sectors.first() {
+        // Actual 20760 snapshots the initial pointer/count, then advances the
+        // physical pointer despite reciprocal swap-removals. The admitted lists
+        // contain unique sector references, so this preserves initial order.
+        let sectors = self.graph.light_state(light)?.sectors.clone();
+        for sector in sectors {
             self.sector_delete_light(SectorKey(sector), light)?;
         }
+        self.graph.light_state_mut(light)?.sectors = Vec::new();
         Ok(())
     }
     /// GetSector's constructor-only spatial-list domain. A loaded spatial
@@ -925,7 +948,7 @@ mod tests {
         assert!(matches!(arena.frame(c), Err(ModelError::UnknownFrame(_))));
     }
     #[test]
-    fn lookup_reads_current_graph_sector_even_when_owner_is_another_scene() {
+    fn lookup_reads_retained_graph_prefix_before_unavailable_sector_ring_transition() {
         let mut arena = ModelArena::default();
         let a = arena.construct_scene_owner_prefix().unwrap();
         let b = arena.construct_scene_owner_prefix().unwrap();
@@ -940,8 +963,15 @@ mod tests {
         assert_eq!(arena.find_frame_fast(a, b"same").unwrap(), Some(second));
         assert_eq!(arena.find_frame_fast(b, b"same").unwrap(), Some(first));
         assert_eq!(arena.frame(second).unwrap().owner, None);
-        // Native continues through a sector belonging to a different scene.
-        arena.link_frame(sb, Some(sa), 0).unwrap();
+        // The base Link prefix changes hierarchy before its independent
+        // cross-scene SectorRing dependency. Preserve and inspect that prefix;
+        // do not claim the formerly omitted ring transition succeeded.
+        assert!(matches!(
+            arena.link_frame(sb, Some(sa), 0),
+            Err(ModelError::Occluder(
+                crate::frame_occluder::OccluderError::SectorTransitionUnavailable
+            ))
+        ));
         assert_eq!(arena.find_frame_fast(a, b"same").unwrap(), Some(first));
         arena.link_frame(first, None, 0).unwrap();
         assert_eq!(arena.find_frame_fast(b, b"same").unwrap(), None);

@@ -551,6 +551,7 @@ mod tests {
                 skin: None,
                 morph: None,
                 target: None,
+                occluder: None,
                 parent: None,
                 position: [0.0; 3],
                 scale: [1.0; 3],

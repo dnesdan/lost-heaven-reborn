@@ -591,9 +591,19 @@ impl ModelArena {
     }
     pub fn update_frame(&mut self, key: FrameKey) -> Result<(), ModelError> {
         let cameras = &mut self.cameras;
+        let occluders = &mut self.occluders;
+        let occluder_storage = &mut self.occluder_storage;
         let scenes = &self.scenes;
         let sectors = &self.sectors;
         self.graph.update_with_camera(key, |graph, key| {
+            if graph.state(key)?.kind == FrameKind::Occluder {
+                let occluder = occluders
+                    .iter_mut()
+                    .find(|value| value.key.frame() == key)
+                    .ok_or(FrameError::UnsupportedFrameUpdate(key))?;
+                return crate::frame_occluder::update_occluder_v(graph, occluder, occluder_storage)
+                    .map_err(|_| FrameError::NumericDomain("occluder UpdateV"));
+            }
             if graph.state(key)?.kind == FrameKind::Sector {
                 let sector = sectors
                     .iter()

@@ -32,6 +32,7 @@ pub struct FrameKey(pub u32);
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FrameKind {
     Camera,
+    Occluder,
     Scene,
     Sector,
     Model,
@@ -297,6 +298,7 @@ impl I3dFrameGraph {
                 | FrameKind::Light
                 | FrameKind::Sound
                 | FrameKind::Camera
+                | FrameKind::Occluder
         ) && !(empty_scene && matches!(node.state.kind, FrameKind::Scene | FrameKind::Sector))
             && !(plain_visual && matches!(node.state.kind, FrameKind::Mesh | FrameKind::Projector))
         {
@@ -968,9 +970,13 @@ impl I3dFrameGraph {
     /// Observed LoadHierarchy EndLoad root store, followed by original Update.
     /// Resource loading remains outside this field projection.
     pub fn mark_loaded_root(&mut self, key: FrameKey) -> Result<(), FrameError> {
+        self.mark_loaded_root_fields(key)?;
+        self.update(key)
+    }
+    pub(crate) fn mark_loaded_root_fields(&mut self, key: FrameKey) -> Result<(), FrameError> {
         let state = &mut self.node_mut(key)?.state;
         state.flags = (state.flags & 0xfffffeff) | 0x40000000;
-        self.update(key)
+        Ok(())
     }
     /// Original bound-cache invalidation at RVA0x1cc00, used by model Close.
     /// Sector type5 stops both direct receiver and ancestor invalidation before
@@ -1151,10 +1157,45 @@ impl I3dFrameGraph {
         parent: Option<FrameKey>,
         flags: u32,
     ) -> Result<u32, FrameError> {
+        self.link_to_projection(child, parent, flags, false, |graph, _, old, new| {
+            if graph.closest_sector(old)? == graph.closest_sector(new)? {
+                Ok(())
+            } else {
+                Err(FrameError::UnsupportedLinkState)
+            }
+        })
+    }
+    pub(crate) fn link_to_with_scene_context(
+        &mut self,
+        child: FrameKey,
+        parent: Option<FrameKey>,
+        flags: u32,
+        transition: impl FnMut(
+            &mut Self,
+            FrameKey,
+            Option<FrameKey>,
+            Option<FrameKey>,
+        ) -> Result<(), FrameError>,
+    ) -> Result<u32, FrameError> {
+        self.link_to_projection(child, parent, flags, true, transition)
+    }
+    fn link_to_projection(
+        &mut self,
+        child: FrameKey,
+        parent: Option<FrameKey>,
+        flags: u32,
+        allow_hr: bool,
+        mut transition: impl FnMut(
+            &mut Self,
+            FrameKey,
+            Option<FrameKey>,
+            Option<FrameKey>,
+        ) -> Result<(), FrameError>,
+    ) -> Result<u32, FrameError> {
         if flags > 1 {
             return Err(FrameError::UnsupportedLinkFlags(flags));
         }
-        let result = self.link_to_inner(child, parent, flags);
+        let result = self.link_to_inner(child, parent, flags, allow_hr, &mut transition);
         if let Err(
             error @ (FrameError::NumericDomain(_)
             | FrameError::QuaternionFromMatrixUnavailable
@@ -1167,17 +1208,41 @@ impl I3dFrameGraph {
         }
         result
     }
+    pub(crate) fn closest_sector(
+        &self,
+        mut frame: Option<FrameKey>,
+    ) -> Result<Option<FrameKey>, FrameError> {
+        let mut remaining = self.nodes.len();
+        while let Some(key) = frame {
+            if remaining == 0 {
+                return Err(FrameError::Cycle);
+            }
+            remaining -= 1;
+            if self.state(key)?.kind == FrameKind::Sector {
+                return Ok(Some(key));
+            }
+            frame = self.links(key)?.parent;
+        }
+        Ok(None)
+    }
     fn link_to_inner(
         &mut self,
         child: FrameKey,
         parent: Option<FrameKey>,
         flags: u32,
+        allow_hr: bool,
+        transition: &mut impl FnMut(
+            &mut Self,
+            FrameKey,
+            Option<FrameKey>,
+            Option<FrameKey>,
+        ) -> Result<(), FrameError>,
     ) -> Result<u32, FrameError> {
         let old = self.links(child)?.parent;
         if old == parent {
             return Ok(0);
         }
-        if flags == 1 && self.state(child)?.flags & 0x1c0000 != 0 {
+        if !allow_hr && flags == 1 && self.state(child)?.flags & 0x1c0000 != 0 {
             return Err(FrameError::UnsupportedLinkState);
         }
         let mut at = parent;
@@ -1254,6 +1319,36 @@ impl I3dFrameGraph {
             node.state.flags = (node.state.flags & 0xfffffed3) | 0x40000010;
             node.local_error = None;
             node.world_error = None;
+        }
+        let hr = self.state(child)?.flags & 0x1c0000;
+        if hr != 0 {
+            let mut at = parent;
+            while let Some(frame) = at {
+                self.node_mut(frame)?.state.flags |= hr;
+                at = self.links(frame)?.parent;
+            }
+            let mut at = old;
+            while let Some(frame) = at {
+                let mask = match self.state(frame)?.kind {
+                    FrameKind::Sector => 0xffebffff,
+                    FrameKind::Occluder => 0xfff3ffff,
+                    _ => 0xffe3ffff,
+                };
+                self.node_mut(frame)?.state.flags &= mask;
+                // Actual intersection of three different HR masks is zero.
+                // The native loop walks siblings but never loads child flags.
+                let mut child = self.links(frame)?.child;
+                let mut remaining = self.nodes.len();
+                while let Some(key) = child {
+                    if remaining == 0 {
+                        return Err(FrameError::Cycle);
+                    }
+                    remaining -= 1;
+                    child = self.links(key)?.next;
+                }
+                at = self.links(frame)?.parent;
+            }
+            transition(self, child, old, parent)?;
         }
         Ok(0)
     }
@@ -1408,7 +1503,7 @@ impl I3dFrameGraph {
     pub fn update_v(&mut self, key: FrameKey) -> Result<(), FrameError> {
         if matches!(
             self.state(key)?.kind,
-            FrameKind::Scene | FrameKind::Sector | FrameKind::Camera
+            FrameKind::Scene | FrameKind::Sector | FrameKind::Camera | FrameKind::Occluder
         ) {
             return Err(FrameError::UnsupportedFrameUpdate(key));
         }
@@ -1477,7 +1572,10 @@ impl I3dFrameGraph {
     /// objects and owned singlemesh bindings, followed by deferred Target updates;
     /// target-only singlemesh projections cannot enter their own update.
     pub fn update(&mut self, key: FrameKey) -> Result<(), FrameError> {
-        if matches!(self.state(key)?.kind, FrameKind::Camera | FrameKind::Sector) {
+        if matches!(
+            self.state(key)?.kind,
+            FrameKind::Camera | FrameKind::Sector | FrameKind::Occluder
+        ) {
             return Err(FrameError::UnsupportedFrameUpdate(key));
         }
         self.update_with_camera(key, |_, key| Err(FrameError::UnsupportedFrameUpdate(key)))
@@ -1506,7 +1604,7 @@ impl I3dFrameGraph {
                     if let Some(p) = visits.last_mut() {
                         if matches!(
                             self.state(done.key)?.kind,
-                            FrameKind::Camera | FrameKind::Sector
+                            FrameKind::Camera | FrameKind::Sector | FrameKind::Occluder
                         ) {
                             camera_update(self, done.key)?;
                         } else {
@@ -1521,7 +1619,10 @@ impl I3dFrameGraph {
                     }
                 }
             }
-            if matches!(self.state(key)?.kind, FrameKind::Camera | FrameKind::Sector) {
+            if matches!(
+                self.state(key)?.kind,
+                FrameKind::Camera | FrameKind::Sector | FrameKind::Occluder
+            ) {
                 camera_update(self, key)?;
             } else {
                 self.update_v(key)?;
