@@ -1039,8 +1039,9 @@ fn texture_name(r: &mut Reader<'_>) -> Result<String> {
     let name = r.string()?;
     if !name.is_empty() {
         safe_relative(&name)?;
-        if !name.to_ascii_lowercase().ends_with(".bmp") {
-            return err("only BMP textures supported");
+        let lower = name.to_ascii_lowercase();
+        if !lower.ends_with(".bmp") && !lower.ends_with(".tga") {
+            return err("only BMP or TGA textures supported");
         }
     }
     Ok(name)
@@ -1995,6 +1996,48 @@ mod scene_model_tests {
         assert!(parse_four_ds(&bytes).is_err());
         bytes.push(0);
         assert!(parse_four_ds_scene(&bytes).is_err());
+    }
+    #[test]
+    fn tga_material_names_share_bmp_path_safety_and_optional_payload_order() {
+        let mut bytes = material_scene();
+        for start in 0..bytes.len() - 3 {
+            if &bytes[start..start + 4] == b".bmp" {
+                bytes[start..start + 4].copy_from_slice(b".TgA");
+            }
+        }
+        let model = parse_four_ds_scene(&bytes).unwrap();
+        assert_eq!(model.materials[0].texture, "color.TgA");
+        assert_eq!(
+            model.materials[0].environment_texture.as_deref(),
+            Some("env.TgA")
+        );
+        assert_eq!(
+            model.materials[0].alpha_texture.as_deref(),
+            Some("mask.TgA")
+        );
+        assert_eq!(model.frames[0].lods[0].vertices[0].position, [1., 2., 3.]);
+        for name in ["maps/color.tga", "color.bmp"] {
+            let mut bytes = super::mesh_tests::mesh();
+            let mut payload = vec![name.len() as u8];
+            payload.extend(name.as_bytes());
+            bytes.splice(60..61, payload);
+            assert_eq!(parse_four_ds(&bytes).unwrap().materials[0].texture, name);
+        }
+        for name in [
+            "../color.tga",
+            "/color.tga",
+            "C:color.tga",
+            "maps\\color.tga",
+            "color.tga/../x.tga",
+            "color.png",
+            "color.tga.exe",
+        ] {
+            let mut bytes = super::mesh_tests::mesh();
+            let mut payload = vec![name.len() as u8];
+            payload.extend(name.as_bytes());
+            bytes.splice(60..61, payload);
+            assert!(parse_four_ds_scene(&bytes).is_err(), "{name}");
+        }
     }
     #[test]
     fn animated_material_suffix_preserves_signed_fields_and_following_mesh() {
