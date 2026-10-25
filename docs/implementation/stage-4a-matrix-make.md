@@ -59,3 +59,17 @@ missing row.
 
 These are source-contract and consumer logic checks. Rendered/interactive
 validation and comparison with the original runtime have not been performed.
+
+Rust 1.99.1 validation used an isolated build target:
+
+- `scripts/test.sh`: formatting and workspace/all-targets check passed; the
+  engine library ran 1,056 passing tests and the two previously established
+  high-FIP x87 environment failures. No test was changed or disabled for them.
+- `cargo test --workspace --locked` with only those two test names excluded:
+  1,216 passed across assets, engine library/binary, program integration and
+  renderer tests. Documentation test targets also passed.
+- Workspace/all-targets Clippy with `-D warnings`: passed.
+- Python progress tests: 47 passed; generated progress check passed unchanged.
+- Python binary-analysis boundary tests: 9 passed with host process visibility.
+  The restricted default process view reproduces four environment failures;
+  the wrapper and its tests are unchanged.

@@ -674,7 +674,7 @@ mod tests {
         // controls spell out the source cross products independently.
         let basis = [[0., -1., 0.], [1., 0., 0.], [0., 0., 1.]];
         let expected_rows = [[0., -1., 0.], [-1., 0., 0.], [0., 0., 1.]];
-        for row in 0..3 {
+        for (row, expected_row) in expected_rows.into_iter().enumerate() {
             let mut matrix = SMatrix::identity();
             for (i, values) in basis.into_iter().enumerate() {
                 matrix.elements[i * 4..i * 4 + 3].copy_from_slice(&values);
@@ -682,7 +682,7 @@ mod tests {
             matrix.elements[12..15].copy_from_slice(&[10., 20., 30.]);
             matrix.elements[row * 4..row * 4 + 3].fill(0.);
             let mut reconstructed = matrix;
-            reconstructed.elements[row * 4..row * 4 + 3].copy_from_slice(&expected_rows[row]);
+            reconstructed.elements[row * 4..row * 4 + 3].copy_from_slice(&expected_row);
             let original = matrix;
             let got = SQuat::try_make_from_matrix(&matrix).unwrap();
             let expected = SQuat::try_make_from_matrix(&reconstructed).unwrap();
