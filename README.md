@@ -10,16 +10,18 @@ animation, and standalone original-data driving with collision, vehicle damage,
 WAV mixing and explicit cleanup. Rendering is unlit first LOD with a host chase
 camera. Original player/camera scheduling, mission scripts and traffic remain open.
 
-The original-data CPU loader now owns occluder geometry, scene membership and
-borrowed light registrations. It completes seven records: primary sector, one
-occluder and five lights. The next unloaded Model9 is genuinely constructed before
-ModelCacheOpen requests an `.i3d` resource and stops at cursor 2086 (Game `54220a`).
+The original-data CPU loader now loads, copies and caches static Mesh/Dummy
+models with genuine shared resources and cache miss/hit/growth ownership. An
+actual-data Rust probe completes 43 records and seven cache entries. Its next
+lookup, `base247`, belongs to the original world scene, which has not yet been
+loaded by the constructor-only Scene probe.
 
-This is Rust execution of actual data. Original-runtime equivalence for the
-expanded loader, light/ring/HR behavior and nonidentity updates remains unverified.
+This is static original-code reconstruction and Rust actual-data testing;
+original-runtime cache equivalence is unverified. Genuine SceneOpen with live
+sector/portal ownership and loading-progress UI is the next dependency.
 The visible application remains standalone driving; the campaign is not playable.
 
-Accepted code: 41365c0; [source-bound validation](COVERAGE.md).
+Accepted code: a171632; [source-bound validation](COVERAGE.md).
 
 See [current evidence and limits](COVERAGE.md), [progress](docs/PROGRESS.md),
 [remaining goals](docs/GOALS.md) and [dated history](docs/history/README.md).
@@ -103,10 +105,11 @@ window run. [More commands and historical validation](docs/history/2026-10-25-re
 
 ## Actual Rust captures
 
-![Standalone original-data driving after CPU occluder/light changes](docs/screenshots/2026-10-25-occluder-light-prefix.webp)
+![Standalone original-data driving; unchanged executable regression](docs/screenshots/2026-10-25-model-cache-prefix.webp)
 
-Actual standalone driving and reload regression; host chase camera and unlit
-rendering. The CPU loader and retained-output comparisons are validated separately.
+Prior standalone driving capture, carried forward through the byte-identical final
+executable; no new UI run. Host chase camera and unlit rendering remain visible.
+The cache probe and retained-output comparisons are validated separately.
 [Capture evidence](docs/screenshots/README.md).
 
 [![Original taxi during the continuous driving capture](docs/screenshots/2026-10-24-car-driving-verified.webp)](docs/videos/2026-10-24-car-driving.mp4)

@@ -2,6 +2,16 @@
 
 Actual captures from the Rust application using separately supplied PC game data. Images are compressed WebP previews; uncompressed validation captures remain private. Add dated images for visible milestones, up to 960 pixels wide and 200 KiB per image, rather than a capture for every commit. Game content retains its original ownership.
 
+## 2026-10-25 — standalone driving, identical-executable carryover
+
+![Standalone original-data driving](2026-10-25-model-cache-prefix.webp)
+
+Root-inspected960×640 WebP,200,418 bytes. This actual prior Rust capture and
+W/A/D/S/Space,three reloads,four cleanups/seven zero CPU counters are bound to
+Source-v4 through the byte-identical executable. No new UI run is claimed.
+The host chase camera and unlit driving remain visible; this is not cache
+visualization, world SceneOpen, mission rendering or original-runtime parity.
+
 ## 2026-10-25 — driving after CPU occluder/light loader changes
 
 ![Standalone original-data driving during the regression](2026-10-25-occluder-light-prefix.webp)

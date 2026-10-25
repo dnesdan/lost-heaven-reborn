@@ -23,9 +23,9 @@ Apple cross-check is blocked by missing CoreAudio SDK headers.
 
 ## Remaining dependency order
 
-1. Complete the genuine ModelCacheOpen boundary reached after seven scene records
-   and the next unloaded Model9. Preserve the actual request/cursor and resource
-   ownership; current CPU occluder/light loading does not supply a complete mission.
+1. Load the original world scene through genuine SceneOpen before applying scene2.
+   Reconstruct live sector hulls, planes, portals and progress presentation; the
+   constructor-only probe reaches `base247`, which exists in the unloaded world.
 2. Connect original startup/menu/mission owners through genuine graphics, input,
    audio, profiles and tables. Active mission Close and original device providers
    remain open; current file setup is a separate bounded prefix.

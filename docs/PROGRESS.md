@@ -2,31 +2,33 @@
 
 ## Current milestone — 2026-10-25
 
-The original-data CPU loader now owns occluder geometry, scene membership and
-borrowed light registrations. It completes seven records: primary sector, one
-occluder and five lights. The next unloaded Model9 is genuinely constructed before
-ModelCacheOpen requests an `.i3d` resource and stops at cursor 2086 (Game `54220a`).
+The original-data CPU loader now loads, copies and caches static Mesh/Dummy
+models with genuine shared resources and cache miss/hit/growth ownership. An
+actual-data Rust probe completes 43 records and seven cache entries. Its next
+lookup, `base247`, belongs to the original world scene, which has not yet been
+loaded by the constructor-only Scene probe.
 
-This is Rust execution of actual data. Original-runtime equivalence for the
-expanded loader, light/ring/HR behavior and nonidentity updates remains unverified.
+This is static original-code reconstruction and Rust actual-data testing;
+original-runtime cache equivalence is unverified. Genuine SceneOpen with live
+sector/portal ownership and loading-progress UI is the next dependency.
 The visible application remains standalone driving; the campaign is not playable.
 
-Code `41365c0` has two sequential independent non-author source approvals.
-Source-v1 passes 1186 Rust tests, 9 REA-wrapper/47 progress tests and all
-format/check/Clippy/build checks. Both profiles match retained 19-case/60-snapshot
-Build/NULL observations and four enum callback projections. Allocation statistics
-are aggregate counts/bytes/call count; exact event order and full enum API are unverified.
-The Rust 2086-prefix cleanup has six zero counters after final owner/storage release.
-Standalone input covers three reloads and four cleanups with seven CPU counters zero.
+Code `a171632` has two sequential independent source approvals. Source-v4 passes
+1202 Rust tests, 9 REA-wrapper/47 progress tests and format/check/Clippy/build checks.
+Both profiles match 15 adjacent retained-observation cases; new cache Open and the
+expanded loader have no native comparison. The actual-data probe ends at cursor
+8019 with zero owned resources after cleanup. Prior standalone controls, three
+reloads and four cleanups are carried forward through the byte-identical final
+executable; no new UI run is claimed. [Source-bound details](progress.json).
 
-Complete model-cache loading, full Mission Open, player/camera scheduling, scripts
-and objectives remain open. Native Device14, audio and full renderer parity remain open.
+Full MissionOpen, player/camera scheduling, scripts and objectives remain open.
+Native Device14, audio and full renderer parity remain open.
 
 The accepted ledger stays **311 scoped entries / 114 contracts**, strict **0/12**;
 all six first-mission gates remain open. No whole-function credit is added.
 
 [Coverage](../COVERAGE.md) · [goals](GOALS.md) · [source-bound evidence](progress.json) ·
-[current limits and preceding startup record](history/2026-10-25-occluder-light-loader.md).
+[current limits and preceding occluder/light record](history/2026-10-25-model-cache-loader.md).
 
 ## Earlier milestones
 

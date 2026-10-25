@@ -1,58 +1,63 @@
 {
   "updated_at": "2026-10-25",
-  "project_status": "Bounded CPU occluder/light ownership and actual-data Rust loader to seven complete records plus unloaded Model9 at ModelCacheOpen cursor2086. Retained-original comparisons are scoped; expanded native domains remain unverified. 311 scoped entries/114 contracts, strict 0/12; campaign not playable.",
+  "project_status": "Bounded static-model cache miss/hit/copy/growth and genuine resource ownership; actual-data constructor-Scene probe43objects/seven cache entries at missing base247/cursor8019. Original worldSceneOpen/loading UI and fullmission remain open. No new nativecache comparison. Ledger311entries/114contracts, strict0/12; campaign not playable.",
   "rust_toolchain": "1.99.1",
   "validation": {
-    "status": "Final Source-v1 passes 1186 Rust tests, 9 REA-wrapper/47 progress tests and format/check/Clippy/build; two sequential source reviews approve. Both profiles match retained geometry observations and four enum callback projections only. Expanded2086/ring/HR/light/nonidentity/LoadImage original-runtime parity remains unverified; actual-data Rust and standalone UI retain separate proofs.",
-    "rust_unit_tests": 1186,
+    "status": "Accepted Source-v4:1202 Rust tests,9 wrapper/47 progress,format/check/Clippy/application+release builds PASS; two sequential source approvals. Fifteen adjacent retained cases compare both profiles; cache Open/new entries/expanded loader native-unverified. Actual-data constructor-Scene probe43/cache7 at8019; UI uses byte-identical executable carryover, no new UI run.",
+    "rust_unit_tests": 1202,
     "rust_unit_test_split": {
       "lhr_assets": 119,
       "lhr_assets_integration": 8,
-      "lhr_engine_library": 1020,
-      "lhr_engine_integration": 8,
+      "lhr_engine_library": 1036,
       "lhr_engine_application": 26,
+      "lhr_engine_integration": 8,
       "lhr_render": 5
     },
     "rea_wrapper_tests": 9,
     "latest_accepted_baseline": {
-      "source_commit": "41365c03ac09086448f191dae25534130107e0a7",
-      "rust_unit_tests": 1186,
+      "source_commit": "a171632328a635fa88f89e32c085286a49629649",
+      "rust_unit_tests": 1202,
       "rea_wrapper_tests": 9,
       "progress_tests": 47,
-      "milestone": "CPU occluder/light loader: seven records and genuine unloaded Model9 at ModelCacheOpen cursor2086; no complete original-runtime prefix or mission claim."
+      "milestone": "Bounded static-model cache; constructor-Scene43objects/seven entries, missingbase247/cursor8019; originalworld/MissionOpen notimplemented."
     },
     "progress_tests": 47,
-    "current_source_status": "Accepted final Source-v1 at code 41365c03ac09086448f191dae25534130107e0a7; 287 guarded source files; two sequential independent reviews.",
+    "current_source_status": "Accepted Source-v4 code a171632328a635fa88f89e32c085286a49629649;289 guarded source files; two sequential independent reviews.",
     "current_source_freeze": {
-      "id": "OCCLUDER-LIGHT-20261025-SOURCE-v1",
-      "files": 287,
-      "tree_sha256": "496c58ddff00b35a615c3d23f62912fedc159df1ea9c41ccfb2f480fe9837adb",
-      "freeze_sha256": "28f7bbe534f9f4013400776b829fd45629eda7edaf413a6c4acee17165e0a070"
+      "id": "MODEL-CACHE-20261025-SOURCE-v4",
+      "sha256": "184e1d931f433185be9238a0fbf0a38569b524f765c108e7f5e032cf03395c36",
+      "files": 289,
+      "tree_sha256": "ca1889eadb8bccd97f6d423e2621d0a72955dfc8db741b3b5fb3c314700b53e7",
+      "source_commit": "a171632328a635fa88f89e32c085286a49629649"
     },
     "full_gate": {
-      "id": "OCCLUDER-LIGHT-20261025-SOURCE-v1-VERIFICATION",
-      "sha256": "2fee5c17d20c287f6a61cade8556f5f553e5389fa6c325420733e4a7cc2f2390",
-      "log_sha256": "a948b9876afe912855af63c5931ce60fab59fa6c803ac0dfa7f63a86ae3a3cff"
+      "id": "MODEL-CACHE-20261025-VERIFICATION-v4",
+      "sha256": "87d4f758cb27ab0b27e3057ccc34b8dd70a55f704c2b46890c926782fb5b4ae1",
+      "log_sha256": "57a23192557402cb079958a2ddb398ca4a9b1ff3014b894fc745e6a3d8b379a2",
+      "rust_tests": 1202,
+      "rea_wrapper_tests": 9,
+      "progress_tests": 47,
+      "release_build": "PASS"
     },
     "native_final": {
-      "artifact": "FINAL-RESULTS-v1.json",
-      "sha256": "eac6a16deb3af0a24b86ca95eb3460cbecde4fb0eb6c4d89a2ca77068a918e4f",
-      "source_freeze": "OCCLUDER-LIGHT-20261025-SOURCE-v1",
-      "method": "OFFLINE_RETAINED_ORIGINAL_OBSERVATIONS_ONLY",
+      "artifact": "FINAL-OFFLINE-CACHE-RESULTS-v4.json",
+      "sha256": "303612be706e93bb8b10f33a1c61733dd179611e50dedb079ecf7b168ad92ddb",
+      "source_freeze": "MODEL-CACHE-20261025-SOURCE-v4",
+      "method": "OFFLINE_RETAINED_ADJACENT_OBSERVATIONS_ONLY",
       "original_execution_during_final_validation": false,
+      "scope": "Adjacent directory/CString/array lifecycle only; new cache Open/model entries native-unverified",
       "profiles": [
         "debug",
         "release"
       ],
-      "geometry_cases_per_profile": 19,
-      "snapshots_per_profile": 60,
-      "known_words_per_profile": 808,
-      "known_buffers_per_profile": 86,
-      "enum_observable_projections_per_profile": 4,
-      "enum_exact_api_equivalence": false,
-      "aggregate_allocation_stats_only": true,
-      "allocation_free_event_order_compared": false,
-      "expanded_native_domains": "UNVERIFIED"
+      "cases_per_profile": 15,
+      "snapshots_per_profile": 84,
+      "normal_cases": 12,
+      "typed_prefixes": 3,
+      "excluded": "ordinal5 unsafe original NULL-array continuation",
+      "new_original_executions": 0,
+      "retained_files_unchanged": 36,
+      "result_sha256": "303612be706e93bb8b10f33a1c61733dd179611e50dedb079ecf7b168ad92ddb"
     },
     "historical_driving_source4": {
       "rust_unit_tests": 1066,
@@ -289,6 +294,59 @@
           "joystick": 5,
           "leaf": 9
         }
+      }
+    },
+    "historical_occluder_light_source_v1": {
+      "status": "Final Source-v1 passes 1186 Rust tests, 9 REA-wrapper/47 progress tests and format/check/Clippy/build; two sequential source reviews approve. Both profiles match retained geometry observations and four enum callback projections only. Expanded2086/ring/HR/light/nonidentity/LoadImage original-runtime parity remains unverified; actual-data Rust and standalone UI retain separate proofs.",
+      "rust_unit_tests": 1186,
+      "rust_unit_test_split": {
+        "lhr_assets": 119,
+        "lhr_assets_integration": 8,
+        "lhr_engine_library": 1020,
+        "lhr_engine_integration": 8,
+        "lhr_engine_application": 26,
+        "lhr_render": 5
+      },
+      "rea_wrapper_tests": 9,
+      "latest_accepted_baseline": {
+        "source_commit": "41365c03ac09086448f191dae25534130107e0a7",
+        "rust_unit_tests": 1186,
+        "rea_wrapper_tests": 9,
+        "progress_tests": 47,
+        "milestone": "CPU occluder/light loader: seven records and genuine unloaded Model9 at ModelCacheOpen cursor2086; no complete original-runtime prefix or mission claim."
+      },
+      "progress_tests": 47,
+      "current_source_status": "Accepted final Source-v1 at code 41365c03ac09086448f191dae25534130107e0a7; 287 guarded source files; two sequential independent reviews.",
+      "current_source_freeze": {
+        "id": "OCCLUDER-LIGHT-20261025-SOURCE-v1",
+        "files": 287,
+        "tree_sha256": "496c58ddff00b35a615c3d23f62912fedc159df1ea9c41ccfb2f480fe9837adb",
+        "freeze_sha256": "28f7bbe534f9f4013400776b829fd45629eda7edaf413a6c4acee17165e0a070"
+      },
+      "full_gate": {
+        "id": "OCCLUDER-LIGHT-20261025-SOURCE-v1-VERIFICATION",
+        "sha256": "2fee5c17d20c287f6a61cade8556f5f553e5389fa6c325420733e4a7cc2f2390",
+        "log_sha256": "a948b9876afe912855af63c5931ce60fab59fa6c803ac0dfa7f63a86ae3a3cff"
+      },
+      "native_final": {
+        "artifact": "FINAL-RESULTS-v1.json",
+        "sha256": "eac6a16deb3af0a24b86ca95eb3460cbecde4fb0eb6c4d89a2ca77068a918e4f",
+        "source_freeze": "OCCLUDER-LIGHT-20261025-SOURCE-v1",
+        "method": "OFFLINE_RETAINED_ORIGINAL_OBSERVATIONS_ONLY",
+        "original_execution_during_final_validation": false,
+        "profiles": [
+          "debug",
+          "release"
+        ],
+        "geometry_cases_per_profile": 19,
+        "snapshots_per_profile": 60,
+        "known_words_per_profile": 808,
+        "known_buffers_per_profile": 86,
+        "enum_observable_projections_per_profile": 4,
+        "enum_exact_api_equivalence": false,
+        "aggregate_allocation_stats_only": true,
+        "allocation_free_event_order_compared": false,
+        "expanded_native_domains": "UNVERIFIED"
       }
     }
   },
@@ -51145,6 +51203,161 @@
     "accepted_scoped_entries": 311,
     "accepted_scoped_contracts": 114,
     "whole_function_coverage": "UNVERIFIED",
+    "strict_full_system_gate": "0/12",
+    "campaign_playable": false
+  },
+  "historical_observation_index_at_6ef185d": {
+    "baseline_commit": "6ef185d3d0bbf26f414dd42d7807df8e9a6709b3",
+    "method": "Canonical sorted-JSON SHA256; values remain unchanged at original top-level keys",
+    "observations": {
+      "native_phase_observation": "3505f8d795a01ef54722ff6f2a799a731e70cab2fc7aed7360f4115858d9771f",
+      "prototype_recovery_observation": "7f78b5cf3f7e16dfcc78756709ff81a7b7a19832f8bdcccf0cb0e2612edb55aa",
+      "native_mission_observation": "1f17823f4985f943dea3e72bc087db8666275996ec3ffb8c06548aa0e2b2eccb",
+      "managed_visual_resource_observation": "1940cc084618b687396d0107436bfbd455ff3c30ffc56e366da88d2de0483c54",
+      "managed_texture_close_observation": "0bfee084efd89b406ab9fd6642c1c38c7c9a1deac9a7dee29aa9457633c8dd44",
+      "rw_data_archive_read_observation": "27dcc89f0f02ed7f646807944cc9e64d67f8ad9bd556f8ebdbfb5fcbb7ca0db3",
+      "rw_data_native_open_observation": "ca1a524045085a250c9cde7d82f0d5df1031c7f364fe7bf8281c2bfa21afeed8",
+      "rw_data_filesystem_observation": "04edd9bd6a617cbd92fbf5e8d4bdce0f09a0bf804b4f9eb27be17381f68d30e9",
+      "replay_dependency_observation": "b9f0a456b9a987039df2967b054fc5eeb5830343795a6d911fc4efe11bea96bd",
+      "installation_native_provider_observation": "da11326e577b08827722ef142e33c43530c6a8bb5dc81bd5f58a2a490c9ef4a7",
+      "replay_state_observation": "df547e89c5136b7fd3232d02b0ba235129b8dc6549785009252ab726fb70d477",
+      "reference_slots_observation": "9c6e463861d2526b6e2b06791e0793410d3936af155006fe143b9621b2186d82",
+      "lookup_observation": "3bc2226278e5c18e52af9be5dd7e4096f2cfa76f8b2f13c30f1ae9089b764d61",
+      "actor_world_observation": "d3a1dc5bd22717cd22cbe9ebab0e35268f76d99c3bf71999f2726543084a65d1",
+      "actor_frames_observation": "2b6f4aafb12e5430c20954a8125f316f6b506cdf011008804023eb854d5402eb",
+      "program_source_observation": "b4fb0a49fe952bd0bb115c1710301537c7d75c7031817060ef55408ace445eb9",
+      "driving_dependencies_observation": "d420b14d483dbcdb6edd547a32586015c99b280af99e5aeb6f152e6ff79227bd",
+      "vehicle_world_observation": "59c780d9476a120b5f048bc410aadeb32c2d203800a38f2b87d8f6faac96ff68",
+      "vehicle_init_collision_observation": "81fdb13feb41b3f078d106c99121c5a69cede676dc3f709d66c07d8b5fdbe3f8",
+      "vehicle_components_collision_sound_observation": "2fa366e91f1a8cb870d45d358f8bd4a4ffb79ff26159fc3aa6c3065c53c7f3ff",
+      "bodycol_fast_frame_observation": "452cf7e701ff94a55a828f65c3fdad22be14a663f81bfd9e174d572951b43f6e",
+      "vehicle_component_tail_observation": "ffa91dfd40a12939dbd2aeda42b898a16be70b55e90130379571ff056d25c207",
+      "scene_frame_owner_observation": "bc3c01e4c234f689133c9f3e718d884e6bca44e9b97fcdb58f1e61e2ecf76e27",
+      "vehicle_shared_resource_init_observation": "4d3868998c30a909e0375ff91d677f6a9a39b98a6ee08b49f3639e23939edb56",
+      "car_init_observation": "1f367685e2cb77fcb7da7e2d410154600945b1e2bcedd6453a93ec3f1b6877c7",
+      "car_construction_runtime_observation": "32c28642ad7bbb730473dfa48dfbfe7710c3f06e5077ee0b970b05cc82a72455",
+      "driving_prerequisites_observation": "eea65504adfcf256d7b16b1b1828694c3ef09f9f302ef3b37a6a8051a7a2e72c",
+      "driving_integration_observation": "ef19af7e22f2f00ec98e2b9aba90136cbaa34818d0fbcb5690c09e6623fcef4a",
+      "scene_weather_resource_observation": "d8e6bbd608c3e62140d239615c32a97637b2c93ed027a7b1089a3879da3f972c",
+      "texture_scene_mission_observation": "3e4ed222dea5e93cdf1b86c4163fd2c5735355a291f066eb9e09d413d933ddec",
+      "driver_railway_load_map_observation": "21a2518f61aa180baf1c5602ea2af719f2b76126c36119b9d3c16e0182e62403",
+      "camera_sector_sound_loader_observation": "81e042fc3836c5323ac8ee48d8075d74d29277b5aeb0fa32eb82626f2936a712",
+      "original_startup_mission_observation": "fe9edc4342413f90c19ec6d9f01873336b58ee17080cc2dd2177267df98d7da2",
+      "occluder_light_loader_observation": "805f4ef16c733a67364e79526b47ed9805c446ec5b16b2bfc55408406902a8cb"
+    }
+  },
+  "model_cache_loader_observation": {
+    "status": "ACCEPTED_SOURCE_BOUND",
+    "id": "MODEL-CACHE-20261025-SOURCE-v4-OBSERVATION",
+    "source_commit": "a171632328a635fa88f89e32c085286a49629649",
+    "source_freeze": {
+      "id": "MODEL-CACHE-20261025-SOURCE-v4",
+      "sha256": "184e1d931f433185be9238a0fbf0a38569b524f765c108e7f5e032cf03395c36",
+      "files": 289,
+      "tree_sha256": "ca1889eadb8bccd97f6d423e2621d0a72955dfc8db741b3b5fb3c314700b53e7",
+      "source_commit": "a171632328a635fa88f89e32c085286a49629649"
+    },
+    "reviews": [
+      {
+        "artifact": "REVIEW-ONE-SOURCE-v4.json",
+        "sha256": "245e7851f3c01684ae22f43f3a0576de50259fee49e198aac1a2aa093021ed0f",
+        "status": "APPROVED"
+      },
+      {
+        "artifact": "REVIEW-TWO-SOURCE-v4.json",
+        "sha256": "bb2bc931b1729a0b220f481d407bb5fd0df395cf6171590a3b6f3ac532b04acd",
+        "status": "APPROVED"
+      }
+    ],
+    "checks": {
+      "id": "MODEL-CACHE-20261025-VERIFICATION-v4",
+      "sha256": "87d4f758cb27ab0b27e3057ccc34b8dd70a55f704c2b46890c926782fb5b4ae1",
+      "log_sha256": "57a23192557402cb079958a2ddb398ca4a9b1ff3014b894fc745e6a3d8b379a2",
+      "rust_tests": 1202,
+      "rea_wrapper_tests": 9,
+      "progress_tests": 47,
+      "release_build": "PASS"
+    },
+    "actual_rust_prefix": {
+      "source_freeze_sha256": "184e1d931f433185be9238a0fbf0a38569b524f765c108e7f5e032cf03395c36",
+      "scope": "Rust original-data scene2 probe in constructor Scene, NOT native MissionOpen/baseworld context",
+      "cursor": 8019,
+      "entry": "0x541b89",
+      "completed_objects": 43,
+      "cache_entries": 7,
+      "current_name": "base247",
+      "current_frame": null,
+      "next_field": "0x40a0",
+      "cache_heap_allocations_after_destruct": 0,
+      "cache_heap_bytes_after_destruct": 0,
+      "scene_cleanup_six_zero_counters": true
+    },
+    "retained_original_comparisons": {
+      "scope": "Adjacent directory/CString/array lifecycle only; new cache Open/model entries native-unverified",
+      "profiles": [
+        "debug",
+        "release"
+      ],
+      "cases_per_profile": 15,
+      "snapshots_per_profile": 84,
+      "normal_cases": 12,
+      "typed_prefixes": 3,
+      "excluded": "ordinal5 unsafe original NULL-array continuation",
+      "new_original_executions": 0,
+      "retained_files_unchanged": 36,
+      "result_sha256": "303612be706e93bb8b10f33a1c61733dd179611e50dedb079ecf7b168ad92ddb"
+    },
+    "ui": {
+      "method": "BYTE_IDENTICAL_EXECUTABLE_CARRYOVER",
+      "new_ui_run": false,
+      "carryover_artifact": "UI-CARRYOVER-v4.json",
+      "carryover_sha256": "d55eca763af974e6a83711cd6b5586fd1f31d96fcb8b86ede08a71b86cc7f185",
+      "executable_sha256": "ae290b900a255a503bb65a2d9e3fec5df23914a211be40a49610555df4a44f95",
+      "prior_controls": [
+        "W",
+        "A",
+        "D",
+        "S",
+        "Space"
+      ],
+      "reloads": 3,
+      "cleanups": 4,
+      "zero_cpu_counters_per_cleanup": 7,
+      "mission_rendering": false
+    },
+    "media": {
+      "path": "docs/screenshots/2026-10-25-model-cache-prefix.webp",
+      "sha256": "864e167e23382b45fcd131b4645e0b5592285879b50119a97185daadafd68a27",
+      "bytes": 200418,
+      "width": 960,
+      "height": 640,
+      "root_visually_inspected": true,
+      "scope": "Prior standalone driving capture; identical final executable; no new UI execution"
+    },
+    "primary_evidence": {
+      "artifact": "SEAL.json",
+      "sha256": "c38278d5a4a088b0ef7fb267458e02986609023d63d514e747d8eae395823ff5",
+      "method": "REA/Ghidra static original bodies plus actual PS2 symbols",
+      "original_execution": false
+    },
+    "scope": "Bounded static Mesh/Dummy model cache Open/miss/hit/copy/item-vector growth with genuine resource owners",
+    "limits": [
+      "No new original execution or native comparison of cache Open/model-entry lifecycle/expanded loader.",
+      "Actual scene2 probe uses constructor-only Scene; original worldscene1415frames/five sectors/14 portals is not loaded.",
+      "Private world-sector/portal candidates are not accepted public implementation.",
+      "SceneOpen flags6/7 require genuine loading UI/graph callback5bcc10 provider.",
+      "Single idle static Mesh/Dummy loader, null outer callback; general callbacks/animation/changed-resource copies unsupported.",
+      "Native Device14/GPU/audio and full MissionOpen/player/scripts remain open."
+    ],
+    "reference": {
+      "observed_mafia_re": "1ee42a56214afeb54c536b85a4b16b5c4f4d86e3",
+      "behavior_pin": "86a7b15cbfa002bc6222e5542671a81988472882"
+    },
+    "new_scoped_entries": 0,
+    "new_scoped_contracts": 0,
+    "accepted_scoped_entries": 311,
+    "accepted_scoped_contracts": 114,
+    "whole_function_coverage": "N/A",
     "strict_full_system_gate": "0/12",
     "campaign_playable": false
   }

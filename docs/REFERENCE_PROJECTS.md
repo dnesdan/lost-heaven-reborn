@@ -1,5 +1,14 @@
 # Reference-project audit
 
+## Current static-model cache scope — 2026-10-25
+
+Code `a171632` reconstructs bounded cache miss/hit/copy/growth and advances the
+actual-data constructor-Scene probe to43 records/seven entries and missing
+`base247`. Original world SceneOpen and loading UI remain dependencies.
+New cache/native loader parity is unverified; adjacent retained comparisons keep
+their narrower scope. [Evidence and preceding record](history/2026-10-25-model-cache-loader.md).
+Observed mafia-re `1ee42a56` and behavior pin `86a7b15c` remain unchanged.
+
 ## Current occluder/light scope — 2026-10-25
 
 Code `41365c0` advances the actual-data Rust scene loader through seven records

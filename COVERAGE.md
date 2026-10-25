@@ -6,30 +6,26 @@ completion percentage. The campaign and first mission remain unplayable.
 
 ## Current bounded milestone
 
-The original-data CPU loader now owns occluder geometry, scene membership and
-borrowed light registrations. It completes seven records: primary sector, one
-occluder and five lights. The next unloaded Model9 is genuinely constructed before
-ModelCacheOpen requests an `.i3d` resource and stops at cursor 2086 (Game `54220a`).
+The original-data CPU loader now loads, copies and caches static Mesh/Dummy
+models with genuine shared resources and cache miss/hit/growth ownership. An
+actual-data Rust probe completes 43 records and seven cache entries. Its next
+lookup, `base247`, belongs to the original world scene, which has not yet been
+loaded by the constructor-only Scene probe.
 
-This is Rust execution of actual data. Original-runtime equivalence for the
-expanded loader, light/ring/HR behavior and nonidentity updates remains unverified.
+This is static original-code reconstruction and Rust actual-data testing;
+original-runtime cache equivalence is unverified. Genuine SceneOpen with live
+sector/portal ownership and loading-progress UI is the next dependency.
 The visible application remains standalone driving; the campaign is not playable.
 
-Parsed4DS occluder retention is a CPU adapter; complete native LoadImage,
-Duplicate, shadow/occlusion rendering and populated cross-scene resources remain open.
-Scene rings borrow frames. Diagnostics and Device14 have no native execution claim.
-Supplied-PC enumeration skips type12 under partial `0x800`; all-types `0xffff` bypasses it.
+Code `a171632` has two sequential independent source approvals. Source-v4 passes
+1202 Rust tests, 9 REA-wrapper/47 progress tests and format/check/Clippy/build checks.
+Both profiles match 15 adjacent retained-observation cases; new cache Open and the
+expanded loader have no native comparison. The actual-data probe ends at cursor
+8019 with zero owned resources after cleanup. Prior standalone controls, three
+reloads and four cleanups are carried forward through the byte-identical final
+executable; no new UI run is claimed. [Source-bound details](docs/progress.json).
 
-Code `41365c0` has two sequential independent non-author source approvals.
-Source-v1 passes 1186 Rust tests, 9 REA-wrapper/47 progress tests and all
-format/check/Clippy/build checks. Both profiles match retained 19-case/60-snapshot
-Build/NULL observations and four enum callback projections. Allocation statistics
-are aggregate counts/bytes/call count; exact event order and full enum API are unverified.
-The Rust 2086-prefix cleanup has six zero counters after final owner/storage release.
-Standalone input covers three reloads and four cleanups with seven CPU counters zero.
-
-[Detailed source-bound evidence](docs/progress.json) ·
-[current scope and preceding startup record](docs/history/2026-10-25-occluder-light-loader.md).
+[Current scope and preceding occluder/light record](docs/history/2026-10-25-model-cache-loader.md).
 
 ## Strict system registry
 
@@ -53,6 +49,6 @@ Partial support below does not pass a system gate.
 
 Actual UI evidence is separate from native CPU projections. Host CW/MXCSR,
 original rendering/audio parity and native macOS/Metal are unclaimed.
-[Current screenshot](docs/screenshots/2026-10-25-occluder-light-prefix.webp) ·
+[Current screenshot](docs/screenshots/2026-10-25-model-cache-prefix.webp) ·
 [full dated validation history](docs/history/2026-10-25-coverage-narrative.md) ·
 [progress](docs/PROGRESS.md) · [acceptance goals](docs/GOALS.md).

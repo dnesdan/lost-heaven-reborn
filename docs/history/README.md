@@ -1,5 +1,7 @@
 # Documentation history
 
+- [Current static-model cache scope and preceding occluder/light record](2026-10-25-model-cache-loader.md)
+
 - [Current occluder/light loader scope and preceding startup record](2026-10-25-occluder-light-loader.md)
 
 These dated documents preserve the prior narrative at baseline `0da90fb`.
