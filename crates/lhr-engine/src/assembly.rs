@@ -383,12 +383,12 @@ impl<'a> SceneBuilder<'a> {
                             .and_then(|n| n.checked_mul(4))
                             .ok_or("Texture size overflow")?;
                         charge_scene(&mut self.bytes, texture_bytes, MAX_SCENE_BYTES)?;
-                        let decoded = match if tga {
+                        let (decoded, cache_source_image) = match if tga {
                             lhr_assets::decode_tga(&bytes)
                         } else {
                             lhr_assets::decode_bmp_original(&bytes)
                         } {
-                            Ok(decoded) => decoded,
+                            Ok(decoded) => (decoded, true),
                             Err(error) if !strict && self.allow_texture_fallback && !lit => {
                                 eprintln!(
                                     "Static subset: {name} unavailable ({error}); source diffuse color fallback"
@@ -399,11 +399,14 @@ impl<'a> SceneBuilder<'a> {
                                     .map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8)
                                     .collect();
                                 rgba.push(255);
-                                lhr_assets::Texture {
-                                    width: 1,
-                                    height: 1,
-                                    rgba,
-                                }
+                                (
+                                    lhr_assets::Texture {
+                                        width: 1,
+                                        height: 1,
+                                        rgba,
+                                    },
+                                    false,
+                                )
                             }
                             Err(error) => {
                                 return Err(format!(
@@ -417,7 +420,11 @@ impl<'a> SceneBuilder<'a> {
                             rgba: decoded.rgba,
                             repeat,
                         });
-                        self.texture_cache.insert(key, texture.clone());
+                        // A fallback belongs to this material's diffuse color.
+                        // Sharing it would also bypass strict/Lit decode errors.
+                        if cache_source_image {
+                            self.texture_cache.insert(key, texture.clone());
+                        }
                         Some(texture)
                     }
                 };
@@ -860,10 +867,44 @@ mod tests {
                 None,
             )
             .unwrap();
+        // A Plain diffuse fallback is not a decoded source image. A later Lit
+        // draw with the same filename/repeat key must still reject that image.
+        let mut other_plain = (*source).clone();
+        other_plain.materials[0].diffuse = [0.75, 0.25, 0.5];
+        builder
+            .append_retained(
+                "different-diffuse-sharing-failed-image",
+                Arc::new(other_plain),
+                Mat4::IDENTITY,
+                None,
+                false,
+                None,
+            )
+            .unwrap();
+        let mut lit_source = (*source).clone();
+        lit_source.frames[0].visual = Some(1);
+        lit_source.frames[0].render_flags = 0;
+        lit_source.frames[0].logic_flags = 0;
+        assert!(builder
+            .append_retained(
+                "lit-sharing-failed-image",
+                Arc::new(lit_source),
+                Mat4::IDENTITY,
+                None,
+                false,
+                None
+            )
+            .is_err());
+        assert_eq!(builder.meshes.len(), 4);
+        assert!(builder.texture_cache.is_empty());
         let (scene, _) = builder.finish().unwrap();
         assert_eq!(
             scene.meshes[0].texture.as_ref().unwrap().rgba,
             [64, 128, 191, 255]
+        );
+        assert_eq!(
+            scene.meshes[2].texture.as_ref().unwrap().rgba,
+            [191, 64, 128, 255]
         );
         for strict in [false, true] {
             let mut builder = SceneBuilder::new(&installation, "maps");
