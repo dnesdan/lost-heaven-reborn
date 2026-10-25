@@ -698,6 +698,20 @@ impl ModelArena {
             .objects()
             .object(object)
             .map_err(|_| ModelError::VisualBoundsUnavailable(key))?;
+        if self
+            .loaded_visual_resources
+            .as_ref()
+            .unwrap()
+            .objects()
+            .object(object)
+            .map_err(|_| ModelError::VisualBoundsUnavailable(key))?
+            .visual_type()
+            != crate::i3d_object::ObjectVisualType::Plain
+        {
+            return Err(ModelError::OriginalModelOpenUnavailable(
+                "plain object class witness unavailable for derived visual",
+            ));
+        }
         Ok(0x5f4a424f)
     }
     /// Original object SetMesh (PC RVA 0x368e0), including same-pointer bound
@@ -807,6 +821,15 @@ impl ModelArena {
             let source_index = self.frames[fi]
                 .source_index
                 .ok_or(ModelError::VisualBoundsUnavailable(key))?;
+            if source.frames[source_index].visual == Some(1)
+                && source.frames[source_index].instance.is_some()
+            {
+                return Err(ModelError::LoadedVisual(
+                    crate::loaded_visual_resources::LoadedVisualError::Backend(
+                        "lit instance derived ownership unavailable",
+                    ),
+                ));
+            }
             let instance_object = if let Some(original_index) = source.frames[source_index].instance
             {
                 if original_index >= source_index {
@@ -836,6 +859,8 @@ impl ModelArena {
             let owner = self.loaded_visual_resources.as_mut().unwrap();
             let object = if let Some(original) = instance_object {
                 owner.load_plain_instance(original)
+            } else if source.frames[source_index].visual == Some(1) {
+                owner.load_unconstructed_lit_object(&source, source_index, installation)
             } else {
                 owner.load_plain_object(&source, source_index, installation)
             }

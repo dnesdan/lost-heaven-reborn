@@ -21,6 +21,8 @@
 //! required throughout. Explicit cleanup must occur before that backend goes
 //! away; Drop cannot run these required effects. Read-only views remain raw
 //! diagnostics after an interrupted cleanup; old slots can name retired LODs.
+#[path = "lit_object.rs"]
+mod lit_object;
 use crate::buffer_managers::{VertexOwnerKey, VertexRequest};
 use crate::managed_visual_resources::{
     BindingState, ManagedError, ManagedOperationError, ManagedVisualBackend, ManagedVisualResources,
@@ -28,6 +30,7 @@ use crate::managed_visual_resources::{
 use crate::visual_resources::{
     CompleteVertexBuffer, FaceGroupKey, MaterialKey, MeshLevelKey, MeshObjectKey, TextureKey,
 };
+pub use lit_object::{LitLevelResources, LitObjectResources, ObjectVisualType};
 
 macro_rules! key {
     ($name:ident) => {
@@ -65,6 +68,7 @@ pub enum ObjectError {
     StorageAlreadyInstalled,
     MeshReferenceOwned(MeshObjectKey),
     MeshCompatibilityUnavailable,
+    UnsupportedVisualSubtype,
 }
 impl From<ManagedError> for ObjectError {
     fn from(e: ManagedError) -> Self {
@@ -124,12 +128,6 @@ pub enum ObjectCleanupPhase {
     DestroyingLods,
     ReleasingMesh,
 }
-/// Actual class admitted by the owning constructor, not guessed from a frame
-/// label. Derived owners extend this witness before entering their own render.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ObjectVisualType {
-    Plain,
-}
 #[derive(Debug, PartialEq)]
 pub struct I3dObjectResources {
     visual_type: ObjectVisualType,
@@ -141,6 +139,7 @@ pub struct I3dObjectResources {
     /// All ten slots are cleared together only after all LOD deletes succeed.
     pub lods: [Option<PlainLodKey>; 10],
     pub phase: ObjectCleanupPhase,
+    pub(crate) lit_object: Option<LitObjectResources>,
 }
 impl I3dObjectResources {
     pub fn visual_type(&self) -> ObjectVisualType {
@@ -257,6 +256,7 @@ impl ObjectResources {
             fade: 1.,
             lods: [None; 10],
             phase: ObjectCleanupPhase::Alive,
+            lit_object: None,
         }));
         Ok(ObjectResourceKey {
             arena: self.managed.resources().identity(),
@@ -277,6 +277,9 @@ impl ObjectResources {
         }
         if index >= 10 {
             return Err(ObjectError::InvalidIndex(index));
+        }
+        if self.object(object)?.visual_type() != ObjectVisualType::Plain {
+            return Err(ObjectError::UnsupportedVisualSubtype);
         }
         if self.object(object)?.lods[index as usize].is_some() {
             return Err(ObjectError::SlotOccupied);
@@ -408,7 +411,13 @@ impl ObjectResources {
         let current = self.object(object)?;
         // The private arena maintains unique slots and live mesh ownership.
         // Preflight all keys before the first manager/backend effect.
-        for lod in current.lods.iter().flatten() {
+        for lod in current.lods.iter().flatten().chain(
+            current
+                .lit_object
+                .iter()
+                .flat_map(|lit| lit.levels.iter())
+                .flat_map(|level| level.lods.iter().flatten()),
+        ) {
             let state = self.lod(*lod)?;
             if state.owner != Some(object) {
                 return Err(ObjectError::LodOwned(*lod).into());
@@ -426,6 +435,29 @@ impl ObjectResources {
         let index = (object.slot - 1) as usize;
         self.objects[index].as_mut().unwrap().phase = ObjectCleanupPhase::DestroyingLods;
         let result = (|| {
+            // Derived destructor runs before I3D_object base cleanup.
+            for level in 0..6 {
+                for index in 0..10 {
+                    let lod = self.objects[(object.slot - 1) as usize]
+                        .as_ref()
+                        .unwrap()
+                        .lit_object
+                        .as_ref()
+                        .and_then(|lit| lit.levels[level].lods[index]);
+                    if let Some(lod) = lod {
+                        self.cleanup_lod(lod, backend)?;
+                        self.lods[(lod.slot - 1) as usize] = None;
+                        self.objects[(object.slot - 1) as usize]
+                            .as_mut()
+                            .unwrap()
+                            .lit_object
+                            .as_mut()
+                            .unwrap()
+                            .levels[level]
+                            .lods[index] = None;
+                    }
+                }
+            }
             for i in 0..10 {
                 if let Some(lod) = self.objects[index].as_ref().unwrap().lods[i] {
                     self.cleanup_lod(lod, backend)?;
@@ -700,6 +732,9 @@ impl ObjectResources {
         backend: &mut B,
     ) -> Result<(), ObjectOperationError<B::Error>> {
         self.available()?;
+        if self.object(object)?.visual_type() != ObjectVisualType::Plain {
+            return Err(ObjectError::UnsupportedVisualSubtype.into());
+        }
         let old = self.object(object)?.mesh;
         if old == mesh {
             return Ok(());
@@ -822,6 +857,9 @@ impl ObjectResources {
         index: u32,
     ) -> Result<(), ObjectError> {
         self.available()?;
+        if self.object(object)?.visual_type() != ObjectVisualType::Plain {
+            return Err(ObjectError::UnsupportedVisualSubtype);
+        }
         if index >= 10 {
             return Err(ObjectError::InvalidIndex(index));
         }
