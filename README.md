@@ -10,15 +10,20 @@ animation, and standalone original-data driving with collision, vehicle damage,
 WAV mixing and explicit cleanup. Rendering is unlit first LOD with a host chase
 camera. Original player/camera scheduling, mission scripts and traffic remain open.
 
-The latest bounded CPU milestone adds immediate file-backed texture creation,
-cache/reference lifetime, constructor-owned Scene cleanup and ordered actor-loader
-interfaces. Legacy loaded-model textures retain their existing owner; the new
-canonical texture owner supplies the separate weather domain. Supplied data has
-no `Snow.tga`, so the original constructor's null-texture outcome is preserved.
-The actor loader requires caller-supplied preceding LoadMap context; the API does
-not execute or prove that phase. Complete Mission Open remains unavailable.
+The bounded CPU lifecycle now uses the original driver type-13 Scene factory,
+constructor viewport override and borrowed scene registry, with explicit registry
+storage cleanup. Native audio-driver behavior and full driver/device shutdown
+remain outside the admitted domain.
 
-Accepted code: `c84bcff`; [source-bound validation](COVERAGE.md).
+The ordered actor loader now admits kind-8 `C_railway` construction, existing
+base Init, guarded LoadData and destruction. Model StopAnimation follows the
+actual null-IPolSet guard; railway GameInit remains unavailable. An
+`OriginalLoadMap` initializer enumerates a genuine existing Scene and publishes
+its primary/backdrop/omni sector references. It does not supply full mission
+creation, top objects, model cache, player/camera ownership or authored script
+scheduling.
+
+Accepted code: `b62dd2c`; [source-bound validation](COVERAGE.md).
 
 See [current evidence and limits](COVERAGE.md), [progress](docs/PROGRESS.md),
 [remaining goals](docs/GOALS.md) and [dated history](docs/history/README.md).
@@ -102,7 +107,7 @@ window run. [More commands and historical validation](docs/history/2026-10-25-re
 
 ## Actual Rust captures
 
-![Original-data driving and Scene lifetime regression](docs/screenshots/2026-10-25-scene-lifetime.webp)
+![Original-data driver and Scene lifetime regression](docs/screenshots/2026-10-25-driver-scene.webp)
 
 The new still records an actual window regression. It does not show weather drawing
 or establish original renderer, full Scene/device or mission gameplay parity.

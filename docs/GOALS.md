@@ -23,24 +23,25 @@ Apple cross-check is blocked by missing CoreAudio SDK headers.
 
 ## Remaining dependency order
 
-1. Extend constructor-owned CPU Scene lifetime to original Driver CreateFrame,
-   viewport override, listener and all native Close/device effects. Immediate
-   texture support is bounded; legacy model and weather texture owners remain
-   separate. Missing Snow in the supplied data stays null as in the original.
-2. Reconstruct genuine preceding mission construction/LoadMap, then authored
-   actor classes. The ordered loader requires that context from its caller and
-   does not execute or prove it. MISE01's first kind-8 `C_railway` constructor,
-   Init, LoadData and GameInit chain is researched but not implemented.
-3. Bind the original Game/player/camera lifecycle and update scheduling to the
-   standalone Car lifecycle. Extend live foreign actors, occupants, severe
-   damage, particles and projection-resource pools as their real callers require.
-4. Complete floating operands, LET/IF, all 62 parameter ownership cases and
-   Compile/Init/Done; connect detector runtime, replay, objectives and completion.
-   The authored script probe remains FINDACTOR/UnsupportedWorldBackend at
-   PC 3 / source line 4.
-5. Validate the resulting first-mission sequence against original runtime and
-   interactive Rust runs, including restart, ownership cleanup and required
-   presentation. Keep CPU projections and full application/GPU parity distinct.
+1. Extend the admitted driver/Scene path to native audio/listener, general
+   resource-filled scenes and all native Close/device effects. Member storage
+   cleanup and CPU projections do not complete original driver/device shutdown.
+2. Extend existing-Scene LoadMap initialization to original mission creation,
+   camera kind/name/activation, sector sound data, occluder lights, top-object
+   loading and model-cache ownership. The initializer only enumerates the supplied
+   Scene and publishes three existing sector references.
+3. Reconstruct railway GameInit/GameDone and remaining authored actor classes
+   through genuine resources. Kind-8 constructor/base Init/LoadData/destruction
+   are available; original gameplay initialization remains an explicit boundary.
+4. Bind original Game/player/camera ownership and scheduling to the standalone
+   Car lifecycle. Extend foreign actors, occupants, severe damage, particles and
+   projection pools through their real callers.
+5. Complete floating operands, LET/IF, all 62 parameter cases and Compile/Init/Done;
+   connect detector execution, replay, objectives and completion. The authored
+   script probe remains FINDACTOR/UnsupportedWorldBackend at PC 3 / source line 4.
+6. Validate the complete first-mission sequence against original runtime and
+   interactive Rust runs, including restart, cleanup and required presentation.
+   Keep CPU/native projections and complete application/GPU parity distinct.
 
 ## Reconstruction rules
 

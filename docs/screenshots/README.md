@@ -181,3 +181,21 @@ not establish hardware audibility. No new video was created.
 
 [Current scope](../../COVERAGE.md) · [source-bound records](../progress.json) ·
 [earlier documentation](../history/README.md).
+
+
+## 2026-10-25 — driver Scene registry and CPU cleanup
+
+![Original taxi during the driver/Scene lifetime regression](2026-10-25-driver-scene.webp)
+
+Actual current debug Rust window capture with original assets and Linux software
+Vulkan, 960 × 640, 118,362 bytes. The still is from the first W run before R. The
+window regression exercises three reloads and four zero-owned CPU cleanups,
+including Scene frames and driver registry/capacity. App and Xvfb exit 0 and are
+reaped. Reproduce with `./scripts/run.sh --root /path/to/Mafia --model models/taxi00.4ds --car-driving`.
+
+This is an unlit first-LOD driving/reload regression with a host chase camera.
+It shows no weather drawing, railway gameplay, mission execution or native
+device/renderer parity. Native device discard remains unexecuted in the CPU
+projection. Supplied original data has no Snow texture. No new video was made.
+
+Source: `b62dd2ce1565ed5139399c13e371e9e1febe18f7`. [Evidence and limits](../../COVERAGE.md).

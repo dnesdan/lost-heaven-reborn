@@ -14,3 +14,5 @@ immutable observations/snapshots remain in [progress.json](../progress.json).
 
 Archived prose is verbatim; relative link destinations alone are rebased to keep
 the moved history navigable. Original baseline byte hashes are retained privately.
+
+- [Texture/Scene Source-v5 milestone at baseline `3fbd671`](2026-10-25-texture-scene-source-v5.md)

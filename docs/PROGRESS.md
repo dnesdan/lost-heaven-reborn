@@ -2,30 +2,36 @@
 
 ## Current milestone — 2026-10-25
 
-Bounded immediate texture creation now composes with constructor-owned CPU Scene
-lifetime. Real cache/reference cleanup and the live ModelArena owner are exercised;
-legacy model textures and canonical weather textures remain distinct domains.
-The supplied installation has no Snow texture, preserving the native null outcome.
+The bounded CPU lifecycle now uses the original driver type-13 Scene factory,
+constructor viewport override and borrowed scene registry, with explicit registry
+storage cleanup. Native audio-driver behavior and full driver/device shutdown
+remain outside the admitted domain.
 
-Scene comparison covers three scenarios / 16 phase projections. Texture comparison
-covers 46 source cases in both Cargo profiles. The ordered actor-loader interface
-has eight controlled original caller traces and six separate Rust units, without
-direct differential or full Mission Open credit. Caller-supplied LoadMap context is
-required; its presence in the API does not prove preceding construction occurred.
+The ordered actor loader now admits kind-8 `C_railway` construction, existing
+base Init, guarded LoadData and destruction. Model StopAnimation follows the
+actual null-IPolSet guard; railway GameInit remains unavailable. An
+`OriginalLoadMap` initializer enumerates a genuine existing Scene and publishes
+its primary/backdrop/omni sector references. It does not supply full mission
+creation, top objects, model cache, player/camera ownership or authored script
+scheduling.
 
-CPU device-operation, Driver CreateFrame/listener/viewport override, authored actor classes,
-player/camera/scripts and mission completion remain open. The first MISE01 kind-8
-railway chain is researched but unported. The script probe remains at PC 3 / line 4,
-FINDACTOR/UnsupportedWorldBackend.
+Immediate textures and constructor-owned Scene cleanup remain the preceding
+bounded milestone. Device14 is still explicitly unexecuted in the CPU projection;
+legacy model and weather texture ownership are separate. Missing original Snow
+stays null. Full Mission Open and first-mission play remain unavailable; the script
+probe remains FINDACTOR/UnsupportedWorldBackend at PC 3 / source line 4.
 
-Code commit `c84bcff` binds the final 270-file Source-v5 tree. The full gate
-passes 1093 Rust tests (114 assets, 7 assets integration, 933 engine library,
-26 application, 8 engine integration, 5 renderer), 9 REA-wrapper and 47 progress
-tests, formatting, locked checking, Clippy and the application build. Both
-sequential independent non-author reviews approve this bounded source.
-Actual debug window input exercises W/A/D/S/Space, three R reloads and Escape;
-four cleanups leave zero owned CPU resources including the Scene. App and Xvfb
-exit successfully and are reaped. [Source-bound records](progress.json).
+Code `b62dd2c` has two sequential independent non-author source approvals.
+The full gate passes 1113 Rust tests, 9 REA-wrapper and 47 progress tests,
+plus formatting, locked checking, Clippy and the application build.
+Debug UI checks cover three reloads and four zero-owned CPU/driver cleanups.
+Physical CPU comparisons match 10 driver and 25 railway cases in both Cargo
+profiles; O0/O3 agree. Six native-only railway frontiers are excluded.
+Separately, qemu/RSP observes 8 world cases / 36 publications; four debug Rust
+world tests include eight schedule observations, without physical/dual-profile parity.
+Driver member-storage cleanup has primary/unit/UI evidence, not native comparison.
+
+[Detailed source-bound counts and limits](progress.json).
 
 No new canonical contract or whole-function credit is assigned to these composed
 or projected cohorts. The accepted ledger remains **311 entries / 114 contracts**,
@@ -35,6 +41,9 @@ strict verification **0/12**; all six first-mission gates remain open.
 [actual screenshot evidence](screenshots/README.md) · [history index](history/README.md).
 
 ## Earlier milestones
+
+[Previous texture/Scene Source-v5 milestone](history/2026-10-25-texture-scene-source-v5.md)
+retains its original 270-file/1093-test source and native/UI scopes.
 
 The [verbatim narrative through baseline `0da90fb`](history/2026-10-25-progress-narrative.md)
 retains the weather/default workers, standalone driving, resource ownership,

@@ -6,46 +6,42 @@ completion percentage. The campaign and first mission remain unplayable.
 
 ## Current bounded milestone
 
-Immediate `IGraph::CreateITexture` supports the admitted file-backed CPU domain,
-source-BPP/alpha behavior, real cache identity, references and last release.
-Flags `2` and managed `0x40` remain distinct. Texture validation has 46 source
-cases in both actual debug/release profiles; profiles do not multiply cases.
-Native comparison uses uncompressed format 21, minimum 1 / maximum 1024 texture
-caps and no hardware DXT support; tested image sizes are 2×2 and 4×1. General
-resizing, mipmaps, compressed formats and padded-alpha rows remain outside it.
+The actual driver type-13 factory now constructs the Scene, applies its original
+viewport setter and appends a borrowed registry pointer without AddRef. Scene
+destruction removes that pointer; driver member-storage cleanup frees retained
+registry capacity after all Scenes are gone. This does not establish full driver
+shutdown, native sound-listener behavior or exceptional-unwind equivalence.
 
-Constructor-owned Scene CPU lifetime covers three scenarios / 16 phase
-projections, including two Scenes and external survivors. Close reaches the
-existing ModelArena resource owner and its 19 legacy textures, admitted only
-without managed `0x40`; those identities are not migrated to the separate
-canonical weather texture domain. Shutdown leaves zero owned resources,
-including the Scene; older five-prefix-frame receipts are historical.
+Kind-8 `C_railway` supports constructor defaults, existing base Init, guarded
+25-byte LoadData and destructor cleanup. The actual model StopAnimation guard
+reads `model+0x150`; the admitted null IPolSet performs no controller writes.
+Controller ownership remains untouched. Railway GameInit/GameDone and
+their gameplay allocations remain unimplemented.
 
-All 14 supplied DTA archives / 36,311 entries contain no `Snow.tga`. Native code
-ignores that factory failure and retains null; no replacement is invented.
-Original `#kom03.bmp` checks exercise real factory/cache/last-release ownership;
-synthetic Snow inputs test lifetime, not authentic weather rendering.
+The existing-Scene `OriginalLoadMap` initializer performs actual frame enumeration
+and publishes existing primary/backdrop/omni references, excluding Near. It creates
+no sectors. Callers still supply a genuine Scene; complete mission
+construction, top-object loading, model cache and Mission Open remain open.
+Player/camera ownership, authored actor GameInit and script scheduling are absent.
 
-The actor-loader interface requires caller-supplied preceding LoadMap context,
-ActorWorld and detector state. That API does not perform or prove preceding
-construction. Eight controlled original caller traces and six separate Rust
-units are not a direct differential comparison or complete Mission Open.
-MISE01's first kind-8 `C_railway` chain is researched, not ported.
+Earlier immediate texture/cache support remains bounded to its documented domain.
+Legacy model textures and canonical weather textures are separate owners. Original
+data has no Snow texture, preserving the native null outcome. CPU Close still
+reports `native_device_virtual14_executed=false`; no complete native Close, device
+or GPU parity is claimed. The script probe remains FINDACTOR/UnsupportedWorldBackend,
+PC 3 / source line 4. All six first-mission gates remain open.
 
-CPU Close records `native_device_virtual14_executed=false`; the strict low-level
-interface rejects that unavailable device operation. Driver CreateFrame,
-listener creation, viewport override, full native Close and GPU parity remain
-open. The script probe still stops at FINDACTOR/UnsupportedWorldBackend,
-PC 3 / source line 4.
+Code `b62dd2c` has two sequential independent non-author source approvals.
+The full gate passes 1113 Rust tests, 9 REA-wrapper and 47 progress tests,
+plus formatting, locked checking, Clippy and the application build.
+Debug UI checks cover three reloads and four zero-owned CPU/driver cleanups.
+Physical CPU comparisons match 10 driver and 25 railway cases in both Cargo
+profiles; O0/O3 agree. Six native-only railway frontiers are excluded.
+Separately, qemu/RSP observes 8 world cases / 36 publications; four debug Rust
+world tests include eight schedule observations, without physical/dual-profile parity.
+Driver member-storage cleanup has primary/unit/UI evidence, not native comparison.
 
-Code commit `c84bcff` binds the final 270-file Source-v5 tree. The full gate
-passes 1093 Rust tests (114 assets, 7 assets integration, 933 engine library,
-26 application, 8 engine integration, 5 renderer), 9 REA-wrapper and 47 progress
-tests, formatting, locked checking, Clippy and the application build. Both
-sequential independent non-author reviews approve this bounded source.
-Actual debug window input exercises W/A/D/S/Space, three R reloads and Escape;
-four cleanups leave zero owned CPU resources including the Scene. App and Xvfb
-exit successfully and are reaped. [Source-bound records](docs/progress.json).
+[Detailed source-bound counts and limits](docs/progress.json).
 
 ## Strict system registry
 
@@ -59,7 +55,7 @@ Partial support below does not pass a system gate.
 | Animation | Owned hierarchy, one sequential controller slot, CPU skinning | Blending, scale/notes and gameplay selection | No |
 | Collision and physics | Original-road and bounded dynamic contacts | General actor/world response breadth | No |
 | Vehicles | Standalone lifecycle, driving, damage and cleanup | Player/mission ownership, occupants, severe-damage paths | No |
-| Characters and combat | Base/source-only actor ownership; ordered loader interface | Authored derived actors and combat | No |
+| Characters and combat | Base/source-only and bounded railway lifecycle; ordered loader | Authored derived actors and combat | No |
 | Traffic and pedestrians | Resource presence only | Spawn, routing and simulation | No |
 | AI, navigation and police | Selected manager initialization/reset | Resource-backed AI, navigation and pursuit | No |
 | Scripts and cutscenes | Parsing, bounded scheduler/lookup/replay dependencies | Compiler, original scheduling, objectives and completion | No |
@@ -69,6 +65,6 @@ Partial support below does not pass a system gate.
 
 Actual UI evidence is separate from native CPU projections. Host CW/MXCSR,
 original rendering/audio parity and native macOS/Metal are unclaimed.
-[Current screenshot](docs/screenshots/2026-10-25-scene-lifetime.webp) ·
+[Current screenshot](docs/screenshots/2026-10-25-driver-scene.webp) ·
 [full dated validation history](docs/history/2026-10-25-coverage-narrative.md) ·
 [progress](docs/PROGRESS.md) · [acceptance goals](docs/GOALS.md).
