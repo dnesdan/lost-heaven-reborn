@@ -10,6 +10,13 @@ use crate::mission_components::{MissionMemoryDomain, MissionMemoryDomainId};
 use crate::model_loading::{ModelArena, ModelError, ModelKey};
 use crate::script_scheduler::FrameReferenceId;
 
+#[path = "mission_model_cache.rs"]
+mod model_cache;
+pub use model_cache::{
+    CacheMemoryError, CpuMissionCacheMemory, ModelCacheOpenError, ModelCacheOpenProgress,
+    ModelCachePhase,
+};
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MissionCacheKind {
     Sound,
@@ -64,6 +71,7 @@ pub enum MissionCacheError<E> {
     UnavailableResourceOwner(MissionCacheKind),
     AddDirUnavailable,
     HeaderProjectionUnavailable,
+    HostAdoptionIntoNativeArray,
     UnsupportedDirectoryFormat,
     ArrayAllocationUnavailable,
     StringConstructorNullFault,
@@ -73,7 +81,7 @@ pub enum MissionCacheError<E> {
 }
 #[derive(Debug)]
 struct CacheItem {
-    model: ModelKey,
+    model: Option<ModelKey>,
     name: CStrKey,
 }
 struct Cache {
@@ -113,6 +121,7 @@ pub struct MissionCaches {
     strings: CStrings,
     frame_domain: Option<FrameReferenceId>,
     memory_domain: Option<MissionMemoryDomainId>,
+    model_open: Option<ModelCacheOpenProgress>,
 }
 impl MissionCaches {
     /// Construct over the original globals' zero-initialized storage seeds.
@@ -150,6 +159,7 @@ impl MissionCaches {
             strings: CStrings::new()?,
             frame_domain: None,
             memory_domain: None,
+            model_open: None,
         })
     }
     /// Actual seeded member projection. Host-adopted model arrays have no
@@ -202,6 +212,8 @@ impl MissionCaches {
     }
     /// Explicit host adoption, not a reconstruction of the original cache's
     /// loading/insertion function. Retains the same actual model and its name.
+    /// Once a real native item array exists, use the reconstructed Open path;
+    /// this helper cannot fabricate an original vector insertion into it.
     pub fn retain_model<B: CStrBackend + MissionMemoryDomain>(
         &mut self,
         model: ModelKey,
@@ -216,6 +228,9 @@ impl MissionCaches {
         }
         if cache.interrupted {
             return Err(MissionCacheError::Interrupted);
+        }
+        if u32::from_le_bytes(cache.header[8..12].try_into().unwrap()) != 0 {
+            return Err(MissionCacheError::HostAdoptionIntoNativeArray);
         }
         arena.model(model).map_err(MissionCacheError::Model)?;
         let key = self
@@ -232,7 +247,10 @@ impl MissionCaches {
             return Err(MissionCacheError::Model(error));
         }
         cache.pending_names.pop();
-        cache.items.push(CacheItem { model, name: key });
+        cache.items.push(CacheItem {
+            model: Some(model),
+            name: key,
+        });
         cache.header_available = false;
         Ok(())
     }
@@ -254,7 +272,9 @@ impl MissionCaches {
             return Err(MissionCacheError::Interrupted);
         }
         for item in cache.items.iter().rev() {
-            if let Err(error) = arena.release(item.model.root()) {
+            if let Err(error) =
+                arena.release(item.model.ok_or(MissionCacheError::Interrupted)?.root())
+            {
                 cache.interrupted = true;
                 return Err(MissionCacheError::Model(error));
             }
@@ -266,6 +286,10 @@ impl MissionCaches {
             }
         }
         cache.items.clear();
+        if cache.header_available {
+            let begin = u32::from_le_bytes(cache.header[8..12].try_into().unwrap());
+            put(&mut cache.header, 12, begin);
+        }
         Ok(())
     }
     fn directory_input<E>(path: &[u8]) -> Result<&[u8], MissionCacheError<E>> {

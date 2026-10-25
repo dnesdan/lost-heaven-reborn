@@ -10,6 +10,8 @@
 //! close-first loading, fresh/shared filename descriptors and model prefixes.
 //! Loader callbacks/animation failure paths and GPU resource creation remain
 //! separate; the actual Installation adapter is not a full native LoadImage.
+#[path = "model_cache_duplicate.rs"]
+mod cache_duplicate;
 #[path = "model_crash_duplicate.rs"]
 mod crash_duplicate;
 #[path = "model_glass.rs"]
@@ -202,6 +204,25 @@ impl fmt::Display for ModelError {
 }
 impl std::error::Error for ModelError {}
 
+/// Admitted original LoadHierarchy callback configuration. The cache thunk
+/// remains present even when the user callback is null; event16 would require
+/// that callback and is not admitted by this static-resource path.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StaticModelLoadProfile {
+    NoCallback,
+    CacheThunkNoOuter,
+}
+impl StaticModelLoadProfile {
+    pub fn flags(self) -> u32 {
+        match self {
+            Self::NoCallback => 0,
+            Self::CacheThunkNoOuter => 0x10,
+        }
+    }
+    pub fn has_callback_thunk(self) -> bool {
+        self == Self::CacheThunkNoOuter
+    }
+}
 /// Stable keys are never reused. The graph owns transform caches; this arena
 /// owns reference counts, model/scene membership, names and fast-tree links.
 #[derive(Debug, Default)]
@@ -223,6 +244,7 @@ pub struct ModelArena {
     pub(crate) fast_tree: crate::arena_frame_names::ArenaFastTree,
     actor_data_records: Vec<crate::actor_frames::ActorDataRecord>,
     filenames: Vec<Option<ModelFileName>>,
+    static_load_profile: Option<StaticModelLoadProfile>,
     loaded_visual_resources: Option<crate::loaded_visual_resources::LoadedVisualResources>,
 }
 impl ModelArena {
@@ -1093,6 +1115,30 @@ impl ModelArena {
         installation: &lhr_assets::Installation,
         input_name: &str,
     ) -> Result<SharedModelContent, SharedModelLoadFailure> {
+        self.open_original_static_profile(model, installation, input_name, false)
+    }
+    /// Original cache caller profile: flags0x10 with non-null410c50 thunk and
+    /// null outer callback. Static geometry admits no animation set, and the
+    /// original progress-event8 calls are disabled because flag2 is clear.
+    /// This CPU resource adapter does not claim native LoadImage allocation.
+    pub fn open_original_static_cache_model(
+        &mut self,
+        model: ModelKey,
+        installation: &lhr_assets::Installation,
+        input_name: &str,
+    ) -> Result<SharedModelContent, SharedModelLoadFailure> {
+        self.open_original_static_profile(model, installation, input_name, true)
+    }
+    pub fn static_model_load_profile(&self) -> Option<StaticModelLoadProfile> {
+        self.static_load_profile
+    }
+    fn open_original_static_profile(
+        &mut self,
+        model: ModelKey,
+        installation: &lhr_assets::Installation,
+        input_name: &str,
+        cache_thunk: bool,
+    ) -> Result<SharedModelContent, SharedModelLoadFailure> {
         let arena = self.lookup_owner.reference(0);
         let empty = || SharedModelContent {
             model,
@@ -1105,6 +1151,11 @@ impl ModelArena {
             error,
             partial: empty(),
         })?;
+        self.static_load_profile = Some(if cache_thunk {
+            StaticModelLoadProfile::CacheThunkNoOuter
+        } else {
+            StaticModelLoadProfile::NoCallback
+        });
         let filename = input_name.as_bytes();
         let filename = &filename[..filename
             .iter()
@@ -1519,6 +1570,23 @@ impl ModelArena {
     /// External references survive with their hierarchy links and source backing.
     /// StopAnimation(index), LS3DF33890. Only the constructor-owned null set
     /// branch is admitted here; host playback cannot be substituted for+150.
+    /// GetAnimationSet(index), original LS3DF RVA0x33860. Constructor-owned
+    /// null IPolSet and unsigned out-of-range index return null; the external
+    /// host playback object is not an original controller resource owner.
+    pub fn original_model_animation_set(
+        &self,
+        model: ModelKey,
+        index: u32,
+    ) -> Result<Option<crate::interpolator::AnimSetId>, ModelError> {
+        let mi = self.model_index(model)?;
+        if index >= 8 {
+            return Ok(None);
+        }
+        if self.models[mi].original_ipol_set.is_some() {
+            return Err(ModelError::UnsupportedActiveModelController(model));
+        }
+        Ok(None)
+    }
     pub fn stop_original_model_animation(
         &mut self,
         model: ModelKey,
@@ -2041,10 +2109,20 @@ mod original_controller_admission_tests {
         let mut arena = ModelArena::default();
         let model = arena.create_model().unwrap();
         arena.stop_original_model_animation(model, 0).unwrap();
+        for index in [0, 7, 8, u32::MAX] {
+            assert_eq!(arena.original_model_animation_set(model, index), Ok(None));
+        }
         let i = arena.model_index(model).unwrap();
         let epoch = arena.models[i].lifecycle_epoch;
         arena.models[i].original_ipol_set = Some(crate::scene_tick::InterpolatorId(7));
         arena.stop_original_model_animation(model, 8).unwrap();
+        assert_eq!(
+            arena.original_model_animation_set(model, 0),
+            Err(ModelError::UnsupportedActiveModelController(model))
+        );
+        for index in [8, u32::MAX] {
+            assert_eq!(arena.original_model_animation_set(model, index), Ok(None));
+        }
         assert_eq!(
             arena.stop_original_model_animation(model, 0),
             Err(ModelError::UnsupportedActiveModelController(model))

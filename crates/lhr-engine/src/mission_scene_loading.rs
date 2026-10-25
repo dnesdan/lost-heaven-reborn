@@ -2,7 +2,8 @@
 //! PC SHA256 08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27.
 //! This borrows an existing scene and executes its ordered camera/header/sector
 //! prefix, admitted occluders/lights and fresh model construction. Original
-//! model-cache loading and actor installation remain explicit boundaries.
+//! static model-cache loading. World SceneOpen and actor installation remain
+//! explicit boundaries; a constructor-empty scene is not native mission context.
 use crate::driver_scene::DriverSceneOwner;
 use crate::frame_camera::CameraKey;
 use crate::frame_transform::FrameKey;
@@ -17,6 +18,9 @@ use crate::scene_resources::{SceneResources, SceneScreen};
 use crate::script_scheduler::FrameReferenceId;
 use crate::sector_sound_data::SectorSoundInput;
 use std::collections::HashSet;
+
+type ModelOpenAdapter<'a> =
+    dyn FnMut(&mut ModelArena, crate::model_loading::ModelKey, &[u8]) -> Result<i32, String> + 'a;
 
 /// Publication order is retained separately from the logical map's key order.
 #[derive(Debug, PartialEq, Eq)]
@@ -128,6 +132,7 @@ pub struct MissionObjectFields {
     pub parent: Option<FrameReferenceId>,
     pub parent_name: Option<Vec<u8>>,
     pub geometry_build_result: Option<u32>,
+    pub visual_subtype_request: Option<u32>,
 }
 impl Default for MissionObjectFields {
     fn default() -> Self {
@@ -140,6 +145,7 @@ impl Default for MissionObjectFields {
             parent: None,
             parent_name: None,
             geometry_build_result: None,
+            visual_subtype_request: None,
         }
     }
 }
@@ -227,6 +233,60 @@ impl MissionSceneLoader {
     where
         S::Error: std::fmt::Debug,
     {
+        self.load_prefix_inner(
+            driver, arena, resources, screen, projection, bytes, &mut None,
+        )
+    }
+    /// Use the same cache owner/directories as startup and mission UnInit.
+    #[allow(clippy::too_many_arguments)] // Original invocation plus explicit resource owners.
+    pub fn load_prefix_with_model_cache<
+        S: SceneScreen,
+        B: crate::mission_resources::MissionCacheAllocator,
+    >(
+        &mut self,
+        driver: &mut DriverSceneOwner,
+        arena: &mut ModelArena,
+        resources: &SceneResources,
+        screen: &mut S,
+        projection: GameCameraProjection,
+        bytes: &[u8],
+        caches: &mut crate::mission_resources::MissionCaches,
+        installation: &lhr_assets::Installation,
+        memory: &mut B,
+    ) -> Result<(), MissionSceneLoadError>
+    where
+        S::Error: std::fmt::Debug,
+        B::Error: std::fmt::Debug,
+    {
+        let mut open = |arena: &mut ModelArena, model, name: &[u8]| {
+            caches
+                .open_static_model(arena, installation, model, name, memory)
+                .map_err(|e| format!("{e:?}"))
+        };
+        self.load_prefix_inner(
+            driver,
+            arena,
+            resources,
+            screen,
+            projection,
+            bytes,
+            &mut Some(&mut open),
+        )
+    }
+    #[allow(clippy::too_many_arguments)] // Original invocation plus explicit resource owners.
+    fn load_prefix_inner<S: SceneScreen>(
+        &mut self,
+        driver: &mut DriverSceneOwner,
+        arena: &mut ModelArena,
+        resources: &SceneResources,
+        screen: &mut S,
+        projection: GameCameraProjection,
+        bytes: &[u8],
+        model_open: &mut Option<&mut ModelOpenAdapter<'_>>,
+    ) -> Result<(), MissionSceneLoadError>
+    where
+        S::Error: std::fmt::Debug,
+    {
         if self.entered {
             return Err(self.error(0x5414fa, "scene2 invocation already entered"));
         }
@@ -237,7 +297,9 @@ impl MissionSceneLoader {
         self.prepare_camera(driver, arena, resources, screen, projection)?;
         let mut input = MissionSceneInput::new(bytes).map_err(|e| self.error(0x54163b, e))?;
         self.cursor = input.cursor();
-        let result = self.read_root(driver, arena, resources, screen, projection, &mut input);
+        let result = self.read_root(
+            driver, arena, resources, screen, projection, &mut input, model_open,
+        );
         self.cursor = input.cursor();
         result.map_err(|(entry, detail)| self.error(entry, detail))
     }
@@ -308,6 +370,7 @@ impl MissionSceneLoader {
             .map_err(|e| self.error(0x54161d, format!("{e:?}")))?;
         Ok(())
     }
+    #[allow(clippy::too_many_arguments)] // Original invocation plus explicit resource owners.
     fn read_root<S: SceneScreen>(
         &mut self,
         driver: &mut DriverSceneOwner,
@@ -316,6 +379,7 @@ impl MissionSceneLoader {
         screen: &mut S,
         projection: GameCameraProjection,
         input: &mut MissionSceneInput<'_>,
+        model_open: &mut Option<&mut ModelOpenAdapter<'_>>,
     ) -> Result<(), (u32, String)>
     where
         S::Error: std::fmt::Debug,
@@ -377,7 +441,7 @@ impl MissionSceneLoader {
                 }
                 0x4000 => {
                     input.enter_current().map_err(|e| (0x54199c, e))?;
-                    self.read_objects(driver, arena, resources, input)?;
+                    self.read_objects(driver, arena, resources, input, model_open)?;
                     input.leave_container().map_err(|e| (0x5446aa, e))?;
                     continue;
                 }
@@ -398,6 +462,7 @@ impl MissionSceneLoader {
         arena: &mut ModelArena,
         resources: &SceneResources,
         input: &mut MissionSceneInput<'_>,
+        model_open: &mut Option<&mut ModelOpenAdapter<'_>>,
     ) -> Result<(), (u32, String)> {
         while let Some(chunk) = input.next_chunk().map_err(|e| (0x541a22, e))? {
             if chunk.kind != 0x4010 {
@@ -516,12 +581,16 @@ impl MissionSceneLoader {
                         }
                     }
                     0x2012 => {
-                        self.read_model_open(arena, input)?;
+                        self.read_model_open(arena, input, model_open)?;
                         if input.current().is_none() {
                             continue;
                         }
                     }
                     0x4083 => self.read_occluder_geometry(arena, input)?,
+                    0x4090 => {
+                        self.read_visual_subtype(arena, input)?;
+                        continue;
+                    }
                     0xb401 => {
                         self.read_sector_sound(arena, input)?;
                         if input.current().is_none() {
@@ -598,10 +667,15 @@ impl MissionSceneLoader {
                     .kind
                     == FrameKind::Model
                 {
-                    return Err((
-                        0x544645,
-                        "unavailable original model post-object virtual+64".into(),
-                    ));
+                    let set = arena
+                        .original_model_animation_set(crate::model_loading::ModelKey(key), 0)
+                        .map_err(|e| (0x544645, format!("{e:?}")))?;
+                    if set.is_some() {
+                        return Err((
+                            0x54466a,
+                            "original animated-model list insertion546d30 unavailable".into(),
+                        ));
+                    }
                 }
             }
             if self.object_fields.flags & 0x20000 != 0 && self.object_fields.flags & 0x10 == 0 {
@@ -750,10 +824,43 @@ impl MissionSceneLoader {
         self.object_fields.flags |= 0x200;
         Ok(())
     }
-    fn read_model_open(
+    /// Game543a10 first reads/closes the DWORD chunk through548490, before
+    /// checking the current frame. A null/nonvisual frame takes its real skip.
+    fn read_visual_subtype(
         &mut self,
         arena: &ModelArena,
         input: &mut MissionSceneInput<'_>,
+    ) -> Result<(), (u32, String)> {
+        let requested = input.read_u32().map_err(|e| (0x548490, e))?;
+        self.object_fields.visual_subtype_request = Some(requested);
+        input.close_current().map_err(|e| (0x54855d, e))?;
+        let Some(frame) = self.current_frame else {
+            return Ok(());
+        };
+        let key = FrameKey(frame.identity());
+        if arena.lookup_reference(key) != frame {
+            return Err((0x543a25, "stale original visual frame".into()));
+        }
+        let kind = arena
+            .state(key)
+            .map_err(|e| (0x543a25, format!("{e:?}")))?
+            .kind;
+        if !matches!(
+            kind,
+            FrameKind::Mesh | FrameKind::Projector | FrameKind::Singlemesh
+        ) {
+            return Ok(());
+        }
+        Err((
+            0x543a35,
+            "original visual subtype getter/replacement requires its actual class owner".into(),
+        ))
+    }
+    fn read_model_open(
+        &mut self,
+        arena: &mut ModelArena,
+        input: &mut MissionSceneInput<'_>,
+        model_open: &mut Option<&mut ModelOpenAdapter<'_>>,
     ) -> Result<(), (u32, String)> {
         let Some(frame) = self.current_frame else {
             return Ok(());
@@ -798,10 +905,43 @@ impl MissionSceneLoader {
             input_name: name,
             cache_name,
         });
-        Err((
-            0x54220a,
-            "original C_I3D_model_cache::Open4087e0 resource loading unavailable".into(),
-        ))
+        let Some(open) = model_open.as_mut() else {
+            return Err((
+                0x54220a,
+                "original C_I3D_model_cache::Open4087e0 resource loading unavailable".into(),
+            ));
+        };
+        let model = crate::model_loading::ModelKey(key);
+        let requested = &self.pending_model_open.as_ref().unwrap().cache_name;
+        let result = open(arena, model, requested).map_err(|e| (0x54220a, e))?;
+        if result >= 0 {
+            let mut stack = Vec::new();
+            if let Some(child) = arena
+                .links(key)
+                .map_err(|e| (0x54222c, format!("{e:?}")))?
+                .child
+            {
+                stack.push(child);
+            }
+            let mut visited = HashSet::new();
+            while let Some(frame) = stack.pop() {
+                if !visited.insert(frame.0) || visited.len() > 65_536 {
+                    return Err((0x54222c, "invalid model enumeration hierarchy".into()));
+                }
+                let links = arena
+                    .links(frame)
+                    .map_err(|e| (0x54222c, format!("{e:?}")))?;
+                publish(arena, frame, &mut self.load_map).map_err(|e| (0x5455e0, e))?;
+                if let Some(next) = links.next {
+                    stack.push(next);
+                }
+                if let Some(child) = links.child {
+                    stack.push(child);
+                }
+            }
+        }
+        self.pending_model_open = None;
+        Ok(())
     }
     fn read_light(
         &mut self,
@@ -1847,6 +1987,77 @@ mod tests {
                 &arena.state(frame).unwrap().local.elements[12..15],
                 &[7., 8., 9.]
             );
+        });
+    }
+    #[test]
+    fn visual_subtype_reads_before_null_or_nonvisual_guard_and_short_read_keeps_cursor() {
+        crate::native_precision::Pc24PrecisionState::default().run(|| {
+            let mut arena = ModelArena::default();
+            let mut resources = SceneResources::default();
+            let mut textures = TextureResources::new().unwrap();
+            let mut storage = CpuTextureStorage::default();
+            let mut driver = DriverSceneOwner::default();
+            let mut screen = Screen { calls: Vec::new() };
+            let scene = driver
+                .create_scene(
+                    &mut DriverSceneContext {
+                        arena: &mut arena,
+                        resources: &mut resources,
+                        textures: &mut textures,
+                        storage: &mut storage,
+                    },
+                    &mut screen,
+                    &mut MissingImages,
+                    NativeSceneSoundDriver::Absent,
+                )
+                .unwrap();
+            let mut loader =
+                MissionSceneLoader::new(&arena, scene).unwrap_or_else(|e| panic!("{}", e.detail));
+            for length in 0..4 {
+                let data = chunk(0x4c53, &chunk(0x4090, &[0x41; 4][..length]));
+                let mut input = MissionSceneInput::new(&data).unwrap();
+                input.next_chunk().unwrap();
+                assert_eq!(
+                    loader
+                        .read_visual_subtype(&arena, &mut input)
+                        .unwrap_err()
+                        .0,
+                    0x548490
+                );
+                assert_eq!(input.cursor(), 12);
+                assert!(input.current().is_some());
+            }
+            let model = arena.create_model().unwrap();
+            for frame in [None, Some(arena.lookup_reference(model.root()))] {
+                loader.current_frame = frame;
+                let data = chunk(0x4c53, &chunk(0x4090, &0x12345678u32.to_le_bytes()));
+                let mut input = MissionSceneInput::new(&data).unwrap();
+                input.next_chunk().unwrap();
+                loader.read_visual_subtype(&arena, &mut input).unwrap();
+                assert_eq!(input.cursor(), data.len());
+                assert!(input.current().is_none());
+                assert_eq!(
+                    loader.object_fields.visual_subtype_request,
+                    Some(0x12345678)
+                );
+            }
+            arena.release(model.root()).unwrap();
+            resources
+                .close_constructed_scene(&mut arena, scene, &mut textures, &mut storage)
+                .unwrap();
+            driver
+                .release_scene(
+                    &mut DriverSceneContext {
+                        arena: &mut arena,
+                        resources: &mut resources,
+                        textures: &mut textures,
+                        storage: &mut storage,
+                    },
+                    scene,
+                )
+                .unwrap();
+            driver.release_empty_registry_storage().unwrap();
+            assert_eq!(arena.live_frame_count(), 0);
         });
     }
 }
