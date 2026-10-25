@@ -210,6 +210,20 @@ mod tests {
         assert_eq!(table.effects.len(), 1);
     }
     #[test]
+    fn failed_vector_reads_leave_cursor_for_later_scalar_fields() {
+        let short_params = chunk(0x6a, &42u32.to_le_bytes());
+        let subpart = chunk(0x66, &short_params);
+        let part = chunk(0x65, &subpart);
+        let mut table = EffectsTable::default();
+        table.load(&chunk(0x64, &part)).unwrap();
+        let words = &table.effects[0].parts[0].subparts[0].parameter_words;
+        assert_eq!(words[1], 1f32.to_bits());
+        assert_eq!(words[9], 42); // 0x30: first field small enough to read
+        assert_eq!(words[10], 0);
+        assert_eq!(words[11], 1f32.to_bits());
+        assert_eq!(words[21], 1);
+    }
+    #[test]
     fn short_reads_preserve_defaults_and_bad_chunks_are_explicit() {
         let mut table = EffectsTable::default();
         table.load(&chunk(0x64, &chunk(0x6a, &[0; 4]))).unwrap();

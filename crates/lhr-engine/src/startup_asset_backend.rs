@@ -486,6 +486,22 @@ mod tests {
         assert!(component.effects().unwrap().effects.is_empty());
         component.destroy(&mut allocator).unwrap();
         assert_eq!(allocator.memory.1, [0, 0, 0]);
+        let mut populated = MissionComponent::construct_effects_prefix(
+            MissionAllocation {
+                domain,
+                identity: 0x124400,
+                bytes: vec![0xa5; 0x38],
+            },
+            0x39,
+        )
+        .unwrap();
+        populated
+            .finish_effects_constructor(&mut allocator)
+            .unwrap();
+        assert_eq!(populated.effects().unwrap().effects.len(), 1);
+        populated.destroy(&mut allocator).unwrap();
+        assert!(populated.effects().is_none());
+        assert_eq!(allocator.memory.1, [0, 0, 0, 0, 0, 0]);
     }
 
     #[test]
