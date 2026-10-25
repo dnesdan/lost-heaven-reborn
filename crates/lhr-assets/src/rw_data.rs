@@ -210,6 +210,8 @@ pub enum OperationError<E> {
 pub enum EffectStage {
     Seek,
     Read,
+    Write,
+    CopyFile,
     CloseHandle,
     DeleteFile,
     FileAttributes,
@@ -1638,3 +1640,9 @@ pub use open::{OpenAllocation, OpenEffects};
 
 /// Read-only filesystem host adapter; adds no native function credit.
 pub mod io;
+
+mod write;
+pub use write::{
+    DTA_CHANGE_ATTRIBUTES, DTA_CREATE_FILE, DTA_FILE_BUFFER, DTA_TEMPORARY, OpenWriteEffects,
+    WriteEffects, WriteFileResult,
+};
