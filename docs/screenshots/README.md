@@ -199,3 +199,21 @@ device/renderer parity. Native device discard remains unexecuted in the CPU
 projection. Supplied original data has no Snow texture. No new video was made.
 
 Source: `b62dd2ce1565ed5139399c13e371e9e1febe18f7`. [Evidence and limits](../../COVERAGE.md).
+
+
+## 2026-10-25 — original camera and sector dependencies
+
+![Original taxi during the camera/sector regression](2026-10-25-original-camera-sector.webp)
+
+Actual Source-v3 debug Rust window capture with original assets and software Vulkan,
+960 × 640, 117,728 bytes, accepted code `44fa875`. It records standalone driving,
+not a rendered mission pipeline. W/A/D/S/Space, three R reloads and Escape produce
+four zero-owned CPU cleanups, including Scene and driver registry/capacity.
+App and Xvfb exit 0 and are reaped. Native device discard remains unexecuted.
+
+Reproduce with `./scripts/run.sh --root /path/to/Mafia --model models/taxi00.4ds --car-driving`.
+The separate original-DTA camera/sector prefix replay is CPU evidence. This still
+shows no occluder or mission gameplay, weather drawing, original renderer parity
+or hardware audio verification. No new video was made.
+
+[Source-bound evidence and limits](../../COVERAGE.md).

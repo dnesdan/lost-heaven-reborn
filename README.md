@@ -10,20 +10,17 @@ animation, and standalone original-data driving with collision, vehicle damage,
 WAV mixing and explicit cleanup. Rendering is unlit first LOD with a host chase
 camera. Original player/camera scheduling, mission scripts and traffic remain open.
 
-The bounded CPU lifecycle now uses the original driver type-13 Scene factory,
-constructor viewport override and borrowed scene registry, with explicit registry
-storage cleanup. Native audio-driver behavior and full driver/device shutdown
-remain outside the admitted domain.
+The original-engine path now includes real camera construction, projection and
+view/frustum updates, active-camera ownership, sector sound data and ordered Game
+loader steps. Scene Close retains the active camera; final Scene destruction
+releases it. Native audio and device behavior remain open.
 
-The ordered actor loader now admits kind-8 `C_railway` construction, existing
-base Init, guarded LoadData and destruction. Model StopAnimation follows the
-actual null-IPolSet guard; railway GameInit remains unavailable. An
-`OriginalLoadMap` initializer enumerates a genuine existing Scene and publishes
-its primary/backdrop/omni sector references. It does not supply full mission
-creation, top objects, model cache, player/camera ownership or authored script
-scheduling.
+The proved bounded loader checkpoint reaches the kind-12 occluder factory at
+cursor 469 after original camera setup, top fields and primary-sector sound data.
+Full mission/model-cache/occluder/player/script behavior remains open. The visible
+application remains standalone driving; this CPU prefix is not mission rendering.
 
-Accepted code: `b62dd2c`; [source-bound validation](COVERAGE.md).
+Accepted code: `44fa875`; [source-bound validation](COVERAGE.md).
 
 See [current evidence and limits](COVERAGE.md), [progress](docs/PROGRESS.md),
 [remaining goals](docs/GOALS.md) and [dated history](docs/history/README.md).
@@ -107,7 +104,7 @@ window run. [More commands and historical validation](docs/history/2026-10-25-re
 
 ## Actual Rust captures
 
-![Original-data driver and Scene lifetime regression](docs/screenshots/2026-10-25-driver-scene.webp)
+![Original-data driving regression after camera/sector changes](docs/screenshots/2026-10-25-original-camera-sector.webp)
 
 The new still records an actual window regression. It does not show weather drawing
 or establish original renderer, full Scene/device or mission gameplay parity.

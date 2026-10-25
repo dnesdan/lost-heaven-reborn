@@ -6,42 +6,37 @@ completion percentage. The campaign and first mission remain unplayable.
 
 ## Current bounded milestone
 
-The actual driver type-13 factory now constructs the Scene, applies its original
-viewport setter and appends a borrowed registry pointer without AddRef. Scene
-destruction removes that pointer; driver member-storage cleanup frees retained
-registry capacity after all Scenes are gone. This does not establish full driver
-shutdown, native sound-listener behavior or exceptional-unwind equivalence.
+Real type-3 camera construction, projection getters/setters, active ownership and
+UpdateV feed the original loader path. Numeric domains remain explicit. Scene
+Close retains its active-camera reference; final Scene destruction releases it.
 
-Kind-8 `C_railway` supports constructor defaults, existing base Init, guarded
-25-byte LoadData and destructor cleanup. The actual model StopAnimation guard
-reads `model+0x150`; the admitted null IPolSet performs no controller writes.
-Controller ownership remains untouched. Railway GameInit/GameDone and
-their gameplay allocations remain unimplemented.
+Sector sound Set/Get supports admitted scalar/pan behavior and backed reads.
+Unsafe negative native setter indices are excluded by host admission. Sector
+Update executes real inherited frame behavior and its guarded derived callback.
 
-The existing-Scene `OriginalLoadMap` initializer performs actual frame enumeration
-and publishes existing primary/backdrop/omni references, excluding Near. It creates
-no sectors. Callers still supply a genuine Scene; complete mission
-construction, top-object loading, model cache and Mission Open remain open.
-Player/camera ownership, authored actor GameInit and script scheduling are absent.
+Ordered Game camera setup, explicit-context FOV/aspect modes, top fields and the
+first primary-sector sound chunk reach the kind-12 occluder factory at cursor 469.
+Independent actual-DTA replay checks two new/existing-camera states, including
+234 camera words, Scene fields, map ownership and Close/destruction effects.
+This uses controlled mode 0, 800 × 600, flag false and absent native audio; it is not
+complete GameInit/Mission Open or a rendered mission sequence.
 
-Earlier immediate texture/cache support remains bounded to its documented domain.
-Legacy model textures and canonical weather textures are separate owners. Original
-data has no Snow texture, preserving the native null outcome. CPU Close still
-reports `native_device_virtual14_executed=false`; no complete native Close, device
-or GPU parity is claimed. The script probe remains FINDACTOR/UnsupportedWorldBackend,
-PC 3 / source line 4. All six first-mission gates remain open.
+Camera comparison splits 39 complete cases (38 finite plus one inactive sNaN MOV)
+from 12 NumericUnavailable prefix stops. Nonfinite projection outputs are not
+claimed complete. Twelve helper-only and one unsafe sound native case are excluded.
+Device14 remains unexecuted CPU projection; native audio and full GPU parity are open.
+Model/weather texture owners remain separate; missing original Snow stays null.
 
-Code `b62dd2c` has two sequential independent non-author source approvals.
-The full gate passes 1113 Rust tests, 9 REA-wrapper and 47 progress tests,
-plus formatting, locked checking, Clippy and the application build.
-Debug UI checks cover three reloads and four zero-owned CPU/driver cleanups.
-Physical CPU comparisons match 10 driver and 25 railway cases in both Cargo
-profiles; O0/O3 agree. Six native-only railway frontiers are excluded.
-Separately, qemu/RSP observes 8 world cases / 36 publications; four debug Rust
-world tests include eight schedule observations, without physical/dual-profile parity.
-Driver member-storage cleanup has primary/unit/UI evidence, not native comparison.
+Code `44fa875` has two sequential independent non-author source approvals.
+Source-v3 passes 1136 Rust tests, 9 REA-wrapper and 47 progress tests, plus
+formatting, locked checking, Clippy and the application build. Both Cargo profiles
+match 74 sound cases, 39 complete camera cases and 12 numeric-prefix stops,
+plus 14 ordered-prefix cases; prefix stops do not count as complete cameras.
+An independent original-DTA replay matches new/existing-camera checkpoints.
+Standalone debug input covers three reloads and four zero-owned CPU cleanups.
+Detailed partitions, numeric limits and controlled backends remain in the records.
 
-[Detailed source-bound counts and limits](docs/progress.json).
+[Detailed source-bound evidence](docs/progress.json).
 
 ## Strict system registry
 
@@ -65,6 +60,6 @@ Partial support below does not pass a system gate.
 
 Actual UI evidence is separate from native CPU projections. Host CW/MXCSR,
 original rendering/audio parity and native macOS/Metal are unclaimed.
-[Current screenshot](docs/screenshots/2026-10-25-driver-scene.webp) ·
+[Current screenshot](docs/screenshots/2026-10-25-original-camera-sector.webp) ·
 [full dated validation history](docs/history/2026-10-25-coverage-narrative.md) ·
 [progress](docs/PROGRESS.md) · [acceptance goals](docs/GOALS.md).

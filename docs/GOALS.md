@@ -23,19 +23,18 @@ Apple cross-check is blocked by missing CoreAudio SDK headers.
 
 ## Remaining dependency order
 
-1. Extend the admitted driver/Scene path to native audio/listener, general
-   resource-filled scenes and all native Close/device effects. Member storage
-   cleanup and CPU projections do not complete original driver/device shutdown.
-2. Extend existing-Scene LoadMap initialization to original mission creation,
-   camera kind/name/activation, sector sound data, occluder lights, top-object
-   loading and model-cache ownership. The initializer only enumerates the supplied
-   Scene and publishes three existing sector references.
+1. Complete the next genuine loader dependencies: kind-12 occluder creation,
+   occluder lights/build/link and original model-cache preparation. Preserve
+   the camera/top-field/sector sound order and explicit unsupported frontier.
+2. Extend camera/sector numeric and resource-filled domains through actual
+   callers. Native audio/listener, device discard and complete driver/Scene
+   shutdown remain separate from CPU ownership and projected evidence.
 3. Reconstruct railway GameInit/GameDone and remaining authored actor classes
-   through genuine resources. Kind-8 constructor/base Init/LoadData/destruction
-   are available; original gameplay initialization remains an explicit boundary.
-4. Bind original Game/player/camera ownership and scheduling to the standalone
-   Car lifecycle. Extend foreign actors, occupants, severe damage, particles and
-   projection pools through their real callers.
+   with genuine gameplay resources. Existing constructor/base Init/LoadData/
+   destruction does not supply those later phases.
+4. Bind original Game/player/camera ownership and update scheduling to the
+   standalone Car lifecycle. Extend foreign actors, occupants, severe damage,
+   particles and projection pools through their real callers.
 5. Complete floating operands, LET/IF, all 62 parameter cases and Compile/Init/Done;
    connect detector execution, replay, objectives and completion. The authored
    script probe remains FINDACTOR/UnsupportedWorldBackend at PC 3 / source line 4.

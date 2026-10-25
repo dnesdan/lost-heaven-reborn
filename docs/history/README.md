@@ -16,3 +16,5 @@ Archived prose is verbatim; relative link destinations alone are rebased to keep
 the moved history navigable. Original baseline byte hashes are retained privately.
 
 - [Texture/Scene Source-v5 milestone at baseline `3fbd671`](2026-10-25-texture-scene-source-v5.md)
+
+- [Driver/railway Source-v2 milestone at baseline `d915f656`](2026-10-25-driver-railway-source-v2.md)
