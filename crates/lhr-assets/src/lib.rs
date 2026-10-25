@@ -18,8 +18,9 @@ pub mod script_vm;
 pub mod startup_archives;
 mod tga;
 pub use menu::{
-    FontGlyph, FontMetrics, LanguageFontMap, MenuDefinition, MenuItem, TextDb, TextDbEntry,
-    parse_font_metrics, parse_language_font_map, parse_menu_definition, parse_text_db,
+    FontGlyph, FontMetrics, LanguageFontMap, MenuDefinition, MenuItem, RawTextDb, RawTextDbEntry,
+    TextDb, TextDbEntry, parse_font_metrics, parse_language_font_map, parse_menu_definition,
+    parse_raw_text_db, parse_text_db,
 };
 pub use scene::{Scene, SceneActor, SceneObject, SceneScript, parse_scene2};
 pub use tga::decode_tga;
@@ -1137,12 +1138,19 @@ impl Installation {
         self.read(&name.replace('\\', "/"))
     }
     pub fn read(&self, name: &str) -> Result<Vec<u8>> {
+        self.read_optional(name)?
+            .ok_or_else(|| Error("original asset unavailable".into()))
+    }
+    /// None means no archive or loose entry has this path. Selected-source,
+    /// containment, ambiguity and IO errors remain errors rather than absence.
+    pub fn read_optional(&self, name: &str) -> Result<Option<Vec<u8>>> {
         safe_relative(name)?;
         let canonical = dta::canonical(name).map_err(Error)?;
         if let Some((owner, entry)) = self.archive_index.get(&canonical) {
             return self
                 .archives
                 .read_admitted(*owner, entry)
+                .map(Some)
                 .map_err(|e| Error(format!("selected archive read: {e:?}")));
         }
         let mut path = self.root.clone();
@@ -1158,7 +1166,7 @@ impl Installation {
                 }
             }
             let Some(child) = matching else {
-                return err("original asset unavailable");
+                return Ok(None);
             };
             let metadata = fs::symlink_metadata(&child)
                 .map_err(|_| Error("loose asset metadata unavailable".into()))?;
@@ -1173,7 +1181,7 @@ impl Installation {
         }
         let mut file = dta::checked_open(&path).map_err(Error)?;
         verify_contained(&self.root, &path)?;
-        read_asset_handle(&mut file)
+        read_asset_handle(&mut file).map(Some)
     }
 }
 fn bounded_children(path: &Path) -> Result<Vec<PathBuf>> {

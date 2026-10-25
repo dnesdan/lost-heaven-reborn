@@ -356,19 +356,11 @@ impl SystemState {
             backend.effect(effect)?;
         }
         if let Some(file) = backend.open_file(b"tables\\version.txt")? {
-            let mut bytes = backend.read_file(file, 2)?;
-            let language = match bytes.len() {
-                2 => {
-                    for byte in &mut bytes {
-                        if byte.is_ascii_uppercase() {
-                            *byte = byte.wrapping_sub(0x20);
-                        }
-                    }
-                    u32::from(bytes[1]) | (u32::from(bytes[0]) << 8)
-                }
-                0 | 1 => 0x656e,
-                _ => return Err(SystemError::InvalidReply("version read exceeds request")),
-            };
+            let bytes = backend.read_file(file, 2)?;
+            if bytes.len() > 2 {
+                return Err(SystemError::InvalidReply("version read exceeds request"));
+            }
+            let language = crate::original_language::language_code_from_version(&bytes);
             backend.effect(E::LanguageSelect(language))?;
             backend.effect(E::CloseFile(file))?;
         } else {
