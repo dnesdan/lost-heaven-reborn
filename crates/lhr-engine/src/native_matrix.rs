@@ -60,6 +60,17 @@ pub(crate) fn checked_f32_add(a: f32, b: f32) -> Result<f32, MatrixArithmeticUna
     add(a, b).map_err(|_| MatrixArithmeticUnavailable)
 }
 
+pub(crate) fn checked_f32_sub(a: f32, b: f32) -> Result<f32, MatrixArithmeticUnavailable> {
+    let (a, b) = (normal_operand(a)?, normal_operand(b)?);
+    sub(a, b).map_err(|_| MatrixArithmeticUnavailable)
+}
+pub(crate) fn checked_f32_div(a: f32, b: f32) -> Result<f32, MatrixArithmeticUnavailable> {
+    let (a, b) = (normal_operand(a)?, normal_operand(b)?);
+    let result = checked(a / b, a as f64 / b as f64).map_err(|_| MatrixArithmeticUnavailable)?;
+    crate::native_precision::record_div(a, b, result);
+    Ok(result)
+}
+
 /// Availability guard for original scale extraction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ScaleUnavailable;

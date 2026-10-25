@@ -67,6 +67,37 @@ impl ModelArena {
     ) -> Result<MeshBoundVolume, ModelError> {
         Ok(self.frames[self.frame_index(key)?].hr_world_bounds)
     }
+    /// Own-visual GetWBoundVolume producer used by LOD distance. Unlike HR
+    /// bounds this excludes descendants. Computes the source eight-corner world
+    /// AABB and its sphere without fabricating a native cache-valid flag.
+    pub fn visual_world_bounds(&mut self, key: FrameKey) -> Result<MeshBoundVolume, ModelError> {
+        let fi = self.frame_index(key)?;
+        if self.state(key)?.visual_flags & 0x40 != 0 {
+            return Err(ModelError::VisualBoundsUnavailable(key));
+        }
+        let local = self.frames[fi]
+            .visual_bounds
+            .ok_or(ModelError::VisualBoundsUnavailable(key))?;
+        let mut output = MeshBoundVolume::CONSTRUCTOR;
+        if valid(local.bbox) {
+            let matrix = self.world_matrix(key)?;
+            for (i, point) in corners(local.bbox).into_iter().enumerate() {
+                let point = matrix
+                    .try_transform_point(point)
+                    .map_err(|_| FrameError::NumericDomain("visual world bound transform"))?;
+                if i == 0 {
+                    output.bbox = [point, point];
+                } else {
+                    absorb(&mut output.bbox, point);
+                }
+            }
+            sphere(&mut output)?;
+        } else {
+            output.center = [0.; 3];
+            output.radius = 0.;
+        }
+        Ok(output)
+    }
     pub fn hr_bound_volume(&mut self, key: FrameKey) -> Result<MeshBoundVolume, ModelError> {
         if self.state(key)?.flags & 0x40 == 0 {
             self.update_hr_bound_vol(key)?;

@@ -80,6 +80,15 @@ impl Camera {
         if !min.is_finite() {
             return Err("Scene has no vertices".into());
         }
+        Self::fit_bounds(min.to_array(), max.to_array())
+    }
+    /// Host camera bootstrap from actual owned bounds, before LOD selection.
+    pub fn fit_bounds(min: [f32; 3], max: [f32; 3]) -> Result<Self, String> {
+        let min = Vec3::from_array(min);
+        let max = Vec3::from_array(max);
+        if !min.is_finite() || !max.is_finite() || !min.cmple(max).all() {
+            return Err("Camera bounds are unavailable".into());
+        }
         let center = (min + max) * 0.5;
         let radius = (max - min).length().max(0.1) * 0.5;
         if !center.is_finite()
@@ -99,8 +108,21 @@ impl Camera {
         result.validate()?;
         Ok(result)
     }
+    /// One source of truth for this host renderer's vertical projection FOV.
+    pub fn vertical_fov_radians(&self) -> f32 {
+        50f32.to_radians()
+    }
+    /// Source LS3DF's LOD correction takes horizontal FOV, unlike glam's
+    /// vertical-FOV projection. Include the actual current viewport aspect.
+    pub fn horizontal_fov_radians(&self, viewport: [u32; 2]) -> Result<f32, String> {
+        if viewport.contains(&0) {
+            return Err("Camera viewport is empty".into());
+        }
+        let aspect = viewport[0] as f32 / viewport[1] as f32;
+        Ok(2. * ((self.vertical_fov_radians() * 0.5).tan() * aspect).atan())
+    }
     fn matrix(&self, aspect: f32) -> Mat4 {
-        Mat4::perspective_rh(50f32.to_radians(), aspect, self.near, self.far)
+        Mat4::perspective_rh(self.vertical_fov_radians(), aspect, self.near, self.far)
             * Mat4::look_at_rh(self.eye, self.target, self.up)
     }
 }
@@ -1216,6 +1238,36 @@ mod tests {
         assert!(validate_vertex_replacement(3, &invalid).is_err());
     }
 
+    #[test]
+    fn horizontal_lod_fov_matches_actual_projection_for_square_and_wide_viewports() {
+        let camera = Camera {
+            eye: Vec3::Z,
+            target: Vec3::ZERO,
+            up: Vec3::Y,
+            near: 0.1,
+            far: 100.,
+        };
+        for viewport in [[100, 100], [1600, 900]] {
+            let aspect = viewport[0] as f32 / viewport[1] as f32;
+            let horizontal = camera.horizontal_fov_radians(viewport).unwrap();
+            let projection = Mat4::perspective_rh(
+                camera.vertical_fov_radians(),
+                aspect,
+                camera.near,
+                camera.far,
+            );
+            assert!((projection.x_axis.x - 1. / (horizontal * 0.5).tan()).abs() < 1e-6);
+        }
+        assert!(
+            (camera.horizontal_fov_radians([100, 100]).unwrap() - camera.vertical_fov_radians())
+                .abs()
+                < 1e-6
+        );
+        assert!(
+            camera.horizontal_fov_radians([1600, 900]).unwrap() > camera.vertical_fov_radians()
+        );
+        assert!(camera.horizontal_fov_radians([0, 100]).is_err());
+    }
     #[test]
     fn authored_camera_rejects_collapsed_and_vertical_bases() {
         let mut camera = Camera {

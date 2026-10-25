@@ -1,5 +1,7 @@
-//! Read-only, bounded first-LOD views of the live CPU resource owner. This is
-//! an inspection bridge, not an original renderer or another resource owner.
+//! Read-only, bounded selected-level views of the live CPU resource owner.
+//! inspection_mesh is the explicit legacy LOD0 wrapper; view-aware callers use
+//! inspection_mesh_at_lod after ordinary source selection. This is not a second
+//! resource owner or a claim of original renderer parity.
 use super::*;
 use crate::i3d_object::{LodState, ObjectCleanupPhase};
 use crate::visual_resources::I3dMaterial;
@@ -44,6 +46,11 @@ impl LoadedVisualResources {
                 "inspection graphics kind or active lock",
             ));
         }
+        if matches!(graphics, GraphicsBuffer::Vertex(_)) && buffer.fvf != Some(0x112) {
+            return Err(LoadedVisualError::Backend(
+                "inspection UV-only or unknown vertex layout",
+            ));
+        }
         buffer
             .bytes
             .get(
@@ -62,6 +69,16 @@ impl LoadedVisualResources {
         object: ObjectResourceKey,
         maximum_groups: usize,
     ) -> Result<Option<CpuInspectionMesh<'_>>> {
+        self.inspection_mesh_at_lod(object, 0, maximum_groups)
+    }
+    /// Exact selected CPU-owned level; no UV-only or unknown layout is read
+    /// as a 32-byte XYZ/normal/UV vertex. A cull sentinel is never admitted here.
+    pub fn inspection_mesh_at_lod(
+        &self,
+        object: ObjectResourceKey,
+        index: u32,
+        maximum_groups: usize,
+    ) -> Result<Option<CpuInspectionMesh<'_>>> {
         if self.incomplete {
             return Err(LoadedVisualError::IncompleteAdmission);
         }
@@ -78,7 +95,16 @@ impl LoadedVisualResources {
         let mesh = resources
             .mesh_object(mesh)
             .map_err(|e| LoadedVisualError::Object(ObjectError::Managed(e.into())))?;
-        let Some(level) = mesh.levels[0] else {
+        if index >= mesh.num_lods {
+            if index == 0 && mesh.num_lods == 0 {
+                return Ok(None);
+            }
+            return Err(LoadedVisualError::Backend(
+                "inspection LOD index is not a selected level",
+            ));
+        }
+        let index = index as usize;
+        let Some(level) = mesh.levels[index] else {
             return Ok(None);
         };
         let level = resources
@@ -89,7 +115,7 @@ impl LoadedVisualResources {
         }
         let mut vertices = level.vertex_buffer;
         let mut uv_offset = [0.; 2];
-        if let Some(lod) = object.lods[0] {
+        if let Some(lod) = object.lods[index] {
             let lod = self.objects.lod(lod)?;
             if lod.state != LodState::Constructed {
                 return Err(LoadedVisualError::Backend("inspection LOD was destroyed"));
@@ -265,6 +291,34 @@ mod tests {
         assert_eq!(&view.vertex_bytes[..4], &42f32.to_bits().to_le_bytes());
         assert_eq!(view.groups[0].index_bytes, &[0, 0, 1, 0, 2, 0]);
         assert_eq!(view.vertex_count, 3);
+        owner
+            .objects
+            .set_lod(mesh, Some(level), 1, &mut owner.backend)
+            .unwrap();
+        let uv_only = owner.objects.create_plain_lod().unwrap();
+        owner
+            .objects
+            .allocate_plain_lod_vertices(
+                uv_only,
+                VertexRequest {
+                    fvf: 0x100,
+                    stride: 8,
+                    ..request
+                },
+                &mut owner.backend,
+            )
+            .unwrap();
+        owner.objects.adopt_plain_lod(object, 1, uv_only).unwrap();
+        owner
+            .objects
+            .unlock_all_vertices(&mut owner.backend)
+            .unwrap();
+        assert!(matches!(
+            owner.inspection_mesh_at_lod(object, 1, 1),
+            Err(LoadedVisualError::Backend(
+                "inspection UV-only or unknown vertex layout"
+            ))
+        ));
         owner
             .objects
             .destroy_object_resources(object, &mut owner.backend)
