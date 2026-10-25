@@ -60,6 +60,7 @@ pub mod game_spatial_sound;
 pub mod glass_subdivision;
 pub mod i3d_object;
 pub mod indexed_sound_manager;
+pub mod inspection_lod;
 pub mod interpolator;
 pub mod itexture;
 pub mod joint_state;
@@ -180,3 +181,6 @@ pub mod game {
         vehicle_frame_backend, vehicle_init, vehicle_owner, vehicle_sound, vehicle_wheel_pose,
     };
 }
+
+#[cfg(test)]
+mod live_lod_tests;
