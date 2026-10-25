@@ -341,6 +341,7 @@ mod tests {
         visual.logic_flags = 0;
         visual.lods.push(lhr_assets::Lod {
             distance: 0.,
+            uv_only: None,
             vertices: [[-1., -1., 0.], [1., -1., 0.], [0., 1., 0.]]
                 .map(|position| lhr_assets::Vertex {
                     position,
