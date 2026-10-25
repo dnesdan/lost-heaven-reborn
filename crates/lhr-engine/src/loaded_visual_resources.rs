@@ -1828,6 +1828,7 @@ mod unconstructed_lit_admission_tests {
         frame.visual = Some(1);
         frame.lods = vec![lhr_assets::Lod {
             distance: 0.,
+            uv_only: None,
             vertices: vec![
                 lhr_assets::Vertex {
                     position: [0.; 3],
@@ -1880,6 +1881,24 @@ mod unconstructed_lit_admission_tests {
                 "unconstructed lit texture alpha/add/color-key unavailable"
             ))
         ));
+        // Stage 1's retained UV-only records must keep their runtime boundary
+        // after Stage 8a routes both Plain and Lit through shared admission.
+        source.materials[0].alpha_texture = None;
+        let full_lod = source.frames[0].lods[0].clone();
+        source.frames[0].lods[0].uv_only = Some(vec![[0.; 2]; 3]);
+        source.frames[0].lods[0].vertices.clear();
+        assert!(matches!(
+            owner.load_unconstructed_lit_object(&source, 0, &installation),
+            Err(LoadedVisualError::Backend(
+                "UV-only LOD runtime materialization unavailable"
+            ))
+        ));
+        assert_eq!(owner.backend.live_allocations(), 0);
+        assert_eq!(owner.backend.live_graphics(), 0);
+        assert_eq!(owner.backend.live_textures(), 0);
+        assert!(owner.sources.is_empty());
+        assert!(!owner.incomplete);
+        source.frames[0].lods[0] = full_lod;
         source.frames[0].lods[0].groups[0].material = lhr_assets::UNASSIGNED_MATERIAL;
         assert!(matches!(
             owner.load_unconstructed_lit_object(&source, 0, &installation),

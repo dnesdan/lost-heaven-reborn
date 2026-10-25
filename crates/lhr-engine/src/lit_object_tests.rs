@@ -31,6 +31,7 @@ fn fixture_lods(textured: bool, flags: u32, distances: &[f32]) -> (PathBuf, Mode
     frame.logic_flags = 0;
     frame.lods.push(lhr_assets::Lod {
         distance: 0.,
+        uv_only: None,
         vertices: [[0., 0., 0.], [2., 0., 0.], [0., 2., 0.]]
             .map(|position| lhr_assets::Vertex {
                 position,
