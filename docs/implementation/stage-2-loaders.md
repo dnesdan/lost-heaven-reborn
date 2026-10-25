@@ -28,3 +28,17 @@ on this snapshot; it does not claim byte-for-byte native seek traces or recreate
 C++ vector allocation identities. Native raw pointer words remain separate
 from host tree ownership. A production mission allocation owner remains a
 caller dependency; the adapter invents none.
+
+## Program patches
+
+`game/mission/C_program.cpp` LoadPatchFile/ReadPatchString/UnloadPatchFiles
+provide the first `0x64` chunk, four signed-length nullable byte strings, per-file
+record index XOR key (`index % 13 + 0x85`), append order and reverse cleanup.
+`ProgramPatchTable` retains complete records, including terminal bytes and null
+versus nonnull distinctions. Invalid/negative lengths are explicit host
+admission failures. `SystemEffect::LoadPatchFile` reads actual selected streams;
+missing files do not add changes. `UnloadPatchFiles` releases records in reverse.
+`StartupAssetBackend::program_replacements` supplies the live slice expected by
+existing `CProgram`/mission actor loaders; their reverse-priority consumer is
+unchanged. A real mission/actor source loader must pass that slice alongside its
+actual owner/frame/mission context; context is never inferred from patch data.

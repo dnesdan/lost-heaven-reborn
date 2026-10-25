@@ -93,6 +93,7 @@ pub mod player_control;
 pub mod police_state;
 pub mod program_instructions;
 pub mod program_parser;
+pub mod program_patch;
 pub mod railway_actor;
 pub mod replay_state;
 pub mod rotation_animation;

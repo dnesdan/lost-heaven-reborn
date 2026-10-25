@@ -31,6 +31,7 @@ pub struct StartupAssetBackend<'a> {
     archives: Vec<ArchiveOwner>,
     streams: BTreeMap<u64, NativeStream<'a>>,
     dta_first: bool,
+    patches: crate::program_patch::ProgramPatchTable,
 }
 
 impl<'a> StartupAssetBackend<'a> {
@@ -41,7 +42,17 @@ impl<'a> StartupAssetBackend<'a> {
             archives: Vec::new(),
             streams: BTreeMap::new(),
             dta_first: false,
+            patches: Default::default(),
         }
+    }
+
+    /// Pass this live slice to mission_actor_stream/CProgram loading so the
+    /// existing reverse-priority replacement loop uses the startup patch data.
+    pub fn program_replacements(&self) -> &[crate::original_program::ProgramReplacement] {
+        self.patches.replacements()
+    }
+    pub fn unload_patch_files(&mut self) {
+        self.patches.unload();
     }
 
     pub fn archive_count(&self) -> usize {
@@ -129,6 +140,18 @@ impl SystemBackend for StartupAssetBackend<'_> {
 
     fn effect(&mut self, effect: SystemEffect) -> Result<(), SystemError> {
         match effect {
+            SystemEffect::UnloadPatchFiles => {
+                self.patches.unload();
+                Ok(())
+            }
+            SystemEffect::LoadPatchFile(path) => {
+                if let Some(bytes) = self.read_chunk_file(path)? {
+                    self.patches
+                        .load(&bytes)
+                        .map_err(|_| SystemError::Backend("invalid patch chunk data"))?;
+                }
+                Ok(())
+            }
             SystemEffect::DtaFirstForce => {
                 self.provider.dta_first_force().map_err(provider_error)?;
                 self.dta_first = true;
@@ -351,6 +374,54 @@ mod tests {
         backend.effect(SystemEffect::CloseFile(second)).unwrap();
         assert_eq!(backend.open_file_count(), 0);
         provider.shutdown().unwrap();
+    }
+
+    #[test]
+    fn startup_effect_loads_real_patch_files_in_order_and_unloads() {
+        let dir = Directory::new();
+        std::fs::create_dir(dir.0.join("patch")).unwrap();
+        // One nullable record; the decoded strings include the terminal NUL.
+        fn fixture(source: &[u8]) -> Vec<u8> {
+            let mut bytes = Vec::new();
+            for string in [
+                Some(b"mission\0".as_slice()),
+                None,
+                Some(b"frame\0".as_slice()),
+                Some(source),
+            ] {
+                bytes.extend_from_slice(&(string.map_or(0, |s| s.len()) as i32).to_le_bytes());
+                if let Some(string) = string {
+                    bytes.extend(string.iter().map(|b| b ^ 0x85));
+                }
+            }
+            crate::original_data_chunk::chunk(0x64, &bytes)
+        }
+        std::fs::write(dir.0.join("patch/a1.bin"), fixture(b"old\0")).unwrap();
+        std::fs::write(dir.0.join("patch/a4.bin"), fixture(b"new\0")).unwrap();
+        let provider = NativeFiles::new(&dir.0, 64, 256 * 1024).unwrap();
+        let mut assets = StartupAssetBackend::new(&provider);
+        assets.effect(SystemEffect::DtaFirstForce).unwrap();
+        for path in [
+            b"patch\\a1.bin",
+            b"patch\\a2.bin",
+            b"patch\\a3.bin",
+            b"patch\\a4.bin",
+        ] {
+            assets.effect(SystemEffect::LoadPatchFile(path)).unwrap();
+        }
+        assert_eq!(assets.program_replacements().len(), 2);
+        assert_eq!(
+            assets
+                .program_replacements()
+                .iter()
+                .rev()
+                .map(|r| r.source.as_deref().unwrap())
+                .collect::<Vec<_>>(),
+            vec![b"new\0".as_slice(), b"old\0".as_slice()]
+        );
+        assert_eq!(assets.open_file_count(), 0);
+        assets.effect(SystemEffect::UnloadPatchFiles).unwrap();
+        assert!(assets.program_replacements().is_empty());
     }
 
     #[test]
