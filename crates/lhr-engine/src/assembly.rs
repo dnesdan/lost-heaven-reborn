@@ -594,6 +594,7 @@ mod tests {
         mesh.visual = Some(visual);
         mesh.lods.push(Lod {
             distance: 0.,
+            uv_only: None,
             vertices: [[100., 0., 0.], [101., 0., 0.], [100., 0., 1.]]
                 .into_iter()
                 .map(|position| lhr_assets::Vertex {
