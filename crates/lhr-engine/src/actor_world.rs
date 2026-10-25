@@ -430,6 +430,13 @@ impl ActorWorld {
         }
         Ok(&mut self.actors[i].state)
     }
+    /// Game.exe547220: mark an actor loaded from the scene stream. This shared
+    /// byte store does not expose derived storage or perform GameInit.
+    pub fn mark_scene_loaded(&mut self, actor: ActorReferenceId) -> Result<(), ActorWorldError> {
+        self.ready(actor)?;
+        self.state_mut_inner(actor)?.byte_66 = 1;
+        Ok(())
+    }
     fn state_mut_inner(
         &mut self,
         actor: ActorReferenceId,

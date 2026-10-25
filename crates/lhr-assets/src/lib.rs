@@ -6,11 +6,13 @@ use std::{
 pub mod animation;
 mod cache;
 pub mod klz;
+pub mod texture_source;
 pub use cache::{CacheObject, CachePart, CityCache, parse_city_cache};
 mod dta;
 mod menu;
 pub mod rw_data;
 mod scene;
+pub mod scene_actor_stream;
 pub mod script;
 pub mod script_vm;
 mod tga;

@@ -114,6 +114,14 @@ impl CpuVisualStorage {
     pub fn live_graphics(&self) -> usize {
         self.graphics.len()
     }
+    /// Native Close unloads only managed pools. CPU immediate textures do not
+    /// participate; managed requests must be rejected by a scene adapter.
+    pub fn managed_texture_count(&self) -> usize {
+        self.textures
+            .values()
+            .filter(|texture| texture.request_flags & 0x40 != 0)
+            .count()
+    }
     pub fn live_textures(&self) -> usize {
         self.textures.len()
     }

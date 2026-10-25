@@ -34,11 +34,14 @@ pub struct CarRuntimeOptions {
     pub allocator_fill: u8,
     pub random_seed: u32,
     pub material_context: MaterialLoadContext,
+    /// Host CPU inspection screen used by the Scene constructor queries.
+    pub scene_screen_size: [i32; 2],
 }
 impl Default for CarRuntimeOptions {
     fn default() -> Self {
         Self {
             allocator_fill: 0,
+            scene_screen_size: [640, 480],
             random_seed: 1,
             material_context: MaterialLoadContext::ORIGINAL_DRIVER_INIT_DEFAULTS,
         }
@@ -76,9 +79,11 @@ pub struct CarRuntimeCleanup {
     pub cpu_allocations: usize,
     pub audio_sounds: usize,
     pub audio_sources: usize,
-    /// Host inspection uses the bounded Scene constructor prefix only; these
-    /// frames are not reported as a completed native Scene destruction.
+    /// Live constructor-owned scene/sector frames after explicit cleanup.
+    /// Driver CreateFrame registration and listeners remain outside this owner.
     pub retained_scene_prefix_frames: usize,
+    /// CPU projection: original DeviceVirtual14 remains unexecuted/uncredited.
+    pub scene_cpu_close: Option<crate::scene_resources::SceneCpuCloseReport>,
 }
 pub struct CarRuntimeOpenFailure {
     pub message: String,
@@ -107,6 +112,9 @@ pub struct CarRuntime {
     tracks: CarTrackResources,
     model: Option<ModelKey>,
     scene: Option<SceneKey>,
+    scene_resources: crate::scene_resources::SceneResources,
+    scene_textures: Option<crate::itexture::TextureResources>,
+    scene_storage: crate::itexture::CpuTextureStorage,
     construction: Option<CarConstructionState>,
     car: Option<VehicleInitState>,
     summary: CarRuntimeSummary,
@@ -198,6 +206,9 @@ impl CarRuntime {
             tracks,
             model: None,
             scene: None,
+            scene_resources: Default::default(),
+            scene_textures: None,
+            scene_storage: Default::default(),
             construction: None,
             car: None,
             summary: CarRuntimeSummary {
@@ -257,6 +268,22 @@ impl CarRuntime {
             .construct_scene_owner_prefix()
             .map_err(|e| e.to_string())?;
         self.scene = Some(scene);
+        if self.scene_textures.is_none() {
+            self.scene_textures = Some(
+                crate::itexture::TextureResources::new()
+                    .map_err(|error| format!("Scene texture owner: {error:?}"))?,
+            );
+        }
+        self.scene_resources
+            .continue_constructor(
+                &self.arena,
+                scene,
+                &mut InspectionScreen(options.scene_screen_size),
+                self.scene_textures.as_mut().unwrap(),
+                &mut InstallationImages(&self.installation),
+                &mut self.scene_storage,
+            )
+            .map_err(|error| format!("Scene construction: {error:?}"))?;
         let sector = self.arena.scene(scene).map_err(|e| e.to_string())?.sectors[0].frame();
         let model = self.arena.create_model().map_err(|e| e.to_string())?;
         self.model = Some(model);
@@ -720,37 +747,48 @@ impl CarRuntime {
         if !self.car_destructor_complete {
             self.destruct_car()?;
         }
+        let model_to_check = self.model;
         if let Some(model) = self.model {
-            self.arena
-                .link_frame(model.root(), None, 0)
-                .map_err(|e| e.to_string())?;
-            if let Some(scene) = self.scene {
+            let scene_owned = self.scene.is_some_and(|scene| {
+                self.arena
+                    .frame(model.root())
+                    .is_ok_and(|frame| frame.owner == Some(scene.into()))
+            });
+            if scene_owned {
+                // Transfer the last lifecycle work to native Close's owned-frame
+                // stage. Drop only this caller's construction reference here;
+                // the scene reference keeps the model/resources live for Unload.
                 if self
                     .arena
                     .frame(model.root())
-                    .map_err(|e| e.to_string())?
-                    .owner
-                    == Some(scene.into())
+                    .map_err(|error| error.to_string())?
+                    .references
+                    < 2
                 {
-                    self.arena
-                        .scene_delete_frame(scene, model.root())
-                        .map_err(|e| e.to_string())?;
+                    return Err("Car scene model lost the caller's owned reference".into());
                 }
+                self.arena
+                    .release(model.root())
+                    .map_err(|error| error.to_string())?;
+            } else {
+                self.arena
+                    .link_frame(model.root(), None, 0)
+                    .map_err(|error| error.to_string())?;
+                self.arena.close(model).map_err(|error| error.to_string())?;
+                self.arena
+                    .release(model.root())
+                    .map_err(|error| error.to_string())?;
             }
-            self.arena.close(model).map_err(|e| e.to_string())?;
-            self.arena
-                .release(model.root())
-                .map_err(|e| e.to_string())?;
-            if self.arena.frame(model.root()).is_ok() {
-                return Err("Car inspection retained an unexpected model reference".into());
-            }
+            self.model = None;
         }
-        self.arena
-            .reclaim_unused_visual_vertices()
-            .map_err(|e| e.to_string())?;
-        self.arena
-            .reclaim_unused_visual_indices()
-            .map_err(|e| e.to_string())?;
+        if self.scene.is_none() {
+            self.arena
+                .reclaim_unused_visual_vertices()
+                .map_err(|error| error.to_string())?;
+            self.arena
+                .reclaim_unused_visual_indices()
+                .map_err(|error| error.to_string())?;
+        }
         let begin = VehicleInitBackend::read_word(&mut self.memory, 0x63d2bc)
             .map_err(|e| format!("Actor registry: {e:?}"))?;
         let end = VehicleInitBackend::read_word(&mut self.memory, 0x63d2c0)
@@ -817,14 +855,44 @@ impl CarRuntime {
         self.release_driving_tables()?;
         self.tracks.reset_track_cache();
         self.game.release_host_handles();
+        let mut scene_cpu_close = None;
+        if let Some(scene) = self.scene {
+            if self
+                .services
+                .audio
+                .live_sound_count()
+                .map_err(|error| error.to_string())?
+                != 0
+            {
+                return Err("Scene cleanup requires all owned audio sounds released".into());
+            }
+            self.scene_resources
+                .release_scene(
+                    &mut self.arena,
+                    scene,
+                    self.scene_textures
+                        .as_mut()
+                        .ok_or("Scene texture owner unavailable")?,
+                    &mut self.scene_storage,
+                )
+                .map_err(|error| format!("Scene destruction: {error:?}"))?;
+            scene_cpu_close = self.scene_resources.cpu_close_report(scene);
+            self.scene = None;
+        }
+        if model_to_check.is_some_and(|model| self.arena.frame(model.root()).is_ok()) {
+            return Err("Car inspection retained an unexpected model reference".into());
+        }
         let cpu = self.arena.loaded_visual_resources().map(|r| r.backend());
         let cleanup = CarRuntimeCleanup {
             actor_count,
             actor_registry_entries: entries,
             heap_allocations: self.memory.allocations().count(),
-            graphics: cpu.map_or(0, |r| r.live_graphics()),
-            textures: cpu.map_or(0, |r| r.live_textures()),
-            cpu_allocations: cpu.map_or(0, |r| r.live_allocations()),
+            graphics: cpu.map_or(0, |r| r.live_graphics()) + self.scene_storage.live_graphics(),
+            textures: cpu.map_or(0, |r| r.live_textures())
+                + self.scene_resources.snow_texture().is_some() as usize,
+            cpu_allocations: cpu.map_or(0, |r| r.live_allocations())
+                + self.scene_storage.live_pixels()
+                + self.scene_storage.live_strings(),
             audio_sounds: self
                 .services
                 .audio
@@ -835,6 +903,7 @@ impl CarRuntime {
                 .audio
                 .live_source_count()
                 .map_err(|e| e.to_string())?,
+            scene_cpu_close,
             retained_scene_prefix_frames: self
                 .scene
                 .and_then(|scene| self.arena.scene(scene).ok())
@@ -854,6 +923,30 @@ impl CarRuntime {
         }
         self.driving = None;
         Ok(cleanup)
+    }
+}
+struct InspectionScreen([i32; 2]);
+impl crate::scene_resources::SceneScreen for InspectionScreen {
+    type Error = std::convert::Infallible;
+    fn screen_sy(&mut self) -> Result<i32, Self::Error> {
+        Ok(self.0[1])
+    }
+    fn screen_sx(&mut self) -> Result<i32, Self::Error> {
+        Ok(self.0[0])
+    }
+}
+struct InstallationImages<'a>(&'a lhr_assets::Installation);
+impl crate::itexture::TextureImageSource for InstallationImages<'_> {
+    fn read_image(&mut self, path: &[u8]) -> Result<Vec<u8>, crate::itexture::TextureImageError> {
+        use crate::itexture::TextureImageError;
+        let path = std::str::from_utf8(path).map_err(|_| TextureImageError::Unsupported)?;
+        self.0.read_original_path(path).map_err(|error| {
+            if error.0 == "original asset unavailable" {
+                TextureImageError::Missing
+            } else {
+                TextureImageError::Backend(error.to_string())
+            }
+        })
     }
 }
 fn original_model_input(path: &str) -> Result<String, String> {
@@ -906,7 +999,7 @@ mod tests {
             (cleanup.graphics, cleanup.textures, cleanup.cpu_allocations),
             (0, 0, 0)
         );
-        assert_eq!(cleanup.retained_scene_prefix_frames, 5);
+        assert_eq!(cleanup.retained_scene_prefix_frames, 0);
         assert!(failure.partial.shutdown().is_err());
     }
 }

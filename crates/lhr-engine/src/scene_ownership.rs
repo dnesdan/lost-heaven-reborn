@@ -60,6 +60,8 @@ pub struct SectorFrame {
     pub next_visual: Option<FrameKey>,
     /// Native non-owning I3D_light pointer list; light.sectors is reciprocal.
     pub lights: Vec<FrameKey>,
+    pub sound_properties: [u32; crate::scene_weather::SECTOR_SOUND_PROPERTIES_WORDS],
+    pub sound_words_1e8_1ec: [u32; 2],
 }
 #[derive(Debug)]
 pub struct SceneFrameOwner {
@@ -165,6 +167,9 @@ impl From<SceneOwnerError> for ModelError {
 }
 
 impl ModelArena {
+    pub fn global_sector_version(&self) -> u32 {
+        self.sector_version
+    }
     /// Construct the common scene/sector ownership fields through PC 0x48e29.
     /// The four sector references are retained directly: neither AddFrame nor
     /// LinkTo runs. Driver/GPU viewport, weather and shared snow resources are
@@ -188,6 +193,9 @@ impl ModelArena {
             state.kind = FrameKind::Sector;
             state.flags |= 0x0808_0080 | if index < 2 { 0x40 } else { 0 };
             let sector = SectorKey(self.insert(state, None, Vec::new(), Vec::new(), None)?);
+            let mut sound_properties = [0; crate::scene_weather::SECTOR_SOUND_PROPERTIES_WORDS];
+            crate::scene_weather::setup_sector_sound_properties_defaults(&mut sound_properties);
+            self.sector_version = self.sector_version.wrapping_add(1);
             self.set_frame_name(sector.frame(), Some(name))?;
             if index < 2 {
                 let fi = self.frame_index(sector.frame())?;
@@ -205,6 +213,8 @@ impl ModelArena {
                 bounding_sphere: (index < 2).then_some([0., 0., 0., f32::from_bits(0x46875104)]),
                 next_visual: None,
                 lights: Vec::new(),
+                sound_properties,
+                sound_words_1e8_1ec: [0; 2],
             });
             sectors.push(sector);
         }
@@ -437,6 +447,27 @@ impl ModelArena {
             self.scenes[si].effect_cursor = 0;
             self.scenes[si].phase = ClosePhase::Idle;
         }
+        Ok(())
+    }
+    /// Host CPU composition boundary, deliberately separate from native Close.
+    /// The native backend has rejected DeviceVirtual14. Only a proved absence
+    /// of native managed residency permits advancing this adapter's cursor;
+    /// no device invocation or original Close function credit is implied.
+    pub(crate) fn project_scene_cpu_device_boundary(
+        &mut self,
+        scene: SceneKey,
+        _: crate::scene_resources::CpuManagedResidencyAbsent,
+    ) -> Result<(), ModelError> {
+        let index = self.scene_index(scene)?;
+        if self.scenes[index].phase != ClosePhase::AfterFrames
+            || AFTER_FRAMES.get(self.scenes[index].effect_cursor)
+                != Some(&SceneCloseEffect::DeviceVirtual14)
+        {
+            return Err(
+                SceneOwnerError::BackendUnavailable(SceneCloseEffect::DeviceVirtual14).into(),
+            );
+        }
+        self.scenes[index].effect_cursor += 1;
         Ok(())
     }
     /// Ownership is unaffected by LinkTo. All name searches read these links.

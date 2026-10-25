@@ -253,13 +253,13 @@ impl I3dFrameGraph {
     /// require their concrete backends. Rejection leaves the graph unchanged.
     #[cfg(test)]
     pub(crate) fn check_destruction(&self, key: FrameKey) -> Result<(), FrameError> {
-        self.check_destruction_excluding(key, 0, false)
+        self.check_destruction_excluding(key, 0, false, false)
     }
     pub(crate) fn check_destruction_with_owned_name(
         &self,
         key: FrameKey,
     ) -> Result<(), FrameError> {
-        self.check_destruction_excluding(key, 0x2000_0000, false)
+        self.check_destruction_excluding(key, 0x2000_0000, false, false)
     }
     /// Plain ObjectResources must be owned and released by the arena before
     /// invoking visual5a370/base1a9a0. Unbound or derived visuals stay rejected.
@@ -267,13 +267,24 @@ impl I3dFrameGraph {
         &self,
         key: FrameKey,
     ) -> Result<(), FrameError> {
-        self.check_destruction_excluding(key, 0x2000_0000, true)
+        self.check_destruction_excluding(key, 0x2000_0000, true, false)
+    }
+    /// Caller has executed the represented empty Scene/Sector derived tail.
+    pub(crate) fn check_empty_scene_base_destruction(
+        &self,
+        key: FrameKey,
+    ) -> Result<(), FrameError> {
+        if !matches!(self.state(key)?.kind, FrameKind::Scene | FrameKind::Sector) {
+            return Err(FrameError::UnsupportedDestruction(key));
+        }
+        self.check_destruction_excluding(key, 0x2000_0000, false, true)
     }
     fn check_destruction_excluding(
         &self,
         key: FrameKey,
         handled: u32,
         plain_visual: bool,
+        empty_scene: bool,
     ) -> Result<(), FrameError> {
         let node = self.node(key)?;
         if !matches!(
@@ -284,7 +295,8 @@ impl I3dFrameGraph {
                 | FrameKind::Target
                 | FrameKind::Light
                 | FrameKind::Sound
-        ) && !(plain_visual && matches!(node.state.kind, FrameKind::Mesh | FrameKind::Projector))
+        ) && !(empty_scene && matches!(node.state.kind, FrameKind::Scene | FrameKind::Sector))
+            && !(plain_visual && matches!(node.state.kind, FrameKind::Mesh | FrameKind::Projector))
         {
             return Err(FrameError::UnsupportedDestruction(key));
         }

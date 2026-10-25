@@ -205,6 +205,7 @@ pub struct ModelArena {
     pub(crate) models: Vec<LoadedModel>,
     pub(crate) scenes: Vec<crate::scene_ownership::SceneFrameOwner>,
     pub(crate) sectors: Vec<crate::scene_ownership::SectorFrame>,
+    pub(crate) sector_version: u32,
     destruction_depth: usize,
     pub(crate) light_random: crate::frame_light::LightCrtRandom,
     pub(crate) last_destroyed_frame: Option<FrameKey>,
@@ -1275,6 +1276,30 @@ impl ModelArena {
             .checked_add(1)
             .filter(|&count| count <= i32::MAX as u32)
             .ok_or(ModelError::ReferenceOverflow(key))?;
+        Ok(())
+    }
+    /// Common base tail after a separately executed, admitted scene/sector
+    /// destructor. General Release deliberately retains its derived guard.
+    pub(crate) fn destroy_empty_scene_base(&mut self, key: FrameKey) -> Result<(), ModelError> {
+        let index = self.frame_index(key)?;
+        if self.frames[index].owner.is_some()
+            || self.frames[index].object_resources.is_some()
+            || self.frames[index].projector.is_some()
+        {
+            return Err(crate::frame_transform::FrameError::UnsupportedDestruction(key).into());
+        }
+        self.graph.check_empty_scene_base_destruction(key)?;
+        self.remove_frame_name_registration(key)?;
+        self.graph.destroy_base(key)?;
+        let frame = &mut self.frames[index];
+        frame.references = 0;
+        frame.alive = false;
+        frame.properties = Vec::new();
+        frame.name_bytes = Vec::new();
+        frame.original_name_bytes = None;
+        frame.source = None;
+        frame.user_data = crate::actor_frames::FrameUserData::Null;
+        self.last_destroyed_frame = Some(key);
         Ok(())
     }
     /// Release the owned reference. Unsupported derived effects are rejected

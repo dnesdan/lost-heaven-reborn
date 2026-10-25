@@ -2,7 +2,7 @@ use super::{Error, Result, Texture, err};
 
 const MAX_BYTES: usize = 64 * 1024 * 1024;
 
-/// Decode an uncompressed true-color TGA (24-bit BGR or 32-bit BGRA) to top-down RGBA.
+/// Decode an uncompressed true-color TGA (16-bit X1R5G5B5, 24-bit BGR or 32-bit BGRA) to top-down RGBA.
 /// The optional 26-byte Truevision footer is accepted; other trailing data is rejected.
 pub fn decode_tga(b: &[u8]) -> Result<Texture> {
     if b.len() > MAX_BYTES {
@@ -18,8 +18,8 @@ pub fn decode_tga(b: &[u8]) -> Result<Texture> {
     let height = u16::from_le_bytes([b[14], b[15]]) as usize;
     let depth = b[16];
     let descriptor = b[17];
-    if color_map != 0 || image_type != 2 || !matches!(depth, 24 | 32) {
-        return err("only uncompressed 24-bit or 32-bit true-color TGA supported");
+    if color_map != 0 || image_type != 2 || !matches!(depth, 16 | 24 | 32) {
+        return err("only uncompressed 16-bit, 24-bit or 32-bit true-color TGA supported");
     }
     if width == 0 || height == 0 || width > 8192 || height > 8192 || width * height > 16_777_216 {
         return err("TGA dimensions outside quota");
@@ -55,12 +55,23 @@ pub fn decode_tga(b: &[u8]) -> Result<Texture> {
             let x = if right_origin { width - 1 - sx } else { sx };
             let src = data_start + (sy * width + sx) * bytes_per_pixel;
             let dst = (y * width + x) * 4;
-            rgba[dst..dst + 4].copy_from_slice(&[
-                b[src + 2],
-                b[src + 1],
-                b[src],
-                if depth == 32 { b[src + 3] } else { 255 },
-            ]);
+            if depth == 16 {
+                let c = u16::from_le_bytes([b[src], b[src + 1]]);
+                // Preserve native X1R5G5B5 source expansion and high alpha bit.
+                rgba[dst..dst + 4].copy_from_slice(&[
+                    ((c & 0x7c00) >> 7) as u8,
+                    ((c & 0x03e0) >> 2) as u8,
+                    ((c & 0x001f) << 3) as u8,
+                    if c & 0x8000 != 0 { 255 } else { 0 },
+                ]);
+            } else {
+                rgba[dst..dst + 4].copy_from_slice(&[
+                    b[src + 2],
+                    b[src + 1],
+                    b[src],
+                    if depth == 32 { b[src + 3] } else { 255 },
+                ]);
+            }
         }
     }
     Ok(Texture {

@@ -4,8 +4,9 @@
 //! Scoped RVAs: ctor0x75c10, Release0x75cd0, nondeleting dtor0x75c50,
 //! Close0x78680, Unlock0x78820; managed removal0x7aee0 is defined in texture_manager. ITexture/C_str names have original PS2
 //! provenance; PC layout/order are independently evidenced, not PS2 equivalence.
-//! TextureResources is a descriptive host facade, not Create/upload/Lock or
-//! renderer texture ownership. Constructor-unwritten fields remain unavailable.
+//! TextureResources owns canonical texture identity. The factory module adds a
+//! bounded immediate filename/Create CPU adapter; GPU upload and Lock remain
+//! external. Constructor-unwritten fields remain unavailable.
 //! Managed ownership requires an admitted seeded world and real optional backend
 //! capability; unknown managed/queued/pool state rejects before effects.
 //! Required surface/graphics/pixels/string/buffer effects are external, serialized
@@ -25,6 +26,9 @@ use crate::texture_manager::{
 use crate::visual_resources::{
     self as vr, FaceGroupKey, MaterialKey, MeshLevelKey, MeshObjectKey, RawVertexBytesKey,
 };
+#[path = "texture_factory.rs"]
+mod factory;
+pub use factory::*;
 use std::sync::atomic::{AtomicU64, Ordering};
 static NEXT_TOKEN: AtomicU64 = AtomicU64::new(1);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -486,6 +490,7 @@ pub struct TextureResources {
     strings: CStrings,
     textures: Textures,
     external_strings: Vec<CStrKey>,
+    next_texture_uid: u16,
     poisoned: bool,
 }
 impl TextureResources {
@@ -504,6 +509,7 @@ impl TextureResources {
                 manager: TextureManager::new(identity),
             },
             external_strings: Vec::new(),
+            next_texture_uid: 0,
             poisoned: false,
         })
     }
