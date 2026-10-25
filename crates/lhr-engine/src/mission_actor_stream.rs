@@ -232,7 +232,11 @@ impl MissionActorLoader {
                             let key = validate_frame(arena, frame)?;
                             publish_actor_data(arena, key, actor)?;
                         } else {
-                            if kind == 5 {
+                            if kind == 8 {
+                                self.world
+                                    .release_railway(actor, &mut frames, backend)
+                                    .map_err(|e| format!("{e:?}"))?;
+                            } else if kind == 5 {
                                 self.world
                                     .release_detector(actor, &mut frames, backend)
                                     .map_err(|e| format!("{e:?}"))?;
@@ -254,6 +258,13 @@ impl MissionActorLoader {
                             // Base vtable623248+50 ->4aa490: MOV AL,1;RET4.
                             // This actual literal-success leaf reads no payload.
                             // The outer chunk reader skips its remaining bytes.
+                            self.pending_load_data = None;
+                            return Ok(());
+                        }
+                        if self.current_kind == Some(8) {
+                            self.world
+                                .load_railway_data(actor, field.payload)
+                                .map_err(|e| format!("{e:?}"))?;
                             self.pending_load_data = None;
                             return Ok(());
                         }
@@ -374,6 +385,7 @@ mod tests {
     #[derive(Default)]
     struct Storage {
         next: u32,
+        railway_frees: usize,
     }
     fn seed() -> BaseActorSeed {
         BaseActorSeed {
@@ -392,6 +404,21 @@ mod tests {
             assert_eq!(bytes, 0x70);
             self.next += 1;
             Ok(Some((self.next, seed())))
+        }
+        fn allocate_railway(
+            &mut self,
+            bytes: u32,
+        ) -> Result<Option<(u32, BaseActorSeed, crate::railway_actor::RailwaySeed)>, String>
+        {
+            assert_eq!(bytes, 0x370);
+            self.next += 1;
+            Ok(Some((
+                self.next,
+                seed(),
+                crate::railway_actor::RailwaySeed {
+                    bytes_70_36f: [0xa5; 0x300],
+                },
+            )))
         }
         fn allocate_detector(
             &mut self,
@@ -438,6 +465,17 @@ mod tests {
         }
     }
     impl ActorDeallocationBackend for Storage {
+        fn free_railway_allocation(
+            &mut self,
+            _: &ActorWorld,
+            _: ActorReferenceId,
+            _: crate::railway_actor::RailwayVectorSlot,
+            allocation: Option<crate::railway_actor::RailwayAllocation>,
+        ) -> Result<(), String> {
+            assert_eq!(allocation, None);
+            self.railway_frees += 1;
+            Ok(())
+        }
         fn free_actor(&mut self, _: &ActorWorld, _: u32) -> Result<(), String> {
             Ok(())
         }
@@ -603,7 +641,112 @@ mod tests {
         assert!(publish_actor_data(model.arena_mut(), key, a).is_err());
     }
     #[test]
-    fn unsupported_railway_factory_stops_at_kind_without_registering_later_actors() {
+    fn railway_record_uses_real_model_then_payload_and_derived_cleanup() {
+        let backing = SourceBacking {
+            storage: Some(ActorStorageId(1)),
+            capacity: 8,
+        };
+        let world = ActorWorld::new(0, 0, backing, backing, backing).unwrap();
+        let mut arena = ModelArena::default();
+        let model = arena.create_model().unwrap();
+        let frame = ModelFrameLookup::borrow(&arena, true)
+            .reference(model.root())
+            .unwrap();
+        let mut map = OriginalLoadMap::for_preceding_loader();
+        map.publish_loaded_frame(&arena, b"vehicle", frame).unwrap();
+        let mut loader = MissionActorLoader::new(world, map);
+        let mut storage = Storage::default();
+        let mut payload = vec![0];
+        for value in [
+            3u32, 0x41200000, 0x40c00000, 0x3fc00000, 0x3f400000, 0x40000000,
+        ] {
+            payload.extend(value.to_le_bytes());
+        }
+        let bytes = input(
+            &[
+                chunk(0xae23, b"vehicle\0"),
+                chunk(0xae22, &8u32.to_le_bytes()),
+                chunk(0xae24, &payload),
+            ]
+            .concat(),
+        );
+        loader
+            .load_collection(
+                collection(&bytes),
+                &mut arena,
+                Some(b"missions\\fixture"),
+                &[],
+                &mut storage,
+            )
+            .unwrap();
+        let actor = loader.current_actor.unwrap();
+        assert_eq!(
+            loader.world.state(actor).unwrap().vtable,
+            ActorVtable::Railway
+        );
+        assert_eq!(loader.world.state(actor).unwrap().frame, Some(frame));
+        assert_eq!(loader.world.source(ActorSource::Primary), [Some(actor)]);
+        assert_eq!(
+            loader.world.railway(actor).unwrap().bytes()[0x1a8 - 0x70..0x1ac - 0x70],
+            3u32.to_le_bytes()
+        );
+        assert_eq!(
+            ModelActorFrames::borrow(&mut arena, true)
+                .actor_data(frame)
+                .unwrap(),
+            FrameActorData::Present(Some(actor))
+        );
+        loader.world.unload_actor(Some(actor));
+        loader
+            .world
+            .release_railway(
+                actor,
+                &mut ModelActorFrames::borrow(&mut arena, true),
+                &mut storage,
+            )
+            .unwrap();
+        assert_eq!(storage.railway_frees, 7);
+        assert_eq!(loader.world.inspect(actor).unwrap().0, ActorPhase::Dead);
+        assert_eq!(loader.world.actor_count, 0);
+    }
+    #[test]
+    fn railway_wrong_frame_runs_derived_release_before_discarding_payload() {
+        let (mut loader, mut model, frame) = setup();
+        loader
+            .publish_loaded_frame(model.arena(), b"actual", frame)
+            .unwrap();
+        let bytes = input(
+            &[
+                chunk(0xae23, b"actual\0"),
+                chunk(0xae22, &8u32.to_le_bytes()),
+                chunk(0xae24, b"not consumed"),
+            ]
+            .concat(),
+        );
+        let mut storage = Storage::default();
+        loader
+            .load_collection(
+                collection(&bytes),
+                model.arena_mut(),
+                None,
+                &[],
+                &mut storage,
+            )
+            .unwrap();
+        assert_eq!(storage.railway_frees, 7);
+        assert!(loader.current_actor.is_none());
+        assert_eq!(loader.world.actor_count, 0);
+        assert!(loader.world.source(ActorSource::Primary).is_empty());
+        assert!(loader.world.source(ActorSource::Static).is_empty());
+        assert_eq!(
+            ModelActorFrames::borrow(model.arena_mut(), true)
+                .actor_data(frame)
+                .unwrap(),
+            FrameActorData::Null
+        );
+    }
+    #[test]
+    fn unsupported_next_factory_stops_at_kind_without_registering_later_actors() {
         let (mut loader, mut model, r) = setup();
         loader
             .publish_loaded_frame(model.arena(), b"actual", r)
@@ -611,7 +754,7 @@ mod tests {
         let bytes = input(
             &[
                 chunk(0xae23, b"actual\0"),
-                chunk(0xae22, &8u32.to_le_bytes()),
+                chunk(0xae22, &27u32.to_le_bytes()),
                 chunk(0xae22, &5u32.to_le_bytes()),
             ]
             .concat(),
@@ -626,7 +769,7 @@ mod tests {
                 &mut storage,
             )
             .unwrap_err();
-        assert!(error.detail.contains("UnsupportedKind(8)"));
+        assert!(error.detail.contains("UnsupportedKind(27)"));
         assert_eq!(storage.next, 0);
         assert!(loader.world.source(ActorSource::Primary).is_empty());
         assert!(loader.world.source(ActorSource::Static).is_empty());

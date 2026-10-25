@@ -459,7 +459,7 @@ fn live_draw_state(
 fn close_car(car: &mut Option<lhr_engine::car_runtime::CarRuntime>) -> Result<(), String> {
     if let Some(owner) = car.as_mut() {
         let cleanup = owner.shutdown()?;
-        println!("CPU car/model/scene resources released; actor registrations {}, CPU heap blocks {}, visual buffers {}, textures {}, retained scene frames {}; native device discard unexecuted (CPU projection)",cleanup.actor_registry_entries,cleanup.heap_allocations,cleanup.graphics,cleanup.textures,cleanup.retained_scene_prefix_frames);
+        println!("CPU car/model/scene resources released; actor registrations {}, CPU heap blocks {}, visual buffers {}, textures {}, retained scene frames {}, driver scene registrations {}, driver scene capacity {}; native device discard unexecuted (CPU projection)",cleanup.actor_registry_entries,cleanup.heap_allocations,cleanup.graphics,cleanup.textures,cleanup.retained_scene_prefix_frames,cleanup.driver_scene_registrations,cleanup.driver_scene_capacity);
     }
     *car = None;
     Ok(())

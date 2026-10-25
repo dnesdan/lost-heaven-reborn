@@ -182,6 +182,25 @@ impl<'a> ModelActorFrames<'a> {
 }
 
 impl ActorFrameBackend for ModelActorFrames<'_> {
+    fn frame_is_model(
+        &mut self,
+        _: &mut ActorWorld,
+        frame: FrameReferenceId,
+    ) -> Result<bool, String> {
+        let key = self.resolve(frame).map_err(|e| format!("{e:?}"))?;
+        Ok(self.arena.state(key).map_err(|e| format!("{e:?}"))?.kind == FrameKind::Model)
+    }
+    fn stop_model_animation(
+        &mut self,
+        _: &mut ActorWorld,
+        frame: FrameReferenceId,
+        index: u32,
+    ) -> Result<(), String> {
+        let key = self.resolve(frame).map_err(|e| format!("{e:?}"))?;
+        self.arena
+            .stop_original_model_animation(crate::model_loading::ModelKey(key), index)
+            .map_err(|e| format!("{e:?}"))
+    }
     fn actor_data(
         &mut self,
         _: &mut ActorWorld,

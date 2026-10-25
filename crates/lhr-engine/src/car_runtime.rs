@@ -1,6 +1,6 @@
-//! Standalone CPU car inspection owner. It composes reconstructed construction,
-//! virtual Init and destruction with an explicit initial Game/driver context.
-//! C_car::GameInit, mission population, simulation and driving are not invoked.
+//! Standalone CPU car owner: construction, Init, optional GameInit/driving and
+//! explicit destruction over shared frame/resource and driver-scene ownership.
+//! Original mission population and player/camera scheduling remain separate.
 use crate::{
     car_effects::CarTrackResources,
     loaded_visual_resources::MaterialLoadContext,
@@ -36,12 +36,15 @@ pub struct CarRuntimeOptions {
     pub material_context: MaterialLoadContext,
     /// Host CPU inspection screen used by the Scene constructor queries.
     pub scene_screen_size: [i32; 2],
+    /// IGraph viewport boundaries; None uses the full host inspection screen.
+    pub scene_viewport: Option<[i32; 4]>,
 }
 impl Default for CarRuntimeOptions {
     fn default() -> Self {
         Self {
             allocator_fill: 0,
             scene_screen_size: [640, 480],
+            scene_viewport: None,
             random_seed: 1,
             material_context: MaterialLoadContext::ORIGINAL_DRIVER_INIT_DEFAULTS,
         }
@@ -79,9 +82,10 @@ pub struct CarRuntimeCleanup {
     pub cpu_allocations: usize,
     pub audio_sounds: usize,
     pub audio_sources: usize,
-    /// Live constructor-owned scene/sector frames after explicit cleanup.
-    /// Driver CreateFrame registration and listeners remain outside this owner.
+    /// Live scene/sector frames after the admitted no-native-audio driver cleanup.
     pub retained_scene_prefix_frames: usize,
+    pub driver_scene_registrations: usize,
+    pub driver_scene_capacity: u32,
     /// CPU projection: original DeviceVirtual14 remains unexecuted/uncredited.
     pub scene_cpu_close: Option<crate::scene_resources::SceneCpuCloseReport>,
 }
@@ -113,6 +117,7 @@ pub struct CarRuntime {
     model: Option<ModelKey>,
     scene: Option<SceneKey>,
     scene_resources: crate::scene_resources::SceneResources,
+    scene_driver: crate::driver_scene::DriverSceneOwner,
     scene_textures: Option<crate::itexture::TextureResources>,
     scene_storage: crate::itexture::CpuTextureStorage,
     construction: Option<CarConstructionState>,
@@ -207,6 +212,7 @@ impl CarRuntime {
             model: None,
             scene: None,
             scene_resources: Default::default(),
+            scene_driver: Default::default(),
             scene_textures: None,
             scene_storage: Default::default(),
             construction: None,
@@ -263,27 +269,38 @@ impl CarRuntime {
             .map_err(|e| e.to_string())?
             .enable_inspection_rgba8_color_key()
             .map_err(|e| format!("Car inspection format: {e:?}"))?;
-        let scene = self
-            .arena
-            .construct_scene_owner_prefix()
-            .map_err(|e| e.to_string())?;
-        self.scene = Some(scene);
         if self.scene_textures.is_none() {
             self.scene_textures = Some(
                 crate::itexture::TextureResources::new()
                     .map_err(|error| format!("Scene texture owner: {error:?}"))?,
             );
         }
-        self.scene_resources
-            .continue_constructor(
-                &self.arena,
-                scene,
-                &mut InspectionScreen(options.scene_screen_size),
-                self.scene_textures.as_mut().unwrap(),
-                &mut InstallationImages(&self.installation),
-                &mut self.scene_storage,
-            )
-            .map_err(|error| format!("Scene construction: {error:?}"))?;
+        let [width, height] = options.scene_screen_size;
+        let created = self.scene_driver.create_scene(
+            &mut crate::driver_scene::DriverSceneContext {
+                arena: &mut self.arena,
+                resources: &mut self.scene_resources,
+                textures: self.scene_textures.as_mut().unwrap(),
+                storage: &mut self.scene_storage,
+            },
+            &mut InspectionScreen {
+                size: options.scene_screen_size,
+                viewport: options.scene_viewport.unwrap_or([0, 0, width, height]),
+            },
+            &mut InstallationImages(&self.installation),
+            // RuntimeAudio is a CPU mixer, not an I3D native sound driver.
+            crate::driver_scene::NativeSceneSoundDriver::Absent,
+        );
+        let scene = match created {
+            Ok(scene) => {
+                self.scene = Some(scene);
+                scene
+            }
+            Err(failure) => {
+                self.scene = failure.scene;
+                return Err(format!("Driver scene creation: {failure:?}"));
+            }
+        };
         let sector = self.arena.scene(scene).map_err(|e| e.to_string())?.sectors[0].frame();
         let model = self.arena.create_model().map_err(|e| e.to_string())?;
         self.model = Some(model);
@@ -522,6 +539,17 @@ impl CarRuntime {
     }
     pub fn arena_mut(&mut self) -> &mut ModelArena {
         &mut self.arena
+    }
+    pub fn scene(&self) -> Option<SceneKey> {
+        self.scene
+    }
+    pub fn scene_viewport(&self) -> Option<crate::scene_resources::SceneViewport> {
+        self.scene
+            .and_then(|scene| self.scene_resources.construction(scene))
+            .and_then(|construction| construction.viewport_projection)
+    }
+    pub fn driver_scene_registry(&self) -> &crate::driver_scene::DriverSceneOwner {
+        &self.scene_driver
     }
     pub fn model(&self) -> Option<ModelKey> {
         self.model
@@ -866,19 +894,39 @@ impl CarRuntime {
             {
                 return Err("Scene cleanup requires all owned audio sounds released".into());
             }
-            self.scene_resources
-                .release_scene(
-                    &mut self.arena,
-                    scene,
-                    self.scene_textures
-                        .as_mut()
-                        .ok_or("Scene texture owner unavailable")?,
-                    &mut self.scene_storage,
-                )
-                .map_err(|error| format!("Scene destruction: {error:?}"))?;
+            let textures = self
+                .scene_textures
+                .as_mut()
+                .ok_or("Scene texture owner unavailable")?;
+            if self.scene_driver.scenes().contains(&scene) {
+                self.scene_driver
+                    .release_scene(
+                        &mut crate::driver_scene::DriverSceneContext {
+                            arena: &mut self.arena,
+                            resources: &mut self.scene_resources,
+                            textures,
+                            storage: &mut self.scene_storage,
+                        },
+                        scene,
+                    )
+                    .map_err(|error| format!("Driver scene destruction: {error:?}"))?;
+            } else {
+                // An unsupported caller dependency can leave the completed
+                // constructor prefix unregistered. Explicit cleanup owns that
+                // prefix; creation never rolls it back automatically.
+                self.scene_resources
+                    .release_scene(&mut self.arena, scene, textures, &mut self.scene_storage)
+                    .map_err(|error| format!("Unregistered scene prefix cleanup: {error:?}"))?;
+            }
+            if self.arena.scene(scene).is_ok() {
+                return Err("Driver scene retained an unexpected external reference".into());
+            }
             scene_cpu_close = self.scene_resources.cpu_close_report(scene);
             self.scene = None;
         }
+        self.scene_driver
+            .release_empty_registry_storage()
+            .map_err(|error| format!("Driver scene registry storage: {error:?}"))?;
         if model_to_check.is_some_and(|model| self.arena.frame(model.root()).is_ok()) {
             return Err("Car inspection retained an unexpected model reference".into());
         }
@@ -904,12 +952,16 @@ impl CarRuntime {
                 .live_source_count()
                 .map_err(|e| e.to_string())?,
             scene_cpu_close,
+            driver_scene_registrations: self.scene_driver.scenes().len(),
+            driver_scene_capacity: self.scene_driver.capacity(),
             retained_scene_prefix_frames: self
                 .scene
                 .and_then(|scene| self.arena.scene(scene).ok())
                 .map_or(0, |scene| 1 + scene.sectors.len()),
         };
-        if cleanup.heap_allocations != 0
+        if cleanup.driver_scene_registrations != 0
+            || cleanup.driver_scene_capacity != 0
+            || cleanup.heap_allocations != 0
             || cleanup.graphics != 0
             || cleanup.textures != 0
             || cleanup.cpu_allocations != 0
@@ -925,14 +977,22 @@ impl CarRuntime {
         Ok(cleanup)
     }
 }
-struct InspectionScreen([i32; 2]);
+struct InspectionScreen {
+    size: [i32; 2],
+    viewport: [i32; 4],
+}
 impl crate::scene_resources::SceneScreen for InspectionScreen {
     type Error = std::convert::Infallible;
     fn screen_sy(&mut self) -> Result<i32, Self::Error> {
-        Ok(self.0[1])
+        Ok(self.size[1])
     }
     fn screen_sx(&mut self) -> Result<i32, Self::Error> {
-        Ok(self.0[0])
+        Ok(self.size[0])
+    }
+}
+impl crate::driver_scene::DriverSceneScreen for InspectionScreen {
+    fn viewport_rectangle(&mut self) -> Result<[i32; 4], Self::Error> {
+        Ok(self.viewport)
     }
 }
 struct InstallationImages<'a>(&'a lhr_assets::Installation);
@@ -1000,6 +1060,13 @@ mod tests {
             (0, 0, 0)
         );
         assert_eq!(cleanup.retained_scene_prefix_frames, 0);
+        assert_eq!(
+            (
+                cleanup.driver_scene_registrations,
+                cleanup.driver_scene_capacity
+            ),
+            (0, 0)
+        );
         assert!(failure.partial.shutdown().is_err());
     }
 }

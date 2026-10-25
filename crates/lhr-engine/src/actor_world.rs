@@ -16,6 +16,7 @@ use crate::original_program::{
     CProgram, OwnerFrameName, ProgramBackend, ProgramContext, ProgramError, ProgramReader,
     ProgramReplacement, ProgramSeed,
 };
+use crate::railway_actor::{RailwayAllocation, RailwaySeed, RailwayState, RailwayVectorSlot};
 use crate::script_lookup::{ActorLifetime, LookupError, LookupWorldBackend, MAX_ACTOR_SOURCES};
 use crate::script_scheduler::{ActorReferenceId, FrameReferenceId};
 
@@ -85,6 +86,7 @@ impl BaseActorState {
 pub enum ActorVtable {
     Base,
     Detector,
+    Railway,
     Opaque(u32),
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -105,6 +107,7 @@ struct OwnedActor {
     state: BaseActorState,
     phase: ActorPhase,
     detector: Option<DetectorState>,
+    railway: Option<RailwayState>,
 }
 /// Untouched native detector storage, including the embedded program seed.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -223,6 +226,7 @@ pub enum ActorWorldError {
     MissingAttachedFrame,
     UnsupportedVtable,
     NotDetector,
+    NotRailway,
     Program(ProgramError),
     Effect { stage: &'static str, detail: String },
 }
@@ -264,6 +268,21 @@ pub enum FrameActorData {
 /// Backend errors preserve the exact already-applied prefix; they never imply
 /// successful frame attachment, virtual release, or gameplay initialization.
 pub trait ActorFrameBackend {
+    fn frame_is_model(
+        &mut self,
+        _world: &mut ActorWorld,
+        _frame: FrameReferenceId,
+    ) -> Result<bool, String> {
+        Err("actor frame kind unavailable".into())
+    }
+    fn stop_model_animation(
+        &mut self,
+        _world: &mut ActorWorld,
+        _frame: FrameReferenceId,
+        _index: u32,
+    ) -> Result<(), String> {
+        Err("model StopAnimation unavailable".into())
+    }
     fn actor_data(
         &mut self,
         world: &mut ActorWorld,
@@ -297,6 +316,12 @@ pub trait ActorFrameBackend {
 /// seed does not construct a frame, BODY or mission payload.
 pub trait ActorAllocationBackend {
     fn allocate_actor(&mut self, bytes: u32) -> Result<Option<(u32, BaseActorSeed)>, String>;
+    fn allocate_railway(
+        &mut self,
+        _bytes: u32,
+    ) -> Result<Option<(u32, BaseActorSeed, RailwaySeed)>, String> {
+        Err("railway allocation unavailable".into())
+    }
     /// Kind5 requires actual larger storage and its untouched allocation seed.
     fn allocate_detector(
         &mut self,
@@ -308,6 +333,17 @@ pub trait ActorAllocationBackend {
 /// Native scalar deleting-wrapper free dependency. Failed host frees retain
 /// backing ownership in this backend; object destruction has already completed.
 pub trait ActorDeallocationBackend {
+    /// Scalar free of each actual railway-owned backing, including null. Failed
+    /// frees retain the header and backend ownership for explicit recovery.
+    fn free_railway_allocation(
+        &mut self,
+        _world: &ActorWorld,
+        _actor: ActorReferenceId,
+        _slot: RailwayVectorSlot,
+        _allocation: Option<RailwayAllocation>,
+    ) -> Result<(), String> {
+        Err("railway backing deallocation unavailable".into())
+    }
     fn free_actor(&mut self, world: &ActorWorld, identity: u32) -> Result<(), String>;
 }
 /// One manager+0x90 association record (native stride 0x58). Unknown payload is
@@ -358,6 +394,7 @@ pub struct ActorWorld {
     pub actor_count: u32,
     pub attachment_counter: u32,
     pub manager: ActorManager,
+    railway_global_byte: Option<u8>,
 }
 impl ActorWorld {
     /// Supply actual admitted initial counter/backing state. Empty sources are
@@ -378,6 +415,7 @@ impl ActorWorld {
             actor_count,
             attachment_counter,
             manager: ActorManager::default(),
+            railway_global_byte: None,
         })
     }
     fn collection(&self, source: ActorSource) -> &ActorCollection {
@@ -425,7 +463,7 @@ impl ActorWorld {
         actor: ActorReferenceId,
     ) -> Result<&mut BaseActorState, ActorWorldError> {
         let i = self.index(actor)?;
-        if self.actors[i].detector.is_some() {
+        if self.actors[i].detector.is_some() || self.actors[i].railway.is_some() {
             return Err(ActorWorldError::UnsupportedVtable);
         }
         Ok(&mut self.actors[i].state)
@@ -579,6 +617,15 @@ impl ActorWorld {
         seed: BaseActorSeed,
         backend: &mut B,
     ) -> Result<ActorReferenceId, ActorCreationError> {
+        self.construct_base_with_railway(identity, seed, None, backend)
+    }
+    fn construct_base_with_railway<B: ActorCollectionBackend + ?Sized>(
+        &mut self,
+        identity: u32,
+        seed: BaseActorSeed,
+        railway: Option<RailwayState>,
+        backend: &mut B,
+    ) -> Result<ActorReferenceId, ActorCreationError> {
         let fail = |source| ActorCreationError {
             actor: None,
             source,
@@ -606,6 +653,7 @@ impl ActorWorld {
             state: BaseActorState::construct(seed),
             phase: ActorPhase::Constructing,
             detector: None,
+            railway,
         });
         self.actor_count = self.actor_count.wrapping_add(1);
         self.add_actor_to_global(Some(actor), backend)
@@ -674,7 +722,67 @@ impl ActorWorld {
             .detector
             .as_ref()
     }
-    /// Supported original factory branches: kind1 allocates 0x70, kind5 0x128.
+    pub fn railway_global_byte(&self) -> Option<u8> {
+        self.railway_global_byte
+    }
+    /// Genuine base registration precedes construction of the larger derived
+    /// allocation. Tail bytes remain separately owned, never aliased as base.
+    pub fn construct_railway<B: ActorCollectionBackend + ?Sized>(
+        &mut self,
+        identity: u32,
+        base: BaseActorSeed,
+        seed: RailwaySeed,
+        backend: &mut B,
+    ) -> Result<ActorReferenceId, ActorCreationError> {
+        identity.checked_add(0x36f).ok_or(ActorCreationError {
+            actor: None,
+            source: ActorWorldError::InvalidBacking,
+        })?;
+        let actor = self.construct_base_with_railway(
+            identity,
+            base,
+            Some(RailwayState::allocation(seed)),
+            backend,
+        )?;
+        let i = self.index(actor).expect("constructed railway owner");
+        self.actors[i]
+            .railway
+            .as_mut()
+            .unwrap()
+            .complete_constructor(identity);
+        self.actors[i].state.vtable = ActorVtable::Railway;
+        self.actors[i].state.word_10 = 8;
+        self.railway_global_byte = Some(0);
+        Ok(actor)
+    }
+    pub fn railway(&self, actor: ActorReferenceId) -> Result<&RailwayState, ActorWorldError> {
+        self.actors[self.index(actor)?]
+            .railway
+            .as_ref()
+            .ok_or(ActorWorldError::NotRailway)
+    }
+    pub fn inspect_railway(&self, actor: ActorReferenceId) -> Option<&RailwayState> {
+        self.actors
+            .iter()
+            .find(|a| a.lifetime.reference() == actor)?
+            .railway
+            .as_ref()
+    }
+    /// Native LoadData returns AL1 even when bounded read guards skip fields.
+    /// Returns consumed payload bytes for host inspection, not a native status.
+    pub fn load_railway_data(
+        &mut self,
+        actor: ActorReferenceId,
+        payload: &[u8],
+    ) -> Result<usize, ActorWorldError> {
+        let i = self.ready(actor)?;
+        let railway = self.actors[i]
+            .railway
+            .as_mut()
+            .ok_or(ActorWorldError::NotRailway)?;
+        Ok(railway.load_payload(payload))
+    }
+    /// Supported factory branches: kind1 allocates0x70, kind5 0x128, kind8 0x370.
     /// Other derived kinds remain explicit dependencies.
     pub fn create_actor<B: ActorAllocationBackend + ActorCollectionBackend + ?Sized>(
         &mut self,
@@ -683,6 +791,21 @@ impl ActorWorld {
     ) -> Result<Option<ActorReferenceId>, ActorCreationError> {
         if !(1..=38).contains(&kind) {
             return Ok(None);
+        }
+        if kind == 8 {
+            let allocation =
+                backend
+                    .allocate_railway(0x370)
+                    .map_err(|detail| ActorCreationError {
+                        actor: None,
+                        source: ActorWorldError::Effect {
+                            stage: "allocate_railway",
+                            detail,
+                        },
+                    })?;
+            return allocation
+                .map(|(identity, base, seed)| self.construct_railway(identity, base, seed, backend))
+                .transpose();
         }
         if kind == 5 {
             let allocation =
@@ -731,6 +854,16 @@ impl ActorWorld {
         let Some(frame) = frame else {
             return Ok(false);
         };
+        if self.actors[i].railway.is_some()
+            && !backend
+                .frame_is_model(self, frame)
+                .map_err(|detail| ActorWorldError::Effect {
+                    stage: "railway_frame_kind",
+                    detail,
+                })?
+        {
+            return Ok(false);
+        }
         self.actors[i].phase = ActorPhase::Initializing;
         let mut result = self.init_inner(actor, frame, backend);
         let i = self.index(actor)?;
@@ -839,7 +972,7 @@ impl ActorWorld {
         backend: &mut B,
     ) -> Result<(), ActorWorldError> {
         let i = self.ready(actor)?;
-        if self.actors[i].detector.is_some() {
+        if self.actors[i].detector.is_some() || self.actors[i].railway.is_some() {
             return Err(ActorWorldError::UnsupportedVtable);
         }
         self.destroy_base_inner(actor, backend)
@@ -907,6 +1040,113 @@ impl ActorWorld {
         self.actors[i].state.references = count;
         if count == 0 {
             self.delete_base(actor, 1, backend)?;
+        }
+        Ok(count)
+    }
+    /// C_railway destructor486760: stop model animation0, clear/free vector
+    /// backing in observed reverse order, then actual inherited destruction.
+    pub fn destroy_railway<F: ActorFrameBackend + ?Sized, B: ActorDeallocationBackend + ?Sized>(
+        &mut self,
+        actor: ActorReferenceId,
+        frames: &mut F,
+        backend: &mut B,
+    ) -> Result<(), ActorWorldError> {
+        let i = self.ready(actor)?;
+        if self.actors[i].railway.is_none() {
+            return Err(ActorWorldError::NotRailway);
+        }
+        self.actors[i].phase = ActorPhase::Destroying;
+        self.actors[i].state.vtable = ActorVtable::Railway;
+        let result = self.destroy_railway_inner(actor, frames, backend);
+        if result.is_err() {
+            let i = self.index(actor)?;
+            self.actors[i].phase = ActorPhase::DestructionInterrupted;
+        }
+        result
+    }
+    fn destroy_railway_inner<
+        F: ActorFrameBackend + ?Sized,
+        B: ActorDeallocationBackend + ?Sized,
+    >(
+        &mut self,
+        actor: ActorReferenceId,
+        frames: &mut F,
+        backend: &mut B,
+    ) -> Result<(), ActorWorldError> {
+        if let Some(frame) = self.state(actor)?.frame {
+            if frames
+                .frame_is_model(self, frame)
+                .map_err(|detail| ActorWorldError::Effect {
+                    stage: "railway_destructor_frame_kind",
+                    detail,
+                })?
+            {
+                frames
+                    .stop_model_animation(self, frame, 0)
+                    .map_err(|detail| ActorWorldError::Effect {
+                        stage: "railway_stop_animation",
+                        detail,
+                    })?;
+            }
+        }
+        let i = self.index(actor)?;
+        let railway = self.actors[i].railway.as_mut().unwrap();
+        railway.put_word(0x158, 0);
+        railway.put_word(0x15c, 0);
+        for slot in [
+            RailwayVectorSlot::At278,
+            RailwayVectorSlot::At260,
+            RailwayVectorSlot::At250,
+            RailwayVectorSlot::At100,
+            RailwayVectorSlot::AtEc,
+            RailwayVectorSlot::AtA8,
+            RailwayVectorSlot::At7c,
+        ] {
+            let allocation = self.railway(actor)?.vector(slot).begin;
+            // The At7c element helper4d2040 is an actual RET8 with no effects.
+            backend
+                .free_railway_allocation(self, actor, slot, allocation)
+                .map_err(|detail| ActorWorldError::Effect {
+                    stage: "free_railway_backing",
+                    detail,
+                })?;
+            let i = self.index(actor)?;
+            self.actors[i].railway.as_mut().unwrap().clear_vector(slot);
+        }
+        self.destroy_base_inner(actor, frames)
+    }
+    pub fn delete_railway<F: ActorFrameBackend + ?Sized, B: ActorDeallocationBackend + ?Sized>(
+        &mut self,
+        actor: ActorReferenceId,
+        argument: u32,
+        frames: &mut F,
+        backend: &mut B,
+    ) -> Result<(), ActorWorldError> {
+        self.destroy_railway(actor, frames, backend)?;
+        if argument & 1 != 0 {
+            backend
+                .free_actor(self, actor.identity())
+                .map_err(|detail| ActorWorldError::Effect {
+                    stage: "free_railway",
+                    detail,
+                })?;
+        }
+        Ok(())
+    }
+    pub fn release_railway<F: ActorFrameBackend + ?Sized, B: ActorDeallocationBackend + ?Sized>(
+        &mut self,
+        actor: ActorReferenceId,
+        frames: &mut F,
+        backend: &mut B,
+    ) -> Result<u16, ActorWorldError> {
+        let i = self.ready(actor)?;
+        if self.actors[i].railway.is_none() || self.actors[i].state.vtable != ActorVtable::Railway {
+            return Err(ActorWorldError::NotRailway);
+        }
+        let count = self.actors[i].state.references.wrapping_sub(1);
+        self.actors[i].state.references = count;
+        if count == 0 {
+            self.delete_railway(actor, 1, frames, backend)?;
         }
         Ok(count)
     }
@@ -2176,5 +2416,387 @@ mod tests {
         assert_eq!(w.actor_count, 1);
         assert_eq!(w.source(ActorSource::Static), &[Some(a)]);
         assert!(p.actor_frees.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod railway_tests {
+    use super::*;
+    use crate::actor_frames::ModelActorFrames;
+    use crate::frame_lookup::ModelFrameLookup;
+    use crate::model_loading::{tests::frame, MaterializedModel, ModelArena};
+    use std::{collections::BTreeSet, sync::Arc};
+    fn seed() -> BaseActorSeed {
+        BaseActorSeed {
+            word_0e: 0xaabb,
+            actor_id: 0x1234,
+            state_1c: 0x87654321,
+            bytes_21_5f: [0x21; 63],
+            bytes_64_65: [0x65; 2],
+            byte_67: 0x67,
+            release_frame: 1,
+            bytes_6d_6f: [0x6f; 3],
+        }
+    }
+    fn world(capacity: usize) -> ActorWorld {
+        let b = SourceBacking {
+            storage: (capacity != 0).then_some(ActorStorageId(1)),
+            capacity,
+        };
+        ActorWorld::new(9, 100, b, b, b).unwrap()
+    }
+    #[derive(Default)]
+    struct Heap {
+        identity: u32,
+        fail_registration: bool,
+        fail_free: Option<usize>,
+        frees: Vec<RailwayVectorSlot>,
+        live: BTreeSet<u32>,
+        actor_freed: bool,
+        saw_raw_tail: bool,
+    }
+    impl ActorAllocationBackend for Heap {
+        fn allocate_actor(&mut self, _: u32) -> Result<Option<(u32, BaseActorSeed)>, String> {
+            Err("base allocation outside fixture".into())
+        }
+        fn allocate_railway(
+            &mut self,
+            bytes: u32,
+        ) -> Result<Option<(u32, BaseActorSeed, RailwaySeed)>, String> {
+            assert_eq!(bytes, 0x370);
+            Ok(Some((
+                self.identity,
+                seed(),
+                RailwaySeed {
+                    bytes_70_36f: [0xa5; 0x300],
+                },
+            )))
+        }
+    }
+    impl ActorCollectionBackend for Heap {
+        fn allocate_collection(
+            &mut self,
+            world: &ActorWorld,
+            _: ActorSource,
+            _: u32,
+        ) -> Result<ActorStorageId, String> {
+            let actor = world.actors.last().unwrap().lifetime.reference();
+            self.saw_raw_tail = world.inspect_railway(actor).unwrap().bytes() == &[0xa5; 0x300];
+            if self.fail_registration {
+                Err("injected registration failure".into())
+            } else {
+                Ok(ActorStorageId(2))
+            }
+        }
+        fn free_collection(
+            &mut self,
+            _: &ActorWorld,
+            _: ActorSource,
+            _: Option<ActorStorageId>,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+    }
+    impl ActorDeallocationBackend for Heap {
+        fn free_actor(&mut self, world: &ActorWorld, identity: u32) -> Result<(), String> {
+            assert_eq!(identity, self.identity);
+            assert_eq!(world.actor_count, 9);
+            self.actor_freed = true;
+            Ok(())
+        }
+        fn free_railway_allocation(
+            &mut self,
+            world: &ActorWorld,
+            actor: ActorReferenceId,
+            slot: RailwayVectorSlot,
+            allocation: Option<RailwayAllocation>,
+        ) -> Result<(), String> {
+            assert_eq!(world.state(actor).unwrap().vtable, ActorVtable::Railway);
+            assert_eq!(world.railway(actor).unwrap().word(0x15c), 0);
+            assert_eq!(world.actor_count, 10);
+            self.frees.push(slot);
+            if self.fail_free == Some(self.frees.len()) {
+                return Err("injected backing free failure".into());
+            }
+            if let Some(allocation) = allocation {
+                assert!(self.live.remove(&allocation.0));
+            }
+            Ok(())
+        }
+    }
+    fn actor(world: &mut ActorWorld, heap: &mut Heap) -> ActorReferenceId {
+        world.create_actor(8, heap).unwrap().unwrap()
+    }
+    #[test]
+    fn constructor_retains_seed_and_actual_address_high_byte() {
+        for identity in [0x6d002000, 0x7d002000] {
+            let mut world = world(8);
+            let mut heap = Heap {
+                identity,
+                ..Heap::default()
+            };
+            let actor = actor(&mut world, &mut heap);
+            assert_eq!(world.state(actor).unwrap().word_10, 8);
+            assert_eq!(world.state(actor).unwrap().word_14, 1);
+            assert_eq!(world.state(actor).unwrap().vtable, ActorVtable::Railway);
+            assert_eq!(world.actor_count, 10);
+            assert_eq!(world.railway_global_byte(), Some(0));
+            let railway = world.railway(actor).unwrap();
+            for slot in [
+                RailwayVectorSlot::At7c,
+                RailwayVectorSlot::AtA8,
+                RailwayVectorSlot::AtEc,
+                RailwayVectorSlot::At100,
+                RailwayVectorSlot::At250,
+                RailwayVectorSlot::At260,
+                RailwayVectorSlot::At278,
+            ] {
+                assert_eq!(railway.vector(slot).control, (identity >> 24) as u8);
+                assert_eq!(railway.vector(slot).begin, None);
+            }
+            assert_eq!(&railway.bytes()[0..12], &[0xa5; 12]);
+            assert_eq!(railway.word(0x2f4), 18);
+            assert_eq!(railway.word(0x340), 0);
+            assert_eq!(railway.word(0x1bc), 0x461c4000);
+            assert_eq!(
+                world.state_mut(actor),
+                Err(ActorWorldError::UnsupportedVtable)
+            );
+        }
+    }
+    #[test]
+    fn failed_base_registration_retains_unconstructed_tail() {
+        let mut world = world(0);
+        let mut heap = Heap {
+            identity: 0x6d002000,
+            fail_registration: true,
+            ..Heap::default()
+        };
+        let error = world.create_actor(8, &mut heap).unwrap_err();
+        let actor = error.actor.unwrap();
+        assert!(heap.saw_raw_tail);
+        assert_eq!(world.inspect(actor).unwrap().0, ActorPhase::Constructing);
+        assert_eq!(
+            world.inspect_railway(actor).unwrap().bytes(),
+            &[0xa5; 0x300]
+        );
+        assert_eq!(world.railway_global_byte(), None);
+        assert_eq!(world.inspect(actor).unwrap().1.vtable, ActorVtable::Base);
+    }
+    #[test]
+    fn init_admits_real_model_and_rejects_dummy_without_base_attachment() {
+        let mut world = world(8);
+        let mut heap = Heap {
+            identity: 0x6d002000,
+            ..Heap::default()
+        };
+        let actor = actor(&mut world, &mut heap);
+        let mut model = MaterializedModel::from_parsed(Arc::new(lhr_assets::Model {
+            materials: vec![],
+            frames: vec![frame(1, None, [0.; 3])],
+        }))
+        .unwrap();
+        let dummy = ModelFrameLookup::borrow(model.arena(), true)
+            .reference(model.source_frame_keys()[0])
+            .unwrap();
+        assert!(!world
+            .init(
+                actor,
+                Some(dummy),
+                &mut ModelActorFrames::borrow(model.arena_mut(), true)
+            )
+            .unwrap());
+        assert_eq!(world.state(actor).unwrap().frame, None);
+        assert_eq!(world.attachment_counter, 100);
+        assert!(!world
+            .init(
+                actor,
+                None,
+                &mut ModelActorFrames::borrow(model.arena_mut(), true)
+            )
+            .unwrap());
+        let root = ModelFrameLookup::borrow(model.arena(), true)
+            .reference(model.root())
+            .unwrap();
+        assert!(world
+            .init(
+                actor,
+                Some(root),
+                &mut ModelActorFrames::borrow(model.arena_mut(), true)
+            )
+            .unwrap());
+        assert_eq!(world.state(actor).unwrap().frame, Some(root));
+        assert_eq!(world.attachment_counter, 101);
+    }
+    #[test]
+    fn load_data_preserves_native_bits_and_guard_skipped_fields() {
+        let mut world = world(8);
+        let mut heap = Heap {
+            identity: 0x6d002000,
+            ..Heap::default()
+        };
+        let actor = actor(&mut world, &mut heap);
+        let mut bytes = vec![255];
+        for word in [
+            0u32, 0x7fc12345, 0xff800000, 0x80000000, 0x3f800000, 0x461c4000,
+        ] {
+            bytes.extend(word.to_le_bytes());
+        }
+        assert_eq!(world.load_railway_data(actor, &bytes[..4]).unwrap(), 1);
+        assert_eq!(world.railway(actor).unwrap().word(0x1a8), 1);
+        assert_eq!(world.load_railway_data(actor, &bytes).unwrap(), 25);
+        assert_eq!(world.railway(actor).unwrap().word(0x1b0), 0x7fc12345);
+        assert_eq!(world.railway(actor).unwrap().word(0x1ac), 0xff800000);
+        assert_eq!(world.railway(actor).unwrap().word(0x1b4), 0x80000000);
+        assert_eq!(world.load_railway_data(actor, &[]).unwrap(), 0);
+        assert_eq!(world.railway(actor).unwrap().word(0x1bc), 0x461c4000);
+    }
+    #[test]
+    fn deleting_flags_last_reference_and_real_model_stop_null_guard() {
+        for flags in [0, 1, 2, 3] {
+            let mut world = world(8);
+            let mut heap = Heap {
+                identity: 0x6d002000,
+                ..Heap::default()
+            };
+            let actor = actor(&mut world, &mut heap);
+            let mut arena = ModelArena::default();
+            let model = arena.create_model().unwrap();
+            let frame = ModelFrameLookup::borrow(&arena, true)
+                .reference(model.root())
+                .unwrap();
+            world
+                .init(
+                    actor,
+                    Some(frame),
+                    &mut ModelActorFrames::borrow(&mut arena, true),
+                )
+                .unwrap();
+            world
+                .delete_railway(
+                    actor,
+                    flags,
+                    &mut ModelActorFrames::borrow(&mut arena, true),
+                    &mut heap,
+                )
+                .unwrap();
+            assert_eq!(heap.actor_freed, flags & 1 != 0);
+            assert_eq!(world.inspect(actor).unwrap().0, ActorPhase::Dead);
+            assert_eq!(
+                heap.frees,
+                [
+                    RailwayVectorSlot::At278,
+                    RailwayVectorSlot::At260,
+                    RailwayVectorSlot::At250,
+                    RailwayVectorSlot::At100,
+                    RailwayVectorSlot::AtEc,
+                    RailwayVectorSlot::AtA8,
+                    RailwayVectorSlot::At7c
+                ]
+            );
+            assert_eq!(world.actor_count, 9);
+            assert_eq!(world.inspect(actor).unwrap().1.vtable, ActorVtable::Base);
+        }
+    }
+    #[test]
+    fn release_uses_wrapping_sixteen_bit_count_and_only_destroys_last_reference() {
+        for initial in [0u16, 2] {
+            let mut world = world(8);
+            let mut heap = Heap {
+                identity: 0x6d002000,
+                ..Heap::default()
+            };
+            let actor = actor(&mut world, &mut heap);
+            let i = world.index(actor).unwrap();
+            world.actors[i].state.references = initial;
+            let mut arena = ModelArena::default();
+            assert_eq!(
+                world
+                    .release_railway(
+                        actor,
+                        &mut ModelActorFrames::borrow(&mut arena, true),
+                        &mut heap
+                    )
+                    .unwrap(),
+                initial.wrapping_sub(1)
+            );
+            assert!(heap.frees.is_empty());
+            assert!(!heap.actor_freed);
+            assert_eq!(world.actor_count, 10);
+            if initial == 2 {
+                assert_eq!(
+                    world
+                        .release_railway(
+                            actor,
+                            &mut ModelActorFrames::borrow(&mut arena, true),
+                            &mut heap
+                        )
+                        .unwrap(),
+                    0
+                );
+                assert_eq!(heap.frees.len(), 7);
+                assert!(heap.actor_freed);
+                assert_eq!(world.inspect(actor).unwrap().0, ActorPhase::Dead);
+            }
+        }
+    }
+    #[test]
+    fn interrupted_nonempty_backing_free_retains_failed_owner_and_blocks_retry() {
+        let mut world = world(8);
+        let mut heap = Heap {
+            identity: 0x6d002000,
+            fail_free: Some(2),
+            ..Heap::default()
+        };
+        let actor = actor(&mut world, &mut heap);
+        let i = world.index(actor).unwrap();
+        for (slot, allocation) in [
+            (RailwayVectorSlot::At278, 11),
+            (RailwayVectorSlot::At260, 12),
+        ] {
+            world.actors[i]
+                .railway
+                .as_mut()
+                .unwrap()
+                .put_word(slot.control_offset() + 4, allocation);
+            heap.live.insert(allocation);
+        }
+        let mut arena = ModelArena::default();
+        assert!(world
+            .release_railway(
+                actor,
+                &mut ModelActorFrames::borrow(&mut arena, true),
+                &mut heap
+            )
+            .is_err());
+        assert_eq!(world.phase(actor), Ok(ActorPhase::DestructionInterrupted));
+        assert_eq!(world.state(actor).unwrap().references, 0);
+        assert_eq!(world.actor_count, 10);
+        assert_eq!(
+            world
+                .railway(actor)
+                .unwrap()
+                .vector(RailwayVectorSlot::At278)
+                .begin,
+            None
+        );
+        assert_eq!(
+            world
+                .railway(actor)
+                .unwrap()
+                .vector(RailwayVectorSlot::At260)
+                .begin,
+            Some(RailwayAllocation(12))
+        );
+        assert!(heap.live.contains(&12));
+        assert!(!heap.actor_freed);
+        assert!(world
+            .release_railway(
+                actor,
+                &mut ModelActorFrames::borrow(&mut arena, true),
+                &mut heap
+            )
+            .is_err());
+        assert_eq!(heap.frees.len(), 2);
     }
 }

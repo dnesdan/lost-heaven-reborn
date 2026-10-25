@@ -72,6 +72,9 @@ pub struct LoadedModel {
     close_cursor: usize,
     pub(crate) closing: bool,
     filename: Option<ModelFileNameKey>,
+    /// Actual fresh I3D_model+150 is null. Host inspection playback is separate.
+    /// An active native set requires its producer/resource owner before admission.
+    original_ipol_set: Option<crate::scene_tick::InterpolatorId>,
 }
 impl LoadedModel {
     pub fn capacity(&self) -> usize {
@@ -134,6 +137,7 @@ pub struct SharedModelLoadFailure {
 pub enum ModelError {
     Frame(FrameError),
     UnknownModel(ModelKey),
+    UnsupportedActiveModelController(ModelKey),
     UnknownFrame(FrameKey),
     Scene(crate::scene_ownership::SceneOwnerError),
     FastFrame(crate::frame_fast_lookup::FastFrameError),
@@ -439,6 +443,7 @@ impl ModelArena {
             close_cursor: 0,
             closing: false,
             filename: None,
+            original_ipol_set: None,
         });
         Ok(key)
     }
@@ -1462,8 +1467,27 @@ impl ModelArena {
     /// A host lock and restored failed-slot owner keep unavailable nested
     /// destruction consistent; these are not native exception semantics.
     /// External references survive with their hierarchy links and source backing.
+    /// StopAnimation(index), LS3DF33890. Only the constructor-owned null set
+    /// branch is admitted here; host playback cannot be substituted for+150.
+    pub fn stop_original_model_animation(
+        &mut self,
+        model: ModelKey,
+        index: u32,
+    ) -> Result<(), ModelError> {
+        let mi = self.model_index(model)?;
+        if index >= 8 {
+            return Ok(());
+        }
+        if self.models[mi].original_ipol_set.is_some() {
+            return Err(ModelError::UnsupportedActiveModelController(model));
+        }
+        Ok(())
+    }
     pub fn close(&mut self, model: ModelKey) -> Result<(), ModelError> {
         let mi = self.model_index(model)?;
+        if self.models[mi].original_ipol_set.is_some() {
+            return Err(ModelError::UnsupportedActiveModelController(model));
+        }
         self.models[mi].lifecycle_epoch = self.models[mi]
             .lifecycle_epoch
             .checked_add(1)
@@ -1956,6 +1980,35 @@ impl MaterializedModel {
                 None => 0,
             })
             .ok_or(ModelError::AllocationOverflow)
+    }
+}
+
+#[cfg(test)]
+mod original_controller_admission_tests {
+    use super::*;
+    #[test]
+    fn original_active_controller_is_not_replaced_by_host_playback_or_cleared() {
+        let mut arena = ModelArena::default();
+        let model = arena.create_model().unwrap();
+        arena.stop_original_model_animation(model, 0).unwrap();
+        let i = arena.model_index(model).unwrap();
+        let epoch = arena.models[i].lifecycle_epoch;
+        arena.models[i].original_ipol_set = Some(crate::scene_tick::InterpolatorId(7));
+        arena.stop_original_model_animation(model, 8).unwrap();
+        assert_eq!(
+            arena.stop_original_model_animation(model, 0),
+            Err(ModelError::UnsupportedActiveModelController(model))
+        );
+        assert_eq!(
+            arena.close(model),
+            Err(ModelError::UnsupportedActiveModelController(model))
+        );
+        assert_eq!(
+            arena.models[i].original_ipol_set,
+            Some(crate::scene_tick::InterpolatorId(7))
+        );
+        assert_eq!(arena.models[i].lifecycle_epoch, epoch);
+        assert!(!arena.models[i].closing);
     }
 }
 

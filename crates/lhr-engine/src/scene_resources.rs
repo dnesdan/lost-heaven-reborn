@@ -38,6 +38,9 @@ pub struct SceneConstruction {
     arena_identity: crate::script_scheduler::FrameReferenceId,
     sectors: [crate::scene_ownership::SectorKey; 4],
     pub viewport: [i32; 4],
+    pub viewport_projection: Option<SceneViewport>,
+    driver_owner: Option<u64>,
+    driver_registry_removed: bool,
     /// Host scratch for represented writes. Constructor-unwritten words are
     /// unavailable; use weather_word instead of treating scratch zero as native.
     pub words: [u32; SCENE_WORDS],
@@ -62,11 +65,21 @@ impl SceneConstruction {
         }
     }
 }
+/// Original SetViewport (PC 0x4a9c0) outputs. The four integer arguments
+/// are stored directly as rectangle boundaries; malformed rectangles are accepted.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SceneViewport {
+    pub rectangle: [i32; 4],
+    pub half_extent: [f32; 2],
+    pub center: [f32; 2],
+}
+
 /// Shared globals WSRefCnt, pSnowTexture and InitialSoundProp. Snow's factory
 /// reference is transferred to this owner; scene construction acquires no
 /// additional reference while pSnowTexture is already nonnull.
-#[derive(Default)]
 pub struct SceneResources {
+    identity: u64,
+    driver_domain: Option<u64>,
     ws_ref_count: i32,
     snow: Option<TextureKey>,
     initial_sound_properties: [u32; SECTOR_SOUND_PROPERTIES_WORDS],
@@ -75,7 +88,31 @@ pub struct SceneResources {
     texture_domain: Option<u64>,
     storage_domain: Option<u64>,
 }
+impl Default for SceneResources {
+    fn default() -> Self {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT_DOMAIN: AtomicU64 = AtomicU64::new(1);
+        Self {
+            identity: NEXT_DOMAIN
+                .try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+                    value.checked_add(1)
+                })
+                .expect("scene resource identity exhausted"),
+            driver_domain: None,
+            ws_ref_count: 0,
+            snow: None,
+            initial_sound_properties: [0; SECTOR_SOUND_PROPERTIES_WORDS],
+            constructions: Vec::new(),
+            frame_domain: None,
+            texture_domain: None,
+            storage_domain: None,
+        }
+    }
+}
 impl SceneResources {
+    pub fn identity(&self) -> u64 {
+        self.identity
+    }
     pub fn ws_ref_count(&self) -> i32 {
         self.ws_ref_count
     }
@@ -93,6 +130,95 @@ impl SceneResources {
         self.constructions.iter().find(|entry| entry.scene == scene)
     }
 
+    /// SetViewport__9I3D_sceneFUiUiUiUi, PC 0x4a9c0, Game PC24/RN.
+    /// Native returns zero for all 32-bit arguments: it does not normalize,
+    /// clamp or validate the rectangle. Host availability errors are separate.
+    pub fn set_viewport(
+        &mut self,
+        arena: &ModelArena,
+        scene: SceneKey,
+        rectangle: [i32; 4],
+    ) -> Result<u32, SceneResourceError> {
+        let entry = self
+            .constructions
+            .iter_mut()
+            .find(|entry| entry.scene == scene)
+            .ok_or(SceneResourceError::UnknownConstruction(scene))?;
+        if entry.arena_identity != arena.lookup_reference(scene.root()) {
+            return Err(SceneResourceError::UnsupportedDomain("foreign arena"));
+        }
+        arena.scene(scene)?;
+        if entry.destroyed {
+            return Err(SceneResourceError::AlreadyDestroyed(scene));
+        }
+        if entry.phase != SceneConstructionPhase::Complete {
+            return Err(SceneResourceError::IncompleteConstruction(scene));
+        }
+        let [left, top, right, bottom] = rectangle;
+        let rounded = |exact: f64| {
+            let single = exact as f32;
+            crate::native_precision::record_precision(f64::from(single) != exact);
+            single
+        };
+        // FILD64 zero-extends the wrapping horizontal subtraction. FILD32
+        // treats the wrapping vertical subtraction as signed. Integer loads
+        // remain exact until each x87 arithmetic instruction rounds to PC24.
+        let half_width = rounded(f64::from((right as u32).wrapping_sub(left as u32)) * 0.5);
+        let half_height = rounded(f64::from(top.wrapping_sub(bottom)) * 0.5);
+        let center_x = rounded(f64::from(left) + f64::from(half_width));
+        let center_y = rounded(f64::from(top) - f64::from(half_height));
+        entry.viewport = rectangle;
+        entry.viewport_projection = Some(SceneViewport {
+            rectangle,
+            half_extent: [half_width, half_height],
+            center: [center_x, center_y],
+        });
+        for (offset, value) in [
+            (0x23c, left as u32),
+            (0x240, top as u32),
+            (0x244, right as u32),
+            (0x248, bottom as u32),
+            (0x208, half_width.to_bits()),
+            (0x20c, half_height.to_bits()),
+            (0x180, center_x.to_bits()),
+            (0x184, center_y.to_bits()),
+        ] {
+            entry.words[offset / 4] = value;
+        }
+        Ok(0)
+    }
+    pub(crate) fn bind_driver_domain(&mut self, driver: u64) -> Result<(), SceneResourceError> {
+        if self.driver_domain.is_some_and(|owner| owner != driver) {
+            return Err(SceneResourceError::UnsupportedDomain(
+                "shared resources already belong to another driver",
+            ));
+        }
+        self.driver_domain = Some(driver);
+        Ok(())
+    }
+    pub(crate) fn bind_driver_scene(
+        &mut self,
+        scene: SceneKey,
+        driver: u64,
+    ) -> Result<(), SceneResourceError> {
+        if self.driver_domain != Some(driver) {
+            return Err(SceneResourceError::UnsupportedDomain(
+                "foreign driver resource domain",
+            ));
+        }
+        let entry = self
+            .constructions
+            .iter_mut()
+            .find(|entry| entry.scene == scene)
+            .ok_or(SceneResourceError::UnknownConstruction(scene))?;
+        if entry.destroyed || entry.driver_owner.is_some() {
+            return Err(SceneResourceError::UnsupportedDomain(
+                "scene already registered with a driver",
+            ));
+        }
+        entry.driver_owner = Some(driver);
+        Ok(())
+    }
     /// Continue the existing actual arena scene from 0x48e29. A host failure
     /// preserves the executed prefix; it never rolls back scene or shared count.
     /// Reentry is rejected rather than replaying a native constructor prefix.
@@ -146,6 +272,9 @@ impl SceneResources {
                 .map_err(SceneConstructionError::Model)?
                 .sectors,
             viewport: [0, 0, sx, sy],
+            viewport_projection: None,
+            driver_owner: None,
+            driver_registry_removed: false,
             words: [0; SCENE_WORDS],
             phase: SceneConstructionPhase::Viewport,
             close_complete: false,
@@ -409,6 +538,13 @@ impl SceneResources {
     }
 }
 
+/// Borrowed driver identity and its actual registry removal effect at the
+/// scene destructor's post-weather boundary.
+struct DriverSceneRemoval<'a> {
+    driver: u64,
+    unregister: &'a mut dyn FnMut(SceneKey) -> Result<(), SceneResourceError>,
+}
+
 impl SceneResources {
     /// Release a constructor-sector reference retained by an external caller.
     /// A surviving sector retains the native stale scene pointer until its own
@@ -460,6 +596,33 @@ impl SceneResources {
         textures: &mut TextureResources,
         storage: &mut CpuTextureStorage,
     ) -> Result<(), SceneResourceError> {
+        self.release_scene_inner(arena, scene, textures, storage, None)
+    }
+    pub(crate) fn release_driver_scene(
+        &mut self,
+        arena: &mut ModelArena,
+        scene: SceneKey,
+        textures: &mut TextureResources,
+        storage: &mut CpuTextureStorage,
+        driver: u64,
+        unregister: &mut dyn FnMut(SceneKey) -> Result<(), SceneResourceError>,
+    ) -> Result<(), SceneResourceError> {
+        self.release_scene_inner(
+            arena,
+            scene,
+            textures,
+            storage,
+            Some(DriverSceneRemoval { driver, unregister }),
+        )
+    }
+    fn release_scene_inner(
+        &mut self,
+        arena: &mut ModelArena,
+        scene: SceneKey,
+        textures: &mut TextureResources,
+        storage: &mut CpuTextureStorage,
+        mut driver: Option<DriverSceneRemoval<'_>>,
+    ) -> Result<(), SceneResourceError> {
         let index = self
             .constructions
             .iter()
@@ -468,6 +631,11 @@ impl SceneResources {
         self.check_domain(arena, scene, textures, storage)?;
         if self.constructions[index].destroyed {
             return Err(SceneResourceError::AlreadyDestroyed(scene));
+        }
+        if self.constructions[index].driver_owner != driver.as_ref().map(|entry| entry.driver) {
+            return Err(SceneResourceError::UnsupportedDomain(
+                "scene requires its owning driver registry",
+            ));
         }
         if arena.frame(scene.root())?.owner.is_some() {
             return Err(SceneResourceError::UnsupportedDomain(
@@ -482,8 +650,9 @@ impl SceneResources {
             self.close_constructed_scene(arena, scene, textures, storage)?;
             self.constructions[index].close_complete = true;
         }
-        // Camera and listener were set null by the actual constructor. Driver
-        // CreateFrame (which can allocate a listener) is not admitted here.
+        // Camera and listener are null in the admitted absent-native-sound-driver
+        // domain. Querying or creating a native listener remains an explicit
+        // dependency boundary in DriverSceneOwner.
         let sectors = arena.scene(scene)?.sectors;
         while self.constructions[index].sector_cursor < sectors.len() {
             let sector = sectors[self.constructions[index].sector_cursor];
@@ -504,6 +673,12 @@ impl SceneResources {
             }
             // WSComplVBStr is constructor-global null in this admitted domain;
             // no weather rendering/allocation API can populate it here.
+        }
+        if !self.constructions[index].driver_registry_removed {
+            if let Some(removal) = driver.as_mut() {
+                (removal.unregister)(scene)?;
+            }
+            self.constructions[index].driver_registry_removed = true;
         }
         let entry = &mut self.constructions[index];
         for offset in [0x32c, 0x29c, 0x288, 0x22c, 0x168, 0x158, 0x148] {
