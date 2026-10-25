@@ -1496,6 +1496,49 @@ mod tests {
     }
 
     #[test]
+    fn presentation_consumes_effective_set_texture_flags_instead_of_raw_alpha_bits() {
+        use lhr_render::{AlphaMode, FrontFace, MaterialQueue, RenderMaterial};
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let material = resources.create_material().unwrap();
+        resources.material_mut(material).unwrap().flags = 0xe0000001;
+        let opaque = backend.texture(1, 0);
+        resources
+            .set_texture(material, Some(opaque), &mut backend)
+            .unwrap();
+        let RenderMaterial::Original(state) = crate::presentation_material::live_material(
+            resources.material(material).unwrap(),
+            true,
+            [0.; 3],
+            FrontFace::CounterClockwise,
+        )
+        .unwrap() else {
+            panic!()
+        };
+        assert_eq!(
+            (state.alpha, state.queue),
+            (AlphaMode::Opaque, MaterialQueue::Opaque)
+        );
+        let keyed_mipmaps = backend.texture(2, 0x108);
+        resources
+            .set_texture(material, Some(keyed_mipmaps), &mut backend)
+            .unwrap();
+        let RenderMaterial::Original(state) = crate::presentation_material::live_material(
+            resources.material(material).unwrap(),
+            true,
+            [0.; 3],
+            FrontFace::CounterClockwise,
+        )
+        .unwrap() else {
+            panic!()
+        };
+        assert_eq!(
+            (state.alpha, state.queue),
+            (AlphaMode::Blend, MaterialQueue::Transparent)
+        );
+    }
+
+    #[test]
     fn texture_flags_alias_slots_and_equality_match_material_contract() {
         for (flags, expected) in [
             (0, 0x40001),

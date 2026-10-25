@@ -340,6 +340,7 @@ fn validate_layout(definition: &MenuDefinition) -> Result<(), String> {
 }
 pub fn quad(texture: Texture) -> Mesh {
     Mesh {
+        material: Default::default(),
         vertices: vec![
             Vertex {
                 position: [0.0, 0.0, 0.0],
