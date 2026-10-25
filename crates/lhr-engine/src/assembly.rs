@@ -910,7 +910,7 @@ mod tests {
             .unwrap_err()
             .contains("MissingVertexIndices"));
         let mut invalid = (*character_source(3)).clone();
-        invalid.materials[0].flags = 0x8000;
+        invalid.materials[0].flags = 0x01000000;
         let mut builder = SceneBuilder::new(&installation, "maps");
         builder.use_original_model_loading();
         assert!(builder
