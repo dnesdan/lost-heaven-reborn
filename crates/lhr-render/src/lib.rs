@@ -427,9 +427,14 @@ impl Renderer {
         // This mutable upload no longer represents the immutable CPU source.
         // Existing draws keep their shared GPU allocation; a future upload of
         // the old source must not observe the replacement pixels.
-        self.materials
-            .borrow_mut()
-            .remove(&(draw.source.as_ptr() as usize));
+        let mut cache = self.materials.borrow_mut();
+        let key = draw.source.as_ptr() as usize;
+        if cache
+            .get(&key)
+            .is_some_and(|cached| Arc::ptr_eq(&cached.material, &draw.material))
+        {
+            cache.remove(&key);
+        }
         Ok(())
     }
     /// Queue replacement vertices for an existing draw, preserving its topology and material.
@@ -973,13 +978,29 @@ mod tests {
         assert!(renderer.materials.borrow().is_empty());
         renderer.replace_meshes(1..1, &[mesh()]).unwrap();
         assert!(!Arc::ptr_eq(&first, &renderer.draws[1].material));
+        let pristine = Arc::clone(&renderer.draws[1].material);
+        // A further edit of the old generation must not evict the original
+        // source's newer, untouched allocation from the cache.
+        renderer
+            .update_texture(
+                0,
+                &Texture {
+                    width: 1,
+                    height: 1,
+                    rgba: vec![128, 0, 0, 255],
+                    repeat: [true; 2],
+                },
+            )
+            .unwrap();
+        renderer.replace_meshes(2..2, &[mesh()]).unwrap();
+        assert!(Arc::ptr_eq(&pristine, &renderer.draws[2].material));
 
         let depth = renderer.depth_view(32, 16);
         assert_eq!(depth, renderer.depth_view(32, 16));
         assert_ne!(depth, renderer.depth_view(16, 32));
         drop(scene);
         drop(source);
-        renderer.replace_meshes(0..2, &[]).unwrap();
+        renderer.replace_meshes(0..3, &[]).unwrap();
         assert!(renderer.materials.borrow().is_empty());
         renderer.device.poll(wgpu::Maintain::Wait);
     }
