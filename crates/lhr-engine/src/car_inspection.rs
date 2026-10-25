@@ -280,12 +280,29 @@ fn snapshot_arena_tree_inner(
                 has_texture && group.inspection_rgba8_color_key,
             )?;
             let policy = if lit {
-                crate::presentation_material::unconstructed_lit_material(material,has_texture,*center,FrontFace::CounterClockwise)?
+                crate::presentation_material::unconstructed_lit_material(
+                    material,
+                    has_texture,
+                    *center,
+                    FrontFace::CounterClockwise,
+                )?
             } else {
-                crate::presentation_material::live_material_with_fade(material,has_texture,*center,FrontFace::CounterClockwise,*fade)?
+                crate::presentation_material::live_material_with_fade(
+                    material,
+                    has_texture,
+                    *center,
+                    FrontFace::CounterClockwise,
+                    *fade,
+                )?
             };
-            if alpha.omitted { unsupported_alpha_masks += 1; }
-            if !lit && (alpha.omitted || material.env_texture.is_some() || material.emissive != [0.;3] || material.flags & (0x80000 | 0x01000000 | 0x04000000) != 0)
+            if alpha.omitted {
+                unsupported_alpha_masks += 1;
+            }
+            if !lit
+                && (alpha.omitted
+                    || material.env_texture.is_some()
+                    || material.emissive != [0.; 3]
+                    || material.flags & (0x80000 | 0x01000000 | 0x04000000) != 0)
             {
                 omitted += 1;
             }

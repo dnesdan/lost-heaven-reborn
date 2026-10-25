@@ -1701,11 +1701,7 @@ impl LoadedVisualResources {
             ));
         }
         let record = self.objects.object(object)?;
-        if record.visual_type() != crate::i3d_object::ObjectVisualType::Plain {
-            return Err(LoadedVisualError::Backend(
-                "ordinary LOD subtype unavailable",
-            ));
-        }
+        let lit = record.visual_type() == crate::i3d_object::ObjectVisualType::LitUnconstructed;
         let Some(mesh) = record.mesh else {
             return Ok(RenderLodSelection::Missing { index: 0 });
         };
@@ -1755,6 +1751,11 @@ impl LoadedVisualResources {
             .map_err(|e| LoadedVisualError::Object(ObjectError::Managed(e.into())))?;
         if level.fgroups.is_none() || level.num_vertices == 0 {
             return Ok(RenderLodSelection::Missing { index });
+        }
+        // Source lit m_AddFGroups calls GetObjectLOD but has no ordinary
+        // last-LOD SetFade block. Do not mutate fade or base alpha-dirty slots.
+        if lit {
+            return Ok(RenderLodSelection::Selected { index, fade: 1. });
         }
         let fade = crate::i3d_object::render_fade(
             distance_squared,

@@ -692,22 +692,15 @@ impl ModelArena {
             .frame(key)?
             .object_resources
             .ok_or(ModelError::VisualBoundsUnavailable(key))?;
-        self.loaded_visual_resources
+        let visual_type = self
+            .loaded_visual_resources
             .as_ref()
             .ok_or(ModelError::VisualBoundsUnavailable(key))?
             .objects()
             .object(object)
-            .map_err(|_| ModelError::VisualBoundsUnavailable(key))?;
-        if self
-            .loaded_visual_resources
-            .as_ref()
-            .unwrap()
-            .objects()
-            .object(object)
             .map_err(|_| ModelError::VisualBoundsUnavailable(key))?
-            .visual_type()
-            != crate::i3d_object::ObjectVisualType::Plain
-        {
+            .visual_type();
+        if visual_type != crate::i3d_object::ObjectVisualType::Plain {
             return Err(ModelError::OriginalModelOpenUnavailable(
                 "plain object class witness unavailable for derived visual",
             ));

@@ -92,7 +92,17 @@ pub fn unconstructed_lit_material(
     sort_center: [f32; 3],
     front_face: FrontFace,
 ) -> Result<RenderMaterial, String> {
-    if has_texture && material.flags & 0xe0000000 != 0 {
+    unconstructed_lit_material_flags(material.flags, has_texture, sort_center, front_face)
+}
+/// Constructor-state static presentation shares the same selector, supplying
+/// explicitly mapped effective material flags without inventing a live owner.
+pub fn unconstructed_lit_material_flags(
+    flags: u32,
+    has_texture: bool,
+    sort_center: [f32; 3],
+    front_face: FrontFace,
+) -> Result<RenderMaterial, String> {
+    if has_texture && flags & 0xe0000000 != 0 {
         return Err("Unconstructed lit texture alpha/add/color-key unavailable".into());
     }
     if !sort_center.into_iter().all(f32::is_finite) {
@@ -103,7 +113,7 @@ pub fn unconstructed_lit_material(
         alpha: AlphaMode::Opaque,
         queue: MaterialQueue::Opaque,
         color_key_reference: 200,
-        two_sided: material.flags & 0x10000000 != 0,
+        two_sided: flags & 0x10000000 != 0,
         front_face,
         sort_center,
     }))

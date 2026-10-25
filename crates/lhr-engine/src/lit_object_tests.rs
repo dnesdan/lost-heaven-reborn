@@ -7,6 +7,9 @@ use crate::{
 use std::{path::PathBuf, sync::Arc};
 
 fn fixture(textured: bool, flags: u32) -> (PathBuf, ModelArena, ModelKey) {
+    fixture_lods(textured, flags, &[0.])
+}
+fn fixture_lods(textured: bool, flags: u32, distances: &[f32]) -> (PathBuf, ModelArena, ModelKey) {
     let path = std::env::temp_dir().join(format!(
         "lhr-lit-{}-{}",
         std::process::id(),
@@ -40,6 +43,21 @@ fn fixture(textured: bool, flags: u32) -> (PathBuf, ModelArena, ModelKey) {
             indices: vec![0, 1, 2],
         }],
     });
+    frame.lods[0].distance = distances[0];
+    for &distance in &distances[1..] {
+        let mut lod = frame.lods[0].clone();
+        lod.distance = distance;
+        for vertex in &mut lod.vertices {
+            vertex.uv = [0.75, 0.25];
+        }
+        lod.vertices.push(lhr_assets::Vertex {
+            position: [2., 2., 0.],
+            normal: [0.9; 3],
+            uv: [0.75, 0.25],
+        });
+        lod.groups[0].indices = vec![0, 1, 2, 1, 3, 2];
+        frame.lods.push(lod);
+    }
     let source = Arc::new(lhr_assets::Model {
         materials: vec![lhr_assets::Material {
             flags: flags | 0x10000000 | if textured { 0x40000 } else { 0 },
@@ -144,7 +162,15 @@ fn lit_actual_owned_snapshot_reaches_gpu_with_cyan_and_selectarg1_alpha() {
     // green64 -> 13 and blue32 -> 4. Alpha remains the raw texture17.
     for (textured, expected) in [(false, [0, 255, 255, 255]), (true, [0, 13, 4, 17])] {
         let (path, mut arena, model) = fixture(textured, 0);
-        let snapshot = snapshot_arena_tree(&mut arena, model.root()).unwrap();
+        let snapshot = crate::car_inspection::snapshot_arena_tree_with_view(
+            &mut arena,
+            model.root(),
+            crate::inspection_lod::InspectionLodView {
+                camera_pc: [0., 0., -1.],
+                rs_lod_quality: 1.,
+            },
+        )
+        .unwrap();
         let renderer = pollster::block_on(lhr_render::Renderer::with_adapter(
             &adapter,
             &snapshot.scene,
@@ -158,4 +184,57 @@ fn lit_actual_owned_snapshot_reaches_gpu_with_cyan_and_selectarg1_alpha() {
         arena.close(model).unwrap();
         std::fs::remove_dir_all(path).unwrap();
     }
+}
+
+#[test]
+fn lit_view_selects_actual_lod_without_ordinary_fade_or_alpha_dirty() {
+    let (path, mut arena, model) = fixture_lods(true, 0, &[25., 100.]);
+    let frame = arena.model(model).unwrap().frames[0];
+    arena.world_matrix(frame).unwrap();
+    let center = arena.visual_world_bounds(frame).unwrap().center;
+    let object = arena.frame_object_resources(frame).unwrap().unwrap();
+    let view = |z| crate::inspection_lod::InspectionLodView {
+        camera_pc: [center[0], center[1], center[2] + z],
+        rs_lod_quality: 1.,
+    };
+    let snapshot =
+        crate::car_inspection::snapshot_arena_tree_with_view(&mut arena, model.root(), view(9.))
+            .unwrap();
+    assert_eq!(snapshot.scene.meshes.len(), 1);
+    let mesh = &snapshot.scene.meshes[0];
+    assert_eq!(mesh.vertices.len(), 4);
+    assert_eq!(mesh.indices, vec![0, 1, 2, 1, 3, 2]);
+    assert_eq!(mesh.vertices[0].uv, [0.75, 0.25]);
+    let lhr_render::RenderMaterial::Original(policy) = mesh.material else {
+        panic!()
+    };
+    assert_eq!(policy.color, [0., 1., 1., 1.]);
+    assert_eq!(policy.alpha, lhr_render::AlphaMode::Opaque);
+    let resources = arena.loaded_visual_resources().unwrap();
+    let record = resources.objects().object(object).unwrap();
+    assert_eq!((record.cur_lod, record.fade), (1, 1.));
+    for key in record.lit_object().unwrap().levels[0].lods.iter().flatten() {
+        assert!(!resources.objects().lod(*key).unwrap().alpha_dirty);
+    }
+    let snapshot =
+        crate::car_inspection::snapshot_arena_tree_with_view(&mut arena, model.root(), view(5.))
+            .unwrap();
+    assert_eq!(snapshot.scene.meshes[0].vertices.len(), 3);
+    let snapshot =
+        crate::car_inspection::snapshot_arena_tree_with_view(&mut arena, model.root(), view(11.))
+            .unwrap();
+    assert!(snapshot.scene.meshes.is_empty());
+    assert_eq!(snapshot.lod_culled_meshes, 1);
+    assert_eq!(
+        arena
+            .loaded_visual_resources()
+            .unwrap()
+            .objects()
+            .object(object)
+            .unwrap()
+            .cur_lod,
+        2
+    );
+    arena.close(model).unwrap();
+    std::fs::remove_dir_all(path).unwrap();
 }

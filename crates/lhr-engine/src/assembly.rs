@@ -95,7 +95,56 @@ impl<'a> SceneBuilder<'a> {
         visual_scale: Option<[f32; 3]>,
     ) -> Result<(), String> {
         let model = &*source;
-        if strict && model.materials.iter().any(super::material_effects_omitted) {
+        let lit_context =
+            lhr_engine::loaded_visual_resources::MaterialLoadContext::ORIGINAL_DRIVER_INIT_DEFAULTS;
+        let mut lit_materials = HashSet::new();
+        let mut ordinary_materials = HashSet::new();
+        for frame in &model.frames {
+            if frame.instance.is_some_and(|index| {
+                frame.visual == Some(1)
+                    || model
+                        .frames
+                        .get(index)
+                        .is_some_and(|original| original.visual == Some(1))
+            }) {
+                return Err("Static lit instance subtype ownership unavailable".into());
+            }
+            if frame.kind == 1 && frame.visual == Some(1) && frame.render_flags & 0x50 != 0 {
+                return Err("Static lit texture-driven/world-space dispatch unavailable".into());
+            }
+            for group in frame.lods.iter().flat_map(|lod| &lod.groups) {
+                if frame.kind != 1 || frame.visual != Some(1) {
+                    ordinary_materials.insert(group.material);
+                    continue;
+                }
+                let material = model
+                    .materials
+                    .get(group.material)
+                    .ok_or("Static unconstructed lit requires assigned material")?;
+                if material.animation.is_some() {
+                    return Err("Static unconstructed lit animation unavailable".into());
+                }
+                if !material.texture.is_empty()
+                    && (lit_context.loaded_material_flags(material) & 0xe0000000 != 0
+                        || lit_context
+                            .base_texture_flags(material)
+                            .map_err(|e| format!("Static lit material: {e:?}"))?
+                            & 0xe
+                            != 0)
+                {
+                    return Err(
+                        "Static unconstructed lit texture alpha/add/color-key unavailable".into(),
+                    );
+                }
+                lit_materials.insert(group.material);
+            }
+        }
+        if strict
+            && model.materials.iter().enumerate().any(|(index, material)| {
+                (!lit_materials.contains(&index) || ordinary_materials.contains(&index))
+                    && super::material_effects_omitted(material)
+            })
+        {
             return Err("Selected model requires unsupported material effects".into());
         }
         if model.frames.iter().any(|frame| {
@@ -245,6 +294,7 @@ impl<'a> SceneBuilder<'a> {
                         .into(),
                 );
             }
+            let lit = frame.kind == 1 && frame.visual == Some(1);
             for group in &lod.groups {
                 let Some(material) = model.materials.get(group.material) else {
                     if !strict {
@@ -272,7 +322,14 @@ impl<'a> SceneBuilder<'a> {
                     return Err("Scene exceeds draw quota".into());
                 }
                 charge_scene(&mut self.bytes, geometry_bytes, MAX_SCENE_BYTES)?;
-                let texture = if material.texture.is_empty() {
+                let texture = if lit && material.texture.is_empty() {
+                    Some(Arc::new(Texture {
+                        width: 1,
+                        height: 1,
+                        repeat: [false; 2],
+                        rgba: vec![255; 4],
+                    }))
+                } else if material.texture.is_empty() {
                     let mut rgba: Vec<u8> = material
                         .diffuse
                         .iter()
@@ -316,7 +373,7 @@ impl<'a> SceneBuilder<'a> {
                         charge_scene(&mut self.bytes, texture_bytes, MAX_SCENE_BYTES)?;
                         let decoded = match lhr_assets::decode_bmp_original(&bytes) {
                             Ok(decoded) => decoded,
-                            Err(error) if !strict && self.allow_texture_fallback => {
+                            Err(error) if !strict && self.allow_texture_fallback && !lit => {
                                 eprintln!(
                                     "Static subset: {name} unavailable ({error}); source diffuse color fallback"
                                 );
@@ -364,7 +421,16 @@ impl<'a> SceneBuilder<'a> {
                     source_vertices,
                 });
                 self.meshes.push(Mesh {
-                    material: Default::default(),
+                    material: if lit {
+                        lhr_engine::presentation_material::unconstructed_lit_material_flags(
+                            lit_context.loaded_material_flags(material),
+                            !material.texture.is_empty(),
+                            [0.; 3],
+                            lhr_render::FrontFace::Clockwise,
+                        )?
+                    } else {
+                        Default::default()
+                    },
                     vertices,
                     indices,
                     texture,
@@ -966,5 +1032,136 @@ mod tests {
             assert_eq!(a.uv.map(f32::to_bits), b.uv.map(f32::to_bits));
         }
         assert!(source_vertex_indices(&model.source.frames[1].lods[0], &[99], true).is_err());
+    }
+    #[test]
+    fn static_lit_constructor_policy_keeps_decoded_pixels_and_uses_cyan_for_empty_texture() {
+        let path = std::env::temp_dir().join(format!(
+            "lhr-static-lit-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&path).unwrap();
+        std::fs::create_dir(path.join("maps")).unwrap();
+        let mut bmp = vec![0u8; 58];
+        bmp[..2].copy_from_slice(b"BM");
+        bmp[2..6].copy_from_slice(&58u32.to_le_bytes());
+        bmp[10..14].copy_from_slice(&54u32.to_le_bytes());
+        bmp[14..18].copy_from_slice(&40u32.to_le_bytes());
+        bmp[18..22].copy_from_slice(&1i32.to_le_bytes());
+        bmp[22..26].copy_from_slice(&1i32.to_le_bytes());
+        bmp[26..28].copy_from_slice(&1u16.to_le_bytes());
+        bmp[28..30].copy_from_slice(&24u16.to_le_bytes());
+        bmp[54..57].copy_from_slice(&[32, 64, 128]);
+        std::fs::write(path.join("maps/lit.bmp"), bmp).unwrap();
+        let installation = Installation::open(&path).unwrap();
+        let mut visual = frame(None, [0.; 3]);
+        visual.visual = Some(1);
+        visual.render_flags = 0;
+        visual.logic_flags = 0;
+        let mut level = lod(&[[0., 0., 0.], [2., 0., 0.], [0., 2., 0.]]);
+        level.groups = vec![FaceGroup {
+            material: 0,
+            indices: vec![0, 1, 2],
+        }];
+        visual.lods.push(level);
+        let mut source = Model {
+            frames: vec![visual],
+            materials: vec![lhr_assets::Material {
+                flags: 0x40000,
+                ambient: [0.; 3],
+                diffuse: [1., 0., 0.],
+                texture: "lit.bmp".into(),
+                emission: [0.7; 3],
+                opacity: 0.25,
+                alpha_texture: None,
+                reflection: None,
+                environment_texture: None,
+                animation: None,
+            }],
+        };
+        for textured in [true, false] {
+            if !textured {
+                source.materials[0].texture.clear();
+                source.materials[0].flags = 0xe0000000;
+            }
+            let mut builder = SceneBuilder::new(&installation, "maps");
+            builder
+                .append_retained(
+                    "synthetic",
+                    Arc::new(source.clone()),
+                    Mat4::IDENTITY,
+                    None,
+                    true,
+                    None,
+                )
+                .unwrap();
+            let (scene, _) = builder.finish().unwrap();
+            let mesh = &scene.meshes[0];
+            let lhr_render::RenderMaterial::Original(policy) = mesh.material else {
+                panic!()
+            };
+            assert_eq!(policy.color, [0., 1., 1., 1.]);
+            assert_eq!(policy.alpha, lhr_render::AlphaMode::Opaque);
+            assert_eq!(policy.front_face, lhr_render::FrontFace::Clockwise);
+            assert_eq!(mesh.indices, [0, 2, 1]);
+            assert_eq!(
+                mesh.texture.as_ref().unwrap().rgba,
+                if textured {
+                    vec![128, 64, 32, 255]
+                } else {
+                    vec![255; 4]
+                }
+            );
+        }
+        source.materials[0].texture = "missing.bmp".into();
+        for flags in [0x20000000, 0x40000000, 0x80000000] {
+            source.materials[0].flags = flags | 0x40000;
+            let mut builder = SceneBuilder::new(&installation, "maps");
+            assert!(builder
+                .append_retained(
+                    "synthetic",
+                    Arc::new(source.clone()),
+                    Mat4::IDENTITY,
+                    None,
+                    false,
+                    None
+                )
+                .unwrap_err()
+                .contains("lit texture alpha/add/color-key"));
+            assert_eq!(builder.bytes, 0);
+            assert!(builder.meshes.is_empty());
+            assert!(builder.texture_cache.is_empty());
+        }
+        source.frames[0].instance = Some(0);
+        let mut builder = SceneBuilder::new(&installation, "maps");
+        assert!(builder
+            .append_retained(
+                "synthetic",
+                Arc::new(source.clone()),
+                Mat4::IDENTITY,
+                None,
+                false,
+                None
+            )
+            .unwrap_err()
+            .contains("lit instance"));
+        source.frames[0].instance = None;
+        source.frames[0].lods[0].groups[0].material = lhr_assets::UNASSIGNED_MATERIAL;
+        assert!(builder
+            .append_retained(
+                "synthetic",
+                Arc::new(source),
+                Mat4::IDENTITY,
+                None,
+                false,
+                None
+            )
+            .unwrap_err()
+            .contains("assigned material"));
+        assert_eq!(builder.bytes, 0);
+        std::fs::remove_dir_all(path).unwrap();
     }
 }
