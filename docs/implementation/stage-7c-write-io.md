@@ -45,7 +45,11 @@ filesystem effects or promote an unadmitted failed-open temporary file.
 The adapter retains the existing ASCII/canonical relative-path, case-collision,
 symlink, containment and snapshot policies. Only the final output component may
 be newly created; parent directories must already exist. Concurrent opens of
-the same output through this adapter are rejected. Own writes refresh the file
+the same logical output through this adapter are rejected, including buffered
+versus direct streams and case aliases. Open admission, native effects and
+logical-owner association are serialized together. A buffered failed-open OS
+handle prefix also keeps that logical reservation until adapter disposal.
+Own writes refresh the file
 snapshot; external replacement or mutation prevents subsequent writes.
 Input admission rejects nonregular and over-quota destinations before buffered
 copy so a host exclusion cannot turn into an ignored copy failure and empty

@@ -15,6 +15,7 @@ pub enum HostWriteError {
 struct WriteSource {
     file: File,
     path: PathBuf,
+    logical_output: PathBuf,
     name: Vec<u8>,
     snapshot: Metadata,
 }
@@ -88,7 +89,9 @@ impl FilesystemWriteEffects {
         Some(path)
     }
     fn busy(&self, path: &Path) -> bool {
-        self.files.values().any(|source| source.path == path)
+        self.files
+            .values()
+            .any(|source| source.path == path || source.logical_output == path)
     }
     fn source(&mut self, id: u32) -> Option<&mut WriteSource> {
         let source = self.files.get(&id)?;
@@ -340,6 +343,7 @@ impl OpenWriteEffects for FilesystemWriteEffects {
             id,
             WriteSource {
                 file,
+                logical_output: path.clone(),
                 path,
                 name: name.to_vec(),
                 snapshot,
@@ -373,11 +377,15 @@ impl From<OperationError<HostWriteError>> for WriteIoError {
 }
 pub struct NativeWriteFiles {
     handles: Handles<FilesystemWriteEffects>,
+    // Keep admission and assignment of the logical output to the newly owned
+    // OS file together. Buffered native opens own a different physical path.
+    opening: Mutex<()>,
 }
 impl NativeWriteFiles {
     pub fn new(root: &Path, quota: u32, allocation_budget: u64) -> Result<Self, HostWriteError> {
         Ok(Self {
             handles: Handles::new(FilesystemWriteEffects::new(root, quota, allocation_budget)?),
+            opening: Mutex::new(()),
         })
     }
     /// Normal/create/buffer/change-readonly flags are supported. Hidden Win32
@@ -386,7 +394,11 @@ impl NativeWriteFiles {
         if flags & !(DTA_CREATE_FILE | DTA_FILE_BUFFER | DTA_CHANGE_ATTRIBUTES) != 0 {
             return Err(WriteIoError::UnsupportedFlags);
         }
-        {
+        let _opening = self
+            .opening
+            .lock()
+            .map_err(|_| WriteIoError::Native(OperationError::LockPoisoned))?;
+        let (logical_output, first_file) = {
             let state = self
                 .handles
                 .state
@@ -404,8 +416,22 @@ impl NativeWriteFiles {
             {
                 return Err(WriteIoError::Failure);
             }
+            (path, state.effects.next_file)
+        };
+        let result = self.handles.dta_open_write(name, flags);
+        {
+            let mut state = self
+                .handles
+                .state
+                .lock()
+                .map_err(|_| WriteIoError::Native(OperationError::LockPoisoned))?;
+            // Associate even a failed-open file prefix: native allocation
+            // failure can retain its OS handle without admitting a record.
+            for (_, source) in state.effects.files.range_mut(first_file..) {
+                source.logical_output = logical_output.clone();
+            }
         }
-        let handle = self.handles.dta_open_write(name, flags)?;
+        let handle = result?;
         if handle == FAILURE {
             return Err(WriteIoError::Failure);
         }
@@ -682,5 +708,70 @@ mod tests {
         let mut stream = files.open(b"allowed", DTA_CREATE_FILE).unwrap();
         assert_eq!(stream.write(b"ok"), Ok(2));
         stream.close().unwrap();
+    }
+    #[test]
+    fn logical_output_is_reserved_for_buffered_direct_case_aliases_and_failed_open_prefixes() {
+        let dir = Directory::new();
+        std::fs::write(dir.0.join("Out"), b"original").unwrap();
+        let files = NativeWriteFiles::new(&dir.0, 100, 100000).unwrap();
+        let mut buffered = files.open(b"out", DTA_FILE_BUFFER).unwrap();
+        assert_eq!(buffered.write(b"B"), Ok(1));
+        assert!(files.open(b"OUT", DTA_CREATE_FILE).is_err());
+        assert!(files.open(b"oUt", DTA_FILE_BUFFER).is_err());
+        assert!(files.open(b"out.tmp", DTA_CREATE_FILE).is_err());
+        assert_eq!(std::fs::read(dir.0.join("Out")).unwrap(), b"original");
+        assert_eq!(std::fs::read(dir.0.join("out.tmp")).unwrap(), b"Briginal");
+        buffered.close().unwrap();
+        assert_eq!(std::fs::read(dir.0.join("out")).unwrap(), b"Briginal");
+        let mut direct = files.open(b"OUT", 0).unwrap();
+        assert!(files.open(b"out", DTA_FILE_BUFFER).is_err());
+        assert!(!dir.0.join("out.tmp").exists());
+        direct.close().unwrap();
+        let mut again = files.open(b"out", DTA_FILE_BUFFER).unwrap();
+        again.close().unwrap();
+
+        let failed = NativeWriteFiles::new(&dir.0, 100, 0).unwrap();
+        assert!(failed.open(b"out", DTA_FILE_BUFFER).is_err());
+        assert!(failed.open(b"OUT", DTA_CREATE_FILE).is_err());
+        assert_eq!(std::fs::read(dir.0.join("out")).unwrap(), b"Briginal");
+        let state = failed.handles.state.lock().unwrap();
+        assert!(state.records.is_empty());
+        assert_eq!(state.effects.files.len(), 1);
+        assert_eq!(
+            state.effects.files.values().next().unwrap().logical_output,
+            dir.0.join("out")
+        );
+    }
+    #[test]
+    fn concurrent_open_admission_reserves_one_logical_output_before_truncation() {
+        use std::sync::{Arc, Barrier};
+        let dir = Directory::new();
+        std::fs::write(dir.0.join("out"), b"original").unwrap();
+        let files = Arc::new(NativeWriteFiles::new(&dir.0, 100, 100000).unwrap());
+        let start = Arc::new(Barrier::new(2));
+        let admitted = Arc::new(Barrier::new(2));
+        let mut workers = Vec::new();
+        for flags in [DTA_CREATE_FILE, DTA_FILE_BUFFER] {
+            let files = Arc::clone(&files);
+            let start = Arc::clone(&start);
+            let admitted = Arc::clone(&admitted);
+            workers.push(std::thread::spawn(move || {
+                start.wait();
+                let stream = files.open(b"out", flags);
+                let success = stream.is_ok();
+                admitted.wait(); // Keep the winning owner alive through both attempts.
+                drop(stream);
+                success
+            }));
+        }
+        let successes = workers
+            .into_iter()
+            .filter_map(|worker| worker.join().ok())
+            .filter(|&success| success)
+            .count();
+        assert_eq!(successes, 1);
+        let state = files.handles.state.lock().unwrap();
+        assert!(state.effects.files.is_empty());
+        assert_eq!(state.effects.allocated, 0);
     }
 }
