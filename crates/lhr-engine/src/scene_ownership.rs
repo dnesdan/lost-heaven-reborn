@@ -66,6 +66,9 @@ pub struct SectorFrame {
 #[derive(Debug)]
 pub struct SceneFrameOwner {
     pub key: SceneKey,
+    pub(crate) current_camera: Option<crate::frame_camera::CameraKey>,
+    pub(crate) backdrop_range: [f32; 2],
+    pub(crate) field_220: [u32; 3],
     /// Primary, backdrop, omni and near, in the original retained-reference order.
     pub sectors: [SectorKey; 4],
     pub(crate) frames: Vec<FrameKey>,
@@ -220,6 +223,9 @@ impl ModelArena {
         }
         self.scenes.push(SceneFrameOwner {
             key,
+            current_camera: None,
+            backdrop_range: [1., 10000.],
+            field_220: [0, 0x3f000000, 0x3ecccccd],
             sectors: sectors.try_into().unwrap(),
             frames: Vec::new(),
             native_capacity: 0,
@@ -433,6 +439,11 @@ impl ModelArena {
         if self.scenes[si].phase == ClosePhase::AfterFrames {
             while self.scenes[si].effect_cursor < AFTER_FRAMES.len() {
                 let effect = AFTER_FRAMES[self.scenes[si].effect_cursor];
+                if effect == SceneCloseEffect::ClearCameraAndSectorState {
+                    if let Some(camera) = self.scenes[si].current_camera {
+                        self.camera_mut(camera)?.clear_sector();
+                    }
+                }
                 if effect == SceneCloseEffect::ResetPrimarySound {
                     let primary = self.scenes[si].sectors[0];
                     self.sectors

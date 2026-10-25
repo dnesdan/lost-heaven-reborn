@@ -136,6 +136,7 @@ pub struct SharedModelLoadFailure {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ModelError {
     Frame(FrameError),
+    Camera(crate::frame_camera::CameraError),
     UnknownModel(ModelKey),
     UnsupportedActiveModelController(ModelKey),
     UnknownFrame(FrameKey),
@@ -209,6 +210,7 @@ pub struct ModelArena {
     pub(crate) models: Vec<LoadedModel>,
     pub(crate) scenes: Vec<crate::scene_ownership::SceneFrameOwner>,
     pub(crate) sectors: Vec<crate::scene_ownership::SectorFrame>,
+    pub(crate) cameras: Vec<crate::frame_camera::CameraFrame>,
     pub(crate) sector_version: u32,
     destruction_depth: usize,
     pub(crate) light_random: crate::frame_light::LightCrtRandom,
@@ -221,6 +223,10 @@ pub struct ModelArena {
     loaded_visual_resources: Option<crate::loaded_visual_resources::LoadedVisualResources>,
 }
 impl ModelArena {
+    /// Actual live arena slots, excluding retained host tombstone metadata.
+    pub fn live_frame_count(&self) -> usize {
+        self.frames.iter().filter(|frame| frame.alive).count()
+    }
     /// A real sound node in the shared hierarchy, with the base constructor's
     /// reference and transform ownership. The audio owner supplies its tail.
     pub fn create_sound_frame(&mut self) -> Result<FrameKey, ModelError> {
@@ -782,6 +788,14 @@ impl ModelArena {
         .map_err(ModelError::LoadedVisual)
     }
     fn check_frame_destruction(&self, key: FrameKey) -> Result<(), ModelError> {
+        if self.state(key)?.kind == FrameKind::Camera {
+            let camera = self.camera(self.camera_key(key)?)?;
+            if !camera.constructor_complete() {
+                return Err(
+                    crate::frame_camera::CameraError::IncompleteConstruction(camera.key).into(),
+                );
+            }
+        }
         if let Some(object) = self.frame(key)?.object_resources {
             let owner = self
                 .loaded_visual_resources
@@ -1340,6 +1354,9 @@ impl ModelArena {
         } else {
             None
         };
+        if self.graph.state(key)?.kind == FrameKind::Camera {
+            self.destroy_camera_derived(self.camera_key(key)?)?;
+        }
         if self.graph.state(key)?.kind == FrameKind::Model {
             // Host guard for independently constructed ownership graphs. This
             // is an explicit availability bound, not a recovered native limit.

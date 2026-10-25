@@ -930,6 +930,7 @@ where
         Ok(match self.world.frame_source(key)?.kind {
             FrameKind::Mesh | FrameKind::Singlemesh | FrameKind::Projector => 1,
             FrameKind::Light => 2,
+            FrameKind::Camera => 3,
             FrameKind::Sound => 4,
             FrameKind::Sector => 5,
             FrameKind::Dummy => 6,

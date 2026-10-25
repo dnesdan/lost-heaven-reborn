@@ -273,6 +273,54 @@ pub(crate) fn sqrt(a: f32) -> f32 {
     r
 }
 
+/// Exact signed-integer quotient rounded directly to x87 PC24/RN. A prior
+/// FST32 integer spill (such as screen width) remains an exact i64 numerator;
+/// the signed FILD32 denominator must not be narrowed before division. Integer
+/// remainders avoid binary64 quotient double-rounding and determine PE exactly.
+/// Zero-divisor results preserve the existing masked x87 stored-bit projection;
+/// invalid/divide-by-zero status is outside this precision-only state model.
+pub(crate) fn pc24_integer_ratio(numerator: i64, denominator: i32) -> f32 {
+    let negative = (numerator < 0) ^ (denominator < 0);
+    let sign = u32::from(negative) << 31;
+    let a = u128::from(numerator.unsigned_abs());
+    let b = u128::from(denominator.unsigned_abs());
+    if b == 0 {
+        return f32::from_bits(if a == 0 {
+            0xffc00000
+        } else {
+            sign | 0x7f800000
+        });
+    }
+    if a == 0 {
+        return f32::from_bits(sign);
+    }
+    let mut exponent = (128 - a.leading_zeros()) as i32 - (128 - b.leading_zeros()) as i32;
+    if if exponent >= 0 {
+        a < b << exponent
+    } else {
+        a << -exponent < b
+    } {
+        exponent -= 1;
+    }
+    let shift = 23 - exponent;
+    let (a, b) = if shift >= 0 {
+        (a << shift, b)
+    } else {
+        (a, b << -shift)
+    };
+    let mut mantissa = a / b;
+    let remainder = a % b;
+    record_precision(remainder != 0);
+    if remainder * 2 > b || remainder * 2 == b && mantissa & 1 != 0 {
+        mantissa += 1;
+    }
+    if mantissa == 1 << 24 {
+        mantissa >>= 1;
+        exponent += 1;
+    }
+    f32::from_bits(sign | ((exponent + 127) as u32) << 23 | (mantissa as u32 & 0x7fffff))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

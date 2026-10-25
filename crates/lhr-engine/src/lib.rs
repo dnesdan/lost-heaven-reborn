@@ -42,6 +42,7 @@ pub mod driving_vehicle_tables;
 pub mod driving_world_assets;
 pub mod dynamic_collision_manager;
 pub mod dynamic_collision_queries;
+pub mod frame_camera;
 pub mod frame_delta;
 pub mod frame_dispatch;
 pub mod frame_fast_lookup;
@@ -50,6 +51,7 @@ pub mod frame_light;
 pub mod frame_lookup;
 pub mod frame_projector;
 pub mod frame_transform;
+pub mod game_camera_projection;
 pub mod game_crash_registry;
 pub mod game_spatial_sound;
 pub mod glass_subdivision;
@@ -64,6 +66,7 @@ pub mod mesh_bounds;
 pub mod mission_actor_stream;
 pub mod mission_effects;
 pub mod mission_scene_loading;
+pub mod mission_scene_stream;
 pub mod model_loading;
 pub mod model_tick;
 pub mod named_script;
@@ -91,6 +94,7 @@ pub mod scene_tick;
 pub mod scene_weather;
 pub mod script_lookup;
 pub mod script_scheduler;
+pub mod sector_sound_data;
 pub mod selected_loop;
 pub mod singlemesh_binding;
 pub mod singlemesh_bounds;
@@ -139,9 +143,9 @@ pub mod visual_resources;
 /// claiming an additional DLL/Cargo package or a complete LS3DF reconstruction.
 pub mod ls3df {
     pub use crate::{
-        c_str, driver_scene, frame_fast_lookup, frame_hierarchy_bounds, frame_light, frame_lookup,
-        frame_projector, i3d_object, itexture, loaded_visual_resources, scene_ownership,
-        scene_resources, scene_weather, texture_manager,
+        c_str, driver_scene, frame_camera, frame_fast_lookup, frame_hierarchy_bounds, frame_light,
+        frame_lookup, frame_projector, i3d_object, itexture, loaded_visual_resources,
+        scene_ownership, scene_resources, scene_weather, sector_sound_data, texture_manager,
     };
 }
 
@@ -152,13 +156,14 @@ pub mod game {
         collision_prepare, collision_query, collision_swept, collision_swept_aabox,
         collision_swept_box, collision_swept_volumes, collision_swept_world, collision_volumes,
         collision_world, collision_world_driving, collision_world_driving_contacts,
-        mission_actor_stream, mission_scene_loading, original_program, program_instructions,
-        program_parser, railway_actor, replay_state, script_lookup, script_scheduler,
-        vehicle_bodycol, vehicle_bodycol_records, vehicle_component_records, vehicle_contacts,
-        vehicle_controls, vehicle_drivetrain, vehicle_dynamics, vehicle_dynamics_body,
-        vehicle_dynamics_body_collision, vehicle_dynamics_body_response, vehicle_dynamics_forces,
-        vehicle_dynamics_move, vehicle_dynamics_prepare, vehicle_dynamics_tail,
-        vehicle_dynamics_tick, vehicle_dynamics_update, vehicle_dynamics_wheel_forces,
-        vehicle_frame_backend, vehicle_init, vehicle_owner, vehicle_sound, vehicle_wheel_pose,
+        game_camera_projection, mission_actor_stream, mission_scene_loading, mission_scene_stream,
+        original_program, program_instructions, program_parser, railway_actor, replay_state,
+        script_lookup, script_scheduler, vehicle_bodycol, vehicle_bodycol_records,
+        vehicle_component_records, vehicle_contacts, vehicle_controls, vehicle_drivetrain,
+        vehicle_dynamics, vehicle_dynamics_body, vehicle_dynamics_body_collision,
+        vehicle_dynamics_body_response, vehicle_dynamics_forces, vehicle_dynamics_move,
+        vehicle_dynamics_prepare, vehicle_dynamics_tail, vehicle_dynamics_tick,
+        vehicle_dynamics_update, vehicle_dynamics_wheel_forces, vehicle_frame_backend,
+        vehicle_init, vehicle_owner, vehicle_sound, vehicle_wheel_pose,
     };
 }

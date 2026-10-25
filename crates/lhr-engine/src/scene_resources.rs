@@ -650,6 +650,9 @@ impl SceneResources {
             self.close_constructed_scene(arena, scene, textures, storage)?;
             self.constructions[index].close_complete = true;
         }
+        // Scene destructor releases its independent active-camera reference
+        // after Close and before its four retained sectors.
+        arena.scene_set_active_camera(scene, None)?;
         // Camera and listener are null in the admitted absent-native-sound-driver
         // domain. Querying or creating a native listener remains an explicit
         // dependency boundary in DriverSceneOwner.

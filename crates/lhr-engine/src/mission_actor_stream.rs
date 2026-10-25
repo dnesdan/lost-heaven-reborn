@@ -48,6 +48,15 @@ impl OriginalLoadMap {
     pub fn slot(&self, name: &[u8]) -> Option<Option<FrameReferenceId>> {
         self.slots.get(name).copied()
     }
+    /// Original object/actor loader lookup: a missing key acquires a null slot
+    /// before a later factory call. No frame is manufactured by the map.
+    pub fn lookup_or_insert_null(
+        &mut self,
+        name: &[u8],
+    ) -> Result<Option<FrameReferenceId>, String> {
+        valid_name(name)?;
+        Ok(*self.slots.entry(name.to_vec()).or_insert(None))
+    }
 }
 pub struct MissionActorLoader {
     pub world: ActorWorld,
@@ -188,8 +197,7 @@ impl MissionActorLoader {
                     .position(|x| *x == 0)
                     .ok_or("unterminated actor frame name")?;
                 let name = &field.payload[..end];
-                valid_name(name)?;
-                self.current_frame = *self.load_map.slots.entry(name.to_vec()).or_insert(None);
+                self.current_frame = self.load_map.lookup_or_insert_null(name)?;
                 self.current_actor = None;
                 self.current_kind = None;
                 if let Some(frame) = self.current_frame {

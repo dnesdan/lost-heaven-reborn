@@ -137,6 +137,48 @@ impl DriverSceneOwner {
         }
         Ok(())
     }
+    /// Verify the actual registry and shared frame/resource domain without
+    /// constructing another owner. Camera's CreateFrame arm needs no textures.
+    pub fn validate_scene_domain(
+        &self,
+        arena: &ModelArena,
+        resources: &SceneResources,
+        scene: SceneKey,
+    ) -> Result<(), DriverSceneError<std::convert::Infallible>> {
+        let Some(domain) = self.domains else {
+            return Err(DriverSceneError::ForeignDomain);
+        };
+        if domain.arena != arena.lookup_reference(crate::frame_transform::FrameKey(0))
+            || domain.resources != resources.identity()
+        {
+            return Err(DriverSceneError::ForeignDomain);
+        }
+        if self.allocation_incomplete {
+            return Err(DriverSceneError::AllocationIncomplete);
+        }
+        if !self.scenes.contains(&scene) {
+            return Err(DriverSceneError::UnknownScene(scene));
+        }
+        arena.scene(scene).map_err(DriverSceneError::Model)?;
+        Ok(())
+    }
+    /// Original CreateFrame type3 arm: constructor reference is returned
+    /// directly. Cameras are not appended to the driver's Scene registry.
+    pub fn create_camera_frame<S: SceneScreen>(
+        &mut self,
+        arena: &mut ModelArena,
+        resources: &SceneResources,
+        scene: SceneKey,
+        screen: &mut S,
+    ) -> Result<crate::frame_camera::CameraKey, crate::frame_camera::CameraCreateFailure<S::Error>>
+    {
+        self.validate_scene_domain(arena, resources, scene)
+            .map_err(|_| crate::frame_camera::CameraCreateFailure {
+                camera: None,
+                error: crate::frame_camera::CameraCreateError::DriverContext,
+            })?;
+        arena.create_camera(screen)
+    }
     /// Executes only original CreateFrame's scene arm. A host allocation or
     /// dependency failure preserves its executed prefix; no native null-return
     /// success or invented constructor rollback is introduced.

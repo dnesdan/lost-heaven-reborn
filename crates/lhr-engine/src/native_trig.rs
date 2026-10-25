@@ -456,6 +456,15 @@ pub(crate) fn light_cone_radius(outer: f32, range: f32) -> Result<f32, MakeUnava
     Ok(radius)
 }
 
+/// Camera UpdateProjMatrix retains FCOS/FSIN until FDIV rounds the quotient.
+pub(crate) fn camera_cotangent(angle: f32) -> Result<f32, MakeUnavailable> {
+    let (sine, cosine) = sin_cos_frame(angle)?;
+    if sine.lo <= 0. {
+        return Err(MakeUnavailable::InputOutsideVerifiedDomain);
+    }
+    cosine.div(sine).rounded()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

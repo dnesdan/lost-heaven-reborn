@@ -295,6 +295,7 @@ impl<'a, B: VehicleInitBackend> VehicleFrameBackend<'a, B> {
             0x110 => match state.kind {
                 FrameKind::Mesh | FrameKind::Singlemesh | FrameKind::Projector => 1,
                 FrameKind::Light => 2,
+                FrameKind::Camera => 3,
                 FrameKind::Sound => 4,
                 FrameKind::Sector => 5,
                 FrameKind::Dummy => 6,
@@ -537,6 +538,7 @@ impl<'a, B: VehicleInitBackend> VehicleFrameBackend<'a, B> {
             let kind_mask = match state.kind {
                 FrameKind::Mesh | FrameKind::Singlemesh | FrameKind::Projector => 1,
                 FrameKind::Light => 2,
+                FrameKind::Camera => 4,
                 FrameKind::Sound => 8,
                 FrameKind::Sector => 0x10,
                 FrameKind::Dummy => 0x20,

@@ -31,6 +31,7 @@ const DIRTY: u32 = 0x40002000;
 pub struct FrameKey(pub u32);
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FrameKind {
+    Camera,
     Scene,
     Sector,
     Model,
@@ -295,6 +296,7 @@ impl I3dFrameGraph {
                 | FrameKind::Target
                 | FrameKind::Light
                 | FrameKind::Sound
+                | FrameKind::Camera
         ) && !(empty_scene && matches!(node.state.kind, FrameKind::Scene | FrameKind::Sector))
             && !(plain_visual && matches!(node.state.kind, FrameKind::Mesh | FrameKind::Projector))
         {
@@ -424,6 +426,14 @@ impl I3dFrameGraph {
         self.check_destruction(key)?;
         self.destroy_derived(key)?;
         self.destroy_base(key)
+    }
+    pub(crate) fn camera_projection_changed(&mut self, key: FrameKey) -> Result<(), FrameError> {
+        if self.state(key)?.kind != FrameKind::Camera {
+            return Err(FrameError::UnsupportedFrameUpdate(key));
+        }
+        let state = &mut self.node_mut(key)?.state;
+        state.update_count = state.update_count.wrapping_add(1);
+        Ok(())
     }
     pub(crate) fn change_flags(
         &mut self,
@@ -1368,7 +1378,7 @@ impl I3dFrameGraph {
     }
     fn enter_update(&mut self, key: FrameKey) -> Result<Visit, FrameError> {
         let n = self.node_mut(key)?;
-        if matches!(n.state.kind, FrameKind::Scene | FrameKind::Sector) {
+        if n.state.kind == FrameKind::Scene {
             return Err(FrameError::UnsupportedFrameUpdate(key));
         }
         // Only the owned binding projection admits the evidenced inherited
@@ -1396,7 +1406,10 @@ impl I3dFrameGraph {
     /// Observed UpdateV effects for the represented frame kinds. Dummy's
     /// original entry is RVA0x1a330; it clears its own bound flag only if dirty.
     pub fn update_v(&mut self, key: FrameKey) -> Result<(), FrameError> {
-        if matches!(self.state(key)?.kind, FrameKind::Scene | FrameKind::Sector) {
+        if matches!(
+            self.state(key)?.kind,
+            FrameKind::Scene | FrameKind::Sector | FrameKind::Camera
+        ) {
             return Err(FrameError::UnsupportedFrameUpdate(key));
         }
         if let Some(error) = self.deferred_error {
@@ -1464,6 +1477,16 @@ impl I3dFrameGraph {
     /// objects and owned singlemesh bindings, followed by deferred Target updates;
     /// target-only singlemesh projections cannot enter their own update.
     pub fn update(&mut self, key: FrameKey) -> Result<(), FrameError> {
+        if matches!(self.state(key)?.kind, FrameKind::Camera | FrameKind::Sector) {
+            return Err(FrameError::UnsupportedFrameUpdate(key));
+        }
+        self.update_with_camera(key, |_, key| Err(FrameError::UnsupportedFrameUpdate(key)))
+    }
+    pub(crate) fn update_with_camera(
+        &mut self,
+        key: FrameKey,
+        mut camera_update: impl FnMut(&mut Self, FrameKey) -> Result<(), FrameError>,
+    ) -> Result<(), FrameError> {
         if let Some(error) = self.deferred_error {
             return Err(error);
         }
@@ -1481,7 +1504,14 @@ impl I3dFrameGraph {
                 } else {
                     let done = visits.pop().unwrap();
                     if let Some(p) = visits.last_mut() {
-                        self.update_v(done.key)?;
+                        if matches!(
+                            self.state(done.key)?.kind,
+                            FrameKind::Camera | FrameKind::Sector
+                        ) {
+                            camera_update(self, done.key)?;
+                        } else {
+                            self.update_v(done.key)?;
+                        }
                         if self.state(done.key)?.flags & DIRTY != 0 {
                             self.node_mut(done.key)?.state.flags &= !DIRTY;
                             let s = &mut self.node_mut(p.key)?.state;
@@ -1491,15 +1521,22 @@ impl I3dFrameGraph {
                     }
                 }
             }
-            self.update_v(key)?;
-            self.node_mut(key)?.state.flags &= 0xfffffebf;
-            let mut parent = self.links(key)?.parent;
-            while let Some(p) = parent {
-                if self.state(p)?.flags & 0x40 == 0 || self.state(p)?.kind == FrameKind::Sector {
-                    break;
+            if matches!(self.state(key)?.kind, FrameKind::Camera | FrameKind::Sector) {
+                camera_update(self, key)?;
+            } else {
+                self.update_v(key)?;
+            }
+            if self.state(key)?.kind != FrameKind::Sector {
+                self.node_mut(key)?.state.flags &= 0xfffffebf;
+                let mut parent = self.links(key)?.parent;
+                while let Some(p) = parent {
+                    if self.state(p)?.flags & 0x40 == 0 || self.state(p)?.kind == FrameKind::Sector
+                    {
+                        break;
+                    }
+                    self.node_mut(p)?.state.flags &= 0xfffffebf;
+                    parent = self.links(p)?.parent;
                 }
-                self.node_mut(p)?.state.flags &= 0xfffffebf;
-                parent = self.links(p)?.parent;
             }
             let s = &mut self.node_mut(key)?.state;
             if matches!(
