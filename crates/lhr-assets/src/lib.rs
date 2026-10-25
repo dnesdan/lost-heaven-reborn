@@ -515,14 +515,7 @@ fn parse_four_ds_impl(
         let emission: [f32; 3] = r.vec()?;
         let opacity = r.f()?;
         if !scene
-            && (flags
-                & (0x8000
-                    | 0x80000
-                    | 0x01000000
-                    | 0x04000000
-                    | 0x20000000
-                    | 0x40000000
-                    | 0x80000000)
+            && (flags & (0x80000 | 0x01000000 | 0x04000000 | 0x20000000 | 0x40000000 | 0x80000000)
                 != 0
                 || opacity != 1.
                 || emission != [0.; 3])
@@ -1594,9 +1587,25 @@ mod mesh_tests {
         assert!(parse_four_ds(&invalid).is_err());
     }
     #[test]
+    fn keep_pixels_is_texture_storage_metadata_in_every_static_intake_route() {
+        let mut bytes = mesh();
+        bytes[16..20].copy_from_slice(&0x8000u32.to_le_bytes());
+        assert_eq!(parse_four_ds(&bytes).unwrap().materials[0].flags, 0x8000);
+        assert_eq!(
+            parse_four_ds_scene(&bytes).unwrap().materials[0].flags,
+            0x8000
+        );
+        bytes[64] = 2;
+        bytes.insert(bytes.len() - 1, 0);
+        assert_eq!(
+            parse_four_ds_skin(&bytes).unwrap().materials[0].flags,
+            0x8000
+        );
+    }
+    #[test]
     fn unsupported_materials_are_rejected_before_optional_payloads() {
         for flag in [
-            0x8000u32, 0x80000, 0x01000000, 0x04000000, 0x20000000, 0x40000000, 0x80000000,
+            0x80000u32, 0x01000000, 0x04000000, 0x20000000, 0x40000000, 0x80000000,
         ] {
             let mut b = mesh();
             b[16..20].copy_from_slice(&flag.to_le_bytes());
@@ -1818,7 +1827,7 @@ mod scene_model_tests {
     #[test]
     fn skin_strict_route_keeps_static_material_gate() {
         let mut bytes = super::mesh_tests::mesh();
-        bytes[16..20].copy_from_slice(&0x8000u32.to_le_bytes());
+        bytes[16..20].copy_from_slice(&0x01000000u32.to_le_bytes());
         bytes[64] = 2;
         bytes.insert(bytes.len() - 1, 0); // Zero-bone LOD, no definition payload.
         assert!(parse_four_ds_scene(&bytes).is_ok());

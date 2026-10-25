@@ -1028,6 +1028,7 @@ mod tests {
             word_bfcd4: 0,
             word_bfcf4: 0,
         };
+        assert_eq!(context.texture_flags(source.flags | 0x8000), 0x1044);
         assert_eq!(context.texture_flags(source.flags), 0x44);
         assert_eq!(context.base_texture_request_flags(&source), 0x40);
         assert_eq!(context.base_texture_flags(&source).unwrap(), 0);
