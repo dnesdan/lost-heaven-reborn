@@ -26,7 +26,9 @@ that tree. Stream acquisition uses the provider's existing DTA/loose selection,
 seeks to the end, rewinds, reads a bounded snapshot and closes. The parser works
 on this snapshot; it does not claim byte-for-byte native seek traces or recreate
 C++ vector allocation identities. Native raw pointer words remain separate
-from host tree ownership. A production mission allocation owner remains a
+from host tree ownership. Dropping an adapter closes its retained unconsumed
+stream only; consumed/missing streams cannot trigger a second close.
+A production mission allocation owner remains a
 caller dependency; the adapter invents none.
 
 ## Program patches
@@ -50,7 +52,8 @@ filename/code records and the final null-resource/`0xffff` sentinel, in original
 order and spelling. The resource word is a filename pointer, not an animation
 object handle. `animation_catalog` publishes the source catalog and a producer
 that requests actual retained filename-storage identities from their owner;
-zero identities fail explicitly. `init_original_animation_index` connects the
+zero identities fail explicitly. Callback filename bytes omit the terminal NUL;
+the owner supplies and retains NUL-terminated storage. `init_original_animation_index` connects the
 producer to the existing sorted animation index, preserving the original
 resource positions used by lookup results.
 

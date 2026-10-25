@@ -604,7 +604,8 @@ pub enum AnimationCatalogError<E> {
     NullFilenameIdentity { index: usize },
 }
 /// Obtain genuine identities of retained NUL-terminated filename storage from
-/// its owner. The callback must retain that storage while the catalog is used.
+/// its owner. Callback bytes omit the terminal NUL; the owner must append it
+/// and retain that storage while the bound catalog is used.
 /// Neither a constant dummy handle nor an asset-object identity is substituted.
 /// The code-only sentinel remains last and has the original null resource word.
 pub fn bind_original_animation_catalog<E>(

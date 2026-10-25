@@ -425,6 +425,69 @@ mod tests {
     }
 
     #[test]
+    fn abandoning_effects_adapter_closes_only_its_unconsumed_stream() {
+        use crate::mission_components::*;
+        struct Heap(MissionMemoryDomainId);
+        impl MissionMemoryDomain for Heap {
+            fn mission_memory_domain(&self) -> MissionMemoryDomainId {
+                self.0
+            }
+        }
+        impl MissionAllocator for Heap {
+            type Error = ();
+            fn allocate(
+                &mut self,
+                _: MissionComponentKind,
+            ) -> Result<Option<MissionAllocation>, ()> {
+                Ok(None)
+            }
+            fn free(&mut self, _: u32) -> Result<(), ()> {
+                Ok(())
+            }
+            fn open_effects_table(&mut self) -> Result<bool, ()> {
+                panic!("adapter owns file selection")
+            }
+        }
+        let dir = Directory::new();
+        std::fs::create_dir(dir.0.join("tables")).unwrap();
+        std::fs::write(
+            dir.0.join("tables/effects.tbl"),
+            crate::original_data_chunk::chunk(0x64, &[]),
+        )
+        .unwrap();
+        let provider = NativeFiles::new(&dir.0, 64, 256 * 1024).unwrap();
+        let mut assets = StartupAssetBackend::new(&provider);
+        assets.effect(SystemEffect::DtaFirstForce).unwrap();
+        let unrelated = assets.open_file(b"tables\\effects.tbl").unwrap().unwrap();
+        let mut heap = Heap(MissionMemoryDomainId::fresh());
+        {
+            let mut allocator = MissionAssetAllocator::new(&mut heap, &mut assets);
+            assert!(allocator.open_effects_table().unwrap());
+            assert_eq!(allocator.assets.open_file_count(), 2);
+        }
+        assert_eq!(assets.open_file_count(), 1);
+        {
+            let mut allocator = MissionAssetAllocator::new(&mut heap, &mut assets);
+            assert!(allocator.open_effects_table().unwrap());
+            assert!(allocator.read_effects_table().unwrap().is_some());
+            assert!(allocator.effects_stream.is_none());
+            assert_eq!(allocator.assets.open_file_count(), 1);
+        }
+        assert_eq!(assets.open_file_count(), 1);
+        // Missing-file path must neither retain nor close an unrelated stream.
+        std::fs::remove_file(dir.0.join("tables/effects.tbl")).unwrap();
+        {
+            let mut allocator = MissionAssetAllocator::new(&mut heap, &mut assets);
+            assert!(!allocator.open_effects_table().unwrap());
+            assert!(allocator.effects_stream.is_none());
+        }
+        assert_eq!(assets.open_file_count(), 1);
+        assert_eq!(assets.read_file(unrelated, 2).unwrap(), [0x64, 0]);
+        assets.effect(SystemEffect::CloseFile(unrelated)).unwrap();
+        assert_eq!(assets.open_file_count(), 0);
+    }
+
+    #[test]
     fn genuine_effects_stream_reaches_component_and_owned_cleanup() {
         use crate::mission_components::*;
         struct Heap(MissionMemoryDomainId, Vec<u32>);
@@ -532,6 +595,15 @@ pub struct MissionAssetAllocator<'a, 'p, A> {
     pub memory: &'a mut A,
     pub assets: &'a mut StartupAssetBackend<'p>,
     effects_stream: Option<SystemHandle>,
+}
+impl<A> Drop for MissionAssetAllocator<'_, '_, A> {
+    fn drop(&mut self) {
+        // Match the temporary C_chunk destructor even when its owner abandons
+        // construction after Open. Consumed and missing streams have no handle.
+        if let Some(handle) = self.effects_stream.take() {
+            let _ = self.assets.effect(SystemEffect::CloseFile(handle));
+        }
+    }
 }
 #[derive(Debug)]
 pub enum MissionAssetError<E> {
