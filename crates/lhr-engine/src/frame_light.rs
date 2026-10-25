@@ -441,6 +441,41 @@ impl ModelArena {
 mod tests {
     use super::*;
     #[test]
+    fn load_image_raw_write_keeps_constructor_caches_and_counter() {
+        let mut arena = ModelArena::default();
+        let key = arena.create_light().unwrap();
+        let before = arena.light(key).unwrap().clone();
+        let count = arena.state(key).unwrap().update_count;
+        arena
+            .graph
+            .apply_light_load_image_fields(
+                key,
+                &lhr_assets::LightRecord {
+                    mode: 0x87654321,
+                    light_type: u32::MAX,
+                    power: f32::from_bits(0x7f801234),
+                    diffuse: [-0., 0.25, 0.5],
+                    range: [12., 45.],
+                    cone: [0.2, 0.8],
+                },
+            )
+            .unwrap();
+        let after = arena.light(key).unwrap();
+        assert_eq!(after.intensity.to_bits(), 0x7f801234);
+        assert_eq!(after.color[0].to_bits(), 0x80000000);
+        assert_eq!(after.light_type, u32::MAX);
+        assert_eq!(after.mode, 0x87654321);
+        assert_eq!(after.scaled_color, before.scaled_color);
+        assert_eq!(after.near_scaled, before.near_scaled);
+        assert_eq!(after.far_scaled, before.far_scaled);
+        assert_eq!(after.cone_radius, before.cone_radius);
+        assert_eq!(after.sphere_center, before.sphere_center);
+        assert_eq!(after.cone_reciprocal, before.cone_reciprocal);
+        assert_eq!(arena.state(key).unwrap().update_count, count);
+        // Unsupported light kinds stay explicit when runtime Update is requested.
+        assert!(arena.graph.update(key).is_err());
+    }
+    #[test]
     fn interrupted_numeric_effect_never_becomes_a_valid_light_cache() {
         let mut arena = ModelArena::default();
         let light = arena.create_light().unwrap();

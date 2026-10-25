@@ -2663,7 +2663,8 @@ pub(crate) mod tests {
         assert_eq!(light.cone, [0.2, 0.8]);
         // Native LoadImage leaves the constructor's derived caches intact.
         assert_eq!(light.scaled_color, [1.; 3]);
-        assert_eq!((light.near_scaled, light.far_scaled), (1., 100.));
+        // Ownership transfer links the model and performs the normal Update.
+        assert_eq!((light.near_scaled, light.far_scaled), (12., 45.));
         assert_eq!(loaded.arena.light_random_state().state(), 2745024);
         loaded.close().unwrap();
         assert!(loaded.arena.light(key).is_err());
