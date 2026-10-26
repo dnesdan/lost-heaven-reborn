@@ -245,6 +245,15 @@ fn snapshot_arena_tree_inner(
             } else {
                 (0, 1.)
             };
+            arena
+                .loaded_visual_resources_mut()
+                .ok_or("Saved lighting resource owner unavailable")?
+                .prepare_saved_lit_storage(object, lod_index)
+                .map_err(|e| {
+                    format!(
+                        "Selected saved lighting preparation frame {frame:?} LOD{lod_index}: {e:?}"
+                    )
+                })?;
             let no_dynamic_lm = no_dynamic_lm_lights(arena, frame)?;
             let null_colors = prepare_null_colors(arena, frame, object, lod_index, fade)?;
             frames.push((
@@ -295,7 +304,35 @@ fn snapshot_arena_tree_inner(
         let saved = resources
             .saved_lit_lod(*object, *lod_index)
             .map_err(|e| format!("Saved lighting view: {e:?}"))?;
-        let mut saved_first = 0usize;
+        let managed_colors = view
+            .color_byte_offset
+            .map(|offset| {
+                view.vertex_bytes
+                    .chunks_exact(view.vertex_stride)
+                    .map(|v| {
+                        let raw = v
+                            .get(offset..offset + 4)
+                            .ok_or("Incomplete managed diffuse")?;
+                        let c = u32::from_le_bytes(raw.try_into().unwrap());
+                        Ok([
+                            ((c >> 16) & 255) as f32 / 255.,
+                            ((c >> 8) & 255) as f32 / 255.,
+                            (c & 255) as f32 / 255.,
+                            ((c >> 24) & 255) as f32 / 255.,
+                        ])
+                    })
+                    .collect::<Result<Vec<_>, String>>()
+            })
+            .transpose()?;
+        let managed_uv2 = view
+            .lightmap_uv_byte_offset
+            .map(|offset| {
+                view.vertex_bytes
+                    .chunks_exact(view.vertex_stride)
+                    .map(|v| Ok([word(v, offset)?, word(v, offset + 4)?]))
+                    .collect::<Result<Vec<_>, String>>()
+            })
+            .transpose()?;
         for (group_number, group) in view.groups.into_iter().enumerate() {
             if meshes.len() >= CAR_INSPECTION_MAX_DRAWS {
                 return Err("Car inspection exceeds its draw budget".into());
@@ -403,7 +440,7 @@ fn snapshot_arena_tree_inner(
                     .map_err(|_| "Car texture allocation unavailable")?;
                 for (index, pixel) in source.as_chunks::<4>().0.iter().enumerate() {
                     rgba.extend_from_slice(&pixel[..3]);
-                    rgba.push(if lit && saved.is_none() {
+                    rgba.push(if lit {
                         pixel[3]
                     } else {
                         alpha.alpha(index, pixel)
@@ -422,7 +459,7 @@ fn snapshot_arena_tree_inner(
             vertices
                 .try_reserve_exact(vertex_count)
                 .map_err(|_| "Car vertex allocation unavailable")?;
-            for vertex in view.vertex_bytes.as_chunks::<32>().0 {
+            for vertex in view.vertex_bytes.chunks_exact(view.vertex_stride) {
                 let point = [word(vertex, 0)?, word(vertex, 4)?, word(vertex, 8)?];
                 let [x, y, z] = world
                     .try_transform_point(point)
@@ -485,55 +522,21 @@ fn snapshot_arena_tree_inner(
                         .get(group_number)
                         .ok_or("Saved lightmap face-group ownership unavailable")?
                         .len();
-                    let end = saved_first
-                        .checked_add(
-                            faces
-                                .checked_mul(3)
-                                .ok_or("Saved lightmap index extent overflow")?,
-                        )
-                        .ok_or("Saved lightmap index extent overflow")?;
-                    let expanded_bytes = lod
-                        .vertices
-                        .len()
-                        .checked_mul(std::mem::size_of::<Vertex>())
-                        .ok_or("Saved lightmap vertex extent overflow")?;
-                    let source_bytes = vertices
-                        .len()
-                        .checked_mul(std::mem::size_of::<Vertex>())
-                        .ok_or("Source vertex extent overflow")?;
+                    if group.index_bytes.len()
+                        != faces
+                            .checked_mul(6)
+                            .ok_or("Saved lightmap index extent overflow")?
+                        || lod.vertices.len() != vertices.len()
+                    {
+                        return Err("Saved lightmap managed extent unavailable".into());
+                    }
                     charge(
                         &mut bytes,
-                        expanded_bytes
-                            .saturating_sub(source_bytes)
-                            .checked_add(
-                                lod.vertices
-                                    .len()
-                                    .checked_mul(24)
-                                    .ok_or("Saved lighting sidecar extent overflow")?,
-                            )
+                        vertices
+                            .len()
+                            .checked_mul(24)
                             .ok_or("Saved lighting extent overflow")?,
                     )?;
-                    let source = vertices;
-                    vertices = lod
-                        .vertices
-                        .iter()
-                        .map(|v| {
-                            source
-                                .get(v.source_vertex as usize)
-                                .copied()
-                                .ok_or_else(|| {
-                                    "Saved lightmap source vertex unavailable".to_string()
-                                })
-                        })
-                        .collect::<Result<Vec<_>, _>>()?;
-                    indices = lod
-                        .indices
-                        .get(saved_first..end)
-                        .ok_or("Saved lightmap face-group indices unavailable")?
-                        .iter()
-                        .map(|&i| u32::from(i))
-                        .collect();
-                    saved_first = end;
                     let atlas = lod
                         .atlas
                         .read()
@@ -557,8 +560,14 @@ fn snapshot_arena_tree_inner(
                         texture
                     };
                     Some(lhr_render::MeshLighting {
-                        uv2: lod.vertices.iter().map(|v| v.lightmap_uv).collect(),
-                        colors: vec![[0., 0., 0., 1.]; lod.vertices.len()],
+                        uv2: managed_uv2
+                            .as_ref()
+                            .ok_or("Managed atlas UV unavailable")?
+                            .clone(),
+                        colors: managed_colors
+                            .as_ref()
+                            .ok_or("Managed lightmap diffuse unavailable")?
+                            .clone(),
                         atlas: Some(texture),
                         mode: lhr_render::LightingMode::LightMap {
                             base_texture: has_texture,
@@ -582,17 +591,10 @@ fn snapshot_arena_tree_inner(
                     )?;
                     Some(lhr_render::MeshLighting {
                         uv2: vec![[0.; 2]; vertices.len()],
-                        colors: colors
-                            .iter()
-                            .map(|&c| {
-                                [
-                                    ((c >> 16) & 255) as f32 / 255.,
-                                    ((c >> 8) & 255) as f32 / 255.,
-                                    (c & 255) as f32 / 255.,
-                                    ((c >> 24) & 255) as f32 / 255.,
-                                ]
-                            })
-                            .collect(),
+                        colors: managed_colors
+                            .as_ref()
+                            .ok_or("Managed saved vertex diffuse unavailable")?
+                            .clone(),
                         atlas: None,
                         mode: lhr_render::LightingMode::VertexColors { modulate_2x: true },
                     })

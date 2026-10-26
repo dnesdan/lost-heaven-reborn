@@ -22,6 +22,8 @@
 //! required throughout. Explicit cleanup must occur before that backend goes
 //! away; Drop cannot run these required effects. Read-only views remain raw
 //! diagnostics after an interrupted cleanup; old slots can name retired LODs.
+#[path = "lit_lod_storage.rs"]
+mod lit_lod_storage;
 #[path = "lit_object.rs"]
 mod lit_object;
 use crate::buffer_managers::{VertexOwnerKey, VertexRequest};
@@ -30,6 +32,9 @@ use crate::managed_visual_resources::{
 };
 use crate::visual_resources::{
     CompleteVertexBuffer, FaceGroupKey, MaterialKey, MeshLevelKey, MeshObjectKey, TextureKey,
+};
+pub use lit_lod_storage::{
+    LitLodStorage, LitSourceBinding, LitStorageCounts, LitStoragePhase, RetiringLitArrays,
 };
 pub use lit_object::{
     lightmap_atlas, saved_lightmaps, LitLevelResources, LitObjectResources, ObjectVisualType,
@@ -161,6 +166,7 @@ pub struct ObjectResources {
     lods: Vec<Option<Lod>>,
     objects: Vec<Option<I3dObjectResources>>,
     bindings: Vec<LodBinding>,
+    lit_storage: Vec<LitLodStorage>,
     poisoned: bool,
 }
 impl ObjectResources {
@@ -170,6 +176,7 @@ impl ObjectResources {
             lods: Vec::new(),
             objects: Vec::new(),
             bindings: Vec::new(),
+            lit_storage: Vec::new(),
             poisoned: false,
         })
     }
@@ -459,7 +466,7 @@ impl ObjectResources {
                             .levels[level]
                             .lods[lod_index];
                         if let Some(lod) = lod {
-                            self.cleanup_lod(lod, backend)?;
+                            self.cleanup_saved_lit_lod(object, level, lod_index, backend)?;
                             self.lods[(lod.slot - 1) as usize] = None;
                             self.objects[index]
                                 .as_mut()

@@ -88,26 +88,7 @@ impl ObjectResources {
             }
         }
         for key in keys.into_iter().flatten() {
-            let descriptor = self.lod(key)?.vertex_buffer;
-            let position = self
-                .bindings
-                .iter()
-                .position(|b| b.lod == key && b.state != BindingState::Consumed);
-            let owner = position.map(|i| self.bindings[i].owner);
-            if let Err(error) =
-                managed_result(self.managed.free_vertex_storage(owner, descriptor, backend))
-            {
-                self.poisoned = true;
-                return Err(error);
-            }
-            if let Some(i) = position {
-                self.bindings[i].state = BindingState::Consumed;
-            }
-            let lod = self.lods[(key.slot - 1) as usize].as_mut().unwrap();
-            lod.vertex_buffer = CompleteVertexBuffer::default();
-            lod.dirty = true;
-            lod.lights_changed = u32::MAX;
-            lod.light_key = u32::MAX;
+            self.release_lit_render_vertices(key, backend)?;
         }
         self.objects[(object.slot - 1) as usize]
             .as_mut()
@@ -198,7 +179,7 @@ impl ObjectResources {
             .constructed = false;
         for (i, key) in keys.into_iter().enumerate() {
             if let Some(key) = key {
-                self.cleanup_lod(key, backend)?;
+                self.cleanup_saved_lit_lod(object, active, i, backend)?;
                 self.lods[(key.slot - 1) as usize] = None;
             }
             let level = &mut self.objects[(object.slot - 1) as usize]
@@ -249,11 +230,12 @@ impl ObjectResources {
     /// Transfers completed Load allocations into their actual object owner.
     /// The caller first performs native Destruct on the active lighting. A
     /// failing Load's partial result is installed through this same operation.
-    pub fn install_saved_lighting(
+    pub fn install_saved_lighting<B: ManagedVisualBackend + ?Sized>(
         &mut self,
         object: ObjectResourceKey,
         loaded: SavedLightingLoad,
-    ) -> Result<(), ObjectError> {
+        backend: &mut B,
+    ) -> Result<(), ObjectOperationError<B::Error>> {
         self.available()?;
         let lit = self
             .object(object)?
@@ -267,10 +249,10 @@ impl ObjectResources {
                         if let Some(key) = old.lods[index] {
                             let common = self.lod(key)?;
                             if common.owner != Some(object) {
-                                return Err(ObjectError::LodOwned(key));
+                                return Err(ObjectError::LodOwned(key).into());
                             }
                             if common.state != LodState::Constructed {
-                                return Err(ObjectError::LodDestructed(key));
+                                return Err(ObjectError::LodDestructed(key).into());
                             }
                         }
                     }
@@ -293,6 +275,21 @@ impl ObjectResources {
                 // overwritten. Rust drops replaced allocations exactly once.
                 for (index, new) in new.lods.into_iter().enumerate() {
                     if let Some(new) = new {
+                        if let Some(key) = self.object(object)?.lit_object.as_ref().unwrap().levels
+                            [lighting]
+                            .lods[index]
+                        {
+                            self.cleanup_saved_lit_lod(object, lighting, index, backend)?;
+                            self.lods[(key.slot - 1) as usize] = None;
+                            self.objects[(object.slot - 1) as usize]
+                                .as_mut()
+                                .unwrap()
+                                .lit_object
+                                .as_mut()
+                                .unwrap()
+                                .levels[lighting]
+                                .lods[index] = None;
+                        }
                         if self.object(object)?.lit_object.as_ref().unwrap().levels[lighting].lods
                             [index]
                             .is_none()
@@ -387,7 +384,9 @@ impl ObjectResources {
         if lit.levels[lighting].lods[index].is_some() {
             return Err(ObjectError::SlotOccupied);
         }
+        Self::reserve(&mut self.lit_storage)?;
         let key = self.create_plain_lod()?;
+        self.lit_storage.push(LitLodStorage::new(key));
         let lod = self.lods[(key.slot - 1) as usize].as_mut().unwrap();
         // litLod's inline derived constructor overwrites these base words.
         lod.update_count = 0;

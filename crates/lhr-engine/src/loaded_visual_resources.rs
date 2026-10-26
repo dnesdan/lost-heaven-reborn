@@ -27,6 +27,8 @@ pub use car_inspection_resources::{CpuInspectionGroup, CpuInspectionMesh};
 mod car_inspection_texture;
 #[path = "loaded_glass.rs"]
 mod glass;
+#[path = "loaded_lit_storage.rs"]
+mod lit_storage;
 #[path = "loaded_saved_lightmaps.rs"]
 mod saved_lightmaps;
 #[path = "loaded_vertex_access.rs"]
@@ -93,6 +95,8 @@ struct CpuGraphics {
     fvf: Option<u32>,
     bytes: Vec<u8>,
     lock: Option<LockedDataKey>,
+    /// Host write generation for rebuilding derived saved-lighting geometry.
+    revision: u64,
 }
 #[derive(Debug)]
 struct CpuTexture {
@@ -108,6 +112,8 @@ struct CpuTexture {
 }
 #[derive(Debug, Default)]
 pub struct CpuVisualStorage {
+    #[cfg(test)]
+    test_failure: Option<CpuStorageTestFailure>,
     buffers: BTreeMap<u64, Box<BufferAllocation>>,
     blocks: BTreeMap<u64, Box<BlockAllocation>>,
     graphics: BTreeMap<u64, CpuGraphics>,
@@ -116,7 +122,25 @@ pub struct CpuVisualStorage {
     resident_bytes: usize,
     discard_requests: u64,
 }
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CpuStorageTestFailure {
+    BlockAllocate(BufferKind),
+    UploadAfterWrite(BufferKind),
+    BlockFreeAfterFree(BufferKind),
+    UnlockAfterUnlock(BufferKind),
+}
 impl CpuVisualStorage {
+    #[cfg(test)]
+    fn test_checkpoint(&mut self, stage: CpuStorageTestFailure) -> Result<()> {
+        if self.test_failure == Some(stage) {
+            self.test_failure = None;
+            return Err(LoadedVisualError::Backend(
+                "injected CPU storage interruption",
+            ));
+        }
+        Ok(())
+    }
     pub fn graphics_bytes(&self) -> usize {
         self.graphics.values().map(|g| g.bytes.len()).sum()
     }
@@ -171,6 +195,10 @@ impl CpuVisualStorage {
         if x.lock.is_none() {
             return Err(LoadedVisualError::Backend("CPU upload without lock"));
         }
+        let revision = x
+            .revision
+            .checked_add(1)
+            .ok_or(LoadedVisualError::Backend("CPU graphics revision overflow"))?;
         let end = offset
             .checked_add(data.len())
             .ok_or(LoadedVisualError::InvalidGeometry)?;
@@ -178,6 +206,12 @@ impl CpuVisualStorage {
             .get_mut(offset..end)
             .ok_or(LoadedVisualError::InvalidGeometry)?
             .copy_from_slice(data);
+        x.revision = revision;
+        #[cfg(test)]
+        {
+            let kind = x.kind;
+            self.test_checkpoint(CpuStorageTestFailure::UploadAfterWrite(kind))?;
+        }
         Ok(())
     }
     /// Host CPU upload; cached manager arrays may already be unlocked. A
@@ -279,6 +313,8 @@ impl BufferBackend for CpuVisualStorage {
         if count == 0 || base.checked_add(count).is_none() {
             return Err(LoadedVisualError::InvalidGeometry);
         }
+        #[cfg(test)]
+        self.test_checkpoint(CpuStorageTestFailure::BlockAllocate(kind))?;
         let id = identity()?;
         self.blocks
             .insert(id, Box::new(BlockAllocation { kind, base, count }));
@@ -290,6 +326,8 @@ impl BufferBackend for CpuVisualStorage {
             .remove(&a.0)
             .ok_or(LoadedVisualError::Backend("unknown CPU block allocation"))?;
         let _descriptor = (allocation.kind, allocation.base, allocation.count);
+        #[cfg(test)]
+        self.test_checkpoint(CpuStorageTestFailure::BlockFreeAfterFree(allocation.kind))?;
         Ok(())
     }
     fn create_graphics(&mut self, r: GraphicsRequest) -> Result<CreateResult> {
@@ -305,6 +343,7 @@ impl BufferBackend for CpuVisualStorage {
                 fvf: r.fvf,
                 bytes: storage,
                 lock: None,
+                revision: 0,
             },
         );
         Ok(CreateResult::Created(match r.kind {
@@ -333,6 +372,11 @@ impl BufferBackend for CpuVisualStorage {
         let x = self.get_graphics_mut(g)?;
         if x.lock.take().is_none() {
             return Err(LoadedVisualError::Backend("CPU graphics not locked"));
+        }
+        #[cfg(test)]
+        {
+            let kind = x.kind;
+            self.test_checkpoint(CpuStorageTestFailure::UnlockAfterUnlock(kind))?;
         }
         Ok(())
     }
@@ -1927,3 +1971,7 @@ mod unconstructed_lit_admission_tests {
         std::fs::remove_dir_all(path).unwrap();
     }
 }
+
+#[cfg(test)]
+#[path = "saved_lit_storage_tests.rs"]
+mod saved_lit_storage_tests;

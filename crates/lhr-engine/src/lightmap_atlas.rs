@@ -1,7 +1,11 @@
 //! CPU true-color projection of LightMap packing. The free-rectangle ordering,
 //! rotation and candidate selection follow pinned mafia-re 29b65b0
-//! lightmap.cpp. Native 16-bit conversion/dither, compression and ResizeImage
-//! are separate dependencies; exhaustion reports a real frontier.
+//! lightmap.cpp. RGB/filter resize uses the separately bounded pinned-source
+//! arithmetic profile. Native 16-bit conversion/dither and compression remain
+//! separate dependencies; unshrinkable exhaustion reports a real frontier.
+#[path = "lightmap_resize.rs"]
+mod resize;
+pub use resize::LightmapResizeError;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
 #[derive(Clone, PartialEq, Eq)]
@@ -48,6 +52,7 @@ pub enum AtlasError {
     HostAllocation,
     InvalidRectangle,
     ResizeRequired,
+    Resize(LightmapResizeError),
     Poisoned,
     Quota,
 }
@@ -268,7 +273,7 @@ fn try_page(
     width: u16,
     height: u16,
     initial: &[FreeRect],
-    rects: &[LightmapRectangle],
+    sizes: &[[u16; 2]],
     order: &[usize],
 ) -> Option<(Vec<FreeRect>, Vec<LightmapPlacement>)> {
     let mut free = initial.to_vec();
@@ -280,7 +285,7 @@ fn try_page(
             width: 0,
             height: 0
         };
-        rects.len()
+        sizes.len()
     ];
     // An empty free list on a new candidate initially means the whole texture.
     // Full shared pages are skipped by their zero free-area check.
@@ -296,7 +301,7 @@ fn try_page(
         if free.is_empty() {
             return None;
         }
-        offsets[i] = place(&mut free, rects[i].width, rects[i].height)?;
+        offsets[i] = place(&mut free, sizes[i][0], sizes[i][1])?;
     }
     Some((free, offsets))
 }
@@ -333,6 +338,8 @@ impl LightmapAtlasPool {
             }
             area = area.checked_add(n as u32).ok_or(AtlasError::Quota)?;
         }
+        let mut sizes: Vec<_> = rects.iter().map(|r| [r.width, r.height]).collect();
+        let mut converted: Vec<Option<Box<[u8]>>> = vec![None; rects.len()];
         // Native ties select the last still-unmarked input rectangle.
         let mut order: Vec<_> = (0..rects.len()).collect();
         order.sort_by_key(|&i| {
@@ -346,12 +353,12 @@ impl LightmapAtlasPool {
             if area > p.free_area() {
                 continue;
             }
-            if let Some((free, offsets)) = try_page(p.width, p.height, &p.free, rects, &order) {
+            if let Some((free, offsets)) = try_page(p.width, p.height, &p.free, &sizes, &order) {
                 selected = Some((Some(i), p.width, p.height, free, offsets));
                 break;
             }
         }
-        if selected.is_none() {
+        while selected.is_none() {
             let mut best_area = u32::MAX;
             for height in [128u16, 256, 512] {
                 for width in [128u16, 256, 512] {
@@ -359,7 +366,7 @@ impl LightmapAtlasPool {
                     if size < area {
                         continue;
                     }
-                    if let Some((free, offsets)) = try_page(width, height, &[], rects, &order) {
+                    if let Some((free, offsets)) = try_page(width, height, &[], &sizes, &order) {
                         let free_area: u32 = free.iter().map(|r| r.area()).sum();
                         if free_area < best_area {
                             best_area = free_area;
@@ -367,6 +374,34 @@ impl LightmapAtlasPool {
                         }
                     }
                 }
+            }
+            if selected.is_some() {
+                break;
+            }
+            let old_area = area;
+            // m_OrderList is sorted once, before any shrink. Source dimensions
+            // and pixels remain immutable: retries filter the ORIGINAL image.
+            for &i in &order {
+                let [width, height] = sizes[i];
+                if width >= 4 && height >= 4 {
+                    let size = [(width >> 1).max(4), (height >> 1).max(4)];
+                    let LightmapTexels::Rgb(original) = &rects[i].texels else {
+                        return Err(AtlasError::InvalidRectangle);
+                    };
+                    let pixels = resize::resize_rgb_source(
+                        [rects[i].width, rects[i].height],
+                        original,
+                        size,
+                    )
+                    .map_err(AtlasError::Resize)?;
+                    area -= u32::from(width) * u32::from(height);
+                    area += u32::from(size[0]) * u32::from(size[1]);
+                    sizes[i] = size;
+                    converted[i] = Some(pixels);
+                }
+            }
+            if area == old_area {
+                return Err(AtlasError::ResizeRequired);
             }
         }
         let (existing, width, height, free, offsets) =
@@ -398,8 +433,8 @@ impl LightmapAtlasPool {
             for &i in &order {
                 let r = &rects[i];
                 let p = offsets[i];
-                for y in 0..r.height {
-                    for x in 0..r.width {
+                for y in 0..p.height {
+                    for x in 0..p.width {
                         let (dx, dy) = if p.rotated {
                             (p.x + y, p.y + x)
                         } else {
@@ -411,9 +446,10 @@ impl LightmapAtlasPool {
                                 [(c >> 16) as u8, (c >> 8) as u8, *c as u8]
                             }
                             LightmapTexels::Rgb(v) => {
+                                let pixels = converted[i].as_deref().unwrap_or(v);
                                 let j =
-                                    (usize::from(y) * usize::from(r.width) + usize::from(x)) * 3;
-                                [v[j], v[j + 1], v[j + 2]]
+                                    (usize::from(y) * usize::from(p.width) + usize::from(x)) * 3;
+                                [pixels[j], pixels[j + 1], pixels[j + 2]]
                             }
                         };
                         atlas.rgba[at..at + 3].copy_from_slice(&rgb);
@@ -471,7 +507,7 @@ mod tests {
         drop((first_lease, second_lease));
     }
     #[test]
-    fn resize_is_an_explicit_unimplemented_dependency() {
+    fn unshrinkable_three_pixel_axis_retains_explicit_exhaustion() {
         let mut pool = LightmapAtlasPool::default();
         let r = LightmapRectangle {
             width: 513,
@@ -500,6 +536,103 @@ mod tests {
         assert_eq!((a[0].x, a[0].y), (c[0].x, c[0].y));
         drop((second, second_lease, third, third_lease));
         assert_eq!(weak.strong_count(), 0);
+        assert!(pool.state.lock().unwrap().pages.is_empty());
+    }
+    #[test]
+    fn resized_allocations_keep_weak_page_leases_and_filter_original_pixels() {
+        let mut pool = LightmapAtlasPool::default();
+        let mut original = Vec::new();
+        for y in 0..8 {
+            for x in 0..1536 {
+                original.extend_from_slice(&[
+                    ((x * 5 + y * 9) % 256) as u8,
+                    ((x * 13 + y * 3) % 256) as u8,
+                    ((x * 7 + y * 19) % 256) as u8,
+                ]);
+            }
+        }
+        let expected = resize::resize_rgb_source([1536, 8], &original, [384, 4]).unwrap();
+        let first = resize::resize_rgb_source([1536, 8], &original, [768, 4]).unwrap();
+        let cumulative = resize::resize_rgb_source([768, 4], &first, [384, 4]).unwrap();
+        assert_ne!(expected, cumulative);
+        let rect = LightmapRectangle {
+            width: 1536,
+            height: 8,
+            texels: LightmapTexels::Rgb(original),
+        };
+        let (atlas, placements, lease) = pool.pack(&[rect]).unwrap();
+        let p = placements[0];
+        assert_eq!([p.width, p.height], [384, 4]);
+        assert_eq!((p.x, p.y, p.rotated), (0, 0, false));
+        let texture = atlas.read().unwrap();
+        assert_eq!([texture.width, texture.height], [512, 128]);
+        // PR19's independent pinned-C++ source-profile pixel oracle.
+        for (x, y, rgb) in [
+            (0, 0, [11, 21, 19]),
+            (1, 0, [31, 73, 47]),
+            (383, 0, [242, 212, 212]),
+            (0, 1, [27, 28, 52]),
+            (0, 3, [58, 38, 117]),
+            (383, 3, [36, 197, 87]),
+        ] {
+            let at = (y * texture.width as usize + x) * 4;
+            assert_eq!(&texture.rgba[at..at + 4], &[rgb[0], rgb[1], rgb[2], 255]);
+        }
+        drop(texture);
+        let weak = Arc::downgrade(&atlas);
+        drop((atlas, lease));
+        assert_eq!(weak.strong_count(), 0);
+        assert!(pool.state.lock().unwrap().pages.is_empty());
+    }
+    #[test]
+    fn original_order_equal_area_last_and_rotated_rgb_are_retained() {
+        let mut pool = LightmapAtlasPool::default();
+        let mut ramp = Vec::new();
+        for y in 0..4 {
+            for x in 0..4 {
+                ramp.extend_from_slice(&[x * 40, y * 50, 37]);
+            }
+        }
+        let rects = [
+            LightmapRectangle {
+                width: 4,
+                height: 4,
+                texels: LightmapTexels::Rgb(ramp),
+            },
+            LightmapRectangle {
+                width: 4,
+                height: 4,
+                texels: LightmapTexels::Rgb([7, 8, 9].repeat(16)),
+            },
+        ];
+        let (atlas, placements, lease) = pool.pack(&rects).unwrap();
+        assert_eq!(
+            (placements[0].x, placements[0].y, placements[0].rotated),
+            (0, 4, true)
+        );
+        assert_eq!(
+            (placements[1].x, placements[1].y, placements[1].rotated),
+            (0, 0, false)
+        );
+        let texture = atlas.read().unwrap();
+        assert_eq!(&texture.rgba[..4], &[7, 8, 9, 255]);
+        let at = (6 * texture.width as usize + 1) * 4;
+        assert_eq!(&texture.rgba[at..at + 4], &[80, 50, 37, 255]);
+        drop(texture);
+        drop((atlas, lease));
+        assert!(pool.state.lock().unwrap().pages.is_empty());
+    }
+    #[test]
+    fn rgb_three_by_n_keeps_its_existing_admission() {
+        let mut pool = LightmapAtlasPool::default();
+        let rect = LightmapRectangle {
+            width: 3,
+            height: 127,
+            texels: LightmapTexels::Rgb(vec![91; 3 * 127 * 3]),
+        };
+        let (atlas, placements, lease) = pool.pack(&[rect]).unwrap();
+        assert_eq!([placements[0].width, placements[0].height], [3, 127]);
+        drop((atlas, lease));
         assert!(pool.state.lock().unwrap().pages.is_empty());
     }
 }

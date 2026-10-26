@@ -329,6 +329,22 @@ fn read_lod(
         .ok_or(SavedLightingError::Quota)?;
     let (atlas, placements, allocation) =
         pool.pack(&rectangles).map_err(SavedLightingError::Atlas)?;
+    // Truecolor memory accounting follows the final shrunk rectangle area.
+    // Keep the original extent check above before atlas construction.
+    let memory_bytes = if placements
+        .iter()
+        .zip(&rectangles)
+        .any(|(p, r)| p.width != r.width || p.height != r.height)
+    {
+        placements
+            .iter()
+            .try_fold(0u32, |n, p| {
+                n.checked_add(u32::from(p.width) * u32::from(p.height) * 4)
+            })
+            .ok_or(SavedLightingError::Quota)?
+    } else {
+        memory_bytes
+    };
     let mut lod = SavedLightmapLod {
         flags,
         vertices,
@@ -527,6 +543,57 @@ mod tests {
         let atlas = lod.atlas.read().unwrap();
         assert_eq!(&atlas.rgba[0..4], &[0x20, 0x40, 0x80, 255]);
         assert_eq!(lod.vertices[1].lightmap_uv, [2.5 / 128., 0.5 / 128.]);
+    }
+    fn rgb_lightmap(width: u32, height: u32) -> Vec<u8> {
+        let single = lightmap();
+        let mut bytes = single[..22].to_vec();
+        bytes.push(0);
+        bytes.extend(1u32.to_le_bytes());
+        bytes.extend(width.to_le_bytes());
+        bytes.extend(height.to_le_bytes());
+        bytes.extend([32, 64, 96].repeat((width * height) as usize));
+        bytes.extend_from_slice(&single[39..]);
+        bytes
+    }
+    #[test]
+    fn resized_saved_lod_accounts_final_area_and_postprocess_uses_final_texel_centers() {
+        let mut bytes = rgb_lightmap(1536, 8);
+        let cursor = bytes.len();
+        bytes.extend([9, 8, 7]);
+        let parsed =
+            read_saved_lighting(&bytes, &mesh(), &mut LightmapAtlasPool::default()).unwrap();
+        assert_eq!(parsed.bytes_read, cursor);
+        let SavedLitLod::Lightmap(lod) =
+            parsed.levels[0].as_ref().unwrap().lods[0].as_ref().unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(lod.memory_bytes, 384 * 4 * 4);
+        assert_eq!(
+            [lod.placements[0].width, lod.placements[0].height],
+            [384, 4]
+        );
+        assert_eq!(lod.vertices[0].lightmap_uv, [0.5 / 512., 0.5 / 128.]);
+        assert_eq!(lod.vertices[1].lightmap_uv, [383.5 / 512., 0.5 / 128.]);
+        assert_eq!(lod.vertices[2].lightmap_uv, [0.5 / 512., 3.5 / 128.]);
+        assert_eq!(lod.indices, [0, 1, 2]);
+    }
+    #[test]
+    fn rgb_three_by_n_saved_payload_remains_admitted() {
+        let bytes = rgb_lightmap(3, 127);
+        let parsed =
+            read_saved_lighting(&bytes, &mesh(), &mut LightmapAtlasPool::default()).unwrap();
+        assert_eq!(parsed.bytes_read, bytes.len());
+        let SavedLitLod::Lightmap(lod) =
+            parsed.levels[0].as_ref().unwrap().lods[0].as_ref().unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(lod.memory_bytes, 3 * 127 * 4);
+        assert_eq!(
+            [lod.placements[0].width, lod.placements[0].height],
+            [3, 127]
+        );
     }
     #[test]
     fn partial_load_preserves_previous_lighting_and_rejects_each_truncated_prefix() {

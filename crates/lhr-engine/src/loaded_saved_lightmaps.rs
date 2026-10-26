@@ -149,18 +149,27 @@ impl LoadedVisualResources {
             match read_saved_lighting(bytes, &shape, &mut self.lightmap_atlases) {
                 Ok(loaded) => {
                     consumed = loaded.bytes_read;
-                    self.objects.install_saved_lighting(object, loaded)?;
+                    self.objects
+                        .install_saved_lighting(object, loaded, &mut self.backend)?;
                     Ok((consumed, None))
                 }
                 Err(failure) => {
                     consumed = failure.partial.bytes_read;
-                    self.objects
-                        .install_saved_lighting(object, failure.partial)?;
+                    self.objects.install_saved_lighting(
+                        object,
+                        failure.partial,
+                        &mut self.backend,
+                    )?;
                     Ok((consumed, Some(failure.error)))
                 }
             }
         })();
-        result.map_err(|error| SavedLightmapLoadFailure { consumed, error })
+        result.map_err(|error| {
+            if self.objects.is_poisoned() {
+                self.incomplete = true;
+            }
+            SavedLightmapLoadFailure { consumed, error }
+        })
     }
     pub fn saved_lit_lod(
         &self,

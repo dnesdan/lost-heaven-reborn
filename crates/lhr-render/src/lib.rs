@@ -377,7 +377,11 @@ impl Renderer {
                         },
                         fragment: Some(wgpu::FragmentState {
                             module: &shader,
-                            entry_point: Some("fragment_original"),
+                            entry_point: Some(if format.is_srgb() {
+                                "fragment_original_srgb"
+                            } else {
+                                "fragment_original"
+                            }),
                             targets: &[Some(wgpu::ColorTargetState {
                                 format,
                                 blend: material::blend(alpha),

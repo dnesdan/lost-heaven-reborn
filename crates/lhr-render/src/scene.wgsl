@@ -34,7 +34,7 @@ struct MaterialParameters { color: vec4<f32>, cutoff: vec4<f32> };
 @group(3) @binding(1) var lighting_sampler: sampler;
 // Original material decisions only; legacy inspection and menu shaders above
 // keep their separately selected presentation policy.
-@fragment fn fragment_original(input: Output) -> @location(0) vec4<f32> {
+fn original_color(input: Output) -> vec4<f32> {
  let base = textureSample(color_texture, color_sampler, input.uv);
  var color = base * material.color;
  if material.cutoff.y == 1.0 {
@@ -47,6 +47,18 @@ struct MaterialParameters { color: vec4<f32>, cutoff: vec4<f32> };
  }
  if color.a < material.cutoff.x { discard; }
  return color;
+}
+
+@fragment fn fragment_original(input: Output) -> @location(0) vec4<f32> {
+ return original_color(input);
+}
+
+// An sRGB attachment encodes shader RGB on write. Decode the original code
+// values here so opaque Original draws retain their source color bytes.
+@fragment fn fragment_original_srgb(input: Output) -> @location(0) vec4<f32> {
+ let color = original_color(input);
+ let rgb = select(color.rgb / 12.92, pow((color.rgb + vec3<f32>(0.055)) / 1.055, vec3<f32>(2.4)), color.rgb > vec3<f32>(0.04045));
+ return vec4<f32>(rgb, color.a);
 }
 
 // Legacy menu canvases are authored in sRGB. Canonical D3D8-like scene targets
