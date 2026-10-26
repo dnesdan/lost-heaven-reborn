@@ -2685,11 +2685,42 @@ mod tests {
     }
 
     #[test]
-    fn missing_matrix_quaternion_keeps_prior_scale_store_and_flag_order() {
+    fn missing_axis_quaternion_reaches_frame_scale_and_world_cache_consumers() {
+        for setter in [false, true] {
+            let mut graph = I3dFrameGraph::default();
+            let mut state = mesh([10., 20., 30.]);
+            state.flags = 0x10;
+            state.local.elements[0] = 0.;
+            state.rotation.wxyz = [0., 1., 0., 0.];
+            state.scale = [2., 3., 4.];
+            let key = graph.insert(state).unwrap();
+            if setter {
+                graph.assign_scale(key, [2., 3., 4.]).unwrap();
+                assert_eq!(graph.state(key).unwrap().flags, 0x40000008);
+            }
+            let local = graph.local_matrix(key).unwrap();
+            assert_eq!(
+                graph.state(key).unwrap().rotation.wxyz.map(f32::to_bits),
+                [1f32.to_bits(), 0, 0, 0]
+            );
+            assert_eq!(
+                [local.elements[0], local.elements[5], local.elements[10]],
+                if setter { [2., 3., 4.] } else { [0., 3., 4.] }
+            );
+            assert_eq!(&local.elements[12..15], &[10., 20., 30.]);
+            assert_eq!(graph.world_matrix(key).unwrap(), local);
+            let stable = *graph.state(key).unwrap();
+            assert_eq!(graph.world_matrix(key).unwrap(), local);
+            assert_eq!(*graph.state(key).unwrap(), stable);
+        }
+    }
+
+    #[test]
+    fn numeric_matrix_quaternion_failure_keeps_prior_scale_store_and_flag_order() {
         let mut graph = I3dFrameGraph::default();
         let mut state = mesh([0.; 3]);
         state.flags = 0x10;
-        state.local.elements[0] = 0.0;
+        state.local.elements[0] = f32::from_bits(1);
         let key = graph.insert(state).unwrap();
         assert_eq!(
             graph.assign_scale(key, [2., 3., 4.]),
@@ -2705,7 +2736,7 @@ mod tests {
         for flags in [0x30, 0x34] {
             let mut cached = mesh([0.; 3]);
             cached.flags = flags;
-            cached.local.elements[0] = 0.0;
+            cached.local.elements[0] = f32::from_bits(1);
             let key = graph.insert(cached).unwrap();
             assert!(graph.world_matrix(key).is_ok());
             assert_eq!(

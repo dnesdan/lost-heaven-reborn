@@ -24,6 +24,14 @@ pub fn sync_runtime_audio_frames(
             .graph
             .world_matrix(key)
             .map_err(|e| AudioError(format!("sound world transform: {e:?}")))?;
+        audio.set_world_scale(
+            address,
+            arena
+                .graph
+                .state(key)
+                .map_err(|e| AudioError(format!("sound world scale: {e:?}")))?
+                .world_scale,
+        )?;
         audio.set_position(
             address,
             world.elements[12..15].try_into().unwrap(),
@@ -73,6 +81,16 @@ impl<B: VehicleInitBackend> VehicleFrameBackend<'_, B> {
             .graph
             .world_matrix(key)
             .map_err(ModelError::from)?;
+        audio
+            .set_world_scale(
+                object,
+                self.arena
+                    .graph
+                    .state(key)
+                    .map_err(ModelError::from)?
+                    .world_scale,
+            )
+            .map_err(failure)?;
         audio
             .set_position(
                 object,
@@ -150,6 +168,7 @@ impl<B: VehicleComponentsBackend> VehicleFrameBackend<'_, B> {
                     audio
                         .record_load_failure(sound, &original_path, &error)
                         .map_err(failure)?;
+                    self.free_audio_sources(&audio)?;
                     // Original cache/Open failures are result codes. SoundInit
                     // then releases this real frame and clears its owner slot.
                     return Ok(if error.0.contains("original asset unavailable") {
@@ -272,6 +291,10 @@ impl<B: VehicleComponentsBackend> VehicleFrameBackend<'_, B> {
                 self.sync_audio_frame(&audio, object)?;
                 audio.sound_virtual(object, slot, args).map_err(failure)?
             }
+            (0x90, []) => {
+                self.sync_audio_frame(&audio, object)?;
+                audio.sound_virtual(object, slot, args).map_err(failure)?
+            }
             (0x24, [_]) | (0x88, [_, _]) => {
                 self.arena.set_frame_on(key, u32::from(args[0] != 0))?;
                 self.sync_audio_frame(&audio, object)?;
@@ -316,6 +339,40 @@ impl<B: VehicleComponentsBackend> VehicleFrameBackend<'_, B> {
             }
             _ => audio.sound_virtual(object, slot, args).map_err(failure)?,
         };
+        if audio.owns(object) {
+            self.arena
+                .set_frame_on(key, u32::from(audio.sound(object).map_err(failure)?.on))?;
+        }
         Ok(Some(result))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn audio_frame_sync_reads_canonical_inherited_scale_after_parent_changes() {
+        let mut arena = ModelArena::default();
+        let parent = arena.create_sound_frame().unwrap();
+        let child = arena.create_sound_frame().unwrap();
+        arena
+            .graph
+            .link_to_with_flags(child, Some(parent), 0)
+            .unwrap();
+        arena.graph.assign_scale(parent, [2.0; 3]).unwrap();
+        arena.graph.assign_scale(child, [3.0; 3]).unwrap();
+        let mut memory = VehicleFrameMemory::default();
+        let address = VehicleFrameBackend::new(&mut arena, &mut memory)
+            .frame_address(child)
+            .unwrap();
+        let audio = RuntimeAudio::default();
+        audio.create_sound_at(address).unwrap();
+        sync_runtime_audio_frames(&audio, &mut arena).unwrap();
+        assert_eq!(audio.sound(address).unwrap().world_scale, 6.0);
+        arena.graph.assign_scale(parent, [4.0; 3]).unwrap();
+        arena.graph.update(parent).unwrap();
+        sync_runtime_audio_frames(&audio, &mut arena).unwrap();
+        assert_eq!(audio.sound(address).unwrap().world_scale, 12.0);
     }
 }

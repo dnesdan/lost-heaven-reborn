@@ -124,14 +124,11 @@ pub fn chase_camera(
 /// Audio keeps original PC coordinates while presentation reflects Z.
 /// Derive both listener fields from the camera that will actually be drawn.
 pub fn sync_audio_listener(
-    owner: &lhr_engine::car_runtime::CarRuntime,
+    owner: &mut lhr_engine::car_runtime::CarRuntime,
     camera: &Camera,
 ) -> Result<(), String> {
     let (position, right) = listener_pose(camera)?;
-    owner
-        .driving_audio()
-        .set_listener(position, right, None)
-        .map_err(|e| e.to_string())
+    owner.driving_set_audio_listener(position, right)
 }
 
 fn listener_pose(camera: &Camera) -> Result<([f32; 3], [f32; 3]), String> {
