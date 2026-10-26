@@ -184,6 +184,7 @@ fn options() -> Result<Options, String> {
 fn synthetic() -> Scene {
     Scene {
         meshes: vec![Mesh {
+            material: Default::default(),
             vertices: vec![
                 Vertex {
                     position: [-1., -1., 0.],
@@ -520,7 +521,7 @@ fn load_car(
         }
         println!("CPU car constructed and initialized: {} seats, {} cached animation tracks; {} visible meshes, {} draws",owner.summary().seats,owner.summary().cached_tracks,snapshot.visible_meshes,snapshot.scene.meshes.len());
         if !driving {
-            println!("Car inspection: same initialized frame graph and CPU buffers; first LOD, unlit base color/texture, supported masks clipped at host cutoff 0.5; {} draws contain unsupported material effects. A/D previews original wheel steering; body simulation, driving and missions are unavailable.",snapshot.omitted_material_effects);
+            println!("Car inspection: same initialized frame graph and CPU buffers; first LOD, unlit texture/diffuse with source material transparency and sidedness; {} draws contain unsupported material effects. A/D previews original wheel steering; body simulation, driving and missions are unavailable.",snapshot.omitted_material_effects);
         } else {
             println!("Driving controls: W throttle, S brake, A/D steer, Space handbrake; R reload, Escape exit. Fixed 16 ms simulation, live native car frames, original static world; host chase camera and unlit rendering.");
         }
@@ -806,6 +807,7 @@ impl App {
         for (index, mesh) in next.iter().enumerate() {
             if !new_range.contains(&index) {
                 renderer.update_mesh_vertices(index, &mesh.vertices)?;
+                renderer.update_render_material(index, mesh.material)?;
             }
         }
         let next_count = next.len();
@@ -839,7 +841,7 @@ impl App {
         }
         let renderer = self
             .renderer
-            .as_ref()
+            .as_mut()
             .ok_or("Wheel steering renderer absent")?;
         for (index, (current, next)) in self
             .scene
@@ -868,7 +870,9 @@ impl App {
                 );
             }
             renderer.update_mesh_vertices(index, &next.vertices)?;
+            renderer.update_render_material(index, next.material)?;
             current.vertices = next.vertices;
+            current.material = next.material;
         }
         Ok(())
     }

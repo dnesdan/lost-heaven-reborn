@@ -149,6 +149,7 @@ mod tests {
 
     fn triangle(color: [u8; 4]) -> Mesh {
         Mesh {
+            material: Default::default(),
             vertices: vec![
                 lhr_render::Vertex {
                     position: [0.; 3],

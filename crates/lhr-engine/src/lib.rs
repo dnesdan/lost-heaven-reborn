@@ -93,6 +93,7 @@ pub mod ph_thing_response;
 pub mod ph_thing_update;
 pub mod player_control;
 pub mod police_state;
+pub mod presentation_material;
 pub mod program_instructions;
 pub mod program_parser;
 pub mod program_patch;

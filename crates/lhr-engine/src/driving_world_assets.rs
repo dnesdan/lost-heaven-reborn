@@ -723,6 +723,7 @@ impl DrivingWorldAssets {
         {
             if self.frame_is_visible(*frame)? && mesh_near(mesh, position, radius) {
                 meshes.push(Mesh {
+                    material: mesh.material,
                     vertices: mesh.vertices.clone(),
                     indices: mesh.indices.clone(),
                     texture: mesh.texture.clone(),
@@ -1096,6 +1097,7 @@ fn render_sources(
                     triangle.swap(1, 2);
                 }
                 meshes.push(Mesh {
+                    material: Default::default(),
                     vertices,
                     indices,
                     texture: Some(texture),
