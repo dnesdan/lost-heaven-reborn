@@ -23,17 +23,21 @@ Apple cross-check is blocked by missing CoreAudio SDK headers.
 
 ## Remaining dependency order
 
-1. Connect saved-lightmap loading to the actual scene `LMAP` payload and visual
-   replacement. Unconstructed Lit drawing does not supply saved lighting.
-   Complete SceneOpen progress presentation and genuine MissionOpen owners.
+1. Connect the implemented saved vertex/rectangle lighting resource paths to the
+   actual scene `LMAP` payload and visual replacement. Complete SceneOpen progress
+   presentation and genuine MissionOpen owners. The shared
+   [host load session and probe](mission-load-session.md) retain the real world,
+   scene2 prefix and cleanup frontier; they do not implement MissionOpen.
 2. Connect original startup/menu, player/camera, graphics, input, audio,
    profiles and tables. Extend source lighting, fog, specialized visual passes
    and portal/occluder visibility through the retained scene.
 3. Complete authored actor, animation, collision and vehicle lifetimes through
    real mission owners, including remaining GameInit/GameDone dependencies.
 4. Complete script expressions, parameter/compiler/lifecycle cases, scheduler,
-   world effects, replay, objectives and mission completion. The authored MISE01
-   probe remains FINDACTOR/UnsupportedWorldBackend at PC 3 / source line 4.
+   world effects, replay, objectives and mission completion. The historical
+   authored MISE01 script probe stopped at FINDACTOR/UnsupportedWorldBackend at
+   PC 3 / source line 4. The shared load probe may stop earlier in world or scene2
+   intake and must not skip that first failure to reach the script probe.
 5. Validate the complete first mission against original-runtime and interactive
    Rust sequences, including restart, cleanup and required presentation. Keep
    CPU/source projections, GPU checks and complete application parity distinct.

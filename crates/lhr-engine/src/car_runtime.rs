@@ -3,6 +3,7 @@
 //! Original mission population and player/camera scheduling remain separate.
 use crate::{
     car_effects::CarTrackResources,
+    host_scene_adapters::{InspectionScreen, InstallationImages},
     loaded_visual_resources::MaterialLoadContext,
     model_loading::{ModelArena, ModelKey},
     native_precision::Pc24PrecisionState,
@@ -975,38 +976,6 @@ impl CarRuntime {
         }
         self.driving = None;
         Ok(cleanup)
-    }
-}
-struct InspectionScreen {
-    size: [i32; 2],
-    viewport: [i32; 4],
-}
-impl crate::scene_resources::SceneScreen for InspectionScreen {
-    type Error = std::convert::Infallible;
-    fn screen_sy(&mut self) -> Result<i32, Self::Error> {
-        Ok(self.size[1])
-    }
-    fn screen_sx(&mut self) -> Result<i32, Self::Error> {
-        Ok(self.size[0])
-    }
-}
-impl crate::driver_scene::DriverSceneScreen for InspectionScreen {
-    fn viewport_rectangle(&mut self) -> Result<[i32; 4], Self::Error> {
-        Ok(self.viewport)
-    }
-}
-struct InstallationImages<'a>(&'a lhr_assets::Installation);
-impl crate::itexture::TextureImageSource for InstallationImages<'_> {
-    fn read_image(&mut self, path: &[u8]) -> Result<Vec<u8>, crate::itexture::TextureImageError> {
-        use crate::itexture::TextureImageError;
-        let path = std::str::from_utf8(path).map_err(|_| TextureImageError::Unsupported)?;
-        self.0.read_original_path(path).map_err(|error| {
-            if error.0 == "original asset unavailable" {
-                TextureImageError::Missing
-            } else {
-                TextureImageError::Backend(error.to_string())
-            }
-        })
     }
 }
 fn original_model_input(path: &str) -> Result<String, String> {

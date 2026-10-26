@@ -4,6 +4,7 @@ mod driving_view;
 mod engine_lab;
 mod lab_playback;
 mod menu;
+mod mission_load_probe;
 mod neighborhood;
 use glam::{Mat4, Quat, Vec3};
 use lhr_render::{Camera, Mesh, Renderer, Scene, Texture, Vertex};
@@ -36,6 +37,8 @@ fn application_key(
 }
 
 struct Options {
+    mission_load_probe: bool,
+    probe_model_directories: Vec<String>,
     root: Option<PathBuf>,
     model: Option<String>,
     animation: Option<String>,
@@ -57,7 +60,12 @@ struct Options {
     steer_steps: u32,
 }
 fn options() -> Result<Options, String> {
+    parse_options(std::env::args().skip(1))
+}
+fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut result = Options {
+        mission_load_probe: false,
+        probe_model_directories: Vec::new(),
         root: None,
         model: None,
         animation: None,
@@ -78,10 +86,13 @@ fn options() -> Result<Options, String> {
         steer: None,
         steer_steps: 1,
     };
-    let mut args = std::env::args().skip(1);
+    let mut provided_options = Vec::new();
     let mut steer_steps_set = false;
     while let Some(arg) = args.next() {
+        provided_options.push(arg.clone());
         match arg.as_str() {
+            "--mission-load-probe" => result.mission_load_probe = true,
+            "--probe-model-dir" => result.probe_model_directories.push(args.next().ok_or("Missing probe model directory")?),
             "--textures" => result.textures = args.next().ok_or("Missing textures argument")?,
             "--root" => result.root = Some(args.next().ok_or("Missing root argument")?.into()),
             "--sample-animation-ms" => result.sample_animation_ms = Some(args.next().ok_or("Missing animation sample time")?.parse().map_err(|_| "Invalid animation sample time")?),
@@ -105,6 +116,7 @@ fn options() -> Result<Options, String> {
                 "Usage: lhr-engine [--synthetic | --root DIRECTORY [--model RELATIVE_4DS [--animation RELATIVE_5DS] | --mission NAME]] ",
                 "[--car-driving | --car-inspection [--steer VALUE [--steer-steps N]]] [--textures RELATIVE_DIRECTORY] [--headless --capture PNG [--animation-steps N]] [--frames N] [--linear]. ",
                 "--lab opens native Engine Lab controls for pause, 16 ms steps, reload, host camera and actual driving input. F1 toggles the panel; F2 pauses; F3 steps; F4 reloads. Requires a window. --capture continues to capture the scene without the Lab overlay. ",
+                "--mission-load-probe --root DIRECTORY --mission NAME [--probe-model-dir DIRECTORY ...] runs the shared CPU load-session diagnostic without a window; it excludes all presentation and playback flags. It does not execute gameplay. ",
                 "--audio-capture WAV records the actual mixed driving audio and requires --car-driving. ",
                 "--car-driving requires --root and --model and opens the original MISE01 driving world. W accelerates, S brakes, A/D steer, Space applies the handbrake; R reloads and Escape exits. The chase camera is a host view. ",
                 "--car-inspection requires --root and --model; constructs and initializes the CPU car, then renders that same live arena's camera-selected owned LOD and source distance fade, with unlit materials. A/D previews the original wheel-steering update; arrows/W/S control the camera. R explicitly reloads the car and resets live input. Lighting, other material effects, body simulation, driving and mission execution are unavailable. ",
@@ -117,6 +129,29 @@ fn options() -> Result<Options, String> {
             ).into()),
             _ => return Err("Unknown command option".into()),
         }
+    }
+    if result.mission_load_probe {
+        for option in &provided_options {
+            if !matches!(
+                option.as_str(),
+                "--mission-load-probe" | "--root" | "--mission" | "--probe-model-dir"
+            ) {
+                return Err(format!(
+                    "{option} is not used by --mission-load-probe; omit it"
+                ));
+            }
+        }
+        if result.root.is_none() || result.mission.is_none() {
+            return Err("--mission-load-probe requires --root and --mission".into());
+        }
+        mission_load_probe::validate_inputs(
+            result.mission.as_deref().unwrap(),
+            &result.probe_model_directories,
+        )?;
+        return Ok(result);
+    }
+    if !result.probe_model_directories.is_empty() {
+        return Err("--probe-model-dir requires --mission-load-probe".into());
     }
     if result.skeletal_animation
         && (result.animation.is_none() || result.sample_animation_ms.is_some())
@@ -1864,6 +1899,13 @@ impl lhr_engine::clock::ClockBackend for InspectionClock {
 }
 fn run() -> Result<(), String> {
     let options = options()?;
+    if options.mission_load_probe {
+        return mission_load_probe::run(
+            options.root.as_deref().unwrap(),
+            options.mission.as_deref().unwrap(),
+            &options.probe_model_directories,
+        );
+    }
     let LoadedScene {
         mut scene,
         camera,
@@ -2298,5 +2340,106 @@ mod tests {
                 .unwrap(),
             [1.0, 2.0, -3.0]
         );
+    }
+}
+
+#[cfg(test)]
+mod mission_probe_option_tests {
+    use super::*;
+
+    fn parse(args: &[&str]) -> Result<Options, String> {
+        parse_options(args.iter().map(|arg| (*arg).into()))
+    }
+
+    #[test]
+    fn probe_keeps_explicit_directory_order_and_has_no_implicit_directory() {
+        let base = [
+            "--mission-load-probe",
+            "--root",
+            "/synthetic-installation",
+            "--mission",
+            "MISE01",
+        ];
+        let options = parse(&base).unwrap();
+        assert!(options.mission_load_probe);
+        assert!(options.probe_model_directories.is_empty());
+        let mut args = base.to_vec();
+        args.extend([
+            "--probe-model-dir",
+            "models/first",
+            "--probe-model-dir",
+            "models/second",
+        ]);
+        assert_eq!(
+            parse(&args).unwrap().probe_model_directories,
+            ["models/first", "models/second"]
+        );
+    }
+
+    #[test]
+    fn probe_rejects_even_explicit_default_valued_presentation_flags() {
+        for extra in [
+            vec!["--lab"],
+            vec!["--synthetic"],
+            vec!["--headless"],
+            vec!["--frames", "0"],
+            vec!["--textures", "maps"],
+            vec!["--linear"],
+            vec!["--capture", "unused.png"],
+            vec!["--model", "model.4ds"],
+            vec!["--car-driving"],
+            vec!["--car-inspection"],
+            vec!["--animation", "animation.5ds"],
+            vec!["--skeletal-animation"],
+            vec!["--animation-steps", "0"],
+            vec!["--sample-animation-ms", "0"],
+            vec!["--steer", "0"],
+            vec!["--steer-steps", "1"],
+            vec!["--audio-capture", "unused.wav"],
+        ] {
+            let mut args = vec![
+                "--mission-load-probe",
+                "--root",
+                "/synthetic-installation",
+                "--mission",
+                "MISE01",
+            ];
+            args.extend(extra);
+            assert!(
+                parse(&args).is_err(),
+                "accepted incompatible flags: {args:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn probe_requires_its_inputs_and_does_not_change_existing_window_selection() {
+        for args in [
+            vec!["--mission-load-probe"],
+            vec!["--mission-load-probe", "--root", "/synthetic-installation"],
+            vec![
+                "--mission-load-probe",
+                "--root",
+                "/synthetic-installation",
+                "--mission",
+                "../MISE01",
+            ],
+            vec![
+                "--mission-load-probe",
+                "--root",
+                "/synthetic-installation",
+                "--mission",
+                "MISE01",
+                "--probe-model-dir",
+                "",
+            ],
+            vec!["--synthetic", "--probe-model-dir", "models"],
+        ] {
+            assert!(parse(&args).is_err(), "accepted invalid probe: {args:?}");
+        }
+        let synthetic = parse(&["--synthetic", "--lab"]).unwrap();
+        assert!(synthetic.synthetic && synthetic.lab && !synthetic.mission_load_probe);
+        let mission = parse(&["--root", "/synthetic-installation", "--mission", "MISE01"]).unwrap();
+        assert!(!mission.mission_load_probe);
     }
 }

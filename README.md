@@ -95,6 +95,7 @@ cross-check is blocked by missing CoreAudio SDK headers.
 ./scripts/run.sh --root /path/to/Mafia --model models/taxi00.4ds --car-driving
 ./scripts/run.sh --root /path/to/Mafia --model models/taxi00.4ds --car-driving --lab
 ./scripts/run.sh --synthetic --lab
+./scripts/run.sh --mission-load-probe --root /path/to/Mafia --mission MISE01 --probe-model-dir models
 ./scripts/run.sh --root /path/to/Mafia --model models/TommyTAXIDRIVER.4ds --animation anims/breath01a.5ds --skeletal-animation
 ```
 
@@ -108,6 +109,11 @@ Engine Lab: F1 shows the panel, F2 pauses/resumes, F3 advances one 16 ms update,
 and F4 reloads the current scene. Its synthetic mode is a static view with
 disabled simulation controls. Camera FOV remains live while paused; actual car
 LOD uses the same current FOV. [Controls, behavior and limits](docs/engine-lab.md).
+
+The headless mission-load probe composes the existing world and scene2 prefix
+loaders over one retained owner set. It reports the first reached boundary and
+terminal disposal separately. `PrefixComplete` does not establish MissionOpen,
+actors, scripts or playable objectives. [Probe inputs and limits](docs/mission-load-session.md).
 
 ## Actual Rust captures
 
