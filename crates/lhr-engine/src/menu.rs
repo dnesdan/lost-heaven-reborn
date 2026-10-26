@@ -340,24 +340,29 @@ fn validate_layout(definition: &MenuDefinition) -> Result<(), String> {
 }
 pub fn quad(texture: Texture) -> Mesh {
     Mesh {
+        lightmap: None,
         material: Default::default(),
         vertices: vec![
             Vertex {
+                lightmap_uv: [0.; 2],
                 color: [1.; 3],
                 position: [0.0, 0.0, 0.0],
                 uv: [0.0, 0.0],
             },
             Vertex {
+                lightmap_uv: [0.; 2],
                 color: [1.; 3],
                 position: [800.0, 0.0, 0.0],
                 uv: [1.0, 0.0],
             },
             Vertex {
+                lightmap_uv: [0.; 2],
                 color: [1.; 3],
                 position: [800.0, 600.0, 0.0],
                 uv: [1.0, 1.0],
             },
             Vertex {
+                lightmap_uv: [0.; 2],
                 color: [1.; 3],
                 position: [0.0, 600.0, 0.0],
                 uv: [0.0, 1.0],

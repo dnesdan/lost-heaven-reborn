@@ -723,6 +723,7 @@ impl DrivingWorldAssets {
         {
             if self.frame_is_visible(*frame)? && mesh_near(mesh, position, radius) {
                 meshes.push(Mesh {
+                    lightmap: None,
                     material: mesh.material,
                     vertices: mesh.vertices.clone(),
                     indices: mesh.indices.clone(),
@@ -1051,6 +1052,7 @@ fn render_sources(
                         .try_transform_point(*position)
                         .map_err(|e| format!("Driving render vertex: {e:?}"))?;
                     vertices.push(Vertex {
+                        lightmap_uv: [0.; 2],
                         color: [1.; 3],
                         position: [p[0], p[1], -p[2]],
                         uv: vertex.uv,
@@ -1098,6 +1100,7 @@ fn render_sources(
                     triangle.swap(1, 2);
                 }
                 meshes.push(Mesh {
+                    lightmap: None,
                     material: Default::default(),
                     vertices,
                     indices,

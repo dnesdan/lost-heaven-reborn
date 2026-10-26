@@ -66,6 +66,7 @@ pub mod inspection_lod;
 pub mod interpolator;
 pub mod itexture;
 pub mod joint_state;
+pub mod lightmap_atlas;
 pub mod loaded_visual_resources;
 pub mod managed_visual_resources;
 pub mod mesh_bounds;

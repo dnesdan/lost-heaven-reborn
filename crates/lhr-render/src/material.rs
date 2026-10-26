@@ -1,4 +1,4 @@
-//! Explicit source-derived material decisions for the unlit presentation bridge.
+//! Explicit source-derived material decisions for the bounded presentation bridge.
 //! Legacy host draws keep their existing menu/inspection policy.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum RenderMaterial {
@@ -28,8 +28,8 @@ pub enum FrontFace {
 pub struct OriginalMaterial {
     /// Unlit diffuse multiplier and already packed/normalized vertex opacity.
     pub color: [f32; 4],
-    /// Source lit-object HWTL vertex branch: MODULATE2X RGB, texture alpha.
-    pub vertex_lighting: bool,
+    /// Explicit source branch; texture lighting requires a real second texture.
+    pub lighting: LightingMode,
     pub alpha: AlphaMode,
     /// Queue classification is independent of the draw's blend state.
     pub queue: MaterialQueue,
@@ -38,6 +38,15 @@ pub struct OriginalMaterial {
     pub front_face: FrontFace,
     /// Presentation-space world bounds center, used for view-depth ordering.
     pub sort_center: [f32; 3],
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LightingMode {
+    #[default]
+    Unlit,
+    /// HWTL vertex branch: MODULATE2X RGB, texture alpha.
+    SavedVertex,
+    /// Single-pass lightmap branch: ADD lightmap/diffuse, then MODULATE2X base.
+    SavedTexture,
 }
 impl RenderMaterial {
     pub(crate) fn valid(self) -> bool {
@@ -66,7 +75,11 @@ impl RenderMaterial {
                     m.color[2],
                     m.color[3],
                     cutoff,
-                    if m.vertex_lighting { 1. } else { 0. },
+                    match m.lighting {
+                        LightingMode::Unlit => 0.,
+                        LightingMode::SavedVertex => 1.,
+                        LightingMode::SavedTexture => 2.,
+                    },
                     if target_srgb { 1. } else { 0. },
                     0.,
                 ]

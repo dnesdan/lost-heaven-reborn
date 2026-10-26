@@ -8,10 +8,13 @@ is not playable; all six first-mission gates remain open.**
 Current source-based stages add original-data loader and image fixes, live
 material parameters and camera-selected model LOD, authored view orientation,
 audio lifecycle, archive/write IO and data-language selection. Lit objects support
-the source's unconstructed cyan branch and explicit [saved vertex-lighting loads](docs/saved-vertex-lighting.md).
-Textured lightmaps and their scene `LMAP` payload association remain open. Original lighting, visibility, player/camera
-scheduling and authored mission scripts remain incomplete. The separate legacy
-raw static-world presentation remains unlit first LOD.
+the source's unconstructed cyan branch, [saved vertex lighting](docs/saved-vertex-lighting.md)
+and [saved rectangle atlases](docs/saved-lightmap-atlas.md) in explicit source
+profiles. Rectangle presentation requires a verified static lighting context;
+scene `LMAP` payload association and visual replacement remain open. Original
+lighting, visibility, player/camera scheduling and authored mission scripts
+remain incomplete. The separate legacy raw static-world presentation remains
+unlit first LOD.
 
 The visible application supports inspection and standalone original-data driving.
 No native-function, scoped-port or full-system credit is added by these stages.

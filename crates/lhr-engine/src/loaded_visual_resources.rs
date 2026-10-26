@@ -22,9 +22,11 @@ use std::{
 };
 #[path = "car_inspection_resources.rs"]
 mod car_inspection_resources;
-pub use car_inspection_resources::{CpuInspectionGroup, CpuInspectionMesh};
+pub use car_inspection_resources::{CpuInspectionGroup, CpuInspectionMesh, CpuLightmapView};
 #[path = "saved_lighting.rs"]
 mod saved_lighting;
+#[cfg(test)]
+pub(crate) use saved_lighting::lightmap::fixture as saved_lightmap_fixture;
 pub use saved_lighting::{SavedLightingLoadError, SavedLightingPendingCleanup};
 #[path = "car_inspection_texture.rs"]
 mod car_inspection_texture;

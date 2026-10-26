@@ -10,7 +10,7 @@ fn texture(rgba: [u8; 4]) -> Arc<Texture> {
 }
 fn policy(alpha: AlphaMode, queue: MaterialQueue, depth: f32) -> RenderMaterial {
     RenderMaterial::Original(OriginalMaterial {
-        vertex_lighting: false,
+        lighting: LightingMode::Unlit,
         color: [1.; 4],
         alpha,
         queue,
@@ -22,18 +22,22 @@ fn policy(alpha: AlphaMode, queue: MaterialQueue, depth: f32) -> RenderMaterial 
 }
 fn triangle(image: Arc<Texture>, depth: f32, material: RenderMaterial) -> Mesh {
     Mesh {
+        lightmap: None,
         vertices: vec![
             Vertex {
+                lightmap_uv: [0.; 2],
                 color: [1.; 3],
                 position: [-0.9, -0.9, depth],
                 uv: [0.; 2],
             },
             Vertex {
+                lightmap_uv: [0.; 2],
                 color: [1.; 3],
                 position: [0.9, -0.9, depth],
                 uv: [0.; 2],
             },
             Vertex {
+                lightmap_uv: [0.; 2],
                 color: [1.; 3],
                 position: [0., 0.9, depth],
                 uv: [0.; 2],
@@ -87,7 +91,7 @@ fn saved_vertex_lighting_modulates_rgb_twice_and_preserves_texture_alpha() {
     let mut renderer = renderer();
     let mut material = policy(AlphaMode::Opaque, MaterialQueue::Opaque, 0.5);
     if let RenderMaterial::Original(ref mut original) = material {
-        original.vertex_lighting = true;
+        original.lighting = LightingMode::SavedVertex;
     }
     let mut mesh = triangle(texture([255, 255, 255, 73]), 0.5, material);
     for vertex in &mut mesh.vertices {
@@ -99,7 +103,7 @@ fn saved_vertex_lighting_modulates_rgb_twice_and_preserves_texture_alpha() {
     // Updating only material state switches the SAME texture and vertices back
     // to the previous unlit path. Vertex RGB must not tint plain/menu draws.
     if let RenderMaterial::Original(ref mut original) = material {
-        original.vertex_lighting = false;
+        original.lighting = LightingMode::Unlit;
         original.color = [0.5, 0.25, 1., 1.];
     }
     renderer.update_render_material(0, material).unwrap();
@@ -116,7 +120,7 @@ fn saved_lighting_keeps_code_space_for_nonwhite_texels_and_bilinear_filtering() 
         let mut renderer = renderer_with_format(format, true);
         let mut material = policy(AlphaMode::Opaque, MaterialQueue::Opaque, 0.5);
         if let RenderMaterial::Original(ref mut original) = material {
-            original.vertex_lighting = true;
+            original.lighting = LightingMode::SavedVertex;
         }
         let mut mesh = triangle(texture([128, 96, 32, 73]), 0.5, material);
         for vertex in &mut mesh.vertices {
@@ -140,6 +144,122 @@ fn saved_lighting_keeps_code_space_for_nonwhite_texels_and_bilinear_filtering() 
         // Filtering happens on encoded bytes before MODULATE2X. Sampling an
         // sRGB view then re-encoding its filtered result cannot produce this.
         approximately(pixel(&renderer), [64, 128, 192, 73]);
+    }
+}
+
+fn texture_lighting_policy() -> RenderMaterial {
+    let RenderMaterial::Original(mut material) =
+        policy(AlphaMode::Opaque, MaterialQueue::Opaque, 0.5)
+    else {
+        unreachable!()
+    };
+    material.lighting = LightingMode::SavedTexture;
+    RenderMaterial::Original(material)
+}
+
+#[test]
+#[ignore = "requires a Vulkan or Metal adapter; run with --ignored"]
+fn saved_lightmap_uses_separate_uv_add_saturation_and_stage_alpha() {
+    for format in [
+        wgpu::TextureFormat::Rgba8Unorm,
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+    ] {
+        let mut renderer = renderer_with_format(format, false);
+        let base = Arc::new(Texture {
+            width: 2,
+            height: 1,
+            rgba: vec![9, 11, 13, 17, 64, 80, 96, 170],
+            repeat: [false; 2],
+        });
+        let atlas = Arc::new(Texture {
+            width: 2,
+            height: 1,
+            rgba: vec![128, 64, 0, 153, 0, 0, 255, 255],
+            repeat: [false; 2],
+        });
+        let mut mesh = triangle(base, 0.5, texture_lighting_policy());
+        mesh.lightmap = Some(atlas);
+        for vertex in &mut mesh.vertices {
+            vertex.uv = [0.75, 0.5];
+            vertex.lightmap_uv = [0.25, 0.5];
+            vertex.color = [0.75, 0.25, 1.];
+        }
+        replace(&mut renderer, &[mesh]);
+        // Red must saturate at the ADD stage before multiplication by the
+        // dark base texture. Neither UV set nor the two alpha factors may alias.
+        approximately(pixel(&renderer), [128, 80, 192, 102]);
+    }
+}
+
+#[test]
+#[ignore = "requires a Vulkan or Metal adapter; run with --ignored"]
+fn saved_lightmap_filters_raw_atlas_and_replaces_shared_snapshot_allocations() {
+    for format in [
+        wgpu::TextureFormat::Rgba8Unorm,
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+    ] {
+        let mut renderer = renderer_with_format(format, true);
+        let base = Arc::new(Texture {
+            width: 2,
+            height: 1,
+            rgba: vec![0, 64, 128, 23, 128, 192, 255, 123],
+            repeat: [false; 2],
+        });
+        let atlas = Arc::new(Texture {
+            width: 2,
+            height: 1,
+            rgba: vec![0, 0, 128, 255, 128, 255, 0, 255],
+            repeat: [false; 2],
+        });
+        let make = |atlas: Arc<Texture>| {
+            let mut mesh = triangle(base.clone(), 0.5, texture_lighting_policy());
+            mesh.lightmap = Some(atlas);
+            for vertex in &mut mesh.vertices {
+                vertex.uv = [0.5; 2];
+                vertex.lightmap_uv = [0.5; 2];
+                vertex.color = [0.; 3];
+            }
+            mesh
+        };
+        replace(&mut renderer, &[make(atlas.clone()), make(atlas.clone())]);
+        approximately(pixel(&renderer), [32, 128, 96, 73]);
+        assert!(Arc::ptr_eq(
+            renderer.draws[0].lightmap.as_ref().unwrap(),
+            renderer.draws[1].lightmap.as_ref().unwrap()
+        ));
+
+        // A shared CPU atlas mutation is published as a fresh immutable
+        // snapshot. Replacing one draw cannot alter the older live allocation.
+        let original_gpu = renderer.draws[1].lightmap.as_ref().unwrap().clone();
+        renderer
+            .replace_meshes(1..2, &[make(texture([0, 0, 0, 255]))])
+            .unwrap();
+        assert!(!Arc::ptr_eq(
+            renderer.draws[1].lightmap.as_ref().unwrap(),
+            &original_gpu
+        ));
+        assert!(Arc::ptr_eq(
+            renderer.draws[0].lightmap.as_ref().unwrap(),
+            &original_gpu
+        ));
+        approximately(pixel(&renderer), [0, 0, 0, 73]);
+        renderer.replace_meshes(1..2, &[make(atlas)]).unwrap();
+        assert!(Arc::ptr_eq(
+            renderer.draws[1].lightmap.as_ref().unwrap(),
+            &original_gpu
+        ));
+        approximately(pixel(&renderer), [32, 128, 96, 73]);
+
+        let before = pixel(&renderer);
+        let invalid = triangle(base.clone(), 0.5, texture_lighting_policy());
+        assert!(renderer.replace_meshes(0..2, &[invalid]).is_err());
+        assert_eq!(pixel(&renderer), before);
+        let plain = triangle(base.clone(), 0.5, RenderMaterial::Legacy);
+        replace(&mut renderer, &[plain]);
+        assert!(renderer
+            .update_render_material(0, texture_lighting_policy())
+            .is_err());
+        assert_eq!(renderer.draws[0].policy, RenderMaterial::Legacy);
     }
 }
 #[test]

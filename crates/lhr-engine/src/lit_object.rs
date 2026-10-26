@@ -1,7 +1,8 @@
 //! Bounded I3D_lit_object resource ownership. Source: pinned
 //! mafia-re 29b65b0, I3d_lit_object.cpp constructor/destructor and litLod::Create.
-//! Saved vertex-lighting loads are implemented by saved_lighting.rs. Lightmap
-//! atlases, Construct and active-lighting changes remain separate boundaries.
+//! Saved lighting loads are implemented by saved_lighting.rs. Rectangle data
+//! and its atlas/index owners live in lit_lightmap_resources.rs. Construct and
+//! active-lighting changes remain separate boundaries.
 use super::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -154,7 +155,7 @@ impl ObjectResources {
                     return Err(ObjectError::LodOwned(lod).into());
                 }
                 self.lit_level_mut(object, active)?.saved_vertex_colors[index] = None;
-                self.cleanup_lod(lod, backend)?;
+                self.cleanup_lit_lod(lod, backend)?;
                 self.lods[(lod.slot - 1) as usize] = None;
                 let level = self.lit_level_mut(object, active)?;
                 level.lods[index] = None;

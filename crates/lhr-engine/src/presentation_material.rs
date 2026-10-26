@@ -1,4 +1,4 @@
-//! Source-derived unlit presentation decisions from pinned mafia-re 29b65b0:
+//! Source-derived bounded material decisions from pinned mafia-re 29b65b0:
 //! I3d_object.cpp queue/draw branches and T_l.cpp KEEP_DIFFUSE/packed alpha.
 //! Takes EFFECTIVE live flags, never assumes serialized asset flags are live.
 use crate::visual_resources::I3dMaterial;
@@ -72,7 +72,7 @@ pub fn live_material_with_fade(
     // admits the engine's round-to-nearest-even profile explicitly.
     let opacity = (total_alpha * 255.).round_ties_even() / 255.;
     Ok(RenderMaterial::Original(OriginalMaterial {
-        vertex_lighting: false,
+        lighting: lhr_render::LightingMode::Unlit,
         color: [diffuse[0], diffuse[1], diffuse[2], opacity],
         alpha,
         queue,
@@ -110,7 +110,7 @@ pub fn unconstructed_lit_material_flags(
         return Err("Unconstructed lit sort center is nonfinite".into());
     }
     Ok(RenderMaterial::Original(OriginalMaterial {
-        vertex_lighting: false,
+        lighting: lhr_render::LightingMode::Unlit,
         color: [0., 1., 1., 1.],
         alpha: AlphaMode::Opaque,
         queue: MaterialQueue::Opaque,
@@ -132,14 +132,14 @@ pub fn saved_vertex_lit_material(
     front_face: FrontFace,
 ) -> Result<RenderMaterial, String> {
     if !has_texture || material.flags & 0xe0000000 != 0 {
-        return Err("Saved vertex lighting requires an opaque effective texture".into());
+        return Err("Saved lighting requires an opaque effective texture".into());
     }
     if !sort_center.into_iter().all(f32::is_finite) {
-        return Err("Saved vertex lighting sort center is nonfinite".into());
+        return Err("Saved lighting sort center is nonfinite".into());
     }
     Ok(RenderMaterial::Original(OriginalMaterial {
         color: [1.; 4],
-        vertex_lighting: true,
+        lighting: lhr_render::LightingMode::SavedVertex,
         alpha: AlphaMode::Opaque,
         queue: MaterialQueue::Opaque,
         color_key_reference: 200,
@@ -147,6 +147,24 @@ pub fn saved_vertex_lit_material(
         front_face,
         sort_center,
     }))
+}
+
+/// Pinned I3D_lit_object::m_RenderFGroup single-pass constructed lightmap
+/// branch. The snapshot must separately prove the current sector's lighting
+/// context and supply actual atlas UVs and dynamic diffuse RGB.
+pub fn saved_texture_lit_material(
+    material: &I3dMaterial,
+    has_texture: bool,
+    sort_center: [f32; 3],
+    front_face: FrontFace,
+) -> Result<RenderMaterial, String> {
+    let RenderMaterial::Original(mut policy) =
+        saved_vertex_lit_material(material, has_texture, sort_center, front_face)?
+    else {
+        unreachable!()
+    };
+    policy.lighting = lhr_render::LightingMode::SavedTexture;
+    Ok(RenderMaterial::Original(policy))
 }
 
 #[cfg(test)]
@@ -249,18 +267,22 @@ mod tests {
             .unwrap()
         };
         let mesh = Mesh {
+            lightmap: None,
             vertices: vec![
                 Vertex {
+                    lightmap_uv: [0.; 2],
                     color: [1.; 3],
                     position: [0., 0., 0.],
                     uv: [0.; 2],
                 },
                 Vertex {
+                    lightmap_uv: [0.; 2],
                     color: [1.; 3],
                     position: [2., 0., 0.],
                     uv: [0.; 2],
                 },
                 Vertex {
+                    lightmap_uv: [0.; 2],
                     color: [1.; 3],
                     position: [0., 2., 0.],
                     uv: [0.; 2],

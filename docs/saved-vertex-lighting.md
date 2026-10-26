@@ -55,6 +55,7 @@ actual owner-to-snapshot path with nonwhite texels, distinct ARGB channels and
 zero vertex alpha, plus both target formats and raw bilinear filtering.
 
 Game scene2 visual replacement/dispatch still requires its private contracts;
-the existing `0x543a4b` Unsupported gate remains. Rectangle atlases, active-level
-switching, dynamic lighting and fog are separate dependencies. No original-data
+the existing `0x543a4b` Unsupported gate remains. The separate generic entry now
+supports [saved rectangle atlases](saved-lightmap-atlas.md); active-level
+switching, dynamic lighting and fog remain dependencies. No original-data
 comparison or native function/coverage credit is claimed by this slice.

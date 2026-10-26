@@ -17,6 +17,8 @@ use crate::visual_resources::{
     MeshObjectKey, RawVertexBytesKey, TextureKey, VertexBufferPointer, VisualResourceBackend,
     VisualResourceError, VisualResourceOperationError, VisualResources,
 };
+#[path = "managed_index_storage.rs"]
+mod index_storage;
 
 /// Explicit external dependencies, in addition to actual buffer-manager effects.
 /// No texture/raw-byte implementation or no-op fallback is supplied here.

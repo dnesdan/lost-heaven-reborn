@@ -155,7 +155,7 @@ fn loaded_saved_colors_reach_gpu_and_reload_preserves_texture_alpha() {
             let lhr_render::RenderMaterial::Original(policy) = mesh.material else {
                 panic!("actual lit owner did not select its material policy")
             };
-            assert!(policy.vertex_lighting);
+            assert_eq!(policy.lighting, lhr_render::LightingMode::SavedVertex);
             assert_eq!(policy.color, [1.; 4]);
             assert_eq!(mesh.texture.as_ref().unwrap().rgba, [128, 64, 32, 17]);
             renderer

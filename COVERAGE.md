@@ -9,10 +9,12 @@ completion percentage. The campaign and first mission remain unplayable.
 The staged source-based merge connects original-data loaders and image intake,
 live material parameters and camera-selected model LOD, authored view
 orientation, audio lifetime, archive/write IO and language selection. Lit objects
-also admit explicit saved vertex-lighting modes 1/5 through owned buffers and a
-code-space MODULATE2X GPU path. [Scope and failure behavior](docs/saved-vertex-lighting.md).
-Textured lightmaps, scene `LMAP` payload association and complete original
-lighting/visibility remain open.
+also admit [saved vertex-lighting modes 1/5](docs/saved-vertex-lighting.md) and
+[saved mode-2 rectangle atlases](docs/saved-lightmap-atlas.md) through owned
+buffers and source color-space GPU paths. Mode 2 owns expanded geometry, private
+indices and shared atlases; presentation requires an explicit, revalidated static
+lighting context. Scene `LMAP` payload association, visual replacement and complete
+original lighting/visibility remain open.
 
 The preceding merge's accepted code `a4dee6d` passed the required gate and **1310 Rust tests
 in both debug and release**, including both unchanged x87 tests without
@@ -34,7 +36,7 @@ Partial support below does not pass a system gate.
 | System | Current bounded support | Remaining gate | Verified |
 | --- | --- | --- | --- |
 | Assets and world streaming | DTA/model/scene intake; nearby world geometry | Full Game/world streaming and mission ownership | No |
-| Rendering and materials | Software Vulkan, live materials/model LOD; unconstructed and saved vertex-lit objects | Textured lightmaps, original lighting/material/GPU behavior; Metal | No |
+| Rendering and materials | Software Vulkan, live materials/model LOD; explicit unconstructed, saved vertex and static atlas lighting profiles | Scene association, full original lighting/visibility/material/GPU behavior; Metal | No |
 | Animation | Owned hierarchy, one sequential controller slot, CPU skinning | Blending, scale/notes and gameplay selection | No |
 | Collision and physics | Original-road and bounded dynamic contacts | General actor/world response breadth | No |
 | Vehicles | Standalone lifecycle, driving, damage and cleanup | Player/mission ownership, occupants, severe-damage paths | No |

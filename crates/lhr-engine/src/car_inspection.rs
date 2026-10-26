@@ -1,11 +1,12 @@
-//! Unlit inspection of the same live arena initialized by C_car. View-aware
+//! Bounded presentation of the same live arena initialized by C_car. View-aware
 //! callers select actual owned LODs; legacy wrappers explicitly select LOD0.
 //! Geometry comes from owned CPU buffers, including object-private LOD data.
-//! Live source material decisions are explicit; lighting/envmaps/fog and full
-//! original renderer parity remain outside this unlit presentation bridge.
+//! Saved vertex lighting and an explicit static lightmap context are supported.
+//! Dynamic lighting, envmaps, fog and native visibility remain separate work.
 use crate::{
     frame_transform::{FrameKey, FrameKind},
     model_loading::ModelArena,
+    scene_ownership::{SceneKey, SectorKey},
 };
 use lhr_render::{FrontFace, Mesh, Scene, Texture, Vertex};
 use std::{
@@ -15,6 +16,15 @@ use std::{
 
 pub const CAR_INSPECTION_MAX_BYTES: usize = 256 * 1024 * 1024;
 pub const CAR_INSPECTION_MAX_DRAWS: usize = 4096;
+
+/// Explicit host diagnostic rendering context. This is the caller's current
+/// sector, not a reconstructed portal/visual-queue selection. Every lightmapped
+/// frame is checked against this same arena, live scene and actual ancestry.
+#[derive(Clone, Copy, Debug)]
+pub struct StaticLightmapContext {
+    pub scene: SceneKey,
+    pub sector: SectorKey,
+}
 
 pub struct CarInspectionScene {
     pub scene: Scene,
@@ -139,7 +149,19 @@ pub fn snapshot_arena_tree_with_view(
     root: FrameKey,
     view: crate::inspection_lod::InspectionLodView,
 ) -> Result<CarInspectionScene, String> {
-    snapshot_arena_tree_inner(arena, root, Some(view))
+    snapshot_arena_tree_inner(arena, root, Some(view), None)
+}
+
+/// HWTL/single-pass saved-lightmap inspection for an explicitly supplied
+/// current sector. Only its empty-light, zero-emission domain is implemented;
+/// this does not select visible sectors or substitute for the native renderer.
+pub fn snapshot_arena_tree_with_view_and_lighting(
+    arena: &mut ModelArena,
+    root: FrameKey,
+    view: crate::inspection_lod::InspectionLodView,
+    lighting: StaticLightmapContext,
+) -> Result<CarInspectionScene, String> {
+    snapshot_arena_tree_inner(arena, root, Some(view), Some(lighting))
 }
 
 /// Snapshot the actual visible subtree, including sector-owned car effects.
@@ -150,12 +172,13 @@ pub fn snapshot_arena_tree(
     arena: &mut ModelArena,
     root: FrameKey,
 ) -> Result<CarInspectionScene, String> {
-    snapshot_arena_tree_inner(arena, root, None)
+    snapshot_arena_tree_inner(arena, root, None, None)
 }
 fn snapshot_arena_tree_inner(
     arena: &mut ModelArena,
     root: FrameKey,
     view: Option<crate::inspection_lod::InspectionLodView>,
+    lighting: Option<StaticLightmapContext>,
 ) -> Result<CarInspectionScene, String> {
     let mut lod_culled_meshes = 0;
     let mut pending = vec![root];
@@ -226,7 +249,7 @@ fn snapshot_arena_tree_inner(
             } else {
                 (0, 1.)
             };
-            frames.push((object, matrix, center, lod_index, fade));
+            frames.push((frame, object, matrix, center, lod_index, fade));
         } else if matches!(state.kind, FrameKind::Singlemesh) {
             return Err("Car inspection cannot substitute undeformed singlemesh vertices".into());
         }
@@ -248,14 +271,68 @@ fn snapshot_arena_tree_inner(
     let mut bytes = 0usize;
     let mut meshes = Vec::new();
     let mut textures = BTreeMap::<(u64, u32), Arc<Texture>>::new();
+    let mut atlases = BTreeMap::new();
     let mut omitted = 0usize;
     let mut unsupported_alpha_masks = 0usize;
-    for (object, world, center, lod_index, fade) in &frames {
+    for (frame, object, world, center, lod_index, fade) in &frames {
         let Some(view) = resources
             .inspection_mesh_at_lod(*object, *lod_index, CAR_INSPECTION_MAX_DRAWS - meshes.len())
             .map_err(|e| format!("Live car CPU geometry: {e:?}"))?
         else {
             continue;
+        };
+        let lightmap_texture = if let Some(lightmap) = &view.lightmap {
+            validate_static_lightmap_context(
+                arena,
+                *frame,
+                lighting
+                    .ok_or("Saved texture lightmaps require an explicit current-sector context")?,
+            )?;
+            let first = view
+                .groups
+                .first()
+                .ok_or("Saved lightmap has no first material")?
+                .material;
+            // PrepareLights starts with zero ambient, then uses the FIRST face
+            // group's material. Even with no sector lights it adds emissive.
+            if first.emissive != [0.; 3] || !first.ambient.into_iter().all(f32::is_finite) {
+                return Err(
+                    "Saved lightmap dynamic lighting/emission is outside the static profile".into(),
+                );
+            }
+            if view.uv_offset != [0.; 2] || view.vertex_stride != 32 {
+                return Err(
+                    "Saved lightmap private layout or animated UV offset is unavailable".into(),
+                );
+            }
+            if let Some(texture) = atlases.get(&lightmap.atlas) {
+                Some(Arc::clone(texture))
+            } else {
+                let source = lightmap.texture;
+                let size = (source.width as usize)
+                    .checked_mul(source.height as usize)
+                    .and_then(|n| n.checked_mul(4))
+                    .ok_or("Saved lightmap texture size overflow")?;
+                if source.width == 0 || source.height == 0 || source.rgba.len() != size {
+                    return Err("Saved lightmap CPU atlas is incomplete".into());
+                }
+                charge(&mut bytes, size)?;
+                let mut rgba = Vec::new();
+                rgba.try_reserve_exact(size)
+                    .map_err(|_| "Saved lightmap snapshot allocation unavailable")?;
+                rgba.extend_from_slice(&source.rgba);
+                let texture = Arc::new(Texture {
+                    width: source.width,
+                    height: source.height,
+                    rgba,
+                    // Source stage 0 keeps the driver's default WRAP state.
+                    repeat: [true; 2],
+                });
+                atlases.insert(lightmap.atlas, Arc::clone(&texture));
+                Some(texture)
+            }
+        } else {
+            None
         };
         for group in view.groups {
             if meshes.len() >= CAR_INSPECTION_MAX_DRAWS {
@@ -279,7 +356,14 @@ fn snapshot_arena_tree_inner(
                 has_texture.then_some(group.texture_alpha).flatten(),
                 has_texture && group.inspection_rgba8_color_key,
             )?;
-            let policy = if view.saved_vertex_colors.is_some() {
+            let policy = if view.lightmap.is_some() {
+                crate::presentation_material::saved_texture_lit_material(
+                    material,
+                    has_texture,
+                    *center,
+                    FrontFace::CounterClockwise,
+                )?
+            } else if view.saved_vertex_colors.is_some() {
                 crate::presentation_material::saved_vertex_lit_material(
                     material,
                     has_texture,
@@ -389,15 +473,28 @@ fn snapshot_arena_tree_inner(
                 if !uv.into_iter().all(f32::is_finite) {
                     return Err("Car UV transform overflow".into());
                 }
+                let lightmap_uv = if let Some(lightmap) = &view.lightmap {
+                    [
+                        word(vertex, lightmap.uv_byte_offset)?,
+                        word(vertex, lightmap.uv_byte_offset + 4)?,
+                    ]
+                } else {
+                    [0.; 2]
+                };
                 vertices.push(Vertex {
-                    color: view.saved_vertex_colors.map_or([1.; 3], |colors| {
-                        let argb = colors[index];
-                        [
-                            ((argb >> 16) & 255) as f32 / 255.,
-                            ((argb >> 8) & 255) as f32 / 255.,
-                            (argb & 255) as f32 / 255.,
-                        ]
-                    }),
+                    lightmap_uv,
+                    color: if view.lightmap.is_some() {
+                        [0.; 3]
+                    } else {
+                        view.saved_vertex_colors.map_or([1.; 3], |colors| {
+                            let argb = colors[index];
+                            [
+                                ((argb >> 16) & 255) as f32 / 255.,
+                                ((argb >> 8) & 255) as f32 / 255.,
+                                (argb & 255) as f32 / 255.,
+                            ]
+                        })
+                    },
                     position: [x, y, -z],
                     uv,
                 });
@@ -414,6 +511,7 @@ fn snapshot_arena_tree_inner(
                 indices.push(index);
             }
             meshes.push(Mesh {
+                lightmap: lightmap_texture.clone(),
                 material: policy,
                 vertices,
                 indices,
@@ -431,6 +529,60 @@ fn snapshot_arena_tree_inner(
         lod_culled_meshes,
     })
 }
+
+fn validate_static_lightmap_context(
+    arena: &ModelArena,
+    frame: FrameKey,
+    context: StaticLightmapContext,
+) -> Result<(), String> {
+    let closest = arena
+        .graph
+        .closest_sector(Some(frame))
+        .map_err(|e| format!("Lightmap sector ancestry: {e:?}"))?;
+    if closest != Some(context.sector.frame()) {
+        return Err("Lightmap context does not match the frame's actual closest sector".into());
+    }
+    let sector = arena.sector(context.sector).map_err(|e| e.to_string())?;
+    if sector.scene != Some(context.scene) {
+        return Err("Lightmap sector belongs to a different scene".into());
+    }
+    arena
+        .check_owner_available(context.scene.into())
+        .map_err(|e| e.to_string())?;
+    let scene = arena.scene(context.scene).map_err(|e| e.to_string())?;
+    if scene.sectors[3] == context.sector {
+        return Err("Near-sector lightmaps require the actual current camera sector".into());
+    }
+    if !sector.lights.is_empty() {
+        return Err("Saved lightmap dynamic sector lights are outside the static profile".into());
+    }
+    // The supplied context must not hide a cross-scene or cyclic hierarchy.
+    let mut at = arena
+        .links(context.sector.frame())
+        .map_err(|e| e.to_string())?
+        .parent;
+    let mut seen = BTreeSet::new();
+    while let Some(ancestor) = at {
+        if !seen.insert(ancestor.0) || seen.len() > 65536 {
+            return Err("Lightmap sector ancestry is cyclic or exceeds its budget".into());
+        }
+        if arena.state(ancestor).map_err(|e| e.to_string())?.kind == FrameKind::Sector
+            && arena
+                .sector(SectorKey(ancestor))
+                .map_err(|e| e.to_string())?
+                .scene
+                != Some(context.scene)
+        {
+            return Err("Lightmap nested sector scene association is inconsistent".into());
+        }
+        at = arena.links(ancestor).map_err(|e| e.to_string())?.parent;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+#[path = "lightmap_presentation_tests.rs"]
+mod lightmap_tests;
 
 #[cfg(test)]
 mod tests {

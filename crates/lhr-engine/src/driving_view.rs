@@ -176,9 +176,11 @@ mod tests {
 
     fn triangle(color: [u8; 4]) -> Mesh {
         Mesh {
+            lightmap: None,
             material: Default::default(),
             vertices: vec![
                 lhr_render::Vertex {
+                    lightmap_uv: [0.; 2],
                     color: [1.; 3],
                     position: [0.; 3],
                     uv: [0.; 2]
@@ -226,9 +228,11 @@ mod tests {
         use lhr_render::{Renderer, Scene, Texture, Vertex};
         use std::sync::Arc;
         let quad = |color: [u8; 4], x0: f32, x1: f32, y0: f32, y1: f32| Mesh {
+            lightmap: None,
             material: Default::default(),
             vertices: [[x0, y0, 0.], [x1, y0, 0.], [x1, y1, 0.], [x0, y1, 0.]]
                 .map(|position| Vertex {
+                    lightmap_uv: [0.; 2],
                     color: [1.; 3],
                     position,
                     uv: [0.; 2],

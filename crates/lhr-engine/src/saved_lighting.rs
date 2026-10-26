@@ -1,13 +1,30 @@
-//! Source-backed saved vertex lighting on actual owned LMAP resources.
+//! Source-backed saved lighting on actual owned LMAP resources.
 //!
 //! Pinned mafia-re 29b65b0, I3d_lit_object.cpp Load (1159..1445), Destruct
 //! (1127..1135), and the hardware vertex-color Create branch (2121..2142).
-//! This consumes modes 1/5 only. Rectangle lightmaps, native short-read UB,
-//! replacement of occupied nonactive LODs, and Game scene2 payload dispatch
-//! remain unavailable. Host vertex buffers are created eagerly for inspection;
+//! The vertex-only entry accepts modes 1/5; the explicit general entry also
+//! accepts mode 2 with its truecolor512/HWTL atlas and private index owner.
+//! Native short-read UB, replacement of occupied nonactive LODs, and Game
+//! scene2 payload dispatch remain unavailable. Buffers are eager for inspection;
 //! native Load only stores colors and Create fills the buffer when rendered.
 use super::*;
 use crate::i3d_object::{ObjectCleanupPhase, ObjectVisualType, PlainLodKey};
+#[path = "saved_lightmap.rs"]
+pub(super) mod lightmap;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SavedLightingAdmission {
+    VertexOnly,
+    TrueColorLightmap512,
+}
+
+#[derive(Clone, Copy)]
+struct SavedLodTarget {
+    object: ObjectResourceKey,
+    lighting: usize,
+    index: usize,
+    mesh_level: MeshLevelKey,
+}
 
 #[derive(Debug)]
 pub struct SavedLightingPendingCleanup {
@@ -78,6 +95,31 @@ impl LoadedVisualResources {
         object: ObjectResourceKey,
         bytes: &[u8],
     ) -> std::result::Result<usize, SavedLightingLoadError> {
+        self.load_saved_lighting_with_admission(object, bytes, SavedLightingAdmission::VertexOnly)
+    }
+
+    /// Saved Load with mixed modes 1/5/2. Rectangle mode selects the explicit
+    /// truecolor512, hardware-vertex profile. Presentation must independently
+    /// establish its real sector lighting context; loading makes no lighting
+    /// assumption.
+    pub fn load_saved_lighting(
+        &mut self,
+        object: ObjectResourceKey,
+        bytes: &[u8],
+    ) -> std::result::Result<usize, SavedLightingLoadError> {
+        self.load_saved_lighting_with_admission(
+            object,
+            bytes,
+            SavedLightingAdmission::TrueColorLightmap512,
+        )
+    }
+
+    fn load_saved_lighting_with_admission(
+        &mut self,
+        object: ObjectResourceKey,
+        bytes: &[u8],
+        admission: SavedLightingAdmission,
+    ) -> std::result::Result<usize, SavedLightingLoadError> {
         let mut input = Input { bytes, cursor: 0 };
         let initial = (|| {
             if self.incomplete {
@@ -101,8 +143,12 @@ impl LoadedVisualResources {
             });
         }
         let mut pending_cleanup = None;
-        let result =
-            self.load_saved_vertex_lighting_inner(object, &mut input, &mut pending_cleanup);
+        let result = self.load_saved_vertex_lighting_inner(
+            object,
+            &mut input,
+            &mut pending_cleanup,
+            admission,
+        );
         match result {
             Ok(()) => Ok(input.cursor),
             Err(error) => {
@@ -121,6 +167,7 @@ impl LoadedVisualResources {
         object: ObjectResourceKey,
         input: &mut Input<'_>,
         pending_cleanup: &mut Option<SavedLightingPendingCleanup>,
+        admission: SavedLightingAdmission,
     ) -> Result<()> {
         self.objects
             .destruct_active_lighting(object, &mut self.backend)?;
@@ -137,6 +184,7 @@ impl LoadedVisualResources {
             .map_err(|e| LoadedVisualError::Object(ObjectError::Managed(e.into())))?;
         let mesh_lod_count = mesh.num_lods;
         let mesh_levels = mesh.levels;
+        let mesh_offsets = [mesh.u_ofs, mesh.v_ofs];
         if mesh_lod_count as usize > mesh_levels.len() {
             return Err(LoadedVisualError::InvalidGeometry);
         }
@@ -171,7 +219,10 @@ impl LoadedVisualResources {
                     "saved lighting LOD count differs from mesh",
                 ));
             }
-            if mode != 1 && mode != 5 {
+            if mode != 1
+                && mode != 5
+                && !(mode == 2 && admission == SavedLightingAdmission::TrueColorLightmap512)
+            {
                 return Err(LoadedVisualError::Backend(
                     "saved lightmap/unknown mode requires its own constructed resource owner",
                 ));
@@ -186,6 +237,24 @@ impl LoadedVisualResources {
                     ));
                 }
                 let level_key = level_key.ok_or(LoadedVisualError::InvalidGeometry)?;
+                if mode == 2 {
+                    if mesh_offsets != [0.; 2] {
+                        return Err(LoadedVisualError::Backend(
+                            "saved lightmap nonzero mesh UV offsets unavailable",
+                        ));
+                    }
+                    self.load_saved_lightmap_lod(
+                        SavedLodTarget {
+                            object,
+                            lighting,
+                            index,
+                            mesh_level: level_key,
+                        },
+                        input,
+                        pending_cleanup,
+                    )?;
+                    continue;
+                }
                 let mesh_level = self
                     .objects
                     .managed()
@@ -245,6 +314,9 @@ impl LoadedVisualResources {
                     )?;
                 }
             }
+        }
+        if admission == SavedLightingAdmission::TrueColorLightmap512 {
+            self.objects.unlock_all_indices(&mut self.backend)?;
         }
         self.objects.unlock_all_vertices(&mut self.backend)?;
         Ok(())
@@ -353,23 +425,31 @@ impl LoadedVisualResources {
             Ok(())
         })();
         if let Err(error) = result {
-            // Preserve the primary failure even if the allocator poisoned its
-            // owner. A poisoned manager cannot safely roll back an interrupted
-            // allocation: retain that exact pending identity for diagnostics.
-            let cleanup_error = if self.objects.is_poisoned() {
-                Some(LoadedVisualError::Object(ObjectError::Poisoned))
-            } else {
-                self.objects
-                    .destroy_plain_lod(key, &mut self.backend)
-                    .err()
-                    .map(Into::into)
-            };
-            if let Some(error) = cleanup_error {
-                *pending_cleanup = Some(SavedLightingPendingCleanup { lod: key, error });
-            }
-            return Err(error);
+            return Err(self.cleanup_failed_saved_lod(key, error, pending_cleanup));
         }
         Ok(())
+    }
+
+    fn cleanup_failed_saved_lod(
+        &mut self,
+        key: PlainLodKey,
+        error: LoadedVisualError,
+        pending_cleanup: &mut Option<SavedLightingPendingCleanup>,
+    ) -> LoadedVisualError {
+        // A poisoned manager cannot roll back an interrupted allocation. Keep
+        // both its primary cause and the actual pending derived resource key.
+        let cleanup_error = if self.objects.is_poisoned() {
+            Some(LoadedVisualError::Object(ObjectError::Poisoned))
+        } else {
+            self.objects
+                .destroy_pending_saved_lit_lod(key, &mut self.backend)
+                .err()
+                .map(Into::into)
+        };
+        if let Some(error) = cleanup_error {
+            *pending_cleanup = Some(SavedLightingPendingCleanup { lod: key, error });
+        }
+        error
     }
 }
 
@@ -380,6 +460,33 @@ impl crate::model_loading::ModelArena {
         &mut self,
         frame: crate::frame_transform::FrameKey,
         bytes: &[u8],
+    ) -> std::result::Result<usize, SavedLightingLoadError> {
+        self.load_frame_saved_lighting_with_admission(
+            frame,
+            bytes,
+            SavedLightingAdmission::VertexOnly,
+        )
+    }
+
+    /// Explicit source Load into an existing LMAP owner, including mode 2.
+    /// This does not infer the original Game caller or its scene2 dispatch.
+    pub fn load_frame_saved_lighting(
+        &mut self,
+        frame: crate::frame_transform::FrameKey,
+        bytes: &[u8],
+    ) -> std::result::Result<usize, SavedLightingLoadError> {
+        self.load_frame_saved_lighting_with_admission(
+            frame,
+            bytes,
+            SavedLightingAdmission::TrueColorLightmap512,
+        )
+    }
+
+    fn load_frame_saved_lighting_with_admission(
+        &mut self,
+        frame: crate::frame_transform::FrameKey,
+        bytes: &[u8],
+        admission: SavedLightingAdmission,
     ) -> std::result::Result<usize, SavedLightingLoadError> {
         let object = self
             .frame_object_resources(frame)
@@ -401,7 +508,7 @@ impl crate::model_loading::ModelArena {
                 error: LoadedVisualError::Backend("saved lighting resource owner unavailable"),
                 pending_cleanup: None,
             })?
-            .load_saved_vertex_lighting(object, bytes)
+            .load_saved_lighting_with_admission(object, bytes, admission)
     }
 }
 

@@ -11,15 +11,18 @@ use std::{
 use wgpu::util::DeviceExt;
 mod material;
 use material::PipelineKey;
-pub use material::{AlphaMode, FrontFace, MaterialQueue, OriginalMaterial, RenderMaterial};
+pub use material::{
+    AlphaMode, FrontFace, LightingMode, MaterialQueue, OriginalMaterial, RenderMaterial,
+};
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 pub struct Vertex {
     pub position: [f32; 3],
     pub uv: [f32; 2],
-    /// Saved diffuse RGB, used only by the explicit vertex-lighting policy.
+    /// Saved or source-derived dynamic diffuse RGB for the explicit lit policy.
     pub color: [f32; 3],
+    pub lightmap_uv: [f32; 2],
 }
 #[derive(Clone)]
 pub struct Texture {
@@ -32,6 +35,8 @@ pub struct Mesh {
     pub vertices: Vec<Vertex>,
     pub indices: Vec<u32>,
     pub texture: Option<Arc<Texture>>,
+    /// Immutable snapshot of the actual atlas allocation, shared within a scene.
+    pub lightmap: Option<Arc<Texture>>,
     pub material: RenderMaterial,
 }
 pub struct Scene {
@@ -134,6 +139,7 @@ struct Draw {
     index: wgpu::Buffer,
     count: u32,
     material: Arc<GpuMaterial>,
+    lightmap: Option<Arc<GpuMaterial>>,
     source: Weak<Texture>,
     parameters: wgpu::BindGroup,
     parameters_buffer: wgpu::Buffer,
@@ -298,7 +304,7 @@ impl Renderer {
                     buffers: &[wgpu::VertexBufferLayout {
                         array_stride: std::mem::size_of::<Vertex>() as u64,
                         step_mode: wgpu::VertexStepMode::Vertex,
-                        attributes: &wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x2,2=>Float32x3],
+                        attributes: &wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x2,2=>Float32x3,3=>Float32x2],
                     }],
                     compilation_options: Default::default(),
                 },
@@ -332,7 +338,12 @@ impl Renderer {
         let inspection_cutout_pipeline = scene_pipeline("fragment_inspection_cutout");
         let original_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Original material pipeline layout"),
-            bind_group_layouts: &[&camera_layout, &texture_layout, &material_layout],
+            bind_group_layouts: &[
+                &camera_layout,
+                &texture_layout,
+                &material_layout,
+                &texture_layout,
+            ],
             push_constant_ranges: &[],
         });
         let mut original_pipelines = HashMap::new();
@@ -358,7 +369,7 @@ impl Renderer {
                             buffers: &[wgpu::VertexBufferLayout {
                                 array_stride: std::mem::size_of::<Vertex>() as u64,
                                 step_mode: wgpu::VertexStepMode::Vertex,
-                                attributes: &wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x2,2=>Float32x3],
+                                attributes: &wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x2,2=>Float32x3,3=>Float32x2],
                             }],
                             compilation_options: Default::default(),
                         },
@@ -404,7 +415,7 @@ impl Renderer {
                 buffers: &[wgpu::VertexBufferLayout {
                     array_stride: std::mem::size_of::<Vertex>() as u64,
                     step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x2,2=>Float32x3],
+                    attributes: &wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x2,2=>Float32x3,3=>Float32x2],
                 }],
                 compilation_options: Default::default(),
             },
@@ -575,6 +586,11 @@ impl Renderer {
             return Err("Invalid render material".into());
         }
         let draw = self.draws.get_mut(index).ok_or("Mesh index unavailable")?;
+        if matches!(material, RenderMaterial::Original(m) if m.lighting == LightingMode::SavedTexture)
+            && draw.lightmap.is_none()
+        {
+            return Err("Saved texture lighting requires an uploaded atlas".into());
+        }
         self.queue.write_buffer(
             &draw.parameters_buffer,
             0,
@@ -713,9 +729,18 @@ impl Renderer {
                     RenderMaterial::Original(m) => {
                         pass.set_pipeline(&self.original_pipelines[&m.into()]);
                         pass.set_bind_group(2, &draw.parameters, &[]);
+                        pass.set_bind_group(
+                            3,
+                            &draw
+                                .lightmap
+                                .as_ref()
+                                .unwrap_or(&draw.material)
+                                .code_space_group,
+                            &[],
+                        );
                     }
                 }
-                let texture_group = if matches!(draw.policy, RenderMaterial::Original(m) if m.vertex_lighting)
+                let texture_group = if matches!(draw.policy, RenderMaterial::Original(m) if m.lighting != LightingMode::Unlit)
                 {
                     &draw.material.code_space_group
                 } else {
@@ -977,6 +1002,7 @@ fn upload_meshes(
                 .iter()
                 .chain(&v.uv)
                 .chain(&v.color)
+                .chain(&v.lightmap_uv)
                 .any(|x| !x.is_finite())
         }) {
             return Err("Nonfinite mesh vertex".into());
@@ -985,124 +1011,44 @@ fn upload_meshes(
             .texture
             .as_ref()
             .ok_or("Mesh material has no texture or diffuse color")?;
-        if tex.width == 0
-            || tex.height == 0
-            || tex.width > 8192
-            || tex.height > 8192
-            || tex.rgba.len() != tex.width as usize * tex.height as usize * 4
+        if matches!(mesh.material, RenderMaterial::Original(m) if m.lighting == LightingMode::SavedTexture)
+            && mesh.lightmap.is_none()
         {
-            return Err("Invalid texture dimensions or data".into());
+            return Err("Saved texture lighting requires an atlas".into());
+        }
+        for tex in std::iter::once(tex).chain(mesh.lightmap.iter()) {
+            if tex.width == 0
+                || tex.height == 0
+                || tex.width > 8192
+                || tex.height > 8192
+                || tex.rgba.len() != tex.width as usize * tex.height as usize * 4
+            {
+                return Err("Invalid texture dimensions or data".into());
+            }
         }
         u32::try_from(mesh.indices.len()).map_err(|_| "Too many indices")?;
     }
     materials.retain(|_, cached| cached.source.strong_count() != 0);
     for mesh in meshes {
         let tex = mesh.texture.as_ref().expect("validated texture");
-        let key = Arc::as_ptr(tex) as usize;
-        let material = if let Some(cached) = materials.get(&key) {
-            Arc::clone(&cached.material)
-        } else {
-            let texture = device.create_texture(&wgpu::TextureDescriptor {
-                label: None,
-                size: wgpu::Extent3d {
-                    width: tex.width,
-                    height: tex.height,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8UnormSrgb,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                view_formats: &[wgpu::TextureFormat::Rgba8Unorm],
-            });
-            queue.write_texture(
-                wgpu::TexelCopyTextureInfo {
-                    texture: &texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                &tex.rgba,
-                wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(tex.width * 4),
-                    rows_per_image: Some(tex.height),
-                },
-                texture.size(),
-            );
-            let filter = if options.linear {
-                wgpu::FilterMode::Linear
-            } else {
-                wgpu::FilterMode::Nearest
-            };
-            let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-                mag_filter: filter,
-                min_filter: filter,
-                address_mode_u: if tex.repeat[0] {
-                    wgpu::AddressMode::Repeat
-                } else {
-                    wgpu::AddressMode::ClampToEdge
-                },
-                address_mode_v: if tex.repeat[1] {
-                    wgpu::AddressMode::Repeat
-                } else {
-                    wgpu::AddressMode::ClampToEdge
-                },
-                ..Default::default()
-            });
-            let material = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: None,
-                layout: texture_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(
-                            &texture.create_view(&Default::default()),
-                        ),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&sampler),
-                    },
-                ],
-            });
-            // The original D3D8 saved-lighting path filters and combines byte
-            // color values. Keep a raw view of the SAME immutable allocation;
-            // ordinary host presentation retains its existing sRGB view.
-            let code_space_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("Saved lighting code-space texture"),
-                layout: texture_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&texture.create_view(
-                            &wgpu::TextureViewDescriptor {
-                                format: Some(wgpu::TextureFormat::Rgba8Unorm),
-                                ..Default::default()
-                            },
-                        )),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&sampler),
-                    },
-                ],
-            });
-            let material = Arc::new(GpuMaterial {
-                texture,
-                group: material,
-                code_space_group,
-            });
-            materials.insert(
-                key,
-                CachedMaterial {
-                    source: Arc::downgrade(tex),
-                    material: Arc::clone(&material),
-                },
-            );
-            material
-        };
+        let material = upload_texture(
+            device,
+            queue,
+            texture_layout,
+            options.linear,
+            tex,
+            materials,
+        );
+        let lightmap = mesh.lightmap.as_ref().map(|tex| {
+            upload_texture(
+                device,
+                queue,
+                texture_layout,
+                options.linear,
+                tex,
+                materials,
+            )
+        });
         let parameters_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Per-draw material parameters"),
             contents: bytemuck::cast_slice(&mesh.material.parameters(options.target_srgb)),
@@ -1134,6 +1080,7 @@ fn upload_meshes(
                 .try_into()
                 .map_err(|_| "Too many indices")?,
             material,
+            lightmap,
             source: Arc::downgrade(tex),
             parameters,
             parameters_buffer,
@@ -1141,6 +1088,120 @@ fn upload_meshes(
         });
     }
     Ok(draws)
+}
+fn upload_texture(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    texture_layout: &wgpu::BindGroupLayout,
+    linear: bool,
+    tex: &Arc<Texture>,
+    materials: &mut MaterialCache,
+) -> Arc<GpuMaterial> {
+    let key = Arc::as_ptr(tex) as usize;
+    if let Some(cached) = materials.get(&key) {
+        Arc::clone(&cached.material)
+    } else {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width: tex.width,
+                height: tex.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[wgpu::TextureFormat::Rgba8Unorm],
+        });
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &tex.rgba,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(tex.width * 4),
+                rows_per_image: Some(tex.height),
+            },
+            texture.size(),
+        );
+        let filter = if linear {
+            wgpu::FilterMode::Linear
+        } else {
+            wgpu::FilterMode::Nearest
+        };
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            mag_filter: filter,
+            min_filter: filter,
+            address_mode_u: if tex.repeat[0] {
+                wgpu::AddressMode::Repeat
+            } else {
+                wgpu::AddressMode::ClampToEdge
+            },
+            address_mode_v: if tex.repeat[1] {
+                wgpu::AddressMode::Repeat
+            } else {
+                wgpu::AddressMode::ClampToEdge
+            },
+            ..Default::default()
+        });
+        let material = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: texture_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(
+                        &texture.create_view(&Default::default()),
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+        });
+        // The original D3D8 saved-lighting path filters and combines byte
+        // color values. Keep a raw view of the SAME immutable allocation;
+        // ordinary host presentation retains its existing sRGB view.
+        let code_space_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Saved lighting code-space texture"),
+            layout: texture_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&texture.create_view(
+                        &wgpu::TextureViewDescriptor {
+                            format: Some(wgpu::TextureFormat::Rgba8Unorm),
+                            ..Default::default()
+                        },
+                    )),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+        });
+        let material = Arc::new(GpuMaterial {
+            texture,
+            group: material,
+            code_space_group,
+        });
+        materials.insert(
+            key,
+            CachedMaterial {
+                source: Arc::downgrade(tex),
+                material: Arc::clone(&material),
+            },
+        );
+        material
+    }
 }
 fn validate_vertex_replacement(expected: usize, vertices: &[Vertex]) -> Result<(), String> {
     if vertices.len() != expected {
@@ -1151,6 +1212,7 @@ fn validate_vertex_replacement(expected: usize, vertices: &[Vertex]) -> Result<(
             .iter()
             .chain(&v.uv)
             .chain(&v.color)
+            .chain(&v.lightmap_uv)
             .any(|x| !x.is_finite())
     }) {
         return Err("Replacement vertices contain nonfinite values".into());
@@ -1189,19 +1251,23 @@ mod tests {
             repeat: [true; 2],
         });
         let mesh = || Mesh {
+            lightmap: None,
             material: Default::default(),
             vertices: vec![
                 Vertex {
+                    lightmap_uv: [0.; 2],
                     color: [1.; 3],
                     position: [0., 0., 0.],
                     uv: [0.; 2],
                 },
                 Vertex {
+                    lightmap_uv: [0.; 2],
                     color: [1.; 3],
                     position: [1., 0., 0.],
                     uv: [0.; 2],
                 },
                 Vertex {
+                    lightmap_uv: [0.; 2],
                     color: [1.; 3],
                     position: [0., 1., 0.],
                     uv: [0.; 2],
@@ -1275,6 +1341,7 @@ mod tests {
     #[test]
     fn replacement_geometry_preserves_topology_and_requires_finite_attributes() {
         let valid = Vertex {
+            lightmap_uv: [0.; 2],
             color: [1.; 3],
             position: [1.0, -2.0, 3.0],
             uv: [0.0, 1.0],
@@ -1340,12 +1407,14 @@ mod tests {
     fn fitted_camera_contains_all_fixture_vertices_in_depth_and_view() {
         let scene = Scene {
             meshes: vec![Mesh {
+                lightmap: None,
                 material: Default::default(),
                 vertices: [-1.0, 1.0]
                     .into_iter()
                     .flat_map(|x| {
                         [-2.0, 2.0].into_iter().flat_map(move |y| {
                             [-3.0, 3.0].into_iter().map(move |z| Vertex {
+                                lightmap_uv: [0.; 2],
                                 color: [1.; 3],
                                 position: [x, y, z],
                                 uv: [0.0; 2],
@@ -1370,8 +1439,10 @@ mod tests {
     fn huge_finite_constant_coordinates_cannot_collapse_eye_to_target() {
         let scene = Scene {
             meshes: vec![Mesh {
+                lightmap: None,
                 material: Default::default(),
                 vertices: vec![Vertex {
+                    lightmap_uv: [0.; 2],
                     color: [1.; 3],
                     position: [1.0e30; 3],
                     uv: [0.0; 2],
@@ -1388,8 +1459,10 @@ mod tests {
         assert!(Camera::fit(&Scene { meshes: vec![] }).is_err());
         let invalid = Scene {
             meshes: vec![Mesh {
+                lightmap: None,
                 material: Default::default(),
                 vertices: vec![Vertex {
+                    lightmap_uv: [0.; 2],
                     color: [1.; 3],
                     position: [f32::NAN, 0.0, 0.0],
                     uv: [0.0; 2],

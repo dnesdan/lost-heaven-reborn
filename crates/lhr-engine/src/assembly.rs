@@ -444,6 +444,7 @@ impl<'a> SceneBuilder<'a> {
                     source_vertices,
                 });
                 self.meshes.push(Mesh {
+                    lightmap: None,
                     material: if lit {
                         lhr_engine::presentation_material::unconstructed_lit_material_flags(
                             lit_context.loaded_material_flags(material),
@@ -614,6 +615,7 @@ fn make_geometry(
         if !compact || mapping[index] != u32::MAX {
             mapping[index] = u32::try_from(vertices.len()).map_err(|_| "Vertex count overflow")?;
             vertices.push(Vertex {
+                lightmap_uv: [0.; 2],
                 color: [1.; 3],
                 position: transform
                     .render_point(pose.map_or(v.position, |pose| pose[index].position))?,
