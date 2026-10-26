@@ -1,23 +1,19 @@
 # Lost Heaven Reborn
 
-An independent Rust reimplementation of Mafia: The City of Lost Heaven (2002),
-using the user's legally obtained original PC assets. The immediate goal is the
-playable first mission, from the original menu through completion. **The campaign
-is not playable; all six first-mission gates remain open.**
+An independent Rust reimplementation of *Mafia: The City of Lost Heaven*
+(2002), using your legally obtained original PC assets. The goal is a playable
+first mission from the original menu through completion. The campaign is not
+playable; all six first-mission gates remain open.
 
-The current renderer consumes actual owned Scene/Camera resources for backdrop,
-main and near passes, with portal/occluder visibility. Genuine `OBJ_` → `LMAP`
-replacement connects saved lighting to owned UV2 geometry and shared atlases.
-Nearby city-cache selections create actual scene-owned model instances.
+The current Rust application can inspect the menu and owned scene, render an
+actual sky and road view, and drive a car in a standalone mode. Its MISE01
+diagnostic loaded all 3,183 scene objects and reached the actor-dispatch
+boundary at cursor 3,794,014. A snapshot produced 267 draws, including five
+real zapad sky passes, and closed cleanly. Actor registration, scripts and
+authored mission play remain to be connected.
 
-Inspection and standalone original-data driving remain the application scope.
-Road and sky remain dark or absent, with the cause unresolved. General lighting,
-shader/streaming behavior, original player scheduling and authored mission
-execution remain incomplete. This milestone adds no scoped-port or parity credit.
-
-[Current source scope and validation](docs/implementation/mafia-re-remediation.md) ·
-[current evidence and limits](COVERAGE.md) · [progress](docs/PROGRESS.md) ·
-[remaining goals](docs/GOALS.md) · [dated history](docs/history/README.md).
+[Build and run](docs/RUNNING.md) · [current evidence](docs/implementation/mafia-re-remediation.md) ·
+[coverage](COVERAGE.md) · [goals](docs/GOALS.md) · [dated history](docs/history/README.md).
 
 <details>
 <summary>Static research and accepted scoped-port dashboard</summary>
@@ -77,10 +73,9 @@ N/A means no measured static procedure ratio. PS2 linker symbol research supplie
 
 ## Build and run
 
-Rust 1.99.1 is pinned. Linux uses wgpu/Vulkan and ALSA development headers.
-Dependencies are locked; original executables and REA are development inputs,
-not runtime dependencies. Native macOS/Metal remains untested; the Linux Apple
-cross-check is blocked by missing CoreAudio SDK headers.
+Rust 1.99.1 and locked dependencies are required. Linux/Vulkan has been
+exercised; native Windows/Vulkan and macOS/Metal have not been run. Use your
+own legally obtained original PC installation as the asset root.
 
 ```sh
 ./scripts/setup.sh
@@ -92,20 +87,19 @@ cross-check is blocked by missing CoreAudio SDK headers.
 
 Driving: W/S accelerate/brake, A/D steer, Space handbrake, R reload.
 Inspection: arrows and W/S move the camera. Menu New Game and `--mission mise01`
-remain inspection entry points; authored mission startup is still open.
-Add `--headless --capture /tmp/scene.png` for a still or `--frames N` for a bounded
-window run. [More commands and historical validation](docs/history/2026-10-25-readme-narrative.md).
+remain inspection entry points; authored first-mission gameplay is incomplete.
+[Linux, Windows and macOS setup and run commands](docs/RUNNING.md) include native
+prerequisites, captures and platform validation status.
+[Historical commands and validation](docs/history/2026-10-25-readme-narrative.md) remain available.
 
 ## Actual Rust captures
 
-![Canonical Scene driving: cache buildings restored; road and sky remain dark or absent](docs/screenshots/2026-10-26-canonical-scene-driving.webp)
+![MISE01 road and source sky](docs/screenshots/2026-10-26-mise01-road-sky.webp)
 
-The fresh windowed run passes W/A/D/S/Space, three reloads and Escape, with
-four cleanups each reaching seven zero CPU counters. Cache buildings are restored;
-the cause of the dark or absent road and sky remains unresolved. This is a Rust capture,
-without original-game image equivalence. [Capture scope and earlier images](docs/screenshots/README.md) ·
-[existing 18-second driving video](docs/videos/2026-10-24-car-driving.mp4).
-The dated video retains its original scope; this milestone adds no video.
+All 3,183 scene objects are loaded in this inspection view; actor dispatch
+is the next boundary. [Menu sky](docs/screenshots/2026-10-26-menu-sky.webp) ·
+[Engine Lab](docs/screenshots/2026-10-26-engine-lab.webp) · [source, checks and limits](docs/implementation/mafia-re-remediation.md).
+Earlier media and their dated scope remain in [capture history](docs/screenshots/README.md).
 
 ## Research and assets
 

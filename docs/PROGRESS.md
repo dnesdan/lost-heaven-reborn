@@ -2,35 +2,25 @@
 
 ## Current milestone — 2026-10-26
 
-Validated source [`dddaf539`](https://github.com/dnesdan/lost-heaven-reborn/commit/dddaf539c9b874b9cf7a67d866532d901729df18)
-connects genuine visual replacement and saved lighting to the actual Scene,
-active Camera, UV2/atlas resources and backdrop/main/near draw passes. Portal and
-occluder visibility feeds those draws. Guarded owners retain interrupted state.
-In the measured driving run, 907 admitted city-cache placements become real
-models in the same scene/cache ownership graph, with live visibility
-correspondence.
+The owned Rust Scene/Camera renderer now culls the road correctly and draws
+actual sky geometry. The MISE01 diagnostic loaded all 3,183 objects, reached
+ordered Game actor dispatch at cursor 3,794,014 (`0x544a16`), produced 267
+draws (five zapad backdrop, 262 main) and closed cleanly. Saved-lighting,
+Singlemesh/Singlemorph/Billboard/Lensflare, initial animated material pose,
+Dummy/Sound/AREA and fog-light resources use live owners. Standalone driving,
+the optional Lab and bounded Game control/camera/table/load-save helpers are
+available as bounded dependencies. Authored mission play remains open.
 
-The required gate passes: **1362 Rust tests in debug and release**, **1374 with
-12 opt-in GPU tests**, 9 Python boundary tests, 47 progress tests and Clippy.
-The actual-data driving CPU probe exercises 240 steps/audio/GameDone and reaches
-zero tracked resources. The actual-atlas GPU counterfactual changes 53 pixels;
-restoration recovers the complete RGBA image byte-for-byte. The final windowed
-run passes W/A/D/S/Space, three reloads and Escape, with four cleanups each
-reaching seven zero CPU counters.
+The final applied code passed **1,561 Rust tests, 56 Python tests, 13 Vulkan
+checks and 48 feature-enabled Lab tests**, plus both sequential independent
+source reviews. The CPU probe disposed all tracked owners, including 423
+textures, to zero. A GPU-only sky change affected 136,934 pixels and restored
+byte-identically. [Evidence and limits](implementation/mafia-re-remediation.md)
+and [dated captures](screenshots/README.md) record the scopes. No new original
+game function was executed or credited; [coverage](../COVERAGE.md) holds the
+unchanged ledger and gate totals.
 
-The scene2 loader now completes **44 records**, then stops at cursor **18693**
-on unsupported `FRAME_DUMMY` (6), `detector_konec`. Road and sky remain dark or
-absent; the cause is unresolved. Original mission/startup/streaming scheduling
-and general renderer/shader behavior remain open. No original executable or
-original function was executed for this milestone.
-
-All six first-mission gates remain open. Counts stay **311 scoped entries /
-114 contracts**, strict **0/12**, whole-function coverage **N/A**. This milestone
-adds no function or original-runtime parity credit.
-
-[Coverage](../COVERAGE.md) · [goals](GOALS.md) ·
-[scope and validation](implementation/mafia-re-remediation.md) ·
-[complete predecessor files](history/2026-10-26-scene-render-predecessor.md#progress).
+[Preceding progress page, verbatim](history/2026-10-26-pre-final-documentation.md#docsprogressmd).
 
 ## Earlier milestones
 
