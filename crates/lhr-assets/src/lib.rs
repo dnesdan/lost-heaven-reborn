@@ -76,6 +76,9 @@ pub const UNASSIGNED_MATERIAL: usize = usize::MAX;
 pub struct Lod {
     pub distance: f32,
     pub vertices: Vec<Vertex>,
+    /// A 0xffff source count stores only LOD0-count texture coordinates. Such a
+    /// level owns no vertex mesh or computed bounds; runtime evaluation is separate.
+    pub uv_only: Option<Vec<[f32; 2]>>,
     pub groups: Vec<FaceGroup>,
 }
 #[derive(Debug, Clone)]
@@ -93,11 +96,12 @@ pub struct Material {
 }
 #[derive(Debug, Clone)]
 pub struct TextureAnimation {
-    pub frames: u32,
-    pub unknown: u16,
-    pub delay: u32,
-    pub unknown2: u32,
-    pub unknown3: u32,
+    pub num_frames: u8,
+    pub env_num_frames: u8,
+    pub loop_frame: i32,
+    pub frame_delay: i32,
+    pub env_loop_frame: i32,
+    pub env_frame_delay: i32,
 }
 #[derive(Debug, Clone)]
 pub struct JointRecord {
@@ -114,6 +118,17 @@ pub struct TargetRecord {
     pub flags: u16,
     /// Original u16 reference words; the source u8 count is this vector's length.
     pub frame_indices: Vec<u16>,
+}
+/// Exact kind-2 suffix after the common frame prefix. Numeric words remain raw
+/// source data; LoadImage does not run light setters or validate these fields.
+#[derive(Debug, Clone)]
+pub struct LightRecord {
+    pub mode: u32,
+    pub light_type: u32,
+    pub power: f32,
+    pub diffuse: [f32; 3],
+    pub range: [f32; 2],
+    pub cone: [f32; 2],
 }
 /// Original PC kind-12 suffix consumed by I3D_occluder::LoadImage (RVA
 /// 0x3c9b0): two u32 counts followed by packed vertices and triangle indices.
@@ -231,6 +246,8 @@ pub struct Frame {
     pub properties: Vec<u8>,
     /// Original dummy bounding box. Retained as data, not a collision shape.
     pub dummy_bounds: Option<[[f32; 3]; 2]>,
+    /// Exact kind-2 light suffix, without setter evaluation.
+    pub light: Option<LightRecord>,
     /// Original kind-10 joint suffix, retained by scene and singlemesh intake.
     pub joint: Option<JointRecord>,
     /// Original kind-7 target metadata, without link resolution or evaluation.
@@ -499,14 +516,7 @@ fn parse_four_ds_impl(
         let emission: [f32; 3] = r.vec()?;
         let opacity = r.f()?;
         if !scene
-            && (flags
-                & (0x8000
-                    | 0x80000
-                    | 0x01000000
-                    | 0x04000000
-                    | 0x20000000
-                    | 0x40000000
-                    | 0x80000000)
+            && (flags & (0x80000 | 0x01000000 | 0x04000000 | 0x20000000 | 0x40000000 | 0x80000000)
                 != 0
                 || opacity != 1.
                 || emission != [0.; 3])
@@ -542,11 +552,12 @@ fn parse_four_ds_impl(
             };
         let animation = if flags & 0x04000000 != 0 {
             Some(TextureAnimation {
-                frames: r.u32()?,
-                unknown: r.u16()?,
-                delay: r.u32()?,
-                unknown2: r.u32()?,
-                unknown3: r.u32()?,
+                num_frames: r.u8()?,
+                env_num_frames: r.u8()?,
+                loop_frame: r.u32()? as i32,
+                frame_delay: r.u32()? as i32,
+                env_loop_frame: r.u32()? as i32,
+                env_frame_delay: r.u32()? as i32,
             })
         } else {
             None
@@ -633,13 +644,14 @@ fn parse_four_ds_impl(
         let property_length = r.u8()? as usize;
         let properties = r.take(property_length)?.to_vec();
         let mut dummy_bounds = None;
+        let mut light = None;
         let mut joint = None;
         let mut target = None;
         let mut occluder = None;
         let mut sector = None;
         let mut skin = None;
         let mut morph = None;
-        let mut lods = Vec::new();
+        let mut lods: Vec<Lod> = Vec::new();
         let mut instance = None;
         if kind == 6 {
             let bytes = r.take(24)?;
@@ -660,7 +672,14 @@ fn parse_four_ds_impl(
                 index: u32::from_le_bytes(bytes[64..68].try_into().unwrap()),
             });
         } else if kind == 2 {
-            r.take(84)?;
+            light = Some(LightRecord {
+                mode: r.u32()?,
+                light_type: r.u32()?,
+                power: f32::from_bits(r.u32()?),
+                diffuse: r.raw_vec()?,
+                range: r.raw_vec()?,
+                cone: r.raw_vec()?,
+            });
         } else if kind == 5 || kind == 12 {
             let sector_header = if kind == 5 {
                 Some([r.u32()?, r.u32()?])
@@ -743,19 +762,37 @@ fn parse_four_ds_impl(
                 };
                 for _ in 0..n {
                     let distance = r.f()?;
-                    let n = r.u16()? as usize;
+                    let source_count = r.u16()?;
+                    let n = if source_count == u16::MAX {
+                        lods.first()
+                            .ok_or_else(|| Error("UV-only LOD requires an earlier LOD0".into()))?
+                            .vertices
+                            .len()
+                    } else {
+                        source_count as usize
+                    };
                     total_vertices += n;
                     if total_vertices > 1_000_000 {
                         return err("vertex quota exceeded");
                     };
                     let mut vertices = Vec::new();
-                    for _ in 0..n {
-                        vertices.push(Vertex {
-                            position: r.vec()?,
-                            normal: r.vec()?,
-                            uv: r.vec()?,
-                        });
-                    }
+                    let uv_only = if source_count == u16::MAX {
+                        let mut coordinates = Vec::with_capacity(n);
+                        for _ in 0..n {
+                            coordinates.push(r.vec()?);
+                        }
+                        Some(coordinates)
+                    } else {
+                        for _ in 0..n {
+                            vertices.push(Vertex {
+                                position: r.vec()?,
+                                normal: r.vec()?,
+                                uv: r.vec()?,
+                            });
+                        }
+                        None
+                    };
+                    let index_limit = n;
                     let groups = r.u8()?;
                     let mut faces = Vec::new();
                     for _ in 0..groups {
@@ -767,7 +804,7 @@ fn parse_four_ds_impl(
                         let mut indices = Vec::new();
                         for _ in 0..n {
                             let index = r.u16()? as usize;
-                            if index >= vertices.len() {
+                            if index >= index_limit {
                                 return err("triangle index outside vertex array");
                             };
                             indices.push(index as u32)
@@ -784,6 +821,7 @@ fn parse_four_ds_impl(
                     lods.push(Lod {
                         distance,
                         vertices,
+                        uv_only,
                         groups: faces,
                     });
                 }
@@ -947,6 +985,7 @@ fn parse_four_ds_impl(
             name_bytes,
             properties,
             dummy_bounds,
+            light,
             joint,
             target,
             occluder,
@@ -994,8 +1033,9 @@ fn texture_name(r: &mut Reader<'_>) -> Result<String> {
     let name = r.string()?;
     if !name.is_empty() {
         safe_relative(&name)?;
-        if !name.to_ascii_lowercase().ends_with(".bmp") {
-            return err("only BMP textures supported");
+        let lower = name.to_ascii_lowercase();
+        if !lower.ends_with(".bmp") && !lower.ends_with(".tga") {
+            return err("only BMP or TGA textures supported");
         }
     }
     Ok(name)
@@ -1223,17 +1263,30 @@ pub fn read_asset_file(path: impl AsRef<Path>) -> Result<Vec<u8>> {
     }
     Ok(b)
 }
+/// Source conversion used by original 16-bit BMP and TGA creation. Do not
+/// replicate low bits: the native shifts expand the channels to 0..248.
+fn decode_x1r5g5b5(word: u16) -> [u8; 4] {
+    [
+        ((word & 0x7c00) >> 7) as u8,
+        ((word & 0x03e0) >> 2) as u8,
+        ((word & 0x001f) << 3) as u8,
+        if word & 0x8000 != 0 { 255 } else { 0 },
+    ]
+}
+#[cfg(test)]
+mod original_image_tests;
 /// Uncompressed Windows BMP, 8-bit indexed or 24-bit BGR. Output is top-down RGBA.
 pub fn decode_bmp(b: &[u8]) -> Result<Texture> {
     decode_bmp_impl(b, false)
 }
-/// Original-loader compatibility: initialize all 256 indexed palette slots to
-/// black before reading the declared entries. Some shipped BMPs use an omitted
-/// palette index. Strict decode_bmp keeps rejecting such files.
+/// Original-loader compatibility: BI_RGB indexed8, X1R5G5B5, BGR24 and BGRA32.
+/// Source alpha bits are retained for the texture factory's flag-dependent use.
+/// Indexed palettes initialize all 256 slots to black before declared entries;
+/// strict decode_bmp retains its existing 8/24-bit and full-palette policy.
 pub fn decode_bmp_original(b: &[u8]) -> Result<Texture> {
     decode_bmp_impl(b, true)
 }
-fn decode_bmp_impl(b: &[u8], original_palette: bool) -> Result<Texture> {
+fn decode_bmp_impl(b: &[u8], original_compatibility: bool) -> Result<Texture> {
     if b.len() > MAX_BYTES {
         return err("BMP exceeds 64 MiB quota");
     };
@@ -1262,8 +1315,8 @@ fn decode_bmp_impl(b: &[u8], original_palette: bool) -> Result<Texture> {
         return err("invalid BMP planes");
     };
     let depth = r.u16()?;
-    if depth != 8 && depth != 24 {
-        return err("only indexed 8-bit and BGR24 BMP supported");
+    if !matches!(depth, 8 | 24) && !(original_compatibility && matches!(depth, 16 | 32)) {
+        return err("unsupported BMP source depth");
     };
     if r.u32()? != 0 {
         return err("compressed BMP unsupported");
@@ -1284,7 +1337,7 @@ fn decode_bmp_impl(b: &[u8], original_palette: bool) -> Result<Texture> {
         let c = r.take(4)?;
         palette.push([c[2], c[1], c[0], 255]);
     }
-    if depth == 8 && original_palette {
+    if depth == 8 && original_compatibility {
         palette.resize(256, [0, 0, 0, 255]);
     }
     if offset < r.p || size != b.len() {
@@ -1308,8 +1361,15 @@ fn decode_bmp_impl(b: &[u8], original_palette: bool) -> Result<Texture> {
                 *palette
                     .get(b[p] as usize)
                     .ok_or_else(|| Error("BMP palette index out of range".into()))?
+            } else if depth == 16 {
+                decode_x1r5g5b5(u16::from_le_bytes([b[p], b[p + 1]]))
             } else {
-                [b[p + 2], b[p + 1], b[p], 255]
+                [
+                    b[p + 2],
+                    b[p + 1],
+                    b[p],
+                    if depth == 32 { b[p + 3] } else { 255 },
+                ]
             };
             rgba[(y * w + x) * 4..(y * w + x + 1) * 4].copy_from_slice(&color);
         }
@@ -1474,6 +1534,68 @@ mod mesh_tests {
         b.push(0);
         b
     }
+    fn mesh_with_uv_only_lods() -> Vec<u8> {
+        let mut bytes = mesh();
+        bytes[114] = 3;
+        let mut suffix = Vec::new();
+        for (distance, uv) in [(20f32, [0.125f32, 0.875f32]), (40., [0.5, 0.25])] {
+            suffix.extend(distance.to_le_bytes());
+            suffix.extend(u16::MAX.to_le_bytes());
+            for value in uv {
+                suffix.extend(value.to_le_bytes());
+            }
+            suffix.push(1);
+            suffix.extend(1u16.to_le_bytes());
+            suffix.extend([0; 6]);
+            suffix.extend(1u16.to_le_bytes());
+        }
+        bytes.splice(bytes.len() - 1..bytes.len() - 1, suffix);
+        bytes
+    }
+    #[test]
+    fn uv_only_lods_preserve_uvs_and_groups_without_inventing_geometry() {
+        let bytes = mesh_with_uv_only_lods();
+        for model in [
+            parse_four_ds(&bytes).unwrap(),
+            parse_four_ds_scene(&bytes).unwrap(),
+        ] {
+            let lods = &model.frames[0].lods;
+            assert_eq!(lods.len(), 3);
+            assert_eq!(lods[0].vertices[0].position, [1., 2., 3.]);
+            assert!(lods[0].uv_only.is_none());
+            for (index, uv) in [(1, [0.125, 0.875]), (2, [0.5, 0.25])] {
+                assert!(lods[index].vertices.is_empty());
+                assert_eq!(lods[index].uv_only.as_deref(), Some([uv].as_slice()));
+                assert_eq!(lods[index].groups[0].indices, [0, 0, 0]);
+                assert_eq!(lods[index].groups[0].material, 0);
+            }
+            assert_eq!(lods[1].distance, 20.);
+            assert_eq!(lods[2].distance, 40.);
+        }
+        for end in 0..bytes.len() {
+            assert!(parse_four_ds_scene(&bytes[..end]).is_err(), "{end}");
+        }
+    }
+    #[test]
+    fn uv_only_lod_rejects_missing_base_invalid_indices_and_materials() {
+        let mut bytes = mesh();
+        bytes[119..121].copy_from_slice(&u16::MAX.to_le_bytes());
+        assert!(
+            parse_four_ds_scene(&bytes)
+                .unwrap_err()
+                .0
+                .contains("earlier LOD0")
+        );
+        let bytes = mesh_with_uv_only_lods();
+        for offset in [bytes.len() - 9, bytes.len() - 3] {
+            let mut invalid = bytes.clone();
+            invalid[offset..offset + 2].copy_from_slice(&2u16.to_le_bytes());
+            assert!(parse_four_ds_scene(&invalid).is_err());
+        }
+        let mut trailing = bytes;
+        trailing.push(0);
+        assert!(parse_four_ds_scene(&trailing).is_err());
+    }
     #[test]
     fn source_order_and_invalid_references() {
         let b = mesh();
@@ -1493,9 +1615,25 @@ mod mesh_tests {
         assert!(parse_four_ds(&invalid).is_err());
     }
     #[test]
+    fn keep_pixels_is_texture_storage_metadata_in_every_static_intake_route() {
+        let mut bytes = mesh();
+        bytes[16..20].copy_from_slice(&0x8000u32.to_le_bytes());
+        assert_eq!(parse_four_ds(&bytes).unwrap().materials[0].flags, 0x8000);
+        assert_eq!(
+            parse_four_ds_scene(&bytes).unwrap().materials[0].flags,
+            0x8000
+        );
+        bytes[64] = 2;
+        bytes.insert(bytes.len() - 1, 0);
+        assert_eq!(
+            parse_four_ds_skin(&bytes).unwrap().materials[0].flags,
+            0x8000
+        );
+    }
+    #[test]
     fn unsupported_materials_are_rejected_before_optional_payloads() {
         for flag in [
-            0x8000u32, 0x80000, 0x01000000, 0x04000000, 0x20000000, 0x40000000, 0x80000000,
+            0x80000u32, 0x01000000, 0x04000000, 0x20000000, 0x40000000, 0x80000000,
         ] {
             let mut b = mesh();
             b[16..20].copy_from_slice(&flag.to_le_bytes());
@@ -1717,7 +1855,7 @@ mod scene_model_tests {
     #[test]
     fn skin_strict_route_keeps_static_material_gate() {
         let mut bytes = super::mesh_tests::mesh();
-        bytes[16..20].copy_from_slice(&0x8000u32.to_le_bytes());
+        bytes[16..20].copy_from_slice(&0x01000000u32.to_le_bytes());
         bytes[64] = 2;
         bytes.insert(bytes.len() - 1, 0); // Zero-bone LOD, no definition payload.
         assert!(parse_four_ds_scene(&bytes).is_ok());
@@ -1833,6 +1971,133 @@ mod scene_model_tests {
         for n in 0..b.len() {
             assert!(parse_four_ds_scene(&b[..n]).is_err(), "{n}");
         }
+    }
+    #[test]
+    fn light_suffix_is_exactly_forty_bytes_and_keeps_following_frame_aligned() {
+        let mut bytes = b"4DS\0".to_vec();
+        bytes.extend(29u16.to_le_bytes());
+        bytes.extend([0; 8]);
+        bytes.extend(0u16.to_le_bytes());
+        bytes.extend(2u16.to_le_bytes());
+        let words = [
+            0x87654321u32,
+            5,
+            0x80000000,
+            0x7fc01234,
+            1,
+            0x3f800000,
+            0x7f800000,
+            0xff800000,
+            0x7f801234,
+            0xffc05678,
+        ];
+        for (kind, name) in [(2, b"Lamp".as_slice()), (6, b"Tail".as_slice())] {
+            bytes.push(kind);
+            bytes.extend(0u16.to_le_bytes());
+            for value in [0f32, 0., 0., 1., 1., 1., 1., 0., 0., 0.] {
+                bytes.extend(value.to_le_bytes());
+            }
+            bytes.extend([0, name.len() as u8]);
+            bytes.extend(name);
+            bytes.extend([3, 0xff, 0, 0x80]);
+            if kind == 2 {
+                for word in words {
+                    bytes.extend(word.to_le_bytes());
+                }
+            } else {
+                bytes.extend([0; 24]);
+            }
+        }
+        bytes.push(0);
+        let model = parse_four_ds_scene(&bytes).unwrap();
+        let light = model.frames[0].light.as_ref().unwrap();
+        assert_eq!(light.mode, words[0]);
+        assert_eq!(light.light_type, words[1]);
+        let floats = [
+            light.power,
+            light.diffuse[0],
+            light.diffuse[1],
+            light.diffuse[2],
+            light.range[0],
+            light.range[1],
+            light.cone[0],
+            light.cone[1],
+        ];
+        assert_eq!(floats.map(f32::to_bits), words[2..]);
+        assert_eq!(model.frames[0].properties, [0xff, 0, 0x80]);
+        assert_eq!(model.frames[1].name, "Tail");
+        assert!(model.frames[1].light.is_none());
+        for end in 0..bytes.len() {
+            assert!(parse_four_ds_scene(&bytes[..end]).is_err(), "{end}");
+        }
+        assert!(parse_four_ds(&bytes).is_err());
+        bytes.push(0);
+        assert!(parse_four_ds_scene(&bytes).is_err());
+    }
+    #[test]
+    fn tga_material_names_share_bmp_path_safety_and_optional_payload_order() {
+        let mut bytes = material_scene();
+        for start in 0..bytes.len() - 3 {
+            if &bytes[start..start + 4] == b".bmp" {
+                bytes[start..start + 4].copy_from_slice(b".TgA");
+            }
+        }
+        let model = parse_four_ds_scene(&bytes).unwrap();
+        assert_eq!(model.materials[0].texture, "color.TgA");
+        assert_eq!(
+            model.materials[0].environment_texture.as_deref(),
+            Some("env.TgA")
+        );
+        assert_eq!(
+            model.materials[0].alpha_texture.as_deref(),
+            Some("mask.TgA")
+        );
+        assert_eq!(model.frames[0].lods[0].vertices[0].position, [1., 2., 3.]);
+        for name in ["maps/color.tga", "color.bmp"] {
+            let mut bytes = super::mesh_tests::mesh();
+            let mut payload = vec![name.len() as u8];
+            payload.extend(name.as_bytes());
+            bytes.splice(60..61, payload);
+            assert_eq!(parse_four_ds(&bytes).unwrap().materials[0].texture, name);
+        }
+        for name in [
+            "../color.tga",
+            "/color.tga",
+            "C:color.tga",
+            "maps\\color.tga",
+            "color.tga/../x.tga",
+            "color.png",
+            "color.tga.exe",
+        ] {
+            let mut bytes = super::mesh_tests::mesh();
+            let mut payload = vec![name.len() as u8];
+            payload.extend(name.as_bytes());
+            bytes.splice(60..61, payload);
+            assert!(parse_four_ds_scene(&bytes).is_err(), "{name}");
+        }
+    }
+    #[test]
+    fn animated_material_suffix_preserves_signed_fields_and_following_mesh() {
+        let mut bytes = super::mesh_tests::mesh();
+        bytes[16..20].copy_from_slice(&0x04000000u32.to_le_bytes());
+        let mut suffix = vec![7, 13];
+        for value in [-1i32, 0x12345678, i32::MIN, -50] {
+            suffix.extend(value.to_le_bytes());
+        }
+        assert_eq!(suffix.len(), 18);
+        bytes.splice(61..61, suffix);
+        let model = parse_four_ds_scene(&bytes).unwrap();
+        let animation = model.materials[0].animation.as_ref().unwrap();
+        assert_eq!((animation.num_frames, animation.env_num_frames), (7, 13));
+        assert_eq!(animation.loop_frame, -1);
+        assert_eq!(animation.frame_delay, 0x12345678);
+        assert_eq!(animation.env_loop_frame, i32::MIN);
+        assert_eq!(animation.env_frame_delay, -50);
+        assert_eq!(model.frames[0].lods[0].vertices[0].position, [1., 2., 3.]);
+        for end in 0..bytes.len() {
+            assert!(parse_four_ds_scene(&bytes[..end]).is_err(), "{end}");
+        }
+        assert!(parse_four_ds(&bytes).is_err());
     }
     #[test]
     fn embedded_key_and_additive_flags_suppress_separate_alpha_payload() {

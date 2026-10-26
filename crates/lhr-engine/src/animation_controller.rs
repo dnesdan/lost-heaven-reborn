@@ -551,6 +551,7 @@ mod tests {
                     name_bytes: name.to_vec(),
                     properties: vec![],
                     dummy_bounds: None,
+                    light: None,
                     joint: None,
                     target: None,
                     occluder: None,
