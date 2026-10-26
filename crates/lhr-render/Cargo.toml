@@ -8,3 +8,6 @@ wgpu = { version = "=24.0.5", default-features = false, features = ["wgsl", "met
 bytemuck = { version = "=1.24.0", features = ["derive"] }
 glam = "=0.29.3"
 png = "=0.17.16"
+
+[dev-dependencies]
+pollster = "=0.4.0"

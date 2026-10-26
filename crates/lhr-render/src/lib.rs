@@ -2,10 +2,11 @@
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3};
 use std::{
+    cell::RefCell,
     collections::HashMap,
     ops::Range,
     path::Path,
-    sync::{mpsc, Arc},
+    sync::{mpsc, Arc, Weak},
 };
 use wgpu::util::DeviceExt;
 
@@ -104,8 +105,21 @@ struct Draw {
     vertex_count: usize,
     index: wgpu::Buffer,
     count: u32,
-    material: wgpu::BindGroup,
+    material: Arc<GpuMaterial>,
+    source: Weak<Texture>,
+}
+struct GpuMaterial {
+    group: wgpu::BindGroup,
     texture: wgpu::Texture,
+}
+struct CachedMaterial {
+    source: Weak<Texture>,
+    material: Arc<GpuMaterial>,
+}
+type MaterialCache = HashMap<usize, CachedMaterial>;
+struct DepthTarget {
+    size: [u32; 2],
+    view: wgpu::TextureView,
 }
 pub struct Renderer {
     pub device: wgpu::Device,
@@ -122,6 +136,8 @@ pub struct Renderer {
     draws: Vec<Draw>,
     texture_layout: wgpu::BindGroupLayout,
     linear: bool,
+    materials: RefCell<MaterialCache>,
+    depth: RefCell<Option<DepthTarget>>,
 }
 impl Renderer {
     /// Opt-in host inspection policy: discard sampled alpha below 0.5.
@@ -307,7 +323,15 @@ impl Renderer {
                 resource: overlay_buffer.as_entire_binding(),
             }],
         });
-        let draws = upload_meshes(&device, &queue, &texture_layout, linear, &scene.meshes)?;
+        let mut materials = MaterialCache::new();
+        let draws = upload_meshes(
+            &device,
+            &queue,
+            &texture_layout,
+            linear,
+            &scene.meshes,
+            &mut materials,
+        )?;
         Ok(Self {
             device,
             queue,
@@ -323,6 +347,8 @@ impl Renderer {
             draws,
             texture_layout,
             linear,
+            materials: RefCell::new(materials),
+            depth: RefCell::new(None),
         })
     }
     /// Replace a contiguous set of draws on the existing device. Unaffected
@@ -342,9 +368,12 @@ impl Renderer {
             &self.texture_layout,
             self.linear,
             meshes,
+            &mut self.materials.borrow_mut(),
         )?;
-        self.device.poll(wgpu::Maintain::Wait);
         self.draws.splice(range, next);
+        self.materials
+            .borrow_mut()
+            .retain(|_, cached| cached.source.strong_count() != 0);
         Ok(())
     }
     pub fn render(
@@ -374,15 +403,15 @@ impl Renderer {
     /// Replace pixels of an existing material without recreating the device or geometry.
     pub fn update_texture(&self, index: usize, pixels: &Texture) -> Result<(), String> {
         let draw = self.draws.get(index).ok_or("Texture index unavailable")?;
-        if pixels.width != draw.texture.width()
-            || pixels.height != draw.texture.height()
+        if pixels.width != draw.material.texture.width()
+            || pixels.height != draw.material.texture.height()
             || pixels.rgba.len() != pixels.width as usize * pixels.height as usize * 4
         {
             return Err("Replacement texture dimensions differ".into());
         }
         self.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
-                texture: &draw.texture,
+                texture: &draw.material.texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
@@ -393,8 +422,19 @@ impl Renderer {
                 bytes_per_row: Some(pixels.width * 4),
                 rows_per_image: Some(pixels.height),
             },
-            draw.texture.size(),
+            draw.material.texture.size(),
         );
+        // This mutable upload no longer represents the immutable CPU source.
+        // Existing draws keep their shared GPU allocation; a future upload of
+        // the old source must not observe the replacement pixels.
+        let mut cache = self.materials.borrow_mut();
+        let key = draw.source.as_ptr() as usize;
+        if cache
+            .get(&key)
+            .is_some_and(|cached| Arc::ptr_eq(&cached.material, &draw.material))
+        {
+            cache.remove(&key);
+        }
         Ok(())
     }
     /// Queue replacement vertices for an existing draw, preserving its topology and material.
@@ -408,6 +448,35 @@ impl Renderer {
         self.queue
             .write_buffer(&draw.vertex, 0, bytemuck::cast_slice(vertices));
         Ok(())
+    }
+    fn depth_view(&self, width: u32, height: u32) -> wgpu::TextureView {
+        let mut cached = self.depth.borrow_mut();
+        if let Some(target) = cached
+            .as_ref()
+            .filter(|target| target.size == [width, height])
+        {
+            return target.view.clone();
+        }
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Scene depth"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth32Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&Default::default());
+        *cached = Some(DepthTarget {
+            size: [width, height],
+            view: view.clone(),
+        });
+        view
     }
     fn render_matrix(
         &self,
@@ -448,21 +517,7 @@ impl Renderer {
             0,
             bytemuck::cast_slice(&matrix.to_cols_array()),
         );
-        let depth = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: None,
-            size: wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Depth32Float,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        });
-        let depth_view = depth.create_view(&Default::default());
+        let depth_view = self.depth_view(width, height);
         let mut encoder = self.device.create_command_encoder(&Default::default());
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -502,7 +557,7 @@ impl Renderer {
                 .len()
                 .saturating_sub(usize::from(overlay.is_some()));
             for draw in &self.draws[..count] {
-                pass.set_bind_group(1, &draw.material, &[]);
+                pass.set_bind_group(1, &draw.material.group, &[]);
                 pass.set_vertex_buffer(0, draw.vertex.slice(..));
                 pass.set_index_buffer(draw.index.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..draw.count, 0, 0..1);
@@ -531,7 +586,7 @@ impl Renderer {
                 });
                 pass.set_pipeline(&self.overlay_pipeline);
                 pass.set_bind_group(0, &self.overlay_group, &[]);
-                pass.set_bind_group(1, &draw.material, &[]);
+                pass.set_bind_group(1, &draw.material.group, &[]);
                 pass.set_vertex_buffer(0, draw.vertex.slice(..));
                 pass.set_index_buffer(draw.index.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..draw.count, 0, 0..1);
@@ -684,9 +739,10 @@ fn upload_meshes(
     texture_layout: &wgpu::BindGroupLayout,
     linear: bool,
     meshes: &[Mesh],
+    materials: &mut MaterialCache,
 ) -> Result<Vec<Draw>, String> {
     let mut draws = Vec::new();
-    let mut materials = HashMap::<(usize, [bool; 2]), (wgpu::Texture, wgpu::BindGroup)>::new();
+    // Validate the whole replacement before allocating or changing the cache.
     for mesh in meshes {
         if mesh.indices.is_empty()
             || mesh.indices.len() % 3 != 0
@@ -716,9 +772,14 @@ fn upload_meshes(
         {
             return Err("Invalid texture dimensions or data".into());
         }
-        let key = (Arc::as_ptr(tex) as usize, tex.repeat);
-        let (texture, material) = if let Some(cached) = materials.get(&key) {
-            cached.clone()
+        u32::try_from(mesh.indices.len()).map_err(|_| "Too many indices")?;
+    }
+    materials.retain(|_, cached| cached.source.strong_count() != 0);
+    for mesh in meshes {
+        let tex = mesh.texture.as_ref().expect("validated texture");
+        let key = Arc::as_ptr(tex) as usize;
+        let material = if let Some(cached) = materials.get(&key) {
+            Arc::clone(&cached.material)
         } else {
             let texture = device.create_texture(&wgpu::TextureDescriptor {
                 label: None,
@@ -785,8 +846,18 @@ fn upload_meshes(
                     },
                 ],
             });
-            materials.insert(key, (texture.clone(), material.clone()));
-            (texture, material)
+            let material = Arc::new(GpuMaterial {
+                texture,
+                group: material,
+            });
+            materials.insert(
+                key,
+                CachedMaterial {
+                    source: Arc::downgrade(tex),
+                    material: Arc::clone(&material),
+                },
+            );
+            material
         };
         draws.push(Draw {
             vertex: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -806,7 +877,7 @@ fn upload_meshes(
                 .try_into()
                 .map_err(|_| "Too many indices")?,
             material,
-            texture,
+            source: Arc::downgrade(tex),
         });
     }
     Ok(draws)
@@ -840,6 +911,99 @@ pub fn instance() -> wgpu::Instance {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Explicitly opt in: the workspace logic suite must also run without a GPU.
+    #[test]
+    #[ignore = "requires a Vulkan or Metal adapter; run with --ignored"]
+    fn gpu_resources_survive_replacement_and_invalidate_mutable_uploads() {
+        let instance = instance();
+        let adapter = pollster::block_on(instance.request_adapter(&Default::default()))
+            .expect("GPU resource test requires a graphics adapter");
+        let source = Arc::new(Texture {
+            width: 1,
+            height: 1,
+            rgba: vec![255; 4],
+            repeat: [true; 2],
+        });
+        let mesh = || Mesh {
+            vertices: vec![
+                Vertex {
+                    position: [0., 0., 0.],
+                    uv: [0.; 2],
+                },
+                Vertex {
+                    position: [1., 0., 0.],
+                    uv: [0.; 2],
+                },
+                Vertex {
+                    position: [0., 1., 0.],
+                    uv: [0.; 2],
+                },
+            ],
+            indices: vec![0, 1, 2],
+            texture: Some(Arc::clone(&source)),
+        };
+        let scene = Scene {
+            meshes: vec![mesh(), mesh()],
+        };
+        let mut renderer = pollster::block_on(Renderer::with_adapter(
+            &adapter,
+            &scene,
+            wgpu::TextureFormat::Rgba8Unorm,
+            false,
+        ))
+        .unwrap();
+        let first = Arc::clone(&renderer.draws[0].material);
+        assert!(Arc::ptr_eq(&first, &renderer.draws[1].material));
+        renderer.replace_meshes(0..2, &[mesh()]).unwrap();
+        assert!(Arc::ptr_eq(&first, &renderer.draws[0].material));
+        assert_eq!(renderer.materials.borrow().len(), 1);
+
+        let mut invalid = mesh();
+        invalid.indices[0] = 99;
+        assert!(renderer.replace_meshes(0..1, &[invalid]).is_err());
+        assert!(Arc::ptr_eq(&first, &renderer.draws[0].material));
+
+        renderer
+            .update_texture(
+                0,
+                &Texture {
+                    width: 1,
+                    height: 1,
+                    rgba: vec![0, 0, 0, 255],
+                    repeat: [true; 2],
+                },
+            )
+            .unwrap();
+        assert!(renderer.materials.borrow().is_empty());
+        renderer.replace_meshes(1..1, &[mesh()]).unwrap();
+        assert!(!Arc::ptr_eq(&first, &renderer.draws[1].material));
+        let pristine = Arc::clone(&renderer.draws[1].material);
+        // A further edit of the old generation must not evict the original
+        // source's newer, untouched allocation from the cache.
+        renderer
+            .update_texture(
+                0,
+                &Texture {
+                    width: 1,
+                    height: 1,
+                    rgba: vec![128, 0, 0, 255],
+                    repeat: [true; 2],
+                },
+            )
+            .unwrap();
+        renderer.replace_meshes(2..2, &[mesh()]).unwrap();
+        assert!(Arc::ptr_eq(&pristine, &renderer.draws[2].material));
+
+        let depth = renderer.depth_view(32, 16);
+        assert_eq!(depth, renderer.depth_view(32, 16));
+        assert_ne!(depth, renderer.depth_view(16, 32));
+        drop(scene);
+        drop(source);
+        renderer.replace_meshes(0..3, &[]).unwrap();
+        assert!(renderer.materials.borrow().is_empty());
+        renderer.device.poll(wgpu::Maintain::Wait);
+    }
 
     #[test]
     fn replacement_geometry_preserves_topology_and_requires_finite_attributes() {

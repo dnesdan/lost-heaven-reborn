@@ -841,6 +841,162 @@ mod tests {
         r.release_texture(a, &mut b).unwrap();
         assert_eq!(b.resident_bytes(), 0);
     }
+    fn source_bmp(depth: u16, pixels: &[u8]) -> Vec<u8> {
+        let mut bytes = vec![0u8; 54];
+        bytes[..2].copy_from_slice(b"BM");
+        bytes[10..14].copy_from_slice(&54u32.to_le_bytes());
+        bytes[14..18].copy_from_slice(&40u32.to_le_bytes());
+        bytes[18..22].copy_from_slice(&2u32.to_le_bytes());
+        bytes[22..26].copy_from_slice(&2u32.to_le_bytes());
+        bytes[26..28].copy_from_slice(&1u16.to_le_bytes());
+        bytes[28..30].copy_from_slice(&depth.to_le_bytes());
+        bytes.extend(pixels);
+        let size = bytes.len() as u32;
+        bytes[2..6].copy_from_slice(&size.to_le_bytes());
+        bytes
+    }
+    #[test]
+    fn original_bmp_sources_feed_native_alpha_flags_color_key_and_owned_pixels() {
+        let (mut resources, mut storage, mut source) = setup(24, &[]);
+        source.files.insert(
+            b"Maps\\color.bmp".to_vec(),
+            source_bmp(16, &[0, 0, 0, 128, 255, 255, 31, 0]),
+        );
+        for (flags, expected_alpha) in [
+            (2u32, [255, 0, 0, 255]),
+            (0, [255; 4]),
+            (8, [255, 255, 0, 255]),
+        ] {
+            let key = resources
+                .create_texture_from_file(
+                    Some(b"color.bmp"),
+                    None,
+                    flags | 0x1000,
+                    &mut source,
+                    &mut storage,
+                )
+                .unwrap();
+            let texture = resources.texture(key).unwrap();
+            assert_eq!(texture.creation_flags, flags | 0x1000);
+            assert_eq!(
+                texture.flags,
+                (flags | 0x1000) | if flags & 2 != 0 { 8 } else { 0 }
+            );
+            let surface = storage.surface(texture.graphics.unwrap()).unwrap();
+            assert_eq!(
+                surface
+                    .bgra
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|p| p[3])
+                    .collect::<Vec<_>>(),
+                expected_alpha
+            );
+            assert_eq!(&surface.bgra[..3], &[248, 248, 248]);
+            assert_eq!(&surface.bgra[4..7], &[248, 0, 0]);
+            let pixels = storage.pixel_bytes(texture.pixels.unwrap()).unwrap();
+            assert_eq!(&pixels[..4], &[expected_alpha[0], 248, 248, 248]);
+            resources.release_texture(key, &mut storage).unwrap();
+            assert_eq!(storage.resident_bytes(), 0);
+        }
+        source.files.insert(
+            b"Maps\\color.bmp".to_vec(),
+            source_bmp(
+                32,
+                &[1, 2, 3, 0, 4, 5, 6, 17, 7, 8, 9, 128, 10, 11, 12, 255],
+            ),
+        );
+        let key = resources
+            .create_texture_from_file(Some(b"color.bmp"), None, 2, &mut source, &mut storage)
+            .unwrap();
+        let texture = resources.texture(key).unwrap();
+        assert_eq!(texture.flags, 2);
+        assert_eq!(
+            storage.surface(texture.graphics.unwrap()).unwrap().bgra,
+            [7, 8, 9, 128, 10, 11, 12, 255, 1, 2, 3, 0, 4, 5, 6, 17]
+        );
+        resources.release_texture(key, &mut storage).unwrap();
+        assert_eq!(storage.resident_bytes(), 0);
+    }
+    fn source_indexed_tga() -> Vec<u8> {
+        let mut bytes = vec![0u8; 18];
+        bytes[1] = 1;
+        bytes[2] = 1;
+        bytes[5..7].copy_from_slice(&256u16.to_le_bytes());
+        bytes[7] = 24;
+        bytes[12] = 2;
+        bytes[14] = 2;
+        bytes[16] = 8;
+        bytes[17] = 0x20;
+        bytes.extend([0; 256 * 3]);
+        bytes[18..24].copy_from_slice(&[11, 22, 33, 11, 22, 33]);
+        bytes[18 + 255 * 3..18 + 256 * 3].copy_from_slice(&[44, 55, 66]);
+        bytes.extend([0, 1, 255, 0]);
+        bytes
+    }
+    #[test]
+    fn indexed_tga_source_uses_palette_color_key_effective_flags_and_alpha_brightness() {
+        let (mut resources, mut storage, mut source) = setup(32, &[255; 16]);
+        source
+            .files
+            .insert(b"Maps\\indexed.tga".to_vec(), source_indexed_tga());
+        for (flags, expected_alpha) in [(2u32, [255; 4]), (8, [0, 0, 255, 0])] {
+            let key = resources
+                .create_texture_from_file(
+                    Some(b"indexed.tga"),
+                    None,
+                    flags,
+                    &mut source,
+                    &mut storage,
+                )
+                .unwrap();
+            let texture = resources.texture(key).unwrap();
+            assert_eq!(texture.flags, flags & !2);
+            assert_eq!(texture.creation_flags, flags);
+            assert_eq!(texture.color_key, Observed::Value(0x21160b));
+            let surface = storage.surface(texture.graphics.unwrap()).unwrap();
+            assert_eq!(
+                surface
+                    .bgra
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|p| p[3])
+                    .collect::<Vec<_>>(),
+                expected_alpha
+            );
+            assert_eq!(&surface.bgra[..3], &[11, 22, 33]);
+            resources.release_texture(key, &mut storage).unwrap();
+            assert_eq!(storage.resident_bytes(), 0);
+        }
+        let key = resources
+            .create_texture_from_file(
+                Some(b"color.tga"),
+                Some(b"indexed.tga"),
+                4,
+                &mut source,
+                &mut storage,
+            )
+            .unwrap();
+        let surface = storage
+            .surface(resources.texture(key).unwrap().graphics.unwrap())
+            .unwrap();
+        let dark = (33 * 77 + 22 * 154 + 11 * 25) >> 8;
+        let light = (66 * 77 + 55 * 154 + 44 * 25) >> 8;
+        assert_eq!(
+            surface
+                .bgra
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|p| p[3] as u32)
+                .collect::<Vec<_>>(),
+            [dark, dark, light, dark]
+        );
+        resources.release_texture(key, &mut storage).unwrap();
+        assert_eq!(storage.resident_bytes(), 0);
+    }
     #[test]
     fn alpha_brightness_cache_identity_and_missing_source_cleanup() {
         let (mut r, mut b, mut s) =
