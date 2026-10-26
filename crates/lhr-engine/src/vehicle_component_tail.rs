@@ -108,6 +108,12 @@ pub struct VehicleComponentTailMemory<'a> {
     pub(super) scratch: &'a mut VehicleComponentTailScratch,
 }
 impl VehicleComponentTailMemory<'_> {
+    /// Identity of this projection's embedded vehicle, never a host pointer.
+    /// Owner-bound runtime operations obtain their address from the live borrow.
+    pub(crate) fn vehicle_address(&self) -> u32 {
+        self.vehicle_address
+    }
+
     /// Borrows the canonical embedded vehicle for ordered arithmetic workers.
     pub fn vehicle_bytes_mut(&mut self) -> &mut [u8] {
         self.vehicle
