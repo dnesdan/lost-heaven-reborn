@@ -723,6 +723,7 @@ impl DrivingWorldAssets {
         {
             if self.frame_is_visible(*frame)? && mesh_near(mesh, position, radius) {
                 meshes.push(Mesh {
+                    material: mesh.material,
                     vertices: mesh.vertices.clone(),
                     indices: mesh.indices.clone(),
                     texture: mesh.texture.clone(),
@@ -1096,6 +1097,7 @@ fn render_sources(
                     triangle.swap(1, 2);
                 }
                 meshes.push(Mesh {
+                    material: Default::default(),
                     vertices,
                     indices,
                     texture: Some(texture),
@@ -1292,6 +1294,7 @@ mod tests {
             name_bytes: b"synthetic".to_vec(),
             properties: Vec::new(),
             dummy_bounds: None,
+            light: None,
             joint: None,
             target: None,
             occluder: None,
@@ -1306,6 +1309,7 @@ mod tests {
             lods: if kind == 1 {
                 vec![lhr_assets::Lod {
                     distance: 0.,
+                    uv_only: None,
                     vertices: vec![lhr_assets::Vertex {
                         position: [1., 0., 0.],
                         normal: [0., 1., 0.],

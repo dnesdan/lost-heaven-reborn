@@ -1,11 +1,12 @@
 //! Unlit first-LOD inspection of the same live arena initialized by C_car.
 //! Geometry comes from owned CPU buffers, including object-private LOD data.
-//! This bridge does not implement the original lighting/material renderer.
+//! Live source material decisions are explicit; lighting/envmaps/fog and full
+//! original renderer parity remain outside this unlit presentation bridge.
 use crate::{
     frame_transform::{FrameKey, FrameKind},
     model_loading::ModelArena,
 };
-use lhr_render::{Mesh, Scene, Texture, Vertex};
+use lhr_render::{FrontFace, Mesh, Scene, Texture, Vertex};
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
@@ -135,7 +136,9 @@ pub fn snapshot_arena_tree(
                 .map_err(|e| e.to_string())?
                 .ok_or("Car mesh has no owned CPU resources")?;
             let matrix = arena.world_matrix(frame).map_err(|e| e.to_string())?;
-            frames.push((object, matrix));
+            let bound = arena.hr_bound_volume_w(frame).map_err(|e| e.to_string())?;
+            let center = [bound.center[0], bound.center[1], -bound.center[2]];
+            frames.push((object, matrix, center));
         } else if matches!(state.kind, FrameKind::Singlemesh) {
             return Err("Car inspection cannot substitute undeformed singlemesh vertices".into());
         }
@@ -155,10 +158,10 @@ pub fn snapshot_arena_tree(
         .ok_or("Car CPU resource owner unavailable")?;
     let mut bytes = 0usize;
     let mut meshes = Vec::new();
-    let mut textures = BTreeMap::<(u64, [u32; 3], u32), Arc<Texture>>::new();
+    let mut textures = BTreeMap::<(u64, u32), Arc<Texture>>::new();
     let mut omitted = 0usize;
     let mut unsupported_alpha_masks = 0usize;
-    for (object, world) in &frames {
+    for (object, world, center) in &frames {
         let Some(view) = resources
             .inspection_mesh(*object, CAR_INSPECTION_MAX_DRAWS - meshes.len())
             .map_err(|e| format!("Live car CPU geometry: {e:?}"))?
@@ -179,27 +182,26 @@ pub fn snapshot_arena_tree(
                     .ok_or("Car geometry size overflow")?,
             )?;
             let material = group.material;
+            let has_texture = material.flags & 0x40000 != 0 && group.texture.is_some();
+            let effective_texture = has_texture.then_some(group.texture).flatten();
             let alpha = InspectionAlpha::select(
-                group.texture,
-                group.texture_alpha,
-                group.inspection_rgba8_color_key,
+                effective_texture,
+                has_texture.then_some(group.texture_alpha).flatten(),
+                has_texture && group.inspection_rgba8_color_key,
+            )?;
+            let policy = crate::presentation_material::live_material(
+                material,
+                has_texture,
+                *center,
+                FrontFace::CounterClockwise,
             )?;
             if alpha.omitted {
                 unsupported_alpha_masks += 1;
             }
             if alpha.omitted
                 || material.env_texture.is_some()
-                || material.alpha != 1.
                 || material.emissive != [0.; 3]
-                || material.flags
-                    & (0x8000
-                        | 0x80000
-                        | 0x01000000
-                        | 0x04000000
-                        | 0x20000000
-                        | 0x40000000
-                        | 0x80000000)
-                    != 0
+                || material.flags & (0x80000 | 0x01000000 | 0x04000000) != 0
             {
                 omitted += 1;
             }
@@ -209,14 +211,17 @@ pub fn snapshot_arena_tree(
                 return Err("Car material or UV offset is nonfinite".into());
             }
             let key = (
-                group.texture_identity.map_or(0, |key| key.0),
-                material.diffuse.map(f32::to_bits),
+                if has_texture {
+                    group.texture_identity.map_or(0, |key| key.0)
+                } else {
+                    0
+                },
                 material.flags & 0x30000,
             );
             let texture = if let Some(texture) = textures.get(&key) {
                 texture.clone()
             } else {
-                let (width, height, source) = match group.texture {
+                let (width, height, source) = match effective_texture {
                     Some(texture) => (texture.width, texture.height, texture.rgba.as_slice()),
                     None => (1, 1, &[255, 255, 255, 255][..]),
                 };
@@ -232,12 +237,7 @@ pub fn snapshot_arena_tree(
                 rgba.try_reserve_exact(size)
                     .map_err(|_| "Car texture allocation unavailable")?;
                 for (index, pixel) in source.as_chunks::<4>().0.iter().enumerate() {
-                    for (channel, value) in pixel.iter().take(3).enumerate() {
-                        rgba.push(
-                            (f32::from(*value) * material.diffuse[channel].clamp(0., 1.)).round()
-                                as u8,
-                        );
-                    }
+                    rgba.extend_from_slice(&pixel[..3]);
                     rgba.push(alpha.alpha(index, pixel));
                 }
                 let texture = Arc::new(Texture {
@@ -282,6 +282,7 @@ pub fn snapshot_arena_tree(
                 indices.push(index);
             }
             meshes.push(Mesh {
+                material: policy,
                 vertices,
                 indices,
                 texture: Some(texture),
@@ -301,6 +302,107 @@ pub fn snapshot_arena_tree(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn live_arena_materials_share_pixels_and_preserve_diffuse_opacity_and_world_center() {
+        use crate::model_loading::tests::frame;
+        use lhr_render::{AlphaMode, MaterialQueue, RenderMaterial};
+        let path = std::env::temp_dir().join(format!(
+            "lhr-material-bridge-{}-{}",
+            std::process::id(),
+            crate::frame_lookup::incarnation()
+        ));
+        std::fs::create_dir(&path).unwrap();
+        std::fs::create_dir(path.join("maps")).unwrap();
+        let mut bmp = vec![0u8; 58];
+        bmp[..2].copy_from_slice(b"BM");
+        bmp[2..6].copy_from_slice(&58u32.to_le_bytes());
+        bmp[10..14].copy_from_slice(&54u32.to_le_bytes());
+        bmp[14..18].copy_from_slice(&40u32.to_le_bytes());
+        bmp[18..22].copy_from_slice(&1i32.to_le_bytes());
+        bmp[22..26].copy_from_slice(&1i32.to_le_bytes());
+        bmp[26..28].copy_from_slice(&1u16.to_le_bytes());
+        bmp[28..30].copy_from_slice(&24u16.to_le_bytes());
+        bmp[54..57].fill(255);
+        std::fs::write(path.join("maps/white.bmp"), bmp).unwrap();
+        let material = |flags, opacity| lhr_assets::Material {
+            flags,
+            ambient: [0.; 3],
+            diffuse: [0.25, 0.5, 1.],
+            texture: "white.bmp".into(),
+            emission: [0.; 3],
+            opacity,
+            alpha_texture: None,
+            reflection: None,
+            environment_texture: None,
+            animation: None,
+        };
+        let mut visual = frame(1, None, [10., 20., 30.]);
+        visual.render_flags = 0;
+        visual.logic_flags = 0;
+        visual.lods.push(lhr_assets::Lod {
+            distance: 0.,
+            uv_only: None,
+            vertices: [[-1., -1., 0.], [1., -1., 0.], [0., 1., 0.]]
+                .map(|position| lhr_assets::Vertex {
+                    position,
+                    normal: [0., 0., -1.],
+                    uv: [0.; 2],
+                })
+                .to_vec(),
+            groups: vec![
+                lhr_assets::FaceGroup {
+                    material: 0,
+                    indices: vec![0, 1, 2],
+                },
+                lhr_assets::FaceGroup {
+                    material: 1,
+                    indices: vec![0, 1, 2],
+                },
+            ],
+        });
+        let source = Arc::new(lhr_assets::Model {
+            // Stage 1's KEEP_PIXELS storage flag remains compatible with the
+            // live material path and must not count as an omitted draw effect.
+            materials: vec![material(0x48000, 1.), material(0x08048000, 0.5)],
+            frames: vec![visual],
+        });
+        let installation = lhr_assets::Installation::open(&path).unwrap();
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let model = arena.create_model().unwrap();
+        arena.scene_add_frame(scene, model.root()).unwrap();
+        arena.load_parsed_into_model(model, source).unwrap();
+        arena
+            .load_plain_visual_resources(model, &installation)
+            .unwrap();
+        let snapshot = snapshot_car_arena(&mut arena, model.root()).unwrap();
+        assert_eq!(snapshot.scene.meshes.len(), 2);
+        let [a, b] = &snapshot.scene.meshes[..] else {
+            panic!()
+        };
+        assert!(Arc::ptr_eq(
+            a.texture.as_ref().unwrap(),
+            b.texture.as_ref().unwrap()
+        ));
+        assert_eq!(a.texture.as_ref().unwrap().rgba, [255; 4]); // diffuse never baked into texture storage
+        let RenderMaterial::Original(a) = a.material else {
+            panic!()
+        };
+        let RenderMaterial::Original(b) = b.material else {
+            panic!()
+        };
+        assert_eq!(a.color, [1.; 4]);
+        assert_eq!(b.color, [0.25, 0.5, 1., 128. / 255.]);
+        assert_eq!(b.sort_center, [10., 20., -30.]);
+        assert_eq!(
+            (b.alpha, b.queue),
+            (AlphaMode::Blend, MaterialQueue::Transparent)
+        );
+        assert_eq!(snapshot.omitted_material_effects, 0);
+        arena.close(model).unwrap();
+        std::fs::remove_dir_all(path).unwrap();
+    }
+
     #[test]
     fn empty_visible_trees_are_valid_while_car_inspection_keeps_its_model_gate() {
         let mut arena = ModelArena::default();

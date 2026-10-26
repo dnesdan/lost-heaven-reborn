@@ -5,8 +5,8 @@
 //! Web node dtor0x149f90 and empty connection dtor0x4990.
 //! Effects is an upstream descriptive name; its ctor0x49080 calls Load0x49380.
 //! Constructors preserve padding and allocation seeds. Cleanup below admits
-//! constructor-empty arrays only; populated path/road/effect resources require
-//! their actual owners rather than guessed raw heap identities.
+//! constructor-empty path/road arrays only. Loaded effects have an owned Rust
+//! tree; its host allocations never masquerade as native x86 pointer words.
 
 #[path = "mission_game.rs"]
 mod game;
@@ -70,6 +70,11 @@ pub trait MissionAllocator: MissionMemoryDomain {
     /// result. On true the backend retains the opened stream; successful
     /// C_chunk seeks, stream state and parsing remain separate dependencies.
     fn open_effects_table(&mut self) -> Result<bool, Self::Error>;
+    /// Consume the retained genuine stream and close it. None preserves the
+    /// explicit dependency boundary for allocators without stream access.
+    fn read_effects_table(&mut self) -> Result<Option<Vec<u8>>, Self::Error> {
+        Ok(None)
+    }
 }
 #[derive(Debug)]
 pub enum ComponentError<E> {
@@ -81,6 +86,7 @@ pub enum ComponentError<E> {
     },
     Interrupted,
     EffectsTableStreamUnavailable,
+    EffectsTable(crate::effects_table::DataChunkError),
     ConstructorIncomplete,
     ConstructorAlreadyComplete,
     ForeignDomain,
@@ -91,6 +97,7 @@ pub struct MissionComponent {
     interrupted: bool,
     constructed: bool,
     destroyed: bool,
+    effects: Option<crate::effects_table::EffectsTable>,
 }
 impl MissionComponent {
     pub fn construct(
@@ -106,6 +113,7 @@ impl MissionComponent {
             interrupted: false,
             constructed: true,
             destroyed: false,
+            effects: None,
         };
         match kind {
             MissionComponentKind::Tshift => out.vector(0, (out.identity() >> 24) as u8),
@@ -144,6 +152,7 @@ impl MissionComponent {
             interrupted: false,
             constructed: false,
             destroyed: false,
+            effects: None,
         };
         for offset in [0, 0x10, 0x20] {
             out.vector(offset, stack_control);
@@ -151,13 +160,18 @@ impl MissionComponent {
         out.put(0x18, 0); // Load's Clear executes before dtaOpen.
         Ok(out)
     }
-    /// Finish actual ctor449080 only after its Load449380 missing-file branch.
-    /// Present streams stop before successful C_chunk Open's seeks and parser;
-    /// the backend owns their retained stream prefix.
+    /// Finish ctor449080 through the actual opened table or missing-file
+    /// branch. The Rust tree owns loaded children without inventing x86 pointers.
     pub fn finish_effects_constructor<A: MissionAllocator>(
         &mut self,
         allocator: &mut A,
     ) -> Result<(), ComponentError<A::Error>> {
+        if self.kind != MissionComponentKind::Effects {
+            return Err(ComponentError::Unavailable {
+                kind: self.kind,
+                offset: 0,
+            });
+        }
         if self.allocation.domain != allocator.mission_memory_domain() {
             return Err(ComponentError::ForeignDomain);
         }
@@ -172,7 +186,16 @@ impl MissionComponent {
                 .open_effects_table()
                 .map_err(ComponentError::Allocator)?
             {
-                true => return Err(ComponentError::EffectsTableStreamUnavailable),
+                true => {
+                    let bytes = allocator
+                        .read_effects_table()
+                        .map_err(ComponentError::Allocator)?
+                        .ok_or(ComponentError::EffectsTableStreamUnavailable)?;
+                    let table = self.effects.get_or_insert_with(Default::default);
+                    table.load(&bytes).map_err(ComponentError::EffectsTable)?;
+                    // Chunk stack storage is owned by the bounded Rust reader;
+                    // its host allocation is released with that reader.
+                }
                 false => allocator.free(0).map_err(ComponentError::Allocator)?,
             }
             self.put(0x30, u32::MAX);
@@ -200,10 +223,14 @@ impl MissionComponent {
             interrupted: false,
             constructed: true,
             destroyed: false,
+            effects: None,
         };
         let identity = out.identity();
         game::construct(&mut out.allocation.bytes, identity, inputs, globals);
         Ok(out)
+    }
+    pub fn effects(&self) -> Option<&crate::effects_table::EffectsTable> {
+        self.effects.as_ref()
     }
     pub fn kind(&self) -> MissionComponentKind {
         self.kind
@@ -263,8 +290,8 @@ impl MissionComponent {
     ) -> Result<(), ComponentError<std::convert::Infallible>> {
         self.web_path_leaf()
     }
-    /// Actual Effects Clear44a350, constructor-empty traversal only. Retains
-    /// any array allocation/capacity; a nonempty element destructor is separate.
+    /// Effects Clear44a350: release owned children and retain vector capacity.
+    /// Foreign populated x86 vectors still require their actual ownership.
     pub fn clear_effects(&mut self) -> Result<(), ComponentError<std::convert::Infallible>> {
         if self.interrupted || self.destroyed {
             return Err(ComponentError::Interrupted);
@@ -277,6 +304,9 @@ impl MissionComponent {
                 kind: self.kind,
                 offset: 0,
             });
+        }
+        if let Some(table) = &mut self.effects {
+            table.clear();
         }
         let begin = self.word(0x14);
         if begin != 0 && self.word(0x18) != begin {
@@ -341,6 +371,9 @@ impl MissionComponent {
                 &[0x18, 8]
             }
             MissionComponentKind::Effects => {
+                if let Some(mut table) = self.effects.take() {
+                    table.clear();
+                }
                 if self.word(0x14) != 0 || self.word(0x18) != 0 {
                     return Err(ComponentError::Unavailable {
                         kind: self.kind,

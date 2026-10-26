@@ -1172,6 +1172,72 @@ mod tests {
         }
     }
     #[test]
+    fn real_files_non_pcm16_wav_fallback_uses_selected_archive_and_preserves_seek() {
+        for encrypted in [false, true] {
+            for (encoded, expected) in [
+                (vec![0, 1, 2, 3, 4, 5, 6], vec![1, 2, 3, 4, 5, 6]),
+                (
+                    vec![99, 0x10, 0, b'a', b'b', b'c', 0, 0x30],
+                    b"abcabc".to_vec(),
+                ),
+            ] {
+                let dir = Directory::new();
+                let mut header = [0; 44];
+                header[..4].copy_from_slice(b"RIFF");
+                header[12..16].copy_from_slice(b"fmt ");
+                header[36..40].copy_from_slice(b"data");
+                header[22..24].copy_from_slice(&1u16.to_le_bytes());
+                header[32..34].copy_from_slice(&1u16.to_le_bytes());
+                header[34..36].copy_from_slice(&8u16.to_le_bytes());
+                let mut block = vec![8];
+                block.extend(header);
+                block.extend(&encoded);
+                if !encrypted {
+                    de_crypt(&mut block[1..45], 0x3498576239475694);
+                }
+                let packed = encoded_pack(block, 44 + expected.len() as u32, encrypted);
+                std::fs::write(dir.0.join("pack"), &packed).unwrap();
+                std::fs::write(dir.0.join("a"), b"loose must not be selected").unwrap();
+                let files = NativeFiles::new(&dir.0, 100, 1000000).unwrap();
+                let owner = files.register(b"pack", 0).unwrap();
+                let mut stream = files.open(b"a", SelectedSource::Archive(owner)).unwrap();
+                let mut prefix = [0; 4];
+                assert_eq!(stream.read(&mut prefix), Ok(4));
+                assert_eq!(&prefix, b"RIFF");
+                assert_eq!(stream.seek(44, 0), Ok(44));
+                let mut pixels = [0; 6];
+                assert_eq!(stream.read(&mut pixels), Ok(6));
+                assert_eq!(pixels.as_slice(), expected.as_slice());
+                assert_eq!(stream.seek(-3, 2), Ok(47));
+                assert_eq!(stream.read(&mut prefix), Ok(3));
+                assert_eq!(&prefix[..3], &expected[3..]);
+                stream.close().unwrap();
+                let entry = files.admitted_catalog(owner).unwrap().remove(0);
+                let mut full = header.to_vec();
+                full.extend(expected);
+                assert_eq!(files.read_admitted(owner, &entry).unwrap(), full);
+                files.shutdown().unwrap();
+
+                // A declared decoded-size mismatch remains a selected-copy error;
+                // the existing loose file cannot hide archive corruption.
+                let mut broken = packed;
+                let mut file_header: [u8; 32] = broken[48..80].try_into().unwrap();
+                de_crypt(&mut file_header, 0x3498576239475694);
+                file_header[16..20].copy_from_slice(&49u32.to_le_bytes());
+                de_crypt(&mut file_header, 0x3498576239475694);
+                broken[48..80].copy_from_slice(&file_header);
+                std::fs::write(dir.0.join("pack"), broken).unwrap();
+                let files = NativeFiles::new(&dir.0, 100, 1000000).unwrap();
+                let owner = files.register(b"pack", 0).unwrap();
+                assert!(matches!(
+                    files.open(b"a", SelectedSource::Archive(owner)),
+                    Err(StreamError::Bounds)
+                ));
+                files.shutdown().unwrap();
+            }
+        }
+    }
+    #[test]
     fn preflight_rejects_decoded_mismatch_trailing_bytes_and_short_chains() {
         let dir = Directory::new();
         let mut trailing = pack(false);
