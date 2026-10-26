@@ -1,5 +1,7 @@
 # Documentation history
 
+- [Complete scene/render predecessor files — 2026-10-26](2026-10-26-scene-render-predecessor.md)
+
 - [PR merge validation and preceding current narrative](2026-10-26-pr-merge-validation.md)
 
 - [Previous CPU world-sector loader and preceding cache record](2026-10-25-world-sector-loader.md)
@@ -21,8 +23,10 @@ immutable observations/snapshots remain in [progress.json](../progress.json).
 - [Dated screenshots and reproduction](../screenshots/README.md)
 - [Technical reference audit and naming](../REFERENCE_PROJECTS.md)
 
-Archived prose is verbatim; relative link destinations alone are rebased to keep
-the moved history navigable. Original baseline byte hashes are retained privately.
+Older narrative archives rebase relative link destinations to keep moved history
+navigable. The whole-file scene/render predecessor instead retains every original
+byte inside ten-backtick fences, including its original link destinations and
+generated sections. Its byte counts and SHA-256 values accompany each file.
 
 - [Texture/Scene Source-v5 milestone at baseline `3fbd671`](2026-10-25-texture-scene-source-v5.md)
 
