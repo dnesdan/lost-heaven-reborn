@@ -2,25 +2,35 @@
 
 ## Current milestone — 2026-10-26
 
-The staged source-based merge adds connected loader/image fixes, live material
-and model LOD selection, authored view orientation, audio lifecycle,
-archive/write IO and data-language selection. The unconstructed Lit branch is
-supported; saved lightmaps and the scene `LMAP` payload association remain open.
+Validated source [`dddaf539`](https://github.com/dnesdan/lost-heaven-reborn/commit/dddaf539c9b874b9cf7a67d866532d901729df18)
+connects genuine visual replacement and saved lighting to the actual Scene,
+active Camera, UV2/atlas resources and backdrop/main/near draw passes. Portal and
+occluder visibility feeds those draws. Guarded owners retain interrupted state.
+In the measured driving run, 907 admitted city-cache placements become real
+models in the same scene/cache ownership graph, with live visibility
+correspondence.
 
-Accepted code `a4dee6d` passes the required gate and **1310 Rust tests
-in both debug and release**, including both unchanged x87 tests without
-exclusions; 9 Python boundary and 47 progress tests pass. Seven opt-in GPU
-checks pass on Mesa llvmpipe Vulkan. New standalone W/A/D/S/Space, three
-reloads and Escape finish with four cleanups and seven zero CPU counters.
+The required gate passes: **1362 Rust tests in debug and release**, **1374 with
+12 opt-in GPU tests**, 9 Python boundary tests, 47 progress tests and Clippy.
+The actual-data driving CPU probe exercises 240 steps/audio/GameDone and reaches
+zero tracked resources. The actual-atlas GPU counterfactual changes 53 pixels;
+restoration recovers the complete RGBA image byte-for-byte. The final windowed
+run passes W/A/D/S/Space, three reloads and Escape, with four cleanups each
+reaching seven zero CPU counters.
 
-Standalone inspection/driving remains separate from a playable first mission.
-All six first-mission gates stay open. Accepted work remains **311 scoped
-entries / 114 contracts**, strict **0/12**; no new function or native-runtime
-credit is added.
+The scene2 loader now completes **44 records**, then stops at cursor **18693**
+on unsupported `FRAME_DUMMY` (6), `detector_konec`. Road and sky remain dark or
+absent; the cause is unresolved. Original mission/startup/streaming scheduling
+and general renderer/shader behavior remain open. No original executable or
+original function was executed for this milestone.
+
+All six first-mission gates remain open. Counts stay **311 scoped entries /
+114 contracts**, strict **0/12**, whole-function coverage **N/A**. This milestone
+adds no function or original-runtime parity credit.
 
 [Coverage](../COVERAGE.md) · [goals](GOALS.md) ·
-[stage scope and validation](implementation/mafia-re-remediation.md) ·
-[preceding current narrative](history/2026-10-26-pr-merge-validation.md).
+[scope and validation](implementation/mafia-re-remediation.md) ·
+[complete predecessor files](history/2026-10-26-scene-render-predecessor.md#progress).
 
 ## Earlier milestones
 
@@ -33,7 +43,7 @@ retains its original 270-file/1093-test source and native/UI scopes.
 The [verbatim narrative through baseline `0da90fb`](history/2026-10-25-progress-narrative.md)
 retains the weather/default workers, standalone driving, resource ownership,
 animation, archive and script milestones with their original source/proof scope.
-The [reference audit](REFERENCE_PROJECTS.md) remains the technical caller/name map.
+The [reference audit](REFERENCE_PROJECTS.md) records the current source/tool scope.
 Machine observations and immutable snapshots remain in [progress.json](progress.json).
 
 <details>

@@ -1,14 +1,14 @@
-//! Bounded presentation of the same live arena initialized by C_car. View-aware
+//! Unlit inspection of the same live arena initialized by C_car. View-aware
 //! callers select actual owned LODs; legacy wrappers explicitly select LOD0.
 //! Geometry comes from owned CPU buffers, including object-private LOD data.
-//! Saved vertex lighting and an explicit static lightmap context are supported.
-//! Dynamic lighting, envmaps, fog and native visibility remain separate work.
+//! Live source material decisions are explicit; lighting/envmaps/fog and full
+//! original renderer parity remain outside this unlit presentation bridge.
+use crate::presentation_material::{source_ccw_cull_front_face, SourceIndexOrder};
 use crate::{
     frame_transform::{FrameKey, FrameKind},
     model_loading::ModelArena,
-    scene_ownership::{SceneKey, SectorKey},
 };
-use lhr_render::{FrontFace, Mesh, Scene, Texture, Vertex};
+use lhr_render::{Mesh, Scene, Texture, Vertex};
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
@@ -17,17 +17,11 @@ use std::{
 pub const CAR_INSPECTION_MAX_BYTES: usize = 256 * 1024 * 1024;
 pub const CAR_INSPECTION_MAX_DRAWS: usize = 4096;
 
-/// Explicit host diagnostic rendering context. This is the caller's current
-/// sector, not a reconstructed portal/visual-queue selection. Every lightmapped
-/// frame is checked against this same arena, live scene and actual ancestry.
-#[derive(Clone, Copy, Debug)]
-pub struct StaticLightmapContext {
-    pub scene: SceneKey,
-    pub sector: SectorKey,
-}
-
 pub struct CarInspectionScene {
     pub scene: Scene,
+    /// Canonical frame identity for each materialized GPU draw.
+    pub draw_frames: Vec<FrameKey>,
+    pub lighting: Vec<Option<lhr_render::MeshLighting>>,
     pub visited_frames: usize,
     pub visible_meshes: usize,
     pub omitted_material_effects: usize,
@@ -149,19 +143,7 @@ pub fn snapshot_arena_tree_with_view(
     root: FrameKey,
     view: crate::inspection_lod::InspectionLodView,
 ) -> Result<CarInspectionScene, String> {
-    snapshot_arena_tree_inner(arena, root, Some(view), None)
-}
-
-/// HWTL/single-pass saved-lightmap inspection for an explicitly supplied
-/// current sector. Only its empty-light, zero-emission domain is implemented;
-/// this does not select visible sectors or substitute for the native renderer.
-pub fn snapshot_arena_tree_with_view_and_lighting(
-    arena: &mut ModelArena,
-    root: FrameKey,
-    view: crate::inspection_lod::InspectionLodView,
-    lighting: StaticLightmapContext,
-) -> Result<CarInspectionScene, String> {
-    snapshot_arena_tree_inner(arena, root, Some(view), Some(lighting))
+    snapshot_arena_tree_inner(arena, &[root], true, Some(view))
 }
 
 /// Snapshot the actual visible subtree, including sector-owned car effects.
@@ -172,16 +154,26 @@ pub fn snapshot_arena_tree(
     arena: &mut ModelArena,
     root: FrameKey,
 ) -> Result<CarInspectionScene, String> {
-    snapshot_arena_tree_inner(arena, root, None, None)
+    snapshot_arena_tree_inner(arena, &[root], true, None)
+}
+/// Materialize only the visual frames selected by canonical Scene visibility.
+/// Descendants are not implicitly included; each input has already passed the
+/// source sector, frustum and occlusion decisions.
+pub fn snapshot_selected_frames_with_view(
+    arena: &mut ModelArena,
+    frames: &[FrameKey],
+    view: crate::inspection_lod::InspectionLodView,
+) -> Result<CarInspectionScene, String> {
+    snapshot_arena_tree_inner(arena, frames, false, Some(view))
 }
 fn snapshot_arena_tree_inner(
     arena: &mut ModelArena,
-    root: FrameKey,
+    roots: &[FrameKey],
+    recursive: bool,
     view: Option<crate::inspection_lod::InspectionLodView>,
-    lighting: Option<StaticLightmapContext>,
 ) -> Result<CarInspectionScene, String> {
     let mut lod_culled_meshes = 0;
-    let mut pending = vec![root];
+    let mut pending: Vec<_> = roots.iter().copied().rev().collect();
     let mut seen = BTreeSet::new();
     let mut frames = Vec::new();
     while let Some(frame) = pending.pop() {
@@ -192,7 +184,11 @@ fn snapshot_arena_tree_inner(
         if state.flags & 1 == 0 {
             continue;
         }
-        let mut child = arena.links(frame).map_err(|e| e.to_string())?.child;
+        let mut child = if recursive {
+            arena.links(frame).map_err(|e| e.to_string())?.child
+        } else {
+            None
+        };
         let mut siblings = BTreeSet::new();
         while let Some(key) = child {
             if !siblings.insert(key.0) || siblings.len() > 65536 {
@@ -249,7 +245,27 @@ fn snapshot_arena_tree_inner(
             } else {
                 (0, 1.)
             };
-            frames.push((frame, object, matrix, center, lod_index, fade));
+            arena
+                .loaded_visual_resources_mut()
+                .ok_or("Saved lighting resource owner unavailable")?
+                .prepare_saved_lit_storage(object, lod_index)
+                .map_err(|e| {
+                    format!(
+                        "Selected saved lighting preparation frame {frame:?} LOD{lod_index}: {e:?}"
+                    )
+                })?;
+            let no_dynamic_lm = no_dynamic_lm_lights(arena, frame)?;
+            let null_colors = prepare_null_colors(arena, frame, object, lod_index, fade)?;
+            frames.push((
+                frame,
+                object,
+                matrix,
+                center,
+                lod_index,
+                fade,
+                no_dynamic_lm,
+                null_colors,
+            ));
         } else if matches!(state.kind, FrameKind::Singlemesh) {
             return Err("Car inspection cannot substitute undeformed singlemesh vertices".into());
         }
@@ -257,6 +273,8 @@ fn snapshot_arena_tree_inner(
     if frames.is_empty() {
         return Ok(CarInspectionScene {
             scene: Scene { meshes: Vec::new() },
+            draw_frames: Vec::new(),
+            lighting: Vec::new(),
             visited_frames: seen.len(),
             visible_meshes: 0,
             omitted_material_effects: 0,
@@ -270,71 +288,52 @@ fn snapshot_arena_tree_inner(
         .ok_or("Car CPU resource owner unavailable")?;
     let mut bytes = 0usize;
     let mut meshes = Vec::new();
+    let mut draw_frames = Vec::new();
+    let mut lighting = Vec::new();
+    let mut atlas_textures = BTreeMap::<(usize, u64), Arc<Texture>>::new();
     let mut textures = BTreeMap::<(u64, u32), Arc<Texture>>::new();
-    let mut atlases = BTreeMap::new();
     let mut omitted = 0usize;
     let mut unsupported_alpha_masks = 0usize;
-    for (frame, object, world, center, lod_index, fade) in &frames {
+    for (frame, object, world, center, lod_index, fade, no_dynamic_lm, null_colors) in &frames {
         let Some(view) = resources
             .inspection_mesh_at_lod(*object, *lod_index, CAR_INSPECTION_MAX_DRAWS - meshes.len())
-            .map_err(|e| format!("Live car CPU geometry: {e:?}"))?
+            .map_err(|e| format!("Canonical CPU geometry frame {frame:?} LOD{lod_index}: {e:?}"))?
         else {
             continue;
         };
-        let lightmap_texture = if let Some(lightmap) = &view.lightmap {
-            validate_static_lightmap_context(
-                arena,
-                *frame,
-                lighting
-                    .ok_or("Saved texture lightmaps require an explicit current-sector context")?,
-            )?;
-            let first = view
-                .groups
-                .first()
-                .ok_or("Saved lightmap has no first material")?
-                .material;
-            // PrepareLights starts with zero ambient, then uses the FIRST face
-            // group's material. Even with no sector lights it adds emissive.
-            if first.emissive != [0.; 3] || !first.ambient.into_iter().all(f32::is_finite) {
-                return Err(
-                    "Saved lightmap dynamic lighting/emission is outside the static profile".into(),
-                );
-            }
-            if view.uv_offset != [0.; 2] || view.vertex_stride != 32 {
-                return Err(
-                    "Saved lightmap private layout or animated UV offset is unavailable".into(),
-                );
-            }
-            if let Some(texture) = atlases.get(&lightmap.atlas) {
-                Some(Arc::clone(texture))
-            } else {
-                let source = lightmap.texture;
-                let size = (source.width as usize)
-                    .checked_mul(source.height as usize)
-                    .and_then(|n| n.checked_mul(4))
-                    .ok_or("Saved lightmap texture size overflow")?;
-                if source.width == 0 || source.height == 0 || source.rgba.len() != size {
-                    return Err("Saved lightmap CPU atlas is incomplete".into());
-                }
-                charge(&mut bytes, size)?;
-                let mut rgba = Vec::new();
-                rgba.try_reserve_exact(size)
-                    .map_err(|_| "Saved lightmap snapshot allocation unavailable")?;
-                rgba.extend_from_slice(&source.rgba);
-                let texture = Arc::new(Texture {
-                    width: source.width,
-                    height: source.height,
-                    rgba,
-                    // Source stage 0 keeps the driver's default WRAP state.
-                    repeat: [true; 2],
-                });
-                atlases.insert(lightmap.atlas, Arc::clone(&texture));
-                Some(texture)
-            }
-        } else {
-            None
-        };
-        for group in view.groups {
+        let saved = resources
+            .saved_lit_lod(*object, *lod_index)
+            .map_err(|e| format!("Saved lighting view: {e:?}"))?;
+        let managed_colors = view
+            .color_byte_offset
+            .map(|offset| {
+                view.vertex_bytes
+                    .chunks_exact(view.vertex_stride)
+                    .map(|v| {
+                        let raw = v
+                            .get(offset..offset + 4)
+                            .ok_or("Incomplete managed diffuse")?;
+                        let c = u32::from_le_bytes(raw.try_into().unwrap());
+                        Ok([
+                            ((c >> 16) & 255) as f32 / 255.,
+                            ((c >> 8) & 255) as f32 / 255.,
+                            (c & 255) as f32 / 255.,
+                            ((c >> 24) & 255) as f32 / 255.,
+                        ])
+                    })
+                    .collect::<Result<Vec<_>, String>>()
+            })
+            .transpose()?;
+        let managed_uv2 = view
+            .lightmap_uv_byte_offset
+            .map(|offset| {
+                view.vertex_bytes
+                    .chunks_exact(view.vertex_stride)
+                    .map(|v| Ok([word(v, offset)?, word(v, offset + 4)?]))
+                    .collect::<Result<Vec<_>, String>>()
+            })
+            .transpose()?;
+        for (group_number, group) in view.groups.into_iter().enumerate() {
             if meshes.len() >= CAR_INSPECTION_MAX_DRAWS {
                 return Err("Car inspection exceeds its draw budget".into());
             }
@@ -347,57 +346,68 @@ fn snapshot_arena_tree_inner(
                     .and_then(|n| index_count.checked_mul(4).and_then(|i| n.checked_add(i)))
                     .ok_or("Car geometry size overflow")?,
             )?;
-            let lit = view.visual_type == crate::i3d_object::ObjectVisualType::Lit;
+            let lit = view.visual_type == crate::i3d_object::ObjectVisualType::LitUnconstructed;
             let material = group.material;
-            let has_texture = material.flags & 0x40000 != 0 && group.texture.is_some();
+            let flags = material.map_or(0, |m| m.flags);
+            let has_texture = flags & 0x40000 != 0 && group.texture.is_some();
             let effective_texture = has_texture.then_some(group.texture).flatten();
             let alpha = InspectionAlpha::select(
                 effective_texture,
                 has_texture.then_some(group.texture_alpha).flatten(),
                 has_texture && group.inspection_rgba8_color_key,
             )?;
-            let policy = if view.lightmap.is_some() {
-                crate::presentation_material::saved_texture_lit_material(
-                    material,
-                    has_texture,
-                    *center,
-                    FrontFace::CounterClockwise,
-                )?
-            } else if view.saved_vertex_colors.is_some() {
-                crate::presentation_material::saved_vertex_lit_material(
-                    material,
-                    has_texture,
-                    *center,
-                    FrontFace::CounterClockwise,
-                )?
-            } else if lit {
-                crate::presentation_material::unconstructed_lit_material(
-                    material,
-                    has_texture,
-                    *center,
-                    FrontFace::CounterClockwise,
-                )?
+            let policy = if let Some(material) = material {
+                if saved.is_some() {
+                    constructed_lit_material(material, has_texture, *center)?
+                } else if lit {
+                    crate::presentation_material::unconstructed_lit_material(
+                        material,
+                        has_texture,
+                        *center,
+                        source_ccw_cull_front_face(SourceIndexOrder::Retained),
+                    )?
+                } else {
+                    crate::presentation_material::live_material_with_fade(
+                        material,
+                        has_texture,
+                        *center,
+                        source_ccw_cull_front_face(SourceIndexOrder::Retained),
+                        *fade,
+                    )?
+                }
             } else {
-                crate::presentation_material::live_material_with_fade(
-                    material,
-                    has_texture,
-                    *center,
-                    FrontFace::CounterClockwise,
-                    *fade,
-                )?
+                let color = if saved.is_some() {
+                    [1.; 4]
+                } else if lit {
+                    [0., 1., 1., 1.]
+                } else {
+                    [
+                        1.,
+                        1.,
+                        1.,
+                        null_colors
+                            .as_ref()
+                            .and_then(|c| c.first())
+                            .ok_or("Null material lighting unavailable")?[3],
+                    ]
+                };
+                lhr_render::RenderMaterial::OriginalNull {
+                    color,
+                    sort_center: *center,
+                }
             };
             if alpha.omitted {
                 unsupported_alpha_masks += 1;
             }
             if !lit
                 && (alpha.omitted
-                    || material.env_texture.is_some()
-                    || material.emissive != [0.; 3]
-                    || material.flags & (0x80000 | 0x01000000 | 0x04000000) != 0)
+                    || material.is_some_and(|m| m.env_texture.is_some())
+                    || material.is_some_and(|m| m.emissive != [0.; 3])
+                    || flags & (0x80000 | 0x01000000 | 0x04000000) != 0)
             {
                 omitted += 1;
             }
-            if !material.diffuse.into_iter().all(f32::is_finite)
+            if material.is_some_and(|m| !m.diffuse.into_iter().all(f32::is_finite))
                 || !view.uv_offset.into_iter().all(f32::is_finite)
             {
                 return Err("Car material or UV offset is nonfinite".into());
@@ -408,7 +418,7 @@ fn snapshot_arena_tree_inner(
                 } else {
                     0
                 },
-                (material.flags & 0x30000) | if lit { 0x80000000 } else { 0 },
+                (flags & 0x30000) | if lit { 0x80000000 } else { 0 },
             );
             let texture = if let Some(texture) = textures.get(&key) {
                 texture.clone()
@@ -440,7 +450,7 @@ fn snapshot_arena_tree_inner(
                     width,
                     height,
                     rgba,
-                    repeat: [material.flags & 0x10000 == 0, material.flags & 0x20000 == 0],
+                    repeat: [flags & 0x10000 == 0, flags & 0x20000 == 0],
                 });
                 textures.insert(key, texture.clone());
                 texture
@@ -449,19 +459,7 @@ fn snapshot_arena_tree_inner(
             vertices
                 .try_reserve_exact(vertex_count)
                 .map_err(|_| "Car vertex allocation unavailable")?;
-            if !matches!(view.vertex_stride, 24 | 32)
-                || view.vertex_bytes.len() != vertex_count * view.vertex_stride
-                || view
-                    .saved_vertex_colors
-                    .is_some_and(|colors| colors.len() != vertex_count)
-            {
-                return Err("Car vertex lighting layout is inconsistent".into());
-            }
-            for (index, vertex) in view
-                .vertex_bytes
-                .chunks_exact(view.vertex_stride)
-                .enumerate()
-            {
+            for vertex in view.vertex_bytes.chunks_exact(view.vertex_stride) {
                 let point = [word(vertex, 0)?, word(vertex, 4)?, word(vertex, 8)?];
                 let [x, y, z] = world
                     .try_transform_point(point)
@@ -473,28 +471,7 @@ fn snapshot_arena_tree_inner(
                 if !uv.into_iter().all(f32::is_finite) {
                     return Err("Car UV transform overflow".into());
                 }
-                let lightmap_uv = if let Some(lightmap) = &view.lightmap {
-                    [
-                        word(vertex, lightmap.uv_byte_offset)?,
-                        word(vertex, lightmap.uv_byte_offset + 4)?,
-                    ]
-                } else {
-                    [0.; 2]
-                };
                 vertices.push(Vertex {
-                    lightmap_uv,
-                    color: if view.lightmap.is_some() {
-                        [0.; 3]
-                    } else {
-                        view.saved_vertex_colors.map_or([1.; 3], |colors| {
-                            let argb = colors[index];
-                            [
-                                ((argb >> 16) & 255) as f32 / 255.,
-                                ((argb >> 8) & 255) as f32 / 255.,
-                                (argb & 255) as f32 / 255.,
-                            ]
-                        })
-                    },
                     position: [x, y, -z],
                     uv,
                 });
@@ -510,8 +487,122 @@ fn snapshot_arena_tree_inner(
                 }
                 indices.push(index);
             }
+            let saved_lighting = match saved {
+                None if material.is_none() && !lit => {
+                    let colors = null_colors
+                        .as_ref()
+                        .ok_or("Null material vertex colors unavailable")?;
+                    if colors.len() != vertices.len() {
+                        return Err("Null material vertex color extent unavailable".into());
+                    }
+                    charge(
+                        &mut bytes,
+                        vertices
+                            .len()
+                            .checked_mul(24)
+                            .ok_or("Null vertex lighting extent overflow")?,
+                    )?;
+                    Some(lhr_render::MeshLighting {
+                        uv2: vec![[0.; 2]; vertices.len()],
+                        colors: colors.clone(),
+                        atlas: None,
+                        mode: lhr_render::LightingMode::VertexColors { modulate_2x: true },
+                    })
+                }
+                None => None,
+                Some(crate::i3d_object::saved_lightmaps::SavedLitLod::Lightmap(lod)) => {
+                    if !no_dynamic_lm || material.is_some_and(|m| m.emissive != [0.; 3]) {
+                        return Err(
+                            "Saved lightmap dynamic light/emissive evaluation is unavailable"
+                                .into(),
+                        );
+                    }
+                    let faces = lod
+                        .face_rectangles
+                        .get(group_number)
+                        .ok_or("Saved lightmap face-group ownership unavailable")?
+                        .len();
+                    if group.index_bytes.len()
+                        != faces
+                            .checked_mul(6)
+                            .ok_or("Saved lightmap index extent overflow")?
+                        || lod.vertices.len() != vertices.len()
+                    {
+                        return Err("Saved lightmap managed extent unavailable".into());
+                    }
+                    charge(
+                        &mut bytes,
+                        vertices
+                            .len()
+                            .checked_mul(24)
+                            .ok_or("Saved lighting extent overflow")?,
+                    )?;
+                    let atlas = lod
+                        .atlas
+                        .read()
+                        .map_err(|_| "Saved lightmap atlas lock poisoned")?;
+                    let key = (Arc::as_ptr(&lod.atlas) as usize, atlas.revision);
+                    let texture = if let Some(texture) = atlas_textures.get(&key) {
+                        texture.clone()
+                    } else {
+                        charge(&mut bytes, atlas.rgba.len())?;
+                        let mut rgba = Vec::new();
+                        rgba.try_reserve_exact(atlas.rgba.len())
+                            .map_err(|_| "Saved lightmap atlas allocation unavailable")?;
+                        rgba.extend_from_slice(&atlas.rgba);
+                        let texture = Arc::new(Texture {
+                            width: atlas.width,
+                            height: atlas.height,
+                            rgba,
+                            repeat: [false; 2],
+                        });
+                        atlas_textures.insert(key, texture.clone());
+                        texture
+                    };
+                    Some(lhr_render::MeshLighting {
+                        uv2: managed_uv2
+                            .as_ref()
+                            .ok_or("Managed atlas UV unavailable")?
+                            .clone(),
+                        colors: managed_colors
+                            .as_ref()
+                            .ok_or("Managed lightmap diffuse unavailable")?
+                            .clone(),
+                        atlas: Some(texture),
+                        mode: lhr_render::LightingMode::LightMap {
+                            base_texture: has_texture,
+                            modulate_2x: true,
+                        },
+                    })
+                }
+                Some(crate::i3d_object::saved_lightmaps::SavedLitLod::VertexColors {
+                    colors,
+                    ..
+                }) => {
+                    if colors.len() != vertices.len() {
+                        return Err("Saved vertex color extent unavailable".into());
+                    }
+                    charge(
+                        &mut bytes,
+                        vertices
+                            .len()
+                            .checked_mul(24)
+                            .ok_or("Saved vertex color sidecar extent overflow")?,
+                    )?;
+                    Some(lhr_render::MeshLighting {
+                        uv2: vec![[0.; 2]; vertices.len()],
+                        colors: managed_colors
+                            .as_ref()
+                            .ok_or("Managed saved vertex diffuse unavailable")?
+                            .clone(),
+                        atlas: None,
+                        mode: lhr_render::LightingMode::VertexColors { modulate_2x: true },
+                    })
+                }
+            };
+            lighting.push(saved_lighting);
+            draw_frames.push(*frame);
             meshes.push(Mesh {
-                lightmap: lightmap_texture.clone(),
                 material: policy,
                 vertices,
                 indices,
@@ -521,6 +612,8 @@ fn snapshot_arena_tree_inner(
     }
     Ok(CarInspectionScene {
         scene: Scene { meshes },
+        draw_frames,
+        lighting,
         visited_frames: seen.len(),
         visible_meshes: frames.len(),
         omitted_material_effects: omitted,
@@ -530,59 +623,186 @@ fn snapshot_arena_tree_inner(
     })
 }
 
-fn validate_static_lightmap_context(
+fn prepare_null_colors(
+    arena: &mut ModelArena,
+    frame: FrameKey,
+    object: crate::i3d_object::ObjectResourceKey,
+    lod: u32,
+    fade: f32,
+) -> Result<Option<Vec<[f32; 4]>>, String> {
+    let input = {
+        let resources = arena
+            .loaded_visual_resources()
+            .ok_or("Null material resource owner absent")?;
+        let Some(view) = resources
+            .inspection_mesh_at_lod(object, lod, CAR_INSPECTION_MAX_DRAWS)
+            .map_err(|e| format!("Null material frame {frame:?} geometry: {e:?}"))?
+        else {
+            return Ok(None);
+        };
+        if view.visual_type != crate::i3d_object::ObjectVisualType::Plain
+            || !view.groups.iter().any(|g| g.material.is_none())
+        {
+            return Ok(None);
+        }
+        if view.groups.first().is_none_or(|g| g.material.is_some()) {
+            return Err(format!(
+                "Null material frame {frame:?} needs first-material lighting evaluation"
+            ));
+        }
+        let mut positions = Vec::new();
+        let mut normals = Vec::new();
+        for vertex in view.vertex_bytes.as_chunks::<32>().0 {
+            positions.push([word(vertex, 0)?, word(vertex, 4)?, word(vertex, 8)?]);
+            normals.push([word(vertex, 12)?, word(vertex, 16)?, word(vertex, 20)?]);
+        }
+        (positions, normals)
+    };
+    let sector = containing_lighting_sector(arena, frame)?
+        .ok_or("Null material requires its actual containing sector")?;
+    crate::null_material_lighting::null_material_vertex_lighting(
+        arena,
+        frame,
+        sector,
+        &input.0,
+        &input.1,
+        crate::null_material_lighting::NullMaterialLightingContext {
+            fade,
+            lightness: 1.,
+            transparency: 1.,
+            modulate_2x: true,
+        },
+    )
+    .map(Some)
+    .map_err(|e| format!("Null material frame {frame:?}: {e}"))
+}
+fn containing_lighting_sector(
     arena: &ModelArena,
     frame: FrameKey,
-    context: StaticLightmapContext,
-) -> Result<(), String> {
-    let closest = arena
-        .graph
-        .closest_sector(Some(frame))
-        .map_err(|e| format!("Lightmap sector ancestry: {e:?}"))?;
-    if closest != Some(context.sector.frame()) {
-        return Err("Lightmap context does not match the frame's actual closest sector".into());
-    }
-    let sector = arena.sector(context.sector).map_err(|e| e.to_string())?;
-    if sector.scene != Some(context.scene) {
-        return Err("Lightmap sector belongs to a different scene".into());
-    }
-    arena
-        .check_owner_available(context.scene.into())
-        .map_err(|e| e.to_string())?;
-    let scene = arena.scene(context.scene).map_err(|e| e.to_string())?;
-    if scene.sectors[3] == context.sector {
-        return Err("Near-sector lightmaps require the actual current camera sector".into());
-    }
-    if !sector.lights.is_empty() {
-        return Err("Saved lightmap dynamic sector lights are outside the static profile".into());
-    }
-    // The supplied context must not hide a cross-scene or cyclic hierarchy.
-    let mut at = arena
-        .links(context.sector.frame())
-        .map_err(|e| e.to_string())?
-        .parent;
+) -> Result<Option<crate::scene_ownership::SectorKey>, String> {
+    let mut at = Some(frame);
     let mut seen = BTreeSet::new();
-    while let Some(ancestor) = at {
-        if !seen.insert(ancestor.0) || seen.len() > 65536 {
-            return Err("Lightmap sector ancestry is cyclic or exceeds its budget".into());
+    while let Some(key) = at {
+        if !seen.insert(key.0) {
+            return Err("Lighting parent hierarchy is cyclic".into());
         }
-        if arena.state(ancestor).map_err(|e| e.to_string())?.kind == FrameKind::Sector
-            && arena
-                .sector(SectorKey(ancestor))
-                .map_err(|e| e.to_string())?
-                .scene
-                != Some(context.scene)
-        {
-            return Err("Lightmap nested sector scene association is inconsistent".into());
+        if arena.state(key).map_err(|e| e.to_string())?.kind == FrameKind::Sector {
+            let sector = crate::scene_ownership::SectorKey(key);
+            if let Some(scene) = arena.sector(sector).map_err(|e| e.to_string())?.scene {
+                let special = arena.scene(scene).map_err(|e| e.to_string())?.sectors;
+                if sector == special[3] {
+                    let camera = arena
+                        .scene_active_camera(scene)
+                        .map_err(|e| e.to_string())?
+                        .ok_or("Lighting camera absent")?;
+                    return Ok(Some(
+                        arena
+                            .camera(camera)
+                            .map_err(|e| e.to_string())?
+                            .sector
+                            .ok_or("Lighting camera sector absent")?,
+                    ));
+                }
+            }
+            return Ok(Some(sector));
         }
-        at = arena.links(ancestor).map_err(|e| e.to_string())?.parent;
+        at = arena.links(key).map_err(|e| e.to_string())?.parent;
     }
-    Ok(())
+    Ok(None)
 }
 
-#[cfg(test)]
-#[path = "lightmap_presentation_tests.rs"]
-mod lightmap_tests;
+/// Lit m_AddFGroups/m_RenderFGroup (LS3DF62030 caller,28d40 draw) use
+/// material texture flags for queue/blend/cull but never ordinary diffuse or
+/// opacity multiplication. Stage alpha SELECTARG1 takes the base texture.
+fn constructed_lit_material(
+    material: &crate::visual_resources::I3dMaterial,
+    has_texture: bool,
+    center: [f32; 3],
+) -> Result<lhr_render::RenderMaterial, String> {
+    use lhr_render::{AlphaMode, MaterialQueue, OriginalMaterial, RenderMaterial};
+    if !center.into_iter().all(f32::is_finite) {
+        return Err("Constructed lit sort center is nonfinite".into());
+    }
+    let flags = material.flags;
+    let alpha = if flags & 0x80000000 != 0 {
+        AlphaMode::Additive
+    } else if flags & 0x40000000 != 0 {
+        if material.emissive.iter().any(|v| v.to_bits() != 0) {
+            AlphaMode::Additive
+        } else {
+            AlphaMode::Blend
+        }
+    } else if flags & 0x20000000 != 0 {
+        AlphaMode::ColorKey
+    } else {
+        AlphaMode::Opaque
+    };
+    let queue = if !has_texture {
+        MaterialQueue::Opaque
+    } else if flags & 0xc0000000 != 0 {
+        MaterialQueue::Transparent
+    } else if flags & 0x20000000 != 0 {
+        MaterialQueue::ColorKey
+    } else {
+        MaterialQueue::Opaque
+    };
+    Ok(RenderMaterial::Original(OriginalMaterial {
+        color: [1.; 4],
+        alpha,
+        queue,
+        has_texture,
+        color_key_reference: 200,
+        two_sided: flags & 0x10000000 != 0,
+        front_face: source_ccw_cull_front_face(SourceIndexOrder::Retained),
+        sort_center: center,
+    }))
+}
+
+/// The admitted static branch is witnessed from the actual containing sector's
+/// light list. Any enabled dynamic-LM light requires real PrepareLights support.
+fn no_dynamic_lm_lights(arena: &ModelArena, frame: FrameKey) -> Result<bool, String> {
+    let mut at = Some(frame);
+    let mut seen = BTreeSet::new();
+    while let Some(key) = at {
+        if !seen.insert(key.0) {
+            return Err("Lighting parent hierarchy is cyclic".into());
+        }
+        if arena.state(key).map_err(|e| e.to_string())?.kind == FrameKind::Sector {
+            let mut sector = crate::scene_ownership::SectorKey(key);
+            let s = arena.sector(sector).map_err(|e| e.to_string())?;
+            if let Some(scene) = s.scene {
+                if arena.scene(scene).map_err(|e| e.to_string())?.sectors[3] == sector {
+                    let camera = arena
+                        .scene_active_camera(scene)
+                        .map_err(|e| e.to_string())?
+                        .ok_or("Near lighting camera absent")?;
+                    sector = arena
+                        .camera(camera)
+                        .map_err(|e| e.to_string())?
+                        .sector
+                        .ok_or("Near lighting camera sector absent")?;
+                }
+            }
+            for &light in &arena.sector(sector).map_err(|e| e.to_string())?.lights {
+                let state = arena.light(light).map_err(|e| e.to_string())?;
+                if !state.intensity.is_finite() {
+                    return Err("Sector dynamic light intensity is nonfinite".into());
+                }
+                if state.mode & 0x10 != 0
+                    && arena.state(light).map_err(|e| e.to_string())?.flags & 1 != 0
+                    && state.intensity.to_bits() & 0x7fff_ffff >= 0x322bcc77
+                    && matches!(state.light_type, 1..=4)
+                {
+                    return Ok(false);
+                }
+            }
+            return Ok(true);
+        }
+        at = arena.links(key).map_err(|e| e.to_string())?.parent;
+    }
+    // Explicit standalone model inspection has no sector lights.
+    Ok(true)
+}
 
 #[cfg(test)]
 mod tests {
@@ -749,3 +969,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "scene_render_lighting_tests.rs"]
+mod lighting_tests;

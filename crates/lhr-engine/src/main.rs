@@ -185,30 +185,21 @@ fn options() -> Result<Options, String> {
 fn synthetic() -> Scene {
     Scene {
         meshes: vec![Mesh {
-            lightmap: None,
             material: Default::default(),
             vertices: vec![
                 Vertex {
-                    lightmap_uv: [0.; 2],
-                    color: [1.; 3],
                     position: [-1., -1., 0.],
                     uv: [0., 1.],
                 },
                 Vertex {
-                    lightmap_uv: [0.; 2],
-                    color: [1.; 3],
                     position: [1., -1., 0.],
                     uv: [1., 1.],
                 },
                 Vertex {
-                    lightmap_uv: [0.; 2],
-                    color: [1.; 3],
                     position: [1., 1., 0.],
                     uv: [1., 0.],
                 },
                 Vertex {
-                    lightmap_uv: [0.; 2],
-                    color: [1.; 3],
                     position: [-1., 1., 0.],
                     uv: [0., 0.],
                 },
@@ -265,17 +256,21 @@ impl AnimationPlayback {
     }
 }
 struct LoadedScene {
+    canonical: Option<lhr_engine::scene_render::CanonicalSceneOwner>,
+    scene_frame: Option<lhr_render::SceneRenderFrame>,
     scene: Scene,
     camera: Camera,
     runtime: lhr_engine::runtime::RetainedScene,
     animation: Option<AnimationPlayback>,
-    car: Option<lhr_engine::car_runtime::CarRuntime>,
+    car: Option<lhr_engine::car_runtime::GuardedCarRuntime>,
 }
 fn load(options: &Options, viewport: [u32; 2]) -> Result<LoadedScene, String> {
     let Some(root) = &options.root else {
         let scene = synthetic();
         let camera = Camera::fit(&scene)?;
         return Ok(LoadedScene {
+            canonical: None,
+            scene_frame: None,
             scene,
             camera,
             runtime: lhr_engine::runtime::RetainedScene::default(),
@@ -294,6 +289,32 @@ fn load(options: &Options, viewport: [u32; 2]) -> Result<LoadedScene, String> {
             options.car_driving,
             viewport,
         );
+    }
+    if options.model.is_none() {
+        let mission = options.mission.as_deref().unwrap_or("00menu");
+        let mut canonical =
+            lhr_engine::scene_render::CanonicalSceneOwner::open(&installation, mission, viewport)?;
+        if let Some(frontier) = &canonical.frontier {
+            println!("Canonical scene2 retained frontier: cursor {}, entry {:#x}: {}; mission initialization remains incomplete",frontier.cursor,frontier.entry,frontier.detail);
+        }
+        let camera = canonical.camera_control()?;
+        let snapshot = match canonical.snapshot(viewport, 1) {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                let cleanup = canonical.close();
+                return Err(format!("{error}; canonical Scene cleanup: {cleanup:?}"));
+            }
+        };
+        println!("Canonical Scene active-camera rendering: {} selected material groups; source sector/portal/occluder visibility, main/backdrop/near projections; bounded material support",snapshot.scene.meshes.len());
+        return Ok(LoadedScene {
+            scene: snapshot.scene,
+            camera,
+            runtime: Default::default(),
+            animation: None,
+            car: None,
+            canonical: Some(canonical),
+            scene_frame: Some(snapshot.frame),
+        });
     }
     if options
         .mission
@@ -421,6 +442,8 @@ fn load(options: &Options, viewport: [u32; 2]) -> Result<LoadedScene, String> {
         )?
     };
     Ok(LoadedScene {
+        canonical: None,
+        scene_frame: None,
         scene,
         camera,
         runtime,
@@ -431,7 +454,7 @@ fn load(options: &Options, viewport: [u32; 2]) -> Result<LoadedScene, String> {
 type DrivingWorldView = ([i32; 2], u64);
 
 fn live_draw_state(
-    car: &mut Option<lhr_engine::car_runtime::CarRuntime>,
+    car: &mut Option<lhr_engine::car_runtime::GuardedCarRuntime>,
     driving: bool,
     camera: &Camera,
     viewport: [u32; 2],
@@ -439,48 +462,13 @@ fn live_draw_state(
     let Some(owner) = car.as_mut() else {
         return Ok((0, None));
     };
-    let view = lhr_engine::inspection_lod::InspectionLodView::from_camera(camera, viewport, 1.)?;
-    let root = owner.model().ok_or("Car model absent")?.root();
-    if driving {
-        let position = owner
-            .arena_mut()
-            .world_matrix(root)
-            .map_err(|e| e.to_string())?
-            .try_transform_point([0.; 3])
-            .map_err(|e| format!("Driving world position: {e:?}"))?;
-        let render_root = owner.driving_scene_root()?;
-        let draws = lhr_engine::car_inspection::snapshot_arena_tree_with_view(
-            owner.arena_mut(),
-            render_root,
-            view,
-        )?
-        .scene
-        .meshes
-        .len();
-        Ok((
-            draws,
-            Some((
-                driving_view::world_bucket(position)?,
-                owner.driving_world_render_revision()?,
-            )),
-        ))
-    } else {
-        Ok((
-            lhr_engine::car_inspection::snapshot_car_arena_with_view(
-                owner.arena_mut(),
-                root,
-                view,
-            )?
-            .scene
-            .meshes
-            .len(),
-            None,
-        ))
-    }
+    let snapshot = driving_view::snapshot_scene(owner, camera, viewport, 1)?;
+    let _ = driving;
+    Ok((snapshot.scene.meshes.len(), None))
 }
-fn close_car(car: &mut Option<lhr_engine::car_runtime::CarRuntime>) -> Result<(), String> {
+fn close_car(car: &mut Option<lhr_engine::car_runtime::GuardedCarRuntime>) -> Result<(), String> {
     if let Some(owner) = car.as_mut() {
-        let cleanup = owner.shutdown()?;
+        let cleanup = owner.close()?;
         println!("CPU car/model/scene resources released; actor registrations {}, CPU heap blocks {}, visual buffers {}, textures {}, retained scene frames {}, driver scene registrations {}, driver scene capacity {}; native device discard unexecuted (CPU projection)",cleanup.actor_registry_entries,cleanup.heap_allocations,cleanup.graphics,cleanup.textures,cleanup.retained_scene_prefix_frames,cleanup.driver_scene_registrations,cleanup.driver_scene_capacity);
     }
     *car = None;
@@ -495,36 +483,27 @@ fn load_car(
     viewport: [u32; 2],
 ) -> Result<LoadedScene, String> {
     let opened = if driving {
-        lhr_engine::car_runtime::CarRuntime::open_driving(
+        lhr_engine::car_runtime::GuardedCarRuntime::open_driving_scene(
             installation,
             path,
             Default::default(),
             "mise01",
         )
     } else {
-        lhr_engine::car_runtime::CarRuntime::open(installation, path, Default::default())
+        lhr_engine::car_runtime::GuardedCarRuntime::open(installation, path, Default::default())
     };
-    let mut owner = match opened {
-        Ok(owner) => owner,
-        Err(mut failure) => {
-            let cleanup = failure.partial.shutdown();
-            return Err(format!(
-                "{}; explicit inspection cleanup: {cleanup:?}",
-                failure.message
-            ));
+    let mut owner = opened?;
+    if let Some(frontier) = owner.scene2_frontier() {
+        println!("Canonical driving scene2 retained frontier: cursor {}, entry {:#x}: {}; mission initialization remains incomplete",frontier.cursor,frontier.entry,frontier.detail);
+    }
+    let result: Result<(Scene, Camera, lhr_render::SceneRenderFrame), String> = (|| {
+        if driving {
+            let _ = owner.start_driving("mise01")?;
         }
-    };
-    let result: Result<(Scene, Camera), String> = (|| {
-        let static_scene = if driving {
-            Some(owner.start_driving("mise01")?)
-        } else {
-            None
-        };
         if let Some(request) = steer {
             for _ in 0..steer_steps {
                 owner.preview_wheel_steering(request, 0.016)?;
             }
-            println!("Wheel steering preview: request {request}, {steer_steps} controlled 16 ms host inspection-clock steps; actual initialized wheel frames, no body movement or driving simulation");
         }
         let root = owner.model().ok_or("Car model absent")?.root();
         let camera = if driving {
@@ -532,41 +511,20 @@ fn load_car(
         } else {
             lhr_engine::car_inspection::camera_from_arena_bounds(owner.arena_mut(), root)?
         };
-        let view =
-            lhr_engine::inspection_lod::InspectionLodView::from_camera(&camera, viewport, 1.)?;
-        let snapshot = if driving {
-            let render_root = owner.driving_scene_root()?;
-            lhr_engine::car_inspection::snapshot_arena_tree_with_view(
-                owner.arena_mut(),
-                render_root,
-                view,
-            )?
-        } else {
-            lhr_engine::car_inspection::snapshot_car_arena_with_view(owner.arena_mut(), root, view)?
-        };
+        let snapshot = driving_view::snapshot_scene(&mut owner, &camera, viewport, 1)?;
         if driving {
             driving_view::sync_audio_listener(&mut owner, &camera)?;
         }
-        println!("CPU car constructed and initialized: {} seats, {} cached animation tracks; {} visible meshes, {} draws",owner.summary().seats,owner.summary().cached_tracks,snapshot.visible_meshes,snapshot.scene.meshes.len());
-        if !driving {
-            println!("Car inspection: same initialized frame graph and CPU buffers; camera-selected owned LOD and distance fade, unlit texture/diffuse with source material transparency and sidedness; {} draws contain unsupported material effects. A/D previews original wheel steering; body simulation, driving and missions are unavailable.",snapshot.omitted_material_effects);
-        } else {
-            println!("Driving controls: W throttle, S brake, A/D steer, Space handbrake; R reload, Escape exit. Fixed 16 ms simulation, live native car frames, original static world; host chase camera and unlit rendering.");
+        println!("Canonical car Scene: {} seats, {} cached animation tracks; {} selected material groups; actual active camera, source visibility and owned LOD buffers",owner.summary().seats,owner.summary().cached_tracks,snapshot.scene.meshes.len());
+        if driving {
+            println!("Driving controls: W throttle, S brake, A/D steer, Space handbrake; R reload, Escape exit. Fixed 16 ms simulation, same canonical car/world Scene; host chase controller authors its active camera. Mission scripts and traffic are not executed.");
         }
-        if snapshot.unsupported_alpha_masks != 0 {
-            println!(
-                "Car inspection: {} draws keep unsupported non-grayscale alpha masks opaque",
-                snapshot.unsupported_alpha_masks
-            );
-        }
-        let mut scene = snapshot.scene;
-        if let Some(world) = static_scene {
-            scene.meshes.extend(world.meshes);
-        }
-        Ok((scene, camera))
+        Ok((snapshot.scene, camera, snapshot.frame))
     })();
     match result {
-        Ok((scene, camera)) => Ok(LoadedScene {
+        Ok((scene, camera, scene_frame)) => Ok(LoadedScene {
+            canonical: None,
+            scene_frame: Some(scene_frame),
             scene,
             camera,
             runtime: Default::default(),
@@ -574,11 +532,12 @@ fn load_car(
             car: Some(owner),
         }),
         Err(error) => {
-            let cleanup = owner.shutdown();
+            let cleanup = owner.close();
             Err(format!("{error}; explicit inspection cleanup: {cleanup:?}"))
         }
     }
 }
+
 fn authored_camera(
     installation: &lhr_assets::Installation,
     scene: &Scene,
@@ -629,6 +588,8 @@ enum AppMode {
     Inspection,
 }
 struct App {
+    canonical: Option<lhr_engine::scene_render::CanonicalSceneOwner>,
+    scene_frame: Option<lhr_render::SceneRenderFrame>,
     mode: AppMode,
     ui: Option<menu::MenuUi>,
     pointer: [f32; 2],
@@ -637,7 +598,7 @@ struct App {
     camera: Camera,
     runtime: lhr_engine::runtime::RetainedScene,
     animation: Option<AnimationPlayback>,
-    car: Option<lhr_engine::car_runtime::CarRuntime>,
+    car: Option<lhr_engine::car_runtime::GuardedCarRuntime>,
     runtime_engine: lhr_engine::runtime::RuntimeEngine,
     clock_backend: lhr_engine::runtime::PlatformClock,
     options: Options,
@@ -690,6 +651,8 @@ impl App {
             .as_ref()
             .map_or(INITIAL_CAR_VIEWPORT, |c| [c.width, c.height]);
         let LoadedScene {
+            canonical,
+            scene_frame,
             mut scene,
             camera,
             runtime,
@@ -722,6 +685,9 @@ impl App {
                 return Err(format!("{error}; car cleanup: {cleanup:?}"));
             }
         };
+        if let Some(owner) = &canonical {
+            owner.upload_lighting(&mut renderer)?;
+        }
         renderer
             .set_inspection_alpha_cutout(self.options.car_inspection || self.options.car_driving);
         if let Some(old) = &self.renderer {
@@ -736,7 +702,12 @@ impl App {
             .as_ref()
             .unwrap()
             .configure(&renderer.device, self.config.as_ref().unwrap());
+        if let Some(owner) = &mut self.canonical {
+            owner.close()?;
+        }
         self.renderer = Some(renderer);
+        self.canonical = canonical;
+        self.scene_frame = scene_frame;
         self.scene = scene;
         self.camera = camera;
         self.runtime = runtime;
@@ -785,6 +756,10 @@ impl App {
             return Ok(());
         }
         let controls = driving_view::Controls::from_keys(&self.keys);
+        let viewport = self
+            .config
+            .as_ref()
+            .map_or(INITIAL_CAR_VIEWPORT, |c| [c.width, c.height]);
         let owner = self.car.as_mut().ok_or("Driving car owner absent")?;
         let mut state = None;
         let mut steering_limit_at_input = None;
@@ -802,6 +777,7 @@ impl App {
             )?);
             let root = owner.model().ok_or("Driving car model absent")?.root();
             self.camera = driving_view::chase_camera(owner.arena_mut(), root)?;
+            driving_view::control_scene_camera(owner, &self.camera, viewport)?;
             driving_view::sync_audio_listener(owner, &self.camera)?;
             let mut samples = [0.0_f32; 1536];
             owner.driving_mix_audio(48_000, &mut samples)?;
@@ -831,6 +807,9 @@ impl App {
             println!("Driving state: {{\"tick\":{},\"position\":{:?},\"speed\":{},\"contacts\":{},\"throttle\":{},\"brake\":{},\"steer\":{},\"handbrake\":{},\"audio_frames\":{},\"host_unix_ms\":{},\"actual_throttle\":{},\"actual_brake\":{},\"steering_requested_radians\":{},\"steering_applied_radians\":{},\"steering_limit_radians\":{},\"steering_limit_at_input_radians\":{},\"handbrake_force\":{},\"gear\":{}}}", self.driving_clock.ticks, state.position, state.speed, state.contacts, controls.throttle, controls.brake, controls.steer, controls.handbrake, audio_frames, host_unix_ms, feedback.throttle, feedback.brake, feedback.steering_requested_radians, feedback.steering_applied_radians, feedback.steering_limit_radians, steering_limit_at_input, feedback.handbrake_force, feedback.gear);
         }
         self.driving_controls = controls;
+        if owner.has_canonical_scene_world() {
+            return Ok(());
+        }
         let renderer = self.renderer.as_mut().ok_or("Driving renderer absent")?;
         let bucket = driving_view::world_bucket(state.position)?;
         let revision = owner.driving_world_render_revision()?;
@@ -854,29 +833,29 @@ impl App {
         let Some(owner) = self.car.as_mut() else {
             return Ok(());
         };
-        let view =
-            lhr_engine::inspection_lod::InspectionLodView::from_camera(&self.camera, viewport, 1.)?;
-        let root = if self.options.car_driving {
-            owner.driving_scene_root()?
-        } else {
-            owner.model().ok_or("Car model absent")?.root()
-        };
-        let snapshot = if self.options.car_driving {
-            lhr_engine::car_inspection::snapshot_arena_tree_with_view(
-                owner.arena_mut(),
-                root,
-                view,
-            )?
-        } else {
-            lhr_engine::car_inspection::snapshot_car_arena_with_view(owner.arena_mut(), root, view)?
-        };
+        let snapshot = driving_view::snapshot_scene(
+            owner,
+            &self.camera,
+            viewport,
+            self.count.wrapping_add(1),
+        )?;
         let renderer = self.renderer.as_mut().ok_or("Car renderer absent")?;
+        let mut count = self.scene.meshes.len();
         driving_view::refresh_car_draws(
             renderer,
             &mut self.scene,
-            &mut self.car_draws,
+            &mut count,
             snapshot.scene.meshes,
         )?;
+        for (i, lighting) in snapshot.lighting.iter().enumerate() {
+            if let Some(lighting) = lighting {
+                renderer.set_mesh_lighting(i, lighting)?;
+            } else {
+                renderer.clear_mesh_lighting(i)?;
+            }
+        }
+        self.car_draws = count;
+        self.scene_frame = Some(snapshot.frame);
         Ok(())
     }
     fn preview_car_steering(&mut self, elapsed_ms: u32) -> Result<(), String> {
@@ -929,12 +908,27 @@ impl ApplicationHandler for App {
             return;
         };
         let size = window.inner_size();
-        let Some(config) =
+        let Some(mut config) =
             surface.get_default_config(&adapter, size.width.max(1), size.height.max(1))
         else {
             self.fail(event_loop, "No presentation configuration");
             return;
         };
+        if self.canonical.is_some() || self.car.is_some() {
+            let linear_format = config.format.remove_srgb_suffix();
+            if !surface
+                .get_capabilities(&adapter)
+                .formats
+                .contains(&linear_format)
+            {
+                self.fail(
+                    event_loop,
+                    "Canonical Scene requires an unorm presentation target",
+                );
+                return;
+            }
+            config.format = linear_format;
+        }
         let mut renderer = match pollster::block_on(Renderer::with_adapter(
             &adapter,
             &self.scene,
@@ -947,6 +941,12 @@ impl ApplicationHandler for App {
                 return;
             }
         };
+        if let Some(owner) = &self.canonical {
+            if let Err(error) = owner.upload_lighting(&mut renderer) {
+                self.fail(event_loop, &error);
+                return;
+            }
+        }
         renderer
             .set_inspection_alpha_cutout(self.options.car_inspection || self.options.car_driving);
         surface.configure(&renderer.device, &config);
@@ -1122,6 +1122,39 @@ impl ApplicationHandler for App {
                 {
                     self.camera.eye = self.camera.target + rotated;
                 }
+                if let Some(owner) = &mut self.canonical {
+                    let viewport = self
+                        .config
+                        .as_ref()
+                        .map_or(INITIAL_CAR_VIEWPORT, |c| [c.width, c.height]);
+                    let result = (|| -> Result<(), String> {
+                        owner.set_inspection_camera_pose(&self.camera)?;
+                        let snapshot = owner.snapshot(viewport, self.count.wrapping_add(1))?;
+                        let renderer = self
+                            .renderer
+                            .as_mut()
+                            .ok_or("Canonical Scene renderer absent")?;
+                        let count = self
+                            .scene
+                            .meshes
+                            .len()
+                            .saturating_sub(usize::from(self.mode == AppMode::Menu));
+                        let mut count = count;
+                        driving_view::refresh_car_draws(
+                            renderer,
+                            &mut self.scene,
+                            &mut count,
+                            snapshot.scene.meshes,
+                        )?;
+                        owner.upload_lighting(renderer)?;
+                        self.scene_frame = Some(snapshot.frame);
+                        Ok(())
+                    })();
+                    if let Err(error) = result {
+                        self.fail(event_loop, &error);
+                        return;
+                    }
+                }
                 if let Err(error) = self.refresh_car_presentation() {
                     self.fail(event_loop, &error);
                     return;
@@ -1132,7 +1165,31 @@ impl ApplicationHandler for App {
                     match surface.get_current_texture() {
                         Ok(frame) => {
                             let view = frame.texture.create_view(&Default::default());
-                            let encoder = if self.mode == AppMode::Menu {
+                            let encoder = if let Some(scene_frame) = &self.scene_frame {
+                                let result = if self.mode == AppMode::Menu {
+                                    renderer.render_scene_frame_with_overlay(
+                                        &view,
+                                        config.width,
+                                        config.height,
+                                        scene_frame,
+                                        menu::DESIGN,
+                                    )
+                                } else {
+                                    renderer.render_scene_frame(
+                                        &view,
+                                        config.width,
+                                        config.height,
+                                        scene_frame,
+                                    )
+                                };
+                                match result {
+                                    Ok(encoder) => encoder,
+                                    Err(error) => {
+                                        self.fail(event_loop, &error);
+                                        return;
+                                    }
+                                }
+                            } else if self.mode == AppMode::Menu {
                                 renderer.render_with_overlay(
                                     &view,
                                     config.width,
@@ -1161,7 +1218,19 @@ impl ApplicationHandler for App {
                     if let Some(path) = &self.options.capture {
                         let renderer = self.renderer.as_ref().unwrap();
                         let size = self.window.as_ref().unwrap().inner_size();
-                        let result = if self.mode == AppMode::Menu {
+                        let result = if let Some(frame) = &self.scene_frame {
+                            if self.mode == AppMode::Menu {
+                                renderer.capture_scene_frame_with_overlay(
+                                    size.width,
+                                    size.height,
+                                    frame,
+                                    menu::DESIGN,
+                                    path,
+                                )
+                            } else {
+                                renderer.capture_scene_frame(size.width, size.height, frame, path)
+                            }
+                        } else if self.mode == AppMode::Menu {
                             renderer.capture_with_overlay(
                                 size.width,
                                 size.height,
@@ -1234,6 +1303,8 @@ impl lhr_engine::clock::ClockBackend for InspectionClock {
 fn run() -> Result<(), String> {
     let options = options()?;
     let LoadedScene {
+        mut canonical,
+        scene_frame,
         mut scene,
         camera,
         mut runtime,
@@ -1299,21 +1370,66 @@ fn run() -> Result<(), String> {
         animation.as_ref().map_or("static model guards only", AnimationPlayback::description)
     );
     if options.headless {
-        if car.is_some() {
+        if let Some(owner) = &mut canonical {
             let result = (|| {
                 let instance = lhr_render::instance();
                 let mut renderer = pollster::block_on(Renderer::new(
                     &instance,
                     None,
                     &scene,
-                    wgpu::TextureFormat::Rgba8UnormSrgb,
+                    wgpu::TextureFormat::Rgba8Unorm,
+                    options.linear,
+                ))?;
+                owner.upload_lighting(&mut renderer)?;
+                let frame = scene_frame.as_ref().ok_or("Canonical Scene frame absent")?;
+                if mode == AppMode::Menu {
+                    renderer.capture_scene_frame_with_overlay(
+                        INITIAL_CAR_VIEWPORT[0],
+                        INITIAL_CAR_VIEWPORT[1],
+                        frame,
+                        menu::DESIGN,
+                        options.capture.as_deref().unwrap(),
+                    )
+                } else {
+                    renderer.capture_scene_frame(
+                        INITIAL_CAR_VIEWPORT[0],
+                        INITIAL_CAR_VIEWPORT[1],
+                        frame,
+                        options.capture.as_deref().unwrap(),
+                    )
+                }
+            })();
+            let cleanup = owner.close();
+            result?;
+            cleanup?;
+            println!("Canonical active-camera Scene GPU readback complete");
+            return Ok(());
+        }
+        if car.is_some() {
+            let result = (|| {
+                let owner = car.as_mut().ok_or("Canonical car owner absent")?;
+                let snapshot =
+                    driving_view::snapshot_scene(owner, &camera, INITIAL_CAR_VIEWPORT, 1)?;
+                let instance = lhr_render::instance();
+                let mut renderer = pollster::block_on(Renderer::new(
+                    &instance,
+                    None,
+                    &snapshot.scene,
+                    wgpu::TextureFormat::Rgba8Unorm,
                     options.linear,
                 ))?;
                 renderer.set_inspection_alpha_cutout(true);
-                let result = renderer.capture(
+                for (i, lighting) in snapshot.lighting.iter().enumerate() {
+                    if let Some(lighting) = lighting {
+                        renderer.set_mesh_lighting(i, lighting)?;
+                    } else {
+                        renderer.clear_mesh_lighting(i)?;
+                    }
+                }
+                let result = renderer.capture_scene_frame(
                     INITIAL_CAR_VIEWPORT[0],
                     INITIAL_CAR_VIEWPORT[1],
-                    &camera,
+                    &snapshot.frame,
                     options.capture.as_deref().unwrap(),
                 );
                 renderer.device.poll(wgpu::Maintain::Wait);
@@ -1427,6 +1543,8 @@ fn run() -> Result<(), String> {
         None
     };
     let mut app = App {
+        canonical,
+        scene_frame,
         mode,
         ui,
         pointer: [-1.0; 2],
@@ -1465,6 +1583,7 @@ fn run() -> Result<(), String> {
     }
     app.audio_output = None;
     let cleanup = close_car(&mut app.car);
+    let scene_cleanup = app.canonical.as_mut().map_or(Ok(()), |owner| owner.close());
     let audio_result = match app.audio_capture.take() {
         Some(capture) => {
             println!(
@@ -1477,6 +1596,7 @@ fn run() -> Result<(), String> {
     };
     event_result?;
     cleanup?;
+    scene_cleanup?;
     audio_result?;
     if let Some(error) = app.error {
         return Err(error);

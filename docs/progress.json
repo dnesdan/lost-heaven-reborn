@@ -1,6 +1,6 @@
 {
   "updated_at": "2026-10-26",
-  "project_status": "Thirteen source-based stages merged: connected loaders/images, live unlit materials/model LOD, authored view orientation, audio lifecycle, archive/write IO, language and unconstructed Lit. ActualCPU world1415frames/5sectors/14portals reaches43scene2records then8013OBJ_toLMAP replacement frontier; saved lightmap payload association and completeMissionOpen/player/scripts remain open. Ledger311entries/114contracts strict0/12; six first-mission gates open; campaign not playable.",
+  "project_status": "Canonical Scene/active Camera rendering now consumes actual OBJ-to-LMAP replacement, saved-lightmap UV2/atlas and portal/occluder selection. Actual world: 1415 frames, five loaded sectors, 14 portals; scene2 advances to 44 records/cursor18693, then FRAME_DUMMY detector_konec kind6. Standalone driving adopts admitted city-cache models into the same owners. Road/sky remain dark or absent; full materials, complete MissionOpen/player/scripts and original-runtime parity remain open. Ledger311entries/114contracts, strict0/12, all six first-mission gates open; campaign not playable.",
   "rust_toolchain": "1.99.1",
   "validation": {
     "historical_driving_source4": {
@@ -436,12 +436,12 @@
         "original_reference_runtime": "Menu-to-prolog-to-first-mission HUD verified in the original game only; not Rust gameplay evidence"
       }
     },
-    "status": "Accepted source-based merge: required gate and1310Rust tests in each debug/release profile,9Python boundary/47progress and7opt-in softwareVulkan GPU checks PASS. Actual original-data CPU and fresh standalone driving/UI have separate scopes. No new native/function/ledger credit.",
-    "rust_unit_tests": 1310,
+    "status": "Accepted bounded canonical scene rendering and saved lighting; mission and original-runtime parity remain open.",
+    "rust_unit_tests": 1362,
     "rust_unit_test_split": {
       "lhr_assets": 151,
       "lhr_assets_integration": 8,
-      "lhr_engine_library": 1102,
+      "lhr_engine_library": 1154,
       "lhr_engine_application": 34,
       "lhr_engine_integration": 9,
       "lhr_render": 6
@@ -449,29 +449,62 @@
     "rea_wrapper_tests": 9,
     "progress_tests": 47,
     "latest_accepted_baseline": {
-      "source_commit": "a4dee6d4cce02564e72d0fc23e6d9fe6fdc39abe",
-      "rust_unit_tests": 1310,
-      "release_rust_tests": 1310,
+      "source_commit": "dddaf539c9b874b9cf7a67d866532d901729df18",
+      "rust_unit_tests": 1362,
+      "release_rust_tests": 1362,
       "rea_wrapper_tests": 9,
       "progress_tests": 47,
-      "milestone": "Thirteen source-based implementation stages merged; live materials/model LOD, loaders/images, authored orientation, audio/IO/language and unconstructed Lit. Saved lightmaps/LMAP scene association and playable first mission remain open."
+      "milestone": "Actual OBJ-to-LMAP replacement, saved-lighting resources, canonical Scene/Camera passes and portal/occluder draw selection."
     },
-    "current_source_status": "Accepted public code a4dee6d4cce02564e72d0fc23e6d9fe6fdc39abe;324-file fingerprint unchanged by final documentation/media. Review scope is preserved per-stage/original combined reviews plus two new reviews of the hard-link repair, not two fresh whole-source reviews.",
+    "current_source_status": "Frozen Source-v3 passed required checks and two sequential independent source reviews, including the final cache/owner supplement.",
     "current_source_freeze": {
-      "id": "PR-MERGE-20261026-SOURCE",
-      "source_commit": "a4dee6d4cce02564e72d0fc23e6d9fe6fdc39abe",
-      "source_git_tree": "0244444e9bc30b91fb7b516568c1fd8884cbd5ee",
-      "source_tree_sha256": "66fc7ae72d5ff4214f40fc6f09305c1f9c04edae73659c7c5114bb4e8aafc61a",
-      "files": 324,
-      "snapshot_sha256": "f60d8d13047b10ed3dcb5d9bd59b3d451d960bc4573c67d53fbf0343099694be",
-      "scope": "Tracked code/config excludes docs/** and root README.md/COVERAGE.md; final integration record/docs/media preserve the accepted fingerprint."
+      "id": "SCENE-RENDER-20261026-SOURCE-v3",
+      "source_commit": "dddaf539c9b874b9cf7a67d866532d901729df18",
+      "source_git_tree": "8d78a1aa3fb24e3dbf286fd1baca96dcccc35ec4",
+      "source_tree_sha256": "0616fb1ef46c6448cedca8df3e28acd92b186e7d466b808d00cf0d4965f4e5c5",
+      "files": 344,
+      "snapshot_sha256": "878addd18354c4b50a63c4dbf807e528874c7ce68e3157661f733be6f5c73a58",
+      "scope": "Code/config excludes docs/** and root README.md/COVERAGE.md; bytes and Git modes of all 344 files archived privately."
     },
     "full_gate": {
-      "id": "PR-MERGE-20261026-VERIFICATION-v1",
-      "sha256": "e127df40d84b05c352041fc7a89dfa1c2dbad32245c54a0f85937384048a72a0",
+      "id": "SCENE-RENDER-20261026-SOURCE-v3-VERIFICATION",
       "required_scripts_test": "PASS",
-      "debug_rust_tests": 1310,
-      "release_rust_tests": 1310,
+      "debug_rust_tests": 1362,
+      "release_rust_tests": 1362,
+      "rust_unit_test_split": {
+        "lhr_assets": 151,
+        "lhr_assets_integration": 8,
+        "lhr_engine_library": 1154,
+        "lhr_engine_application": 34,
+        "lhr_engine_integration": 9,
+        "lhr_render": 6
+      },
+      "rea_wrapper_tests": 9,
+      "progress_tests": 47,
+      "format_check_clippy": "PASS",
+      "generated_progress_check": "PASS",
+      "x87": "Both unchanged high-FIP tests pass in debug and release without exclusions.",
+      "opt_in_gpu": {
+        "total_opt_in": 12,
+        "renderer": 7,
+        "engine_library": 4,
+        "binary_refresh": 1,
+        "workspace_total": 1374,
+        "backend": "Mesa llvmpipe Vulkan",
+        "scope": "Rust source-contract readback; original-renderer parity unverified."
+      },
+      "log_sha256": {
+        "full-gate-source3.log": "a9c965a37cb276152b6818ae266bcbd464919f3543c9226057eaa70c84054784",
+        "build-source3.log": "1f788b66ea062f199afb46076a789cb2520299b3af49e5c9c7f501bfacae9f7f",
+        "release-source3.log": "0948dde80e2b977d08bc0d6fd7e8d956c27cfbf22e201893184ae77fda5131e8",
+        "gpu-all-source3.log": "4f0f06a8ed7cc9b9ad86f29346581ee04b50c70051afba434bd807be3c3841be"
+      },
+      "scope": "Static REA/assembly, Rust CPU/GPU and actual-data application checks are separate. No original executable or original function was executed in this milestone.",
+      "sha256": "6dfdc19cdc03c3f5ce1d091f8baf246d35ec0a47eddebaa6f3ac32e90b0bd5c3"
+    },
+    "historical_pr_merge_20261026": {
+      "status": "Accepted source-based merge: required gate and1310Rust tests in each debug/release profile,9Python boundary/47progress and7opt-in softwareVulkan GPU checks PASS. Actual original-data CPU and fresh standalone driving/UI have separate scopes. No new native/function/ledger credit.",
+      "rust_unit_tests": 1310,
       "rust_unit_test_split": {
         "lhr_assets": 151,
         "lhr_assets_integration": 8,
@@ -482,20 +515,92 @@
       },
       "rea_wrapper_tests": 9,
       "progress_tests": 47,
-      "format_check_clippy": "PASS",
-      "generated_progress_check": "PASS",
-      "x87": "Both unchanged high-FIP tests pass in debug and release without command-line exclusions.",
-      "opt_in_gpu": {
-        "total_opt_in": 7,
-        "renderer": 3,
-        "engine_library": 3,
-        "binary_refresh": 1,
-        "backend": "Mesa llvmpipe Vulkan",
-        "renderer_total_including_non_gpu": 9,
-        "scope": "Synthetic source-contract GPU readback; no original-game or physical GPU parity"
+      "latest_accepted_baseline": {
+        "source_commit": "a4dee6d4cce02564e72d0fc23e6d9fe6fdc39abe",
+        "rust_unit_tests": 1310,
+        "release_rust_tests": 1310,
+        "rea_wrapper_tests": 9,
+        "progress_tests": 47,
+        "milestone": "Thirteen source-based implementation stages merged; live materials/model LOD, loaders/images, authored orientation, audio/IO/language and unconstructed Lit. Saved lightmaps/LMAP scene association and playable first mission remain open."
       },
-      "release_test_log_sha256": "b33b946545627061da68413568b5b1d5e1e9ef9e4e53ae6e01afb48600b6f522",
-      "scope": "Source-contract, host CPU/GPU and separate actual standalone UI evidence; not new original-executable execution or native full-system parity."
+      "current_source_status": "Accepted public code a4dee6d4cce02564e72d0fc23e6d9fe6fdc39abe;324-file fingerprint unchanged by final documentation/media. Review scope is preserved per-stage/original combined reviews plus two new reviews of the hard-link repair, not two fresh whole-source reviews.",
+      "current_source_freeze": {
+        "id": "PR-MERGE-20261026-SOURCE",
+        "source_commit": "a4dee6d4cce02564e72d0fc23e6d9fe6fdc39abe",
+        "source_git_tree": "0244444e9bc30b91fb7b516568c1fd8884cbd5ee",
+        "source_tree_sha256": "66fc7ae72d5ff4214f40fc6f09305c1f9c04edae73659c7c5114bb4e8aafc61a",
+        "files": 324,
+        "snapshot_sha256": "f60d8d13047b10ed3dcb5d9bd59b3d451d960bc4573c67d53fbf0343099694be",
+        "scope": "Tracked code/config excludes docs/** and root README.md/COVERAGE.md; final integration record/docs/media preserve the accepted fingerprint."
+      },
+      "full_gate": {
+        "id": "PR-MERGE-20261026-VERIFICATION-v1",
+        "sha256": "e127df40d84b05c352041fc7a89dfa1c2dbad32245c54a0f85937384048a72a0",
+        "required_scripts_test": "PASS",
+        "debug_rust_tests": 1310,
+        "release_rust_tests": 1310,
+        "rust_unit_test_split": {
+          "lhr_assets": 151,
+          "lhr_assets_integration": 8,
+          "lhr_engine_library": 1102,
+          "lhr_engine_application": 34,
+          "lhr_engine_integration": 9,
+          "lhr_render": 6
+        },
+        "rea_wrapper_tests": 9,
+        "progress_tests": 47,
+        "format_check_clippy": "PASS",
+        "generated_progress_check": "PASS",
+        "x87": "Both unchanged high-FIP tests pass in debug and release without command-line exclusions.",
+        "opt_in_gpu": {
+          "total_opt_in": 7,
+          "renderer": 3,
+          "engine_library": 3,
+          "binary_refresh": 1,
+          "backend": "Mesa llvmpipe Vulkan",
+          "renderer_total_including_non_gpu": 9,
+          "scope": "Synthetic source-contract GPU readback; no original-game or physical GPU parity"
+        },
+        "release_test_log_sha256": "b33b946545627061da68413568b5b1d5e1e9ef9e4e53ae6e01afb48600b6f522",
+        "scope": "Source-contract, host CPU/GPU and separate actual standalone UI evidence; not new original-executable execution or native full-system parity."
+      }
+    },
+    "historical_pr_merge_20261026_descriptors": {
+      "project_status": "Thirteen source-based stages merged: connected loaders/images, live unlit materials/model LOD, authored view orientation, audio lifecycle, archive/write IO, language and unconstructed Lit. ActualCPU world1415frames/5sectors/14portals reaches43scene2records then8013OBJ_toLMAP replacement frontier; saved lightmap payload association and completeMissionOpen/player/scripts remain open. Ledger311entries/114contracts strict0/12; six first-mission gates open; campaign not playable.",
+      "assets": {
+        "scope": "A8/A2/A6/A1/AC/AA DTA subset; bounded 4DS Joint, skin, morph and Target intake; 5DS position/rotation/scale records, BMP/TGA, menu/text/font, scene2, cache and script intake",
+        "archive_order_basis": "Original PC registration order restricted to the supported archive subset; AC is between A1 and AA, cross-checked with original rw_data key decoding.",
+        "read_fallback": "Selected archive errors propagate with no retry, lower-archive or loose-file fallback; existing host policy is stricter than original dtaOpen fallback.",
+        "checksum_verification": false,
+        "audio_codecs": "Bounded native PCM16 mono/stereo WAV archive decoding, original-data mixing, optional CPAL output and WAV capture; current-source audio and hardware playback evidence remain separate.",
+        "scene_streaming": "Standalone driving retains the source scene and refreshes nearby original cache-model render subsets; native streaming, visibility, pooling and PVS remain unimplemented.",
+        "collision": "Original KLZ intake and scoped static line/sphere/box workers are implemented. The standalone driving candidate composes canonical dynamic registration and queries with the original static world; full mission/world equivalence is unestablished.",
+        "directory_assumption": "Trusted stable installation tree required; not descriptor-relative confinement against hostile concurrent parent replacement",
+        "installation_archive_provider": "Existing Installation::read callers use NativeFiles with original raw ASCII name, original table row and selected archive owner; non-ASCII archive names return UnsupportedName, loose Unicode behavior unchanged. Checked empty entries are a host accommodation."
+      },
+      "scene_and_scripts": {
+        "scene2": "Bounded object, actor and embedded script metadata parsing",
+        "city_cache": "Bounded inspection crop: 64 selected of 200 placements within 120 source units, 62 loaded, 2 validated billboard placements skipped; no native streaming, visibility, pooling or PVS",
+        "script_intake": "Observed actor serialization and line-oriented command parsing; no expression evaluation",
+        "diagnostic_vm_subset": "One bounded step per program for literal LABEL/GOTO/GOSUB/RETURN/WAIT/COMMANDBLOCK/END (PC-RUST-CONTROL-VM-01); not integrated with actors, world effects or mission progression",
+        "probe_results": "INTRO: 16 scripts halt on unsupported commands, one after advancing a prefix. MISE01: 37 halt, seven after advancing a prefix, two empty scripts complete. Prefix counts overlap halted counts.",
+        "original_runtime_comparison": "PC-RUST-CONTROL-VM-RUNTIME-02 compares bounded COMMANDBLOCK and WAIT states against original runtime observations; GOTO/END and complete scheduler/caller chain unverified, replay observed only",
+        "mission_execution": "not implemented",
+        "current_validation": "Actual authored MISE01 remains FINDACTOR/UnsupportedWorldBackend at PC 3 / source line 4; no later line executes. Standalone driving composes its own Car/GameInit scene-prefix context and does not advance mission scripts. All six first-mission gates remain open.",
+        "standalone_replay_wait": "Bounded live RECWAITFOREND (original opcode 0x2e) composes the replay busy predicate with existing scheduler control; no application replay resource/update or mission integration.",
+        "bounded_world_lookup": "Standalone FINDACTOR/FINDFRAME and LS3DF exact ASCII frame search through required live backends; no initialized mission world or application integration.",
+        "bounded_actor_ownership": "Standalone owned base actor fields/lifetime, kind-1 factory branch and ordered source memberships through required explicit effects; lookup adapter has no actual mission-world backend.",
+        "bounded_actor_frame_backend": "ModelActorFrames uses live ModelArena descendants/original names and shared external user-data records; fixed flags0x40 Target search, low-byte SetOn and existing supported release. No actual mission-world/scene-sector application wiring.",
+        "bounded_program_source": "Owned raw source/name lifetime, reverse replacement and genuine source-only kind-5 factory/Init/payload/destructor; compiler, running-detector ownership, real replacement globals/mission context and application world remain open.",
+        "bounded_instruction_recognition": "Three parser helpers plus all 398 original keyword rows/IDs in admitted ASCII/default-C domain; 400 actual MISE01 recognition inputs do not compile, schedule or execute the mission."
+      },
+      "renderer": {
+        "target": "wgpu Vulkan on Linux, Metal on macOS",
+        "latest_accepted_baseline": "At accepted public code a4dee6d4cce02564e72d0fc23e6d9fe6fdc39abe, live owned models use source material parameters and camera-selected geometry LOD/fade; Lit objects use the unconstructed cyan branch. The separate legacy raw static-world presentation remains unlit firstLOD. Saved lightmaps, scene LMAP payload association, original lighting/visibility and active-camera presentation remain open.",
+        "current_menu_scene_validation": "Seven synthetic source-contract GPU checks pass on Mesa llvmpipe Vulkan. Fresh actual UI covers standalone driving, W/A/D/S/Space, three reloads and Escape with cleanup. No new interactive menu validation, exact legacy-pixel claim or original-game rendering parity. Prior renderer descriptors and omitted-material counts are archived under validation.historical_world_sector_descriptors.",
+        "original_render_parity": "not established",
+        "macos_metal": "Historical Apple arm64 checks do not cover the new CoreAudio dependency. Current-source cross-target checking requires Apple SDK headers; native macOS linking and Metal execution remain untested."
+      }
     }
   },
   "assets": {
@@ -504,7 +609,7 @@
     "read_fallback": "Selected archive errors propagate with no retry, lower-archive or loose-file fallback; existing host policy is stricter than original dtaOpen fallback.",
     "checksum_verification": false,
     "audio_codecs": "Bounded native PCM16 mono/stereo WAV archive decoding, original-data mixing, optional CPAL output and WAV capture; current-source audio and hardware playback evidence remain separate.",
-    "scene_streaming": "Standalone driving retains the source scene and refreshes nearby original cache-model render subsets; native streaming, visibility, pooling and PVS remain unimplemented.",
+    "scene_streaming": "Actual retained world and admitted nearby cache-model copies share the canonical Scene/ModelArena/MissionCaches. Existing host spatial selection is not the original Game city-streaming controller; complete streaming/pooling/PVS remains open.",
     "collision": "Original KLZ intake and scoped static line/sphere/box workers are implemented. The standalone driving candidate composes canonical dynamic registration and queries with the original static world; full mission/world equivalence is unestablished.",
     "directory_assumption": "Trusted stable installation tree required; not descriptor-relative confinement against hostile concurrent parent replacement",
     "installation_archive_provider": "Existing Installation::read callers use NativeFiles with original raw ASCII name, original table row and selected archive owner; non-ASCII archive names return UnsupportedName, loose Unicode behavior unchanged. Checked empty entries are a host accommodation."
@@ -519,8 +624,8 @@
     "original_reference_runtime": "Menu-to-prolog-to-first-mission HUD verified in the original game only; not Rust gameplay evidence"
   },
   "scene_and_scripts": {
-    "scene2": "Bounded object, actor and embedded script metadata parsing",
-    "city_cache": "Bounded inspection crop: 64 selected of 200 placements within 120 source units, 62 loaded, 2 validated billboard placements skipped; no native streaming, visibility, pooling or PVS",
+    "scene2": "Actual ordered SceneOpen prefix: 44 records, cursor18693; OBJ-to-LMAP replacement and saved payload consumed, then explicit unsupported FRAME_DUMMY kind6 detector_konec. Full SceneOpen/MissionOpen remains open.",
+    "city_cache": "907 admitted original-data placements adopted into actual scene/model/cache owners in the spawn proof; zero unsupported/pending within that admitted subset. Shared mesh ownership, root pose and secondary visual scale preserved. Existing host selection does not establish original full city streaming.",
     "script_intake": "Observed actor serialization and line-oriented command parsing; no expression evaluation",
     "diagnostic_vm_subset": "One bounded step per program for literal LABEL/GOTO/GOSUB/RETURN/WAIT/COMMANDBLOCK/END (PC-RUST-CONTROL-VM-01); not integrated with actors, world effects or mission progression",
     "probe_results": "INTRO: 16 scripts halt on unsupported commands, one after advancing a prefix. MISE01: 37 halt, seven after advancing a prefix, two empty scripts complete. Prefix counts overlap halted counts.",
@@ -536,10 +641,11 @@
   },
   "renderer": {
     "target": "wgpu Vulkan on Linux, Metal on macOS",
-    "latest_accepted_baseline": "At accepted public code a4dee6d4cce02564e72d0fc23e6d9fe6fdc39abe, live owned models use source material parameters and camera-selected geometry LOD/fade; Lit objects use the unconstructed cyan branch. The separate legacy raw static-world presentation remains unlit firstLOD. Saved lightmaps, scene LMAP payload association, original lighting/visibility and active-camera presentation remain open.",
-    "current_menu_scene_validation": "Seven synthetic source-contract GPU checks pass on Mesa llvmpipe Vulkan. Fresh actual UI covers standalone driving, W/A/D/S/Space, three reloads and Escape with cleanup. No new interactive menu validation, exact legacy-pixel claim or original-game rendering parity. Prior renderer descriptors and omitted-material counts are archived under validation.historical_world_sector_descriptors.",
+    "latest_accepted_baseline": "Code dddaf539c9b874b9cf7a67d866532d901729df18: actual canonical Scene/Camera matrices, viewport and backdrop/main/near passes; live class after replacement, LOD, saved-lightmap UV2/atlas and portal/occluder-selected draws. Native NULL-material ambient/point lighting admitted subset; original fixed-function Unorm handling. Legacy raw model inspection remains separate.",
+    "current_menu_scene_validation": "Final Source-v3 actual-data headless and interactive proof recorded in scene_render_observation; 12 opt-in software-Vulkan GPU checks pass. No original-game pixel parity or native Metal claim.",
     "original_render_parity": "not established",
-    "macos_metal": "Historical Apple arm64 checks do not cover the new CoreAudio dependency. Current-source cross-target checking requires Apple SDK headers; native macOS linking and Metal execution remain untested."
+    "macos_metal": "Historical Apple arm64 checks do not cover the new CoreAudio dependency. Current-source cross-target checking requires Apple SDK headers; native macOS linking and Metal execution remain untested.",
+    "remaining": "Road/sky visibly dark or absent, cause unresolved. Full ordinary vertex lighting, fog/environment and special visual passes, complete texture-UID batching, native CPU Scene+0x188 SetViewProj cache/callbacks, atlas resize/16-bit dither/compression/offline construction and original renderer parity remain open."
   },
   "campaign_playable": false,
   "historical_analysis": {
@@ -51853,6 +51959,182 @@
       "verification_sha256": "e127df40d84b05c352041fc7a89dfa1c2dbad32245c54a0f85937384048a72a0",
       "source_snapshot_sha256": "f60d8d13047b10ed3dcb5d9bd59b3d451d960bc4573c67d53fbf0343099694be",
       "code_acceptance_sha256": "24dfd2343ab2155d246f88c737d1d1df31d94376f763d4be6c97ee942c9ec781"
+    }
+  },
+  "scene_render_observation": {
+    "id": "SCENE-RENDER-20261026-SOURCE-v3",
+    "date": "2026-10-26",
+    "source_commit": "dddaf539c9b874b9cf7a67d866532d901729df18",
+    "source_git_tree": "8d78a1aa3fb24e3dbf286fd1baca96dcccc35ec4",
+    "source_tree_sha256": "0616fb1ef46c6448cedca8df3e28acd92b186e7d466b808d00cf0d4965f4e5c5",
+    "source_files": 344,
+    "scope": "Three bounded dependency milestones through real owners; no new native-function/scoped-port/full-system acceptance.",
+    "implemented": [
+      "Actual type/factory-driven OBJ-to-LMAP Duplicate/replacement, child movement, membership, old-frame retirement and scene2 saved-lighting payload.",
+      "Saved lighting stream/cursor/partial owner, per-LOD geometry/UV2/vertex colors and allocation-leased atlas with last-owner release.",
+      "Actual active Camera matrices and viewport; separate backdrop/main/near GPU uniforms and depth behavior; actual LOD/audio-listener camera.",
+      "Saved atlas/UV2 changes GPU pixels; dynamic atlas-page revisions and bounded saved vertex-color/GPU explicit-contribution modes. Real contributing dynamic-lightmap/emissive evaluation remains unsupported.",
+      "Actual sectors/portal twins, aperture clipping, source-ordered numeric visibility and occluder shadow volumes select draw lists.",
+      "Nearby admitted city cache copies belong to the same canonical Scene/ModelArena/shared resources; guarded scene/car owners retain interrupted prefixes without cleanup replay."
+    ],
+    "actual_world": {
+      "frames": 1415,
+      "loaded_sectors": 5,
+      "portals": 14,
+      "scene2_records": 44,
+      "scene2_cursor": 18693,
+      "next_boundary": "FRAME_DUMMY detector_konec kind6; not sound or completed mission",
+      "saved_lmap": {
+        "name": "base247",
+        "vertices": 267,
+        "indices": 333,
+        "rectangles": 19,
+        "atlas_dimensions": [
+          128,
+          128
+        ]
+      }
+    },
+    "actual_cache_probe": {
+      "models": 907,
+      "unsupported_in_admitted_subset": 0,
+      "pending": 0,
+      "interrupted": false,
+      "chase_camera_main_draws": 686,
+      "cpu_steps": 240,
+      "audio_batches": 4,
+      "cleanup": "GameDone, scene/cache Close and explicit unused-graphics reclamation reach zero counted resources.",
+      "scope": "Initial Source-v3 cache integration probe; final guarded frontend separately exercised in UI."
+    },
+    "validation": {
+      "id": "SCENE-RENDER-20261026-SOURCE-v3-VERIFICATION",
+      "required_scripts_test": "PASS",
+      "debug_rust_tests": 1362,
+      "release_rust_tests": 1362,
+      "rust_unit_test_split": {
+        "lhr_assets": 151,
+        "lhr_assets_integration": 8,
+        "lhr_engine_library": 1154,
+        "lhr_engine_application": 34,
+        "lhr_engine_integration": 9,
+        "lhr_render": 6
+      },
+      "rea_wrapper_tests": 9,
+      "progress_tests": 47,
+      "format_check_clippy": "PASS",
+      "generated_progress_check": "PASS",
+      "x87": "Both unchanged high-FIP tests pass in debug and release without exclusions.",
+      "opt_in_gpu": {
+        "total_opt_in": 12,
+        "renderer": 7,
+        "engine_library": 4,
+        "binary_refresh": 1,
+        "workspace_total": 1374,
+        "backend": "Mesa llvmpipe Vulkan",
+        "scope": "Rust source-contract readback; original-renderer parity unverified."
+      },
+      "log_sha256": {
+        "full-gate-source3.log": "a9c965a37cb276152b6818ae266bcbd464919f3543c9226057eaa70c84054784",
+        "build-source3.log": "1f788b66ea062f199afb46076a789cb2520299b3af49e5c9c7f501bfacae9f7f",
+        "release-source3.log": "0948dde80e2b977d08bc0d6fd7e8d956c27cfbf22e201893184ae77fda5131e8",
+        "gpu-all-source3.log": "4f0f06a8ed7cc9b9ad86f29346581ee04b50c70051afba434bd807be3c3841be"
+      },
+      "scope": "Static REA/assembly, Rust CPU/GPU and actual-data application checks are separate. No original executable or original function was executed in this milestone."
+    },
+    "reviews": [
+      {
+        "round": 1,
+        "report_sha256": "867540678ad5bbe5320eec07260c95d474b2f9f44fcb78702b45720034bce68e"
+      },
+      {
+        "round": 2,
+        "report_sha256": "1218882270021af15ea49f876ec4ad4c64a3490058f8068be0c22dd3199a8433"
+      },
+      {
+        "supplement_round": 1,
+        "report_sha256": "0bc6896728116a95359046df4c6635f26548f9ed8f8fd49a1670e0de7949b0a0"
+      },
+      {
+        "supplement_round": 2,
+        "report_sha256": "3a8c37c9197c466e3e85c9d0ccd09ee18a73dfd8c545f8e4a76da3be80e9aa56"
+      }
+    ],
+    "upstream": {
+      "mafia_re_observed": "29b65b0e5bcf77f1f36c4fceeaa2b64eb644087c",
+      "behavior_pin": "86a7b15c",
+      "new_upstream_changes": false,
+      "rea_checkout": "3d565fa42",
+      "rea_source_version": "6.8",
+      "static_runtime": "Isolated retained 6.7; Node24.19 is below 6.8 requirement24.22.1.",
+      "original_runtime_calls": 0,
+      "fresh_static_ls3df_function_witnesses": 30
+    },
+    "limits": [
+      "Road/sky visibly dark or absent, cause unresolved. Full ordinary vertex lighting, fog/environment and special visual passes, complete texture-UID batching, native CPU Scene+0x188 SetViewProj cache/callbacks, atlas resize/16-bit dither/compression/offline construction and original renderer parity remain open.",
+      "Truecolor RGBA8 atlas admission is a host profile; native 16-bit/dither/compression and offline bake remain open.",
+      "Partial scene2 loader, host chase/orbit control and host city-cache selector are not original player/camera scheduling or Game city streaming.",
+      "No audible hardware validation, complete authored mission, original runtime comparison, new whole-function coverage or native Metal execution.",
+      "GPU contribution arithmetic is tested; actual contributing dynamic-lightmap/emissive evaluation remains an explicit frontier."
+    ],
+    "campaign_playable": false,
+    "first_mission_gates_closed": 0,
+    "strict_system_gates_closed": 0,
+    "strict_system_gates_total": 12,
+    "accepted_scoped_entries": 311,
+    "accepted_scoped_contracts": 114,
+    "whole_function_coverage": "N/A",
+    "new_native_runtime_calls": 0,
+    "final_verification": {
+      "id": "SCENE-RENDER-20261026-SOURCE-v3-VERIFICATION",
+      "sha256": "6dfdc19cdc03c3f5ce1d091f8baf246d35ec0a47eddebaa6f3ac32e90b0bd5c3"
+    },
+    "actual_saved_lighting_gpu": {
+      "changed_pixels": 53,
+      "restored_full_frame_rgba_byte_identical": true,
+      "same_scene_and_camera": true,
+      "real_scene": 1,
+      "camera": 1422,
+      "base247_draws": 7,
+      "scene_draws": 140,
+      "close_and_reclaim_all_counted_resources_zero": true,
+      "summary_sha256": "0d62b326b8205227ad5a76313ca44c6536228c51e3d086e110d7eee5805642bc",
+      "scope": "Actual data GPU probe with host-focused camera; white texture is GPU-only diagnostic."
+    },
+    "actual_ui": {
+      "controls": [
+        "W",
+        "A",
+        "D",
+        "S",
+        "Space"
+      ],
+      "reloads": 3,
+      "cleanups": 4,
+      "zero_cpu_counters_each": 7,
+      "exit": 0,
+      "owned_processes_reaped": true,
+      "binary_sha256": "45f932f6851895203c3a3a511d235808caec5cd5cb64d55d527663b3d53ade6f",
+      "guards_unchanged": true,
+      "receipt_sha256": "1999c3e11aca5bca3628f053fb3be205ba86e8f8fe5ac5dd6ed67babca5a4f4d",
+      "screenshot": {
+        "docs/screenshots/2026-10-26-canonical-scene-driving.webp": {
+          "sha256": "57ee7ea32ace898779cf74c34bbe1a9d5ed38cefa4f4149061f89a065953bc41",
+          "bytes": 91070
+        },
+        "docs/screenshots/2026-10-26-saved-lightmap.webp": {
+          "sha256": "8769778581bafec5b2ba973b53ff1e9d6703d6a09d2860cc1ef083ff7de0f3e2",
+          "bytes": 11768
+        }
+      },
+      "audible_hardware_verified": false,
+      "visual_limitation": "Road/sky dark or absent despite restored buildings; cause unresolved."
+    },
+    "actual_headless": {
+      "default_menu": 0,
+      "mise01": 0,
+      "guards_unchanged": true,
+      "owned_processes_reaped": true,
+      "scope": "Static partial SceneOpen inspection, not mission execution."
     }
   }
 }

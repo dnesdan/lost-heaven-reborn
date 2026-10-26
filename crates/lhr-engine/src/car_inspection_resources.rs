@@ -8,28 +8,21 @@ use crate::visual_resources::I3dMaterial;
 
 pub struct CpuInspectionGroup<'a> {
     pub index_bytes: &'a [u8],
-    pub material: &'a I3dMaterial,
+    pub material: Option<&'a I3dMaterial>,
     pub texture: Option<&'a lhr_assets::Texture>,
     pub texture_alpha: Option<&'a lhr_assets::Texture>,
     pub texture_flags: u32,
     pub inspection_rgba8_color_key: bool,
     pub texture_identity: Option<TextureKey>,
 }
-pub struct CpuLightmapView<'a> {
-    pub atlas: crate::lightmap_atlas::LightmapAtlasKey,
-    pub texture: &'a lhr_assets::Texture,
-    pub uv_byte_offset: usize,
-}
 pub struct CpuInspectionMesh<'a> {
-    /// Actual checked source/private vertex buffer, with its retained stride.
+    /// Borrowed validated source/private manager bytes. The selected FVF
+    /// determines stride and UV/diffuse offsets; callers never reinterpret a
+    /// source normal as constructed diffuse or use source indices for lit IB.
     pub vertex_bytes: &'a [u8],
     pub vertex_stride: usize,
-    /// Source ARGB32 words for constructed saved vertex lighting. These are
-    /// borrowed from the same selected litLod whose checked buffer is exposed.
-    pub saved_vertex_colors: Option<&'a [u32]>,
-    /// Expanded geometry's atlas from the same litLod allocation. No light
-    /// evaluation is implied: the caller must validate its actual context.
-    pub lightmap: Option<CpuLightmapView<'a>>,
+    pub color_byte_offset: Option<usize>,
+    pub lightmap_uv_byte_offset: Option<usize>,
     pub vertex_count: u32,
     pub visual_type: crate::i3d_object::ObjectVisualType,
     pub uv_byte_offset: usize,
@@ -134,66 +127,76 @@ impl LoadedVisualResources {
             .managed()
             .vertex_bindings()
             .iter()
-            .find(|binding| {
-                binding.level == level_key
-                    && binding.state == crate::managed_visual_resources::BindingState::Installed
+            .find(|b| {
+                b.level == level_key
+                    && b.state == crate::managed_visual_resources::BindingState::Installed
             })
-            .map(|binding| binding.owner);
+            .map(|b| b.owner);
+        let mut vertex_count = level.num_vertices;
+        let mut vertex_stride = 32;
+        let mut expected = (0x112, 6);
+        let mut uv_byte_offset = 24;
         let mut uv_offset = [0.; 2];
+        let mut color_byte_offset = None;
+        let mut lightmap_uv_byte_offset = None;
+        let mut lit_indices = None;
         let visual_type = object.visual_type();
-        let mut lightmap_data = None;
-        let (private_lod, uv_byte_offset, saved_vertex_colors) =
-            if let Some(lit) = object.lit_object() {
-                let lighting = lit
-                    .levels
-                    .get(lit.active_level)
-                    .ok_or(LoadedVisualError::InvalidGeometry)?;
-                if lighting.constructed && lighting.mode == 2 {
-                    if mesh.u_ofs != 0. || mesh.v_ofs != 0. {
-                        return Err(LoadedVisualError::Backend(
-                            "saved lightmap nonzero mesh UV offsets unavailable",
-                        ));
-                    }
-                    let key = lighting.lods[index].ok_or(LoadedVisualError::InvalidGeometry)?;
-                    let data = self
-                        .objects
-                        .lightmap_lod(key)?
-                        .ok_or(LoadedVisualError::InvalidGeometry)?;
-                    if !data.ready
-                        || data.vertex_count == 0
-                        || data.vertex_info.len() != data.vertex_count as usize
-                        || data.base_uv.len() != data.vertex_count as usize
-                        || data.lightmap_uv.len() != data.vertex_count as usize
-                        || data.face_rectangles.len() != level.num_fgroups as usize
-                    {
-                        return Err(LoadedVisualError::InvalidGeometry);
-                    }
-                    lightmap_data = Some(data);
-                    (Some(key), 24, None)
-                } else {
-                    let colors = if lighting.constructed {
-                        if lighting.mode != 1 && lighting.mode != 5 {
-                            return Err(LoadedVisualError::Backend(
-                                "constructed lighting mode unavailable",
-                            ));
-                        }
-                        let colors = lighting.saved_vertex_colors[index].as_deref().ok_or(
-                            LoadedVisualError::Backend("saved vertex colors unavailable"),
-                        )?;
-                        if colors.len() != level.num_vertices as usize {
-                            return Err(LoadedVisualError::InvalidGeometry);
-                        }
-                        Some(colors)
-                    } else {
-                        None
-                    };
-                    (lighting.lods[index], 16, colors)
+        let private_lod = if let Some(lit) = object.lit_object() {
+            let lighting = lit
+                .levels
+                .get(lit.active_level)
+                .ok_or(LoadedVisualError::InvalidGeometry)?;
+            if lighting.constructed {
+                if mesh.u_ofs != 0. || mesh.v_ofs != 0. {
+                    return Err(LoadedVisualError::Backend(
+                        "constructed lightmap animated UV cache unavailable",
+                    ));
                 }
+                let key = lighting.lods[index].ok_or(LoadedVisualError::InvalidGeometry)?;
+                if self.objects.lit_lod_storage(key)?.phase
+                    != crate::i3d_object::LitStoragePhase::Ready
+                {
+                    return Err(LoadedVisualError::Backend(
+                        "selected saved lighting buffers are not prepared",
+                    ));
+                }
+                let payload = lighting.saved_lods[index]
+                    .as_ref()
+                    .ok_or(LoadedVisualError::InvalidGeometry)?;
+                color_byte_offset = Some(12);
+                match payload {
+                    crate::i3d_object::saved_lightmaps::SavedLitLod::VertexColors {
+                        colors,
+                        ..
+                    } => {
+                        vertex_count = u32::try_from(colors.len())
+                            .map_err(|_| LoadedVisualError::InvalidGeometry)?;
+                        vertex_stride = 24;
+                        expected = (0x142, 0);
+                        uv_byte_offset = 16;
+                    }
+                    crate::i3d_object::saved_lightmaps::SavedLitLod::Lightmap(lod) => {
+                        vertex_count = u32::try_from(lod.vertices.len())
+                            .map_err(|_| LoadedVisualError::InvalidGeometry)?;
+                        expected = (0x242, 1);
+                        lightmap_uv_byte_offset = Some(16);
+                        let count = u32::try_from(lod.indices.len())
+                            .map_err(|_| LoadedVisualError::InvalidGeometry)?;
+                        lit_indices =
+                            Some((self.objects.saved_lit_index_descriptor(key, count)?, count));
+                    }
+                }
+                Some(key)
             } else {
-                (object.lods[index], 24, None)
-            };
-        if let Some(lod_key) = private_lod {
-            let lod = self.objects.lod(lod_key)?;
+                expected = (0x242, 1);
+                uv_byte_offset = 16;
+                lighting.lods[index]
+            }
+        } else {
+            object.lods[index]
+        };
+        if let Some(key) = private_lod {
+            let lod = self.objects.lod(key)?;
             if lod.state != LodState::Constructed {
                 return Err(LoadedVisualError::Backend("inspection LOD was destroyed"));
             }
@@ -203,67 +206,14 @@ impl LoadedVisualResources {
                     .objects
                     .lod_bindings()
                     .iter()
-                    .find(|binding| {
-                        binding.lod == lod_key
-                            && binding.state
-                                == crate::managed_visual_resources::BindingState::Installed
+                    .find(|b| {
+                        b.lod == key
+                            && b.state == crate::managed_visual_resources::BindingState::Installed
                     })
-                    .map(|binding| binding.owner);
+                    .map(|b| b.owner);
             }
             uv_offset = [lod.u_ofs, lod.v_ofs];
         }
-        let vertex_count = lightmap_data.map_or(level.num_vertices, |data| data.vertex_count);
-        let lightmap = lightmap_data
-            .map(|data| -> Result<CpuLightmapView<'_>> {
-                let view = self
-                    .objects
-                    .lightmap_atlases()
-                    .allocation(data.allocation.ok_or(LoadedVisualError::InvalidGeometry)?)
-                    .map_err(ObjectError::Lightmap)?;
-                Ok(CpuLightmapView {
-                    atlas: view.atlas,
-                    texture: view.texture,
-                    uv_byte_offset: 16,
-                })
-            })
-            .transpose()?;
-        let lightmap_indices = lightmap_data
-            .map(|data| {
-                let key = private_lod.ok_or(LoadedVisualError::InvalidGeometry)?;
-                let binding = self
-                    .objects
-                    .lit_index_bindings()
-                    .iter()
-                    .find(|binding| {
-                        binding.lod == key
-                            && binding.state
-                                == crate::managed_visual_resources::BindingState::Installed
-                    })
-                    .ok_or(LoadedVisualError::Backend(
-                        "saved lightmap index owner unavailable",
-                    ))?;
-                let usage = self
-                    .objects
-                    .managed()
-                    .index_storage_configuration(binding.owner, data.index_buffer, data.index_count)
-                    .map_err(|error| LoadedVisualError::Object(ObjectError::Managed(error)))?;
-                if usage != 0x10 {
-                    return Err(LoadedVisualError::Backend(
-                        "saved lightmap index storage usage differs",
-                    ));
-                }
-                self.inspection_graphics(
-                    GraphicsBuffer::Index(
-                        data.index_buffer
-                            .graphics
-                            .ok_or(LoadedVisualError::InvalidGeometry)?,
-                    ),
-                    data.index_buffer.base as usize * 2,
-                    data.index_count as usize * 2,
-                    None,
-                )
-            })
-            .transpose()?;
         let configuration = self
             .objects
             .managed()
@@ -277,15 +227,8 @@ impl LoadedVisualResources {
             .map_err(|_| {
                 LoadedVisualError::Backend("inspection vertex descriptor/manager mismatch")
             })?;
-        let expected = if saved_vertex_colors.is_some() {
-            (0x142, 0, 24)
-        } else if visual_type == crate::i3d_object::ObjectVisualType::Lit {
-            (0x242, 1, 32)
-        } else {
-            (0x112, 6, 32)
-        };
         if configuration.fvf != expected.0
-            || configuration.stride != Some(expected.2)
+            || configuration.stride != Some(vertex_stride as u32)
             || configuration.format != expected.1
         {
             return Err(LoadedVisualError::Backend(
@@ -298,93 +241,65 @@ impl LoadedVisualResources {
                     .graphics
                     .ok_or(LoadedVisualError::InvalidGeometry)?,
             ),
-            vertices.base as usize * expected.2 as usize,
+            vertices.base as usize * vertex_stride,
             (vertex_count as usize)
-                .checked_mul(expected.2 as usize)
+                .checked_mul(vertex_stride)
                 .ok_or(LoadedVisualError::InvalidGeometry)?,
             Some(expected.0),
         )?;
-        if let Some(colors) = saved_vertex_colors {
-            if vertex_bytes
-                .as_chunks::<24>()
-                .0
-                .iter()
-                .zip(colors)
-                .any(|(vertex, color)| {
-                    u32::from_le_bytes(vertex[12..16].try_into().unwrap()) != *color
-                })
-            {
-                return Err(LoadedVisualError::Backend(
-                    "saved vertex color buffer differs from its owner",
-                ));
-            }
-        }
-        if let Some(data) = lightmap_data {
-            for ((vertex, base), light) in vertex_bytes
-                .as_chunks::<32>()
-                .0
-                .iter()
-                .zip(&data.base_uv)
-                .zip(&data.lightmap_uv)
-            {
-                let word =
-                    |offset| u32::from_le_bytes(vertex[offset..offset + 4].try_into().unwrap());
-                if word(16) != light[0].to_bits()
-                    || word(20) != light[1].to_bits()
-                    || word(24) != base[0].to_bits()
-                    || word(28) != base[1].to_bits()
-                {
-                    return Err(LoadedVisualError::Backend(
-                        "saved lightmap UV buffer differs from owner",
-                    ));
-                }
-            }
-        }
         let mut groups = Vec::new();
         groups
             .try_reserve_exact(level.num_fgroups as usize)
             .map_err(|_| LoadedVisualError::Backend("inspection allocation"))?;
         let mut next = level.fgroups;
-        let mut first_index_byte = 0usize;
+        let mut lit_first = 0u32;
         for _ in 0..level.num_fgroups {
             let key = next.ok_or(LoadedVisualError::InvalidGeometry)?;
             let group = resources
                 .face_group(key)
                 .map_err(|e| LoadedVisualError::Object(ObjectError::Managed(e.into())))?;
-            let material = resources
-                .material(group.material.ok_or(LoadedVisualError::InvalidGeometry)?)
-                .map_err(|e| LoadedVisualError::Object(ObjectError::Managed(e.into())))?;
-            let group_bytes = (group.num_faces as usize)
-                .checked_mul(6)
+            let material = group
+                .material
+                .map(|key| {
+                    resources
+                        .material(key)
+                        .map_err(|e| LoadedVisualError::Object(ObjectError::Managed(e.into())))
+                })
+                .transpose()?;
+            let index_count = group
+                .num_faces
+                .checked_mul(3)
                 .ok_or(LoadedVisualError::InvalidGeometry)?;
-            let index_bytes = if let Some(indices) = lightmap_indices {
-                let end = first_index_byte
-                    .checked_add(group_bytes)
+            let (descriptor, first) = if let Some((descriptor, count)) = lit_indices {
+                let first = lit_first;
+                lit_first = lit_first
+                    .checked_add(index_count)
                     .ok_or(LoadedVisualError::InvalidGeometry)?;
-                let slice = indices
-                    .get(first_index_byte..end)
-                    .ok_or(LoadedVisualError::InvalidGeometry)?;
-                first_index_byte = end;
-                slice
+                if lit_first > count {
+                    return Err(LoadedVisualError::InvalidGeometry);
+                }
+                (descriptor, first)
             } else {
-                self.inspection_graphics(
-                    GraphicsBuffer::Index(
-                        group
-                            .index_buffer
-                            .graphics
-                            .ok_or(LoadedVisualError::InvalidGeometry)?,
-                    ),
-                    group.index_buffer.base as usize * 2,
-                    group_bytes,
-                    None,
-                )?
+                (group.index_buffer, 0)
             };
+            let index_bytes = self.inspection_graphics(
+                GraphicsBuffer::Index(
+                    descriptor
+                        .graphics
+                        .ok_or(LoadedVisualError::InvalidGeometry)?,
+                ),
+                (descriptor.base as usize + first as usize) * 2,
+                (index_count as usize)
+                    .checked_mul(2)
+                    .ok_or(LoadedVisualError::InvalidGeometry)?,
+                None,
+            )?;
             let texture = material
-                .texture
+                .and_then(|material| material.texture)
                 .map(|key| self.cpu_texture(key))
                 .transpose()?;
             let owned_texture = material
-                .texture
+                .and_then(|material| material.texture)
                 .and_then(|key| self.backend.textures.get(&key.0));
             groups.push(CpuInspectionGroup {
                 index_bytes,
@@ -394,22 +309,19 @@ impl LoadedVisualResources {
                 texture_flags: owned_texture.map_or(0, |texture| texture.flags),
                 inspection_rgba8_color_key: owned_texture
                     .is_some_and(|texture| texture.inspection_rgba8_color_key),
-                texture_identity: material.texture,
+                texture_identity: material.and_then(|material| material.texture),
             });
             next = group.next;
         }
-        if next.is_some() {
-            return Err(LoadedVisualError::InvalidGeometry);
-        }
-        if lightmap_indices.is_some_and(|indices| first_index_byte != indices.len()) {
+        if next.is_some() || lit_indices.is_some_and(|(_, count)| lit_first != count) {
             return Err(LoadedVisualError::InvalidGeometry);
         }
         Ok(Some(CpuInspectionMesh {
             vertex_bytes,
-            vertex_stride: expected.2 as usize,
-            saved_vertex_colors,
-            lightmap,
             vertex_count,
+            vertex_stride,
+            color_byte_offset,
+            lightmap_uv_byte_offset,
             visual_type,
             uv_byte_offset,
             uv_offset,

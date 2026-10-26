@@ -19,6 +19,14 @@ mod driving;
 pub use driving::{CarDrivingControlFeedback, CarDrivingInput, CarDrivingState};
 #[path = "car_runtime_game.rs"]
 mod game;
+#[path = "car_runtime_lifecycle.rs"]
+mod lifecycle;
+use lifecycle::OperationState;
+#[path = "car_runtime_owner.rs"]
+mod owner;
+#[path = "car_runtime_scene.rs"]
+mod scene_loading;
+pub use owner::{failure_slots, inspect_failed_car, GuardedCarRuntime};
 #[path = "car_runtime_tables.rs"]
 mod tables;
 
@@ -103,10 +111,8 @@ pub struct CarRuntime {
     precision: Pc24PrecisionState,
     services: driving::CarRuntimeServices,
     driving: Option<driving::DrivingSession>,
-    game_init_started: bool,
-    game_initialized: bool,
-    game_done_started: bool,
-    game_done_complete: bool,
+    game_init: OperationState,
+    game_done: OperationState,
     game: game::CarRuntimeGameState,
     game_scratch: CarGameInitScratch,
     level_table_started: bool,
@@ -116,6 +122,10 @@ pub struct CarRuntime {
     tracks: CarTrackResources,
     model: Option<ModelKey>,
     scene: Option<SceneKey>,
+    scene_world_progress: Option<crate::model_loading::CpuSceneWorldProgress>,
+    scene_city_cache: crate::canonical_city_cache::CanonicalCityCache,
+    scene_cache_bucket: Option<[i32; 2]>,
+    scene_mission: Option<scene_loading::DrivingSceneMission>,
     scene_resources: crate::scene_resources::SceneResources,
     scene_driver: crate::driver_scene::DriverSceneOwner,
     scene_textures: Option<crate::itexture::TextureResources>,
@@ -123,8 +133,7 @@ pub struct CarRuntime {
     construction: Option<CarConstructionState>,
     car: Option<VehicleInitState>,
     summary: CarRuntimeSummary,
-    car_destructor_started: bool,
-    car_destructor_complete: bool,
+    car_destruction: OperationState,
     shutdown_started: bool,
     wheel_preview_started: bool,
     wheel_preview_failed: bool,
@@ -161,7 +170,7 @@ impl CarRuntime {
         path: &str,
         options: CarRuntimeOptions,
     ) -> Result<Self, CarRuntimeOpenFailure> {
-        Self::open_context(installation, path, options, None)
+        Self::open_context(installation, path, options, None, false)
     }
     /// Establishes the authored model transform before construction and Init.
     pub fn open_driving(
@@ -170,13 +179,24 @@ impl CarRuntime {
         options: CarRuntimeOptions,
         mission: &str,
     ) -> Result<Self, CarRuntimeOpenFailure> {
-        Self::open_context(installation, path, options, Some(mission))
+        Self::open_context(installation, path, options, Some(mission), false)
+    }
+    /// Driving inspection with the original static world owned by the same
+    /// Scene as the car. This does not imply original MissionOpen scheduling.
+    pub fn open_driving_scene(
+        installation: lhr_assets::Installation,
+        path: &str,
+        options: CarRuntimeOptions,
+        mission: &str,
+    ) -> Result<Self, CarRuntimeOpenFailure> {
+        Self::open_context(installation, path, options, Some(mission), true)
     }
     fn open_context(
         installation: lhr_assets::Installation,
         path: &str,
         options: CarRuntimeOptions,
         mission: Option<&str>,
+        canonical_world: bool,
     ) -> Result<Self, CarRuntimeOpenFailure> {
         let tracks = CarInitAnimationCatalog::resources().expect("bounded unique semantic catalog");
         let mut runtime = Self {
@@ -186,10 +206,8 @@ impl CarRuntime {
                 ..Default::default()
             },
             driving: None,
-            game_init_started: false,
-            game_initialized: false,
-            game_done_started: false,
-            game_done_complete: false,
+            game_init: OperationState::NotStarted,
+            game_done: OperationState::NotStarted,
             game: game::CarRuntimeGameState::default(),
             game_scratch: CarGameInitScratch {
                 memory: VehicleComponentTailScratch {
@@ -211,6 +229,10 @@ impl CarRuntime {
             tracks,
             model: None,
             scene: None,
+            scene_world_progress: None,
+            scene_city_cache: Default::default(),
+            scene_cache_bucket: None,
+            scene_mission: None,
             scene_resources: Default::default(),
             scene_driver: Default::default(),
             scene_textures: None,
@@ -224,13 +246,12 @@ impl CarRuntime {
                 cached_tracks: 0,
                 source_frames: 0,
             },
-            car_destructor_started: false,
-            car_destructor_complete: false,
+            car_destruction: OperationState::NotStarted,
             shutdown_started: false,
             wheel_preview_started: false,
             wheel_preview_failed: false,
         };
-        if let Err(message) = runtime.initialize(path, options, mission) {
+        if let Err(message) = runtime.initialize(path, options, mission, canonical_world) {
             return Err(CarRuntimeOpenFailure {
                 message,
                 partial: Box::new(runtime),
@@ -243,11 +264,12 @@ impl CarRuntime {
         path: &str,
         options: CarRuntimeOptions,
         mission: Option<&str>,
+        canonical_world: bool,
     ) -> Result<(), String> {
         Pc24PrecisionState::run_owner(
             self,
             |owner| &mut owner.precision,
-            |owner| owner.initialize_inner(path, options, mission),
+            |owner| owner.initialize_inner(path, options, mission, canonical_world),
         )
     }
     fn initialize_inner(
@@ -255,6 +277,7 @@ impl CarRuntime {
         path: &str,
         options: CarRuntimeOptions,
         mission: Option<&str>,
+        canonical_world: bool,
     ) -> Result<(), String> {
         self.prepare_game_context(options, mission.is_some())?;
         if let Some(mission) = mission {
@@ -301,6 +324,24 @@ impl CarRuntime {
                 return Err(format!("Driver scene creation: {failure:?}"));
             }
         };
+        if canonical_world {
+            let mission = mission.ok_or("Canonical driving world requires a mission source")?;
+            let name = format!("missions\\{mission}\\scene.i3d");
+            match self.scene_driver.load_scene_world_cpu(
+                &mut self.arena,
+                &self.scene_resources,
+                scene,
+                &self.installation,
+                &name,
+            ) {
+                Ok(progress) => self.scene_world_progress = Some(progress),
+                Err(failure) => {
+                    self.scene_world_progress = Some(failure.progress);
+                    return Err(format!("Canonical driving world: {:?}", failure.error));
+                }
+            }
+            self.load_driving_scene2(mission, options)?;
+        }
         let sector = self.arena.scene(scene).map_err(|e| e.to_string())?.sectors[0].frame();
         let model = self.arena.create_model().map_err(|e| e.to_string())?;
         self.model = Some(model);
@@ -548,6 +589,26 @@ impl CarRuntime {
             .and_then(|scene| self.scene_resources.construction(scene))
             .and_then(|construction| construction.viewport_projection)
     }
+    pub fn has_canonical_scene_world(&self) -> bool {
+        self.scene_world_progress.as_ref().is_some_and(|progress| {
+            progress.phase() == crate::model_loading::CpuSceneWorldPhase::Complete
+        })
+    }
+    pub fn scene_city_cache(&self) -> &crate::canonical_city_cache::CanonicalCityCache {
+        &self.scene_city_cache
+    }
+    pub fn scene2_frontier(&self) -> Option<&crate::mission_scene_loading::MissionSceneLoadError> {
+        self.scene_mission
+            .as_ref()
+            .and_then(|mission| mission.frontier.as_ref())
+    }
+    pub fn set_scene_viewport(&mut self, rectangle: [i32; 4]) -> Result<(), String> {
+        let scene = self.scene.ok_or("Car scene owner unavailable")?;
+        self.scene_resources
+            .set_viewport(&self.arena, scene, rectangle)
+            .map_err(|error| format!("Scene viewport: {error:?}"))?;
+        Ok(())
+    }
     pub fn driver_scene_registry(&self) -> &crate::driver_scene::DriverSceneOwner {
         &self.scene_driver
     }
@@ -571,11 +632,7 @@ impl CarRuntime {
         )
     }
     fn load_level_table_inner(&mut self) -> Result<CarRuntimeLevelTableSummary, String> {
-        if !self.summary.initialized
-            || self.car_destructor_started
-            || self.shutdown_started
-            || self.level_table_started
-        {
+        if !self.car_is_live() || self.level_table_started {
             return Err(
                 "Level tables require a live initialized car and a fresh table call".into(),
             );
@@ -689,11 +746,7 @@ impl CarRuntime {
                 "Wheel preview requires steer in [-1,1] and elapsed seconds in [0,0.083]".into(),
             );
         }
-        if !self.summary.initialized
-            || self.car_destructor_started
-            || self.shutdown_started
-            || self.wheel_preview_failed
-        {
+        if !self.car_is_live() || self.wheel_preview_failed {
             return Err(
                 "Wheel preview requires a live initialized car without a previous preview failure"
                     .into(),
@@ -740,13 +793,13 @@ impl CarRuntime {
     }
     fn destruct_car_inner(&mut self) -> Result<(), String> {
         self.cleanup_driving_actors_inner()?;
-        if self.game_init_started && !self.game_done_complete {
+        if self.game_init.has_started() && !self.game_done.is_complete() {
             self.finish_game()?;
         }
-        if self.car_destructor_started {
+        if self.car_destruction.has_started() {
             return Err("Car destruction already started".into());
         }
-        self.car_destructor_started = true;
+        self.car_destruction = OperationState::Started;
         if let Some(car) = self.car.as_mut() {
             let mut backend = VehicleFrameBackend::with_installation(
                 &mut self.arena,
@@ -757,7 +810,7 @@ impl CarRuntime {
             car.destruct_car(&mut backend)
                 .map_err(|e| format!("Car destruction: {e:?}"))?;
         }
-        self.car_destructor_complete = true;
+        self.car_destruction = OperationState::Complete;
         Ok(())
     }
     /// Explicit cleanup after the renderer has finished using its uploads.
@@ -772,7 +825,7 @@ impl CarRuntime {
                 "Incomplete car constructor retained; derived destruction is unavailable".into(),
             );
         }
-        if !self.car_destructor_complete {
+        if !self.car_destruction.is_complete() {
             self.destruct_car()?;
         }
         let model_to_check = self.model;
@@ -836,7 +889,7 @@ impl CarRuntime {
             VehicleInitBackend::write_word(&mut self.memory, address, 0)
                 .map_err(|e| format!("Actor registry reset: {e:?}"))?;
         }
-        if self.game_init_started {
+        if self.game_init.has_started() {
             // C_car removes its entries; the standalone caller still owns the
             // C_using_object vector capacity in its game context.
             let header = 0x680000 + 0x29ec;
@@ -866,7 +919,7 @@ impl CarRuntime {
                     .map_err(|e| format!("Hidden world model registry reset: {e:?}"))?;
             }
         }
-        if self.game_init_started {
+        if self.game_init.has_started() {
             if let Some(session) = self.driving.as_mut() {
                 session.simulation.cleanup(&mut self.memory)?;
                 self.memory
@@ -884,6 +937,18 @@ impl CarRuntime {
         self.tracks.reset_track_cache();
         self.game.release_host_handles();
         let mut scene_cpu_close = None;
+        self.scene_city_cache.close(&mut self.arena)?;
+        if let Some(mission) = self.scene_mission.as_mut() {
+            mission
+                .loader
+                .release_pending_visual_replacement(&mut self.arena)
+                .map_err(|error| format!("Driving pending visual cleanup: {error:?}"))?;
+        }
+        if let Some(progress) = self.scene_world_progress.as_mut() {
+            self.scene_driver
+                .discard_scene_world_staging_cpu(&mut self.arena, &self.scene_resources, progress)
+                .map_err(|error| format!("Canonical driving world staging cleanup: {error:?}"))?;
+        }
         if let Some(scene) = self.scene {
             if self
                 .services
@@ -923,7 +988,10 @@ impl CarRuntime {
             }
             scene_cpu_close = self.scene_resources.cpu_close_report(scene);
             self.scene = None;
+            self.scene_world_progress = None;
         }
+        self.close_driving_scene_caches()?;
+        self.scene_cache_bucket = None;
         self.scene_driver
             .release_empty_registry_storage()
             .map_err(|error| format!("Driver scene registry storage: {error:?}"))?;
@@ -1019,6 +1087,10 @@ fn original_model_input(path: &str) -> Result<String, String> {
         .ok_or("Car inspection model path has no extension")?;
     Ok(format!("{}.i3d", &input[..dot]))
 }
+
+#[cfg(test)]
+#[path = "car_runtime_lifecycle_tests.rs"]
+mod lifecycle_tests;
 
 #[cfg(test)]
 mod tests {

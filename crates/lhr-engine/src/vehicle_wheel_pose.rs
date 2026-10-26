@@ -110,6 +110,31 @@ fn normalized_basis<E>(v: [f32; 3]) -> Out<[f32; 3], E> {
     Ok(v)
 }
 
+/// Publishes to the frame resolved by the caller after its quaternion callbacks.
+/// Normalization may change flags, so their read must follow that effect.
+fn publish_frame_rotation<B: VehicleWheelPoseBackend>(
+    backend: &mut B,
+    frame: u32,
+    rotation: SQuat,
+) -> Out<(), B::Error> {
+    use VehicleWheelPoseUnavailable::Effect;
+    for (index, value) in rotation.wxyz.into_iter().enumerate() {
+        backend
+            .write_word(frame.wrapping_add(0x9c + index as u32 * 4), value.to_bits())
+            .map_err(Effect)?;
+    }
+    backend.normalize_frame_rotation(frame).map_err(Effect)?;
+    let flags = backend
+        .read_word(frame.wrapping_add(0xac))
+        .map_err(Effect)?;
+    backend
+        .write_word(
+            frame.wrapping_add(0xac),
+            (flags & 0xffff_fecb) | 0x4000_0008,
+        )
+        .map_err(Effect)
+}
+
 pub struct VehicleWheelPoseState<'a> {
     bytes: &'a mut [u8],
 }
@@ -157,7 +182,14 @@ impl<'a> VehicleWheelPoseState<'a> {
         dt: f32,
         backend: &mut B,
     ) -> Out<(), B::Error> {
-        use VehicleWheelPoseUnavailable::Effect;
+        let wheel_count = self.update_steering_response(dt)?;
+        self.publish_steering_wheels(wheel_count, backend)
+    }
+
+    /// Updates the live steering response before any wheel/frame dependency.
+    /// The count is captured before the differential calculation, as in the
+    /// original access order; later publication reads the other fields live.
+    fn update_steering_response<E>(&mut self, dt: f32) -> Out<u32, E> {
         let mut blend = sub(1.0, div(self.float(0x59c)?, self.float(0x388)?)?)?;
         if blend < 0.0 {
             blend = 0.0;
@@ -195,9 +227,18 @@ impl<'a> VehicleWheelPoseState<'a> {
             }
         }
         let ratio = div(number(self.float(0x628)?)?.abs(), self.float(0x608)?)?;
-        let mut count = self.word(0x4c4)?;
+        let count = self.word(0x4c4)?;
         let differential = mul(ratio, self.float(0x62c)?)?;
         self.store_float(0x634, differential)?;
+        Ok(count)
+    }
+
+    fn publish_steering_wheels<B: VehicleWheelPoseBackend>(
+        &self,
+        mut count: u32,
+        backend: &mut B,
+    ) -> Out<(), B::Error> {
+        use VehicleWheelPoseUnavailable::Effect;
         while count != 0 {
             let order = self.word(0xc38)?;
             count = count.wrapping_sub(1);
@@ -234,21 +275,7 @@ impl<'a> VehicleWheelPoseState<'a> {
                     .make_axis_angle([0.0, 1.0, 0.0], angle)
                     .map_err(Effect)?;
                 let frame = backend.read_word(wheel.wrapping_add(8)).map_err(Effect)?;
-                for (i, word) in rotation.wxyz.into_iter().enumerate() {
-                    backend
-                        .write_word(frame.wrapping_add(0x9c + i as u32 * 4), word.to_bits())
-                        .map_err(Effect)?;
-                }
-                backend.normalize_frame_rotation(frame).map_err(Effect)?;
-                let flags = backend
-                    .read_word(frame.wrapping_add(0xac))
-                    .map_err(Effect)?;
-                backend
-                    .write_word(
-                        frame.wrapping_add(0xac),
-                        (flags & 0xffff_fecb) | 0x4000_0008,
-                    )
-                    .map_err(Effect)?;
+                publish_frame_rotation(backend, frame, rotation)?;
             }
         }
         Ok(())
@@ -378,21 +405,7 @@ impl<'a> VehicleWheelPoseState<'a> {
                 let rotation = compose_rotation(spin, camber)?;
                 // Original reloads the wheel's frame after quaternion work.
                 let frame = backend.read_word(wheel.wrapping_add(4)).map_err(Effect)?;
-                for (index, value) in rotation.wxyz.into_iter().enumerate() {
-                    backend
-                        .write_word(frame.wrapping_add(0x9c + index as u32 * 4), value.to_bits())
-                        .map_err(Effect)?;
-                }
-                backend.normalize_frame_rotation(frame).map_err(Effect)?;
-                let flags = backend
-                    .read_word(frame.wrapping_add(0xac))
-                    .map_err(Effect)?;
-                backend
-                    .write_word(
-                        frame.wrapping_add(0xac),
-                        (flags & 0xffff_fecb) | 0x4000_0008,
-                    )
-                    .map_err(Effect)?;
+                publish_frame_rotation(backend, frame, rotation)?;
             }
             for offset in [0x64, 0x68, 0x6c] {
                 backend
@@ -409,6 +422,16 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
 
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    enum Event {
+        ReadWord(u32),
+        ReadByte(u32),
+        WriteWord(u32, u32),
+        Make([u32; 3], u32),
+        Normalize(u32),
+        SetMatrix(u32),
+    }
+
     #[derive(Default)]
     struct Backend {
         memory: BTreeMap<u32, u32>,
@@ -416,24 +439,55 @@ mod tests {
         axes: Vec<[f32; 3]>,
         normalized: Vec<u32>,
         fail_make: bool,
+        events: Vec<Event>,
+        prefixes: Vec<BTreeMap<u32, u32>>,
+        fail_event: Option<usize>,
+        redirect_after_make: Option<(usize, u32, u32)>,
+        flags_after_normalize: Option<u32>,
+        fail_normalize: bool,
+    }
+    impl Backend {
+        fn record(&mut self, event: Event) -> Result<(), &'static str> {
+            self.prefixes.push(self.memory.clone());
+            self.events.push(event);
+            if self.fail_event == Some(self.events.len()) {
+                Err("injected publication failure")
+            } else {
+                Ok(())
+            }
+        }
     }
     impl VehicleWheelPoseBackend for Backend {
         type Error = &'static str;
         fn read_word(&mut self, address: u32) -> Result<u32, Self::Error> {
+            self.record(Event::ReadWord(address))?;
             self.memory.get(&address).copied().ok_or("missing word")
         }
         fn read_byte(&mut self, address: u32) -> Result<u8, Self::Error> {
-            Ok(self.read_word(address)? as u8)
+            self.record(Event::ReadByte(address))?;
+            self.memory
+                .get(&address)
+                .copied()
+                .map(|value| value as u8)
+                .ok_or("missing word")
         }
         fn write_word(&mut self, address: u32, value: u32) -> Result<(), Self::Error> {
+            self.record(Event::WriteWord(address, value))?;
             self.memory.insert(address, value);
             Ok(())
         }
         fn make_axis_angle(&mut self, axis: [f32; 3], angle: f32) -> Result<SQuat, Self::Error> {
+            self.record(Event::Make(axis.map(f32::to_bits), angle.to_bits()))?;
             self.axes.push(axis);
             self.angles.push(angle);
             if self.fail_make {
                 return Err("make unavailable");
+            }
+            match self.redirect_after_make {
+                Some((call, pointer, frame)) if self.angles.len() == call => {
+                    self.memory.insert(pointer, frame);
+                }
+                _ => {}
             }
             // Deliberate spy return: this test verifies ordering and publication,
             // while original quaternion math belongs to the external dependency.
@@ -442,11 +496,20 @@ mod tests {
             })
         }
         fn normalize_frame_rotation(&mut self, frame: u32) -> Result<(), Self::Error> {
+            self.record(Event::Normalize(frame))?;
             assert_eq!(self.memory[&(frame + 0x9c)], 1.0f32.to_bits());
             self.normalized.push(frame);
-            Ok(())
+            if let Some(flags) = self.flags_after_normalize {
+                self.memory.insert(frame + 0xac, flags);
+            }
+            if self.fail_normalize {
+                Err("normalize unavailable")
+            } else {
+                Ok(())
+            }
         }
-        fn set_frame_rotation_matrix(&mut self, _: u32) -> Result<(), Self::Error> {
+        fn set_frame_rotation_matrix(&mut self, frame: u32) -> Result<(), Self::Error> {
+            self.record(Event::SetMatrix(frame))?;
             Err("matrix unavailable")
         }
     }
@@ -570,6 +633,24 @@ mod tests {
         assert!(b.angles.is_empty());
     }
 
+    #[test]
+    fn steering_response_survives_unavailable_wheel_order_storage() {
+        let mut bytes = state(0.25);
+        store(&mut bytes, 0x4c4, 1);
+        bytes.truncate(0x638);
+        let mut expected = bytes.clone();
+        store(&mut expected, 0x610, 1.0f32.to_bits());
+        store(&mut expected, 0x628, 0.25f32.to_bits());
+        store(&mut expected, 0x634, 0.125f32.to_bits());
+        let mut backend = Backend::default();
+        assert_eq!(
+            VehicleWheelPoseState::from_bytes(&mut bytes).update_steering_wheels(0.1, &mut backend),
+            Err(VehicleWheelPoseUnavailable::Storage(0xc38))
+        );
+        assert_eq!(bytes, expected);
+        assert!(backend.events.is_empty());
+    }
+
     fn rotation_state() -> Vec<u8> {
         let mut bytes = state(0.0);
         store(&mut bytes, 0x55c, 1);
@@ -631,5 +712,161 @@ mod tests {
         assert_eq!(b.axes, [[1.0, 0.0, 0.0]]);
         assert_eq!(b.memory[&0x2114], expected.to_bits());
         assert_eq!(b.memory[&0x2064], 0.125f32.to_bits());
+    }
+
+    #[derive(Clone, Copy)]
+    enum Pose {
+        Steering,
+        Rotation,
+    }
+    impl Pose {
+        fn update(self, bytes: &mut [u8], backend: &mut Backend) -> Out<(), &'static str> {
+            let mut state = VehicleWheelPoseState::from_bytes(bytes);
+            match self {
+                Self::Steering => state.update_steering_wheels(0.1, backend),
+                Self::Rotation => state.update_rotation_wheels(0.1, backend),
+            }
+        }
+        fn frame_pointer(self) -> u32 {
+            match self {
+                Self::Steering => 0x2008,
+                Self::Rotation => 0x2004,
+            }
+        }
+        fn published_quaternion(self) -> [u32; 4] {
+            match self {
+                Self::Steering => [1.0f32.to_bits(), 0, 0.125f32.to_bits(), 0],
+                Self::Rotation => [1.0f32.to_bits(), 0, 0, 0],
+            }
+        }
+    }
+
+    fn publication_fixture(pose: Pose) -> (Vec<u8>, Backend) {
+        let mut bytes = match pose {
+            Pose::Steering => state(0.25),
+            Pose::Rotation => rotation_state(),
+        };
+        store(&mut bytes, 0x4c4, 1);
+        store(&mut bytes, 0xc38, 0x1000);
+        let mut backend = wheels();
+        for (address, value) in [
+            (0x2004, 0x4000),
+            (0x2058, 0),
+            (0x205c, 0),
+            (0x2060, 0),
+            (0x2064, 0.25f32.to_bits()),
+            (0x2068, 0.5f32.to_bits()),
+            (0x206c, 0.75f32.to_bits()),
+            (0x210c, 1.0f32.to_bits()),
+            (0x2114, 0),
+            (0x2188, 0),
+            (0x4070, 1.0f32.to_bits()),
+            (0x4074, 0),
+            (0x4078, 0),
+            (0x409c, 0x1111_1111),
+            (0x40a0, 0x2222_2222),
+            (0x40a4, 0x3333_3333),
+            (0x40a8, 0x4444_4444),
+            (0x40ac, 0x10),
+            (0x50ac, 0xffff_ffff),
+        ] {
+            backend.memory.insert(address, value);
+        }
+        backend.redirect_after_make = Some((
+            match pose {
+                Pose::Steering => 1,
+                Pose::Rotation => 2,
+            },
+            pose.frame_pointer(),
+            0x5000,
+        ));
+        backend.flags_after_normalize = Some(0x8000_0134);
+        (bytes, backend)
+    }
+
+    fn final_frame_lookup(events: &[Event]) -> usize {
+        events
+            .iter()
+            .rposition(|e| matches!(e, Event::Make(..)))
+            .unwrap()
+            + 1
+    }
+
+    #[test]
+    fn both_poses_resolve_frames_after_make_and_flags_after_normalize() {
+        for pose in [Pose::Steering, Pose::Rotation] {
+            let (mut bytes, mut backend) = publication_fixture(pose);
+            let mut expected = backend.memory.clone();
+            expected.insert(pose.frame_pointer(), 0x5000);
+            let quaternion = pose.published_quaternion();
+            for (index, value) in quaternion.into_iter().enumerate() {
+                expected.insert(0x509c + index as u32 * 4, value);
+            }
+            expected.insert(0x50ac, 0xc000_0008);
+            let mut tail = vec![Event::ReadWord(pose.frame_pointer())];
+            tail.extend(
+                quaternion
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, value)| Event::WriteWord(0x509c + index as u32 * 4, value)),
+            );
+            tail.extend([
+                Event::Normalize(0x5000),
+                Event::ReadWord(0x50ac),
+                Event::WriteWord(0x50ac, 0xc000_0008),
+            ]);
+            if matches!(pose, Pose::Rotation) {
+                for address in [0x2064, 0x2068, 0x206c] {
+                    expected.insert(address, 0);
+                    tail.push(Event::WriteWord(address, 0));
+                }
+            }
+            assert_eq!(pose.update(&mut bytes, &mut backend), Ok(()));
+            assert_eq!(backend.memory, expected);
+            assert_eq!(backend.events[final_frame_lookup(&backend.events)..], tail);
+        }
+    }
+
+    #[test]
+    fn publication_failure_keeps_completed_words_and_stops_before_later_effects() {
+        for pose in [Pose::Steering, Pose::Rotation] {
+            let (mut completed_bytes, mut completed) = publication_fixture(pose);
+            pose.update(&mut completed_bytes, &mut completed).unwrap();
+            let frame_lookup = final_frame_lookup(&completed.events);
+            // Four quaternion writes, normalize, flag read and flag write.
+            for event in frame_lookup + 1..=frame_lookup + 7 {
+                let (mut bytes, mut backend) = publication_fixture(pose);
+                backend.fail_event = Some(event + 1);
+                assert_eq!(
+                    pose.update(&mut bytes, &mut backend),
+                    Err(VehicleWheelPoseUnavailable::Effect(
+                        "injected publication failure"
+                    ))
+                );
+                assert_eq!(backend.events, completed.events[..=event]);
+                assert_eq!(backend.memory, completed.prefixes[event]);
+                assert_eq!(bytes, completed_bytes);
+            }
+        }
+    }
+
+    #[test]
+    fn normalize_error_keeps_written_quaternion_and_callback_flag_mutation() {
+        for pose in [Pose::Steering, Pose::Rotation] {
+            let (mut bytes, mut backend) = publication_fixture(pose);
+            let mut expected = backend.memory.clone();
+            expected.insert(pose.frame_pointer(), 0x5000);
+            for (index, value) in pose.published_quaternion().into_iter().enumerate() {
+                expected.insert(0x509c + index as u32 * 4, value);
+            }
+            expected.insert(0x50ac, 0x8000_0134);
+            backend.fail_normalize = true;
+            assert_eq!(
+                pose.update(&mut bytes, &mut backend),
+                Err(VehicleWheelPoseUnavailable::Effect("normalize unavailable"))
+            );
+            assert_eq!(backend.events.last(), Some(&Event::Normalize(0x5000)));
+            assert_eq!(backend.memory, expected);
+        }
     }
 }

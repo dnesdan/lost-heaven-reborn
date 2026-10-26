@@ -22,8 +22,8 @@
 //! required throughout. Explicit cleanup must occur before that backend goes
 //! away; Drop cannot run these required effects. Read-only views remain raw
 //! diagnostics after an interrupted cleanup; old slots can name retired LODs.
-#[path = "lit_lightmap_resources.rs"]
-mod lit_lightmap_resources;
+#[path = "lit_lod_storage.rs"]
+mod lit_lod_storage;
 #[path = "lit_object.rs"]
 mod lit_object;
 use crate::buffer_managers::{VertexOwnerKey, VertexRequest};
@@ -33,8 +33,12 @@ use crate::managed_visual_resources::{
 use crate::visual_resources::{
     CompleteVertexBuffer, FaceGroupKey, MaterialKey, MeshLevelKey, MeshObjectKey, TextureKey,
 };
-pub use lit_lightmap_resources::{LitLightmapResources, LitLodIndexBinding, LitVertexInfo};
-pub use lit_object::{LitLevelResources, LitObjectResources, ObjectVisualType};
+pub use lit_lod_storage::{
+    LitLodStorage, LitSourceBinding, LitStorageCounts, LitStoragePhase, RetiringLitArrays,
+};
+pub use lit_object::{
+    lightmap_atlas, saved_lightmaps, LitLevelResources, LitObjectResources, ObjectVisualType,
+};
 
 macro_rules! key {
     ($name:ident) => {
@@ -59,7 +63,6 @@ key!(ObjectResourceKey);
 pub enum ObjectError {
     Poisoned,
     Managed(ManagedError),
-    Lightmap(crate::lightmap_atlas::LightmapAtlasError),
     ForeignArena,
     IdentityOverflow,
     HostAllocation,
@@ -163,9 +166,7 @@ pub struct ObjectResources {
     lods: Vec<Option<Lod>>,
     objects: Vec<Option<I3dObjectResources>>,
     bindings: Vec<LodBinding>,
-    lightmap_lods: Vec<Option<LitLightmapResources>>,
-    lit_indices: Vec<LitLodIndexBinding>,
-    lightmap_atlases: crate::lightmap_atlas::LightmapAtlasRegistry,
+    lit_storage: Vec<LitLodStorage>,
     poisoned: bool,
 }
 impl ObjectResources {
@@ -175,10 +176,7 @@ impl ObjectResources {
             lods: Vec::new(),
             objects: Vec::new(),
             bindings: Vec::new(),
-            lightmap_lods: Vec::new(),
-            lit_indices: Vec::new(),
-            lightmap_atlases: crate::lightmap_atlas::LightmapAtlasRegistry::new()
-                .map_err(ObjectError::Lightmap)?,
+            lit_storage: Vec::new(),
             poisoned: false,
         })
     }
@@ -230,7 +228,6 @@ impl ObjectResources {
     pub fn create_plain_lod(&mut self) -> Result<PlainLodKey, ObjectError> {
         self.available()?;
         let slot = Self::reserve(&mut self.lods)?;
-        Self::reserve(&mut self.lightmap_lods)?;
         self.lods.push(Some(Lod {
             lights_changed: u32::MAX,
             update_count: u32::MAX,
@@ -246,7 +243,6 @@ impl ObjectResources {
             owner: None,
             state: LodState::Constructed,
         }));
-        self.lightmap_lods.push(None);
         Ok(PlainLodKey {
             arena: self.managed.resources().identity(),
             slot,
@@ -331,7 +327,11 @@ impl ObjectResources {
             return Err(ManagedError::InvalidExtent.into());
         }
         Self::reserve(&mut self.bindings)?;
-        let position = if let Some(i) = self.bindings.iter().position(|b| b.lod == lod) {
+        let position = if let Some(i) = self
+            .bindings
+            .iter()
+            .position(|b| b.lod == lod && b.state != BindingState::Consumed)
+        {
             if self.bindings[i].state != BindingState::Pending {
                 return Err(ObjectError::StorageAlreadyInstalled.into());
             }
@@ -376,7 +376,10 @@ impl ObjectResources {
             return Err(ObjectError::LodDestructed(lod).into());
         }
         let descriptor = current.vertex_buffer;
-        let position = self.bindings.iter().position(|b| b.lod == lod);
+        let position = self
+            .bindings
+            .iter()
+            .position(|b| b.lod == lod && b.state != BindingState::Consumed);
         let owner = position.map(|i| self.bindings[i].owner);
         let result = managed_result(self.managed.free_vertex_storage(owner, descriptor, backend));
         if let Err(e) = result {
@@ -463,9 +466,7 @@ impl ObjectResources {
                             .levels[level]
                             .lods[lod_index];
                         if let Some(lod) = lod {
-                            self.lit_level_mut(object, level)?.saved_vertex_colors[lod_index] =
-                                None;
-                            self.cleanup_lit_lod(lod, backend)?;
+                            self.cleanup_saved_lit_lod(object, level, lod_index, backend)?;
                             self.lods[(lod.slot - 1) as usize] = None;
                             self.objects[index]
                                 .as_mut()
@@ -476,6 +477,14 @@ impl ObjectResources {
                                 .levels[level]
                                 .lods[lod_index] = None;
                         }
+                        self.objects[index]
+                            .as_mut()
+                            .unwrap()
+                            .lit_object
+                            .as_mut()
+                            .unwrap()
+                            .levels[level]
+                            .saved_lods[lod_index] = None;
                     }
                 }
             }

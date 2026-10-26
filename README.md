@@ -5,21 +5,17 @@ using the user's legally obtained original PC assets. The immediate goal is the
 playable first mission, from the original menu through completion. **The campaign
 is not playable; all six first-mission gates remain open.**
 
-Current source-based stages add original-data loader and image fixes, live
-material parameters and camera-selected model LOD, authored view orientation,
-audio lifecycle, archive/write IO and data-language selection. Lit objects support
-the source's unconstructed cyan branch, [saved vertex lighting](docs/saved-vertex-lighting.md)
-and [saved rectangle atlases](docs/saved-lightmap-atlas.md) in explicit source
-profiles. Rectangle presentation requires a verified static lighting context;
-scene `LMAP` payload association and visual replacement remain open. Original
-lighting, visibility, player/camera scheduling and authored mission scripts
-remain incomplete. The separate legacy raw static-world presentation remains
-unlit first LOD.
+The current renderer consumes actual owned Scene/Camera resources for backdrop,
+main and near passes, with portal/occluder visibility. Genuine `OBJ_` → `LMAP`
+replacement connects saved lighting to owned UV2 geometry and shared atlases.
+Nearby city-cache selections create actual scene-owned model instances.
 
-The visible application supports inspection and standalone original-data driving.
-No native-function, scoped-port or full-system credit is added by these stages.
+Inspection and standalone original-data driving remain the application scope.
+Road and sky remain dark or absent, with the cause unresolved. General lighting,
+shader/streaming behavior, original player scheduling and authored mission
+execution remain incomplete. This milestone adds no scoped-port or parity credit.
 
-[Source scope and merge validation](docs/implementation/mafia-re-remediation.md) ·
+[Current source scope and validation](docs/implementation/mafia-re-remediation.md) ·
 [current evidence and limits](COVERAGE.md) · [progress](docs/PROGRESS.md) ·
 [remaining goals](docs/GOALS.md) · [dated history](docs/history/README.md).
 
@@ -95,18 +91,21 @@ cross-check is blocked by missing CoreAudio SDK headers.
 ```
 
 Driving: W/S accelerate/brake, A/D steer, Space handbrake, R reload.
-Inspection: arrows and W/S move the camera. Menu New Game opens static inspection;
-it does not start the authored mission. `--mission mise01` is also inspection.
+Inspection: arrows and W/S move the camera. Menu New Game and `--mission mise01`
+remain inspection entry points; authored mission startup is still open.
 Add `--headless --capture /tmp/scene.png` for a still or `--frames N` for a bounded
 window run. [More commands and historical validation](docs/history/2026-10-25-readme-narrative.md).
 
 ## Actual Rust captures
 
-![Standalone original-data driving after the staged merge](docs/screenshots/2026-10-26-pr-merge-validation.webp)
+![Canonical Scene driving: cache buildings restored; road and sky remain dark or absent](docs/screenshots/2026-10-26-canonical-scene-driving.webp)
 
-[New capture and interactive scope](docs/screenshots/README.md) ·
+The fresh windowed run passes W/A/D/S/Space, three reloads and Escape, with
+four cleanups each reaching seven zero CPU counters. Cache buildings are restored;
+the cause of the dark or absent road and sky remains unresolved. This is a Rust capture,
+without original-game image equivalence. [Capture scope and earlier images](docs/screenshots/README.md) ·
 [existing 18-second driving video](docs/videos/2026-10-24-car-driving.mp4).
-The dated video retains its original scope; this merge adds no video.
+The dated video retains its original scope; this milestone adds no video.
 
 ## Research and assets
 
