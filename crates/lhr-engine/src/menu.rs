@@ -12,6 +12,41 @@ pub enum Action {
     Unsupported(u32),
 }
 
+/// Last actual window position. Tracking is independent of UI capture; hover
+/// and click effects are applied only after the application admits an event.
+#[derive(Default)]
+pub struct Pointer {
+    physical: Option<[f32; 2]>,
+}
+impl Pointer {
+    pub fn observe(&mut self, physical: [f32; 2]) {
+        self.physical = physical.into_iter().all(f32::is_finite).then_some(physical);
+    }
+    pub fn leave(&mut self) {
+        self.physical = None;
+    }
+    fn position(&self, viewport: [u32; 2]) -> Option<[f32; 2]> {
+        if viewport.contains(&0) {
+            return None;
+        }
+        self.physical
+            .map(|position| design_position(position, viewport))
+    }
+    pub fn hover(&self, menu: &mut MenuUi, viewport: [u32; 2]) -> bool {
+        self.position(viewport)
+            .is_some_and(|position| menu.point(position))
+    }
+    pub fn select_for_click(&self, menu: &mut MenuUi, viewport: [u32; 2]) -> bool {
+        let Some(position) = self.position(viewport) else {
+            return false;
+        };
+        // Captured movement deliberately did not change menu selection. Resolve
+        // it again at the current position before allowing selected activation.
+        menu.point(position);
+        menu.hit(position)
+    }
+}
+
 pub struct MenuUi {
     definition: MenuDefinition,
     labels: Vec<Vec<u8>>,
@@ -488,6 +523,39 @@ mod tests {
         assert_eq!(ui.activate(), Action::Quit);
         ui.move_selection(-1);
         assert_eq!(ui.activate(), Action::NewGame);
+    }
+
+    #[test]
+    fn lab_captured_movement_cannot_activate_stale_menu_position_or_selection() {
+        let mut ui = fixture();
+        let mut pointer = Pointer::default();
+        let viewport = [800, 600];
+        assert!(!pointer.select_for_click(&mut ui, viewport));
+        pointer.observe([60., 175.]);
+        assert!(pointer.hover(&mut ui, viewport));
+        assert_eq!(ui.activate(), Action::Quit);
+
+        // A Lab drag updates physical position, but has no underlying hover
+        // effect. After release, a stationary click in empty space does nothing.
+        pointer.observe([700., 500.]);
+        assert_eq!(ui.activate(), Action::Quit);
+        assert!(!pointer.select_for_click(&mut ui, viewport));
+        assert_eq!(ui.activate(), Action::Quit);
+
+        // The same captured move into a different real row must select that
+        // row on the later admitted click, not the previously selected Quit.
+        pointer.observe([60., 125.]);
+        assert_eq!(ui.activate(), Action::Quit);
+        assert!(pointer.select_for_click(&mut ui, viewport));
+        assert_eq!(ui.activate(), Action::NewGame);
+
+        // Conversion is made with the click's current viewport, not the one
+        // that was active when the last cursor event was captured.
+        pointer.observe([120., 350.]);
+        assert!(pointer.select_for_click(&mut ui, [1600, 1200]));
+        assert_eq!(ui.activate(), Action::Quit);
+        pointer.leave();
+        assert!(!pointer.select_for_click(&mut ui, viewport));
     }
     #[test]
     fn unsupported_empty_duplicate_and_all_disabled_layouts_are_rejected() {

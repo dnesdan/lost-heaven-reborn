@@ -17,6 +17,8 @@ remain incomplete. The separate legacy raw static-world presentation remains
 unlit first LOD.
 
 The visible application supports inspection and standalone original-data driving.
+The optional [Engine Lab](docs/engine-lab.md) adds native controls for the existing
+runtime, camera and actual driving inputs; it adds no replacement simulation.
 No native-function, scoped-port or full-system credit is added by these stages.
 
 [Source scope and merge validation](docs/implementation/mafia-re-remediation.md) ·
@@ -91,6 +93,8 @@ cross-check is blocked by missing CoreAudio SDK headers.
 ./scripts/test.sh
 ./scripts/run.sh --root /path/to/Mafia
 ./scripts/run.sh --root /path/to/Mafia --model models/taxi00.4ds --car-driving
+./scripts/run.sh --root /path/to/Mafia --model models/taxi00.4ds --car-driving --lab
+./scripts/run.sh --synthetic --lab
 ./scripts/run.sh --root /path/to/Mafia --model models/TommyTAXIDRIVER.4ds --animation anims/breath01a.5ds --skeletal-animation
 ```
 
@@ -99,6 +103,11 @@ Inspection: arrows and W/S move the camera. Menu New Game opens static inspectio
 it does not start the authored mission. `--mission mise01` is also inspection.
 Add `--headless --capture /tmp/scene.png` for a still or `--frames N` for a bounded
 window run. [More commands and historical validation](docs/history/2026-10-25-readme-narrative.md).
+
+Engine Lab: F1 shows the panel, F2 pauses/resumes, F3 advances one 16 ms update,
+and F4 reloads the current scene. Its synthetic mode is a static view with
+disabled simulation controls. Camera FOV remains live while paused; actual car
+LOD uses the same current FOV. [Controls, behavior and limits](docs/engine-lab.md).
 
 ## Actual Rust captures
 

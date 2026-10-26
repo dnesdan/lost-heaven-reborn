@@ -10,3 +10,6 @@ winit = { version = "=0.30.12", default-features = false, features = ["rwh_06", 
 pollster = "=0.4.0"
 glam = "=0.29.3"
 cpal = "=0.15.3"
+egui = { version = "=0.31.1", default-features = false, features = ["default_fonts"] }
+egui-wgpu = { version = "=0.31.1", default-features = false }
+egui-winit = { version = "=0.31.1", default-features = false, features = ["x11"] }
