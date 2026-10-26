@@ -449,7 +449,9 @@ impl<'a> SceneBuilder<'a> {
                             lit_context.loaded_material_flags(material),
                             !material.texture.is_empty(),
                             [0.; 3],
-                            lhr_render::FrontFace::Clockwise,
+                            lhr_engine::presentation_material::source_ccw_cull_front_face(
+                                lhr_engine::presentation_material::SourceIndexOrder::Reversed,
+                            ),
                         )?
                     } else {
                         Default::default()
@@ -1294,7 +1296,7 @@ mod tests {
             };
             assert_eq!(policy.color, [0., 1., 1., 1.]);
             assert_eq!(policy.alpha, lhr_render::AlphaMode::Opaque);
-            assert_eq!(policy.front_face, lhr_render::FrontFace::Clockwise);
+            assert_eq!(policy.front_face, lhr_render::FrontFace::CounterClockwise);
             assert_eq!(mesh.indices, [0, 2, 1]);
             assert_eq!(
                 mesh.texture.as_ref().unwrap().rgba,

@@ -54,7 +54,9 @@ fn fixture(position: [f32; 3], child: bool) -> Fixture {
                 .to_vec(),
             groups: vec![lhr_assets::FaceGroup {
                 material: 0,
-                indices: vec![0, 1, 2],
+                // Match the declared source -Z normal and the native view.
+                // The bridge reflects Z; it does not reverse these indices.
+                indices: vec![0, 2, 1],
             }],
         },
         lhr_assets::Lod {
@@ -65,7 +67,7 @@ fn fixture(position: [f32; 3], child: bool) -> Fixture {
                 .to_vec(),
             groups: vec![lhr_assets::FaceGroup {
                 material: 1,
-                indices: vec![0, 1, 2, 0, 2, 3],
+                indices: vec![0, 2, 1, 0, 3, 2],
             }],
         },
     ];

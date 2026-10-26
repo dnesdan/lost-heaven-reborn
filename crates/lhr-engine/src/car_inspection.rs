@@ -3,11 +3,12 @@
 //! Geometry comes from owned CPU buffers, including object-private LOD data.
 //! Live source material decisions are explicit; lighting/envmaps/fog and full
 //! original renderer parity remain outside this unlit presentation bridge.
+use crate::presentation_material::{source_ccw_cull_front_face, SourceIndexOrder};
 use crate::{
     frame_transform::{FrameKey, FrameKind},
     model_loading::ModelArena,
 };
-use lhr_render::{FrontFace, Mesh, Scene, Texture, Vertex};
+use lhr_render::{Mesh, Scene, Texture, Vertex};
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
@@ -326,14 +327,14 @@ fn snapshot_arena_tree_inner(
                         material,
                         has_texture,
                         *center,
-                        FrontFace::CounterClockwise,
+                        source_ccw_cull_front_face(SourceIndexOrder::Retained),
                     )?
                 } else {
                     crate::presentation_material::live_material_with_fade(
                         material,
                         has_texture,
                         *center,
-                        FrontFace::CounterClockwise,
+                        source_ccw_cull_front_face(SourceIndexOrder::Retained),
                         *fade,
                     )?
                 }
@@ -750,7 +751,7 @@ fn constructed_lit_material(
         has_texture,
         color_key_reference: 200,
         two_sided: flags & 0x10000000 != 0,
-        front_face: FrontFace::CounterClockwise,
+        front_face: source_ccw_cull_front_face(SourceIndexOrder::Retained),
         sort_center: center,
     }))
 }

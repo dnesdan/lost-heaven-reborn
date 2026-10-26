@@ -4,6 +4,26 @@
 use crate::visual_resources::I3dMaterial;
 use lhr_render::{AlphaMode, FrontFace, MaterialQueue, OriginalMaterial, RenderMaterial};
 
+/// Index order after source vertices are reflected across presentation Z.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SourceIndexOrder {
+    Retained,
+    Reversed,
+}
+
+/// Surviving GPU front for the ordinary native D3DCULL_CCW profile. The native
+/// value names the culled winding; wgpu FrontFace names the surviving winding.
+/// Source Z reflection reverses orientation. Assembly also reverses each source
+/// triangle, whereas the canonical owned-buffer bridge retains its indices.
+/// Native SetCullState aliases CCW through m_CullMode; mirror rendering's
+/// flipped driver profile must supply its own resolved state when admitted.
+pub const fn source_ccw_cull_front_face(indices: SourceIndexOrder) -> FrontFace {
+    match indices {
+        SourceIndexOrder::Retained => FrontFace::Clockwise,
+        SourceIndexOrder::Reversed => FrontFace::CounterClockwise,
+    }
+}
+
 /// Admitted material-only presentation: object fade/transparency/lightness are
 /// explicitly one. Lighting/envmaps/fog and their vertex colors remain separate.
 pub fn live_material(

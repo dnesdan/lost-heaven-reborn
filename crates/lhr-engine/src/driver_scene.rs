@@ -233,6 +233,17 @@ impl DriverSceneOwner {
         self.validate_scene_domain(arena, resources, scene)?;
         arena.create_occluder().map_err(DriverSceneError::Model)
     }
+    /// Original CreateFrame type6 arm: one actual I3D_dummy constructor
+    /// reference, without sound/scene registry insertion or an extra AddRef.
+    pub fn create_dummy_frame(
+        &mut self,
+        arena: &mut ModelArena,
+        resources: &SceneResources,
+        scene: SceneKey,
+    ) -> Result<crate::frame_transform::FrameKey, DriverSceneError<std::convert::Infallible>> {
+        self.validate_scene_domain(arena, resources, scene)?;
+        arena.create_dummy_frame().map_err(DriverSceneError::Model)
+    }
     /// Original type2 arm delegates the existing canonical light constructor
     /// and CRT stream; lights have no scene registry append here.
     pub fn create_light_frame(

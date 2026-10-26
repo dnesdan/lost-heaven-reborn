@@ -65,10 +65,12 @@ fn canonical_scene_active_camera_visibility_owned_buffers_and_viewport_reach_pix
         let mut visual = crate::model_loading::tests::frame(1, None, [0., 0., 5.]);
         visual.render_flags = 0;
         visual.logic_flags = 0;
+        // Native face order agrees with the source normal toward the viewer.
+        // The old opposite order plus TWO_SIDED masked the bridge cull error.
         visual.lods.push(lhr_assets::Lod {
             distance: 0.,
             uv_only: None,
-            vertices: [[-1., -1., 0.], [1., -1., 0.], [0., 1., 0.]]
+            vertices: [[-1., -1., 0.], [0., 1., 0.], [1., -1., 0.]]
                 .map(|position| lhr_assets::Vertex {
                     position,
                     normal: [0., 0., -1.],
@@ -85,7 +87,7 @@ fn canonical_scene_active_camera_visibility_owned_buffers_and_viewport_reach_pix
                 model,
                 Arc::new(lhr_assets::Model {
                     materials: vec![lhr_assets::Material {
-                        flags: 0x10000000,
+                        flags: 0,
                         ambient: [0.; 3],
                         diffuse: [1., 0., 0.],
                         texture: String::new(),
@@ -119,6 +121,11 @@ fn canonical_scene_active_camera_visibility_owned_buffers_and_viewport_reach_pix
         let first = snapshot_scene(&mut arena, scene, viewport, [64, 64], 1).unwrap();
         assert!(first.draw_frames.contains(&visual));
         assert_eq!(first.frame.main.draws.len(), 1);
+        let lhr_render::RenderMaterial::Original(front) = first.scene.meshes[0].material else {
+            panic!("expected actual ordinary source material");
+        };
+        assert!(!front.two_sided);
+        assert_eq!(front.front_face, lhr_render::FrontFace::Clockwise);
         let instance = lhr_render::instance();
         let adapter = pollster::block_on(instance.request_adapter(&Default::default())).unwrap();
         let mut renderer = pollster::block_on(lhr_render::Renderer::with_adapter(
@@ -157,6 +164,35 @@ fn canonical_scene_active_camera_visibility_owned_buffers_and_viewport_reach_pix
             .replace_meshes(0..second.scene.meshes.len(), &third.scene.meshes)
             .unwrap();
         let rgba = renderer.readback_scene_frame(64, 64, &third.frame).unwrap();
+        assert_eq!(
+            &rgba[(32 * 64 + 32) * 4..(32 * 64 + 32) * 4 + 4],
+            &[255, 0, 0, 255]
+        );
+        // Keep the same source visual in the frustum from its reverse side.
+        // It must remain in visibility/draw membership while culling its pixels.
+        arena.camera_set_position(b, [0., 0., 10.]).unwrap();
+        arena.camera_set_direction(b, [0., 0., -1.], 0.).unwrap();
+        arena.scene_set_active_camera(scene, Some(b)).unwrap();
+        let back = snapshot_scene(&mut arena, scene, viewport, [64, 64], 4).unwrap();
+        assert!(back.draw_frames.contains(&visual));
+        assert_eq!(back.frame.main.draws.len(), 1);
+        renderer
+            .replace_meshes(0..third.scene.meshes.len(), &back.scene.meshes)
+            .unwrap();
+        let rgba = renderer.readback_scene_frame(64, 64, &back.frame).unwrap();
+        assert_eq!(
+            &rgba[(32 * 64 + 32) * 4..(32 * 64 + 32) * 4 + 4],
+            &[6, 9, 14, 255]
+        );
+        let lhr_render::RenderMaterial::Original(mut two_sided) = back.scene.meshes[0].material
+        else {
+            panic!("expected actual ordinary source material");
+        };
+        two_sided.two_sided = true;
+        renderer
+            .update_render_material(0, lhr_render::RenderMaterial::Original(two_sided))
+            .unwrap();
+        let rgba = renderer.readback_scene_frame(64, 64, &back.frame).unwrap();
         assert_eq!(
             &rgba[(32 * 64 + 32) * 4..(32 * 64 + 32) * 4 + 4],
             &[255, 0, 0, 255]

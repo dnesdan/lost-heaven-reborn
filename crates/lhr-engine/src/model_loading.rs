@@ -19,8 +19,11 @@ pub use scene_world_intake::{
 mod cache_duplicate;
 #[path = "model_crash_duplicate.rs"]
 mod crash_duplicate;
+#[path = "frame_dummy.rs"]
+mod frame_dummy;
 #[path = "model_glass.rs"]
 mod glass;
+
 use crate::frame_transform::{FrameError, FrameKey, FrameKind, I3dFrameGraph, I3dFrameState};
 use crate::joint_state::{I3dJointState, SinglemeshInvalidationState};
 use crate::native_transform::{SMatrix, SQuat};
@@ -142,6 +145,7 @@ pub struct SharedModelLoadFailure {
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ModelError {
+    DummyFrameRequired(FrameKey),
     Frame(FrameError),
     Camera(crate::frame_camera::CameraError),
     Occluder(crate::frame_occluder::OccluderError),

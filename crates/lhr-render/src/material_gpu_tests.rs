@@ -165,19 +165,21 @@ fn alpha_reference_blend_factors_queue_sorting_and_depth_are_pixels() {
 #[ignore = "requires a Vulkan or Metal adapter; run with --ignored"]
 fn source_front_camera_and_back_camera_obey_both_bridge_index_conversions() {
     let mut renderer = renderer();
-    // Authored PC triangle: LH front normal -Z, viewer at -Z, D3D screen
-    // clockwise front. Z reflection puts normal/viewer at +Z. The car bridge
-    // retains indices; assembly/world also swap them. Both must show that front.
+    // Source triangle winding agrees with its -Z normal and a viewer at -Z.
+    // Presentation reflects Z: the canonical bridge retains source indices,
+    // while assembly reverses each triangle as well. Both show the same front.
     for swap in [false, true] {
         let mut material = policy(AlphaMode::Opaque, MaterialQueue::Opaque, 0.);
         if let RenderMaterial::Original(ref mut m) = material {
             m.front_face = if swap {
-                FrontFace::Clockwise
-            } else {
                 FrontFace::CounterClockwise
+            } else {
+                FrontFace::Clockwise
             };
         }
         let mut mesh = triangle(texture([255, 0, 0, 255]), 0., material);
+        // The helper triangle winds toward +Z; establish the actual source -Z face.
+        mesh.indices.swap(1, 2);
         if swap {
             mesh.indices.swap(1, 2);
         }
