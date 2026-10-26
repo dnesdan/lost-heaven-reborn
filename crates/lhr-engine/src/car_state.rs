@@ -182,4 +182,30 @@ mod tests {
             [0x7d; CAR_INIT_STACK_BYTES]
         );
     }
+
+    #[test]
+    fn relocated_vehicle_identity_and_reborrow_write_through_to_the_same_car() {
+        for address in [0x10000, 0x1234_0000] {
+            let mut car = state(address, 0x2204, 0x80000).unwrap();
+            let mut scratch = VehicleComponentTailScratch {
+                address: 0x90000,
+                bytes: [0x7d; VEHICLE_INIT_STACK_BYTES],
+            };
+            let mut expected = car.car_bytes().unwrap();
+            let power = 0.75f32.to_bits();
+            {
+                let mut memory = car.car_live_memory(&mut scratch).unwrap();
+                assert_eq!(memory.vehicle_address(), address + 0x70);
+                {
+                    let mut borrowed = memory.reborrow();
+                    let vehicle = borrowed.vehicle_address();
+                    assert_eq!(borrowed.write_word(vehicle + 0x3a4, power), Some(()));
+                }
+                assert_eq!(memory.read_word(address + 0x70 + 0x3a4), Some(power));
+            }
+            expected[0x70 + 0x3a4..0x70 + 0x3a8].copy_from_slice(&power.to_le_bytes());
+            assert_eq!(car.car_bytes().unwrap(), expected);
+            assert_eq!(scratch.bytes, [0x7d; VEHICLE_INIT_STACK_BYTES]);
+        }
+    }
 }

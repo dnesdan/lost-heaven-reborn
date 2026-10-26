@@ -341,20 +341,16 @@ impl CarRuntime {
                 session.services_started = true;
                 backend.prepare_glass_services()?;
                 backend.prepare_crash_services()?;
-                backend.start_engine(CAR + 0x70)?;
-                crate::vehicle_dynamics_tick::VehicleTickBackend::tick_set_gear(
-                    &mut backend,
-                    CAR + 0x70,
-                    1,
-                )?;
+                backend.start_engine()?;
+                backend.set_gear(1)?;
                 session.engine_started = true;
             }
             backend.prepare_temporary_actors()?;
             backend
-                .tick(CAR + 0x70, milliseconds)
+                .tick(milliseconds)
                 .map_err(|e| format!("Driving Tick: {e}"))?;
             backend
-                .update(CAR + 0x70, milliseconds)
+                .update(milliseconds)
                 .map_err(|e| format!("Driving Update: {e}"))?;
             backend
                 .tick_temporary_actors(milliseconds)

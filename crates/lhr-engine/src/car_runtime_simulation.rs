@@ -116,14 +116,21 @@ where
             state,
         }
     }
-    pub(crate) fn start_engine(&mut self, vehicle: u32) -> Result<bool, String> {
+    pub(crate) fn start_engine(&mut self) -> Result<bool, String> {
+        let vehicle = self.memory.vehicle_address();
         crate::vehicle_engine_state::vehicle_set_engine_on(self, vehicle, true, true)
     }
-    pub(crate) fn tick(&mut self, vehicle: u32, milliseconds: u32) -> Result<(), String> {
+    pub(crate) fn set_gear(&mut self, gear: i32) -> Result<(), String> {
+        let vehicle = self.memory.vehicle_address();
+        self.tick_set_gear(vehicle, gear)
+    }
+    pub(crate) fn tick(&mut self, milliseconds: u32) -> Result<(), String> {
         self.state.contact_queries.clear();
+        let vehicle = self.memory.vehicle_address();
         vehicle_tick(self, vehicle, milliseconds).map_err(failure)
     }
-    pub(crate) fn update(&mut self, vehicle: u32, milliseconds: u32) -> Result<(), String> {
+    pub(crate) fn update(&mut self, milliseconds: u32) -> Result<(), String> {
+        let vehicle = self.memory.vehicle_address();
         update_vehicle(
             self,
             vehicle,
