@@ -159,9 +159,9 @@ fn lit_snapshot_uses_cyan_factor_ignores_ordinary_diffuse_opacity_and_preserves_
 fn lit_actual_owned_snapshot_reaches_gpu_with_cyan_and_selectarg1_alpha() {
     let instance = lhr_render::instance();
     let adapter = pollster::block_on(instance.request_adapter(&Default::default())).unwrap();
-    // Existing host upload samples sRGB textures into a linear Unorm target:
-    // green64 -> 13 and blue32 -> 4. Alpha remains the raw texture17.
-    for (textured, expected) in [(false, [0, 255, 255, 255]), (true, [0, 13, 4, 17])] {
+    // Original D3D8 samples normalized texture bytes without sRGB decoding:
+    // source G64/B32 survive the cyan multiplier and SELECTARG1 keeps alpha17.
+    for (textured, expected) in [(false, [0, 255, 255, 255]), (true, [0, 64, 32, 17])] {
         let (path, mut arena, model) = fixture(textured, 0);
         let snapshot = crate::car_inspection::snapshot_arena_tree_with_view(
             &mut arena,

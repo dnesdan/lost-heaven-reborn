@@ -8,7 +8,7 @@ use crate::visual_resources::I3dMaterial;
 
 pub struct CpuInspectionGroup<'a> {
     pub index_bytes: &'a [u8],
-    pub material: &'a I3dMaterial,
+    pub material: Option<&'a I3dMaterial>,
     pub texture: Option<&'a lhr_assets::Texture>,
     pub texture_alpha: Option<&'a lhr_assets::Texture>,
     pub texture_flags: u32,
@@ -130,12 +130,26 @@ impl LoadedVisualResources {
         let mut uv_offset = [0.; 2];
         let visual_type = object.visual_type();
         let (private_lod, uv_byte_offset) = if let Some(lit) = object.lit_object() {
-            if lit.active_level != 0 || lit.levels[0].constructed {
-                return Err(LoadedVisualError::Backend(
-                    "constructed lit inspection unavailable",
-                ));
+            if lit.active_level >= lit.levels.len() {
+                return Err(LoadedVisualError::Backend("active lit level unavailable"));
             }
-            (lit.levels[0].lods[index], 16)
+            if lit.levels[lit.active_level].constructed {
+                if mesh.u_ofs != 0. || mesh.v_ofs != 0. {
+                    return Err(LoadedVisualError::Backend(
+                        "constructed lightmap animated UV cache unavailable",
+                    ));
+                }
+                if lit.levels[lit.active_level].saved_lods[index].is_none() {
+                    return Err(LoadedVisualError::Backend(
+                        "constructed lit LOD payload unavailable",
+                    ));
+                }
+                // Saved indices/UV2 live in litLod; source XYZ and base UV
+                // still come from the shared original mesh FVF0x112 buffer.
+                (None, 24)
+            } else {
+                (lit.levels[lit.active_level].lods[index], 16)
+            }
         } else {
             (object.lods[index], 24)
         };
@@ -207,9 +221,14 @@ impl LoadedVisualResources {
             let group = resources
                 .face_group(key)
                 .map_err(|e| LoadedVisualError::Object(ObjectError::Managed(e.into())))?;
-            let material = resources
-                .material(group.material.ok_or(LoadedVisualError::InvalidGeometry)?)
-                .map_err(|e| LoadedVisualError::Object(ObjectError::Managed(e.into())))?;
+            let material = group
+                .material
+                .map(|key| {
+                    resources
+                        .material(key)
+                        .map_err(|e| LoadedVisualError::Object(ObjectError::Managed(e.into())))
+                })
+                .transpose()?;
             let index_bytes = self.inspection_graphics(
                 GraphicsBuffer::Index(
                     group
@@ -224,11 +243,11 @@ impl LoadedVisualResources {
                 None,
             )?;
             let texture = material
-                .texture
+                .and_then(|material| material.texture)
                 .map(|key| self.cpu_texture(key))
                 .transpose()?;
             let owned_texture = material
-                .texture
+                .and_then(|material| material.texture)
                 .and_then(|key| self.backend.textures.get(&key.0));
             groups.push(CpuInspectionGroup {
                 index_bytes,
@@ -238,7 +257,7 @@ impl LoadedVisualResources {
                 texture_flags: owned_texture.map_or(0, |texture| texture.flags),
                 inspection_rgba8_color_key: owned_texture
                     .is_some_and(|texture| texture.inspection_rgba8_color_key),
-                texture_identity: material.texture,
+                texture_identity: material.and_then(|material| material.texture),
             });
             next = group.next;
         }

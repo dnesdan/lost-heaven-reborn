@@ -71,10 +71,8 @@ fn length(v: [f32; 3]) -> Out<f32> {
 /// Original GetLightness(scene,position,NULL,0,NULL), spilled to binary32 by
 /// C_Vehicle::Update. Reverse light order, luminance association and the two
 /// separate sums follow the supplied PC instructions.
-pub fn scene_lightness(arena: &ModelArena, scene: SceneKey, position: [f32; 3]) -> Out<f32> {
-    let Some(sector) = arena.scene_sector_at_position(scene, position)? else {
-        return Ok(0.);
-    };
+pub fn scene_lightness(arena: &mut ModelArena, scene: SceneKey, position: [f32; 3]) -> Out<f32> {
+    let sector = arena.scene_get_sector(scene, position, None)?;
     let mut direct = 0.;
     let mut ambient = 0.;
     for &key in arena.sector(sector)?.lights.iter().rev() {
@@ -133,6 +131,64 @@ pub fn scene_lightness(arena: &ModelArena, scene: SceneKey, position: [f32; 3]) 
     Ok(value.clamp(0., 1.))
 }
 
+/// Shared synthetic loaded hull for the two real spatial consumer regressions.
+#[cfg(test)]
+pub(crate) fn loaded_sector_fixture(
+    arena: &mut ModelArena,
+    scene: SceneKey,
+    translation: [f32; 3],
+) -> crate::scene_ownership::SectorKey {
+    let sector = arena.create_sector_frame().unwrap();
+    let record = lhr_assets::SectorRecord {
+        flags: 0x801,
+        group: u32::MAX,
+        vertices: vec![
+            [-1., -1., -1.],
+            [1., -1., -1.],
+            [1., 1., -1.],
+            [-1., 1., -1.],
+            [-1., -1., 1.],
+            [1., -1., 1.],
+            [1., 1., 1.],
+            [-1., 1., 1.],
+        ],
+        faces: vec![
+            // Sector CheckPoint accepts the positive half-space: hull faces
+            // therefore face inward, unlike an occluder's outward hull.
+            [0, 1, 2],
+            [0, 2, 3],
+            [4, 6, 5],
+            [4, 7, 6],
+            [0, 7, 4],
+            [0, 3, 7],
+            [1, 6, 2],
+            [1, 5, 6],
+            [0, 5, 1],
+            [0, 4, 5],
+            [3, 6, 7],
+            [3, 2, 6],
+        ],
+        bounds: [[-1.; 3], [1.; 3]],
+        portals: vec![],
+    };
+    assert_eq!(arena.load_sector_record(sector, &record).unwrap(), None);
+    arena
+        .graph
+        .assign_position(sector.frame(), translation)
+        .unwrap();
+    arena.sector_add_to_scene_ring(sector, Some(scene)).unwrap();
+    arena.sector_make_ready(sector).unwrap();
+    assert_eq!(arena.sector_planes(sector).unwrap().len(), 6);
+    assert!(arena.sector_check_point(sector, translation).unwrap());
+    assert!(!arena
+        .sector_check_point(
+            sector,
+            [translation[0] + 2., translation[1], translation[2]]
+        )
+        .unwrap());
+    sector
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -155,13 +211,13 @@ mod tests {
     fn empty_and_disabled_registered_lights_retain_original_zero_result() {
         let mut arena = ModelArena::default();
         let scene = arena.construct_scene_owner_prefix().unwrap();
-        assert_eq!(scene_lightness(&arena, scene, [0.; 3]).unwrap(), 0.);
+        assert_eq!(scene_lightness(&mut arena, scene, [0.; 3]).unwrap(), 0.);
         let light = add_light(&mut arena, scene, 4, [1.; 3]);
         arena.set_frame_on(light, 0).unwrap();
-        assert_eq!(scene_lightness(&arena, scene, [0.; 3]).unwrap(), 0.);
+        assert_eq!(scene_lightness(&mut arena, scene, [0.; 3]).unwrap(), 0.);
         arena.set_frame_on(light, 1).unwrap();
         arena.graph.set_light_mode(light, 0).unwrap();
-        assert_eq!(scene_lightness(&arena, scene, [0.; 3]).unwrap(), 0.);
+        assert_eq!(scene_lightness(&mut arena, scene, [0.; 3]).unwrap(), 0.);
     }
     #[test]
     fn ambient_and_directional_lights_use_real_registered_colors_and_clamp() {
@@ -169,9 +225,12 @@ mod tests {
         let scene = arena.construct_scene_owner_prefix().unwrap();
         add_light(&mut arena, scene, 4, [0., 1., 0.]);
         add_light(&mut arena, scene, 3, [1., 0., 0.]);
-        assert_eq!(scene_lightness(&arena, scene, [0.; 3]).unwrap(), 0.90000004);
+        assert_eq!(
+            scene_lightness(&mut arena, scene, [0.; 3]).unwrap(),
+            0.90000004
+        );
         add_light(&mut arena, scene, 4, [1.; 3]);
-        assert_eq!(scene_lightness(&arena, scene, [0.; 3]).unwrap(), 1.);
+        assert_eq!(scene_lightness(&mut arena, scene, [0.; 3]).unwrap(), 1.);
     }
     #[test]
     fn point_light_range_and_spot_cone_reject_unlit_positions() {
@@ -179,10 +238,49 @@ mod tests {
         let scene = arena.construct_scene_owner_prefix().unwrap();
         let light = add_light(&mut arena, scene, 1, [1.; 3]);
         arena.graph.set_light_range(light, 1., 3.).unwrap();
-        assert_eq!(scene_lightness(&arena, scene, [0.; 3]).unwrap(), 1.);
-        assert_eq!(scene_lightness(&arena, scene, [2., 0., 0.]).unwrap(), 0.5);
-        assert_eq!(scene_lightness(&arena, scene, [3., 0., 0.]).unwrap(), 0.);
+        assert_eq!(scene_lightness(&mut arena, scene, [0.; 3]).unwrap(), 1.);
+        assert_eq!(
+            scene_lightness(&mut arena, scene, [2., 0., 0.]).unwrap(),
+            0.5
+        );
+        assert_eq!(
+            scene_lightness(&mut arena, scene, [3., 0., 0.]).unwrap(),
+            0.
+        );
         arena.graph.set_light_type(light, 2).unwrap();
-        assert_eq!(scene_lightness(&arena, scene, [-1., 1., -1.]).unwrap(), 0.);
+        assert_eq!(
+            scene_lightness(&mut arena, scene, [-1., 1., -1.]).unwrap(),
+            0.
+        );
+    }
+    #[test]
+    fn loaded_hull_selection_samples_its_registered_lights_and_outside_uses_primary() {
+        crate::native_precision::Pc24PrecisionState::default().run(|| {
+            let mut arena = ModelArena::default();
+            let scene = arena.construct_scene_owner_prefix().unwrap();
+            let a = loaded_sector_fixture(&mut arena, scene, [0.; 3]);
+            let b = loaded_sector_fixture(&mut arena, scene, [10., 0., 0.]);
+            let primary = arena.scene(scene).unwrap().sectors[0];
+            for (target, color) in [
+                (a, [1., 0., 0.]),
+                (b, [0., 1., 0.]),
+                (primary, [0., 0., 1.]),
+            ] {
+                let light = add_light(&mut arena, scene, 4, color);
+                if target != primary {
+                    arena.sector_delete_light(primary, light).unwrap();
+                    arena.sector_add_light(target, light).unwrap();
+                }
+            }
+            assert_eq!(scene_lightness(&mut arena, scene, [0.; 3]).unwrap(), 0.3);
+            assert_eq!(
+                scene_lightness(&mut arena, scene, [10., 0., 0.]).unwrap(),
+                0.6
+            );
+            assert_eq!(
+                scene_lightness(&mut arena, scene, [30., 0., 0.]).unwrap(),
+                0.1
+            );
+        });
     }
 }

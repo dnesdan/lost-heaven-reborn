@@ -1344,7 +1344,7 @@ where
         let scene = crate::scene_ownership::SceneKey(
             self.frames.frame_key(scene_address).map_err(failure)?,
         );
-        crate::scene_lightness::scene_lightness(self.frames.arena(), scene, position)
+        crate::scene_lightness::scene_lightness(self.frames.arena_mut(), scene, position)
             .map_err(failure)
     }
     fn vehicle_motor_particles(&mut self, v: u32, ms: u32) -> Result<bool, String> {

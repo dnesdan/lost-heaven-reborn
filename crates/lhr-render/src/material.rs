@@ -5,6 +5,12 @@ pub enum RenderMaterial {
     #[default]
     Legacy,
     Original(OriginalMaterial),
+    /// Native null face-group material: opaque, no texture, and the current
+    /// driver cull state is inherited instead of being set by this draw.
+    OriginalNull {
+        color: [f32; 4],
+        sort_center: [f32; 3],
+    },
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum AlphaMode {
@@ -31,6 +37,9 @@ pub struct OriginalMaterial {
     pub alpha: AlphaMode,
     /// Queue classification is independent of the draw's blend state.
     pub queue: MaterialQueue,
+    /// Effective source texture pointer is nonnull. Native opaque groups
+    /// without one share radix key0 with NULL-material groups.
+    pub has_texture: bool,
     pub color_key_reference: u8,
     pub two_sided: bool,
     pub front_face: FrontFace,
@@ -41,6 +50,12 @@ impl RenderMaterial {
     pub(crate) fn valid(self) -> bool {
         match self {
             Self::Legacy => true,
+            Self::OriginalNull { color, sort_center } => {
+                color
+                    .into_iter()
+                    .all(|v| v.is_finite() && (0. ..=1.).contains(&v))
+                    && sort_center.into_iter().all(f32::is_finite)
+            }
             Self::Original(m) => {
                 m.color
                     .into_iter()
@@ -49,9 +64,19 @@ impl RenderMaterial {
             }
         }
     }
+    pub(crate) fn opaque_sort_zero(self) -> bool {
+        match self {
+            Self::OriginalNull { .. } => true,
+            Self::Original(m) => m.queue == MaterialQueue::Opaque && !m.has_texture,
+            Self::Legacy => false,
+        }
+    }
     pub(crate) fn parameters(self) -> [f32; 8] {
         match self {
             Self::Legacy => [1., 1., 1., 1., -1., 0., 0., 0.],
+            Self::OriginalNull { color, .. } => {
+                [color[0], color[1], color[2], color[3], -1., 0., 0., 0.]
+            }
             Self::Original(m) => {
                 let cutoff = match m.alpha {
                     AlphaMode::Opaque => -1.,

@@ -195,7 +195,7 @@ impl OccluderStorage {
         self.events.push(OccluderStorageEvent::Free { buffer: key });
         Ok(())
     }
-    fn write(
+    pub(crate) fn write(
         &mut self,
         key: OccluderBufferKey,
         offset: usize,
@@ -239,11 +239,15 @@ pub struct OccluderFrame {
     pub sector: Option<SectorKey>,
     pub previous: Option<OccluderKey>,
     pub next: Option<OccluderKey>,
+    pub(crate) next_in_sector: Option<OccluderKey>,
     words: [Option<u32>; OCCLUDER_WORDS],
     buffers: [Option<OccluderBufferKey>; 7],
 }
 impl OccluderFrame {
     pub fn word(&self, offset: usize) -> Option<u32> {
+        if offset == 0x5e0 && self.next_in_sector.is_some() {
+            return None;
+        }
         if offset.is_multiple_of(4) {
             self.words.get(offset / 4).copied().flatten()
         } else {
@@ -263,7 +267,7 @@ impl OccluderFrame {
         self.buffers[i] = key;
         self.words[offset / 4] = key.is_none().then_some(0);
     }
-    fn put(&mut self, offset: usize, value: u32) {
+    pub(crate) fn put(&mut self, offset: usize, value: u32) {
         self.words[offset / 4] = Some(value);
     }
 }
@@ -290,6 +294,7 @@ impl ModelArena {
             sector: None,
             previous: None,
             next: None,
+            next_in_sector: None,
             words: [None; OCCLUDER_WORDS],
             buffers: [None; 7],
         };
@@ -310,7 +315,7 @@ impl ModelArena {
             .map(|v| v.key)
             .ok_or_else(|| OccluderError::UnknownOccluder(frame).into())
     }
-    fn occluder_index(&self, key: OccluderKey) -> Result<usize, ModelError> {
+    pub(crate) fn occluder_index(&self, key: OccluderKey) -> Result<usize, ModelError> {
         if key.reference != self.lookup_reference(key.frame) {
             return Err(OccluderError::ForeignArena.into());
         }
@@ -636,7 +641,7 @@ impl ModelArena {
     }
     /// Original nonowning scene-ring transition0x3a650. Previous/next members
     /// deliberately retain their stale pointer values after removal.
-    fn occluder_set_scene_ring(
+    pub(crate) fn occluder_set_scene_ring(
         &mut self,
         key: OccluderKey,
         new_scene: Option<SceneKey>,

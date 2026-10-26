@@ -2,6 +2,42 @@
 
 Actual captures from the Rust application using separately supplied PC game data. Images are compressed WebP previews; uncompressed validation captures remain private. Add dated images for visible milestones, up to 960 pixels wide and 200 KiB per image, rather than a capture for every commit. Game content retains its original ownership.
 
+## 2026-10-26 — canonical scene and cache models
+
+![Standalone driving through the canonical scene](2026-10-26-canonical-scene-driving.webp)
+
+New root-inspected Rust X11/software-Vulkan capture from code
+[`dddaf539`](https://github.com/dnesdan/lost-heaven-reborn/commit/dddaf539c9b874b9cf7a67d866532d901729df18),
+960 × 640, 91,070 bytes. Actual nearby cache models now share the retained
+Scene/Camera/resources with the taxi. Buildings are visible; the road and sky
+remain dark or absent, with the cause unresolved. This image records that
+limitation and does not establish original-renderer fidelity.
+
+W/A/D/S/Space, three R reloads and Escape passed. Four cleanups each reported
+seven zero CPU counters; owned UI processes were reaped. The 344-file source
+fingerprint and executable SHA remained unchanged before and after the run.
+PCM mixing has separate CPU evidence; audible hardware playback is unverified.
+WebP SHA-256: `57ee7ea32ace898779cf74c34bbe1a9d5ed38cefa4f4149061f89a065953bc41`.
+
+## 2026-10-26 — actual saved-lightmap consumer
+
+![Host-focused view of the actual base247 scene object](2026-10-26-saved-lightmap.webp)
+
+Same code, real loaded Scene/Camera, with a host-focused view of `base247`.
+The capture is predominantly dark with sparse visible edges. This is a bounded
+resource/GPU consumer check, not a finished scene or gameplay image. Replacing
+only the actual saved atlas with white on the GPU changed 53 pixels; restoring
+it restored the full RGBA frame byte for byte. The white diagnostic stays
+private. Scene Close and final resource reclamation reached zero counted
+resources. Default-menu and MISE01 headless captures also completed; authored
+mission execution and original-runtime image parity remain open.
+
+Root-inspected lossless WebP, 960 × 640, 11,768 bytes; decoded RGBA matches the
+normal GPU PNG exactly. SHA-256:
+`8769778581bafec5b2ba973b53ff1e9d6703d6a09d2860cc1ef083ff7de0f3e2`.
+Existing images and videos below retain their original dated scope; no video
+was created for this milestone.
+
 ## 2026-10-26 — standalone driving after the staged merge
 
 ![Actual standalone original-data driving](2026-10-26-pr-merge-validation.webp)
