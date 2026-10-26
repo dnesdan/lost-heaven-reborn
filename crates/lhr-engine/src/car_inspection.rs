@@ -1,4 +1,5 @@
-//! Unlit first-LOD inspection of the same live arena initialized by C_car.
+//! Unlit inspection of the same live arena initialized by C_car. View-aware
+//! callers select actual owned LODs; legacy wrappers explicitly select LOD0.
 //! Geometry comes from owned CPU buffers, including object-private LOD data.
 //! Live source material decisions are explicit; lighting/envmaps/fog and full
 //! original renderer parity remain outside this unlit presentation bridge.
@@ -22,6 +23,7 @@ pub struct CarInspectionScene {
     pub omitted_material_effects: usize,
     pub unsupported_alpha_masks: usize,
     pub budgeted_bytes: usize,
+    pub lod_culled_meshes: usize,
 }
 fn charge(total: &mut usize, bytes: usize) -> Result<(), String> {
     *total = total
@@ -103,13 +105,59 @@ pub fn snapshot_car_arena(
     }
     Ok(snapshot)
 }
+/// Bootstrap the host camera from the actual PC hierarchy bounds. This
+/// performs the same Z reflection as geometry intake, including min/max swap.
+pub fn camera_from_arena_bounds(
+    arena: &mut ModelArena,
+    root: FrameKey,
+) -> Result<lhr_render::Camera, String> {
+    let bound = arena.hr_bound_volume_w(root).map_err(|e| e.to_string())?;
+    lhr_render::Camera::fit_bounds(
+        [bound.bbox[0][0], bound.bbox[0][1], -bound.bbox[1][2]],
+        [bound.bbox[1][0], bound.bbox[1][1], -bound.bbox[0][2]],
+    )
+}
+
+/// Camera-driven ordinary live LOD snapshot. A model whose meshes are all
+/// source-distance-culled is a valid empty draw set, distinct from no CPU mesh.
+pub fn snapshot_car_arena_with_view(
+    arena: &mut ModelArena,
+    root: FrameKey,
+    view: crate::inspection_lod::InspectionLodView,
+) -> Result<CarInspectionScene, String> {
+    if arena.state(root).map_err(|e| e.to_string())?.kind != FrameKind::Model {
+        return Err("Car inspection requires its initialized model root".into());
+    }
+    let snapshot = snapshot_arena_tree_with_view(arena, root, view)?;
+    if snapshot.scene.meshes.is_empty() && snapshot.lod_culled_meshes == 0 {
+        return Err("Initialized car has no admitted drawable CPU geometry".into());
+    }
+    Ok(snapshot)
+}
+pub fn snapshot_arena_tree_with_view(
+    arena: &mut ModelArena,
+    root: FrameKey,
+    view: crate::inspection_lod::InspectionLodView,
+) -> Result<CarInspectionScene, String> {
+    snapshot_arena_tree_inner(arena, root, Some(view))
+}
+
 /// Snapshot the actual visible subtree, including sector-owned car effects.
 /// Unlike car inspection, an empty visible tree is a valid presentation state.
-/// The same bounded CPU geometry, first-LOD and material policies apply.
+/// This legacy diagnostic wrapper explicitly chooses LOD0. Main presentation
+/// uses the view-aware entry point for selected buffers and source fade.
 pub fn snapshot_arena_tree(
     arena: &mut ModelArena,
     root: FrameKey,
 ) -> Result<CarInspectionScene, String> {
+    snapshot_arena_tree_inner(arena, root, None)
+}
+fn snapshot_arena_tree_inner(
+    arena: &mut ModelArena,
+    root: FrameKey,
+    view: Option<crate::inspection_lod::InspectionLodView>,
+) -> Result<CarInspectionScene, String> {
+    let mut lod_culled_meshes = 0;
     let mut pending = vec![root];
     let mut seen = BTreeSet::new();
     let mut frames = Vec::new();
@@ -131,6 +179,14 @@ pub fn snapshot_arena_tree(
             pending.push(key);
         }
         if state.kind == FrameKind::Mesh {
+            if view.is_some()
+                && (state.flags & 0x400 != 0 || state.visual_flags & (0x10 | 0x40 | 0x10000) != 0)
+            {
+                return Err(
+                    "Camera LOD callback/texture-driven/world-space/proxy domain unavailable"
+                        .into(),
+                );
+            }
             let object = arena
                 .frame_object_resources(frame)
                 .map_err(|e| e.to_string())?
@@ -138,7 +194,39 @@ pub fn snapshot_arena_tree(
             let matrix = arena.world_matrix(frame).map_err(|e| e.to_string())?;
             let bound = arena.hr_bound_volume_w(frame).map_err(|e| e.to_string())?;
             let center = [bound.center[0], bound.center[1], -bound.center[2]];
-            frames.push((object, matrix, center));
+            let (lod_index, fade) = if let Some(view) = view {
+                let own = arena
+                    .visual_world_bounds(frame)
+                    .map_err(|e| e.to_string())?;
+                let distance_squared = view.distance_squared(own.center)?;
+                let world_scale = arena.state(frame).map_err(|e| e.to_string())?.world_scale;
+                let selected = arena
+                    .loaded_visual_resources_mut()
+                    .ok_or("LOD CPU resource owner absent")?
+                    .select_render_lod(
+                        object,
+                        distance_squared,
+                        view.rs_lod_quality,
+                        world_scale,
+                        state.flags,
+                        state.visual_flags,
+                    )
+                    .map_err(|e| format!("Live object LOD: {e:?}"))?;
+                match selected {
+                    crate::loaded_visual_resources::RenderLodSelection::Selected {
+                        index,
+                        fade,
+                    } => (index, fade),
+                    crate::loaded_visual_resources::RenderLodSelection::Culled { .. } => {
+                        lod_culled_meshes += 1;
+                        continue;
+                    }
+                    crate::loaded_visual_resources::RenderLodSelection::Missing { .. } => continue,
+                }
+            } else {
+                (0, 1.)
+            };
+            frames.push((object, matrix, center, lod_index, fade));
         } else if matches!(state.kind, FrameKind::Singlemesh) {
             return Err("Car inspection cannot substitute undeformed singlemesh vertices".into());
         }
@@ -151,6 +239,7 @@ pub fn snapshot_arena_tree(
             omitted_material_effects: 0,
             unsupported_alpha_masks: 0,
             budgeted_bytes: 0,
+            lod_culled_meshes,
         });
     }
     let resources = arena
@@ -161,9 +250,9 @@ pub fn snapshot_arena_tree(
     let mut textures = BTreeMap::<(u64, u32), Arc<Texture>>::new();
     let mut omitted = 0usize;
     let mut unsupported_alpha_masks = 0usize;
-    for (object, world, center) in &frames {
+    for (object, world, center, lod_index, fade) in &frames {
         let Some(view) = resources
-            .inspection_mesh(*object, CAR_INSPECTION_MAX_DRAWS - meshes.len())
+            .inspection_mesh_at_lod(*object, *lod_index, CAR_INSPECTION_MAX_DRAWS - meshes.len())
             .map_err(|e| format!("Live car CPU geometry: {e:?}"))?
         else {
             continue;
@@ -189,11 +278,12 @@ pub fn snapshot_arena_tree(
                 has_texture.then_some(group.texture_alpha).flatten(),
                 has_texture && group.inspection_rgba8_color_key,
             )?;
-            let policy = crate::presentation_material::live_material(
+            let policy = crate::presentation_material::live_material_with_fade(
                 material,
                 has_texture,
                 *center,
                 FrontFace::CounterClockwise,
+                *fade,
             )?;
             if alpha.omitted {
                 unsupported_alpha_masks += 1;
@@ -296,6 +386,7 @@ pub fn snapshot_arena_tree(
         omitted_material_effects: omitted,
         unsupported_alpha_masks,
         budgeted_bytes: bytes,
+        lod_culled_meshes,
     })
 }
 
@@ -375,6 +466,9 @@ mod tests {
         arena
             .load_plain_visual_resources(model, &installation)
             .unwrap();
+        let camera = camera_from_arena_bounds(&mut arena, model.root()).unwrap();
+        assert_eq!(camera.target.to_array(), [10., 20., -30.]);
+        assert!(camera.eye.z > -30.);
         let snapshot = snapshot_car_arena(&mut arena, model.root()).unwrap();
         assert_eq!(snapshot.scene.meshes.len(), 2);
         let [a, b] = &snapshot.scene.meshes[..] else {

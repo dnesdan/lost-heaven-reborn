@@ -197,6 +197,42 @@ impl ManagedVisualResources {
             }
         })
     }
+    /// Read-only proof of a retained vertex descriptor and its ACTUAL manager
+    /// layout. Reuse intentionally ignores requested stride/format, so callers
+    /// must inspect this configuration instead of the later allocation request.
+    pub(crate) fn vertex_storage_configuration(
+        &self,
+        owner: VertexOwnerKey,
+        descriptor: CompleteVertexBuffer,
+        count: u32,
+    ) -> Result<bm::VertexConfiguration, ManagedError> {
+        self.available()?;
+        let raw = active_descriptor(&self.managers, OwnerKey::Vertex(owner), count)?;
+        let (Some(BufferKey::Vertex(buffer)), Some(GraphicsBuffer::Vertex(graphics))) =
+            (raw.buffer, raw.graphics)
+        else {
+            return Err(ManagedError::BindingMismatch);
+        };
+        let token = self
+            .vertex_tokens
+            .iter()
+            .find(|token| token.manager == buffer)
+            .ok_or(ManagedError::BindingMismatch)?;
+        if descriptor
+            != (CompleteVertexBuffer {
+                buffer: Some(VertexBufferPointer::Managed(token.visual)),
+                base: raw.base,
+                graphics: Some(graphics),
+            })
+        {
+            return Err(ManagedError::BindingMismatch);
+        }
+        self.managers
+            .vertex_buffer(buffer)?
+            .vertex
+            .ok_or(ManagedError::BindingMismatch)
+    }
+
     /// Allocates three indices per face. No index bytes are uploaded.
     /// Graphics rejection returns false and leaves a retryable vacant owner.
     /// Once manager allocation is entered, any error conservatively makes the

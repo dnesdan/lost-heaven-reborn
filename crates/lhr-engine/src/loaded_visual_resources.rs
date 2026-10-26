@@ -82,6 +82,7 @@ struct BlockAllocation {
 #[derive(Debug)]
 struct CpuGraphics {
     kind: BufferKind,
+    fvf: Option<u32>,
     bytes: Vec<u8>,
     lock: Option<LockedDataKey>,
 }
@@ -293,6 +294,7 @@ impl BufferBackend for CpuVisualStorage {
             id,
             CpuGraphics {
                 kind: r.kind,
+                fvf: r.fvf,
                 bytes: storage,
                 lock: None,
             },
@@ -1320,6 +1322,21 @@ mod tests {
         std::fs::remove_dir(root).unwrap();
     }
     #[test]
+    fn ordinary_open_ended_last_lod_keeps_rendering_without_fade_or_cull() {
+        let mut frame = plain_frame_fixture();
+        frame.lods[0].distance = 25.;
+        let mut last = frame.lods[0].clone();
+        last.distance = 0.;
+        frame.lods.push(last);
+        let mut owner = LoadedVisualResources::new().unwrap();
+        let object = owner.admit_plain_object(&frame, BTreeMap::new()).unwrap();
+        assert_eq!(
+            owner.select_render_lod(object, 1e6, 1., 1., 0, 0).unwrap(),
+            RenderLodSelection::Selected { index: 1, fade: 1. }
+        );
+        assert_eq!(owner.objects.object(object).unwrap().cur_lod, 1);
+    }
+    #[test]
     fn loaded_group_order_and_cached_array_upload_survive_two_objects() {
         let mut frame = plain_frame_fixture();
         frame.lods[0].distance = 17.25;
@@ -1590,5 +1607,106 @@ mod external_texture_tests {
             .is_err());
         assert_eq!(resources.backend().live_textures(), 0);
         std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+/// Distinguishes an actual selected level from the one-past-last render cull.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum RenderLodSelection {
+    Selected { index: u32, fade: f32 },
+    Missing { index: u32 },
+    Culled { index: u32 },
+}
+impl LoadedVisualResources {
+    /// Source ordinary/no-callback selection on the SAME live object owner.
+    /// No Texture::Request, callback dispatch or special visual is invented.
+    pub fn select_render_lod(
+        &mut self,
+        object: ObjectResourceKey,
+        distance_squared: f32,
+        quality: f32,
+        world_scale: f32,
+        frame_flags: u32,
+        visual_flags: u32,
+    ) -> Result<RenderLodSelection> {
+        if self.incomplete {
+            return Err(LoadedVisualError::IncompleteAdmission);
+        }
+        if frame_flags & 0x400 != 0 {
+            return Err(LoadedVisualError::Backend("LOD callback unavailable"));
+        }
+        if visual_flags & (0x10 | 0x40 | 0x10000) != 0 {
+            return Err(LoadedVisualError::Backend(
+                "texture-driven, world-space or proxy LOD unavailable",
+            ));
+        }
+        let record = self.objects.object(object)?;
+        if record.visual_type() != crate::i3d_object::ObjectVisualType::Plain {
+            return Err(LoadedVisualError::Backend(
+                "ordinary LOD subtype unavailable",
+            ));
+        }
+        let Some(mesh) = record.mesh else {
+            return Ok(RenderLodSelection::Missing { index: 0 });
+        };
+        let mesh = self
+            .objects
+            .managed()
+            .resources()
+            .mesh_object(mesh)
+            .map_err(|e| LoadedVisualError::Object(ObjectError::Managed(e.into())))?;
+        let count = mesh.num_lods as usize;
+        if count == 0 {
+            return Ok(RenderLodSelection::Missing { index: 0 });
+        }
+        if count > mesh.levels.len() {
+            return Err(LoadedVisualError::InvalidGeometry);
+        }
+        let distances = mesh.levels[..count]
+            .iter()
+            .map(|key| {
+                key.map(|key| {
+                    self.objects
+                        .managed()
+                        .resources()
+                        .mesh_level(key)
+                        .map(|level| level.lod_dist)
+                        .map_err(|e| LoadedVisualError::Object(ObjectError::Managed(e.into())))
+                })
+                .transpose()
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let levels = mesh.levels;
+        let index = self
+            .objects
+            .get_object_lod(object, distance_squared, quality, world_scale)
+            .map_err(|_| LoadedVisualError::Backend("ordinary GetObjectLOD unavailable"))?;
+        if index as usize == count {
+            return Ok(RenderLodSelection::Culled { index });
+        }
+        let Some(level) = levels[index as usize] else {
+            return Ok(RenderLodSelection::Missing { index });
+        };
+        let level = self
+            .objects
+            .managed()
+            .resources()
+            .mesh_level(level)
+            .map_err(|e| LoadedVisualError::Object(ObjectError::Managed(e.into())))?;
+        if level.fgroups.is_none() || level.num_vertices == 0 {
+            return Ok(RenderLodSelection::Missing { index });
+        }
+        let fade = crate::i3d_object::render_fade(
+            distance_squared,
+            quality,
+            world_scale,
+            index as usize,
+            &distances,
+        )
+        .map_err(|_| LoadedVisualError::Backend("LOD fade arithmetic unavailable"))?;
+        self.objects
+            .set_render_fade(object, fade)
+            .map_err(|_| LoadedVisualError::Backend("SetFade unavailable"))?;
+        Ok(RenderLodSelection::Selected { index, fade })
     }
 }

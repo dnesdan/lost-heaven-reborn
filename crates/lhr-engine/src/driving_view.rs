@@ -52,6 +52,33 @@ pub fn mesh_replacement_ranges(current: &[Mesh], next: &[Mesh]) -> (Range<usize>
     (prefix..current.len() - suffix, prefix..next.len() - suffix)
 }
 
+/// Actual live-car presentation replacement. World draws follow the car range
+/// and survive LOD face-group count changes, total culling and later re-entry.
+pub fn refresh_car_draws(
+    renderer: &mut lhr_render::Renderer,
+    scene: &mut lhr_render::Scene,
+    car_draws: &mut usize,
+    next: Vec<Mesh>,
+) -> Result<(), String> {
+    if *car_draws > scene.meshes.len() {
+        return Err("Car draw range exceeds current scene".into());
+    }
+    let (old_range, new_range) = mesh_replacement_ranges(&scene.meshes[..*car_draws], &next);
+    if !old_range.is_empty() || !new_range.is_empty() {
+        renderer.replace_meshes(old_range, &next[new_range.clone()])?;
+    }
+    for (index, mesh) in next.iter().enumerate() {
+        if !new_range.contains(&index) {
+            renderer.update_mesh_vertices(index, &mesh.vertices)?;
+            renderer.update_render_material(index, mesh.material)?;
+        }
+    }
+    let count = next.len();
+    scene.meshes.splice(0..*car_draws, next);
+    *car_draws = count;
+    Ok(())
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Controls {
     pub throttle: f32,
@@ -190,6 +217,72 @@ mod tests {
         assert_eq!(mesh_replacement_ranges(&current, &pose), (3..3, 3..3));
         pose[1].indices = vec![0, 2, 1];
         assert_eq!(mesh_replacement_ranges(&current, &pose), (1..2, 1..2));
+    }
+
+    #[test]
+    #[ignore = "requires a Vulkan or Metal adapter; run with --ignored"]
+    fn actual_refresh_keeps_world_draws_across_lod_count_change_cull_and_reentry() {
+        use lhr_render::{Renderer, Scene, Texture, Vertex};
+        use std::sync::Arc;
+        let quad = |color: [u8; 4], x0: f32, x1: f32, y0: f32, y1: f32| Mesh {
+            material: Default::default(),
+            vertices: [[x0, y0, 0.], [x1, y0, 0.], [x1, y1, 0.], [x0, y1, 0.]]
+                .map(|position| Vertex {
+                    position,
+                    uv: [0.; 2],
+                })
+                .to_vec(),
+            indices: vec![0, 1, 2, 0, 2, 3],
+            texture: Some(Arc::new(Texture {
+                width: 1,
+                height: 1,
+                rgba: Vec::from(color),
+                repeat: [false; 2],
+            })),
+        };
+        let world = quad([0, 0, 255, 255], 1., 2., 0., 2.);
+        let world_texture = world.texture.clone().unwrap();
+        let mut scene = Scene {
+            meshes: vec![quad([255, 0, 0, 255], 0., 1., 0., 2.), world],
+        };
+        let instance = lhr_render::instance();
+        let adapter = pollster::block_on(instance.request_adapter(&Default::default())).unwrap();
+        let mut renderer = pollster::block_on(Renderer::with_adapter(
+            &adapter,
+            &scene,
+            wgpu::TextureFormat::Rgba8Unorm,
+            false,
+        ))
+        .unwrap();
+        let mut count = 1;
+        let mut check = |next: Vec<Mesh>, expected: [u8; 4]| {
+            let target_count = next.len();
+            refresh_car_draws(&mut renderer, &mut scene, &mut count, next).unwrap();
+            assert_eq!(count, target_count);
+            assert_eq!(scene.meshes.len(), count + 1);
+            assert!(Arc::ptr_eq(
+                scene.meshes.last().unwrap().texture.as_ref().unwrap(),
+                &world_texture
+            ));
+            let rgba = renderer.readback_screen(32, 32, [2., 2.]).unwrap();
+            assert_eq!(
+                &rgba[(8 * 32 + 24) * 4..(8 * 32 + 24) * 4 + 4],
+                &[0, 0, 255, 255]
+            );
+            assert_eq!(&rgba[(8 * 32 + 8) * 4..(8 * 32 + 8) * 4 + 4], &expected);
+        };
+        check(
+            vec![
+                quad([0, 255, 0, 255], 0., 1., 0., 1.),
+                quad([255, 255, 0, 255], 0., 1., 1., 2.),
+            ],
+            [0, 255, 0, 255],
+        );
+        check(Vec::new(), [6, 9, 14, 255]);
+        check(
+            vec![quad([255, 0, 0, 255], 0., 1., 0., 2.)],
+            [255, 0, 0, 255],
+        );
     }
 
     #[test]

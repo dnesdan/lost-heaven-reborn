@@ -672,6 +672,11 @@ impl ModelArena {
     ) -> Option<&crate::loaded_visual_resources::LoadedVisualResources> {
         self.loaded_visual_resources.as_ref()
     }
+    pub(crate) fn loaded_visual_resources_mut(
+        &mut self,
+    ) -> Option<&mut crate::loaded_visual_resources::LoadedVisualResources> {
+        self.loaded_visual_resources.as_mut()
+    }
     pub(crate) fn visual_resource_owner_mut(
         &mut self,
     ) -> Result<&mut crate::loaded_visual_resources::LoadedVisualResources, ModelError> {

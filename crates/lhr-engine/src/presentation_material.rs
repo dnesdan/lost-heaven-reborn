@@ -12,6 +12,17 @@ pub fn live_material(
     sort_center: [f32; 3],
     front_face: FrontFace,
 ) -> Result<RenderMaterial, String> {
+    live_material_with_fade(material, has_texture, sort_center, front_face, 1.)
+}
+/// The same unlit decisions with an actual source-selected object LOD fade.
+/// Transparency/lightness remain one; source lighting is still separate.
+pub fn live_material_with_fade(
+    material: &I3dMaterial,
+    has_texture: bool,
+    sort_center: [f32; 3],
+    front_face: FrontFace,
+    fade: f32,
+) -> Result<RenderMaterial, String> {
     if !material
         .diffuse
         .into_iter()
@@ -23,9 +34,14 @@ pub fn live_material(
     {
         return Err("Original presentation material is outside its admitted scalar domain".into());
     }
+    if !fade.is_finite() || !(0. ..=1.).contains(&fade) {
+        return Err("Object LOD fade is outside the presentation domain".into());
+    }
+    let total_alpha = crate::native_matrix::checked_f32_mul(material.alpha, fade)
+        .map_err(|_| "Object/material alpha arithmetic unavailable")?;
     let flags = material.flags;
-    let transparent = flags & (0x40000000 | 0x80000000) != 0 || material.alpha < 1.;
-    let queue = if !has_texture && material.alpha >= 1. {
+    let transparent = flags & (0x40000000 | 0x80000000) != 0 || total_alpha < 1.;
+    let queue = if !has_texture && total_alpha >= 1. {
         MaterialQueue::Opaque
     } else if transparent {
         MaterialQueue::Transparent
@@ -36,7 +52,7 @@ pub fn live_material(
     };
     let alpha = if flags & 0x80000000 != 0 {
         AlphaMode::Additive
-    } else if flags & 0x40000000 != 0 || material.alpha < 1. {
+    } else if flags & 0x40000000 != 0 || total_alpha < 1. {
         if material.emissive.into_iter().any(|v| v.to_bits() != 0) {
             AlphaMode::Additive
         } else {
@@ -54,7 +70,7 @@ pub fn live_material(
     };
     // Source FloatToInt uses the active FPU rounding; this presentation path
     // admits the engine's round-to-nearest-even profile explicitly.
-    let opacity = (material.alpha * 255.).round_ties_even() / 255.;
+    let opacity = (total_alpha * 255.).round_ties_even() / 255.;
     Ok(RenderMaterial::Original(OriginalMaterial {
         color: [diffuse[0], diffuse[1], diffuse[2], opacity],
         alpha,
