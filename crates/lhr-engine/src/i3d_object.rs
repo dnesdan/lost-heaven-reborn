@@ -450,6 +450,8 @@ impl ObjectResources {
                             .levels[level]
                             .lods[lod_index];
                         if let Some(lod) = lod {
+                            self.lit_level_mut(object, level)?.saved_vertex_colors[lod_index] =
+                                None;
                             self.cleanup_lod(lod, backend)?;
                             self.lods[(lod.slot - 1) as usize] = None;
                             self.objects[index]

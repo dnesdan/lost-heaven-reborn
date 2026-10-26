@@ -614,6 +614,7 @@ fn make_geometry(
         if !compact || mapping[index] != u32::MAX {
             mapping[index] = u32::try_from(vertices.len()).map_err(|_| "Vertex count overflow")?;
             vertices.push(Vertex {
+                color: [1.; 3],
                 position: transform
                     .render_point(pose.map_or(v.position, |pose| pose[index].position))?,
                 uv: v.uv,

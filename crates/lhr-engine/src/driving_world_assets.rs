@@ -1051,6 +1051,7 @@ fn render_sources(
                         .try_transform_point(*position)
                         .map_err(|e| format!("Driving render vertex: {e:?}"))?;
                     vertices.push(Vertex {
+                        color: [1.; 3],
                         position: [p[0], p[1], -p[2]],
                         uv: vertex.uv,
                     });

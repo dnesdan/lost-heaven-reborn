@@ -18,6 +18,8 @@ pub use material::{AlphaMode, FrontFace, MaterialQueue, OriginalMaterial, Render
 pub struct Vertex {
     pub position: [f32; 3],
     pub uv: [f32; 2],
+    /// Saved diffuse RGB, used only by the explicit vertex-lighting policy.
+    pub color: [f32; 3],
 }
 #[derive(Clone)]
 pub struct Texture {
@@ -139,6 +141,7 @@ struct Draw {
 }
 struct GpuMaterial {
     group: wgpu::BindGroup,
+    code_space_group: wgpu::BindGroup,
     texture: wgpu::Texture,
 }
 struct CachedMaterial {
@@ -146,6 +149,11 @@ struct CachedMaterial {
     material: Arc<GpuMaterial>,
 }
 type MaterialCache = HashMap<usize, CachedMaterial>;
+#[derive(Clone, Copy)]
+struct UploadOptions {
+    linear: bool,
+    target_srgb: bool,
+}
 struct DepthTarget {
     size: [u32; 2],
     view: wgpu::TextureView,
@@ -288,9 +296,9 @@ impl Renderer {
                     module: &shader,
                     entry_point: Some("vertex"),
                     buffers: &[wgpu::VertexBufferLayout {
-                        array_stride: 20,
+                        array_stride: std::mem::size_of::<Vertex>() as u64,
                         step_mode: wgpu::VertexStepMode::Vertex,
-                        attributes: &wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x2],
+                        attributes: &wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x2,2=>Float32x3],
                     }],
                     compilation_options: Default::default(),
                 },
@@ -348,9 +356,9 @@ impl Renderer {
                             module: &shader,
                             entry_point: Some("vertex"),
                             buffers: &[wgpu::VertexBufferLayout {
-                                array_stride: 20,
+                                array_stride: std::mem::size_of::<Vertex>() as u64,
                                 step_mode: wgpu::VertexStepMode::Vertex,
-                                attributes: &wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x2],
+                                attributes: &wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x2,2=>Float32x3],
                             }],
                             compilation_options: Default::default(),
                         },
@@ -394,9 +402,9 @@ impl Renderer {
                 module: &shader,
                 entry_point: Some("vertex"),
                 buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: 20,
+                    array_stride: std::mem::size_of::<Vertex>() as u64,
                     step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x2],
+                    attributes: &wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x2,2=>Float32x3],
                 }],
                 compilation_options: Default::default(),
             },
@@ -438,7 +446,10 @@ impl Renderer {
             &queue,
             &texture_layout,
             &material_layout,
-            linear,
+            UploadOptions {
+                linear,
+                target_srgb: format.is_srgb(),
+            },
             &scene.meshes,
             &mut materials,
         )?;
@@ -479,7 +490,10 @@ impl Renderer {
             &self.queue,
             &self.texture_layout,
             &self.material_layout,
-            self.linear,
+            UploadOptions {
+                linear: self.linear,
+                target_srgb: self.format.is_srgb(),
+            },
             meshes,
             &mut self.materials.borrow_mut(),
         )?;
@@ -564,7 +578,7 @@ impl Renderer {
         self.queue.write_buffer(
             &draw.parameters_buffer,
             0,
-            bytemuck::cast_slice(&material.parameters()),
+            bytemuck::cast_slice(&material.parameters(self.format.is_srgb())),
         );
         draw.policy = material;
         Ok(())
@@ -701,7 +715,13 @@ impl Renderer {
                         pass.set_bind_group(2, &draw.parameters, &[]);
                     }
                 }
-                pass.set_bind_group(1, &draw.material.group, &[]);
+                let texture_group = if matches!(draw.policy, RenderMaterial::Original(m) if m.vertex_lighting)
+                {
+                    &draw.material.code_space_group
+                } else {
+                    &draw.material.group
+                };
+                pass.set_bind_group(1, texture_group, &[]);
                 pass.set_vertex_buffer(0, draw.vertex.slice(..));
                 pass.set_index_buffer(draw.index.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..draw.count, 0, 0..1);
@@ -933,7 +953,7 @@ fn upload_meshes(
     queue: &wgpu::Queue,
     texture_layout: &wgpu::BindGroupLayout,
     material_layout: &wgpu::BindGroupLayout,
-    linear: bool,
+    options: UploadOptions,
     meshes: &[Mesh],
     materials: &mut MaterialCache,
 ) -> Result<Vec<Draw>, String> {
@@ -952,11 +972,13 @@ fn upload_meshes(
         {
             return Err("Invalid mesh triangle indices".into());
         }
-        if mesh
-            .vertices
-            .iter()
-            .any(|v| v.position.iter().chain(&v.uv).any(|x| !x.is_finite()))
-        {
+        if mesh.vertices.iter().any(|v| {
+            v.position
+                .iter()
+                .chain(&v.uv)
+                .chain(&v.color)
+                .any(|x| !x.is_finite())
+        }) {
             return Err("Nonfinite mesh vertex".into());
         }
         let tex = mesh
@@ -992,7 +1014,7 @@ fn upload_meshes(
                 dimension: wgpu::TextureDimension::D2,
                 format: wgpu::TextureFormat::Rgba8UnormSrgb,
                 usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                view_formats: &[],
+                view_formats: &[wgpu::TextureFormat::Rgba8Unorm],
             });
             queue.write_texture(
                 wgpu::TexelCopyTextureInfo {
@@ -1009,7 +1031,7 @@ fn upload_meshes(
                 },
                 texture.size(),
             );
-            let filter = if linear {
+            let filter = if options.linear {
                 wgpu::FilterMode::Linear
             } else {
                 wgpu::FilterMode::Nearest
@@ -1045,9 +1067,32 @@ fn upload_meshes(
                     },
                 ],
             });
+            // The original D3D8 saved-lighting path filters and combines byte
+            // color values. Keep a raw view of the SAME immutable allocation;
+            // ordinary host presentation retains its existing sRGB view.
+            let code_space_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Saved lighting code-space texture"),
+                layout: texture_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&texture.create_view(
+                            &wgpu::TextureViewDescriptor {
+                                format: Some(wgpu::TextureFormat::Rgba8Unorm),
+                                ..Default::default()
+                            },
+                        )),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&sampler),
+                    },
+                ],
+            });
             let material = Arc::new(GpuMaterial {
                 texture,
                 group: material,
+                code_space_group,
             });
             materials.insert(
                 key,
@@ -1060,7 +1105,7 @@ fn upload_meshes(
         };
         let parameters_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Per-draw material parameters"),
-            contents: bytemuck::cast_slice(&mesh.material.parameters()),
+            contents: bytemuck::cast_slice(&mesh.material.parameters(options.target_srgb)),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
         let parameters = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -1101,10 +1146,13 @@ fn validate_vertex_replacement(expected: usize, vertices: &[Vertex]) -> Result<(
     if vertices.len() != expected {
         return Err("Replacement vertex count differs".into());
     }
-    if vertices
-        .iter()
-        .any(|v| v.position.iter().chain(&v.uv).any(|x| !x.is_finite()))
-    {
+    if vertices.iter().any(|v| {
+        v.position
+            .iter()
+            .chain(&v.uv)
+            .chain(&v.color)
+            .any(|x| !x.is_finite())
+    }) {
         return Err("Replacement vertices contain nonfinite values".into());
     }
     Ok(())
@@ -1144,14 +1192,17 @@ mod tests {
             material: Default::default(),
             vertices: vec![
                 Vertex {
+                    color: [1.; 3],
                     position: [0., 0., 0.],
                     uv: [0.; 2],
                 },
                 Vertex {
+                    color: [1.; 3],
                     position: [1., 0., 0.],
                     uv: [0.; 2],
                 },
                 Vertex {
+                    color: [1.; 3],
                     position: [0., 1., 0.],
                     uv: [0.; 2],
                 },
@@ -1224,6 +1275,7 @@ mod tests {
     #[test]
     fn replacement_geometry_preserves_topology_and_requires_finite_attributes() {
         let valid = Vertex {
+            color: [1.; 3],
             position: [1.0, -2.0, 3.0],
             uv: [0.0, 1.0],
         };
@@ -1294,6 +1346,7 @@ mod tests {
                     .flat_map(|x| {
                         [-2.0, 2.0].into_iter().flat_map(move |y| {
                             [-3.0, 3.0].into_iter().map(move |z| Vertex {
+                                color: [1.; 3],
                                 position: [x, y, z],
                                 uv: [0.0; 2],
                             })
@@ -1319,6 +1372,7 @@ mod tests {
             meshes: vec![Mesh {
                 material: Default::default(),
                 vertices: vec![Vertex {
+                    color: [1.; 3],
                     position: [1.0e30; 3],
                     uv: [0.0; 2],
                 }],
@@ -1336,6 +1390,7 @@ mod tests {
             meshes: vec![Mesh {
                 material: Default::default(),
                 vertices: vec![Vertex {
+                    color: [1.; 3],
                     position: [f32::NAN, 0.0, 0.0],
                     uv: [0.0; 2],
                 }],

@@ -16,8 +16,12 @@ pub struct CpuInspectionGroup<'a> {
     pub texture_identity: Option<TextureKey>,
 }
 pub struct CpuInspectionMesh<'a> {
-    /// Admitted plain FVF0x112 vertices: XYZ, normal XYZ, UV, 32-byte stride.
+    /// Actual checked source/private vertex buffer, with its retained stride.
     pub vertex_bytes: &'a [u8],
+    pub vertex_stride: usize,
+    /// Source ARGB32 words for constructed saved vertex lighting. These are
+    /// borrowed from the same selected litLod whose checked buffer is exposed.
+    pub saved_vertex_colors: Option<&'a [u32]>,
     pub vertex_count: u32,
     pub visual_type: crate::i3d_object::ObjectVisualType,
     pub uv_byte_offset: usize,
@@ -25,7 +29,7 @@ pub struct CpuInspectionMesh<'a> {
     pub groups: Vec<CpuInspectionGroup<'a>>,
 }
 impl LoadedVisualResources {
-    fn inspection_graphics(
+    pub(super) fn inspection_graphics(
         &self,
         graphics: GraphicsBuffer,
         offset: usize,
@@ -129,16 +133,32 @@ impl LoadedVisualResources {
             .map(|binding| binding.owner);
         let mut uv_offset = [0.; 2];
         let visual_type = object.visual_type();
-        let (private_lod, uv_byte_offset) = if let Some(lit) = object.lit_object() {
-            if lit.active_level != 0 || lit.levels[0].constructed {
-                return Err(LoadedVisualError::Backend(
-                    "constructed lit inspection unavailable",
-                ));
-            }
-            (lit.levels[0].lods[index], 16)
-        } else {
-            (object.lods[index], 24)
-        };
+        let (private_lod, uv_byte_offset, saved_vertex_colors) =
+            if let Some(lit) = object.lit_object() {
+                let lighting = lit
+                    .levels
+                    .get(lit.active_level)
+                    .ok_or(LoadedVisualError::InvalidGeometry)?;
+                let colors = if lighting.constructed {
+                    if lighting.mode != 1 && lighting.mode != 5 {
+                        return Err(LoadedVisualError::Backend(
+                            "constructed lightmap inspection unavailable",
+                        ));
+                    }
+                    let colors = lighting.saved_vertex_colors[index].as_deref().ok_or(
+                        LoadedVisualError::Backend("saved vertex colors unavailable"),
+                    )?;
+                    if colors.len() != level.num_vertices as usize {
+                        return Err(LoadedVisualError::InvalidGeometry);
+                    }
+                    Some(colors)
+                } else {
+                    None
+                };
+                (lighting.lods[index], 16, colors)
+            } else {
+                (object.lods[index], 24, None)
+            };
         if let Some(lod_key) = private_lod {
             let lod = self.objects.lod(lod_key)?;
             if lod.state != LodState::Constructed {
@@ -172,13 +192,15 @@ impl LoadedVisualResources {
             .map_err(|_| {
                 LoadedVisualError::Backend("inspection vertex descriptor/manager mismatch")
             })?;
-        let expected = if uv_byte_offset == 16 {
-            (0x242, 1)
+        let expected = if saved_vertex_colors.is_some() {
+            (0x142, 0, 24)
+        } else if uv_byte_offset == 16 {
+            (0x242, 1, 32)
         } else {
-            (0x112, 6)
+            (0x112, 6, 32)
         };
         if configuration.fvf != expected.0
-            || configuration.stride != Some(32)
+            || configuration.stride != Some(expected.2)
             || configuration.format != expected.1
         {
             return Err(LoadedVisualError::Backend(
@@ -191,12 +213,27 @@ impl LoadedVisualResources {
                     .graphics
                     .ok_or(LoadedVisualError::InvalidGeometry)?,
             ),
-            vertices.base as usize * 32,
+            vertices.base as usize * expected.2 as usize,
             (level.num_vertices as usize)
-                .checked_mul(32)
+                .checked_mul(expected.2 as usize)
                 .ok_or(LoadedVisualError::InvalidGeometry)?,
-            Some(if uv_byte_offset == 16 { 0x242 } else { 0x112 }),
+            Some(expected.0),
         )?;
+        if let Some(colors) = saved_vertex_colors {
+            if vertex_bytes
+                .as_chunks::<24>()
+                .0
+                .iter()
+                .zip(colors)
+                .any(|(vertex, color)| {
+                    u32::from_le_bytes(vertex[12..16].try_into().unwrap()) != *color
+                })
+            {
+                return Err(LoadedVisualError::Backend(
+                    "saved vertex color buffer differs from its owner",
+                ));
+            }
+        }
         let mut groups = Vec::new();
         groups
             .try_reserve_exact(level.num_fgroups as usize)
@@ -247,6 +284,8 @@ impl LoadedVisualResources {
         }
         Ok(Some(CpuInspectionMesh {
             vertex_bytes,
+            vertex_stride: expected.2 as usize,
+            saved_vertex_colors,
             vertex_count: level.num_vertices,
             visual_type,
             uv_byte_offset,

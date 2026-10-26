@@ -7,9 +7,9 @@ is not playable; all six first-mission gates remain open.**
 
 Current source-based stages add original-data loader and image fixes, live
 material parameters and camera-selected model LOD, authored view orientation,
-audio lifecycle, archive/write IO and data-language selection. Lit objects use
-the source's unconstructed cyan branch; saved lightmaps and their scene `LMAP`
-payload association remain open. Original lighting, visibility, player/camera
+audio lifecycle, archive/write IO and data-language selection. Lit objects support
+the source's unconstructed cyan branch and explicit [saved vertex-lighting loads](docs/saved-vertex-lighting.md).
+Textured lightmaps and their scene `LMAP` payload association remain open. Original lighting, visibility, player/camera
 scheduling and authored mission scripts remain incomplete. The separate legacy
 raw static-world presentation remains unlit first LOD.
 

@@ -424,6 +424,7 @@ impl RetainedModel {
                     .ok_or("Invalid retained vertex binding")?;
                 let position = pose.map_or(vertex.position, |pose| pose[index].position);
                 Ok(Vertex {
+                    color: [1.; 3],
                     position: GeometryTransform::Original(matrix).render_point(position)?,
                     uv: vertex.uv,
                 })
@@ -576,6 +577,7 @@ impl RetainedModel {
                     return Err("Native vertex transform overflow".into());
                 }
                 Ok(Vertex {
+                    color: [1.; 3],
                     position: [x, y, -z],
                     uv: vertex.uv,
                 })
@@ -617,6 +619,7 @@ impl RetainedModel {
                     return Err("Retained vertex transform overflow".into());
                 }
                 Ok(Vertex {
+                    color: [1.; 3],
                     position: [p.x, p.y, -p.z],
                     uv: vertex.uv,
                 })

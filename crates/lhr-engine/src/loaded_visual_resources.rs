@@ -23,6 +23,9 @@ use std::{
 #[path = "car_inspection_resources.rs"]
 mod car_inspection_resources;
 pub use car_inspection_resources::{CpuInspectionGroup, CpuInspectionMesh};
+#[path = "saved_lighting.rs"]
+mod saved_lighting;
+pub use saved_lighting::{SavedLightingLoadError, SavedLightingPendingCleanup};
 #[path = "car_inspection_texture.rs"]
 mod car_inspection_texture;
 #[path = "loaded_glass.rs"]
@@ -107,6 +110,8 @@ pub struct CpuVisualStorage {
     raw: BTreeMap<u64, Vec<u8>>,
     resident_bytes: usize,
     discard_requests: u64,
+    #[cfg(test)]
+    fail_next_graphics_allocation: bool,
 }
 impl CpuVisualStorage {
     pub fn graphics_bytes(&self) -> usize {
@@ -287,6 +292,12 @@ impl BufferBackend for CpuVisualStorage {
     fn create_graphics(&mut self, r: GraphicsRequest) -> Result<CreateResult> {
         if r.bytes == 0 {
             return Err(LoadedVisualError::InvalidGeometry);
+        }
+        #[cfg(test)]
+        if std::mem::take(&mut self.fail_next_graphics_allocation) {
+            return Err(LoadedVisualError::Backend(
+                "injected CPU graphics allocation failure",
+            ));
         }
         let storage = bytes(r.bytes as usize)?;
         let id = identity()?;
@@ -1741,7 +1752,7 @@ impl LoadedVisualResources {
             ));
         }
         let record = self.objects.object(object)?;
-        let lit = record.visual_type() == crate::i3d_object::ObjectVisualType::LitUnconstructed;
+        let lit = record.visual_type() == crate::i3d_object::ObjectVisualType::Lit;
         let Some(mesh) = record.mesh else {
             return Ok(RenderLodSelection::Missing { index: 0 });
         };

@@ -28,6 +28,8 @@ pub enum FrontFace {
 pub struct OriginalMaterial {
     /// Unlit diffuse multiplier and already packed/normalized vertex opacity.
     pub color: [f32; 4],
+    /// Source lit-object HWTL vertex branch: MODULATE2X RGB, texture alpha.
+    pub vertex_lighting: bool,
     pub alpha: AlphaMode,
     /// Queue classification is independent of the draw's blend state.
     pub queue: MaterialQueue,
@@ -49,7 +51,7 @@ impl RenderMaterial {
             }
         }
     }
-    pub(crate) fn parameters(self) -> [f32; 8] {
+    pub(crate) fn parameters(self, target_srgb: bool) -> [f32; 8] {
         match self {
             Self::Legacy => [1., 1., 1., 1., -1., 0., 0., 0.],
             Self::Original(m) => {
@@ -59,7 +61,14 @@ impl RenderMaterial {
                     AlphaMode::Blend | AlphaMode::Additive => 1. / 255.,
                 };
                 [
-                    m.color[0], m.color[1], m.color[2], m.color[3], cutoff, 0., 0., 0.,
+                    m.color[0],
+                    m.color[1],
+                    m.color[2],
+                    m.color[3],
+                    cutoff,
+                    if m.vertex_lighting { 1. } else { 0. },
+                    if target_srgb { 1. } else { 0. },
+                    0.,
                 ]
             }
         }

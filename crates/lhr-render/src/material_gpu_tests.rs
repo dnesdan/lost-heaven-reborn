@@ -10,6 +10,7 @@ fn texture(rgba: [u8; 4]) -> Arc<Texture> {
 }
 fn policy(alpha: AlphaMode, queue: MaterialQueue, depth: f32) -> RenderMaterial {
     RenderMaterial::Original(OriginalMaterial {
+        vertex_lighting: false,
         color: [1.; 4],
         alpha,
         queue,
@@ -23,14 +24,17 @@ fn triangle(image: Arc<Texture>, depth: f32, material: RenderMaterial) -> Mesh {
     Mesh {
         vertices: vec![
             Vertex {
+                color: [1.; 3],
                 position: [-0.9, -0.9, depth],
                 uv: [0.; 2],
             },
             Vertex {
+                color: [1.; 3],
                 position: [0.9, -0.9, depth],
                 uv: [0.; 2],
             },
             Vertex {
+                color: [1.; 3],
                 position: [0., 0.9, depth],
                 uv: [0.; 2],
             },
@@ -41,14 +45,17 @@ fn triangle(image: Arc<Texture>, depth: f32, material: RenderMaterial) -> Mesh {
     }
 }
 fn renderer() -> Renderer {
+    renderer_with_format(wgpu::TextureFormat::Rgba8Unorm, false)
+}
+fn renderer_with_format(format: wgpu::TextureFormat, linear: bool) -> Renderer {
     let instance = instance();
     let adapter = pollster::block_on(instance.request_adapter(&Default::default()))
         .expect("material test needs Vulkan or Metal");
     pollster::block_on(Renderer::with_adapter(
         &adapter,
         &Scene { meshes: Vec::new() },
-        wgpu::TextureFormat::Rgba8Unorm,
-        false,
+        format,
+        linear,
     ))
     .unwrap()
 }
@@ -71,6 +78,68 @@ fn approximately(got: [u8; 4], expected: [u8; 4]) {
             (i16::from(got) - i16::from(expected)).abs() <= 1,
             "pixel {got}, expected {expected}"
         );
+    }
+}
+
+#[test]
+#[ignore = "requires a Vulkan or Metal adapter; run with --ignored"]
+fn saved_vertex_lighting_modulates_rgb_twice_and_preserves_texture_alpha() {
+    let mut renderer = renderer();
+    let mut material = policy(AlphaMode::Opaque, MaterialQueue::Opaque, 0.5);
+    if let RenderMaterial::Original(ref mut original) = material {
+        original.vertex_lighting = true;
+    }
+    let mut mesh = triangle(texture([255, 255, 255, 73]), 0.5, material);
+    for vertex in &mut mesh.vertices {
+        vertex.color = [0.25, 0.5, 0.75];
+    }
+    replace(&mut renderer, &[mesh]);
+    approximately(pixel(&renderer), [128, 255, 255, 73]);
+
+    // Updating only material state switches the SAME texture and vertices back
+    // to the previous unlit path. Vertex RGB must not tint plain/menu draws.
+    if let RenderMaterial::Original(ref mut original) = material {
+        original.vertex_lighting = false;
+        original.color = [0.5, 0.25, 1., 1.];
+    }
+    renderer.update_render_material(0, material).unwrap();
+    approximately(pixel(&renderer), [128, 64, 255, 73]);
+}
+
+#[test]
+#[ignore = "requires a Vulkan or Metal adapter; run with --ignored"]
+fn saved_lighting_keeps_code_space_for_nonwhite_texels_and_bilinear_filtering() {
+    for format in [
+        wgpu::TextureFormat::Rgba8Unorm,
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+    ] {
+        let mut renderer = renderer_with_format(format, true);
+        let mut material = policy(AlphaMode::Opaque, MaterialQueue::Opaque, 0.5);
+        if let RenderMaterial::Original(ref mut original) = material {
+            original.vertex_lighting = true;
+        }
+        let mut mesh = triangle(texture([128, 96, 32, 73]), 0.5, material);
+        for vertex in &mut mesh.vertices {
+            vertex.color = [64. / 255., 32. / 255., 1.];
+        }
+        replace(&mut renderer, &[mesh]);
+        approximately(pixel(&renderer), [64, 24, 64, 73]);
+
+        let image = Arc::new(Texture {
+            width: 2,
+            height: 1,
+            rgba: vec![0, 64, 128, 23, 128, 192, 255, 123],
+            repeat: [false; 2],
+        });
+        let mut mesh = triangle(image, 0.5, material);
+        for vertex in &mut mesh.vertices {
+            vertex.uv = [0.5, 0.5];
+            vertex.color = [0.5; 3];
+        }
+        replace(&mut renderer, &[mesh]);
+        // Filtering happens on encoded bytes before MODULATE2X. Sampling an
+        // sRGB view then re-encoding its filtered result cannot produce this.
+        approximately(pixel(&renderer), [64, 128, 192, 73]);
     }
 }
 #[test]

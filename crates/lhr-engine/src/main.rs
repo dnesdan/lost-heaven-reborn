@@ -188,18 +188,22 @@ fn synthetic() -> Scene {
             material: Default::default(),
             vertices: vec![
                 Vertex {
+                    color: [1.; 3],
                     position: [-1., -1., 0.],
                     uv: [0., 1.],
                 },
                 Vertex {
+                    color: [1.; 3],
                     position: [1., -1., 0.],
                     uv: [1., 1.],
                 },
                 Vertex {
+                    color: [1.; 3],
                     position: [1., 1., 0.],
                     uv: [1., 0.],
                 },
                 Vertex {
+                    color: [1.; 3],
                     position: [-1., 1., 0.],
                     uv: [0., 0.],
                 },

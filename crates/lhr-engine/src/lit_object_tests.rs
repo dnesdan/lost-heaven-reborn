@@ -6,10 +6,14 @@ use crate::{
 };
 use std::{path::PathBuf, sync::Arc};
 
-fn fixture(textured: bool, flags: u32) -> (PathBuf, ModelArena, ModelKey) {
+pub(crate) fn fixture(textured: bool, flags: u32) -> (PathBuf, ModelArena, ModelKey) {
     fixture_lods(textured, flags, &[0.])
 }
-fn fixture_lods(textured: bool, flags: u32, distances: &[f32]) -> (PathBuf, ModelArena, ModelKey) {
+pub(crate) fn fixture_lods(
+    textured: bool,
+    flags: u32,
+    distances: &[f32],
+) -> (PathBuf, ModelArena, ModelKey) {
     let path = std::env::temp_dir().join(format!(
         "lhr-lit-{}-{}",
         std::process::id(),
@@ -97,7 +101,7 @@ fn lit_constructor_private_geometry_class_witness_and_close_use_one_owner() {
     let resources = arena.loaded_visual_resources().unwrap();
     let record = resources.objects().object(object).unwrap();
     assert_eq!(record.visual_type().source_fourcc(), 0x50414d4c);
-    assert_eq!(record.visual_type(), ObjectVisualType::LitUnconstructed);
+    assert_eq!(record.visual_type(), ObjectVisualType::Lit);
     assert_eq!(record.lods, [None; 10]);
     let lit = record.lit_object().unwrap();
     assert_eq!(lit.active_level, 0);

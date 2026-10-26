@@ -179,6 +179,7 @@ mod tests {
             material: Default::default(),
             vertices: vec![
                 lhr_render::Vertex {
+                    color: [1.; 3],
                     position: [0.; 3],
                     uv: [0.; 2]
                 };
@@ -228,6 +229,7 @@ mod tests {
             material: Default::default(),
             vertices: [[x0, y0, 0.], [x1, y0, 0.], [x1, y1, 0.], [x0, y1, 0.]]
                 .map(|position| Vertex {
+                    color: [1.; 3],
                     position,
                     uv: [0.; 2],
                 })

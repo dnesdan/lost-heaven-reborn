@@ -270,7 +270,7 @@ fn snapshot_arena_tree_inner(
                     .and_then(|n| index_count.checked_mul(4).and_then(|i| n.checked_add(i)))
                     .ok_or("Car geometry size overflow")?,
             )?;
-            let lit = view.visual_type == crate::i3d_object::ObjectVisualType::LitUnconstructed;
+            let lit = view.visual_type == crate::i3d_object::ObjectVisualType::Lit;
             let material = group.material;
             let has_texture = material.flags & 0x40000 != 0 && group.texture.is_some();
             let effective_texture = has_texture.then_some(group.texture).flatten();
@@ -279,7 +279,14 @@ fn snapshot_arena_tree_inner(
                 has_texture.then_some(group.texture_alpha).flatten(),
                 has_texture && group.inspection_rgba8_color_key,
             )?;
-            let policy = if lit {
+            let policy = if view.saved_vertex_colors.is_some() {
+                crate::presentation_material::saved_vertex_lit_material(
+                    material,
+                    has_texture,
+                    *center,
+                    FrontFace::CounterClockwise,
+                )?
+            } else if lit {
                 crate::presentation_material::unconstructed_lit_material(
                     material,
                     has_texture,
@@ -358,7 +365,19 @@ fn snapshot_arena_tree_inner(
             vertices
                 .try_reserve_exact(vertex_count)
                 .map_err(|_| "Car vertex allocation unavailable")?;
-            for vertex in view.vertex_bytes.as_chunks::<32>().0 {
+            if !matches!(view.vertex_stride, 24 | 32)
+                || view.vertex_bytes.len() != vertex_count * view.vertex_stride
+                || view
+                    .saved_vertex_colors
+                    .is_some_and(|colors| colors.len() != vertex_count)
+            {
+                return Err("Car vertex lighting layout is inconsistent".into());
+            }
+            for (index, vertex) in view
+                .vertex_bytes
+                .chunks_exact(view.vertex_stride)
+                .enumerate()
+            {
                 let point = [word(vertex, 0)?, word(vertex, 4)?, word(vertex, 8)?];
                 let [x, y, z] = world
                     .try_transform_point(point)
@@ -371,6 +390,14 @@ fn snapshot_arena_tree_inner(
                     return Err("Car UV transform overflow".into());
                 }
                 vertices.push(Vertex {
+                    color: view.saved_vertex_colors.map_or([1.; 3], |colors| {
+                        let argb = colors[index];
+                        [
+                            ((argb >> 16) & 255) as f32 / 255.,
+                            ((argb >> 8) & 255) as f32 / 255.,
+                            (argb & 255) as f32 / 255.,
+                        ]
+                    }),
                     position: [x, y, -z],
                     uv,
                 });
