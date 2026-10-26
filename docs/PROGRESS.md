@@ -1,35 +1,26 @@
 # Progress
 
-## Current milestone — 2026-10-25
+## Current milestone — 2026-10-26
 
-The original-data CPU world loader now owns 1415 scene frames, five sectors
-and 14 portals with 36 hull planes. It supplies the real `base247` object before
-the ordered scene2 loader, which completes 43 records and then reaches the
-required `OBJ_` → `LMAP` visual replacement at cursor 8013 (Game `543a4b`).
+The staged source-based merge adds connected loader/image fixes, live material
+and model LOD selection, authored view orientation, audio lifecycle,
+archive/write IO and data-language selection. The unconstructed Lit branch is
+supported; saved lightmaps and the scene `LMAP` payload association remain open.
 
-Live sector/portal ownership, spatial queries, mutable-key buffer trees and
-unequal-size alpha maps now share the genuine CPU resource path. Original
-SceneOpen presentation, the loading-progress UI and `LMAP` replacement remain
-open. This is Rust actual-data execution; native composed-loader parity and
-complete MissionOpen are unverified. The visible application remains standalone
-driving; the campaign is not playable.
+Accepted code `a4dee6d` passes the required gate and **1310 Rust tests
+in both debug and release**, including both unchanged x87 tests without
+exclusions; 9 Python boundary and 47 progress tests pass. Seven opt-in GPU
+checks pass on Mesa llvmpipe Vulkan. New standalone W/A/D/S/Space, three
+reloads and Escape finish with four cleanups and seven zero CPU counters.
 
-Code `085f31e` has two sequential independent source approvals. Source-v4 passes
-1222 Rust tests, 9 REA-wrapper/47 progress tests and format/check/Clippy/build checks.
-Both Rust profiles match 15 retained buffer trajectories/92 phases; this is separate
-from the actual-data CPU world probes. Those probes reach `LMAP` and release all
-tracked resources. New standalone W/A/D/S/Space, three reloads and four cleanups
-have seven zero CPU counters. Neither probe nor capture establishes native
-SceneOpen, loading UI, mission execution or original rendering parity.
+Standalone inspection/driving remains separate from a playable first mission.
+All six first-mission gates stay open. Accepted work remains **311 scoped
+entries / 114 contracts**, strict **0/12**; no new function or native-runtime
+credit is added.
 
-Full MissionOpen, player/camera scheduling, scripts, objectives, native audio and
-Device14 remain open.
-
-The accepted ledger stays **311 scoped entries / 114 contracts**, strict **0/12**;
-all six first-mission gates remain open. No whole-function credit is added.
-
-[Coverage](../COVERAGE.md) · [goals](GOALS.md) · [source-bound evidence](progress.json) ·
-[current limits and preceding cache record](history/2026-10-25-world-sector-loader.md).
+[Coverage](../COVERAGE.md) · [goals](GOALS.md) ·
+[stage scope and validation](implementation/mafia-re-remediation.md) ·
+[preceding current narrative](history/2026-10-26-pr-merge-validation.md).
 
 ## Earlier milestones
 

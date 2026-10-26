@@ -1,10 +1,12 @@
 # Documentation history
 
-- [Current CPU world-sector loader and preceding cache record](2026-10-25-world-sector-loader.md)
+- [PR merge validation and preceding current narrative](2026-10-26-pr-merge-validation.md)
 
-- [Current static-model cache scope and preceding occluder/light record](2026-10-25-model-cache-loader.md)
+- [Previous CPU world-sector loader and preceding cache record](2026-10-25-world-sector-loader.md)
 
-- [Current occluder/light loader scope and preceding startup record](2026-10-25-occluder-light-loader.md)
+- [Previous static-model cache scope and preceding occluder/light record](2026-10-25-model-cache-loader.md)
+
+- [Previous occluder/light loader scope and preceding startup record](2026-10-25-occluder-light-loader.md)
 
 These dated documents preserve the prior narrative at baseline `0da90fb`.
 They describe their original source and validation scope, not current behavior.

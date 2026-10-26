@@ -12,6 +12,20 @@ pub enum HostWriteError {
     Policy,
     Identity,
 }
+// Path containment cannot distinguish hard-link aliases of the same inode.
+// The host adapter admits only files whose link count proves sole naming.
+fn singly_linked(metadata: &Metadata) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        metadata.nlink() == 1
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = metadata;
+        false
+    }
+}
 struct WriteSource {
     file: File,
     path: PathBuf,
@@ -37,6 +51,11 @@ pub struct FilesystemWriteEffects {
 }
 impl FilesystemWriteEffects {
     pub fn new(root: &Path, quota: u32, allocation_budget: u64) -> Result<Self, HostWriteError> {
+        // std exposes the required link-count metadata on Unix. Other hosts
+        // fail closed until an equivalent exclusivity policy is implemented.
+        if !cfg!(unix) {
+            return Err(HostWriteError::Policy);
+        }
         let root = std::fs::canonicalize(root).map_err(|_| HostWriteError::Policy)?;
         if !root.is_dir() || quota > 64 * 1024 * 1024 {
             return Err(HostWriteError::Policy);
@@ -77,7 +96,8 @@ impl FilesystemWriteEffects {
                 return (create && index + 1 == parts.len()).then(|| path.join(part));
             };
             let metadata = std::fs::symlink_metadata(&child).ok()?;
-            if metadata.file_type().is_symlink() {
+            if metadata.file_type().is_symlink() || metadata.is_file() && !singly_linked(&metadata)
+            {
                 return None;
             }
             crate::verify_contained(&self.root, &child).ok()?;
@@ -169,6 +189,19 @@ impl Effects for FilesystemWriteEffects {
             .unwrap_or(FAILURE))
     }
     fn close_handle(&mut self, file: u32) -> Result<bool, Self::Error> {
+        let Some(source) = self.files.get(&file) else {
+            return Ok(false);
+        };
+        // A link may have been added after the last write. Reject before
+        // releasing ownership so native buffered close cannot delete the output
+        // and then fail to promote a now-inadmissible temporary file.
+        let metadata = source
+            .file
+            .metadata()
+            .map_err(|_| HostWriteError::Identity)?;
+        if !singly_linked(&metadata) {
+            return Err(HostWriteError::Policy);
+        }
         Ok(self.files.remove(&file).is_some())
     }
     fn delete_file(&mut self, name: &[u8]) -> Result<bool, Self::Error> {
@@ -498,7 +531,20 @@ impl Drop for NativeWriteStream<'_> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(unix)))]
+mod unsupported_host_tests {
+    use super::*;
+
+    #[test]
+    fn host_writes_require_link_count_metadata() {
+        assert!(matches!(
+            NativeWriteFiles::new(&std::env::temp_dir(), 100, 100000),
+            Err(HostWriteError::Policy)
+        ));
+    }
+}
+
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     struct Directory(PathBuf);
@@ -668,6 +714,116 @@ mod tests {
                 & 0o777,
             0o640
         );
+    }
+    #[test]
+    fn hard_linked_outputs_and_temporaries_are_rejected_before_content_or_mode_changes() {
+        use std::os::unix::fs::PermissionsExt;
+
+        // Include both an output/temp pair sharing one inode and a temp alias
+        // whose output is independent. The latter reaches buffered admission.
+        for alias_output in [true, false] {
+            for flags in [
+                DTA_FILE_BUFFER,
+                DTA_FILE_BUFFER | DTA_CREATE_FILE | DTA_CHANGE_ATTRIBUTES,
+            ] {
+                let dir = Directory::new();
+                std::fs::write(dir.0.join("out"), b"original").unwrap();
+                let original = if alias_output { "out" } else { "keep" };
+                if !alias_output {
+                    std::fs::write(dir.0.join(original), b"temporary").unwrap();
+                }
+                std::fs::set_permissions(
+                    dir.0.join(original),
+                    std::fs::Permissions::from_mode(0o440),
+                )
+                .unwrap();
+                std::fs::hard_link(dir.0.join(original), dir.0.join("out.tmp")).unwrap();
+                let files = NativeWriteFiles::new(&dir.0, 100, 100000).unwrap();
+                assert!(files.open(b"out", flags).is_err());
+                assert_eq!(std::fs::read(dir.0.join("out")).unwrap(), b"original");
+                let expected = if alias_output {
+                    b"original".as_slice()
+                } else {
+                    b"temporary".as_slice()
+                };
+                for name in [original, "out.tmp"] {
+                    assert_eq!(std::fs::read(dir.0.join(name)).unwrap(), expected);
+                    assert_eq!(
+                        std::fs::metadata(dir.0.join(name))
+                            .unwrap()
+                            .permissions()
+                            .mode()
+                            & 0o777,
+                        0o440
+                    );
+                }
+                assert!(files.handles.state.lock().unwrap().effects.files.is_empty());
+            }
+        }
+    }
+    #[test]
+    fn hard_link_alias_cannot_truncate_a_live_direct_output() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = Directory::new();
+        std::fs::write(dir.0.join("out"), b"original").unwrap();
+        std::fs::set_permissions(dir.0.join("out"), std::fs::Permissions::from_mode(0o640))
+            .unwrap();
+        let files = NativeWriteFiles::new(&dir.0, 100, 100000).unwrap();
+        let mut stream = files.open(b"out", 0).unwrap();
+        assert_eq!(stream.write(b"O"), Ok(1));
+        std::fs::hard_link(dir.0.join("out"), dir.0.join("alias")).unwrap();
+        assert!(files.open(b"alias", DTA_CREATE_FILE).is_err());
+        for name in ["out", "alias"] {
+            assert_eq!(std::fs::read(dir.0.join(name)).unwrap(), b"Original");
+            assert_eq!(
+                std::fs::metadata(dir.0.join(name))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o640
+            );
+        }
+        assert_eq!(stream.write(b"x"), Err(WriteIoError::Failure));
+        assert_eq!(stream.seek(0, 0), Err(WriteIoError::Failure));
+        std::fs::remove_file(dir.0.join("alias")).unwrap();
+        stream.close().unwrap();
+    }
+    #[test]
+    fn hard_link_added_after_buffered_write_stops_close_before_output_deletion() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = Directory::new();
+        std::fs::write(dir.0.join("out"), b"original").unwrap();
+        let files = NativeWriteFiles::new(&dir.0, 100, 100000).unwrap();
+        let mut stream = files.open(b"out", DTA_FILE_BUFFER).unwrap();
+        assert_eq!(stream.write(b"new"), Ok(3));
+        std::fs::set_permissions(
+            dir.0.join("out.tmp"),
+            std::fs::Permissions::from_mode(0o640),
+        )
+        .unwrap();
+        std::fs::hard_link(dir.0.join("out.tmp"), dir.0.join("alias")).unwrap();
+        assert_eq!(
+            stream.close(),
+            Err(WriteIoError::Native(OperationError::Backend(
+                HostWriteError::Policy
+            )))
+        );
+        assert_eq!(std::fs::read(dir.0.join("out")).unwrap(), b"original");
+        for name in ["out.tmp", "alias"] {
+            assert_eq!(std::fs::read(dir.0.join(name)).unwrap(), b"newginal");
+            assert_eq!(
+                std::fs::metadata(dir.0.join(name))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o640
+            );
+        }
+        assert_eq!(files.handles.state.lock().unwrap().effects.files.len(), 1);
     }
     #[test]
     fn allocation_failure_preserves_created_file_prefix_without_fake_success_or_rollback() {

@@ -43,7 +43,14 @@ restored. Host disposal releases OS handles and memory but does not roll back
 filesystem effects or promote an unadmitted failed-open temporary file.
 
 The adapter retains the existing ASCII/canonical relative-path, case-collision,
-symlink, containment and snapshot policies. Only the final output component may
+symlink, containment and snapshot policies. Regular files must have exactly one
+hard link, including source, destination and temporary paths; path aliases of
+an already owned file cannot bypass the live-output reservation. Owned file
+metadata is checked again before close releases ownership, so a temporary file
+that acquired a hard link cannot trigger destination deletion during buffered
+promotion. This rejection interrupts the native close sequence before cleanup;
+adapter disposal releases resources without promoting the temporary file.
+Only the final output component may
 be newly created; parent directories must already exist. Concurrent opens of
 the same logical output through this adapter are rejected, including buffered
 versus direct streams and case aliases. Open admission, native effects and
@@ -54,6 +61,11 @@ snapshot; external replacement or mutation prevents subsequent writes.
 Input admission rejects nonregular and over-quota destinations before buffered
 copy so a host exclusion cannot turn into an ignored copy failure and empty
 replacement. Tests write synthetic temporary fixtures only.
+
+The host adapter currently requires Unix link-count metadata (including Linux
+and macOS). Construction returns `HostWriteError::Policy` on non-Unix hosts
+until an equivalent hard-link admission check is implemented there. This host
+boundary does not change the generic native effects or write lifecycle.
 
 The host adapter admits create, buffer and change-readonly flags. Win32 hidden
 attributes (`DTA_TEMPORARY`) and unknown flags are rejected before mutation;
@@ -71,6 +83,10 @@ Tests exercise real OPEN_ALWAYS overwrite versus truncate, OS/logical cursor
 divergence, seek fallthrough, slot reuse, buffered copy/create/promotion/discard,
 null and quota failures, scope/case/symlink guards, external mutation, readonly
 retry, allocation-failure filesystem prefixes and actual last-close cleanup.
+Public-owner regressions reject preexisting output/temporary hard-link aliases
+without content or mode changes, reject truncating a hard-link alias of a live
+direct stream, and stop buffered close before destination deletion when its
+temporary file acquires a hard link after writing.
 Effect-level fault tests cover short and failed writes with output prefixes,
 ignored close results and ordering, and a backend interruption that must never
 be replayed. Build, rendered, interactive and original-runtime verification

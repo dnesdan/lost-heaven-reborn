@@ -23,27 +23,20 @@ Apple cross-check is blocked by missing CoreAudio SDK headers.
 
 ## Remaining dependency order
 
-1. Reconstruct the genuine `LMAP` visual factory/replacement reached after CPU
-   world loading and 43 scene2 records. Complete SceneOpen progress presentation;
-   CPU geometry/resources do not supply the original loading UI or MissionOpen.
-2. Connect original startup/menu/mission owners through genuine graphics, input,
-   audio, profiles and tables. Active mission Close and original device providers
-   remain open; current file setup is a separate bounded prefix.
-3. Extend camera/sector numeric and resource-filled domains through actual
-   callers. Native audio/listener, device discard and complete driver/Scene
-   shutdown remain separate from CPU ownership and projected evidence.
-4. Reconstruct railway GameInit/GameDone and remaining authored actor classes
-   with genuine gameplay resources. Existing constructor/base Init/LoadData/
-   destruction does not supply those later phases.
-5. Bind original Game/player/camera ownership and update scheduling to the
-   standalone Car lifecycle. Extend foreign actors, occupants, severe damage,
-   particles and projection pools through their real callers.
-6. Complete floating operands, LET/IF, all 62 parameter cases and Compile/Init/Done;
-   connect detector execution, replay, objectives and completion. The authored
-   script probe remains FINDACTOR/UnsupportedWorldBackend at PC 3 / source line 4.
-7. Validate the complete first-mission sequence against original runtime and
-   interactive Rust runs, including restart, cleanup and required presentation.
-   Keep CPU/native projections and complete application/GPU parity distinct.
+1. Connect saved-lightmap loading to the actual scene `LMAP` payload and visual
+   replacement. Unconstructed Lit drawing does not supply saved lighting.
+   Complete SceneOpen progress presentation and genuine MissionOpen owners.
+2. Connect original startup/menu, player/camera, graphics, input, audio,
+   profiles and tables. Extend source lighting, fog, specialized visual passes
+   and portal/occluder visibility through the retained scene.
+3. Complete authored actor, animation, collision and vehicle lifetimes through
+   real mission owners, including remaining GameInit/GameDone dependencies.
+4. Complete script expressions, parameter/compiler/lifecycle cases, scheduler,
+   world effects, replay, objectives and mission completion. The authored MISE01
+   probe remains FINDACTOR/UnsupportedWorldBackend at PC 3 / source line 4.
+5. Validate the complete first mission against original-runtime and interactive
+   Rust sequences, including restart, cleanup and required presentation. Keep
+   CPU/source projections, GPU checks and complete application parity distinct.
 
 ## Reconstruction rules
 

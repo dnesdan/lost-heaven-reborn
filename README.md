@@ -5,27 +5,20 @@ using the user's legally obtained original PC assets. The immediate goal is the
 playable first mission, from the original menu through completion. **The campaign
 is not playable; all six first-mission gates remain open.**
 
-Current support includes the Czech menu, bounded original models and skeletal
-animation, and standalone original-data driving with collision, vehicle damage,
-WAV mixing and explicit cleanup. Rendering is unlit first LOD with a host chase
-camera. Original player/camera scheduling, mission scripts and traffic remain open.
+Current source-based stages add original-data loader and image fixes, live
+material parameters and camera-selected model LOD, authored view orientation,
+audio lifecycle, archive/write IO and data-language selection. Lit objects use
+the source's unconstructed cyan branch; saved lightmaps and their scene `LMAP`
+payload association remain open. Original lighting, visibility, player/camera
+scheduling and authored mission scripts remain incomplete. The separate legacy
+raw static-world presentation remains unlit first LOD.
 
-The original-data CPU world loader now owns 1415 scene frames, five sectors
-and 14 portals with 36 hull planes. It supplies the real `base247` object before
-the ordered scene2 loader, which completes 43 records and then reaches the
-required `OBJ_` → `LMAP` visual replacement at cursor 8013 (Game `543a4b`).
+The visible application supports inspection and standalone original-data driving.
+No native-function, scoped-port or full-system credit is added by these stages.
 
-Live sector/portal ownership, spatial queries, mutable-key buffer trees and
-unequal-size alpha maps now share the genuine CPU resource path. Original
-SceneOpen presentation, the loading-progress UI and `LMAP` replacement remain
-open. This is Rust actual-data execution; native composed-loader parity and
-complete MissionOpen are unverified. The visible application remains standalone
-driving; the campaign is not playable.
-
-Accepted code: 085f31e; [source-bound validation](COVERAGE.md).
-
-See [current evidence and limits](COVERAGE.md), [progress](docs/PROGRESS.md),
-[remaining goals](docs/GOALS.md) and [dated history](docs/history/README.md).
+[Source scope and merge validation](docs/implementation/mafia-re-remediation.md) ·
+[current evidence and limits](COVERAGE.md) · [progress](docs/PROGRESS.md) ·
+[remaining goals](docs/GOALS.md) · [dated history](docs/history/README.md).
 
 <details>
 <summary>Static research and accepted scoped-port dashboard</summary>
@@ -106,17 +99,11 @@ window run. [More commands and historical validation](docs/history/2026-10-25-re
 
 ## Actual Rust captures
 
-![Standalone original-data driving after CPU world-loader changes](docs/screenshots/2026-10-25-world-sector-prefix.webp)
+![Standalone original-data driving after the staged merge](docs/screenshots/2026-10-26-pr-merge-validation.webp)
 
-Actual new standalone driving/reload capture; host chase camera and unlit rendering.
-The CPU world probe and retained-buffer comparisons are validated separately.
-This is not mission or original-world rendering.
-[Capture evidence](docs/screenshots/README.md).
-
-[![Original taxi during the continuous driving capture](docs/screenshots/2026-10-24-car-driving-verified.webp)](docs/videos/2026-10-24-car-driving.mp4)
-
-[Existing 18-second driving video](docs/videos/2026-10-24-car-driving.mp4)
-· original-resource stereo audio · [dated scope and timing limits](docs/screenshots/README.md#2026-10-24--continuous-driving-preview).
+[New capture and interactive scope](docs/screenshots/README.md) ·
+[existing 18-second driving video](docs/videos/2026-10-24-car-driving.mp4).
+The dated video retains its original scope; this merge adds no video.
 
 ## Research and assets
 

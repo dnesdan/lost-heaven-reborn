@@ -1,5 +1,60 @@
 # Source-based remediation stages
 
+## Current merged validation — 2026-10-26
+
+Thirteen implementation PRs are merged. This final integration record covers
+the stages and their interaction; it does not add another implementation or
+claim that the final record PR has already merged. Accepted production code is
+`a4dee6d4cce02564e72d0fc23e6d9fe6fdc39abe`, Git tree
+`0244444e9bc30b91fb7b516568c1fd8884cbd5ee`. The 324-file code/config fingerprint
+is `66fc7ae72d5ff4214f40fc6f09305c1f9c04edae73659c7c5114bb4e8aafc61a`;
+this record changes documentation/media only.
+
+| Current check | Actual result |
+| --- | --- |
+| Required `scripts/test.sh` | PASS: format, all-target check, Clippy, 1310 Rust tests, 9 Python boundary tests, 47 progress tests and generated check. |
+| Release workspace tests | 1310 PASS: 151 assets, 8 installation, 1102 engine library, 34 main binary, 9 program integration, 6 renderer. Debug has the same split. |
+| Unchanged high-FIP x87 tests | Both PASS in debug and release, without command-line exclusions or source changes. |
+| Opt-in GPU checks | 7 PASS on Mesa llvmpipe Vulkan: 3 renderer, 3 engine consumers, 1 binary refresh. The renderer command totals 9 with its 6 ordinary tests. |
+| Actual original-data CPU probes | 1415 frames, 5 sectors, 14 portals, 83 hull vertices, 60 faces and 36 planes; 43 scene2 records, then the same `OBJ_` → `LMAP` replacement frontier at cursor 8013. All tracked keys/counters released. |
+| Fresh standalone UI | W/A/D/S/Space, three R reloads and Escape; four cleanups with seven zero CPU counters, task-owned processes reaped/absent, new root-inspected screenshot. |
+
+The actual-data world releases 1431 objects, 1401 meshes, 1416 levels, 4020
+groups and 3972 materials. It contains **zero Lit objects and zero Lit LODs**;
+new Lit destruction has separate synthetic/GPU tests and was not exercised by
+this input. Backend counters were already zero before extra reclaim. These
+safe Rust-only probes do not execute the original game or prove native
+SceneOpen/MissionOpen equivalence. UI evidence covers standalone driving only;
+PCM mixing was active, but host audio hardware was unavailable. No new video.
+
+Per-stage and original combined-source sequential AI review records are retained.
+Accepted production differs from reviewed combined code
+`0a9d79dfae1bc949909f81e95cc80bc208a1d6bc` only in the separately reviewed
+Stage 7c hard-link fix and its documentation. Two new sequential independent
+reviews approve that fix; this is not a claim of two fresh reviews of all
+324 final source files. Every implementation merge tree matched its tested
+prefix plus that approved repair where applicable. AI records are not human
+approvals.
+
+Current verification receipt: `PR-MERGE-20261026-VERIFICATION-v1`, SHA-256
+`e127df40d84b05c352041fc7a89dfa1c2dbad32245c54a0f85937384048a72a0`.
+Source snapshot SHA-256:
+`f60d8d13047b10ed3dcb5d9bd59b3d451d960bc4573c67d53fbf0343099694be`.
+Source-acceptance receipt SHA-256:
+`24dfd2343ab2155d246f88c737d1d1df31d94376f763d4be6c97ee942c9ec781`.
+
+This source-based milestone adds no native-function, ledger or full-system
+credit: accepted scoped work remains 311 entries / 114 contracts, strict 0/12,
+and all six first-mission gates remain open. Saved lightmaps and the scene
+`LMAP` payload association remain open; Stage 8a supplies the unconstructed Lit
+branch only. The campaign remains unplayable.
+
+The historical combined integration and publication sections below retain the
+earlier draft branch, excluded-x87 run and publishing details verbatim. Those
+results describe that earlier environment and are not the current merge gate.
+The current final validation above supplies the accepted source/tree binding.
+
+
 This register tracks the changes requested after the comparison with
 `Marvisak/mafia-re`. It distinguishes implemented behavior from parser-only
 support, connected presentation behavior, and dependencies that remain open.
@@ -11,7 +66,10 @@ Starting project revision: `aa3da350991634f7ab1f5636585e8637f1316b1b` on
 `rust-engine`. This work uses only the reference code as its behavioral source.
 It adds no binary reconstruction, function/progress or original-runtime credit.
 
-## Published changes
+## Stage list and historical draft publication
+
+The draft status below records the original publication. Current merged status
+and validation are recorded above.
 
 All linked changes are separate draft pull requests with incremental commits.
 Each implementation has two sequential independent AI review rounds; the author
@@ -150,6 +208,15 @@ current `intro_pos` metadata-to-active-camera association. Near/backdrop support
 also needs real draw partitioning and source depth/pass order, not only matrix
 accessors.
 
+## Merge review repair — 2026-10-26
+
+The host write adapter now rejects regular files with multiple hard links
+before destructive effects and rechecks the owned file before releasing it on
+close. Three public-owner synthetic regressions failed on the original Stage
+7c head and pass after the repair. They cover existing output/temporary aliases,
+a truncating alias of a live direct stream, and a new temporary alias before
+buffered close. Unsupported non-Unix hosts fail closed at construction.
+
 ## Review findings already corrected
 
 - A parser-only TGA change did not reach SceneBuilder; Stage 1 adds the real
@@ -196,7 +263,7 @@ accessors.
   prove that two ordinary materials retain their different fallback colors.
   This correction is included in Stage 8a itself as well as the integration.
 
-## Combined integration
+## Historical draft: combined integration
 
 The `fix/staged-mafia-re-integration` review branch combines the actual
 published implementation heads without merging anything into `rust-engine`.
@@ -246,7 +313,7 @@ The BMP/TGA fallback-cache regression was first observed failing before the
 cache correction and then passed after it; it is also included in the combined
 main-binary suite above.
 
-## Validation and publication policy
+## Historical draft: validation and publication policy
 
 Every implementation stage runs the required `scripts/test.sh`. Formatting,
 workspace/all-target compilation, focused regressions, all-target Clippy,
