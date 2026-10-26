@@ -2,8 +2,9 @@
 //! 08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27.
 //! UnInit RVA0x13f3b0 inlines reverse object Release, then item erase
 //! (RVA0x148330); cache directories and allocated item capacity survive Clear.
-//! Model references use the existing ModelArena; original sound and animation
-//! resource owners are distinct dependencies, never host audio/playback objects.
+//! Model and sound cache entries retain real frame references in ModelArena.
+//! Sound frames bind a separate host PCM source/voice owner; this is not an
+//! original DirectSound runtime. Animation cache ownership remains separate.
 use crate::c_str::{CStrBackend, CStrKey, CStrings, StringError, StringOperationError};
 use crate::frame_transform::FrameKey;
 use crate::mission_components::{MissionMemoryDomain, MissionMemoryDomainId};
@@ -12,10 +13,13 @@ use crate::script_scheduler::FrameReferenceId;
 
 #[path = "mission_model_cache.rs"]
 mod model_cache;
+#[path = "mission_sound_cache.rs"]
+mod sound_cache;
 pub use model_cache::{
     CacheMemoryError, CpuMissionCacheMemory, ModelCacheOpenError, ModelCacheOpenProgress,
     ModelCachePhase,
 };
+pub use sound_cache::{SoundCacheOpenError, SoundCacheOpenProgress, SoundCachePhase};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MissionCacheKind {
@@ -79,10 +83,37 @@ pub enum MissionCacheError<E> {
     Extent,
     Array(E),
 }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CacheResource {
+    Model(ModelKey),
+    Sound(FrameKey),
+}
+impl CacheResource {
+    fn frame(self) -> FrameKey {
+        match self {
+            Self::Model(model) => model.root(),
+            Self::Sound(sound) => sound,
+        }
+    }
+}
 #[derive(Debug)]
 struct CacheItem {
-    model: Option<ModelKey>,
+    resource: Option<CacheResource>,
     name: CStrKey,
+}
+impl CacheItem {
+    fn model(&self) -> Option<ModelKey> {
+        match self.resource {
+            Some(CacheResource::Model(model)) => Some(model),
+            _ => None,
+        }
+    }
+    fn sound(&self) -> Option<FrameKey> {
+        match self.resource {
+            Some(CacheResource::Sound(sound)) => Some(sound),
+            _ => None,
+        }
+    }
 }
 struct Cache {
     items: Vec<CacheItem>,
@@ -122,6 +153,7 @@ pub struct MissionCaches {
     frame_domain: Option<FrameReferenceId>,
     memory_domain: Option<MissionMemoryDomainId>,
     model_open: Option<ModelCacheOpenProgress>,
+    sound_open: Option<SoundCacheOpenProgress>,
 }
 impl MissionCaches {
     /// Construct over the original globals' zero-initialized storage seeds.
@@ -160,6 +192,7 @@ impl MissionCaches {
             frame_domain: None,
             memory_domain: None,
             model_open: None,
+            sound_open: None,
         })
     }
     /// Actual seeded member projection. Host-adopted model arrays have no
@@ -248,7 +281,7 @@ impl MissionCaches {
         }
         cache.pending_names.pop();
         cache.items.push(CacheItem {
-            model: Some(model),
+            resource: Some(CacheResource::Model(model)),
             name: key,
         });
         cache.header_available = false;
@@ -272,9 +305,16 @@ impl MissionCaches {
             return Err(MissionCacheError::Interrupted);
         }
         for item in cache.items.iter().rev() {
-            if let Err(error) =
-                arena.release(item.model.ok_or(MissionCacheError::Interrupted)?.root())
-            {
+            let resource = item.resource.ok_or(MissionCacheError::Interrupted)?;
+            if !matches!(
+                (kind, resource),
+                (MissionCacheKind::Model, CacheResource::Model(_))
+                    | (MissionCacheKind::Sound, CacheResource::Sound(_))
+            ) {
+                cache.interrupted = true;
+                return Err(MissionCacheError::Interrupted);
+            }
+            if let Err(error) = arena.release(resource.frame()) {
                 cache.interrupted = true;
                 return Err(MissionCacheError::Model(error));
             }

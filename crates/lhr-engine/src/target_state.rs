@@ -138,6 +138,10 @@ impl I3dTargetState {
     pub fn flags(&self) -> u32 {
         self.flags
     }
+    /// Target::Duplicate copies this derived flag word without evaluating it.
+    pub(crate) fn copy_duplicate_flags(&mut self, flags: u32) {
+        self.flags = flags;
+    }
 
     pub fn frames(&self) -> &[FrameKey] {
         &self.frames
@@ -305,6 +309,14 @@ impl TargetRegistry {
 
     pub fn state(&self, key: FrameKey) -> Result<&I3dTargetState, TargetError> {
         Ok(&self.entries[self.index(key)?].1)
+    }
+    /// GetTarget returns the first live registration containing this frame.
+    /// DuplicateHierarchy queries it once per source frame with TARGET set.
+    pub(crate) fn first_owner(&self, frame: FrameKey) -> Option<FrameKey> {
+        self.entries
+            .iter()
+            .find(|(_, state)| state.frames().contains(&frame))
+            .map(|(key, _)| *key)
     }
 
     pub fn state_mut(&mut self, key: FrameKey) -> Result<&mut I3dTargetState, TargetError> {

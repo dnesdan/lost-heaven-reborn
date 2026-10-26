@@ -2,7 +2,6 @@
 //! This command never starts a menu, actor scheduler, or mission-completion gate.
 
 use lhr_engine::{
-    driver_scene::NativeSceneSoundDriver,
     game_camera_projection::GameCameraProjection,
     host_scene_adapters::InspectionScreen,
     mission_load_session::{MissionLoadCause, MissionLoadRequest, MissionLoadSession},
@@ -58,7 +57,6 @@ pub fn run(root: &Path, mission: &str, model_directories: &[String]) -> Result<(
                 global_mode: 0,
                 screen_flag_46f4: false,
             },
-            native_sound_driver: NativeSceneSoundDriver::Absent,
         },
         &mut screen,
     );
@@ -73,10 +71,10 @@ pub fn run(root: &Path, mission: &str, model_directories: &[String]) -> Result<(
         "World input: {world_input}; scene2 input: {scene2_path}"
     )
     .unwrap();
-    writeln!(report, "Host profile: 800x600, full viewport; projection mode=0, screen flag=false; native sound driver absent; initial PC24 precision=false").unwrap();
+    writeln!(report, "Host profile: 800x600, full viewport; projection mode=0, screen flag=false; requested headless Rust PCM backend; initial PC24 precision=false").unwrap();
     writeln!(
         report,
-        "Model cache AddDir inputs in order: {model_directories:?}"
+        "Sound cache AddDir input: Sounds (stored as Sounds\\); model cache AddDir inputs in order: {model_directories:?}"
     )
     .unwrap();
     writeln!(
@@ -96,6 +94,12 @@ pub fn run(root: &Path, mission: &str, model_directories: &[String]) -> Result<(
         report,
         "Terminal disposal: {:?}",
         session.discard_progress()
+    )
+    .unwrap();
+    writeln!(
+        report,
+        "Scene CPU Close: {:?}",
+        session.scene_close_report()
     )
     .unwrap();
     if let Some(failure) = session.discard_failure() {
@@ -129,6 +133,12 @@ pub fn run(root: &Path, mission: &str, model_directories: &[String]) -> Result<(
 
 fn append_load_report(report: &mut String, session: &MissionLoadSession) {
     writeln!(report, "Load phase: {:?}", session.phase()).unwrap();
+    writeln!(
+        report,
+        "Host PCM backend bound to driver: {}",
+        session.driver().host_sound_backend().is_some()
+    )
+    .unwrap();
     if let Some(world) = session.world_progress() {
         writeln!(report, "World: {:?}; {} source frames, {} transferred, {} prepared sectors; staging model retained={}",
             world.phase(), world.frames().len(), world.transferred_frames(),
@@ -143,10 +153,12 @@ fn append_load_report(report: &mut String, session: &MissionLoadSession) {
             loader.current_kind, loader.current_frame.is_some(), loader.camera.is_some()).unwrap();
         writeln!(
             report,
-            "Pending scene2 effects: model_open={}, occluder_geometry={}, light_sector_link={}",
+            "Pending scene2 effects: model_open={}, occluder_geometry={}, light_sector_link={}, visual_creator={}, factory_creator={}",
             loader.pending_model_open.is_some(),
             loader.pending_occluder_geometry.is_some(),
-            loader.pending_light_sector_link.is_some()
+            loader.pending_light_sector_link.is_some(),
+            loader.pending_visual_replacement.is_some(),
+            loader.pending_factory_creator.is_some()
         )
         .unwrap();
     }
@@ -154,6 +166,26 @@ fn append_load_report(report: &mut String, session: &MissionLoadSession) {
         writeln!(report, "Model cache: phase={:?}; directory index={}; cached source retained={}; native ModelOpen result={:?}",
             progress.phase, progress.directory, progress.cached_source.is_some(),
             progress.model_open_result).unwrap();
+    }
+    if let Some(progress) = session.caches().sound_open_progress() {
+        writeln!(report, "Sound cache: phase={:?}; name={:?}; flags={:#x}; directory index={}; attempted path={:?}; cached source retained={}; sound Open result={:?}; cache interrupted={}",
+            progress.phase, progress.name, progress.flags, progress.directory,
+            progress.path, progress.cached_source.is_some(), progress.sound_open_result,
+            session.caches().is_interrupted(lhr_engine::mission_resources::MissionCacheKind::Sound)).unwrap();
+    }
+    match session.audio().load_failures() {
+        Ok(failures) => {
+            for failure in failures {
+                writeln!(report, "Host PCM load failure: {failure:?}").unwrap();
+            }
+        }
+        Err(error) => {
+            writeln!(
+                report,
+                "Host PCM load failure diagnostics unavailable: {error:?}"
+            )
+            .unwrap();
+        }
     }
     writeln!(
         report,

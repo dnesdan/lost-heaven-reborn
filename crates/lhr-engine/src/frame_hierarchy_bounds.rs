@@ -141,11 +141,13 @@ impl ModelArena {
         }
         if matches!(
             kind,
-            FrameKind::Mesh | FrameKind::Projector | FrameKind::Singlemesh
+            FrameKind::Mesh | FrameKind::Projector | FrameKind::Singlemesh | FrameKind::Lensflare
         ) {
             if kind == FrameKind::Singlemesh {
-                // The admitted definition/binding owner must already have
-                // completed its genuine derived ComputeBounds path.
+                // Joint::UpdateV invalidates the derived bound. Re-evaluate
+                // the owned definition and pose through its cached native
+                // bounds wrapper before publishing hierarchy bounds.
+                self.refresh_owned_singlemesh_pose(key)?;
                 let bounds = self.graph.singlemesh_bound_volume(key)?;
                 self.frames[fi].visual_bounds = Some(MeshBoundVolume {
                     bbox: [bounds.bbox.min, bounds.bbox.max],

@@ -69,7 +69,7 @@ impl CarRuntime {
                 .map_err(|e| format!("Game table release: {e:?}"))?;
             self.services.table_allocations.pop();
         }
-        if self.game_init_started {
+        if self.game_init.has_started() {
             for address in [0x63d9c8, 0x63d9cc, 0x63d9b4, 0x6d4c24, 0x6d4c28] {
                 VehicleInitBackend::write_word(&mut self.memory, address, 0)
                     .map_err(|e| format!("Game table reset: {e:?}"))?;

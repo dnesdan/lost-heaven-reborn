@@ -244,6 +244,10 @@ impl ModelArena {
             bounding_sphere: None,
             next_visual: None,
             lights: Vec::new(),
+            num_fog_lights: 0,
+            fog_light: None,
+            pending_light_add: None,
+            sounds: Vec::new(),
             hull_occluder: None,
             occluder_list: None,
             sound_properties,
@@ -647,6 +651,15 @@ impl ModelArena {
 impl ModelArena {
     pub(crate) fn check_sector_destruction_domain(&self, key: SectorKey) -> Result<(), ModelError> {
         let s = self.sector(key)?;
+        if let Some(pending) = s.pending_light_add {
+            return Err(
+                crate::scene_ownership::SceneOwnerError::LightAddIncomplete {
+                    sector: key,
+                    light: pending.light,
+                }
+                .into(),
+            );
+        }
         let g = &s.geometry;
         if g.destructor_entered || g.update_interrupted {
             return Err(SectorError::Interrupted.into());
@@ -688,6 +701,9 @@ impl ModelArena {
         for &light in &s.lights {
             self.graph.light_state(light)?;
         }
+        for &sound in &s.sounds {
+            self.sound_key(sound)?;
+        }
         Ok(())
     }
     pub(crate) fn destroy_sector_derived(&mut self, key: SectorKey) -> Result<(), ModelError> {
@@ -712,8 +728,11 @@ impl ModelArena {
             }
         }
         self.sectors[i].lights = Vec::new();
-        // No native sound producer is admitted into this canonical sector yet;
-        // the original sounds list remains constructor-empty, not host audio.
+        self.sectors[i].num_fog_lights = 0;
+        self.sectors[i].fog_light = None;
+        while let Some(&sound) = self.sectors[i].sounds.first() {
+            self.delete_sound_from_sector(key, self.sound_key(sound)?)?;
+        }
         self.sector_storage.free(self.sectors[i].geometry.planes)?;
         for portal in self.sectors[i].geometry.portals.clone() {
             if let Some(connected) = self.portal(portal)?.connected_sector {

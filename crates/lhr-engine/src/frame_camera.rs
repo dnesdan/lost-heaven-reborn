@@ -89,6 +89,10 @@ impl CameraFrame {
         }
         self.matrix_raw(offset)
     }
+    /// Current inverse view consumed by Billboard render preparation.
+    pub fn view_inverse_matrix(&self) -> Option<SMatrix> {
+        self.matrix(0x224)
+    }
     fn matrix_raw(&self, offset: usize) -> Option<SMatrix> {
         let mut out = SMatrix::identity();
         for (i, value) in out.elements.iter_mut().enumerate() {
@@ -590,9 +594,61 @@ impl ModelArena {
         Ok(self.scene(scene)?.field_220)
     }
     pub fn update_frame(&mut self, key: FrameKey) -> Result<(), ModelError> {
+        if let Some(sector) = self
+            .sectors
+            .iter()
+            .find(|sector| sector.pending_light_add.is_some())
+        {
+            return Err(
+                crate::scene_ownership::SceneOwnerError::LightAddIncomplete {
+                    sector: sector.key,
+                    light: sector.pending_light_add.unwrap().light,
+                }
+                .into(),
+            );
+        }
         let mut graph = std::mem::take(&mut self.graph);
         let mut payload_error = None;
         let result = graph.update_with_camera(key, |graph, key| {
+            if graph.state(key)?.kind == FrameKind::Light {
+                graph.update_light_v(key)?;
+                let on = graph.state(key)?.flags & 1 != 0;
+                let sectors = graph.light_state(key)?.sectors.clone();
+                for sector in sectors {
+                    let index = self
+                        .sectors
+                        .iter()
+                        .position(|entry| entry.key.frame() == sector)
+                        .ok_or(FrameError::UnsupportedFrameUpdate(key))?;
+                    if on {
+                        self.sectors[index].fog_light = Some(key);
+                    } else if self.sectors[index].fog_light == Some(key) {
+                        self.sectors[index].fog_light = None;
+                        for &candidate in &self.sectors[index].lights {
+                            if graph.state(candidate)?.flags & 1 != 0
+                                && (5..=7).contains(&graph.light_state(candidate)?.light_type)
+                            {
+                                self.sectors[index].fog_light = Some(candidate);
+                                break;
+                            }
+                        }
+                    }
+                }
+                return Ok(());
+            }
+            if graph.state(key)?.kind == FrameKind::Area {
+                let area = self
+                    .areas
+                    .iter_mut()
+                    .find(|area| area.key.frame() == key)
+                    .ok_or(FrameError::UnsupportedFrameUpdate(key))?;
+                return area
+                    .update_v(graph, &mut self.area_storage)
+                    .map_err(|error| {
+                        payload_error = Some(error.into());
+                        FrameError::UnsupportedFrameUpdate(key)
+                    });
+            }
             if graph.state(key)?.kind == FrameKind::Occluder {
                 let occluder = self
                     .occluders

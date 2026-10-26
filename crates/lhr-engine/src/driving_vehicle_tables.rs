@@ -42,22 +42,39 @@ fn put_float(bytes: &mut [u8], at: usize, value: f32) {
     put(bytes, at, value.to_bits());
 }
 fn clamp_ordered(value: f32, min: f32, max: f32) -> f32 {
-    if min <= value {
-        if max < value {
-            max
-        } else {
-            value
-        }
-    } else {
+    // C_car::LoadMaterials uses ordered `<` / `>` branches. Unordered NaNs
+    // pass through with their payload; f32::clamp and reversed comparisons do
+    // not reproduce that behavior.
+    if value < min {
         min
+    } else if value > max {
+        max
+    } else {
+        value
     }
 }
 fn materials(source: &[u8]) -> Result<(Vec<u8>, [u8; 256]), String> {
-    if source.is_empty()
-        || !source.len().is_multiple_of(MATERIAL_SOURCE_STRIDE)
+    if !source.len().is_multiple_of(MATERIAL_SOURCE_STRIDE)
         || source.len() / MATERIAL_SOURCE_STRIDE > 256
     {
         return Err("Original material definitions have an unsupported extent".into());
+    }
+    // InitSystem reaches C_car::LoadMaterials before the profile tables are
+    // loaded. Its numOfMaterials < 1 branch publishes one default row.
+    if source.is_empty() {
+        let mut row = [0; VEHICLE_MATERIAL_STRIDE];
+        for (offset, value) in [
+            (0x04, 100.0),
+            (0x08, 100.0),
+            (0x0c, 100.0),
+            (0x10, 100.0),
+            (0x14, 0.0),
+            (0x18, 0.35),
+            (0x1c, 1.0),
+        ] {
+            put_float(&mut row, offset, value);
+        }
+        return Ok((row.to_vec(), [0; 256]));
     }
     let mut rows =
         Vec::with_capacity(source.len() / MATERIAL_SOURCE_STRIDE * VEHICLE_MATERIAL_STRIDE);
@@ -284,6 +301,32 @@ mod tests {
     use super::*;
     fn empty_tyres() -> Vec<u8> {
         [1_u32.to_le_bytes(), 0_u32.to_le_bytes()].concat()
+    }
+    #[test]
+    fn absent_material_table_yields_native_startup_default_and_unordered_nan_survives() {
+        let empty = DrivingVehicleTables::from_source_bytes(Vec::new(), empty_tyres()).unwrap();
+        let row = empty.material_bytes();
+        assert_eq!(row.len(), VEHICLE_MATERIAL_STRIDE);
+        assert_eq!(float(row, 0x04), 100.0);
+        assert_eq!(float(row, 0x08), 100.0);
+        assert_eq!(float(row, 0x0c), 100.0);
+        assert_eq!(float(row, 0x10), 100.0);
+        assert_eq!(float(row, 0x14), 0.0);
+        assert_eq!(float(row, 0x18), 0.35);
+        assert_eq!(float(row, 0x1c), 1.0);
+        assert_eq!(&row[0x20..], [0; 16]);
+        let mut source = vec![0; MATERIAL_SOURCE_STRIDE];
+        put(&mut source, 0x108, 0x7fc1_2345);
+        put(&mut source, 0x10c, 0xffc1_2345);
+        put(&mut source, 0x120, 0x7fc5_4321);
+        let table = DrivingVehicleTables::from_source_bytes(source, empty_tyres()).unwrap();
+        for (at, bits) in [
+            (0x18, 0x7fc1_2345),
+            (0x1c, 0xffc1_2345),
+            (0x14, 0x7fc5_4321),
+        ] {
+            assert_eq!(word(table.material_bytes(), at), bits);
+        }
     }
     #[test]
     fn material_projection_keeps_integer_fields_and_original_clamps() {

@@ -444,13 +444,14 @@ impl<'a> SceneBuilder<'a> {
                     source_vertices,
                 });
                 self.meshes.push(Mesh {
-                    lightmap: None,
                     material: if lit {
                         lhr_engine::presentation_material::unconstructed_lit_material_flags(
                             lit_context.loaded_material_flags(material),
                             !material.texture.is_empty(),
                             [0.; 3],
-                            lhr_render::FrontFace::Clockwise,
+                            lhr_engine::presentation_material::source_ccw_cull_front_face(
+                                lhr_engine::presentation_material::SourceIndexOrder::Reversed,
+                            ),
                         )?
                     } else {
                         Default::default()
@@ -615,8 +616,6 @@ fn make_geometry(
         if !compact || mapping[index] != u32::MAX {
             mapping[index] = u32::try_from(vertices.len()).map_err(|_| "Vertex count overflow")?;
             vertices.push(Vertex {
-                lightmap_uv: [0.; 2],
-                color: [1.; 3],
                 position: transform
                     .render_point(pose.map_or(v.position, |pose| pose[index].position))?,
                 uv: v.uv,
@@ -666,6 +665,7 @@ mod tests {
             joint: None,
             skin: None,
             morph: None,
+            lensflare: None,
             target: None,
             occluder: None,
             sector: None,
@@ -1297,7 +1297,7 @@ mod tests {
             };
             assert_eq!(policy.color, [0., 1., 1., 1.]);
             assert_eq!(policy.alpha, lhr_render::AlphaMode::Opaque);
-            assert_eq!(policy.front_face, lhr_render::FrontFace::Clockwise);
+            assert_eq!(policy.front_face, lhr_render::FrontFace::CounterClockwise);
             assert_eq!(mesh.indices, [0, 2, 1]);
             assert_eq!(
                 mesh.texture.as_ref().unwrap().rgba,

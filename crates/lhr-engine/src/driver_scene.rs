@@ -47,6 +47,7 @@ pub enum DriverSceneCreatePhase {
 #[derive(Debug)]
 pub enum DriverSceneError<E> {
     Model(ModelError),
+    Sound(crate::frame_sound::SoundError),
     Constructor(SceneConstructionError<E>),
     Screen(E),
     Resources(SceneResourceError),
@@ -56,12 +57,18 @@ pub enum DriverSceneError<E> {
     NativeSoundDriverUnavailable,
     RegistryNotEmpty,
     UnknownScene(SceneKey),
+    RegisteredSceneRequiresDriverRelease(SceneKey),
 }
 #[derive(Debug)]
 pub struct DriverSceneCreateFailure<E> {
     pub scene: Option<SceneKey>,
     pub phase: DriverSceneCreatePhase,
     pub error: DriverSceneError<E>,
+}
+#[derive(Debug)]
+pub struct DriverSoundCreateFailure {
+    pub frame: Option<crate::frame_sound::SoundKey>,
+    pub error: DriverSceneError<std::convert::Infallible>,
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct DriverDomains {
@@ -91,6 +98,7 @@ pub struct DriverSceneOwner {
     native_capacity: u32,
     growth: u32,
     allocation_incomplete: bool,
+    host_sound_backend: Option<crate::frame_sound::HostSoundBackend>,
 }
 impl Default for DriverSceneOwner {
     fn default() -> Self {
@@ -106,10 +114,42 @@ impl Default for DriverSceneOwner {
             native_capacity: 0,
             growth: 32,
             allocation_incomplete: false,
+            host_sound_backend: None,
         }
     }
 }
 impl DriverSceneOwner {
+    /// Bind a real host PCM source/voice owner before creating the scene.
+    /// This is explicit initialization of the Rust backend, not a native
+    /// DirectSound driver pointer or an original-runtime validation claim.
+    pub fn bind_host_sound_backend(
+        &mut self,
+        arena: &mut ModelArena,
+        audio: &crate::runtime_audio::RuntimeAudio,
+    ) -> Result<(), DriverSceneError<std::convert::Infallible>> {
+        if !self.scenes.is_empty() {
+            return Err(DriverSceneError::ForeignDomain);
+        }
+        if let Some(backend) = &self.host_sound_backend {
+            if !backend.uses_audio(audio) {
+                return Err(DriverSceneError::Sound(
+                    crate::frame_sound::SoundError::ForeignDriver,
+                ));
+            }
+            return arena
+                .bind_host_sound_backend(backend.clone())
+                .map_err(DriverSceneError::Model);
+        }
+        let backend = crate::frame_sound::HostSoundBackend::new(self.identity, audio);
+        arena
+            .bind_host_sound_backend(backend.clone())
+            .map_err(DriverSceneError::Model)?;
+        self.host_sound_backend = Some(backend);
+        Ok(())
+    }
+    pub fn host_sound_backend(&self) -> Option<&crate::frame_sound::HostSoundBackend> {
+        self.host_sound_backend.as_ref()
+    }
     pub fn scenes(&self) -> &[SceneKey] {
         &self.scenes
     }
@@ -233,6 +273,26 @@ impl DriverSceneOwner {
         self.validate_scene_domain(arena, resources, scene)?;
         arena.create_occluder().map_err(DriverSceneError::Model)
     }
+    /// Original CreateFrame type6 arm: one actual I3D_dummy constructor
+    /// reference, without sound/scene registry insertion or an extra AddRef.
+    pub fn create_area_frame(
+        &mut self,
+        arena: &mut ModelArena,
+        resources: &SceneResources,
+        scene: SceneKey,
+    ) -> Result<crate::frame_area::AreaKey, DriverSceneError<std::convert::Infallible>> {
+        self.validate_scene_domain(arena, resources, scene)?;
+        arena.create_area().map_err(DriverSceneError::Model)
+    }
+    pub fn create_dummy_frame(
+        &mut self,
+        arena: &mut ModelArena,
+        resources: &SceneResources,
+        scene: SceneKey,
+    ) -> Result<crate::frame_transform::FrameKey, DriverSceneError<std::convert::Infallible>> {
+        self.validate_scene_domain(arena, resources, scene)?;
+        arena.create_dummy_frame().map_err(DriverSceneError::Model)
+    }
     /// Original type2 arm delegates the existing canonical light constructor
     /// and CRT stream; lights have no scene registry append here.
     pub fn create_light_frame(
@@ -254,6 +314,23 @@ impl DriverSceneOwner {
     ) -> Result<crate::model_loading::ModelKey, DriverSceneError<std::convert::Infallible>> {
         self.validate_scene_domain(arena, resources, scene)?;
         arena.create_model().map_err(DriverSceneError::Model)
+    }
+    /// Native CreateFrame case 4: create a real sound frame with a derived
+    /// host PCM owner and append it to this driver's borrowed sound registry.
+    pub fn create_sound_frame(
+        &mut self,
+        arena: &mut ModelArena,
+        resources: &SceneResources,
+        scene: SceneKey,
+    ) -> Result<crate::frame_sound::SoundKey, DriverSoundCreateFailure> {
+        self.validate_scene_domain(arena, resources, scene)
+            .map_err(|error| DriverSoundCreateFailure { frame: None, error })?;
+        arena
+            .create_owned_sound_frame()
+            .map_err(|failure| DriverSoundCreateFailure {
+                frame: failure.frame,
+                error: DriverSceneError::Model(failure.error),
+            })
     }
     /// Executes only original CreateFrame's scene arm. A host allocation or
     /// dependency failure preserves its executed prefix; no native null-return
@@ -339,12 +416,34 @@ impl DriverSceneOwner {
                     DriverSceneError::Resources(error),
                 )
             })?;
-        if sound != NativeSceneSoundDriver::Absent {
-            return Err(failure(
-                Some(scene),
-                DriverSceneCreatePhase::Listener,
-                DriverSceneError::NativeSoundDriverUnavailable,
-            ));
+        match sound {
+            NativeSceneSoundDriver::Absent => {}
+            NativeSceneSoundDriver::Uninitialized => {
+                return Err(failure(
+                    Some(scene),
+                    DriverSceneCreatePhase::Listener,
+                    DriverSceneError::NativeSoundDriverUnavailable,
+                ));
+            }
+            NativeSceneSoundDriver::Initialized => {
+                self.host_sound_backend
+                    .as_ref()
+                    .ok_or_else(|| {
+                        failure(
+                            Some(scene),
+                            DriverSceneCreatePhase::Listener,
+                            DriverSceneError::NativeSoundDriverUnavailable,
+                        )
+                    })?
+                    .create_listener(scene)
+                    .map_err(|error| {
+                        failure(
+                            Some(scene),
+                            DriverSceneCreatePhase::Listener,
+                            DriverSceneError::Sound(error),
+                        )
+                    })?;
+            }
         }
         if self.scenes.len() >= self.native_capacity as usize {
             self.native_capacity = self.native_capacity.wrapping_add(self.growth);
@@ -416,6 +515,21 @@ impl DriverSceneOwner {
             return Err(DriverSceneError::UnknownScene(scene));
         }
         let identity = self.identity;
+        let backend = self.host_sound_backend.clone();
+        let mut release_listener = move |scene| {
+            if let Some(backend) = &backend {
+                if backend
+                    .listeners()
+                    .map_err(SceneResourceError::Sound)?
+                    .contains(&scene)
+                {
+                    backend
+                        .release_listener(scene)
+                        .map_err(SceneResourceError::Sound)?;
+                }
+            }
+            Ok(())
+        };
         context
             .resources
             .release_driver_scene(
@@ -423,20 +537,51 @@ impl DriverSceneOwner {
                 scene,
                 context.textures,
                 context.storage,
-                identity,
-                &mut |scene| {
-                    let index = self
-                        .scenes
-                        .iter()
-                        .position(|candidate| *candidate == scene)
-                        .ok_or(SceneResourceError::UnsupportedDomain(
-                            "missing driver scene registry entry",
-                        ))?;
-                    self.scenes.swap_remove(index);
-                    Ok(())
+                crate::scene_resources::DriverSceneRemoval {
+                    driver: identity,
+                    release_listener: &mut release_listener,
+                    unregister: &mut |scene| {
+                        let index = self
+                            .scenes
+                            .iter()
+                            .position(|candidate| *candidate == scene)
+                            .ok_or(SceneResourceError::UnsupportedDomain(
+                                "missing driver scene registry entry",
+                            ))?;
+                        self.scenes.swap_remove(index);
+                        Ok(())
+                    },
                 },
             )
-            .map_err(DriverSceneError::Resources)
+            .map_err(DriverSceneError::Resources)?;
+        Ok(())
+    }
+
+    /// Host terminal cleanup for a Scene whose factory reached CreateListener
+    /// but failed before driver registration. The caller first releases the
+    /// unregistered Scene through SceneResources; registered Scenes must use
+    /// release_scene so the listener follows the same last-release boundary.
+    pub fn release_unregistered_scene_listener(
+        &mut self,
+        scene: SceneKey,
+    ) -> Result<(), DriverSceneError<std::convert::Infallible>> {
+        if self.scenes.contains(&scene) {
+            return Err(DriverSceneError::RegisteredSceneRequiresDriverRelease(
+                scene,
+            ));
+        }
+        if let Some(backend) = &self.host_sound_backend {
+            if backend
+                .listeners()
+                .map_err(DriverSceneError::Sound)?
+                .contains(&scene)
+            {
+                backend
+                    .release_listener(scene)
+                    .map_err(DriverSceneError::Sound)?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -693,6 +838,235 @@ mod tests {
                 driver.release_empty_registry_storage(),
                 Err(DriverSceneError::AllocationIncomplete)
             ));
+        });
+    }
+    #[test]
+    fn initialized_listener_survives_failed_registration_until_explicit_cleanup() {
+        Pc24PrecisionState::default().run(|| {
+            let mut arena = ModelArena::default();
+            let mut resources = SceneResources::default();
+            let mut textures = TextureResources::new().unwrap();
+            let mut storage = CpuTextureStorage::default();
+            let mut driver = DriverSceneOwner::default();
+            let audio = crate::runtime_audio::RuntimeAudio::default();
+            driver.bind_host_sound_backend(&mut arena, &audio).unwrap();
+            let mut context = DriverSceneContext {
+                arena: &mut arena,
+                resources: &mut resources,
+                textures: &mut textures,
+                storage: &mut storage,
+            };
+            let failure = driver
+                .create_scene_with_allocator(
+                    &mut context,
+                    &mut screen(),
+                    &mut MissingImages,
+                    NativeSceneSoundDriver::Initialized,
+                    |capacity, scenes| {
+                        assert_eq!(capacity, 32);
+                        assert!(scenes.is_empty());
+                        Err(())
+                    },
+                )
+                .unwrap_err();
+            assert_eq!(failure.phase, DriverSceneCreatePhase::Registration);
+            assert!(matches!(
+                failure.error,
+                DriverSceneError::AllocationUnavailable
+            ));
+            let scene = failure.scene.unwrap();
+            assert_eq!(
+                driver.host_sound_backend().unwrap().listeners().unwrap(),
+                [scene]
+            );
+            assert!(driver.scenes().is_empty());
+            assert!(driver.allocation_incomplete());
+            assert!(matches!(
+                driver.release_scene(&mut context, scene),
+                Err(DriverSceneError::AllocationIncomplete)
+            ));
+            assert_eq!(
+                driver.host_sound_backend().unwrap().listeners().unwrap(),
+                [scene]
+            );
+            context
+                .resources
+                .release_scene(context.arena, scene, context.textures, context.storage)
+                .unwrap();
+            driver.release_unregistered_scene_listener(scene).unwrap();
+            assert!(driver
+                .host_sound_backend()
+                .unwrap()
+                .listeners()
+                .unwrap()
+                .is_empty());
+            assert!(matches!(
+                driver.release_empty_registry_storage(),
+                Err(DriverSceneError::AllocationIncomplete)
+            ));
+            assert_eq!(audio.live_sound_count().unwrap(), 0);
+        });
+    }
+    #[test]
+    fn retained_sound_survives_last_scene_and_idempotent_backend_bind() {
+        Pc24PrecisionState::default().run(|| {
+            let mut arena = ModelArena::default();
+            let mut resources = SceneResources::default();
+            let mut textures = TextureResources::new().unwrap();
+            let mut storage = CpuTextureStorage::default();
+            let mut driver = DriverSceneOwner::default();
+            let audio = crate::runtime_audio::RuntimeAudio::default();
+            let foreign_audio = crate::runtime_audio::RuntimeAudio::default();
+            driver.bind_host_sound_backend(&mut arena, &audio).unwrap();
+            let mut context = DriverSceneContext {
+                arena: &mut arena,
+                resources: &mut resources,
+                textures: &mut textures,
+                storage: &mut storage,
+            };
+            let scene = driver
+                .create_scene(
+                    &mut context,
+                    &mut screen(),
+                    &mut MissingImages,
+                    NativeSceneSoundDriver::Initialized,
+                )
+                .unwrap();
+            let sound = driver
+                .create_sound_frame(context.arena, context.resources, scene)
+                .unwrap();
+            // A cache can retain its SOUND frame after the Scene that caused
+            // its creation is released. Transfer the creator's reference to
+            // that owner without replacing the canonical frame or registry.
+            context.arena.retain(sound.frame()).unwrap();
+            context.arena.release(sound.frame()).unwrap();
+            driver.release_scene(&mut context, scene).unwrap();
+            assert!(driver.scenes().is_empty());
+            assert!(driver
+                .host_sound_backend()
+                .unwrap()
+                .listeners()
+                .unwrap()
+                .is_empty());
+            assert_eq!(
+                driver.host_sound_backend().unwrap().sounds().unwrap(),
+                [sound]
+            );
+            assert_eq!(audio.live_sound_count().unwrap(), 1);
+
+            driver
+                .bind_host_sound_backend(context.arena, &audio.clone())
+                .unwrap();
+            assert!(matches!(
+                driver.bind_host_sound_backend(context.arena, &foreign_audio),
+                Err(DriverSceneError::Sound(
+                    crate::frame_sound::SoundError::ForeignDriver
+                ))
+            ));
+            assert!(matches!(
+                context
+                    .arena
+                    .bind_host_sound_backend(crate::frame_sound::HostSoundBackend::new(
+                        driver.identity,
+                        &audio
+                    )),
+                Err(ModelError::Sound(
+                    crate::frame_sound::SoundError::ForeignDriver
+                ))
+            ));
+            assert_eq!(
+                driver.host_sound_backend().unwrap().sounds().unwrap(),
+                [sound]
+            );
+            context.arena.release(sound.frame()).unwrap();
+            assert!(driver
+                .host_sound_backend()
+                .unwrap()
+                .sounds()
+                .unwrap()
+                .is_empty());
+            assert_eq!(audio.live_sound_count().unwrap(), 0);
+            assert_eq!(foreign_audio.live_sound_count().unwrap(), 0);
+        });
+    }
+    #[test]
+    fn initialized_backend_retains_each_listener_until_its_scene_last_release() {
+        Pc24PrecisionState::default().run(|| {
+            let mut arena = ModelArena::default();
+            let mut resources = SceneResources::default();
+            let mut textures = TextureResources::new().unwrap();
+            let mut storage = CpuTextureStorage::default();
+            let mut driver = DriverSceneOwner::default();
+            let audio = crate::runtime_audio::RuntimeAudio::default();
+            driver.bind_host_sound_backend(&mut arena, &audio).unwrap();
+            let mut context = DriverSceneContext {
+                arena: &mut arena,
+                resources: &mut resources,
+                textures: &mut textures,
+                storage: &mut storage,
+            };
+            let first = driver
+                .create_scene(
+                    &mut context,
+                    &mut screen(),
+                    &mut MissingImages,
+                    NativeSceneSoundDriver::Initialized,
+                )
+                .unwrap();
+            let second = driver
+                .create_scene(
+                    &mut context,
+                    &mut screen(),
+                    &mut MissingImages,
+                    NativeSceneSoundDriver::Initialized,
+                )
+                .unwrap();
+            assert_eq!(
+                driver.host_sound_backend().unwrap().listeners().unwrap(),
+                [first, second]
+            );
+            context.arena.retain(first.root()).unwrap();
+            driver.release_scene(&mut context, first).unwrap();
+            assert!(
+                !context
+                    .resources
+                    .construction(first)
+                    .unwrap()
+                    .listener_released
+            );
+            assert_eq!(context.resources.ws_ref_count(), 2);
+            assert_eq!(
+                driver.host_sound_backend().unwrap().listeners().unwrap(),
+                [first, second]
+            );
+            driver.release_scene(&mut context, second).unwrap();
+            assert!(
+                context
+                    .resources
+                    .construction(second)
+                    .unwrap()
+                    .listener_released
+            );
+            assert_eq!(context.resources.ws_ref_count(), 1);
+            assert_eq!(
+                driver.host_sound_backend().unwrap().listeners().unwrap(),
+                [first]
+            );
+            driver.release_scene(&mut context, first).unwrap();
+            assert!(
+                context
+                    .resources
+                    .construction(first)
+                    .unwrap()
+                    .listener_released
+            );
+            assert!(driver
+                .host_sound_backend()
+                .unwrap()
+                .listeners()
+                .unwrap()
+                .is_empty());
+            assert_eq!(context.resources.ws_ref_count(), 0);
         });
     }
     #[test]

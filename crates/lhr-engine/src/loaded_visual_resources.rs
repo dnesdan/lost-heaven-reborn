@@ -12,28 +12,35 @@ use crate::{
     managed_visual_resources::ManagedVisualBackend,
     mesh_bounds::MeshBoundVolume,
     visual_resources::{
-        IndexBufferHandle, MaterialKey, MeshLevelKey, RawVertexBytesKey, TextureKey,
+        IndexBufferHandle, MaterialKey, MeshLevelKey, MeshObjectKey, RawVertexBytesKey, TextureKey,
         VertexBufferHandle,
     },
 };
 use std::{
     collections::BTreeMap,
     sync::atomic::{AtomicU64, Ordering},
+    sync::Arc,
 };
 #[path = "car_inspection_resources.rs"]
 mod car_inspection_resources;
-pub use car_inspection_resources::{CpuInspectionGroup, CpuInspectionMesh, CpuLightmapView};
-#[path = "saved_lighting.rs"]
-mod saved_lighting;
-#[cfg(test)]
-pub(crate) use saved_lighting::lightmap::fixture as saved_lightmap_fixture;
-pub use saved_lighting::{SavedLightingLoadError, SavedLightingPendingCleanup};
+pub use car_inspection_resources::{CpuInspectionGroup, CpuInspectionMesh};
 #[path = "car_inspection_texture.rs"]
 mod car_inspection_texture;
 #[path = "loaded_glass.rs"]
 mod glass;
+#[path = "loaded_lensflare.rs"]
+mod lensflare;
+#[path = "loaded_lit_storage.rs"]
+mod lit_storage;
+#[path = "loaded_saved_lightmaps.rs"]
+mod saved_lightmaps;
 #[path = "loaded_vertex_access.rs"]
 mod vertex_access;
+pub use saved_lightmaps::{
+    SavedLightmapLoadContext, SavedLightmapLoadFailure, SavedLightmapLoadOutcome,
+};
+#[path = "visual_replacement_resources.rs"]
+mod visual_replacement_resources;
 static NEXT_STORAGE_KEY: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -43,6 +50,7 @@ pub enum LoadedVisualError {
     Asset(String),
     UnsupportedVisual(Option<u8>),
     InvalidGeometry,
+    SavedLighting(crate::i3d_object::saved_lightmaps::SavedLightingError),
     IncompleteAdmission,
 }
 impl From<ObjectError> for LoadedVisualError {
@@ -90,6 +98,8 @@ struct CpuGraphics {
     fvf: Option<u32>,
     bytes: Vec<u8>,
     lock: Option<LockedDataKey>,
+    /// Host write generation for rebuilding derived saved-lighting geometry.
+    revision: u64,
 }
 #[derive(Debug)]
 struct CpuTexture {
@@ -105,6 +115,8 @@ struct CpuTexture {
 }
 #[derive(Debug, Default)]
 pub struct CpuVisualStorage {
+    #[cfg(test)]
+    test_failure: Option<CpuStorageTestFailure>,
     buffers: BTreeMap<u64, Box<BufferAllocation>>,
     blocks: BTreeMap<u64, Box<BlockAllocation>>,
     graphics: BTreeMap<u64, CpuGraphics>,
@@ -112,10 +124,26 @@ pub struct CpuVisualStorage {
     raw: BTreeMap<u64, Vec<u8>>,
     resident_bytes: usize,
     discard_requests: u64,
-    #[cfg(test)]
-    fail_next_graphics_allocation: bool,
+}
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CpuStorageTestFailure {
+    BlockAllocate(BufferKind),
+    UploadAfterWrite(BufferKind),
+    BlockFreeAfterFree(BufferKind),
+    UnlockAfterUnlock(BufferKind),
 }
 impl CpuVisualStorage {
+    #[cfg(test)]
+    fn test_checkpoint(&mut self, stage: CpuStorageTestFailure) -> Result<()> {
+        if self.test_failure == Some(stage) {
+            self.test_failure = None;
+            return Err(LoadedVisualError::Backend(
+                "injected CPU storage interruption",
+            ));
+        }
+        Ok(())
+    }
     pub fn graphics_bytes(&self) -> usize {
         self.graphics.values().map(|g| g.bytes.len()).sum()
     }
@@ -170,6 +198,10 @@ impl CpuVisualStorage {
         if x.lock.is_none() {
             return Err(LoadedVisualError::Backend("CPU upload without lock"));
         }
+        let revision = x
+            .revision
+            .checked_add(1)
+            .ok_or(LoadedVisualError::Backend("CPU graphics revision overflow"))?;
         let end = offset
             .checked_add(data.len())
             .ok_or(LoadedVisualError::InvalidGeometry)?;
@@ -177,6 +209,12 @@ impl CpuVisualStorage {
             .get_mut(offset..end)
             .ok_or(LoadedVisualError::InvalidGeometry)?
             .copy_from_slice(data);
+        x.revision = revision;
+        #[cfg(test)]
+        {
+            let kind = x.kind;
+            self.test_checkpoint(CpuStorageTestFailure::UploadAfterWrite(kind))?;
+        }
         Ok(())
     }
     /// Host CPU upload; cached manager arrays may already be unlocked. A
@@ -278,6 +316,8 @@ impl BufferBackend for CpuVisualStorage {
         if count == 0 || base.checked_add(count).is_none() {
             return Err(LoadedVisualError::InvalidGeometry);
         }
+        #[cfg(test)]
+        self.test_checkpoint(CpuStorageTestFailure::BlockAllocate(kind))?;
         let id = identity()?;
         self.blocks
             .insert(id, Box::new(BlockAllocation { kind, base, count }));
@@ -289,17 +329,13 @@ impl BufferBackend for CpuVisualStorage {
             .remove(&a.0)
             .ok_or(LoadedVisualError::Backend("unknown CPU block allocation"))?;
         let _descriptor = (allocation.kind, allocation.base, allocation.count);
+        #[cfg(test)]
+        self.test_checkpoint(CpuStorageTestFailure::BlockFreeAfterFree(allocation.kind))?;
         Ok(())
     }
     fn create_graphics(&mut self, r: GraphicsRequest) -> Result<CreateResult> {
         if r.bytes == 0 {
             return Err(LoadedVisualError::InvalidGeometry);
-        }
-        #[cfg(test)]
-        if std::mem::take(&mut self.fail_next_graphics_allocation) {
-            return Err(LoadedVisualError::Backend(
-                "injected CPU graphics allocation failure",
-            ));
         }
         let storage = bytes(r.bytes as usize)?;
         let id = identity()?;
@@ -310,6 +346,7 @@ impl BufferBackend for CpuVisualStorage {
                 fvf: r.fvf,
                 bytes: storage,
                 lock: None,
+                revision: 0,
             },
         );
         Ok(CreateResult::Created(match r.kind {
@@ -338,6 +375,11 @@ impl BufferBackend for CpuVisualStorage {
         let x = self.get_graphics_mut(g)?;
         if x.lock.take().is_none() {
             return Err(LoadedVisualError::Backend("CPU graphics not locked"));
+        }
+        #[cfg(test)]
+        {
+            let kind = x.kind;
+            self.test_checkpoint(CpuStorageTestFailure::UnlockAfterUnlock(kind))?;
         }
         Ok(())
     }
@@ -412,6 +454,218 @@ struct PreparedMaterial {
     alpha: Option<lhr_assets::Texture>,
     environment: Option<lhr_assets::Texture>,
     inspection_rgba8_color_key: bool,
+    animation: Option<PreparedAnimation>,
+}
+struct PreparedAnimatedFrame {
+    name: String,
+    color: Option<lhr_assets::Texture>,
+    alpha: Option<lhr_assets::Texture>,
+    inspection_rgba8_color_key: bool,
+}
+struct PreparedAnimation {
+    color: Vec<PreparedAnimatedFrame>,
+    environment: Vec<PreparedAnimatedFrame>,
+    /// A failed environment preparation follows its owned frame prefix.
+    environment_error: Option<LoadedVisualError>,
+    /// Fallible color-only preparation is reported after owned environment frames.
+    color_error: Option<LoadedVisualError>,
+}
+/// One reached, face-group-used animated source ordinal in the bounded host
+/// model-Open table. Face groups retain it; finish_material_table releases
+/// the table's creator reference. Native loads every ordinal before frames.
+#[derive(Clone, Copy, Debug)]
+struct AnimatedSourceMaterial {
+    key: MaterialKey,
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ModelMaterialTableKey(u32);
+impl ModelMaterialTableKey {
+    pub fn for_model(model: crate::model_loading::ModelKey) -> Self {
+        Self(model.root().0)
+    }
+}
+/// Native animated LoadImage overwrites the two digits before the extension.
+/// Counts above 100 reach a longer sprintf representation and need a separate
+/// byte-accurate admission; the actual source uses 20 frames.
+fn animated_frame_name(name: &str, frame: u8, count: u8) -> Result<Option<String>> {
+    if count < 2 {
+        return Ok(Some(name.to_owned()));
+    }
+    if frame >= 100 {
+        return Err(LoadedVisualError::Backend(
+            "animated filename three-digit branch unavailable",
+        ));
+    }
+    let mut bytes = name.as_bytes().to_vec();
+    let Some(offset) = bytes.len().checked_sub(6) else {
+        return Ok(None);
+    };
+    let digits = format!("{frame:02}");
+    bytes[offset..offset + 2].copy_from_slice(digits.as_bytes());
+    bytes[offset + 2] = b'.';
+    String::from_utf8(bytes)
+        .map(Some)
+        .map_err(|_| LoadedVisualError::Backend("animated filename byte domain"))
+}
+fn prepare_animation(
+    material: &lhr_assets::Material,
+    installation: &lhr_assets::Installation,
+    context: MaterialLoadContext,
+    inspection_keyed: bool,
+) -> Result<PreparedAnimation> {
+    let timing = material
+        .animation
+        .as_ref()
+        .ok_or(LoadedVisualError::Backend("animated source record absent"))?;
+    let mut color = Vec::new();
+    let mut environment = Vec::new();
+    let color_count = timing.num_frames.max(1);
+    let env_count = timing.env_num_frames.max(1);
+    let environment_error = (|| -> Result<()> {
+        if let Some(env_name) = &material.environment_texture {
+            let environment_capacity = if env_count >= 2 && env_name.len() < 6 {
+                1
+            } else {
+                env_count as usize
+            };
+            environment
+                .try_reserve_exact(environment_capacity)
+                .map_err(|_| LoadedVisualError::Backend("animated environment frame allocation"))?;
+            for index in 0..env_count {
+                let Some(name) = animated_frame_name(env_name, index, env_count)? else {
+                    environment.push(PreparedAnimatedFrame {
+                        name: String::new(),
+                        color: None,
+                        alpha: None,
+                        inspection_rgba8_color_key: false,
+                    });
+                    break;
+                };
+                let path = format!("maps/{name}");
+                let image = installation.read(&path).ok().and_then(|bytes| {
+                    if name.to_ascii_lowercase().ends_with(".tga") {
+                        lhr_assets::decode_tga(&bytes).ok()
+                    } else {
+                        lhr_assets::decode_bmp_original(&bytes).ok()
+                    }
+                });
+                environment.push(PreparedAnimatedFrame {
+                    name,
+                    color: image,
+                    alpha: None,
+                    inspection_rgba8_color_key: false,
+                });
+            }
+        }
+        Ok(())
+    })()
+    .err();
+    let color_error = if environment_error.is_none() {
+        (|| -> Result<()> {
+            if !material.texture.is_empty()
+                || material
+                    .alpha_texture
+                    .as_ref()
+                    .is_some_and(|name| !name.is_empty())
+            {
+                let color_capacity = if color_count >= 2 && material.texture.len() < 6 {
+                    1
+                } else {
+                    color_count as usize
+                };
+                color
+                    .try_reserve_exact(color_capacity)
+                    .map_err(|_| LoadedVisualError::Backend("animated color frame allocation"))?;
+                for index in 0..color_count {
+                    let Some(name) = animated_frame_name(&material.texture, index, color_count)?
+                    else {
+                        color.push(PreparedAnimatedFrame {
+                            name: String::new(),
+                            color: None,
+                            alpha: None,
+                            inspection_rgba8_color_key: false,
+                        });
+                        // Native LoadImage records one null slot for an invalid animated
+                        // basename, then leaves this frame loop entirely.
+                        break;
+                    };
+                    let alpha_name = material
+                        .alpha_texture
+                        .as_deref()
+                        .filter(|a| !a.is_empty())
+                        .map(|a| {
+                            if material.flags & 0x0200_0000 != 0
+                                && material.flags & 0xa100_0000 == 0
+                            {
+                                animated_frame_name(a, index, color_count)
+                            } else {
+                                Ok(Some(a.to_owned()))
+                            }
+                        })
+                        .transpose()?;
+                    // An invalid animated alpha basename remains the original static
+                    // name in native LoadImage and is reused for every color frame.
+                    let alpha_name = alpha_name.flatten().or_else(|| {
+                        material
+                            .alpha_texture
+                            .as_deref()
+                            .filter(|name| !name.is_empty())
+                            .map(str::to_owned)
+                    });
+                    let decode = |name: &str| {
+                        let path = format!("maps/{name}");
+                        installation.read(&path).ok().and_then(|bytes| {
+                            if name.to_ascii_lowercase().ends_with(".tga") {
+                                lhr_assets::decode_tga(&bytes).ok()
+                            } else {
+                                lhr_assets::decode_bmp_original(&bytes).ok()
+                            }
+                        })
+                    };
+                    let base_flags = context.base_texture_request_flags(material);
+                    let (image, keyed) = if inspection_keyed
+                        && base_flags & 0xe == 8
+                        && alpha_name.is_none()
+                        && !name.to_ascii_lowercase().ends_with(".tga")
+                    {
+                        let path = format!("maps/{name}");
+                        installation
+                            .read(&path)
+                            .ok()
+                            .and_then(|bytes| {
+                                car_inspection_texture::decode_rgba8_color_key(&bytes).ok()
+                            })
+                            .map(|(image, keyed)| (Some(image), keyed))
+                            .unwrap_or((None, false))
+                    } else {
+                        (decode(&name), false)
+                    };
+                    let alpha = alpha_name.as_deref().and_then(decode);
+                    let image = if alpha_name.is_some() && alpha.is_none() {
+                        None
+                    } else {
+                        image
+                    };
+                    color.push(PreparedAnimatedFrame {
+                        name,
+                        color: image,
+                        alpha,
+                        inspection_rgba8_color_key: keyed,
+                    });
+                }
+            }
+            Ok(())
+        })()
+        .err()
+    } else {
+        None
+    };
+    Ok(PreparedAnimation {
+        color,
+        environment,
+        environment_error,
+        color_error,
+    })
 }
 /// Driver words consumed by original material Load2bd50. This context controls
 /// CPU resource admission; it does not claim a created renderer or GPU device.
@@ -499,7 +753,7 @@ impl MaterialLoadContext {
         if self.texture_flags(flags) & 0x108 == 0x108 {
             flags |= 0x40000000;
         }
-        if source.texture.is_empty() {
+        if source.animation.is_none() && source.texture.is_empty() {
             flags &= !0x800;
         }
         flags
@@ -513,11 +767,22 @@ pub struct LoadedVisualResources {
     glass_pending_resources: Vec<glass::GlassResource>,
     #[cfg(test)]
     glass_fault_after_vertex_upload: bool,
+    #[cfg(test)]
+    fail_after_object_constructor: bool,
+    #[cfg(test)]
+    fail_after_animated_frame: Option<usize>,
     backend: CpuVisualStorage,
     sources: BTreeMap<(u64, u32), Vec<lhr_assets::Material>>,
+    lens_materials: BTreeMap<(usize, usize), lensflare::LensMaterialEntry>,
+    animated_materials: BTreeMap<(u32, usize), AnimatedSourceMaterial>,
+    active_material_table: Option<ModelMaterialTableKey>,
+    /// An admitted derived object whose LoadImage returned after its
+    /// constructor, before ModelArena could publish the frame's owner link.
+    interrupted_object: Option<ObjectResourceKey>,
     incomplete: bool,
     material_load_context: MaterialLoadContext,
     inspection_rgba8_color_key: bool,
+    lightmap_atlases: crate::i3d_object::lightmap_atlas::LightmapAtlasPool,
 }
 impl std::fmt::Debug for LoadedVisualResources {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -535,15 +800,56 @@ impl LoadedVisualResources {
             glass_pending_resources: Vec::new(),
             #[cfg(test)]
             glass_fault_after_vertex_upload: false,
+            #[cfg(test)]
+            fail_after_object_constructor: false,
+            #[cfg(test)]
+            fail_after_animated_frame: None,
             backend: CpuVisualStorage::default(),
             sources: BTreeMap::new(),
+            lens_materials: BTreeMap::new(),
+            animated_materials: BTreeMap::new(),
+            active_material_table: None,
+            interrupted_object: None,
             incomplete: false,
             material_load_context: MaterialLoadContext::ORIGINAL_DRIVER_INIT_DEFAULTS,
             inspection_rgba8_color_key: false,
+            lightmap_atlases: crate::i3d_object::lightmap_atlas::LightmapAtlasPool::default(),
         })
     }
     pub fn material_load_context(&self) -> MaterialLoadContext {
         self.material_load_context
+    }
+    /// This bounded table owns reached animated ordinals during model Open.
+    /// A face group's SetMaterial retains the material independently.
+    pub fn begin_material_table(&mut self, key: ModelMaterialTableKey) -> Result<()> {
+        if self.active_material_table.is_some() || self.incomplete {
+            return Err(LoadedVisualError::IncompleteAdmission);
+        }
+        self.active_material_table = Some(key);
+        Ok(())
+    }
+    pub fn finish_material_table(&mut self, key: ModelMaterialTableKey) -> Result<()> {
+        if self.active_material_table != Some(key) {
+            return Err(LoadedVisualError::IncompleteAdmission);
+        }
+        let ordinals = self
+            .animated_materials
+            .range((key.0, 0)..=(key.0, usize::MAX))
+            .map(|(&(model, ordinal), entry)| ((model, ordinal), entry.key))
+            .collect::<Vec<_>>();
+        for (identity, material) in ordinals {
+            self.objects.release_material(material, &mut self.backend)?;
+            self.animated_materials.remove(&identity);
+        }
+        self.active_material_table = None;
+        Ok(())
+    }
+    pub fn take_interrupted_object(&mut self) -> Option<ObjectResourceKey> {
+        self.interrupted_object.take()
+    }
+    #[cfg(test)]
+    pub(crate) fn inject_failure_after_object_constructor(&mut self) {
+        self.fail_after_object_constructor = true;
     }
     pub fn set_material_load_context(&mut self, context: MaterialLoadContext) {
         self.material_load_context = context;
@@ -600,11 +906,20 @@ impl LoadedVisualResources {
             .map(|texture| &texture.color)
             .ok_or(LoadedVisualError::Backend("unknown CPU texture"))
     }
+    pub fn lightmap_atlas_statistics(&self) -> crate::i3d_object::lightmap_atlas::AtlasStatistics {
+        self.lightmap_atlases.statistics()
+    }
     pub fn objects(&self) -> &ObjectResources {
         &self.objects
     }
     pub fn has_incomplete_admission(&self) -> bool {
         self.incomplete
+    }
+    /// A model-level resource intake can fail after earlier glow/material
+    /// references succeeded. Teardown remains available, while new admissions
+    /// must not replay that interrupted prefix.
+    pub(crate) fn mark_incomplete_admission(&mut self) {
+        self.incomplete = true;
     }
     pub fn object_bounds(&self, key: ObjectResourceKey) -> Result<MeshBoundVolume> {
         let mesh = self
@@ -620,6 +935,14 @@ impl LoadedVisualResources {
             .bound_volume()
             .copied()
             .ok_or(LoadedVisualError::InvalidGeometry)
+    }
+    /// Borrow the actual inherited mesh identity of a live Billboard owner.
+    pub fn billboard_mesh_key(&self, key: ObjectResourceKey) -> Result<MeshObjectKey> {
+        let object = self.objects.object(key)?;
+        if object.visual_type() != crate::i3d_object::ObjectVisualType::Billboard {
+            return Err(LoadedVisualError::UnsupportedVisual(Some(4)));
+        }
+        object.mesh.ok_or(LoadedVisualError::InvalidGeometry)
     }
     pub fn source_materials(&self, key: ObjectResourceKey) -> Result<&[lhr_assets::Material]> {
         self.objects.object(key)?;
@@ -654,6 +977,76 @@ impl LoadedVisualResources {
         }
         result
     }
+    /// I3D_billboard::Duplicate retains the inherited mesh while the Frame
+    /// duplicate owns its live orientation. The result remains a Billboard.
+    pub fn load_billboard_instance(
+        &mut self,
+        original: ObjectResourceKey,
+    ) -> Result<ObjectResourceKey> {
+        if self.incomplete {
+            return Err(LoadedVisualError::IncompleteAdmission);
+        }
+        let source = self.objects.object(original)?;
+        if source.visual_type() != crate::i3d_object::ObjectVisualType::Billboard {
+            return Err(LoadedVisualError::UnsupportedVisual(Some(4)));
+        }
+        let mesh = source.mesh;
+        let materials = self.source_materials(original)?.to_vec();
+        let result = (|| {
+            let object = self.objects.create_billboard_resources(mesh)?;
+            self.sources
+                .insert((object.arena(), object.slot()), materials);
+            Ok(object)
+        })();
+        if result.is_err() {
+            self.incomplete = true;
+        }
+        result
+    }
+    /// Native singlemorph Duplicate of a loaded source retains its definition
+    /// and duplicates the mutable mesh; singlemesh shares the inherited mesh.
+    /// The material names remain tied to the original source record.
+    pub fn load_singlemesh_instance(
+        &mut self,
+        original: ObjectResourceKey,
+    ) -> Result<ObjectResourceKey> {
+        if self.incomplete {
+            return Err(LoadedVisualError::IncompleteAdmission);
+        }
+        let source = self.objects.object(original)?;
+        let morph = match source.visual_type() {
+            crate::i3d_object::ObjectVisualType::Singlemorph => true,
+            crate::i3d_object::ObjectVisualType::Singlemesh => false,
+            _ => return Err(LoadedVisualError::UnsupportedVisual(None)),
+        };
+        let mesh = source.mesh.ok_or(LoadedVisualError::InvalidGeometry)?;
+        let materials = self.source_materials(original)?.to_vec();
+        let result = (|| {
+            let copied_mesh = if morph {
+                let duplicate = self.deform_create_empty_mesh()?;
+                if let Err(error) = self.deform_duplicate_mesh(duplicate, Some(mesh)) {
+                    let _ = self.deform_release_mesh(duplicate);
+                    return Err(error);
+                }
+                Some(duplicate)
+            } else {
+                None
+            };
+            let object = self
+                .objects
+                .create_singlemesh_resources(Some(copied_mesh.unwrap_or(mesh)), morph)?;
+            if let Some(duplicate) = copied_mesh {
+                self.deform_release_mesh(duplicate)?;
+            }
+            self.sources
+                .insert((object.arena(), object.slot()), materials);
+            Ok(object)
+        })();
+        if result.is_err() {
+            self.incomplete = true;
+        }
+        result
+    }
     pub fn load_plain_object(
         &mut self,
         source: &lhr_assets::Model,
@@ -665,6 +1058,42 @@ impl LoadedVisualResources {
             .get(index)
             .ok_or(LoadedVisualError::InvalidGeometry)?;
         if frame.kind != 1 || frame.visual != Some(0) {
+            return Err(LoadedVisualError::UnsupportedVisual(frame.visual));
+        }
+        self.load_base_object(source, index, installation)
+    }
+    pub fn load_billboard_source(
+        &mut self,
+        source: &lhr_assets::Model,
+        index: usize,
+        installation: &lhr_assets::Installation,
+    ) -> Result<ObjectResourceKey> {
+        let frame = source
+            .frames
+            .get(index)
+            .ok_or(LoadedVisualError::InvalidGeometry)?;
+        if frame.kind != 1 || frame.visual != Some(4) {
+            return Err(LoadedVisualError::UnsupportedVisual(frame.visual));
+        }
+        self.load_base_object(source, index, installation)
+    }
+    /// The inherited I3D_object::LoadImage mesh/material prefix for the two
+    /// skin-bearing visual classes. Their derived skin/morph state is owned by
+    /// ModelArena and never mistaken for an ordinary static object.
+    pub fn load_singlemesh_source(
+        &mut self,
+        source: &lhr_assets::Model,
+        index: usize,
+        installation: &lhr_assets::Installation,
+    ) -> Result<ObjectResourceKey> {
+        let frame = source
+            .frames
+            .get(index)
+            .ok_or(LoadedVisualError::InvalidGeometry)?;
+        if frame.kind != 1 || !matches!(frame.visual, Some(2 | 3)) || frame.skin.is_none() {
+            return Err(LoadedVisualError::UnsupportedVisual(frame.visual));
+        }
+        if frame.visual == Some(3) && frame.morph.is_none() {
             return Err(LoadedVisualError::UnsupportedVisual(frame.visual));
         }
         self.load_base_object(source, index, installation)
@@ -703,7 +1132,7 @@ impl LoadedVisualResources {
                 "instance must share prior loaded mesh",
             ));
         }
-        if frame.kind != 1 || !matches!(frame.visual, Some(0 | 1)) {
+        if frame.kind != 1 || !matches!(frame.visual, Some(0..=4)) {
             return Err(LoadedVisualError::UnsupportedVisual(frame.visual));
         }
         if frame.lods.len() > 10 {
@@ -720,6 +1149,11 @@ impl LoadedVisualResources {
                         .ok_or(LoadedVisualError::Backend(
                             "unconstructed lit requires assigned material",
                         ))?;
+                if material.animation.is_some() {
+                    return Err(LoadedVisualError::Backend(
+                        "unconstructed lit animated material unavailable",
+                    ));
+                }
                 if !material.texture.is_empty()
                     && (self.material_load_context.loaded_material_flags(material) & 0xe0000000
                         != 0
@@ -732,6 +1166,7 @@ impl LoadedVisualResources {
             }
         }
         let mut materials = BTreeMap::new();
+        let table = self.active_material_table;
         for lod in &frame.lods {
             if lod.uv_only.is_some() {
                 return Err(LoadedVisualError::Backend(
@@ -767,9 +1202,41 @@ impl LoadedVisualResources {
                     .ok_or(LoadedVisualError::InvalidGeometry)?
                     .clone();
                 if m.animation.is_some() {
-                    return Err(LoadedVisualError::Backend(
-                        "animated material ownership unavailable",
-                    ));
+                    if table.is_none() {
+                        return Err(LoadedVisualError::Backend(
+                            "animated material requires model Open table",
+                        ));
+                    }
+                    let animation = if table.is_some_and(|table| {
+                        self.animated_materials
+                            .contains_key(&(table.0, group.material))
+                    }) {
+                        PreparedAnimation {
+                            color: Vec::new(),
+                            environment: Vec::new(),
+                            environment_error: None,
+                            color_error: None,
+                        }
+                    } else {
+                        prepare_animation(
+                            &m,
+                            installation,
+                            self.material_load_context,
+                            self.inspection_rgba8_color_key,
+                        )?
+                    };
+                    materials.insert(
+                        group.material,
+                        PreparedMaterial {
+                            source: m,
+                            color: None,
+                            alpha: None,
+                            environment: None,
+                            inspection_rgba8_color_key: false,
+                            animation: Some(animation),
+                        },
+                    );
+                    continue;
                 }
                 let decode = |name: &str| -> Result<lhr_assets::Texture> {
                     let path = format!("maps/{name}");
@@ -832,14 +1299,17 @@ impl LoadedVisualResources {
                         alpha,
                         environment,
                         inspection_rgba8_color_key: inspection_keyed,
+                        animation: None,
                     },
                 );
             }
         }
         // All source validation and actual asset reads precede owned creation.
         for material in materials.values() {
-            self.material_load_context
-                .base_texture_flags(&material.source)?;
+            if material.animation.is_none() {
+                self.material_load_context
+                    .base_texture_flags(&material.source)?;
+            }
         }
         let result = self.admit_plain_object(frame, materials);
         if result.is_err() {
@@ -853,75 +1323,218 @@ impl LoadedVisualResources {
         materials: BTreeMap<usize, PreparedMaterial>,
     ) -> Result<ObjectResourceKey> {
         let mesh = self.objects.create_mesh_object()?;
-        let object = if frame.visual == Some(1) {
-            self.objects
-                .create_unconstructed_lit_object_resources(Some(mesh))?
-        } else {
-            self.objects.create_object_resources(Some(mesh))?
+        let object = match frame.visual {
+            Some(1) => self
+                .objects
+                .create_unconstructed_lit_object_resources(Some(mesh))?,
+            Some(2 | 3) => self
+                .objects
+                .create_singlemesh_resources(Some(mesh), frame.visual == Some(3))?,
+            Some(4) => self.objects.create_billboard_resources(Some(mesh))?,
+            _ => self.objects.create_object_resources(Some(mesh))?,
         };
+        self.interrupted_object = Some(object);
         self.objects.release_mesh_object(mesh, &mut self.backend)?;
+        #[cfg(test)]
+        if self.fail_after_object_constructor {
+            return Err(LoadedVisualError::Backend(
+                "injected post-constructor visual failure",
+            ));
+        }
         let mut mapped: BTreeMap<usize, MaterialKey> = BTreeMap::new();
         let mut source_materials = Vec::new();
         for (index, m) in materials {
-            let key = self.objects.create_material()?;
+            let identity = self.active_material_table.map(|table| (table.0, index));
+            if m.animation.is_some() {
+                if let Some(entry) = identity
+                    .and_then(|identity| self.animated_materials.get(&identity))
+                    .copied()
+                {
+                    source_materials.push(m.source);
+                    mapped.insert(index, entry.key);
+                    continue;
+                }
+            }
+            let key = if m.animation.is_some() {
+                self.objects.create_animated_material()?
+            } else {
+                self.objects.create_material()?
+            };
+            if m.animation.is_some() {
+                if let Some(identity) = identity {
+                    // The bounded table owns this reached material before
+                    // timing or any texture-frame intake can fail.
+                    self.animated_materials
+                        .insert(identity, AnimatedSourceMaterial { key });
+                }
+            }
             self.objects.install_loaded_material_scalars(
                 key,
                 &m.source,
                 self.material_load_context.loaded_material_flags(&m.source),
             )?;
-            if let Some(environment) = m.environment {
-                let texture_key = format!(
-                    "maps/{}|",
-                    m.source.environment_texture.as_deref().unwrap_or("")
-                );
-                let texture = self.backend.admit_texture_with_flags(
-                    &texture_key,
+            if let Some(animation) = m.animation {
+                self.objects
+                    .configure_loaded_animated_material(key, &m.source)?;
+                let PreparedAnimation {
+                    color,
                     environment,
-                    None,
-                    self.material_load_context
-                        .environment_texture_flags(&m.source),
+                    environment_error,
+                    color_error,
+                } = animation;
+                // PC LoadImage uses ENV_TEXTURE_FLAGS only for one env frame;
+                // its multi-frame branch passes the ordinary tflags verbatim.
+                let env_request = if m.source.animation.as_ref().unwrap().env_num_frames >= 2 {
+                    self.material_load_context.texture_flags(m.source.flags)
+                } else {
                     self.material_load_context
                         .environment_texture_flags(&m.source)
-                        & 0x10e,
-                )?;
-                self.objects.adopt_loaded_material_texture(
-                    key,
-                    Some(texture),
-                    true,
-                    &mut self.backend,
-                )?;
-                self.backend.release_texture(texture)?;
-            }
-            if let Some(color) = m.color {
-                let texture_key = format!(
-                    "maps/{}|{}",
-                    m.source.texture,
-                    m.source.alpha_texture.as_deref().unwrap_or("")
-                );
-                let texture = self.backend.admit_texture_with_flags(
-                    &texture_key,
-                    color,
-                    m.alpha,
-                    self.material_load_context
-                        .base_texture_request_flags(&m.source),
-                    self.material_load_context.base_texture_flags(&m.source)?,
-                )?;
-                if m.inspection_rgba8_color_key {
-                    self.backend
-                        .textures
-                        .get_mut(&texture.0)
-                        .ok_or(LoadedVisualError::Backend(
-                            "inspection color-key texture unavailable",
-                        ))?
-                        .inspection_rgba8_color_key = true;
+                };
+                if !environment.is_empty() && env_request & 2 != 0 && env_request & 0x40 == 0 {
+                    return Err(LoadedVisualError::Backend(
+                        "animated environment alpha/BPP flag domain unavailable",
+                    ));
                 }
-                self.objects.adopt_loaded_material_texture(
-                    key,
-                    Some(texture),
-                    false,
-                    &mut self.backend,
-                )?;
-                self.backend.release_texture(texture)?;
+                for frame in environment {
+                    let texture = if let Some(image) = frame.color {
+                        let texture_key = format!("maps/{}|", frame.name);
+                        Some(self.backend.admit_texture_with_flags(
+                            &texture_key,
+                            image,
+                            None,
+                            env_request,
+                            env_request & 0x10e,
+                        )?)
+                    } else {
+                        None
+                    };
+                    self.objects.append_loaded_animated_frame(
+                        key,
+                        texture,
+                        true,
+                        &mut self.backend,
+                    )?;
+                    if let Some(texture) = texture {
+                        self.backend.release_texture(texture)?;
+                    }
+                }
+                if let Some(error) = environment_error {
+                    return Err(error);
+                }
+                // The index selects a test-only interruption after ownership publication.
+                #[allow(clippy::unused_enumerate_index)]
+                for (_frame_index, frame) in color.into_iter().enumerate() {
+                    let attempted_create = !frame.name.is_empty()
+                        || (m.source.animation.as_ref().unwrap().num_frames < 2
+                            && m.source
+                                .alpha_texture
+                                .as_ref()
+                                .is_some_and(|name| !name.is_empty()));
+                    let base_flags = attempted_create
+                        .then(|| self.material_load_context.base_texture_flags(&m.source))
+                        .transpose()?;
+                    let texture = if let Some(image) = frame.color {
+                        let texture_key = format!(
+                            "maps/{}|{}",
+                            frame.name,
+                            m.source.alpha_texture.as_deref().unwrap_or("")
+                        );
+                        let texture = self.backend.admit_texture_with_flags(
+                            &texture_key,
+                            image,
+                            frame.alpha,
+                            self.material_load_context
+                                .base_texture_request_flags(&m.source),
+                            base_flags.ok_or(LoadedVisualError::InvalidGeometry)?,
+                        )?;
+                        if frame.inspection_rgba8_color_key {
+                            self.backend
+                                .textures
+                                .get_mut(&texture.0)
+                                .ok_or(LoadedVisualError::Backend(
+                                    "inspection animated color-key texture unavailable",
+                                ))?
+                                .inspection_rgba8_color_key = true;
+                        }
+                        Some(texture)
+                    } else {
+                        None
+                    };
+                    self.objects.append_loaded_animated_frame(
+                        key,
+                        texture,
+                        false,
+                        &mut self.backend,
+                    )?;
+                    if let Some(texture) = texture {
+                        self.backend.release_texture(texture)?;
+                    }
+                    #[cfg(test)]
+                    if self.fail_after_animated_frame == Some(_frame_index) {
+                        return Err(LoadedVisualError::Backend(
+                            "injected animated frame interruption",
+                        ));
+                    }
+                }
+                if let Some(error) = color_error {
+                    return Err(error);
+                }
+                self.objects.finish_loaded_animated_material(key)?;
+            } else {
+                if let Some(environment) = m.environment {
+                    let texture_key = format!(
+                        "maps/{}|",
+                        m.source.environment_texture.as_deref().unwrap_or("")
+                    );
+                    let texture = self.backend.admit_texture_with_flags(
+                        &texture_key,
+                        environment,
+                        None,
+                        self.material_load_context
+                            .environment_texture_flags(&m.source),
+                        self.material_load_context
+                            .environment_texture_flags(&m.source)
+                            & 0x10e,
+                    )?;
+                    self.objects.adopt_loaded_material_texture(
+                        key,
+                        Some(texture),
+                        true,
+                        &mut self.backend,
+                    )?;
+                    self.backend.release_texture(texture)?;
+                }
+                if let Some(color) = m.color {
+                    let texture_key = format!(
+                        "maps/{}|{}",
+                        m.source.texture,
+                        m.source.alpha_texture.as_deref().unwrap_or("")
+                    );
+                    let texture = self.backend.admit_texture_with_flags(
+                        &texture_key,
+                        color,
+                        m.alpha,
+                        self.material_load_context
+                            .base_texture_request_flags(&m.source),
+                        self.material_load_context.base_texture_flags(&m.source)?,
+                    )?;
+                    if m.inspection_rgba8_color_key {
+                        self.backend
+                            .textures
+                            .get_mut(&texture.0)
+                            .ok_or(LoadedVisualError::Backend(
+                                "inspection color-key texture unavailable",
+                            ))?
+                            .inspection_rgba8_color_key = true;
+                    }
+                    self.objects.adopt_loaded_material_texture(
+                        key,
+                        Some(texture),
+                        false,
+                        &mut self.backend,
+                    )?;
+                    self.backend.release_texture(texture)?;
+                }
             }
             source_materials.push(m.source);
             mapped.insert(index, key);
@@ -1074,11 +1687,18 @@ impl LoadedVisualResources {
             self.objects.release_mesh_level(level, &mut self.backend)?;
         }
         for material in mapped.into_values() {
-            self.objects.release_material(material, &mut self.backend)?;
+            if !self
+                .animated_materials
+                .values()
+                .any(|entry| entry.key == material)
+            {
+                self.objects.release_material(material, &mut self.backend)?;
+            }
         }
         self.objects.update_mesh_bound_volume(mesh)?;
         self.objects.unlock_all_indices(&mut self.backend)?;
         self.objects.unlock_all_vertices(&mut self.backend)?;
+        self.interrupted_object = None;
         Ok(object)
     }
     pub fn destroy_object(&mut self, key: ObjectResourceKey) -> Result<()> {
@@ -1120,6 +1740,201 @@ mod tests {
             height: 1,
             rgba: vec![value, value, value, 255],
         }
+    }
+    fn one_pixel_tga() -> Vec<u8> {
+        let mut tga = vec![0; 18];
+        tga[2] = 2;
+        tga[12] = 1;
+        tga[14] = 1;
+        tga[16] = 24;
+        tga[17] = 0x20;
+        tga.extend_from_slice(&[3, 5, 7]);
+        tga
+    }
+    fn short_name_animation_material() -> lhr_assets::Material {
+        lhr_assets::Material {
+            flags: 0x0408_0001,
+            ambient: [1.; 3],
+            diffuse: [1.; 3],
+            texture: "a.bmp".into(),
+            emission: [0.; 3],
+            opacity: 1.,
+            alpha_texture: None,
+            reflection: Some(1.),
+            environment_texture: Some("e.bmp".into()),
+            animation: Some(lhr_assets::TextureAnimation {
+                num_frames: 3,
+                env_num_frames: 4,
+                loop_frame: 0,
+                frame_delay: 60,
+                env_loop_frame: 0,
+                env_frame_delay: 60,
+            }),
+        }
+    }
+    fn admit_prepared_animation_and_close(
+        source: lhr_assets::Material,
+        animation: PreparedAnimation,
+        color_count: usize,
+        env_count: usize,
+        live_textures: usize,
+        expected_lod0: bool,
+    ) {
+        let mut owner = LoadedVisualResources::new().unwrap();
+        let mut frame = plain_frame_fixture();
+        for group in &mut frame.lods[0].groups {
+            group.material = 0;
+        }
+        let table = ModelMaterialTableKey(9970);
+        owner.begin_material_table(table).unwrap();
+        let object = owner
+            .admit_plain_object(
+                &frame,
+                BTreeMap::from([(
+                    0,
+                    PreparedMaterial {
+                        source,
+                        color: None,
+                        alpha: None,
+                        environment: None,
+                        inspection_rgba8_color_key: false,
+                        animation: Some(animation),
+                    },
+                )]),
+            )
+            .unwrap();
+        let key = owner.animated_materials[&(table.0, 0)].key;
+        let loaded = owner.objects.managed().resources().material(key).unwrap();
+        assert_eq!(loaded.flags & 0x800 != 0, expected_lod0);
+        let loaded = loaded.animation.as_ref().unwrap();
+        assert_eq!(loaded.textures.len(), color_count);
+        assert_eq!(loaded.env_textures.len(), env_count);
+        assert_eq!(owner.backend.live_textures(), live_textures);
+        owner.finish_material_table(table).unwrap();
+        owner.destroy_object(object).unwrap();
+        assert_eq!(owner.backend.live_textures(), 0);
+    }
+    #[test]
+    fn short_animated_basenames_record_one_null_per_color_and_environment_vector() {
+        let root = std::env::temp_dir().join(format!(
+            "lhr-animated-short-names-{}-{}",
+            std::process::id(),
+            identity().unwrap()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let installation = lhr_assets::Installation::open(&root).unwrap();
+        let source = short_name_animation_material();
+        let prepared = prepare_animation(
+            &source,
+            &installation,
+            MaterialLoadContext::ORIGINAL_DRIVER_INIT_DEFAULTS,
+            false,
+        )
+        .unwrap();
+        assert_eq!(prepared.color.len(), 1);
+        assert_eq!(prepared.environment.len(), 1);
+        assert!(prepared.color[0].color.is_none());
+        assert!(prepared.environment[0].color.is_none());
+        admit_prepared_animation_and_close(source, prepared, 1, 1, 0, false);
+        std::fs::remove_dir(root).unwrap();
+    }
+    #[test]
+    fn short_animated_alpha_name_is_reused_and_alpha_only_enters_color_section() {
+        let root = std::env::temp_dir().join(format!(
+            "lhr-animated-alpha-name-{}-{}",
+            std::process::id(),
+            identity().unwrap()
+        ));
+        std::fs::create_dir_all(root.join("maps")).unwrap();
+        let mut tga = vec![0; 18];
+        tga[2] = 2;
+        tga[12] = 1;
+        tga[14] = 1;
+        tga[16] = 24;
+        tga[17] = 0x20;
+        tga.extend_from_slice(&[3, 5, 7]);
+        for name in ["fx0000.tga", "fx0001.tga", "a.tga"] {
+            std::fs::write(root.join("maps").join(name), &tga).unwrap();
+        }
+        let installation = lhr_assets::Installation::open(&root).unwrap();
+        let mut source = short_name_animation_material();
+        source.flags |= 0x0200_0000;
+        source.texture = "fx0000.tga".into();
+        source.alpha_texture = Some("a.tga".into());
+        source.environment_texture = None;
+        source.animation.as_mut().unwrap().num_frames = 2;
+        let prepared = prepare_animation(
+            &source,
+            &installation,
+            MaterialLoadContext::ORIGINAL_DRIVER_INIT_DEFAULTS,
+            false,
+        )
+        .unwrap();
+        assert_eq!(prepared.color.len(), 2);
+        assert_eq!(prepared.color[0].name, "fx0000.tga");
+        assert_eq!(prepared.color[1].name, "fx0001.tga");
+        assert!(prepared.color.iter().all(|frame| frame.alpha.is_some()));
+        admit_prepared_animation_and_close(source.clone(), prepared, 2, 1, 2, false);
+        source.flags |= 0x800;
+        source.texture.clear();
+        source.animation.as_mut().unwrap().num_frames = 1;
+        let alpha_only = prepare_animation(
+            &source,
+            &installation,
+            MaterialLoadContext::ORIGINAL_DRIVER_INIT_DEFAULTS,
+            false,
+        )
+        .unwrap();
+        assert_eq!(alpha_only.color.len(), 1);
+        assert_eq!(alpha_only.color[0].name, "");
+        assert!(alpha_only.color[0].alpha.is_some());
+        admit_prepared_animation_and_close(source.clone(), alpha_only, 1, 1, 0, true);
+        source.animation.as_mut().unwrap().num_frames = 3;
+        let invalid_color = prepare_animation(
+            &source,
+            &installation,
+            MaterialLoadContext::ORIGINAL_DRIVER_INIT_DEFAULTS,
+            false,
+        )
+        .unwrap();
+        assert_eq!(invalid_color.color.len(), 1);
+        assert!(invalid_color.color[0].alpha.is_none());
+        admit_prepared_animation_and_close(source, invalid_color, 1, 1, 0, true);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn unconstructed_lit_animated_branch_stays_explicit_before_color_preflight() {
+        let root = std::env::temp_dir().join(format!(
+            "lhr-lit-animated-boundary-{}-{}",
+            std::process::id(),
+            identity().unwrap()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let installation = lhr_assets::Installation::open(&root).unwrap();
+        let mut frame = plain_frame_fixture();
+        frame.visual = Some(1);
+        for group in &mut frame.lods[0].groups {
+            group.material = 0;
+        }
+        let mut material = short_name_animation_material();
+        material.flags = 0x4508_0001;
+        material.texture = "fx0000.tga".into();
+        material.environment_texture = Some("env00.tga".into());
+        let source = lhr_assets::Model {
+            materials: vec![material],
+            frames: vec![frame],
+        };
+        let mut owner = LoadedVisualResources::new().unwrap();
+        assert!(matches!(
+            owner.load_unconstructed_lit_object(&source, 0, &installation),
+            Err(LoadedVisualError::Backend(
+                "unconstructed lit animated material unavailable"
+            ))
+        ));
+        assert!(owner.sources.is_empty());
+        assert!(owner.animated_materials.is_empty());
+        assert!(owner.take_interrupted_object().is_none());
+        std::fs::remove_dir(root).unwrap();
     }
     #[test]
     fn empty_alpha_is_normalized_before_managed_texture_flags_are_projected() {
@@ -1368,6 +2183,7 @@ mod tests {
             sector: None,
             skin: None,
             morph: None,
+            lensflare: None,
             parent: None,
             position: [0.; 3],
             scale: [1.; 3],
@@ -1401,6 +2217,493 @@ mod tests {
                     .collect(),
             }],
         }
+    }
+    #[test]
+    fn model_open_ordinal_table_shares_animated_material_until_both_visuals_close() {
+        let mut owner = LoadedVisualResources::new().unwrap();
+        let mut frame = plain_frame_fixture();
+        for group in &mut frame.lods[0].groups {
+            group.material = 0;
+        }
+        let source = lhr_assets::Material {
+            flags: 0x0400_0001,
+            ambient: [1.; 3],
+            diffuse: [1.; 3],
+            texture: "fx0000.tga".into(),
+            emission: [0.; 3],
+            opacity: 1.,
+            alpha_texture: None,
+            reflection: None,
+            environment_texture: None,
+            animation: Some(lhr_assets::TextureAnimation {
+                num_frames: 3,
+                env_num_frames: 0,
+                loop_frame: 1,
+                frame_delay: 60,
+                env_loop_frame: 0,
+                env_frame_delay: 0,
+            }),
+        };
+        let prepared = PreparedMaterial {
+            source: source.clone(),
+            color: None,
+            alpha: None,
+            environment: None,
+            inspection_rgba8_color_key: false,
+            animation: Some(PreparedAnimation {
+                color: (0..3)
+                    .map(|i| PreparedAnimatedFrame {
+                        name: format!("fx00{i:02}.tga"),
+                        color: Some(image(i + 1)),
+                        alpha: None,
+                        inspection_rgba8_color_key: false,
+                    })
+                    .collect(),
+                environment: vec![],
+                environment_error: None,
+                color_error: None,
+            }),
+        };
+        let table = ModelMaterialTableKey(4321);
+        owner.begin_material_table(table).unwrap();
+        let first = owner
+            .admit_plain_object(&frame, BTreeMap::from([(0, prepared)]))
+            .unwrap();
+        let material = owner.animated_materials[&(table.0, 0)].key;
+        let second = owner
+            .admit_plain_object(
+                &frame,
+                BTreeMap::from([(
+                    0,
+                    PreparedMaterial {
+                        source,
+                        color: None,
+                        alpha: None,
+                        environment: None,
+                        inspection_rgba8_color_key: false,
+                        animation: Some(PreparedAnimation {
+                            color: vec![],
+                            environment: vec![],
+                            environment_error: None,
+                            color_error: None,
+                        }),
+                    },
+                )]),
+            )
+            .unwrap();
+        assert_eq!(owner.animated_materials[&(table.0, 0)].key, material);
+        let group_material = |object| {
+            let mesh = owner.objects.object(object).unwrap().mesh.unwrap();
+            let level = owner
+                .objects
+                .managed()
+                .resources()
+                .mesh_object(mesh)
+                .unwrap()
+                .levels[0]
+                .unwrap();
+            let group = owner
+                .objects
+                .managed()
+                .resources()
+                .mesh_level(level)
+                .unwrap()
+                .fgroups
+                .unwrap();
+            owner
+                .objects
+                .managed()
+                .resources()
+                .face_group(group)
+                .unwrap()
+                .material
+                .unwrap()
+        };
+        assert_eq!(group_material(first), material);
+        assert_eq!(group_material(second), material);
+        assert_eq!(owner.backend.live_textures(), 3);
+        owner.finish_material_table(table).unwrap();
+        assert!(owner.animated_materials.is_empty());
+        owner.destroy_object(first).unwrap();
+        assert_eq!(owner.backend.live_textures(), 3);
+        owner.destroy_object(second).unwrap();
+        assert_eq!(owner.backend.live_textures(), 0);
+    }
+    #[test]
+    fn interrupted_animated_frame_stays_in_table_until_ordered_release() {
+        let mut owner = LoadedVisualResources::new().unwrap();
+        let mut frame = plain_frame_fixture();
+        frame.lods[0].groups[0].material = 0;
+        let source = lhr_assets::Material {
+            flags: 0x0400_0001,
+            ambient: [1.; 3],
+            diffuse: [1.; 3],
+            texture: "fx0000.tga".into(),
+            emission: [0.; 3],
+            opacity: 1.,
+            alpha_texture: None,
+            reflection: None,
+            environment_texture: None,
+            animation: Some(lhr_assets::TextureAnimation {
+                num_frames: 2,
+                env_num_frames: 0,
+                loop_frame: 0,
+                frame_delay: 60,
+                env_loop_frame: 0,
+                env_frame_delay: 0,
+            }),
+        };
+        let prepared = PreparedMaterial {
+            source,
+            color: None,
+            alpha: None,
+            environment: None,
+            inspection_rgba8_color_key: false,
+            animation: Some(PreparedAnimation {
+                color: (0..2)
+                    .map(|i| PreparedAnimatedFrame {
+                        name: format!("fx00{i:02}.tga"),
+                        color: Some(image(i + 1)),
+                        alpha: None,
+                        inspection_rgba8_color_key: false,
+                    })
+                    .collect(),
+                environment: vec![],
+                environment_error: None,
+                color_error: None,
+            }),
+        };
+        let table = ModelMaterialTableKey(9981);
+        owner.begin_material_table(table).unwrap();
+        owner.fail_after_animated_frame = Some(0);
+        assert!(matches!(
+            owner.admit_plain_object(&frame, BTreeMap::from([(0, prepared)])),
+            Err(LoadedVisualError::Backend(
+                "injected animated frame interruption"
+            ))
+        ));
+        let partial = owner.take_interrupted_object().unwrap();
+        let material = owner.animated_materials[&(table.0, 0)].key;
+        assert_eq!(owner.backend.live_textures(), 1);
+        assert_eq!(
+            owner
+                .objects
+                .managed()
+                .resources()
+                .material(material)
+                .unwrap()
+                .animation
+                .as_ref()
+                .unwrap()
+                .textures
+                .len(),
+            1
+        );
+        owner.finish_material_table(table).unwrap();
+        assert_eq!(owner.backend.live_textures(), 0);
+        assert!(owner
+            .objects
+            .managed()
+            .resources()
+            .material(material)
+            .is_err());
+        owner.destroy_object(partial).unwrap();
+    }
+    #[test]
+    fn animated_environment_owner_precedes_fallible_color_flags_and_name_prefix() {
+        let root = std::env::temp_dir().join(format!(
+            "lhr-animated-env-prefix-{}-{}",
+            std::process::id(),
+            identity().unwrap()
+        ));
+        std::fs::create_dir_all(root.join("maps")).unwrap();
+        for name in ["env00.tga", "fx0000.tga"] {
+            std::fs::write(root.join("maps").join(name), one_pixel_tga()).unwrap();
+        }
+        let installation = lhr_assets::Installation::open(&root).unwrap();
+        for (case, flags, frames, color_prefix, message) in [
+            (
+                0,
+                0x4508_0001,
+                1,
+                0,
+                "texture alpha/BPP flag domain unavailable",
+            ),
+            (
+                1,
+                0x0408_0001,
+                101,
+                100,
+                "animated filename three-digit branch unavailable",
+            ),
+        ] {
+            let mut source = short_name_animation_material();
+            source.flags = flags;
+            source.texture = "fx0000.tga".into();
+            source.environment_texture = Some("env00.tga".into());
+            let timing = source.animation.as_mut().unwrap();
+            timing.num_frames = frames;
+            timing.env_num_frames = 1;
+            let mut frame = plain_frame_fixture();
+            for group in &mut frame.lods[0].groups {
+                group.material = 0;
+            }
+            let model = lhr_assets::Model {
+                materials: vec![source],
+                frames: vec![frame],
+            };
+            let mut owner = LoadedVisualResources::new().unwrap();
+            let table = ModelMaterialTableKey(9910 + case);
+            owner.begin_material_table(table).unwrap();
+            assert!(matches!(
+                owner.load_plain_object(&model, 0, &installation),
+                Err(LoadedVisualError::Backend(reason)) if reason == message
+            ));
+            let partial = owner.take_interrupted_object().unwrap();
+            let material = owner.animated_materials[&(table.0, 0)].key;
+            let animation = owner
+                .objects
+                .managed()
+                .resources()
+                .material(material)
+                .unwrap()
+                .animation
+                .as_ref()
+                .unwrap();
+            assert_eq!(animation.env_textures.len(), 1);
+            assert!(animation.env_textures[0].is_some());
+            assert_eq!(animation.textures.len(), color_prefix);
+            assert_eq!(owner.backend.live_textures(), if case == 0 { 1 } else { 2 });
+            owner.finish_material_table(table).unwrap();
+            assert_eq!(owner.backend.live_textures(), 0);
+            owner.destroy_object(partial).unwrap();
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn nameless_animated_environment_preserves_loaded_lod0_bit_and_closes() {
+        let root = std::env::temp_dir().join(format!(
+            "lhr-animated-env-lod0-{}-{}",
+            std::process::id(),
+            identity().unwrap()
+        ));
+        std::fs::create_dir_all(root.join("maps")).unwrap();
+        std::fs::write(root.join("maps/env00.tga"), one_pixel_tga()).unwrap();
+        let installation = lhr_assets::Installation::open(&root).unwrap();
+        let mut source = short_name_animation_material();
+        source.flags = 0x0408_0801;
+        source.texture.clear();
+        source.alpha_texture = None;
+        source.environment_texture = Some("env00.tga".into());
+        source.animation.as_mut().unwrap().env_num_frames = 1;
+        let mut frame = plain_frame_fixture();
+        for group in &mut frame.lods[0].groups {
+            group.material = 0;
+        }
+        let model = lhr_assets::Model {
+            materials: vec![source],
+            frames: vec![frame],
+        };
+        let mut owner = LoadedVisualResources::new().unwrap();
+        let table = ModelMaterialTableKey(9912);
+        owner.begin_material_table(table).unwrap();
+        let object = owner.load_plain_object(&model, 0, &installation).unwrap();
+        let material = owner.animated_materials[&(table.0, 0)].key;
+        let loaded = owner
+            .objects
+            .managed()
+            .resources()
+            .material(material)
+            .unwrap();
+        assert_ne!(loaded.flags & 0x800, 0);
+        assert!(loaded.animation.as_ref().unwrap().env_textures[0].is_some());
+        owner.finish_material_table(table).unwrap();
+        assert_eq!(owner.backend.live_textures(), 1);
+        owner.destroy_object(object).unwrap();
+        assert_eq!(owner.backend.live_textures(), 0);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn fallible_environment_name_retains_its_frames_before_color_stage() {
+        let root = std::env::temp_dir().join(format!(
+            "lhr-animated-env-name-prefix-{}-{}",
+            std::process::id(),
+            identity().unwrap()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let installation = lhr_assets::Installation::open(&root).unwrap();
+        let mut source = short_name_animation_material();
+        source.texture = "fx0000.tga".into();
+        source.environment_texture = Some("env00.tga".into());
+        source.animation.as_mut().unwrap().env_num_frames = 101;
+        let mut frame = plain_frame_fixture();
+        for group in &mut frame.lods[0].groups {
+            group.material = 0;
+        }
+        let model = lhr_assets::Model {
+            materials: vec![source],
+            frames: vec![frame],
+        };
+        let mut owner = LoadedVisualResources::new().unwrap();
+        let table = ModelMaterialTableKey(9913);
+        owner.begin_material_table(table).unwrap();
+        assert!(matches!(
+            owner.load_plain_object(&model, 0, &installation),
+            Err(LoadedVisualError::Backend(
+                "animated filename three-digit branch unavailable"
+            ))
+        ));
+        let partial = owner.take_interrupted_object().unwrap();
+        let material = owner.animated_materials[&(table.0, 0)].key;
+        let animation = owner
+            .objects
+            .managed()
+            .resources()
+            .material(material)
+            .unwrap()
+            .animation
+            .as_ref()
+            .unwrap();
+        assert_eq!(animation.env_textures.len(), 100);
+        assert!(animation.env_textures.iter().all(Option::is_none));
+        assert!(animation.textures.is_empty());
+        owner.finish_material_table(table).unwrap();
+        owner.destroy_object(partial).unwrap();
+        std::fs::remove_dir(root).unwrap();
+    }
+    #[test]
+    fn animated_multi_environment_frames_use_ordinary_create_flags() {
+        let mut owner = LoadedVisualResources::new().unwrap();
+        let mut frame = plain_frame_fixture();
+        frame.lods[0].groups[0].material = 0;
+        let source = lhr_assets::Material {
+            flags: 0x0408_0001,
+            ambient: [1.; 3],
+            diffuse: [1.; 3],
+            texture: String::new(),
+            emission: [0.; 3],
+            opacity: 1.,
+            alpha_texture: None,
+            reflection: Some(1.),
+            environment_texture: Some("env00.tga".into()),
+            animation: Some(lhr_assets::TextureAnimation {
+                num_frames: 0,
+                env_num_frames: 2,
+                loop_frame: 0,
+                frame_delay: 0,
+                env_loop_frame: 0,
+                env_frame_delay: 60,
+            }),
+        };
+        let ordinary_flags = owner.material_load_context.texture_flags(source.flags);
+        assert_ne!(
+            ordinary_flags,
+            owner
+                .material_load_context
+                .environment_texture_flags(&source)
+        );
+        let prepared = PreparedMaterial {
+            source,
+            color: None,
+            alpha: None,
+            environment: None,
+            inspection_rgba8_color_key: false,
+            animation: Some(PreparedAnimation {
+                color: vec![],
+                environment: (0..2)
+                    .map(|i| PreparedAnimatedFrame {
+                        name: format!("env{i:02}.tga"),
+                        color: Some(image(i + 1)),
+                        alpha: None,
+                        inspection_rgba8_color_key: false,
+                    })
+                    .collect(),
+                environment_error: None,
+                color_error: None,
+            }),
+        };
+        let table = ModelMaterialTableKey(9982);
+        owner.begin_material_table(table).unwrap();
+        let object = owner
+            .admit_plain_object(&frame, BTreeMap::from([(0, prepared)]))
+            .unwrap();
+        let material = owner.animated_materials[&(table.0, 0)].key;
+        let env = &owner
+            .objects
+            .managed()
+            .resources()
+            .material(material)
+            .unwrap()
+            .animation
+            .as_ref()
+            .unwrap()
+            .env_textures;
+        assert_eq!(env.len(), 2);
+        for key in env.iter().flatten() {
+            assert_eq!(owner.backend.textures[&key.0].request_flags, ordinary_flags);
+        }
+        owner.finish_material_table(table).unwrap();
+        owner.destroy_object(object).unwrap();
+        assert_eq!(owner.backend.live_textures(), 0);
+    }
+    #[test]
+    fn inherited_singlemesh_and_singlemorph_own_distinct_resource_classes() {
+        let root = std::env::temp_dir().join(format!(
+            "lhr-derived-visual-{}-{}",
+            std::process::id(),
+            identity().unwrap()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let installation = lhr_assets::Installation::open(&root).unwrap();
+        let mut owner = LoadedVisualResources::new().unwrap();
+        for (visual, expected) in [
+            (2, crate::i3d_object::ObjectVisualType::Singlemesh),
+            (3, crate::i3d_object::ObjectVisualType::Singlemorph),
+        ] {
+            let mut frame = plain_frame_fixture();
+            frame.visual = Some(visual);
+            frame.skin = Some(lhr_assets::SkinRecord {
+                lods: vec![lhr_assets::SkinLodRecord { definition: None }],
+            });
+            if visual == 3 {
+                frame.morph = Some(lhr_assets::MorphRecord {
+                    target_count: 0,
+                    definition: None,
+                });
+            }
+            let source = lhr_assets::Model {
+                materials: vec![],
+                frames: vec![frame],
+            };
+            let key = owner
+                .load_singlemesh_source(&source, 0, &installation)
+                .unwrap();
+            assert_eq!(owner.objects.object(key).unwrap().visual_type(), expected);
+            assert!(owner.object_bounds(key).is_ok());
+            let copy = owner.load_singlemesh_instance(key).unwrap();
+            assert_eq!(owner.objects.object(copy).unwrap().visual_type(), expected);
+            let original_mesh = owner.object_mesh(key).unwrap();
+            let copied_mesh = owner.object_mesh(copy).unwrap();
+            assert_eq!(original_mesh == copied_mesh, visual == 2);
+            owner.destroy_object(key).unwrap();
+            assert!(owner.object_bounds(copy).is_ok());
+            owner.destroy_object(copy).unwrap();
+        }
+        let mut malformed = plain_frame_fixture();
+        malformed.visual = Some(3);
+        malformed.skin = Some(lhr_assets::SkinRecord {
+            lods: vec![lhr_assets::SkinLodRecord { definition: None }],
+        });
+        let source = lhr_assets::Model {
+            materials: vec![],
+            frames: vec![malformed],
+        };
+        assert!(matches!(
+            owner.load_singlemesh_source(&source, 0, &installation),
+            Err(LoadedVisualError::UnsupportedVisual(Some(3)))
+        ));
+        drop(installation);
+        std::fs::remove_dir(root).unwrap();
     }
     #[test]
     fn uv_only_lod_has_an_explicit_runtime_boundary_before_owned_allocation() {
@@ -1729,6 +3032,10 @@ pub enum RenderLodSelection {
     Missing { index: u32 },
     Culled { index: u32 },
 }
+enum RenderLodTarget {
+    Object(ObjectResourceKey),
+    Billboard(ObjectResourceKey),
+}
 impl LoadedVisualResources {
     /// Source no-callback selection on the SAME live object owner. Lit objects
     /// use common GetObjectLOD but skip the ordinary SetFade block.
@@ -1742,6 +3049,48 @@ impl LoadedVisualResources {
         frame_flags: u32,
         visual_flags: u32,
     ) -> Result<RenderLodSelection> {
+        self.select_render_lod_kind(
+            RenderLodTarget::Object(object),
+            distance_squared,
+            quality,
+            world_scale,
+            frame_flags,
+            visual_flags,
+        )
+    }
+    /// Native billboard shares GetObjectLOD but writes its own last-level
+    /// fade interval before ProductBillMatrix and lighting.
+    pub fn select_billboard_render_lod(
+        &mut self,
+        object: ObjectResourceKey,
+        distance_squared: f32,
+        quality: f32,
+        world_scale: f32,
+        frame_flags: u32,
+        visual_flags: u32,
+    ) -> Result<RenderLodSelection> {
+        self.select_render_lod_kind(
+            RenderLodTarget::Billboard(object),
+            distance_squared,
+            quality,
+            world_scale,
+            frame_flags,
+            visual_flags,
+        )
+    }
+    fn select_render_lod_kind(
+        &mut self,
+        target: RenderLodTarget,
+        distance_squared: f32,
+        quality: f32,
+        world_scale: f32,
+        frame_flags: u32,
+        visual_flags: u32,
+    ) -> Result<RenderLodSelection> {
+        let (object, billboard) = match target {
+            RenderLodTarget::Object(object) => (object, false),
+            RenderLodTarget::Billboard(object) => (object, true),
+        };
         if self.incomplete {
             return Err(LoadedVisualError::IncompleteAdmission);
         }
@@ -1754,7 +3103,10 @@ impl LoadedVisualResources {
             ));
         }
         let record = self.objects.object(object)?;
-        let lit = record.visual_type() == crate::i3d_object::ObjectVisualType::Lit;
+        if (record.visual_type() == crate::i3d_object::ObjectVisualType::Billboard) != billboard {
+            return Err(LoadedVisualError::UnsupportedVisual(billboard.then_some(4)));
+        }
+        let lit = record.visual_type() == crate::i3d_object::ObjectVisualType::LitUnconstructed;
         let Some(mesh) = record.mesh else {
             return Ok(RenderLodSelection::Missing { index: 0 });
         };
@@ -1810,13 +3162,23 @@ impl LoadedVisualResources {
         if lit {
             return Ok(RenderLodSelection::Selected { index, fade: 1. });
         }
-        let fade = crate::i3d_object::render_fade(
-            distance_squared,
-            quality,
-            world_scale,
-            index as usize,
-            &distances,
-        )
+        let fade = if billboard {
+            crate::i3d_object::render_billboard_fade(
+                distance_squared,
+                quality,
+                world_scale,
+                index as usize,
+                &distances,
+            )
+        } else {
+            crate::i3d_object::render_fade(
+                distance_squared,
+                quality,
+                world_scale,
+                index as usize,
+                &distances,
+            )
+        }
         .map_err(|_| LoadedVisualError::Backend("LOD fade arithmetic unavailable"))?;
         self.objects
             .set_render_fade(object, fade)
@@ -1930,3 +3292,7 @@ mod unconstructed_lit_admission_tests {
         std::fs::remove_dir_all(path).unwrap();
     }
 }
+
+#[cfg(test)]
+#[path = "saved_lit_storage_tests.rs"]
+mod saved_lit_storage_tests;

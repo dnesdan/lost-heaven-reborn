@@ -19,6 +19,23 @@ const MAX_SOURCE_BYTES: usize = 256 * 1024 * 1024;
 const MAX_RENDER_BYTES: usize = 256 * 1024 * 1024;
 const MAX_FRAMES: usize = 65536;
 const MAX_DRAWS: usize = 16384;
+static NEXT_WORLD_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+/// Host ownership domain for one durable physics/source graph. It is unrelated
+/// to original frame addresses and survives moves of this owner.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DrivingWorldIdentity(u64);
+impl DrivingWorldIdentity {
+    pub(crate) fn fresh() -> Result<Self, String> {
+        NEXT_WORLD_ID
+            .try_update(
+                std::sync::atomic::Ordering::Relaxed,
+                std::sync::atomic::Ordering::Relaxed,
+                |n| n.checked_add(1),
+            )
+            .map(Self)
+            .map_err(|_| "Driving world identity exhausted".into())
+    }
+}
 /// Host symbolic identity range, distinct from canonical frame-memory regions.
 /// Values in this range are resolved by the world owner, never dereferenced.
 pub const DRIVING_WORLD_FRAME_BASE: u32 = 0xd000_0000;
@@ -62,10 +79,37 @@ pub struct DrivingWorldFrameSource<'a> {
     pub properties: Option<&'a [u8]>,
     pub model_resource: Option<&'a str>,
 }
+/// Durable host selection identity from the parsed cache part/object tables.
+/// This is not a native frame pointer or a reconstructed streaming-controller ID.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub struct CachePlacementId {
+    pub part: usize,
+    pub object: usize,
+}
+/// Already-admitted cache source and the exact old physics graph correspondence.
+/// Canonical rendering must materialize its own actual arena/scene owners from
+/// this record; none of the old render snapshot's meshes are canonical draws.
+#[derive(Clone, Debug)]
+pub struct AdmittedCityCacheInstance {
+    pub id: CachePlacementId,
+    pub resource: String,
+    pub source: Arc<Model>,
+    pub position: [f32; 3],
+    pub rotation: SQuat,
+    pub root_scale: [f32; 3],
+    pub secondary_scale: [f32; 3],
+    /// Retained uninterpreted cache flags; actual On synchronization reads the
+    /// existing physics graph rather than assigning guessed flag meanings.
+    pub opaque_flags: u32,
+    pub world_root: FrameKey,
+    /// File-order source frame keys, independent of model membership order.
+    pub world_frames: Vec<FrameKey>,
+}
 /// Static frame/source ownership is distinct from the car's live ModelArena.
 /// It is never seeded from a native process. Render snapshots can be moved out
 /// while this owner and its independently owned collision candidates remain.
 pub struct DrivingWorldAssets {
+    identity: DrivingWorldIdentity,
     collision: DrivingCollisionWorld,
     render_scene: Scene,
     render_mesh_frames: Vec<FrameKey>,
@@ -82,6 +126,7 @@ pub struct DrivingWorldAssets {
     cache_failed: bool,
     cache_loaded: BTreeSet<(usize, usize)>,
     cache_models: BTreeMap<String, Arc<Model>>,
+    admitted_cache_instances: Vec<AdmittedCityCacheInstance>,
     cache_unsupported: BTreeMap<String, String>,
     source_bytes: usize,
     render_textures: BTreeMap<(String, [bool; 2]), Arc<Texture>>,
@@ -110,6 +155,24 @@ fn resource_model(name: &str) -> Result<String, String> {
         return Err("Invalid original model resource basename".into());
     }
     Ok(format!("models/{stem}.4ds"))
+}
+fn rewritten_cache_resource(name: &str) -> &str {
+    // Exact existing original cache-loader rewrite, PC401a67..401a8e.
+    if name.eq_ignore_ascii_case("0rek23.i3d") {
+        "0rek17.i3d"
+    } else {
+        name
+    }
+}
+/// Basename accepted by the same actual MissionCaches Models directory owner.
+pub fn normalized_cache_model_resource(name: &str) -> Result<String, String> {
+    let path = resource_model(rewritten_cache_resource(name))?;
+    let stem = path
+        .strip_prefix("models/")
+        .unwrap()
+        .strip_suffix(".4ds")
+        .unwrap();
+    Ok(format!("{stem}.i3d"))
 }
 fn frame_kind(kind: u8) -> Result<FrameKind, String> {
     Ok(match kind {
@@ -542,6 +605,7 @@ impl DrivingWorldAssets {
             &mut render_mesh_frames,
         )?;
         Ok(Self {
+            identity: DrivingWorldIdentity::fresh()?,
             collision,
             render_scene,
             render_mesh_frames,
@@ -558,6 +622,7 @@ impl DrivingWorldAssets {
             cache_failed: false,
             cache_loaded: BTreeSet::new(),
             cache_models: BTreeMap::new(),
+            admitted_cache_instances: Vec::new(),
             cache_unsupported: BTreeMap::new(),
             source_bytes,
             render_textures,
@@ -619,11 +684,7 @@ impl DrivingWorldAssets {
         let begin = self.sources.len();
         for (part, index, object) in selected {
             // Exact original cache-loader filename rewrite, PC401a67..401a8e.
-            let resource = if object.model.eq_ignore_ascii_case("0rek23.i3d") {
-                "0rek17.i3d"
-            } else {
-                &object.model
-            };
+            let resource = rewritten_cache_resource(&object.model);
             let path = resource_model(resource)?;
             if self.cache_unsupported.contains_key(&path) {
                 summary.unsupported += 1;
@@ -674,12 +735,24 @@ impl DrivingWorldAssets {
                     resource: resource.to_owned(),
                 },
             );
-            self.sources.push(append_cache_source(
-                &mut self.graph,
-                source,
-                root,
-                object.secondary_scale,
-            )?);
+            let owner = append_cache_source(&mut self.graph, source, root, object.secondary_scale)?;
+            self.admitted_cache_instances
+                .push(AdmittedCityCacheInstance {
+                    id: CachePlacementId {
+                        part,
+                        object: index,
+                    },
+                    resource: normalized_cache_model_resource(&object.model)?,
+                    source: owner.source.clone(),
+                    position: object.position,
+                    rotation,
+                    root_scale: object.scale,
+                    secondary_scale: object.secondary_scale,
+                    opaque_flags: object.flags,
+                    world_root: root,
+                    world_frames: owner.keys.clone(),
+                });
+            self.sources.push(owner);
             self.cache_loaded.insert((part, index));
             summary.loaded += 1;
         }
@@ -723,7 +796,6 @@ impl DrivingWorldAssets {
         {
             if self.frame_is_visible(*frame)? && mesh_near(mesh, position, radius) {
                 meshes.push(Mesh {
-                    lightmap: None,
                     material: mesh.material,
                     vertices: mesh.vertices.clone(),
                     indices: mesh.indices.clone(),
@@ -732,6 +804,15 @@ impl DrivingWorldAssets {
             }
         }
         Ok(Scene { meshes })
+    }
+    /// Only a completed old selector invocation can supply canonical adoption
+    /// metadata. A failed intake retains its prefix for diagnostics, not replay.
+    pub fn admitted_cache_instances(&self) -> Result<&[AdmittedCityCacheInstance], String> {
+        if self.cache_failed {
+            Err("Driving cache intake is interrupted; canonical adoption is unavailable".into())
+        } else {
+            Ok(&self.admitted_cache_instances)
+        }
     }
     pub fn collision(&self) -> &DrivingCollisionWorld {
         &self.collision
@@ -787,6 +868,9 @@ impl DrivingWorldAssets {
     }
     pub fn frame_graph(&self) -> &I3dFrameGraph {
         &self.graph
+    }
+    pub fn identity(&self) -> DrivingWorldIdentity {
+        self.identity
     }
     pub fn frame_world_matrix(
         &mut self,
@@ -1052,8 +1136,6 @@ fn render_sources(
                         .try_transform_point(*position)
                         .map_err(|e| format!("Driving render vertex: {e:?}"))?;
                     vertices.push(Vertex {
-                        lightmap_uv: [0.; 2],
-                        color: [1.; 3],
                         position: [p[0], p[1], -p[2]],
                         uv: vertex.uv,
                     });
@@ -1100,7 +1182,6 @@ fn render_sources(
                     triangle.swap(1, 2);
                 }
                 meshes.push(Mesh {
-                    lightmap: None,
                     material: Default::default(),
                     vertices,
                     indices,
@@ -1114,7 +1195,7 @@ fn render_sources(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     fn empty_collision_world() -> DrivingCollisionWorld {
         let mut bytes = vec![0; 36 + 104];
@@ -1139,12 +1220,16 @@ mod tests {
         let prepared = crate::collision_prepare::prepare_bound_collision_world(&bound).unwrap();
         DrivingCollisionWorld::from_prepared(&prepared, false).unwrap()
     }
-    fn cache_world(render_bytes: usize) -> DrivingWorldAssets {
+    pub(crate) fn cache_world(render_bytes: usize) -> DrivingWorldAssets {
         let mut graph = I3dFrameGraph::default();
         let mut primary = I3dFrameState::model();
         primary.kind = FrameKind::Sector;
         let primary = graph.insert(primary).unwrap();
         let mut visual = frame(1, None, [1.; 3], [0.; 3]);
+        // Match the admitted ordinary object constructor flags so this public
+        // fixture can also enter the real pristine MissionCaches copy path.
+        visual.logic_flags = 0x2a;
+        visual.culling = 0x11;
         visual.properties = b";X100M100;".to_vec();
         visual.lods[0].groups.push(lhr_assets::FaceGroup {
             material: 0,
@@ -1166,6 +1251,7 @@ mod tests {
             frames: vec![visual],
         });
         DrivingWorldAssets {
+            identity: DrivingWorldIdentity::fresh().unwrap(),
             collision: empty_collision_world(),
             render_scene: Scene { meshes: Vec::new() },
             render_mesh_frames: Vec::new(),
@@ -1203,6 +1289,7 @@ mod tests {
             cache_failed: false,
             cache_loaded: BTreeSet::new(),
             cache_models: BTreeMap::from([("models/fixture.4ds".into(), source)]),
+            admitted_cache_instances: Vec::new(),
             cache_unsupported: BTreeMap::new(),
             source_bytes: 0,
             render_textures: BTreeMap::new(),
@@ -1305,6 +1392,7 @@ mod tests {
             sector: None,
             skin: None,
             morph: None,
+            lensflare: None,
             parent,
             position,
             scale,
@@ -1377,5 +1465,32 @@ mod tests {
         ] {
             assert!(resource_model(name).is_err());
         }
+    }
+    #[test]
+    fn admitted_cache_records_keep_table_identity_pose_and_actual_world_keys() {
+        let mut world = cache_world(0);
+        let mut other = cache_world(0);
+        assert_ne!(world.identity(), other.identity());
+        let installation = Installation::open(env!("CARGO_MANIFEST_DIR")).unwrap();
+        world
+            .load_cache_render_near(&installation, [0.; 3], 10.)
+            .unwrap();
+        other
+            .load_cache_render_near(&installation, [0.; 3], 10.)
+            .unwrap();
+        let placement = &world.admitted_cache_instances().unwrap()[0];
+        assert_eq!(placement.id, CachePlacementId { part: 0, object: 0 });
+        assert_eq!(placement.resource, "fixture.i3d");
+        assert_eq!(placement.rotation.wxyz, [1., 0., 0., 0.]);
+        assert_eq!(placement.world_frames.len(), placement.source.frames.len());
+        let root = placement.world_root;
+        let mesh = placement.world_frames[0];
+        assert_eq!(world.graph.links(mesh).unwrap().parent, Some(root));
+        world.set_frame_on(root, 0).unwrap();
+        assert!(!world.frame_is_visible(mesh).unwrap());
+        assert_eq!(
+            normalized_cache_model_resource("0rek23.i3d").unwrap(),
+            "0rek17.i3d"
+        );
     }
 }

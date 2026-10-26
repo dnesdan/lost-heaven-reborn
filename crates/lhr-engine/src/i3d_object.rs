@@ -22,8 +22,8 @@
 //! required throughout. Explicit cleanup must occur before that backend goes
 //! away; Drop cannot run these required effects. Read-only views remain raw
 //! diagnostics after an interrupted cleanup; old slots can name retired LODs.
-#[path = "lit_lightmap_resources.rs"]
-mod lit_lightmap_resources;
+#[path = "lit_lod_storage.rs"]
+mod lit_lod_storage;
 #[path = "lit_object.rs"]
 mod lit_object;
 use crate::buffer_managers::{VertexOwnerKey, VertexRequest};
@@ -33,8 +33,12 @@ use crate::managed_visual_resources::{
 use crate::visual_resources::{
     CompleteVertexBuffer, FaceGroupKey, MaterialKey, MeshLevelKey, MeshObjectKey, TextureKey,
 };
-pub use lit_lightmap_resources::{LitLightmapResources, LitLodIndexBinding, LitVertexInfo};
-pub use lit_object::{LitLevelResources, LitObjectResources, ObjectVisualType};
+pub use lit_lod_storage::{
+    LitLodStorage, LitSourceBinding, LitStorageCounts, LitStoragePhase, RetiringLitArrays,
+};
+pub use lit_object::{
+    lightmap_atlas, saved_lightmaps, LitLevelResources, LitObjectResources, ObjectVisualType,
+};
 
 macro_rules! key {
     ($name:ident) => {
@@ -59,7 +63,6 @@ key!(ObjectResourceKey);
 pub enum ObjectError {
     Poisoned,
     Managed(ManagedError),
-    Lightmap(crate::lightmap_atlas::LightmapAtlasError),
     ForeignArena,
     IdentityOverflow,
     HostAllocation,
@@ -163,9 +166,7 @@ pub struct ObjectResources {
     lods: Vec<Option<Lod>>,
     objects: Vec<Option<I3dObjectResources>>,
     bindings: Vec<LodBinding>,
-    lightmap_lods: Vec<Option<LitLightmapResources>>,
-    lit_indices: Vec<LitLodIndexBinding>,
-    lightmap_atlases: crate::lightmap_atlas::LightmapAtlasRegistry,
+    lit_storage: Vec<LitLodStorage>,
     poisoned: bool,
 }
 impl ObjectResources {
@@ -175,15 +176,23 @@ impl ObjectResources {
             lods: Vec::new(),
             objects: Vec::new(),
             bindings: Vec::new(),
-            lightmap_lods: Vec::new(),
-            lit_indices: Vec::new(),
-            lightmap_atlases: crate::lightmap_atlas::LightmapAtlasRegistry::new()
-                .map_err(ObjectError::Lightmap)?,
+            lit_storage: Vec::new(),
             poisoned: false,
         })
     }
     pub fn managed(&self) -> &ManagedVisualResources {
         &self.managed
+    }
+    /// Counts saved-lighting LOD owners across all six levels, including inactive
+    /// and interrupted load prefixes. Retired object slots are excluded.
+    pub fn saved_lighting_lod_count(&self) -> usize {
+        self.objects
+            .iter()
+            .flatten()
+            .filter_map(I3dObjectResources::lit_object)
+            .flat_map(|lit| lit.levels.iter())
+            .map(|level| level.saved_lods.iter().flatten().count())
+            .sum()
     }
     pub fn lod_bindings(&self) -> &[LodBinding] {
         &self.bindings
@@ -230,7 +239,6 @@ impl ObjectResources {
     pub fn create_plain_lod(&mut self) -> Result<PlainLodKey, ObjectError> {
         self.available()?;
         let slot = Self::reserve(&mut self.lods)?;
-        Self::reserve(&mut self.lightmap_lods)?;
         self.lods.push(Some(Lod {
             lights_changed: u32::MAX,
             update_count: u32::MAX,
@@ -246,7 +254,6 @@ impl ObjectResources {
             owner: None,
             state: LodState::Constructed,
         }));
-        self.lightmap_lods.push(None);
         Ok(PlainLodKey {
             arena: self.managed.resources().identity(),
             slot,
@@ -276,6 +283,37 @@ impl ObjectResources {
             arena: self.managed.resources().identity(),
             slot,
         })
+    }
+    /// I3D_singlemesh and I3D_singlemorph inherit I3D_object mesh ownership.
+    /// The graph separately owns joint binding, morph weights and CPU pose.
+    pub fn create_singlemesh_resources(
+        &mut self,
+        mesh: Option<MeshObjectKey>,
+        morph: bool,
+    ) -> Result<ObjectResourceKey, ObjectError> {
+        let key = self.create_object_resources(mesh)?;
+        self.objects[(key.slot - 1) as usize]
+            .as_mut()
+            .unwrap()
+            .visual_type = if morph {
+            ObjectVisualType::Singlemorph
+        } else {
+            ObjectVisualType::Singlemesh
+        };
+        Ok(key)
+    }
+    /// Native I3D_billboard inherits I3D_object mesh and LOD teardown. Its
+    /// orientation and camera matrix are held by the owning live Frame.
+    pub fn create_billboard_resources(
+        &mut self,
+        mesh: Option<MeshObjectKey>,
+    ) -> Result<ObjectResourceKey, ObjectError> {
+        let key = self.create_object_resources(mesh)?;
+        self.objects[(key.slot - 1) as usize]
+            .as_mut()
+            .unwrap()
+            .visual_type = ObjectVisualType::Billboard;
+        Ok(key)
     }
     /// Unique transfer into one empty slot. Signed-negative native pointer
     /// indices are outside this safe host adapter, as are slots beyond nine.
@@ -331,7 +369,11 @@ impl ObjectResources {
             return Err(ManagedError::InvalidExtent.into());
         }
         Self::reserve(&mut self.bindings)?;
-        let position = if let Some(i) = self.bindings.iter().position(|b| b.lod == lod) {
+        let position = if let Some(i) = self
+            .bindings
+            .iter()
+            .position(|b| b.lod == lod && b.state != BindingState::Consumed)
+        {
             if self.bindings[i].state != BindingState::Pending {
                 return Err(ObjectError::StorageAlreadyInstalled.into());
             }
@@ -376,7 +418,10 @@ impl ObjectResources {
             return Err(ObjectError::LodDestructed(lod).into());
         }
         let descriptor = current.vertex_buffer;
-        let position = self.bindings.iter().position(|b| b.lod == lod);
+        let position = self
+            .bindings
+            .iter()
+            .position(|b| b.lod == lod && b.state != BindingState::Consumed);
         let owner = position.map(|i| self.bindings[i].owner);
         let result = managed_result(self.managed.free_vertex_storage(owner, descriptor, backend));
         if let Err(e) = result {
@@ -463,9 +508,7 @@ impl ObjectResources {
                             .levels[level]
                             .lods[lod_index];
                         if let Some(lod) = lod {
-                            self.lit_level_mut(object, level)?.saved_vertex_colors[lod_index] =
-                                None;
-                            self.cleanup_lit_lod(lod, backend)?;
+                            self.cleanup_saved_lit_lod(object, level, lod_index, backend)?;
                             self.lods[(lod.slot - 1) as usize] = None;
                             self.objects[index]
                                 .as_mut()
@@ -476,6 +519,14 @@ impl ObjectResources {
                                 .levels[level]
                                 .lods[lod_index] = None;
                         }
+                        self.objects[index]
+                            .as_mut()
+                            .unwrap()
+                            .lit_object
+                            .as_mut()
+                            .unwrap()
+                            .levels[level]
+                            .saved_lods[lod_index] = None;
                     }
                 }
             }
@@ -530,6 +581,10 @@ impl ObjectResources {
     pub fn create_material(&mut self) -> Result<MaterialKey, ObjectError> {
         self.available()?;
         self.managed.create_material().map_err(Into::into)
+    }
+    pub fn create_animated_material(&mut self) -> Result<MaterialKey, ObjectError> {
+        self.available()?;
+        self.managed.create_animated_material().map_err(Into::into)
     }
     pub fn create_face_group(&mut self) -> Result<FaceGroupKey, ObjectError> {
         self.available()?;
@@ -753,7 +808,10 @@ impl ObjectResources {
         backend: &mut B,
     ) -> Result<(), ObjectOperationError<B::Error>> {
         self.available()?;
-        if self.object(object)?.visual_type() != ObjectVisualType::Plain {
+        if !matches!(
+            self.object(object)?.visual_type(),
+            ObjectVisualType::Plain | ObjectVisualType::Billboard
+        ) {
             return Err(ObjectError::UnsupportedVisualSubtype.into());
         }
         let old = self.object(object)?.mesh;
@@ -837,6 +895,40 @@ impl ObjectResources {
 }
 
 impl ObjectResources {
+    pub(crate) fn configure_loaded_animated_material(
+        &mut self,
+        key: MaterialKey,
+        source: &lhr_assets::Material,
+    ) -> Result<(), ObjectError> {
+        self.available()?;
+        self.managed
+            .configure_loaded_animated_material(key, source)
+            .map_err(Into::into)
+    }
+    pub(crate) fn append_loaded_animated_frame<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        key: MaterialKey,
+        texture: Option<TextureKey>,
+        environment: bool,
+        backend: &mut B,
+    ) -> Result<(), ObjectOperationError<B::Error>> {
+        self.available()?;
+        managed_result(self.managed.append_loaded_animated_frame(
+            key,
+            texture,
+            environment,
+            backend,
+        ))
+    }
+    pub(crate) fn finish_loaded_animated_material(
+        &mut self,
+        key: MaterialKey,
+    ) -> Result<(), ObjectError> {
+        self.available()?;
+        self.managed
+            .finish_loaded_animated_material(key)
+            .map_err(Into::into)
+    }
     pub(crate) fn adopt_loaded_material_texture<B: ManagedVisualBackend + ?Sized>(
         &mut self,
         key: MaterialKey,
@@ -1523,5 +1615,5 @@ mod tests {
 
 #[path = "object_lod.rs"]
 mod object_lod;
-pub(crate) use object_lod::render_fade;
 pub use object_lod::ObjectLodError;
+pub(crate) use object_lod::{render_billboard_fade, render_fade};

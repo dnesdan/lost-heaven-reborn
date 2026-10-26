@@ -152,6 +152,8 @@ pub fn load(installation: &Installation, textures: &str) -> Result<LoadedScene, 
     );
     runtime.retain_metadata(metadata)?;
     Ok(LoadedScene {
+        canonical: None,
+        scene_frame: None,
         scene,
         camera,
         runtime,
@@ -555,6 +557,7 @@ mod tests {
                 joint: None,
                 skin: None,
                 morph: None,
+                lensflare: None,
                 target: None,
                 occluder: None,
                 sector: None,

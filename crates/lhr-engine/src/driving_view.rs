@@ -194,10 +194,13 @@ pub fn sync_audio_listener(
     owner: &mut lhr_engine::car_runtime::CarRuntime,
     camera: &Camera,
 ) -> Result<(), String> {
-    let (position, right) = listener_pose(camera)?;
+    camera.validate()?;
+    let scene = owner.scene().ok_or("Canonical audio Scene absent")?;
+    let (position, right) = lhr_engine::scene_render::active_listener(owner.arena_mut(), scene)?;
     owner.driving_set_audio_listener(position, right)
 }
 
+#[cfg(test)]
 fn listener_pose(camera: &Camera) -> Result<([f32; 3], [f32; 3]), String> {
     camera.validate()?;
     let right = (camera.target - camera.eye)
@@ -210,18 +213,105 @@ fn listener_pose(camera: &Camera) -> Result<([f32; 3], [f32; 3]), String> {
     ))
 }
 
+/// Existing inspection/chase controls author a real Scene camera frame. The
+/// resulting camera, not the host control object, owns view/projection and LOD.
+pub fn control_scene_camera(
+    owner: &mut lhr_engine::car_runtime::CarRuntime,
+    control: &Camera,
+    viewport: [u32; 2],
+) -> Result<(), String> {
+    use lhr_engine::scene_resources::SceneScreen;
+    struct Screen([u32; 2]);
+    impl SceneScreen for Screen {
+        type Error = ();
+        fn screen_sx(&mut self) -> Result<i32, ()> {
+            i32::try_from(self.0[0]).map_err(|_| ())
+        }
+        fn screen_sy(&mut self) -> Result<i32, ()> {
+            i32::try_from(self.0[1]).map_err(|_| ())
+        }
+    }
+    control.validate()?;
+    if viewport.contains(&0) {
+        return Err("Scene camera target is empty".into());
+    }
+    let scene = owner.scene().ok_or("Canonical car Scene absent")?;
+    let arena = owner.arena_mut();
+    let active = arena
+        .scene_active_camera(scene)
+        .map_err(|e| e.to_string())?;
+    let camera = match active {
+        Some(camera) => camera,
+        None => {
+            let camera = arena
+                .create_camera(&mut Screen(viewport))
+                .map_err(|e| format!("Scene camera construction: {e:?}"))?;
+            arena
+                .scene_set_active_camera(scene, Some(camera))
+                .map_err(|e| e.to_string())?;
+            // Scene retains this camera; release only the factory caller ref.
+            arena.release(camera.frame()).map_err(|e| e.to_string())?;
+            camera
+        }
+    };
+    let direction = control.target - control.eye;
+    arena
+        .camera_set_position(camera, [control.eye.x, control.eye.y, -control.eye.z])
+        .map_err(|e| e.to_string())?;
+    arena
+        .camera_set_direction(camera, [direction.x, direction.y, -direction.z], 0.)
+        .map_err(|e| e.to_string())?;
+    arena
+        .camera_set_range(camera, control.near, control.far)
+        .map_err(|e| e.to_string())?;
+    arena
+        .camera_set_aspect_ratio(camera, viewport[0] as f32 / viewport[1] as f32)
+        .map_err(|e| e.to_string())?;
+    arena
+        .camera_set_fov(camera, control.horizontal_fov_radians(viewport)?)
+        .map_err(|e| e.to_string())?;
+    arena.camera_update(camera).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub fn snapshot_scene(
+    owner: &mut lhr_engine::car_runtime::CarRuntime,
+    control: &Camera,
+    viewport: [u32; 2],
+    render_number: u32,
+) -> Result<lhr_engine::scene_render::CanonicalSceneSnapshot, String> {
+    if owner.has_canonical_scene_world() {
+        let model = owner.model().ok_or("Canonical driving model absent")?;
+        let world = owner
+            .arena_mut()
+            .world_matrix(model.root())
+            .map_err(|e| e.to_string())?;
+        owner.refresh_scene_city_cache(world.elements[12..15].try_into().unwrap())?;
+    }
+    owner.set_scene_viewport([0, 0, viewport[0] as i32, viewport[1] as i32])?;
+    control_scene_camera(owner, control, viewport)?;
+    let scene = owner.scene().ok_or("Canonical car Scene absent")?;
+    let rectangle = owner
+        .scene_viewport()
+        .ok_or("Canonical car viewport absent")?;
+    lhr_engine::scene_render::snapshot_scene(
+        owner.arena_mut(),
+        scene,
+        rectangle,
+        viewport,
+        render_number,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn triangle(color: [u8; 4]) -> Mesh {
         Mesh {
-            lightmap: None,
             material: Default::default(),
             vertices: vec![
                 lhr_render::Vertex {
-                    lightmap_uv: [0.; 2],
-                    color: [1.; 3],
                     position: [0.; 3],
                     uv: [0.; 2]
                 };
@@ -268,12 +358,9 @@ mod tests {
         use lhr_render::{Renderer, Scene, Texture, Vertex};
         use std::sync::Arc;
         let quad = |color: [u8; 4], x0: f32, x1: f32, y0: f32, y1: f32| Mesh {
-            lightmap: None,
             material: Default::default(),
             vertices: [[x0, y0, 0.], [x1, y0, 0.], [x1, y1, 0.], [x0, y1, 0.]]
                 .map(|position| Vertex {
-                    lightmap_uv: [0.; 2],
-                    color: [1.; 3],
                     position,
                     uv: [0.; 2],
                 })

@@ -15,6 +15,7 @@ impl Fixture {
         ));
         std::fs::create_dir_all(path.join("missions/synthetic")).unwrap();
         std::fs::create_dir_all(path.join("models")).unwrap();
+        std::fs::create_dir_all(path.join("Sounds")).unwrap();
         for (name, data) in [
             ("missions/synthetic/scene.4ds", world),
             ("missions/synthetic/scene2.bin", scene2),
@@ -76,7 +77,6 @@ fn request<'a>(directories: &'a [&'a [u8]]) -> MissionLoadRequest<'a> {
             global_mode: 0,
             screen_flag_46f4: false,
         },
-        native_sound_driver: NativeSceneSoundDriver::Absent,
     }
 }
 
@@ -157,6 +157,28 @@ fn object(kind: u32, name: &[u8], fields: &[u8]) -> Vec<u8> {
 fn model_object() -> Vec<u8> {
     object(9, b"instance", &chunk(0x2012, b"fixture.4ds\0"))
 }
+fn sound_object(name: &[u8]) -> Vec<u8> {
+    object(4, b"source sound", &chunk(0x4060, &chunk(0x10, name)))
+}
+fn pcm_wav() -> Vec<u8> {
+    let samples = [0i16, 1024, -1024, 0];
+    let mut bytes = b"RIFF".to_vec();
+    bytes.extend(44u32.to_le_bytes());
+    bytes.extend(b"WAVEfmt ");
+    bytes.extend(16u32.to_le_bytes());
+    bytes.extend(1u16.to_le_bytes());
+    bytes.extend(1u16.to_le_bytes());
+    bytes.extend(22_050u32.to_le_bytes());
+    bytes.extend(44_100u32.to_le_bytes());
+    bytes.extend(2u16.to_le_bytes());
+    bytes.extend(16u16.to_le_bytes());
+    bytes.extend(b"data");
+    bytes.extend(8u32.to_le_bytes());
+    for sample in samples {
+        bytes.extend(sample.to_le_bytes());
+    }
+    bytes
+}
 fn load(
     session: &mut MissionLoadSession,
     directories: &[&[u8]],
@@ -169,13 +191,20 @@ fn discard(session: &mut MissionLoadSession) {
         result.is_ok(),
         "{:?}; {:?}",
         session.discard_failure(),
-        session.owned_counts()
+        session.owned_counts().unwrap()
     );
     assert_eq!(
         session.discard_progress().phase,
         MissionDiscardPhase::Complete
     );
-    assert_eq!(session.owned_counts(), MissionOwnedCounts::default());
+    assert_eq!(
+        session.owned_counts().unwrap(),
+        MissionOwnedCounts::default()
+    );
+    let close = session.scene_close_report().unwrap();
+    assert!(close.native_managed_residency_absent);
+    assert!(!close.native_device_virtual14_executed);
+    assert!(close.canonical_managed_unload_executed);
 }
 
 #[test]
@@ -194,12 +223,12 @@ fn missing_world_preserves_real_scene_and_first_error_without_reentry() {
     assert!(session.loader().is_none());
     assert_eq!(session.scene2_byte_count(), None);
     let error = format!("{:?}", session.failure().unwrap());
-    let before = session.owned_counts();
+    let before = session.owned_counts().unwrap();
     assert_eq!(
         load(&mut session, &[]),
         Err(MissionLoadCallError::AlreadyEntered)
     );
-    assert_eq!(session.owned_counts(), before);
+    assert_eq!(session.owned_counts().unwrap(), before);
     assert_eq!(format!("{:?}", session.failure().unwrap()), error);
     discard(&mut session);
     assert!(session.arena().scene(scene).is_err());
@@ -256,9 +285,13 @@ fn unsupported_actor_root_is_the_exact_frontier_and_does_not_run_later_objects()
     let MissionLoadCause::Scene2Prefix(error) = &session.failure().unwrap().cause else {
         panic!("wrong frontier: {:?}", session.failure());
     };
+    // The reached actor-root arm now stops at the first unimplemented ordered
+    // actor dispatch, before the later object record can run.
     assert_eq!(error.cursor, 22); // LS header + version chunk + reached root header
-    assert_eq!(error.entry, 0x541743);
-    assert!(error.detail.contains("ae20"));
+    assert_eq!(error.entry, 0x544a16);
+    assert!(error
+        .detail
+        .contains("actor root requires ordered Game actor dispatch"));
     let loader = session.loader().unwrap();
     assert_eq!(loader.cursor, error.cursor);
     assert_eq!(loader.version, [Some(5), Some(1)]);
@@ -419,7 +452,7 @@ fn malformed_model_stops_cache_call_and_terminal_discard_preserves_interrupted_r
         .caches()
         .pending_names(MissionCacheKind::Model)
         .is_empty());
-    let before = session.owned_counts();
+    let before = session.owned_counts().unwrap();
     let scene = session.scene().unwrap();
     assert_eq!(
         session.discard_terminal(),
@@ -432,10 +465,10 @@ fn malformed_model_stops_cache_call_and_terminal_discard_preserves_interrupted_r
             error: MissionCacheError::Interrupted
         }
     ));
-    assert_eq!(session.discard_progress().caches_destructed, 1);
-    assert!(!session.discard_progress().scene_release_executed);
-    assert!(session.arena().scene(scene).is_ok());
-    assert_eq!(session.owned_counts(), before);
+    assert_eq!(session.discard_progress().caches_destructed, 0);
+    assert!(session.discard_progress().scene_release_executed);
+    assert!(session.arena().scene(scene).is_err());
+    assert_ne!(session.owned_counts().unwrap(), before);
     assert_eq!(format!("{:?}", session.failure().unwrap()), original_error);
     assert_eq!(
         session.discard_terminal(),
@@ -554,7 +587,7 @@ fn failed_world_prepare_preserves_scene_ownership_and_the_actual_cleanup_refusal
     assert!(session.loader().is_none());
     assert_eq!(session.scene2_byte_count(), None);
     let original_error = format!("{:?}", session.failure().unwrap());
-    let before = session.owned_counts();
+    let before = session.owned_counts().unwrap();
     assert_eq!(before.sector_allocations, 2);
     assert_eq!(
         session.discard_terminal(),
@@ -564,8 +597,9 @@ fn failed_world_prepare_preserves_scene_ownership_and_the_actual_cleanup_refusal
     // destructor preflight refuses the interrupted sector; it cannot silently
     // turn the prior MakeReady error into native cleanup success.
     assert_eq!(session.discard_progress().phase, MissionDiscardPhase::Scene);
-    assert_eq!(session.discard_progress().caches_destructed, 3);
+    assert_eq!(session.discard_progress().caches_destructed, 0);
     assert!(!session.discard_progress().scene_release_executed);
+    assert!(session.scene_close_report().is_none());
     assert!(!session.discard_progress().registry_storage_released);
     assert!(matches!(
         session.discard_failure().unwrap().cause,
@@ -573,7 +607,7 @@ fn failed_world_prepare_preserves_scene_ownership_and_the_actual_cleanup_refusal
             SceneResourceError::Model(ModelError::Sector(SectorError::Interrupted))
         ))
     ));
-    assert_eq!(session.owned_counts(), before);
+    assert_eq!(session.owned_counts().unwrap(), before);
     assert_eq!(session.driver().scenes(), &[scene]);
     assert_eq!(session.arena().scene(scene).unwrap().frames(), frames);
     for &frame in &frames {
@@ -592,28 +626,78 @@ fn failed_world_prepare_preserves_scene_ownership_and_the_actual_cleanup_refusal
 }
 
 #[test]
-fn listener_boundary_preserves_then_releases_unregistered_constructed_scene() {
+fn initialized_host_audio_creates_and_releases_actual_listener() {
     let fixture = Fixture::new(Some(&world(&[dummy(0, b"part")])), Some(&scene2(&[])), None);
     let mut session = fixture.session();
-    let mut input = request(&[]);
-    input.native_sound_driver = NativeSceneSoundDriver::Uninitialized;
-    assert_eq!(
-        session.load(input, &mut Screen::default()),
-        Err(MissionLoadCallError::Stopped)
-    );
-    assert!(matches!(
-        session.failure().unwrap().cause,
-        MissionLoadCause::SceneCreation {
-            phase: DriverSceneCreatePhase::Listener,
-            ..
-        }
-    ));
+    load(&mut session, &[]).unwrap();
     let scene = session.scene().unwrap();
-    assert!(session.driver().scenes().is_empty());
-    assert!(session.resources().construction(scene).is_some());
-    assert!(session.world_progress().is_none());
+    assert_eq!(session.driver().scenes(), &[scene]);
+    assert_eq!(session.owned_counts().unwrap().driver_listeners, 1);
+    assert_eq!(session.owned_counts().unwrap().audio_sounds, 0);
+    assert!(!session.owned_counts().unwrap().audio_listener_pose);
     discard(&mut session);
     assert!(session.arena().scene(scene).is_err());
+}
+
+#[test]
+fn scene2_sound_open_uses_real_cache_pcm_owners_and_terminal_release() {
+    let bytes = scene2(&chunk(0x4000, &sound_object(b"a.wav\0")));
+    let fixture = Fixture::new(Some(&world(&[])), Some(&bytes), None);
+    std::fs::write(fixture.0.join("Sounds/a.wav"), pcm_wav()).unwrap();
+    let mut session = fixture.session();
+    load(&mut session, &[]).unwrap();
+    let before = session.owned_counts().unwrap();
+    assert_eq!(before.driver_listeners, 1);
+    assert_eq!(before.driver_sound_frames, 2);
+    assert_eq!(before.audio_sounds, 2);
+    assert_eq!(before.audio_voices, 2);
+    assert_eq!(before.audio_sources, 1);
+    assert_eq!(session.caches().len(MissionCacheKind::Sound), 1);
+    assert_eq!(
+        session
+            .caches()
+            .sound_open_progress()
+            .unwrap()
+            .sound_open_result,
+        Some(0)
+    );
+    discard(&mut session);
+}
+
+#[test]
+fn sound_cache_error_retains_first_scene2_prefix_and_refused_destructor() {
+    let bytes = scene2(&chunk(0x4000, &sound_object(b"broken.wav\0")));
+    let fixture = Fixture::new(Some(&world(&[])), Some(&bytes), None);
+    std::fs::write(fixture.0.join("Sounds/broken.wav"), b"not PCM WAV").unwrap();
+    let mut session = fixture.session();
+    assert_eq!(load(&mut session, &[]), Err(MissionLoadCallError::Stopped));
+    let MissionLoadCause::Scene2Prefix(error) = &session.failure().unwrap().cause else {
+        panic!("expected first Scene2 Sound Open failure");
+    };
+    assert_eq!(error.entry, 0x542e9a);
+    assert!(error.cursor > 0);
+    let first = format!("{:?}", session.failure().unwrap());
+    assert!(session.caches().is_interrupted(MissionCacheKind::Sound));
+    let open = session.caches().sound_open_progress().unwrap();
+    assert_eq!(open.flags, 0x10);
+    assert_eq!(open.name, b"broken.wav");
+    assert_eq!(open.path.as_deref(), Some(b"Sounds\\broken.wav".as_slice()));
+    assert_eq!(
+        session.discard_terminal(),
+        Err(MissionDiscardCallError::Stopped)
+    );
+    assert!(matches!(
+        session.discard_failure().unwrap().cause,
+        MissionDiscardCause::Cache {
+            kind: MissionCacheKind::Sound,
+            error: MissionCacheError::Interrupted
+        }
+    ));
+    assert_eq!(
+        session.discard_progress().phase,
+        MissionDiscardPhase::Cache(MissionCacheKind::Sound)
+    );
+    assert_eq!(format!("{:?}", session.failure().unwrap()), first);
 }
 
 #[test]
@@ -637,7 +721,7 @@ fn early_constructor_failure_is_retained_and_cannot_be_force_destroyed() {
         }
     ));
     let scene = session.scene().unwrap();
-    let before = session.owned_counts();
+    let before = session.owned_counts().unwrap();
     assert!(session.arena().scene(scene).is_ok());
     assert!(session.resources().construction(scene).is_none());
     assert_eq!(
@@ -646,7 +730,7 @@ fn early_constructor_failure_is_retained_and_cannot_be_force_destroyed() {
     );
     assert!(matches!(session.discard_failure().unwrap().cause,
         MissionDiscardCause::UnregisteredScene(SceneResourceError::UnknownConstruction(key)) if key == scene));
-    assert_eq!(session.owned_counts(), before);
+    assert_eq!(session.owned_counts().unwrap(), before);
     assert!(!session.discard_progress().scene_release_executed);
 }
 
@@ -686,21 +770,11 @@ fn independent_sessions_cannot_resolve_each_others_map_references() {
     discard(&mut second);
 }
 
-#[test]
-fn terminal_disposal_counts_and_releases_actual_saved_lightmap_owners() {
-    let fixture = Fixture::new(Some(&world(&[])), Some(&scene2(&[])), None);
-    let mut session = fixture.session();
-    load(&mut session, &[]).unwrap();
-    assert_eq!(
-        session.owned_counts().visual_lightmaps,
-        AtlasStatistics::default()
-    );
-
-    // Explicit synthetic resource setup after the prefix has finished. This
-    // exercises genuine Scene/LMAP ownership without inventing the still-missing
-    // original Game scene2 visual replacement or saved-lighting dispatch.
+fn install_scene_visual(session: &mut MissionLoadSession) -> FrameKey {
     let mut visual = crate::model_loading::tests::frame(1, None, [0.; 3]);
-    visual.visual = Some(1);
+    // Start with the 4DS plain OBJ_ class. Visual ordinal 1 constructs LMAP
+    // directly, which would bypass the scene2 OBJ_ -> LMAP replacement.
+    visual.visual = Some(0);
     visual.render_flags = 0;
     visual.logic_flags = 0;
     visual.lods.push(lhr_assets::Lod {
@@ -749,6 +823,28 @@ fn terminal_disposal_counts_and_releases_actual_saved_lightmap_owners() {
     session.arena.scene_add_frame(scene, frame).unwrap();
     session.arena.release(model.root()).unwrap();
 
+    // Scene owns the sole remaining frame reference. Replacement's
+    // Scene::DeleteFrame must therefore destroy the old visual.
+    assert_eq!(session.arena.frame(frame).unwrap().references, 1);
+    assert_eq!(
+        session.arena.owned_object_visual_type(frame).unwrap(),
+        crate::visual_replacement::OBJECT_VISUAL
+    );
+
+    frame
+}
+
+#[test]
+fn terminal_disposal_counts_and_releases_actual_saved_lightmap_owners() {
+    let fixture = Fixture::new(Some(&world(&[])), Some(&scene2(&[])), None);
+    let mut session = fixture.session();
+    load(&mut session, &[]).unwrap();
+    assert_eq!(
+        session.owned_counts().unwrap().visual_lightmaps,
+        AtlasStatistics::default()
+    );
+
+    let old = install_scene_visual(&mut session);
     let mut body = Vec::new();
     body.extend(1u16.to_le_bytes()); // one rectangle
     body.extend(1u16.to_le_bytes()); // one actual face group
@@ -771,36 +867,183 @@ fn terminal_disposal_counts_and_releases_actual_saved_lightmap_owners() {
     }
     body.extend(1u32.to_le_bytes()); // actual face count
     body.extend(0u16.to_le_bytes()); // face rectangle assignment
-    let payload = [
-        vec![1],
-        crate::loaded_visual_resources::saved_lightmap_fixture::record(1, &[body]),
-    ]
-    .concat();
+    let mut payload = vec![1, 0x21, 2]; // one saved lighting, version, lightmap mode
+    payload.extend(1u32.to_le_bytes());
+    payload.extend(5f32.to_le_bytes());
+    payload.extend(45f32.to_le_bytes());
+    payload.push(1); // one LOD
+    payload.extend(0u16.to_le_bytes());
+    payload.extend(body);
+    let bytes = scene2(&chunk(
+        0x4000,
+        &object(
+            0,
+            b"fixture",
+            &[
+                chunk(
+                    0x4090,
+                    &crate::visual_replacement::LIT_OBJECT_VISUAL.to_le_bytes(),
+                ),
+                chunk(0x40a0, &payload),
+            ]
+            .concat(),
+        ),
+    ));
+    let scene = session.scene().unwrap();
+    let mut loader =
+        MissionSceneLoader::new(&session.arena, scene).unwrap_or_else(|e| panic!("{}", e.detail));
     assert_eq!(
-        session
-            .arena
-            .load_frame_saved_lighting(frame, &payload)
-            .unwrap(),
-        payload.len()
+        loader.load_map.map.slot(b"fixture"),
+        Some(Some(session.arena.lookup_reference(old)))
     );
-    let before = session.owned_counts();
-    assert_eq!(before.scene_lightmaps, AtlasStatistics::default());
+    loader
+        .load_prefix_with_resource_cache(
+            &mut session.driver,
+            &mut session.arena,
+            &session.resources,
+            &mut Screen::default(),
+            GameCameraProjection {
+                global_mode: 0,
+                screen_flag_46f4: false,
+            },
+            &bytes,
+            &mut session.caches,
+            &session.installation,
+            &mut session.cache_memory,
+        )
+        .unwrap();
+    assert_eq!(loader.cursor, bytes.len());
+    assert!(session.arena.frame(old).is_err());
+    let frame = FrameKey(loader.current_frame.unwrap().identity());
+    assert_ne!(frame, old);
+    assert_eq!(
+        session.arena.owned_object_visual_type(frame).unwrap(),
+        crate::visual_replacement::LIT_OBJECT_VISUAL
+    );
+    session.loader = Some(loader);
+    let before = session.owned_counts().unwrap();
     assert_eq!(
         before.visual_lightmaps,
         AtlasStatistics {
-            allocations: 1,
-            failed_allocations: 0,
-            atlases: 1,
-            rgba_bytes: 128 * 128 * 4,
+            live_pages: 1,
+            live_allocations: 1,
         }
     );
     assert_eq!(session.phase(), MissionLoadPhase::PrefixComplete);
     assert!(session.failure().is_none());
+    assert_eq!(before.saved_lighting_lods, 1);
 
     discard(&mut session);
     assert!(session.arena().frame(frame).is_err());
     assert_eq!(
-        session.owned_counts().visual_lightmaps,
+        session.owned_counts().unwrap().visual_lightmaps,
         AtlasStatistics::default()
     );
+}
+
+#[test]
+fn pending_factory_creator_is_released_before_scene_teardown() {
+    let fixture = Fixture::new(Some(&world(&[])), Some(&scene2(&[])), None);
+    let mut session = fixture.session();
+    load(&mut session, &[]).unwrap();
+    let pending = session
+        .arena
+        .insert(
+            crate::frame_transform::I3dFrameState::dummy(),
+            None,
+            Vec::new(),
+            Vec::new(),
+            None,
+        )
+        .unwrap();
+    session.loader.as_mut().unwrap().pending_factory_creator =
+        Some(session.arena.lookup_reference(pending));
+    assert_eq!(session.owned_counts().unwrap().pending_factory_creator, 1);
+    discard(&mut session);
+    assert!(session.arena().frame(pending).is_err());
+}
+
+#[test]
+fn scene2_saved_lighting_replacement_uses_current_owner_and_terminal_disposal() {
+    let fixture = Fixture::new(Some(&world(&[])), Some(&scene2(&[])), None);
+    let mut session = fixture.session();
+    load(&mut session, &[]).unwrap();
+    let old = install_scene_visual(&mut session);
+    let mut colors = vec![1, 0x21, 1]; // one lighting, version 0x21, vertex mode
+    colors.extend(1u32.to_le_bytes());
+    colors.extend(5f32.to_le_bytes());
+    colors.extend(45f32.to_le_bytes());
+    colors.push(1); // native saved-lighting level one (first of six slots)
+    colors.extend(0u16.to_le_bytes());
+    for color in [0xff102030u32, 0xff405060, 0xff708090] {
+        colors.extend(color.to_le_bytes());
+    }
+    let bytes = scene2(&chunk(
+        0x4000,
+        &object(
+            0,
+            b"fixture",
+            &[
+                chunk(
+                    0x4090,
+                    &crate::visual_replacement::LIT_OBJECT_VISUAL.to_le_bytes(),
+                ),
+                chunk(0x40a0, &colors),
+            ]
+            .concat(),
+        ),
+    ));
+    // Drive the actual current scene2 dispatcher over the session's real Scene
+    // and model arena. This controlled second input is a synthetic regression,
+    // not another MissionLoadSession::load admission.
+    let scene = session.scene().unwrap();
+    let mut loader =
+        MissionSceneLoader::new(&session.arena, scene).unwrap_or_else(|e| panic!("{}", e.detail));
+    loader
+        .load_prefix_with_resource_cache(
+            &mut session.driver,
+            &mut session.arena,
+            &session.resources,
+            &mut Screen::default(),
+            GameCameraProjection {
+                global_mode: 0,
+                screen_flag_46f4: false,
+            },
+            &bytes,
+            &mut session.caches,
+            &session.installation,
+            &mut session.cache_memory,
+        )
+        .unwrap();
+    assert_eq!(loader.cursor, bytes.len());
+    assert_eq!(loader.finished_objects, 1);
+    assert!(session.arena.frame(old).is_err());
+    let replacement = FrameKey(loader.current_frame.unwrap().identity());
+    assert_ne!(replacement, old);
+    assert_eq!(
+        session.arena.owned_object_visual_type(replacement).unwrap(),
+        crate::visual_replacement::LIT_OBJECT_VISUAL
+    );
+    let object = session
+        .arena
+        .frame_object_resources(replacement)
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        session.arena.loaded_visual_resources().unwrap().saved_lit_lod(object, 0).unwrap(),
+        Some(crate::i3d_object::saved_lightmaps::SavedLitLod::VertexColors { colors, .. })
+            if colors.len() == 3
+    ));
+    assert_eq!(
+        session
+            .arena
+            .loaded_visual_resources()
+            .unwrap()
+            .objects()
+            .saved_lighting_lod_count(),
+        1
+    );
+    session.loader = Some(loader);
+    discard(&mut session);
+    assert!(session.arena().frame(replacement).is_err());
 }

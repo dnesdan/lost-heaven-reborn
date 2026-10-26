@@ -1,13 +1,13 @@
 # Reconstruction goals
 
 Build a standalone Rust engine that runs the original PC campaign from the user's
-own assets. The immediate goal is the playable first mission from the original
-menu through completion. Static inspection and standalone driving do not satisfy it.
+own assets. The immediate goal is the playable first mission, from the original
+menu through completion. Inspection and standalone driving do not satisfy it.
 
 ## First-mission acceptance
 
-All six gates remain open. [Coverage](../COVERAGE.md) records the separate strict
-12-system registry; accepted scoped work remains 311 entries / 114 contracts.
+All six gates remain open. Accepted scoped work stays **311 entries / 114
+contracts**, strict **0/12**, whole-function coverage **N/A**.
 
 | Gate | Required evidence |
 | --- | --- |
@@ -18,40 +18,45 @@ All six gates remain open. [Coverage](../COVERAGE.md) records the separate stric
 | Repeatability | Restart/repeated runs match representative original-runtime and interactive sequences. |
 | Standalone execution | User assets suffice; original executables and REA remain development-only inputs. |
 
-Linux software Vulkan is exercised. Native macOS/Metal remains untested; the Linux
-Apple cross-check is blocked by missing CoreAudio SDK headers.
+## Current foundation and next dependencies
 
-## Remaining dependency order
+Genuine visual replacement and saved lighting now feed actual scene-owned
+resources, UV2/atlases, the active Camera's three draw passes and bounded
+portal/occluder visibility. Admitted nearby cache selections create actual shared
+model instances; guarded owners retain interrupted failures. This does not
+complete original startup, streaming or mission execution.
 
-1. Connect the implemented saved vertex/rectangle lighting resource paths to the
-   actual scene `LMAP` payload and visual replacement. Complete SceneOpen progress
-   presentation and genuine MissionOpen owners. The shared
-   [host load session and probe](mission-load-session.md) retain the real world,
-   scene2 prefix and cleanup frontier; they do not implement MissionOpen.
-2. Connect original startup/menu, player/camera, graphics, input, audio,
-   profiles and tables. Extend source lighting, fog, specialized visual passes
-   and portal/occluder visibility through the retained scene.
-3. Complete authored actor, animation, collision and vehicle lifetimes through
-   real mission owners, including remaining GameInit/GameDone dependencies.
-4. Complete script expressions, parameter/compiler/lifecycle cases, scheduler,
-   world effects, replay, objectives and mission completion. The historical
-   authored MISE01 script probe stopped at FINDACTOR/UnsupportedWorldBackend at
-   PC 3 / source line 4. The shared load probe may stop earlier in world or scene2
-   intake and must not skip that first failure to reach the script probe.
-5. Validate the complete first mission against original-runtime and interactive
-   Rust sequences, including restart, cleanup and required presentation. Keep
-   CPU/source projections, GPU checks and complete application parity distinct.
+1. Continue the real scene2 consumer from **44 records / cursor 18693**:
+   implement the reached `FRAME_DUMMY` (6) factory for `detector_konec`, then
+   subsequent genuine dependencies. Complete SceneOpen progress callbacks and
+   production MissionOpen owners without skipping reached failures.
+2. Diagnose the dark or absent road and sky; the cause remains unresolved.
+   Extend ordinary lighting/material branches, fog, specialized visual passes,
+   remaining camera/driver cache effects and saved-lightmap variants. Preserve
+   actual resource ownership and distinguish the host cache selector from the
+   original city-streaming controller.
+3. Connect original startup/menu, player, input, audio, profiles and tables;
+   complete actor, animation, collision and vehicle lifetimes through mission
+   owners and original update scheduling.
+4. Complete script expressions, compiler/parameters, world effects, replay,
+   objectives and mission completion. The separate authored MISE01 script probe
+   remains FINDACTOR/UnsupportedWorldBackend at PC 3 / source line 4.
+5. Validate complete first-mission runs, restart and cleanup against relevant
+   original-runtime evidence and interactive Rust sequences. This milestone adds
+   no original executable/function execution or parity claim.
 
 ## Reconstruction rules
 
 Use REA/Ghidra contracts keyed by binary hash and canonical entry. Actual PS2
 symbols establish names; PC layout, ABI and behavior need separate evidence.
-Implement dependencies through real owners, compare admitted domains, and keep
-unsupported paths explicit. Two sequential independent reviews precede acceptance.
-Original models/missions are general regression inputs, not implementation special
-cases. Static pseudocode, scoped ports and complete systems remain separate counts.
+Implement dependencies through real owners, preserve explicit unsupported
+boundaries, and require two sequential independent reviews. Original models and
+missions are general regression inputs. Static pseudocode, scoped ports and
+complete systems remain separate counts.
 
-[Current progress](PROGRESS.md) · [technical reference audit](REFERENCE_PROJECTS.md) ·
-[previous detailed goals](history/2026-10-25-goals.md).
+Linux software Vulkan is exercised; native macOS/Metal remains untested.
+[Progress](PROGRESS.md) · [coverage](../COVERAGE.md) ·
+[reference audit](REFERENCE_PROJECTS.md) ·
+[complete predecessor goals](history/2026-10-26-scene-render-predecessor.md#goals).
 Optional [enhanced assets](ASSET_ENHANCEMENT.md) follow original-data compatibility
 and the playable-mission goal.

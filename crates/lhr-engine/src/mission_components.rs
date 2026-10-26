@@ -10,7 +10,7 @@
 
 #[path = "mission_game.rs"]
 mod game;
-pub use game::{GameConstructorGlobals, GameConstructorInputs};
+pub use game::{CameraProfile, CameraResetError, GameConstructorGlobals, GameConstructorInputs};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MissionComponentKind {
@@ -228,6 +228,29 @@ impl MissionComponent {
         let identity = out.identity();
         game::construct(&mut out.allocation.bytes, identity, inputs, globals);
         Ok(out)
+    }
+    /// Reset the embedded live G_Camera from the profile owner when reached.
+    /// A missing Game owner is an explicit host dependency boundary. A failed
+    /// profile read keeps Reset's four already-written zero words and makes the
+    /// partially reset component unavailable for automatic replay.
+    pub fn reset_game_camera<P: CameraProfile>(
+        &mut self,
+        profile: &mut P,
+        look_from_eyes: &mut u32,
+    ) -> Result<(), CameraResetError<P::Error>> {
+        if self.kind != MissionComponentKind::Game
+            || !self.constructed
+            || self.destroyed
+            || self.interrupted
+        {
+            return Err(CameraResetError::UnavailableOwner);
+        }
+        let camera = &mut self.allocation.bytes[0x4c..0x4c + game::camera::CAMERA_BYTES];
+        let result = game::camera::reset(camera, profile, look_from_eyes);
+        if matches!(&result, Err(CameraResetError::Profile(_))) {
+            self.interrupted = true;
+        }
+        result
     }
     pub fn effects(&self) -> Option<&crate::effects_table::EffectsTable> {
         self.effects.as_ref()
@@ -536,6 +559,56 @@ mod tests {
         assert_eq!(memory.frees, vec![0x6d00_0000]);
         assert!(node.destroy(&mut memory).is_err());
         assert_eq!(memory.frees.len(), 1);
+    }
+    #[test]
+    fn game_camera_reset_reborrows_the_constructed_component_and_retains_failure_prefix() {
+        struct Profile(Result<u32, &'static str>);
+        impl CameraProfile for Profile {
+            type Error = &'static str;
+            fn camera_setting(&mut self) -> Result<u32, Self::Error> {
+                self.0
+            }
+        }
+        let domain = MissionMemoryDomainId::fresh();
+        let mut globals = GameConstructorGlobals {
+            word_6d4b1c: 1,
+            word_6bdb10: 0xa5a5_a5a5,
+        };
+        let mut game = MissionComponent::construct_game(
+            MissionAllocation {
+                domain,
+                identity: 0x10000,
+                bytes: vec![0xa5; MissionComponentKind::Game.allocation_size()],
+            },
+            GameConstructorInputs {
+                vector_control: 0x7d,
+                embedded_4c_control: 0x11,
+            },
+            &mut globals,
+        )
+        .unwrap();
+        assert_eq!(globals.word_6bdb10, 0);
+        let mut look = 0xdead_beef;
+        game.reset_game_camera(&mut Profile(Ok(3)), &mut look)
+            .unwrap();
+        assert_eq!(game.word(0x4c + 0x10), 3);
+        assert_eq!(game.word(0x4c + 0x14), 3);
+        assert_eq!(look, 0);
+        let before = game.raw_bytes().to_vec();
+        game.put(0x4c + 4, 0xffff_ffff);
+        look = 0xdead_beef;
+        assert_eq!(
+            game.reset_game_camera(&mut Profile(Err("profile")), &mut look),
+            Err(CameraResetError::Profile("profile")),
+        );
+        assert_eq!(game.word(0x4c + 4), 0);
+        assert_eq!(game.word(0x4c + 0x10), 3);
+        assert_eq!(game.raw_bytes()[0x4c + 0x20], before[0x4c + 0x20]);
+        assert_eq!(look, 0xdead_beef);
+        assert_eq!(
+            game.reset_game_camera(&mut Profile(Ok(9)), &mut look),
+            Err(CameraResetError::UnavailableOwner),
+        );
     }
     #[test]
     fn literal_web_path_leaves_and_effects_completion_obey_lifetime_phase() {

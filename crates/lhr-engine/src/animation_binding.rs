@@ -128,6 +128,7 @@ mod tests {
                 joint: None,
                 skin: None,
                 morph: None,
+                lensflare: None,
                 target: None,
                 occluder: None,
                 sector: None,

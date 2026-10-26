@@ -2,7 +2,8 @@
 //!
 //! mafia-re 29b65b0, IGraph/IGraph.cpp:3349..3525. The source interior loop
 //! advances the horizontal offset twice; crossing a row there is intentional.
-//! Admitted arithmetic is PC24/RN: binary32 operations in source order, no
+//! This is a pinned-source PC24/RN arithmetic profile, not a claim of original
+//! runtime or function parity: binary32 operations in source order, no
 //! fused multiply/add, and FloatToInt's round-to-nearest/ties-even. Dimensions
 //! and pixel sums stay in the normal finite binary32 range. This does not
 //! represent the x87 status word or alternative rounding-control settings.

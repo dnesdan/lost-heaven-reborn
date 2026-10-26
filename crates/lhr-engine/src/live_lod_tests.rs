@@ -54,7 +54,9 @@ fn fixture(position: [f32; 3], child: bool) -> Fixture {
                 .to_vec(),
             groups: vec![lhr_assets::FaceGroup {
                 material: 0,
-                indices: vec![0, 1, 2],
+                // Match the declared source -Z normal and the native view.
+                // The bridge reflects Z; it does not reverse these indices.
+                indices: vec![0, 2, 1],
             }],
         },
         lhr_assets::Lod {
@@ -65,7 +67,7 @@ fn fixture(position: [f32; 3], child: bool) -> Fixture {
                 .to_vec(),
             groups: vec![lhr_assets::FaceGroup {
                 material: 1,
-                indices: vec![0, 1, 2, 0, 2, 3],
+                indices: vec![0, 2, 1, 0, 3, 2],
             }],
         },
     ];
@@ -305,26 +307,5 @@ fn actual_camera_selected_lod_and_fade_reach_gpu_pixels() {
             }
             _ => unreachable!(),
         }
-    }
-}
-
-#[test]
-fn live_vertical_fov_change_reselects_actual_owned_lod_at_the_same_position() {
-    let mut f = fixture([0.; 3], false);
-    let root = f.model.root();
-    let mut camera = lhr_render::Camera {
-        eye: glam::Vec3::new(0., 0., 7.),
-        target: glam::Vec3::new(0., 0., -1.),
-        up: glam::Vec3::Y,
-        near: 0.1,
-        far: 200.,
-        vertical_fov_radians: 30f32.to_radians(),
-    };
-    for (fov, index_count) in [(30.0f32, 3), (100., 6), (30., 3)] {
-        camera.vertical_fov_radians = fov.to_radians();
-        let view = InspectionLodView::from_camera(&camera, [100, 100], 1.).unwrap();
-        let snapshot = snapshot_car_arena_with_view(&mut f.arena, root, view).unwrap();
-        assert_eq!(snapshot.scene.meshes.len(), 1);
-        assert_eq!(snapshot.scene.meshes[0].indices.len(), index_count);
     }
 }

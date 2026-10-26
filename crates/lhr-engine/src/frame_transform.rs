@@ -37,11 +37,14 @@ pub enum FrameKind {
     Sector,
     Model,
     Mesh,
+    /// Native LENS visual; glow records and materials remain source-owned.
+    Lensflare,
     /// Native visual type1, projector subtype PROJ.
     Projector,
     Light,
     Sound,
     Dummy,
+    Area,
     Joint,
     Target,
     /// A Joint::UpdateV target with optional owned binding fields. Only an
@@ -93,6 +96,14 @@ impl I3dFrameState {
     pub fn mesh() -> Self {
         let mut state = Self::model();
         state.kind = FrameKind::Mesh;
+        state.visual_flags = 0x2a00;
+        state
+    }
+    /// I3D_lensflare constructor (PC RVA 0x09520) inherits I3D_visual
+    /// (RVA 0x5a200). Its glows are owned by the source model.
+    pub fn lensflare() -> Self {
+        let mut state = Self::model();
+        state.kind = FrameKind::Lensflare;
         state.visual_flags = 0x2a00;
         state
     }
@@ -293,6 +304,7 @@ impl I3dFrameGraph {
             node.state.kind,
             FrameKind::Model
                 | FrameKind::Dummy
+                | FrameKind::Area
                 | FrameKind::Joint
                 | FrameKind::Target
                 | FrameKind::Light
@@ -300,7 +312,14 @@ impl I3dFrameGraph {
                 | FrameKind::Camera
                 | FrameKind::Occluder
         ) && !(empty_scene && matches!(node.state.kind, FrameKind::Scene | FrameKind::Sector))
-            && !(plain_visual && matches!(node.state.kind, FrameKind::Mesh | FrameKind::Projector))
+            && !(plain_visual
+                && matches!(
+                    node.state.kind,
+                    FrameKind::Mesh
+                        | FrameKind::Projector
+                        | FrameKind::Lensflare
+                        | FrameKind::Singlemesh
+                ))
         {
             return Err(FrameError::UnsupportedDestruction(key));
         }
@@ -384,6 +403,26 @@ impl I3dFrameGraph {
     /// links carry no references; detaching children never releases them and
     /// RemoveChild deliberately preserves their matrix caches.
     pub(crate) fn destroy_derived(&mut self, key: FrameKey) -> Result<(), FrameError> {
+        if self.state(key)?.kind == FrameKind::Singlemesh && self.node(key)?.binding.is_some() {
+            // I3D_singlemesh::~I3D_singlemesh clears each joint's backlink
+            // before freeing its own joint array and per-LOD skin definitions.
+            // A failed LoadImage can leave its constructor null joint array.
+            let joints = self.singlemesh_binding(key)?.joints().to_vec();
+            for joint in joints.into_iter().flatten() {
+                if self.joint_state(joint)?.singlemesh == Some(key) {
+                    self.node_mut(joint)?.joint.as_mut().unwrap().singlemesh = None;
+                }
+            }
+            // The owned slot array is freed with the singlemesh. Clear the
+            // host projection too, so surviving joints have no stale incoming
+            // link after their backlink has been removed.
+            self.node_mut(key)?
+                .binding
+                .as_mut()
+                .unwrap()
+                .joints
+                .fill(None);
+        }
         if let Some(joint) = self.node(key)?.joint {
             if let Some(target) = joint.singlemesh {
                 let linked = self.singlemesh_binding(target)?.joints[joint.index as usize].unwrap();
@@ -556,6 +595,47 @@ impl I3dFrameGraph {
             .state(key)
             .map_err(|_| FrameError::TargetUnavailable(key))
     }
+    /// Native GetTarget scans live registrations in order, independent of the
+    /// source file's parsed Target reference words.
+    pub(crate) fn first_target_owner(
+        &self,
+        frame: FrameKey,
+    ) -> Result<Option<FrameKey>, FrameError> {
+        self.index(frame)?;
+        Ok(self.targets.first_owner(frame))
+    }
+    /// Target::Duplicate stores the live derived flags after common copy.
+    pub(crate) fn copy_target_duplicate_flags(
+        &mut self,
+        target: FrameKey,
+        flags: u32,
+    ) -> Result<(), FrameError> {
+        self.target_state(target)?;
+        self.targets
+            .state_mut(target)
+            .map_err(|_| FrameError::TargetUnavailable(target))?
+            .copy_duplicate_flags(flags);
+        Ok(())
+    }
+    /// Deferred DuplicateHierarchy AddToTarget, with its first-owner removal
+    /// and one append per queued member. Preserve any completed prefix on an
+    /// allocation failure, just as the live Target registry does.
+    pub(crate) fn add_duplicate_target_member(
+        &mut self,
+        target: FrameKey,
+        frame: FrameKey,
+    ) -> Result<(), FrameError> {
+        self.target_state(target)?;
+        self.index(frame)?;
+        let mut targets = std::mem::take(&mut self.targets);
+        let result = targets.add_to_target(
+            target,
+            frame,
+            &mut self.node_mut(frame).unwrap().state.flags,
+        );
+        self.targets = targets;
+        result.map_err(|_| FrameError::TargetUnavailable(target))
+    }
 
     pub fn joint_state(&self, key: FrameKey) -> Result<&I3dJointState, FrameError> {
         self.node(key)?
@@ -605,6 +685,7 @@ impl I3dFrameGraph {
                     kind,
                     FrameKind::Model
                         | FrameKind::Mesh
+                        | FrameKind::Lensflare
                         | FrameKind::Projector
                         | FrameKind::Singlemesh
                 ) {
@@ -1486,7 +1567,10 @@ impl I3dFrameGraph {
             n.state.update_count = n.state.update_count.wrapping_add(1);
             if matches!(
                 n.state.kind,
-                FrameKind::Mesh | FrameKind::Projector | FrameKind::Singlemesh
+                FrameKind::Mesh
+                    | FrameKind::Projector
+                    | FrameKind::Singlemesh
+                    | FrameKind::Lensflare
             ) && n.state.visual_flags & 0x40 == 0
             {
                 n.state.visual_flags &= !0x40000;
@@ -1511,6 +1595,14 @@ impl I3dFrameGraph {
             return Err(error);
         }
         if self.state(key)?.kind == FrameKind::Light {
+            let light = self.light_state(key)?;
+            if light.pending_sector_add
+                || ((5..=7).contains(&light.light_type) && !light.sectors.is_empty())
+            {
+                // Linked fog UpdateV also changes the owning sectors' selected
+                // fog pointers; the graph alone cannot complete that effect.
+                return Err(FrameError::UnsupportedFrameUpdate(key));
+            }
             return self.update_light_v(key);
         }
         if self.state(key)?.kind == FrameKind::Target {
@@ -1555,7 +1647,10 @@ impl I3dFrameGraph {
         if s.flags & DIRTY != 0 {
             if matches!(
                 s.kind,
-                FrameKind::Mesh | FrameKind::Projector | FrameKind::Singlemesh
+                FrameKind::Mesh
+                    | FrameKind::Projector
+                    | FrameKind::Singlemesh
+                    | FrameKind::Lensflare
             ) && s.visual_flags & 0x40 == 0
             {
                 s.visual_flags &= !0x1c0000;
@@ -1574,7 +1669,7 @@ impl I3dFrameGraph {
     pub fn update(&mut self, key: FrameKey) -> Result<(), FrameError> {
         if matches!(
             self.state(key)?.kind,
-            FrameKind::Camera | FrameKind::Sector | FrameKind::Occluder
+            FrameKind::Camera | FrameKind::Sector | FrameKind::Occluder | FrameKind::Area
         ) {
             return Err(FrameError::UnsupportedFrameUpdate(key));
         }
@@ -1602,10 +1697,18 @@ impl I3dFrameGraph {
                 } else {
                     let done = visits.pop().unwrap();
                     if let Some(p) = visits.last_mut() {
-                        if matches!(
-                            self.state(done.key)?.kind,
-                            FrameKind::Camera | FrameKind::Sector | FrameKind::Occluder
-                        ) {
+                        let linked_fog = self.state(done.key)?.kind == FrameKind::Light
+                            && (5..=7).contains(&self.light_state(done.key)?.light_type)
+                            && !self.light_state(done.key)?.sectors.is_empty();
+                        if linked_fog
+                            || matches!(
+                                self.state(done.key)?.kind,
+                                FrameKind::Camera
+                                    | FrameKind::Sector
+                                    | FrameKind::Occluder
+                                    | FrameKind::Area
+                            )
+                        {
                             camera_update(self, done.key)?;
                         } else {
                             self.update_v(done.key)?;
@@ -1619,10 +1722,15 @@ impl I3dFrameGraph {
                     }
                 }
             }
-            if matches!(
-                self.state(key)?.kind,
-                FrameKind::Camera | FrameKind::Sector | FrameKind::Occluder
-            ) {
+            let linked_fog = self.state(key)?.kind == FrameKind::Light
+                && (5..=7).contains(&self.light_state(key)?.light_type)
+                && !self.light_state(key)?.sectors.is_empty();
+            if linked_fog
+                || matches!(
+                    self.state(key)?.kind,
+                    FrameKind::Camera | FrameKind::Sector | FrameKind::Occluder | FrameKind::Area
+                )
+            {
                 camera_update(self, key)?;
             } else {
                 self.update_v(key)?;
@@ -1642,7 +1750,10 @@ impl I3dFrameGraph {
             let s = &mut self.node_mut(key)?.state;
             if matches!(
                 s.kind,
-                FrameKind::Mesh | FrameKind::Projector | FrameKind::Singlemesh
+                FrameKind::Mesh
+                    | FrameKind::Projector
+                    | FrameKind::Singlemesh
+                    | FrameKind::Lensflare
             ) && s.flags & DIRTY != 0
                 && s.visual_flags & 0x40 == 0
             {
@@ -1762,6 +1873,37 @@ mod tests {
             graph.destroy(mesh),
             Err(FrameError::UnsupportedDestruction(mesh))
         );
+    }
+
+    #[test]
+    fn singlemesh_teardown_clears_both_sides_of_surviving_joint_links() {
+        let mut graph = I3dFrameGraph::default();
+        let mut state = I3dFrameState::mesh();
+        state.kind = FrameKind::Singlemesh;
+        let mesh = graph
+            .insert_singlemesh_binding(
+                state,
+                SinglemeshInvalidationState { joints_changed: 0 },
+                true,
+            )
+            .unwrap();
+        let joint = graph.insert(I3dFrameState::joint()).unwrap();
+        graph
+            .assign_joint_singlemesh_target(joint, Some(mesh))
+            .unwrap();
+        graph
+            .node_mut(mesh)
+            .unwrap()
+            .binding
+            .as_mut()
+            .unwrap()
+            .joints = vec![Some(joint)];
+        graph.check_destruction_with_owned_visual(mesh).unwrap();
+        graph.destroy_derived(mesh).unwrap();
+        assert_eq!(graph.joint_state(joint).unwrap().singlemesh, None);
+        assert_eq!(graph.singlemesh_binding(mesh).unwrap().joints(), &[None]);
+        graph.destroy_base(mesh).unwrap();
+        graph.destroy(joint).unwrap();
     }
 
     #[test]

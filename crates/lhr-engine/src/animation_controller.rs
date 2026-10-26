@@ -558,6 +558,7 @@ mod tests {
                     sector: None,
                     skin: None,
                     morph: None,
+                    lensflare: None,
                     parent: None,
                     position: [0.; 3],
                     scale: [1.; 3],

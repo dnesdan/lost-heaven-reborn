@@ -9,22 +9,25 @@ use crate::driver_scene::{
     DriverSceneContext, DriverSceneCreatePhase, DriverSceneError, DriverSceneOwner,
     DriverSceneScreen, NativeSceneSoundDriver,
 };
+use crate::frame_sound::SoundError;
 use crate::game_camera_projection::GameCameraProjection;
 use crate::host_scene_adapters::InstallationImages;
+use crate::i3d_object::{lightmap_atlas::AtlasStatistics, LitStorageCounts};
 use crate::itexture::{CpuTextureStorage, TextureError, TextureResources};
-use crate::lightmap_atlas::AtlasStatistics;
 use crate::mission_resources::{
     CacheMemoryError, CpuMissionCacheMemory, MissionCacheError, MissionCacheKind, MissionCaches,
 };
 use crate::mission_scene_loading::{MissionSceneLoadError, MissionSceneLoader, SceneLoadMapPrefix};
+use crate::model_loading::ModelError;
 use crate::model_loading::{CpuSceneWorldError, CpuSceneWorldProgress, ModelArena};
 use crate::native_precision::Pc24PrecisionState;
+use crate::runtime_audio::{AudioError, RuntimeAudio};
 use crate::scene_ownership::SceneKey;
-use crate::scene_resources::{SceneResourceError, SceneResources};
+use crate::scene_resources::{SceneCpuCloseReport, SceneResourceError, SceneResources};
 use std::convert::Infallible;
 
-/// Explicit probe inputs. Projection/sound state and cache directories are
-/// supplied by the caller; this host adapter does not infer original GameInit.
+/// Explicit probe inputs. Projection and model directories are supplied by
+/// the caller; this host adapter does not infer original GameInit.
 pub struct MissionLoadRequest<'a> {
     /// Original ModelOpen input, such as `missions/example/scene.i3d`.
     /// The existing adapter performs the evidenced extension rewrite to 4DS.
@@ -34,13 +37,13 @@ pub struct MissionLoadRequest<'a> {
     /// it does not silently install a `Models` search path.
     pub model_directories: &'a [&'a [u8]],
     pub projection: GameCameraProjection,
-    pub native_sound_driver: NativeSceneSoundDriver,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MissionLoadPhase {
     NotStarted,
     CacheDirectories,
+    SoundBackend,
     SceneCreation,
     World,
     LoadMap,
@@ -60,9 +63,11 @@ pub enum MissionLoadInitError {
 #[derive(Debug)]
 pub enum MissionLoadCause {
     CacheDirectory {
+        kind: MissionCacheKind,
         index: usize,
         error: MissionCacheError<CacheMemoryError>,
     },
+    SoundBackend(DriverSceneError<Infallible>),
     SceneCreation {
         phase: DriverSceneCreatePhase,
         /// The screen's generic error is rendered once without changing the
@@ -96,8 +101,10 @@ pub enum MissionLoadCallError {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MissionDiscardPhase {
     NotStarted,
+    PendingVisual,
     WorldStaging,
     Cache(MissionCacheKind),
+    Listener,
     Scene,
     DriverRegistry,
     RemainingOwners,
@@ -107,10 +114,11 @@ pub enum MissionDiscardPhase {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MissionDiscardProgress {
     pub phase: MissionDiscardPhase,
-    /// Host disposal order is Sound, Model, Animation. This is not a claim
-    /// about the original Game CloseSystem/global destruction sequence.
+    /// Model/Sound/Animation cache teardown follows Scene release. This is a
+    /// host ownership order, not original Game CloseSystem.
     pub caches_destructed: usize,
     pub scene_release_executed: bool,
+    pub listener_clear_executed: bool,
     pub registry_storage_released: bool,
 }
 impl Default for MissionDiscardProgress {
@@ -119,6 +127,7 @@ impl Default for MissionDiscardProgress {
             phase: MissionDiscardPhase::NotStarted,
             caches_destructed: 0,
             scene_release_executed: false,
+            listener_clear_executed: false,
             registry_storage_released: false,
         }
     }
@@ -137,13 +146,24 @@ pub struct MissionOwnedCounts {
     pub scene_pixels: usize,
     pub scene_strings: usize,
     pub scene_textures: usize,
-    /// Actual registry in the scene texture owner's ObjectResources domain.
-    pub scene_lightmaps: AtlasStatistics,
+    pub audio_sounds: usize,
+    pub audio_voices: usize,
+    pub audio_sources: usize,
+    pub audio_listener_pose: bool,
+    pub driver_sound_frames: usize,
+    pub driver_listeners: usize,
+
     pub visual_graphics: usize,
     pub visual_textures: usize,
     pub visual_allocations: usize,
-    /// Includes pending/failed allocations, even if there is no ready atlas.
+    /// Real managed lit-LOD records and active buffer owner leases. A sticky
+    /// interrupted record remains nonzero even after a callback freed a prefix.
+    pub visual_lit_storage: LitStorageCounts,
     pub visual_lightmaps: AtlasStatistics,
+    /// All six levels and ten slots, including inactive and interrupted prefixes.
+    pub saved_lighting_lods: usize,
+    pub pending_visual_creator: usize,
+    pub pending_factory_creator: usize,
     pub sector_allocations: usize,
     pub portal_allocations: usize,
     pub occluder_allocations: usize,
@@ -152,15 +172,102 @@ pub struct MissionOwnedCounts {
 
 #[derive(Debug)]
 pub enum MissionDiscardCause {
+    PendingVisual(ModelError),
+    VisualBuffers(ModelError),
     WorldStaging(DriverSceneError<Infallible>),
     Cache {
         kind: MissionCacheKind,
         error: MissionCacheError<CacheMemoryError>,
     },
+    UnregisteredListener(DriverSceneError<Infallible>),
+    Audio(AudioError),
+    Diagnostics(MissionOwnerDiagnosticsError),
     RegisteredScene(DriverSceneError<Infallible>),
     UnregisteredScene(SceneResourceError),
     DriverRegistry(DriverSceneError<Infallible>),
     RemainingOwners(Box<MissionOwnedCounts>),
+}
+
+#[derive(Debug)]
+pub enum MissionOwnerDiagnosticsError {
+    Audio(AudioError),
+    SoundRegistry(SoundError),
+}
+
+impl MissionOwnedCounts {
+    /// Read one ownership domain shared by the GUI Scene and headless probe.
+    /// These borrow the actual owners; no second Scene, cache, or PCM state is made.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn from_owners(
+        arena: &ModelArena,
+        driver: &DriverSceneOwner,
+        resources: &SceneResources,
+        textures: &TextureResources,
+        texture_storage: &CpuTextureStorage,
+        cache_memory: &CpuMissionCacheMemory,
+        audio: &RuntimeAudio,
+        loader: Option<&MissionSceneLoader>,
+    ) -> Result<Self, MissionOwnerDiagnosticsError> {
+        let visual = arena.loaded_visual_resources();
+        let visual_backend = visual.map(|owner| owner.backend());
+        let sound_backend = driver.host_sound_backend();
+        Ok(MissionOwnedCounts {
+            live_frames: arena.live_frame_count(),
+            driver_scenes: driver.scenes().len(),
+            driver_scene_capacity: driver.capacity(),
+            cache_allocations: cache_memory.live_allocations(),
+            cache_bytes: cache_memory.live_bytes(),
+            scene_graphics: texture_storage.live_graphics(),
+            scene_pixels: texture_storage.live_pixels(),
+            scene_strings: texture_storage.live_strings(),
+            scene_textures: textures.cached().len() + textures.uncached().len(),
+            audio_sounds: audio
+                .live_sound_count()
+                .map_err(MissionOwnerDiagnosticsError::Audio)?,
+            audio_voices: audio
+                .live_voice_count()
+                .map_err(MissionOwnerDiagnosticsError::Audio)?,
+            audio_sources: audio
+                .live_source_count()
+                .map_err(MissionOwnerDiagnosticsError::Audio)?,
+            audio_listener_pose: audio
+                .listener_present()
+                .map_err(MissionOwnerDiagnosticsError::Audio)?,
+            driver_sound_frames: sound_backend
+                .map_or(Ok(0), |backend| backend.sounds().map(|sounds| sounds.len()))
+                .map_err(MissionOwnerDiagnosticsError::SoundRegistry)?,
+            driver_listeners: sound_backend
+                .map_or(Ok(0), |backend| {
+                    backend.listeners().map(|listeners| listeners.len())
+                })
+                .map_err(MissionOwnerDiagnosticsError::SoundRegistry)?,
+            visual_graphics: visual_backend.map_or(0, |owner| owner.live_graphics()),
+            visual_textures: visual_backend.map_or(0, |owner| owner.live_textures()),
+            visual_allocations: visual_backend.map_or(0, |owner| owner.live_allocations()),
+            visual_lit_storage: visual.map_or_else(LitStorageCounts::default, |owner| {
+                owner.objects().lit_storage_counts()
+            }),
+            visual_lightmaps: visual.map_or_else(AtlasStatistics::default, |owner| {
+                owner.lightmap_atlas_statistics()
+            }),
+            saved_lighting_lods: visual
+                .map_or(0, |owner| owner.objects().saved_lighting_lod_count()),
+            pending_visual_creator: usize::from(
+                loader
+                    .as_ref()
+                    .is_some_and(|loader| loader.pending_visual_replacement.is_some()),
+            ),
+            pending_factory_creator: usize::from(
+                loader
+                    .as_ref()
+                    .is_some_and(|loader| loader.pending_factory_creator.is_some()),
+            ),
+            sector_allocations: arena.sector_storage().live_allocations(),
+            portal_allocations: arena.live_portal_allocations(),
+            occluder_allocations: arena.occluder_storage().live_allocations(),
+            weather_references: resources.ws_ref_count(),
+        })
+    }
 }
 
 #[derive(Debug)]
@@ -184,6 +291,7 @@ pub enum MissionDiscardCallError {
 /// unavailable cleanup boundary. A fresh attempt requires a new session.
 pub struct MissionLoadSession {
     installation: lhr_assets::Installation,
+    audio: RuntimeAudio,
     driver: DriverSceneOwner,
     arena: ModelArena,
     resources: SceneResources,
@@ -211,6 +319,7 @@ impl MissionLoadSession {
     ) -> Result<Self, MissionLoadInitError> {
         Ok(Self {
             installation,
+            audio: RuntimeAudio::default(),
             driver: DriverSceneOwner::default(),
             arena: ModelArena::default(),
             resources: SceneResources::default(),
@@ -242,8 +351,17 @@ impl MissionLoadSession {
     pub fn scene(&self) -> Option<SceneKey> {
         self.scene
     }
+    /// Retained CPU Close evidence for the actual Scene owner. The native
+    /// device virtual remains outside this headless admission.
+    pub fn scene_close_report(&self) -> Option<SceneCpuCloseReport> {
+        self.scene
+            .and_then(|scene| self.resources.cpu_close_report(scene))
+    }
     pub fn driver(&self) -> &DriverSceneOwner {
         &self.driver
+    }
+    pub fn audio(&self) -> &RuntimeAudio {
+        &self.audio
     }
     pub fn arena(&self) -> &ModelArena {
         &self.arena
@@ -284,31 +402,17 @@ impl MissionLoadSession {
     pub fn discard_failure(&self) -> Option<&MissionDiscardFailure> {
         self.discard_failure.as_ref()
     }
-    pub fn owned_counts(&self) -> MissionOwnedCounts {
-        let visual = self.arena.loaded_visual_resources();
-        let visual_backend = visual.map(|owner| owner.backend());
-        MissionOwnedCounts {
-            live_frames: self.arena.live_frame_count(),
-            driver_scenes: self.driver.scenes().len(),
-            driver_scene_capacity: self.driver.capacity(),
-            cache_allocations: self.cache_memory.live_allocations(),
-            cache_bytes: self.cache_memory.live_bytes(),
-            scene_graphics: self.texture_storage.live_graphics(),
-            scene_pixels: self.texture_storage.live_pixels(),
-            scene_strings: self.texture_storage.live_strings(),
-            scene_textures: self.textures.cached().len() + self.textures.uncached().len(),
-            scene_lightmaps: self.textures.objects().lightmap_atlases().statistics(),
-            visual_graphics: visual_backend.map_or(0, |owner| owner.live_graphics()),
-            visual_textures: visual_backend.map_or(0, |owner| owner.live_textures()),
-            visual_allocations: visual_backend.map_or(0, |owner| owner.live_allocations()),
-            visual_lightmaps: visual.map_or_else(AtlasStatistics::default, |owner| {
-                owner.objects().lightmap_atlases().statistics()
-            }),
-            sector_allocations: self.arena.sector_storage().live_allocations(),
-            portal_allocations: self.arena.live_portal_allocations(),
-            occluder_allocations: self.arena.occluder_storage().live_allocations(),
-            weather_references: self.resources.ws_ref_count(),
-        }
+    pub fn owned_counts(&self) -> Result<MissionOwnedCounts, MissionOwnerDiagnosticsError> {
+        MissionOwnedCounts::from_owners(
+            &self.arena,
+            &self.driver,
+            &self.resources,
+            &self.textures,
+            &self.texture_storage,
+            &self.cache_memory,
+            &self.audio,
+            self.loader.as_ref(),
+        )
     }
 
     pub fn load<S: DriverSceneScreen>(
@@ -351,11 +455,28 @@ impl MissionLoadSession {
         S::Error: std::fmt::Debug,
     {
         self.phase = MissionLoadPhase::CacheDirectories;
+        // Game startup installs Sounds as the first Sound cache directory.
+        // Its source Open flags 0x10 are applied by the Sound cache open path.
+        self.caches
+            .add_dir(MissionCacheKind::Sound, b"Sounds", &mut self.cache_memory)
+            .map_err(|error| MissionLoadCause::CacheDirectory {
+                kind: MissionCacheKind::Sound,
+                index: 0,
+                error,
+            })?;
         for (index, directory) in request.model_directories.iter().enumerate() {
             self.caches
                 .add_dir(MissionCacheKind::Model, directory, &mut self.cache_memory)
-                .map_err(|error| MissionLoadCause::CacheDirectory { index, error })?;
+                .map_err(|error| MissionLoadCause::CacheDirectory {
+                    kind: MissionCacheKind::Model,
+                    index,
+                    error,
+                })?;
         }
+        self.phase = MissionLoadPhase::SoundBackend;
+        self.driver
+            .bind_host_sound_backend(&mut self.arena, &self.audio)
+            .map_err(MissionLoadCause::SoundBackend)?;
         self.phase = MissionLoadPhase::SceneCreation;
         let scene = match self.driver.create_scene(
             &mut DriverSceneContext {
@@ -366,7 +487,7 @@ impl MissionLoadSession {
             },
             screen,
             &mut InstallationImages(&self.installation),
-            request.native_sound_driver,
+            NativeSceneSoundDriver::Initialized,
         ) {
             Ok(scene) => {
                 self.scene = Some(scene);
@@ -418,7 +539,7 @@ impl MissionLoadSession {
         self.loader
             .as_mut()
             .unwrap()
-            .load_prefix_with_model_cache(
+            .load_prefix_with_resource_cache(
                 &mut self.driver,
                 &mut self.arena,
                 &self.resources,
@@ -457,6 +578,12 @@ impl MissionLoadSession {
     }
 
     fn discard_inner(&mut self) -> Result<(), MissionDiscardCause> {
+        self.discard.phase = MissionDiscardPhase::PendingVisual;
+        if let Some(loader) = self.loader.as_mut() {
+            loader
+                .release_pending_visual_replacement(&mut self.arena)
+                .map_err(MissionDiscardCause::PendingVisual)?;
+        }
         self.discard.phase = MissionDiscardPhase::WorldStaging;
         if let Some(progress) = self.world.as_mut() {
             // This disposes only the actual temporary model. Already transferred
@@ -465,21 +592,10 @@ impl MissionLoadSession {
                 .discard_scene_world_staging_cpu(&mut self.arena, &self.resources, progress)
                 .map_err(MissionDiscardCause::WorldStaging)?;
         }
-        for kind in [
-            MissionCacheKind::Sound,
-            MissionCacheKind::Model,
-            MissionCacheKind::Animation,
-        ] {
-            self.discard.phase = MissionDiscardPhase::Cache(kind);
-            self.caches
-                .destruct(kind, &mut self.arena, &mut self.cache_memory)
-                .map_err(|error| MissionDiscardCause::Cache { kind, error })?;
-            self.discard.caches_destructed += 1;
-        }
-
         self.discard.phase = MissionDiscardPhase::Scene;
         if let Some(scene) = self.scene {
-            if self.driver.scenes().contains(&scene) {
+            let registered = self.driver.scenes().contains(&scene);
+            if registered {
                 self.driver
                     .release_scene(
                         &mut DriverSceneContext {
@@ -505,14 +621,43 @@ impl MissionLoadSession {
                     .map_err(MissionDiscardCause::UnregisteredScene)?;
             }
             self.discard.scene_release_executed = true;
+            if !registered {
+                // Registration can fail after the listener was created. The
+                // unregistered Scene uses the resource owner above, so drain
+                // its backend listener explicitly after successful release.
+                self.driver
+                    .release_unregistered_scene_listener(scene)
+                    .map_err(MissionDiscardCause::UnregisteredListener)?;
+            }
         }
+        for kind in [
+            MissionCacheKind::Model,
+            MissionCacheKind::Sound,
+            MissionCacheKind::Animation,
+        ] {
+            self.discard.phase = MissionDiscardPhase::Cache(kind);
+            self.caches
+                .destruct(kind, &mut self.arena, &mut self.cache_memory)
+                .map_err(|error| MissionDiscardCause::Cache { kind, error })?;
+            self.discard.caches_destructed += 1;
+        }
+        self.discard.phase = MissionDiscardPhase::Listener;
+        self.audio
+            .clear_listener()
+            .map_err(MissionDiscardCause::Audio)?;
+        self.discard.listener_clear_executed = true;
         self.discard.phase = MissionDiscardPhase::DriverRegistry;
         self.driver
             .release_empty_registry_storage()
             .map_err(MissionDiscardCause::DriverRegistry)?;
         self.discard.registry_storage_released = true;
         self.discard.phase = MissionDiscardPhase::RemainingOwners;
-        let remaining = self.owned_counts();
+        self.arena
+            .reclaim_unused_visual_buffers()
+            .map_err(MissionDiscardCause::VisualBuffers)?;
+        let remaining = self
+            .owned_counts()
+            .map_err(MissionDiscardCause::Diagnostics)?;
         if remaining != MissionOwnedCounts::default() {
             return Err(MissionDiscardCause::RemainingOwners(Box::new(remaining)));
         }
