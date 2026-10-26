@@ -83,6 +83,11 @@ struct Tick<'a, B> {
     b: &'a mut B,
     v: u32,
 }
+
+enum TickContinuation {
+    Continue,
+    Complete,
+}
 // FILD retains the complete unsigned integer; FMUL then rounds its product
 // once to PC24. Casting the integer to f32 before multiplication rounds twice.
 fn milliseconds_to_seconds(milliseconds: u32) -> f32 {
@@ -552,282 +557,343 @@ impl<B: VehicleTickBackend> Tick<'_, B> {
     }
 }
 
-pub fn vehicle_tick<B: VehicleTickBackend>(
-    b: &mut B,
-    vehicle: u32,
-    milliseconds: u32,
-) -> Out<(), B::Error> {
-    let mut s = Tick { b, v: vehicle };
-    let milliseconds = if milliseconds == 0 { 1 } else { milliseconds };
-    if s.byte(0x1fa8)? != 0 {
-        let engine = s.byte(0xc2c)?;
-        s.pb(0xc2c, 0)?;
-        s.pb(0x1fa9, engine)?;
-        s.put(0x3a4, 0)?;
-        s.put(0x3a8, 0)?;
-    }
-    let flags = s.w(0x1a4)?;
-    let active = (s.w(0xc0)? as i32) > 0;
-    s.put(
-        0x1a4,
-        if active {
-            flags | 0x10000000
-        } else {
-            flags & 0xefffffff
-        },
-    )?;
-    if s.f(0xc64)? > f32::from_bits(0x3fc90fdb)
-        && (s.w(0x55c)? as i32) > 0
-        && s.f(0x3a4)? > 0.0
-        && s.byte(0x5e8)? & 0x24 != 0
-        && s.f(0x59c)? > 1.0
-    {
-        s.pf(0x5b8, 1.0)?;
-        let flags = s.w(0x1a4)?;
-        s.put(0x1a4, flags | 0x1000000)?;
-    }
-    let flags = s.w(0x1a4)? & 0xfffffffd;
-    s.put(0x1a4, flags)?;
-    if s.byte(0xc60)? != 0 {
-        s.put(0x1a8, 0)?;
-        s.put(0x1a4, flags | 1)?;
-        s.put(4, 0)?;
-    }
-    let dt = milliseconds_to_seconds(milliseconds);
-    if s.w(0xb8)? == 2 {
-        s.effect(VehicleTickEffect::SteeringWheels { seconds: dt })?;
-    }
-    let engine = s.byte(0xc2c)?;
-    if engine != 0 {
-        if s.f(0xc30)? > f32::from_bits(0x38d1b717) {
-            let power = if s.w(0xb8)? == 1 {
-                mul(add(s.f(0x540)?.abs(), s.f(0x544)?.abs())?, 0.5)?
+// Descriptive phases of this Rust implementation, not recovered native symbols.
+impl<B: VehicleTickBackend> Tick<'_, B> {
+    fn prepare_motion_state(&mut self) -> Out<(), B::Error> {
+        if self.byte(0x1fa8)? != 0 {
+            let engine = self.byte(0xc2c)?;
+            self.pb(0xc2c, 0)?;
+            self.pb(0x1fa9, engine)?;
+            self.put(0x3a4, 0)?;
+            self.put(0x3a8, 0)?;
+        }
+        let flags = self.w(0x1a4)?;
+        let active = (self.w(0xc0)? as i32) > 0;
+        self.put(
+            0x1a4,
+            if active {
+                flags | 0x10000000
             } else {
-                s.f(0x540)?.abs()
-            };
-            let consumed = mul(
-                mul(
-                    add(mul(power, 0.8)?, mul(div(s.f(0x548)?, s.f(0x1f9c)?)?, 0.2)?)?,
-                    s.f(0x498)?,
-                )?,
-                dt,
-            )?;
-            let fuel = sub(s.f(0xc30)?, consumed)?;
-            s.pf(0xc30, fuel)?;
-            if fuel < f32::from_bits(0x38d1b717) {
-                s.put(0xc30, 0)?;
-                s.pb(0x5f0, 1)?;
-                s.put(0x3a4, 0)?;
-                s.put(0x3a8, 0)?;
+                flags & 0xefffffff
+            },
+        )?;
+        if self.f(0xc64)? > f32::from_bits(0x3fc90fdb)
+            && (self.w(0x55c)? as i32) > 0
+            && self.f(0x3a4)? > 0.0
+            && self.byte(0x5e8)? & 0x24 != 0
+            && self.f(0x59c)? > 1.0
+        {
+            self.pf(0x5b8, 1.0)?;
+            let flags = self.w(0x1a4)?;
+            self.put(0x1a4, flags | 0x1000000)?;
+        }
+        let flags = self.w(0x1a4)? & 0xfffffffd;
+        self.put(0x1a4, flags)?;
+        if self.byte(0xc60)? != 0 {
+            self.put(0x1a8, 0)?;
+            self.put(0x1a4, flags | 1)?;
+            self.put(4, 0)?;
+        }
+        Ok(())
+    }
+
+    fn update_fuel_and_engine_effects(&mut self, dt: f32) -> Out<(), B::Error> {
+        let engine = self.byte(0xc2c)?;
+        if engine != 0 {
+            if self.f(0xc30)? > f32::from_bits(0x38d1b717) {
+                let power = if self.w(0xb8)? == 1 {
+                    mul(add(self.f(0x540)?.abs(), self.f(0x544)?.abs())?, 0.5)?
+                } else {
+                    self.f(0x540)?.abs()
+                };
+                let consumed = mul(
+                    mul(
+                        add(
+                            mul(power, 0.8)?,
+                            mul(div(self.f(0x548)?, self.f(0x1f9c)?)?, 0.2)?,
+                        )?,
+                        self.f(0x498)?,
+                    )?,
+                    dt,
+                )?;
+                let fuel = sub(self.f(0xc30)?, consumed)?;
+                self.pf(0xc30, fuel)?;
+                if fuel < f32::from_bits(0x38d1b717) {
+                    self.put(0xc30, 0)?;
+                    self.pb(0x5f0, 1)?;
+                    self.put(0x3a4, 0)?;
+                    self.put(0x3a8, 0)?;
+                }
+            } else {
+                self.put(0xc30, 0)?;
+                self.pb(0x5f0, 1)?;
+                self.put(0x3a4, 0)?;
+                self.put(0x3a8, 0)?;
+            }
+            if self.byte(0x432)? != 0 {
+                self.effect(VehicleTickEffect::ProcedureEbe40 { seconds: dt })?;
+            }
+        } else if self.byte(0x1fa8)? != 0 {
+            self.effect(VehicleTickEffect::ProcedureEeb50)?;
+        } else if self.byte(0x638)? != 0 {
+            self.effect(VehicleTickEffect::EngineSound { enabled: true })?;
+        }
+        if self.byte(0xc68)? & 0x20 != 0 {
+            if self.f(0x434)? <= 0.0 {
+                self.pb(0x154, 0)?;
+            } else if self.byte(0x432)? != 0 {
+                self.effect(VehicleTickEffect::ProcedureEd910)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn prepare_drivetrain_controls(&mut self, dt: f32) -> Out<f32, B::Error> {
+        let throttle = self.f(0x3a4)?;
+        self.copy(0x544, 0x3a8)?;
+        self.pf(0x540, throttle)?;
+        if self.byte(0x4ab)? == 0 {
+            let current = self.f(0x5e4)?;
+            let target = self.f(0x5e0)?;
+            if current > target {
+                let next = sub(current, mul(dt, self.f(0x5d8)?)?)?;
+                self.pf(0x5e4, next)?;
+                if next < target {
+                    self.copy(0x5e4, 0x5e0)?;
+                }
+            } else if current < target {
+                let next = add(mul(dt, self.f(0x5d8)?)?, current)?;
+                self.pf(0x5e4, next)?;
+                if target < next {
+                    self.copy(0x5e4, 0x5e0)?;
+                }
             }
         } else {
-            s.put(0xc30, 0)?;
-            s.pb(0x5f0, 1)?;
-            s.put(0x3a4, 0)?;
-            s.put(0x3a8, 0)?;
+            self.copy(0x5e4, 0x5e0)?;
         }
-        if s.byte(0x432)? != 0 {
-            s.effect(VehicleTickEffect::ProcedureEbe40 { seconds: dt })?;
-        }
-    } else if s.byte(0x1fa8)? != 0 {
-        s.effect(VehicleTickEffect::ProcedureEeb50)?;
-    } else if s.byte(0x638)? != 0 {
-        s.effect(VehicleTickEffect::EngineSound { enabled: true })?;
+        Ok(throttle)
     }
-    if s.byte(0xc68)? & 0x20 != 0 {
-        if s.f(0x434)? <= 0.0 {
-            s.pb(0x154, 0)?;
-        } else if s.byte(0x432)? != 0 {
-            s.effect(VehicleTickEffect::ProcedureEd910)?;
-        }
-    }
-    let throttle = s.f(0x3a4)?;
-    s.copy(0x544, 0x3a8)?;
-    s.pf(0x540, throttle)?;
-    if s.byte(0x4ab)? == 0 {
-        let current = s.f(0x5e4)?;
-        let target = s.f(0x5e0)?;
-        if current > target {
-            let next = sub(current, mul(dt, s.f(0x5d8)?)?)?;
-            s.pf(0x5e4, next)?;
-            if next < target {
-                s.copy(0x5e4, 0x5e0)?;
-            }
-        } else if current < target {
-            let next = add(mul(dt, s.f(0x5d8)?)?, current)?;
-            s.pf(0x5e4, next)?;
-            if target < next {
-                s.copy(0x5e4, 0x5e0)?;
-            }
-        }
-    } else {
-        s.copy(0x5e4, 0x5e0)?;
-    }
-    let next = s.automatic_gear(dt, throttle)?;
-    s.copy(0x3bc, 0x540)?;
-    let mode = s.w(0xb8)?;
-    let flags = s.w(0x1a4)?;
-    s.put(0x1a4, flags & 0xfeffffff)?;
-    s.copy(0x3c0, 0x544)?;
-    let (mut first, mut second) = match mode {
-        0 | 2 => {
-            let power = s.f(0x540)?;
-            let moment = s.motor_force(dt, power)?;
-            let mut force = mul(moment, 0.5)?;
-            if s.byte(0x4cc)? != 0 {
-                let flags = s.w(0x5e8)?;
-                if flags & 3 != 0 && flags & 4 == 0 {
-                    let doubled = add(force, force)?;
-                    let gear = s.w(0x55c)?;
-                    let max = mul(
-                        mul(
+
+    fn compute_drive_forces(&mut self, dt: f32) -> Out<(f32, f32), B::Error> {
+        self.copy(0x3bc, 0x540)?;
+        let mode = self.w(0xb8)?;
+        let flags = self.w(0x1a4)?;
+        self.put(0x1a4, flags & 0xfeffffff)?;
+        self.copy(0x3c0, 0x544)?;
+        let (mut first, mut second) = match mode {
+            0 | 2 => {
+                let power = self.f(0x540)?;
+                let moment = self.motor_force(dt, power)?;
+                let mut force = mul(moment, 0.5)?;
+                if self.byte(0x4cc)? != 0 {
+                    let flags = self.w(0x5e8)?;
+                    if flags & 3 != 0 && flags & 4 == 0 {
+                        let doubled = add(force, force)?;
+                        let gear = self.w(0x55c)?;
+                        let max = mul(
                             mul(
-                                s.f(0x570u32.wrapping_add(gear.wrapping_mul(4)))?,
-                                s.f(0x5dc)?,
+                                mul(
+                                    self.f(0x570u32.wrapping_add(gear.wrapping_mul(4)))?,
+                                    self.f(0x5dc)?,
+                                )?,
+                                self.f(0x5d0)?,
                             )?,
-                            s.f(0x5d0)?,
-                        )?,
-                        s.f(0x44)?,
-                    )?;
-                    if max < doubled && flags & 1 == 0 || max < mul(doubled, 0.8)? {
-                        force = mul(force, div(max, doubled)?)?;
+                            self.f(0x44)?,
+                        )?;
+                        if max < doubled && flags & 1 == 0 || max < mul(doubled, 0.8)? {
+                            force = mul(force, div(max, doubled)?)?;
+                        }
                     }
                 }
+                (force, force)
             }
-            (force, force)
-        }
-        1 => {
-            let p = s.f(0x540)?;
-            let mut a = mul(s.motor_force(dt, p.abs())?, 0.5)?;
-            if p < 0.0 {
-                a = -a;
-            }
-            let p = s.f(0x544)?;
-            let mut c = mul(s.motor_force(dt, p.abs())?, 0.5)?;
-            if p < 0.0 {
-                c = -c;
-            }
-            (a, c)
-        }
-        _ => return Err(VehicleTickUnavailable::UnrecoveredMode(mode)),
-    };
-    first = mul(first, s.f(0x44)?)?;
-    second = mul(second, s.f(0x44)?)?;
-    let flags = s.w(0x1a4)?;
-    if flags & 1 == 0 || flags & 0x10000000 != 0 {
-        let gear = s.w(0x55c)?;
-        if (s.f(0x3a4)? <= s.f(0x24)? && s.f(0x3a8)? <= s.f(0x24)? || gear == 0)
-            && gear != 0
-            && s.byte(0x550)? == 0
-        {
-            s.copy(0x54c, 0x548)?;
-            s.motor_rot(dt, add(second, first)?)?;
-            if s.f(0x548)? > s.f(0x5ec)? {
-                let flags = s.w(0x1a4)?;
-                let engine = s.w(0x5e8)?;
-                s.put(0x5e8, engine & 0xffffffef)?;
-                s.put(0x1a4, flags | 1)?;
-            } else {
-                s.put(0x5dc, 0)?;
-                let flags = s.w(0x5e8)?;
-                s.put(0x5e8, (flags & 0xfffffffe) | 0x10)?;
-                if s.byte(0xc2c)? != 0 && s.f(0x59c)? < 0.7 {
-                    s.pf(0x5b8, 1.0)?;
-                    let flags = s.w(0x1a4)?;
-                    s.put(0x1a4, flags | 0x1000000)?;
+            1 => {
+                let p = self.f(0x540)?;
+                let mut a = mul(self.motor_force(dt, p.abs())?, 0.5)?;
+                if p < 0.0 {
+                    a = -a;
                 }
+                let p = self.f(0x544)?;
+                let mut c = mul(self.motor_force(dt, p.abs())?, 0.5)?;
+                if p < 0.0 {
+                    c = -c;
+                }
+                (a, c)
             }
-            if s.byte(0x2c0)? != 0 || s.w(0x1a4)? & 1 != 0 {
-                return Ok(());
-            }
-            let elapsed = s.w(0x1a8)?.wrapping_add(milliseconds);
-            s.put(0x1a8, elapsed)?;
-            if elapsed >= 1001 {
-                let flags = s.w(0x1a4)?;
-                s.put(0x1a4, (flags & 0xfffffffe) | 2)?;
-            }
-            return Ok(());
-        }
-        s.put(0x1a4, flags | 1)?;
+            _ => return Err(VehicleTickUnavailable::UnrecoveredMode(mode)),
+        };
+        first = mul(first, self.f(0x44)?)?;
+        second = mul(second, self.f(0x44)?)?;
+        Ok((first, second))
     }
-    s.clutch(next, first, second)?;
-    s.copy(0x5a8, 0x5a4)?;
-    s.copy(0x54c, 0x548)?;
-    s.copy(0x5a0, 0x59c)?;
-    if s.w(0x1a4)? & 0x10000000 == 0 {
-        s.b.tick_engine(s.v, dt, first, second)
-            .map_err(VehicleTickUnavailable::Effect)?;
-    }
-    if s.byte(0x5f0)? != 0 {
-        s.effect(VehicleTickEffect::EngineSound { enabled: false })?;
-    }
-    let flags = s.w(0x1a4)?;
-    let mut changed = None;
-    let count = s.w(0x4c4)?;
-    if flags & 8 == 0 {
-        let mut remaining = count;
-        let mut contact = false;
-        while remaining != 0 {
-            remaining -= 1;
-            if s.wheel_flags(remaining)? & 8 != 0 {
-                contact = true;
-                break;
+
+    fn update_motion_activity(
+        &mut self,
+        milliseconds: u32,
+        dt: f32,
+        first: f32,
+        second: f32,
+    ) -> Out<TickContinuation, B::Error> {
+        let flags = self.w(0x1a4)?;
+        if flags & 1 == 0 || flags & 0x10000000 != 0 {
+            let gear = self.w(0x55c)?;
+            if (self.f(0x3a4)? <= self.f(0x24)? && self.f(0x3a8)? <= self.f(0x24)? || gear == 0)
+                && gear != 0
+                && self.byte(0x550)? == 0
+            {
+                self.copy(0x54c, 0x548)?;
+                self.motor_rot(dt, add(second, first)?)?;
+                if self.f(0x548)? > self.f(0x5ec)? {
+                    let flags = self.w(0x1a4)?;
+                    let engine = self.w(0x5e8)?;
+                    self.put(0x5e8, engine & 0xffffffef)?;
+                    self.put(0x1a4, flags | 1)?;
+                } else {
+                    self.put(0x5dc, 0)?;
+                    let flags = self.w(0x5e8)?;
+                    self.put(0x5e8, (flags & 0xfffffffe) | 0x10)?;
+                    if self.byte(0xc2c)? != 0 && self.f(0x59c)? < 0.7 {
+                        self.pf(0x5b8, 1.0)?;
+                        let flags = self.w(0x1a4)?;
+                        self.put(0x1a4, flags | 0x1000000)?;
+                    }
+                }
+                if self.byte(0x2c0)? != 0 || self.w(0x1a4)? & 1 != 0 {
+                    return Ok(TickContinuation::Complete);
+                }
+                let elapsed = self.w(0x1a8)?.wrapping_add(milliseconds);
+                self.put(0x1a8, elapsed)?;
+                if elapsed >= 1001 {
+                    let flags = self.w(0x1a4)?;
+                    self.put(0x1a4, (flags & 0xfffffffe) | 2)?;
+                }
+                return Ok(TickContinuation::Complete);
             }
+            self.put(0x1a4, flags | 1)?;
         }
-        if !contact {
-            changed = Some(flags | 8);
+        Ok(TickContinuation::Continue)
+    }
+
+    fn advance_vehicle_engine(&mut self, dt: f32, first: f32, second: f32) -> Out<(), B::Error> {
+        self.copy(0x5a8, 0x5a4)?;
+        self.copy(0x54c, 0x548)?;
+        self.copy(0x5a0, 0x59c)?;
+        if self.w(0x1a4)? & 0x10000000 == 0 {
+            self.b
+                .tick_engine(self.v, dt, first, second)
+                .map_err(VehicleTickUnavailable::Effect)?;
         }
-    } else {
-        let mut remaining = count;
-        let mut clear = true;
-        while remaining != 0 {
-            remaining -= 1;
-            if s.wheel_flags(remaining)? & 8 == 0 {
-                clear = false;
-                break;
-            }
+        if self.byte(0x5f0)? != 0 {
+            self.effect(VehicleTickEffect::EngineSound { enabled: false })?;
         }
-        if clear {
+        Ok(())
+    }
+
+    fn update_wheel_contact_flags(&mut self) -> Out<(), B::Error> {
+        let flags = self.w(0x1a4)?;
+        let mut changed = None;
+        let count = self.w(0x4c4)?;
+        if flags & 8 == 0 {
             let mut remaining = count;
+            let mut contact = false;
             while remaining != 0 {
                 remaining -= 1;
-                if s.wheel_flags(remaining)? & 0x10 != 0 {
+                if self.wheel_flags(remaining)? & 8 != 0 {
+                    contact = true;
+                    break;
+                }
+            }
+            if !contact {
+                changed = Some(flags | 8);
+            }
+        } else {
+            let mut remaining = count;
+            let mut clear = true;
+            while remaining != 0 {
+                remaining -= 1;
+                if self.wheel_flags(remaining)? & 8 == 0 {
                     clear = false;
                     break;
                 }
             }
             if clear {
-                changed = Some(flags & 0xfffffff7);
+                let mut remaining = count;
+                while remaining != 0 {
+                    remaining -= 1;
+                    if self.wheel_flags(remaining)? & 0x10 != 0 {
+                        clear = false;
+                        break;
+                    }
+                }
+                if clear {
+                    changed = Some(flags & 0xfffffff7);
+                }
             }
         }
-    }
-    if let Some(flags) = changed {
-        s.put(0x1a4, flags)?;
-    }
-    let dx = sub(s.f(0x320)?, s.f(8)?)?;
-    let dy = sub(s.f(0x324)?, s.f(0xc)?)?;
-    let dz = sub(s.f(0x328)?, s.f(0x10)?)?;
-    if add(add(mul(dy, dy)?, mul(dx, dx)?)?, mul(dz, dz)?)? >= f32::from_bits(0x3cb851ec) {
-        s.copy(8, 0x320)?;
-        s.copy(0xc, 0x324)?;
-        s.put(4, 0)?;
-        s.copy(0x10, 0x328)?;
-    } else {
-        let time = s.w(4)?.wrapping_add(milliseconds);
-        s.put(4, time)?;
-    }
-    let elapsed = s.w(0x1a8)?.wrapping_add(milliseconds);
-    s.put(0x1a8, elapsed)?;
-    if s.w(0x1a4)? & 2 != 0 {
-        if elapsed > 1000 || s.w(4)? > 4000 {
-            let flags = s.w(0x1a4)?;
-            s.put(0x1a4, flags & 0xfffffffe)?;
+        if let Some(flags) = changed {
+            self.put(0x1a4, flags)?;
         }
-    } else {
-        s.put(0x1a8, 0)?;
+        Ok(())
     }
-    Ok(())
+
+    fn update_motion_timers(&mut self, milliseconds: u32) -> Out<(), B::Error> {
+        let dx = sub(self.f(0x320)?, self.f(8)?)?;
+        let dy = sub(self.f(0x324)?, self.f(0xc)?)?;
+        let dz = sub(self.f(0x328)?, self.f(0x10)?)?;
+        if add(add(mul(dy, dy)?, mul(dx, dx)?)?, mul(dz, dz)?)? >= f32::from_bits(0x3cb851ec) {
+            self.copy(8, 0x320)?;
+            self.copy(0xc, 0x324)?;
+            self.put(4, 0)?;
+            self.copy(0x10, 0x328)?;
+        } else {
+            let time = self.w(4)?.wrapping_add(milliseconds);
+            self.put(4, time)?;
+        }
+        let elapsed = self.w(0x1a8)?.wrapping_add(milliseconds);
+        self.put(0x1a8, elapsed)?;
+        if self.w(0x1a4)? & 2 != 0 {
+            if elapsed > 1000 || self.w(4)? > 4000 {
+                let flags = self.w(0x1a4)?;
+                self.put(0x1a4, flags & 0xfffffffe)?;
+            }
+        } else {
+            self.put(0x1a8, 0)?;
+        }
+        Ok(())
+    }
 }
+
+pub fn vehicle_tick<B: VehicleTickBackend>(
+    b: &mut B,
+    vehicle: u32,
+    milliseconds: u32,
+) -> Out<(), B::Error> {
+    let mut tick = Tick { b, v: vehicle };
+    let milliseconds = if milliseconds == 0 { 1 } else { milliseconds };
+    tick.prepare_motion_state()?;
+    // Conversion can raise the precision flag only after the initial stores.
+    let dt = milliseconds_to_seconds(milliseconds);
+    if tick.w(0xb8)? == 2 {
+        tick.effect(VehicleTickEffect::SteeringWheels { seconds: dt })?;
+    }
+    tick.update_fuel_and_engine_effects(dt)?;
+    let throttle = tick.prepare_drivetrain_controls(dt)?;
+    let next = tick.automatic_gear(dt, throttle)?;
+    let (first, second) = tick.compute_drive_forces(dt)?;
+    if let TickContinuation::Complete =
+        tick.update_motion_activity(milliseconds, dt, first, second)?
+    {
+        return Ok(());
+    }
+    tick.clutch(next, first, second)?;
+    tick.advance_vehicle_engine(dt, first, second)?;
+    tick.update_wheel_contact_flags()?;
+    tick.update_motion_timers(milliseconds)
+}
+
+#[cfg(test)]
+#[path = "vehicle_dynamics_tick_tests.rs"]
+mod tick_tests;
 
 #[cfg(test)]
 mod tests {
