@@ -39,6 +39,7 @@ pub(super) struct CarRuntimeServices {
 mod services;
 pub(super) struct DrivingSession {
     pub world: DrivingWorldAssets,
+    pub listener_sector: Option<crate::scene_ownership::SectorKey>,
     pub spawn: crate::driving_world_assets::DrivingWorldSpawn,
     pub mission: String,
     pub render_started: bool,
@@ -101,6 +102,7 @@ impl CarRuntime {
         let spawn = world.authored_driving_spawn(path)?;
         self.driving = Some(DrivingSession {
             world,
+            listener_sector: None,
             spawn,
             mission: mission.into(),
             render_started: false,
@@ -398,6 +400,29 @@ impl CarRuntime {
             .mix_stereo(sample_rate, output)
             .map_err(|e| e.to_string())
     }
+    /// Use the same scene sector query as Camera::UpdateV at the drawn camera's
+    /// actual PC-coordinate position, retaining its previous sector as a hint.
+    pub fn driving_set_audio_listener(
+        &mut self,
+        position: [f32; 3],
+        right: [f32; 3],
+    ) -> Result<(), String> {
+        let scene = self.scene.ok_or("Driving listener has no scene owner")?;
+        let session = self
+            .driving
+            .as_mut()
+            .ok_or("Driving listener has no world owner")?;
+        sync_scene_audio_listener(
+            &self.services.audio,
+            &mut self.arena,
+            &mut self.memory,
+            scene,
+            &mut session.listener_sector,
+            position,
+            right,
+        )
+    }
+
     pub fn driving_audio(&self) -> RuntimeAudio {
         self.services.audio.clone()
     }
@@ -554,4 +579,83 @@ fn current_state(
         speed: f32::from_bits(word(0x59c)),
         contacts,
     })
+}
+
+fn sync_scene_audio_listener(
+    audio: &RuntimeAudio,
+    arena: &mut ModelArena,
+    memory: &mut VehicleFrameMemory,
+    scene: SceneKey,
+    hint: &mut Option<crate::scene_ownership::SectorKey>,
+    position: [f32; 3],
+    right: [f32; 3],
+) -> Result<(), String> {
+    if !position.iter().chain(right.iter()).all(|v| v.is_finite()) {
+        return Err("Nonfinite driving listener".into());
+    }
+    let sector = arena
+        .scene_get_sector(scene, position, *hint)
+        .map_err(|e| format!("Driving listener sector: {e:?}"))?;
+    let address = VehicleFrameBackend::new(arena, memory)
+        .frame_address(sector.frame())
+        .map_err(|e| format!("Driving listener sector address: {e:?}"))?;
+    audio
+        .set_listener(position, right, Some(address))
+        .map_err(|e| e.to_string())?;
+    *hint = Some(sector);
+    Ok(())
+}
+
+#[cfg(test)]
+mod audio_listener_tests {
+    use super::*;
+
+    #[test]
+    fn listener_sector_tracks_actual_camera_position_and_preserves_hint_on_error() {
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let primary = arena.scene(scene).unwrap().sectors[0];
+        let sector = arena.create_sector_frame().unwrap();
+        arena
+            .set_frame_bound_volume(sector.frame(), [[-1.0; 3], [1.0; 3]])
+            .unwrap();
+        arena.sector_add_to_scene_ring(sector, Some(scene)).unwrap();
+        let audio = RuntimeAudio::default();
+        let mut memory = VehicleFrameMemory::default();
+        let mut hint = None;
+        sync_scene_audio_listener(
+            &audio,
+            &mut arena,
+            &mut memory,
+            scene,
+            &mut hint,
+            [0.0; 3],
+            [1.0, 0.0, 0.0],
+        )
+        .unwrap();
+        assert_eq!(hint, Some(sector));
+        // The following call cannot replace the camera or its last valid hint.
+        assert!(sync_scene_audio_listener(
+            &audio,
+            &mut arena,
+            &mut memory,
+            scene,
+            &mut hint,
+            [f32::NAN, 0.0, 0.0],
+            [1.0, 0.0, 0.0]
+        )
+        .is_err());
+        assert_eq!(hint, Some(sector));
+        sync_scene_audio_listener(
+            &audio,
+            &mut arena,
+            &mut memory,
+            scene,
+            &mut hint,
+            [2.0; 3],
+            [1.0, 0.0, 0.0],
+        )
+        .unwrap();
+        assert_eq!(hint, Some(primary));
+    }
 }
