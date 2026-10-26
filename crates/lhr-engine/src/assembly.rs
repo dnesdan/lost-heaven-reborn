@@ -295,26 +295,42 @@ impl<'a> SceneBuilder<'a> {
                         let bytes = installation
                             .read(&name)
                             .map_err(|_| "A model texture is unavailable")?;
-                        let width = bytes
-                            .get(18..22)
-                            .and_then(|b| b.try_into().ok())
-                            .map(i32::from_le_bytes)
-                            .filter(|&n| n > 0)
-                            .ok_or("Invalid BMP width")?
-                            as usize;
-                        let height = bytes
-                            .get(22..26)
-                            .and_then(|b| b.try_into().ok())
-                            .map(i32::from_le_bytes)
-                            .filter(|&n| n != 0 && n != i32::MIN)
-                            .ok_or("Invalid BMP height")?
-                            .unsigned_abs() as usize;
+                        let tga = material.texture.to_ascii_lowercase().ends_with(".tga");
+                        let (width, height) = if tga {
+                            let header = bytes.get(..18).ok_or("TGA header truncated")?;
+                            let width = u16::from_le_bytes([header[12], header[13]]) as usize;
+                            let height = u16::from_le_bytes([header[14], header[15]]) as usize;
+                            if width == 0 || height == 0 {
+                                return Err("Invalid TGA dimensions".into());
+                            }
+                            (width, height)
+                        } else {
+                            let width = bytes
+                                .get(18..22)
+                                .and_then(|b| b.try_into().ok())
+                                .map(i32::from_le_bytes)
+                                .filter(|&n| n > 0)
+                                .ok_or("Invalid BMP width")?
+                                as usize;
+                            let height = bytes
+                                .get(22..26)
+                                .and_then(|b| b.try_into().ok())
+                                .map(i32::from_le_bytes)
+                                .filter(|&n| n != 0 && n != i32::MIN)
+                                .ok_or("Invalid BMP height")?
+                                .unsigned_abs() as usize;
+                            (width, height)
+                        };
                         let texture_bytes = width
                             .checked_mul(height)
                             .and_then(|n| n.checked_mul(4))
                             .ok_or("Texture size overflow")?;
                         charge_scene(&mut self.bytes, texture_bytes, MAX_SCENE_BYTES)?;
-                        let decoded = match lhr_assets::decode_bmp_original(&bytes) {
+                        let decoded = match if tga {
+                            lhr_assets::decode_tga(&bytes)
+                        } else {
+                            lhr_assets::decode_bmp_original(&bytes)
+                        } {
                             Ok(decoded) => decoded,
                             Err(error) if !strict && self.allow_texture_fallback => {
                                 eprintln!(
@@ -551,6 +567,7 @@ mod tests {
     fn lod(points: &[[f32; 3]]) -> Lod {
         Lod {
             distance: 0.0,
+            uv_only: None,
             vertices: points
                 .iter()
                 .map(|p| lhr_assets::Vertex {
@@ -568,6 +585,7 @@ mod tests {
             name_bytes: Vec::new(),
             properties: Vec::new(),
             dummy_bounds: None,
+            light: None,
             joint: None,
             skin: None,
             morph: None,
@@ -592,6 +610,7 @@ mod tests {
         mesh.visual = Some(visual);
         mesh.lods.push(Lod {
             distance: 0.,
+            uv_only: None,
             vertices: [[100., 0., 0.], [101., 0., 0.], [100., 0., 1.]]
                 .into_iter()
                 .map(|position| lhr_assets::Vertex {
@@ -674,6 +693,135 @@ mod tests {
                 animation: None,
             }],
         })
+    }
+    #[test]
+    fn static_tga_materials_reach_scene_pixels_cache_fallback_and_predecode_quota() {
+        struct Directory(std::path::PathBuf);
+        impl Drop for Directory {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let directory = Directory(
+            std::env::temp_dir().join(format!("lhr-tga-assembly-{}", std::process::id())),
+        );
+        std::fs::create_dir_all(directory.0.join("maps")).unwrap();
+        let mut encoded = vec![0u8; 18];
+        encoded[2] = 2;
+        encoded[12] = 2;
+        encoded[14] = 1;
+        encoded[16] = 32;
+        encoded[17] = 0x28;
+        encoded.extend([3, 5, 7, 255, 11, 13, 17, 255]);
+        std::fs::write(directory.0.join("maps/color.TgA"), &encoded).unwrap();
+        let installation = Installation::open(&directory.0).unwrap();
+        let mut visual = frame(None, [0.; 3]);
+        visual.culling = 1; // The stored common-frame on bit enables live inspection.
+        let mut geometry = lod(&[[0., 0., 0.], [1., 0., 0.], [0., 1., 0.]]);
+        geometry.groups = vec![
+            FaceGroup {
+                material: 0,
+                indices: vec![0, 1, 2]
+            };
+            2
+        ];
+        visual.lods.push(geometry);
+        let source = Arc::new(Model {
+            frames: vec![visual],
+            materials: vec![lhr_assets::Material {
+                flags: 0x18000,
+                ambient: [0.; 3],
+                diffuse: [0.25, 0.5, 0.75],
+                texture: "color.TgA".into(),
+                emission: [0.; 3],
+                opacity: 1.,
+                alpha_texture: None,
+                reflection: None,
+                environment_texture: None,
+                animation: None,
+            }],
+        });
+        let mut builder = SceneBuilder::new(&installation, "maps");
+        builder
+            .append_retained(
+                "synthetic",
+                source.clone(),
+                Mat4::IDENTITY,
+                None,
+                true,
+                None,
+            )
+            .unwrap();
+        assert_eq!(builder.texture_cache.len(), 1);
+        let (scene, _) = builder.finish().unwrap();
+        assert_eq!(scene.meshes.len(), 2);
+        let texture = scene.meshes[0].texture.as_ref().unwrap();
+        assert_eq!((texture.width, texture.height), (2, 1));
+        assert_eq!(texture.rgba, [7, 5, 3, 255, 17, 13, 11, 255]);
+        assert_eq!(texture.repeat, [false, true]);
+        assert!(Arc::ptr_eq(
+            texture,
+            scene.meshes[1].texture.as_ref().unwrap()
+        ));
+
+        // The owned CPU visual path consumes the same TGA material as well.
+        let mut loaded =
+            lhr_engine::model_loading::MaterializedModel::from_parsed(source.clone()).unwrap();
+        let model = loaded.model_key();
+        loaded
+            .arena_mut()
+            .load_plain_visual_resources(model, &installation)
+            .unwrap();
+        let snapshot =
+            lhr_engine::car_inspection::snapshot_car_arena(loaded.arena_mut(), model.root())
+                .unwrap();
+        assert_eq!(snapshot.scene.meshes.len(), 2);
+        assert_eq!(snapshot.omitted_material_effects, 0);
+        loaded.close().unwrap();
+
+        // Unsupported pixel encoding keeps the established optional fallback policy.
+        encoded[2] = 10;
+        std::fs::write(directory.0.join("maps/color.TgA"), &encoded).unwrap();
+        let mut builder = SceneBuilder::new(&installation, "maps");
+        builder
+            .append_retained(
+                "synthetic",
+                source.clone(),
+                Mat4::IDENTITY,
+                None,
+                false,
+                None,
+            )
+            .unwrap();
+        let (scene, _) = builder.finish().unwrap();
+        assert_eq!(
+            scene.meshes[0].texture.as_ref().unwrap().rgba,
+            [64, 128, 191, 255]
+        );
+        for strict in [false, true] {
+            let mut builder = SceneBuilder::new(&installation, "maps");
+            builder.deny_texture_fallback();
+            assert!(builder
+                .append_retained(
+                    "synthetic",
+                    source.clone(),
+                    Mat4::IDENTITY,
+                    None,
+                    strict,
+                    None
+                )
+                .is_err());
+        }
+        // A huge valid header exceeds the aggregate quota before pixel decoding or fallback.
+        encoded.truncate(18);
+        encoded[12..14].copy_from_slice(&8192u16.to_le_bytes());
+        encoded[14..16].copy_from_slice(&8192u16.to_le_bytes());
+        std::fs::write(directory.0.join("maps/color.TgA"), &encoded).unwrap();
+        let mut builder = SceneBuilder::new(&installation, "maps");
+        assert!(builder
+            .append_retained("synthetic", source, Mat4::IDENTITY, None, false, None)
+            .unwrap_err()
+            .contains("quota"));
     }
     #[test]
     fn character_assembly_requires_owned_pose_and_rejects_unsupported_morph_materials() {
@@ -762,7 +910,7 @@ mod tests {
             .unwrap_err()
             .contains("MissingVertexIndices"));
         let mut invalid = (*character_source(3)).clone();
-        invalid.materials[0].flags = 0x8000;
+        invalid.materials[0].flags = 0x01000000;
         let mut builder = SceneBuilder::new(&installation, "maps");
         builder.use_original_model_loading();
         assert!(builder

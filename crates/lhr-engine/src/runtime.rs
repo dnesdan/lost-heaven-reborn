@@ -1241,6 +1241,7 @@ mod tests {
                 name_bytes: b"source".to_vec(),
                 properties: Vec::new(),
                 dummy_bounds: None,
+                light: None,
                 joint: None,
                 skin: None,
                 morph: None,
@@ -1254,6 +1255,7 @@ mod tests {
                 instance: None,
                 lods: vec![Lod {
                     distance: 0.,
+                    uv_only: None,
                     vertices: vec![
                         lhr_assets::Vertex {
                             position: [1., 2., 3.],
