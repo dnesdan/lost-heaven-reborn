@@ -651,6 +651,34 @@ mod container_tests {
         assert!(installation.read("models/x").is_err());
     }
     #[test]
+    fn optional_installation_reads_preserve_selected_archive_failures() {
+        let d = Directory::new();
+        d.archive("A2.dta", &["tables/version.txt"]);
+        std::fs::create_dir(d.0.join("tables")).unwrap();
+        std::fs::write(d.0.join("tables/version.txt"), b"en").unwrap();
+        let installation = crate::Installation::open(&d.0).unwrap();
+        assert_eq!(
+            installation.read_optional("tables/missing.txt").unwrap(),
+            None
+        );
+        assert_eq!(
+            installation.read_optional("tables/version.txt").unwrap(),
+            Some(b"abc".to_vec())
+        );
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(d.0.join("A2.dta"))
+            .unwrap()
+            .set_len(1)
+            .unwrap();
+        assert!(installation.read_optional("tables/version.txt").is_err());
+        // Its existing loose English version is not substituted for the selected archive.
+        assert_eq!(
+            std::fs::read(d.0.join("tables/version.txt")).unwrap(),
+            b"en"
+        );
+    }
+    #[test]
     fn retained_archive_handle_and_mutation_guard() {
         let d = Directory::new();
         d.archive("A2.dta", &["models/x"]);

@@ -516,6 +516,7 @@ mod tests {
                 name_bytes: b"channel".to_vec(),
                 properties: vec![],
                 dummy_bounds: None,
+                light: None,
                 joint: None,
                 skin: None,
                 morph: None,

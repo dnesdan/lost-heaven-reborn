@@ -720,6 +720,11 @@ impl LoadedVisualResources {
         }
         let mut materials = BTreeMap::new();
         for lod in &frame.lods {
+            if lod.uv_only.is_some() {
+                return Err(LoadedVisualError::Backend(
+                    "UV-only LOD runtime materialization unavailable",
+                ));
+            }
             if lod.vertices.is_empty()
                 || lod
                     .vertices
@@ -1124,6 +1129,7 @@ mod tests {
             word_bfcd4: 0,
             word_bfcf4: 0,
         };
+        assert_eq!(context.texture_flags(source.flags | 0x8000), 0x1044);
         assert_eq!(context.texture_flags(source.flags), 0x44);
         assert_eq!(context.base_texture_request_flags(&source), 0x40);
         assert_eq!(context.base_texture_flags(&source).unwrap(), 0);
@@ -1342,6 +1348,7 @@ mod tests {
             name_bytes: b"plain".to_vec(),
             properties: vec![],
             dummy_bounds: None,
+            light: None,
             joint: None,
             target: None,
             occluder: None,
@@ -1355,6 +1362,7 @@ mod tests {
             instance: None,
             lods: vec![lhr_assets::Lod {
                 distance: 0.,
+                uv_only: None,
                 vertices: vec![
                     lhr_assets::Vertex {
                         position: [-1., 0., 0.],
@@ -1380,6 +1388,37 @@ mod tests {
                     .collect(),
             }],
         }
+    }
+    #[test]
+    fn uv_only_lod_has_an_explicit_runtime_boundary_before_owned_allocation() {
+        let root = std::env::temp_dir().join(format!(
+            "lhr-uv-only-{}-{}",
+            std::process::id(),
+            identity().unwrap()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let installation = lhr_assets::Installation::open(&root).unwrap();
+        let mut frame = plain_frame_fixture();
+        let mut uv_lod = frame.lods[0].clone();
+        uv_lod.uv_only = Some(uv_lod.vertices.iter().map(|v| v.uv).collect());
+        uv_lod.vertices.clear();
+        frame.lods.push(uv_lod);
+        let source = lhr_assets::Model {
+            materials: vec![],
+            frames: vec![frame],
+        };
+        let mut owner = LoadedVisualResources::new().unwrap();
+        let error = owner
+            .load_plain_object(&source, 0, &installation)
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            LoadedVisualError::Backend("UV-only LOD runtime materialization unavailable")
+        ));
+        assert!(owner.sources.is_empty());
+        assert!(!owner.incomplete);
+        drop(installation);
+        std::fs::remove_dir(root).unwrap();
     }
     #[test]
     fn ordinary_open_ended_last_lod_keeps_rendering_without_fade_or_cull() {
@@ -1789,6 +1828,7 @@ mod unconstructed_lit_admission_tests {
         frame.visual = Some(1);
         frame.lods = vec![lhr_assets::Lod {
             distance: 0.,
+            uv_only: None,
             vertices: vec![
                 lhr_assets::Vertex {
                     position: [0.; 3],
@@ -1841,6 +1881,24 @@ mod unconstructed_lit_admission_tests {
                 "unconstructed lit texture alpha/add/color-key unavailable"
             ))
         ));
+        // Stage 1's retained UV-only records must keep their runtime boundary
+        // after Stage 8a routes both Plain and Lit through shared admission.
+        source.materials[0].alpha_texture = None;
+        let full_lod = source.frames[0].lods[0].clone();
+        source.frames[0].lods[0].uv_only = Some(vec![[0.; 2]; 3]);
+        source.frames[0].lods[0].vertices.clear();
+        assert!(matches!(
+            owner.load_unconstructed_lit_object(&source, 0, &installation),
+            Err(LoadedVisualError::Backend(
+                "UV-only LOD runtime materialization unavailable"
+            ))
+        ));
+        assert_eq!(owner.backend.live_allocations(), 0);
+        assert_eq!(owner.backend.live_graphics(), 0);
+        assert_eq!(owner.backend.live_textures(), 0);
+        assert!(owner.sources.is_empty());
+        assert!(!owner.incomplete);
+        source.frames[0].lods[0] = full_lod;
         source.frames[0].lods[0].groups[0].material = lhr_assets::UNASSIGNED_MATERIAL;
         assert!(matches!(
             owner.load_unconstructed_lit_object(&source, 0, &installation),

@@ -252,6 +252,7 @@ mod tests {
         mesh.logic_flags = 0;
         mesh.lods.push(lhr_assets::Lod {
             distance: 0.,
+            uv_only: None,
             vertices: [[-1., -2., -3.], [1., 2., 3.], [0., 0., 0.]]
                 .map(|position| lhr_assets::Vertex {
                     position,
@@ -340,6 +341,7 @@ mod tests {
         mesh.logic_flags = 0;
         mesh.lods.push(lhr_assets::Lod {
             distance: 0.,
+            uv_only: None,
             vertices: [[-2., -3., -4.], [2., 3., 4.], [0.; 3]]
                 .map(|position| lhr_assets::Vertex {
                     position,

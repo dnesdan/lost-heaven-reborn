@@ -447,6 +447,7 @@ mod tests {
         visual.logic_flags = 0;
         visual.lods.push(lhr_assets::Lod {
             distance: 0.,
+            uv_only: None,
             vertices: [[-1., -1., 0.], [1., -1., 0.], [0., 1., 0.]]
                 .map(|position| lhr_assets::Vertex {
                     position,
@@ -466,7 +467,9 @@ mod tests {
             ],
         });
         let source = Arc::new(lhr_assets::Model {
-            materials: vec![material(0x40000, 1.), material(0x08040000, 0.5)],
+            // Stage 1's KEEP_PIXELS storage flag remains compatible with the
+            // live material path and must not count as an omitted draw effect.
+            materials: vec![material(0x48000, 1.), material(0x08048000, 0.5)],
             frames: vec![visual],
         });
         let installation = lhr_assets::Installation::open(&path).unwrap();
