@@ -19,6 +19,9 @@ mod driving;
 pub use driving::{CarDrivingControlFeedback, CarDrivingInput, CarDrivingState};
 #[path = "car_runtime_game.rs"]
 mod game;
+#[path = "car_runtime_lifecycle.rs"]
+mod lifecycle;
+use lifecycle::OperationState;
 #[path = "car_runtime_tables.rs"]
 mod tables;
 
@@ -103,10 +106,8 @@ pub struct CarRuntime {
     precision: Pc24PrecisionState,
     services: driving::CarRuntimeServices,
     driving: Option<driving::DrivingSession>,
-    game_init_started: bool,
-    game_initialized: bool,
-    game_done_started: bool,
-    game_done_complete: bool,
+    game_init: OperationState,
+    game_done: OperationState,
     game: game::CarRuntimeGameState,
     game_scratch: CarGameInitScratch,
     level_table_started: bool,
@@ -123,8 +124,7 @@ pub struct CarRuntime {
     construction: Option<CarConstructionState>,
     car: Option<VehicleInitState>,
     summary: CarRuntimeSummary,
-    car_destructor_started: bool,
-    car_destructor_complete: bool,
+    car_destruction: OperationState,
     shutdown_started: bool,
     wheel_preview_started: bool,
     wheel_preview_failed: bool,
@@ -186,10 +186,8 @@ impl CarRuntime {
                 ..Default::default()
             },
             driving: None,
-            game_init_started: false,
-            game_initialized: false,
-            game_done_started: false,
-            game_done_complete: false,
+            game_init: OperationState::NotStarted,
+            game_done: OperationState::NotStarted,
             game: game::CarRuntimeGameState::default(),
             game_scratch: CarGameInitScratch {
                 memory: VehicleComponentTailScratch {
@@ -224,8 +222,7 @@ impl CarRuntime {
                 cached_tracks: 0,
                 source_frames: 0,
             },
-            car_destructor_started: false,
-            car_destructor_complete: false,
+            car_destruction: OperationState::NotStarted,
             shutdown_started: false,
             wheel_preview_started: false,
             wheel_preview_failed: false,
@@ -571,11 +568,7 @@ impl CarRuntime {
         )
     }
     fn load_level_table_inner(&mut self) -> Result<CarRuntimeLevelTableSummary, String> {
-        if !self.summary.initialized
-            || self.car_destructor_started
-            || self.shutdown_started
-            || self.level_table_started
-        {
+        if !self.car_is_live() || self.level_table_started {
             return Err(
                 "Level tables require a live initialized car and a fresh table call".into(),
             );
@@ -689,11 +682,7 @@ impl CarRuntime {
                 "Wheel preview requires steer in [-1,1] and elapsed seconds in [0,0.083]".into(),
             );
         }
-        if !self.summary.initialized
-            || self.car_destructor_started
-            || self.shutdown_started
-            || self.wheel_preview_failed
-        {
+        if !self.car_is_live() || self.wheel_preview_failed {
             return Err(
                 "Wheel preview requires a live initialized car without a previous preview failure"
                     .into(),
@@ -740,13 +729,13 @@ impl CarRuntime {
     }
     fn destruct_car_inner(&mut self) -> Result<(), String> {
         self.cleanup_driving_actors_inner()?;
-        if self.game_init_started && !self.game_done_complete {
+        if self.game_init.has_started() && !self.game_done.is_complete() {
             self.finish_game()?;
         }
-        if self.car_destructor_started {
+        if self.car_destruction.has_started() {
             return Err("Car destruction already started".into());
         }
-        self.car_destructor_started = true;
+        self.car_destruction = OperationState::Started;
         if let Some(car) = self.car.as_mut() {
             let mut backend = VehicleFrameBackend::with_installation(
                 &mut self.arena,
@@ -757,7 +746,7 @@ impl CarRuntime {
             car.destruct_car(&mut backend)
                 .map_err(|e| format!("Car destruction: {e:?}"))?;
         }
-        self.car_destructor_complete = true;
+        self.car_destruction = OperationState::Complete;
         Ok(())
     }
     /// Explicit cleanup after the renderer has finished using its uploads.
@@ -772,7 +761,7 @@ impl CarRuntime {
                 "Incomplete car constructor retained; derived destruction is unavailable".into(),
             );
         }
-        if !self.car_destructor_complete {
+        if !self.car_destruction.is_complete() {
             self.destruct_car()?;
         }
         let model_to_check = self.model;
@@ -836,7 +825,7 @@ impl CarRuntime {
             VehicleInitBackend::write_word(&mut self.memory, address, 0)
                 .map_err(|e| format!("Actor registry reset: {e:?}"))?;
         }
-        if self.game_init_started {
+        if self.game_init.has_started() {
             // C_car removes its entries; the standalone caller still owns the
             // C_using_object vector capacity in its game context.
             let header = 0x680000 + 0x29ec;
@@ -866,7 +855,7 @@ impl CarRuntime {
                     .map_err(|e| format!("Hidden world model registry reset: {e:?}"))?;
             }
         }
-        if self.game_init_started {
+        if self.game_init.has_started() {
             if let Some(session) = self.driving.as_mut() {
                 session.simulation.cleanup(&mut self.memory)?;
                 self.memory
@@ -1019,6 +1008,10 @@ fn original_model_input(path: &str) -> Result<String, String> {
         .ok_or("Car inspection model path has no extension")?;
     Ok(format!("{}.i3d", &input[..dot]))
 }
+
+#[cfg(test)]
+#[path = "car_runtime_lifecycle_tests.rs"]
+mod lifecycle_tests;
 
 #[cfg(test)]
 mod tests {

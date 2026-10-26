@@ -46,8 +46,7 @@ pub(super) struct DrivingSession {
     pub simulation: simulation::SimulationState,
     pub engine_started: bool,
     pub services_started: bool,
-    pub actor_cleanup_started: bool,
-    pub actor_cleanup_complete: bool,
+    pub actor_cleanup: OperationState,
     pub failed: bool,
 }
 impl CarRuntime {
@@ -56,13 +55,13 @@ impl CarRuntime {
             return Ok(());
         };
         // No actor/model factory is reached before the first simulation call.
-        if !session.services_started || session.actor_cleanup_complete {
+        if !session.services_started || session.actor_cleanup.is_complete() {
             return Ok(());
         }
-        if session.actor_cleanup_started {
+        if session.actor_cleanup.has_started() {
             return Err("Temporary actor cleanup retained an interrupted prefix".into());
         }
-        session.actor_cleanup_started = true;
+        session.actor_cleanup = OperationState::Started;
         // Real mesh access retains driver VB/IB locks until publication, even
         // when the simulation stopped before its normal end-of-frame boundary.
         self.arena
@@ -90,7 +89,7 @@ impl CarRuntime {
             &mut session.simulation,
         );
         backend.cleanup_temporary_actors()?;
-        session.actor_cleanup_complete = true;
+        session.actor_cleanup = OperationState::Complete;
         Ok(())
     }
     pub(super) fn prepare_driving_world(
@@ -111,8 +110,7 @@ impl CarRuntime {
             ),
             engine_started: false,
             services_started: false,
-            actor_cleanup_started: false,
-            actor_cleanup_complete: false,
+            actor_cleanup: OperationState::NotStarted,
             failed: false,
         });
         Ok(())
@@ -123,10 +121,10 @@ impl CarRuntime {
         Pc24PrecisionState::run_owner(self, |o| &mut o.precision, |o| o.initialize_game_inner())
     }
     fn initialize_game_inner(&mut self) -> Result<(), String> {
-        if self.game_init_started || !self.summary.initialized || self.shutdown_started {
+        if !self.can_initialize_game() {
             return Err("GameInit requires a fresh live initialized car".into());
         }
-        self.game_init_started = true;
+        self.game_init = OperationState::Started;
         self.load_driving_tables()?;
         let scene = self.scene.ok_or("GameInit has no scene owner")?;
         let scene_address = {
@@ -241,7 +239,7 @@ impl CarRuntime {
         self.arena
             .publish_runtime_buffers()
             .map_err(|e| format!("GameInit frame publication: {e:?}"))?;
-        self.game_initialized = true;
+        self.game_init = OperationState::Complete;
         Ok(())
     }
     pub fn start_driving(&mut self, mission: &str) -> Result<lhr_render::Scene, String> {
@@ -252,7 +250,7 @@ impl CarRuntime {
         )
     }
     fn start_driving_inner(&mut self, mission: &str) -> Result<lhr_render::Scene, String> {
-        if self.game_init_started {
+        if !self.can_initialize_game() {
             return Err("Driving requires a fresh GameInit context".into());
         }
         let session = self
@@ -291,8 +289,8 @@ impl CarRuntime {
         milliseconds: u32,
         input: CarDrivingInput,
     ) -> Result<CarDrivingState, String> {
-        if !self.game_initialized || self.shutdown_started {
-            return Err("Driving requires completed GameInit".into());
+        if !self.can_drive() {
+            return Err("Driving requires a live car with completed GameInit".into());
         }
         let session = self.driving.as_mut().ok_or("Driving has no world owner")?;
         if session.failed {
@@ -514,10 +512,10 @@ impl CarRuntime {
         Ok(rows)
     }
     pub(super) fn finish_game(&mut self) -> Result<(), String> {
-        if self.game_done_started {
+        if self.game_done.has_started() {
             return Err("GameDone already started".into());
         }
-        self.game_done_started = true;
+        self.game_done = OperationState::Started;
         let mut frames = VehicleFrameBackend::with_installation(
             &mut self.arena,
             &mut self.memory,
@@ -540,7 +538,7 @@ impl CarRuntime {
         self.arena
             .publish_runtime_buffers()
             .map_err(|e| format!("GameDone frame publication: {e:?}"))?;
-        self.game_done_complete = true;
+        self.game_done = OperationState::Complete;
         Ok(())
     }
 }
