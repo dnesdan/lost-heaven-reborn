@@ -30,6 +30,29 @@ impl<E> From<VehicleDrivetrainUnavailable> for VehicleMotorRotUnavailable<E> {
 
 type Result<T> = std::result::Result<T, VehicleDrivetrainUnavailable>;
 
+/// Descriptive phases selected from the live flags, not additional stored state
+/// or recovered C++ type names. Disengaging wins when both transition bits are set.
+enum ClutchPhase {
+    Disengaging,
+    Engaging,
+    FollowingTarget,
+    LimitedByTarget,
+}
+
+impl ClutchPhase {
+    fn from_flags(flags: u32) -> Self {
+        if flags & 2 != 0 {
+            Self::Disengaging
+        } else if flags & 1 != 0 {
+            Self::Engaging
+        } else if flags & 0x24 == 0 {
+            Self::FollowingTarget
+        } else {
+            Self::LimitedByTarget
+        }
+    }
+}
+
 fn operand(x: f32) -> Result<f32> {
     if x == 0.0 || x.is_normal() {
         Ok(x)
@@ -347,35 +370,56 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> VehicleDrivetrainState<T> {
         if self.float(0x548)? < 0.0 {
             self.store(0x548, 0)?;
         }
+
+        self.advance_clutch_shift(dt, direction, &mut effect)
+    }
+
+    /// Advance the clutch on the same owner after publishing the motor rotation.
+    /// A completed release publishes its state before the external shift effect;
+    /// the requested gear is deliberately reloaded after that effect returns.
+    fn advance_clutch_shift<E>(
+        &mut self,
+        dt: f32,
+        direction: &mut u8,
+        effect: &mut impl FnMut(&mut Self, &mut u8) -> std::result::Result<(), E>,
+    ) -> std::result::Result<(), VehicleMotorRotUnavailable<E>> {
         let flags = self.word(0x5e8)?;
-        if flags & 2 != 0 {
-            let decrement = mul(dt, self.float(0x5d8)?)?;
-            let next = sub(self.float(0x5dc)?, decrement)?;
-            self.store_float(0x5dc, next)?;
-            if next <= 0.0 {
-                let callback = self.byte(0x432)? != 0;
-                self.store(0x5dc, 0)?;
-                self.store(0x5e8, (flags & !2) | 1)?;
-                if callback {
-                    effect(self, direction).map_err(VehicleMotorRotUnavailable::Effect)?;
+        match ClutchPhase::from_flags(flags) {
+            ClutchPhase::Disengaging => {
+                let decrement = mul(dt, self.float(0x5d8)?)?;
+                let next = sub(self.float(0x5dc)?, decrement)?;
+                self.store_float(0x5dc, next)?;
+                if next <= 0.0 {
+                    let callback = self.byte(0x432)? != 0;
+                    self.store(0x5dc, 0)?;
+                    self.store(0x5e8, (flags & !2) | 1)?;
+                    if callback {
+                        effect(self, direction).map_err(VehicleMotorRotUnavailable::Effect)?;
+                    }
+                    self.store(0x55c, self.word(0x560)?)?;
                 }
-                self.store(0x55c, self.word(0x560)?)?;
             }
-        } else if flags & 1 != 0 {
-            let next = add(mul(dt, self.float(0x5d4)?)?, self.float(0x5dc)?)?;
-            let maximum = self.float(0x5e4)?;
-            self.store_float(0x5dc, next)?;
-            if next > maximum {
+            ClutchPhase::Engaging => {
+                let next = add(mul(dt, self.float(0x5d4)?)?, self.float(0x5dc)?)?;
+                let maximum = self.float(0x5e4)?;
+                self.store_float(0x5dc, next)?;
+                if next > maximum {
+                    self.store(0x5dc, self.word(0x5e4)?)?;
+                    self.store(0x5e8, flags & !3)?;
+                } else if next > 1.0 {
+                    self.store_float(0x5dc, 1.0)?;
+                    self.store(0x5e8, flags & !3)?;
+                }
+            }
+            ClutchPhase::FollowingTarget => {
+                // Raw copying does not admit either field as an arithmetic operand.
                 self.store(0x5dc, self.word(0x5e4)?)?;
-                self.store(0x5e8, flags & !3)?;
-            } else if next > 1.0 {
-                self.store_float(0x5dc, 1.0)?;
-                self.store(0x5e8, flags & !3)?;
             }
-        // Short-circuiting preserves the unconditional raw-copy branch: it
-        // does not interpret either field as an arithmetic operand.
-        } else if flags & 0x24 == 0 || self.float(0x5e4)? < self.float(0x5dc)? {
-            self.store(0x5dc, self.word(0x5e4)?)?;
+            ClutchPhase::LimitedByTarget => {
+                if self.float(0x5e4)? < self.float(0x5dc)? {
+                    self.store(0x5dc, self.word(0x5e4)?)?;
+                }
+            }
         }
         Ok(())
     }
@@ -547,6 +591,98 @@ mod tests {
         assert_eq!(s.word(0x5e8).unwrap(), 1);
         assert_eq!(s.word(0x55c).unwrap(), 1);
         assert!(s.float(0x548).unwrap() < 300.0);
+    }
+
+    #[test]
+    fn completed_release_keeps_callback_mutations_and_reloads_the_requested_gear() {
+        for fail in [false, true] {
+            let mut s = state();
+            // An unrecognized mode leaves RPM synchronization and direction alone.
+            s.store(0xb8, 9).unwrap();
+            s.store(0x5e8, 0x8000_0003).unwrap();
+            s.store_float(0x5dc, 0.5).unwrap();
+            s.bytes[0x432] = 1;
+            let mut bytes = s.into_bytes();
+            let mut expected = bytes.clone();
+            expected[0x5dc..0x5e0].fill(0);
+            expected[0x5e8..0x5ec].copy_from_slice(&0xa5a5_5a5au32.to_le_bytes());
+            expected[0x560..0x564].copy_from_slice(&4u32.to_le_bytes());
+            expected[0x20..0x24].copy_from_slice(&0x1234_5678u32.to_le_bytes());
+            if !fail {
+                expected[0x55c..0x560].copy_from_slice(&4u32.to_le_bytes());
+            }
+            let mut direction = 9;
+            let mut calls = 0;
+            let result = VehicleDrivetrainState::from_bytes_mut(&mut bytes)
+                .motor_rot_with_shift_effect(0.25, 0.0, &mut direction, |owner, direction| {
+                    calls += 1;
+                    assert_eq!(owner.word(0x5dc), Ok(0));
+                    assert_eq!(owner.word(0x5e8), Ok(0x8000_0001));
+                    assert_eq!(owner.word(0x55c), Ok(1));
+                    assert_eq!(owner.word(0x560), Ok(2));
+                    assert_eq!(*direction, 9);
+                    owner.store(0x560, 4).unwrap();
+                    owner.store(0x5e8, 0xa5a5_5a5a).unwrap();
+                    owner.store(0x20, 0x1234_5678).unwrap();
+                    *direction = 7;
+                    if fail {
+                        Err("shift failed")
+                    } else {
+                        Ok(())
+                    }
+                });
+            assert_eq!(
+                result,
+                if fail {
+                    Err(VehicleMotorRotUnavailable::Effect("shift failed"))
+                } else {
+                    Ok(())
+                }
+            );
+            assert_eq!(calls, 1);
+            assert_eq!(direction, 7);
+            assert_eq!(bytes, expected);
+        }
+    }
+
+    #[test]
+    fn engaging_clutch_preserves_unknown_flags_and_strict_completion_thresholds() {
+        for (target, dt, clutch, flags) in [
+            (0.75, 0.25, 0.75f32, 0x8000_0004u32),
+            (1.0, 0.25, 1.0, 0x8000_0005),
+            (2.0, 0.5, 1.0, 0x8000_0004),
+            (2.0, 0.25, 1.0, 0x8000_0005),
+        ] {
+            let mut s = state();
+            s.store(0xb8, 9).unwrap();
+            s.store(0x5e8, 0x8000_0005).unwrap();
+            s.store_float(0x5dc, 0.5).unwrap();
+            s.store_float(0x5e4, target).unwrap();
+            let mut expected = s.as_bytes().to_vec();
+            expected[0x5dc..0x5e0].copy_from_slice(&clutch.to_le_bytes());
+            expected[0x5e8..0x5ec].copy_from_slice(&flags.to_le_bytes());
+            let mut direction = 9;
+            assert_eq!(s.motor_rot(dt, 0.0, &mut direction), Ok(()));
+            assert_eq!(s.as_bytes(), expected);
+            assert_eq!(direction, 9);
+        }
+    }
+
+    #[test]
+    fn engaging_clutch_validates_target_before_publishing_progress() {
+        let mut s = state();
+        s.store(0xb8, 9).unwrap();
+        s.store(0x5e8, 0x8000_0001).unwrap();
+        s.store_float(0x5dc, 0.5).unwrap();
+        s.store(0x5e4, 0x7fc1_2345).unwrap();
+        let expected = s.as_bytes().to_vec();
+        let mut direction = 9;
+        assert_eq!(
+            s.motor_rot(0.25, 0.0, &mut direction),
+            Err(VehicleDrivetrainUnavailable::NumericDomain)
+        );
+        assert_eq!(s.as_bytes(), expected);
+        assert_eq!(direction, 9);
     }
 
     #[test]
