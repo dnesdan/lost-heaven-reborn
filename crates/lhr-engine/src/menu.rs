@@ -14,13 +14,12 @@ pub enum Action {
 
 pub struct MenuUi {
     definition: MenuDefinition,
-    labels: Vec<String>,
+    labels: Vec<Vec<u8>>,
     font: FontMetrics,
     title_font: FontMetrics,
     atlas: Image,
     title_atlas: Image,
     language: [u16; 256],
-    encoding: Vec<(char, u8)>,
     header: Image,
     paper: Image,
     selected: usize,
@@ -35,40 +34,51 @@ impl MenuUi {
         let definition = lhr_assets::parse_menu_definition(&read("tables/menu/mainmenu.mnu")?)
             .map_err(|e| e.to_string())?;
         validate_layout(&definition)?;
-        let text =
-            lhr_assets::parse_text_db(&read("tables/textdb_cz.def")?).map_err(|e| e.to_string())?;
+        let version = installation
+            .read_optional("tables/version.txt")
+            .map_err(|e| format!("Menu data version: {e}"))?;
+        let code = lhr_engine::original_language::language_code_from_version(
+            version.as_deref().unwrap_or_default(),
+        );
+        let paths = lhr_engine::original_language::language_resource_paths(code)?;
+        let text = lhr_assets::parse_raw_text_db(&read(&paths.text_database)?)
+            .map_err(|e| e.to_string())?;
         let labels = definition
             .items
             .iter()
             .map(|item| {
                 text.get(item.text_id)
-                    .map(str::to_owned)
+                    .map(<[u8]>::to_vec)
                     .ok_or_else(|| format!("Menu text ID {} is absent", item.text_id))
             })
             .collect::<Result<Vec<_>, _>>()?;
-        if labels.iter().any(|label| label.chars().count() > 128)
-            || labels
-                .iter()
-                .map(|label| label.chars().count())
-                .sum::<usize>()
-                > 1024
+        if labels.iter().any(|label| label.len() > 128)
+            || labels.iter().map(|label| label.len()).sum::<usize>() > 1024
         {
             return Err("Menu labels exceed supported text quota".into());
         }
-        let lang = read("tables/lang_cz.def")?;
-        if lang.len() != 568 || &lang[..6] != b"Langcz" {
+        let lang = read(&paths.primary_map)?;
+        if lang.len() != 568
+            || &lang[..4] != b"Lang"
+            || lang[4..6] != [(code >> 8) as u8, code as u8]
+        {
             return Err("Unsupported menu language table".into());
         }
         let language =
             std::array::from_fn(|i| u16::from_le_bytes([lang[56 + i * 2], lang[57 + i * 2]]));
-        let encoding = (0..=255u8)
-            .filter_map(|b| {
-                lhr_assets::decode_windows1250(&[b])
-                    .ok()
-                    .and_then(|s| s.chars().next())
-                    .map(|c| (c, b))
-            })
-            .collect();
+        let suffix_bytes = &lang[40..56];
+        let suffix_end = suffix_bytes
+            .iter()
+            .position(|byte| *byte == 0)
+            .ok_or("Unterminated menu font suffix")?;
+        let suffix_bytes = &suffix_bytes[..suffix_end];
+        if !suffix_bytes
+            .iter()
+            .all(|byte| byte.is_ascii_graphic() && !matches!(byte, b'/' | b'\\' | b':'))
+        {
+            return Err("Unsupported menu font suffix".into());
+        }
+        let suffix = std::str::from_utf8(suffix_bytes).unwrap();
         let decode = |name: &str| lhr_assets::decode_tga(&read(name)?).map_err(|e| e.to_string());
         let selected = definition
             .items
@@ -80,14 +90,15 @@ impl MenuUi {
             definition,
             labels,
             language,
-            encoding,
             selected,
-            font: lhr_assets::parse_font_metrics(&read("tables/font1_lat.gmf")?)
+            font: lhr_assets::parse_font_metrics(&read(&format!("tables/font1{suffix}.gmf"))?)
                 .map_err(|e| e.to_string())?,
-            title_font: lhr_assets::parse_font_metrics(&read("tables/font2_lat.gmf")?)
-                .map_err(|e| e.to_string())?,
-            atlas: decode("maps/font1_lat.tga")?,
-            title_atlas: decode("maps/font2_lat.tga")?,
+            title_font: lhr_assets::parse_font_metrics(&read(&format!(
+                "tables/font2{suffix}.gmf"
+            ))?)
+            .map_err(|e| e.to_string())?,
+            atlas: decode(&format!("maps/font1{suffix}.tga"))?,
+            title_atlas: decode(&format!("maps/font2{suffix}.tga"))?,
             header: decode("maps/papir5a.tga")?,
             paper: decode("maps/papir3.tga")?,
         };
@@ -228,7 +239,7 @@ impl MenuUi {
     fn text(
         &self,
         canvas: &mut Canvas,
-        text: &str,
+        text: &[u8],
         rect: [f32; 4],
         title: bool,
         color: [u8; 3],
@@ -242,13 +253,8 @@ impl MenuUi {
         let h = rect[3] * header(8);
         let tracking = h * font.tracking;
         let glyphs: Vec<_> = text
-            .chars()
-            .map(|c| {
-                self.encoding
-                    .iter()
-                    .find(|(v, _)| *v == c)
-                    .map_or(0, |(_, b)| self.language[*b as usize])
-            })
+            .iter()
+            .map(|byte| self.language[*byte as usize])
             .collect();
         let advance = |g: u16| {
             let width = font.glyphs[(g & 255) as usize].width;
@@ -445,13 +451,12 @@ mod tests {
                 reserved: 0,
                 items,
             },
-            labels: vec!["Fixture".into(); 5],
+            labels: vec![b"Fixture".to_vec(); 5],
             font: font.clone(),
             title_font: font,
             atlas: image(),
             title_atlas: image(),
             language: [0; 256],
-            encoding: vec![],
             header: image(),
             paper: image(),
             selected: 1,
@@ -520,5 +525,213 @@ mod tests {
         assert_eq!(&canvas.rgba[3204..3208], &[255, 0, 0, 128]);
         canvas.pixel(1, 1, [0, 0, 255, 255]);
         assert_eq!(&canvas.rgba[3204..3208], &[0, 0, 255, 255]);
+    }
+
+    struct Resources(std::path::PathBuf);
+    impl Drop for Resources {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    impl Resources {
+        fn new() -> Self {
+            static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let sequence = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let root = std::env::temp_dir().join(format!(
+                "lhr-menu-language-{}-{sequence}",
+                std::process::id()
+            ));
+            std::fs::create_dir(&root).unwrap();
+            let resources = Self(root);
+            let mut menu = b"Menu".to_vec();
+            for word in [1u32, 2, 0] {
+                menu.extend(word.to_le_bytes());
+            }
+            for (id, kind, rect, text) in [
+                (1u32, *b"dniw", [10f32, 10., 200., 100.], 100u32),
+                (990103, *b"ttub", [10., 10., 100., 20.], 101),
+            ] {
+                menu.extend(id.to_le_bytes());
+                menu.extend(kind);
+                for value in rect {
+                    menu.extend(value.to_le_bytes());
+                }
+                menu.extend(text.to_le_bytes());
+                menu.extend(0u32.to_le_bytes());
+            }
+            resources.write("tables/menu/mainmenu.mnu", &menu);
+            let mut font = vec![0; 28 + 256 * 16];
+            font[..4].copy_from_slice(b"GFnt");
+            for (offset, value) in [(8, 1f32), (12, 1.), (16, 1.)] {
+                font[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+            }
+            for (index, width) in [(1, 0.25f32), (5, 0.5), (6, 0.75)] {
+                let offset = 28 + index * 16;
+                font[offset + 8..offset + 12].copy_from_slice(&1f32.to_le_bytes());
+                font[offset + 12..offset + 16].copy_from_slice(&width.to_le_bytes());
+            }
+            for name in ["tables/font1_lat.gmf", "tables/font2_lat.gmf"] {
+                resources.write(name, &font);
+            }
+            let mut tga = vec![0; 18];
+            tga[2] = 2;
+            tga[12] = 1;
+            tga[14] = 1;
+            tga[16] = 32;
+            tga[17] = 0x28;
+            tga.extend([255; 4]);
+            for name in [
+                "maps/font1_lat.tga",
+                "maps/font2_lat.tga",
+                "maps/papir5a.tga",
+                "maps/papir3.tga",
+            ] {
+                resources.write(name, &tga);
+            }
+            for (code, marker, glyph) in [("en", b'E', 5u16), ("cz", b'C', 6)] {
+                let mut text = vec![0; 24];
+                text[..4].copy_from_slice(&2u32.to_le_bytes());
+                for (index, id, offset) in [(0, 100u32, 24u32), (1, 101, 26)] {
+                    let start = 8 + index * 8;
+                    text[start..start + 4].copy_from_slice(&id.to_le_bytes());
+                    text[start + 4..start + 8].copy_from_slice(&offset.to_le_bytes());
+                }
+                text.extend([marker, 0, 0x81, marker, 0]);
+                resources.write(&format!("tables/textdb_{code}.def"), &text);
+                let mut language = vec![0; 568];
+                language[..4].copy_from_slice(b"Lang");
+                language[4..6].copy_from_slice(code.as_bytes());
+                language[40..44].copy_from_slice(b"_lat");
+                for index in 0..256 {
+                    language[56 + index * 2..58 + index * 2].copy_from_slice(&1u16.to_le_bytes());
+                }
+                language[56 + 0x81 * 2..58 + 0x81 * 2].copy_from_slice(&glyph.to_le_bytes());
+                resources.write(&format!("tables/lang_{code}.def"), &language);
+            }
+            resources
+        }
+        fn write(&self, name: &str, bytes: &[u8]) {
+            let path = self.0.join(name);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, bytes).unwrap();
+        }
+    }
+
+    #[test]
+    fn data_version_selects_real_menu_labels_and_language_glyphs_without_a_codepage_guess() {
+        let resources = Resources::new();
+        let installation = Installation::open(&resources.0).unwrap();
+        for (version, marker, width) in [(b"en-rest".as_slice(), b'E', 15f32), (b"cz", b'C', 20.)] {
+            resources.write("tables/version.txt", version);
+            let menu = MenuUi::load(&installation).unwrap();
+            assert_eq!(menu.labels[0], [marker]);
+            assert_eq!(menu.labels[1], [0x81, marker]);
+            assert_eq!(menu.focus_id(), 990103);
+            assert_eq!(
+                menu.text(
+                    &mut Canvas::new(),
+                    &menu.labels[1],
+                    [0., 0., 100., 20.],
+                    false,
+                    [0; 3]
+                ),
+                width
+            );
+            assert!(menu
+                .pixels()
+                .rgba
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| pixel[3] != 0));
+        }
+    }
+
+    #[test]
+    fn missing_and_short_data_version_default_to_english_but_selected_errors_do_not() {
+        let resources = Resources::new();
+        let installation = Installation::open(&resources.0).unwrap();
+        assert_eq!(MenuUi::load(&installation).unwrap().labels[0], b"E");
+        resources.write("tables/version.txt", b"c");
+        assert_eq!(MenuUi::load(&installation).unwrap().labels[0], b"E");
+        resources.write("tables/version.txt", b"en");
+        resources.write("tables/textdb_en.def", b"invalid selected database");
+        assert!(MenuUi::load(&installation).is_err());
+        std::fs::remove_file(resources.0.join("tables/textdb_en.def")).unwrap();
+        assert!(MenuUi::load(&installation)
+            .err()
+            .unwrap()
+            .contains("textdb_en.def"));
+        std::fs::remove_file(resources.0.join("tables/version.txt")).unwrap();
+        std::fs::create_dir(resources.0.join("tables/version.txt")).unwrap();
+        assert!(MenuUi::load(&installation)
+            .err()
+            .unwrap()
+            .contains("Menu data version"));
+        assert!(installation.read_optional("tables/version.txt").is_err());
+        assert_eq!(
+            installation.read_optional("tables/missing.def").unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn menu_uses_the_selected_font_family_and_preserves_source_uppercase_behavior() {
+        let resources = Resources::new();
+        let installation = Installation::open(&resources.0).unwrap();
+        resources.write("tables/version.txt", b"EN");
+        assert!(MenuUi::load(&installation)
+            .err()
+            .unwrap()
+            .contains("textdb_%..def"));
+        resources.write("tables/version.txt", b"en");
+        let mut language = std::fs::read(resources.0.join("tables/lang_en.def")).unwrap();
+        language[40..56].fill(0);
+        language[40..45].copy_from_slice(b"_test");
+        let mut font = std::fs::read(resources.0.join("tables/font1_lat.gmf")).unwrap();
+        let width_offset = 28 + 5 * 16 + 12;
+        font[width_offset..width_offset + 4].copy_from_slice(&1f32.to_le_bytes());
+        for index in [1, 2] {
+            resources.write(&format!("tables/font{index}_test.gmf"), &font);
+            let atlas =
+                std::fs::read(resources.0.join(format!("maps/font{index}_lat.tga"))).unwrap();
+            resources.write(&format!("maps/font{index}_test.tga"), &atlas);
+        }
+        resources.write("tables/lang_en.def", &language);
+        let menu = MenuUi::load(&installation).unwrap();
+        assert_eq!(
+            menu.text(
+                &mut Canvas::new(),
+                &menu.labels[1],
+                [0., 0., 100., 20.],
+                false,
+                [0; 3]
+            ),
+            25.0
+        );
+        std::fs::remove_file(resources.0.join("tables/font1_test.gmf")).unwrap();
+        assert!(MenuUi::load(&installation)
+            .err()
+            .unwrap()
+            .contains("font1_test.gmf"));
+        language[40..56].fill(0);
+        language[40..46].copy_from_slice(b"../bad");
+        resources.write("tables/lang_en.def", &language);
+        assert_eq!(
+            MenuUi::load(&installation).err().unwrap(),
+            "Unsupported menu font suffix"
+        );
+        language[40..56].fill(b'x');
+        resources.write("tables/lang_en.def", &language);
+        assert_eq!(
+            MenuUi::load(&installation).err().unwrap(),
+            "Unterminated menu font suffix"
+        );
+        language[4..6].copy_from_slice(b"cz");
+        resources.write("tables/lang_en.def", &language);
+        assert_eq!(
+            MenuUi::load(&installation).err().unwrap(),
+            "Unsupported menu language table"
+        );
     }
 }

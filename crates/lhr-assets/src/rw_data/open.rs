@@ -260,7 +260,7 @@ impl<B: OpenEffects> Handles<B> {
         }
     }
 }
-fn store<B: OpenEffects>(
+pub(super) fn store<B: Effects>(
     s: &mut NativeState<B>,
     record: HandleRecord,
     loose: Option<LooseReadCache>,

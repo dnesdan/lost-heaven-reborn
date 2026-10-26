@@ -870,6 +870,7 @@ mod tests {
             std::fs::write(directory.join("loop.wav"), bytes).unwrap();
             let installation = lhr_assets::Installation::open(&directory).unwrap();
             let audio = RuntimeAudio::default();
+            audio.set_listener([0.0; 3], [1.0, 0.0, 0.0], None).unwrap();
             audio.create_sound_at(0x7000).unwrap();
             audio.load_sound(0x7000, "loop.wav", &installation).unwrap();
             audio.sound_virtual(0x7000, 0x58, &[3]).unwrap();

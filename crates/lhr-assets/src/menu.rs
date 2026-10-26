@@ -27,9 +27,49 @@ impl TextDb {
     }
 }
 
-/// Parse Czech/Polish Windows-1250 TextDB `.def` files. Other language encodings
-/// are not inferred by this function.
+/// Original TextDB strings remain byte strings; the selected language's glyph
+/// map consumes these bytes directly, without an inferred Unicode code page.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RawTextDbEntry {
+    pub id: u32,
+    pub bytes: Vec<u8>,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RawTextDb {
+    pub unknown: u32,
+    pub entries: Vec<RawTextDbEntry>,
+}
+impl RawTextDb {
+    pub fn get(&self, id: u32) -> Option<&[u8]> {
+        self.entries
+            .iter()
+            .find(|entry| entry.id == id)
+            .map(|entry| entry.bytes.as_slice())
+    }
+}
+
+/// Existing Czech/Polish Unicode inspection API. Other language encodings are
+/// not inferred; raw menu rendering uses parse_raw_text_db instead.
 pub fn parse_text_db(b: &[u8]) -> Result<TextDb> {
+    let raw = parse_raw_text_db(b)?;
+    let entries = raw
+        .entries
+        .into_iter()
+        .map(|entry| {
+            Ok(TextDbEntry {
+                id: entry.id,
+                text: decode_windows1250(&entry.bytes)?,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(TextDb {
+        unknown: raw.unknown,
+        entries,
+    })
+}
+
+/// Bounded intake of original G_TextDatabase byte strings and file offsets.
+pub fn parse_raw_text_db(b: &[u8]) -> Result<RawTextDb> {
     if b.len() > MAX_BYTES {
         return err("TextDB exceeds 64 MiB quota");
     }
@@ -72,12 +112,12 @@ pub fn parse_text_db(b: &[u8]) -> Result<TextDb> {
         if total_text_bytes > MAX_TOTAL_TEXT_BYTES {
             return err("TextDB decoded text exceeds 16 MiB quota");
         }
-        entries.push(TextDbEntry {
+        entries.push(RawTextDbEntry {
             id,
-            text: decode_windows1250(&tail[..end])?,
+            bytes: tail[..end].to_vec(),
         });
     }
-    Ok(TextDb { unknown, entries })
+    Ok(RawTextDb { unknown, entries })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -298,6 +338,23 @@ mod tests {
         b[20..24].copy_from_slice(&28u32.to_le_bytes());
         b.extend_from_slice(b"P\xe1\xed\0Ahoj\0");
         b
+    }
+    #[test]
+    fn raw_textdb_preserves_original_bytes_without_inventing_an_encoding() {
+        let mut bytes = textdb();
+        bytes[24] = 0x81; // Undefined in the existing Windows-1250 Unicode API.
+        let raw = parse_raw_text_db(&bytes).unwrap();
+        assert_eq!(raw.unknown, 0x12345678);
+        assert_eq!(raw.get(101), Some([0x81, 0xe1, 0xed].as_slice()));
+        assert!(parse_text_db(&bytes).is_err());
+        for end in 0..bytes.len() {
+            assert!(parse_raw_text_db(&bytes[..end]).is_err());
+        }
+        for offset in [0u32, 23, bytes.len() as u32, u32::MAX] {
+            let mut invalid = bytes.clone();
+            invalid[12..16].copy_from_slice(&offset.to_le_bytes());
+            assert!(parse_raw_text_db(&invalid).is_err());
+        }
     }
     #[test]
     fn parses_textdb_cp1250_and_opaque_header() {

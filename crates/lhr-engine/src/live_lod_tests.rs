@@ -48,6 +48,7 @@ fn fixture(position: [f32; 3], child: bool) -> Fixture {
     frame.lods = vec![
         lhr_assets::Lod {
             distance: 25.,
+            uv_only: None,
             vertices: [[-1., -1., 0.], [1., -1., 0.], [0., 1., 2.]]
                 .map(vertex)
                 .to_vec(),
@@ -58,6 +59,7 @@ fn fixture(position: [f32; 3], child: bool) -> Fixture {
         },
         lhr_assets::Lod {
             distance: 100.,
+            uv_only: None,
             vertices: [[-1., -1., 1.], [1., -1., 1.], [1., 1., 1.], [-1., 1., 1.]]
                 .map(vertex)
                 .to_vec(),

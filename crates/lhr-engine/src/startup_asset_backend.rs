@@ -31,6 +31,7 @@ pub struct StartupAssetBackend<'a> {
     archives: Vec<ArchiveOwner>,
     streams: BTreeMap<u64, NativeStream<'a>>,
     dta_first: bool,
+    patches: crate::program_patch::ProgramPatchTable,
 }
 
 impl<'a> StartupAssetBackend<'a> {
@@ -41,7 +42,17 @@ impl<'a> StartupAssetBackend<'a> {
             archives: Vec::new(),
             streams: BTreeMap::new(),
             dta_first: false,
+            patches: Default::default(),
         }
+    }
+
+    /// Pass this live slice to mission_actor_stream/CProgram loading so the
+    /// existing reverse-priority replacement loop uses the startup patch data.
+    pub fn program_replacements(&self) -> &[crate::original_program::ProgramReplacement] {
+        self.patches.replacements()
+    }
+    pub fn unload_patch_files(&mut self) {
+        self.patches.unload();
     }
 
     pub fn archive_count(&self) -> usize {
@@ -50,6 +61,43 @@ impl<'a> StartupAssetBackend<'a> {
 
     pub fn open_file_count(&self) -> usize {
         self.streams.len()
+    }
+
+    /// C_chunk::OpenFile read prefix: genuine seek-to-end, then rewind.
+    pub fn read_chunk_file(&mut self, path: &[u8]) -> Result<Option<Vec<u8>>, SystemError> {
+        let Some(handle) = self.open_file(path)? else {
+            return Ok(None);
+        };
+        self.consume_chunk_file(handle).map(Some)
+    }
+    fn consume_chunk_file(&mut self, handle: SystemHandle) -> Result<Vec<u8>, SystemError> {
+        let result = (|| {
+            let stream = self
+                .streams
+                .get_mut(&handle.0)
+                .ok_or(SystemError::InvalidReply("foreign chunk file handle"))?;
+            let size = stream.seek(0, 2).map_err(provider_error)?;
+            stream.seek(0, 0).map_err(provider_error)?;
+            if size > 64 * 1024 * 1024 {
+                return Err(SystemError::Unsupported("chunk file quota"));
+            }
+            let bytes = self.read_file(handle, size as usize)?;
+            if bytes.len() != size as usize {
+                return Err(SystemError::Backend("short chunk file read"));
+            }
+            Ok(bytes)
+        })();
+        let close = self.effect(SystemEffect::CloseFile(handle));
+        match result {
+            Ok(bytes) => {
+                close?;
+                Ok(bytes)
+            }
+            Err(error) => {
+                let _ = close;
+                Err(error)
+            }
+        }
     }
 
     fn reserve_handle(&mut self) -> Result<SystemHandle, SystemError> {
@@ -92,6 +140,18 @@ impl SystemBackend for StartupAssetBackend<'_> {
 
     fn effect(&mut self, effect: SystemEffect) -> Result<(), SystemError> {
         match effect {
+            SystemEffect::UnloadPatchFiles => {
+                self.patches.unload();
+                Ok(())
+            }
+            SystemEffect::LoadPatchFile(path) => {
+                if let Some(bytes) = self.read_chunk_file(path)? {
+                    self.patches
+                        .load(&bytes)
+                        .map_err(|_| SystemError::Backend("invalid patch chunk data"))?;
+                }
+                Ok(())
+            }
             SystemEffect::DtaFirstForce => {
                 self.provider.dta_first_force().map_err(provider_error)?;
                 self.dta_first = true;
@@ -317,6 +377,197 @@ mod tests {
     }
 
     #[test]
+    fn startup_effect_loads_real_patch_files_in_order_and_unloads() {
+        let dir = Directory::new();
+        std::fs::create_dir(dir.0.join("patch")).unwrap();
+        // One nullable record; the decoded strings include the terminal NUL.
+        fn fixture(source: &[u8]) -> Vec<u8> {
+            let mut bytes = Vec::new();
+            for string in [
+                Some(b"mission\0".as_slice()),
+                None,
+                Some(b"frame\0".as_slice()),
+                Some(source),
+            ] {
+                bytes.extend_from_slice(&(string.map_or(0, |s| s.len()) as i32).to_le_bytes());
+                if let Some(string) = string {
+                    bytes.extend(string.iter().map(|b| b ^ 0x85));
+                }
+            }
+            crate::original_data_chunk::chunk(0x64, &bytes)
+        }
+        std::fs::write(dir.0.join("patch/a1.bin"), fixture(b"old\0")).unwrap();
+        std::fs::write(dir.0.join("patch/a4.bin"), fixture(b"new\0")).unwrap();
+        let provider = NativeFiles::new(&dir.0, 64, 256 * 1024).unwrap();
+        let mut assets = StartupAssetBackend::new(&provider);
+        assets.effect(SystemEffect::DtaFirstForce).unwrap();
+        for path in [
+            b"patch\\a1.bin",
+            b"patch\\a2.bin",
+            b"patch\\a3.bin",
+            b"patch\\a4.bin",
+        ] {
+            assets.effect(SystemEffect::LoadPatchFile(path)).unwrap();
+        }
+        assert_eq!(assets.program_replacements().len(), 2);
+        assert_eq!(
+            assets
+                .program_replacements()
+                .iter()
+                .rev()
+                .map(|r| r.source.as_deref().unwrap())
+                .collect::<Vec<_>>(),
+            vec![b"new\0".as_slice(), b"old\0".as_slice()]
+        );
+        assert_eq!(assets.open_file_count(), 0);
+        assets.effect(SystemEffect::UnloadPatchFiles).unwrap();
+        assert!(assets.program_replacements().is_empty());
+    }
+
+    #[test]
+    fn abandoning_effects_adapter_closes_only_its_unconsumed_stream() {
+        use crate::mission_components::*;
+        struct Heap(MissionMemoryDomainId);
+        impl MissionMemoryDomain for Heap {
+            fn mission_memory_domain(&self) -> MissionMemoryDomainId {
+                self.0
+            }
+        }
+        impl MissionAllocator for Heap {
+            type Error = ();
+            fn allocate(
+                &mut self,
+                _: MissionComponentKind,
+            ) -> Result<Option<MissionAllocation>, ()> {
+                Ok(None)
+            }
+            fn free(&mut self, _: u32) -> Result<(), ()> {
+                Ok(())
+            }
+            fn open_effects_table(&mut self) -> Result<bool, ()> {
+                panic!("adapter owns file selection")
+            }
+        }
+        let dir = Directory::new();
+        std::fs::create_dir(dir.0.join("tables")).unwrap();
+        std::fs::write(
+            dir.0.join("tables/effects.tbl"),
+            crate::original_data_chunk::chunk(0x64, &[]),
+        )
+        .unwrap();
+        let provider = NativeFiles::new(&dir.0, 64, 256 * 1024).unwrap();
+        let mut assets = StartupAssetBackend::new(&provider);
+        assets.effect(SystemEffect::DtaFirstForce).unwrap();
+        let unrelated = assets.open_file(b"tables\\effects.tbl").unwrap().unwrap();
+        let mut heap = Heap(MissionMemoryDomainId::fresh());
+        {
+            let mut allocator = MissionAssetAllocator::new(&mut heap, &mut assets);
+            assert!(allocator.open_effects_table().unwrap());
+            assert_eq!(allocator.assets.open_file_count(), 2);
+        }
+        assert_eq!(assets.open_file_count(), 1);
+        {
+            let mut allocator = MissionAssetAllocator::new(&mut heap, &mut assets);
+            assert!(allocator.open_effects_table().unwrap());
+            assert!(allocator.read_effects_table().unwrap().is_some());
+            assert!(allocator.effects_stream.is_none());
+            assert_eq!(allocator.assets.open_file_count(), 1);
+        }
+        assert_eq!(assets.open_file_count(), 1);
+        // Missing-file path must neither retain nor close an unrelated stream.
+        std::fs::remove_file(dir.0.join("tables/effects.tbl")).unwrap();
+        {
+            let mut allocator = MissionAssetAllocator::new(&mut heap, &mut assets);
+            assert!(!allocator.open_effects_table().unwrap());
+            assert!(allocator.effects_stream.is_none());
+        }
+        assert_eq!(assets.open_file_count(), 1);
+        assert_eq!(assets.read_file(unrelated, 2).unwrap(), [0x64, 0]);
+        assets.effect(SystemEffect::CloseFile(unrelated)).unwrap();
+        assert_eq!(assets.open_file_count(), 0);
+    }
+
+    #[test]
+    fn genuine_effects_stream_reaches_component_and_owned_cleanup() {
+        use crate::mission_components::*;
+        struct Heap(MissionMemoryDomainId, Vec<u32>);
+        impl MissionMemoryDomain for Heap {
+            fn mission_memory_domain(&self) -> MissionMemoryDomainId {
+                self.0
+            }
+        }
+        impl MissionAllocator for Heap {
+            type Error = ();
+            fn allocate(
+                &mut self,
+                _: MissionComponentKind,
+            ) -> Result<Option<MissionAllocation>, ()> {
+                Ok(None)
+            }
+            fn free(&mut self, identity: u32) -> Result<(), ()> {
+                self.1.push(identity);
+                Ok(())
+            }
+            fn open_effects_table(&mut self) -> Result<bool, ()> {
+                panic!("adapter must use genuine file")
+            }
+        }
+        let dir = Directory::new();
+        std::fs::create_dir(dir.0.join("tables")).unwrap();
+        let name = crate::original_data_chunk::chunk(0x67, b"synthetic effect\0");
+        std::fs::write(
+            dir.0.join("tables/effects.tbl"),
+            crate::original_data_chunk::chunk(0x64, &name),
+        )
+        .unwrap();
+        let provider = NativeFiles::new(&dir.0, 64, 256 * 1024).unwrap();
+        let mut assets = StartupAssetBackend::new(&provider);
+        assets.effect(SystemEffect::DtaFirstForce).unwrap();
+        let domain = MissionMemoryDomainId::fresh();
+        let mut heap = Heap(domain, Vec::new());
+        let mut allocator = MissionAssetAllocator::new(&mut heap, &mut assets);
+        let mut component = MissionComponent::construct_effects_prefix(
+            MissionAllocation {
+                domain,
+                identity: 0x123400,
+                bytes: vec![0xa5; 0x38],
+            },
+            0x39,
+        )
+        .unwrap();
+        component
+            .finish_effects_constructor(&mut allocator)
+            .unwrap();
+        assert_eq!(
+            component.effects().unwrap().effects[0].name,
+            b"synthetic effect"
+        );
+        assert_eq!(component.word(0x30), u32::MAX);
+        assert_eq!(component.word(0x14), 0); // no forged x86 tree pointer
+        assert_eq!(allocator.assets.open_file_count(), 0);
+        component.clear_effects().unwrap();
+        assert!(component.effects().unwrap().effects.is_empty());
+        component.destroy(&mut allocator).unwrap();
+        assert_eq!(allocator.memory.1, [0, 0, 0]);
+        let mut populated = MissionComponent::construct_effects_prefix(
+            MissionAllocation {
+                domain,
+                identity: 0x124400,
+                bytes: vec![0xa5; 0x38],
+            },
+            0x39,
+        )
+        .unwrap();
+        populated
+            .finish_effects_constructor(&mut allocator)
+            .unwrap();
+        assert_eq!(populated.effects().unwrap().effects.len(), 1);
+        populated.destroy(&mut allocator).unwrap();
+        assert!(populated.effects().is_none());
+        assert_eq!(allocator.memory.1, [0, 0, 0, 0, 0, 0]);
+    }
+
+    #[test]
     fn allocation_failure_is_real_native_null_and_bad_names_do_not_open() {
         let dir = Directory::new();
         let provider = NativeFiles::new(&dir.0, 64, 0).unwrap();
@@ -334,5 +585,106 @@ mod tests {
         ));
         assert_eq!(backend.open_file_count(), 0);
         assert_eq!(backend.open_file(b"missing.txt"), Ok(None));
+    }
+}
+
+/// Binds the mission's caller-owned allocator to this startup provider. The
+/// opened effects stream remains here until the constructor consumes it.
+/// No allocator or native pointer identity is fabricated by the adapter.
+pub struct MissionAssetAllocator<'a, 'p, A> {
+    pub memory: &'a mut A,
+    pub assets: &'a mut StartupAssetBackend<'p>,
+    effects_stream: Option<SystemHandle>,
+}
+impl<A> Drop for MissionAssetAllocator<'_, '_, A> {
+    fn drop(&mut self) {
+        // Match the temporary C_chunk destructor even when its owner abandons
+        // construction after Open. Consumed and missing streams have no handle.
+        if let Some(handle) = self.effects_stream.take() {
+            let _ = self.assets.effect(SystemEffect::CloseFile(handle));
+        }
+    }
+}
+#[derive(Debug)]
+pub enum MissionAssetError<E> {
+    Memory(E),
+    Assets(SystemError),
+}
+impl<'a, 'p, A> MissionAssetAllocator<'a, 'p, A> {
+    pub fn new(memory: &'a mut A, assets: &'a mut StartupAssetBackend<'p>) -> Self {
+        Self {
+            memory,
+            assets,
+            effects_stream: None,
+        }
+    }
+}
+impl<A: crate::mission_components::MissionMemoryDomain>
+    crate::mission_components::MissionMemoryDomain for MissionAssetAllocator<'_, '_, A>
+{
+    fn mission_memory_domain(&self) -> crate::mission_components::MissionMemoryDomainId {
+        self.memory.mission_memory_domain()
+    }
+}
+impl<A: crate::mission_components::MissionAllocator> crate::mission_components::MissionAllocator
+    for MissionAssetAllocator<'_, '_, A>
+{
+    type Error = MissionAssetError<A::Error>;
+    fn allocate(
+        &mut self,
+        kind: crate::mission_components::MissionComponentKind,
+    ) -> Result<Option<crate::mission_components::MissionAllocation>, Self::Error> {
+        self.memory
+            .allocate(kind)
+            .map_err(MissionAssetError::Memory)
+    }
+    fn free(&mut self, identity: u32) -> Result<(), Self::Error> {
+        self.memory
+            .free(identity)
+            .map_err(MissionAssetError::Memory)
+    }
+    fn open_effects_table(&mut self) -> Result<bool, Self::Error> {
+        if self.effects_stream.is_some() {
+            return Err(MissionAssetError::Assets(SystemError::InvalidReply(
+                "effects stream already open",
+            )));
+        }
+        self.effects_stream = self
+            .assets
+            .open_file(b"tables\\effects.tbl")
+            .map_err(MissionAssetError::Assets)?;
+        Ok(self.effects_stream.is_some())
+    }
+    fn read_effects_table(&mut self) -> Result<Option<Vec<u8>>, Self::Error> {
+        let Some(handle) = self.effects_stream.take() else {
+            return Ok(None);
+        };
+        self.assets
+            .consume_chunk_file(handle)
+            .map(Some)
+            .map_err(MissionAssetError::Assets)
+    }
+}
+impl<A> crate::c_str::CStrBackend for MissionAssetAllocator<'_, '_, A>
+where
+    A: crate::mission_components::MissionAllocator
+        + crate::c_str::CStrBackend<Error = <A as crate::mission_components::MissionAllocator>::Error>,
+{
+    type Error = MissionAssetError<<A as crate::mission_components::MissionAllocator>::Error>;
+    fn allocate_string(
+        &mut self,
+        size: u32,
+    ) -> Result<Option<crate::c_str::StringAllocation>, Self::Error> {
+        self.memory
+            .allocate_string(size)
+            .map_err(MissionAssetError::Memory)
+    }
+    fn free_string(
+        &mut self,
+        allocation: crate::c_str::StringAllocation,
+    ) -> Result<(), Self::Error> {
+        self.memory
+            .free_string(allocation)
+            .map_err(MissionAssetError::Memory)
     }
 }

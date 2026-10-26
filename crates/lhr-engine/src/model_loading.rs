@@ -158,6 +158,7 @@ pub enum ModelError {
         visual: Option<u8>,
     },
     MissingDummyBounds(usize),
+    MissingLightRecord(usize),
     MissingJointRecord(usize),
     MissingSkinRecord(usize),
     MissingTargetRecord(usize),
@@ -373,6 +374,11 @@ impl ModelArena {
                 state.kind = FrameKind::Singlemesh;
                 state
             }
+            (2, None) => {
+                let mut state = I3dFrameState::model();
+                state.kind = FrameKind::Light;
+                state
+            }
             (5, None) => {
                 let mut state = I3dFrameState::model();
                 state.kind = FrameKind::Sector;
@@ -396,6 +402,9 @@ impl ModelArena {
                 });
             }
         };
+        if source.kind == 2 && source.light.is_none() {
+            return Err(ModelError::MissingLightRecord(index));
+        }
         if source.kind == 5 && source.sector.is_none() {
             return Err(crate::frame_sector::SectorError::MissingRecord.into());
         }
@@ -481,6 +490,9 @@ impl ModelArena {
         self.frames[fi].source = Some(Arc::clone(source_model));
         morph_poses.push(morph);
         source_frame_keys.push(key);
+        if source.kind == 2 {
+            self.finish_light_constructor(key)?;
+        }
         if source.kind == 7 {
             self.graph.register_target(key, I3dTargetState::default())?;
         }
@@ -497,6 +509,10 @@ impl ModelArena {
             },
             source.culling,
         )?;
+        if source.kind == 2 {
+            self.graph
+                .apply_light_load_image_fields(key, source.light.as_ref().unwrap())?;
+        }
         if source.kind == 10 {
             let joint = source.joint.as_ref().unwrap();
             self.graph.apply_joint_load_image_fields(
@@ -2241,6 +2257,7 @@ pub(crate) mod tests {
             name_bytes: b"fixture".to_vec(),
             properties: vec![0xff, 0, 0x80],
             dummy_bounds: (kind == 6).then_some([[0.; 3], [1.; 3]]),
+            light: None,
             joint: None,
             skin: None,
             morph: None,
@@ -2622,6 +2639,51 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn materializes_light_raw_load_image_without_running_setters() {
+        let mut source_light = frame(2, Some(0), [4., 5., 6.]);
+        source_light.light = Some(lhr_assets::LightRecord {
+            mode: 0x87654321,
+            light_type: 1,
+            power: -0.,
+            diffuse: [0.25, 0.5, f32::from_bits(0x7fc01234)],
+            range: [12., 45.],
+            cone: [0.2, 0.8],
+        });
+        let source = Arc::new(Model {
+            materials: vec![],
+            frames: vec![frame(6, None, [1., 2., 3.]), source_light],
+        });
+        let mut loaded = MaterializedModel::from_parsed(source).unwrap();
+        let keys = loaded.source_frame_keys().to_vec();
+        let key = keys[1];
+        assert_eq!(loaded.arena.links(key).unwrap().parent, Some(keys[0]));
+        assert_eq!(loaded.arena.frame(key).unwrap().source_index, Some(1));
+        assert_eq!(loaded.arena.frame(key).unwrap().properties, [0xff, 0, 0x80]);
+        let light = loaded.arena.light(key).unwrap();
+        assert_eq!(light.mode, 0x87654321);
+        assert_eq!(light.light_type, 1);
+        assert_eq!(light.intensity.to_bits(), 0x80000000);
+        assert_eq!(light.color[2].to_bits(), 0x7fc01234);
+        assert_eq!(light.range, [12., 45.]);
+        assert_eq!(light.cone, [0.2, 0.8]);
+        // Native LoadImage leaves the constructor's derived caches intact.
+        assert_eq!(light.scaled_color, [1.; 3]);
+        // Ownership transfer links the model and performs the normal Update.
+        assert_eq!((light.near_scaled, light.far_scaled), (12., 45.));
+        assert_eq!(loaded.arena.light_random_state().state(), 2745024);
+        loaded.close().unwrap();
+        assert!(loaded.arena.light(key).is_err());
+    }
+    #[test]
+    fn missing_light_record_does_not_materialize_an_invented_light() {
+        let source = Arc::new(Model {
+            materials: vec![],
+            frames: vec![frame(2, None, [0.; 3])],
+        });
+        let failure = MaterializedModel::from_parsed(source).unwrap_err();
+        assert!(matches!(failure.error, ModelError::MissingLightRecord(0)));
+    }
+    #[test]
     fn missing_joint_payload_preserves_prefix_and_never_claims_complete() {
         let source = Arc::new(Model {
             materials: Vec::new(),
@@ -2645,6 +2707,7 @@ pub(crate) mod tests {
         mesh.render_flags = 0;
         mesh.lods.push(lhr_assets::Lod {
             distance: 0.,
+            uv_only: None,
             vertices: vec![
                 lhr_assets::Vertex {
                     position: [1., 2., 3.],
