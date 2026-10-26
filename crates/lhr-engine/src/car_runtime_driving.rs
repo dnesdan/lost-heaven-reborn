@@ -272,6 +272,8 @@ impl CarRuntime {
         let scene = session
             .world
             .render_scene_near(session.spawn.position, 200.)?;
+        let position = session.spawn.position;
+        self.refresh_scene_city_cache_inner(position)?;
         self.initialize_game_inner()?;
         Ok(scene)
     }

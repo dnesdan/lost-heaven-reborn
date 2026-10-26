@@ -216,7 +216,9 @@ impl<B: VehicleComponentTailBackend> VehicleFrameBackend<'_, B> {
                         let mut visual_best = 1e16f32;
                         let mut back = false;
                         for group in view.groups {
-                            let two_sided = group.material.flags & 0x10000000 != 0;
+                            let two_sided = group
+                                .material
+                                .is_some_and(|material| material.flags & 0x10000000 != 0);
                             for face in group.index_bytes.as_chunks::<6>().0 {
                                 let mut vertices = [[0.; 3]; 3];
                                 for (i, vertex) in vertices.iter_mut().enumerate() {

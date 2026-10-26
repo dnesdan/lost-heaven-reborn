@@ -13,6 +13,7 @@ fn policy(alpha: AlphaMode, queue: MaterialQueue, depth: f32) -> RenderMaterial 
         color: [1.; 4],
         alpha,
         queue,
+        has_texture: true,
         color_key_reference: 200,
         two_sided: false,
         front_face: FrontFace::CounterClockwise,

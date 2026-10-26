@@ -27,8 +27,15 @@ pub use car_inspection_resources::{CpuInspectionGroup, CpuInspectionMesh};
 mod car_inspection_texture;
 #[path = "loaded_glass.rs"]
 mod glass;
+#[path = "loaded_saved_lightmaps.rs"]
+mod saved_lightmaps;
 #[path = "loaded_vertex_access.rs"]
 mod vertex_access;
+pub use saved_lightmaps::{
+    SavedLightmapLoadContext, SavedLightmapLoadFailure, SavedLightmapLoadOutcome,
+};
+#[path = "visual_replacement_resources.rs"]
+mod visual_replacement_resources;
 static NEXT_STORAGE_KEY: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -38,6 +45,7 @@ pub enum LoadedVisualError {
     Asset(String),
     UnsupportedVisual(Option<u8>),
     InvalidGeometry,
+    SavedLighting(crate::i3d_object::saved_lightmaps::SavedLightingError),
     IncompleteAdmission,
 }
 impl From<ObjectError> for LoadedVisualError {
@@ -505,6 +513,7 @@ pub struct LoadedVisualResources {
     incomplete: bool,
     material_load_context: MaterialLoadContext,
     inspection_rgba8_color_key: bool,
+    lightmap_atlases: crate::i3d_object::lightmap_atlas::LightmapAtlasPool,
 }
 impl std::fmt::Debug for LoadedVisualResources {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -527,6 +536,7 @@ impl LoadedVisualResources {
             incomplete: false,
             material_load_context: MaterialLoadContext::ORIGINAL_DRIVER_INIT_DEFAULTS,
             inspection_rgba8_color_key: false,
+            lightmap_atlases: crate::i3d_object::lightmap_atlas::LightmapAtlasPool::default(),
         })
     }
     pub fn material_load_context(&self) -> MaterialLoadContext {

@@ -9,9 +9,13 @@ use std::{
     sync::{mpsc, Arc, Weak},
 };
 use wgpu::util::DeviceExt;
+mod lighting;
 mod material;
+mod scene_frame;
+pub use lighting::{LightingMode, MeshLighting};
 use material::PipelineKey;
 pub use material::{AlphaMode, FrontFace, MaterialQueue, OriginalMaterial, RenderMaterial};
+pub use scene_frame::{SceneRenderFrame, SceneRenderPass};
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
@@ -136,6 +140,9 @@ struct Draw {
     parameters: wgpu::BindGroup,
     parameters_buffer: wgpu::Buffer,
     policy: RenderMaterial,
+    lighting_vertex: wgpu::Buffer,
+    lighting_material: Arc<GpuMaterial>,
+    lighting_parameters: [f32; 3],
 }
 struct GpuMaterial {
     group: wgpu::BindGroup,
@@ -145,7 +152,7 @@ struct CachedMaterial {
     source: Weak<Texture>,
     material: Arc<GpuMaterial>,
 }
-type MaterialCache = HashMap<usize, CachedMaterial>;
+type MaterialCache = HashMap<(usize, bool), CachedMaterial>;
 struct DepthTarget {
     size: [u32; 2],
     view: wgpu::TextureView,
@@ -155,19 +162,22 @@ pub struct Renderer {
     pub queue: wgpu::Queue,
     format: wgpu::TextureFormat,
     pipeline: wgpu::RenderPipeline,
+    backdrop_pipeline: wgpu::RenderPipeline,
     inspection_cutout_pipeline: wgpu::RenderPipeline,
     inspection_alpha_cutout: bool,
     overlay_pipeline: wgpu::RenderPipeline,
     overlay_buffer: wgpu::Buffer,
     overlay_group: wgpu::BindGroup,
+    camera_layout: wgpu::BindGroupLayout,
     camera_buffer: wgpu::Buffer,
     camera_group: wgpu::BindGroup,
     draws: Vec<Draw>,
     texture_layout: wgpu::BindGroupLayout,
     material_layout: wgpu::BindGroupLayout,
-    original_pipelines: HashMap<PipelineKey, wgpu::RenderPipeline>,
+    original_pipelines: HashMap<(PipelineKey, bool), wgpu::RenderPipeline>,
     linear: bool,
     materials: RefCell<MaterialCache>,
+    lighting_materials: RefCell<MaterialCache>,
     depth: RefCell<Option<DepthTarget>>,
 }
 impl Renderer {
@@ -280,7 +290,7 @@ impl Renderer {
             bind_group_layouts: &[&camera_layout, &texture_layout],
             push_constant_ranges: &[],
         });
-        let scene_pipeline = |fragment_entry| {
+        let scene_pipeline = |fragment_entry, depth_enabled| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: None,
                 layout: Some(&layout),
@@ -310,8 +320,12 @@ impl Renderer {
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: wgpu::TextureFormat::Depth32Float,
-                    depth_write_enabled: true,
-                    depth_compare: wgpu::CompareFunction::Less,
+                    depth_write_enabled: depth_enabled,
+                    depth_compare: if depth_enabled {
+                        wgpu::CompareFunction::Less
+                    } else {
+                        wgpu::CompareFunction::Always
+                    },
                     stencil: Default::default(),
                     bias: Default::default(),
                 }),
@@ -320,38 +334,45 @@ impl Renderer {
                 cache: None,
             })
         };
-        let pipeline = scene_pipeline("fragment");
-        let inspection_cutout_pipeline = scene_pipeline("fragment_inspection_cutout");
+        let pipeline = scene_pipeline("fragment", true);
+        let backdrop_pipeline = scene_pipeline("fragment", false);
+        let inspection_cutout_pipeline = scene_pipeline("fragment_inspection_cutout", true);
         let original_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Original material pipeline layout"),
-            bind_group_layouts: &[&camera_layout, &texture_layout, &material_layout],
+            bind_group_layouts: &[
+                &camera_layout,
+                &texture_layout,
+                &material_layout,
+                &texture_layout,
+            ],
             push_constant_ranges: &[],
         });
         let mut original_pipelines = HashMap::new();
-        for alpha in [
-            AlphaMode::Opaque,
-            AlphaMode::ColorKey,
-            AlphaMode::Blend,
-            AlphaMode::Additive,
-        ] {
-            for two_sided in [false, true] {
-                for front_face in [FrontFace::CounterClockwise, FrontFace::Clockwise] {
-                    let key = PipelineKey {
-                        alpha,
-                        two_sided,
-                        front_face,
-                    };
-                    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        for depth_enabled in [true, false] {
+            for alpha in [
+                AlphaMode::Opaque,
+                AlphaMode::ColorKey,
+                AlphaMode::Blend,
+                AlphaMode::Additive,
+            ] {
+                for two_sided in [false, true] {
+                    for front_face in [FrontFace::CounterClockwise, FrontFace::Clockwise] {
+                        let key = PipelineKey {
+                            alpha,
+                            two_sided,
+                            front_face,
+                        };
+                        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                         label: Some("Original material draw"),
                         layout: Some(&original_layout),
                         vertex: wgpu::VertexState {
                             module: &shader,
-                            entry_point: Some("vertex"),
+                            entry_point: Some("vertex_original"),
                             buffers: &[wgpu::VertexBufferLayout {
                                 array_stride: 20,
                                 step_mode: wgpu::VertexStepMode::Vertex,
                                 attributes: &wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x2],
-                            }],
+                            }, wgpu::VertexBufferLayout { array_stride: 24, step_mode: wgpu::VertexStepMode::Vertex, attributes: &wgpu::vertex_attr_array![2=>Float32x2,3=>Float32x4] }],
                             compilation_options: Default::default(),
                         },
                         fragment: Some(wgpu::FragmentState {
@@ -374,8 +395,8 @@ impl Renderer {
                         },
                         depth_stencil: Some(wgpu::DepthStencilState {
                             format: wgpu::TextureFormat::Depth32Float,
-                            depth_write_enabled: true,
-                            depth_compare: wgpu::CompareFunction::LessEqual,
+                            depth_write_enabled: depth_enabled,
+                            depth_compare: if depth_enabled { wgpu::CompareFunction::LessEqual } else { wgpu::CompareFunction::Always },
                             stencil: Default::default(),
                             bias: Default::default(),
                         }),
@@ -383,7 +404,8 @@ impl Renderer {
                         multiview: None,
                         cache: None,
                     });
-                    original_pipelines.insert(key, pipeline);
+                        original_pipelines.insert((key, depth_enabled), pipeline);
+                    }
                 }
             }
         }
@@ -402,7 +424,11 @@ impl Renderer {
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: Some("fragment"),
+                entry_point: Some(if format.is_srgb() {
+                    "fragment"
+                } else {
+                    "fragment_overlay_unorm"
+                }),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
@@ -447,11 +473,13 @@ impl Renderer {
             queue,
             format,
             pipeline,
+            backdrop_pipeline,
             inspection_cutout_pipeline,
             inspection_alpha_cutout: false,
             overlay_pipeline,
             overlay_buffer,
             overlay_group,
+            camera_layout,
             camera_buffer,
             camera_group,
             draws,
@@ -460,6 +488,7 @@ impl Renderer {
             original_pipelines,
             linear,
             materials: RefCell::new(materials),
+            lighting_materials: RefCell::new(MaterialCache::new()),
             depth: RefCell::new(None),
         })
     }
@@ -541,7 +570,10 @@ impl Renderer {
         // Existing draws keep their shared GPU allocation; a future upload of
         // the old source must not observe the replacement pixels.
         let mut cache = self.materials.borrow_mut();
-        let key = draw.source.as_ptr() as usize;
+        let key = (
+            draw.source.as_ptr() as usize,
+            draw.material.texture.format().is_srgb(),
+        );
         if cache
             .get(&key)
             .is_some_and(|cached| Arc::ptr_eq(&cached.material, &draw.material))
@@ -564,7 +596,7 @@ impl Renderer {
         self.queue.write_buffer(
             &draw.parameters_buffer,
             0,
-            bytemuck::cast_slice(&material.parameters()),
+            bytemuck::cast_slice(&lighting::parameters(material, draw.lighting_parameters)),
         );
         draw.policy = material;
         Ok(())
@@ -688,6 +720,7 @@ impl Renderer {
                 .draws
                 .len()
                 .saturating_sub(usize::from(overlay.is_some()));
+            let mut current_cull = None;
             for index in self.draw_order(count, matrix) {
                 let draw = &self.draws[index];
                 match draw.policy {
@@ -696,9 +729,23 @@ impl Renderer {
                     } else {
                         &self.pipeline
                     }),
-                    RenderMaterial::Original(m) => {
-                        pass.set_pipeline(&self.original_pipelines[&m.into()]);
+                    RenderMaterial::OriginalNull { .. } => {
+                        let key = PipelineKey {
+                            alpha: AlphaMode::Opaque,
+                            two_sided: current_cull.is_none(),
+                            front_face: current_cull.unwrap_or(FrontFace::CounterClockwise),
+                        };
+                        pass.set_pipeline(&self.original_pipelines[&(key, true)]);
                         pass.set_bind_group(2, &draw.parameters, &[]);
+                        pass.set_bind_group(3, &draw.lighting_material.group, &[]);
+                        pass.set_vertex_buffer(1, draw.lighting_vertex.slice(..));
+                    }
+                    RenderMaterial::Original(m) => {
+                        current_cull = (!m.two_sided).then_some(m.front_face);
+                        pass.set_pipeline(&self.original_pipelines[&(m.into(), true)]);
+                        pass.set_bind_group(2, &draw.parameters, &[]);
+                        pass.set_bind_group(3, &draw.lighting_material.group, &[]);
+                        pass.set_vertex_buffer(1, draw.lighting_vertex.slice(..));
                     }
                 }
                 pass.set_bind_group(1, &draw.material.group, &[]);
@@ -708,46 +755,63 @@ impl Renderer {
             }
         }
         if let Some(design) = overlay {
-            self.queue.write_buffer(
-                &self.overlay_buffer,
-                0,
-                bytemuck::cast_slice(&screen_matrix(width, height, design).to_cols_array()),
-            );
-            if let Some(draw) = self.draws.last() {
-                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Menu overlay"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                });
-                pass.set_pipeline(&self.overlay_pipeline);
-                pass.set_bind_group(0, &self.overlay_group, &[]);
-                pass.set_bind_group(1, &draw.material.group, &[]);
-                pass.set_vertex_buffer(0, draw.vertex.slice(..));
-                pass.set_index_buffer(draw.index.slice(..), wgpu::IndexFormat::Uint32);
-                pass.draw_indexed(0..draw.count, 0, 0..1);
-            }
+            self.render_overlay(&mut encoder, view, width, height, design);
         }
         encoder
     }
+    fn render_overlay(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        view: &wgpu::TextureView,
+        width: u32,
+        height: u32,
+        design: [f32; 2],
+    ) {
+        self.queue.write_buffer(
+            &self.overlay_buffer,
+            0,
+            bytemuck::cast_slice(&screen_matrix(width, height, design).to_cols_array()),
+        );
+        if let Some(draw) = self.draws.last() {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Menu overlay"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            pass.set_pipeline(&self.overlay_pipeline);
+            pass.set_bind_group(0, &self.overlay_group, &[]);
+            pass.set_bind_group(1, &draw.material.group, &[]);
+            pass.set_vertex_buffer(0, draw.vertex.slice(..));
+            pass.set_index_buffer(draw.index.slice(..), wgpu::IndexFormat::Uint32);
+            pass.draw_indexed(0..draw.count, 0, 0..1);
+        }
+    }
     /// Source-inspired host ordering: opaque, color-keyed opaque, then blended
     /// groups back-to-front by projected view depth of their supplied bounds.
-    /// Native texture UID batching and quantized radix keys are not fabricated.
+    /// The source's known opaque key0 (NULL material or no effective texture)
+    /// precedes nonzero texture keys. Render builds sort entries in reverse
+    /// face-group order; stable radix passes preserve that order for key0 ties.
+    /// Concrete texture UID batching and quantized depth keys remain separate.
     fn draw_order(&self, count: usize, matrix: Mat4) -> Vec<usize> {
         let queue = |index: usize| match self.draws[index].policy {
             RenderMaterial::Legacy => MaterialQueue::Opaque,
             RenderMaterial::Original(m) => m.queue,
+            RenderMaterial::OriginalNull { .. } => MaterialQueue::Opaque,
         };
         let depth = |index: usize| match self.draws[index].policy {
             RenderMaterial::Legacy => 0.,
+            RenderMaterial::OriginalNull { sort_center, .. } => {
+                (matrix * Vec3::from_array(sort_center).extend(1.)).z
+            }
             RenderMaterial::Original(m) => (matrix * Vec3::from_array(m.sort_center).extend(1.)).z,
         };
         let mut order: Vec<_> = (0..count).collect();
@@ -756,7 +820,23 @@ impl Renderer {
                 if queue(a) == MaterialQueue::Transparent {
                     depth(b).total_cmp(&depth(a)).then_with(|| b.cmp(&a))
                 } else {
-                    a.cmp(&b)
+                    let zero_order = if queue(a) == MaterialQueue::Opaque {
+                        self.draws[b]
+                            .policy
+                            .opaque_sort_zero()
+                            .cmp(&self.draws[a].policy.opaque_sort_zero())
+                    } else {
+                        std::cmp::Ordering::Equal
+                    };
+                    zero_order.then_with(|| {
+                        if self.draws[a].policy.opaque_sort_zero()
+                            && self.draws[b].policy.opaque_sort_zero()
+                        {
+                            b.cmp(&a)
+                        } else {
+                            a.cmp(&b)
+                        }
+                    })
                 }
             })
         });
@@ -815,6 +895,16 @@ impl Renderer {
         matrix: Mat4,
         overlay: Option<[f32; 2]>,
     ) -> Result<Vec<u8>, String> {
+        self.readback_using(width, height, |view| {
+            Ok(self.render_layers(view, width, height, matrix, overlay))
+        })
+    }
+    fn readback_using(
+        &self,
+        width: u32,
+        height: u32,
+        render: impl FnOnce(&wgpu::TextureView) -> Result<wgpu::CommandEncoder, String>,
+    ) -> Result<Vec<u8>, String> {
         if width == 0 || height == 0 || width > 8192 || height > 8192 {
             return Err("Capture size outside supported range".into());
         }
@@ -839,13 +929,7 @@ impl Renderer {
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
-        let mut encoder = self.render_layers(
-            &texture.create_view(&Default::default()),
-            width,
-            height,
-            matrix,
-            overlay,
-        );
+        let mut encoder = render(&texture.create_view(&Default::default()))?;
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
                 texture: &texture,
@@ -916,18 +1000,22 @@ impl Renderer {
         path: &Path,
     ) -> Result<(), String> {
         let rgba = self.readback_matrix(width, height, matrix, overlay)?;
-        let file = std::fs::File::create(path).map_err(|_| "Cannot create capture output")?;
-        let mut encoder = png::Encoder::new(file, width, height);
-        encoder.set_color(png::ColorType::Rgba);
-        encoder.set_depth(png::BitDepth::Eight);
-        encoder
-            .write_header()
-            .map_err(|_| "Cannot write capture header")?
-            .write_image_data(&rgba)
-            .map_err(|_| "Cannot write capture image")?;
-        Ok(())
+        write_capture(width, height, &rgba, path)
     }
 }
+fn write_capture(width: u32, height: u32, rgba: &[u8], path: &Path) -> Result<(), String> {
+    let file = std::fs::File::create(path).map_err(|_| "Cannot create capture output")?;
+    let mut encoder = png::Encoder::new(file, width, height);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    encoder
+        .write_header()
+        .map_err(|_| "Cannot write capture header")?
+        .write_image_data(rgba)
+        .map_err(|_| "Cannot write capture image")?;
+    Ok(())
+}
+
 fn upload_meshes(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -976,7 +1064,8 @@ fn upload_meshes(
     materials.retain(|_, cached| cached.source.strong_count() != 0);
     for mesh in meshes {
         let tex = mesh.texture.as_ref().expect("validated texture");
-        let key = Arc::as_ptr(tex) as usize;
+        let srgb = matches!(mesh.material, RenderMaterial::Legacy);
+        let key = (Arc::as_ptr(tex) as usize, srgb);
         let material = if let Some(cached) = materials.get(&key) {
             Arc::clone(&cached.material)
         } else {
@@ -990,7 +1079,11 @@ fn upload_meshes(
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                format: if srgb {
+                    wgpu::TextureFormat::Rgba8UnormSrgb
+                } else {
+                    wgpu::TextureFormat::Rgba8Unorm
+                },
                 usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
                 view_formats: &[],
             });
@@ -1088,6 +1181,16 @@ fn upload_meshes(
                 .len()
                 .try_into()
                 .map_err(|_| "Too many indices")?,
+            lighting_material: Arc::clone(&material),
+            lighting_vertex: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Default original lighting vertices"),
+                contents: bytemuck::cast_slice(&vec![
+                    [0f32, 0., 0., 0., 0., 1.];
+                    mesh.vertices.len()
+                ]),
+                usage: wgpu::BufferUsages::VERTEX,
+            }),
+            lighting_parameters: [0., 1., 1.],
             material,
             source: Arc::downgrade(tex),
             parameters,

@@ -662,16 +662,15 @@ impl ModelArena {
         }
         Ok(0.)
     }
-    /// SetFrameSectorPos (PC RVA0x4a280) for scenes containing only the four
-    /// constructor sectors. GetSector's empty spatial-sector list returns the
-    /// primary sector. Loaded spatial sectors require their CheckPoint geometry.
+    /// Original SetFrameSectorPos (PC RVA0x4a280), using the same loaded-sector
+    /// CheckPoint/GetSector producer as the camera and portal interconnection.
     pub fn set_frame_sector_pos(
         &mut self,
         scene: SceneKey,
         frame: FrameKey,
-        _position: [f32; 3],
+        position: [f32; 3],
     ) -> Result<u32, ModelError> {
-        let si = self.scene_index(scene)?;
+        self.scene_index(scene)?;
         self.frame(frame)?;
         let mut ancestor = self.links(frame)?.parent;
         while let Some(key) = ancestor {
@@ -684,19 +683,12 @@ impl ModelArena {
             }
             ancestor = self.links(key)?.parent;
         }
-        let sectors = self.scenes[si].sectors;
-        if self
-            .sectors
-            .iter()
-            .any(|sector| sector.scene == Some(scene) && !sectors.contains(&sector.key))
-        {
-            return Err(SceneOwnerError::SectorGeometryUnavailable(scene).into());
-        }
-        let primary = sectors[0].frame();
-        if ancestor == Some(primary) {
+        // The native call passes NULL, not the old ancestor as a spatial hint.
+        let selected = self.scene_get_sector(scene, position, None)?.frame();
+        if ancestor == Some(selected) {
             return Ok(0);
         }
-        self.link_frame(frame, Some(primary), 1)
+        self.link_frame(frame, Some(selected), 1)
     }
     pub fn get_sector(&self, key: FrameKey) -> Result<Option<SectorKey>, ModelError> {
         let mut current = Some(key);
@@ -804,6 +796,55 @@ mod tests {
             arena.links(model.root()).unwrap().parent,
             Some(sectors[1].frame())
         );
+    }
+    #[test]
+    fn loaded_hull_target_relinks_preserving_world_transform_and_special_sector_guard() {
+        crate::native_precision::Pc24PrecisionState::default().run(|| {
+            let mut arena = ModelArena::default();
+            let scene = arena.construct_scene_owner_prefix().unwrap();
+            let a = crate::scene_lightness::loaded_sector_fixture(&mut arena, scene, [0.; 3]);
+            let b = crate::scene_lightness::loaded_sector_fixture(&mut arena, scene, [10., 0., 0.]);
+            let model = arena.create_model().unwrap();
+            arena
+                .graph
+                .assign_position(model.root(), [2., 3., 4.])
+                .unwrap();
+            let original = arena.world_matrix(model.root()).unwrap();
+            for (position, target) in [
+                ([0.; 3], a),
+                ([10., 0., 0.], b),
+                ([30., 0., 0.], arena.scene(scene).unwrap().sectors[0]),
+            ] {
+                assert_eq!(
+                    arena
+                        .set_frame_sector_pos(scene, model.root(), position)
+                        .unwrap(),
+                    0
+                );
+                assert_eq!(
+                    arena.links(model.root()).unwrap().parent,
+                    Some(target.frame())
+                );
+                assert_eq!(arena.world_matrix(model.root()).unwrap(), original);
+            }
+            let special = arena.scene(scene).unwrap().sectors;
+            for retained in [special[1], special[2]] {
+                arena
+                    .link_frame(model.root(), Some(retained.frame()), 1)
+                    .unwrap();
+                // Source returns before attempting any spatial arithmetic here.
+                assert_eq!(
+                    arena
+                        .set_frame_sector_pos(scene, model.root(), [f32::NAN; 3])
+                        .unwrap(),
+                    0
+                );
+                assert_eq!(
+                    arena.links(model.root()).unwrap().parent,
+                    Some(retained.frame())
+                );
+            }
+        });
     }
 
     #[test]

@@ -31,7 +31,9 @@ use crate::managed_visual_resources::{
 use crate::visual_resources::{
     CompleteVertexBuffer, FaceGroupKey, MaterialKey, MeshLevelKey, MeshObjectKey, TextureKey,
 };
-pub use lit_object::{LitLevelResources, LitObjectResources, ObjectVisualType};
+pub use lit_object::{
+    lightmap_atlas, saved_lightmaps, LitLevelResources, LitObjectResources, ObjectVisualType,
+};
 
 macro_rules! key {
     ($name:ident) => {
@@ -318,7 +320,11 @@ impl ObjectResources {
             return Err(ManagedError::InvalidExtent.into());
         }
         Self::reserve(&mut self.bindings)?;
-        let position = if let Some(i) = self.bindings.iter().position(|b| b.lod == lod) {
+        let position = if let Some(i) = self
+            .bindings
+            .iter()
+            .position(|b| b.lod == lod && b.state != BindingState::Consumed)
+        {
             if self.bindings[i].state != BindingState::Pending {
                 return Err(ObjectError::StorageAlreadyInstalled.into());
             }
@@ -363,7 +369,10 @@ impl ObjectResources {
             return Err(ObjectError::LodDestructed(lod).into());
         }
         let descriptor = current.vertex_buffer;
-        let position = self.bindings.iter().position(|b| b.lod == lod);
+        let position = self
+            .bindings
+            .iter()
+            .position(|b| b.lod == lod && b.state != BindingState::Consumed);
         let owner = position.map(|i| self.bindings[i].owner);
         let result = managed_result(self.managed.free_vertex_storage(owner, descriptor, backend));
         if let Err(e) = result {
@@ -461,6 +470,14 @@ impl ObjectResources {
                                 .levels[level]
                                 .lods[lod_index] = None;
                         }
+                        self.objects[index]
+                            .as_mut()
+                            .unwrap()
+                            .lit_object
+                            .as_mut()
+                            .unwrap()
+                            .levels[level]
+                            .saved_lods[lod_index] = None;
                     }
                 }
             }

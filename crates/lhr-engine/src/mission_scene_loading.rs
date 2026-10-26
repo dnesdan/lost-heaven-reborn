@@ -134,6 +134,8 @@ pub struct MissionObjectFields {
     pub geometry_build_result: Option<u32>,
     pub visual_subtype_request: Option<u32>,
     pub visual_subtype_current: Option<u32>,
+    pub saved_lightmap_consumed: Option<usize>,
+    pub saved_lightmap_result: Option<u32>,
 }
 impl Default for MissionObjectFields {
     fn default() -> Self {
@@ -148,6 +150,8 @@ impl Default for MissionObjectFields {
             geometry_build_result: None,
             visual_subtype_request: None,
             visual_subtype_current: None,
+            saved_lightmap_consumed: None,
+            saved_lightmap_result: None,
         }
     }
 }
@@ -190,6 +194,7 @@ pub struct MissionSceneLoader {
     pub pending_occluder_geometry: Option<MissionOccluderGeometry>,
     pub pending_model_open: Option<MissionModelOpenRequest>,
     pub pending_light_sector_link: Option<PendingLightSectorLink>,
+    pub pending_visual_replacement: Option<crate::visual_replacement::PendingVisualReplacement>,
     entered: bool,
 }
 impl MissionSceneLoader {
@@ -210,6 +215,7 @@ impl MissionSceneLoader {
             pending_occluder_geometry: None,
             pending_model_open: None,
             pending_light_sector_link: None,
+            pending_visual_replacement: None,
             entered: false,
         })
     }
@@ -219,6 +225,20 @@ impl MissionSceneLoader {
             entry,
             detail: detail.into(),
         }
+    }
+    /// Host shutdown of an interrupted invocation: release exactly the visual
+    /// factory's outstanding creator reference before scene/cache teardown.
+    /// Non-owning map/current diagnostics may then be stale and cannot resume
+    /// this invocation. An unavailable destructor retains the pending owner.
+    pub fn release_pending_visual_replacement(
+        &mut self,
+        arena: &mut ModelArena,
+    ) -> Result<(), crate::model_loading::ModelError> {
+        if let Some(pending) = self.pending_visual_replacement {
+            arena.release(pending.new)?;
+            self.pending_visual_replacement = None;
+        }
+        Ok(())
     }
     /// Executes camera setup before reading the LS header, then consumes fields
     /// in actual order. This currently stops at the first unavailable reached
@@ -593,6 +613,10 @@ impl MissionSceneLoader {
                         self.read_visual_subtype(arena, input)?;
                         continue;
                     }
+                    0x40a0 => {
+                        self.read_saved_lightmaps(arena, input)?;
+                        continue;
+                    }
                     0xb401 => {
                         self.read_sector_sound(arena, input)?;
                         if input.current().is_none() {
@@ -830,7 +854,7 @@ impl MissionSceneLoader {
     /// checking the current frame. A null/nonvisual frame takes its real skip.
     fn read_visual_subtype(
         &mut self,
-        arena: &ModelArena,
+        arena: &mut ModelArena,
         input: &mut MissionSceneInput<'_>,
     ) -> Result<(), (u32, String)> {
         let requested = input.read_u32().map_err(|e| (0x548490, e))?;
@@ -854,14 +878,189 @@ impl MissionSceneLoader {
             return Ok(());
         }
         let current = arena
-            .plain_object_visual_type(key)
+            .owned_object_visual_type(key)
             .map_err(|e| (0x543a35, format!("{e:?}")))?;
         self.object_fields.visual_subtype_current = Some(current);
         if current == requested {
             return Ok(());
         }
-        Err((0x543a4b,format!("original CreateVisual/replacement unavailable: current={current:08x} requested={requested:08x}")))
+        let new = match arena.create_owned_object_visual(requested) {
+            Ok(Some(new)) => new,
+            Ok(None) => return Ok(()),
+            Err(error) => {
+                self.pending_visual_replacement =
+                    error
+                        .created
+                        .map(|new| crate::visual_replacement::PendingVisualReplacement {
+                            old: key,
+                            new,
+                            entry: 0x543a4b,
+                        });
+                return Err((0x543a4b, format!("{:?}", error.error)));
+            }
+        };
+        self.pending_visual_replacement =
+            Some(crate::visual_replacement::PendingVisualReplacement {
+                old: key,
+                new,
+                entry: 0x543a5c,
+            });
+        // Host availability errors retain the real new allocation and creator
+        // reference. They are not an invented negative native Duplicate result.
+        arena
+            .duplicate_owned_object_visual(new, key)
+            .map_err(|e| (0x543a5c, format!("{e:?}")))?;
+        self.pending_visual_replacement.as_mut().unwrap().entry = 0x543a76;
+        let parent = arena
+            .links(key)
+            .map_err(|e| (0x543a69, format!("{e:?}")))?
+            .parent;
+        arena
+            .link_frame(new, parent, 0)
+            .map_err(|e| (0x543a76, format!("{e:?}")))?;
+        self.pending_visual_replacement.as_mut().unwrap().entry = 0x543a94;
+        while let Some(child) = arena
+            .links(key)
+            .map_err(|e| (0x543a7b, format!("{e:?}")))?
+            .child
+        {
+            arena
+                .link_frame(child, Some(new), 0)
+                .map_err(|e| (0x543a94, format!("{e:?}")))?;
+        }
+        self.pending_visual_replacement.as_mut().unwrap().entry = 0x543aa6;
+        arena
+            .update_frame(new)
+            .map_err(|e| (0x543aa6, format!("{e:?}")))?;
+        self.pending_visual_replacement.as_mut().unwrap().entry = 0x543ab1;
+        arena
+            .link_frame(key, None, 0)
+            .map_err(|e| (0x543ab1, format!("{e:?}")))?;
+        self.pending_visual_replacement.as_mut().unwrap().entry = 0x543adc;
+        let name = arena.frame(key).map_err(|e| (0x543ab6, format!("{e:?}")))?;
+        let name = if name.name_is_null {
+            Vec::new()
+        } else {
+            name.name_bytes.clone()
+        };
+        let reference = arena.lookup_reference(new);
+        self.load_map
+            .map
+            .publish_loaded_frame(arena, &name, reference)
+            .map_err(|e| (0x543adc, e))?;
+        self.load_map.publications.push(LoadMapPublication {
+            name,
+            frame: reference,
+        });
+        let mut parent = arena
+            .links(new)
+            .map_err(|e| (0x543afb, format!("{e:?}")))?
+            .parent;
+        let mut owner = None;
+        while let Some(ancestor) = parent {
+            if arena
+                .state(ancestor)
+                .map_err(|e| (0x543b08, format!("{e:?}")))?
+                .kind
+                == FrameKind::Model
+            {
+                owner = Some(crate::model_loading::ModelKey(ancestor));
+                break;
+            }
+            parent = arena
+                .links(ancestor)
+                .map_err(|e| (0x543afb, format!("{e:?}")))?
+                .parent;
+        }
+        if let Some(model) = owner {
+            self.pending_visual_replacement.as_mut().unwrap().entry = 0x543b16;
+            arena
+                .delete_frame(model, key)
+                .map_err(|e| (0x543b16, format!("{e:?}")))?;
+            self.pending_visual_replacement.as_mut().unwrap().entry = 0x543b1d;
+            arena
+                .add_frame(model, new)
+                .map_err(|e| (0x543b1d, format!("{e:?}")))?;
+        } else {
+            self.pending_visual_replacement.as_mut().unwrap().entry = 0x543b2d;
+            arena
+                .scene_delete_frame(self.scene, key)
+                .map_err(|e| (0x543b2d, format!("{e:?}")))?;
+            self.pending_visual_replacement.as_mut().unwrap().entry = 0x543b37;
+            arena
+                .scene_add_frame(self.scene, new)
+                .map_err(|e| (0x543b37, format!("{e:?}")))?;
+        }
+        self.current_frame = Some(reference);
+        self.object_fields.flags |= 0x400;
+        self.pending_visual_replacement.as_mut().unwrap().entry = 0x543b4e;
+        arena
+            .release(new)
+            .map_err(|e| (0x543b4e, format!("{e:?}")))?;
+        self.pending_visual_replacement = None;
+        Ok(())
     }
+    /// Game543b55..543ba7 ignores the native Load return and sets bit0x400.
+    /// Host availability failures retain the consumed input/resource prefix and
+    /// remain explicit; they do not become invented native negative results.
+    fn read_saved_lightmaps(
+        &mut self,
+        arena: &mut ModelArena,
+        input: &mut MissionSceneInput<'_>,
+    ) -> Result<(), (u32, String)> {
+        let version = self.version[0].ok_or((
+            0x543b55,
+            "saved lighting requires original version header".into(),
+        ))?;
+        if version as i16 >= 3 {
+            if let Some(frame) = self.current_frame {
+                let key = FrameKey(frame.identity());
+                if arena.lookup_reference(key) != frame {
+                    return Err((0x543b66, "stale saved-lighting frame".into()));
+                }
+                let kind = arena
+                    .state(key)
+                    .map_err(|e| (0x543b66, format!("{e:?}")))?
+                    .kind;
+                if matches!(
+                    kind,
+                    FrameKind::Mesh | FrameKind::Projector | FrameKind::Singlemesh
+                ) && arena
+                    .owned_object_visual_type(key)
+                    .map_err(|e| (0x543b72, format!("{e:?}")))?
+                    == crate::visual_replacement::LIT_OBJECT_VISUAL
+                {
+                    let object = arena
+                        .frame_object_resources(key)
+                        .map_err(|e| (0x543b8d, format!("{e:?}")))?
+                        .ok_or((0x543b8d, "missing saved-lighting resource owner".into()))?;
+                    let field = input
+                        .current()
+                        .ok_or((0x543b86, "missing saved-lighting field".into()))?;
+                    let result = arena.visual_resource_owner_mut().map_err(|e| (0x543b8d, format!("{e:?}")))?
+                        .load_saved_lightmaps_native(object, field.payload,
+                            crate::loaded_visual_resources::SavedLightmapLoadContext::TrueColorRgba8);
+                    let consumed = match &result {
+                        Ok(outcome) => outcome.consumed,
+                        Err(failure) => failure.consumed,
+                    };
+                    self.object_fields.saved_lightmap_consumed = Some(consumed);
+                    input.read(consumed).map_err(|e| (0x543b8d, e))?;
+                    match result {
+                        Ok(outcome) => {
+                            self.object_fields.saved_lightmap_result =
+                                Some(outcome.native_result as u32);
+                            self.object_fields.flags |= 0x400;
+                        }
+                        Err(failure) => return Err((0x543b8d, format!("{:?}", failure.error))),
+                    }
+                }
+            }
+        }
+        input.close_current().map_err(|e| (0x543ba2, e))?;
+        Ok(())
+    }
+
     fn read_model_open(
         &mut self,
         arena: &mut ModelArena,
@@ -2025,7 +2224,7 @@ mod tests {
                 input.next_chunk().unwrap();
                 assert_eq!(
                     loader
-                        .read_visual_subtype(&arena, &mut input)
+                        .read_visual_subtype(&mut arena, &mut input)
                         .unwrap_err()
                         .0,
                     0x548490
@@ -2039,7 +2238,7 @@ mod tests {
                 let data = chunk(0x4c53, &chunk(0x4090, &0x12345678u32.to_le_bytes()));
                 let mut input = MissionSceneInput::new(&data).unwrap();
                 input.next_chunk().unwrap();
-                loader.read_visual_subtype(&arena, &mut input).unwrap();
+                loader.read_visual_subtype(&mut arena, &mut input).unwrap();
                 assert_eq!(input.cursor(), data.len());
                 assert!(input.current().is_none());
                 assert_eq!(
@@ -2066,4 +2265,5 @@ mod tests {
             assert_eq!(arena.live_frame_count(), 0);
         });
     }
+    include!("mission_visual_replacement_tests.rs");
 }
