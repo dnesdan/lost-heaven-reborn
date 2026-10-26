@@ -190,6 +190,7 @@ fn camera_horizontal_fov_and_world_scale_change_source_selection() {
     use glam::Vec3;
     use lhr_render::Camera;
     let camera = Camera {
+        vertical_fov_radians: 50f32.to_radians(),
         eye: Vec3::new(0., 0., 7.),
         target: Vec3::new(0., 0., -1.),
         up: Vec3::Y,
@@ -269,6 +270,7 @@ fn actual_camera_selected_lod_and_fade_reach_gpu_pixels() {
     let mut count = 0;
     for (eye_z, expected_lod) in [(4., Some(0)), (11., Some(1)), (100., None), (4., Some(0))] {
         let camera = Camera {
+            vertical_fov_radians: 50f32.to_radians(),
             eye: Vec3::new(0., 0., eye_z),
             target: Vec3::new(0., 0., -1.),
             up: Vec3::Y,

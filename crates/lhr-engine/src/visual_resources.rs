@@ -145,6 +145,7 @@ pub enum VisualResourceError {
     FaceGroupOwned(FaceGroupKey),
     InvalidFaceGroupChain,
     StorageAlreadyInstalled,
+    AnimatedMaterialRequiresDerivedCopy,
     InvalidVertexStorage,
     InvalidExternalIdentity,
     BufferBlockAlreadyOwned,
@@ -172,7 +173,39 @@ pub struct I3dMaterial {
     pub emissive: [f32; 3],
     pub alpha: f32,
     pub env_alpha: f32,
+    /// Derived animated-material owner. The current texture fields above are
+    /// borrowed aliases into these vectors and never add another reference.
+    pub animation: Option<AnimatedMaterialFrames>,
     external_references: u32,
+}
+/// Loaded I3D_anim_material frame arrays and timing words. A driver tick has
+/// not been admitted; frame zero is the LoadImage SetCurrentFrame(-1) result.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AnimatedMaterialFrames {
+    pub textures: Vec<Option<TextureKey>>,
+    pub env_textures: Vec<Option<TextureKey>>,
+    pub frame: usize,
+    pub env_frame: usize,
+    pub loop_frame: i32,
+    pub frame_delay: i32,
+    pub env_loop_frame: i32,
+    pub env_frame_delay: i32,
+    configured: bool,
+}
+impl AnimatedMaterialFrames {
+    fn constructor() -> Self {
+        Self {
+            textures: vec![None],
+            env_textures: vec![None],
+            frame: 0,
+            env_frame: 0,
+            loop_frame: 0,
+            frame_delay: 0,
+            env_loop_frame: 0,
+            env_frame_delay: 0,
+            configured: false,
+        }
+    }
 }
 impl I3dMaterial {
     pub fn external_references(&self) -> u32 {
@@ -364,12 +397,21 @@ impl VisualResources {
                 emissive: [0.; 3],
                 alpha: 1.,
                 env_alpha: 1.,
+                animation: None,
             },
         )?;
         Ok(MaterialKey {
             arena: self.identity,
             slot,
         })
+    }
+    /// The derived constructor owns one null entry in each frame array.
+    pub fn create_animated_material(&mut self) -> Result<MaterialKey, VisualResourceError> {
+        let key = self.create_material()?;
+        let material = self.material_mut(key)?;
+        material.flags |= 0x0400_0000;
+        material.animation = Some(AnimatedMaterialFrames::constructor());
+        Ok(key)
     }
     pub fn create_face_group(&mut self) -> Result<FaceGroupKey, VisualResourceError> {
         self.available()?;
@@ -481,13 +523,54 @@ impl VisualResources {
         if count != 0 {
             return Ok(count);
         }
-        let texture = self.material(key)?.texture;
-        let env_texture = self.material(key)?.env_texture;
-        if let Some(texture) = texture {
-            self.backend(backend.release_texture(texture))?;
-        }
-        if let Some(texture) = env_texture {
-            self.backend(backend.release_texture(texture))?;
+        if self.material(key)?.animation.is_some() {
+            // I3D_anim_material::~I3D_anim_material releases both owned arrays
+            // from the back. Current texture pointers are aliases, not refs.
+            let color_count = self
+                .material(key)?
+                .animation
+                .as_ref()
+                .unwrap()
+                .textures
+                .len();
+            for index in (0..color_count).rev() {
+                let texture = self.material(key)?.animation.as_ref().unwrap().textures[index];
+                if let Some(texture) = texture {
+                    self.backend(backend.release_texture(texture))?;
+                }
+            }
+            {
+                let material = self.material_mut(key)?;
+                material.animation.as_mut().unwrap().textures.clear();
+                material.texture = None;
+            }
+            let env_count = self
+                .material(key)?
+                .animation
+                .as_ref()
+                .unwrap()
+                .env_textures
+                .len();
+            for index in (0..env_count).rev() {
+                let texture = self.material(key)?.animation.as_ref().unwrap().env_textures[index];
+                if let Some(texture) = texture {
+                    self.backend(backend.release_texture(texture))?;
+                }
+            }
+            {
+                let material = self.material_mut(key)?;
+                material.animation.as_mut().unwrap().env_textures.clear();
+                material.env_texture = None;
+            }
+        } else {
+            let texture = self.material(key)?.texture;
+            let env_texture = self.material(key)?.env_texture;
+            if let Some(texture) = texture {
+                self.backend(backend.release_texture(texture))?;
+            }
+            if let Some(texture) = env_texture {
+                self.backend(backend.release_texture(texture))?;
+            }
         }
         self.materials[(key.slot - 1) as usize] = None;
         Ok(0)
@@ -540,6 +623,9 @@ impl VisualResources {
     ) -> Result<(), VisualResourceOperationError<B::Error>> {
         self.available()?;
         let old = self.material(key)?.texture;
+        if self.material(key)?.animation.is_some() {
+            return Err(VisualResourceError::AnimatedMaterialRequiresDerivedCopy.into());
+        }
         if texture.is_some_and(|t| t.0 == 0) {
             return Err(VisualResourceError::InvalidExternalIdentity.into());
         }
@@ -577,6 +663,9 @@ impl VisualResources {
     ) -> Result<(), VisualResourceOperationError<B::Error>> {
         self.available()?;
         let old = self.material(key)?.env_texture;
+        if self.material(key)?.animation.is_some() {
+            return Err(VisualResourceError::AnimatedMaterialRequiresDerivedCopy.into());
+        }
         if texture.is_some_and(|t| t.0 == 0) {
             return Err(VisualResourceError::InvalidExternalIdentity.into());
         }
@@ -1052,6 +1141,139 @@ impl VisualResources {
         }
         result
     }
+    /// I3D_anim_material::Duplicate releases old frame arrays in reverse,
+    /// calls the base scalar/texture copy, then retains each source frame in
+    /// forward order. The destination's current texture fields alias frame0.
+    pub(crate) fn duplicate_animated_material<B: VisualResourceBackend + ?Sized>(
+        &mut self,
+        destination: MaterialKey,
+        source: MaterialKey,
+        backend: &mut B,
+    ) -> Result<i32, VisualResourceOperationError<B::Error>> {
+        self.available()?;
+        if destination == source || self.material(destination)?.animation.is_none() {
+            return Err(VisualResourceError::AnimatedMaterialRequiresDerivedCopy.into());
+        }
+        let source_material = self.material(source)?;
+        let source_flags = source_material.flags;
+        let source_alpha = source_material.alpha;
+        let source_ambient = source_material.ambient;
+        let source_diffuse = source_material.diffuse;
+        let source_emissive = source_material.emissive;
+        let source_env_alpha = source_material.env_alpha;
+        let source_texture = source_material.texture;
+        let source_env_texture = source_material.env_texture;
+        let source_animation = source_material.animation.clone();
+        let result = (|| {
+            let old_color_count = self
+                .material(destination)?
+                .animation
+                .as_ref()
+                .unwrap()
+                .textures
+                .len();
+            for index in (0..old_color_count).rev() {
+                let texture = self
+                    .material(destination)?
+                    .animation
+                    .as_ref()
+                    .unwrap()
+                    .textures[index];
+                if let Some(texture) = texture {
+                    self.backend(backend.release_texture(texture))?;
+                }
+            }
+            {
+                let material = self.material_mut(destination)?;
+                material.animation.as_mut().unwrap().textures.clear();
+                material.texture = None;
+            }
+            let old_env_count = self
+                .material(destination)?
+                .animation
+                .as_ref()
+                .unwrap()
+                .env_textures
+                .len();
+            for index in (0..old_env_count).rev() {
+                let texture = self
+                    .material(destination)?
+                    .animation
+                    .as_ref()
+                    .unwrap()
+                    .env_textures[index];
+                if let Some(texture) = texture {
+                    self.backend(backend.release_texture(texture))?;
+                }
+            }
+            {
+                let material = self.material_mut(destination)?;
+                material.animation.as_mut().unwrap().env_textures.clear();
+                material.env_texture = None;
+            }
+            {
+                let material = self.material_mut(destination)?;
+                material.animation = None;
+                material.texture = None;
+                material.env_texture = None;
+                material.flags = source_flags & !0x0400_0000;
+                material.alpha = source_alpha;
+                material.ambient = source_ambient;
+                material.diffuse = source_diffuse;
+                material.emissive = source_emissive;
+                material.env_alpha = source_env_alpha;
+            }
+            self.set_texture(destination, source_texture, backend)?;
+            self.set_env_texture(destination, source_env_texture, backend)?;
+            if let Some(source_frames) = source_animation {
+                // Base Duplicate held temporary current-frame refs. The
+                // derived copy releases them before retaining the frame arrays.
+                if let Some(texture) = source_texture {
+                    self.backend(backend.release_texture(texture))?;
+                }
+                if let Some(texture) = source_env_texture {
+                    self.backend(backend.release_texture(texture))?;
+                }
+                let mut target_frames = source_frames.clone();
+                target_frames.textures.clear();
+                target_frames.env_textures.clear();
+                target_frames.frame = 0;
+                target_frames.env_frame = 0;
+                target_frames.configured = true;
+                let material = self.material_mut(destination)?;
+                material.texture = None;
+                material.env_texture = None;
+                material.flags |= 0x0400_0000;
+                material.animation = Some(target_frames);
+                for texture in source_frames.textures {
+                    self.append_loaded_animated_frame(destination, texture, false, backend)?;
+                }
+                for texture in source_frames.env_textures {
+                    self.append_loaded_animated_frame(destination, texture, true, backend)?;
+                }
+                self.finish_loaded_animated_material(destination)?;
+            } else {
+                let material = self.material_mut(destination)?;
+                material.animation = Some(AnimatedMaterialFrames {
+                    textures: vec![source_texture],
+                    env_textures: vec![source_env_texture],
+                    frame: 0,
+                    env_frame: 0,
+                    loop_frame: 0,
+                    frame_delay: 0,
+                    env_loop_frame: 0,
+                    env_frame_delay: 0,
+                    configured: true,
+                });
+            }
+            Ok(0)
+        })();
+        if result.is_err() {
+            self.poisoned = true;
+        }
+        result
+    }
+
     /// Material Copy2b0b0. Raw scalar setters preserve NaNs and signed zeros;
     /// texture setters supply the actual release/retain and flag effects.
     pub(crate) fn copy_material<B: VisualResourceBackend + ?Sized>(
@@ -1065,6 +1287,12 @@ impl VisualResources {
         let Some(source) = source else {
             return Ok(0x80000007u32 as i32);
         };
+        if self.material(destination)?.animation.is_some() {
+            return self.duplicate_animated_material(destination, source, backend);
+        }
+        if self.material(source)?.animation.is_some() {
+            return Err(VisualResourceError::AnimatedMaterialRequiresDerivedCopy.into());
+        }
         let flags = self.material(source)?.flags & 0xfbffffff;
         self.material_mut(destination)?.flags = flags;
         let value = self.material(source)?.alpha;
@@ -1192,6 +1420,9 @@ impl VisualResources {
     ) -> Result<(), VisualResourceError> {
         self.available()?;
         let material = self.material_mut(key)?;
+        if material.animation.is_some() != source.animation.is_some() {
+            return Err(VisualResourceError::InvalidExternalIdentity);
+        }
         material.flags = flags;
         material.ambient = source.ambient;
         material.diffuse = source.diffuse;
@@ -1230,6 +1461,9 @@ impl VisualResources {
     ) -> Result<(), VisualResourceOperationError<B::Error>> {
         self.available()?;
         let current = self.material(key)?;
+        if current.animation.is_some() {
+            return Err(VisualResourceError::AnimatedMaterialRequiresDerivedCopy.into());
+        }
         if (if environment {
             current.env_texture
         } else {
@@ -1247,6 +1481,112 @@ impl VisualResources {
         } else {
             self.material_mut(key)?.texture = texture;
         }
+        Ok(())
+    }
+}
+
+impl VisualResources {
+    /// LoadImage replaces the color constructor null slot when either color
+    /// or alpha name is present. Timing words are retained; driver-time
+    /// updates are separate.
+    pub(crate) fn configure_loaded_animated_material(
+        &mut self,
+        key: MaterialKey,
+        source: &lhr_assets::Material,
+    ) -> Result<(), VisualResourceError> {
+        self.available()?;
+        let timing = source
+            .animation
+            .as_ref()
+            .ok_or(VisualResourceError::InvalidExternalIdentity)?;
+        let material = self.material_mut(key)?;
+        let frames = material
+            .animation
+            .as_mut()
+            .ok_or(VisualResourceError::InvalidExternalIdentity)?;
+        if frames.configured {
+            return Err(VisualResourceError::StorageAlreadyInstalled);
+        }
+        frames.loop_frame = timing.loop_frame;
+        frames.frame_delay = timing.frame_delay;
+        frames.env_loop_frame = timing.env_loop_frame;
+        frames.env_frame_delay = timing.env_frame_delay;
+        if !source.texture.is_empty()
+            || source
+                .alpha_texture
+                .as_ref()
+                .is_some_and(|name| !name.is_empty())
+        {
+            frames.textures.clear();
+        }
+        if source.environment_texture.is_some() {
+            frames.env_textures.clear();
+        }
+        frames.configured = true;
+        Ok(())
+    }
+    /// One CreateITexture result, including a native null frame on an image
+    /// failure. Retain precedes publication; the caller releases its cache ref.
+    pub(crate) fn append_loaded_animated_frame<B: VisualResourceBackend + ?Sized>(
+        &mut self,
+        key: MaterialKey,
+        texture: Option<TextureKey>,
+        environment: bool,
+        backend: &mut B,
+    ) -> Result<(), VisualResourceOperationError<B::Error>> {
+        self.available()?;
+        let frames = self
+            .material_mut(key)?
+            .animation
+            .as_mut()
+            .ok_or(VisualResourceError::InvalidExternalIdentity)?;
+        if !frames.configured {
+            return Err(VisualResourceError::InvalidExternalIdentity.into());
+        }
+        let list = if environment {
+            &mut frames.env_textures
+        } else {
+            &mut frames.textures
+        };
+        list.try_reserve(1)
+            .map_err(|_| VisualResourceError::HostAllocation)?;
+        let first = list.is_empty();
+        if let Some(texture) = texture {
+            self.backend(backend.retain_texture(texture))?;
+        }
+        let material = self.material_mut(key)?;
+        let frames = material.animation.as_mut().unwrap();
+        if environment {
+            frames.env_textures.push(texture);
+            if first {
+                material.env_texture = texture;
+            }
+        } else {
+            frames.textures.push(texture);
+            if first {
+                material.texture = texture;
+            }
+        }
+        Ok(())
+    }
+    /// SetCurrentFrame(-1) and SetEnvCurrentFrame(-1) at LoadImage end.
+    pub(crate) fn finish_loaded_animated_material(
+        &mut self,
+        key: MaterialKey,
+    ) -> Result<(), VisualResourceError> {
+        self.available()?;
+        let material = self.material_mut(key)?;
+        let frames = material
+            .animation
+            .as_mut()
+            .ok_or(VisualResourceError::InvalidExternalIdentity)?;
+        if !frames.configured || frames.textures.is_empty() || frames.env_textures.is_empty() {
+            return Err(VisualResourceError::InvalidExternalIdentity);
+        }
+        frames.frame = 0;
+        frames.env_frame = 0;
+        material.texture = frames.textures[0];
+        material.env_texture = frames.env_textures[0];
         Ok(())
     }
 }
@@ -1365,6 +1705,237 @@ mod tests {
             assert!(self.raw.remove(&bytes.0).is_some());
             Ok(())
         }
+    }
+
+    fn animated_source() -> lhr_assets::Material {
+        lhr_assets::Material {
+            flags: 0x0400_0001,
+            ambient: [1.; 3],
+            diffuse: [1.; 3],
+            texture: "fx0000.tga".into(),
+            emission: [0.; 3],
+            opacity: 1.,
+            alpha_texture: None,
+            reflection: None,
+            environment_texture: None,
+            animation: Some(lhr_assets::TextureAnimation {
+                num_frames: 3,
+                env_num_frames: 0,
+                loop_frame: 1,
+                frame_delay: 60,
+                env_loop_frame: 0,
+                env_frame_delay: 0,
+            }),
+        }
+    }
+
+    #[test]
+    fn animated_material_owns_each_frame_and_last_group_releases_reverse_order() {
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let keys = [
+            backend.texture(11, 0),
+            backend.texture(12, 0),
+            backend.texture(13, 0),
+        ];
+        let material = resources.create_animated_material().unwrap();
+        let source = animated_source();
+        resources
+            .install_loaded_material_scalars(material, &source, source.flags)
+            .unwrap();
+        resources
+            .configure_loaded_animated_material(material, &source)
+            .unwrap();
+        for key in keys {
+            resources
+                .append_loaded_animated_frame(material, Some(key), false, &mut backend)
+                .unwrap();
+            backend.release_texture(key).unwrap();
+        }
+        resources.finish_loaded_animated_material(material).unwrap();
+        let state = resources.material(material).unwrap();
+        assert_eq!(state.texture, Some(keys[0]));
+        assert_eq!(state.animation.as_ref().unwrap().textures, keys.map(Some));
+        assert_eq!(state.animation.as_ref().unwrap().frame_delay, 60);
+        assert_eq!(state.animation.as_ref().unwrap().loop_frame, 1);
+        let group = resources.create_face_group().unwrap();
+        resources
+            .set_material(group, Some(material), &mut backend)
+            .unwrap();
+        resources.release_material(material, &mut backend).unwrap();
+        assert_eq!(backend.textures.len(), 3);
+        let start = backend.events.len();
+        resources.destroy_face_group(group, &mut backend).unwrap();
+        assert_eq!(
+            &backend.events[start..start + 3],
+            &[
+                Event::Release(keys[2]),
+                Event::Release(keys[1]),
+                Event::Release(keys[0]),
+            ]
+        );
+        assert_eq!(backend.events.len(), start + 4);
+        assert!(backend.textures.is_empty());
+    }
+    #[test]
+    fn animated_destructor_clears_color_alias_before_interrupted_env_release() {
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let color = backend.texture(41, 0);
+        let environment = backend.texture(42, 0);
+        let mut source = animated_source();
+        source.environment_texture = Some("env00.tga".into());
+        let material = resources.create_animated_material().unwrap();
+        resources
+            .configure_loaded_animated_material(material, &source)
+            .unwrap();
+        resources
+            .append_loaded_animated_frame(material, Some(environment), true, &mut backend)
+            .unwrap();
+        backend.release_texture(environment).unwrap();
+        resources
+            .append_loaded_animated_frame(material, Some(color), false, &mut backend)
+            .unwrap();
+        backend.release_texture(color).unwrap();
+        resources.finish_loaded_animated_material(material).unwrap();
+        backend.fail_before = Some(backend.events.len() + 2);
+        assert!(matches!(
+            resources.release_material(material, &mut backend),
+            Err(VisualResourceOperationError::Backend("unavailable"))
+        ));
+        let retained = resources.material(material).unwrap();
+        assert_eq!(retained.texture, None);
+        assert!(retained.animation.as_ref().unwrap().textures.is_empty());
+        assert_eq!(retained.env_texture, Some(environment));
+        assert_eq!(
+            retained.animation.as_ref().unwrap().env_textures,
+            vec![Some(environment)]
+        );
+        assert!(!backend.textures.contains_key(&color.0));
+        assert!(backend.textures.contains_key(&environment.0));
+    }
+    #[test]
+    fn animated_duplicate_clears_old_color_before_interrupted_env_release() {
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let color = backend.texture(51, 0);
+        let environment = backend.texture(52, 0);
+        let mut source_record = animated_source();
+        source_record.environment_texture = Some("env00.tga".into());
+        let destination = resources.create_animated_material().unwrap();
+        resources
+            .configure_loaded_animated_material(destination, &source_record)
+            .unwrap();
+        resources
+            .append_loaded_animated_frame(destination, Some(environment), true, &mut backend)
+            .unwrap();
+        backend.release_texture(environment).unwrap();
+        resources
+            .append_loaded_animated_frame(destination, Some(color), false, &mut backend)
+            .unwrap();
+        backend.release_texture(color).unwrap();
+        resources
+            .finish_loaded_animated_material(destination)
+            .unwrap();
+        let source = resources.create_animated_material().unwrap();
+        backend.fail_before = Some(backend.events.len() + 2);
+        assert!(matches!(
+            resources.copy_material(destination, Some(source), &mut backend),
+            Err(VisualResourceOperationError::Backend("unavailable"))
+        ));
+        let retained = resources.material(destination).unwrap();
+        assert_eq!(retained.texture, None);
+        assert!(retained.animation.as_ref().unwrap().textures.is_empty());
+        assert_eq!(retained.env_texture, Some(environment));
+        assert_eq!(
+            retained.animation.as_ref().unwrap().env_textures,
+            vec![Some(environment)]
+        );
+        assert!(!backend.textures.contains_key(&color.0));
+        assert!(backend.textures.contains_key(&environment.0));
+    }
+
+    #[test]
+    fn animated_duplicate_retains_live_frames_and_first_alias() {
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let first = backend.texture(21, 0);
+        let second = backend.texture(22, 0);
+        let source = resources.create_animated_material().unwrap();
+        let spec = animated_source();
+        resources
+            .install_loaded_material_scalars(source, &spec, spec.flags)
+            .unwrap();
+        resources
+            .configure_loaded_animated_material(source, &spec)
+            .unwrap();
+        for key in [first, second] {
+            resources
+                .append_loaded_animated_frame(source, Some(key), false, &mut backend)
+                .unwrap();
+            backend.release_texture(key).unwrap();
+        }
+        resources.finish_loaded_animated_material(source).unwrap();
+        let destination = resources.create_animated_material().unwrap();
+        assert_eq!(
+            resources.copy_material(destination, Some(source), &mut backend),
+            Ok(0)
+        );
+        let copy = resources.material(destination).unwrap();
+        assert_eq!(copy.texture, Some(first));
+        assert_eq!(
+            copy.animation.as_ref().unwrap().textures,
+            vec![Some(first), Some(second)]
+        );
+        assert_eq!(
+            (backend.textures[&first.0].0, backend.textures[&second.0].0),
+            (2, 2)
+        );
+        resources.release_material(source, &mut backend).unwrap();
+        assert_eq!(
+            (backend.textures[&first.0].0, backend.textures[&second.0].0),
+            (1, 1)
+        );
+        resources
+            .release_material(destination, &mut backend)
+            .unwrap();
+        assert!(backend.textures.is_empty());
+    }
+
+    #[test]
+    fn animated_frame_retain_failure_keeps_exact_prefix_and_poisoned_retry() {
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let first = backend.texture(31, 0);
+        let second = backend.texture(32, 0);
+        let material = resources.create_animated_material().unwrap();
+        resources
+            .configure_loaded_animated_material(material, &animated_source())
+            .unwrap();
+        resources
+            .append_loaded_animated_frame(material, Some(first), false, &mut backend)
+            .unwrap();
+        backend.release_texture(first).unwrap();
+        backend.fail_before = Some(backend.events.len() + 1);
+        assert!(resources
+            .append_loaded_animated_frame(material, Some(second), false, &mut backend)
+            .is_err());
+        let frames = &resources
+            .material(material)
+            .unwrap()
+            .animation
+            .as_ref()
+            .unwrap()
+            .textures;
+        assert_eq!(frames, &[Some(first)]);
+        assert_eq!(
+            (backend.textures[&first.0].0, backend.textures[&second.0].0),
+            (1, 1)
+        );
+        assert_eq!(
+            resources.append_loaded_animated_frame(material, Some(second), false, &mut backend),
+            Err(VisualResourceError::Poisoned.into())
+        );
     }
 
     #[test]

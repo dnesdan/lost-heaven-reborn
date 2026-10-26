@@ -71,7 +71,7 @@ Repository and agents
 
 Use the existing public GitHub repository. Commit and push small, meaningful, tested changes regularly. Never force-push.
 
-Delegate implementation and research to available subagents, preferably Luna 6 and Sol 6.1 where supported. The main agent coordinates integration and progress. Require two independent code-review passes for substantial milestones, with fixes between reviews.
+Use only Sol subagents for implementation, research and review; prefer Sol 6.1 where supported. The main agent coordinates integration and progress. Require two sequential independent code-review passes for substantial milestones, with fixes between reviews.
 
 Maintain minimal English documentation:
 

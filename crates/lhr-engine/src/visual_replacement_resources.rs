@@ -15,6 +15,12 @@ impl LoadedVisualResources {
             ObjectVisualType::LitUnconstructed => self
                 .objects
                 .create_unconstructed_lit_object_resources(None)?,
+            ObjectVisualType::Billboard => self.objects.create_billboard_resources(None)?,
+            ObjectVisualType::Singlemesh | ObjectVisualType::Singlemorph => {
+                return Err(LoadedVisualError::Backend(
+                    "derived visual factory unavailable",
+                ));
+            }
         };
         self.sources
             .insert((object.arena(), object.slot()), Vec::new());
@@ -69,8 +75,17 @@ impl LoadedVisualResources {
                 self.objects
                     .lit_set_object_mesh(destination, mesh, true, &mut self.backend)?
             }
+            ObjectVisualType::Billboard => {
+                self.objects
+                    .set_object_mesh(destination, mesh, false, &mut self.backend)?
+            }
+            ObjectVisualType::Singlemesh | ObjectVisualType::Singlemorph => {
+                return Err(LoadedVisualError::Backend(
+                    "derived visual duplicate unavailable",
+                ));
+            }
         }
-        if class == ObjectVisualType::Plain {
+        if matches!(class, ObjectVisualType::Plain | ObjectVisualType::Billboard) {
             self.objects
                 .copy_object_duplicate_state(destination, source)?;
         }

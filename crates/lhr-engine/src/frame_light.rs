@@ -18,6 +18,8 @@ use crate::{
 pub struct I3dLightState {
     pub(crate) constructor_complete: bool,
     fault: Option<FrameError>,
+    /// Host AddLight interruption marker; UpdateV cannot cross this prefix.
+    pub(crate) pending_sector_add: bool,
     pub mode: u32,
     pub light_type: u32,
     pub intensity: f32,
@@ -44,6 +46,7 @@ impl I3dLightState {
         Self {
             constructor_complete: false,
             fault: None,
+            pending_sector_add: false,
             mode: 0xff6b,
             light_type: 3,
             intensity: 1.,
@@ -155,6 +158,14 @@ impl I3dFrameGraph {
         self.light_state_mut(key)?.range_difference = sub(far, near)?;
         Ok(())
     }
+    fn light_percent_range(&mut self, key: FrameKey) -> Result<(), FrameError> {
+        let range = self.light_state(key)?.range;
+        let near = mul(range[0], 0.01)?;
+        self.light_state_mut(key)?.near_scaled = near;
+        let far = mul(range[1], 0.01)?;
+        self.light_state_mut(key)?.far_scaled = far;
+        Ok(())
+    }
     fn light_cone_cache(&mut self, key: FrameKey) -> Result<(), FrameError> {
         let light = self.light_state(key)?;
         let values = light_cone_cosines(light.cone[0], light.cone[1])
@@ -213,6 +224,9 @@ impl I3dFrameGraph {
                     normalize(world.elements[8..11].try_into().unwrap())?;
             }
             4 => {}
+            // Fog, point ambient and point fog use unscaled scene units here.
+            // Their active-sector selection belongs to the sector owner.
+            5..=7 => self.light_percent_range(key)?,
             _ => return Err(FrameError::UnsupportedFrameUpdate(key)),
         }
         Ok(())
@@ -222,7 +236,13 @@ impl I3dFrameGraph {
         if old == kind {
             return Ok(());
         }
-        if !(1..=4).contains(&kind) {
+        if !(1..=7).contains(&kind)
+            || (!self.light_state(key)?.sectors.is_empty()
+                && ((5..=7).contains(&old) || (5..=7).contains(&kind)))
+        {
+            // A linked fog-type transition must reorder the sector's fog
+            // membership; callers of this graph-only setter have no sector
+            // owner to perform that effect. Scene2 unlinks before SetLightType.
             return Err(FrameError::UnsupportedFrameUpdate(key));
         }
         self.projected_state_mut(key)?.update_count = self.state(key)?.update_count.wrapping_add(1);
@@ -280,7 +300,11 @@ impl I3dFrameGraph {
         far: f32,
     ) -> Result<(), FrameError> {
         self.light_state_mut(key)?.range = [near, if far > near { far } else { near }];
-        self.light_scaled_range(key)?;
+        if (5..=7).contains(&self.light_state(key)?.light_type) {
+            self.light_percent_range(key)?;
+        } else {
+            self.light_scaled_range(key)?;
+        }
         self.projected_state_mut(key)?.update_count = self.state(key)?.update_count.wrapping_add(1);
         self.dirty_light_sectors(key)?;
         if self.light_state(key)?.light_type == 2 {
@@ -486,6 +510,23 @@ mod tests {
         assert!(arena.graph.update(light).is_err());
         arena.release(light).unwrap();
         assert!(arena.frame(light).is_err());
+    }
+    #[test]
+    fn fog_percent_range_retains_near_store_when_far_arithmetic_fails() {
+        let mut arena = ModelArena::default();
+        let light = arena.create_light().unwrap();
+        arena.graph.set_light_type(light, 5).unwrap();
+        let old_far = arena.graph.light_state(light).unwrap().far_scaled;
+        assert!(arena
+            .graph
+            .set_light_range(light, 20., f32::INFINITY)
+            .is_err());
+        let prefix = arena.graph.light_state(light).unwrap();
+        assert_eq!(prefix.range, [20., f32::INFINITY]);
+        assert_eq!(prefix.near_scaled.to_bits(), (20f32 * 0.01).to_bits());
+        assert_eq!(prefix.far_scaled.to_bits(), old_far.to_bits());
+        assert!(arena.light(light).is_err());
+        arena.release(light).unwrap();
     }
     #[test]
     fn constructor_and_spot_setters_compose_live_graph_and_last_release() {

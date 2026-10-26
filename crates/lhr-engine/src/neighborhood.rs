@@ -444,6 +444,7 @@ fn inspection_camera(world: Mat4) -> Result<Camera, String> {
     let source_eye = world.transform_point3(Vec3::new(3.0, 4.5, -9.0));
     let reflect = |p: Vec3| Vec3::new(p.x, p.y, -p.z);
     let camera = Camera {
+        vertical_fov_radians: 50f32.to_radians(),
         eye: reflect(source_eye),
         target: reflect(source_target),
         up: Vec3::Y,
@@ -556,6 +557,7 @@ mod tests {
                 joint: None,
                 skin: None,
                 morph: None,
+                lensflare: None,
                 target: None,
                 occluder: None,
                 sector: None,

@@ -61,15 +61,32 @@ pub struct SectorFrame {
     pub next_visual: Option<FrameKey>,
     /// Native non-owning I3D_light pointer list; light.sectors is reciprocal.
     pub lights: Vec<FrameKey>,
+    /// Native fog registration alongside lights, selected by AddLight/UpdateV.
+    pub num_fog_lights: u32,
+    pub fog_light: Option<FrameKey>,
+    /// Host retry cursor for an interrupted native-order AddLight prefix.
+    pub(crate) pending_light_add: Option<PendingLightAdd>,
+    /// Native non-owning I3D_sound list; sound.sectors is reciprocal.
+    pub sounds: Vec<FrameKey>,
     pub(crate) hull_occluder: Option<crate::frame_occluder::OccluderKey>,
     pub(crate) occluder_list: Option<crate::frame_occluder::OccluderKey>,
     pub sound_properties: [u32; crate::scene_weather::SECTOR_SOUND_PROPERTIES_WORDS],
     pub sound_words_1e8_1ec: [u32; 2],
 }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct PendingLightAdd {
+    pub(crate) light: FrameKey,
+    primary_appended: bool,
+    light_type: u32,
+    on: bool,
+}
 #[derive(Debug)]
 pub struct SceneFrameOwner {
     pub key: SceneKey,
     pub(crate) current_camera: Option<crate::frame_camera::CameraKey>,
+    pub(crate) area_head: Option<crate::frame_area::AreaKey>,
+    pub(crate) area_count: u32,
+    pub(crate) areas_changed: bool,
     pub(crate) portal_head: Option<crate::frame_portal::PortalKey>,
     pub(crate) portal_count: u32,
     pub(crate) portal_version: u32,
@@ -176,6 +193,7 @@ pub enum SceneOwnerError {
     LinkRejected { scene: SceneKey, result: u32 },
     SectorGeometryUnavailable(SceneKey),
     LightnessUnavailable(SectorKey),
+    LightAddIncomplete { sector: SectorKey, light: FrameKey },
 }
 impl From<SceneOwnerError> for ModelError {
     fn from(error: SceneOwnerError) -> Self {
@@ -231,6 +249,10 @@ impl ModelArena {
                 bounding_sphere: (index < 2).then_some([0., 0., 0., f32::from_bits(0x46875104)]),
                 next_visual: None,
                 lights: Vec::new(),
+                num_fog_lights: 0,
+                fog_light: None,
+                pending_light_add: None,
+                sounds: Vec::new(),
                 hull_occluder: None,
                 occluder_list: None,
                 sound_properties,
@@ -241,6 +263,9 @@ impl ModelArena {
         self.scenes.push(SceneFrameOwner {
             key,
             current_camera: None,
+            area_head: None,
+            area_count: 0,
+            areas_changed: false,
             portal_head: None,
             portal_count: 0,
             portal_version: 0,
@@ -525,6 +550,9 @@ impl ModelArena {
             }
             .into());
         }
+        if self.state(key)?.kind == FrameKind::Area {
+            return self.link_area_frame_derived(key, parent, flags);
+        }
         if self.state(key)?.kind == FrameKind::Occluder {
             return self.link_occluder_frame_derived(key, parent, flags);
         }
@@ -542,40 +570,104 @@ impl ModelArena {
             .copied()
             .unwrap_or(0))
     }
-    /// AddLight (PC RVA0x4f3d0), for the admitted non-fog light types1..4.
+    /// AddLight (PC RVA0x4f3d0), including the native fog-light selection.
     /// These arrays contain borrowed pointers; registration acquires no refs.
     pub fn sector_add_light(
         &mut self,
         sector: SectorKey,
         light: FrameKey,
     ) -> Result<(), ModelError> {
+        self.sector_add_light_with_reserve(sector, light, |list| {
+            list.try_reserve(1)
+                .map_err(|_| ModelError::AllocationOverflow)
+        })
+    }
+    fn sector_add_light_with_reserve(
+        &mut self,
+        sector: SectorKey,
+        light: FrameKey,
+        mut reserve: impl FnMut(&mut Vec<FrameKey>) -> Result<(), ModelError>,
+    ) -> Result<(), ModelError> {
         self.sector(sector)?;
         self.light(light)?;
+        if let Some(interrupted) = self
+            .sectors
+            .iter()
+            .find(|entry| entry.pending_light_add.is_some())
+        {
+            let pending = interrupted.pending_light_add.unwrap();
+            if interrupted.key != sector || pending.light != light {
+                return Err(SceneOwnerError::LightAddIncomplete {
+                    sector: interrupted.key,
+                    light: pending.light,
+                }
+                .into());
+            }
+        }
         let si = self.sectors.iter().position(|s| s.key == sector).unwrap();
-        if self.sectors[si].lights.contains(&light) {
-            return Ok(());
+        if let Some(pending) = self.sectors[si].pending_light_add {
+            if pending.light != light
+                || pending.light_type != self.graph.light_state(light)?.light_type
+                || pending.on != (self.state(light)?.flags & 1 != 0)
+            {
+                return Err(SceneOwnerError::LightAddIncomplete {
+                    sector,
+                    light: pending.light,
+                }
+                .into());
+            }
+        } else {
+            if self.sectors[si].lights.contains(&light) {
+                return Ok(());
+            }
+            // Native AddLight changes fog selection and lights_changed before
+            // either vector push. Retain that exact prefix across host
+            // allocation interruption, without replaying it on retry.
+            let light_type = self.graph.light_state(light)?.light_type;
+            let on = self.state(light)?.flags & 1 != 0;
+            if (5..=7).contains(&light_type) {
+                self.sectors[si].num_fog_lights = self.sectors[si].num_fog_lights.wrapping_add(1);
+                if on {
+                    self.sectors[si].fog_light = Some(light);
+                }
+            }
+            let changed = self
+                .graph
+                .sector_light_changes
+                .entry(sector.frame().0)
+                .or_default();
+            *changed = changed.wrapping_add(1);
+            self.sectors[si].pending_light_add = Some(PendingLightAdd {
+                light,
+                primary_appended: false,
+                light_type,
+                on,
+            });
+            self.graph.light_state_mut(light)?.pending_sector_add = true;
         }
-        if !(1..=4).contains(&self.graph.light_state(light)?.light_type) {
-            return Err(crate::frame_transform::FrameError::UnsupportedFrameUpdate(light).into());
+        if !self.sectors[si].pending_light_add.unwrap().primary_appended {
+            reserve(&mut self.sectors[si].lights)?;
+            self.sectors[si].lights.push(light);
+            self.sectors[si]
+                .pending_light_add
+                .as_mut()
+                .unwrap()
+                .primary_appended = true;
         }
-        let changed = self
+        if !self
             .graph
-            .sector_light_changes
-            .entry(sector.frame().0)
-            .or_default();
-        *changed = changed.wrapping_add(1);
-        self.sectors[si]
-            .lights
-            .try_reserve(1)
-            .map_err(|_| ModelError::AllocationOverflow)?;
-        self.sectors[si].lights.push(light);
-        let sectors = &mut self.graph.light_state_mut(light)?.sectors;
-        if !sectors.contains(&sector.frame()) {
-            sectors
-                .try_reserve(1)
-                .map_err(|_| ModelError::AllocationOverflow)?;
-            sectors.push(sector.frame());
+            .light_state(light)?
+            .sectors
+            .contains(&sector.frame())
+        {
+            reserve(&mut self.graph.light_state_mut(light)?.sectors)?;
+            self.graph
+                .light_state_mut(light)?
+                .sectors
+                .push(sector.frame());
         }
+        self.sectors[si].pending_light_add = None;
+        self.graph.light_state_mut(light)?.pending_sector_add = false;
         Ok(())
     }
     pub fn sector_delete_light(
@@ -586,6 +678,13 @@ impl ModelArena {
         self.sector(sector)?;
         self.graph.light_state(light)?;
         let si = self.sectors.iter().position(|s| s.key == sector).unwrap();
+        if let Some(pending) = self.sectors[si].pending_light_add {
+            return Err(SceneOwnerError::LightAddIncomplete {
+                sector,
+                light: pending.light,
+            }
+            .into());
+        }
         let Some(index) = self.sectors[si]
             .lights
             .iter()
@@ -593,8 +692,20 @@ impl ModelArena {
         else {
             return Ok(0x80000006);
         };
-        if (5..8).contains(&self.graph.light_state(light)?.light_type) {
-            return Err(crate::frame_transform::FrameError::UnsupportedFrameUpdate(light).into());
+        if (5..=7).contains(&self.graph.light_state(light)?.light_type) {
+            self.sectors[si].num_fog_lights = self.sectors[si].num_fog_lights.wrapping_sub(1);
+            self.sectors[si].fog_light = None;
+            if self.sectors[si].num_fog_lights != 0 {
+                // The original scans before removing the departing member.
+                for &candidate in &self.sectors[si].lights {
+                    if self.state(candidate)?.flags & 1 != 0
+                        && (5..=7).contains(&self.graph.light_state(candidate)?.light_type)
+                    {
+                        self.sectors[si].fog_light = Some(candidate);
+                        break;
+                    }
+                }
+            }
         }
         let changed = self
             .graph
@@ -612,6 +723,17 @@ impl ModelArena {
     pub(crate) fn release_light_sectors(&mut self, light: FrameKey) -> Result<(), ModelError> {
         if self.state(light)?.kind != FrameKind::Light {
             return Ok(());
+        }
+        if let Some(sector) = self.sectors.iter().find(|sector| {
+            sector
+                .pending_light_add
+                .is_some_and(|pending| pending.light == light)
+        }) {
+            return Err(SceneOwnerError::LightAddIncomplete {
+                sector: sector.key,
+                light,
+            }
+            .into());
         }
         // Actual 20760 snapshots the initial pointer/count, then advances the
         // physical pointer despite reciprocal swap-removals. The admitted lists
@@ -761,6 +883,156 @@ mod tests {
         arena.release(light).unwrap();
         assert!(arena.sector(sectors[1]).unwrap().lights.is_empty());
         assert_eq!(arena.sector_lights_changed(sectors[1]), Ok(3));
+    }
+    #[test]
+    fn fog_sector_membership_selects_latest_on_light_and_releases_reciprocals() {
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let primary = arena.scene(scene).unwrap().sectors[0];
+        let first = arena.create_light().unwrap();
+        let second = arena.create_light().unwrap();
+        arena.graph.set_light_type(first, 5).unwrap();
+        arena.graph.set_light_type(second, 6).unwrap();
+        arena.sector_add_light(primary, first).unwrap();
+        arena.sector_add_light(primary, first).unwrap();
+        arena.sector_add_light(primary, second).unwrap();
+        let sector = arena.sector(primary).unwrap();
+        assert_eq!(sector.lights, [first, second]);
+        assert_eq!(sector.num_fog_lights, 2);
+        assert_eq!(sector.fog_light, Some(second));
+        assert_eq!(arena.light(first).unwrap().sectors, [primary.frame()]);
+        assert_eq!(arena.light(second).unwrap().sectors, [primary.frame()]);
+        assert!(arena.graph.update_v(second).is_err());
+        arena.set_frame_on(second, 0).unwrap();
+        arena.update_frame(second).unwrap();
+        assert_eq!(arena.sector(primary).unwrap().fog_light, Some(first));
+        arena.set_frame_on(second, 1).unwrap();
+        arena.update_frame(second).unwrap();
+        assert_eq!(arena.sector(primary).unwrap().fog_light, Some(second));
+        assert_eq!(arena.sector_delete_light(primary, second), Ok(0));
+        let sector = arena.sector(primary).unwrap();
+        assert_eq!(sector.lights, [first]);
+        assert_eq!(sector.num_fog_lights, 1);
+        assert_eq!(sector.fog_light, Some(first));
+        arena.release(first).unwrap();
+        let sector = arena.sector(primary).unwrap();
+        assert!(sector.lights.is_empty());
+        assert_eq!(sector.num_fog_lights, 0);
+        assert_eq!(sector.fog_light, None);
+        arena.release(second).unwrap();
+    }
+    #[test]
+    fn fog_add_light_second_reservation_failure_retains_ordered_prefix() {
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let primary = arena.scene(scene).unwrap().sectors[0];
+        let backdrop = arena.scene(scene).unwrap().sectors[1];
+        let light = arena.create_light().unwrap();
+        arena.graph.set_light_type(light, 5).unwrap();
+        let mut reservations = 0;
+        assert!(matches!(
+            arena.sector_add_light_with_reserve(primary, light, |_| {
+                reservations += 1;
+                if reservations == 2 {
+                    Err(ModelError::AllocationOverflow)
+                } else {
+                    Ok(())
+                }
+            }),
+            Err(ModelError::AllocationOverflow)
+        ));
+        assert_eq!(reservations, 2);
+        let sector = arena.sector(primary).unwrap();
+        assert_eq!(sector.lights, [light]);
+        assert_eq!(sector.num_fog_lights, 1);
+        assert_eq!(sector.fog_light, Some(light));
+        assert!(sector.pending_light_add.unwrap().primary_appended);
+        assert!(arena.graph.light_state(light).unwrap().pending_sector_add);
+        assert!(arena.light(light).unwrap().sectors.is_empty());
+        assert_eq!(arena.sector_lights_changed(primary), Ok(1));
+        assert!(arena.graph.update_v(light).is_err());
+        assert!(arena.update_frame(light).is_err());
+        assert!(matches!(
+            arena.release(light),
+            Err(ModelError::Scene(
+                SceneOwnerError::LightAddIncomplete { .. }
+            ))
+        ));
+        let other = arena.create_light().unwrap();
+        assert!(matches!(
+            arena.sector_add_light(primary, other),
+            Err(ModelError::Scene(
+                SceneOwnerError::LightAddIncomplete { .. }
+            ))
+        ));
+        assert!(matches!(
+            arena.sector_add_light(backdrop, other),
+            Err(ModelError::Scene(
+                SceneOwnerError::LightAddIncomplete { .. }
+            ))
+        ));
+        arena.set_frame_on(light, 0).unwrap();
+        assert!(matches!(
+            arena.sector_add_light(primary, light),
+            Err(ModelError::Scene(
+                SceneOwnerError::LightAddIncomplete { .. }
+            ))
+        ));
+        arena.set_frame_on(light, 1).unwrap();
+        arena.graph.set_light_type(light, 4).unwrap();
+        assert!(matches!(
+            arena.sector_add_light(primary, light),
+            Err(ModelError::Scene(
+                SceneOwnerError::LightAddIncomplete { .. }
+            ))
+        ));
+        arena.graph.set_light_type(light, 5).unwrap();
+        arena.sector_add_light(primary, light).unwrap();
+        assert_eq!(arena.sector(primary).unwrap().num_fog_lights, 1);
+        assert_eq!(arena.sector_lights_changed(primary), Ok(1));
+        assert_eq!(arena.sector(primary).unwrap().pending_light_add, None);
+        assert!(!arena.graph.light_state(light).unwrap().pending_sector_add);
+        assert_eq!(arena.light(light).unwrap().sectors, [primary.frame()]);
+        arena.update_frame(light).unwrap();
+        arena.release(light).unwrap();
+        arena.release(other).unwrap();
+    }
+    #[test]
+    fn fog_first_reservation_failure_blocks_other_sector_light_update() {
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let primary = arena.scene(scene).unwrap().sectors[0];
+        let other = arena.create_light().unwrap();
+        let pending = arena.create_light().unwrap();
+        arena.graph.set_light_type(other, 5).unwrap();
+        arena.graph.set_light_type(pending, 5).unwrap();
+        arena.sector_add_light(primary, other).unwrap();
+        assert!(matches!(
+            arena.sector_add_light_with_reserve(primary, pending, |_| {
+                Err(ModelError::AllocationOverflow)
+            }),
+            Err(ModelError::AllocationOverflow)
+        ));
+        let sector = arena.sector(primary).unwrap();
+        assert_eq!(sector.lights, [other]);
+        assert_eq!(sector.num_fog_lights, 2);
+        assert_eq!(sector.fog_light, Some(pending));
+        assert!(!sector.pending_light_add.unwrap().primary_appended);
+        arena.set_frame_on(other, 0).unwrap();
+        assert!(matches!(
+            arena.update_frame(other),
+            Err(ModelError::Scene(
+                SceneOwnerError::LightAddIncomplete { .. }
+            ))
+        ));
+        assert!(arena.graph.update_v(other).is_err());
+        arena.sector_add_light(primary, pending).unwrap();
+        arena.update_frame(other).unwrap();
+        assert_eq!(arena.sector(primary).unwrap().fog_light, Some(pending));
+        arena.release(other).unwrap();
+        arena.release(pending).unwrap();
+        assert_eq!(arena.sector(primary).unwrap().num_fog_lights, 0);
+        assert_eq!(arena.sector(primary).unwrap().fog_light, None);
     }
 
     #[test]

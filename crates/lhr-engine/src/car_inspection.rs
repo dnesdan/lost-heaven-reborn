@@ -143,7 +143,7 @@ pub fn snapshot_arena_tree_with_view(
     root: FrameKey,
     view: crate::inspection_lod::InspectionLodView,
 ) -> Result<CarInspectionScene, String> {
-    snapshot_arena_tree_inner(arena, &[root], true, Some(view))
+    snapshot_arena_tree_inner(arena, &[root], true, Some(view), None)
 }
 
 /// Snapshot the actual visible subtree, including sector-owned car effects.
@@ -154,7 +154,7 @@ pub fn snapshot_arena_tree(
     arena: &mut ModelArena,
     root: FrameKey,
 ) -> Result<CarInspectionScene, String> {
-    snapshot_arena_tree_inner(arena, &[root], true, None)
+    snapshot_arena_tree_inner(arena, &[root], true, None, None)
 }
 /// Materialize only the visual frames selected by canonical Scene visibility.
 /// Descendants are not implicitly included; each input has already passed the
@@ -164,13 +164,25 @@ pub fn snapshot_selected_frames_with_view(
     frames: &[FrameKey],
     view: crate::inspection_lod::InspectionLodView,
 ) -> Result<CarInspectionScene, String> {
-    snapshot_arena_tree_inner(arena, frames, false, Some(view))
+    snapshot_arena_tree_inner(arena, frames, false, Some(view), None)
+}
+/// Canonical Scene presentation borrows its active Camera owner for each
+/// billboard matrix. Standalone inspection has no camera owner and stops when
+/// it reaches a billboard instead of presenting it as an ordinary object.
+pub fn snapshot_selected_frames_with_view_and_camera(
+    arena: &mut ModelArena,
+    frames: &[FrameKey],
+    view: crate::inspection_lod::InspectionLodView,
+    camera: crate::frame_camera::CameraKey,
+) -> Result<CarInspectionScene, String> {
+    snapshot_arena_tree_inner(arena, frames, false, Some(view), Some(camera))
 }
 fn snapshot_arena_tree_inner(
     arena: &mut ModelArena,
     roots: &[FrameKey],
     recursive: bool,
     view: Option<crate::inspection_lod::InspectionLodView>,
+    camera: Option<crate::frame_camera::CameraKey>,
 ) -> Result<CarInspectionScene, String> {
     let mut lod_culled_meshes = 0;
     let mut pending: Vec<_> = roots.iter().copied().rev().collect();
@@ -197,7 +209,7 @@ fn snapshot_arena_tree_inner(
             child = arena.links(key).map_err(|e| e.to_string())?.next;
             pending.push(key);
         }
-        if state.kind == FrameKind::Mesh {
+        if matches!(state.kind, FrameKind::Mesh | FrameKind::Singlemesh) {
             if view.is_some()
                 && (state.flags & 0x400 != 0 || state.visual_flags & (0x10 | 0x40 | 0x10000) != 0)
             {
@@ -210,7 +222,22 @@ fn snapshot_arena_tree_inner(
                 .frame_object_resources(frame)
                 .map_err(|e| e.to_string())?
                 .ok_or("Car mesh has no owned CPU resources")?;
-            let matrix = arena.world_matrix(frame).map_err(|e| e.to_string())?;
+            let visual_type = arena
+                .loaded_visual_resources()
+                .ok_or("Car CPU resource owner unavailable")?
+                .objects()
+                .object(object)
+                .map_err(|e| format!("Live visual class frame {frame:?}: {e:?}"))?
+                .visual_type();
+            let billboard = visual_type == crate::i3d_object::ObjectVisualType::Billboard;
+            // Ordinary presentation keeps its historical world read here.
+            // Billboard bounds/LOD may return early; its render matrix is read
+            // only at ProductBillMatrix after a drawable LOD is prepared.
+            let ordinary_world = if billboard {
+                None
+            } else {
+                Some(arena.world_matrix(frame).map_err(|e| e.to_string())?)
+            };
             let bound = arena.hr_bound_volume_w(frame).map_err(|e| e.to_string())?;
             let center = [bound.center[0], bound.center[1], -bound.center[2]];
             let (lod_index, fade) = if let Some(view) = view {
@@ -219,10 +246,11 @@ fn snapshot_arena_tree_inner(
                     .map_err(|e| e.to_string())?;
                 let distance_squared = view.distance_squared(own.center)?;
                 let world_scale = arena.state(frame).map_err(|e| e.to_string())?.world_scale;
-                let selected = arena
+                let resources = arena
                     .loaded_visual_resources_mut()
-                    .ok_or("LOD CPU resource owner absent")?
-                    .select_render_lod(
+                    .ok_or("LOD CPU resource owner absent")?;
+                let selected = if billboard {
+                    resources.select_billboard_render_lod(
                         object,
                         distance_squared,
                         view.rs_lod_quality,
@@ -230,7 +258,17 @@ fn snapshot_arena_tree_inner(
                         state.flags,
                         state.visual_flags,
                     )
-                    .map_err(|e| format!("Live object LOD: {e:?}"))?;
+                } else {
+                    resources.select_render_lod(
+                        object,
+                        distance_squared,
+                        view.rs_lod_quality,
+                        world_scale,
+                        state.flags,
+                        state.visual_flags,
+                    )
+                }
+                .map_err(|e| format!("Live visual LOD frame {frame:?}: {e:?}"))?;
                 match selected {
                     crate::loaded_visual_resources::RenderLodSelection::Selected {
                         index,
@@ -245,6 +283,11 @@ fn snapshot_arena_tree_inner(
             } else {
                 (0, 1.)
             };
+            if state.kind == FrameKind::Singlemesh {
+                arena
+                    .prepare_owned_selected_singlemesh_lod(frame, lod_index)
+                    .map_err(|e| format!("Selected singlemesh pose frame {frame:?}: {e:?}"))?;
+            }
             arena
                 .loaded_visual_resources_mut()
                 .ok_or("Saved lighting resource owner unavailable")?
@@ -254,8 +297,55 @@ fn snapshot_arena_tree_inner(
                         "Selected saved lighting preparation frame {frame:?} LOD{lod_index}: {e:?}"
                     )
                 })?;
-            let no_dynamic_lm = no_dynamic_lm_lights(arena, frame)?;
-            let null_colors = prepare_null_colors(arena, frame, object, lod_index, fade)?;
+            // Source UVs in this admitted static subset are already installed
+            // in the selected LOD. ProductBillMatrix uses the current Camera
+            // after LOD/storage preparation and before any lighting or vertex
+            // transform; the canonical world matrix remains owned by the frame.
+            let matrix = if billboard {
+                let camera = camera.ok_or("Billboard requires active Scene camera")?;
+                arena
+                    .billboard_render_matrix(frame, camera)
+                    .map_err(|e| format!("Billboard render matrix frame {frame:?}: {e:?}"))?
+            } else {
+                ordinary_world.ok_or("Ordinary visual world matrix absent")?
+            };
+            let (no_dynamic_lm, null_colors, billboard_colors) = if billboard {
+                // The selected source vertex records already own static UVs.
+                // Borrow only their local position/normal words, then release
+                // that borrow before PrepareLights reads live Scene light owners.
+                let (positions, normals) = {
+                    let resources = arena
+                        .loaded_visual_resources()
+                        .ok_or("Billboard selected resource owner unavailable")?;
+                    let view = resources
+                        .inspection_mesh_at_lod(object, lod_index, CAR_INSPECTION_MAX_DRAWS)
+                        .map_err(|e| format!("Billboard selected geometry: {e:?}"))?
+                        .ok_or("Billboard selected LOD has no geometry")?;
+                    let mut positions = Vec::new();
+                    let mut normals = Vec::new();
+                    for vertex in view.vertex_bytes.chunks_exact(view.vertex_stride) {
+                        positions.push([word(vertex, 0)?, word(vertex, 4)?, word(vertex, 8)?]);
+                        normals.push([word(vertex, 12)?, word(vertex, 16)?, word(vertex, 20)?]);
+                    }
+                    if positions.len() != view.vertex_count as usize {
+                        return Err("Billboard selected vertex extent unavailable".into());
+                    }
+                    (positions, normals)
+                };
+                let sector = containing_lighting_sector(arena, frame)?
+                    .ok_or("Billboard lighting sector unavailable")?;
+                let colors = crate::null_material_lighting::billboard_vertex_lighting(
+                    arena, frame, sector, matrix, &positions, &normals, fade,
+                )
+                .map_err(|e| format!("Billboard draw-matrix lighting: {e}"))?;
+                (true, None, Some(colors))
+            } else {
+                (
+                    no_dynamic_lm_lights(arena, frame)?,
+                    prepare_null_colors(arena, frame, object, lod_index, fade)?,
+                    None,
+                )
+            };
             frames.push((
                 frame,
                 object,
@@ -265,9 +355,8 @@ fn snapshot_arena_tree_inner(
                 fade,
                 no_dynamic_lm,
                 null_colors,
+                billboard_colors,
             ));
-        } else if matches!(state.kind, FrameKind::Singlemesh) {
-            return Err("Car inspection cannot substitute undeformed singlemesh vertices".into());
         }
     }
     if frames.is_empty() {
@@ -294,12 +383,41 @@ fn snapshot_arena_tree_inner(
     let mut textures = BTreeMap::<(u64, u32), Arc<Texture>>::new();
     let mut omitted = 0usize;
     let mut unsupported_alpha_masks = 0usize;
-    for (frame, object, world, center, lod_index, fade, no_dynamic_lm, null_colors) in &frames {
+    for (
+        frame,
+        object,
+        world,
+        center,
+        lod_index,
+        fade,
+        no_dynamic_lm,
+        null_colors,
+        billboard_colors,
+    ) in &frames
+    {
         let Some(view) = resources
             .inspection_mesh_at_lod(*object, *lod_index, CAR_INSPECTION_MAX_DRAWS - meshes.len())
             .map_err(|e| format!("Canonical CPU geometry frame {frame:?} LOD{lod_index}: {e:?}"))?
         else {
             continue;
+        };
+        let billboard = view.visual_type == crate::i3d_object::ObjectVisualType::Billboard;
+        let pose = if matches!(
+            view.visual_type,
+            crate::i3d_object::ObjectVisualType::Singlemesh
+                | crate::i3d_object::ObjectVisualType::Singlemorph
+        ) {
+            let pose = arena
+                .owned_singlemesh_selected_vertices(*frame, *lod_index)
+                .map_err(|e| format!("Selected singlemesh pose frame {frame:?}: {e:?}"))?;
+            if pose.len() != view.vertex_count as usize {
+                return Err(format!(
+                    "Selected singlemesh pose/geometry extent frame {frame:?}"
+                ));
+            }
+            Some(pose)
+        } else {
+            None
         };
         let saved = resources
             .saved_lit_lod(*object, *lod_index)
@@ -356,7 +474,7 @@ fn snapshot_arena_tree_inner(
                 has_texture.then_some(group.texture_alpha).flatten(),
                 has_texture && group.inspection_rgba8_color_key,
             )?;
-            let policy = if let Some(material) = material {
+            let mut policy = if let Some(material) = material {
                 if saved.is_some() {
                     constructed_lit_material(material, has_texture, *center)?
                 } else if lit {
@@ -380,6 +498,16 @@ fn snapshot_arena_tree_inner(
                     [1.; 4]
                 } else if lit {
                     [0., 1., 1., 1.]
+                } else if billboard {
+                    [
+                        1.,
+                        1.,
+                        1.,
+                        billboard_colors
+                            .as_ref()
+                            .and_then(|colors| colors.first())
+                            .ok_or("Billboard first vertex lighting unavailable")?[3],
+                    ]
                 } else {
                     [
                         1.,
@@ -396,13 +524,45 @@ fn snapshot_arena_tree_inner(
                     sort_center: *center,
                 }
             };
+            if billboard {
+                // VertexColors supplies native first-material RGB. The shader
+                // reads alpha from the material policy, not the sidecar, so
+                // carry the helper's packed TempAlpha byte into that policy.
+                // Preserve the float-based queue, but apply Billboard's own
+                // per-face-group alpha blend rule. PrepareLights uses the
+                // first group's material for vertex colors, whereas this
+                // decision reads the material of the current draw group.
+                if let lhr_render::RenderMaterial::Original(render) = &mut policy {
+                    render.color[..3].fill(1.);
+                    render.color[3] = billboard_colors
+                        .as_ref()
+                        .and_then(|colors| colors.first())
+                        .ok_or("Billboard first vertex lighting unavailable")?[3];
+                    if let Some(source) = material {
+                        if source.flags & 0x80000000 == 0
+                            && matches!(
+                                render.alpha,
+                                lhr_render::AlphaMode::Blend | lhr_render::AlphaMode::Additive
+                            )
+                        {
+                            let emissive = source.emissive.iter().any(|v| v.to_bits() != 0);
+                            let diffuse = source.diffuse.iter().all(|v| v.to_bits() != 0);
+                            render.alpha = if emissive && diffuse {
+                                lhr_render::AlphaMode::Additive
+                            } else {
+                                lhr_render::AlphaMode::Blend
+                            };
+                        }
+                    }
+                }
+            }
             if alpha.omitted {
                 unsupported_alpha_masks += 1;
             }
             if !lit
                 && (alpha.omitted
                     || material.is_some_and(|m| m.env_texture.is_some())
-                    || material.is_some_and(|m| m.emissive != [0.; 3])
+                    || (!billboard && material.is_some_and(|m| m.emissive != [0.; 3]))
                     || flags & (0x80000 | 0x01000000 | 0x04000000) != 0)
             {
                 omitted += 1;
@@ -459,8 +619,20 @@ fn snapshot_arena_tree_inner(
             vertices
                 .try_reserve_exact(vertex_count)
                 .map_err(|_| "Car vertex allocation unavailable")?;
-            for vertex in view.vertex_bytes.chunks_exact(view.vertex_stride) {
-                let point = [word(vertex, 0)?, word(vertex, 4)?, word(vertex, 8)?];
+            for (index, vertex) in view
+                .vertex_bytes
+                .chunks_exact(view.vertex_stride)
+                .enumerate()
+            {
+                let point = if let Some(pose) = pose {
+                    let point = pose[index].position;
+                    if !point.into_iter().all(f32::is_finite) {
+                        return Err("Nonfinite live singlemesh pose".into());
+                    }
+                    point
+                } else {
+                    [word(vertex, 0)?, word(vertex, 4)?, word(vertex, 8)?]
+                };
                 let [x, y, z] = world
                     .try_transform_point(point)
                     .map_err(|_| "Car world transform outside verified arithmetic domain")?;
@@ -487,117 +659,139 @@ fn snapshot_arena_tree_inner(
                 }
                 indices.push(index);
             }
-            let saved_lighting = match saved {
-                None if material.is_none() && !lit => {
-                    let colors = null_colors
-                        .as_ref()
-                        .ok_or("Null material vertex colors unavailable")?;
-                    if colors.len() != vertices.len() {
-                        return Err("Null material vertex color extent unavailable".into());
-                    }
-                    charge(
-                        &mut bytes,
-                        vertices
-                            .len()
-                            .checked_mul(24)
-                            .ok_or("Null vertex lighting extent overflow")?,
-                    )?;
-                    Some(lhr_render::MeshLighting {
-                        uv2: vec![[0.; 2]; vertices.len()],
-                        colors: colors.clone(),
-                        atlas: None,
-                        mode: lhr_render::LightingMode::VertexColors { modulate_2x: true },
-                    })
+            let saved_lighting = if billboard {
+                let colors = billboard_colors
+                    .as_ref()
+                    .ok_or("Billboard draw-matrix colors unavailable")?;
+                if colors.len() != vertices.len() {
+                    return Err("Billboard vertex lighting extent unavailable".into());
                 }
-                None => None,
-                Some(crate::i3d_object::saved_lightmaps::SavedLitLod::Lightmap(lod)) => {
-                    if !no_dynamic_lm || material.is_some_and(|m| m.emissive != [0.; 3]) {
-                        return Err(
-                            "Saved lightmap dynamic light/emissive evaluation is unavailable"
-                                .into(),
-                        );
-                    }
-                    let faces = lod
-                        .face_rectangles
-                        .get(group_number)
-                        .ok_or("Saved lightmap face-group ownership unavailable")?
-                        .len();
-                    if group.index_bytes.len()
-                        != faces
-                            .checked_mul(6)
-                            .ok_or("Saved lightmap index extent overflow")?
-                        || lod.vertices.len() != vertices.len()
-                    {
-                        return Err("Saved lightmap managed extent unavailable".into());
-                    }
-                    charge(
-                        &mut bytes,
-                        vertices
-                            .len()
-                            .checked_mul(24)
-                            .ok_or("Saved lighting extent overflow")?,
-                    )?;
-                    let atlas = lod
-                        .atlas
-                        .read()
-                        .map_err(|_| "Saved lightmap atlas lock poisoned")?;
-                    let key = (Arc::as_ptr(&lod.atlas) as usize, atlas.revision);
-                    let texture = if let Some(texture) = atlas_textures.get(&key) {
-                        texture.clone()
-                    } else {
-                        charge(&mut bytes, atlas.rgba.len())?;
-                        let mut rgba = Vec::new();
-                        rgba.try_reserve_exact(atlas.rgba.len())
-                            .map_err(|_| "Saved lightmap atlas allocation unavailable")?;
-                        rgba.extend_from_slice(&atlas.rgba);
-                        let texture = Arc::new(Texture {
-                            width: atlas.width,
-                            height: atlas.height,
-                            rgba,
-                            repeat: [false; 2],
-                        });
-                        atlas_textures.insert(key, texture.clone());
-                        texture
-                    };
-                    Some(lhr_render::MeshLighting {
-                        uv2: managed_uv2
+                charge(
+                    &mut bytes,
+                    vertices
+                        .len()
+                        .checked_mul(24)
+                        .ok_or("Billboard vertex lighting extent overflow")?,
+                )?;
+                Some(lhr_render::MeshLighting {
+                    uv2: vec![[0.; 2]; vertices.len()],
+                    colors: colors.clone(),
+                    atlas: None,
+                    mode: lhr_render::LightingMode::VertexColors { modulate_2x: true },
+                })
+            } else {
+                match saved {
+                    None if material.is_none() && !lit => {
+                        let colors = null_colors
                             .as_ref()
-                            .ok_or("Managed atlas UV unavailable")?
-                            .clone(),
-                        colors: managed_colors
-                            .as_ref()
-                            .ok_or("Managed lightmap diffuse unavailable")?
-                            .clone(),
-                        atlas: Some(texture),
-                        mode: lhr_render::LightingMode::LightMap {
-                            base_texture: has_texture,
-                            modulate_2x: true,
-                        },
-                    })
-                }
-                Some(crate::i3d_object::saved_lightmaps::SavedLitLod::VertexColors {
-                    colors,
-                    ..
-                }) => {
-                    if colors.len() != vertices.len() {
-                        return Err("Saved vertex color extent unavailable".into());
+                            .ok_or("Null material vertex colors unavailable")?;
+                        if colors.len() != vertices.len() {
+                            return Err("Null material vertex color extent unavailable".into());
+                        }
+                        charge(
+                            &mut bytes,
+                            vertices
+                                .len()
+                                .checked_mul(24)
+                                .ok_or("Null vertex lighting extent overflow")?,
+                        )?;
+                        Some(lhr_render::MeshLighting {
+                            uv2: vec![[0.; 2]; vertices.len()],
+                            colors: colors.clone(),
+                            atlas: None,
+                            mode: lhr_render::LightingMode::VertexColors { modulate_2x: true },
+                        })
                     }
-                    charge(
-                        &mut bytes,
-                        vertices
-                            .len()
-                            .checked_mul(24)
-                            .ok_or("Saved vertex color sidecar extent overflow")?,
-                    )?;
-                    Some(lhr_render::MeshLighting {
-                        uv2: vec![[0.; 2]; vertices.len()],
-                        colors: managed_colors
-                            .as_ref()
-                            .ok_or("Managed saved vertex diffuse unavailable")?
-                            .clone(),
-                        atlas: None,
-                        mode: lhr_render::LightingMode::VertexColors { modulate_2x: true },
-                    })
+                    None => None,
+                    Some(crate::i3d_object::saved_lightmaps::SavedLitLod::Lightmap(lod)) => {
+                        if !no_dynamic_lm || material.is_some_and(|m| m.emissive != [0.; 3]) {
+                            return Err(
+                                "Saved lightmap dynamic light/emissive evaluation is unavailable"
+                                    .into(),
+                            );
+                        }
+                        let faces = lod
+                            .face_rectangles
+                            .get(group_number)
+                            .ok_or("Saved lightmap face-group ownership unavailable")?
+                            .len();
+                        if group.index_bytes.len()
+                            != faces
+                                .checked_mul(6)
+                                .ok_or("Saved lightmap index extent overflow")?
+                            || lod.vertices.len() != vertices.len()
+                        {
+                            return Err("Saved lightmap managed extent unavailable".into());
+                        }
+                        charge(
+                            &mut bytes,
+                            vertices
+                                .len()
+                                .checked_mul(24)
+                                .ok_or("Saved lighting extent overflow")?,
+                        )?;
+                        let atlas = lod
+                            .atlas
+                            .read()
+                            .map_err(|_| "Saved lightmap atlas lock poisoned")?;
+                        let key = (Arc::as_ptr(&lod.atlas) as usize, atlas.revision);
+                        let texture = if let Some(texture) = atlas_textures.get(&key) {
+                            texture.clone()
+                        } else {
+                            charge(&mut bytes, atlas.rgba.len())?;
+                            let mut rgba = Vec::new();
+                            rgba.try_reserve_exact(atlas.rgba.len())
+                                .map_err(|_| "Saved lightmap atlas allocation unavailable")?;
+                            rgba.extend_from_slice(&atlas.rgba);
+                            let texture = Arc::new(Texture {
+                                width: atlas.width,
+                                height: atlas.height,
+                                rgba,
+                                repeat: [false; 2],
+                            });
+                            atlas_textures.insert(key, texture.clone());
+                            texture
+                        };
+                        Some(lhr_render::MeshLighting {
+                            uv2: managed_uv2
+                                .as_ref()
+                                .ok_or("Managed atlas UV unavailable")?
+                                .clone(),
+                            colors: managed_colors
+                                .as_ref()
+                                .ok_or("Managed lightmap diffuse unavailable")?
+                                .clone(),
+                            atlas: Some(texture),
+                            mode: lhr_render::LightingMode::LightMap {
+                                base_texture: has_texture,
+                                modulate_2x: true,
+                            },
+                        })
+                    }
+                    Some(crate::i3d_object::saved_lightmaps::SavedLitLod::VertexColors {
+                        colors,
+                        ..
+                    }) => {
+                        if colors.len() != vertices.len() {
+                            return Err("Saved vertex color extent unavailable".into());
+                        }
+                        charge(
+                            &mut bytes,
+                            vertices
+                                .len()
+                                .checked_mul(24)
+                                .ok_or("Saved vertex color sidecar extent overflow")?,
+                        )?;
+                        Some(lhr_render::MeshLighting {
+                            uv2: vec![[0.; 2]; vertices.len()],
+                            colors: managed_colors
+                                .as_ref()
+                                .ok_or("Managed saved vertex diffuse unavailable")?
+                                .clone(),
+                            atlas: None,
+                            mode: lhr_render::LightingMode::VertexColors { modulate_2x: true },
+                        })
+                    }
                 }
             };
             lighting.push(saved_lighting);
@@ -640,7 +834,12 @@ fn prepare_null_colors(
         else {
             return Ok(None);
         };
-        if view.visual_type != crate::i3d_object::ObjectVisualType::Plain
+        let skinned = matches!(
+            view.visual_type,
+            crate::i3d_object::ObjectVisualType::Singlemesh
+                | crate::i3d_object::ObjectVisualType::Singlemorph
+        );
+        if !(view.visual_type == crate::i3d_object::ObjectVisualType::Plain || skinned)
             || !view.groups.iter().any(|g| g.material.is_none())
         {
             return Ok(None);
@@ -652,9 +851,32 @@ fn prepare_null_colors(
         }
         let mut positions = Vec::new();
         let mut normals = Vec::new();
-        for vertex in view.vertex_bytes.as_chunks::<32>().0 {
-            positions.push([word(vertex, 0)?, word(vertex, 4)?, word(vertex, 8)?]);
-            normals.push([word(vertex, 12)?, word(vertex, 16)?, word(vertex, 20)?]);
+        if skinned {
+            let pose = arena
+                .owned_singlemesh_selected_vertices(frame, lod)
+                .map_err(|e| format!("Null material pose frame {frame:?}: {e:?}"))?;
+            if pose.len() != view.vertex_count as usize {
+                return Err(format!(
+                    "Null material pose/geometry extent frame {frame:?}"
+                ));
+            }
+            for vertex in pose {
+                if !vertex
+                    .position
+                    .into_iter()
+                    .chain(vertex.normal)
+                    .all(f32::is_finite)
+                {
+                    return Err("Nonfinite null material singlemesh pose".into());
+                }
+                positions.push(vertex.position);
+                normals.push(vertex.normal);
+            }
+        } else {
+            for vertex in view.vertex_bytes.as_chunks::<32>().0 {
+                positions.push([word(vertex, 0)?, word(vertex, 4)?, word(vertex, 8)?]);
+                normals.push([word(vertex, 12)?, word(vertex, 16)?, word(vertex, 20)?]);
+            }
         }
         (positions, normals)
     };
@@ -807,6 +1029,106 @@ fn no_dynamic_lm_lights(arena: &ModelArena, frame: FrameKey) -> Result<bool, Str
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn live_singlemesh_draw_uses_owned_deformed_vertices_after_joint_update() {
+        let path = std::env::temp_dir().join(format!(
+            "lhr-inspection-skin-{}-{}",
+            std::process::id(),
+            crate::frame_lookup::incarnation()
+        ));
+        std::fs::create_dir(&path).unwrap();
+        let installation = lhr_assets::Installation::open(&path).unwrap();
+        let mut source = (*crate::model_loading::tests::skinned_source()).clone();
+        let visual = &mut source.frames[0];
+        visual.lods[0].vertices.push(lhr_assets::Vertex {
+            position: [0., 0., 0.],
+            normal: [0., 0., 1.],
+            uv: [0., 1.],
+        });
+        visual.lods[0].groups.push(lhr_assets::FaceGroup {
+            material: 0,
+            indices: vec![0, 1, 2],
+        });
+        visual.skin.as_mut().unwrap().lods[0]
+            .definition
+            .as_mut()
+            .unwrap()
+            .root_vertex_count = 2;
+        source.materials.push(lhr_assets::Material {
+            flags: 0,
+            ambient: [1.; 3],
+            diffuse: [1.; 3],
+            texture: String::new(),
+            emission: [0.; 3],
+            opacity: 1.,
+            alpha_texture: None,
+            reflection: None,
+            environment_texture: None,
+            animation: None,
+        });
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let model = arena.create_model().unwrap();
+        arena.scene_add_frame(scene, model.root()).unwrap();
+        arena
+            .load_parsed_into_model(model, Arc::new(source))
+            .unwrap();
+        arena
+            .load_plain_visual_resources(model, &installation)
+            .unwrap();
+        let visual = arena
+            .model(model)
+            .unwrap()
+            .frames
+            .iter()
+            .copied()
+            .find(|&key| arena.frame(key).unwrap().source_index == Some(0))
+            .unwrap();
+        let joint = arena
+            .model(model)
+            .unwrap()
+            .frames
+            .iter()
+            .copied()
+            .find(|&key| arena.frame(key).unwrap().source_index == Some(1))
+            .unwrap();
+        arena
+            .graph
+            .assign_position(model.root(), [11., -3., 5.])
+            .unwrap();
+        arena.update_frame(model.root()).unwrap();
+        let first = snapshot_arena_tree(&mut arena, model.root()).unwrap();
+        assert_eq!(first.scene.meshes.len(), 1);
+        let posed_position = arena.owned_singlemesh_lod0_vertices(visual, 0).unwrap()[0].position;
+        let world = arena.world_matrix(visual).unwrap();
+        let once = world.try_transform_point(posed_position).unwrap();
+        let twice = world.try_transform_point(once).unwrap();
+        assert_eq!(
+            first.scene.meshes[0].vertices[0].position,
+            [once[0], once[1], -once[2]]
+        );
+        assert_ne!(
+            first.scene.meshes[0].vertices[0].position,
+            [twice[0], twice[1], -twice[2]]
+        );
+        let old = first.scene.meshes[0].vertices[0].position;
+        arena.graph.assign_position(joint, [6., 0., 0.]).unwrap();
+        arena.update_frame(model.root()).unwrap();
+        let second = snapshot_arena_tree(&mut arena, model.root()).unwrap();
+        let posed_position = arena.owned_singlemesh_lod0_vertices(visual, 0).unwrap()[0].position;
+        let once = arena
+            .world_matrix(visual)
+            .unwrap()
+            .try_transform_point(posed_position)
+            .unwrap();
+        assert_eq!(
+            second.scene.meshes[0].vertices[0].position,
+            [once[0], once[1], -once[2]]
+        );
+        assert_ne!(old, second.scene.meshes[0].vertices[0].position);
+        arena.close(model).unwrap();
+        std::fs::remove_dir_all(path).unwrap();
+    }
     #[test]
     fn live_arena_materials_share_pixels_and_preserve_diffuse_opacity_and_world_center() {
         use crate::model_loading::tests::frame;

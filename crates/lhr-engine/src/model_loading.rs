@@ -15,6 +15,8 @@ mod scene_world_intake;
 pub use scene_world_intake::{
     CpuSceneWorldError, CpuSceneWorldFailure, CpuSceneWorldPhase, CpuSceneWorldProgress,
 };
+#[path = "model_billboard.rs"]
+pub(crate) mod billboard;
 #[path = "model_cache_duplicate.rs"]
 mod cache_duplicate;
 #[path = "model_crash_duplicate.rs"]
@@ -56,6 +58,16 @@ pub struct LoadedFrame {
     pub(crate) hr_world_bounds: crate::mesh_bounds::MeshBoundVolume,
     pub(crate) visual_bounds: Option<crate::mesh_bounds::MeshBoundVolume>,
     pub(crate) object_resources: Option<crate::i3d_object::ObjectResourceKey>,
+    /// Native BBRD suffix and live orientation, separate from canonical world.
+    pub(crate) billboard: Option<billboard::BillboardFrame>,
+    /// A visual LoadImage/derived Duplicate entered resource admission. Native
+    /// visual destruction still runs if that call returns before publication.
+    pub(crate) visual_admission_attempted: bool,
+    /// Per-glow retained material objects. `Some` also records an empty or
+    /// interrupted material admission so Close can release its exact prefix.
+    pub(crate) lensflare_materials: Option<Vec<crate::visual_resources::MaterialKey>>,
+    /// Host retry cursor for the native destructor's forward glow order.
+    lensflare_release_cursor: usize,
     pub(crate) projector: Option<crate::frame_projector::I3dProjectorState>,
     pub(crate) hr_bounds_error: Option<ModelError>,
     pub(crate) hr_world_bounds_error: Option<ModelError>,
@@ -85,6 +97,12 @@ pub struct LoadedModel {
     /// Actual fresh I3D_model+150 is null. Host inspection playback is separate.
     /// An active native set requires its producer/resource owner before admission.
     original_ipol_set: Option<crate::scene_tick::InterpolatorId>,
+    /// Owned first LOD skin/morph state for the loaded source hierarchy.
+    skin_pose: Option<SinglemeshPose>,
+    /// A failed lazy refresh retains its owned prefix and cannot be replayed
+    /// as a successful bound merely because the graph set its valid bit.
+    skin_pose_error: Option<SkinPoseError>,
+    morph_poses: Vec<Option<MorphPose>>,
 }
 impl LoadedModel {
     pub fn capacity(&self) -> usize {
@@ -148,6 +166,8 @@ pub enum ModelError {
     DummyFrameRequired(FrameKey),
     Frame(FrameError),
     Camera(crate::frame_camera::CameraError),
+    Area(crate::frame_area::AreaError),
+    Sound(crate::frame_sound::SoundError),
     Occluder(crate::frame_occluder::OccluderError),
     Portal(crate::frame_portal::PortalError),
     Sector(crate::frame_sector::SectorError),
@@ -187,6 +207,7 @@ pub enum ModelError {
     UnavailableOriginalName(FrameKey),
     VisualBoundsUnavailable(FrameKey),
     LoadedVisual(crate::loaded_visual_resources::LoadedVisualError),
+    BillboardNumeric(crate::billboard_state::BillboardNumericUnavailable),
     BoundsDepthUnavailable(FrameKey),
     StaleParsedContent(ModelKey),
     Asset(String),
@@ -250,6 +271,10 @@ pub struct ModelArena {
     pub(crate) portal_fail_on_call: Option<usize>,
     pub(crate) sector_storage: crate::frame_sector::SectorStorage,
     pub(crate) cameras: Vec<crate::frame_camera::CameraFrame>,
+    pub(crate) areas: Vec<crate::frame_area::AreaFrame>,
+    pub(crate) area_storage: crate::frame_area::AreaStorage,
+    pub(crate) sound_frames: Vec<crate::frame_sound::SoundFrame>,
+    pub(crate) sound_backend: Option<crate::frame_sound::HostSoundBackend>,
     pub(crate) occluders: Vec<crate::frame_occluder::OccluderFrame>,
     pub(crate) occluder_storage: crate::frame_occluder::OccluderStorage,
     pub(crate) sector_version: u32,
@@ -345,6 +370,10 @@ impl ModelArena {
             hr_world_bounds: crate::mesh_bounds::MeshBoundVolume::CONSTRUCTOR,
             visual_bounds: None,
             object_resources: None,
+            billboard: None,
+            visual_admission_attempted: false,
+            lensflare_materials: None,
+            lensflare_release_cursor: 0,
             projector: None,
             hr_bounds_error: None,
             hr_world_bounds_error: None,
@@ -369,10 +398,12 @@ impl ModelArena {
         source_frame_keys: &mut Vec<FrameKey>,
         morph_poses: &mut Vec<Option<MorphPose>>,
         index: usize,
+        billboard_source: Option<lhr_assets::BillboardSource>,
     ) -> Result<(), ModelError> {
         let source = &source_model.frames[index];
         let mut state = match (source.kind, source.visual) {
-            (1, Some(0 | 1)) => I3dFrameState::mesh(),
+            (1, Some(0 | 1 | 4)) => I3dFrameState::mesh(),
+            (1, Some(6)) => I3dFrameState::lensflare(),
             (1, Some(2 | 3)) => {
                 let mut state = I3dFrameState::mesh();
                 state.kind = FrameKind::Singlemesh;
@@ -406,6 +437,29 @@ impl ModelArena {
                 });
             }
         };
+        if (source.visual == Some(4)) != billboard_source.is_some()
+            || billboard_source.is_some_and(|suffix| suffix.frame_index != index)
+        {
+            return Err(ModelError::UnsupportedFrame {
+                index,
+                kind: source.kind,
+                visual: source.visual,
+            });
+        }
+        if source.visual == Some(6) && source.lensflare.is_none() {
+            return Err(ModelError::UnsupportedFrame {
+                index,
+                kind: source.kind,
+                visual: source.visual,
+            });
+        }
+        if source.visual != Some(6) && source.lensflare.is_some() {
+            return Err(ModelError::UnsupportedFrame {
+                index,
+                kind: source.kind,
+                visual: source.visual,
+            });
+        }
         if source.kind == 2 && source.light.is_none() {
             return Err(ModelError::MissingLightRecord(index));
         }
@@ -492,6 +546,18 @@ impl ModelArena {
         }
         let fi = self.frame_index(key)?;
         self.frames[fi].source = Some(Arc::clone(source_model));
+        self.frames[fi].billboard = billboard_source.map(billboard::BillboardFrame::from_source);
+        if let Some(lensflare) = &source.lensflare {
+            if !lensflare.glows.is_empty() {
+                // I3D_lensflare::LoadImage sets this fixed local volume after
+                // successfully retaining the source glow/material associations.
+                self.frames[fi].visual_bounds = Some(crate::mesh_bounds::MeshBoundVolume {
+                    bbox: [[-0.05; 3], [0.05; 3]],
+                    center: [0.; 3],
+                    radius: 0.01,
+                });
+            }
+        }
         morph_poses.push(morph);
         source_frame_keys.push(key);
         if source.kind == 2 {
@@ -562,6 +628,9 @@ impl ModelArena {
             closing: false,
             filename: None,
             original_ipol_set: None,
+            skin_pose: None,
+            skin_pose_error: None,
+            morph_poses: Vec::new(),
         });
         Ok(key)
     }
@@ -680,6 +749,30 @@ impl ModelArena {
         &mut self,
     ) -> Option<&mut crate::loaded_visual_resources::LoadedVisualResources> {
         self.loaded_visual_resources.as_mut()
+    }
+    /// Borrow the glow records and their source materials from the live frame
+    /// owner. Model duplication shares immutable source backing through Arc;
+    /// frame destruction drops that reference after its own graph membership.
+    pub fn lensflare_source(
+        &self,
+        key: FrameKey,
+    ) -> Result<(&lhr_assets::LensflareRecord, &[lhr_assets::Material]), ModelError> {
+        if self.state(key)?.kind != FrameKind::Lensflare {
+            return Err(ModelError::VisualBoundsUnavailable(key));
+        }
+        let frame = self.frame(key)?;
+        let source = frame
+            .source
+            .as_ref()
+            .ok_or(ModelError::VisualBoundsUnavailable(key))?;
+        let index = frame
+            .source_index
+            .ok_or(ModelError::VisualBoundsUnavailable(key))?;
+        let record = source.frames[index]
+            .lensflare
+            .as_ref()
+            .ok_or(ModelError::VisualBoundsUnavailable(key))?;
+        Ok((record, &source.materials))
     }
     pub(crate) fn visual_resource_owner_mut(
         &mut self,
@@ -811,14 +904,116 @@ impl ModelArena {
         if self.models[mi].closing {
             return Err(ModelError::CloseIncomplete(model));
         }
+        let table = crate::loaded_visual_resources::ModelMaterialTableKey::for_model(model);
         if self.loaded_visual_resources.is_none() {
             self.loaded_visual_resources = Some(
                 crate::loaded_visual_resources::LoadedVisualResources::new()
                     .map_err(ModelError::LoadedVisual)?,
             );
         }
+        self.loaded_visual_resources
+            .as_mut()
+            .unwrap()
+            .begin_material_table(table)
+            .map_err(ModelError::LoadedVisual)?;
+        let result = self.load_plain_visual_resources_inner(model, installation);
+        let released = self
+            .loaded_visual_resources
+            .as_mut()
+            .unwrap()
+            .finish_material_table(table)
+            .map_err(ModelError::LoadedVisual);
+        match (result, released) {
+            (Err(error), _) => Err(error),
+            (Ok(()), Err(error)) => Err(error),
+            (Ok(()), Ok(())) => Ok(()),
+        }
+    }
+    fn load_plain_visual_resources_inner(
+        &mut self,
+        model: ModelKey,
+        installation: &lhr_assets::Installation,
+    ) -> Result<(), ModelError> {
+        let mi = self.model_index(model)?;
+        if self.models[mi].closing {
+            return Err(ModelError::CloseIncomplete(model));
+        }
+        if self.loaded_visual_resources.is_none() {
+            self.loaded_visual_resources = Some(
+                crate::loaded_visual_resources::LoadedVisualResources::new()
+                    .map_err(ModelError::LoadedVisual)?,
+            );
+        }
+        if self
+            .loaded_visual_resources
+            .as_ref()
+            .unwrap()
+            .has_incomplete_admission()
+        {
+            return Err(ModelError::LoadedVisual(
+                crate::loaded_visual_resources::LoadedVisualError::IncompleteAdmission,
+            ));
+        }
         for index in 0..self.models[mi].frames.len() {
             let key = self.models[mi].frames[index];
+            if self.state(key)?.kind == FrameKind::Lensflare {
+                let fi = self.frame_index(key)?;
+                let source = self.frames[fi]
+                    .source
+                    .as_ref()
+                    .cloned()
+                    .ok_or(ModelError::VisualBoundsUnavailable(key))?;
+                let source_index = self.frames[fi]
+                    .source_index
+                    .ok_or(ModelError::VisualBoundsUnavailable(key))?;
+                let record = source.frames[source_index]
+                    .lensflare
+                    .as_ref()
+                    .ok_or(ModelError::VisualBoundsUnavailable(key))?;
+                let start = self.frames[fi]
+                    .lensflare_materials
+                    .as_ref()
+                    .map_or(0, Vec::len);
+                self.frames[fi]
+                    .lensflare_materials
+                    .get_or_insert_with(Vec::new);
+                for glow in &record.glows[start..] {
+                    if self.frames[fi]
+                        .lensflare_materials
+                        .as_mut()
+                        .unwrap()
+                        .try_reserve(1)
+                        .is_err()
+                    {
+                        self.loaded_visual_resources
+                            .as_mut()
+                            .unwrap()
+                            .mark_incomplete_admission();
+                        return Err(ModelError::AllocationOverflow);
+                    }
+                    let admitted = self
+                        .loaded_visual_resources
+                        .as_mut()
+                        .unwrap()
+                        .admit_lensflare_glow_material(&source, glow.material, installation);
+                    let material = match admitted {
+                        Ok(material) => material,
+                        Err(error) => {
+                            self.loaded_visual_resources
+                                .as_mut()
+                                .unwrap()
+                                .mark_incomplete_admission();
+                            return Err(ModelError::LoadedVisual(error));
+                        }
+                    };
+                    self.frames[fi]
+                        .lensflare_materials
+                        .as_mut()
+                        .unwrap()
+                        .push(material);
+                }
+                continue;
+            }
             if !matches!(
                 self.state(key)?.kind,
                 FrameKind::Mesh | FrameKind::Singlemesh
@@ -872,28 +1067,140 @@ impl ModelArena {
             } else {
                 None
             };
-            let owner = self.loaded_visual_resources.as_mut().unwrap();
-            let object = if let Some(original) = instance_object {
-                owner.load_plain_instance(original)
-            } else if source.frames[source_index].visual == Some(1) {
-                owner.load_unconstructed_lit_object(&source, source_index, installation)
-            } else {
-                owner.load_plain_object(&source, source_index, installation)
-            }
-            .map_err(ModelError::LoadedVisual)?;
+            self.frames[fi].visual_admission_attempted = true;
+            let admission = {
+                let owner = self.loaded_visual_resources.as_mut().unwrap();
+                if let Some(original) = instance_object {
+                    if source.frames[source_index].visual == Some(4) {
+                        owner.load_billboard_instance(original)
+                    } else {
+                        owner.load_plain_instance(original)
+                    }
+                } else if source.frames[source_index].visual == Some(1) {
+                    owner.load_unconstructed_lit_object(&source, source_index, installation)
+                } else if matches!(source.frames[source_index].visual, Some(2 | 3)) {
+                    owner.load_singlemesh_source(&source, source_index, installation)
+                } else if source.frames[source_index].visual == Some(4) {
+                    owner.load_billboard_source(&source, source_index, installation)
+                } else {
+                    owner.load_plain_object(&source, source_index, installation)
+                }
+            };
+            let object = match admission {
+                Ok(object) => object,
+                Err(error) => {
+                    // Native LoadImage can fail after constructing an object
+                    // and retain its mesh/material prefix for derived Close.
+                    // A pre-construction failure leaves the empty visual
+                    // constructor for the narrow admission guard above.
+                    if let Some(partial) = self
+                        .loaded_visual_resources
+                        .as_mut()
+                        .unwrap()
+                        .take_interrupted_object()
+                    {
+                        self.frames[fi].object_resources = Some(partial);
+                    }
+                    return Err(ModelError::LoadedVisual(error));
+                }
+            };
             // Store the owned object before a later bound projection can fail.
             self.frames[fi].object_resources = Some(object);
-            let bounds = owner
-                .object_bounds(object)
-                .map_err(ModelError::LoadedVisual)?;
-            // SetMesh368e0 copies the mesh bound volume unless flag0x40 locks it.
-            // Fresh visual bounds carry the constructor sentinels until copied.
-            self.frames[fi].visual_bounds = Some(if self.state(key)?.visual_flags & 0x40 == 0 {
-                bounds
-            } else {
-                crate::mesh_bounds::MeshBoundVolume::CONSTRUCTOR
-            });
-            self.graph.discard_hr_bound_vol(key)?;
+            let post_load = (|| -> Result<(), ModelError> {
+                if source.frames[source_index].visual == Some(4) {
+                    self.frames[fi]
+                        .billboard
+                        .as_mut()
+                        .ok_or(ModelError::VisualBoundsUnavailable(key))?
+                        .apply_load_suffix();
+                }
+                if self.state(key)?.kind == FrameKind::Singlemesh
+                    && self.models[mi].skin_pose.is_none()
+                {
+                    let keys = self.models[mi].frames.clone();
+                    let mut morphs = source
+                        .frames
+                        .iter()
+                        .map(|frame| {
+                            if frame.visual == Some(3) {
+                                MorphPose::from_frame(frame)
+                                    .map(Some)
+                                    .map_err(ModelError::SkinPose)
+                            } else {
+                                Ok(None)
+                            }
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let pose = SinglemeshPose::build(&source, &keys, &mut self.graph, &mut morphs)
+                        .map_err(ModelError::SkinPose)?;
+                    self.models[mi].morph_poses = morphs;
+                    self.models[mi].skin_pose = Some(pose);
+                }
+                let bounds = self
+                    .loaded_visual_resources
+                    .as_ref()
+                    .unwrap()
+                    .object_bounds(object)
+                    .map_err(ModelError::LoadedVisual)?;
+                // SetMesh368e0 copies the mesh bound volume unless flag0x40 locks it.
+                // Fresh visual bounds carry the constructor sentinels until copied.
+                let source_frame = &source.frames[source_index];
+                let inherited_bound = if source_frame.visual == Some(4) {
+                    billboard::cube_local_bound(bounds)
+                } else if self.state(key)?.kind == FrameKind::Singlemesh {
+                    if let Some(definition) = source_frame
+                        .morph
+                        .as_ref()
+                        .and_then(|m| m.definition.as_ref())
+                    {
+                        let words = definition.trailer_words;
+                        crate::mesh_bounds::MeshBoundVolume {
+                            bbox: [
+                                [
+                                    f32::from_bits(words[0]),
+                                    f32::from_bits(words[1]),
+                                    f32::from_bits(words[2]),
+                                ],
+                                [
+                                    f32::from_bits(words[3]),
+                                    f32::from_bits(words[4]),
+                                    f32::from_bits(words[5]),
+                                ],
+                            ],
+                            center: [
+                                f32::from_bits(words[6]),
+                                f32::from_bits(words[7]),
+                                f32::from_bits(words[8]),
+                            ],
+                            radius: f32::from_bits(words[9]),
+                        }
+                    } else {
+                        let volume = self.graph.singlemesh_bound_volume(key)?;
+                        crate::mesh_bounds::MeshBoundVolume {
+                            bbox: [volume.bbox.min, volume.bbox.max],
+                            center: volume.center,
+                            radius: volume.radius,
+                        }
+                    }
+                } else {
+                    bounds
+                };
+                self.frames[fi].visual_bounds =
+                    Some(if self.state(key)?.visual_flags & 0x40 == 0 {
+                        inherited_bound
+                    } else {
+                        crate::mesh_bounds::MeshBoundVolume::CONSTRUCTOR
+                    });
+                self.graph.discard_hr_bound_vol(key)?;
+                Ok(())
+            })();
+            if post_load.is_err() {
+                self.loaded_visual_resources
+                    .as_mut()
+                    .unwrap()
+                    .mark_incomplete_admission();
+            }
+            post_load?;
         }
         Ok(())
     }
@@ -947,6 +1254,17 @@ impl ModelArena {
         .map_err(ModelError::LoadedVisual)
     }
     fn check_frame_destruction(&self, key: FrameKey) -> Result<(), ModelError> {
+        if self.state(key)?.kind == FrameKind::Sound
+            && self
+                .sound_frames
+                .iter()
+                .any(|sound| sound.key.frame() == key)
+        {
+            self.check_sound_destruction(self.sound_key(key)?)?;
+        }
+        if self.state(key)?.kind == FrameKind::Area {
+            self.check_area_destruction_domain(self.area_key(key)?)?;
+        }
         if self.state(key)?.kind == FrameKind::Camera {
             let camera = self.camera(self.camera_key(key)?)?;
             if !camera.constructor_complete() {
@@ -968,6 +1286,46 @@ impl ModelArena {
             owner
                 .object_mesh(object)
                 .map_err(ModelError::LoadedVisual)?;
+            self.graph.check_destruction_with_owned_visual(key)?;
+        } else if matches!(
+            self.state(key)?.kind,
+            FrameKind::Mesh | FrameKind::Singlemesh
+        ) && self.frame(key)?.source.is_some()
+            && self.frame(key)?.source_index.is_some()
+            && self.frame(key)?.visual_admission_attempted
+        {
+            // A parsed visual constructor survives a LoadImage interruption
+            // before ObjectResources publication. Its native visual destructor
+            // still runs with null resource fields and then enters frame base.
+            self.graph.check_destruction_with_owned_visual(key)?;
+        } else if self.state(key)?.kind == FrameKind::Lensflare {
+            let (record, _) = self.lensflare_source(key)?;
+            if let Some(materials) = &self.frame(key)?.lensflare_materials {
+                if materials.len() > record.glows.len()
+                    || self.frame(key)?.lensflare_release_cursor > materials.len()
+                {
+                    return Err(ModelError::VisualBoundsUnavailable(key));
+                }
+                let owner = self
+                    .loaded_visual_resources
+                    .as_ref()
+                    .ok_or(ModelError::VisualBoundsUnavailable(key))?;
+                let source = self.frame(key)?.source.as_ref().unwrap();
+                for (glow, &material) in record
+                    .glows
+                    .iter()
+                    .zip(materials)
+                    .skip(self.frame(key)?.lensflare_release_cursor)
+                {
+                    if owner
+                        .lensflare_material_references(source, glow.material)
+                        .map(|x| x.0)
+                        != Some(material)
+                    {
+                        return Err(ModelError::VisualBoundsUnavailable(key));
+                    }
+                }
+            }
             self.graph.check_destruction_with_owned_visual(key)?;
         } else if let Some(projector) = &self.frame(key)?.projector {
             if let Some(texture) = projector.texture() {
@@ -1070,11 +1428,30 @@ impl ModelArena {
     ) -> Result<SharedModelContent, SharedModelLoadFailure> {
         self.load_parsed_into_model_for_root(model, source, None)
     }
+    /// Explicit visual-4 intake. The suffix is retained on each live Frame;
+    /// the ordinary parser path continues to reject a missing BBRD owner.
+    pub fn load_parsed_billboards_into_model(
+        &mut self,
+        model: ModelKey,
+        source: Arc<Model>,
+        billboards: &[lhr_assets::BillboardSource],
+    ) -> Result<SharedModelContent, SharedModelLoadFailure> {
+        self.load_parsed_into_model_for_root_with_billboards(model, source, None, billboards)
+    }
     pub(crate) fn load_parsed_into_model_for_root(
         &mut self,
         model: ModelKey,
         source: Arc<Model>,
         root_parent: Option<FrameKey>,
+    ) -> Result<SharedModelContent, SharedModelLoadFailure> {
+        self.load_parsed_into_model_for_root_with_billboards(model, source, root_parent, &[])
+    }
+    fn load_parsed_into_model_for_root_with_billboards(
+        &mut self,
+        model: ModelKey,
+        source: Arc<Model>,
+        root_parent: Option<FrameKey>,
+        billboards: &[lhr_assets::BillboardSource],
     ) -> Result<SharedModelContent, SharedModelLoadFailure> {
         let mut content = SharedModelContent {
             model,
@@ -1102,7 +1479,17 @@ impl ModelArena {
         let mut morph_poses = Vec::new();
         let mut result = Ok(());
         for index in 0..source.frames.len() {
-            result = self.load_parsed_frame(&source, &mut content.frames, &mut morph_poses, index);
+            let suffix = billboards
+                .iter()
+                .find(|record| record.frame_index == index)
+                .copied();
+            result = self.load_parsed_frame(
+                &source,
+                &mut content.frames,
+                &mut morph_poses,
+                index,
+                suffix,
+            );
             if result.is_err() {
                 break;
             }
@@ -1206,12 +1593,17 @@ impl ModelArena {
                 error: ModelError::Asset(error.to_string()),
                 partial: empty(),
             })?;
-        let parsed =
-            lhr_assets::parse_four_ds_scene(&bytes).map_err(|error| SharedModelLoadFailure {
+        let parsed = lhr_assets::parse_four_ds_scene_billboards(&bytes).map_err(|error| {
+            SharedModelLoadFailure {
                 error: ModelError::Asset(error.to_string()),
                 partial: empty(),
-            })?;
-        let content = self.load_parsed_into_model(model, Arc::new(parsed))?;
+            }
+        })?;
+        let content = self.load_parsed_billboards_into_model(
+            model,
+            Arc::new(parsed.model),
+            &parsed.billboards,
+        )?;
         if let Err(error) = self.allocate_model_filename(model, path.as_bytes()) {
             return Err(SharedModelLoadFailure {
                 error,
@@ -1310,13 +1702,17 @@ impl ModelArena {
                         error: ModelError::Asset(error.to_string()),
                         partial: empty(),
                     })?;
-            let source = lhr_assets::parse_four_ds_scene(&bytes).map_err(|error| {
+            let source = lhr_assets::parse_four_ds_scene_billboards(&bytes).map_err(|error| {
                 SharedModelLoadFailure {
                     error: ModelError::Asset(error.to_string()),
                     partial: empty(),
                 }
             })?;
-            let content = self.load_parsed_into_model(model, Arc::new(source))?;
+            let content = self.load_parsed_billboards_into_model(
+                model,
+                Arc::new(source.model),
+                &source.billboards,
+            )?;
             if let Err(error) = self.load_plain_visual_resources(model, installation) {
                 return Err(SharedModelLoadFailure {
                     error,
@@ -1486,6 +1882,175 @@ impl ModelArena {
         self.frame_index(key)?;
         Ok(self.graph.joint_state(key)?)
     }
+    /// Rebuild the retained first-LOD pose only when an owned Joint update has
+    /// invalidated a Singlemesh bound. The source Arc and source-index mapping
+    /// are required; an incomplete model cannot invent a definition or joints.
+    pub(crate) fn refresh_owned_singlemesh_pose(
+        &mut self,
+        key: FrameKey,
+    ) -> Result<(), ModelError> {
+        let frame = self.frame(key)?;
+        if self.state(key)?.kind != FrameKind::Singlemesh || frame.object_resources.is_none() {
+            return Err(ModelError::VisualBoundsUnavailable(key));
+        }
+        let model = match frame.owner {
+            Some(crate::scene_ownership::FrameOwner::Model(model)) => model,
+            _ => return Err(ModelError::VisualBoundsUnavailable(key)),
+        };
+        let source = frame
+            .source
+            .as_ref()
+            .cloned()
+            .ok_or(ModelError::VisualBoundsUnavailable(key))?;
+        let mi = self.model_index(model)?;
+        if self.models[mi].closing || self.models[mi].skin_pose.is_none() {
+            return Err(ModelError::SkinPose(SkinPoseError::Source(
+                "owned singlemesh pose unavailable",
+            )));
+        }
+        if let Some(error) = self.models[mi].skin_pose_error.clone() {
+            return Err(ModelError::SkinPose(error));
+        }
+        if self.state(key)?.visual_flags & 0x20000 != 0 {
+            return Ok(());
+        }
+        let mut ordered = vec![None; source.frames.len()];
+        for &member in &self.models[mi].frames {
+            let frame = self.frame(member)?;
+            let Some(index) = frame.source_index else {
+                return Err(ModelError::SkinPose(SkinPoseError::Source(
+                    "singlemesh source mapping",
+                )));
+            };
+            if index >= ordered.len()
+                || !frame
+                    .source
+                    .as_ref()
+                    .is_some_and(|s| Arc::ptr_eq(s, &source))
+                || ordered[index].replace(member).is_some()
+            {
+                return Err(ModelError::SkinPose(SkinPoseError::Source(
+                    "singlemesh source mapping",
+                )));
+            }
+        }
+        let ordered =
+            ordered
+                .into_iter()
+                .collect::<Option<Vec<_>>>()
+                .ok_or(ModelError::SkinPose(SkinPoseError::Source(
+                    "singlemesh source mapping",
+                )))?;
+        let pose = match SinglemeshPose::build(
+            &source,
+            &ordered,
+            &mut self.graph,
+            &mut self.models[mi].morph_poses,
+        ) {
+            Ok(pose) => pose,
+            Err(error) => {
+                self.models[mi].skin_pose_error = Some(error.clone());
+                return Err(ModelError::SkinPose(error));
+            }
+        };
+        self.models[mi].skin_pose = Some(pose);
+        Ok(())
+    }
+    /// Prepare the selected LOD only after the live render selector admits it.
+    /// Its skin definition and source vertices belong to the original source
+    /// Arc; a failed derived evaluation poisons this model's pose admission.
+    pub(crate) fn prepare_owned_selected_singlemesh_lod(
+        &mut self,
+        key: FrameKey,
+        lod_index: u32,
+    ) -> Result<(), ModelError> {
+        self.refresh_owned_singlemesh_pose(key)?;
+        if lod_index == 0 {
+            return Ok(());
+        }
+        let frame = self.frame(key)?;
+        let model = match frame.owner {
+            Some(crate::scene_ownership::FrameOwner::Model(model)) => model,
+            _ => return Err(ModelError::VisualBoundsUnavailable(key)),
+        };
+        let source = frame
+            .source
+            .as_ref()
+            .cloned()
+            .ok_or(ModelError::VisualBoundsUnavailable(key))?;
+        let index = frame
+            .source_index
+            .ok_or(ModelError::VisualBoundsUnavailable(key))?;
+        let mi = self.model_index(model)?;
+        if let Some(error) = self.models[mi].skin_pose_error.clone() {
+            return Err(ModelError::SkinPose(error));
+        }
+        let pose = self.models[mi]
+            .skin_pose
+            .as_mut()
+            .ok_or(ModelError::SkinPose(SkinPoseError::Source(
+                "owned singlemesh pose unavailable",
+            )))?;
+        if let Err(error) =
+            pose.prepare_selected_lod(&source, index, lod_index as usize, key, &mut self.graph)
+        {
+            self.models[mi].skin_pose_error = Some(error.clone());
+            return Err(ModelError::SkinPose(error));
+        }
+        Ok(())
+    }
+
+    /// Borrow the committed CPU result for the exact live selected LOD.
+    /// Geometry, UVs and material groups remain owned by ObjectResources;
+    /// this supplies only evaluated position and normal pairs.
+    pub(crate) fn owned_singlemesh_selected_vertices(
+        &self,
+        key: FrameKey,
+        lod_index: u32,
+    ) -> Result<&[crate::singlemesh_deformation::SkinVertex], ModelError> {
+        let frame = self.frame(key)?;
+        if self.state(key)?.kind != FrameKind::Singlemesh || frame.object_resources.is_none() {
+            return Err(ModelError::VisualBoundsUnavailable(key));
+        }
+        let model = match frame.owner {
+            Some(crate::scene_ownership::FrameOwner::Model(model)) => model,
+            _ => return Err(ModelError::VisualBoundsUnavailable(key)),
+        };
+        let mi = self.model_index(model)?;
+        if let Some(error) = &self.models[mi].skin_pose_error {
+            return Err(ModelError::SkinPose(error.clone()));
+        }
+        if self.state(key)?.visual_flags & 0x20000 == 0 {
+            return Err(ModelError::Frame(FrameError::SinglemeshBoundsUnavailable(
+                key,
+            )));
+        }
+        let index = frame
+            .source_index
+            .ok_or(ModelError::VisualBoundsUnavailable(key))?;
+        self.models[mi]
+            .skin_pose
+            .as_ref()
+            .and_then(|p| p.selected_vertices(index, lod_index as usize))
+            .ok_or(ModelError::SkinPose(SkinPoseError::Source(
+                "owned selected singlemesh vertices unavailable",
+            )))
+    }
+
+    /// Retained first-LOD inspection spelling used by existing source probes.
+    #[cfg(test)]
+    pub(crate) fn owned_singlemesh_lod0_vertices(
+        &self,
+        key: FrameKey,
+        lod_index: u32,
+    ) -> Result<&[crate::singlemesh_deformation::SkinVertex], ModelError> {
+        if lod_index != 0 {
+            return Err(ModelError::SkinPose(SkinPoseError::Source(
+                "first-LOD inspection requires LOD0",
+            )));
+        }
+        self.owned_singlemesh_selected_vertices(key, lod_index)
+    }
     pub fn singlemesh_bound_volume(
         &self,
         key: FrameKey,
@@ -1562,6 +2127,17 @@ impl ModelArena {
         if self.graph.state(key)?.kind == FrameKind::Camera {
             self.destroy_camera_derived(self.camera_key(key)?)?;
         }
+        if self.graph.state(key)?.kind == FrameKind::Area {
+            self.destroy_area_derived(self.area_key(key)?)?;
+        }
+        if self.graph.state(key)?.kind == FrameKind::Sound
+            && self
+                .sound_frames
+                .iter()
+                .any(|sound| sound.key.frame() == key)
+        {
+            self.destroy_sound_derived(self.sound_key(key)?)?;
+        }
         if self.graph.state(key)?.kind == FrameKind::Occluder {
             self.destroy_occluder_derived(self.occluder_key(key)?)?;
         }
@@ -1592,6 +2168,35 @@ impl ModelArena {
                 .map_err(ModelError::LoadedVisual)?;
             self.frames[i].object_resources = None;
             self.frames[i].visual_bounds = None;
+        }
+        if self.frames[i].lensflare_materials.is_some() {
+            let source = self.frames[i]
+                .source
+                .as_ref()
+                .cloned()
+                .ok_or(ModelError::VisualBoundsUnavailable(key))?;
+            let source_index = self.frames[i]
+                .source_index
+                .ok_or(ModelError::VisualBoundsUnavailable(key))?;
+            let glows = &source.frames[source_index]
+                .lensflare
+                .as_ref()
+                .ok_or(ModelError::VisualBoundsUnavailable(key))?
+                .glows;
+            while self.frames[i].lensflare_release_cursor
+                < self.frames[i].lensflare_materials.as_ref().unwrap().len()
+            {
+                let slot = self.frames[i].lensflare_release_cursor;
+                let material = self.frames[i].lensflare_materials.as_ref().unwrap()[slot];
+                self.loaded_visual_resources
+                    .as_mut()
+                    .ok_or(ModelError::VisualBoundsUnavailable(key))?
+                    .release_lensflare_glow_material(&source, glows[slot].material, material)
+                    .map_err(ModelError::LoadedVisual)?;
+                self.frames[i].lensflare_release_cursor += 1;
+            }
+            self.frames[i].lensflare_materials = None;
+            self.frames[i].lensflare_release_cursor = 0;
         }
         if self.frames[i].projector.is_some() {
             self.release_projector_resources(key)?;
@@ -1755,6 +2360,9 @@ impl ModelArena {
             self.models[mi].close_cursor += 1;
         }
         self.models[mi].frames.clear();
+        self.models[mi].skin_pose = None;
+        self.models[mi].skin_pose_error = None;
+        self.models[mi].morph_poses.clear();
         self.models[mi].close_cursor = 0;
         self.models[mi].closing = false;
         // PC Close33500 releases filename only after the forward frame loop.
@@ -1836,6 +2444,12 @@ impl ModelArena {
                 add(original.capacity())?;
             }
             add(f.properties.capacity())?;
+            if let Some(materials) = &f.lensflare_materials {
+                add(materials
+                    .capacity()
+                    .checked_mul(std::mem::size_of::<crate::visual_resources::MaterialKey>())
+                    .ok_or(ModelError::AllocationOverflow)?)?;
+            }
         }
         for m in &self.models {
             add(m
@@ -1843,6 +2457,19 @@ impl ModelArena {
                 .capacity()
                 .checked_mul(std::mem::size_of::<FrameKey>())
                 .ok_or(ModelError::AllocationOverflow)?)?;
+            add(m
+                .morph_poses
+                .capacity()
+                .checked_mul(std::mem::size_of::<Option<MorphPose>>())
+                .ok_or(ModelError::AllocationOverflow)?)?;
+            for morph in m.morph_poses.iter().flatten() {
+                add(morph
+                    .storage_bytes()
+                    .ok_or(ModelError::AllocationOverflow)?)?;
+            }
+            if let Some(pose) = &m.skin_pose {
+                add(pose.storage_bytes().ok_or(ModelError::AllocationOverflow)?)?;
+            }
         }
         Ok(size)
     }
@@ -1980,6 +2607,7 @@ impl MaterializedModel {
             &mut self.source_frame_keys,
             &mut self.morph_poses,
             index,
+            None,
         )
     }
     fn resolve_targets(&mut self) -> Result<(), ModelError> {
@@ -2286,6 +2914,7 @@ pub(crate) mod tests {
             joint: None,
             skin: None,
             morph: None,
+            lensflare: None,
             target: None,
             occluder: None,
             sector: None,
@@ -2296,6 +2925,254 @@ pub(crate) mod tests {
             instance: None,
             lods: Vec::new(),
         }
+    }
+    #[test]
+    fn lensflare_owns_live_source_and_material_associations_until_close() {
+        let mut glow = frame(1, None, [1., 2., 3.]);
+        glow.visual = Some(6);
+        glow.render_flags = 0;
+        glow.lensflare = Some(lhr_assets::LensflareRecord {
+            glows: vec![lhr_assets::LensflareGlowRecord {
+                position: 0.25,
+                material: 0,
+            }],
+        });
+        let source = Arc::new(Model {
+            materials: vec![],
+            frames: vec![glow],
+        });
+        let mut arena = ModelArena::default();
+        let first = arena.create_model().unwrap();
+        let second = arena.create_model().unwrap();
+        let first_frame = arena
+            .load_parsed_into_model(first, source.clone())
+            .unwrap()
+            .frames()[0];
+        let second_frame = arena
+            .load_parsed_into_model(second, source.clone())
+            .unwrap()
+            .frames()[0];
+        assert_eq!(arena.state(first_frame).unwrap().kind, FrameKind::Lensflare);
+        assert_eq!(
+            arena.lensflare_source(first_frame).unwrap().0.glows[0].position,
+            0.25
+        );
+        assert_eq!(
+            arena.frames[arena.frame_index(first_frame).unwrap()]
+                .visual_bounds
+                .unwrap()
+                .radius,
+            0.01
+        );
+        assert!(Arc::ptr_eq(
+            arena.frame(first_frame).unwrap().source.as_ref().unwrap(),
+            &source
+        ));
+        arena.close(first).unwrap();
+        assert_eq!(
+            arena.lensflare_source(second_frame).unwrap().0.glows[0].material,
+            0
+        );
+    }
+    #[test]
+    fn lensflare_interrupted_material_load_blocks_replay_and_releases_prefix() {
+        let directory =
+            std::env::temp_dir().join(format!("lhr-lens-prefix-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let installation = lhr_assets::Installation::open(&directory).unwrap();
+        let material = |texture: &str| lhr_assets::Material {
+            flags: 0,
+            ambient: [1.; 3],
+            diffuse: [1.; 3],
+            texture: texture.into(),
+            emission: [0.; 3],
+            opacity: 1.,
+            alpha_texture: None,
+            reflection: None,
+            environment_texture: None,
+            animation: None,
+        };
+        let mut flare = frame(1, None, [0.; 3]);
+        flare.visual = Some(6);
+        flare.render_flags = 0;
+        flare.lensflare = Some(lhr_assets::LensflareRecord {
+            glows: [0, 1]
+                .map(|material| lhr_assets::LensflareGlowRecord {
+                    position: 0.,
+                    material,
+                })
+                .to_vec(),
+        });
+        let source = Arc::new(Model {
+            materials: vec![material(""), material("missing.bmp")],
+            frames: vec![flare],
+        });
+        let mut arena = ModelArena::default();
+        let model = arena.create_model().unwrap();
+        let key = arena
+            .load_parsed_into_model(model, source.clone())
+            .unwrap()
+            .frames()[0];
+        assert!(matches!(
+            arena.load_plain_visual_resources(model, &installation),
+            Err(ModelError::LoadedVisual(
+                crate::loaded_visual_resources::LoadedVisualError::Asset(_)
+            ))
+        ));
+        assert!(arena
+            .loaded_visual_resources()
+            .unwrap()
+            .has_incomplete_admission());
+        assert_eq!(
+            arena
+                .frame(key)
+                .unwrap()
+                .lensflare_materials
+                .as_ref()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(matches!(
+            arena.load_plain_visual_resources(model, &installation),
+            Err(ModelError::LoadedVisual(
+                crate::loaded_visual_resources::LoadedVisualError::IncompleteAdmission
+            ))
+        ));
+        arena.close(model).unwrap();
+        assert_eq!(
+            arena
+                .loaded_visual_resources()
+                .unwrap()
+                .lensflare_material_references(&source, 0),
+            None
+        );
+        drop(installation);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+    #[test]
+    fn lensflare_forward_destructor_cursor_resumes_after_released_prefix() {
+        let directory =
+            std::env::temp_dir().join(format!("lhr-lens-destructor-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let installation = lhr_assets::Installation::open(&directory).unwrap();
+        let material = lhr_assets::Material {
+            flags: 0,
+            ambient: [1.; 3],
+            diffuse: [1.; 3],
+            texture: String::new(),
+            emission: [0.; 3],
+            opacity: 1.,
+            alpha_texture: None,
+            reflection: None,
+            environment_texture: None,
+            animation: None,
+        };
+        let mut flare = frame(1, None, [0.; 3]);
+        flare.visual = Some(6);
+        flare.render_flags = 0;
+        flare.lensflare = Some(lhr_assets::LensflareRecord {
+            glows: [0, 1]
+                .map(|material| lhr_assets::LensflareGlowRecord {
+                    position: 0.,
+                    material,
+                })
+                .to_vec(),
+        });
+        let source = Arc::new(Model {
+            materials: vec![material.clone(), material],
+            frames: vec![flare],
+        });
+        let mut arena = ModelArena::default();
+        let model = arena.create_model().unwrap();
+        let key = arena
+            .load_parsed_into_model(model, source.clone())
+            .unwrap()
+            .frames()[0];
+        arena
+            .load_plain_visual_resources(model, &installation)
+            .unwrap();
+        let index = arena.frame_index(key).unwrap();
+        let first = arena.frames[index].lensflare_materials.as_ref().unwrap()[0];
+        arena
+            .loaded_visual_resources_mut()
+            .unwrap()
+            .release_lensflare_glow_material(&source, 0, first)
+            .unwrap();
+        arena.frames[index].lensflare_release_cursor = 1;
+        arena.close(model).unwrap();
+        let owner = arena.loaded_visual_resources().unwrap();
+        assert_eq!(owner.lensflare_material_references(&source, 0), None);
+        assert_eq!(owner.lensflare_material_references(&source, 1), None);
+        drop(installation);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+    #[test]
+    fn singlemesh_pose_failure_retains_object_but_cannot_replay_as_success() {
+        let directory =
+            std::env::temp_dir().join(format!("lhr-singlemesh-pose-prefix-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let installation = lhr_assets::Installation::open(&directory).unwrap();
+        let mut visual = frame(1, None, [0.; 3]);
+        visual.visual = Some(2);
+        visual.render_flags = 0;
+        visual.lods = vec![lhr_assets::Lod {
+            distance: 0.,
+            uv_only: None,
+            vertices: [[0., 0., 0.], [1., 0., 0.], [0., 1., 0.]]
+                .map(|position| lhr_assets::Vertex {
+                    position,
+                    normal: [0., 0., 1.],
+                    uv: [0.; 2],
+                })
+                .to_vec(),
+            groups: vec![lhr_assets::FaceGroup {
+                material: lhr_assets::UNASSIGNED_MATERIAL,
+                indices: vec![0, 1, 2],
+            }],
+        }];
+        visual.skin = Some(lhr_assets::SkinRecord {
+            lods: vec![lhr_assets::SkinLodRecord { definition: None }],
+        });
+        let source = Arc::new(Model {
+            frames: vec![visual],
+            materials: vec![],
+        });
+        let mut arena = ModelArena::default();
+        let model = arena.create_model().unwrap();
+        let key = arena
+            .load_parsed_into_model(model, source)
+            .unwrap()
+            .frames()[0];
+        assert_eq!(
+            arena.load_plain_visual_resources(model, &installation),
+            Err(ModelError::SkinPose(SkinPoseError::Source(
+                "first skin definition unavailable"
+            )))
+        );
+        assert!(arena.frame_object_resources(key).unwrap().is_some());
+        assert!(arena
+            .loaded_visual_resources()
+            .unwrap()
+            .has_incomplete_admission());
+        assert_eq!(
+            arena.load_plain_visual_resources(model, &installation),
+            Err(ModelError::LoadedVisual(
+                crate::loaded_visual_resources::LoadedVisualError::IncompleteAdmission
+            ))
+        );
+        arena.close(model).unwrap();
+        arena.reclaim_unused_visual_buffers().unwrap();
+        assert_eq!(
+            arena
+                .loaded_visual_resources()
+                .unwrap()
+                .backend()
+                .live_graphics(),
+            0
+        );
+        drop(installation);
+        std::fs::remove_dir_all(directory).unwrap();
     }
     #[test]
     fn shared_arena_load_close_keeps_external_survivors_and_other_models() {
@@ -2726,7 +3603,131 @@ pub(crate) mod tests {
         assert_eq!(failure.partial.arena.frame(key).unwrap().references, 1);
     }
 
-    fn skinned_source() -> Arc<Model> {
+    fn two_lod_skinned_source(bad_second_partition: bool) -> Arc<Model> {
+        let mut source = (*skinned_source()).clone();
+        let visual = &mut source.frames[0];
+        let mut second = visual.lods[0].clone();
+        second.vertices[0].position = [2., 4., 6.];
+        second.vertices.push(lhr_assets::Vertex {
+            position: [12., 13., 14.],
+            normal: [0., 0., 1.],
+            uv: [0., 0.],
+        });
+        visual.lods.push(second);
+        let mut definition = visual.skin.as_ref().unwrap().lods[0]
+            .definition
+            .as_ref()
+            .unwrap()
+            .clone();
+        definition.root_vertex_count = if bad_second_partition { 0 } else { 2 };
+        visual
+            .skin
+            .as_mut()
+            .unwrap()
+            .lods
+            .push(lhr_assets::SkinLodRecord {
+                definition: Some(definition),
+            });
+        Arc::new(source)
+    }
+
+    #[test]
+    fn selected_singlemesh_lod_uses_its_own_definition_and_joint_invalidation() {
+        let directory = std::env::temp_dir().join(format!(
+            "lhr-selected-skin-lod-{}-{}",
+            std::process::id(),
+            crate::frame_lookup::incarnation()
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let installation = lhr_assets::Installation::open(&directory).unwrap();
+        let mut arena = ModelArena::default();
+        let model = arena.create_model().unwrap();
+        arena
+            .load_parsed_into_model(model, two_lod_skinned_source(false))
+            .unwrap();
+        arena
+            .load_plain_visual_resources(model, &installation)
+            .unwrap();
+        let visual = arena.model(model).unwrap().frames[0];
+        let joint = arena.model(model).unwrap().frames[1];
+        arena
+            .prepare_owned_selected_singlemesh_lod(visual, 1)
+            .unwrap();
+        assert_eq!(
+            arena
+                .owned_singlemesh_selected_vertices(visual, 0)
+                .unwrap()
+                .len(),
+            2
+        );
+        let before = arena.owned_singlemesh_selected_vertices(visual, 1).unwrap();
+        assert_eq!(before.len(), 3);
+        let before = before[0].position;
+        assert_eq!(
+            arena
+                .owned_singlemesh_selected_vertices(visual, 0)
+                .unwrap()
+                .len(),
+            2
+        );
+        arena.graph.assign_position(joint, [9., 0., 0.]).unwrap();
+        arena.update_frame(model.root()).unwrap();
+        arena
+            .prepare_owned_selected_singlemesh_lod(visual, 1)
+            .unwrap();
+        let after = arena.owned_singlemesh_selected_vertices(visual, 1).unwrap();
+        assert_eq!(after.len(), 3);
+        assert_ne!(before, after[0].position);
+        assert_eq!(
+            arena
+                .owned_singlemesh_selected_vertices(visual, 0)
+                .unwrap()
+                .len(),
+            2
+        );
+        arena.close(model).unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn selected_singlemesh_lod_error_keeps_owned_prefix_and_terminal_retry() {
+        let directory = std::env::temp_dir().join(format!(
+            "lhr-selected-skin-error-{}-{}",
+            std::process::id(),
+            crate::frame_lookup::incarnation()
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let installation = lhr_assets::Installation::open(&directory).unwrap();
+        let mut arena = ModelArena::default();
+        let model = arena.create_model().unwrap();
+        arena
+            .load_parsed_into_model(model, two_lod_skinned_source(true))
+            .unwrap();
+        arena
+            .load_plain_visual_resources(model, &installation)
+            .unwrap();
+        let visual = arena.model(model).unwrap().frames[0];
+        let expected = ModelError::SkinPose(SkinPoseError::Deformation(
+            crate::singlemesh_deformation::DeformationUnavailable::VertexCount,
+        ));
+        assert_eq!(
+            arena.prepare_owned_selected_singlemesh_lod(visual, 1),
+            Err(expected.clone())
+        );
+        assert!(arena.frame_object_resources(visual).unwrap().is_some());
+        assert_eq!(
+            arena.prepare_owned_selected_singlemesh_lod(visual, 1),
+            Err(expected.clone())
+        );
+        assert_eq!(
+            arena.owned_singlemesh_selected_vertices(visual, 0),
+            Err(expected)
+        );
+        arena.close(model).unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    pub(crate) fn skinned_source() -> Arc<Model> {
         let mut mesh = frame(1, None, [0.; 3]);
         mesh.visual = Some(2);
         mesh.render_flags = 0;
@@ -3084,6 +4085,81 @@ pub(crate) mod tests {
         assert_eq!(loaded.arena.frame(keys[1]).unwrap().references, 1);
         assert_eq!(loaded.arena.frame(keys[1]).unwrap().owner, None);
         assert!(loaded.source_frame_keys().is_empty());
+    }
+    #[test]
+    fn interrupted_visual_load_closes_only_its_entered_empty_constructor() {
+        let source = Arc::new(Model {
+            materials: vec![],
+            frames: vec![frame(1, None, [0.; 3])],
+        });
+        let mut loaded = MaterializedModel::from_parsed(source).unwrap();
+        let visual = loaded.source_frame_keys()[0];
+        assert_eq!(
+            loaded.close(),
+            Err(ModelError::Frame(FrameError::UnsupportedDestruction(
+                visual
+            )))
+        );
+        let fi = loaded.arena.frame_index(visual).unwrap();
+        loaded.arena.frames[fi].visual_admission_attempted = true;
+        assert!(loaded.arena.frames[fi].object_resources.is_none());
+        loaded.close().unwrap();
+        assert!(loaded.arena.frame(visual).is_err());
+    }
+    #[test]
+    fn post_constructor_visual_failure_keeps_real_object_until_ordered_close() {
+        let directory = std::env::temp_dir().join(format!(
+            "lhr-visual-post-constructor-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let installation = lhr_assets::Installation::open(&directory).unwrap();
+        let source = Arc::new(Model {
+            materials: vec![],
+            frames: vec![frame(1, None, [0.; 3])],
+        });
+        let mut arena = ModelArena::default();
+        let model = arena.create_model().unwrap();
+        let visual = arena
+            .load_parsed_into_model(model, source)
+            .unwrap()
+            .frames()[0];
+        arena.loaded_visual_resources =
+            Some(crate::loaded_visual_resources::LoadedVisualResources::new().unwrap());
+        arena
+            .loaded_visual_resources
+            .as_mut()
+            .unwrap()
+            .inject_failure_after_object_constructor();
+        assert!(matches!(
+            arena.load_plain_visual_resources(model, &installation),
+            Err(ModelError::LoadedVisual(
+                crate::loaded_visual_resources::LoadedVisualError::Backend(
+                    "injected post-constructor visual failure"
+                )
+            ))
+        ));
+        let partial = arena.frame_object_resources(visual).unwrap().unwrap();
+        assert!(arena
+            .loaded_visual_resources()
+            .unwrap()
+            .object_mesh(partial)
+            .is_ok());
+        assert!(matches!(
+            arena.load_plain_visual_resources(model, &installation),
+            Err(ModelError::LoadedVisual(
+                crate::loaded_visual_resources::LoadedVisualError::IncompleteAdmission
+            ))
+        ));
+        arena.close(model).unwrap();
+        assert!(arena.frame(visual).is_err());
+        assert!(arena
+            .loaded_visual_resources()
+            .unwrap()
+            .object_mesh(partial)
+            .is_err());
+        drop(installation);
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

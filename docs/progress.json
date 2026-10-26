@@ -52136,5 +52136,309 @@
       "owned_processes_reaped": true,
       "scope": "Static partial SceneOpen inspection, not mission execution."
     }
+  },
+  "scene_resource_intake_observation": {
+    "id": "SCENE-RESOURCE-INTAKE-20261026-SOURCE-v3",
+    "date": "2026-10-26",
+    "source_git_tree": "28e0b087eab47c810aba6ee139962d9e0a9a0424",
+    "source_manifest_sha256": "43af8105831f94e4df7eabf5d7e031031d203b28ef3e3dda1422b082e8a6823b",
+    "source_files": 375,
+    "scope": "Reviewed Rust source/profile composition and original-data object-stage intake. No new native-function acceptance or whole-system gate.",
+    "implemented": [
+      "Road cull correction, actual Scene/Camera backdrop/main/near passes and source-backed sky geometry.",
+      "Owned Singlemesh/Singlemorph selected-LOD geometry/pose/bounds and live Target hierarchy copies.",
+      "Used animated-material ordinal owners and initial frame arrays with env-before-color, error prefixes and last reference release; actual watercity has 20 color images.",
+      "Typed Billboard factory/resources/cache/live orientation; all 12 orientation combinations, per-pass g_matrix, actual selected LOD/fade, first-material draw-matrix lighting, packed alpha and per-group raw-word blend tests.",
+      "Actual Dummy/Sound/AREA and fog lifecycle; driver bound PCM resource owner, primary Sound drain and native listener destruction order.",
+      "Optional Engine Lab and shared MissionLoadSession/probe, typed PC Game control/camera/definition/load-save dependencies and durable live-view/ABI naming instructions.",
+      "Driving Scene binds the vehicle/GUI shared PCM owner before construction and releases Scene/cache Sound references before final zero-owner checks.",
+      "Explicit Scene/Vehicle SoundFrameOwner tags at actual constructors; per-handle live owner resolution and immediate update preserve sorted traversal and the completed prefix before a later error."
+    ],
+    "actual_mise01": {
+      "explicit_model_directories": [
+        "Models"
+      ],
+      "world_source_frames": 1415,
+      "world_transferred_frames": 1415,
+      "prepared_sectors": 5,
+      "completed_scene2_objects": 3183,
+      "load_map_publications": 10254,
+      "first_failure": {
+        "cursor": 3794014,
+        "entry": "0x00544a16",
+        "reason": "Ordered Game actor dispatch required; object stage and pending links retained."
+      },
+      "before_disposal": {
+        "live_frames": 10570,
+        "visual_textures": 423,
+        "pcm_sources": 37,
+        "audio_sounds": 132,
+        "saved_lighting_lods": 655,
+        "atlas_pages": 51,
+        "atlas_allocations": 638
+      },
+      "terminal_disposal": "Complete through actual cache, Scene, listener and registry operations; every reported owner count is zero.",
+      "rendered_draws": 267,
+      "backdrop_draws": 5,
+      "main_draws": 262,
+      "near_draws": 0,
+      "source_binary_archive_guards_unchanged": true,
+      "all_recorded_children_reaped": true,
+      "receipt_sha256": "afdff6f489661532e240fc379fa87a9106e193fe779bf9674407c2e225af1767",
+      "source_manifest_sha256": "0c60e6fc585f8fad9d9dab8b22ffd5b413b1e92618d38cbbb1d55729f848d813",
+      "source_scope": "First final-source snapshot v1. Later source adds shared driving PCM binding and explicit per-sound frame owner tags; these standalone commands were not rerun on v3."
+    },
+    "actual_sky_gpu": {
+      "frame_name": "zapad.Box01",
+      "source_textures": [
+        "SKY 2B 5.BMP",
+        "SKY 2B 4.BMP",
+        "SKY 2B 3.BMP",
+        "SKY 2B 2.BMP",
+        "SKY 2B 1.BMP"
+      ],
+      "changed_pixels_gpu_texture_rgb_only": 136934,
+      "restored_full_frame_rgba_byte_identical": true,
+      "close_result": "Ok",
+      "after_close_frames_portals_sector_allocations": [
+        0,
+        0,
+        0
+      ],
+      "source_binary_archive_guards_unchanged": true,
+      "child_reaped": true,
+      "receipt_sha256": "80ed65ac8c9cde32902b8063482da73c70fb02f5e779bc397c0c9f18472688b3",
+      "source_manifest_sha256": "0c60e6fc585f8fad9d9dab8b22ffd5b413b1e92618d38cbbb1d55729f848d813"
+    },
+    "menu_frontier": {
+      "mission": "00menu",
+      "cursor": 466049,
+      "entry": "0x54220a",
+      "reason": "Model LoadAnimCount requires model-animation ownership and companion 5DS rotation/scale.",
+      "rendered_scene_material_groups": 175,
+      "close": "Interrupted cache retained; no false zero-disposal claim.",
+      "source_manifest_sha256": "0c60e6fc585f8fad9d9dab8b22ffd5b413b1e92618d38cbbb1d55729f848d813"
+    },
+    "validation": {
+      "required_script": "PASS",
+      "default_rust_tests": 1561,
+      "opt_in_gpu_tests": 13,
+      "feature_binary_tests": 48,
+      "python_binary_boundary_tests": 9,
+      "python_progress_tests": 47,
+      "all_feature_all_target_clippy": "PASS",
+      "generated_progress": "PASS",
+      "backend": "Linux Mesa llvmpipe Vulkan",
+      "logs": {
+        "final-required-gate-v3.log": {
+          "sha256": "36d76fa4cba59176eece1f2edac2d0a6963b62f0c93bd457132ba719600a1d9e",
+          "bytes": 171848
+        },
+        "final-gpu-v3.log": {
+          "sha256": "0e27c3cbf6861296278fef192366299394cf8f512f5f27411380b9721e98ee7d",
+          "bytes": 3177
+        },
+        "final-feature-tests-v3.log": {
+          "sha256": "35e56cc39c880b6e1746b7930ad78e4fc909b583b435cb46b1d4f8a78eb495d7",
+          "bytes": 5137
+        },
+        "final-feature-clippy-v3.log": {
+          "sha256": "a6062ea0ab2b4aac247fc8d2db441d84c9abd2779e181d194314e07eb861bb09",
+          "bytes": 142
+        },
+        "final-feature-build-v3.log": {
+          "sha256": "0f696fd832dbd524e8aed5a41086fc4c8d2a29399d9af5fcc63f48494a92bda0",
+          "bytes": 141
+        }
+      }
+    },
+    "applied_source_reviews": [
+      {
+        "round": 1,
+        "sha256": "d6133b45278eb332f5c00b4c86a87d53c281c02640cabc01c28897d9e17d3f1e"
+      },
+      {
+        "round": 2,
+        "sha256": "877ade88851c031a9053deb3614e014b7052cbc58a56bcda87a8bc5b53289d12"
+      }
+    ],
+    "upstream": {
+      "mafia_re": "b86ba567e404e211048fb2bf6eb1a4f133f0fd2f",
+      "fresh_commits_since_prior_checkout": 19,
+      "rea_source": "3d565fa42a4a3d8bff65d3662cfb814bc9074734",
+      "rea_source_version": "6.8",
+      "static_runtime": "Isolated6.7; host Node24.19 is below6.8 requirement24.22.1.",
+      "new_original_executable_or_function_runs": 0,
+      "prior_reference": "29b65b0e5bcf77f1f36c4fceeaa2b64eb644087c",
+      "implementation_source_baseline": "f42a25d9b2cbd674792fe78f5700d5f77b499d0d",
+      "final_delta_audit": {
+        "from": "f42a25d9b2cbd674792fe78f5700d5f77b499d0d",
+        "to": "b86ba567e404e211048fb2bf6eb1a4f133f0fd2f",
+        "commits": 14,
+        "changed_files": 116,
+        "insertions": 6848,
+        "deletions": 316,
+        "source_only": true,
+        "report_sha256": "f39b487970d7b0faf95d9f23f697373c801cc65fa1f3c2e3189a808fe5028d2c",
+        "new_required_current_intake_fix": false,
+        "roads_source_map": "Nonvirtual LoadData RVA0x159e60; distinct virtual MergeData RVA0x15a210 is an upstream working name. Both upstream readers remain stubs."
+      }
+    },
+    "reviewed_initial_open_prs": [
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25
+    ],
+    "limits": [
+      "Actors, authored player/camera/HUD, scripts, deferred sound links, Game scheduling and full SceneOpen/MissionOpen remain open.",
+      "Native all-ordinal preframe/static cross-visual material order, animated lit visual1 and texture-animation ticks remain unsupported.",
+      "General GPU fog/environment, native Lensflare GPU rendering, atlas resize/16-bit/offline profiles and original image/audio parity remain open.",
+      "Windows/MSVC/Vulkan, macOS/Metal and hardware audio were not exercised; no new original runtime comparison.",
+      "Wider host chase view can be obstructed by scene geometry; original camera collision remains open."
+    ],
+    "campaign_playable": false,
+    "first_mission_gates_closed": 0,
+    "strict_system_gates_closed": 0,
+    "strict_system_gates_total": 12,
+    "accepted_scoped_entries": 311,
+    "accepted_scoped_contracts": 114,
+    "whole_function_coverage": "N/A",
+    "new_native_runtime_calls": 0,
+    "driving_audio": {
+      "patch_sha256": "002e731b6dddc718d2d05eae22db5c0cded6e607ab075632dad49cf264c90005",
+      "actual_probe_log_sha256": "92cb1b4b4751f3ef7f84b7bf0971311cf731a6f071ef35aa2db8fe6e0dfb6279",
+      "actual_probe_scope": "Private overlay test; executable code matches final v2, preceding one documentation-comment correction. No original code executed.",
+      "scene_sounds_before_close": 132,
+      "driver_sounds_before_close": 132,
+      "after_close_all_reported_audio_scene_car_owners_zero": true,
+      "hardware_audio_verified": false,
+      "reviews": [
+        {
+          "round": 1,
+          "sha256": "42c8b7a9afaba1730dd73a300c30e2db66a0173c74600675f023113ab4c5615d"
+        },
+        {
+          "round": 2,
+          "sha256": "44ff966c8cd1a773e24d54ac40a7ecc011ba09b8081f26c2345eb5f11e80ad5e"
+        }
+      ]
+    },
+    "mixed_sound_frame_owners": {
+      "patch_sha256": "2fdaa76794287215bad6115a609f73d58345e50fae77474f2f429375f8e2a1d4",
+      "frozen_manifest_sha256": "c92f800db79ef24d64d1dc7e97f5dae435fbdf32b329e401e49db9258d62694a",
+      "actual_result_receipt_sha256": "2bfd02afc14fbd6303af17dcfe25312d81c3d26abcdda5ca6bb164e914f32c43",
+      "actual_log_sha256": "a64639ec3da6ba06d555854d748f387da602304561ce3237486f667d2a625b94",
+      "scene_sounds": 132,
+      "adopted_city_models": 907,
+      "driving_step_ms": 16,
+      "speed": 0.16000001,
+      "pcm_mix": "PASS",
+      "close_all_reported_audio_scene_owners_zero": true,
+      "ordered_error_prefix_regressions": 3,
+      "reviews": [
+        {
+          "round": 1,
+          "sha256": "21e6ca8df2c62b060af4e6816ad57367a2e982f2e870222f78bb60ba215448c1"
+        },
+        {
+          "round": 2,
+          "sha256": "3ad920ce019c4915e254d94a2818ccad88d2dbf0552bb564a82e75346c65fd21"
+        }
+      ]
+    },
+    "interactive_lab": {
+      "status": "PASS",
+      "source_manifest_sha256": "43af8105831f94e4df7eabf5d7e031031d203b28ef3e3dda1422b082e8a6823b",
+      "source_files": 375,
+      "ui_guard_source_files": 365,
+      "ui_guard_source_sha256": "a5f543748da26731202a85f890be7743c1c9be5efb4554f5157f5e8a160ea247",
+      "feature_binary_sha256": "164baee1cdd8f4e01ee4a43e4cdcc83b41d9f26777d24f94ae98ccf1c5cc8150",
+      "raw_run_result_sha256": "8f41ede3c09bbfac00b029a00d647812b27f16a3797ab73bdd60044d4a108566",
+      "windowed_log_sha256": "7bfb97d473b0e9b052fae2c45f25018ff1ebbf683f7b94e90ba77ded75617fbc",
+      "processes_final_sha256": "d34f12c6b713bda27dd74d44dd20c558abe44279e1f713ba9424839e9c49c68f",
+      "before_after_guards_equal": true,
+      "archive_inputs": 8,
+      "all_owned_children_reaped": true,
+      "app_exit_code": 0,
+      "observed_keys": [
+        "W",
+        "A",
+        "D",
+        "S",
+        "Space"
+      ],
+      "actual_fov_degrees": [
+        50,
+        65
+      ],
+      "pause_visible_counters_stable": true,
+      "single_step": {
+        "raw_delta_ms": 16,
+        "driver_time_ms": 1360,
+        "driving_ticks": 85,
+        "authoritative_step_logs": 1
+      },
+      "resume_acknowledgement_counters_unchanged": true,
+      "no_clock_catchup_scope": "Separate unit/feature clock tests; UI checks immediate acknowledgement and subsequent changed-input tick, not the whole first redraw.",
+      "focus_loss": {
+        "held_keys": [
+          "W",
+          "Space"
+        ],
+        "paused_while_unfocused": true,
+        "visible_clock_at_focus_start": [
+          1625,
+          22
+        ],
+        "visible_clock_at_focus_end": [
+          1625,
+          22
+        ],
+        "focus_resume_announcement": [
+          false,
+          1625,
+          101
+        ],
+        "cleared_throttle_and_handbrake_after_resume": true,
+        "cleared_observed_tick": 102,
+        "focus_window_pid": 248294
+      },
+      "reloads": 3,
+      "zero_owner_cleanup_reports": 4,
+      "actual_terminal_owner": "CarRuntime::close/shutdown closes its real shared Scene/cache/audio/driver owners. Car mode has LoadedScene.canonical=None.",
+      "observed_visual_limit": "Wide host chase view is obstructed by nearby geometry; original camera/collision behavior remains open.",
+      "hardware_audio_verified": false,
+      "new_original_executable_or_function_runs": 0,
+      "root_validation_receipt_sha256": "aa93afc95f649c80ff79d6423f285cf23eec567e6ca15c9f591f09c657b1bca7",
+      "terminal_scope_note": "Only actual CarRuntime shared Scene/audio/cache/driver teardown is credited; no separate GUI CanonicalSceneState owner exists in this mode."
+    },
+    "screenshots": [
+      {
+        "path": "docs/screenshots/2026-10-26-mise01-road-sky.webp",
+        "bytes": 64626,
+        "sha256": "8ca3b1de99d597632c2599b6e80754e8c3c73c5c7d6d6b2fd256838e3f0a4d63",
+        "scope": "Source v1 standalone inspection; actor boundary; successful disposal."
+      },
+      {
+        "path": "docs/screenshots/2026-10-26-menu-sky.webp",
+        "bytes": 44472,
+        "sha256": "e9d8b663171eefdb405cb458183c59d367e377b4905861eef8aecab371c94586",
+        "scope": "Source v1 retained menu prefix; unsupported animation and interrupted cache."
+      },
+      {
+        "path": "docs/screenshots/2026-10-26-engine-lab.webp",
+        "bytes": 98258,
+        "sha256": "36af15d47fc1b8c919f4edd35ee8df0238ba9527bf90c9bb1732471567c1a183",
+        "scope": "Source v3 initial paused frame in the subsequently passing control/reload run."
+      }
+    ]
   }
 }

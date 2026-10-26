@@ -183,6 +183,17 @@ impl ObjectResources {
     pub fn managed(&self) -> &ManagedVisualResources {
         &self.managed
     }
+    /// Counts saved-lighting LOD owners across all six levels, including inactive
+    /// and interrupted load prefixes. Retired object slots are excluded.
+    pub fn saved_lighting_lod_count(&self) -> usize {
+        self.objects
+            .iter()
+            .flatten()
+            .filter_map(I3dObjectResources::lit_object)
+            .flat_map(|lit| lit.levels.iter())
+            .map(|level| level.saved_lods.iter().flatten().count())
+            .sum()
+    }
     pub fn lod_bindings(&self) -> &[LodBinding] {
         &self.bindings
     }
@@ -272,6 +283,37 @@ impl ObjectResources {
             arena: self.managed.resources().identity(),
             slot,
         })
+    }
+    /// I3D_singlemesh and I3D_singlemorph inherit I3D_object mesh ownership.
+    /// The graph separately owns joint binding, morph weights and CPU pose.
+    pub fn create_singlemesh_resources(
+        &mut self,
+        mesh: Option<MeshObjectKey>,
+        morph: bool,
+    ) -> Result<ObjectResourceKey, ObjectError> {
+        let key = self.create_object_resources(mesh)?;
+        self.objects[(key.slot - 1) as usize]
+            .as_mut()
+            .unwrap()
+            .visual_type = if morph {
+            ObjectVisualType::Singlemorph
+        } else {
+            ObjectVisualType::Singlemesh
+        };
+        Ok(key)
+    }
+    /// Native I3D_billboard inherits I3D_object mesh and LOD teardown. Its
+    /// orientation and camera matrix are held by the owning live Frame.
+    pub fn create_billboard_resources(
+        &mut self,
+        mesh: Option<MeshObjectKey>,
+    ) -> Result<ObjectResourceKey, ObjectError> {
+        let key = self.create_object_resources(mesh)?;
+        self.objects[(key.slot - 1) as usize]
+            .as_mut()
+            .unwrap()
+            .visual_type = ObjectVisualType::Billboard;
+        Ok(key)
     }
     /// Unique transfer into one empty slot. Signed-negative native pointer
     /// indices are outside this safe host adapter, as are slots beyond nine.
@@ -540,6 +582,10 @@ impl ObjectResources {
         self.available()?;
         self.managed.create_material().map_err(Into::into)
     }
+    pub fn create_animated_material(&mut self) -> Result<MaterialKey, ObjectError> {
+        self.available()?;
+        self.managed.create_animated_material().map_err(Into::into)
+    }
     pub fn create_face_group(&mut self) -> Result<FaceGroupKey, ObjectError> {
         self.available()?;
         self.managed.create_face_group().map_err(Into::into)
@@ -762,7 +808,10 @@ impl ObjectResources {
         backend: &mut B,
     ) -> Result<(), ObjectOperationError<B::Error>> {
         self.available()?;
-        if self.object(object)?.visual_type() != ObjectVisualType::Plain {
+        if !matches!(
+            self.object(object)?.visual_type(),
+            ObjectVisualType::Plain | ObjectVisualType::Billboard
+        ) {
             return Err(ObjectError::UnsupportedVisualSubtype.into());
         }
         let old = self.object(object)?.mesh;
@@ -846,6 +895,40 @@ impl ObjectResources {
 }
 
 impl ObjectResources {
+    pub(crate) fn configure_loaded_animated_material(
+        &mut self,
+        key: MaterialKey,
+        source: &lhr_assets::Material,
+    ) -> Result<(), ObjectError> {
+        self.available()?;
+        self.managed
+            .configure_loaded_animated_material(key, source)
+            .map_err(Into::into)
+    }
+    pub(crate) fn append_loaded_animated_frame<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        key: MaterialKey,
+        texture: Option<TextureKey>,
+        environment: bool,
+        backend: &mut B,
+    ) -> Result<(), ObjectOperationError<B::Error>> {
+        self.available()?;
+        managed_result(self.managed.append_loaded_animated_frame(
+            key,
+            texture,
+            environment,
+            backend,
+        ))
+    }
+    pub(crate) fn finish_loaded_animated_material(
+        &mut self,
+        key: MaterialKey,
+    ) -> Result<(), ObjectError> {
+        self.available()?;
+        self.managed
+            .finish_loaded_animated_material(key)
+            .map_err(Into::into)
+    }
     pub(crate) fn adopt_loaded_material_texture<B: ManagedVisualBackend + ?Sized>(
         &mut self,
         key: MaterialKey,
@@ -1532,5 +1615,5 @@ mod tests {
 
 #[path = "object_lod.rs"]
 mod object_lod;
-pub(crate) use object_lod::render_fade;
 pub use object_lod::ObjectLodError;
+pub(crate) use object_lod::{render_billboard_fade, render_fade};

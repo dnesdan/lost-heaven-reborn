@@ -1,5 +1,7 @@
 # Documentation history
 
+- [Complete preceding six-page documentation at `ddc79e5` — 2026-10-26](2026-10-26-pre-final-documentation.md)
+
 - [Complete scene/render predecessor files — 2026-10-26](2026-10-26-scene-render-predecessor.md)
 
 - [PR merge validation and preceding current narrative](2026-10-26-pr-merge-validation.md)

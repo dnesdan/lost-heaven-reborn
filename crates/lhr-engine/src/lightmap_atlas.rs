@@ -89,8 +89,15 @@ pub struct LightmapAtlasPool {
 #[derive(Debug, Default)]
 struct PoolState {
     pages: Vec<Page>,
+    live_allocations: usize,
     poisoned: bool,
 }
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct AtlasStatistics {
+    pub live_pages: usize,
+    pub live_allocations: usize,
+}
+
 #[derive(Clone, Debug)]
 pub struct LightmapAllocationLease {
     _release: Arc<AllocationRelease>,
@@ -107,6 +114,7 @@ impl Drop for AllocationRelease {
             return;
         };
         let Ok(mut state) = pool.lock() else { return };
+        state.live_allocations -= 1;
         let Some(index) = state
             .pages
             .iter()
@@ -306,6 +314,23 @@ fn try_page(
     Some((free, offsets))
 }
 impl LightmapAtlasPool {
+    /// Counts actual live pages and distinct allocation leases. Weak stale
+    /// page slots do not count as owned atlas textures.
+    pub fn statistics(&self) -> AtlasStatistics {
+        let state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        AtlasStatistics {
+            live_pages: state
+                .pages
+                .iter()
+                .filter(|page| page.texture.strong_count() != 0)
+                .count(),
+            live_allocations: state.live_allocations,
+        }
+    }
+
     pub fn pack(
         &mut self,
         rects: &[LightmapRectangle],
@@ -477,6 +502,7 @@ impl LightmapAtlasPool {
                 placements: order.iter().map(|&i| offsets[i]).collect(),
             }),
         };
+        state.live_allocations += 1;
         Ok((texture, offsets, release))
     }
 }

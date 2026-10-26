@@ -41,6 +41,7 @@ pub struct SceneConstruction {
     pub viewport_projection: Option<SceneViewport>,
     driver_owner: Option<u64>,
     driver_registry_removed: bool,
+    pub(crate) listener_released: bool,
     /// Host scratch for represented writes. Constructor-unwritten words are
     /// unavailable; use weather_word instead of treating scratch zero as native.
     pub words: [u32; SCENE_WORDS],
@@ -275,6 +276,7 @@ impl SceneResources {
             viewport_projection: None,
             driver_owner: None,
             driver_registry_removed: false,
+            listener_released: false,
             words: [0; SCENE_WORDS],
             phase: SceneConstructionPhase::Viewport,
             close_complete: false,
@@ -327,6 +329,7 @@ pub struct SceneCpuCloseReport {
 #[derive(Debug)]
 pub enum SceneResourceError {
     Model(ModelError),
+    Sound(crate::frame_sound::SoundError),
     Texture(TextureFactoryError),
     UnknownConstruction(SceneKey),
     IncompleteConstruction(SceneKey),
@@ -397,13 +400,19 @@ impl SceneResources {
             .prove_cpu_immediate_domain(storage)
             .map_err(SceneResourceError::Texture)?;
         for frame in arena.scene(scene)?.frames() {
-            if matches!(
-                arena.state(*frame)?.kind,
-                crate::frame_transform::FrameKind::Sound | crate::frame_transform::FrameKind::Scene
-            ) {
-                return Err(SceneResourceError::UnsupportedDomain(
-                    "foreign derived scene-frame resources",
-                ));
+            match arena.state(*frame)?.kind {
+                crate::frame_transform::FrameKind::Sound => {
+                    // The canonical derived owner is checked here; its release
+                    // preflight belongs to the actual last-reference step in
+                    // Close's ordered frame walk, after BeforeFrames effects.
+                    arena.sound_key(*frame)?;
+                }
+                crate::frame_transform::FrameKind::Scene => {
+                    return Err(SceneResourceError::UnsupportedDomain(
+                        "foreign derived scene-frame resources",
+                    ));
+                }
+                _ => {}
             }
         }
         for &frame in arena.scene(scene)?.frames() {
@@ -425,12 +434,7 @@ impl SceneResources {
                         "noncanonical sector light",
                     ));
                 }
-                let light = arena.graph.light_state(light).map_err(ModelError::from)?;
-                if (5..8).contains(&light.light_type) {
-                    return Err(SceneResourceError::UnsupportedDomain(
-                        "sector fog light cleanup",
-                    ));
-                }
+                arena.graph.light_state(light).map_err(ModelError::from)?;
             }
         }
         struct Backend<'a> {
@@ -443,7 +447,7 @@ impl SceneResources {
         impl SceneCloseBackend for Backend<'_> {
             fn close_effect(
                 &mut self,
-                _: &ModelArena,
+                arena: &ModelArena,
                 scene: SceneKey,
                 effect: Effect,
             ) -> Result<(), ModelError> {
@@ -460,11 +464,15 @@ impl SceneResources {
                             return Err(SceneOwnerError::BackendUnavailable(effect).into());
                         }
                     }
-                    Effect::FreeActiveAreas
-                    | Effect::DeletePrimarySounds
-                    | Effect::ClearDriverSectors => {
-                        // Global arrays and primary sound membership remain
-                        // null in this constructor-only admitted domain.
+                    Effect::FreeActiveAreas | Effect::ClearDriverSectors => {
+                        // These global arrays remain null in the admitted CPU
+                        // scene domain.
+                    }
+                    Effect::DeletePrimarySounds => {
+                        let primary = arena.scene(scene)?.sectors[0];
+                        if !arena.sector(primary)?.sounds.is_empty() {
+                            return Err(SceneOwnerError::BackendUnavailable(effect).into());
+                        }
                     }
                     Effect::ReleaseLensflares => self.words[0x288 / 4..=0x290 / 4].fill(0),
                     Effect::ClearTickList => self.words[0x148 / 4..=0x150 / 4].fill(0),
@@ -482,7 +490,6 @@ impl SceneResources {
                     }
                     Effect::ClearShadowBackPointers => self.words[0x160 / 4] = 0,
                 }
-                let _ = scene;
                 Ok(())
             }
         }
@@ -501,6 +508,13 @@ impl SceneResources {
                         return Err(SceneResourceError::Texture(error));
                     }
                     match effect {
+                        Effect::DeletePrimarySounds => {
+                            let primary = sectors[0];
+                            while let Some(&frame) = arena.sector(primary)?.sounds.first() {
+                                let sound = arena.sound_key(frame)?;
+                                arena.delete_sound_from_sector(primary, sound)?;
+                            }
+                        }
                         Effect::DeviceVirtual14 => {
                             arena.project_scene_cpu_device_boundary(
                                 scene,
@@ -547,11 +561,12 @@ impl SceneResources {
     }
 }
 
-/// Borrowed driver identity and its actual registry removal effect at the
-/// scene destructor's post-weather boundary.
-struct DriverSceneRemoval<'a> {
-    driver: u64,
-    unregister: &'a mut dyn FnMut(SceneKey) -> Result<(), SceneResourceError>,
+/// Borrowed driver identity and live effects at the listener and registry
+/// boundaries of the Scene destructor.
+pub(crate) struct DriverSceneRemoval<'a> {
+    pub(crate) driver: u64,
+    pub(crate) release_listener: &'a mut dyn FnMut(SceneKey) -> Result<(), SceneResourceError>,
+    pub(crate) unregister: &'a mut dyn FnMut(SceneKey) -> Result<(), SceneResourceError>,
 }
 
 impl SceneResources {
@@ -611,16 +626,9 @@ impl SceneResources {
         scene: SceneKey,
         textures: &mut TextureResources,
         storage: &mut CpuTextureStorage,
-        driver: u64,
-        unregister: &mut dyn FnMut(SceneKey) -> Result<(), SceneResourceError>,
+        driver: DriverSceneRemoval<'_>,
     ) -> Result<(), SceneResourceError> {
-        self.release_scene_inner(
-            arena,
-            scene,
-            textures,
-            storage,
-            Some(DriverSceneRemoval { driver, unregister }),
-        )
+        self.release_scene_inner(arena, scene, textures, storage, Some(driver))
     }
     fn release_scene_inner(
         &mut self,
@@ -660,14 +668,19 @@ impl SceneResources {
         // Scene destructor releases its independent active-camera reference
         // after Close and before its four retained sectors.
         arena.scene_set_active_camera(scene, None)?;
-        // Camera and listener are null in the admitted absent-native-sound-driver
-        // domain. Querying or creating a native listener remains an explicit
-        // dependency boundary in DriverSceneOwner.
         let sectors = arena.scene(scene)?.sectors;
         while self.constructions[index].sector_cursor < sectors.len() {
             let sector = sectors[self.constructions[index].sector_cursor];
             self.release_retained_sector(arena, sector)?;
             self.constructions[index].sector_cursor += 1;
+        }
+        // Native scene destructor deletes the listener after all four sector
+        // references, before shared weather and driver-registry teardown.
+        if !self.constructions[index].listener_released {
+            if let Some(removal) = driver.as_mut() {
+                (removal.release_listener)(scene)?;
+            }
+            self.constructions[index].listener_released = true;
         }
         if !self.constructions[index].count_released {
             self.ws_ref_count = self.ws_ref_count.wrapping_sub(1);
@@ -705,6 +718,7 @@ impl SceneResources {
 mod tests {
     use super::*;
     use crate::itexture::TextureImageError;
+    use crate::scene_ownership::ClosePhase;
     struct Screen(Vec<&'static str>);
     impl SceneScreen for Screen {
         type Error = ();
@@ -715,6 +729,11 @@ mod tests {
         fn screen_sx(&mut self) -> Result<i32, ()> {
             self.0.push("sx");
             Ok(800)
+        }
+    }
+    impl crate::driver_scene::DriverSceneScreen for Screen {
+        fn viewport_rectangle(&mut self) -> Result<[i32; 4], Self::Error> {
+            Ok([0, 0, 800, 600])
         }
     }
     struct Images {
@@ -737,6 +756,274 @@ mod tests {
             image.extend_from_slice(&[20, 40, 60, 128].repeat(4));
             Ok(image)
         }
+    }
+    #[test]
+    fn listener_callback_retry_preserves_sector_weather_and_registry_order() {
+        use crate::driver_scene::{DriverSceneContext, DriverSceneOwner, NativeSceneSoundDriver};
+        crate::native_precision::Pc24PrecisionState::default().run(|| {
+            let mut arena = ModelArena::default();
+            let mut resources = SceneResources::default();
+            let mut textures = TextureResources::new().unwrap();
+            let mut storage = CpuTextureStorage::default();
+            let mut driver = DriverSceneOwner::default();
+            let audio = crate::runtime_audio::RuntimeAudio::default();
+            driver.bind_host_sound_backend(&mut arena, &audio).unwrap();
+            let mut context = DriverSceneContext {
+                arena: &mut arena,
+                resources: &mut resources,
+                textures: &mut textures,
+                storage: &mut storage,
+            };
+            let first = driver
+                .create_scene(
+                    &mut context,
+                    &mut Screen(Vec::new()),
+                    &mut Images {
+                        reads: 0,
+                        missing: true,
+                    },
+                    NativeSceneSoundDriver::Initialized,
+                )
+                .unwrap();
+            let second = driver
+                .create_scene(
+                    &mut context,
+                    &mut Screen(Vec::new()),
+                    &mut Images {
+                        reads: 0,
+                        missing: true,
+                    },
+                    NativeSceneSoundDriver::Initialized,
+                )
+                .unwrap();
+            let backend = driver.host_sound_backend().unwrap().clone();
+            let owner = context
+                .resources
+                .construction(first)
+                .unwrap()
+                .driver_owner
+                .unwrap();
+            assert_eq!(context.resources.ws_ref_count(), 2);
+
+            // Inject failure at the real listener stage after all four sector
+            // releases. No weather-count or driver-list effect may precede it.
+            assert!(matches!(
+                context.resources.release_driver_scene(
+                    context.arena,
+                    first,
+                    context.textures,
+                    context.storage,
+                    DriverSceneRemoval {
+                        driver: owner,
+                        release_listener: &mut |_| Err(SceneResourceError::UnsupportedDomain(
+                            "listener unavailable"
+                        )),
+                        unregister: &mut |_| panic!("unregister must follow listener"),
+                    },
+                ),
+                Err(SceneResourceError::UnsupportedDomain(
+                    "listener unavailable"
+                ))
+            ));
+            let prefix = context.resources.construction(first).unwrap();
+            assert_eq!(prefix.sector_cursor, 4);
+            assert!(!prefix.listener_released);
+            assert!(!prefix.count_released);
+            assert!(!prefix.driver_registry_removed);
+            assert_eq!(context.resources.ws_ref_count(), 2);
+            assert_eq!(backend.listeners().unwrap(), [first, second]);
+            assert_eq!(driver.scenes(), [first, second]);
+            driver.release_scene(&mut context, first).unwrap();
+            assert_eq!(backend.listeners().unwrap(), [second]);
+            assert_eq!(context.resources.ws_ref_count(), 1);
+            assert_eq!(driver.scenes(), [second]);
+
+            // Once the real listener has been released, a later registry
+            // failure leaves that completed prefix intact on the next call.
+            assert!(matches!(
+                context.resources.release_driver_scene(
+                    context.arena,
+                    second,
+                    context.textures,
+                    context.storage,
+                    DriverSceneRemoval {
+                        driver: owner,
+                        release_listener: &mut |scene| backend
+                            .release_listener(scene)
+                            .map_err(SceneResourceError::Sound),
+                        unregister: &mut |_| Err(SceneResourceError::UnsupportedDomain(
+                            "registry unavailable"
+                        )),
+                    },
+                ),
+                Err(SceneResourceError::UnsupportedDomain(
+                    "registry unavailable"
+                ))
+            ));
+            let prefix = context.resources.construction(second).unwrap();
+            assert_eq!(prefix.sector_cursor, 4);
+            assert!(prefix.listener_released);
+            assert!(prefix.count_released);
+            assert!(!prefix.driver_registry_removed);
+            assert_eq!(context.resources.ws_ref_count(), 0);
+            assert!(backend.listeners().unwrap().is_empty());
+            assert_eq!(driver.scenes(), [second]);
+            driver.release_scene(&mut context, second).unwrap();
+            assert!(driver.scenes().is_empty());
+            assert!(context.resources.construction(second).unwrap().destroyed);
+        });
+    }
+    #[test]
+    fn primary_sound_drain_precedes_frame_release_and_keeps_other_scene_links() {
+        crate::native_precision::Pc24PrecisionState::default().run(|| {
+            let mut arena = ModelArena::default();
+            let audio = crate::runtime_audio::RuntimeAudio::default();
+            arena
+                .bind_host_sound_backend(crate::frame_sound::HostSoundBackend::new(1, &audio))
+                .unwrap();
+            let mut resources = SceneResources::default();
+            let mut textures = TextureResources::new().unwrap();
+            let mut storage = CpuTextureStorage::default();
+            let mut images = Images {
+                reads: 0,
+                missing: true,
+            };
+            let mut screen = Screen(Vec::new());
+            let first = arena.construct_scene_owner_prefix().unwrap();
+            resources
+                .continue_constructor(
+                    &arena,
+                    first,
+                    &mut screen,
+                    &mut textures,
+                    &mut images,
+                    &mut storage,
+                )
+                .unwrap();
+            let second = arena.construct_scene_owner_prefix().unwrap();
+            resources
+                .continue_constructor(
+                    &arena,
+                    second,
+                    &mut screen,
+                    &mut textures,
+                    &mut images,
+                    &mut storage,
+                )
+                .unwrap();
+            let first_primary = arena.scene(first).unwrap().sectors[0];
+            let second_primary = arena.scene(second).unwrap().sectors[0];
+            let first_sound = arena.create_owned_sound_frame().unwrap();
+            arena.scene_add_frame(first, first_sound.frame()).unwrap();
+            arena.release(first_sound.frame()).unwrap();
+            arena
+                .add_sound_to_sector(first_primary, first_sound)
+                .unwrap();
+            // The cache keeps a separate reference after Scene Close.
+            arena.retain(first_sound.frame()).unwrap();
+            let second_sound = arena.create_owned_sound_frame().unwrap();
+            arena.scene_add_frame(second, second_sound.frame()).unwrap();
+            arena.release(second_sound.frame()).unwrap();
+            arena
+                .add_sound_to_sector(second_primary, second_sound)
+                .unwrap();
+
+            resources
+                .close_constructed_scene(&mut arena, first, &mut textures, &mut storage)
+                .unwrap();
+            assert!(arena.sector(first_primary).unwrap().sounds.is_empty());
+            assert!(arena.sound(first_sound).unwrap().sectors().is_empty());
+            assert_eq!(arena.frame(first_sound.frame()).unwrap().references, 1);
+            assert_eq!(
+                arena.sector(second_primary).unwrap().sounds,
+                [second_sound.frame()]
+            );
+            assert_eq!(
+                arena.sound(second_sound).unwrap().sectors(),
+                &[second_primary]
+            );
+            assert_eq!(audio.live_sound_count().unwrap(), 2);
+            resources
+                .release_scene(&mut arena, first, &mut textures, &mut storage)
+                .unwrap();
+            arena.release(first_sound.frame()).unwrap();
+            assert_eq!(audio.live_sound_count().unwrap(), 1);
+            resources
+                .close_constructed_scene(&mut arena, second, &mut textures, &mut storage)
+                .unwrap();
+            assert!(arena.sector(second_primary).unwrap().sounds.is_empty());
+            resources
+                .release_scene(&mut arena, second, &mut textures, &mut storage)
+                .unwrap();
+            assert_eq!(audio.live_sound_count().unwrap(), 0);
+        });
+    }
+    #[test]
+    fn primary_sound_drain_retains_partial_prefix_and_retries_before_frames() {
+        crate::native_precision::Pc24PrecisionState::default().run(|| {
+            let mut arena = ModelArena::default();
+            let audio = crate::runtime_audio::RuntimeAudio::default();
+            arena
+                .bind_host_sound_backend(crate::frame_sound::HostSoundBackend::new(1, &audio))
+                .unwrap();
+            let mut resources = SceneResources::default();
+            let mut textures = TextureResources::new().unwrap();
+            let mut storage = CpuTextureStorage::default();
+            let scene = arena.construct_scene_owner_prefix().unwrap();
+            resources
+                .continue_constructor(
+                    &arena,
+                    scene,
+                    &mut Screen(Vec::new()),
+                    &mut textures,
+                    &mut Images {
+                        reads: 0,
+                        missing: true,
+                    },
+                    &mut storage,
+                )
+                .unwrap();
+            let primary = arena.scene(scene).unwrap().sectors[0];
+            let mut sounds = Vec::new();
+            for _ in 0..2 {
+                let sound = arena.create_owned_sound_frame().unwrap();
+                arena.scene_add_frame(scene, sound.frame()).unwrap();
+                arena.release(sound.frame()).unwrap();
+                arena.add_sound_to_sector(primary, sound).unwrap();
+                sounds.push(sound);
+            }
+            // A real host source-owner failure at the second DeleteSound call
+            // leaves the first reciprocal unlink completed in BeforeFrames.
+            audio.sound_virtual(sounds[1].frame().0, 0, &[]).unwrap();
+            assert!(matches!(
+                resources.close_constructed_scene(&mut arena, scene, &mut textures, &mut storage),
+                Err(SceneResourceError::Model(ModelError::Sound(
+                    crate::frame_sound::SoundError::Audio(_)
+                )))
+            ));
+            assert_eq!(
+                arena.scene(scene).unwrap().close_phase(),
+                ClosePhase::BeforeFrames
+            );
+            assert_eq!(arena.scene(scene).unwrap().close_cursor(), 0);
+            assert_eq!(arena.sector(primary).unwrap().sounds, [sounds[1].frame()]);
+            assert!(arena.sound(sounds[0]).unwrap().sectors().is_empty());
+            assert!(arena.sound(sounds[1]).unwrap().sectors().is_empty());
+            assert!(arena.frame(sounds[0].frame()).is_ok());
+            assert!(arena.frame(sounds[1].frame()).is_ok());
+
+            audio.create_sound_at(sounds[1].frame().0).unwrap();
+            resources
+                .close_constructed_scene(&mut arena, scene, &mut textures, &mut storage)
+                .unwrap();
+            assert!(arena.sector(primary).unwrap().sounds.is_empty());
+            assert!(arena.frame(sounds[0].frame()).is_err());
+            assert!(arena.frame(sounds[1].frame()).is_err());
+            resources
+                .release_scene(&mut arena, scene, &mut textures, &mut storage)
+                .unwrap();
+            assert_eq!(audio.live_sound_count().unwrap(), 0);
+        });
     }
     #[test]
     fn two_scenes_share_the_factory_reference_and_only_last_destruction_releases_it() {

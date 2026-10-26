@@ -935,7 +935,10 @@ where
         use crate::frame_transform::FrameKind;
         let key = self.world.crash_frame_key(frame)?;
         Ok(match self.world.frame_source(key)?.kind {
-            FrameKind::Mesh | FrameKind::Singlemesh | FrameKind::Projector => 1,
+            FrameKind::Mesh
+            | FrameKind::Singlemesh
+            | FrameKind::Projector
+            | FrameKind::Lensflare => 1,
             FrameKind::Light => 2,
             FrameKind::Camera => 3,
             FrameKind::Sound => 4,
@@ -945,6 +948,7 @@ where
             FrameKind::Model => 9,
             FrameKind::Joint => 10,
             FrameKind::Occluder => 12,
+            FrameKind::Area => 14,
             FrameKind::Scene => return Err("Crash worker needs a source frame, not scene".into()),
         })
     }

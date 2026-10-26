@@ -3,6 +3,9 @@
 //! Game SHA25608398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27.
 //! Unknown fields retain their seed; vector controls distinguish caller stack
 //! residue from embedded constructors' saved-this identity bytes.
+#[path = "game_camera_reset.rs"]
+pub(super) mod camera;
+pub use camera::{CameraProfile, CameraResetError};
 #[derive(Clone, Copy, Debug)]
 pub struct GameConstructorInputs {
     pub vector_control: u8,
@@ -54,24 +57,16 @@ pub(crate) fn construct(
     for row in 0..100 {
         bytes[0x760 + row * 0x58..0x760 + row * 0x58 + 0x48].fill(0);
     }
-    // Embedded helper5ecf90 constructs two vectors, then5ed040 initializes it.
+    // Embedded helper5ecf90 constructs two vectors, then G_Camera::Reset
+    // writes into that actual embedded owner and the global look variable.
     let at = 0x4c;
     vector(bytes, at + 0x68, inputs.embedded_4c_control);
     vector(bytes, at + 0x78, inputs.embedded_4c_control);
-    for n in [0, 4, 8, 12, 0x2c, 0x30, 0x60, 0x8c] {
-        put(bytes, at + n, 0);
-    }
-    for n in [0x10, 0x14] {
-        put(bytes, at + n, globals.word_6d4b1c);
-    }
-    for n in [0x20, 0x21, 0x22, 0x58, 0x94] {
-        bytes[at + n] = 0;
-    }
-    put(bytes, at + 0x24, 5f32.to_bits());
-    put(bytes, at + 0x28, 0.5f32.to_bits());
-    put(bytes, at + 0x90, 0.2f32.to_bits());
-    put(bytes, at + 0x1c, 0x638708);
-    globals.word_6bdb10 = 0;
+    camera::reset_from_value(
+        &mut bytes[at..at + camera::CAMERA_BYTES],
+        globals.word_6d4b1c,
+        &mut globals.word_6bdb10,
+    );
     // Inlined constructors at4a0320,5604f0 and499b40 read their own savedthis.
     let at = 0x2b18;
     let control = (identity.wrapping_add(at as u32) >> 24) as u8;

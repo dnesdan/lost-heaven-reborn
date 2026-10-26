@@ -196,6 +196,17 @@ pub struct SkinBoneRecord {
     /// deformation consumers must validate their own supported numerical domain.
     pub weights: Vec<f32>,
 }
+/// Original PC lens flare glow: one source f32 position and one 1-based material ID.
+/// The native loader retains a material reference for each glow.
+#[derive(Debug, Clone)]
+pub struct LensflareGlowRecord {
+    pub position: f32,
+    pub material: usize,
+}
+#[derive(Debug, Clone)]
+pub struct LensflareRecord {
+    pub glows: Vec<LensflareGlowRecord>,
+}
 /// Raw original PC morph suffix. No morph evaluation or neutral state is implied.
 #[derive(Debug, Clone)]
 pub struct MorphRecord {
@@ -260,6 +271,7 @@ pub struct Frame {
     pub skin: Option<SkinRecord>,
     /// Retained only by explicit singlemorph intake; requires runtime validation.
     pub morph: Option<MorphRecord>,
+    pub lensflare: Option<LensflareRecord>,
     pub parent: Option<usize>,
     pub position: [f32; 3],
     pub scale: [f32; 3],
@@ -271,6 +283,25 @@ pub struct Frame {
 pub struct Model {
     pub materials: Vec<Material>,
     pub frames: Vec<Frame>,
+}
+/// Original visual-4 suffix, read after either a mesh or instance payload.
+/// The native `I3D_billboard::LoadImage` reads the first four bytes into
+/// `rot_axis` and the fifth into the low byte of constructor-zero `axis_mode`.
+/// These are file values; camera-facing matrices and native range corrections
+/// belong to the derived billboard frame owner.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BillboardSource {
+    pub frame_index: usize,
+    pub rot_axis_word: u32,
+    pub axis_mode_byte: u8,
+}
+/// Explicitly admitted billboard metadata. Existing static/scene parsers keep
+/// rejecting visual 4, so their callers cannot accidentally render it as an
+/// ordinary object. The source model and suffix records share frame indices.
+#[derive(Debug, Clone)]
+pub struct BillboardModel {
+    pub model: Model,
+    pub billboards: Vec<BillboardSource>,
 }
 #[derive(Debug, Clone)]
 pub struct Texture {
@@ -391,7 +422,7 @@ fn read_sector_suffix(
     })
 }
 pub fn parse_four_ds(b: &[u8]) -> Result<Model> {
-    parse_four_ds_impl(b, false, false, false, false).map(|(model, _)| model)
+    parse_four_ds_impl(b, false, false, false, false, false).map(|(model, _, _)| model)
 }
 /// Broader scene intake: retains material effects as metadata and accepts sector,
 /// light, target, occluder and joint frames, and visual-2 singlemesh skin records. Joint
@@ -400,14 +431,21 @@ pub fn parse_four_ds(b: &[u8]) -> Result<Model> {
 /// Callers must implement or report material
 /// effects; this does not promise identical original rendering or simulation.
 pub fn parse_four_ds_scene(b: &[u8]) -> Result<Model> {
-    parse_four_ds_impl(b, true, false, true, false).map(|(model, _)| model)
+    parse_four_ds_impl(b, true, false, true, true, false).map(|(model, _, _)| model)
+}
+/// Source-only scene intake for native visual type 4. Its caller must own the
+/// distinct billboard constructor, duplicate, bounds and camera-facing draw.
+/// The trailing LoadAnimCount remains gated just as in `parse_four_ds_scene`.
+pub fn parse_four_ds_scene_billboards(b: &[u8]) -> Result<BillboardModel> {
+    parse_four_ds_impl(b, true, false, true, true, true)
+        .map(|(model, _, billboards)| BillboardModel { model, billboards })
 }
 /// Bounded singlemesh metadata intake with the static material and animation
 /// gates. Accepts only mesh, dummy and joint frames and requires a visual-2
 /// frame. Raw skin records still require binding/deformation validation before
 /// use; this function does not establish a renderable character.
 pub fn parse_four_ds_skin(b: &[u8]) -> Result<Model> {
-    let (model, _) = parse_four_ds_impl(b, false, false, true, false)?;
+    let (model, _, _) = parse_four_ds_impl(b, false, false, true, false, false)?;
     if !model.frames.iter().any(|frame| frame.skin.is_some()) {
         return err("singlemesh metadata requires a visual-2 frame");
     }
@@ -419,7 +457,7 @@ pub fn parse_four_ds_skin(b: &[u8]) -> Result<Model> {
 /// This establishes neither morph initialization nor renderable deformation.
 /// Existing static, scene and visual-2-only intake keep their original gates.
 pub fn parse_four_ds_singlemorph(b: &[u8]) -> Result<Model> {
-    let (model, _) = parse_four_ds_impl(b, true, false, true, true)?;
+    let (model, _, _) = parse_four_ds_impl(b, true, false, true, true, false)?;
     if !model.frames.iter().any(|frame| frame.morph.is_some()) {
         return err("singlemorph metadata requires a visual-3 frame");
     }
@@ -456,7 +494,8 @@ pub fn parse_four_ds_position_animation(
     model_bytes: &[u8],
     animation_bytes: &[u8],
 ) -> Result<PositionAnimatedModel> {
-    let (model, load_animation_count) = parse_four_ds_impl(model_bytes, false, true, false, false)?;
+    let (model, load_animation_count, _) =
+        parse_four_ds_impl(model_bytes, false, true, false, false, false)?;
     if load_animation_count != 1 || model.frames.len() != 1 {
         return err("position animation requires original count1 and one root frame");
     }
@@ -498,7 +537,8 @@ fn parse_four_ds_impl(
     allow_animation: bool,
     allow_skin: bool,
     allow_morph: bool,
-) -> Result<(Model, u8)> {
+    allow_billboard: bool,
+) -> Result<(Model, u8, Vec<BillboardSource>)> {
     if b.len() > MAX_BYTES {
         return err("4DS exceeds 64 MiB quota");
     }
@@ -589,6 +629,7 @@ fn parse_four_ds_impl(
     let mut total_occluder_bytes = 0usize;
     let mut total_sector_bytes = 0usize;
     let mut unsupported_billboard = false;
+    let mut billboards = Vec::new();
     for _ in 0..count {
         let kind = r.u8()?;
         if kind != 1
@@ -607,6 +648,7 @@ fn parse_four_ds_impl(
             }
             if visual > 1
                 && visual != 4
+                && !(scene && visual == 6)
                 && !(allow_skin && visual == 2)
                 && !(allow_morph && visual == 3)
             {
@@ -651,6 +693,7 @@ fn parse_four_ds_impl(
         let mut sector = None;
         let mut skin = None;
         let mut morph = None;
+        let mut lensflare = None;
         let mut lods: Vec<Lod> = Vec::new();
         let mut instance = None;
         if kind == 6 {
@@ -737,6 +780,23 @@ fn parse_four_ds_impl(
                     &mut total_sector_bytes,
                 )?);
             }
+        } else if visual == Some(6) {
+            // I3D_lensflare::LoadImage reads the common frame first, then a
+            // byte count and six bytes per glow. No mesh or instance follows.
+            let count = r.u8()? as usize;
+            let bytes = r.take(count * 6)?;
+            let mut glows = Vec::with_capacity(count);
+            for glow in bytes.as_chunks::<6>().0 {
+                let material_id = u16::from_le_bytes([glow[4], glow[5]]) as usize;
+                if material_id == 0 || material_id > materials.len() {
+                    return err("lensflare material reference outside table");
+                }
+                glows.push(LensflareGlowRecord {
+                    position: f32::from_le_bytes(glow[..4].try_into().unwrap()),
+                    material: material_id - 1,
+                });
+            }
+            lensflare = Some(LensflareRecord { glows });
         } else if kind == 7 {
             let flags = r.u16()?;
             let count = r.u8()? as usize;
@@ -973,7 +1033,14 @@ fn parse_four_ds_impl(
         // stores five additional axis/mode bytes, including for mesh instances.
         // Consume and validate extents, but never return it as a renderable model.
         if visual == Some(4) {
-            r.take(5)?;
+            let raw = r.take(5)?;
+            if allow_billboard {
+                billboards.push(BillboardSource {
+                    frame_index: frames.len(),
+                    rot_axis_word: u32::from_le_bytes(raw[..4].try_into().unwrap()),
+                    axis_mode_byte: raw[4],
+                });
+            }
         }
         frames.push(Frame {
             kind,
@@ -992,6 +1059,7 @@ fn parse_four_ds_impl(
             sector,
             skin,
             morph,
+            lensflare,
             parent: parent.checked_sub(1),
             position,
             scale,
@@ -1024,10 +1092,14 @@ fn parse_four_ds_impl(
             return err("invalid or chained mesh instance");
         }
     }
-    if unsupported_billboard {
+    if unsupported_billboard && !allow_billboard {
         return err(UNSUPPORTED_BILLBOARD);
     }
-    Ok((Model { materials, frames }, load_animation_count))
+    Ok((
+        Model { materials, frames },
+        load_animation_count,
+        billboards,
+    ))
 }
 fn texture_name(r: &mut Reader<'_>) -> Result<String> {
     let name = r.string()?;
@@ -1836,12 +1908,8 @@ mod scene_model_tests {
         assert!(parse_four_ds_scene(&invalid).is_err());
         let mut morph = bytes;
         morph[19] = 3;
-        assert!(
-            parse_four_ds_scene(&morph)
-                .unwrap_err()
-                .0
-                .contains("visual type 3;")
-        );
+        // Changing the subtype without its inherited morph suffix is incomplete.
+        assert!(parse_four_ds_scene(&morph).is_err());
         let mut instance = super::mesh_tests::mesh();
         instance[64] = 2;
         instance[112..114].copy_from_slice(&1u16.to_le_bytes());
@@ -2370,6 +2438,57 @@ mod scene_model_tests {
         bytes
     }
     #[test]
+    fn explicit_billboard_intake_retains_five_source_bytes_and_static_guard() {
+        let mut bytes = billboard();
+        let suffix = bytes.len() - 6;
+        bytes[suffix..suffix + 5].copy_from_slice(&[2, 0, 0, 0, 3]);
+        let parsed = parse_four_ds_scene_billboards(&bytes).unwrap();
+        assert_eq!(parsed.model.frames.len(), 1);
+        assert_eq!(parsed.model.frames[0].visual, Some(4));
+        assert_eq!(parsed.model.frames[0].lods.len(), 1);
+        assert_eq!(
+            parsed.billboards,
+            [BillboardSource {
+                frame_index: 0,
+                rot_axis_word: 2,
+                axis_mode_byte: 3,
+            }]
+        );
+        assert!(
+            parse_four_ds_scene(&bytes)
+                .unwrap_err()
+                .is_unsupported_billboard()
+        );
+        *bytes.last_mut().unwrap() = 1;
+        assert_eq!(
+            parse_four_ds_scene_billboards(&bytes).unwrap_err().0,
+            "animated model unsupported"
+        );
+    }
+    #[test]
+    fn explicit_billboard_instance_has_its_own_axis_mode_suffix() {
+        let mut bytes = super::mesh_tests::mesh();
+        let mut instance = bytes[63..112].to_vec();
+        instance[1] = 4;
+        instance.extend(1u16.to_le_bytes());
+        instance.extend([1, 0, 0, 0, 2]);
+        let end = bytes.len() - 1;
+        bytes.splice(end..end, instance);
+        bytes[61..63].copy_from_slice(&2u16.to_le_bytes());
+        let parsed = parse_four_ds_scene_billboards(&bytes).unwrap();
+        assert_eq!(parsed.model.frames.len(), 2);
+        assert_eq!(parsed.model.frames[1].instance, Some(0));
+        assert!(parsed.model.frames[1].lods.is_empty());
+        assert_eq!(
+            parsed.billboards,
+            [BillboardSource {
+                frame_index: 1,
+                rot_axis_word: 1,
+                axis_mode_byte: 2,
+            }]
+        );
+    }
+    #[test]
     fn unsupported_billboard_is_classified_only_after_complete_validation() {
         let bytes = billboard();
         assert!(
@@ -2410,7 +2529,7 @@ mod scene_model_tests {
     }
     #[test]
     fn other_unsupported_visuals_are_distinct_from_billboards() {
-        for visual in [3, 5, 255] {
+        for visual in [5, 255] {
             let mut bytes = super::mesh_tests::mesh();
             bytes[64] = visual;
             let error = parse_four_ds_scene(&bytes).unwrap_err();
@@ -2594,6 +2713,25 @@ mod singlemorph_intake_tests {
         (bytes, morph_offset, index_offset)
     }
     #[test]
+    fn scene_intake_retains_inherited_morph_and_lod_prefix() {
+        let (bytes, _, _) = fixture();
+        let model = parse_four_ds_scene(&bytes).unwrap();
+        assert_eq!(model.frames[0].visual, Some(3));
+        assert_eq!(
+            model.frames[0]
+                .morph
+                .as_ref()
+                .unwrap()
+                .definition
+                .as_ref()
+                .unwrap()
+                .lods
+                .len(),
+            2
+        );
+        assert_eq!(model.frames[0].skin.as_ref().unwrap().lods.len(), 2);
+    }
+    #[test]
     fn raw_morph_lods_channels_and_numeric_words_are_retained() {
         let (bytes, _, _) = fixture();
         let model = parse_four_ds_singlemorph(&bytes).unwrap();
@@ -2644,7 +2782,7 @@ mod singlemorph_intake_tests {
         assert!(model.frames[1].morph.is_none());
         assert!(parse_four_ds(&bytes).is_err());
         assert!(parse_four_ds_skin(&bytes).is_err());
-        assert!(parse_four_ds_scene(&bytes).is_err());
+        assert!(parse_four_ds_scene(&bytes).is_ok());
         assert!(parse_four_ds_singlemorph(&super::mesh_tests::mesh()).is_err());
     }
     #[test]
@@ -2790,6 +2928,87 @@ mod singlemorph_intake_tests {
                 .unwrap_err()
                 .0
                 .contains("singlemesh instance")
+        );
+    }
+}
+
+#[cfg(test)]
+mod lensflare_scene_tests {
+    use super::*;
+    fn fixture() -> Vec<u8> {
+        let mut bytes = b"4DS\0".to_vec();
+        bytes.extend(29u16.to_le_bytes());
+        bytes.extend([0; 8]);
+        bytes.extend(1u16.to_le_bytes());
+        bytes.extend(0u32.to_le_bytes());
+        for value in [0f32, 0., 0., 1., 1., 1., 0., 0., 0., 1.] {
+            bytes.extend(value.to_le_bytes());
+        }
+        bytes.push(0); // No material texture.
+        bytes.extend(1u16.to_le_bytes());
+        bytes.extend([1, 6, 0x31, 0x42]);
+        bytes.extend(0u16.to_le_bytes());
+        for value in [0f32, 0., 0., 1., 1., 1., 1., 0., 0., 0.] {
+            bytes.extend(value.to_le_bytes());
+        }
+        bytes.extend([0, 4]);
+        bytes.extend(b"glow");
+        bytes.push(0); // No properties.
+        bytes.push(2); // Two glows, each with a material reference.
+        for position in [0.25f32, -0.75] {
+            bytes.extend(position.to_le_bytes());
+            bytes.extend(1u16.to_le_bytes());
+        }
+        bytes.push(0); // No animations.
+        bytes
+    }
+    #[test]
+    fn lensflare_retains_glow_material_associations_and_boundaries() {
+        let bytes = fixture();
+        let model = parse_four_ds_scene(&bytes).unwrap();
+        let frame = &model.frames[0];
+        assert_eq!(frame.visual, Some(6));
+        assert!(frame.lods.is_empty());
+        assert_eq!(frame.render_flags, 0x31);
+        assert_eq!(frame.logic_flags, 0x42);
+        let glows = &frame.lensflare.as_ref().unwrap().glows;
+        assert_eq!(
+            glows
+                .iter()
+                .map(|g| g.position.to_bits())
+                .collect::<Vec<_>>(),
+            vec![0.25f32.to_bits(), (-0.75f32).to_bits()]
+        );
+        assert_eq!(
+            glows.iter().map(|g| g.material).collect::<Vec<_>>(),
+            vec![0, 0]
+        );
+        for n in 0..bytes.len() {
+            assert!(parse_four_ds_scene(&bytes[..n]).is_err(), "{n}");
+        }
+        let mut invalid = bytes.clone();
+        let material = invalid.len() - 3;
+        invalid[material..material + 2].copy_from_slice(&0u16.to_le_bytes());
+        assert!(
+            parse_four_ds_scene(&invalid)
+                .unwrap_err()
+                .0
+                .contains("lensflare material")
+        );
+        invalid[material..material + 2].copy_from_slice(&2u16.to_le_bytes());
+        assert!(
+            parse_four_ds_scene(&invalid)
+                .unwrap_err()
+                .0
+                .contains("lensflare material")
+        );
+        invalid[material..material + 2].copy_from_slice(&1u16.to_le_bytes());
+        invalid.push(0);
+        assert!(
+            parse_four_ds_scene(&invalid)
+                .unwrap_err()
+                .0
+                .contains("trailing bytes")
         );
     }
 }

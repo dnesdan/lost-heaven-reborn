@@ -2,6 +2,47 @@
 
 Actual captures from the Rust application using separately supplied PC game data. Images are compressed WebP previews; uncompressed validation captures remain private. Add dated images for visible milestones, up to 960 pixels wide and 200 KiB per image, rather than a capture for every commit. Game content retains its original ownership.
 
+## 2026-10-26 — road, source sky and complete object intake
+
+![MISE01 road and source sky](2026-10-26-mise01-road-sky.webp)
+
+Root-inspected Rust software-Vulkan capture, 960 × 640, 64,626 bytes.
+The MISE01 inspection loaded 3,183 scene objects, stopped at actor dispatch
+and produced 267 draws, including five actual `zapad` sky groups. A separate
+GPU-only sky-texture change affected 136,934 pixels; restoring the textures
+restored identical full-frame RGBA bytes. Close released the counted owners.
+This is scene inspection; authored actors, scripts and mission play remain open.
+
+![Retained menu scene with source sky](2026-10-26-menu-sky.webp)
+
+The menu capture is 960 × 640, 44,472 bytes. Its loader stops at unsupported
+`menugl` model animation and retains an interrupted cache. It does not share
+the successful MISE01 disposal result. Both captures used reviewed source
+manifest `0c60e6fc…`; the final `43af8105…` revision adds shared driving
+audio binding and explicit Scene/Vehicle frame-owner tags.
+Full receipts and checks are in [current evidence](../implementation/mafia-re-remediation.md)
+and [progress.json](../progress.json). WebP SHA-256 values, respectively:
+`8ca3b1de99d597632c2599b6e80754e8c3c73c5c7d6d6b2fd256838e3f0a4d63`,
+`e9d8b663171eefdb405cb458183c59d367e377b4905861eef8aecab371c94586`.
+
+## 2026-10-26 — Engine Lab and shared driving audio
+
+![Actual Engine Lab before the control test](2026-10-26-engine-lab.webp)
+
+Root-inspected initial paused frame, 960 × 640, 98,258 bytes, from final source
+manifest `43af8105…`. The same guarded run subsequently exercised W/A/D/S/Space
+and motion, real FOV 50°→65°, pause, one 16 ms step, focus loss with cleared
+held inputs, three F4 reloads and Escape exit 0. Four CarRuntime cleanup reports
+have seven zero CPU counters; actual Scene/audio/cache/driver checks also passed.
+Fonts remained readable after rebuilding the device and UI context. Source,
+executable and eight input archives were unchanged; owned processes were reaped.
+
+The wider host chase view was obstructed by nearby geometry. Original camera
+collision, mission progression and hardware audio remain unverified. Sparse
+status logs are not callback counts; clock-gap handling has separate tests.
+No video was created. WebP SHA-256:
+`36af15d47fc1b8c919f4edd35ee8df0238ba9527bf90c9bb1732471567c1a183`.
+
 ## 2026-10-26 — canonical scene and cache models
 
 ![Standalone driving through the canonical scene](2026-10-26-canonical-scene-driving.webp)

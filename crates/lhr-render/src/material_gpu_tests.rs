@@ -185,6 +185,7 @@ fn source_front_camera_and_back_camera_obey_both_bridge_index_conversions() {
         }
         replace(&mut renderer, &[mesh]);
         let camera = |z| Camera {
+            vertical_fov_radians: 50f32.to_radians(),
             eye: Vec3::new(0., 0., z),
             target: Vec3::ZERO,
             up: Vec3::Y,

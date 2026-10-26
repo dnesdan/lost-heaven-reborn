@@ -1,0 +1,708 @@
+# Complete preceding documentation at `ddc79e5`
+
+These six pages preserve the earlier current narrative verbatim. Each block is the exact Git object content named in its heading. The current pages link here to keep the dated scope and validation available.
+
+## `README.md`
+
+Bytes: 8001; SHA-256: `ee862da876a979d3291b35de031ad20cbfc1cdc018a37355e603239552763f49`.
+
+``````````markdown
+# Lost Heaven Reborn
+
+An independent Rust reimplementation of Mafia: The City of Lost Heaven (2002),
+using the user's legally obtained original PC assets. The immediate goal is the
+playable first mission, from the original menu through completion. **The campaign
+is not playable; all six first-mission gates remain open.**
+
+The current renderer consumes actual owned Scene/Camera resources for backdrop,
+main and near passes, with portal/occluder visibility. Genuine `OBJ_` → `LMAP`
+replacement connects saved lighting to owned UV2 geometry and shared atlases.
+Nearby city-cache selections create actual scene-owned model instances.
+
+Inspection and standalone original-data driving remain the application scope.
+Road and sky remain dark or absent, with the cause unresolved. General lighting,
+shader/streaming behavior, original player scheduling and authored mission
+execution remain incomplete. This milestone adds no scoped-port or parity credit.
+
+[Current source scope and validation](docs/implementation/mafia-re-remediation.md) ·
+[current evidence and limits](COVERAGE.md) · [progress](docs/PROGRESS.md) ·
+[remaining goals](docs/GOALS.md) · [dated history](docs/history/README.md).
+
+<details>
+<summary>Static research and accepted scoped-port dashboard</summary>
+
+<!-- generated-function-progress:start -->
+As of 2026-10-25 · snapshot `RUST-SCOPED-PORTS-20261025-47`.
+
+<p align="center"><img src="docs/progress.svg" alt="Progress dashboard: static retained pseudocode, reviewed scoped Rust entries, and strict system verification" width="100%"></p>
+
+| Original binary | Static retained pseudocode | Denominator basis | Full contracts | Full Rust ports | Differential runtime verified |
+| --- | ---: | --- | ---: | ---: | ---: |
+| Game.exe | 4784 / 4,914 (97.35%) | Explicit profile union | N/A | N/A | N/A |
+| rw_data.dll | 176 / 234 (75.21%) | Explicit profile union | N/A | N/A | N/A |
+| LS3DF.dll | 1555 / 1,714 (90.72%) | Explicit profile union | N/A | N/A | N/A |
+| Setup.exe (supplied configuration) | 172 / 172 (100.00%) | In-image non-thunk procedures | N/A | N/A | N/A |
+
+Strict full-system gate: **0/12**. Binary-level static counts use the named denominator basis and do not combine into a game-completion percentage. Unknown denominators remain N/A. 1 supplied configuration Setup inventory uses 172 in-image non-thunk procedures. Separately, archive installer bootstrap static inventory: **376 / 376 (100.00%)**; this distribution target is not combined with engine-library counts. The campaign is not playable.
+
+Accepted scoped Rust ports: **311 entries across 114 reviewed contracts**. These remain separate from retained pseudocode and whole-function counts.
+
+Regenerate locally with `python3 scripts/progress.py --write`; verify without writes with `python3 scripts/progress.py --check`. Versioned snapshots are retained in `docs/progress.json`.
+Milestone history and scoped implementation evidence are in [docs/PROGRESS.md](docs/PROGRESS.md).
+Supplied binary catalog (file identities; independent measures):
+
+| Binary | Platform | Variant | Role | Static retained pseudocode | Scoped Rust entries |
+| --- | --- | --- | --- | ---: | ---: |
+| DrvMgt.dll | PC | Installed game | Driver-management helper, exact runtime use unresolved | N/A | 0 |
+| Game.exe | PC | Installed game | Game and mission executable | 4784 / 4,914 (97.35%) | 149 |
+| IJoy.dll | PC | Installed game | DirectInput joystick wrapper | N/A | 0 |
+| INet.dll | PC | Installed game | Network helper, exact runtime use unresolved | N/A | 0 |
+| LS3DF.dll | PC | Installed game | 3D, animation, audio and rendering engine | 1555 / 1,714 (90.72%) | 145 |
+| Setup.exe (supplied configuration) | PC | Installed game | Installed game configuration utility | 172 / 172 (100.00%) | 5 |
+| binkw32.dll | PC | Installed game | Bink video codec boundary | N/A | 0 |
+| ogg.dll | PC | Installed game | Ogg container library boundary | N/A | 0 |
+| rw_data.dll | PC | Installed game | Game archive and data access library | 176 / 234 (75.21%) | 12 |
+| vorbis.dll | PC | Installed game | Vorbis codec library boundary | N/A | 0 |
+| vorbisfile.dll | PC | Installed game | Vorbis stream and file library boundary | N/A | 0 |
+| Setup.exe (archive installer bootstrap) | PC | Distribution archive | Distribution installer bootstrap | 376 / 376 (100.00%) | 0 |
+| SLUS_206.71 | PS2 | PS2 disc executable | PS2 game executable with retained linker symbols | N/A | 0 |
+| CDVDSTM.IRX | PS2 | PS2 disc IOP module | CD and DVD streaming support module | N/A | 0 |
+| IOPRP271.IMG | PS2 | PS2 disc support image | IOP reboot and support image, container contents unmeasured | N/A | 0 |
+| LIBSD.IRX | PS2 | PS2 disc IOP module | Sound support module | N/A | 0 |
+| MCMAN.IRX | PS2 | PS2 disc IOP module | Memory-card management module | N/A | 0 |
+| MCSERV.IRX | PS2 | PS2 disc IOP module | Memory-card service module | N/A | 0 |
+| MTAPMAN.IRX | PS2 | PS2 disc IOP module | Multitap support module | N/A | 0 |
+| PADMAN.IRX | PS2 | PS2 disc IOP module | Controller support module | N/A | 0 |
+| SDRDRV.IRX | PS2 | PS2 disc IOP module | Sound driver module | N/A | 0 |
+| SIO2MAN.IRX | PS2 | PS2 disc IOP module | SIO2 support module | N/A | 0 |
+| SOUND.IRX | PS2 | PS2 disc IOP module | Game-distributed sound module | N/A | 0 |
+| SOUND2.IRX | PS2 | PS2 disc IOP module | Game-distributed sound module | N/A | 0 |
+| SOUND_M.IRX | PS2 | PS2 disc IOP module | Game-distributed sound module | N/A | 0 |
+
+N/A means no measured static procedure ratio. PS2 linker symbol research supplies naming evidence, not static procedure coverage. Scoped entries are absolute reviewed counts joined by binary SHA-256; zero is not 0% coverage. Whole-function and differential runtime coverage remain unmeasured (N/A).
+<!-- generated-function-progress:end -->
+
+</details>
+
+## Build and run
+
+Rust 1.99.1 is pinned. Linux uses wgpu/Vulkan and ALSA development headers.
+Dependencies are locked; original executables and REA are development inputs,
+not runtime dependencies. Native macOS/Metal remains untested; the Linux Apple
+cross-check is blocked by missing CoreAudio SDK headers.
+
+```sh
+./scripts/setup.sh
+./scripts/test.sh
+./scripts/run.sh --root /path/to/Mafia
+./scripts/run.sh --root /path/to/Mafia --model models/taxi00.4ds --car-driving
+./scripts/run.sh --root /path/to/Mafia --model models/TommyTAXIDRIVER.4ds --animation anims/breath01a.5ds --skeletal-animation
+```
+
+Driving: W/S accelerate/brake, A/D steer, Space handbrake, R reload.
+Inspection: arrows and W/S move the camera. Menu New Game and `--mission mise01`
+remain inspection entry points; authored mission startup is still open.
+Add `--headless --capture /tmp/scene.png` for a still or `--frames N` for a bounded
+window run. [More commands and historical validation](docs/history/2026-10-25-readme-narrative.md).
+
+## Actual Rust captures
+
+![Canonical Scene driving: cache buildings restored; road and sky remain dark or absent](docs/screenshots/2026-10-26-canonical-scene-driving.webp)
+
+The fresh windowed run passes W/A/D/S/Space, three reloads and Escape, with
+four cleanups each reaching seven zero CPU counters. Cache buildings are restored;
+the cause of the dark or absent road and sky remains unresolved. This is a Rust capture,
+without original-game image equivalence. [Capture scope and earlier images](docs/screenshots/README.md) ·
+[existing 18-second driving video](docs/videos/2026-10-24-car-driving.mp4).
+The dated video retains its original scope; this milestone adds no video.
+
+## Research and assets
+
+REA/Ghidra and actual PS2 symbols guide reconstruction; scoped contracts,
+static pseudocode and complete-system validation are separate measures.
+Original data, executables and private research stay outside Git; public tests
+use synthetic fixtures. [Reference audit](docs/REFERENCE_PROJECTS.md) ·
+[optional enhanced assets](docs/ASSET_ENHANCEMENT.md) · [third-party notices](THIRD_PARTY_NOTICES.md).
+
+Code is MIT licensed. Game assets and trademarks belong to their owners.
+``````````
+
+## `COVERAGE.md`
+
+Bytes: 4112; SHA-256: `c1888410d1e036b9f318493cdfa031e180efa367ad6b30caa26627faf975b9ad`.
+
+``````````markdown
+# Reconstruction coverage
+
+**311 accepted scoped entries / 114 contracts; strict full-system gate 0/12.**
+Whole-function coverage remains **N/A**. These measures do not form a game
+completion percentage. The campaign is not playable and all six first-mission
+gates remain open.
+
+## Current bounded milestone — 2026-10-26
+
+Source [`dddaf539`](https://github.com/dnesdan/lost-heaven-reborn/commit/dddaf539c9b874b9cf7a67d866532d901729df18)
+connects actual `OBJ_` → `LMAP` replacement, saved lighting, UV2/atlas resources,
+Scene/active-Camera backdrop/main/near passes and portal/occluder visibility.
+Guarded owners preserve interrupted prefixes. The existing bounded host cache
+selector supplies **907 actual scene-owned models in the measured driving run**
+through shared model caches; it does not establish the original city-streaming controller.
+
+The required gate passes: **1362 Rust tests in debug and release**, **1374 with
+12 opt-in GPU checks**, 9 Python boundary tests, 47 progress tests and Clippy.
+An actual-data CPU driving run exercises 240 steps, audio and GameDone, then
+releases all tracked resources. The actual saved-atlas GPU counterfactual changes
+53 pixels and restoration recovers the complete RGBA image byte-for-byte.
+The fresh windowed run passes W/A/D/S/Space, three reloads and Escape; four
+cleanups each reach seven zero CPU counters.
+
+Actual MISE01 world intake retains 1415 frames, 5 sectors and 14 portals. Scene2
+completes **44 records** and stops at cursor **18693**, unsupported
+`FRAME_DUMMY` (6), `detector_konec`. Road and sky remain dark or absent; the
+cause is unresolved. General shader/lighting, complete SceneOpen/MissionOpen,
+original scheduling and native image/audio parity remain unverified. This
+milestone executes no original game executable/function and adds no ledger credit.
+
+## Strict system registry
+
+Each gate requires original evidence, implementation and relevant runtime
+validation. Bounded support does not pass a complete-system gate.
+
+| System | Current bounded support | Remaining gate | Verified |
+| --- | --- | --- | --- |
+| Assets and world streaming | DTA/model/world intake; actual models from admitted host cache selections | Original Game streaming and complete mission ownership | No |
+| Rendering and materials | Owned three-pass Scene/Camera drawing, saved lighting/UV2/atlases, portal/occluder visibility, selected material/light branches | General renderer/shader behavior, unresolved road/sky presentation, Metal | No |
+| Animation | Owned hierarchy, one sequential controller slot, CPU skinning | Blending, scale/notes and gameplay selection | No |
+| Collision and physics | Original-road and bounded dynamic contacts | General actor/world response breadth | No |
+| Vehicles | Standalone lifecycle, driving, damage and guarded cleanup | Player/mission ownership, occupants, severe-damage paths | No |
+| Characters and combat | Base/source-only and bounded railway lifecycle; ordered loader | Authored derived actors and combat | No |
+| Traffic and pedestrians | Resource presence only | Spawn, routing and simulation | No |
+| AI, navigation and police | Selected manager initialization/reset | Resource-backed AI, navigation and pursuit | No |
+| Scripts and cutscenes | Parsing, bounded scheduler/lookup/replay dependencies | Compiler, original scheduling, objectives and completion | No |
+| Camera and input | Actual active-camera matrices/viewport feed drawing; host driving controls | Original player/camera scheduling and remaining driver effects | No |
+| Audio, UI and localization | Selected data-language menu, PCM16 WAV mixing/capture | Codecs, HUD, profile/settings and hardware verification | No |
+| Save and load | No persistence implementation | Schema, save/load and recovery | No |
+
+Source tests, GPU checks, actual-data CPU probes and UI input have separate
+scopes. Native macOS/Metal remains untested. [Current scope](docs/implementation/mafia-re-remediation.md) ·
+[progress](docs/PROGRESS.md) · [acceptance goals](docs/GOALS.md) ·
+[complete predecessor](docs/history/2026-10-26-scene-render-predecessor.md#coverage).
+``````````
+
+## `docs/PROGRESS.md`
+
+Bytes: 106942; SHA-256: `99223f098d78fa11c6e6e68b45939ec16fa0f324b813a10b7934c6de3f95c6eb`.
+
+``````````markdown
+# Progress
+
+## Current milestone — 2026-10-26
+
+Validated source [`dddaf539`](https://github.com/dnesdan/lost-heaven-reborn/commit/dddaf539c9b874b9cf7a67d866532d901729df18)
+connects genuine visual replacement and saved lighting to the actual Scene,
+active Camera, UV2/atlas resources and backdrop/main/near draw passes. Portal and
+occluder visibility feeds those draws. Guarded owners retain interrupted state.
+In the measured driving run, 907 admitted city-cache placements become real
+models in the same scene/cache ownership graph, with live visibility
+correspondence.
+
+The required gate passes: **1362 Rust tests in debug and release**, **1374 with
+12 opt-in GPU tests**, 9 Python boundary tests, 47 progress tests and Clippy.
+The actual-data driving CPU probe exercises 240 steps/audio/GameDone and reaches
+zero tracked resources. The actual-atlas GPU counterfactual changes 53 pixels;
+restoration recovers the complete RGBA image byte-for-byte. The final windowed
+run passes W/A/D/S/Space, three reloads and Escape, with four cleanups each
+reaching seven zero CPU counters.
+
+The scene2 loader now completes **44 records**, then stops at cursor **18693**
+on unsupported `FRAME_DUMMY` (6), `detector_konec`. Road and sky remain dark or
+absent; the cause is unresolved. Original mission/startup/streaming scheduling
+and general renderer/shader behavior remain open. No original executable or
+original function was executed for this milestone.
+
+All six first-mission gates remain open. Counts stay **311 scoped entries /
+114 contracts**, strict **0/12**, whole-function coverage **N/A**. This milestone
+adds no function or original-runtime parity credit.
+
+[Coverage](../COVERAGE.md) · [goals](GOALS.md) ·
+[scope and validation](implementation/mafia-re-remediation.md) ·
+[complete predecessor files](history/2026-10-26-scene-render-predecessor.md#progress).
+
+## Earlier milestones
+
+[Previous driver/railway Source-v2 milestone](history/2026-10-25-driver-railway-source-v2.md)
+retains its original 273-file/1113-test validation and separate cohorts.
+
+[Previous texture/Scene Source-v5 milestone](history/2026-10-25-texture-scene-source-v5.md)
+retains its original 270-file/1093-test source and native/UI scopes.
+
+The [verbatim narrative through baseline `0da90fb`](history/2026-10-25-progress-narrative.md)
+retains the weather/default workers, standalone driving, resource ownership,
+animation, archive and script milestones with their original source/proof scope.
+The [reference audit](REFERENCE_PROJECTS.md) records the current source/tool scope.
+Machine observations and immutable snapshots remain in [progress.json](progress.json).
+
+<details>
+<summary>Generated static inventory, accepted ports and ledger history</summary>
+
+<!-- generated-function-progress:start -->
+As of 2026-10-25 · snapshot `RUST-SCOPED-PORTS-20261025-47`.
+
+| Original binary | Static retained pseudocode | Denominator basis | Full contracts | Full Rust ports | Differential runtime verified |
+| --- | ---: | --- | ---: | ---: | ---: |
+| Game.exe | 4784 / 4,914 (97.35%) | Explicit profile union | N/A | N/A | N/A |
+| rw_data.dll | 176 / 234 (75.21%) | Explicit profile union | N/A | N/A | N/A |
+| LS3DF.dll | 1555 / 1,714 (90.72%) | Explicit profile union | N/A | N/A | N/A |
+| Setup.exe (supplied configuration) | 172 / 172 (100.00%) | In-image non-thunk procedures | N/A | N/A | N/A |
+
+Strict full-system gate: **0/12**. Binary-level static counts use the named denominator basis and do not combine into a game-completion percentage. Unknown denominators remain N/A. 1 supplied configuration Setup inventory uses 172 in-image non-thunk procedures. Separately, archive installer bootstrap static inventory: **376 / 376 (100.00%)**; this distribution target is not combined with engine-library counts. The campaign is not playable.
+
+Accepted scoped Rust ports: **311 entries across 114 reviewed contracts**. These remain separate from retained pseudocode and whole-function counts.
+
+| Rust contract | Source | Original entries | Native-derived cases | Runtime use | Verified scope |
+| --- | --- | ---: | ---: | --- | --- |
+| Clock reset and elapsed time | [crates/lhr-engine/src/clock.rs](../crates/lhr-engine/src/clock.rs) | 2 | 20 | Static inspection | Serialized shared u32 clock with the standard sampling/sleep backend; no arbitrary IGraph overrides or caller lifecycle. |
+| Scene callback dispatch | [crates/lhr-engine/src/scene_tick.rs](../crates/lhr-engine/src/scene_tick.rs) | 1 | 13 | Static inspection | Immediate mutations and reentry in valid logical collections; animation and actor lifetime remain backend responsibilities. The static inspection uses the constructor-empty Scene path; active scene callbacks remain unbound. |
+| Interpolator callback control | [crates/lhr-engine/src/interpolator.rs](../crates/lhr-engine/src/interpolator.rs) | 1 | 31 | Static inspection | Caller control: 23 callback-observer and 8 scalar projections; evaluator math, poses and full note streams remain backend responsibilities. |
+| Game frame-delta modifier | [crates/lhr-engine/src/frame_delta.rs](../crates/lhr-engine/src/frame_delta.rs) | 1 | 22576 | Static inspection | Typed state with masked x87 precision and rounding; original-body comparison excludes FPU status flags, traps and gameplay integration. |
+| Generic actor callback dispatch | [crates/lhr-engine/src/actor_tick.rs](../crates/lhr-engine/src/actor_tick.rs) | 1 | 26 | No integration recorded | Visibility and live virtual-call ordering with mutation and reentry; callback implementations, actor ownership and gameplay integration remain open. |
+| Game frame coordinator dispatch | [crates/lhr-engine/src/frame_dispatch.rs](../crates/lhr-engine/src/frame_dispatch.rs) | 1 | 1509 | Static inspection | Bounded valid-storage coordinator control flow and arithmetic with synthetic callbacks; required helpers, mission initialization, object lifecycle and full Game integration remain dependencies. |
+| LS3DF model tick caller dispatch | [crates/lhr-engine/src/model_tick.rs](../crates/lhr-engine/src/model_tick.rs) | 1 | 7 | Static inspection | Bounded valid model storage caller guard, IPol tick and live finalizer dispatch; the seven Rust checks project selected behaviors from an eleven-case native oracle, not a full eleven-case state differential. Evaluator, finalizer, pose and Game integration excluded. This receipt covers only the static null-IPol path. |
+| Selected game-loop control | [crates/lhr-engine/src/selected_loop.rs](../crates/lhr-engine/src/selected_loop.rs) | 1 | 123 | No integration recorded | Bounded selected-loop caller control with explicit fallible callbacks; whole Game ancestry, host adapter integration and invalid native memory behavior remain excluded. |
+| 5DS isolated position-channel intake and sampling | [crates/lhr-assets/src/animation.rs](../crates/lhr-assets/src/animation.rs) | 1 | 2684 | Static inspection | Isolated 5DS position-channel parser, selected reader and evaluator branch within the bounded data/numeric domain; no quaternion/scale math, model binding, IPol lifecycle, hierarchy, skinning or rendered animation parity. |
+| Named script lookup callers | [crates/lhr-engine/src/named_script.rs](../crates/lhr-engine/src/named_script.rs) | 2 | 13 | No integration recorded | Mission/global lookup caller control against controlled dependencies; ASCII comparison is bounded, and VM/world/mission effects remain unimplemented. |
+| Program reset/start caller | [crates/lhr-engine/src/named_script.rs](../crates/lhr-engine/src/named_script.rs) | 1 | 9 | No integration recorded | Synchronous reset/start caller state mutations before a controlled scheduler observer; full scheduler, VM and program/mission effects are not implemented. |
+| LS3DF affine transform primitives | [crates/lhr-engine/src/native_transform.rs](../crates/lhr-engine/src/native_transform.rs) | 7 | 531 | No integration recorded | Seven shipped LS3DF PE exports within the per-call finite-magnitude guard and ordinary round-to-nearest host assumption. 531 accepted cases; one outside-domain case rejected. No all-f32/x87-environment, quaternion-from-matrix, inverse, hierarchy, rendering, or runtime-integration claim. |
+| LS3DF quaternion normalization | [crates/lhr-engine/src/native_transform.rs](../crates/lhr-engine/src/native_transform.rs) | 1 | 809 | No integration recorded | S_quat::Normalize at original export RVA 0x30140 in the declared CW 0x003f magnitude-guarded domain; 809 native cases, zero component mismatches in debug and optimized comparisons. Caller must recheck normalized values before subsequent guarded primitives. |
+| Shared original configuration behavior | [crates/lhr-engine/src/original_config.rs](../crates/lhr-engine/src/original_config.rs) | 6 | 1577 | No integration recorded | Six bounded shared configuration contracts: five supplied Setup.exe functions and Game.exe defaults. Native projections preserve 63-byte value behavior and selected callbacks/mode lists. No GUI, registry, device enumeration, DirectX creation, installer or whole Setup/Game integration claim. |
+| Game script scheduler and bounded dispatcher control | [crates/lhr-engine/src/script_scheduler.rs](../crates/lhr-engine/src/script_scheduler.rs) | 2 | 440 | No integration recorded | Scheduler RVA 0x6ccb0 plus bounded base-dispatcher control at 0x6d3b0; 440 comparison cases and 789 ordered dispatches. This is not complete dispatcher/VM function coverage or full Game integration. |
+| Game startup effect and resource behavior | [crates/lhr-engine/src/mission_effects.rs](../crates/lhr-engine/src/mission_effects.rs) | 5 | 6825 | No integration recorded | Five bounded Game.exe entries. Three independent fixture domains: 295 caller-state cases, 640 light traversal/vector cases, and 5,890 resource queries across 155 tables. These domain counts are not a claim of 6,825 full startup executions or complete mission/UI/runtime behavior. |
+| LS3DF vector length and quaternion composition helpers | [crates/lhr-engine/src/native_transform.rs](../crates/lhr-engine/src/native_transform.rs) | 2 | 1063 | No integration recorded | Two internal LS3DF helpers named descriptively: vector_length at 0x2f9f0 and SQuat::compose at 0x2fa70. Dedicated fixture contains 532 length calls and 531 composition calls, 1,063 per-function calls rather than unique input rows. Complete original routines were compared on a physical CPU; separate R1 5,000-case paired and R2 1,200-case fresh physical corpora had zero debug/optimized bit mismatches. Declared finite scalar guards and x87 CW 0x003f apply. No ABI or FP-status equivalence, Make/axis-angle, normalization, or runtime integration claim. |
+| LS3DF I3D frame transform core | [crates/lhr-engine/src/frame_transform.rs](../crates/lhr-engine/src/frame_transform.rs) | 8 | 7800 | Static inspection | Eight bounded frame entries; 7,800 native-derived cases retain the historical 7,798 and add two complete original SRT LinkTo/getter trajectories. The SRT corpus now has 180 complete cases and 76 mixed availability stops; the classification erratum preserves the old evidence. Normal-or-zero per-operation guards close 59 previously unavailable Rust source-frame worlds; two AXIS00 frames remain unsupported. A separate original taxi hierarchy comparison matches 66 world matrices/1,056 fields. Separate accepted physical primitive calls are 18,432 SetRot3, 13,960 row scaling, 12,945 affine products and 13,971 point transforms; these per-function counts and the Rust-only 1,953-frame replay are not added to row cases. Prior complete common LoadImage field projection, model/mesh/dummy updates and bound invalidation remain bounded; short reads, FF-enabled loading, sectors and derived resource propagation remain excluded. Dummy UpdateV stays an uncredited dependency. Static model graph and checked point rendering are integrated; flags-one application binding, general geometry loading and original renderer/gameplay parity remain unavailable. |
+| LS3DF bounded quaternion Make | [crates/lhr-engine/src/native_transform.rs](../crates/lhr-engine/src/native_transform.rs) | 2 | 18123 | No integration recorded | Original Make entries in a guarded expanded domain: nonzero axis angles up to two radians and nondegenerate matrices whose two original factor angles are admitted. Portable outward intervals include documented reduced-domain x87 error and reject ambiguous f32 rounding; new PC24 intermediates remain ordinary. Physical comparisons match all 18,123 admitted Make calls from nonzero-axis, synthetic-matrix and source-SRT-derived matrix corpora; 4,892 other matrix attempts return explicit errors. Prior 12,900 zero/diagonal calls remain exact. Missing-row reconstruction and larger factor angles remain unavailable. Source-SRT inputs do not establish native loader parity; no new application animation binding. |
+| LS3DF raw driver storage | [crates/lhr-engine/src/driver_state.rs](../crates/lhr-engine/src/driver_state.rs) | 2 | 245 | No integration recorded | Descriptive working names for valid-index reads and 49 storage-only write arms. 245 original setter calls with 15,435 getter checks match all 62,720 output bytes in debug and optimized Rust. Caller supplies the shared 63-word bank; no constructor defaults or renderer effects are assumed. Other write arms and invalid indices return explicit host errors; native invalid-index behavior is outside scope. No police or application integration. |
+| LS3DF affine inverse | [crates/lhr-engine/src/native_matrix.rs](../crates/lhr-engine/src/native_matrix.rs) | 1 | 10423 | No integration recorded | Original S_matrix::Inverse with distinct source/output, finite normal-or-zero operands and guarded intermediates under PC24 round-to-nearest. Physical original code matches success flag and all 16 output fields for 10,423 accepted cases in debug and optimized Rust; 9,592 additional cases are explicitly unavailable. Preserves singular identity fallback and the original widened f32 cutoff. No alias, other FPU policy, FP-status or application integration claim. |
+| LS3DF scale extraction and direction basis | [crates/lhr-engine/src/native_matrix.rs](../crates/lhr-engine/src/native_matrix.rs) | 2 | 21809 | No integration recorded | Original GetScale at RVA 0x2e3a0 and SetDir3 at RVA 0x2dcf0 with distinct operands under guarded PC24 round-to-nearest arithmetic. Physical originals match 11,104 admitted scale calls and 10,705 admitted direction calls; 10,239 other per-function attempts are explicit numeric or small-residual rejections. These are per-function calls from 16,024 paired input rows. GetScale ignores translation and the fourth column; SetDir3 preserves them and retains partial writes on error. Degenerate-up fallback, aliasing and other FPU policies remain unavailable. No original scene loading or application integration claim. |
+| LS3DF parsed model ownership and frame materialization | [crates/lhr-engine/src/model_loading.rs](../crates/lhr-engine/src/model_loading.rs) | 8 | 1022 | Static inspection | Eight existing parsed constructor/common-field/owner/load projections retain their prior 1015 cases and add seven persistent ownership scenarios as a distinct cohort. Last-reference transfer/deletion now reaches admitted teardown; Close and destructors are counted separately. Parsed same-root reopen retains failed prefixes and invalidates stale playback. Real bedna00/taxi00 host tests retain old/new source-backed instances while excluding final visual release. Native file loading, filenames, factories, mesh/material/texture resources and whole-game lifetime remain unavailable. |
+| Game bounded actor and frame cache consumption | [crates/lhr-engine/src/actor_registry.rs](../crates/lhr-engine/src/actor_registry.rs) | 2 | 1260 | No integration recorded | Two cache-consumption entries over existing records: reverse ASCII case-insensitive matching, actor-kind filter, owned-name release, swap-last removal and ordered required backend effects. Original 1,260 cache cases match Rust in debug and optimized builds; additional ASCII and floating-class corpora validate dependencies. Names use the declared ASCII domain. Backend actor state and type-specific effects remain required dependencies. No cache insertion, drain, actor construction, resource lookup or application integration. |
+| Game raw police-manager initialization and reset | [crates/lhr-engine/src/police_state.rs](../crates/lhr-engine/src/police_state.rs) | 2 | 1756 | No integration recorded | Bounded constructor stores and logical reset match 1,756 original input states in debug and optimized Rust: 302,032 state bytes and 65,536 retained storage bytes checked. Existing bytes and the constructor marker are explicit inputs; construction does not assume a zero mode. Reset truncates four pools while preserving allocations, pointees, script arguments and other unknown state. Opaque pointer words are never dereferenced. No native heap/ABI, resource creation, police ON or application integration claim. |
+| Game bounded player control and model-animation helpers | [crates/lhr-engine/src/player_control.rs](../crates/lhr-engine/src/player_control.rs) | 5 | 6284 | No integration recorded | Five bounded Game entries over existing actor/model storage: direct byte-valued unlock and callback-free lock paths, script boolean normalization and follow-up reset, raw direction/embedded animation resets, and eight model-animation calls with a live owner read before each call. Rust debug and optimized builds match 5,288 raw original cases, 36 original probes stopped before unresolved calls, and 960 additional real-model-vtable animation cases (832 direct dependency calls and 128 composed caller cases). Prefix writes and explicit dependency errors are preserved. The unlisted LS3DF dependency at RVA 0x33890 has no canonical entry credit; StopAnimation is an upstream PS2 research name. Full first MISE01 lock, actor/Joint construction, collision, camera, vehicle physics and controllable gameplay remain unavailable. |
+| LS3DF owned Joint state and linked invalidation | [crates/lhr-engine/src/joint_state.rs](../crates/lhr-engine/src/joint_state.rs) | 3 | 1335 | Static inspection | Three bounded PC entries retain written constructor fields, an unavailable unwritten matrix cache, complete parsed 68-byte Joint records and linked singlemesh counter/flag/bound invalidation. Rust matches 1,335 admitted original cases and 350,365 projected words: four constructors, 1,296 updates, 32 mixed traversals and three complete loads. The broader 2,250-case native corpus includes 915 excluded sector or partial/error/failure-configured cases. Separately, 5,672 original Joint records preserve 385,696 raw bytes in 315 detached synthetic envelopes with remapped parents; this is not full character loading or original hierarchy parity. Singlemesh virtual updates explicitly fail; GetJointMatrix, binding/deformation, native allocation/I/O/destruction and gameplay remain unavailable. PS2 names are original, but PC masks, fields and the 68-byte payload are verified separately. No application Joint-model integration claim. |
+| Game original animation index lookup | [crates/lhr-engine/src/player_control.rs](../crates/lhr-engine/src/player_control.rs) | 1 | 1636 | No integration recorded | Original GetAnimIndex semantics over a caller-owned sorted table: unsigned code comparisons, signed index results, null/missing returns and deterministic duplicate midpoint choice. All 1,636 admitted original comparisons match debug and optimized Rust. Nonnull empty tables and unrepresentable native record extents are rejected by explicit host admission; five native-only zero-count observations are excluded. Actual PS2 linker symbols and instructions support the name/cross-platform correspondence, without PS2 execution credit. No original table catalog is bundled; bootstrap, resource loading, PersonAnim, actor construction and first-mission execution remain open. |
+| LS3DF Joint matrices and owned singlemesh binding | [crates/lhr-engine/src/frame_transform.rs](../crates/lhr-engine/src/frame_transform.rs) | 3 | 902 | Static inspection | Three bounded PC entry projections cover guarded Joint matrix evaluation and cache reuse, child/sibling joint discovery capped at 64, and owned binding-table/backreference stores. These scopes match 902 original cases and 551,594 represented u32 fields. Loaded definitions additionally compose binding with eager bounds callbacks and graph invalidation; 896 rich-bounds comparisons are separate from native DBuild execution. An independent 2,264-case inherited-update comparison supports mixed model/singlemesh/joint traversal without adding entries for already credited Frame Update or visual UpdateV. Missing pointer slots, unsupported kinds and numeric operations fail explicitly. Native allocation, driver resources, proxy dispatch and full object lifetime remain outside scope. Verified GetVertexJoint implementation is documented separately; its new canonical-entry credit awaits inventory admission. |
+| LS3DF CPU skin deformation and normal-matrix arithmetic | [crates/lhr-engine/src/singlemesh_deformation.rs](../crates/lhr-engine/src/singlemesh_deformation.rs) | 4 | 4296 | Static inspection | Three arithmetic leaf projections and the CPU arithmetic snapshot of UpdateLodVertices match 4,296 admitted original cases and 205,472 u32 fields; four native zero-column normalization cases are explicitly unavailable. Rigid and unclamped blended position/normal operations retain original order and PC24 rounding, with exact suffix copies. The 1,000 LOD cases use supplied cached joint matrices and source/skin buffer pointers, including 500 controlled first allocations; they do not establish original driver, lock, proxy, lighting, cache or resource lifetime behavior. The two CPU helper names are descriptive because original names are unresolved. This SetRot matrix overload at RVA 0x2e1f0 is distinct from the already credited quaternion overload at 0x2e1c0. |
+| LS3DF populated singlemesh bound-volume arithmetic | [crates/lhr-engine/src/singlemesh_bounds.rs](../crates/lhr-engine/src/singlemesh_bounds.rs) | 1 | 1024 | Static inspection | The populated-definition arithmetic projection of UpdateBVolumeProc preserves base-box inclusion, native corner and matrix-callback order, null-joint and invalid-X skips, strict min/max comparisons, and rounded center/radius calculation. All 1,024 original physical-x86/QEMU cases match Rust bounds; the same cohort separately matches graph callback matrices and flags. Consumed arithmetic requires finite normal f32 or zero under PC24/RN. Missing mesh/LOD/definition fallbacks, binding counters, visual flags and ancestor invalidation are outside this calculator and handled only by the separately bounded graph integration. No additional entry is claimed for the corner helper or UpdateBoundProc. |
+| Game crouch posture and collision-filter state | [crates/lhr-engine/src/player_control.rs](../crates/lhr-engine/src/player_control.rs) | 3 | 2836 | No integration recorded | Three complete projected PC control/state bodies match 2,836 original cases in debug and optimized Rust: 1,836 crouch operations and 500 cases for each collision-owner setter. Tests preserve guards, exact query parameters, callback/filter ordering, stale-field retention, nonzero-hit handling and explicit host failure prefixes. Actual frame-update and sphere-collision callees are instrumented boundaries, so this does not establish original collision geometry, actor construction, animation ownership, playable controls or mission execution. PS2 symbols support names and correspondence; PC platform differences are retained. |
+| Game animation-index initialization and cleanup | [crates/lhr-engine/src/animation_index.rs](../crates/lhr-engine/src/animation_index.rs) | 2 | 756 | No integration recorded | Caller-owned code/resource records preserve sentinel scanning, required allocation, original specialized equal-key sort order and cleanup pointer/count effects. All 756 cases and 353124 records match native output; 12 unavailable-call prefixes remain explicit. Original catalog, resource cache, allocator/release implementations and actor integration are not supplied. |
+| LS3DF morph weights and first-LOD deformation | [crates/lhr-engine/src/singlemorph_state.rs](../crates/lhr-engine/src/singlemorph_state.rs) | 3 | 280 | Static inspection | Bounded signed-weight normalization, strict thresholds, source-order region overwrite, explicit vertex associations and retained dirty buffers match 256 weight cases and 24 original Tommy variants. Initial morph and inherited skin operations feed the sampled-pose renderer. Missing native index storage is unavailable; no native resource/buffer lifetime or complete LoadImage claim. |
+| LS3DF bounded linear and spherical quaternion interpolation | [crates/lhr-engine/src/rotation_animation.rs](../crates/lhr-engine/src/rotation_animation.rs) | 1 | 22103 | Static inspection | The existing Slerp entry now admits checked linear and spherical branches: 22103 exact physical-native leaf cases from 24050 inputs; 1947 exceed the 1.5-radian spherical domain. PC24 arithmetic and outward transcendental intervals must produce one unambiguous float result; other numeric domains return explicit errors. Actual rotation tracks match 99579 evaluator samples. Existing Slerp, evaluator and normalization entries receive no duplicate credit. Multi-slot blending, scale and notes remain open. |
+| LS3DF Target links and deferred direction updates | [crates/lhr-engine/src/target_state.rs](../crates/lhr-engine/src/target_state.rs) | 6 | 675 | Static inspection | Retains the prior 669 heterogeneous Target cases and adds six persistent lifecycle scenarios as a distinct cohort. Target teardown clears links without releasing members and swap-removes registration; first-owner removal is observed in one of those scenarios. New scopes exclude queued or duplicate-membership destruction. Standalone DeleteFromTarget597f0 remains uncredited. Earlier static inspection use is retained; no new rendered, interactive or whole-game teardown verification. |
+| LS3DF parent-relative SetDirWorld and Target graph integration | [crates/lhr-engine/src/frame_transform.rs](../crates/lhr-engine/src/frame_transform.rs) | 1 | 70 | Static inspection | Parent-present SetDirWorld with near-zero roll matches 70 original cases over seven parent matrices; 14 additional cases return explicit unsupported arithmetic errors. Parent cache, inverse fallback, direction matrix, local basis stores and flags retain original order. Target queue flush occurs after root dirty clearing, preserves duplicates/reentrancy, and poisons interrupted graph updates. Parentless and nonzero-roll paths remain unavailable. |
+| LS3DF Target direction-matrix arithmetic | [crates/lhr-engine/src/target_direction.rs](../crates/lhr-engine/src/target_direction.rs) | 1 | 4493 | Static inspection | The original direction-matrix leaf matches all 4493 physical-x86 and QEMU cases, including axis, signed-zero, tiny, threshold-neighbor and random vectors. Each consumed PC24 intermediate must remain normal or zero; unavailable exponent and nonfinite inputs return errors. It feeds the bounded SetDirWorld path without replacing original math with generic look-at behavior. |
+| LS3DF owned IPolSet lifecycle and controller controls | [crates/lhr-engine/src/animation_controller.rs](../crates/lhr-engine/src/animation_controller.rs) | 13 | 27 | Static inspection | Thirteen canonical entries cover eight-slot ownership, exact-name binding, evaluator growth and reverse-prefix cleanup, Clear and existing-controller controls. Physical native O0/O2 and public Rust debug/release match 2908 control words across 27 snapshots. Allocation, release, error reporting and destination marking remain explicit backends. PC has eight slots, PS2 three. Raw inactive channel pointers, pose resources, callback reentrancy and unmasked hardware exceptions are outside scope. Masked signaling-NaN stores are quieted and checked in eight additional native cases totaling 48 words. Inline construction and destructor close with extra detached-allocation host reclamation receive no entry credit. |
+| Game existing animation-machine track lookup | [crates/lhr-engine/src/actor_animation.rs](../crates/lhr-engine/src/actor_animation.rs) | 1 | 69226 | No integration recorded | Reverse existing-record lookup matches 3201 scripted required-comparison cases and 66025 cases with unchanged native C-locale CRT, including 65025 name-byte pairs; three unavailable-call prefixes are separately retained. Signed nonnegative truncated record counts and wrapping opaque identities preserve native read/call order. Actual original-locale comparison is a required backend; CRT and resource construction receive no credit. PS2 name correspondence uses stride96 and name offset48 versus PC stride100 and offset0, with differing guards. |
+| LS3DF loaded singlemesh bounds-cache gate | [crates/lhr-engine/src/frame_transform.rs](../crates/lhr-engine/src/frame_transform.rs) | 1 | 206 | Static inspection | The exact 39-byte canonical entry compares loaded joint-change and cached counters, invokes existing bounds arithmetic when unequal and marks equal-counter bounds valid. Native physical/QEMU comparison covers 203 changed and three unchanged entries plus a second unchanged query per record; the composed production path matches 1413160 words over 206 persistent steps. Caller requests bounds and CPU deformation explicitly. Missing-resource fallbacks, native renderer scheduling and tail-transfer alias 0x57580 receive no extra credit. |
+| LS3DF bounded model Close and destruction | [crates/lhr-engine/src/model_loading.rs](../crates/lhr-engine/src/model_loading.rs) | 2 | 7 | No integration recorded | Seven persistent original-call scenarios cover forward owner releases, surviving links, nested model teardown, retained Close capacity and retired identities. Native filenames and controllers are absent; consumed host playback is separately owned. Heap free order, real file Open, scene and loaded visual-resource destruction are excluded. New lifecycle APIs have no application-runtime integration receipt. |
+| LS3DF bounded base, dummy and unbound Joint destruction | [crates/lhr-engine/src/frame_transform.rs](../crates/lhr-engine/src/frame_transform.rs) | 3 | 10 | No integration recorded | Ten persistent scenarios compare represented base detach and non-owning child links; nine include dummy teardown and four include unbound Joint teardown. Associated-singlemesh Joint cleanup has static and unit evidence only. Weather, fast-find, shadow, tick and unsafe queued or duplicate Target states are unavailable. Native lastDestroyedFrame bookkeeping, allocator identities/events, driver/visual-resource and application-runtime teardown are excluded. These are bounded field projections, not complete destructors. |
+| LS3DF bounded visual-resource primitives | [crates/lhr-engine/src/visual_resources.rs](../crates/lhr-engine/src/visual_resources.rs) | 9 | 6 | No integration recorded | Six persistent original-call scenarios compare bounded plain materials, face-group chains and mesh-level ownership: 172 normalized snapshots and 1260 applicable original-resource state cells including normalized identity/kind/liveness, with 254 external fixture cells separate. Twenty original-triggered dependency effects match; eight fixture-only releases are separate. Positive signed references, nonreentrant required backends and unique chain/block ownership bound the domain. Scalar destruction uses delete flag 1; raw/managed buffer release and texture aliases are covered. Native texture/IB/VB managers, allocator and pointer-return parity, animated materials, mesh-object/LOD, loaded frame/model teardown and application integration are excluded. No new rendered or interactive validation. |
+| LS3DF bounded mesh-object ownership and bounds | [crates/lhr-engine/src/visual_resources.rs](../crates/lhr-engine/src/visual_resources.rs) | 3 | 10 | No integration recorded | Ten persistent original-call lifetime scenarios cover a ten-slot mesh owner, shared and duplicate level references, null truncation, hidden retained references and same-pointer bounds refresh. Bounds uses reversed slots, strict box ties and original Z/Y/X square-sum order in an admitted numeric domain. Separate numeric evidence matches 83 admitted raw bounds cases; six wider inputs are host rejections, not native behavior matches. UpdateBoundVolume 0x31400 remains uncredited because it is absent from the frozen inventory. Eighteen controlled IB/VB boundary callbacks have null descriptors and establish no native manager implementation. Host numeric rejection is an admission policy; native allocator/pointer-return parity, backend implementations, loaded visual teardown and application integration are excluded. No new rendered or interactive validation. |
+| LS3DF bounded IB/VB buffer-manager ownership | [crates/lhr-engine/src/buffer_managers.rs](../crates/lhr-engine/src/buffer_managers.rs) | 18 | 14 | No integration recorded | Fourteen complete original-call trajectories cover bounded IB/VB block allocation, equal-size ties, splitting/coalescing, used swap removal, stale descriptors, reclamation, retries, unlock and ordered owner invalidation. A separate five-phase prefix of case7 matches before the host rejects new insertion into an unsorted mutable-key manager tree; native continuation is excluded. New insertion requires nondecreasing retained inorder; existing reuse/free preserve actual order. Complete cases match 352 ordered required boundary effects; the prefix adds 20. Normalized object allocator/COM/driver/diagnostic callbacks are controlled dependencies, not backend implementations; extra host callback parameters and VC6 container allocations are excluded. Returning fatal-handler fixtures do not establish whole-game OOM recovery. Three composed constructors receive no credit. No visual-owner bridge, loaded teardown, renderer/application integration or new rendered/interactive validation. |
+| LS3DF per-object plain LOD resources | [crates/lhr-engine/src/i3d_object.rs](../crates/lhr-engine/src/i3d_object.rs) | 4 | 8 | No integration recorded | Eight original-call trajectories compare represented plain Lod construction, direct nondeleting cleanup, admitted scalar flags1 cleanup/logical retirement and the object resource cleanup prefix. All ten unique generated LODs clean up ascending before the entire slot array clears and shared mesh Release begins, with raw mesh field unchanged. Nineteen immediate constructor snapshots compare 13 initialized data fields; machine vtable/unwritten padding are native-only checks. The scalar selfdelete/pointer ABI is not reproduced. The object base visual/frame call is controlled and excluded; native slot/base watchers establish original ordering without matched Rust callback-time alias snapshots. State comparison excludes cleanup-complete markers and freed payload. 19 primitive heap deletes remain original-only. 4 direct numeric dependency returns, 18 fixture-admission booleans and 51 synthetic statuses remain separate. General SetMesh/Create/upload, derived LODs, texture/GPU/allocator implementations, loaded/application teardown and new rendered/interactive validation remain excluded. |
+| LS3DF C_str ownership | [crates/lhr-engine/src/c_str.rs](../crates/lhr-engine/src/c_str.rs) | 3 | 10 | No integration recorded | Represented C_str and representation ownership: direct exact-zero release, direct nondeleting string destruction, and const-char assignment including NULL, nonnull empty and a view into old bytes. New bytes are copied before old reference release. Production operations and actual entry-specific original-call cohorts are bound in the private wrappers. Positive reference budgets, extent/identity guards and poison after backend failure are host policies. Returning-null allocation is source/unit/static evidence only. Native allocator implementation, this-pointer returns, terminal stale-pointer use, arbitrary wrapped counts and representation constructor entry 0x6fe20 remain excluded. |
+| LS3DF nonmanaged ITexture lifetime | [crates/lhr-engine/src/itexture.rs](../crates/lhr-engine/src/itexture.rs) | 5 | 8 | No integration recorded | Constructor-written lifetime fields and positive nonmanaged Release, direct nondeleting destructor, Close and Unlock. Constructor-unwritten fields stay unavailable until host intake. Close replaces primary then alpha names, removes the first cache match with swap-last within admitted unique membership, and releases graphics last; final destructor releases alpha before primary. Surface/graphics, pixel and string callbacks are explicit controlled boundaries. Low16 levels is a source-assisted projection; highword/padding and machine vtable/this-pointer parity are excluded. Managed flags/record, duplicate cache intake, callback reentry, malformed/unbounded state, native Create/Lock acquisition/upload, primitive heap-selfdelete and loaded/application/GPU integration remain excluded. Safe host intake, budgets and failure poison are not native creation or error-path parity. |
+| LS3DF managed texture removal | [crates/lhr-engine/src/texture_manager.rs](../crates/lhr-engine/src/texture_manager.rs) | 1 | 7 | No integration recorded | Seven admitted original-call cases compare serialized managed removal: reverse first matching active record, conditional 256-slot queue clearing, filename then record deletion before swap-last publication, independent three-pool reverse owner clearing, high-flag reset and genuine AL success. Active record order and represented post-call state are compared; inactive backing slots/capacity and dead payload are excluded. Included opaque record/pool words and out/put counters are preservation checks, not recovered accessed members. Direct removal retains raw managed/graphics fields; existing Close subsequently clears them without texture graphics Release. Explicit critical/allocator callbacks, seeded intake and bounded coherent identities/references are required. Two native-only unsafe queue trajectories and effectful backend failure/poison policies are not native differential matches. Original-only instruction tracing does not prove Rust internal callback alias/timing or concurrency. Worker/request/creation/upload, pool shutdown, GPU/backend implementations and loaded/application integration remain excluded. |
+| LS3DF managed texture record creation | [crates/lhr-engine/src/texture_manager.rs](../crates/lhr-engine/src/texture_manager.rs) | 1 | 5 | No integration recorded | Bounded prepared-owner AddTextureToTextureManager: actual 20-byte record fields, raw-byte presaved filename derivation, explicit record/filename allocation and copy, genuine filename-allocation rejection and cleanup, texture pointer publication and registry append/growth. Host preparation leaves initialization/cache/flags outside this helper. Existing removal registry storage writes are supporting extension evidence with zero new entry credit. Required storage callbacks represent selected original stores/copies separately from allocator/diagnostic calls; they do not establish arbitrary memory, pointer ABI or native heap implementation parity. Original publication stores are native trace evidence; Rust internal callback alias/publication timing equality is excluded. Stable format/list state, NUL-free names 5..253, bounded arithmetic, compatible identities, exclusion of ALL historical manager allocation tokens and nonreentrant backends bound the host domain. Unchecked record/list allocation rejection and backend-error poison are host policies. Full Create, Request/worker/upload, pool shutdown, GPU/backend and loaded/application integration remain excluded. |
+| LS3DF managed texture request producer | [crates/lhr-engine/src/texture_manager.rs](../crates/lhr-engine/src/texture_manager.rs) | 1 | 8 | No integration recorded | Bounded managed texture queue producer at RVA 0x7a910; Request is an upstream working name without original PS2 name evidence. Nonmanaged availability, managed last-frame refresh before loaded test, already-loaded availability and weak queue enqueue with signed length comparison are represented. Eight admitted cases compare ten Request calls plus three existing Remove/Close calls: 13 return rows, 13 state rows and 41 ordered effects in debug/release, counted once. Actual Create precedes Request in three cases; other managed cases use explicit seeded Rust records. Selected original record-store instructions compare to Rust storage effects, not native callbacks. Queue intermediate stores remain native-only instruction evidence. Four unadmitted native calls, negative/257 intake and stale-record host guards, worker/upload, full Create, pool shutdown, concurrency, GPU and loaded/application integration are excluded. |
+| LS3DF standalone managed texture pool unload | [crates/lhr-engine/src/texture_manager.rs](../crates/lhr-engine/src/texture_manager.rs) | 1 | 3 | No integration recorded | Bounded standalone managed texture pool unload at RVA 0x7afe0; UnloadManagedTextures is a pinned mafia-re working name without recovered original PC/PS2 symbol. One critical-section pair surrounds three pools in order and reverse slot visits; live owners have only the loaded bit cleared, then pool slot owners are nulled. Already-unloaded and queued owners remain admitted. Registry/record/queue state, pool storage/length/capacity/grow fields and graphics handles are preserved. No COM release, refcount, allocator, worker, image loading, device, restoration, whole SceneClose or application integration credit. Three admitted cases compare five unload calls plus one existing Request and one removal: seven state rows, seven return rows and 17 effects in debug/release, counted once. Rust seeds pre-Unload state; native creation/pre-Unload loaded Request are context only. Native-only 439-instruction/16-store trace and byte preservation do not establish internal Rust store observer parity or raw borrowed-graphics equivalence. Host managed-bit, record/queue coherence, live identities and bounded extents exceed native owner-pointer/nonzero-count tests; dedicated unload intake admits already-unloaded owners. |
+| LS3DF standalone managed texture pool release | [crates/lhr-engine/src/texture_manager.rs](../crates/lhr-engine/src/texture_manager.rs) | 1 | 3 | No integration recorded | Bounded standalone managed texture pool release at RVA 0x7a610; ReleaseManagedTextures is a pinned mafia-re working name without recovered original PC/PS2 symbol. One critical-section pair clears loaded bits and weak owners across three pools with reverse slot visits. After unlock, each pool releases optional system surface then texture, releases each reverse-visited slot surface then texture, frees its array and zeros data/count/capacity and pool memory while preserving grow. Shared COM identities represent separately retained references. Registry/record/queue state and borrowed texture graphics are preserved. No Restore, worker, whole SceneClose, real Direct3D destruction, device, rendering or application integration credit. Three seeded scenarios compare six release calls: six state rows, six synthetic void return-class rows and 108 ordered effects (12 lock, 78 controlled COM Release, 18 allocator calls), counted once across debug/release. Controlled identities start at 100 references; actual Direct3D destruction is untested. Native fixture Create is context only, with no Rust Create comparison. Native-only 1,404 instructions/106 stores and byte preservation do not establish Rust intermediate store observer parity. Nonnegative bounded extents, live owners, valid slot COM identities and allocator ownership, sufficient alias lifetimes and nonreentrant/nonconcurrent backends bound admission. |
+| LS3DF standalone managed texture pool restore | [crates/lhr-engine/src/itexture.rs](../crates/lhr-engine/src/itexture.rs) | 1 | 6 | No integration recorded | Bounded standalone managed texture restore through controlled device/storage effects. Calls accepted Release dependency, selects raw format once from flags and globals, then reconstructs three system/default pools in order. Uses returned raw descriptor Size, signed budget comparisons and wrapping memory arithmetic; sets grow1024, expands pool capacity in1024 steps, copies eleven-dword records and frees old arrays. Reserves registry to signed max(count,4096), retaining count and entries. Existing dependencies receive no duplicate entry credit. Six admitted cases compare 5,565 ordered effect rows and 1,109 state rows once across debug/release, spanning eight Restore and ten existing Release calls including six effect-only cleanup phases. No return/status or Rust instruction/store comparison. Native-only case six has fully backed count4097/capacity4096 but fails host coherent intake. Controlled device/storage effects, coherent live identities, representable extents, separately owned alias references and bounded terminating reconstruction constrain admission; no real GPU, full texture Create, worker or application integration. |
+| rw_data read-mode Seek and loose-file Close | [crates/lhr-assets/src/rw_data.rs](../crates/lhr-assets/src/rw_data.rs) | 2 | 38 | No integration recorded | Read-mode Seek and common loose-file Close observable returns under unchanged original DLL exports in Wine/QEMU: 38 observations, comprising 32 Seek and six Close results, counted once across debug/release. Four Open alignment rows and PID metadata are excluded. Sizes 0, 1, 10 and 32770 cover failed-seek position preservation, EOF+1, invalid/closed handles and slot-zero reuse. No native internal cache/block inspection, write fallback, buffered delete/rename, archive ownership, free-order, locking, Read/Open or whole-DLL parity. Full modeled branches retain separate static-only checks. Snapshot intake and serialized worker composition are host adapters, with no application/GPU integration. Fixture exits zero; two helper startup/shutdown QEMU SIGSEGV messages have unknown exact helper identity and do not establish overall Wine stability. |
+| rw_data loose-file dtaRead | [crates/lhr-assets/src/rw_data.rs](../crates/lhr-assets/src/rw_data.rs) | 1 | 27 | No integration recorded | Bounded loose-file dtaRead only: 27 unchanged-original-DLL READ observations under Wine10/QEMU match debug/release once. Eleven SEEK context rows and four OPEN alignment rows add no credit. Buffer comparison uses 32-bit FNV hashes, not full byte equality. Each fixture Read is followed by Seek(0,CUR), which normalizes block cursor; replay follows that exact stateful trajectory. Separately, 2,948 static-model cases compare admitted returns, numeric/cache-validity/physical state and effects with buffer hashes. Runtime internal cache fields and partially overwritten still-valid cache reuse remain unproven. Five private host-error review scenarios are separate from native and static-model case counts. Coherent bounded loose-handle/cache intake is a host adapter. Archive decoding, native Open/Create, allocation/locking/concurrency and whole dtaRead/DLL parity remain open. Fixture exits zero; a separate helper shutdown fault leaves overall Wine stability unproven. No native hardware, game/GPU, application, rendered or interactive validation; worker original-runtime comparisons remain zero. |
+| rw_data bounded native archive registration and Open | [crates/lhr-assets/src/rw_data.rs](../crates/lhr-assets/src/rw_data.rs) | 8 | 24 | No integration recorded | Bounded native archive registration, unlock, reference lifetime and Open compose with existing Read/Seek/Close. Eight canonical entries add one contract. Stored synthetic fixtures compare 81 native log rows and 976 complete-array bytes in debug/release, counted once: 24 opens, five creates, three unlocks, one AddRef and four Release calls; constructor/destructor occur within create/final Release. Separately, 21 scripted effect cases per profile establish Rust ordering, not native injected failures. ASCII names shorter than 260 bytes; serialized concurrency; timestamp metadata unmodeled; native leak behavior represented by abstract effects. Host short-index reads stop explicitly rather than modeling native uninitialized bytes. WAV and full DLL, application, GPU and mission execution remain open; no new rendered or interactive validation. |
+| rw_data bounded PCM16 WAV archive decoding | [crates/lhr-assets/src/rw_data.rs](../crates/lhr-assets/src/rw_data.rs) | 1 | 202 | No integration recorded | Bounded PCM16 mono/stereo WAV decoding and archive header ownership compose with existing Open/Read/Seek/Close. One canonical PC entry adds one scoped contract; Open/Read/header extensions add zero entries. Native evidence: 202 Read observations (172 nonfailure, 30 released-handle failures), 66 explicit Seek context rows, 510 normalized log rows and 7,280,960 complete-buffer bytes including guards/unrequested regions across 26 archive fixtures plus four supplemental trajectories reusing four fixtures; debug/release counted once. These are archive API observations, not direct codec calls. Separately, 128 logical vectors include 56 exhaustive vectors (10,752 delta operations, 84 seeds) and 72 others; 18 scripted effects plus four direct-buffer effects do not claim native failure injection. Eight fresh REA results support the codec; exact PC/PS2 constants and original PS2 names add no PS2 runtime validation. Identifier-only header probe, header-only format bypass, mono/stereo block-align/channel quotient2 and all type codes at least8 default-row rules are admitted. Generic non16 LZ, other channels and malformed native memory behavior excluded. No application/audio playback, rendered, GPU or mission integration; Write and full DLL parity remain open. |
+| Game bounded replay state and live VM wait | [crates/lhr-engine/src/replay_state.rs](../crates/lhr-engine/src/replay_state.rs) | 2 | 1161 | No integration recorded | Two canonical Game entries: busy leaf 0x19e2d0 and full state setter 0x1989a0 in admitted live storage, with descriptive working names. Actual original x86 instructions under QEMU match 345 leaf, 708 setter, 102 bounded-dispatcher and six scheduler cases; 2,972,160 normalized output bytes per profile include unused zeroed capacity, with debug/release counted once. Live object/vector/vtable replacement, callback order and reentry remain observable. RECWAITFOREND opcode 0x2e uses live busy state and existing common advance; this bounded dispatcher extension adds no entry or whole-dispatcher credit. Synthetic scheduler wrapper mutates its fixture global after dispatch, without running original replay Update. Separately 76 synthetic Rust cases cover host admission/errors and the authored MISE01 line-2 dim_act frontier. No original PC/PS2 replay helper names, owner construction, resource-backed Load/Update, camera/actor/mission, application, rendered or GPU integration. |
+| LS3DF bounded frame lookup and Game lookup callers | [crates/lhr-engine/src/frame_lookup.rs](../crates/lhr-engine/src/frame_lookup.rs) | 2 | 207 | No integration recorded | Two bounded canonical LS3DF entries: scene FindFrame 0x49210 and frame GetChildFrame 0x1c360, flags exactly 0x4ffff, ASCII names and separately admitted default-C Game/LS3DF locales. Game FINDACTOR/FINDFRAME dispatcher arms add zero canonical entries. Actor reverse primary, forward globals then reverse secondary preserves miss and partial-write behavior; frame self/child/sibling primary-before-backdrop lookup clears a miss. Original x86 under QEMU matches 207 unique inputs: 189 Game dispatches and 18 direct LS calls, 13,248 normalized bytes per profile including 168 zero-padding bytes, counted once across debug/release. Sole MessageBeep IAT replacement produces six actual callbacks; 35 secondary checkpoints remain native-only. Separate 108 Rust probes comprise 107 synthetic cases and one actual authored-script intake. Synthetic ModelArena load/link/close/reopen and stale identities do not establish mission-world integration. Host errors, lifetimes and budgets are admission policies. No original world/source registration/removal, allocator, Windows audio, application, replay resource, rendered or GPU integration; whole-function coverage N/A. |
+| Game bounded base actor lifetime and source ownership | [crates/lhr-engine/src/actor_world.rs](../crates/lhr-engine/src/actor_world.rs) | 11 | 88 | No integration recorded | Eleven bounded Game entries cover owned base actor fields/lifetime, real kind-1 factory, separate static/primary/active membership, manager flag-zero cleanup and deleting wrapper. Release0x91d0 is implemented but absent frozen inventory: zero entry credit. 88 of 93 original-instruction inputs match 85536 normalized bytes per profile, counted once across debug/release; two repeated-construction and three flag-one cases stay native-only. Caller growth/copy/commit executes; allocator/free and frame virtual implementations remain controlled required effects, including targetE/targetN flags0x40. AX-only Release result and wrapper effects are compared; wrapper original-this EAX is excluded. 140 independent Rust probes comprise 138 synthetic and two source-intake cases, with zero original executions. Host lifetime/budget/error rules are admission policies. No mission-world construction, derived actor/payload, application/render/GPU integration; whole-function coverage N/A. |
+| LS3DF bounded actor frame effects over owned ModelArena | [crates/lhr-engine/src/actor_frames.rs](../crates/lhr-engine/src/actor_frames.rs) | 3 | 151 | No integration recorded | Three bounded LS3DF entries: SetOn 0x1b400, FindChildFrame 0x1c330 and fixed-search EnumSubtree 0x1c020. Real ModelArena descendant search uses stored original-name+104 and Target class 7 with flags 0x40, nonempty ASCII/default-C queries; PC low-byte bit 0 SetOn; shared live external userdata records and supported positive-count owner release. Release 0x1aae0, EnumFrames 0x1c2a0 and callback 0x1c310 outside frozen inventory receive zero entry credit; script helper 0x1c360 unchanged. 151 of 474 native inputs match 75,500 bytes per profile; 323 stay native-only. General callback/global/status and lastDestroyedFrame reset, raw Release returns/pointers and deallocator internals excluded. Separate 166 Rust cases: 160 synthetic, two source and four resource attempts; three models / 51 frames, actual targetN only, all three model closes unsupported. Host lifetimes/limits/preflight errors are admission policies. No mission-world/application/render/GPU integration; whole-function coverage N/A. |
+| Game owned program source and source-only detector lifetime | [crates/lhr-engine/src/original_program.rs](../crates/lhr-engine/src/original_program.rs) | 9 | 382 | No integration recorded | Nine Game entries cover raw/null/empty owned C_program source/name lifetime, default-C EqualFinalPath and reverse-first replacement, plus real source-only kind-5 detector constructor/deleting wrapper/destructor. Detector Init/LoadData are outside frozen inventory and factory/base/frame entries have prior credit: zero duplicates. 382 of 389 unique native inputs match 168585 bytes/profile; seven native-only and duplicate 184 excluded from 390 IDs. Allocation/free/source I/O controlled; nonempty vector destruction, ignored/skipped reads and raw pointer/ABI returns excluded. Separate 300 Rust configurations: 263 synthetic, 33 source, four retained resource; 31 payload configurations cover 32 records, including duplicate 27/29. Uncertain free poisons owner without retry; other host errors preserve admitted prefixes. Source-only vectors/runtime buffers remain empty; no Compile/Init/Done, scheduling, mission-world/application/render/GPU claim. Whole-function coverage N/A. |
+| Game original parser helpers and full instruction recognition | [crates/lhr-engine/src/program_parser.rs](../crates/lhr-engine/src/program_parser.rs) | 4 | 4727 | No integration recorded | Four scoped Game entries reconstruct byte tokenizer, quoted string and wrapping integer operand helpers plus all 398 instruction keywords in original order and IDs. Native comparison passes 4727 unique configurations across 4742 admitted rows, counted once across profiles; two empty-input rows excluded. Includes 400 unique original MISE01 line recognition inputs and 16 separate host-admission checks. ASCII/C-locale numeric and recognition paths, explicit NUL and signed-length bounds; original mutation and output sentinels retained. No float/LET/IF, parameter decoder, Compile, scheduling or mission integration; whole-function coverage N/A. |
+| Game bounded original vehicle control setters | [crates/lhr-engine/src/vehicle_controls.rs](../crates/lhr-engine/src/vehicle_controls.rs) | 5 | 2373 | No integration recorded | Five scoped Game entries preserve SetPower, SetBrake, SetClutch, SetSteer and SetGear routing, shaping, returns and ordered writes in caller-supplied vehicle storage. 2373 of 2851 unique native configurations match full state and guards in debug/release; 478 numeric-domain cases remain native-only. Ten separate first-access breakpoint probes verify short-storage prefixes without claiming native memory-fault behavior. Explicit CW007f comparison and host nearest-rounding precondition; raw copies preserve bits, required arithmetic is bounded. PC rejection and PS2 clamping differ. No vehicle constructor, parameters, BODY, wheels, dynamics, application controls or driving integration; whole-function coverage N/A. |
+| Game bounded collision triangle leaf query | [crates/lhr-engine/src/collision_line.rs](../crates/lhr-engine/src/collision_line.rs) | 1 | 1287 | No integration recorded | One partially reconstructed canonical Game entry covers all seven triangle projection branches of LineInTreeLevel, ordered candidates, masks, one-sided plane test, strict nearest-hit comparison and raw stored normal. 1287 CW007f configurations match complete native fixture bytes in debug/release; one unsorted fixture is host-excluded. Other precision profiles produce 377 differences each and receive no parity credit. Twelve independent host/property tests supplement source tests. Caller supplies sorted bound triangles, bounds and initial best fraction; zero or magnitude 2^-40 through 2^40 arithmetic and host nearest rounding are explicit. Unsupported volume/numeric errors are transactional host policy. No KLZ loader/grid, TestLineV wrapper, dynamic collision, wheel contacts, solver or driving integration; whole-function coverage N/A. |
+| Game bounded original vehicle constructor | [crates/lhr-engine/src/vehicle_owner.rs](../crates/lhr-engine/src/vehicle_owner.rs) | 1 | 1024 | No integration recorded | One canonical C_Vehicle constructor entry preserves ordered stores, original constants, the native-this high-byte member markers and untouched caller storage. 1024 native configurations match complete fixtures and defined EAX in debug/release; 32 separate constructor-to-five-controls trajectories match 192 stage observations. Twenty-one native pre-access prefix probes reuse an existing full configuration and add no full-case credit; Rust Storage failures are host policy, not native memory faults. Vec ownership/drop does not run original resource lifetime. Actual PS2 names/layout differences are recorded. No Init, destructor, BODY/model/wheel resources, solver or gameplay integration; whole-function coverage N/A. |
+| Game bounded original vehicle drivetrain arithmetic | [crates/lhr-engine/src/vehicle_drivetrain.rs](../crates/lhr-engine/src/vehicle_drivetrain.rs) | 4 | 5215 | No integration recorded | Four bounded C_Vehicle entries reconstruct SetCutTime, ComputeMoment, MotorForce and MotorRot over supplied storage and an explicit shared direction byte. 5215 of 5267 unique native configurations match full state, defined return and direction in debug/release; 52 numeric-domain cases are excluded. Explicit CW007f/PC24 nearest comparison, caller-established host nearest rounding and finite-normal-or-zero arithmetic apply; raw-copy paths retain payload bits. Original knot boundaries, constants and write order are preserved. PC multiplies milliseconds by binary32 0.001; PS2 division/layout/signature differences are not imported. Unavailable shift callback and short-storage prefixes have instruction/Rust evidence only, not native callback completion or faults. No parameter loading, Engine/Move, wheel/body solver or gameplay integration; whole-function coverage N/A. |
+| Game bounded vehicle Init attachment and discovery | [crates/lhr-engine/src/vehicle_init.rs](../crates/lhr-engine/src/vehicle_init.rs) | 1 | 239 | No integration recorded | One canonical C_Vehicle::Init entry contributes only its attachment, name allocation and BODY/component discovery prefix. 239 unique unchanged-original-instruction fixtures match debug/release state, defined rejection AL and ordered effects under QEMU with modeled enumeration/allocation/free; actual callback bodies execute. 102 original rejections and 137 unfinished EXHAUST/SPECCOLL/HEAD/BODYCOL frontiers are separate outcomes. Retained references and temporary vectors remain explicit. No outcome reports completed initialization; component transforms, parameters, wheels, cleanup/destruction and gameplay remain unavailable. Callback entry boundaries add zero credit. Whole-function coverage N/A. |
+| Game bounded collision triangle preparation | [crates/lhr-engine/src/collision_prepare.rs](../crates/lhr-engine/src/collision_prepare.rs) | 1 | 293 | No integration recorded | One canonical classifier entry supplies bounded triangle classification and ordered cell application; associated frame degeneracy comes from a partial LoadCollision projection with zero extra entry credit. 293 of 322 unique fixtures match in both Rust profiles; 26 numeric-domain exclusions and three explicit binding diagnostics remain separate. The unchanged classifier executes on physical x87 for all 322 fixtures; 196 original loader fixtures use QEMU with modeled allocation/archive/frame/LOD0 effects. Physical classification consumes QEMU loader-derived disabled flags where applicable, not a wholly physical loader run. Seven QEMU threshold discrepancies are adjudicated by physical original instructions. CW007f/PC24 nearest and bounded used arithmetic apply. Original vertex/candidate order, planes and other property bytes are preserved; world-pool degeneracy bypass remains distinct. No scene ownership, complete loader, all primitives, world queries or gameplay integration; whole-function coverage N/A. |
+| Game bounded original static grid segment query | [crates/lhr-engine/src/collision_query.rs](../crates/lhr-engine/src/collision_query.rs) | 1 | 2845 | No integration recorded | One canonical g_collision::_TestLineV entry reconstructs bounded general-segment static grid traversal, forced mask 0x20, strict nearest/first-tie behavior, optional point and original normal conversion, and last-cell state. 2869 unique original fixtures run unchanged on both physical x87 and QEMU with identical outputs; 2845 are admitted and match actual Rust debug/release, with 24 explicit host exclusions. Fifty-four duplicate fixture aliases add no credit. Return primitive, point/normal and state/guards match; the Rust-only fraction is not independently compared. CW007f/PC24 nearest, zero-or-2^-40..2^40 used arithmetic, signed32 grid conversion and prior leaf ordering prerequisites apply. Eligible volumes and dynamic dispatch are unsupported errors, never silent misses. No complete collision world, contacts, original physics solver or gameplay integration; whole-function coverage N/A. |
+| Game static volumes and LS3DF local transforms | [crates/lhr-engine/src/collision_volumes.rs](../crates/lhr-engine/src/collision_volumes.rs) | 4 | 7304 | No integration recorded | Four retained canonical entries reconstruct the static volume worker, entry-face AABB helper and distinct LS3DF mutating point transform/RotateByMatrix. Five original classes preserve raw normals, near-root or entry-face rules, strict nearest ties and original candidate order. 7304 of 7371 unique direct original-instruction inputs match both Rust profiles; 67 explicit host exclusions remain separate. Another 2129 mixed triangle/volume static-grid inputs match original record, optional point/normal, cell state and guards without exclusions; their Rust-only query fraction is not independently compared. Direct worker fraction is compared; existing TestLineV/triangle entries receive no new credit. All native direct/mixed outputs agree between physical x87 and QEMU; original Game/LS3DF text remains unchanged and real transform exports execute. CW007f PC24 nearest and zero-or-2^-40..2^40 used arithmetic bound admission; wrapper-generated end/length fields and no callback/alias observation limit the safe API. Dynamic registration/query, complete loader/world transforms, contacts, response, solver and gameplay remain unavailable. Whole-function coverage N/A. |
+| Game bounded GearSnd and MotorRot callback composition | [crates/lhr-engine/src/vehicle_sound.rs](../crates/lhr-engine/src/vehicle_sound.rs) | 1 | 4031 | No integration recorded | One canonical C_Vehicle::GearSnd entry reconstructs enable/query gates, shared original CRT random progression and bank choice, ordered SetOn/SetVolume effects and the actual MotorRot shift callback before rereading pending gear. Actual PS2 linker evidence corroborates the name; PC behavior follows unchanged original instructions. 4031 unique original PC inputs match Rust debug/release without exclusions: 1584 direct sound inputs and 2447 composed MotorRot inputs, including 1699 producing sound calls. All 5267 previous drivetrain inputs are physically reexecuted with zero QEMU differences; 5215 prior admitted rows still match, with the same 52 numeric exclusions. Explicit controlled sound methods expose callback-time state and mutations; the original audio backend and playback remain unavailable. Existing MotorRot and inline CRT rand add zero entry credit. No full Init, driving, rendered, interactive or mission validation; whole-function coverage N/A. |
+| Game bounded BODYCOL record lifecycle | [crates/lhr-engine/src/vehicle_bodycol_records.rs](../crates/lhr-engine/src/vehicle_bodycol_records.rs) | 11 | 478 | No integration recorded | Eleven retained canonical record helpers reconstruct bounded deep copy, assignment, insert/growth, backward grouping, nested destruction, scalar deletion, size and placement copy/fill. Actual original instructions compare 478 unique physical inputs against Rust debug/release: 477 normal completions and one actual invalid-memory fault whose completed byte/effect prefix matches a Rust backend error, without claiming successful native completion. All 477 normal inputs agree with QEMU. Every 128 KiB region byte including seeded padding, allocation/free order and defined return projection compare; frames/reference sentinels remain unchanged. Allocation/free are explicit controlled effects, without original CRT heap, address reuse, C++ exception or reentrant allocator parity. Other dossier bodies, eliminated RET8, inline constructor/CRT/raw-copy projections and repeated callers add no new credit. No full vehicle Init, frame ownership, gameplay or driving validation; whole-function coverage N/A. |
+| Game bounded BODYCOL callback and recursive passes | [crates/lhr-engine/src/vehicle_bodycol.rs](../crates/lhr-engine/src/vehicle_bodycol.rs) | 3 | 164 | No integration recorded | Three retained canonical entries reconstruct BODYCOL collection, reverse recursive descendant enumeration and transform/detach passes, composing actual record lifecycle. The actual descendant callback at RVA0xd1520 is implemented and compared but absent from the frozen inventory, so adds zero entry credit. 164 unique original-instruction cases match Rust debug/release, counted once: 81 isolated cases and 83 normal-entry Init compositions (64 bounded normal continuations and 19 effect-failure prefixes), physically executed with controlled external effects; no new QEMU execution is claimed. Required allocator, enumeration, frame update/link/remove and other external object effects remain controlled boundaries; original reference ownership and backend implementations are not established. All 29 direct callback inputs additionally compare the full 116-byte live original stack record. Other nested/Init caller scratch, three undefined special-control padding bytes per native record and diagnostic event metadata remain outside the admitted projection. Opt-in Init composes actual BODYCOL behavior without the previous three BODYCOL stubs, retaining completed effects and single-use continuation. No original Init success is reported; DOOR/BALLAST, parameters, wheels and genuine destruction remain unavailable. Existing Init, mutating LS3DF transform and record dependencies add no duplicate credit; whole-function coverage N/A. |
+| LS3DF bounded fast frame tree and Game link continuation | [crates/lhr-engine/src/frame_fast_lookup.rs](../crates/lhr-engine/src/frame_fast_lookup.rs) | 4 | 31 | No integration recorded | Four retained canonical LS3DF entries reconstruct exact FindFrameFast_ tree traversal, RemoveFromFFTree, AddToFFTree and SetName with observable allocation effects. Actual PS2 symbols establish names; independent PC instructions establish tree/scene/layout behavior. 31 unique physical original-instruction cases compare 1436 ordered operations and 117729024 arena/guard bytes per Rust profile, counted once; no QEMU execution was performed. SetName includes 21 operations: 19 returns and two allocation-failure prefixes stopped at the actual fatal-handler entry, without native successful-return or original heap/handler parity. Seeded FindFrameFast0x19b10 lacks frozen membership and contributes zero new entry credit; existing SetOn and bounded LoadCollision link-loop continuation likewise add zero. Caller-supplied frame/scene identities establish storage only, without original constructors, driver ownership, LinkTo or live loaded worlds. Actual-map missing frames remain unchanged. No whole-map original query, complete loader, gameplay, rendered, interactive or driving validation; whole-function coverage N/A. |
+| Game bounded component and EXHAUST record helpers | [crates/lhr-engine/src/vehicle_component_records.rs](../crates/lhr-engine/src/vehicle_component_records.rs) | 10 | 1153 | No integration recorded | New physical-x86 original-instruction cohort: 1,159 unique ABI/arena inputs, counted once across profiles; 1,153 normal completions and six separate native memory-fault prefixes. Ten canonical entries are rehashed against the actual Game.exe PE, durable fresh primary REA bodies and retained membership draft. Branch grids cover growth/in-place insertion, aliased sources including header words, forward overlap, full record/padding copies, null begin/allocation/placement, allocation/free-side header mutation, zero counts, and signed/wrapping size arithmetic. Full arena bytes, ordered allocation/free effects and defined returns or fault prefixes agree with current-source Rust debug and optimized builds. Allocator/free are controlled effects, not native CRT heap/lifetime ownership. This standalone record cohort establishes no full Init, actual scene ownership, driving, rendered or interactive validation. |
+| LS3DF bounded shared scene AddFrame and Close | [crates/lhr-engine/src/scene_ownership.rs](../crates/lhr-engine/src/scene_ownership.rs) | 2 | 321 | No integration recorded | Two retained canonical LS3DF entries reconstruct bounded non-emitter scene AddFrame and Close in the same ModelArena/frame graph as models, names and parent links. AddFrame preserves reference-before-old-owner deletion, destination-owner-before-growth and visible allocation-failure prefixes; Close preserves owner-null-before-release, native forward list order, retained capacity/sectors and 13 explicit ordered resource boundaries. Native comparison covers 372 unique ABI/arena inputs, counted once across debug/release. The tabulated case count is 321 normal completions; 51 controlled host-effect prefixes remain separate. Compared live fields include references/owners, kinds/flags, hierarchy/transforms/names, membership order/capacity, sector links/bounds and per-Close-phase owner/reference/list snapshots. Full raw native arena, pointer/vtable/padding equality, original allocator/resource backends, emitter/tick registration, corrupted headers/reference wrap, reentrant callbacks and unavailable derived destruction are outside the admitted domain. Constructor stops before 0x48e29 and gains no credit; nonmember DeleteFrame and previously credited model/name/tree operations add no duplicate credit. No full driver/scene-resource construction, File Open/reload, vehicle BODYCOL adapter, gameplay, rendered or interactive validation; whole-function coverage N/A. |
+| Game bounded explicit Vehicle destructor | [crates/lhr-engine/src/vehicle_destructor.rs](../crates/lhr-engine/src/vehicle_destructor.rs) | 1 | 7 | No integration recorded | Complete explicit C_Vehicle destructor in the admitted constructed-state domain, including rejected-Init persistent names/wheel nodes, ordered reverse releases, null/header stores and vector cleanup. Native free, virtual LinkTo/Release remain controlled required effects; no scalar-deleting wrapper, native resource destructor or whole car success. |
+| Game bounded Vehicle UpdateAxis | [crates/lhr-engine/src/vehicle_axis_update.rs](../crates/lhr-engine/src/vehicle_axis_update.rs) | 1 | 84 | No integration recorded | Complete bounded reverse axis passes, enable transition and finite numeric geometry over genuine wheel/axis records. All 64 KiB and ordered effects exact; virtual SetDir input logging and SetOn mutation are controlled. Parent scratch is a capability fixture; helper-local stack bytes are not compared. Current production init source is an exact prefix of the oracle-derived file with only fixture seeding appended. |
+| Game bounded source parameters, flags 0/1 | [crates/lhr-engine/src/vehicle_source_parameters.rs](../crates/lhr-engine/src/vehicle_source_parameters.rs) | 1 | 3710 | No integration recorded | Complete bounded InitCar source-parameter paths only for flags 0/1 and admitted finite numeric inputs, including source repair, table/bank selection, original true/false returns and live source/vehicle writes. 3,710 exact admitted inputs (3,445 true / 265 false) from 3,720 unique; 8 numeric and 2 native-fault inputs excluded. No flags 2/InitSounds or whole-helper parity; original whole-function coverage stays N/A. Actual Setup passes flags 0 and skips sound initialization. |
+| Game bounded AXIS24 record insertion | [crates/lhr-engine/src/vehicle_axis_records.rs](../crates/lhr-engine/src/vehicle_axis_records.rs) | 1 | 242 | No integration recorded | Complete admitted 24-byte AXIS repeated insertion with signed/wrapping arithmetic, growth/in-place branches, live source/header aliases and ordered allocation/free effects. Full 64 KiB, effects and defined return projection match. One native fault is prefix evidence only; allocator internals are controlled. |
+| Game bounded Setup12 record insertion | [crates/lhr-engine/src/vehicle_setup_records.rs](../crates/lhr-engine/src/vehicle_setup_records.rs) | 1 | 242 | No integration recorded | Complete admitted repeated 12-byte Setup insertion, growth/in-place branches, overlap/header aliases and completed allocation/free/store prefixes. Full 64 KiB, effects and defined return projection match. One native fault is excluded from completion; allocator internals remain controlled. |
+| Game bounded special point and control insertion | [crates/lhr-engine/src/vehicle_special_records.rs](../crates/lhr-engine/src/vehicle_special_records.rs) | 2 | 164 | No integration recorded | Complete admitted 12-byte point insertion including original inserted-address return, growth/in-place storage, aliasing and allocator/free order. 82 completed first-instruction inputs compare all 64 KiB and effects; no allocator implementation credit. Complete admitted special-control insertion including original inserted-address return, growth/in-place storage, live aliasing and allocator/free order. 82 completed first-instruction inputs compare all 64 KiB and effects; no allocator implementation credit. |
+| Game bounded C_car Init | [crates/lhr-engine/src/car_init.rs](../crates/lhr-engine/src/car_init.rs) | 1 | 32 | No integration recorded | Actual canonical C_car Init from native-constructor-produced explicit state; the original 13 nonlinear setter calls, AI00/AI01 markers, 160-byte records, seat/model metadata and admitted animation placement. Comparison covers 64 KiB persistent state, 703,960 bytes of Game.data, 624 active caller-frame bytes and ordered effects. Rust whole C_car construction and enclosing Game Init remain intake. |
+| Game bounded explicit C_car destructor | [crates/lhr-engine/src/car_caller_cleanup.rs](../crates/lhr-engine/src/car_caller_cleanup.rs) | 1 | 3 | No integration recorded | Explicit C_car destructor closure in three admitted initialized/failed contexts with empty global pair lists. Only the actual false-flag branch of 0x59d1f0 is covered. Pair-removal iteration/erase/shift behavior has no native nonempty-list coverage and gains no new credit. Existing actor/Vehicle destructor dependencies keep prior credit; Game-owner resets remain separate. |
+| Game bounded 160-byte car component records | [crates/lhr-engine/src/car_effect_records.rs](../crates/lhr-engine/src/car_effect_records.rs) | 1 | 9 | No integration recorded | 160-byte record insertion, overlap, growth/in-place storage and primitive allocation/free order. Compares all admitted persistent state and effects; no allocator implementation credit. |
+| Game Init-reached car seat properties | [crates/lhr-engine/src/car_effects.rs](../crates/lhr-engine/src/car_effects.rs) | 1 | 13 | No integration recorded | GetSeatProperty only for actual C_car Init-reached seat-record queries in the 13 native main-corpus inputs. Covers admitted seat-record/property reads and local output state. Other query/transform modes and general world-space transform parity are unverified and excluded. |
+| Game pure car animation ID selector | [crates/lhr-engine/src/car_effects.rs](../crates/lhr-engine/src/car_effects.rs) | 1 | 32 | No integration recorded | Pure integer C_human::GetAnimIDForUseCar ID selection for full byte ABI; does not create/load animation resources. |
+| Game Init-reached car TCK placement wrapper | [crates/lhr-engine/src/car_effects.rs](../crates/lhr-engine/src/car_effects.rs) | 1 | 2 | No integration recorded | C_car::GetPlacementFromTCK only for two actual Init-reached high-bit/local-index native inputs. Covers the admitted wrapper path and its state/effect projection. Other index/query/transform modes, general world-space transform parity and native TCK IO/cache-miss heap ABI are excluded. |
+| Game cached-TCK animation metadata placement | [crates/lhr-engine/src/car_frame_effects.rs](../crates/lhr-engine/src/car_frame_effects.rs) | 1 | 20 | No integration recorded | Game animation metadata placement in 20 actual direct cached-TCK inputs, comparing all three position and three direction float bits. Native parity covers admitted cached-track placement; the Rust adapter separately loads version-4 files into Game-owned typed metadata. Native file IO, cache-miss allocation, the original 100-byte cache heap and parser/allocator ABI are excluded. |
+| Game bounded C_car constructor | [crates/lhr-engine/src/car_construction.rs](../crates/lhr-engine/src/car_construction.rs) | 1 | 34 | Static inspection | Canonical C_car constructor at 0x41bb80 over raw allocator-supplied storage. Thirty-four unique native this-return completions compare all 64 KiB persistent memory, 703,960 bytes of Game.data, the active 36-byte constructor frame, ordered allocation/free effects, ordered Game.data stores and live boundary snapshots. The original factory allocates 0x221c bytes; minimum represented object-memory span is 0x2214. Untouched bytes, cross-prefix aliases, caller scratch markers, base Actor/Vehicle composition and RNG/registry state are retained within admitted contexts. Two native NULL-memory-fault prefixes and two controlled host prefixes remain separate. The frame includes the SEH saved record; native C++ exception/unwind and Win32 SEH interoperability, allocator/free internals, all internal Car-store timing and all TLS/FS observer stores are excluded. Observed empty NULL-allocation survival is bounded evidence, not general nullable-new compatibility. Host failure checkpoints and no replay are Rust policies. |
+| Game bounded Car and embedded Vehicle GameInit | [crates/lhr-engine/src/car_game_init.rs](../crates/lhr-engine/src/car_game_init.rs) | 2 | 40 | No integration recorded | Forty unique Car GameInit prestates execute actual Car and embedded Vehicle bodies over one live address map. Actor initialization and resource, shadow, sector and manager dependencies remain controlled effects. Complete persistent arena and Game.data plus ordered effects compare; private nested stack and unavailable external backends are excluded. This is not completed application GameInit or driving. |
+| Game bounded Actor GameInit | [crates/lhr-engine/src/car_game_init_actor.rs](../crates/lhr-engine/src/car_game_init_actor.rs) | 1 | 8 | No integration recorded | Eight unique direct Actor GameInit prestates compare persistent arena and Game.data plus ordered frame and manager effects. The Actor call is controlled in the separate Car cohort; no duplicate input or full mission ownership is inferred. |
+| Game bounded Car and Actor GameDone | [crates/lhr-engine/src/car_game_done.rs](../crates/lhr-engine/src/car_game_done.rs) | 2 | 18 | No integration recorded | Twelve direct Car and six direct Actor GameDone prestates compare complete 64 KiB arena, Game.data and ordered typed effects. Actual Actor cleanup also executes within Car cleanup. Vehicle GameDone, SoundOff, object removal, shadow, radar and traffic boundaries are controlled; no constructor-to-GameInit-to-GameDone lifecycle is established. |
+| Game bounded vehicle sound deformation seats and doors | [crates/lhr-engine/src/car_game_init_vehicle_resources.rs](../crates/lhr-engine/src/car_game_init_vehicle_resources.rs) | 9 | 44 | No integration recorded | Forty-four unique core direct-entry inputs cover nine canonical seat-mass, sound, deformation, glass-texture and door helpers. Complete arena, Game.data and ordered create, load, virtual, mesh, texture and sector effects compare. These effects remain controlled library boundaries. Nine additional door-sign inputs and four separate Vehicle GameDone wheel inputs are reported separately. Sparse DoLights and nested unadmitted helpers add no entry credit. |
+| Game bounded embedded Vehicle GameDone | [crates/lhr-engine/src/car_game_done_vehicle.rs](../crates/lhr-engine/src/car_game_done_vehicle.rs) | 1 | 6 | No integration recorded | Six unique core direct Vehicle GameDone prestates compare complete arena, Game.data and ordered controlled resource effects, including reached extinguished-light cleanup. Four additional wheel-cleanup prestates are separate breadth evidence. Illuminated DoLights paths, actual library resource backends and whole lifecycle ownership are excluded; no separate DoLights credit. |
+| Game original car level tables and packed parameter conversion | [crates/lhr-engine/src/car_game_init_levels.rs](../crates/lhr-engine/src/car_game_init_levels.rs) | 2 | 39 | Static inspection | Fourteen archive-aware LoadLevelTables ABI prestates and twenty-five direct packed-converter prestates compare original results, complete admitted heap and ordered file and allocator effects. Original filenames, row order, packed copies, padding and partial writes are retained. Native file and allocator operations are controlled boundaries. A separate original-DTA runtime adapter passes eight configurations in both profiles; this does not complete Car GameInit. |
+| Game bounded vehicle Handbrake setter | [crates/lhr-engine/src/vehicle_controls.rs](../crates/lhr-engine/src/vehicle_controls.rs) | 1 | 73 | No integration recorded | Seventy-three unique borrowed-storage SetHandbrake inputs from seventy-four named trajectories compare the complete original 64 KiB state and defined boolean in both profiles. Original ramp, clamp and release behavior is retained. This is an input setter without vehicle dynamics. |
+| Game bounded UpdateSteeringWheels | [crates/lhr-engine/src/vehicle_wheel_pose.rs](../crates/lhr-engine/src/vehicle_wheel_pose.rs) | 1 | 31 | Static inspection | Thirty-one unique original UpdateSteeringWheels inputs compare complete 64 KiB state with explicit quaternion and frame effects. Original-data A and D preview publishes recovered steerable-wheel quaternions through the same initialized ModelArena and graph update. Body motion, wheel rolling, road contacts and playable driving are outside that preview. |
+| Game bounded UpdateRotationWheels | [crates/lhr-engine/src/vehicle_wheel_pose.rs](../crates/lhr-engine/src/vehicle_wheel_pose.rs) | 1 | 36 | No integration recorded | Thirty-six unique original UpdateRotationWheels prestates from thirty-eight named trajectories compare complete 64 KiB state and bounded required quaternion and frame effects. Actual rolling publication during body simulation is not established by the steering preview. |
+| Game bounded Vehicle Engine scheduler | [crates/lhr-engine/src/vehicle_dynamics.rs](../crates/lhr-engine/src/vehicle_dynamics.rs) | 1 | 147 | No integration recorded | One hundred forty-seven unique full entry capsules from one hundred sixty-two named Engine trajectories compare complete 64 KiB state, defined boolean and ordered controlled Move and AngleTo effects. Borrowed and addressable API reruns add no input credit. Actual retained AngleTo and logical precision-history composition are separate checked cohorts; no complete solver or driving claim follows from scheduler parity. |
+| Game bounded composed Vehicle Move | [crates/lhr-engine/src/vehicle_dynamics_move.rs](../crates/lhr-engine/src/vehicle_dynamics_move.rs) | 1 | 79 | No integration recorded | Seventy-nine unique full entry capsules from eighty-one named complete Move trajectories compose fifty zero-wheel and twenty-nine nonzero-wheel inputs. All internal preparation, force, wheel, rigid-body and tail phases share one address map and add no canonical entries. Complete state, defined return and ordered required effects compare with controlled body, world and library dependencies. Original road driving and mission integration remain unavailable. |
+| Game bounded Vehicle Tick modes zero one and two | [crates/lhr-engine/src/vehicle_dynamics_tick.rs](../crates/lhr-engine/src/vehicle_dynamics_tick.rs) | 1 | 64 | No integration recorded | Sixty-four unique full entry capsules from sixty-six named admitted Tick trajectories compare complete 64 KiB state and ordered drivetrain, Engine and effect boundaries for modes zero, one and two. Six original mode-three undefined-local trajectories are excluded. Six additional uphill cases are separate breadth evidence; profile or API repetitions add no cases. No live game caller or driving pipeline is claimed. |
+| Game bounded Vehicle Update orchestration | [crates/lhr-engine/src/vehicle_dynamics_update.rs](../crates/lhr-engine/src/vehicle_dynamics_update.rs) | 1 | 52 | No integration recorded | Fifty-two unique full Update prestates compare complete 64 KiB state, defined result and ordered model, scene, sound, dynamic-registration, particle and wheel-publication effects. Unsigned millisecond conversion, original material-table and RNG order are retained. Wheel steering, rotation, axes and other external dependencies remain controlled in this corpus. This is not complete game-loop or driving integration. |
+| Game bounded DoWheelsCollision | [crates/lhr-engine/src/vehicle_contacts.rs](../crates/lhr-engine/src/vehicle_contacts.rs) | 1 | 84 | No integration recorded | Eighty-four unique original inputs comprise fifty-eight complete DoWheelsCollision returns and twenty-six placement-frontier prefixes. Twelve full-return impact cases prove that two original callback arguments alias one mutable impulse, that callback and persistent mass mutations affect the later damage threshold, and that particles, sound, callback and damage effects retain their original order. Earlier accumulated velocity deltas retain their pre-callback impulse. Complete and prefix observations remain separate. World and effect callees are controlled boundaries; dirty-frame and actual loaded-road ownership are outside this corpus. No driving validation is established. |
+| Game bounded BodyCollision traversal and fine-hit admission | [crates/lhr-engine/src/vehicle_dynamics_body_collision.rs](../crates/lhr-engine/src/vehicle_dynamics_body_collision.rs) | 1 | 8 | No integration recorded | Eight unique original BodyCollision inputs compare complete arena, selected Game.data scratch globals, defined result and ordered scratch, filter and sphere-query effects. Empty, coarse-miss and bounded coarse and fine hit admission are exercised with controlled query results and initialized scratch capacity. Static impulse and damage callbacks, descriptor mapper mutation, nested dynamic owners and actual loaded-world queries are outside this eight-case proof. |
+| LS3DF bounded S_vector AngleTo | [crates/lhr-engine/src/native_vector_angle.rs](../crates/lhr-engine/src/native_vector_angle.rs) | 1 | 202 | No integration recorded | Two hundred two unique direct original S_vector AngleTo inputs compare the admitted PC24 nearest finite-normal or zero result and preserved state. Retained extended tokens, CRT precision-dependent sine products and quotient continuation have separate composition cohorts. Logical precision-history scope is required for admitted composition; unscoped negative controls intentionally differ. Architecture-specific environment preservation is scoped to the isolated assembly block. |
+| Game bounded SphereInFace and SphereInEdge | [crates/lhr-engine/src/collision_swept.rs](../crates/lhr-engine/src/collision_swept.rs) | 2 | 944 | No integration recorded | Nine hundred forty-four distinct original direct-entry capsules comprise seven hundred sixty-four Face and one hundred eighty Edge cases. Initial overlap, one-sided planes, ordered edge and nominated-vertex paths, strict distance and resolved sphere center retain original arithmetic. Complete state and defined boolean compare; finite normal or zero PC24 domain limits remain explicit. |
+| Game bounded SphereInNonface and SphereInAABox | [crates/lhr-engine/src/collision_swept_world.rs](../crates/lhr-engine/src/collision_swept_world.rs) | 2 | 926 | No integration recorded | Nine hundred twenty-six distinct original direct-entry capsules comprise five hundred ninety Nonface and three hundred thirty-six AABox inputs. Sphere, infinite cylinder, selected AABox faces, transformed OBB and XTOBB paths preserve native edge, vertex and transform order. Source planes and local radius are retained. Complete state and defined boolean compare within the bounded numeric domain; no actor or dynamic-world owner is invented. |
+| Game bounded static TestSphereB worker and tree traversal | [crates/lhr-engine/src/collision_swept_world.rs](../crates/lhr-engine/src/collision_swept_world.rs) | 2 | 172 | No integration recorded | One hundred seventy-two unique full capsules from one hundred seventy-three named direct _TestSphereB requests execute the actual nested SphereInTreeLevel body. Complete state, original primitive identity, strict nearest distance, masks and optional output preservation compare. A separate native PC marker confirms Tree reachability; there are no standalone Tree entry prestates. Dynamic-grid presence and reached missing geometry remain typed unavailable. TestSphereB thunk and host-world adapter gain no credit. |
+| Game bounded DBox collision worker and dependencies | [crates/lhr-engine/src/collision_swept_box.rs](../crates/lhr-engine/src/collision_swept_box.rs) | 4 | 77 | No integration recorded | Seventy-seven distinct original direct-entry inputs comprise twenty-eight _TestDBox, fifteen BoxInTreeLevel, seventeen BoxInNonFace and seventeen BoxInDynamic cases. Defined boolean results agree and original source memory remains read-only. Original tangent rules, stored squared extents, ordering and required owner availability are retained. Actual live dynamic actor registration and original-world driving are not established. |
+| LS3DF Scene weather reset and sector sound defaults | [crates/lhr-engine/src/scene_weather.rs](../crates/lhr-engine/src/scene_weather.rs) | 2 | 800 | No integration recorded | Eight hundred direct original-instruction inputs comprise 736 WeatherSystemReset and 64 sector sound defaults inputs, including incoming precision P0/P1. Full 65536-byte fixture arenas and logical sticky P match actual Cargo debug/release; native O0/O3 wrappers add no cases. Original fixed-angle math executes without numeric mocks. Unknown Scene words and signed zeros are retained. Scene construction, shared Snow ownership, full Close, driver/global ownership and mission integration remain open. |
+
+These rows describe only the reviewed bounded domains. Their native-derived cases do not establish whole-function completion.
+
+| Frozen snapshot | As of | Retained static pseudocode | Scoped Rust entries | Complete systems |
+| --- | --- | --- | ---: | ---: |
+| `historical-retained-static-20261021` | 2026-10-21 | Game.exe 9 / 4,914 (0.18%); LS3DF.dll 45 / 1,683 (2.67%) | N/A | 0/12 |
+| `pc-function-r2-20261021` | 2026-10-21 | Game.exe 55 / 4,914 (1.12%); rw_data.dll 6 / N/A; LS3DF.dll 48 / 1,683 (2.85%) | N/A | 0/12 |
+| `RUST-SCOPED-PORTS-20261021-01` | 2026-10-21 | Game.exe 55 / 4,914 (1.12%); rw_data.dll 6 / N/A; LS3DF.dll 48 / 1,683 (2.85%) | 4 | 0/12 |
+| `RUST-SCOPED-PORTS-20261021-02` | 2026-10-21 | Game.exe 55 / 4,914 (1.12%); rw_data.dll 6 / N/A; LS3DF.dll 48 / 1,683 (2.85%) | 6 | 0/12 |
+| `RUST-SCOPED-PORTS-20261021-03` | 2026-10-21 | Game.exe 72 / 4,914 (1.47%); rw_data.dll 6 / N/A; LS3DF.dll 55 / 1,683 (3.27%) | 8 | 0/12 |
+| `RUST-SCOPED-PORTS-20261021-04` | 2026-10-21 | Game.exe 72 / 4,914 (1.47%); rw_data.dll 6 / N/A; LS3DF.dll 55 / 1,683 (3.27%) | 13 | 0/12 |
+| `RUST-SCOPED-PORTS-20261021-05` | 2026-10-21 | Game.exe 4783 / 4,914 (97.33%); rw_data.dll 6 / N/A; LS3DF.dll 1530 / 1,689 (90.59%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 41 | 0/12 |
+| `RUST-SCOPED-PORTS-20261022-06` | 2026-10-22 | Game.exe 4783 / 4,914 (97.33%); rw_data.dll 6 / N/A; LS3DF.dll 1530 / 1,689 (90.59%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 46 | 0/12 |
+| `RUST-SCOPED-PORTS-20261022-07` | 2026-10-22 | Game.exe 4783 / 4,914 (97.33%); rw_data.dll 6 / N/A; LS3DF.dll 1530 / 1,689 (90.59%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 68 | 0/12 |
+| `RUST-SCOPED-PORTS-20261022-08` | 2026-10-22 | Game.exe 4783 / 4,914 (97.33%); rw_data.dll 6 / N/A; LS3DF.dll 1530 / 1,689 (90.59%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 72 | 0/12 |
+| `RUST-SCOPED-PORTS-20261022-09` | 2026-10-22 | Game.exe 4783 / 4,914 (97.33%); rw_data.dll 6 / N/A; LS3DF.dll 1530 / 1,689 (90.59%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 83 | 0/12 |
+| `RUST-SCOPED-PORTS-20261022-10` | 2026-10-22 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 95 | 0/12 |
+| `RUST-SCOPED-PORTS-20261022-11` | 2026-10-22 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 110 | 0/12 |
+| `RUST-SCOPED-PORTS-20261022-12` | 2026-10-22 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 117 | 0/12 |
+| `RUST-SCOPED-PORTS-20261022-13` | 2026-10-22 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 126 | 0/12 |
+| `RUST-SCOPED-PORTS-20261022-14` | 2026-10-22 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 129 | 0/12 |
+| `RUST-SCOPED-PORTS-20261022-15` | 2026-10-22 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 147 | 0/12 |
+| `RUST-SCOPED-PORTS-20261022-16` | 2026-10-22 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 147 | 0/12 |
+| `RUST-SCOPED-PORTS-20261022-17` | 2026-10-22 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 151 | 0/12 |
+| `RUST-SCOPED-PORTS-20261022-18` | 2026-10-22 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 159 | 0/12 |
+| `RUST-SCOPED-PORTS-20261022-19` | 2026-10-22 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 160 | 0/12 |
+| `RUST-SCOPED-PORTS-20261022-20` | 2026-10-22 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 161 | 0/12 |
+| `RUST-SCOPED-PORTS-20261023-21` | 2026-10-23 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 162 | 0/12 |
+| `RUST-SCOPED-PORTS-20261023-22` | 2026-10-23 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 163 | 0/12 |
+| `RUST-SCOPED-PORTS-20261023-23` | 2026-10-23 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 164 | 0/12 |
+| `RUST-SCOPED-PORTS-20261023-24` | 2026-10-23 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 165 | 0/12 |
+| `RUST-SCOPED-PORTS-20261023-25` | 2026-10-23 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 167 | 0/12 |
+| `RUST-SCOPED-PORTS-20261023-26` | 2026-10-23 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 168 | 0/12 |
+| `RUST-SCOPED-PORTS-20261023-27` | 2026-10-23 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 168 | 0/12 |
+| `RUST-SCOPED-PORTS-20261023-28` | 2026-10-23 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 176 | 0/12 |
+| `RUST-SCOPED-PORTS-20261023-29` | 2026-10-23 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 177 | 0/12 |
+| `RUST-SCOPED-PORTS-20261023-30` | 2026-10-23 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 179 | 0/12 |
+| `RUST-SCOPED-PORTS-20261023-31` | 2026-10-23 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 181 | 0/12 |
+| `RUST-SCOPED-PORTS-20261023-32` | 2026-10-23 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 192 | 0/12 |
+| `RUST-SCOPED-PORTS-20261023-33` | 2026-10-23 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 195 | 0/12 |
+| `RUST-SCOPED-PORTS-20261023-34` | 2026-10-23 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 204 | 0/12 |
+| `RUST-SCOPED-PORTS-20261023-35` | 2026-10-23 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 214 | 0/12 |
+| `RUST-SCOPED-PORTS-20261023-36` | 2026-10-23 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 219 | 0/12 |
+| `RUST-SCOPED-PORTS-20261023-37` | 2026-10-23 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 222 | 0/12 |
+| `RUST-SCOPED-PORTS-20261023-38` | 2026-10-23 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 227 | 0/12 |
+| `RUST-SCOPED-PORTS-20261023-39` | 2026-10-23 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 245 | 0/12 |
+| `RUST-SCOPED-PORTS-20261023-40` | 2026-10-23 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 255 | 0/12 |
+| `RUST-SCOPED-PORTS-20261023-41` | 2026-10-23 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 257 | 0/12 |
+| `RUST-SCOPED-PORTS-20261023-42` | 2026-10-23 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 264 | 0/12 |
+| `RUST-SCOPED-PORTS-20261024-43` | 2026-10-24 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 271 | 0/12 |
+| `RUST-SCOPED-PORTS-20261024-44` | 2026-10-24 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 272 | 0/12 |
+| `RUST-SCOPED-PORTS-20261024-45` | 2026-10-24 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 309 | 0/12 |
+| `RUST-SCOPED-PORTS-20261024-46` | 2026-10-24 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 309 | 0/12 |
+| `RUST-SCOPED-PORTS-20261025-47` | 2026-10-25 | Game.exe 4784 / 4,914 (97.35%); rw_data.dll 176 / 234 (75.21%); LS3DF.dll 1555 / 1,714 (90.72%); Setup.exe (supplied configuration) 172 / 172 (100.00%) | 311 | 0/12 |
+
+Regenerate locally with `python3 scripts/progress.py --write`; verify without writes with `python3 scripts/progress.py --check`. Versioned snapshots are retained in `docs/progress.json`.
+See the [README overview](../README.md) for the compact dashboard.
+Supplied binary catalog (file identities; independent measures):
+
+| Binary | Platform | Variant | Role | Static retained pseudocode | Scoped Rust entries |
+| --- | --- | --- | --- | ---: | ---: |
+| DrvMgt.dll | PC | Installed game | Driver-management helper, exact runtime use unresolved | N/A | 0 |
+| Game.exe | PC | Installed game | Game and mission executable | 4784 / 4,914 (97.35%) | 149 |
+| IJoy.dll | PC | Installed game | DirectInput joystick wrapper | N/A | 0 |
+| INet.dll | PC | Installed game | Network helper, exact runtime use unresolved | N/A | 0 |
+| LS3DF.dll | PC | Installed game | 3D, animation, audio and rendering engine | 1555 / 1,714 (90.72%) | 145 |
+| Setup.exe (supplied configuration) | PC | Installed game | Installed game configuration utility | 172 / 172 (100.00%) | 5 |
+| binkw32.dll | PC | Installed game | Bink video codec boundary | N/A | 0 |
+| ogg.dll | PC | Installed game | Ogg container library boundary | N/A | 0 |
+| rw_data.dll | PC | Installed game | Game archive and data access library | 176 / 234 (75.21%) | 12 |
+| vorbis.dll | PC | Installed game | Vorbis codec library boundary | N/A | 0 |
+| vorbisfile.dll | PC | Installed game | Vorbis stream and file library boundary | N/A | 0 |
+| Setup.exe (archive installer bootstrap) | PC | Distribution archive | Distribution installer bootstrap | 376 / 376 (100.00%) | 0 |
+| SLUS_206.71 | PS2 | PS2 disc executable | PS2 game executable with retained linker symbols | N/A | 0 |
+| CDVDSTM.IRX | PS2 | PS2 disc IOP module | CD and DVD streaming support module | N/A | 0 |
+| IOPRP271.IMG | PS2 | PS2 disc support image | IOP reboot and support image, container contents unmeasured | N/A | 0 |
+| LIBSD.IRX | PS2 | PS2 disc IOP module | Sound support module | N/A | 0 |
+| MCMAN.IRX | PS2 | PS2 disc IOP module | Memory-card management module | N/A | 0 |
+| MCSERV.IRX | PS2 | PS2 disc IOP module | Memory-card service module | N/A | 0 |
+| MTAPMAN.IRX | PS2 | PS2 disc IOP module | Multitap support module | N/A | 0 |
+| PADMAN.IRX | PS2 | PS2 disc IOP module | Controller support module | N/A | 0 |
+| SDRDRV.IRX | PS2 | PS2 disc IOP module | Sound driver module | N/A | 0 |
+| SIO2MAN.IRX | PS2 | PS2 disc IOP module | SIO2 support module | N/A | 0 |
+| SOUND.IRX | PS2 | PS2 disc IOP module | Game-distributed sound module | N/A | 0 |
+| SOUND2.IRX | PS2 | PS2 disc IOP module | Game-distributed sound module | N/A | 0 |
+| SOUND_M.IRX | PS2 | PS2 disc IOP module | Game-distributed sound module | N/A | 0 |
+
+N/A means no measured static procedure ratio. PS2 linker symbol research supplies naming evidence, not static procedure coverage. Scoped entries are absolute reviewed counts joined by binary SHA-256; zero is not 0% coverage. Whole-function and differential runtime coverage remain unmeasured (N/A).
+<!-- generated-function-progress:end -->
+
+</details>
+``````````
+
+## `docs/GOALS.md`
+
+Bytes: 3633; SHA-256: `8b3e6c118d15a27c2bf139493d481722b9a395e62284205fb562ac410ae32348`.
+
+``````````markdown
+# Reconstruction goals
+
+Build a standalone Rust engine that runs the original PC campaign from the user's
+own assets. The immediate goal is the playable first mission, from the original
+menu through completion. Inspection and standalone driving do not satisfy it.
+
+## First-mission acceptance
+
+All six gates remain open. Accepted scoped work stays **311 entries / 114
+contracts**, strict **0/12**, whole-function coverage **N/A**.
+
+| Gate | Required evidence |
+| --- | --- |
+| Original startup | Menu starts MISE01 with original actors, resources, scripts and update order. |
+| Playable control | Original player/taxi movement, camera, collision and damage respond correctly. |
+| Mission progression | Original objectives, pursuit, events and replay transitions reach completion. |
+| Presentation needed for play | Models, animation, materials, text/HUD and required audio support play. |
+| Repeatability | Restart/repeated runs match representative original-runtime and interactive sequences. |
+| Standalone execution | User assets suffice; original executables and REA remain development-only inputs. |
+
+## Current foundation and next dependencies
+
+Genuine visual replacement and saved lighting now feed actual scene-owned
+resources, UV2/atlases, the active Camera's three draw passes and bounded
+portal/occluder visibility. Admitted nearby cache selections create actual shared
+model instances; guarded owners retain interrupted failures. This does not
+complete original startup, streaming or mission execution.
+
+1. Continue the real scene2 consumer from **44 records / cursor 18693**:
+   implement the reached `FRAME_DUMMY` (6) factory for `detector_konec`, then
+   subsequent genuine dependencies. Complete SceneOpen progress callbacks and
+   production MissionOpen owners without skipping reached failures.
+2. Diagnose the dark or absent road and sky; the cause remains unresolved.
+   Extend ordinary lighting/material branches, fog, specialized visual passes,
+   remaining camera/driver cache effects and saved-lightmap variants. Preserve
+   actual resource ownership and distinguish the host cache selector from the
+   original city-streaming controller.
+3. Connect original startup/menu, player, input, audio, profiles and tables;
+   complete actor, animation, collision and vehicle lifetimes through mission
+   owners and original update scheduling.
+4. Complete script expressions, compiler/parameters, world effects, replay,
+   objectives and mission completion. The separate authored MISE01 script probe
+   remains FINDACTOR/UnsupportedWorldBackend at PC 3 / source line 4.
+5. Validate complete first-mission runs, restart and cleanup against relevant
+   original-runtime evidence and interactive Rust sequences. This milestone adds
+   no original executable/function execution or parity claim.
+
+## Reconstruction rules
+
+Use REA/Ghidra contracts keyed by binary hash and canonical entry. Actual PS2
+symbols establish names; PC layout, ABI and behavior need separate evidence.
+Implement dependencies through real owners, preserve explicit unsupported
+boundaries, and require two sequential independent reviews. Original models and
+missions are general regression inputs. Static pseudocode, scoped ports and
+complete systems remain separate counts.
+
+Linux software Vulkan is exercised; native macOS/Metal remains untested.
+[Progress](PROGRESS.md) · [coverage](../COVERAGE.md) ·
+[reference audit](REFERENCE_PROJECTS.md) ·
+[complete predecessor goals](history/2026-10-26-scene-render-predecessor.md#goals).
+Optional [enhanced assets](ASSET_ENHANCEMENT.md) follow original-data compatibility
+and the playable-mission goal.
+``````````
+
+## `docs/implementation/mafia-re-remediation.md`
+
+Bytes: 6000; SHA-256: `e8bf1ff000867b4aaf8f8338f959bf64ab614996125ae5112edcd638ca4faab0`.
+
+``````````markdown
+# Scene/resource remediation scope — 2026-10-26
+
+Validated source object:
+[`dddaf539c9b874b9cf7a67d866532d901729df18`](https://github.com/dnesdan/lost-heaven-reborn/commit/dddaf539c9b874b9cf7a67d866532d901729df18),
+tree `8d78a1aa3fb24e3dbf286fd1baca96dcccc35ec4`.
+The 344-file source/config fingerprint is
+`0616fb1ef46c6448cedca8df3e28acd92b186e7d466b808d00cf0d4965f4e5c5`.
+Two sequential independent code reviews, including the final cache/retention
+supplement, approve the final revised source. These are AI reviews, not human
+approvals. The predecessor's complete PR/stage record is
+[archived verbatim](../history/2026-10-26-scene-render-predecessor.md#remediation).
+
+## Implemented interaction
+
+- Scene2 creates a genuine LMAP resource and performs ordered Duplicate,
+  hierarchy/child moves, map replacement, membership changes and reference
+  release. Saved-payload Load uses that current object's real owner; native
+  negative returns and host interruptions remain distinct.
+- Saved lighting owns its geometry, vertex colors, UV2, atlas placements and
+  shared texture lifetime. The renderer consumes those actual resources; the
+  unconstructed cyan branch remains separate.
+- The owned Scene's active Camera and viewport feed backdrop, main and near
+  GPU passes. Portal/occluder visibility supplies their actual draw lists.
+- In the measured driving run, nearby cache selections materialize 907 actual
+  model instances in the same arena/Scene/MissionCaches. Root poses and the
+  replacement of each visual's local scale by the second stored scale preserve
+  dummy transforms. Typed physics/current-frame maps synchronize visibility.
+  This is bounded host-selector adoption, not original Game
+  city-streaming or pool-controller parity.
+- Source queue/cull rules retain nullable-material geometry and known-zero
+  ordering. The admitted null-first-material ambient/point evaluator reads real
+  registered lights. Guarded Scene/CarRuntime owners retain entered failures;
+  pending creators precede SceneClose, cache teardown and buffer reclamation.
+
+## Validation partitions
+
+| Check | Current result and scope |
+| --- | --- |
+| Required `scripts/test.sh` | PASS: format, all-target check, Clippy, 1362 Rust tests, 9 Python boundary tests, 47 progress tests and generated check. |
+| Debug and release workspace tests | 1362 PASS in each profile; unchanged x87 tests run without exclusions. |
+| Opt-in GPU checks | 1374 tests total with 12 GPU checks on Mesa llvmpipe Vulkan; host upload/draw/readback behavior, not original-game image parity. |
+| Actual-data world/scene2 | 1415 frames, 5 sectors, 14 portals; 44 completed scene2 records, then `FRAME_DUMMY` (6), `detector_konec`, cursor 18693. |
+| Actual-data driving CPU | 907 actual cache models, 0 unsupported/pending/interrupted placements; 686 chase-view draws, 240 steps, audio and GameDone. Explicit cleanup/reclaim reaches zero tracked resources. |
+| Final actual saved-lightmap GPU probe | Same owned Scene/Camera, 140 draws / 11 lighting draws including 7 base247 lit draws. Whitening the actual atlas changes 53 pixels; restoring it restores the entire RGBA image byte-for-byte. Close/reclaim reaches zero. |
+| Final headless entry points | Default menu and MISE01 inspection exit 0; pinned source/library/input guards remain unchanged and all task-owned probe processes are reaped. |
+| Final interactive application | PASS: W/A/D/S/Space, three reloads and Escape with exit 0; four cleanups each reach seven zero CPU counters. Source/binary guards are unchanged and app/Xvfb/harness processes are reaped. |
+
+Final verification v3 receipt SHA-256:
+`6dfdc19cdc03c3f5ce1d091f8baf246d35ec0a47eddebaa6f3ac32e90b0bd5c3`.
+Per-process, source, library and input manifests are retained privately.
+
+Reproduction entry points remain:
+
+```sh
+./scripts/setup.sh
+./scripts/test.sh
+cargo test --workspace --release
+cargo test --workspace -- --include-ignored
+./scripts/run.sh --root /path/to/Mafia
+./scripts/run.sh --root /path/to/Mafia --model models/taxi00.4ds --car-driving
+./scripts/run.sh --root /path/to/Mafia --mission mise01 --headless --capture /tmp/mise01.png
+```
+
+Use the pinned Rust 1.99.1 toolchain and original user-owned assets. The driving
+UI uses a window; headless MISE01 remains inspection. Native macOS/Metal and host
+audio hardware are unverified. No new video is claimed. The current
+[driving capture](../screenshots/2026-10-26-canonical-scene-driving.webp) restores
+cache buildings, but road and sky remain dark or absent, with the cause
+unresolved. This is a material presentation limitation, not a full-renderer pass.
+
+## Evidence and remaining boundaries
+
+The current source cross-check is [mafia-re 29b65b0e](https://github.com/Marvisak/mafia-re/tree/29b65b0e5bcf77f1f36c4fceeaa2b64eb644087c),
+freshly confirmed unchanged. Hash/address-keyed PC REA/Ghidra receipts and actual
+PS2 symbol crosschecks remain private. REA source is clean 3d565fa42 / version 6.8;
+static analysis used isolated 6.7 because Node 24.19 misses the 24.22.1 minimum.
+No original executable/function, binary harness or reference application was
+executed for this milestone.
+
+Complete startup/MissionOpen, the remaining scene2 factories, original player
+and actor scheduling, scripts/objectives/replay, traffic/AI and save/load remain
+open. General lighting/fog/environment/specialized passes, remaining driver
+view/projection cache/effects, saved-lightmap variants and native streaming are
+also open. Source tests, actual-data CPU runs, GPU pixels and UI input do not
+establish whole-function or complete-system equivalence.
+
+All six first-mission gates remain open. Accepted work stays **311 scoped
+entries / 114 contracts**, strict **0/12**, whole-function coverage **N/A**. This
+milestone adds no native-function, ledger or original-runtime parity credit.
+
+[Coverage](../../COVERAGE.md) · [progress](../PROGRESS.md) ·
+[goals](../GOALS.md) · [reference audit](../REFERENCE_PROJECTS.md) ·
+[documentation history](../history/README.md).
+``````````
+
+## `docs/REFERENCE_PROJECTS.md`
+
+Bytes: 4627; SHA-256: `1591ff03dd65831e6c2ce10c1b099e146b96581af83c2691920dfed7a2da4885`.
+
+``````````markdown
+# Reference-project audit
+
+## Current source and tool check — 2026-10-26
+
+Fresh inspection confirms [mafia-re
+`29b65b0e5bcf77f1f36c4fceeaa2b64eb644087c`](https://github.com/Marvisak/mafia-re/tree/29b65b0e5bcf77f1f36c4fceeaa2b64eb644087c),
+unchanged from the preceding source audit. It supplies substantial LS3DF bodies
+for visual factories/copies, saved lighting, camera/render passes, portal and
+occluder processing. Its Game mission/startup/actor stubs do not supply a
+working campaign. Existing binary-specific contracts and historical behavior
+pins retain their own scope.
+
+REA repository source was updated to clean revision `3d565fa42` / version 6.8.
+Static analysis used an isolated 6.7 runtime because host Node 24.19 is below
+6.8's required 24.22.1. Fresh PC instruction receipts, retained exact-body
+crosschecks and actual PS2 symbol evidence are recorded privately. No original
+game executable/function or reference application was executed for this work;
+REA remains a development tool, not a game-runtime dependency.
+
+## Connected Rust scope
+
+Source [`dddaf539`](https://github.com/dnesdan/lost-heaven-reborn/commit/dddaf539c9b874b9cf7a67d866532d901729df18)
+now composes the bounded dependencies through real owners:
+
+| Dependency | Current connected scope | Remaining boundary |
+| --- | --- | --- |
+| Visual factory/copy and scene2 | Real `OBJ_` → `LMAP` owner replacement, hierarchy/map/refcount effects, saved-payload dispatch | Scene2 stops at 44 records / cursor 18693 on `FRAME_DUMMY` (6), `detector_konec`; complete MissionOpen remains open. |
+| Saved lighting | Owned vertex colors/lightmap geometry, UV2, atlas allocation/update and actual GPU sampling | Full Construct, 16-bit/dither/compression/resize and general shader behavior remain open. |
+| Scene and Camera | Actual active camera/viewport, backdrop/main/near passes, portal/occluder visibility | Complete native rendering, driver cache/effect paths and original player/camera scheduling remain open. |
+| City-cache placements | 907 measured scene-owned model instances sharing real resources, secondary-scale replacement and live visibility correspondence | Existing host-selector admission is explicit; original city streaming/pooling/controller equivalence is unclaimed. |
+| Failure/lifetime | Pending creators and interrupted Scene/CarRuntime owners remain inspectable; explicit scene→cache→reclaim cleanup | Native allocator/device/failure parity is not established. |
+
+The current image still has dark or absent road and sky; the cause is unresolved.
+CPU/source tests, GPU readback, actual-data probes and interactive UI are separate
+proofs. No new scoped entry, whole-function or original-runtime credit follows:
+**311 entries / 114 contracts**, strict **0/12**, whole-function **N/A**.
+
+## Other retained references
+
+These earlier source observations were not freshly revalidated in this milestone.
+
+| Reference | Retained revision | Useful scope |
+| --- | --- | --- |
+| [MafiaUnity](https://github.com/MafiaHub/MafiaUnity/tree/0d7a12f03ce4385173377c3e9f457dcc2e891f24) | `0d7a12f0`, archived | Resource composition, reference joining and patch order; Unity lifetime/prototypes do not establish native ownership or mission behavior. |
+| [OpenMF-Archived](https://github.com/MafiaHub/OpenMF-Archived/tree/7167e74d65eeced643aa51fb56bb62b8556d8389) | `7167e74d`, archived | Inspectable scene/name/KLZ relationships; abandoned renderer/physics/player prototypes are source leads. |
+| [LS3D-SceneKit](https://github.com/alex-alex/LS3D-SceneKit/tree/8fadd2201f52936d998c66c47b0a0d37476c2ce5) | `8fadd220` | Format and hierarchy/skin leads, without PC layout/ABI/runtime equivalence. |
+
+The [complete predecessor reference audit](history/2026-10-26-scene-render-predecessor.md#reference-projects)
+preserves older revisions, source links, naming caveats and format/codec projects
+verbatim. Use actual PS2 symbols for original names and PC instructions for PC
+behavior; upstream working labels and source folder layout are not original
+symbol or library-boundary proof.
+
+<a id="rust-organization-and-original-names"></a>
+<a id="current-source-audit--2026-10-25"></a>
+<a id="next-general-engine-work"></a>
+
+Earlier inbound audit/name-mapping anchors are retained here. Their original
+dated text is in the [complete predecessor reference audit](history/2026-10-26-scene-render-predecessor.md#reference-projects);
+the current dependency order is in [goals](GOALS.md).
+
+[Current implementation and validation](implementation/mafia-re-remediation.md) ·
+[remaining goals](GOALS.md) · [coverage](../COVERAGE.md) · [history](history/README.md).
+``````````

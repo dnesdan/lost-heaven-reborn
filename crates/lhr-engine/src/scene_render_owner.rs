@@ -43,6 +43,7 @@ pub struct CanonicalSceneState {
     driver: DriverSceneOwner,
     textures: TextureResources,
     storage: CpuTextureStorage,
+    audio: crate::runtime_audio::RuntimeAudio,
     world: Option<crate::model_loading::CpuSceneWorldProgress>,
     pub loader: Option<MissionSceneLoader>,
     pub frontier: Option<MissionSceneLoadError>,
@@ -146,6 +147,7 @@ impl CanonicalSceneOwner {
             driver: DriverSceneOwner::default(),
             textures: TextureResources::new().map_err(|e| format!("Scene textures: {e:?}"))?,
             storage: CpuTextureStorage::default(),
+            audio: crate::runtime_audio::RuntimeAudio::default(),
             world: None,
             loader: None,
             frontier: None,
@@ -203,6 +205,12 @@ impl CanonicalSceneState {
             .map_err(|e| e.to_string())?
             .enable_inspection_rgba8_color_key()
             .map_err(|e| format!("Scene texture upload format: {e:?}"))?;
+        self.caches
+            .add_dir(MissionCacheKind::Sound, b"Sounds", &mut self.cache_memory)
+            .map_err(|e| format!("Scene sound directory: {e:?}"))?;
+        self.driver
+            .bind_host_sound_backend(&mut self.arena, &self.audio)
+            .map_err(|e| format!("Canonical host PCM backend: {e:?}"))?;
         let created = self.driver.create_scene(
             &mut DriverSceneContext {
                 arena: &mut self.arena,
@@ -212,7 +220,7 @@ impl CanonicalSceneState {
             },
             &mut Screen(viewport),
             &mut Images(installation),
-            NativeSceneSoundDriver::Absent,
+            NativeSceneSoundDriver::Initialized,
         );
         let scene = match created {
             Ok(scene) => {
@@ -246,7 +254,7 @@ impl CanonicalSceneState {
             .map_err(|e| format!("Canonical scene2 input: {e}"))?;
         // Explicit ordinary host screen mode used by this inspection caller.
         // This is not original GameInit or player-camera scheduling.
-        let result = loader.load_prefix_with_model_cache(
+        let result = loader.load_prefix_with_resource_cache(
             &mut self.driver,
             &mut self.arena,
             &self.resources,
@@ -285,6 +293,7 @@ impl CanonicalSceneState {
         let eye = reflect(world.elements[12..15].try_into().unwrap());
         let fields = self.arena.camera(camera).map_err(|e| e.to_string())?;
         Ok(lhr_render::Camera {
+            vertical_fov_radians: 50f32.to_radians(),
             eye,
             target: eye + reflect(world.elements[8..11].try_into().unwrap()),
             up: reflect(world.elements[4..7].try_into().unwrap()),
@@ -331,6 +340,32 @@ impl CanonicalSceneState {
             .camera_set_direction(camera, [direction.x, direction.y, -direction.z], 0.)
             .map_err(|e| e.to_string())?;
         Ok(())
+    }
+    /// Lab inspection setting written to the actual active Scene camera.
+    /// The canonical snapshot subsequently reads this native camera and the
+    /// Scene viewport; the host control Camera never becomes the pass producer.
+    pub fn set_inspection_camera_fov(
+        &mut self,
+        control: &lhr_render::Camera,
+        viewport: [u32; 2],
+    ) -> Result<(), String> {
+        let horizontal = control.horizontal_fov_radians(viewport)?;
+        crate::native_precision::Pc24PrecisionState::run_owner(
+            self,
+            |owner| &mut owner.precision,
+            |owner| {
+                let scene = owner.scene.ok_or("Canonical Scene closed")?;
+                let camera = owner
+                    .arena
+                    .scene_active_camera(scene)
+                    .map_err(|e| e.to_string())?
+                    .ok_or("Canonical Scene has no active camera")?;
+                owner
+                    .arena
+                    .camera_set_fov(camera, horizontal)
+                    .map_err(|e| e.to_string())
+            },
+        )
     }
     pub fn snapshot(
         &mut self,
@@ -413,18 +448,29 @@ impl CanonicalSceneState {
                             &mut o.storage,
                         )
                         .map_err(|e| format!("Canonical Scene close: {e:?}"))?;
-                    o.driver
-                        .release_scene(
-                            &mut DriverSceneContext {
-                                arena: &mut o.arena,
-                                resources: &mut o.resources,
-                                textures: &mut o.textures,
-                                storage: &mut o.storage,
-                            },
-                            scene,
-                        )
-                        .map_err(|e| format!("Canonical Scene release: {e:?}"))?;
-                    o.scene = None;
+                    if o.driver.scenes().contains(&scene) {
+                        o.driver
+                            .release_scene(
+                                &mut DriverSceneContext {
+                                    arena: &mut o.arena,
+                                    resources: &mut o.resources,
+                                    textures: &mut o.textures,
+                                    storage: &mut o.storage,
+                                },
+                                scene,
+                            )
+                            .map_err(|e| format!("Canonical Scene release: {e:?}"))?;
+                    } else {
+                        o.resources
+                            .release_scene(&mut o.arena, scene, &mut o.textures, &mut o.storage)
+                            .map_err(|e| format!("Canonical unregistered Scene release: {e:?}"))?;
+                        o.driver
+                            .release_unregistered_scene_listener(scene)
+                            .map_err(|e| format!("Canonical unregistered listener: {e:?}"))?;
+                    }
+                    if o.arena.scene(scene).is_err() {
+                        o.scene = None;
+                    }
                 }
                 for kind in [
                     MissionCacheKind::Model,
@@ -435,12 +481,31 @@ impl CanonicalSceneState {
                         .destruct(kind, &mut o.arena, &mut o.cache_memory)
                         .map_err(|e| format!("Canonical cache teardown: {e:?}"))?;
                 }
+                o.audio
+                    .clear_listener()
+                    .map_err(|e| format!("Canonical host PCM listener: {e:?}"))?;
                 o.driver
                     .release_empty_registry_storage()
                     .map_err(|e| format!("Canonical driver registry: {e:?}"))?;
                 o.arena
                     .reclaim_unused_visual_buffers()
                     .map_err(|e| format!("Canonical visual reclamation: {e:?}"))?;
+                let remaining = crate::mission_load_session::MissionOwnedCounts::from_owners(
+                    &o.arena,
+                    &o.driver,
+                    &o.resources,
+                    &o.textures,
+                    &o.storage,
+                    &o.cache_memory,
+                    &o.audio,
+                    o.loader.as_ref(),
+                )
+                .map_err(|e| format!("Canonical owner diagnostics: {e:?}"))?;
+                if remaining != Default::default() {
+                    return Err(format!(
+                        "Canonical owners remain after Close: {remaining:?}"
+                    ));
+                }
                 o.lighting.clear();
                 o.closed = true;
                 Ok(())
@@ -470,6 +535,10 @@ pub fn snapshot_scene(
         )
         .map_err(|e| format!("Canonical visibility: {e:?}"))?;
     let view = active_lod_view(arena, scene, 1.)?;
+    let camera = arena
+        .scene_active_camera(scene)
+        .map_err(|e| e.to_string())?
+        .ok_or("Canonical Scene has no active camera")?;
     let frames: Vec<_> = visible
         .backdrop
         .iter()
@@ -477,7 +546,9 @@ pub fn snapshot_scene(
         .chain(&visible.near)
         .copied()
         .collect();
-    let snapshot = crate::car_inspection::snapshot_selected_frames_with_view(arena, &frames, view)?;
+    let snapshot = crate::car_inspection::snapshot_selected_frames_with_view_and_camera(
+        arena, &frames, view, camera,
+    )?;
     let indices = |members: &[crate::frame_transform::FrameKey]| {
         snapshot
             .draw_frames
@@ -503,6 +574,8 @@ pub fn snapshot_scene(
 #[cfg(test)]
 mod cleanup_tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Arc;
     struct MissingImages;
     impl TextureImageSource for MissingImages {
         fn read_image(&mut self, _: &[u8]) -> Result<Vec<u8>, TextureImageError> {
@@ -517,6 +590,7 @@ mod cleanup_tests {
             driver: DriverSceneOwner::default(),
             textures: TextureResources::new().unwrap(),
             storage: CpuTextureStorage::default(),
+            audio: crate::runtime_audio::RuntimeAudio::default(),
             world: None,
             loader: None,
             frontier: None,
@@ -527,6 +601,10 @@ mod cleanup_tests {
             lighting: Vec::new(),
             cleanup_failure: None,
         };
+        state
+            .driver
+            .bind_host_sound_backend(&mut state.arena, &state.audio)
+            .unwrap();
         let scene = state
             .driver
             .create_scene(
@@ -538,7 +616,7 @@ mod cleanup_tests {
                 },
                 &mut Screen([64, 64]),
                 &mut MissingImages,
-                NativeSceneSoundDriver::Absent,
+                NativeSceneSoundDriver::Initialized,
             )
             .unwrap();
         state.scene = Some(scene);
@@ -594,6 +672,389 @@ mod cleanup_tests {
                 assert_eq!(state.arena.live_frame_count(), frames);
             })
             .expect("failed owner retained for inspection");
+        });
+    }
+    #[test]
+    fn canonical_window_scene_opens_sound_with_same_live_owner_and_closes_it() {
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        let path = std::env::temp_dir().join(format!(
+            "lhr-canonical-sound-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(path.join("missions/synthetic")).unwrap();
+        std::fs::create_dir_all(path.join("Sounds")).unwrap();
+        let mut world = b"4DS\0".to_vec();
+        world.extend(29u16.to_le_bytes());
+        world.extend([0; 8]);
+        world.extend(0u16.to_le_bytes()); // materials
+        world.extend(0u16.to_le_bytes()); // frames
+        world.push(0); // animations
+        std::fs::write(path.join("missions/synthetic/scene.4ds"), world).unwrap();
+        let chunk = |kind: u16, payload: &[u8]| -> Vec<u8> {
+            [
+                kind.to_le_bytes().as_slice(),
+                &u32::try_from(payload.len() + 6).unwrap().to_le_bytes(),
+                payload,
+            ]
+            .concat()
+        };
+        let filename = chunk(0x10, b"a.wav\0");
+        let sound_fields = chunk(0x4060, &filename);
+        let sound = chunk(
+            0x4010,
+            &[
+                chunk(0x4011, &4u32.to_le_bytes()),
+                chunk(0x10, b"source sound\0"),
+                sound_fields,
+            ]
+            .concat(),
+        );
+        let scene2 = chunk(
+            0x4c53,
+            &[chunk(1, &[5, 0, 1, 0]), chunk(0x4000, &sound)].concat(),
+        );
+        std::fs::write(path.join("missions/synthetic/scene2.bin"), scene2).unwrap();
+        let mut wav = b"RIFF".to_vec();
+        wav.extend(44u32.to_le_bytes());
+        wav.extend(b"WAVEfmt ");
+        wav.extend(16u32.to_le_bytes());
+        wav.extend(1u16.to_le_bytes()); // PCM
+        wav.extend(1u16.to_le_bytes()); // mono
+        wav.extend(22_050u32.to_le_bytes());
+        wav.extend(44_100u32.to_le_bytes());
+        wav.extend(2u16.to_le_bytes());
+        wav.extend(16u16.to_le_bytes());
+        wav.extend(b"data");
+        wav.extend(8u32.to_le_bytes());
+        wav.extend([0; 8]);
+        std::fs::write(path.join("Sounds/a.wav"), wav).unwrap();
+        let installation = lhr_assets::Installation::open(&path).unwrap();
+        let mut owner = CanonicalSceneOwner::open(&installation, "synthetic", [800, 600]).unwrap();
+        assert!(owner.frontier.is_none(), "{:?}", owner.frontier);
+        assert_eq!(owner.caches.len(MissionCacheKind::Sound), 1);
+        assert_eq!(owner.audio.live_sound_count().unwrap(), 2);
+        assert_eq!(owner.audio.live_voice_count().unwrap(), 2);
+        assert_eq!(owner.audio.live_source_count().unwrap(), 1);
+        assert_eq!(
+            owner
+                .driver
+                .host_sound_backend()
+                .unwrap()
+                .listeners()
+                .unwrap()
+                .len(),
+            1
+        );
+        let scene = owner.scene.unwrap();
+        owner.close().unwrap();
+        assert_eq!(owner.audio.live_sound_count().unwrap(), 0);
+        assert_eq!(
+            owner
+                .driver
+                .host_sound_backend()
+                .unwrap()
+                .listeners()
+                .unwrap()
+                .len(),
+            0
+        );
+        assert!(owner.resources.cpu_close_report(scene).is_some());
+        drop(owner);
+        std::fs::remove_dir_all(path).unwrap();
+    }
+
+    #[test]
+    fn canonical_billboard_draw_uses_live_camera_and_selected_fade_without_moving_frame() {
+        crate::native_precision::Pc24PrecisionState::default().run(|| {
+            let path = std::env::temp_dir().join(format!(
+                "lhr-billboard-consumer-{}-{}",
+                std::process::id(),
+                crate::frame_lookup::incarnation()
+            ));
+            std::fs::create_dir(&path).unwrap();
+            let installation = lhr_assets::Installation::open(&path).unwrap();
+            let mut owner = fixture();
+            let scene = owner.scene.unwrap();
+            let primary_sector = owner.arena.scene(scene).unwrap().sectors[0];
+            let primary = primary_sector.frame();
+            let model = owner.arena.create_model().unwrap();
+            owner.arena.scene_add_frame(scene, model.root()).unwrap();
+            owner
+                .arena
+                .link_frame(model.root(), Some(primary), 0)
+                .unwrap();
+            let mut visual = crate::model_loading::tests::frame(1, None, [0., 0., 7.5]);
+            visual.visual = Some(4);
+            visual.render_flags = 0;
+            visual.logic_flags = 0;
+            for distance in [16., 64.] {
+                visual.lods.push(lhr_assets::Lod {
+                    distance,
+                    uv_only: None,
+                    vertices: [[-1., -1., 0.], [1., -1., 0.], [0., 1., 0.]]
+                        .map(|position| lhr_assets::Vertex {
+                            position,
+                            normal: [0., 0., -1.],
+                            uv: [0.; 2],
+                        })
+                        .to_vec(),
+                    groups: vec![
+                        lhr_assets::FaceGroup {
+                            material: 0,
+                            indices: vec![0, 1, 2],
+                        },
+                        lhr_assets::FaceGroup {
+                            material: lhr_assets::UNASSIGNED_MATERIAL,
+                            indices: vec![0, 1, 2],
+                        },
+                        lhr_assets::FaceGroup {
+                            material: 1,
+                            indices: vec![0, 1, 2],
+                        },
+                        lhr_assets::FaceGroup {
+                            material: 2,
+                            indices: vec![0, 1, 2],
+                        },
+                        lhr_assets::FaceGroup {
+                            material: 3,
+                            indices: vec![0, 1, 2],
+                        },
+                    ],
+                });
+            }
+            let first_material = lhr_assets::Material {
+                flags: 0,
+                ambient: [0.; 3],
+                diffuse: [1.; 3],
+                texture: String::new(),
+                emission: [0.; 3],
+                opacity: 0.5,
+                alpha_texture: None,
+                reflection: None,
+                environment_texture: None,
+                animation: None,
+            };
+            let mut zero_diffuse = first_material.clone();
+            zero_diffuse.diffuse = [0., 1., 1.];
+            zero_diffuse.emission = [0.25, 0., 0.];
+            let mut all_nonzero = zero_diffuse.clone();
+            all_nonzero.diffuse = [1.; 3];
+            let mut negative_zero = zero_diffuse.clone();
+            negative_zero.diffuse[0] = -0.;
+            let source = Arc::new(lhr_assets::Model {
+                materials: vec![first_material, zero_diffuse, all_nonzero, negative_zero],
+                frames: vec![visual],
+            });
+            let loaded = owner
+                .arena
+                .load_parsed_billboards_into_model(
+                    model,
+                    source,
+                    &[lhr_assets::BillboardSource {
+                        frame_index: 0,
+                        rot_axis_word: 2,
+                        axis_mode_byte: 0,
+                    }],
+                )
+                .unwrap();
+            let frame = loaded.frames()[0];
+            owner
+                .arena
+                .load_plain_visual_resources(model, &installation)
+                .unwrap();
+            owner.arena.release(model.root()).unwrap();
+            let object = owner.arena.frame_object_resources(frame).unwrap().unwrap();
+            let owned = owner.arena.loaded_visual_resources().unwrap().objects();
+            let mesh = owned.object(object).unwrap().mesh.unwrap();
+            let managed = owned.managed().resources();
+            let level = managed.mesh_object(mesh).unwrap().levels[1].unwrap();
+            let group = managed.mesh_level(level).unwrap().fgroups.unwrap();
+            let material = managed.face_group(group).unwrap().material.unwrap();
+            let world_before = owner.arena.world_matrix(frame).unwrap();
+            let no_camera = crate::car_inspection::snapshot_selected_frames_with_view(
+                &mut owner.arena,
+                &[frame],
+                crate::inspection_lod::InspectionLodView {
+                    camera_pc: [0.; 3],
+                    rs_lod_quality: 1.,
+                },
+            )
+            .err()
+            .unwrap();
+            assert!(no_camera.contains("Billboard requires active Scene camera"));
+            let a = owner.arena.create_camera(&mut Screen([64, 64])).unwrap();
+            let b = owner.arena.create_camera(&mut Screen([64, 64])).unwrap();
+            let c = owner.arena.create_camera(&mut Screen([64, 64])).unwrap();
+            for camera in [a, b, c] {
+                owner.arena.camera_set_range(camera, 0.1, 100.).unwrap();
+            }
+            owner.arena.camera_set_position(b, [1., 0., 0.]).unwrap();
+            owner.arena.camera_set_position(c, [0., 0., 2.5]).unwrap();
+            let draw = |owner: &mut CanonicalSceneOwner, camera| {
+                owner
+                    .arena
+                    .scene_set_active_camera(scene, Some(camera))
+                    .unwrap();
+                let active = owner.arena.scene_active_camera(scene).unwrap().unwrap();
+                assert_eq!(active, camera);
+                let position = owner.arena.world_matrix(active.frame()).unwrap().elements[12..15]
+                    .try_into()
+                    .unwrap();
+                let view = crate::inspection_lod::InspectionLodView {
+                    camera_pc: position,
+                    rs_lod_quality: 1.,
+                };
+                let bound = owner.arena.visual_world_bounds(frame).unwrap();
+                let distance_squared = view.distance_squared(bound.center).unwrap();
+                assert!((16. ..64.).contains(&distance_squared));
+                let selected =
+                    crate::car_inspection::snapshot_selected_frames_with_view_and_camera(
+                        &mut owner.arena,
+                        &[frame],
+                        view,
+                        active,
+                    )
+                    .unwrap();
+                assert_eq!(selected.draw_frames, [frame; 5]);
+                let live = owner
+                    .arena
+                    .loaded_visual_resources()
+                    .unwrap()
+                    .objects()
+                    .object(object)
+                    .unwrap();
+                assert_eq!(live.cur_lod, 1);
+                let expected = (1. - (distance_squared - 48.) / 16.).min(1.);
+                assert!((live.fade - expected).abs() < 1e-5);
+                let lhr_render::RenderMaterial::Original(material) =
+                    selected.scene.meshes[0].material
+                else {
+                    panic!("billboard must use its selected source material");
+                };
+                assert_eq!(&material.color[..3], &[1.; 3]);
+                let colors = selected.lighting[0].as_ref().unwrap().colors.clone();
+                let packed_alpha = (expected * 0.5 * 255.).round_ties_even() / 255.;
+                assert!(
+                    (material.color[3] - packed_alpha).abs() < 1e-5,
+                    "assigned material alpha must use native packed TempAlpha"
+                );
+                assert_eq!(material.color[3], colors[0][3]);
+                if expected < 1. {
+                    assert_ne!(material.color[3], expected * 0.5);
+                } else {
+                    assert_eq!(material.color[3], 128. / 255.);
+                }
+                let lhr_render::RenderMaterial::OriginalNull { color, .. } =
+                    selected.scene.meshes[1].material
+                else {
+                    panic!("billboard's unassigned face group must keep null policy");
+                };
+                assert_eq!(color[3], packed_alpha);
+                assert_eq!(
+                    selected.lighting[1].as_ref().unwrap().colors[0][3],
+                    color[3]
+                );
+                for (index, expected_alpha) in [
+                    (2, lhr_render::AlphaMode::Blend),
+                    (3, lhr_render::AlphaMode::Additive),
+                    (4, lhr_render::AlphaMode::Additive),
+                ] {
+                    let lhr_render::RenderMaterial::Original(later) =
+                        selected.scene.meshes[index].material
+                    else {
+                        panic!("later billboard group must retain assigned policy");
+                    };
+                    assert_eq!(later.alpha, expected_alpha);
+                    assert_eq!(later.color[3], packed_alpha);
+                    assert_eq!(selected.lighting[index].as_ref().unwrap().colors, colors);
+                }
+                assert_eq!(colors.len(), selected.scene.meshes[0].vertices.len());
+                let positions = selected.scene.meshes[0]
+                    .vertices
+                    .iter()
+                    .map(|vertex| vertex.position)
+                    .collect::<Vec<_>>();
+                (positions, colors)
+            };
+            let first = draw(&mut owner, a);
+            let second = draw(&mut owner, b);
+            let full_fade = draw(&mut owner, c);
+            assert_ne!(first.0, second.0);
+            assert_ne!(full_fade.0, second.0);
+            assert_eq!(owner.arena.world_matrix(frame).unwrap(), world_before);
+            // VISF_WORLD_SPACE changes the native branch and is explicitly
+            // outside this static local billboard presentation subset.
+            let flags = owner.arena.state(frame).unwrap().visual_flags;
+            owner
+                .arena
+                .graph
+                .projected_state_mut(frame)
+                .unwrap()
+                .visual_flags |= 0x40;
+            let world_space = crate::car_inspection::snapshot_selected_frames_with_view_and_camera(
+                &mut owner.arena,
+                &[frame],
+                crate::inspection_lod::InspectionLodView {
+                    camera_pc: [1., 0., 0.],
+                    rs_lod_quality: 1.,
+                },
+                b,
+            )
+            .err()
+            .unwrap();
+            assert!(world_space.contains("world-space/proxy domain unavailable"));
+            owner
+                .arena
+                .graph
+                .projected_state_mut(frame)
+                .unwrap()
+                .visual_flags = flags;
+            // A contributing directional light needs the billboard draw
+            // matrix inverse for vertex normals; the unlit bridge refuses it.
+            let light = owner.arena.create_light().unwrap();
+            owner.arena.graph.set_light_type(light, 3).unwrap();
+            owner.arena.graph.set_light_mode(light, 1).unwrap();
+            owner.arena.graph.set_light_diffuse(light, [1.; 3]).unwrap();
+            owner
+                .arena
+                .graph
+                .set_light_diffuse_power(light, 1.)
+                .unwrap();
+            owner
+                .arena
+                .graph
+                .assign_rotation(
+                    light,
+                    crate::native_transform::SQuat {
+                        wxyz: [0., 0., 1., 0.],
+                    },
+                )
+                .unwrap();
+            owner.arena.scene_add_frame(scene, light).unwrap();
+            owner.arena.sector_add_light(primary_sector, light).unwrap();
+            owner.arena.update_frame(light).unwrap();
+            owner.arena.release(light).unwrap();
+            let lit_first = draw(&mut owner, a);
+            let lit_second = draw(&mut owner, b);
+            assert_ne!(lit_first.1, lit_second.1);
+            owner.arena.release(a.frame()).unwrap();
+            owner.arena.release(b.frame()).unwrap();
+            owner.arena.release(c.frame()).unwrap();
+            owner.close().unwrap();
+            assert_eq!(owner.arena.live_frame_count(), 0);
+            let resources = owner.arena.loaded_visual_resources().unwrap();
+            assert_eq!(resources.backend().live_graphics(), 0);
+            assert_eq!(resources.backend().live_textures(), 0);
+            assert_eq!(resources.backend().live_allocations(), 0);
+            let owned = resources.objects();
+            assert!(owned.object(object).is_err());
+            let managed = owned.managed().resources();
+            assert!(managed.mesh_object(mesh).is_err());
+            assert!(managed.mesh_level(level).is_err());
+            assert!(managed.face_group(group).is_err());
+            assert!(managed.material(material).is_err());
+            std::fs::remove_dir_all(path).unwrap();
         });
     }
 }

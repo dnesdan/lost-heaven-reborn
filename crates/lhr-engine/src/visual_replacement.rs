@@ -53,6 +53,12 @@ impl ModelArena {
         match class {
             ObjectVisualType::Plain => self.plain_object_visual_type(key),
             ObjectVisualType::LitUnconstructed => Ok(class.source_fourcc()),
+            ObjectVisualType::Billboard => Ok(class.source_fourcc()),
+            ObjectVisualType::Singlemesh | ObjectVisualType::Singlemorph => {
+                Err(ModelError::OriginalModelOpenUnavailable(
+                    "derived visual class witness unavailable",
+                ))
+            }
         }
     }
 
@@ -66,8 +72,9 @@ impl ModelArena {
         let class = match fourcc {
             OBJECT_VISUAL => ObjectVisualType::Plain,
             LIT_OBJECT_VISUAL => ObjectVisualType::LitUnconstructed,
-            0x44524242 | 0x4d474e53 | 0x534e454c | 0x4850524d | 0x524d4d53 | 0x4a4f5250
-            | 0x42545250 | 0x45545250 | 0x50444e4c | 0x5252494d => {
+            0x44524242 => ObjectVisualType::Billboard,
+            0x4d474e53 | 0x534e454c | 0x4850524d | 0x524d4d53 | 0x4a4f5250 | 0x42545250
+            | 0x45545250 | 0x50444e4c | 0x5252494d => {
                 return Err(ModelError::OriginalModelOpenUnavailable(
                     "native visual factory class unavailable",
                 )
@@ -76,6 +83,11 @@ impl ModelArena {
             _ => return Ok(None),
         };
         let key = self.insert(I3dFrameState::mesh(), None, Vec::new(), Vec::new(), None)?;
+        if class == ObjectVisualType::Billboard {
+            let index = self.frame_index(key)?;
+            self.frames[index].billboard =
+                Some(crate::model_loading::billboard::BillboardFrame::default());
+        }
         let object = self
             .visual_resource_owner_mut()
             .and_then(|owner| {
@@ -107,7 +119,7 @@ impl ModelArena {
             ));
         }
         let destination_type = self.owned_object_visual_type(destination)?;
-        self.owned_object_visual_type(source)?;
+        let source_type = self.owned_object_visual_type(source)?;
         let from = self.frame_index(source)?;
         let to = self.frame_index(destination)?;
         let state = *self.state(source)?;
@@ -150,13 +162,32 @@ impl ModelArena {
         self.visual_resource_owner_mut()?
             .duplicate_object_visual(target_object, source_object)
             .map_err(ModelError::LoadedVisual)?;
+        if destination_type == ObjectVisualType::Billboard.source_fourcc()
+            && source_type == ObjectVisualType::Billboard.source_fourcc()
+        {
+            let orientation = self.frames[from]
+                .billboard
+                .ok_or(ModelError::VisualBoundsUnavailable(source))?
+                .orientation;
+            self.frames[to]
+                .billboard
+                .as_mut()
+                .ok_or(ModelError::VisualBoundsUnavailable(destination))?
+                .orientation = orientation;
+        }
         self.graph.projected_state_mut(destination)?.visual_flags = (state.visual_flags & 0x2ffd0)
             | if destination_type == OBJECT_VISUAL {
                 0x800
             } else {
                 0
             };
-        self.frames[to].visual_bounds = self.frames[from].visual_bounds;
+        self.frames[to].visual_bounds = self.frames[from].visual_bounds.map(|bound| {
+            if destination_type == ObjectVisualType::Billboard.source_fourcc() {
+                crate::model_loading::billboard::cube_local_bound(bound)
+            } else {
+                bound
+            }
+        });
         // These immutable host fields retain geometry provenance for actual CPU
         // consumers; they introduce no native allocation or ownership transfer.
         self.frames[to].source = self.frames[from].source.clone();

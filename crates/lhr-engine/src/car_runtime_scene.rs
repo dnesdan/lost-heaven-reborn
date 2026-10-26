@@ -79,6 +79,12 @@ impl CarRuntime {
             memory: Default::default(),
         });
         let state = self.scene_mission.as_mut().unwrap();
+        // Game startup supplies Sounds before the model directory. The cache
+        // open path applies the source's 0x10 Sound Open flag.
+        state
+            .caches
+            .add_dir(MissionCacheKind::Sound, b"Sounds", &mut state.memory)
+            .map_err(|e| format!("Driving scene sound directory: {e:?}"))?;
         state
             .caches
             .add_dir(MissionCacheKind::Model, b"Models", &mut state.memory)
@@ -92,7 +98,7 @@ impl CarRuntime {
         // A stopped prefix stays owned and inspectable; it is not MissionOpen.
         state.frontier = state
             .loader
-            .load_prefix_with_model_cache(
+            .load_prefix_with_resource_cache(
                 &mut self.scene_driver,
                 &mut self.arena,
                 &self.scene_resources,

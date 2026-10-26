@@ -701,6 +701,12 @@ impl ManagedVisualResources {
         self.available()?;
         self.resources.create_material().map_err(Into::into)
     }
+    pub fn create_animated_material(&mut self) -> Result<MaterialKey, ManagedError> {
+        self.available()?;
+        self.resources
+            .create_animated_material()
+            .map_err(Into::into)
+    }
     pub fn create_face_group(&mut self) -> Result<FaceGroupKey, ManagedError> {
         self.available()?;
         self.resources.create_face_group().map_err(Into::into)
@@ -924,6 +930,25 @@ impl ManagedVisualResources {
 }
 
 impl ManagedVisualResources {
+    pub(crate) fn configure_loaded_animated_material(
+        &mut self,
+        key: MaterialKey,
+        source: &lhr_assets::Material,
+    ) -> Result<(), ManagedError> {
+        self.available()?;
+        self.resources
+            .configure_loaded_animated_material(key, source)
+            .map_err(Into::into)
+    }
+    pub(crate) fn finish_loaded_animated_material(
+        &mut self,
+        key: MaterialKey,
+    ) -> Result<(), ManagedError> {
+        self.available()?;
+        self.resources
+            .finish_loaded_animated_material(key)
+            .map_err(Into::into)
+    }
     pub(crate) fn install_loaded_lod_distance(
         &mut self,
         level: MeshLevelKey,
@@ -937,6 +962,17 @@ impl ManagedVisualResources {
 }
 
 impl ManagedVisualResources {
+    pub(crate) fn append_loaded_animated_frame<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        key: MaterialKey,
+        texture: Option<TextureKey>,
+        environment: bool,
+        backend: &mut B,
+    ) -> Result<(), ManagedOperationError<B::Error>> {
+        self.visual_operation(backend, |r, b| {
+            r.append_loaded_animated_frame(key, texture, environment, b)
+        })
+    }
     pub(crate) fn adopt_loaded_material_texture<B: ManagedVisualBackend + ?Sized>(
         &mut self,
         key: MaterialKey,

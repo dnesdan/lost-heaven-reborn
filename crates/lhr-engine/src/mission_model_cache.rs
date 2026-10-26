@@ -43,7 +43,7 @@ impl<E> From<MissionCacheError<E>> for ModelCacheOpenError<E> {
 /// Literal ASCII counterpart of original wildcard comparison: '*' accepts the
 /// remaining suffix immediately; '?' consumes one non-NUL byte. Case folding
 /// outside the default ASCII CRT domain requires the original locale owner.
-fn matches_name(value: &[u8], pattern: &[u8]) -> bool {
+pub(super) fn matches_name(value: &[u8], pattern: &[u8]) -> bool {
     let mut at = 0;
     for &byte in pattern {
         if byte == b'*' {
@@ -74,7 +74,7 @@ impl MissionCaches {
         for at in index..count - 1 {
             let source = self.caches[1].items[at + 1].name;
             let destination = self.caches[1].items[at].name;
-            self.caches[1].items[at].model = self.caches[1].items[at + 1].model;
+            self.caches[1].items[at].resource = self.caches[1].items[at + 1].resource;
             if let Err(error) = self.strings.alias_into(destination, source, backend) {
                 self.caches[1].interrupted = true;
                 return Err(MissionCacheError::Strings(error));
@@ -138,14 +138,14 @@ impl MissionCaches {
         if self.caches[slot]
             .items
             .iter()
-            .any(|item| item.model.is_none())
+            .any(|item| item.model().is_none())
         {
             return Err(MissionCacheError::Interrupted.into());
         }
         if let Some(index) = self.caches[slot]
             .items
             .iter()
-            .rposition(|item| item.model == Some(target))
+            .rposition(|item| item.model() == Some(target))
         {
             self.model_open.as_mut().unwrap().phase = ModelCachePhase::RemoveDestination;
             // Original removes this slot WITHOUT releasing its model reference.
@@ -199,7 +199,7 @@ impl MissionCaches {
                 .retain(|&key| key != temporary);
             if hit {
                 let source = self.caches[slot].items[index]
-                    .model
+                    .model()
                     .ok_or(MissionCacheError::Interrupted)?;
                 let progress = self.model_open.as_mut().unwrap();
                 progress.phase = ModelCachePhase::DuplicateHit;
@@ -419,7 +419,7 @@ impl MissionCaches {
             if self.caches[1].items.len() >= limit {
                 let mut evict = None;
                 for (i, item) in self.caches[1].items.iter().enumerate() {
-                    let model = item.model.ok_or(MissionCacheError::Interrupted)?;
+                    let model = item.model().ok_or(MissionCacheError::Interrupted)?;
                     if arena
                         .frame(model.root())
                         .map_err(ModelCacheOpenError::Model)?
@@ -431,7 +431,7 @@ impl MissionCaches {
                     }
                 }
                 if let Some(index) = evict {
-                    let model = self.caches[1].items[index].model.unwrap();
+                    let model = self.caches[1].items[index].model().unwrap();
                     if let Err(error) = arena.release(model.root()) {
                         self.caches[1].interrupted = true;
                         return Err(ModelCacheOpenError::Model(error));
@@ -471,7 +471,7 @@ impl MissionCaches {
                         .map_err(|e| MissionCacheError::Strings(e.into()))?;
                     self.caches[1].pending_names.push(name);
                     copies.push(CacheItem {
-                        model: item.model,
+                        resource: item.resource,
                         name,
                     });
                 }
@@ -481,7 +481,7 @@ impl MissionCaches {
                     .map_err(|e| MissionCacheError::Strings(e.into()))?;
                 self.caches[1].pending_names.push(key);
                 copies.push(CacheItem {
-                    model: None,
+                    resource: None,
                     name: key,
                 });
                 for item in &self.caches[1].items {
@@ -508,7 +508,7 @@ impl MissionCaches {
                     .create_null()
                     .map_err(|e| MissionCacheError::Strings(e.into()))?;
                 self.caches[1].items.push(CacheItem {
-                    model: None,
+                    resource: None,
                     name: key,
                 });
             }
@@ -525,7 +525,7 @@ impl MissionCaches {
             arena
                 .duplicate_pristine_cache_model(cached, target)
                 .map_err(ModelCacheOpenError::Model)?;
-            self.caches[1].items.last_mut().unwrap().model = Some(cached);
+            self.caches[1].items.last_mut().unwrap().resource = Some(CacheResource::Model(cached));
             self.model_open.as_mut().unwrap().phase = ModelCachePhase::Complete;
             return Ok(0);
         }
@@ -662,7 +662,7 @@ mod tests {
         );
         assert_eq!(cache.len(MissionCacheKind::Model), 3);
         targets.push(hit);
-        let transferred = cache.caches[1].items[0].model.unwrap();
+        let transferred = cache.caches[1].items[0].model().unwrap();
         cache.erase_model_item(0, &mut memory).unwrap();
         assert_eq!(cache.len(MissionCacheKind::Model), 2);
         assert_eq!(arena.frame(transferred.root()).unwrap().references, 1);
@@ -802,7 +802,7 @@ mod tests {
         assert!(cache.is_interrupted(MissionCacheKind::Model));
         assert_eq!(cache.len(MissionCacheKind::Model), 1);
         assert_eq!(cache.caches[1].header, old_header);
-        assert_eq!(cache.caches[1].items[0].model, Some(old_cached));
+        assert_eq!(cache.caches[1].items[0].model(), Some(old_cached));
         assert_eq!(arena.frame(old_cached.root()).unwrap().references, 1);
         let frames = arena.model(target).unwrap().frames.clone();
         assert_eq!(frames.len(), 1);

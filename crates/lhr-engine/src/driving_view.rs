@@ -119,12 +119,51 @@ impl FixedClock {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ChaseSettings {
+    pub distance: f32,
+    pub height: f32,
+    pub look_ahead: f32,
+}
+impl Default for ChaseSettings {
+    fn default() -> Self {
+        Self {
+            distance: 8.,
+            height: 3.2,
+            look_ahead: 2.,
+        }
+    }
+}
+impl ChaseSettings {
+    pub fn validate(&self) -> Result<(), String> {
+        if !self.distance.is_finite()
+            || !(3.0..=20.0).contains(&self.distance)
+            || !self.height.is_finite()
+            || !(0.5..=8.0).contains(&self.height)
+            || !self.look_ahead.is_finite()
+            || !(0.0..=10.0).contains(&self.look_ahead)
+        {
+            return Err("Chase camera parameters are outside their supported range".into());
+        }
+        Ok(())
+    }
+}
+
 /// Uses points from the live native frame graph after the simulation step.
 /// Handedness conversion matches `car_inspection::snapshot_car_arena`.
 pub fn chase_camera(
     arena: &mut lhr_engine::model_loading::ModelArena,
     root: lhr_engine::frame_transform::FrameKey,
 ) -> Result<Camera, String> {
+    chase_camera_with_settings(arena, root, ChaseSettings::default())
+}
+
+pub fn chase_camera_with_settings(
+    arena: &mut lhr_engine::model_loading::ModelArena,
+    root: lhr_engine::frame_transform::FrameKey,
+    settings: ChaseSettings,
+) -> Result<Camera, String> {
+    settings.validate()?;
     let world = arena.world_matrix(root).map_err(|e| e.to_string())?;
     let convert = |point| -> Result<Vec3, String> {
         let [x, y, z] = world
@@ -138,8 +177,9 @@ pub fn chase_camera(
         return Err("Driving camera has a degenerate live vehicle basis".into());
     }
     let camera = Camera {
-        eye: center - forward * 8.0 + Vec3::Y * 3.2,
-        target: center + forward * 2.0,
+        vertical_fov_radians: 50f32.to_radians(),
+        eye: center - forward * settings.distance + Vec3::Y * settings.height,
+        target: center + forward * settings.look_ahead,
         up: Vec3::Y,
         near: 0.1,
         far: 350.0,
@@ -420,6 +460,7 @@ mod tests {
     #[test]
     fn listener_tracks_actual_camera_position_and_horizontal_orientation() {
         let camera = Camera {
+            vertical_fov_radians: 50f32.to_radians(),
             eye: Vec3::new(10., 3., -20.),
             target: Vec3::new(11., 3., -20.),
             up: Vec3::Y,
@@ -431,5 +472,34 @@ mod tests {
         assert_eq!(right, [0., 0., -1.]);
         let pc_forward = Vec3::new(1., 0., 0.);
         assert_eq!(Vec3::from_array(right).dot(pc_forward), 0.);
+    }
+
+    #[test]
+    fn chase_parameters_move_only_the_view_of_the_actual_frame() {
+        let mut arena = lhr_engine::model_loading::ModelArena::default();
+        let model = arena.create_model().unwrap();
+        let root = model.root();
+        let before = arena.world_matrix(root).unwrap();
+        let settings = ChaseSettings {
+            distance: 4.5,
+            height: 1.8,
+            look_ahead: 1.4,
+        };
+        let camera = chase_camera_with_settings(&mut arena, root, settings).unwrap();
+        assert!((camera.eye - Vec3::new(0., 2.6, 4.5)).length() < 1e-6);
+        assert!((camera.target - Vec3::new(0., 0.8, -1.4)).length() < 1e-6);
+        assert_eq!(arena.world_matrix(root).unwrap(), before);
+        assert!(chase_camera_with_settings(
+            &mut arena,
+            root,
+            ChaseSettings {
+                distance: f32::NAN,
+                ..settings
+            }
+        )
+        .is_err());
+        assert_eq!(arena.world_matrix(root).unwrap(), before);
+        arena.close(model).unwrap();
+        arena.release(root).unwrap();
     }
 }

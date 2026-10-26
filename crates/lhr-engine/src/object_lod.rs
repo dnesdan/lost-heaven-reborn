@@ -190,3 +190,37 @@ pub(crate) fn render_fade(
     ))?;
     Ok(if fade > 1. { 1. } else { fade })
 }
+/// I3D_billboard::m_AddFGroups uses the full previous LOD distance when
+/// starting the last-level fade. Its current-last half distance is unchanged.
+pub(crate) fn render_billboard_fade(
+    distance_squared: f32,
+    quality: f32,
+    world_scale: f32,
+    index: usize,
+    distances: &[Option<f32>],
+) -> Result<f32, ObjectLodError> {
+    let last = distances
+        .len()
+        .checked_sub(1)
+        .ok_or(ObjectLodError::InvalidLevels)?;
+    let limit = distances[index].ok_or(ObjectLodError::InvalidLevels)?;
+    if index != last || limit <= 0. {
+        return Ok(1.);
+    }
+    let mut start = numeric(mul(limit, 0.5))?;
+    if last != 0 {
+        start = numeric(add(
+            start,
+            distances[last - 1].ok_or(ObjectLodError::InvalidLevels)?,
+        ))?;
+    }
+    let distance = scaled_distance(distance_squared, quality, world_scale)?;
+    let fade = numeric(sub(
+        1.,
+        numeric(div(
+            numeric(sub(distance, start))?,
+            numeric(sub(limit, start))?,
+        ))?,
+    ))?;
+    Ok(if fade > 1. { 1. } else { fade })
+}

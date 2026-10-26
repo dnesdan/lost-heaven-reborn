@@ -1,21 +1,40 @@
 //! Sound frames use the shared ModelArena common fields. Only derived sound
 //! state lives in RuntimeAudio; canonical source/name allocations use the host.
 use super::*;
-use crate::runtime_audio::{AudioError, RuntimeAudio, SourceProjection};
+use crate::runtime_audio::{AudioError, RuntimeAudio, SoundFrameOwner, SourceProjection};
 
 /// Refresh the positions of every sound after its actual parent graph moves.
-/// This bridge resolves the same inert frame addresses used by the adapter.
+/// Scene sounds and vehicle effects retain their distinct live frame owners.
 pub fn sync_runtime_audio_frames(
     audio: &RuntimeAudio,
     arena: &mut ModelArena,
 ) -> Result<(), AudioError> {
     for address in audio.sound_handles()? {
-        if !(FRAME_BASE..FRAME_END).contains(&address)
-            || !(address - FRAME_BASE).is_multiple_of(SLOT)
+        let owner = audio.sound_frame_owner(address)?;
+        let key = match owner {
+            SoundFrameOwner::Scene(key) => {
+                if address != key.0 || arena.sound_key(key).is_err() {
+                    return Err(AudioError("sound owner has no canonical frame".into()));
+                }
+                key
+            }
+            SoundFrameOwner::Vehicle(key) => {
+                let projected = key
+                    .0
+                    .checked_mul(SLOT)
+                    .and_then(|offset| FRAME_BASE.checked_add(offset));
+                if key.0 == 0 || projected != Some(address) || address >= FRAME_END {
+                    return Err(AudioError("sound owner has no canonical frame".into()));
+                }
+                key
+            }
+        };
+        if !arena
+            .state(key)
+            .is_ok_and(|state| state.kind == FrameKind::Sound)
         {
             return Err(AudioError("sound owner has no canonical frame".into()));
         }
-        let key = FrameKey((address - FRAME_BASE) / SLOT);
         let on = audio.sound(address)?.on;
         arena
             .set_frame_on(key, u32::from(on))
@@ -127,7 +146,9 @@ impl<B: VehicleComponentsBackend> VehicleFrameBackend<'_, B> {
                 }
                 let key = self.arena.create_sound_frame()?;
                 let address = self.frame_address(key)?;
-                if let Err(error) = audio.create_sound_at(address) {
+                if let Err(error) =
+                    audio.create_frame_sound_at(address, SoundFrameOwner::Vehicle(key))
+                {
                     self.arena.release(key)?;
                     return Err(failure(error));
                 }
@@ -367,12 +388,121 @@ mod tests {
             .frame_address(child)
             .unwrap();
         let audio = RuntimeAudio::default();
-        audio.create_sound_at(address).unwrap();
+        audio
+            .create_frame_sound_at(address, SoundFrameOwner::Vehicle(child))
+            .unwrap();
         sync_runtime_audio_frames(&audio, &mut arena).unwrap();
         assert_eq!(audio.sound(address).unwrap().world_scale, 6.0);
         arena.graph.assign_scale(parent, [4.0; 3]).unwrap();
         arena.graph.update(parent).unwrap();
         sync_runtime_audio_frames(&audio, &mut arena).unwrap();
         assert_eq!(audio.sound(address).unwrap().world_scale, 12.0);
+    }
+
+    #[test]
+    fn shared_pcm_sync_resolves_scene_and_vehicle_sound_frame_owners() {
+        let mut arena = ModelArena::default();
+        let audio = RuntimeAudio::default();
+        arena
+            .bind_host_sound_backend(crate::frame_sound::HostSoundBackend::new(1, &audio))
+            .unwrap();
+        let scene_sound = arena.create_owned_sound_frame().unwrap();
+        let vehicle_sound = arena.create_sound_frame().unwrap();
+        let mut memory = VehicleFrameMemory::default();
+        let vehicle_address = VehicleFrameBackend::new(&mut arena, &mut memory)
+            .frame_address(vehicle_sound)
+            .unwrap();
+        audio
+            .create_frame_sound_at(vehicle_address, SoundFrameOwner::Vehicle(vehicle_sound))
+            .unwrap();
+        assert_eq!(audio.live_sound_count().unwrap(), 2);
+        assert!(audio.owns(scene_sound.frame().0));
+        assert!(audio.owns(vehicle_address));
+
+        arena
+            .graph
+            .assign_position(scene_sound.frame(), [11.0, 2.0, 3.0])
+            .unwrap();
+        arena
+            .graph
+            .assign_position(vehicle_sound, [-7.0, 5.0, 9.0])
+            .unwrap();
+        sync_runtime_audio_frames(&audio, &mut arena).unwrap();
+        assert_eq!(
+            audio.sound(scene_sound.frame().0).unwrap().position,
+            [11.0, 2.0, 3.0]
+        );
+        assert_eq!(
+            audio.sound(vehicle_address).unwrap().position,
+            [-7.0, 5.0, 9.0]
+        );
+
+        arena
+            .graph
+            .assign_position(scene_sound.frame(), [13.0, 2.0, 3.0])
+            .unwrap();
+        arena
+            .graph
+            .assign_position(vehicle_sound, [-9.0, 5.0, 9.0])
+            .unwrap();
+        sync_runtime_audio_frames(&audio, &mut arena).unwrap();
+        assert_eq!(
+            audio.sound(scene_sound.frame().0).unwrap().position,
+            [13.0, 2.0, 3.0]
+        );
+        assert_eq!(
+            audio.sound(vehicle_address).unwrap().position,
+            [-9.0, 5.0, 9.0]
+        );
+
+        arena.release(scene_sound.frame()).unwrap();
+        assert!(!audio.owns(scene_sound.frame().0));
+        audio.sound_virtual(vehicle_address, 0, &[]).unwrap();
+        arena.release(vehicle_sound).unwrap();
+        assert_eq!(audio.live_sound_count().unwrap(), 0);
+        assert_eq!(arena.live_frame_count(), 0);
+    }
+
+    #[test]
+    fn shared_pcm_sync_refuses_an_unowned_direct_frame() {
+        let mut arena = ModelArena::default();
+        let audio = RuntimeAudio::default();
+        let unrelated = arena.create_sound_frame().unwrap();
+        audio.create_sound_at(unrelated.0).unwrap();
+        assert_eq!(
+            sync_runtime_audio_frames(&audio, &mut arena).unwrap_err(),
+            AudioError("sound owner has no canonical frame".into())
+        );
+    }
+
+    #[test]
+    fn shared_pcm_sync_retains_reached_prefix_before_later_orphan_error() {
+        let mut arena = ModelArena::default();
+        let audio = RuntimeAudio::default();
+        let first = arena.create_sound_frame().unwrap();
+        let later = arena.create_sound_frame().unwrap();
+        let mut memory = VehicleFrameMemory::default();
+        let backend = VehicleFrameBackend::new(&mut arena, &mut memory);
+        let first_address = backend.frame_address(first).unwrap();
+        let later_address = backend.frame_address(later).unwrap();
+        audio
+            .create_frame_sound_at(first_address, SoundFrameOwner::Vehicle(first))
+            .unwrap();
+        audio.create_sound_at(first_address + 1).unwrap();
+        audio
+            .create_frame_sound_at(later_address, SoundFrameOwner::Vehicle(later))
+            .unwrap();
+        arena.graph.assign_position(first, [4.0, 5.0, 6.0]).unwrap();
+        arena.graph.assign_position(later, [7.0, 8.0, 9.0]).unwrap();
+
+        assert_eq!(
+            sync_runtime_audio_frames(&audio, &mut arena).unwrap_err(),
+            AudioError("sound owner has no canonical frame".into())
+        );
+        assert_eq!(
+            audio.sound(first_address).unwrap().position,
+            [4.0, 5.0, 6.0]
+        );
+        assert_eq!(audio.sound(later_address).unwrap().position, [0.0; 3]);
     }
 }

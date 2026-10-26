@@ -19,8 +19,15 @@ use crate::script_scheduler::FrameReferenceId;
 use crate::sector_sound_data::SectorSoundInput;
 use std::collections::HashSet;
 
-type ModelOpenAdapter<'a> =
-    dyn FnMut(&mut ModelArena, crate::model_loading::ModelKey, &[u8]) -> Result<i32, String> + 'a;
+#[derive(Clone, Copy)]
+enum ResourceOpenKind {
+    Model,
+    Sound,
+}
+type ResourceOpenAdapter<'a> =
+    dyn FnMut(&mut ModelArena, FrameKey, &[u8], ResourceOpenKind) -> Result<i32, String> + 'a;
+type FactoryNameAllocator =
+    Box<dyn FnMut(usize) -> Result<Vec<u8>, crate::frame_fast_lookup::FastFrameError>>;
 
 /// Publication order is retained separately from the logical map's key order.
 #[derive(Debug, PartialEq, Eq)]
@@ -164,6 +171,15 @@ pub struct MissionOccluderGeometry {
     pub face_count: Option<u32>,
     pub faces: Option<Vec<[u16; 3]>>,
 }
+/// Actual Game-owned temporary arrays for the AREA Build caller. None in an
+/// allocated element denotes bytes the original default constructor never wrote.
+#[derive(Debug)]
+pub struct MissionAreaGeometry {
+    pub vertex_count: u32,
+    pub vertices: Option<Vec<Option<[u32; 3]>>>,
+    pub face_count: Option<u32>,
+    pub faces: Option<Vec<Option<[u16; 3]>>>,
+}
 #[derive(Debug)]
 pub struct MissionModelOpenRequest {
     pub model: FrameReferenceId,
@@ -175,11 +191,19 @@ pub struct PendingLightSectorLink {
     pub light: FrameReferenceId,
     pub name: Vec<u8>,
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SoundLinkKind {
+    Sector,
+    Area,
+}
+#[derive(Debug)]
+pub struct PendingSoundLink {
+    pub sound: FrameReferenceId,
+    pub name: Vec<u8>,
+    pub kind: SoundLinkKind,
+}
 /// State of one original scene2 invocation. The caller retains its real scene,
 /// driver and resources; an error leaves their executed effects in place.
-type FactoryNameAllocator =
-    Box<dyn FnMut(usize) -> Result<Vec<u8>, crate::frame_fast_lookup::FastFrameError>>;
-
 pub struct MissionSceneLoader {
     pub scene: SceneKey,
     pub load_map: SceneLoadMapPrefix,
@@ -197,8 +221,13 @@ pub struct MissionSceneLoader {
     /// Host retention of a genuine unfinished factory creator reference.
     pub pending_factory_creator: Option<FrameReferenceId>,
     pub pending_occluder_geometry: Option<MissionOccluderGeometry>,
+    pub pending_area_geometry: Option<MissionAreaGeometry>,
     pub pending_model_open: Option<MissionModelOpenRequest>,
     pub pending_light_sector_link: Option<PendingLightSectorLink>,
+    /// Game's two temporary request arrays at stack +0x60 and +0x84.
+    /// Their entries remain in insertion order until the final reverse walk.
+    pub pending_sound_sector_links: Vec<PendingSoundLink>,
+    pub pending_sound_area_links: Vec<PendingSoundLink>,
     pub pending_visual_replacement: Option<crate::visual_replacement::PendingVisualReplacement>,
     /// Optional host allocator for the reached object-factory SetName call.
     /// The default uses ModelArena's normal allocator. A failing allocator
@@ -223,8 +252,11 @@ impl MissionSceneLoader {
             object_fields: MissionObjectFields::default(),
             pending_factory_creator: None,
             pending_occluder_geometry: None,
+            pending_area_geometry: None,
             pending_model_open: None,
             pending_light_sector_link: None,
+            pending_sound_sector_links: Vec::new(),
+            pending_sound_area_links: Vec::new(),
             pending_visual_replacement: None,
             factory_name_allocator: None,
             entered: false,
@@ -306,10 +338,68 @@ impl MissionSceneLoader {
         S::Error: std::fmt::Debug,
         B::Error: std::fmt::Debug,
     {
-        let mut open = |arena: &mut ModelArena, model, name: &[u8]| {
-            caches
-                .open_static_model(arena, installation, model, name, memory)
-                .map_err(|e| format!("{e:?}"))
+        let mut open = |arena: &mut ModelArena, frame, name: &[u8], kind| match kind {
+            ResourceOpenKind::Model => caches
+                .open_static_model(
+                    arena,
+                    installation,
+                    crate::model_loading::ModelKey(frame),
+                    name,
+                    memory,
+                )
+                .map_err(|e| format!("{e:?}")),
+            ResourceOpenKind::Sound => {
+                Err("sound cache owner is absent from this legacy model-only invocation".into())
+            }
+        };
+        self.load_prefix_inner(
+            driver,
+            arena,
+            resources,
+            screen,
+            projection,
+            bytes,
+            &mut Some(&mut open),
+        )
+    }
+    /// Ordered static scene ingestion with the real model and sound cache
+    /// owners. Both cache calls borrow the same MissionCaches and allocator.
+    #[allow(clippy::too_many_arguments)]
+    pub fn load_prefix_with_resource_cache<
+        S: SceneScreen,
+        B: crate::mission_resources::MissionCacheAllocator,
+    >(
+        &mut self,
+        driver: &mut DriverSceneOwner,
+        arena: &mut ModelArena,
+        resources: &SceneResources,
+        screen: &mut S,
+        projection: GameCameraProjection,
+        bytes: &[u8],
+        caches: &mut crate::mission_resources::MissionCaches,
+        installation: &lhr_assets::Installation,
+        memory: &mut B,
+    ) -> Result<(), MissionSceneLoadError>
+    where
+        S::Error: std::fmt::Debug,
+        B::Error: std::fmt::Debug,
+    {
+        let mut open = |arena: &mut ModelArena, frame, name: &[u8], kind| match kind {
+            ResourceOpenKind::Model => caches
+                .open_static_model(
+                    arena,
+                    installation,
+                    crate::model_loading::ModelKey(frame),
+                    name,
+                    memory,
+                )
+                .map_err(|e| format!("{e:?}")),
+            ResourceOpenKind::Sound => {
+                let sound = arena.sound_key(frame).map_err(|e| format!("{e:?}"))?;
+                caches
+                    .open_static_sound(arena, installation, sound, name, memory)
+                    .map_err(|e| format!("{e:?}"))
+            }
         };
         self.load_prefix_inner(
             driver,
@@ -330,7 +420,7 @@ impl MissionSceneLoader {
         screen: &mut S,
         projection: GameCameraProjection,
         bytes: &[u8],
-        model_open: &mut Option<&mut ModelOpenAdapter<'_>>,
+        resource_open: &mut Option<&mut ResourceOpenAdapter<'_>>,
     ) -> Result<(), MissionSceneLoadError>
     where
         S::Error: std::fmt::Debug,
@@ -346,7 +436,13 @@ impl MissionSceneLoader {
         let mut input = MissionSceneInput::new(bytes).map_err(|e| self.error(0x54163b, e))?;
         self.cursor = input.cursor();
         let result = self.read_root(
-            driver, arena, resources, screen, projection, &mut input, model_open,
+            driver,
+            arena,
+            resources,
+            screen,
+            projection,
+            &mut input,
+            resource_open,
         );
         self.cursor = input.cursor();
         result.map_err(|(entry, detail)| self.error(entry, detail))
@@ -427,7 +523,7 @@ impl MissionSceneLoader {
         screen: &mut S,
         projection: GameCameraProjection,
         input: &mut MissionSceneInput<'_>,
-        model_open: &mut Option<&mut ModelOpenAdapter<'_>>,
+        resource_open: &mut Option<&mut ResourceOpenAdapter<'_>>,
     ) -> Result<(), (u32, String)>
     where
         S::Error: std::fmt::Debug,
@@ -489,9 +585,19 @@ impl MissionSceneLoader {
                 }
                 0x4000 => {
                     input.enter_current().map_err(|e| (0x54199c, e))?;
-                    self.read_objects(driver, arena, resources, screen, input, model_open)?;
+                    self.read_objects(driver, arena, resources, screen, input, resource_open)?;
                     input.leave_container().map_err(|e| (0x5446aa, e))?;
                     continue;
+                }
+                0xae20 => {
+                    return Err((0x544a16, "actor root requires ordered Game actor dispatch; object stage and pending links retained".into()));
+                }
+                0xae50 => {
+                    return Err((
+                        0x544b92,
+                        "script root requires ordered Game script dispatch; pending links retained"
+                            .into(),
+                    ));
                 }
                 _ => {
                     return Err((
@@ -502,6 +608,72 @@ impl MissionSceneLoader {
             }
             input.close_current().map_err(|e| (0x404ce0, e))?;
         }
+        self.resolve_deferred_sound_links(arena)?;
+        Ok(())
+    }
+    fn resolve_deferred_sound_links(
+        &mut self,
+        arena: &mut ModelArena,
+    ) -> Result<(), (u32, String)> {
+        // Game 0x544efb and 0x545030 walk separate vectors backwards after
+        // scene object input. Missing/wrong-type targets are ignored there.
+        for (kind, links) in [
+            (SoundLinkKind::Sector, &self.pending_sound_sector_links),
+            (SoundLinkKind::Area, &self.pending_sound_area_links),
+        ] {
+            for pending in links.iter().rev() {
+                let sound_frame = FrameKey(pending.sound.identity());
+                if arena.lookup_reference(sound_frame) != pending.sound {
+                    return Err((0x544f9a, "stale deferred sound frame".into()));
+                }
+                let sound = arena
+                    .sound_key(sound_frame)
+                    .map_err(|e| (0x544f9a, format!("{e:?}")))?;
+                let Some(target) = self.load_map.map.slot(&pending.name).flatten() else {
+                    continue;
+                };
+                let frame = FrameKey(target.identity());
+                if arena.lookup_reference(frame) != target {
+                    return Err((0x544f81, "stale deferred sound target".into()));
+                }
+                let expected = if kind == SoundLinkKind::Sector {
+                    FrameKind::Sector
+                } else {
+                    FrameKind::Area
+                };
+                if arena
+                    .state(frame)
+                    .map_err(|e| (0x544f81, format!("{e:?}")))?
+                    .kind
+                    != expected
+                {
+                    continue;
+                }
+                match kind {
+                    SoundLinkKind::Sector => {
+                        arena.add_sound_to_sector(crate::scene_ownership::SectorKey(frame), sound)
+                    }
+                    SoundLinkKind::Area => arena.add_sound_to_area(
+                        arena
+                            .area_key(frame)
+                            .map_err(|e| (0x5450ca, format!("{e:?}")))?,
+                        sound,
+                    ),
+                }
+                .map_err(|e| {
+                    (
+                        if kind == SoundLinkKind::Sector {
+                            0x54500f
+                        } else {
+                            0x5450c0
+                        },
+                        format!("{e:?}"),
+                    )
+                })?;
+            }
+        }
+        self.pending_sound_sector_links.clear();
+        self.pending_sound_area_links.clear();
         Ok(())
     }
     #[allow(clippy::too_many_arguments)] // Original invocation plus explicit screen and owners.
@@ -512,7 +684,7 @@ impl MissionSceneLoader {
         resources: &SceneResources,
         screen: &mut S,
         input: &mut MissionSceneInput<'_>,
-        model_open: &mut Option<&mut ModelOpenAdapter<'_>>,
+        resource_open: &mut Option<&mut ResourceOpenAdapter<'_>>,
     ) -> Result<(), (u32, String)>
     where
         S::Error: std::fmt::Debug,
@@ -578,6 +750,21 @@ impl MissionSceneLoader {
                                         return Err((0x541d05, format!("{:?}", failure.error)));
                                     }
                                 },
+                                4 => {
+                                    match driver.create_sound_frame(arena, resources, self.scene) {
+                                        Ok(sound) => sound.frame(),
+                                        Err(failure) => {
+                                            self.pending_factory_creator = failure
+                                                .frame
+                                                .map(|sound| arena.lookup_reference(sound.frame()));
+                                            return Err((0x541d05, format!("{:?}", failure.error)));
+                                        }
+                                    }
+                                }
+                                14 => driver
+                                    .create_area_frame(arena, resources, self.scene)
+                                    .map_err(|e| (0x541d05, format!("{e:?}")))?
+                                    .frame(),
                                 6 => driver
                                     .create_dummy_frame(arena, resources, self.scene)
                                     .map_err(|e| (0x541d05, format!("{e:?}")))?,
@@ -683,11 +870,21 @@ impl MissionSceneLoader {
                         self.read_dummy_bound_box(arena, input)?;
                         continue;
                     }
-                    0x2012 => {
-                        self.read_model_open(arena, input, model_open)?;
+                    0x4060 => {
+                        self.read_sound(arena, input, resource_open)?;
                         if input.current().is_none() {
                             continue;
                         }
+                    }
+                    0x2012 => {
+                        self.read_model_open(arena, input, resource_open)?;
+                        if input.current().is_none() {
+                            continue;
+                        }
+                    }
+                    0xb151 => {
+                        self.read_area_geometry(arena, input)?;
+                        continue;
                     }
                     0x4083 => self.read_occluder_geometry(arena, input)?,
                     0x4090 => {
@@ -803,6 +1000,213 @@ impl MissionSceneLoader {
         }
         Ok(())
     }
+    fn read_sound(
+        &mut self,
+        arena: &mut ModelArena,
+        input: &mut MissionSceneInput<'_>,
+        resource_open: &mut Option<&mut ResourceOpenAdapter<'_>>,
+    ) -> Result<(), (u32, String)> {
+        let Some(frame) = self.current_frame else {
+            return Ok(());
+        };
+        let key = FrameKey(frame.identity());
+        if arena.lookup_reference(key) != frame {
+            return Err((0x542c55, "stale sound object frame".into()));
+        }
+        if arena
+            .state(key)
+            .map_err(|e| (0x542c5d, format!("{e:?}")))?
+            .kind
+            != FrameKind::Sound
+        {
+            return Ok(());
+        }
+        let sound = arena
+            .sound_key(key)
+            .map_err(|e| (0x542c5d, format!("{e:?}")))?;
+        let audio = arena
+            .host_sound_backend()
+            .map_err(|e| (0x542c6f, format!("{e:?}")))?
+            .audio
+            .clone();
+        audio
+            .sound_virtual(key.0, 0x24, &[0])
+            .map_err(|e| (0x542c6f, e.to_string()))?;
+        audio
+            .sound_virtual(key.0, 0x6c, &[0])
+            .map_err(|e| (0x542c77, e.to_string()))?;
+        input.enter_current().map_err(|e| (0x542c80, e))?;
+        while let Some(field) = input.next_chunk().map_err(|e| (0x542c80, e))? {
+            match field.kind {
+                0x10 => {
+                    let bytes = input
+                        .read(field.payload.len().min(999))
+                        .map_err(|e| (0x542dfb, e))?;
+                    let end = bytes.iter().position(|&b| b == 0).ok_or((
+                        0x542e0c,
+                        "unterminated sound filename outside original buffer".into(),
+                    ))?;
+                    let name = bytes[..end].to_vec();
+                    input.close_current().map_err(|e| (0x542e16, e))?;
+                    let Some(open) = resource_open.as_mut() else {
+                        return Err((
+                            0x542e9a,
+                            "original sound cache Open requires initialized host resource owner"
+                                .into(),
+                        ));
+                    };
+                    open(arena, key, &name, ResourceOpenKind::Sound).map_err(|e| (0x542e9a, e))?;
+                    continue;
+                }
+                0x4061 | 0x4062 | 0x4063 | 0xb800 => {
+                    let word = input.read_u32().map_err(|e| (0x542d95, e))?;
+                    input.close_current().map_err(|e| (0x404ce0, e))?;
+                    let slot = match field.kind {
+                        0x4061 => 0x58,
+                        0x4062 => 0x68,
+                        0x4063 => 0x64,
+                        _ => 0x74,
+                    };
+                    audio
+                        .sound_virtual(key.0, slot, &[word])
+                        .map_err(|e| (0x542dad, e.to_string()))?;
+                    continue;
+                }
+                0x4064 => {
+                    let raw = input.read(8).map_err(|e| (0x5432c4, e))?;
+                    let args = [
+                        u32::from_le_bytes(raw[0..4].try_into().unwrap()),
+                        u32::from_le_bytes(raw[4..8].try_into().unwrap()),
+                    ];
+                    input.close_current().map_err(|e| (0x404ce0, e))?;
+                    audio
+                        .sound_virtual(key.0, 0x60, &args)
+                        .map_err(|e| (0x5432c4, e.to_string()))?;
+                    continue;
+                }
+                0x4065 => {
+                    let raw = input.read(12).map_err(|e| (0x543111, e))?;
+                    let args = [
+                        u32::from_le_bytes(raw[0..4].try_into().unwrap()),
+                        u32::from_le_bytes(raw[4..8].try_into().unwrap()),
+                        u32::from_le_bytes(raw[8..12].try_into().unwrap()),
+                        1.0f32.to_bits(),
+                    ];
+                    input.close_current().map_err(|e| (0x404ce0, e))?;
+                    audio
+                        .sound_virtual(key.0, 0x5c, &args)
+                        .map_err(|e| (0x5431c6, e.to_string()))?;
+                    continue;
+                }
+                0x4068 => {
+                    let raw = input.read(16).map_err(|e| (0x5435ac, e))?;
+                    let args: [u32; 4] = std::array::from_fn(|i| {
+                        u32::from_le_bytes(raw[i * 4..i * 4 + 4].try_into().unwrap())
+                    });
+                    input.close_current().map_err(|e| (0x404ce0, e))?;
+                    audio
+                        .sound_virtual(key.0, 0x5c, &args)
+                        .map_err(|e| (0x5435ad, e.to_string()))?;
+                    continue;
+                }
+                0x4066 => {
+                    audio
+                        .sound_virtual(key.0, 0x6c, &[1])
+                        .map_err(|e| (0x5432d1, e.to_string()))?;
+                }
+                0xb200 | 0xb201 => {
+                    let bytes = input
+                        .read(field.payload.len().min(999))
+                        .map_err(|e| (0x54365d, e))?;
+                    let end = bytes.iter().position(|&b| b == 0).ok_or((
+                        0x543671,
+                        "unterminated sound link name outside original buffer".into(),
+                    ))?;
+                    let name = bytes[..end].to_vec();
+                    input.close_current().map_err(|e| (0x404ce0, e))?;
+                    let kind = if field.kind == 0xb200 {
+                        SoundLinkKind::Sector
+                    } else {
+                        SoundLinkKind::Area
+                    };
+                    self.link_sound_or_defer(arena, sound, frame, name, kind)?;
+                    continue;
+                }
+                _ => {} // 0x4067 and other tags take the original close/skip arm.
+            }
+            input.close_current().map_err(|e| (0x404ce0, e))?;
+        }
+        input.leave_container().map_err(|e| (0x54393f, e))?;
+        self.object_fields.flags |= 0x40;
+        audio
+            .sound_virtual(key.0, 0x24, &[1])
+            .map_err(|e| (0x54394f, e.to_string()))?;
+        Ok(())
+    }
+
+    fn link_sound_or_defer(
+        &mut self,
+        arena: &mut ModelArena,
+        sound: crate::frame_sound::SoundKey,
+        reference: FrameReferenceId,
+        name: Vec<u8>,
+        kind: SoundLinkKind,
+    ) -> Result<(), (u32, String)> {
+        let target = self.load_map.map.slot(&name).flatten();
+        if let Some(target) = target {
+            let frame = FrameKey(target.identity());
+            if arena.lookup_reference(frame) != target {
+                return Err((0x5436d5, "stale sound link map frame".into()));
+            }
+            let type_matches = arena
+                .state(frame)
+                .map_err(|e| (0x5436d5, format!("{e:?}")))?
+                .kind
+                == match kind {
+                    SoundLinkKind::Sector => FrameKind::Sector,
+                    SoundLinkKind::Area => FrameKind::Area,
+                };
+            if type_matches {
+                match kind {
+                    SoundLinkKind::Sector => {
+                        arena.add_sound_to_sector(crate::scene_ownership::SectorKey(frame), sound)
+                    }
+                    SoundLinkKind::Area => arena.add_sound_to_area(
+                        arena
+                            .area_key(frame)
+                            .map_err(|e| (0x5438c6, format!("{e:?}")))?,
+                        sound,
+                    ),
+                }
+                .map_err(|e| {
+                    (
+                        if kind == SoundLinkKind::Sector {
+                            0x5436e2
+                        } else {
+                            0x5438c6
+                        },
+                        format!("{e:?}"),
+                    )
+                })?;
+                return Ok(());
+            }
+        }
+        let pending = PendingSoundLink {
+            sound: reference,
+            name,
+            kind,
+        };
+        let list = if kind == SoundLinkKind::Sector {
+            &mut self.pending_sound_sector_links
+        } else {
+            &mut self.pending_sound_area_links
+        };
+        list.try_reserve(1)
+            .map_err(|_| (0x548040, "sound link request allocation failed".into()))?;
+        list.push(pending);
+        Ok(())
+    }
+
     fn read_parent(
         &mut self,
         arena: &ModelArena,
@@ -879,6 +1283,128 @@ impl MissionSceneLoader {
                     .map_err(|e| (0x543a06, format!("{e:?}")))?;
             }
         }
+        Ok(())
+    }
+    fn read_area_geometry(
+        &mut self,
+        arena: &mut ModelArena,
+        input: &mut MissionSceneInput<'_>,
+    ) -> Result<(), (u32, String)> {
+        if let Some(frame) = self.current_frame {
+            let key = FrameKey(frame.identity());
+            if arena.lookup_reference(key) != frame {
+                return Err((0x543d4d, "stale AREA geometry frame".into()));
+            }
+            if arena
+                .state(key)
+                .map_err(|e| (0x543d4d, format!("{e:?}")))?
+                .kind
+                == FrameKind::Area
+            {
+                let count = input.read_u32().map_err(|e| (0x543d6c, e))?;
+                self.pending_area_geometry = Some(MissionAreaGeometry {
+                    vertex_count: count,
+                    vertices: None,
+                    face_count: None,
+                    faces: None,
+                });
+                // Explicit host allocation quota, not a native count rejection.
+                if count > 1_000_000 {
+                    return Err((
+                        0x543d7e,
+                        "AREA temporary vertex allocation outside host quota".into(),
+                    ));
+                }
+                let mut vertices = Vec::new();
+                vertices.try_reserve_exact(count as usize).map_err(|_| {
+                    (
+                        0x543d7e,
+                        "AREA temporary vertex allocation unavailable".into(),
+                    )
+                })?;
+                vertices.resize(count as usize, None);
+                self.pending_area_geometry.as_mut().unwrap().vertices = Some(vertices);
+                let bytes = (count as usize)
+                    .checked_mul(12)
+                    .ok_or((0x543dc2, "AREA vertex read extent".into()))?;
+                let raw = input.read(bytes).map_err(|e| (0x543dc2, e))?;
+                for (destination, raw) in self
+                    .pending_area_geometry
+                    .as_mut()
+                    .unwrap()
+                    .vertices
+                    .as_mut()
+                    .unwrap()
+                    .iter_mut()
+                    .zip(raw.as_chunks::<12>().0)
+                {
+                    *destination = Some(std::array::from_fn(|axis| {
+                        u32::from_le_bytes(raw[axis * 4..axis * 4 + 4].try_into().unwrap())
+                    }));
+                }
+                let count = input.read_u32().map_err(|e| (0x543ddc, e))?;
+                self.pending_area_geometry.as_mut().unwrap().face_count = Some(count);
+                if count > 1_000_000 {
+                    return Err((
+                        0x543dee,
+                        "AREA temporary face allocation outside host quota".into(),
+                    ));
+                }
+                let mut faces = Vec::new();
+                faces.try_reserve_exact(count as usize).map_err(|_| {
+                    (
+                        0x543dee,
+                        "AREA temporary face allocation unavailable".into(),
+                    )
+                })?;
+                faces.resize(count as usize, None);
+                self.pending_area_geometry.as_mut().unwrap().faces = Some(faces);
+                let bytes = (count as usize)
+                    .checked_mul(6)
+                    .ok_or((0x543e0a, "AREA face read extent".into()))?;
+                let raw = input.read(bytes).map_err(|e| (0x543e0a, e))?;
+                for (destination, raw) in self
+                    .pending_area_geometry
+                    .as_mut()
+                    .unwrap()
+                    .faces
+                    .as_mut()
+                    .unwrap()
+                    .iter_mut()
+                    .zip(raw.as_chunks::<6>().0)
+                {
+                    *destination = Some(std::array::from_fn(|axis| {
+                        u16::from_le_bytes(raw[axis * 2..axis * 2 + 2].try_into().unwrap())
+                    }));
+                }
+                let pending = self.pending_area_geometry.as_ref().unwrap();
+                let vertices = pending
+                    .vertices
+                    .as_ref()
+                    .unwrap()
+                    .iter()
+                    .map(|v| v.unwrap().map(f32::from_bits))
+                    .collect::<Vec<_>>();
+                let faces = pending
+                    .faces
+                    .as_ref()
+                    .unwrap()
+                    .iter()
+                    .map(|f| f.unwrap())
+                    .collect::<Vec<_>>();
+                let area = arena
+                    .area_key(key)
+                    .map_err(|e| (0x543e24, format!("{e:?}")))?;
+                let result = arena
+                    .area_build(area, &vertices, &faces)
+                    .map_err(|e| (0x543e24, format!("{e:?}")))?;
+                self.object_fields.geometry_build_result = Some(result as u32);
+                // Deleting the temporary vertices precedes deleting the faces.
+                self.pending_area_geometry = None;
+                self.object_fields.flags |= 0x100000;
+            }
+        }
+        input.close_current().map_err(|e| (0x543e47, e))?;
         Ok(())
     }
     fn read_occluder_geometry(
@@ -1179,7 +1705,7 @@ impl MissionSceneLoader {
         &mut self,
         arena: &mut ModelArena,
         input: &mut MissionSceneInput<'_>,
-        model_open: &mut Option<&mut ModelOpenAdapter<'_>>,
+        resource_open: &mut Option<&mut ResourceOpenAdapter<'_>>,
     ) -> Result<(), (u32, String)> {
         let Some(frame) = self.current_frame else {
             return Ok(());
@@ -1224,7 +1750,7 @@ impl MissionSceneLoader {
             input_name: name,
             cache_name,
         });
-        let Some(open) = model_open.as_mut() else {
+        let Some(open) = resource_open.as_mut() else {
             return Err((
                 0x54220a,
                 "original C_I3D_model_cache::Open4087e0 resource loading unavailable".into(),
@@ -1232,7 +1758,8 @@ impl MissionSceneLoader {
         };
         let model = crate::model_loading::ModelKey(key);
         let requested = &self.pending_model_open.as_ref().unwrap().cache_name;
-        let result = open(arena, model, requested).map_err(|e| (0x54220a, e))?;
+        let result = open(arena, model.root(), requested, ResourceOpenKind::Model)
+            .map_err(|e| (0x54220a, e))?;
         if result >= 0 {
             let mut stack = Vec::new();
             if let Some(child) = arena
@@ -2089,6 +2616,202 @@ mod tests {
         )
     }
     #[test]
+    fn sound_fields_and_forward_area_link_use_live_owners_in_file_order() {
+        crate::native_precision::Pc24PrecisionState::default().run(|| {
+            let mut arena = ModelArena::default();
+            let mut resources = SceneResources::default();
+            let mut textures = TextureResources::new().unwrap();
+            let mut storage = CpuTextureStorage::default();
+            let mut driver = DriverSceneOwner::default();
+            let audio = crate::runtime_audio::RuntimeAudio::default();
+            driver.bind_host_sound_backend(&mut arena, &audio).unwrap();
+            let mut screen = Screen { calls: Vec::new() };
+            let scene = driver
+                .create_scene(
+                    &mut DriverSceneContext {
+                        arena: &mut arena,
+                        resources: &mut resources,
+                        textures: &mut textures,
+                        storage: &mut storage,
+                    },
+                    &mut screen,
+                    &mut MissingImages,
+                    NativeSceneSoundDriver::Initialized,
+                )
+                .unwrap();
+            let nested = chunk(
+                0x4060,
+                &[
+                    chunk(0x4061, &1u32.to_le_bytes()),
+                    chunk(0x4062, &0.75f32.to_bits().to_le_bytes()),
+                    chunk(0x4065, &words(&[2.0, 30.0, 0.5])),
+                    chunk(0x4066, &[]),
+                    chunk(0xb200, b"Primary sector\0"),
+                    chunk(0xb201, b"future\0"),
+                    chunk(0x4067, &[]),
+                ]
+                .concat(),
+            );
+            let bytes = input_objects(
+                &[
+                    new_object(4, b"source sound\0", &nested),
+                    new_object(14, b"future\0", &[]),
+                ]
+                .concat(),
+            );
+            let mut loader = MissionSceneLoader::new(&arena, scene)
+                .map_err(|e| e.detail)
+                .unwrap();
+            loader
+                .load_prefix(
+                    &mut driver,
+                    &mut arena,
+                    &resources,
+                    &mut screen,
+                    GameCameraProjection {
+                        global_mode: 0,
+                        screen_flag_46f4: false,
+                    },
+                    &bytes,
+                )
+                .unwrap();
+            assert_eq!(loader.finished_objects, 2);
+            assert!(loader.pending_sound_area_links.is_empty());
+            let sound_frame = FrameKey(
+                loader
+                    .load_map
+                    .map
+                    .slot(b"source sound")
+                    .flatten()
+                    .unwrap()
+                    .identity(),
+            );
+            let area_frame = FrameKey(
+                loader
+                    .load_map
+                    .map
+                    .slot(b"future")
+                    .flatten()
+                    .unwrap()
+                    .identity(),
+            );
+            let sound = arena.sound_key(sound_frame).unwrap();
+            let area = arena.area_key(area_frame).unwrap();
+            assert_eq!(arena.sound(sound).unwrap().areas(), &[area]);
+            assert_eq!(arena.area(area).unwrap().sounds, [sound_frame]);
+            assert_eq!(audio.sound(sound_frame.0).unwrap().volume, 0.75);
+            assert_eq!(
+                audio.sound(sound_frame.0).unwrap().range,
+                [2.0, 30.0, 0.5, 1.0]
+            );
+            assert!(audio.sound(sound_frame.0).unwrap().looping);
+            resources
+                .close_constructed_scene(&mut arena, scene, &mut textures, &mut storage)
+                .unwrap();
+            driver
+                .release_scene(
+                    &mut DriverSceneContext {
+                        arena: &mut arena,
+                        resources: &mut resources,
+                        textures: &mut textures,
+                        storage: &mut storage,
+                    },
+                    scene,
+                )
+                .unwrap();
+            assert_eq!(audio.live_sound_count().unwrap(), 0);
+        });
+    }
+    #[test]
+    fn actor_boundary_retains_unresolved_sound_requests_without_early_link_pass() {
+        crate::native_precision::Pc24PrecisionState::default().run(|| {
+            let mut arena = ModelArena::default();
+            let mut resources = SceneResources::default();
+            let mut textures = TextureResources::new().unwrap();
+            let mut storage = CpuTextureStorage::default();
+            let mut driver = DriverSceneOwner::default();
+            let audio = crate::runtime_audio::RuntimeAudio::default();
+            driver.bind_host_sound_backend(&mut arena, &audio).unwrap();
+            let mut screen = Screen { calls: Vec::new() };
+            let scene = driver
+                .create_scene(
+                    &mut DriverSceneContext {
+                        arena: &mut arena,
+                        resources: &mut resources,
+                        textures: &mut textures,
+                        storage: &mut storage,
+                    },
+                    &mut screen,
+                    &mut MissingImages,
+                    NativeSceneSoundDriver::Initialized,
+                )
+                .unwrap();
+            let sound = new_object(
+                4,
+                b"pending sound\0",
+                &chunk(0x4060, &chunk(0xb201, b"future area\0")),
+            );
+            let bytes = chunk(
+                0x4c53,
+                &[
+                    chunk(1, &[5u16.to_le_bytes(), 1u16.to_le_bytes()].concat()),
+                    chunk(0x4000, &sound),
+                    chunk(0xae20, &[]),
+                ]
+                .concat(),
+            );
+            let mut loader = MissionSceneLoader::new(&arena, scene)
+                .map_err(|e| e.detail)
+                .unwrap();
+            let error = loader
+                .load_prefix(
+                    &mut driver,
+                    &mut arena,
+                    &resources,
+                    &mut screen,
+                    GameCameraProjection {
+                        global_mode: 0,
+                        screen_flag_46f4: false,
+                    },
+                    &bytes,
+                )
+                .unwrap_err();
+            assert_eq!(error.entry, 0x544a16);
+            assert_eq!(loader.finished_objects, 1);
+            assert_eq!(loader.pending_sound_area_links.len(), 1);
+            assert_eq!(loader.pending_sound_area_links[0].name, b"future area");
+            let frame = FrameKey(
+                loader
+                    .load_map
+                    .map
+                    .slot(b"pending sound")
+                    .flatten()
+                    .unwrap()
+                    .identity(),
+            );
+            assert!(arena
+                .sound(arena.sound_key(frame).unwrap())
+                .unwrap()
+                .areas()
+                .is_empty());
+            resources
+                .close_constructed_scene(&mut arena, scene, &mut textures, &mut storage)
+                .unwrap();
+            driver
+                .release_scene(
+                    &mut DriverSceneContext {
+                        arena: &mut arena,
+                        resources: &mut resources,
+                        textures: &mut textures,
+                        storage: &mut storage,
+                    },
+                    scene,
+                )
+                .unwrap();
+            assert_eq!(audio.live_sound_count().unwrap(), 0);
+        });
+    }
+    #[test]
     fn dummy_and_camera_use_real_factory_owners_and_derived_box() {
         with_scene(|driver, arena, resources, screen, scene| {
             let parent = chunk(0x4020, &chunk(0x10, b"Primary sector\0"));
@@ -2466,6 +3189,69 @@ mod tests {
                 arena.light(light).unwrap().sectors,
                 vec![arena.scene(scene).unwrap().sectors[0].frame()]
             );
+        });
+    }
+    #[test]
+    fn scene2_fog_light_owns_primary_membership_and_closes_with_scene() {
+        with_scene(|driver, arena, resources, screen, scene| {
+            // MISE01's `mlha` uses this field order: type 5, color, power,
+            // cone, percent range, mode, then its Primary-sector name.
+            let fog = new_object(
+                2,
+                b"mlha\0",
+                &chunk(
+                    0x4040,
+                    &[
+                        chunk(0x4041, &5u32.to_le_bytes()),
+                        chunk(0x26, &words(&[0.067, 0.086, 0.141])),
+                        chunk(0x4042, &words(&[1.])),
+                        chunk(0x4043, &words(&[0.35, 0.7])),
+                        chunk(0x4044, &words(&[20., 90.])),
+                        chunk(0x4045, &99u32.to_le_bytes()),
+                        chunk(0x4046, b"Primary sector\0"),
+                    ]
+                    .concat(),
+                ),
+            );
+            let blocked = new_object(10, b"next factory\0", &[]);
+            let bytes = input_objects(&[fog, blocked].concat());
+            let mut loader = MissionSceneLoader::new(arena, scene)
+                .map_err(|error| error.detail)
+                .unwrap();
+            let error = loader
+                .load_prefix(
+                    driver,
+                    arena,
+                    resources,
+                    screen,
+                    GameCameraProjection {
+                        global_mode: 0,
+                        screen_flag_46f4: false,
+                    },
+                    &bytes,
+                )
+                .unwrap_err();
+            assert_eq!(error.entry, 0x541d05, "{error:?}");
+            assert_eq!(loader.finished_objects, 1);
+            let light = FrameKey(
+                loader
+                    .load_map
+                    .map
+                    .slot(b"mlha")
+                    .unwrap()
+                    .unwrap()
+                    .identity(),
+            );
+            let primary = arena.scene(scene).unwrap().sectors[0];
+            let fog = arena.light(light).unwrap();
+            assert_eq!(fog.light_type, 5);
+            assert_eq!(fog.near_scaled.to_bits(), (20f32 * 0.01).to_bits());
+            assert_eq!(fog.far_scaled.to_bits(), (90f32 * 0.01).to_bits());
+            assert_eq!(fog.sectors, [primary.frame()]);
+            let sector = arena.sector(primary).unwrap();
+            assert_eq!(sector.lights, [light]);
+            assert_eq!(sector.num_fog_lights, 1);
+            assert_eq!(sector.fog_light, Some(light));
         });
     }
     #[test]

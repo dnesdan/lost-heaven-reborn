@@ -293,7 +293,10 @@ impl<'a, B: VehicleInitBackend> VehicleFrameBackend<'a, B> {
                 }
             }
             0x110 => match state.kind {
-                FrameKind::Mesh | FrameKind::Singlemesh | FrameKind::Projector => 1,
+                FrameKind::Mesh
+                | FrameKind::Singlemesh
+                | FrameKind::Projector
+                | FrameKind::Lensflare => 1,
                 FrameKind::Light => 2,
                 FrameKind::Camera => 3,
                 FrameKind::Sound => 4,
@@ -303,6 +306,7 @@ impl<'a, B: VehicleInitBackend> VehicleFrameBackend<'a, B> {
                 FrameKind::Joint => 10,
                 FrameKind::Target => 7,
                 FrameKind::Occluder => 12,
+                FrameKind::Area => 14,
                 FrameKind::Scene => {
                     return Err(VehicleFrameError::UnsupportedField { frame: key, offset });
                 }
@@ -537,7 +541,10 @@ impl<'a, B: VehicleInitBackend> VehicleFrameBackend<'a, B> {
                 .map_err(VehicleFrameError::from)
                 .map_err(E::from)?;
             let kind_mask = match state.kind {
-                FrameKind::Mesh | FrameKind::Singlemesh | FrameKind::Projector => 1,
+                FrameKind::Mesh
+                | FrameKind::Singlemesh
+                | FrameKind::Projector
+                | FrameKind::Lensflare => 1,
                 FrameKind::Light => 2,
                 FrameKind::Camera => 4,
                 FrameKind::Sound => 8,
@@ -546,6 +553,7 @@ impl<'a, B: VehicleInitBackend> VehicleFrameBackend<'a, B> {
                 FrameKind::Target => 0x40,
                 FrameKind::Model => 0x80,
                 FrameKind::Joint => 0x400,
+                FrameKind::Area => 0x1000,
                 // Actual EnumSubtree RVA0x1c020 skips kinds12/13 for
                 // every partial mask; the all-types sentinel below bypasses it.
                 FrameKind::Occluder | FrameKind::Scene => 0,

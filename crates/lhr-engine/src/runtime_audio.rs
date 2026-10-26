@@ -8,6 +8,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
+use crate::frame_transform::FrameKey;
 use lhr_assets::Installation;
 
 #[path = "runtime_audio_device.rs"]
@@ -28,11 +29,21 @@ impl std::error::Error for AudioError {}
 
 type Result<T> = std::result::Result<T, AudioError>;
 
+/// Which live ModelArena frame owns a host PCM handle. Scene Sound factory
+/// handles are direct keys; vehicle frame effects use inert projected handles.
+/// Recording the owner at construction avoids guessing from numeric ranges.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SoundFrameOwner {
+    Scene(FrameKey),
+    Vehicle(FrameKey),
+}
+
 /// Decoded source data. Original compressed archive audio is decoded by
 /// Installation/RWData before the RIFF parser sees it.
 #[derive(Debug)]
 pub struct PcmSource {
     pub name: String,
+    pub open_flags: u32,
     pub sample_rate: u32,
     pub channels: u16,
     samples: Vec<f32>,
@@ -117,6 +128,7 @@ impl PcmSource {
         };
         Ok(Self {
             name: name.into(),
+            open_flags: 0,
             sample_rate,
             channels,
             samples,
@@ -134,19 +146,47 @@ impl PcmSource {
 
 /// Source-backed I3D state values. The upstream names are descriptive guesses.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[repr(u32)]
 pub enum PlaybackState {
-    Stop = 1,
-    Play = 2,
-    Pause = 3,
-    Resume = 4,
-    NoCamera = 5,
+    Stop,
+    Play,
+    Pause,
+    Resume,
+    NoCamera,
+    /// I3D_sound::Duplicate copies the low byte of the source's sound flags
+    /// into m_SetState. Those bytes are not limited to the five named states.
+    Native(u8),
+}
+
+impl PlaybackState {
+    pub fn from_native_byte(raw: u8) -> Self {
+        match raw {
+            1 => Self::Stop,
+            2 => Self::Play,
+            3 => Self::Pause,
+            4 => Self::Resume,
+            5 => Self::NoCamera,
+            other => Self::Native(other),
+        }
+    }
+
+    pub fn native_byte(self) -> u8 {
+        match self {
+            Self::Stop => 1,
+            Self::Play => 2,
+            Self::Pause => 3,
+            Self::Resume => 4,
+            Self::NoCamera => 5,
+            Self::Native(raw) => raw,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
 pub struct SoundState {
     pub handle: u32,
+    frame_owner: Option<SoundFrameOwner>,
     pub source: Option<Arc<PcmSource>>,
+    pub open_flags: u32,
     pub parent: u32,
     pub on: bool,
     pub looping: bool,
@@ -176,7 +216,7 @@ pub struct SoundState {
 }
 
 impl SoundState {
-    fn new(handle: u32) -> Self {
+    fn new(handle: u32, frame_owner: Option<SoundFrameOwner>) -> Self {
         let mut tail = [0; 43];
         for (offset, value) in [
             (0x140, 0x208f),
@@ -202,7 +242,9 @@ impl SoundState {
         }
         Self {
             handle,
+            frame_owner,
             source: None,
+            open_flags: 0,
             parent: 0,
             on: false,
             looping: false,
@@ -386,6 +428,12 @@ pub struct SourceProjection {
 #[derive(Clone, Debug)]
 pub struct RuntimeAudio(Arc<Mutex<Mixer>>);
 
+impl RuntimeAudio {
+    pub(crate) fn same_owner(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
 impl Default for RuntimeAudio {
     fn default() -> Self {
         Self(Arc::new(Mutex::new(Mixer {
@@ -458,7 +506,7 @@ impl RuntimeAudio {
             });
         }
         Ok(match offset {
-            0x144 => sound.state as u32,
+            0x144 => u32::from(sound.state.native_byte()),
             0x150 => sound.start_time,
             0x154 => sound.pause_time,
             0x158 => sound.pause_pos,
@@ -472,6 +520,7 @@ impl RuntimeAudio {
             0x188 => sound.out_volume.to_bits(),
             0x18c => sound.volume.to_bits(),
             0x194 => sound.frequency.to_bits(),
+            0x198 => sound.open_flags,
             0x19c => sound.sound_type,
             0x1a0 => sound.cone[0].to_bits(),
             0x1a8 => sound.cone[1].to_bits(),
@@ -495,6 +544,7 @@ impl RuntimeAudio {
             0x188 => sound.out_volume = f32::from_bits(value),
             0x18c => sound.volume = f32::from_bits(value),
             0x194 => sound.frequency = f32::from_bits(value),
+            0x198 => sound.open_flags = value,
             0x19c => sound.sound_type = value,
             0x1a0 => sound.cone[0] = f32::from_bits(value),
             0x1a8 => sound.cone[1] = f32::from_bits(value),
@@ -514,11 +564,23 @@ impl RuntimeAudio {
     /// The canonical address is allocated by the frame host, never fabricated
     /// from a null factory result or a private numeric sound bank.
     pub fn create_sound_at(&self, handle: u32) -> Result<()> {
+        self.create_sound_at_with_owner(handle, None)
+    }
+
+    pub(crate) fn create_frame_sound_at(&self, handle: u32, owner: SoundFrameOwner) -> Result<()> {
+        self.create_sound_at_with_owner(handle, Some(owner))
+    }
+
+    fn create_sound_at_with_owner(
+        &self,
+        handle: u32,
+        owner: Option<SoundFrameOwner>,
+    ) -> Result<()> {
         let mut mixer = self.lock()?;
         if handle == 0 || mixer.sounds.contains_key(&handle) {
             return Err(AudioError("invalid or already owned sound address".into()));
         }
-        let mut sound = SoundState::new(handle);
+        let mut sound = SoundState::new(handle, owner);
         sound.clock_ms = mixer.clock_ms as u64 as u32;
         mixer.sounds.insert(handle, sound);
         Ok(())
@@ -536,12 +598,43 @@ impl RuntimeAudio {
             .ok_or_else(|| AudioError(format!("unowned sound {handle:#x}")))
     }
 
+    /// I3D_sound::m_SetState at PC RVA 0x59360 stores one byte without
+    /// validating the five named playback states. Duplicate passes the low
+    /// byte of the source's sound flags, so preserve every possible value.
+    pub fn set_native_state_byte(&self, handle: u32, raw: u8) -> Result<()> {
+        sound_mut(&mut *self.lock()?, handle)?.state = PlaybackState::from_native_byte(raw);
+        Ok(())
+    }
+
     pub fn live_sound_count(&self) -> Result<usize> {
         Ok(self.lock()?.sounds.len())
     }
 
+    /// Attached host PCM voices, including paused or waiting sounds. This is
+    /// distinct from the number of unique decoded PCM sources.
+    pub fn live_voice_count(&self) -> Result<usize> {
+        Ok(self
+            .lock()?
+            .sounds
+            .values()
+            .filter(|sound| sound.source.is_some())
+            .count())
+    }
+
+    pub fn listener_present(&self) -> Result<bool> {
+        Ok(self.lock()?.camera_present)
+    }
+
     pub fn sound_handles(&self) -> Result<Vec<u32>> {
         Ok(self.lock()?.sounds.keys().copied().collect())
+    }
+
+    pub(crate) fn sound_frame_owner(&self, handle: u32) -> Result<SoundFrameOwner> {
+        self.lock()?
+            .sounds
+            .get(&handle)
+            .and_then(|sound| sound.frame_owner)
+            .ok_or_else(|| AudioError("sound owner has no canonical frame".into()))
     }
 
     pub fn live_source_count(&self) -> Result<usize> {
@@ -561,12 +654,104 @@ impl RuntimeAudio {
         })
     }
 
+    /// Host-backed original path Open. Only a proven absent archive/loose
+    /// entry becomes I3DERR_NOFILE. Decode, selected-source and owner errors
+    /// remain explicit host interruptions instead of invented native HRESULTs.
+    pub fn open_original_sound(
+        &self,
+        handle: u32,
+        name: &str,
+        flags: u32,
+        installation: &Installation,
+    ) -> Result<i32> {
+        if !name.is_ascii() {
+            return Err(AudioError(
+                "non-ASCII sound path requires original filename encoding".into(),
+            ));
+        }
+        let normalized = name.replace('\\', "/");
+        let opened = self.load_sound_with_optional(handle, name, flags, || {
+            installation
+                .read_optional(&normalized)
+                .map_err(|e| AudioError(format!("sound source {name}: {e:?}")))
+        })?;
+        Ok(if opened { 0 } else { 0x8000_0001u32 as i32 })
+    }
+
+    /// Native derived Duplicate RVA 0x59250. The common frame Duplicate is a
+    /// separate ModelArena operation after these source, voice and field writes.
+    pub fn duplicate_sound_derived(
+        &self,
+        destination: u32,
+        source: u32,
+        installation: &Installation,
+    ) -> Result<i32> {
+        let original = self.sound(source)?;
+        self.sound_virtual(destination, 0x24, &[0])?;
+        // Duplicate releases the destination's existing voice before Open.
+        // Drop the host voice/source attachment here so an identical filename
+        // cannot trigger Open's exact-name fast path and retain that old voice.
+        {
+            let mut mixer = self.lock()?;
+            let target = sound_mut(&mut mixer, destination)?;
+            target.source = None;
+            target.voice_playing = false;
+            target.pending_play = false;
+            target.frame_position = 0.0;
+        }
+        let filename = original
+            .source
+            .as_ref()
+            .map_or("", |source| source.name.as_str());
+        let result =
+            self.open_original_sound(destination, filename, original.open_flags, installation)?;
+        let copied_words = [
+            0x164, 0x188, 0x18c, 0x194, 0x198, 0x168, 0x170, 0x17c, 0x184, 0x19c, 0x1a0, 0x1a8,
+        ]
+        .map(|offset| self.read_sound_word(source, offset))
+        .into_iter()
+        .collect::<Result<Vec<_>>>()?;
+        let mut mixer = self.lock()?;
+        let target = sound_mut(&mut mixer, destination)?;
+        target.looping = original.looping;
+        target.out_volume = original.out_volume;
+        target.volume = original.volume;
+        target.frequency = original.frequency;
+        target.open_flags = original.open_flags;
+        target.range = original.range;
+        target.sound_type = original.sound_type;
+        target.cone = original.cone;
+        target.state = PlaybackState::from_native_byte(original.native_tail[0] as u8);
+        for (offset, value) in [
+            0x164, 0x188, 0x18c, 0x194, 0x198, 0x168, 0x170, 0x17c, 0x184, 0x19c, 0x1a0, 0x1a8,
+        ]
+        .into_iter()
+        .zip(copied_words)
+        {
+            let index = ((offset - 0x140) / 4) as usize;
+            target.native_tail[index] = value;
+        }
+        target.native_tail[1] = u32::from(target.state.native_byte());
+        Ok(result)
+    }
+
     fn load_sound_with(
         &self,
         handle: u32,
         name: &str,
         read: impl FnOnce() -> Result<Vec<u8>>,
     ) -> Result<()> {
+        self.load_sound_with_optional(handle, name, 0, || read().map(Some))?;
+        Ok(())
+    }
+
+    fn load_sound_with_optional(
+        &self,
+        handle: u32,
+        name: &str,
+        flags: u32,
+        read: impl FnOnce() -> Result<Option<Vec<u8>>>,
+    ) -> Result<bool> {
         let canonical = canonical_name(name);
         let cached = {
             let mut mixer = self.lock()?;
@@ -577,7 +762,7 @@ impl RuntimeAudio {
                 .as_ref()
                 .is_some_and(|source| source.name == name)
             {
-                return Ok(());
+                return Ok(true);
             }
             // Release the old voice and source BEFORE opening the replacement.
             sound.source = None;
@@ -588,7 +773,14 @@ impl RuntimeAudio {
         };
         let source = match cached {
             Some(source) => source,
-            None => Arc::new(PcmSource::from_wav(name, &read()?)?),
+            None => {
+                let Some(bytes) = read()? else {
+                    return Ok(false);
+                };
+                let mut source = PcmSource::from_wav(name, &bytes)?;
+                source.open_flags = (flags | 0x200) & if source.channels > 1 { !0x200 } else { !0 };
+                Arc::new(source)
+            }
         };
         let mut mixer = self.lock()?;
         mixer.sources.insert(canonical, Arc::downgrade(&source));
@@ -602,12 +794,13 @@ impl RuntimeAudio {
             sound.cone = [std::f32::consts::FRAC_PI_3, std::f32::consts::FRAC_PI_2];
         }
         sound.source = Some(source);
-        sound.native_tail[0] |= 0x84;
+        sound.open_flags = sound.source.as_ref().unwrap().open_flags;
+        sound.native_tail[0] = 0x21ff;
         if sound.on {
             sound.set_on(true, camera, sector);
         }
         sound.seek(0);
-        Ok(())
+        Ok(true)
     }
 
     /// No active camera is distinct from a camera with no assigned sector.
@@ -679,7 +872,7 @@ impl RuntimeAudio {
             _ => {
                 return Err(AudioError(format!(
                     "unsupported sound vtable slot {slot:#x}"
-                )))
+                )));
             }
         };
         if arguments.len() != expected {
@@ -717,7 +910,7 @@ impl RuntimeAudio {
                     sound.voice_playing
                 } else {
                     sound.is_playing()
-                }))
+                }));
             }
             0x58 => {
                 if arguments[0] > 3 {
@@ -1141,6 +1334,18 @@ impl StereoWavCapture {
 mod tests {
     use super::*;
 
+    #[test]
+    fn duplicate_state_byte_keeps_unnamed_native_value() {
+        let audio = RuntimeAudio::default();
+        audio.create_sound_at(0x1000).unwrap();
+        audio.set_native_state_byte(0x1000, 0x8f).unwrap();
+        assert_eq!(audio.read_sound_word(0x1000, 0x144).unwrap(), 0x8f);
+        assert_eq!(
+            audio.sound(0x1000).unwrap().state,
+            PlaybackState::Native(0x8f)
+        );
+    }
+
     fn wav(samples: &[i16], channels: u16, rate: u32) -> Vec<u8> {
         let mut bytes = b"RIFF".to_vec();
         bytes.extend((36 + samples.len() as u32 * 2).to_le_bytes());
@@ -1158,6 +1363,52 @@ mod tests {
             bytes.extend(sample.to_le_bytes());
         }
         bytes
+    }
+
+    #[test]
+    fn duplicate_replaces_existing_voice_and_copies_raw_flag_byte() {
+        let path = std::env::temp_dir().join(format!(
+            "lhr-sound-duplicate-{}-{}",
+            std::process::id(),
+            crate::frame_lookup::incarnation()
+        ));
+        std::fs::create_dir_all(path.join("Sounds")).unwrap();
+        std::fs::write(path.join("Sounds/a.wav"), wav(&[1, 2, 3, 4], 1, 4)).unwrap();
+        std::fs::write(path.join("Sounds/b.wav"), wav(&[4, 3, 2, 1], 1, 4)).unwrap();
+        let installation = Installation::open(&path).unwrap();
+        let audio = RuntimeAudio::default();
+        audio.create_sound_at(0x1000).unwrap();
+        audio.create_sound_at(0x1001).unwrap();
+        assert_eq!(
+            audio
+                .open_original_sound(0x1000, "Sounds/a.wav", 0x10, &installation)
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            audio
+                .open_original_sound(0x1001, "Sounds/b.wav", 0x10, &installation)
+                .unwrap(),
+            0
+        );
+        assert_eq!(audio.live_source_count().unwrap(), 2);
+        audio
+            .sound_virtual(0x1000, 0x68, &[0.75f32.to_bits()])
+            .unwrap();
+        assert_eq!(
+            audio
+                .duplicate_sound_derived(0x1001, 0x1000, &installation)
+                .unwrap(),
+            0
+        );
+        let copied = audio.sound(0x1001).unwrap();
+        assert_eq!(copied.source.as_ref().unwrap().name, "Sounds/a.wav");
+        assert_eq!(copied.volume, 0.75);
+        assert_eq!(copied.state, PlaybackState::Native(0xff));
+        assert_eq!(audio.live_source_count().unwrap(), 1);
+        audio.sound_virtual(0x1001, 0, &[]).unwrap();
+        audio.sound_virtual(0x1000, 0, &[]).unwrap();
+        std::fs::remove_dir_all(path).unwrap();
     }
 
     fn loaded() -> RuntimeAudio {

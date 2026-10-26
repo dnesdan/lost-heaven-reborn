@@ -270,6 +270,7 @@ mod tests {
                     sector: None,
                     skin: None,
                     morph: None,
+                    lensflare: None,
                     parent: None,
                     position: [7., 8., 9.],
                     scale: [1.; 3],

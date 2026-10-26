@@ -13,12 +13,18 @@ use saved_lightmaps::{SavedLightingLoad, SavedLitLod};
 pub enum ObjectVisualType {
     Plain,
     LitUnconstructed,
+    Singlemesh,
+    Singlemorph,
+    Billboard,
 }
 impl ObjectVisualType {
     pub fn source_fourcc(self) -> u32 {
         match self {
             Self::Plain => 0x5f4a424f,            // OBJ_
             Self::LitUnconstructed => 0x50414d4c, // LMAP (not serialized ordinal 1)
+            Self::Singlemesh => 0x4d474e53,       // SNGM
+            Self::Singlemorph => 0x524d4d53,      // SMMR
+            Self::Billboard => 0x4452_4242,       // BBRD
         }
     }
 }

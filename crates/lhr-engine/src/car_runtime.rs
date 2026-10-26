@@ -89,8 +89,12 @@ pub struct CarRuntimeCleanup {
     pub textures: usize,
     pub cpu_allocations: usize,
     pub audio_sounds: usize,
+    pub audio_voices: usize,
     pub audio_sources: usize,
-    /// Live scene/sector frames after the admitted no-native-audio driver cleanup.
+    pub audio_listener_pose: bool,
+    pub driver_sound_frames: usize,
+    pub driver_listeners: usize,
+    /// Live scene/sector frames after the admitted CPU driver cleanup.
     pub retained_scene_prefix_frames: usize,
     pub driver_scene_registrations: usize,
     pub driver_scene_capacity: u32,
@@ -299,6 +303,17 @@ impl CarRuntime {
             );
         }
         let [width, height] = options.scene_screen_size;
+        // The canonical driving Scene and the vehicle effects use the same
+        // Arc-backed PCM mixer. Bind it before CreateListener/Scene creation.
+        // Model-only car inspection keeps its existing no-sound Scene path.
+        let scene_sound_driver = if canonical_world {
+            self.scene_driver
+                .bind_host_sound_backend(&mut self.arena, &self.services.audio)
+                .map_err(|error| format!("Driving host PCM backend: {error:?}"))?;
+            crate::driver_scene::NativeSceneSoundDriver::Initialized
+        } else {
+            crate::driver_scene::NativeSceneSoundDriver::Absent
+        };
         let created = self.scene_driver.create_scene(
             &mut crate::driver_scene::DriverSceneContext {
                 arena: &mut self.arena,
@@ -311,8 +326,7 @@ impl CarRuntime {
                 viewport: options.scene_viewport.unwrap_or([0, 0, width, height]),
             },
             &mut InstallationImages(&self.installation),
-            // RuntimeAudio is a CPU mixer, not an I3D native sound driver.
-            crate::driver_scene::NativeSceneSoundDriver::Absent,
+            scene_sound_driver,
         );
         let scene = match created {
             Ok(scene) => {
@@ -950,15 +964,6 @@ impl CarRuntime {
                 .map_err(|error| format!("Canonical driving world staging cleanup: {error:?}"))?;
         }
         if let Some(scene) = self.scene {
-            if self
-                .services
-                .audio
-                .live_sound_count()
-                .map_err(|error| error.to_string())?
-                != 0
-            {
-                return Err("Scene cleanup requires all owned audio sounds released".into());
-            }
             let textures = self
                 .scene_textures
                 .as_mut()
@@ -982,6 +987,9 @@ impl CarRuntime {
                 self.scene_resources
                     .release_scene(&mut self.arena, scene, textures, &mut self.scene_storage)
                     .map_err(|error| format!("Unregistered scene prefix cleanup: {error:?}"))?;
+                self.scene_driver
+                    .release_unregistered_scene_listener(scene)
+                    .map_err(|error| format!("Unregistered scene listener cleanup: {error:?}"))?;
             }
             if self.arena.scene(scene).is_ok() {
                 return Err("Driver scene retained an unexpected external reference".into());
@@ -991,6 +999,10 @@ impl CarRuntime {
             self.scene_world_progress = None;
         }
         self.close_driving_scene_caches()?;
+        self.services
+            .audio
+            .clear_listener()
+            .map_err(|error| format!("Driving PCM listener cleanup: {error:?}"))?;
         self.scene_cache_bucket = None;
         self.scene_driver
             .release_empty_registry_storage()
@@ -1014,11 +1026,33 @@ impl CarRuntime {
                 .audio
                 .live_sound_count()
                 .map_err(|e| e.to_string())?,
+            audio_voices: self
+                .services
+                .audio
+                .live_voice_count()
+                .map_err(|e| e.to_string())?,
             audio_sources: self
                 .services
                 .audio
                 .live_source_count()
                 .map_err(|e| e.to_string())?,
+            audio_listener_pose: self
+                .services
+                .audio
+                .listener_present()
+                .map_err(|e| e.to_string())?,
+            driver_sound_frames: self
+                .scene_driver
+                .host_sound_backend()
+                .map_or(Ok(0), |backend| backend.sounds().map(|sounds| sounds.len()))
+                .map_err(|e| format!("{e:?}"))?,
+            driver_listeners: self
+                .scene_driver
+                .host_sound_backend()
+                .map_or(Ok(0), |backend| {
+                    backend.listeners().map(|listeners| listeners.len())
+                })
+                .map_err(|e| format!("{e:?}"))?,
             scene_cpu_close,
             driver_scene_registrations: self.scene_driver.scenes().len(),
             driver_scene_capacity: self.scene_driver.capacity(),
@@ -1034,7 +1068,11 @@ impl CarRuntime {
             || cleanup.textures != 0
             || cleanup.cpu_allocations != 0
             || cleanup.audio_sounds != 0
+            || cleanup.audio_voices != 0
             || cleanup.audio_sources != 0
+            || cleanup.audio_listener_pose
+            || cleanup.driver_sound_frames != 0
+            || cleanup.driver_listeners != 0
         {
             return Err(format!(
                 "Car inspection retained CPU resources: {cleanup:?}; remaining heap: {:?}",
@@ -1140,5 +1178,59 @@ mod tests {
             (0, 0)
         );
         assert!(failure.partial.shutdown().is_err());
+    }
+
+    #[test]
+    fn scene_close_releases_live_sound_from_the_same_driving_pcm_owner() {
+        struct Directory(std::path::PathBuf);
+        impl Drop for Directory {
+            fn drop(&mut self) {
+                std::fs::remove_dir_all(&self.0).unwrap();
+            }
+        }
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "lhr-car-scene-sound-{}-{unique}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&path).unwrap();
+        let directory = Directory(path);
+        let installation = lhr_assets::Installation::open(&directory.0).unwrap();
+        let mut failure =
+            match CarRuntime::open(installation, "models/missing.4ds", Default::default()) {
+                Ok(_) => panic!("missing car asset accepted"),
+                Err(failure) => failure,
+            };
+        let runtime = &mut failure.partial;
+        let audio = runtime.driving_audio();
+        assert!(audio.same_owner(&runtime.services.audio));
+        runtime
+            .arena
+            .bind_host_sound_backend(crate::frame_sound::HostSoundBackend::new(1, &audio))
+            .unwrap();
+        let scene = runtime.scene.unwrap();
+        let primary = runtime.arena.scene(scene).unwrap().sectors[0];
+        let sound = runtime.arena.create_owned_sound_frame().unwrap();
+        runtime.arena.scene_add_frame(scene, sound.frame()).unwrap();
+        runtime.arena.release(sound.frame()).unwrap();
+        runtime.arena.add_sound_to_sector(primary, sound).unwrap();
+        assert_eq!(audio.live_sound_count().unwrap(), 1);
+        assert_eq!(
+            runtime.arena.scene(scene).unwrap().frames(),
+            &[sound.frame()]
+        );
+        let cleanup = runtime.shutdown().unwrap();
+        assert!(cleanup.scene_cpu_close.is_some());
+        assert_eq!(cleanup.audio_sounds, 0);
+        assert_eq!(cleanup.audio_voices, 0);
+        assert_eq!(cleanup.audio_sources, 0);
+        assert!(!cleanup.audio_listener_pose);
+        assert_eq!(cleanup.driver_sound_frames, 0);
+        assert_eq!(cleanup.driver_listeners, 0);
+        assert!(!audio.owns(sound.frame().0));
+        assert!(runtime.shutdown().is_err());
     }
 }

@@ -1392,6 +1392,7 @@ pub(crate) mod tests {
             sector: None,
             skin: None,
             morph: None,
+            lensflare: None,
             parent,
             position,
             scale,
