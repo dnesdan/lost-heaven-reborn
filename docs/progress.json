@@ -1,67 +1,8 @@
 {
-  "updated_at": "2026-10-25",
-  "project_status": "CPU world loader owns1415frames/five sectors/14portals/36planes with realresources; orderedscene2 completes43records then requiresOBJ_toLMAP replacement at8013/543a4b. NativeSceneOpen/loadingUI/MissionOpen/render parity unverified. Ledger311entries/114contracts strict0/12; campaign not playable.",
+  "updated_at": "2026-10-26",
+  "project_status": "Thirteen source-based stages merged: connected loaders/images, live unlit materials/model LOD, authored view orientation, audio lifecycle, archive/write IO, language and unconstructed Lit. ActualCPU world1415frames/5sectors/14portals reaches43scene2records then8013OBJ_toLMAP replacement frontier; saved lightmap payload association and completeMissionOpen/player/scripts remain open. Ledger311entries/114contracts strict0/12; six first-mission gates open; campaign not playable.",
   "rust_toolchain": "1.99.1",
   "validation": {
-    "status": "Accepted Source-v4:1222Rust/9wrapper/47progress and format/check/Clippy/application+release builds PASS; two sequential source reviews. Both Rust profiles match15retainedbuffer trajectories92phases, separately from actual-data1415world/43scene2prefix and newstandaloneUI. No new original runtime or completeSceneOpen/MissionOpen/render parity.",
-    "rust_unit_tests": 1222,
-    "rust_unit_test_split": {
-      "lhr_assets": 121,
-      "lhr_assets_integration": 8,
-      "lhr_engine_library": 1054,
-      "lhr_engine_application": 26,
-      "lhr_engine_integration": 8,
-      "lhr_render": 5
-    },
-    "rea_wrapper_tests": 9,
-    "latest_accepted_baseline": {
-      "source_commit": "085f31eefbfaefd861bf3987d72b9ed5e76b1907",
-      "rust_unit_tests": 1222,
-      "rea_wrapper_tests": 9,
-      "progress_tests": 47,
-      "milestone": "CPU world1415frames/5sectors/14portals/36planes and realbase247; ordered43scene2records then LMAP at8013; nativeMissionOpen/UI/world parity notimplemented."
-    },
-    "progress_tests": 47,
-    "current_source_status": "Accepted Source-v4 code 085f31eefbfaefd861bf3987d72b9ed5e76b1907;293 guarded files; two sequential independent source approvals.",
-    "current_source_freeze": {
-      "id": "WORLD-SECTOR-20261025-SOURCE-v4",
-      "sha256": "2c4f867d40946277d52f5ef9b691daf40a8d5b3dd37433fb0d9c29fd1e5ccddb",
-      "files": 293,
-      "tree_sha256": "9bcb1e02ee549db65d4a903a6d694ecad017f159d52f0fc4662f274caf95bbf8",
-      "source_commit": "085f31eefbfaefd861bf3987d72b9ed5e76b1907"
-    },
-    "full_gate": {
-      "id": "WORLD-SECTOR-20261025-VERIFICATION-v4",
-      "sha256": "95794cb74baddb0bb55554dc170e449b8cfe33ca2bd171e42971d5d11c854afa",
-      "log_sha256": "3910b3b657ed89760f0f2bcda5207e37aa9ea17e60a3b4e278d7eb5fa7b7c941",
-      "rust_tests": 1222,
-      "rea_wrapper_tests": 9,
-      "progress_tests": 47,
-      "release_build": "PASS"
-    },
-    "native_final": {
-      "artifact": "FINAL-OFFLINE-BUFFER-RESULTS-v4.json",
-      "sha256": "603e86e0f33437c43bdb622fbc3220b38757ef8dda9e778a7a67c82826438b06",
-      "source_freeze": "WORLD-SECTOR-20261025-SOURCE-v4",
-      "method": "OFFLINE_RETAINED_BUFFER_TRAJECTORIES_ONLY",
-      "original_execution_during_final_validation": false,
-      "profiles": [
-        "debug",
-        "release"
-      ],
-      "trajectories": 15,
-      "phases": 92,
-      "state_rows": 1182,
-      "return_projection_rows": 92,
-      "ordered_effects": 414,
-      "differences": 0,
-      "native_original_profiles": "Retained O0/O2 raw bytes identical",
-      "defined_returns": "50 AL booleans,1 defined full32 base/-1,41 synthetic void markers; undefined full EAX not claimed",
-      "new_original_execution": false,
-      "old_files_unchanged": 15,
-      "result_sha256": "603e86e0f33437c43bdb622fbc3220b38757ef8dda9e778a7a67c82826438b06",
-      "scope": "Controlled buffer GPU/driver/diagnostic/container allocator effects, not complete renderer/hardware."
-    },
     "historical_driving_source4": {
       "rust_unit_tests": 1066,
       "rust_unit_test_split": {
@@ -409,6 +350,152 @@
         "retained_files_unchanged": 36,
         "result_sha256": "303612be706e93bb8b10f33a1c61733dd179611e50dedb079ecf7b168ad92ddb"
       }
+    },
+    "historical_world_sector_source_v4": {
+      "status": "Accepted Source-v4:1222Rust/9wrapper/47progress and format/check/Clippy/application+release builds PASS; two sequential source reviews. Both Rust profiles match15retainedbuffer trajectories92phases, separately from actual-data1415world/43scene2prefix and newstandaloneUI. No new original runtime or completeSceneOpen/MissionOpen/render parity.",
+      "rust_unit_tests": 1222,
+      "rust_unit_test_split": {
+        "lhr_assets": 121,
+        "lhr_assets_integration": 8,
+        "lhr_engine_library": 1054,
+        "lhr_engine_application": 26,
+        "lhr_engine_integration": 8,
+        "lhr_render": 5
+      },
+      "rea_wrapper_tests": 9,
+      "latest_accepted_baseline": {
+        "source_commit": "085f31eefbfaefd861bf3987d72b9ed5e76b1907",
+        "rust_unit_tests": 1222,
+        "rea_wrapper_tests": 9,
+        "progress_tests": 47,
+        "milestone": "CPU world1415frames/5sectors/14portals/36planes and realbase247; ordered43scene2records then LMAP at8013; nativeMissionOpen/UI/world parity notimplemented."
+      },
+      "progress_tests": 47,
+      "current_source_status": "Accepted Source-v4 code 085f31eefbfaefd861bf3987d72b9ed5e76b1907;293 guarded files; two sequential independent source approvals.",
+      "current_source_freeze": {
+        "id": "WORLD-SECTOR-20261025-SOURCE-v4",
+        "sha256": "2c4f867d40946277d52f5ef9b691daf40a8d5b3dd37433fb0d9c29fd1e5ccddb",
+        "files": 293,
+        "tree_sha256": "9bcb1e02ee549db65d4a903a6d694ecad017f159d52f0fc4662f274caf95bbf8",
+        "source_commit": "085f31eefbfaefd861bf3987d72b9ed5e76b1907"
+      },
+      "full_gate": {
+        "id": "WORLD-SECTOR-20261025-VERIFICATION-v4",
+        "sha256": "95794cb74baddb0bb55554dc170e449b8cfe33ca2bd171e42971d5d11c854afa",
+        "log_sha256": "3910b3b657ed89760f0f2bcda5207e37aa9ea17e60a3b4e278d7eb5fa7b7c941",
+        "rust_tests": 1222,
+        "rea_wrapper_tests": 9,
+        "progress_tests": 47,
+        "release_build": "PASS"
+      },
+      "native_final": {
+        "artifact": "FINAL-OFFLINE-BUFFER-RESULTS-v4.json",
+        "sha256": "603e86e0f33437c43bdb622fbc3220b38757ef8dda9e778a7a67c82826438b06",
+        "source_freeze": "WORLD-SECTOR-20261025-SOURCE-v4",
+        "method": "OFFLINE_RETAINED_BUFFER_TRAJECTORIES_ONLY",
+        "original_execution_during_final_validation": false,
+        "profiles": [
+          "debug",
+          "release"
+        ],
+        "trajectories": 15,
+        "phases": 92,
+        "state_rows": 1182,
+        "return_projection_rows": 92,
+        "ordered_effects": 414,
+        "differences": 0,
+        "native_original_profiles": "Retained O0/O2 raw bytes identical",
+        "defined_returns": "50 AL booleans,1 defined full32 base/-1,41 synthetic void markers; undefined full EAX not claimed",
+        "new_original_execution": false,
+        "old_files_unchanged": 15,
+        "result_sha256": "603e86e0f33437c43bdb622fbc3220b38757ef8dda9e778a7a67c82826438b06",
+        "scope": "Controlled buffer GPU/driver/diagnostic/container allocator effects, not complete renderer/hardware."
+      }
+    },
+    "historical_world_sector_descriptors": {
+      "renderer": {
+        "target": "wgpu Vulkan on Linux, Metal on macOS",
+        "latest_accepted_baseline": "At 9c7003bb6e256a7202c6412d48f2a97dd2885b81, owned model/Joint/Target hierarchy and loaded change-counter bounds caching support bounded sequential position/rotation playback, morph and first-LOD CPU skin upload. A 206-step original-code comparison matches 1413160 state/frame/bone/vertex/bounds words; final 360-step software Vulkan output matches the prior regression capture exactly. Inspection requests bounds, CPU deformation and rendering explicitly; original renderer scheduling, driver lifetime, lighting and graphics parity remain open.",
+        "current_menu_scene_validation": "Frozen Source4 debug/release reproduces exact legacy taxi/police/static-MISE01 baseline pixels and windowed inspection controls. The continuous release driving video uses genuine X11/software-Vulkan frames from original assets. Historical menu captures retain their original source binding. Original renderer parity, authored cutscene and playable mission remain unverified.",
+        "omitted_effect_material_counts": {
+          "MENU": 33,
+          "INTRO": 12,
+          "MISE01": 62,
+          "meaning": "Materials with unsupported effects; diagnostics do not mean every counted material is omitted in full"
+        },
+        "original_render_parity": "not established",
+        "macos_metal": "Historical Apple arm64 checks do not cover the new CoreAudio dependency. Current-source cross-target checking requires Apple SDK headers; native macOS linking and Metal execution remain untested."
+      },
+      "menu": {
+        "implementation": "Czech PC menu layout/localization display and keyboard/pointer selection",
+        "current_validation": "Accepted historical menu keyboard captures remain tied to their recorded source. Current Source4 debug/release checks reproduce exact legacy taxi/police/static-MISE01 pixels and verify legacy inspection plus standalone driving controls, focus loss and reload. New Game still follows the static inspection route; authored cutscene and mission execution are unimplemented.",
+        "profile_chooser": "not implemented",
+        "unsupported_menu_actions": "not implemented",
+        "new_game_flow": "Static intro geometry; Escape switches to static MISE01 spawn-neighborhood inspection with original static taxi, then returns to menu. No cinematic or mission execution.",
+        "intro_cutscene": "not implemented",
+        "original_reference_runtime": "Menu-to-prolog-to-first-mission HUD verified in the original game only; not Rust gameplay evidence"
+      }
+    },
+    "status": "Accepted source-based merge: required gate and1310Rust tests in each debug/release profile,9Python boundary/47progress and7opt-in softwareVulkan GPU checks PASS. Actual original-data CPU and fresh standalone driving/UI have separate scopes. No new native/function/ledger credit.",
+    "rust_unit_tests": 1310,
+    "rust_unit_test_split": {
+      "lhr_assets": 151,
+      "lhr_assets_integration": 8,
+      "lhr_engine_library": 1102,
+      "lhr_engine_application": 34,
+      "lhr_engine_integration": 9,
+      "lhr_render": 6
+    },
+    "rea_wrapper_tests": 9,
+    "progress_tests": 47,
+    "latest_accepted_baseline": {
+      "source_commit": "a4dee6d4cce02564e72d0fc23e6d9fe6fdc39abe",
+      "rust_unit_tests": 1310,
+      "release_rust_tests": 1310,
+      "rea_wrapper_tests": 9,
+      "progress_tests": 47,
+      "milestone": "Thirteen source-based implementation stages merged; live materials/model LOD, loaders/images, authored orientation, audio/IO/language and unconstructed Lit. Saved lightmaps/LMAP scene association and playable first mission remain open."
+    },
+    "current_source_status": "Accepted public code a4dee6d4cce02564e72d0fc23e6d9fe6fdc39abe;324-file fingerprint unchanged by final documentation/media. Review scope is preserved per-stage/original combined reviews plus two new reviews of the hard-link repair, not two fresh whole-source reviews.",
+    "current_source_freeze": {
+      "id": "PR-MERGE-20261026-SOURCE",
+      "source_commit": "a4dee6d4cce02564e72d0fc23e6d9fe6fdc39abe",
+      "source_git_tree": "0244444e9bc30b91fb7b516568c1fd8884cbd5ee",
+      "source_tree_sha256": "66fc7ae72d5ff4214f40fc6f09305c1f9c04edae73659c7c5114bb4e8aafc61a",
+      "files": 324,
+      "snapshot_sha256": "f60d8d13047b10ed3dcb5d9bd59b3d451d960bc4573c67d53fbf0343099694be",
+      "scope": "Tracked code/config excludes docs/** and root README.md/COVERAGE.md; final integration record/docs/media preserve the accepted fingerprint."
+    },
+    "full_gate": {
+      "id": "PR-MERGE-20261026-VERIFICATION-v1",
+      "sha256": "e127df40d84b05c352041fc7a89dfa1c2dbad32245c54a0f85937384048a72a0",
+      "required_scripts_test": "PASS",
+      "debug_rust_tests": 1310,
+      "release_rust_tests": 1310,
+      "rust_unit_test_split": {
+        "lhr_assets": 151,
+        "lhr_assets_integration": 8,
+        "lhr_engine_library": 1102,
+        "lhr_engine_application": 34,
+        "lhr_engine_integration": 9,
+        "lhr_render": 6
+      },
+      "rea_wrapper_tests": 9,
+      "progress_tests": 47,
+      "format_check_clippy": "PASS",
+      "generated_progress_check": "PASS",
+      "x87": "Both unchanged high-FIP tests pass in debug and release without command-line exclusions.",
+      "opt_in_gpu": {
+        "total_opt_in": 7,
+        "renderer": 3,
+        "engine_library": 3,
+        "binary_refresh": 1,
+        "backend": "Mesa llvmpipe Vulkan",
+        "renderer_total_including_non_gpu": 9,
+        "scope": "Synthetic source-contract GPU readback; no original-game or physical GPU parity"
+      },
+      "release_test_log_sha256": "b33b946545627061da68413568b5b1d5e1e9ef9e4e53ae6e01afb48600b6f522",
+      "scope": "Source-contract, host CPU/GPU and separate actual standalone UI evidence; not new original-executable execution or native full-system parity."
     }
   },
   "assets": {
@@ -423,8 +510,8 @@
     "installation_archive_provider": "Existing Installation::read callers use NativeFiles with original raw ASCII name, original table row and selected archive owner; non-ASCII archive names return UnsupportedName, loose Unicode behavior unchanged. Checked empty entries are a host accommodation."
   },
   "menu": {
-    "implementation": "Czech PC menu layout/localization display and keyboard/pointer selection",
-    "current_validation": "Accepted historical menu keyboard captures remain tied to their recorded source. Current Source4 debug/release checks reproduce exact legacy taxi/police/static-MISE01 pixels and verify legacy inspection plus standalone driving controls, focus loss and reload. New Game still follows the static inspection route; authored cutscene and mission execution are unimplemented.",
+    "implementation": "Selected data-language text, glyphs and selected fonts with keyboard/pointer menu presentation; source/synthetic coverage includes language selection and a second valid font family.",
+    "current_validation": "Language/font selection has source/synthetic tests. The fresh UI run covers standalone driving only and supplies no new interactive menu evidence. Historical menu captures retain their dated source scope; prior descriptors are archived under validation.historical_world_sector_descriptors. Authored cutscene and mission execution remain unimplemented.",
     "profile_chooser": "not implemented",
     "unsupported_menu_actions": "not implemented",
     "new_game_flow": "Static intro geometry; Escape switches to static MISE01 spawn-neighborhood inspection with original static taxi, then returns to menu. No cinematic or mission execution.",
@@ -449,14 +536,8 @@
   },
   "renderer": {
     "target": "wgpu Vulkan on Linux, Metal on macOS",
-    "latest_accepted_baseline": "At 9c7003bb6e256a7202c6412d48f2a97dd2885b81, owned model/Joint/Target hierarchy and loaded change-counter bounds caching support bounded sequential position/rotation playback, morph and first-LOD CPU skin upload. A 206-step original-code comparison matches 1413160 state/frame/bone/vertex/bounds words; final 360-step software Vulkan output matches the prior regression capture exactly. Inspection requests bounds, CPU deformation and rendering explicitly; original renderer scheduling, driver lifetime, lighting and graphics parity remain open.",
-    "current_menu_scene_validation": "Frozen Source4 debug/release reproduces exact legacy taxi/police/static-MISE01 baseline pixels and windowed inspection controls. The continuous release driving video uses genuine X11/software-Vulkan frames from original assets. Historical menu captures retain their original source binding. Original renderer parity, authored cutscene and playable mission remain unverified.",
-    "omitted_effect_material_counts": {
-      "MENU": 33,
-      "INTRO": 12,
-      "MISE01": 62,
-      "meaning": "Materials with unsupported effects; diagnostics do not mean every counted material is omitted in full"
-    },
+    "latest_accepted_baseline": "At accepted public code a4dee6d4cce02564e72d0fc23e6d9fe6fdc39abe, live owned models use source material parameters and camera-selected geometry LOD/fade; Lit objects use the unconstructed cyan branch. The separate legacy raw static-world presentation remains unlit firstLOD. Saved lightmaps, scene LMAP payload association, original lighting/visibility and active-camera presentation remain open.",
+    "current_menu_scene_validation": "Seven synthetic source-contract GPU checks pass on Mesa llvmpipe Vulkan. Fresh actual UI covers standalone driving, W/A/D/S/Space, three reloads and Escape with cleanup. No new interactive menu validation, exact legacy-pixel claim or original-game rendering parity. Prior renderer descriptors and omitted-material counts are archived under validation.historical_world_sector_descriptors.",
     "original_render_parity": "not established",
     "macos_metal": "Historical Apple arm64 checks do not cover the new CoreAudio dependency. Current-source cross-target checking requires Apple SDK headers; native macOS linking and Metal execution remain untested."
   },
@@ -51617,5 +51698,161 @@
     "strict_full_system_gate": "0/12",
     "campaign_playable": false,
     "native_device14_executed": false
+  },
+  "pr_merge_observation": {
+    "status": "Accepted source-based merged implementation milestone; final integration record is documentation/media only.",
+    "id": "PR-MERGE-20261026",
+    "baseline_commit": "aa3da350991634f7ab1f5636585e8637f1316b1b",
+    "source_commit": "a4dee6d4cce02564e72d0fc23e6d9fe6fdc39abe",
+    "source_tree": "0244444e9bc30b91fb7b516568c1fd8884cbd5ee",
+    "reference": {
+      "repository": "Marvisak/mafia-re",
+      "commit": "29b65b0e5bcf77f1f36c4fceeaa2b64eb644087c",
+      "basis": "authorized source-based stages; not new native reconstruction evidence"
+    },
+    "stages": "original-data loaders/images, collision helper, live materials/model LOD, authored view orientation, audio lifecycle, archive/write IO, data language, unconstructed Lit",
+    "checks": {
+      "id": "PR-MERGE-20261026-VERIFICATION-v1",
+      "sha256": "e127df40d84b05c352041fc7a89dfa1c2dbad32245c54a0f85937384048a72a0",
+      "required_scripts_test": "PASS",
+      "debug_rust_tests": 1310,
+      "release_rust_tests": 1310,
+      "rust_unit_test_split": {
+        "lhr_assets": 151,
+        "lhr_assets_integration": 8,
+        "lhr_engine_library": 1102,
+        "lhr_engine_application": 34,
+        "lhr_engine_integration": 9,
+        "lhr_render": 6
+      },
+      "rea_wrapper_tests": 9,
+      "progress_tests": 47,
+      "format_check_clippy": "PASS",
+      "generated_progress_check": "PASS",
+      "x87": "Both unchanged high-FIP tests pass in debug and release without command-line exclusions.",
+      "opt_in_gpu": {
+        "total_opt_in": 7,
+        "renderer": 3,
+        "engine_library": 3,
+        "binary_refresh": 1,
+        "backend": "Mesa llvmpipe Vulkan",
+        "renderer_total_including_non_gpu": 9,
+        "scope": "Synthetic source-contract GPU readback; no original-game or physical GPU parity"
+      },
+      "release_test_log_sha256": "b33b946545627061da68413568b5b1d5e1e9ef9e4e53ae6e01afb48600b6f522",
+      "scope": "Source-contract, host CPU/GPU and separate actual standalone UI evidence; not new original-executable execution or native full-system parity."
+    },
+    "ui": {
+      "controls": [
+        "W",
+        "A",
+        "D",
+        "S",
+        "Space",
+        "3R",
+        "Escape"
+      ],
+      "cleanups": 4,
+      "zero_cpu_counters_per_cleanup": 7,
+      "processes": "all0/reaped/absent",
+      "source_binary_sha256": "bcdb517465ef2ffe24ffe335b7a67f80f01e64291ae5366c8ce3732f53baff01",
+      "capture": "2026-10-26-pr-merge-validation.webp",
+      "capture_sha256": "fc2badd3d3a17e44c0d90b590d1b19245b975e900b4f64f54931c1483db05294",
+      "capture_bytes": 200062,
+      "dimensions": [
+        960,
+        640
+      ],
+      "root_visually_inspected": true,
+      "scope": "Actual standalone driving; no first mission/traffic/original parity/hardware audio. Host audio device unavailable, PCM mixing active.",
+      "receipt_sha256": "a4159188dd5549d860bc978adcb6dc9263236cd38ac3b88b3e3e506cbe371760"
+    },
+    "media": {
+      "screenshot": "docs/screenshots/2026-10-26-pr-merge-validation.webp",
+      "sha256": "fc2badd3d3a17e44c0d90b590d1b19245b975e900b4f64f54931c1483db05294",
+      "bytes": 200062,
+      "dimensions": [
+        960,
+        640
+      ],
+      "root_visually_inspected": true,
+      "new_video": false
+    },
+    "source_reviews": {
+      "code_acceptance_sha256": "24dfd2343ab2155d246f88c737d1d1df31d94376f763d4be6c97ee942c9ec781",
+      "basis": "Per-stage and original combined-source sequential AI reviews retained; accepted code differs from reviewed combined production only in separately two-review-approved write hard-link fix and its documentation. Not two fresh reviews of all final324files; AI records are not human approvals.",
+      "original_reviewed_combined_production": "0a9d79dfae1bc949909f81e95cc80bc208a1d6bc",
+      "write_fix_commit": "864728c34c3de1b04c1241ca31d4ccfd580e2eea",
+      "write_fix_review_sha256": [
+        "d1afc7c84c47d3e4245c433f0b89a9d5ce1aaca9fe59b3337ef57de2de438269",
+        "aa14c4f9e098aa7a0ab81762b734389ae1bfe2e22932c60a5e9454821dd1e0d1"
+      ],
+      "merge_tree_equivalence": "Each of13merged implementation trees equals its fully tested prefix plus the approved repair where applicable."
+    },
+    "host_write_repair": {
+      "published_commit": "864728c34c3de1b04c1241ca31d4ccfd580e2eea",
+      "published_tree": "52783d68583a4520c1c6e69e217b98672b0f9fe4",
+      "regressions_before_repair": {
+        "passed": 0,
+        "failed": 3
+      },
+      "regressions_after_repair": {
+        "passed": 3,
+        "failed": 0
+      },
+      "scope": "Unix hard-link admission and owned-handle close guard; unsupported host construction fails closed"
+    },
+    "new_scoped_entries": 0,
+    "new_scoped_contracts": 0,
+    "accepted_scoped_entries": 311,
+    "accepted_scoped_contracts": 114,
+    "whole_function_coverage": "N/A",
+    "strict_full_system_gate": "0/12",
+    "first_mission_gates_open": 6,
+    "campaign_playable": false,
+    "limits": [
+      "saved lightmaps and scene LMAP payload association remain open",
+      "complete SceneOpen/MissionOpen, player/camera scheduling and authored scripts remain open",
+      "source/GPU/UI checks do not establish original-game runtime or rendering/audio parity",
+      "native macOS/Metal remains untested"
+    ],
+    "source_freeze": {
+      "id": "PR-MERGE-20261026-SOURCE",
+      "source_commit": "a4dee6d4cce02564e72d0fc23e6d9fe6fdc39abe",
+      "source_git_tree": "0244444e9bc30b91fb7b516568c1fd8884cbd5ee",
+      "source_tree_sha256": "66fc7ae72d5ff4214f40fc6f09305c1f9c04edae73659c7c5114bb4e8aafc61a",
+      "files": 324,
+      "snapshot_sha256": "f60d8d13047b10ed3dcb5d9bd59b3d451d960bc4573c67d53fbf0343099694be",
+      "scope": "Tracked code/config excludes docs/** and root README.md/COVERAGE.md; final integration record/docs/media preserve the accepted fingerprint."
+    },
+    "implementation_prs_merged": 13,
+    "actual_rust_world": {
+      "frames": 1415,
+      "sectors": 5,
+      "portals": 14,
+      "hull_vertices": 83,
+      "hull_faces": 60,
+      "planes": 36,
+      "objects": 1431,
+      "meshes": 1401,
+      "levels": 1416,
+      "groups": 4020,
+      "materials": 3972,
+      "scene2_records": 43,
+      "scene2_cursor": 8013,
+      "frontier": "OBJ_0x5f4a424f to LMAP0x50414d4c CreateVisual/replacement unavailable",
+      "cleanup": "all tracked keys invalid and counters0 including backend beforeextra reclaim",
+      "actual_lit_objects": 0,
+      "actual_lit_lods": 0,
+      "scope": "Safe Rust-only legal original-data CPU loader. Lit destruction separately synthetic, not reached by this world input. No original SceneOpen/MissionOpen/native equivalence",
+      "result_sha256": "2b99ea0492ef1bcda4a3c0976713936fc564b7fd4ec7dc42cceb92e66e6766a1",
+      "source_receipt_sha256": "3fd0d4688ede1bbf97c17c4d83e837b9be1ff4d6c14adf02d34e929c221e718a"
+    },
+    "primary_evidence": {
+      "verification_id": "PR-MERGE-20261026-VERIFICATION-v1",
+      "verification_sha256": "e127df40d84b05c352041fc7a89dfa1c2dbad32245c54a0f85937384048a72a0",
+      "source_snapshot_sha256": "f60d8d13047b10ed3dcb5d9bd59b3d451d960bc4573c67d53fbf0343099694be",
+      "code_acceptance_sha256": "24dfd2343ab2155d246f88c737d1d1df31d94376f763d4be6c97ee942c9ec781"
+    }
   }
 }

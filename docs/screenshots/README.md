@@ -2,6 +2,20 @@
 
 Actual captures from the Rust application using separately supplied PC game data. Images are compressed WebP previews; uncompressed validation captures remain private. Add dated images for visible milestones, up to 960 pixels wide and 200 KiB per image, rather than a capture for every commit. Game content retains its original ownership.
 
+## 2026-10-26 — standalone driving after the staged merge
+
+![Actual standalone original-data driving](2026-10-26-pr-merge-validation.webp)
+
+New root-inspected Rust X11/software-Vulkan capture, 960 × 640, 200,062 bytes,
+bound to accepted source `a4dee6d4cce02564e72d0fc23e6d9fe6fdc39abe`.
+W/A/D/S/Space, three R reloads and Escape were exercised; four cleanups have
+seven zero CPU counters and task-owned processes are reaped/absent. PCM mixing
+was active, but the host audio device was unavailable; audible playback is
+unverified. WebP SHA-256:
+`fc2badd3d3a17e44c0d90b590d1b19245b975e900b4f64f54931c1483db05294`.
+The visible host chase camera and standalone driving do not establish authored
+mission execution, saved lightmaps or original-renderer parity. No new video.
+
 ## 2026-10-25 — standalone driving after CPU world-loader changes
 
 ![Actual standalone original-data driving](2026-10-25-world-sector-prefix.webp)
