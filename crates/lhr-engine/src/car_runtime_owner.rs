@@ -387,7 +387,7 @@ mod tests {
             );
             assert_eq!(owner.close().unwrap_err(), first);
             assert!(owner.shutdown_started);
-            assert!(!owner.game_done_started);
+            assert!(!owner.game_done.has_started());
             drop(owner);
             assert!(failure_slots().contains(&slot));
             inspect_failed_car(slot, |runtime, error| {
