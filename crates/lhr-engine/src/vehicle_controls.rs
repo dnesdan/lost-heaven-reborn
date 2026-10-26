@@ -18,12 +18,9 @@ pub enum VehicleControlUnavailable {
     NumericDomain,
 }
 
-/// Typed owner of an explicitly supplied vehicle storage projection. No native
-/// constructor, default parameters, frame ownership or physics is implied.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct VehicleControlState<T = Vec<u8>> {
-    bytes: T,
-}
+mod storage;
+pub use storage::VehicleControlState;
+use storage::{PowerChannel, PowerRouting};
 
 type Result<T> = std::result::Result<T, VehicleControlUnavailable>;
 
@@ -81,124 +78,61 @@ fn outside_range(value: f32, lower: f32, upper: f32) -> bool {
     value > upper || value < lower
 }
 
-impl VehicleControlState {
-    pub fn from_bytes(bytes: Vec<u8>) -> Self {
-        Self { bytes }
-    }
-    pub fn into_bytes(self) -> Vec<u8> {
-        self.bytes
-    }
-}
-
-impl<'a> VehicleControlState<&'a mut [u8]> {
-    /// Borrows the existing vehicle bytes. Setters retain their ordered writes
-    /// directly in that owner, including writes preceding an unavailable read.
-    pub fn from_bytes_mut(bytes: &'a mut [u8]) -> Self {
-        Self { bytes }
-    }
-}
-
 impl<T: AsRef<[u8]> + AsMut<[u8]>> VehicleControlState<T> {
-    pub fn as_bytes(&self) -> &[u8] {
-        self.bytes.as_ref()
-    }
-
-    fn byte(&self, offset: u32) -> Result<u8> {
-        self.bytes
-            .as_ref()
-            .get(offset as usize)
-            .copied()
-            .ok_or(VehicleControlUnavailable::Storage(offset))
-    }
-
-    fn word(&self, offset: u32) -> Result<u32> {
-        let start = offset as usize;
-        let end = start
-            .checked_add(4)
-            .ok_or(VehicleControlUnavailable::Storage(offset))?;
-        let bytes = self
-            .bytes
-            .as_ref()
-            .get(start..end)
-            .ok_or(VehicleControlUnavailable::Storage(offset))?;
-        Ok(u32::from_le_bytes(bytes.try_into().unwrap()))
-    }
-
-    fn float(&self, offset: u32) -> Result<f32> {
-        Ok(f32::from_bits(self.word(offset)?))
-    }
-
-    fn store(&mut self, offset: u32, value: u32) -> Result<()> {
-        let start = offset as usize;
-        let end = start
-            .checked_add(4)
-            .ok_or(VehicleControlUnavailable::Storage(offset))?;
-        self.bytes
-            .as_mut()
-            .get_mut(start..end)
-            .ok_or(VehicleControlUnavailable::Storage(offset))?
-            .copy_from_slice(&value.to_le_bytes());
-        Ok(())
-    }
-
-    fn store_float(&mut self, offset: u32, value: f32) -> Result<()> {
-        self.store(offset, value.to_bits())
-    }
-
     // Native brake-ramp sequence; its first store survives later unavailability.
     fn brake_value(&mut self, input: f32) -> Result<()> {
-        if self.byte(0x4aa)? != 0 {
-            self.store_float(0x5b8, input)?;
+        if self.direct_brake_input()? {
+            self.set_brake_input(input)?;
         } else {
-            let sum = add(self.float(0x4c8)?, self.float(0x3cc)?)?;
-            self.store_float(0x3cc, sum)?;
-            let maximum = self.float(0x3c8)?;
+            let sum = add(self.ramp_step()?, self.brake_ramp()?)?;
+            self.set_brake_ramp(sum)?;
+            let maximum = self.brake_ramp_limit()?;
             if sum > maximum {
-                self.store_float(0x3cc, maximum)?;
+                self.set_brake_ramp(maximum)?;
             }
-            let ratio = div(self.float(0x3cc)?, self.float(0x3c8)?)?;
-            self.store_float(0x5b8, mul(ratio, input)?)?;
+            let ratio = div(self.brake_ramp()?, self.brake_ramp_limit()?)?;
+            self.set_brake_input(mul(ratio, input)?)?;
         }
         Ok(())
-    }
-
-    fn clear_motion_flag(&mut self) -> Result<()> {
-        let flags = self.word(0x1a4)?;
-        self.store(0x1a4, flags & 0xfeff_ffff)
     }
 
     /// Original SetPower. Native range failure leaves storage intact; unknown
     /// vehicle modes return true without examining the input. NaN comparisons
     /// are unordered and pass the original range branches, not clamped.
     pub fn set_power(&mut self, input: f32, first_channel: bool) -> Result<bool> {
-        let mode = self.word(0xb8)?;
-        if mode == 1 {
-            if outside_range(input, -1.0, 1.0) {
-                return Ok(false);
+        match self.power_routing()? {
+            PowerRouting::Independent => {
+                if outside_range(input, -1.0, 1.0) {
+                    return Ok(false);
+                }
+                let enabled = self.engine_enabled()?;
+                let channel = if first_channel {
+                    PowerChannel::Primary
+                } else {
+                    PowerChannel::Secondary
+                };
+                self.set_power_channel(channel, if enabled { input } else { 0.0 })?;
+                self.set_brake_input(0.0)?;
             }
-            let enabled = self.byte(0xc2c)? != 0;
-            self.store_float(
-                if first_channel { 0x3a4 } else { 0x3a8 },
-                if enabled { input } else { 0.0 },
-            )?;
-            self.store(0x5b8, 0)?;
-        } else if mode == 0 || mode == 2 {
-            if outside_range(input, 0.0, 1.0) {
-                return Ok(false);
-            }
-            let reverse_enabled = self.byte(0x4cc)? != 0;
-            self.store(0x3a8, 0)?;
-            let reversing = reverse_enabled && (self.word(0x55c)? as i32) < 0;
-            if reversing {
-                self.brake_value(input)?;
-                self.clear_motion_flag()?;
-            } else {
-                let enabled = self.byte(0xc2c)? != 0;
-                self.store(0x3a4, 0)?;
-                if enabled {
-                    self.store_float(0x3a4, input)?;
+            PowerRouting::Coupled => {
+                if outside_range(input, 0.0, 1.0) {
+                    return Ok(false);
+                }
+                let reverse_enabled = self.reverse_routing_enabled()?;
+                self.set_power_channel(PowerChannel::Secondary, 0.0)?;
+                let reversing = reverse_enabled && self.current_gear()? < 0;
+                if reversing {
+                    self.brake_value(input)?;
+                    self.clear_motion_flag()?;
+                } else {
+                    let enabled = self.engine_enabled()?;
+                    self.set_power_channel(PowerChannel::Primary, 0.0)?;
+                    if enabled {
+                        self.set_power_channel(PowerChannel::Primary, input)?;
+                    }
                 }
             }
+            PowerRouting::Unrecognized => {}
         }
         Ok(true)
     }
@@ -209,29 +143,29 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> VehicleControlState<T> {
         if outside_range(input, 0.0, 1.0) {
             return Ok(false);
         }
-        if self.word(0xb8)? == 1 {
+        if self.power_routing()? == PowerRouting::Independent {
             return Ok(false);
         }
-        if self.byte(0x4cc)? == 0 {
+        if !self.reverse_routing_enabled()? {
             self.brake_value(input)?;
             if input > 0.0 {
-                self.store(0x3a8, 0)?;
-                self.store(0x3a4, 0)?;
+                self.set_power_channel(PowerChannel::Secondary, 0.0)?;
+                self.set_power_channel(PowerChannel::Primary, 0.0)?;
             }
-        } else if (self.word(0x55c)? as i32) >= 0 {
+        } else if self.current_gear()? >= 0 {
             self.brake_value(input)?;
             if input > 0.0 {
-                self.store(0x3a8, 0)?;
-                self.store(0x3a4, 0)?;
+                self.set_power_channel(PowerChannel::Secondary, 0.0)?;
+                self.set_power_channel(PowerChannel::Primary, 0.0)?;
             }
             self.clear_motion_flag()?;
         } else {
             // Native reads enable before these two stores.
-            let enabled = self.byte(0xc2c)? != 0;
-            self.store(0x3a4, 0)?;
-            self.store(0x3a8, 0)?;
+            let enabled = self.engine_enabled()?;
+            self.set_power_channel(PowerChannel::Primary, 0.0)?;
+            self.set_power_channel(PowerChannel::Secondary, 0.0)?;
             if enabled {
-                self.store_float(0x3a4, input)?;
+                self.set_power_channel(PowerChannel::Primary, input)?;
             }
         }
         Ok(true)
@@ -242,14 +176,14 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> VehicleControlState<T> {
         if outside_range(input, 0.0, 1.0) {
             return Ok(false);
         }
-        let value = if self.byte(0x4ab)? != 0 {
+        let value = if self.shaped_clutch_input()? {
             let remaining = sub(1.0, input)?;
-            let curved = mul(remaining, self.float(0x19c)?)?;
+            let curved = mul(remaining, self.clutch_curve()?)?;
             mul(add(curved, input)?, input)?
         } else {
             input
         };
-        self.store_float(0x5e0, value)?;
+        self.set_clutch_target(value)?;
         Ok(true)
     }
 
@@ -259,21 +193,21 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> VehicleControlState<T> {
         if outside_range(input, -1.0, 1.0) {
             return Ok(false);
         }
-        let shaped = if self.byte(0x4a8)? != 0 {
+        let shaped = if self.shaped_steering_input()? {
             if input > 0.0 {
                 let remaining = sub(1.0, input)?;
-                let curved = mul(remaining, self.float(0x198)?)?;
+                let curved = mul(remaining, self.steering_curve()?)?;
                 mul(add(curved, input)?, input)?
             } else {
                 let shifted = add(input, 1.0)?;
-                let curved = mul(shifted, self.float(0x198)?)?;
+                let curved = mul(shifted, self.steering_curve()?)?;
                 -mul(sub(input, curved)?, input)?
             }
         } else {
             input
         };
-        let value = mul(shaped, self.float(0x610)?)?;
-        self.store_float(0x624, value)?;
+        let value = mul(shaped, self.maximum_steer()?)?;
+        self.set_steering_target(value)?;
         Ok(true)
     }
 
@@ -282,18 +216,18 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> VehicleControlState<T> {
     /// The PC entry accepts one boolean, unlike the PS2 two-boolean symbol.
     pub fn set_handbrake(&mut self, pressed: bool) -> Result<bool> {
         if pressed {
-            let sum = add(self.float(0x4c8)?, self.float(0x3b8)?)?;
-            self.store_float(0x3b8, sum)?;
-            let maximum = self.float(0x3b4)?;
+            let sum = add(self.ramp_step()?, self.handbrake_ramp()?)?;
+            self.set_handbrake_ramp(sum)?;
+            let maximum = self.handbrake_ramp_limit()?;
             if sum > maximum {
-                self.store_float(0x3b8, maximum)?;
+                self.set_handbrake_ramp(maximum)?;
             }
-            let ratio = div(self.float(0x3b8)?, self.float(0x3b4)?)?;
-            let force = mul(ratio, self.float(0x3b0)?)?;
-            self.store_float(0x434, force)?;
+            let ratio = div(self.handbrake_ramp()?, self.handbrake_ramp_limit()?)?;
+            let force = mul(ratio, self.maximum_handbrake_force()?)?;
+            self.set_handbrake_force(force)?;
         } else {
-            self.store(0x434, 0)?;
-            self.store(0x3b8, 0)?;
+            self.set_handbrake_force(0.0)?;
+            self.set_handbrake_ramp(0.0)?;
         }
         Ok(true)
     }
@@ -302,35 +236,30 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> VehicleControlState<T> {
     /// accesses preserve native wrapping index arithmetic and require supplied
     /// storage; no guessed maximum gear count or ratios are introduced.
     pub fn set_gear(&mut self, gear: i32) -> Result<bool> {
-        if gear < -1 || gear > self.word(0x568)? as i32 {
+        if gear < -1 || gear > self.maximum_gear()? {
             return Ok(false);
         }
-        if self.word(0x560)? as i32 == gear {
+        if self.requested_gear()? == gear {
             return Ok(true);
         }
-        if self.word(0xb8)? == 1 && gear < 0 {
+        if self.power_routing()? == PowerRouting::Independent && gear < 0 {
             return Ok(false);
         }
-        let restricted = self.word(0xc68)? & 0x4000 != 0;
-        if restricted && self.float(0x1ec)?.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
+        let restricted = self.shift_restricted()?;
+        if restricted
+            && self.shift_condition()?.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater)
+        {
             return Ok(true);
         }
         if gear != -1 {
-            let previous = self.word(0x55c)?;
-            let requested_offset = 0x570u32.wrapping_add((gear as u32).wrapping_mul(4));
-            let previous_offset = 0x570u32.wrapping_add(previous.wrapping_mul(4));
-            let ratio = div(self.float(requested_offset)?, self.float(previous_offset)?)?;
-            let rotation = mul(ratio, self.float(0x548)?)?;
-            if rotation > self.float(0x1f9c)? {
+            let previous = self.current_gear()?;
+            let ratio = div(self.gear_ratio(gear)?, self.gear_ratio(previous)?)?;
+            let rotation = mul(ratio, self.motor_rotation()?)?;
+            if rotation > self.maximum_motor_rotation()? {
                 return Ok(false);
             }
         }
-        let flags = self.word(0x5e8)?;
-        self.store(0x494, 0)?;
-        if flags & 0x20 != 0 {
-            self.store(0x5e8, (flags & !1) | 2)?;
-        }
-        self.store(0x560, gear as u32)?;
+        self.request_gear_change(gear)?;
         Ok(true)
     }
 }
@@ -350,6 +279,61 @@ mod tests {
         assert_eq!(state.set_brake(-0.01), Ok(false));
         assert_eq!(state.set_clutch(f32::INFINITY), Ok(false));
         assert!(state.as_bytes().is_empty());
+    }
+
+    #[test]
+    fn unknown_power_modes_only_read_mode_even_for_invalid_input() {
+        for mode in [3, u32::MAX] {
+            for input in [f32::INFINITY, -2.0, f32::from_bits(0x7f81_2345)] {
+                let mut state = VehicleControlState::from_bytes(vec![0xa5; 0xbc]);
+                state.store(0xb8, mode).unwrap();
+                let expected = state.clone();
+                assert_eq!(state.set_power(input, true), Ok(true));
+                assert_eq!(state, expected);
+            }
+        }
+    }
+
+    #[test]
+    fn independent_power_preserves_input_bits_and_noncanonical_enable_bytes() {
+        for enabled in [2, 255] {
+            for bits in [0x8000_0000, 0x7f81_2345] {
+                for (first_channel, offset) in [(true, 0x3a4), (false, 0x3a8)] {
+                    let mut state = state();
+                    state.store(0xb8, 1).unwrap();
+                    state.bytes[0xc2c] = enabled;
+                    let mut expected = state.as_bytes().to_vec();
+                    expected[offset..offset + 4].copy_from_slice(&u32::to_le_bytes(bits));
+                    expected[0x5b8..0x5bc].fill(0);
+                    assert_eq!(
+                        state.set_power(f32::from_bits(bits), first_channel),
+                        Ok(true)
+                    );
+                    assert_eq!(state.as_bytes(), expected);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn gear_ratio_lookup_preserves_wrapping_of_unrestricted_current_gear() {
+        for previous in [0x4000_0000, 0xc000_0000] {
+            let mut state = state();
+            state.store(0xb8, 0).unwrap();
+            state.store(0x568, 5).unwrap();
+            state.store(0x560, 1).unwrap();
+            state.store(0x55c, previous).unwrap();
+            state.store(0xc68, 0).unwrap();
+            state.store(0x5e8, 0).unwrap();
+            state.store_float(0x570, 2.0).unwrap();
+            state.store_float(0x548, 10.0).unwrap();
+            state.store_float(0x1f9c, 20.0).unwrap();
+            let mut expected = state.as_bytes().to_vec();
+            expected[0x494..0x498].fill(0);
+            expected[0x560..0x564].fill(0);
+            assert_eq!(state.set_gear(0), Ok(true));
+            assert_eq!(state.as_bytes(), expected);
+        }
     }
 
     #[test]
