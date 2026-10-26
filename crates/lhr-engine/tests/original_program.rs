@@ -294,3 +294,37 @@ fn destructor_preserves_pointer_observations_and_is_distinct_from_done() {
         Err(ProgramError::Unavailable)
     );
 }
+
+#[test]
+fn decoded_patch_files_feed_source_loader_with_last_matching_record_priority() {
+    use lhr_engine::program_patch::ProgramPatchTable;
+    fn patch(source: &[u8]) -> Vec<u8> {
+        let mut body = Vec::new();
+        for string in [Some(b"MISSION\0".as_slice()), None, None, Some(source)] {
+            body.extend_from_slice(&(string.map_or(0, |s| s.len()) as i32).to_le_bytes());
+            if let Some(string) = string {
+                body.extend(string.iter().map(|byte| byte ^ 0x85));
+            }
+        }
+        let mut bytes = 0x64u16.to_le_bytes().to_vec();
+        bytes.extend_from_slice(&((body.len() + 6) as i32).to_le_bytes());
+        bytes.extend(body);
+        bytes
+    }
+    let mut patches = ProgramPatchTable::default();
+    patches.load(&patch(b"old\0")).unwrap();
+    patches.load(&patch(b"new\0")).unwrap();
+    let mut program = CProgram::construct(seed());
+    let mut backend = Backend::default();
+    let mut reader = ProgramSliceReader::new(&[0xef, 0, 0, 0, 0, 0, 0, 0, 0]);
+    program
+        .load_source_code(
+            &mut reader,
+            patches.replacements(),
+            &mut context(),
+            &mut backend,
+        )
+        .unwrap();
+    assert_eq!(program.source().unwrap().c_bytes(), Some(b"new".as_slice()));
+    assert!(program.name().is_none());
+}
