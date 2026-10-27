@@ -228,6 +228,11 @@ impl LoadedVisualResources {
                 uv_byte_offset = 16;
                 lighting.lods[index]
             }
+        } else if visual_type == crate::i3d_object::ObjectVisualType::Morph {
+            // MRPH lighting/UV/group reads use the shared canonical mesh. Its
+            // distinct render-position owner is borrowed separately for draws;
+            // substituting that buffer here would change source normal reads.
+            None
         } else {
             object.lods[index]
         };

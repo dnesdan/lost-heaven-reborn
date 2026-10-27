@@ -32,6 +32,8 @@ mod glass;
 mod lensflare;
 #[path = "loaded_lit_storage.rs"]
 mod lit_storage;
+#[path = "loaded_morph.rs"]
+mod morph;
 #[path = "loaded_saved_lightmaps.rs"]
 mod saved_lightmaps;
 #[path = "loaded_vertex_access.rs"]
@@ -50,6 +52,7 @@ pub enum LoadedVisualError {
     Asset(String),
     UnsupportedVisual(Option<u8>),
     InvalidGeometry,
+    Morph(crate::singlemorph_state::SinglemorphError),
     SavedLighting(crate::i3d_object::saved_lightmaps::SavedLightingError),
     IncompleteAdmission,
 }
@@ -1132,7 +1135,7 @@ impl LoadedVisualResources {
                 "instance must share prior loaded mesh",
             ));
         }
-        if frame.kind != 1 || !matches!(frame.visual, Some(0..=4)) {
+        if frame.kind != 1 || !matches!(frame.visual, Some(0..=5)) {
             return Err(LoadedVisualError::UnsupportedVisual(frame.visual));
         }
         if frame.lods.len() > 10 {
@@ -1331,6 +1334,7 @@ impl LoadedVisualResources {
                 .objects
                 .create_singlemesh_resources(Some(mesh), frame.visual == Some(3))?,
             Some(4) => self.objects.create_billboard_resources(Some(mesh))?,
+            Some(5) => self.objects.create_morph_resources(Some(mesh))?,
             _ => self.objects.create_object_resources(Some(mesh))?,
         };
         self.interrupted_object = Some(object);
@@ -3234,6 +3238,7 @@ impl LoadedVisualResources {
                 visual_type,
                 crate::i3d_object::ObjectVisualType::Singlemesh
                     | crate::i3d_object::ObjectVisualType::Singlemorph
+                    | crate::i3d_object::ObjectVisualType::Morph
             ) {
             crate::i3d_object::render_derived_visual_fade(
                 distance_squared,

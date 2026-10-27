@@ -16,7 +16,9 @@ impl LoadedVisualResources {
                 .objects
                 .create_unconstructed_lit_object_resources(None)?,
             ObjectVisualType::Billboard => self.objects.create_billboard_resources(None)?,
-            ObjectVisualType::Singlemesh | ObjectVisualType::Singlemorph => {
+            ObjectVisualType::Singlemesh
+            | ObjectVisualType::Singlemorph
+            | ObjectVisualType::Morph => {
                 return Err(LoadedVisualError::Backend(
                     "derived visual factory unavailable",
                 ));
@@ -79,7 +81,9 @@ impl LoadedVisualResources {
                 self.objects
                     .set_object_mesh(destination, mesh, false, &mut self.backend)?
             }
-            ObjectVisualType::Singlemesh | ObjectVisualType::Singlemorph => {
+            ObjectVisualType::Singlemesh
+            | ObjectVisualType::Singlemorph
+            | ObjectVisualType::Morph => {
                 return Err(LoadedVisualError::Backend(
                     "derived visual duplicate unavailable",
                 ));

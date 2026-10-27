@@ -219,7 +219,8 @@ pub struct MorphDefinition {
     pub channel_count: u8,
     /// Source LOD order, corresponding to the geometry LODs.
     pub lods: Vec<MorphLodRecord>,
-    /// Original final 40 bytes as little-endian words; semantics remain opaque.
+    /// Original I3D_bvolume: bbox min/max, sphere center, then radius.
+    /// Retained as raw little-endian words; consumers own numeric validation.
     pub trailer_words: [u32; 10],
 }
 #[derive(Debug, Clone)]
@@ -269,7 +270,8 @@ pub struct Frame {
     pub sector: Option<SectorRecord>,
     /// Inherited skin metadata, retained by scene and explicit character intake.
     pub skin: Option<SkinRecord>,
-    /// Retained only by explicit singlemorph intake; requires runtime validation.
+    /// Retained by the admitted singlemorph/MRPH scene gates; evaluation and
+    /// resource ownership belong to the live visual, with separate validation.
     pub morph: Option<MorphRecord>,
     pub lensflare: Option<LensflareRecord>,
     pub parent: Option<usize>,
@@ -422,7 +424,7 @@ fn read_sector_suffix(
     })
 }
 pub fn parse_four_ds(b: &[u8]) -> Result<Model> {
-    parse_four_ds_impl(b, false, false, false, false, false).map(|(model, _, _)| model)
+    parse_four_ds_impl(b, false, false, false, false, false, false).map(|(model, _, _)| model)
 }
 /// Broader scene intake: retains material effects as metadata and accepts sector,
 /// light, target, occluder and joint frames, and visual-2 singlemesh skin records. Joint
@@ -431,13 +433,22 @@ pub fn parse_four_ds(b: &[u8]) -> Result<Model> {
 /// Callers must implement or report material
 /// effects; this does not promise identical original rendering or simulation.
 pub fn parse_four_ds_scene(b: &[u8]) -> Result<Model> {
-    parse_four_ds_impl(b, true, false, true, true, false).map(|(model, _, _)| model)
+    parse_four_ds_impl(b, true, false, true, true, false, false).map(|(model, _, _)| model)
 }
 /// Source-only scene intake for native visual type 4. Its caller must own the
 /// distinct billboard constructor, duplicate, bounds and camera-facing draw.
 /// The trailing LoadAnimCount remains gated just as in `parse_four_ds_scene`.
 pub fn parse_four_ds_scene_billboards(b: &[u8]) -> Result<BillboardModel> {
-    parse_four_ds_impl(b, true, false, true, true, true)
+    parse_four_ds_impl(b, true, false, true, true, true, false)
+        .map(|(model, _, billboards)| BillboardModel { model, billboards })
+}
+/// Explicit scene intake for distinct MRPH (file visual 5) owners as well as
+/// billboards and inherited singlemorphs. MRPH has the ordinary mesh prefix and
+/// morphBase suffix, without a skin suffix. Consumers must own deformation,
+/// definition/weight lifetime, derived duplication and selected-LOD rendering.
+/// Static and older scene intake keep their existing visual gates.
+pub fn parse_four_ds_scene_morphs(b: &[u8]) -> Result<BillboardModel> {
+    parse_four_ds_impl(b, true, false, true, true, true, true)
         .map(|(model, _, billboards)| BillboardModel { model, billboards })
 }
 /// Bounded singlemesh metadata intake with the static material and animation
@@ -445,7 +456,7 @@ pub fn parse_four_ds_scene_billboards(b: &[u8]) -> Result<BillboardModel> {
 /// frame. Raw skin records still require binding/deformation validation before
 /// use; this function does not establish a renderable character.
 pub fn parse_four_ds_skin(b: &[u8]) -> Result<Model> {
-    let (model, _, _) = parse_four_ds_impl(b, false, false, true, false, false)?;
+    let (model, _, _) = parse_four_ds_impl(b, false, false, true, false, false, false)?;
     if !model.frames.iter().any(|frame| frame.skin.is_some()) {
         return err("singlemesh metadata requires a visual-2 frame");
     }
@@ -457,7 +468,7 @@ pub fn parse_four_ds_skin(b: &[u8]) -> Result<Model> {
 /// This establishes neither morph initialization nor renderable deformation.
 /// Existing static, scene and visual-2-only intake keep their original gates.
 pub fn parse_four_ds_singlemorph(b: &[u8]) -> Result<Model> {
-    let (model, _, _) = parse_four_ds_impl(b, true, false, true, true, false)?;
+    let (model, _, _) = parse_four_ds_impl(b, true, false, true, true, false, false)?;
     if !model.frames.iter().any(|frame| frame.morph.is_some()) {
         return err("singlemorph metadata requires a visual-3 frame");
     }
@@ -495,7 +506,7 @@ pub fn parse_four_ds_position_animation(
     animation_bytes: &[u8],
 ) -> Result<PositionAnimatedModel> {
     let (model, load_animation_count, _) =
-        parse_four_ds_impl(model_bytes, false, true, false, false, false)?;
+        parse_four_ds_impl(model_bytes, false, true, false, false, false, false)?;
     if load_animation_count != 1 || model.frames.len() != 1 {
         return err("position animation requires original count1 and one root frame");
     }
@@ -538,6 +549,7 @@ fn parse_four_ds_impl(
     allow_skin: bool,
     allow_morph: bool,
     allow_billboard: bool,
+    allow_plain_morph: bool,
 ) -> Result<(Model, u8, Vec<BillboardSource>)> {
     if b.len() > MAX_BYTES {
         return err("4DS exceeds 64 MiB quota");
@@ -619,7 +631,7 @@ fn parse_four_ds_impl(
     if count > 16384 {
         return err("frame quota exceeded");
     };
-    let mut frames = Vec::new();
+    let mut frames: Vec<Frame> = Vec::new();
     let mut total_vertices = 0usize;
     let mut total_indices = 0usize;
     let mut total_skin_weights = 0usize;
@@ -651,6 +663,7 @@ fn parse_four_ds_impl(
                 && !(scene && visual == 6)
                 && !(allow_skin && visual == 2)
                 && !(allow_morph && visual == 3)
+                && !(allow_plain_morph && visual == 5)
             {
                 return Err(Error(format!(
                     "unsupported visual type {visual}; only standard static mesh supported"
@@ -936,14 +949,23 @@ fn parse_four_ds_impl(
             }
             skin = Some(SkinRecord { lods: skin_lods });
         }
-        if visual == Some(3) {
+        if matches!(visual, Some(3 | 5)) {
             let target_count = r.u8()?;
             let definition = if target_count == 0 {
                 None
             } else {
                 let channel_count = r.u8()?;
                 let lod_count = r.u8()? as usize;
-                if lod_count > lods.len() {
+                let geometry = if let Some(original) = instance {
+                    &frames
+                        .get(original)
+                        .filter(|frame| frame.instance.is_none() && !frame.lods.is_empty())
+                        .ok_or_else(|| Error("invalid morph mesh instance".into()))?
+                        .lods
+                } else {
+                    &lods
+                };
+                if lod_count > geometry.len() {
                     return err("morph LOD count exceeds geometry LODs");
                 }
                 // Empty channels still own vector metadata. Preflight the full
@@ -960,7 +982,7 @@ fn parse_four_ds_impl(
                     channel_records,
                 )?;
                 let mut morph_lods = Vec::with_capacity(lod_count);
-                for lod in &lods[..lod_count] {
+                for lod in &geometry[..lod_count] {
                     let mut channels = Vec::with_capacity(channel_count as usize);
                     for _ in 0..channel_count {
                         let vertex_count = r.u16()?;
@@ -2730,6 +2752,58 @@ mod singlemorph_intake_tests {
             2
         );
         assert_eq!(model.frames[0].skin.as_ref().unwrap().lods.len(), 2);
+    }
+    #[test]
+    fn explicit_mrph_scene_gate_reads_unskinned_suffix_and_preserves_old_gates() {
+        let (mut bytes, offset, _) = fixture();
+        bytes[19] = 5;
+        bytes.drain(offset - 2..offset); // MRPH has no inherited skin bytes.
+        assert!(parse_four_ds(&bytes).is_err());
+        assert!(parse_four_ds_scene(&bytes).is_err());
+        assert!(parse_four_ds_scene_billboards(&bytes).is_err());
+        assert!(parse_four_ds_singlemorph(&bytes).is_err());
+        let parsed = parse_four_ds_scene_morphs(&bytes).unwrap();
+        assert_eq!(parsed.model.frames[0].visual, Some(5));
+        assert!(parsed.model.frames[0].skin.is_none());
+        let definition = parsed.model.frames[0]
+            .morph
+            .as_ref()
+            .unwrap()
+            .definition
+            .as_ref()
+            .unwrap();
+        assert_eq!(definition.lods.len(), 2);
+        assert_eq!(definition.channel_count, 3);
+        assert_eq!(parsed.model.frames[1].name, "Tail");
+        for length in 0..bytes.len() {
+            assert!(
+                parse_four_ds_scene_morphs(&bytes[..length]).is_err(),
+                "prefix {length}"
+            );
+        }
+    }
+    #[test]
+    fn mrph_file_instance_retains_own_suffix_against_shared_geometry() {
+        let (mut bytes, offset, _) = fixture();
+        bytes[19] = 5;
+        bytes.drain(offset - 2..offset);
+        let tail_size = 1 + 2 + 40 + 2 + 4 + 1 + 24 + 1;
+        let end = bytes.len() - tail_size;
+        let suffix = bytes[offset - 2..end].to_vec();
+        bytes.truncate(end);
+        let start = bytes.len();
+        common(&mut bytes, 1, 0, b"Instance");
+        bytes[start + 1] = 5;
+        bytes.extend(1u16.to_le_bytes());
+        bytes.extend(suffix);
+        bytes.push(0);
+        let parsed = parse_four_ds_scene_morphs(&bytes).unwrap();
+        assert_eq!(parsed.model.frames[1].instance, Some(0));
+        assert!(parsed.model.frames[1].lods.is_empty());
+        assert_eq!(
+            parsed.model.frames[1].morph.as_ref().unwrap().target_count,
+            2
+        );
     }
     #[test]
     fn raw_morph_lods_channels_and_numeric_words_are_retained() {

@@ -289,6 +289,9 @@ fn snapshot_arena_tree_inner(
                     .map_err(|e| format!("Selected singlemesh pose frame {frame:?}: {e:?}"))?;
             }
             arena
+                .prepare_owned_selected_morph_lod(frame, lod_index)
+                .map_err(|e| format!("Selected morph geometry frame {frame:?}: {e:?}"))?;
+            arena
                 .loaded_visual_resources_mut()
                 .ok_or("Saved lighting resource owner unavailable")?
                 .prepare_saved_lit_storage(object, lod_index)
@@ -451,6 +454,20 @@ fn snapshot_arena_tree_inner(
                     ));
                 }
                 Some(pose)
+            } else {
+                None
+            };
+            let morph_positions = if view.visual_type == crate::i3d_object::ObjectVisualType::Morph
+            {
+                let positions = resources
+                    .morph_render_positions(*object, *lod_index)
+                    .map_err(|e| {
+                        format!("Selected morph render positions frame {frame:?}: {e:?}")
+                    })?;
+                if positions.len() != view.vertex_count as usize {
+                    return Err("Selected morph render position extent unavailable".into());
+                }
+                Some(positions)
             } else {
                 None
             };
@@ -691,7 +708,11 @@ fn snapshot_arena_tree_inner(
                 .chunks_exact(view.vertex_stride)
                 .enumerate()
             {
-                let point = if let Some(pose) = pose {
+                let point = if let Some(positions) = &morph_positions {
+                    positions
+                        .position(index)
+                        .map_err(|e| format!("Morph draw position: {e:?}"))?
+                } else if let Some(pose) = pose {
                     let point = pose[index].position;
                     if !point.into_iter().all(f32::is_finite) {
                         return Err("Nonfinite live singlemesh pose".into());
@@ -906,7 +927,10 @@ fn prepare_null_colors(
             crate::i3d_object::ObjectVisualType::Singlemesh
                 | crate::i3d_object::ObjectVisualType::Singlemorph
         );
-        if !(view.visual_type == crate::i3d_object::ObjectVisualType::Plain || skinned)
+        if !(matches!(
+            view.visual_type,
+            crate::i3d_object::ObjectVisualType::Plain | crate::i3d_object::ObjectVisualType::Morph
+        ) || skinned)
             || !view.groups.iter().any(|g| g.material.is_none())
         {
             return Ok(None);

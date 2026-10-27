@@ -53,7 +53,7 @@ impl ModelArena {
         match class {
             ObjectVisualType::Plain => self.plain_object_visual_type(key),
             ObjectVisualType::LitUnconstructed => Ok(class.source_fourcc()),
-            ObjectVisualType::Billboard => Ok(class.source_fourcc()),
+            ObjectVisualType::Billboard | ObjectVisualType::Morph => Ok(class.source_fourcc()),
             ObjectVisualType::Singlemesh | ObjectVisualType::Singlemorph => {
                 Err(ModelError::OriginalModelOpenUnavailable(
                     "derived visual class witness unavailable",
