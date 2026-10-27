@@ -49,7 +49,19 @@ pub fn model_matrix(settings: ModelTransform, pivot: Vec3, turntable_degrees: f3
         * Mat4::from_translation(-pivot)
 }
 
-pub fn fit(scene: &Scene, transform: Mat4, selected: Option<usize>) -> Result<Camera, String> {
+pub fn fit(
+    scene: &Scene,
+    transform: Mat4,
+    selected: Option<usize>,
+    vertical_fov_degrees: f32,
+    viewport: [u32; 2],
+) -> Result<Camera, String> {
+    if !vertical_fov_degrees.is_finite()
+        || !(30. ..=100.).contains(&vertical_fov_degrees)
+        || viewport.contains(&0)
+    {
+        return Err("Invalid framing projection".into());
+    }
     if selected.is_some_and(|index| index >= scene.meshes.len()) {
         return Err("Selected draw is no longer available".into());
     }
@@ -68,7 +80,18 @@ pub fn fit(scene: &Scene, transform: Mat4, selected: Option<usize>) -> Result<Ca
             max = max.max(point);
         }
     }
-    Camera::fit_bounds(min.to_array(), max.to_array())
+    let mut camera = Camera::fit_bounds(min.to_array(), max.to_array())?;
+    camera.vertical_fov_radians = vertical_fov_degrees.to_radians();
+    let half_fov =
+        (camera.vertical_fov_radians * 0.5).min(camera.horizontal_fov_radians(viewport)? * 0.5);
+    // Enclose the transformed AABB in a sphere so every view direction fits,
+    // including turntable/orbit changes after framing. Preserve a small margin.
+    let radius = ((max - min).length() * 0.5).max(0.05);
+    let distance = radius * 1.05 / half_fov.sin();
+    camera.eye = camera.target + (camera.eye - camera.target).normalize() * distance;
+    camera.far = camera.far.max(distance + radius * 2.);
+    camera.validate()?;
+    Ok(camera)
 }
 
 pub fn set_view(camera: &mut Camera, view: CameraView) -> Result<(), String> {
@@ -175,9 +198,40 @@ mod tests {
             &scene,
             Mat4::from_translation(Vec3::new(7., 3., 2.)),
             Some(0),
+            50.,
+            [960, 640],
         )
         .unwrap();
         assert_eq!(fitted.target, Vec3::new(7., 3., 2.));
-        assert!(fit(&scene, Mat4::IDENTITY, Some(1)).is_err());
+        assert!(fit(&scene, Mat4::IDENTITY, Some(1), 50., [960, 640]).is_err());
+    }
+
+    #[test]
+    fn framing_contains_transformed_subject_at_narrow_fov_and_aspect() {
+        let scene = crate::lab_scene::SyntheticPreset::Gallery.build().unwrap();
+        let transform = Mat4::from_scale_rotation_translation(
+            Vec3::splat(1.7),
+            Quat::from_rotation_y(0.7),
+            Vec3::new(12., 3., -5.),
+        );
+        for (fov, viewport) in [(30., [1280, 800]), (50., [240, 1000]), (100., [1920, 300])] {
+            let camera = fit(&scene, transform, Some(4), fov, viewport).unwrap();
+            assert!((camera.vertical_fov_radians.to_degrees() - fov).abs() < 0.0001);
+            let projection = Mat4::perspective_rh(
+                camera.vertical_fov_radians,
+                viewport[0] as f32 / viewport[1] as f32,
+                camera.near,
+                camera.far,
+            ) * Mat4::look_at_rh(camera.eye, camera.target, camera.up);
+            for vertex in &scene.meshes[4].vertices {
+                let p = projection * transform * Vec3::from_array(vertex.position).extend(1.);
+                let ndc = p.truncate() / p.w;
+                assert!(
+                    p.w > 0. && ndc.x.abs() < 1. && ndc.y.abs() < 1. && (0. ..=1.).contains(&ndc.z),
+                    "{ndc:?} at FOV {fov}, viewport {viewport:?}"
+                );
+            }
+        }
+        assert!(fit(&scene, transform, None, 30., [0, 640]).is_err());
     }
 }

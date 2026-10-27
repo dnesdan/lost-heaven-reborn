@@ -295,6 +295,8 @@ fn show(context: &egui::Context, state: &State, d: &Diagnostics, commands: &mut 
         .id(egui::Id::new("engine_lab"))
         .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-14., 14.))
         .default_width(380.)
+        .default_height((context.screen_rect().height() - 28.).clamp(200., 900.))
+        .max_height((context.screen_rect().height() - 28.).max(120.))
         .min_width(300.)
         .resizable(true)
         .collapsible(true)
@@ -319,7 +321,7 @@ fn show(context: &egui::Context, state: &State, d: &Diagnostics, commands: &mut 
             });
             ui.separator();
             egui::ScrollArea::vertical()
-                .max_height((context.screen_rect().height()-235.).max(40.))
+                .max_height(ui.available_height().max(40.))
                 .show(ui, |ui| {
                     use crate::lab_state::LabTab;
                     match commands.drafts.tab {

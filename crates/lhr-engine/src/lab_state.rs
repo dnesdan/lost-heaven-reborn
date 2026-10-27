@@ -334,8 +334,10 @@ mod tests {
 
     #[test]
     fn host_settings_reject_nonfinite_and_out_of_range_values() {
-        let mut settings = Settings::default();
-        settings.camera_speed = f32::NAN;
+        let mut settings = Settings {
+            camera_speed: f32::NAN,
+            ..Settings::default()
+        };
         assert!(settings.validate().is_err());
         settings = Settings::default();
         settings.auto_orbit = 91.;

@@ -403,7 +403,17 @@ impl App {
             if commands.fit_selection && self.lab_inspectable_model() {
                 let settings = self.lab.as_ref().unwrap().settings;
                 let transform = self.lab_model_matrix();
-                self.camera = lab_camera::fit(&self.scene, transform, settings.selected_draw)?;
+                let viewport = self
+                    .config
+                    .as_ref()
+                    .map_or(INITIAL_CAR_VIEWPORT, |config| [config.width, config.height]);
+                self.camera = lab_camera::fit(
+                    &self.scene,
+                    transform,
+                    settings.selected_draw,
+                    settings.fov_degrees,
+                    viewport,
+                )?;
             }
             if let Some(view) = commands.camera_view {
                 lab_camera::set_view(&mut self.camera, view)?;

@@ -463,7 +463,7 @@ mod tests {
                     texture.rgba.len(),
                     (texture.width * texture.height * 4) as usize
                 );
-                for triangle in mesh.indices.chunks_exact(3) {
+                for triangle in mesh.indices.as_chunks::<3>().0 {
                     let p: [glam::Vec3; 3] = std::array::from_fn(|i| {
                         glam::Vec3::from_array(mesh.vertices[triangle[i] as usize].position)
                     });
