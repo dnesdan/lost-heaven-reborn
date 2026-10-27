@@ -7,6 +7,25 @@ use crate::{
 use glam::{Mat4, Vec3};
 use lhr_render::{SceneRenderFrame, SceneRenderPass};
 
+/// Caller-owned traversal identifiers for one loaded Scene. Every prepared
+/// snapshot consumes an identifier, even if its surface frame is never shown.
+/// Native visibility caches must not see a repeated number in a new output list.
+#[derive(Default)]
+pub struct SceneSnapshotSequence {
+    number: u32,
+}
+
+impl SceneSnapshotSequence {
+    pub fn next_number(&mut self) -> Result<u32, String> {
+        let next = self
+            .number
+            .checked_add(1)
+            .ok_or("Scene snapshot sequence exhausted; reload the scene")?;
+        self.number = next;
+        Ok(next)
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct ScenePassDraws {
     pub backdrop: Vec<usize>,

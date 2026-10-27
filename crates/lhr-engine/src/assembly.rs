@@ -250,7 +250,10 @@ impl<'a> SceneBuilder<'a> {
                 loaded
                     .evaluate_skeletal_animation(&binding, milliseconds)
                     .map_err(|error| error.to_string())?;
-                println!("Original skeletal pose sample: {} bound frames at {milliseconds} ms; position/rotation evaluators, Target updates and CPU skinning; no controller playback or gameplay", binding.bindings().len());
+                println!(
+                    "Original skeletal pose sample: {} bound frames at {milliseconds} ms; position/rotation evaluators, Target updates and CPU skinning; no controller playback or gameplay",
+                    binding.bindings().len()
+                );
             }
             loaded
                 .prepare_skin_pose()

@@ -1,6 +1,29 @@
 # Progress
 
-## Current milestone — 2026-10-26
+## Current milestone — 2026-10-27
+
+The reviewed parity stack adds sound/render fixes, ordered actor/program source
+intake, interrupted cleanup, menu navigation, owned material clocks and MRPH
+deformation, startup-table leases and populated navigation owners. The integrated
+Lab exposes their actual state and preserves driver time across reload. MISE01
+now retains 27 actors before stopping at unsupported kind 27, cursor 3,795,696;
+all 3,183 objects load. This remains incomplete mission initialization.
+
+Three sequential independent reviews covered each substantial code PR. The
+final source passed 1,649 supplemental CPU tests with only two known host x87
+precondition cases filtered, 21 explicit software-Vulkan GPU tests, all-feature
+Clippy, 47 progress tests and the generated snapshot check. The required
+`scripts/test.sh` still fails those two unchanged x87 tests and is not green.
+Analysis-wrapper tests passed separately on unchanged source. Five original
+mission probes, actual MRPH before/after images and a final native Lab run are
+recorded in [current evidence](implementation/parity-continuation.md).
+
+All six first-mission gates remain open. No original function or executable ran
+for this milestone, and accepted scoped-port/system-gate counters are unchanged.
+The new original PS2 linker inventory supplies naming evidence; the configured
+REA/Ghidra provider refuses its R5900 target before analysis.
+
+## Retained milestone — 2026-10-26
 
 The owned Rust Scene/Camera renderer now culls the road correctly and draws
 actual sky geometry. The MISE01 diagnostic loaded all 3,183 objects, reached

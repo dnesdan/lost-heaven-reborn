@@ -1,5 +1,9 @@
 # Current implementation and evidence — 2026-10-26
 
+This is the retained 2026-10-26 report. See the
+[2026-10-27 parity continuation](parity-continuation.md) for the current source,
+actor frontier, material playback, three-review PR stack and validation limits.
+
 Reviewed code: staged Git tree `28e0b087eab47c810aba6ee139962d9e0a9a0424`;
 375-file source manifest `43af8105831f94e4df7eabf5d7e031031d203b28ef3e3dda1422b082e8a6823b`.
 Two sequential independent applied-source reviews passed (`d6133b45…`,

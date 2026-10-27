@@ -122,6 +122,7 @@ pub(crate) const ORIGINAL_DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureForma
 /// - src/d3d8/d3d8_caps.h: ZBIAS_SCALE = -1 / 65535 (D16 convention).
 /// - d3d8_device.cpp SetRenderState maps native integer bias to that float.
 /// - src/d3d9/d3d9_util.h GetDepthBufferRValue: D32 fallback scale is 2^23.
+///
 /// Native VISF_ZBIAS selects 2. wgpu's integer constant therefore rounds
 /// (-2 / 65535) * 2^23 to -256; slope and clamp remain zero. DXVK may use
 /// extension/vendor-specific representations that wgpu does not expose here.

@@ -448,6 +448,15 @@ impl RetainedScene {
 }
 
 impl RetainedModel {
+    /// Host inspection borrows the actual admitted owner. It neither prepares
+    /// a pose nor resolves lazy material textures.
+    pub fn material_resources(&self) -> Option<&crate::visual_resources::VisualResources> {
+        self.materialized
+            .as_ref()?
+            .arena()
+            .loaded_visual_resources()
+            .map(|owner| owner.objects().managed().resources())
+    }
     fn validate_materialized(&self) -> Result<(), String> {
         let loaded = self
             .materialized

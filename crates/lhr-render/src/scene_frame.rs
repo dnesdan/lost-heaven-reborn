@@ -42,7 +42,9 @@ impl Renderer {
         // Each pass owns an immutable matrix allocation. Queue writes into one
         // shared uniform would make all three passes observe the final matrix.
         let cameras: Vec<_> = [&frame.backdrop, &frame.main, &frame.near]
-            .map(|layer| {
+            .into_iter()
+            .enumerate()
+            .map(|(number, layer)| {
                 let buffer = self
                     .device
                     .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -50,16 +52,35 @@ impl Renderer {
                         contents: bytemuck::cast_slice(&layer.view_projection.to_cols_array()),
                         usage: wgpu::BufferUsages::UNIFORM,
                     });
+                // Backdrop geometry retains source color and ignores host
+                // lighting, fog, debug views and model transforms.
+                let environment =
+                    self.device
+                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("Canonical Scene host preview parameters"),
+                            contents: bytemuck::bytes_of(&self.lab_uniform(
+                                width,
+                                height,
+                                number != 0,
+                                false,
+                            )),
+                            usage: wgpu::BufferUsages::UNIFORM,
+                        });
                 self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("Canonical Scene pass camera"),
                     layout: &self.camera_layout,
-                    entries: &[wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: buffer.as_entire_binding(),
-                    }],
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: buffer.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: environment.as_entire_binding(),
+                        },
+                    ],
                 })
             })
-            .into_iter()
             .collect();
         let depth = self.depth_view(width, height);
         let mut encoder = self.device.create_command_encoder(&Default::default());
@@ -75,12 +96,7 @@ impl Renderer {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: if number == 0 {
-                            wgpu::LoadOp::Clear(wgpu::Color {
-                                r: 0.025,
-                                g: 0.035,
-                                b: 0.055,
-                                a: 1.,
-                            })
+                            wgpu::LoadOp::Clear(self.lab_clear_color(true))
                         } else {
                             wgpu::LoadOp::Load
                         },
@@ -163,6 +179,7 @@ impl Renderer {
                 pass.draw_indexed(0..draw.count, 0, 0..1);
             }
         }
+        self.render_lab_precipitation(&mut encoder, view, &cameras[1], frame.viewport);
         Ok(encoder)
     }
     pub fn render_scene_frame_with_overlay(

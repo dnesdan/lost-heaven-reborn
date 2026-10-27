@@ -7,12 +7,13 @@ playable; all six first-mission gates remain open.
 
 The current Rust application can inspect the menu and owned scene, render an
 actual sky and road view, and drive a car in a standalone mode. Its MISE01
-diagnostic loaded all 3,183 scene objects and reached the actor-dispatch
-boundary at cursor 3,794,014. A snapshot produced 267 draws, including five
-real zapad sky passes, and closed cleanly. Actor registration, scripts and
-authored mission play remain to be connected.
+diagnostic loads all 3,183 scene objects and 27 actors before stopping at
+unsupported actor kind 27, cursor 3,795,696. Ordered actor/program source intake,
+startup replacements, live material clocks and owned MRPH deformation are
+connected within their documented domains. Full MissionOpen, the remaining
+actors, program execution and authored mission play remain open.
 
-[Build and run](docs/RUNNING.md) · [current evidence](docs/implementation/mafia-re-remediation.md) ·
+[Build and run](docs/RUNNING.md) · [current evidence](docs/implementation/parity-continuation.md) ·
 [coverage](COVERAGE.md) · [goals](docs/GOALS.md) · [dated history](docs/history/README.md).
 
 <details>
@@ -92,13 +93,33 @@ remain inspection entry points; authored first-mission gameplay is incomplete.
 prerequisites, captures and platform validation status.
 [Historical commands and validation](docs/history/2026-10-25-readme-narrative.md) remain available.
 
+## Engine Lab
+
+The optional native Lab has a scene/model browser, four public procedural scenes,
+lighting and weather previews, orbit/pan cameras and bookmarks, model transforms,
+draw isolation, vehicle inputs and portable presets. Materials and Diagnostics
+inspect actual material clocks, mission owners, load frontiers and retained
+cleanup without advancing their state. Start without game files:
+
+```sh
+source scripts/common.sh
+cargo run --locked -p lhr-engine --features engine-lab -- --synthetic --lab
+```
+
+Add `--root /path/to/Mafia` to browse your installation. Lighting, fog and
+precipitation are optional host previews; they do not implement original weather
+or mission gameplay. [Controls, presets and captures](docs/RUNNING.md#engine-lab).
+[Native Lab preview](docs/screenshots/2026-10-27-engine-lab-workbench.png) ·
+[actual mission owners](docs/screenshots/2026-10-27-engine-lab-mission-owners.webp).
+
 ## Actual Rust captures
 
 ![MISE01 road and source sky](docs/screenshots/2026-10-26-mise01-road-sky.webp)
 
-All 3,183 scene objects are loaded in this inspection view; actor dispatch
-is the next boundary. [Menu sky](docs/screenshots/2026-10-26-menu-sky.webp) ·
-[Engine Lab](docs/screenshots/2026-10-26-engine-lab.webp) · [source, checks and limits](docs/implementation/mafia-re-remediation.md).
+This dated 2026-10-26 inspection reaches actor dispatch after all 3,183 scene
+objects. New [MRPH before/after and Lab captures](docs/implementation/parity-continuation.md)
+record the current source and exact limits. [Menu sky](docs/screenshots/2026-10-26-menu-sky.webp) ·
+[earlier Engine Lab](docs/screenshots/2026-10-26-engine-lab.webp).
 Earlier media and their dated scope remain in [capture history](docs/screenshots/README.md).
 
 ## Research and assets

@@ -1558,7 +1558,9 @@ mod tests {
             let pixels = renderer.readback(64, 64, &camera).unwrap();
             assert!(
                 pixels
-                    .chunks_exact(4)
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
                     .any(|p| p[0] > 200 && p[1] < 40 && p[2] < 40),
                 "first owned frame must render red pixels"
             );
@@ -1580,12 +1582,16 @@ mod tests {
             let pixels = renderer.readback(64, 64, &camera).unwrap();
             assert!(
                 pixels
-                    .chunks_exact(4)
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
                     .any(|p| p[2] > 200 && p[0] < 40 && p[1] < 40),
                 "new owned frame must render blue pixels after mesh replacement"
             );
             assert!(!pixels
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .any(|p| p[0] > 200 && p[1] < 40 && p[2] < 40));
         }
         let repeated = snapshot_car_arena(&mut arena, model.root()).unwrap();

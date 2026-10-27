@@ -9,8 +9,17 @@ mod engine_lab;
 #[cfg(not(feature = "engine-lab"))]
 #[path = "engine_lab_disabled.rs"]
 mod engine_lab;
+mod lab_app;
+mod lab_camera;
+mod lab_catalog;
+mod lab_files;
+mod lab_owner_inspection;
+#[cfg(feature = "engine-lab")]
+mod lab_owner_ui;
 #[path = "lab_playback.rs"]
 mod lab_playback;
+mod lab_preset;
+mod lab_scene;
 mod lab_state;
 #[path = "menu.rs"]
 mod menu;
@@ -60,6 +69,7 @@ fn menu_navigation(code: KeyCode, shift: bool) -> Option<menu::Navigation> {
     }
 }
 
+#[derive(Clone)]
 struct Options {
     mission_load_probe: bool,
     probe_model_directories: Vec<String>,
@@ -76,6 +86,8 @@ struct Options {
     textures: String,
     synthetic: bool,
     lab: bool,
+    lab_scene: Option<lab_scene::SyntheticPreset>,
+    lab_preset: Option<PathBuf>,
     mission: Option<String>,
     car_inspection: bool,
     car_driving: bool,
@@ -103,6 +115,8 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
         textures: "maps".into(),
         synthetic: false,
         lab: false,
+        lab_scene: None,
+        lab_preset: None,
         mission: None,
         car_inspection: false,
         car_driving: false,
@@ -129,6 +143,16 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
             "--linear" => result.linear = true,
             "--frames" => result.frames = args.next().ok_or("Missing frame count")?.parse().map_err(|_| "Invalid frame count")?,
             "--synthetic" => result.synthetic = true,
+            "--lab-scene" => {
+                result.lab_scene = Some(match args.next().ok_or("Missing Lab scene name")?.as_str() {
+                    "gallery" => lab_scene::SyntheticPreset::Gallery,
+                    "courtyard" => lab_scene::SyntheticPreset::Courtyard,
+                    "primitives" => lab_scene::SyntheticPreset::Primitives,
+                    "lights" => lab_scene::SyntheticPreset::LightStudy,
+                    _ => return Err("Lab scene must be gallery, courtyard, primitives or lights".into()),
+                });
+            },
+            "--lab-preset" => result.lab_preset = Some(args.next().ok_or("Missing Lab preset path")?.into()),
             "--lab" => {
                 if !cfg!(feature = "engine-lab") {
                     return Err("--lab requires a build with --features engine-lab".into());
@@ -144,7 +168,7 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
             "--help" => return Err(concat!(
                 "Usage: lhr-engine [--synthetic | --root DIRECTORY [--model RELATIVE_4DS [--animation RELATIVE_5DS] | --mission NAME]] ",
                 "[--car-driving | --car-inspection [--steer VALUE [--steer-steps N]]] [--textures RELATIVE_DIRECTORY] [--headless --capture PNG [--animation-steps N]] [--frames N] [--linear]. ",
-                "--lab requires a build with --features engine-lab. It opens native Engine Lab controls for pause, 16 ms steps, reload, host camera and actual driving input. F1 toggles the panel; F2 pauses; F3 steps; F4 reloads. Requires a window. --capture continues to capture the scene without the Lab overlay. ",
+                "--lab requires --features engine-lab and a native window. It opens scenes/models, environment previews, camera and model tools, presets and actual driving input. F1 panel, F2 pause, F3 16 ms step, F4 reload. --synthetic --lab starts the public gallery; --root may also supply its asset browser. --lab-scene gallery|courtyard|primitives|lights selects a public --synthetic scene, including headless captures. --lab-preset FILE.lhr-lab loads presentation settings for --lab or --headless. --capture omits the Lab overlay. ",
                 "--mission-load-probe --root DIRECTORY --mission NAME [--probe-model-dir DIRECTORY ...] runs the shared CPU load-session diagnostic without a window; it excludes all presentation and playback flags. It does not execute gameplay. ",
                 "--audio-capture WAV records the actual mixed driving audio and requires --car-driving. ",
                 "--car-driving requires --root and --model and opens the original MISE01 driving world. W accelerates, S brakes, A/D steer, Space applies the handbrake; R reloads and Escape exits. The chase camera is a host view. ",
@@ -262,8 +286,24 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
     if result.headless && result.capture.is_none() {
         return Err("Headless mode requires a capture output".into());
     }
-    if result.synthetic == result.root.is_some() {
-        return Err("Select exactly one of --synthetic or --root".into());
+    if (!result.synthetic && result.root.is_none())
+        || (result.synthetic && result.root.is_some() && !result.lab)
+    {
+        return Err(
+            "Select --synthetic or --root; combining them requires --lab for the asset browser"
+                .into(),
+        );
+    }
+    if result.synthetic
+        && (result.model.is_some() || result.mission.is_some() || result.animation.is_some())
+    {
+        return Err("A synthetic scene excludes model, mission and animation selection".into());
+    }
+    if result.lab_scene.is_some() && !result.synthetic {
+        return Err("--lab-scene requires --synthetic".into());
+    }
+    if result.lab_preset.is_some() && !result.lab && !result.headless {
+        return Err("--lab-preset requires --lab or --headless".into());
     }
     if result.capture.is_some() && !result.headless && result.frames == 0 {
         return Err("Window capture requires a bounded --frames count".into());
@@ -331,6 +371,13 @@ fn material_effects_omitted(material: &lhr_assets::Material) -> bool {
         || material.opacity != 1.0
         || material.animation.is_some()
 }
+fn parse_standalone_model(data: &[u8]) -> Result<lhr_assets::Model, lhr_assets::Error> {
+    lhr_assets::parse_four_ds(data)
+        .or_else(|_| lhr_assets::parse_four_ds_skin(data))
+        .or_else(|_| lhr_assets::parse_four_ds_singlemorph(data))
+        .or_else(|_| lhr_assets::parse_four_ds_animated_model(data))
+}
+
 enum AnimationPlayback {
     Position(Box<lhr_engine::animation_binding::PositionPlayback>),
     Skeletal(Box<lhr_engine::skeletal_playback::SkeletalPlayback>),
@@ -344,6 +391,7 @@ impl AnimationPlayback {
     }
 }
 struct LoadedScene {
+    snapshots: lhr_engine::scene_render::SceneSnapshotSequence,
     canonical: Option<lhr_engine::scene_render::CanonicalSceneOwner>,
     scene_frame: Option<lhr_render::SceneRenderFrame>,
     scene: Scene,
@@ -383,10 +431,14 @@ fn load(
     driver_time: u32,
     patches: &lhr_engine::program_patch::ProgramPatchStartup,
 ) -> Result<LoadedScene, String> {
-    let Some(root) = &options.root else {
-        let scene = synthetic();
+    if options.synthetic {
+        let scene = match lab_app::synthetic_preset(options) {
+            Some(preset) => preset.build()?,
+            None => synthetic(),
+        };
         let camera = Camera::fit(&scene)?;
         return Ok(LoadedScene {
+            snapshots: Default::default(),
             canonical: None,
             scene_frame: None,
             scene,
@@ -395,7 +447,11 @@ fn load(
             animation: None,
             car: None,
         });
-    };
+    }
+    let root = options
+        .root
+        .as_ref()
+        .ok_or("An original scene requires an installation root")?;
     let installation = lhr_assets::Installation::open(root)
         .map_err(|e| format!("Cannot open asset installation: {e}"))?;
     if options.car_inspection || options.car_driving {
@@ -429,7 +485,8 @@ fn load(
             );
         }
         let camera = canonical.camera_control()?;
-        let snapshot = match canonical.snapshot(viewport, 1) {
+        let mut snapshots = lhr_engine::scene_render::SceneSnapshotSequence::default();
+        let snapshot = match canonical.snapshot(viewport, snapshots.next_number()?) {
             Ok(snapshot) => snapshot,
             Err(error) => {
                 let cleanup = canonical.close();
@@ -441,6 +498,7 @@ fn load(
             snapshot.scene.meshes.len()
         );
         return Ok(LoadedScene {
+            snapshots,
             scene: snapshot.scene,
             camera,
             runtime: Default::default(),
@@ -480,9 +538,7 @@ fn load(
             .map_err(|error| error.to_string())?;
         let animation =
             lhr_assets::animation::parse_5ds(&bytes).map_err(|error| error.to_string())?;
-        let model = lhr_assets::parse_four_ds(&data)
-            .or_else(|_| lhr_assets::parse_four_ds_skin(&data))
-            .or_else(|_| lhr_assets::parse_four_ds_singlemorph(&data))
+        let model = parse_standalone_model(&data)
             .map_err(|error| format!("Unsupported skeletal model source: {error}"))?;
         let animation = Arc::new(animation);
         if options.skeletal_animation {
@@ -504,9 +560,7 @@ fn load(
         (model, Some(source))
     } else {
         let model = if options.model.is_some() {
-            lhr_assets::parse_four_ds(&data)
-                .or_else(|_| lhr_assets::parse_four_ds_skin(&data))
-                .or_else(|_| lhr_assets::parse_four_ds_singlemorph(&data))
+            parse_standalone_model(&data)
         } else {
             lhr_assets::parse_four_ds_scene(&data)
         }
@@ -583,6 +637,7 @@ fn load(
         }
     })?;
     Ok(LoadedScene {
+        snapshots: Default::default(),
         canonical: None,
         scene_frame: None,
         scene,
@@ -599,11 +654,12 @@ fn live_draw_state(
     driving: bool,
     camera: &Camera,
     viewport: [u32; 2],
+    snapshots: &mut lhr_engine::scene_render::SceneSnapshotSequence,
 ) -> Result<(usize, Option<DrivingWorldView>), String> {
     let Some(owner) = car.as_mut() else {
         return Ok((0, None));
     };
-    let snapshot = driving_view::snapshot_scene(owner, camera, viewport, 1)?;
+    let snapshot = driving_view::snapshot_scene(owner, camera, viewport, snapshots.next_number()?)?;
     let _ = driving;
     Ok((snapshot.scene.meshes.len(), None))
 }
@@ -659,6 +715,7 @@ fn load_car(
             frontier.cursor, frontier.entry, frontier.detail
         );
     }
+    let mut snapshots = lhr_engine::scene_render::SceneSnapshotSequence::default();
     let result: Result<(Scene, Camera, lhr_render::SceneRenderFrame), String> = (|| {
         if driving {
             let _ = owner.start_driving("mise01")?;
@@ -674,7 +731,8 @@ fn load_car(
         } else {
             lhr_engine::car_inspection::camera_from_arena_bounds(owner.arena_mut(), root)?
         };
-        let snapshot = driving_view::snapshot_scene(&mut owner, &camera, viewport, 1)?;
+        let snapshot =
+            driving_view::snapshot_scene(&mut owner, &camera, viewport, snapshots.next_number()?)?;
         if driving {
             driving_view::sync_audio_listener(&mut owner, &camera)?;
         }
@@ -693,6 +751,7 @@ fn load_car(
     })();
     match result {
         Ok((scene, camera, scene_frame)) => Ok(LoadedScene {
+            snapshots,
             canonical: None,
             scene_frame: Some(scene_frame),
             scene,
@@ -758,6 +817,7 @@ enum AppMode {
     Inspection,
 }
 struct App {
+    snapshots: lhr_engine::scene_render::SceneSnapshotSequence,
     canonical: Option<lhr_engine::scene_render::CanonicalSceneOwner>,
     startup_patches: lhr_engine::program_patch::ProgramPatchStartup,
     scene_frame: Option<lhr_render::SceneRenderFrame>,
@@ -780,6 +840,15 @@ struct App {
     lab: Option<engine_lab::State>,
     native_lab: Option<engine_lab::NativeLab>,
     last_lab_redraw: std::time::Instant,
+    lab_camera_home: lab_camera::Bookmark,
+    lab_bookmark: Option<lab_camera::Bookmark>,
+    lab_pivot: Vec3,
+    lab_draw_labels: Vec<String>,
+    lab_preview_seconds: f32,
+    lab_turntable_degrees: f32,
+    lab_delta_seconds: f32,
+    lab_pointer: Option<[f64; 2]>,
+    lab_drag: Option<MouseButton>,
     config: Option<wgpu::SurfaceConfiguration>,
     keys: HashSet<KeyCode>,
     steering_preview_active: bool,
@@ -793,158 +862,6 @@ struct App {
     error: Option<String>,
 }
 impl App {
-    /// A retained scene/car has a real material timeline even without gameplay
-    /// callbacks. The synthetic quad alone still has no runtime to advance.
-    fn lab_runtime_available(&self) -> bool {
-        !self.runtime.models.is_empty() || self.car.is_some() || self.canonical.is_some()
-    }
-
-    fn clear_lab_audio_queue(&mut self) -> Result<(), String> {
-        if let Some(output) = &mut self.audio_output {
-            output.clear_queue().map_err(|e| e.to_string())?;
-        }
-        Ok(())
-    }
-
-    fn reload_lab_scene(&mut self) -> Result<(), String> {
-        if self.options.car_inspection || self.options.car_driving {
-            self.reload_car()?;
-        } else {
-            self.transition(self.mode)?;
-        }
-        let sample = lhr_engine::clock::ClockBackend::sample_ms(&mut self.clock_backend);
-        self.runtime_engine = lhr_engine::runtime::RuntimeEngine::from_sample(sample);
-        println!("Engine Lab: scene reloaded; runtime time and driving tick count reset");
-        Ok(())
-    }
-
-    fn lab_window_event(&mut self, event: &WindowEvent) -> Result<(), String> {
-        if self.lab.is_none() {
-            return Ok(());
-        }
-        if matches!(event, WindowEvent::Focused(false)) {
-            self.lab.as_mut().unwrap().focus_lost();
-            self.keys.clear();
-            self.clear_lab_audio_queue()?;
-        }
-        let WindowEvent::KeyboardInput {
-            event,
-            is_synthetic,
-            ..
-        } = event
-        else {
-            return Ok(());
-        };
-        // Winit can synthesize held-key presses during focus changes. They
-        // must not resume, step or reload a scene that focus loss just paused.
-        if *is_synthetic || event.state != ElementState::Pressed || event.repeat {
-            return Ok(());
-        }
-        match event.physical_key {
-            PhysicalKey::Code(KeyCode::F1) => {
-                let lab = self.lab.as_mut().unwrap();
-                lab.visible = !lab.visible;
-                self.keys.clear();
-            }
-            PhysicalKey::Code(KeyCode::F2) if self.lab_runtime_available() => {
-                let lab = self.lab.as_mut().unwrap();
-                let paused = !lab.playback.paused();
-                lab.playback.set_paused(paused);
-                self.keys.clear();
-                if paused {
-                    self.clear_lab_audio_queue()?;
-                }
-                println!(
-                    "Engine Lab: paused={paused}; driver_time_ms={}; driving_ticks={}",
-                    self.runtime_engine.driver_time(),
-                    self.driving_clock.ticks
-                );
-            }
-            PhysicalKey::Code(KeyCode::F3) if self.lab_runtime_available() => {
-                self.lab.as_mut().unwrap().playback.request_step();
-                self.clear_lab_audio_queue()?;
-            }
-            PhysicalKey::Code(KeyCode::F4) => self.reload_lab_scene()?,
-            _ => {}
-        }
-        Ok(())
-    }
-
-    fn lab_diagnostics(&mut self) -> Result<engine_lab::Diagnostics, String> {
-        let now = std::time::Instant::now();
-        let frame_ms = now.duration_since(self.last_lab_redraw).as_secs_f32() * 1000.;
-        self.last_lab_redraw = now;
-        let (car, feedback) = if self.options.car_driving {
-            let owner = self.car.as_mut().ok_or("Engine Lab has no driving owner")?;
-            (
-                Some(owner.driving_state()?),
-                Some(owner.driving_control_feedback()?),
-            )
-        } else {
-            (None, None)
-        };
-        Ok(engine_lab::Diagnostics {
-            profile: if self.options.synthetic {
-                "Public synthetic scene"
-            } else if self.options.car_driving {
-                "Original data · Driving"
-            } else if self.options.car_inspection {
-                "Original data · Car inspection"
-            } else if self.animation.is_some() {
-                "Original data · Animation inspection"
-            } else {
-                "Original data · Scene inspection"
-            },
-            runtime_available: self.lab_runtime_available(),
-            frame_ms,
-            driver_time_ms: self.runtime_engine.driver_time(),
-            driving_ticks: self.driving_clock.ticks,
-            scene_draws: self.scene.meshes.len(),
-            vertices: self
-                .scene
-                .meshes
-                .iter()
-                .map(|mesh| mesh.vertices.len())
-                .sum(),
-            triangles: self
-                .scene
-                .meshes
-                .iter()
-                .map(|mesh| mesh.indices.len() / 3)
-                .sum(),
-            viewport: self
-                .config
-                .as_ref()
-                .map_or(INITIAL_CAR_VIEWPORT, |config| [config.width, config.height]),
-            car,
-            feedback,
-            driving: self.options.car_driving,
-        })
-    }
-
-    fn apply_lab_camera(&mut self) -> Result<(), String> {
-        let Some(lab) = &self.lab else {
-            return Ok(());
-        };
-        let settings = lab.settings;
-        settings.validate()?;
-        if self.options.car_driving {
-            let owner = self
-                .car
-                .as_mut()
-                .ok_or("Engine Lab has no driving camera owner")?;
-            let root = owner
-                .model()
-                .ok_or("Engine Lab has no driving camera model")?
-                .root();
-            self.camera =
-                driving_view::chase_camera_with_settings(owner.arena_mut(), root, settings.chase)?;
-            driving_view::sync_audio_listener(owner, &self.camera)?;
-        }
-        self.camera.vertical_fov_radians = settings.fov_degrees.to_radians();
-        self.camera.validate()
-    }
-
     fn refresh_menu(&self) -> Result<(), String> {
         if let (Some(ui), Some(renderer)) = (&self.ui, &self.renderer) {
             renderer.update_texture(self.scene.meshes.len() - 1, &ui.pixels())?;
@@ -968,19 +885,29 @@ impl App {
         }
     }
     fn transition(&mut self, mode: AppMode) -> Result<(), String> {
-        // Inspection reloads preserve an explicitly selected CLI mission.
+        let mut candidate = self.options.clone();
+        // Returning from a Lab model/demo to the original menu must clear the
+        // previous selection. Inspection reloads retain every selected option.
         if mode != AppMode::Inspection {
-            self.options.mission = match mode {
+            candidate = lab_app::candidate_options(
+                &candidate,
+                &lab_state::SceneRequest::Mission("00menu".into()),
+            )?;
+            candidate.mission = match mode {
                 AppMode::IntroScene => Some("intro".into()),
                 AppMode::FirstMissionScene => Some("mise01".into()),
                 _ => None,
             };
         }
+        self.transition_with_options(mode, candidate)
+    }
+    fn transition_with_options(&mut self, mode: AppMode, candidate: Options) -> Result<(), String> {
         let viewport = self
             .config
             .as_ref()
             .map_or(INITIAL_CAR_VIEWPORT, |c| [c.width, c.height]);
         let LoadedScene {
+            mut snapshots,
             canonical,
             scene_frame,
             mut scene,
@@ -989,16 +916,17 @@ impl App {
             mut animation,
             mut car,
         } = load(
-            &self.options,
+            &candidate,
             viewport,
             self.runtime_engine.driver_time(),
             &self.startup_patches,
         )?;
         let (car_draws, world_bucket) = match live_draw_state(
             &mut car,
-            self.options.car_driving,
+            candidate.car_driving,
             &camera,
             viewport,
+            &mut snapshots,
         ) {
             Ok(draws) => draws,
             Err(error) => {
@@ -1014,17 +942,47 @@ impl App {
                 .meshes
                 .push(menu::quad(self.ui.as_ref().unwrap().pixels()));
         }
-        let result = (|| {
+        // Stage the device, target format and lighting before touching active
+        // owners. Unsupported source content leaves the current view usable.
+        let prepared = (|| -> Result<_, String> {
             let adapter = self.adapter.as_ref().ok_or("Graphics adapter absent")?;
-            pollster::block_on(Renderer::with_adapter(
+            let surface = self.surface.as_ref().ok_or("Presentation surface absent")?;
+            let mut config = self
+                .config
+                .clone()
+                .ok_or("Presentation configuration absent")?;
+            let desired = if canonical.is_some() || car.is_some() {
+                config.format.remove_srgb_suffix()
+            } else {
+                config.format.add_srgb_suffix()
+            };
+            if surface.get_capabilities(adapter).formats.contains(&desired) {
+                config.format = desired;
+            } else if canonical.is_some() || car.is_some() {
+                return Err("Canonical Scene requires an unorm presentation target".into());
+            }
+            let mut renderer = pollster::block_on(Renderer::with_adapter(
                 adapter,
                 &scene,
-                self.config.as_ref().unwrap().format,
-                self.options.linear,
-            ))
+                config.format,
+                candidate.linear,
+            ))?;
+            if let Some(owner) = &canonical {
+                owner.upload_lighting(&mut renderer)?;
+            }
+            renderer.set_inspection_alpha_cutout(candidate.car_inspection || candidate.car_driving);
+            if let Some(lab) = &self.lab {
+                renderer.set_lab_environment(
+                    lab.settings.environment,
+                    camera.eye.to_array(),
+                    0.,
+                )?;
+            }
+            self.clear_lab_audio_queue()?;
+            Ok((renderer, config))
         })();
-        let mut renderer = match result {
-            Ok(renderer) => renderer,
+        let (renderer, config) = match prepared {
+            Ok(prepared) => prepared,
             Err(error) => {
                 let cleanup = close_car(&mut car);
                 let material_cleanup = close_retained_materials(&mut animation, &mut runtime);
@@ -1033,18 +991,11 @@ impl App {
                 ));
             }
         };
-        if let Some(owner) = &canonical {
-            if let Err(error) = owner.upload_lighting(&mut renderer) {
-                let cleanup = close_retained_materials(&mut animation, &mut runtime);
-                return Err(format!("{error}; new material cleanup: {cleanup:?}"));
-            }
-        }
-        renderer
-            .set_inspection_alpha_cutout(self.options.car_inspection || self.options.car_driving);
         if let Some(old) = &self.renderer {
             old.device.poll(wgpu::Maintain::Wait);
         }
         if let Err(error) = close_car(&mut self.car) {
+            self.error = Some(error.clone());
             renderer.device.poll(wgpu::Maintain::Wait);
             let cleanup = close_car(&mut car);
             let material_cleanup = close_retained_materials(&mut animation, &mut runtime);
@@ -1052,12 +1003,9 @@ impl App {
                 "{error}; new car cleanup: {cleanup:?}; new material cleanup: {material_cleanup:?}"
             ));
         }
-        self.surface
-            .as_ref()
-            .unwrap()
-            .configure(&renderer.device, self.config.as_ref().unwrap());
         if let Some(owner) = &mut self.canonical {
             if let Err(error) = owner.close() {
+                self.error = Some(error.clone());
                 let cleanup = close_car(&mut car);
                 let material_cleanup = close_retained_materials(&mut animation, &mut runtime);
                 return Err(format!(
@@ -1067,20 +1015,42 @@ impl App {
         }
         self.animation = None;
         if let Err(error) = self.runtime.close_owned_material_draws() {
+            self.error = Some(error.clone());
             let cleanup = close_retained_materials(&mut animation, &mut runtime);
             return Err(format!("{error}; new material cleanup: {cleanup:?}"));
         }
+        self.surface
+            .as_ref()
+            .unwrap()
+            .configure(&renderer.device, &config);
         self.native_lab = self.lab.as_ref().map(|_| {
             let window = self.window.as_ref().unwrap();
-            let format = self.config.as_ref().unwrap().format;
+            let format = config.format;
             match &self.native_lab {
                 Some(previous) => previous.recreate(window, &renderer, format),
                 None => engine_lab::NativeLab::new(window, &renderer, format),
             }
         });
+        self.config = Some(config);
         self.renderer = Some(renderer);
+        self.snapshots = snapshots;
         self.canonical = canonical;
         self.scene_frame = scene_frame;
+        self.lab_camera_home = lab_camera::Bookmark::capture(&camera);
+        self.lab_pivot = Camera::fit(&scene).map_or(camera.target, |fit| fit.target);
+        self.lab_draw_labels = if candidate.synthetic {
+            lab_app::synthetic_preset(&candidate)
+                .map(|preset| preset.mesh_labels())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        self.lab_bookmark = None;
+        self.lab_pointer = None;
+        self.lab_drag = None;
+        self.lab_preview_seconds = 0.;
+        self.lab_turntable_degrees = 0.;
+        self.lab_delta_seconds = 0.;
         self.scene = scene;
         self.camera = camera;
         self.runtime = runtime;
@@ -1088,6 +1058,21 @@ impl App {
         self.car = car;
         self.car_draws = car_draws;
         self.world_bucket = world_bucket;
+        self.options = candidate;
+        if self.options.car_driving {
+            if self.audio_output.is_none() {
+                match lhr_engine::runtime_audio::DeviceAudioOutput::open_default(48_000) {
+                    Ok(output) => self.audio_output = Some(output),
+                    Err(error) => println!(
+                        "Driving native audio unavailable: {error}; PCM mixing remains active"
+                    ),
+                }
+            }
+        } else {
+            self.audio_output = None;
+        }
+        // Preserve the driver timeline used to admit the replacement owners;
+        // only rebase the host sampling clock after a potentially slow load.
         self.runtime_engine.reset_clock(&mut self.clock_backend);
         self.mode = mode;
         self.keys.clear();
@@ -1114,17 +1099,6 @@ impl App {
         event_loop.exit();
     }
     fn reload_car(&mut self) -> Result<(), String> {
-        if let Some(output) = &mut self.audio_output {
-            let discarded = output.clear_queue().map_err(|e| e.to_string())?;
-            println!(
-                "Driving reload discarded {discarded} queued PCM frames from the previous car"
-            );
-        }
-        if let Some(renderer) = &self.renderer {
-            renderer.device.poll(wgpu::Maintain::Wait);
-        }
-        close_car(&mut self.car)?;
-        self.renderer = None;
         self.transition(AppMode::Inspection)
     }
     fn drive_car(&mut self, elapsed_ms: u32) -> Result<(), String> {
@@ -1255,7 +1229,7 @@ impl App {
             owner,
             &self.camera,
             viewport,
-            self.count.wrapping_add(1),
+            self.snapshots.next_number()?,
         )?;
         let renderer = self.renderer.as_mut().ok_or("Car renderer absent")?;
         let mut count = self.scene.meshes.len();
@@ -1299,12 +1273,26 @@ impl ApplicationHandler for App {
                     "Lost Heaven Reborn — original-data driving"
                 } else if self.options.car_inspection {
                     "Lost Heaven Reborn — car inspection / wheel steering preview"
+                } else if self.lab.is_some() {
+                    "Lost Heaven Reborn — Engine Lab"
                 } else {
                     "Lost Heaven Reborn — original menu / static scene inspection"
                 })
                 .with_inner_size(winit::dpi::LogicalSize::new(
-                    if self.mode == AppMode::Menu { 640 } else { 960 },
-                    if self.mode == AppMode::Menu { 480 } else { 640 },
+                    if self.lab.is_some() {
+                        1280
+                    } else if self.mode == AppMode::Menu {
+                        640
+                    } else {
+                        960
+                    },
+                    if self.lab.is_some() {
+                        800
+                    } else if self.mode == AppMode::Menu {
+                        480
+                    } else {
+                        640
+                    },
                 )),
         ) else {
             self.fail(event_loop, "Cannot create inspection window");
@@ -1401,6 +1389,9 @@ impl ApplicationHandler for App {
             }
             _ => false,
         };
+        if let Err(error) = self.lab_pointer_event(&event, consumed) {
+            self.lab_status(format!("Camera motion rejected: {error}"));
+        }
         // Releases must reach the gameplay key set even while a numeric UI
         // field owns keyboard focus; otherwise W/A/D can stay latched.
         if let WindowEvent::KeyboardInput { event, .. } = &event {
@@ -1479,7 +1470,11 @@ impl ApplicationHandler for App {
                             && (self.options.car_inspection || self.options.car_driving)
                         {
                             if let Err(error) = self.reload_car() {
-                                self.fail(event_loop, &error);
+                                if self.lab.is_some() && self.error.is_none() {
+                                    self.lab_status(format!("Reload failed: {error}"));
+                                } else {
+                                    self.fail(event_loop, &error);
+                                }
                             }
                         } else if code == KeyCode::Escape && !event.repeat {
                             let next = if self.mode == AppMode::IntroScene {
@@ -1591,13 +1586,16 @@ impl ApplicationHandler for App {
                             self.driving_clock.ticks
                         );
                     }
-                    if commands.reload_scene {
-                        if let Err(error) = self.reload_lab_scene() {
-                            self.fail(event_loop, &error);
-                        }
+                    match self.apply_lab_actions(&commands) {
                         // The new device has a new egui context/font atlas.
-                        // Never submit old-device UI jobs after this transition.
-                        return;
+                        // Never submit old-device jobs after publication.
+                        Ok(true) => return,
+                        Ok(false) => {}
+                        Err(error) if self.error.is_some() => {
+                            self.fail(event_loop, &error);
+                            return;
+                        }
+                        Err(error) => self.lab_status(format!("Action failed: {error}")),
                     }
                     if self
                         .native_lab
@@ -1624,6 +1622,9 @@ impl ApplicationHandler for App {
                         return;
                     }
                 };
+                if let Err(error) = self.advance_lab_preview(step.as_ref()) {
+                    self.lab_status(format!("Preview motion rejected: {error}"));
+                }
                 if let Some(step) = step {
                     if self.count == 0 && self.car.is_none() {
                         println!(
@@ -1665,14 +1666,42 @@ impl ApplicationHandler for App {
                 let mut yaw = 0.0;
                 let mut pitch = 0.0;
                 let mut zoom = 1.0;
+                let motion_scale = self.lab.as_ref().map_or(1., |lab| {
+                    self.lab_delta_seconds * 60. * lab.settings.camera_speed
+                });
+                let mut pan = [0.; 2];
                 for key in &self.keys {
                     match key {
-                        KeyCode::ArrowLeft if !self.options.car_driving => yaw += 0.025,
-                        KeyCode::ArrowRight if !self.options.car_driving => yaw -= 0.025,
-                        KeyCode::ArrowUp if !self.options.car_driving => pitch += 0.025,
-                        KeyCode::ArrowDown if !self.options.car_driving => pitch -= 0.025,
-                        KeyCode::KeyW if !self.options.car_driving => zoom *= 0.98,
-                        KeyCode::KeyS if !self.options.car_driving => zoom *= 1.02,
+                        KeyCode::ArrowLeft if !self.options.car_driving => {
+                            yaw += 0.025 * motion_scale
+                        }
+                        KeyCode::ArrowRight if !self.options.car_driving => {
+                            yaw -= 0.025 * motion_scale
+                        }
+                        KeyCode::ArrowUp if !self.options.car_driving => {
+                            pitch += 0.025 * motion_scale
+                        }
+                        KeyCode::ArrowDown if !self.options.car_driving => {
+                            pitch -= 0.025 * motion_scale
+                        }
+                        KeyCode::KeyW if !self.options.car_driving => {
+                            zoom *= 0.98_f32.powf(motion_scale)
+                        }
+                        KeyCode::KeyS if !self.options.car_driving => {
+                            zoom *= 1.02_f32.powf(motion_scale)
+                        }
+                        KeyCode::KeyJ if self.lab.is_some() && !self.options.car_driving => {
+                            pan[0] -= 0.01 * motion_scale
+                        }
+                        KeyCode::KeyL if self.lab.is_some() && !self.options.car_driving => {
+                            pan[0] += 0.01 * motion_scale
+                        }
+                        KeyCode::KeyI if self.lab.is_some() && !self.options.car_driving => {
+                            pan[1] += 0.01 * motion_scale
+                        }
+                        KeyCode::KeyK if self.lab.is_some() && !self.options.car_driving => {
+                            pan[1] -= 0.01 * motion_scale
+                        }
                         _ => {}
                     }
                 }
@@ -1680,7 +1709,13 @@ impl ApplicationHandler for App {
                     * Quat::from_axis_angle(offset.cross(Vec3::Y).normalize_or_zero(), pitch)
                     * offset
                     * zoom;
-                if rotated.normalize().dot(Vec3::Y).abs() < 0.995
+                if self.lab.is_some() {
+                    if let Err(error) = lab_camera::orbit(&mut self.camera, yaw, pitch, zoom)
+                        .and_then(|_| lab_camera::pan(&mut self.camera, pan[0], pan[1]))
+                    {
+                        self.lab_status(format!("Camera motion rejected: {error}"));
+                    }
+                } else if rotated.normalize().dot(Vec3::Y).abs() < 0.995
                     && rotated.length() > self.camera.near * 2.0
                     && rotated.length() < self.camera.far * 0.8
                 {
@@ -1704,7 +1739,7 @@ impl ApplicationHandler for App {
                         if self.lab.is_some() {
                             owner.set_inspection_camera_fov(&self.camera, viewport)?;
                         }
-                        let snapshot = owner.snapshot(viewport, self.count.wrapping_add(1))?;
+                        let snapshot = owner.snapshot(viewport, self.snapshots.next_number()?)?;
                         let renderer = self
                             .renderer
                             .as_mut()
@@ -1744,6 +1779,10 @@ impl ApplicationHandler for App {
                         self.fail(event_loop, &error);
                         return;
                     }
+                }
+                if let Err(error) = self.apply_lab_presentation() {
+                    self.fail(event_loop, &error);
+                    return;
                 }
                 if let (Some(native), Some(renderer), Some(ui)) =
                     (&mut self.native_lab, &self.renderer, &lab_frame)
@@ -2213,17 +2252,35 @@ fn run() -> Result<(), String> {
             .initialize(&installation)
             .map_err(|e| format!("Startup program patches: {e:?}"))?;
     }
+    let startup_settings = options
+        .lab_preset
+        .as_deref()
+        .map(lab_files::load)
+        .transpose()?;
     let LoadedScene {
+        mut snapshots,
         mut canonical,
-        scene_frame,
+        mut scene_frame,
         mut scene,
-        camera,
+        mut camera,
         mut runtime,
         mut animation,
         mut car,
     } = load(&options, INITIAL_CAR_VIEWPORT, 0, &startup_patches)?;
+    if let Some(settings) = startup_settings {
+        camera.vertical_fov_radians = settings.fov_degrees.to_radians();
+        camera.validate()?;
+        if let Some(owner) = &mut canonical {
+            owner.set_inspection_camera_fov(&camera, INITIAL_CAR_VIEWPORT)?;
+            let snapshot = owner.snapshot(INITIAL_CAR_VIEWPORT, snapshots.next_number()?)?;
+            scene = snapshot.scene;
+            scene_frame = Some(snapshot.frame);
+        }
+    }
     let ui = match &options.root {
-        Some(root) if options.model.is_none() && options.mission.is_none() => {
+        Some(root)
+            if !options.synthetic && options.model.is_none() && options.mission.is_none() =>
+        {
             let installation = lhr_assets::Installation::open(root).map_err(|e| e.to_string())?;
             Some(menu::MenuUi::load(&installation)?)
         }
@@ -2294,6 +2351,13 @@ fn run() -> Result<(), String> {
                     options.linear,
                 ))?;
                 owner.upload_lighting(&mut renderer)?;
+                if let Some(settings) = startup_settings {
+                    renderer.set_lab_environment(
+                        settings.environment,
+                        camera.eye.to_array(),
+                        0.,
+                    )?;
+                }
                 let frame = scene_frame.as_ref().ok_or("Canonical Scene frame absent")?;
                 if mode == AppMode::Menu {
                     renderer.capture_scene_frame_with_overlay(
@@ -2324,8 +2388,12 @@ fn run() -> Result<(), String> {
         if car.is_some() {
             let result = (|| {
                 let owner = car.as_mut().ok_or("Canonical car owner absent")?;
-                let snapshot =
-                    driving_view::snapshot_scene(owner, &camera, INITIAL_CAR_VIEWPORT, 1)?;
+                let snapshot = driving_view::snapshot_scene(
+                    owner,
+                    &camera,
+                    INITIAL_CAR_VIEWPORT,
+                    snapshots.next_number()?,
+                )?;
                 let instance = lhr_render::instance();
                 let mut renderer = pollster::block_on(Renderer::new(
                     &instance,
@@ -2335,6 +2403,13 @@ fn run() -> Result<(), String> {
                     options.linear,
                 ))?;
                 renderer.set_inspection_alpha_cutout(true);
+                if let Some(settings) = startup_settings {
+                    renderer.set_lab_environment(
+                        settings.environment,
+                        camera.eye.to_array(),
+                        0.,
+                    )?;
+                }
                 for (i, lighting) in snapshot.lighting.iter().enumerate() {
                     if let Some(lighting) = lighting {
                         renderer.set_mesh_lighting(i, lighting)?;
@@ -2398,6 +2473,17 @@ fn run() -> Result<(), String> {
                 wgpu::TextureFormat::Rgba8UnormSrgb,
                 options.linear,
             ))?;
+            if let Some(settings) = startup_settings {
+                renderer.set_lab_environment(settings.environment, camera.eye.to_array(), 0.)?;
+                if mode != AppMode::Menu {
+                    let pivot = Camera::fit(&scene)?.target;
+                    renderer.set_lab_model_transform(lab_camera::model_matrix(
+                        settings.transform,
+                        pivot,
+                        0.,
+                    ))?;
+                }
+            }
             upload_bound(&mut runtime, &mut animation, &renderer)?;
             refresh_owned_material_draws(
                 &mut runtime,
@@ -2443,17 +2529,22 @@ fn run() -> Result<(), String> {
             ));
         }
     };
-    let (car_draws, world_bucket) =
-        match live_draw_state(&mut car, options.car_driving, &camera, INITIAL_CAR_VIEWPORT) {
-            Ok(draws) => draws,
-            Err(error) => {
-                let cleanup = close_car(&mut car);
-                let material_cleanup = close_retained_materials(&mut animation, &mut runtime);
-                return Err(format!(
-                    "{error}; car cleanup: {cleanup:?}; material cleanup: {material_cleanup:?}"
-                ));
-            }
-        };
+    let (car_draws, world_bucket) = match live_draw_state(
+        &mut car,
+        options.car_driving,
+        &camera,
+        INITIAL_CAR_VIEWPORT,
+        &mut snapshots,
+    ) {
+        Ok(draws) => draws,
+        Err(error) => {
+            let cleanup = close_car(&mut car);
+            let material_cleanup = close_retained_materials(&mut animation, &mut runtime);
+            return Err(format!(
+                "{error}; car cleanup: {cleanup:?}; material cleanup: {material_cleanup:?}"
+            ));
+        }
+    };
     let audio_capture = match options.audio_capture.as_ref() {
         Some(path) => match lhr_engine::runtime_audio::StereoWavCapture::create(path, 48_000) {
             Ok(capture) => Some(capture),
@@ -2486,8 +2577,42 @@ fn run() -> Result<(), String> {
     } else {
         None
     };
-    let lab = options.lab.then(engine_lab::State::default);
+    let lab = options.lab.then(|| {
+        let mut lab = engine_lab::State::default();
+        if let Some(settings) = startup_settings {
+            lab.settings = settings;
+        }
+        if let Some(path) = &options.lab_preset {
+            lab.drafts.preset_path = path.to_string_lossy().into_owned();
+        }
+        if let Some(model) = &options.model {
+            lab.drafts.model_path = model.clone();
+        }
+        if let Some(mission) = &options.mission {
+            lab.drafts.mission_path = mission.clone();
+        }
+        if let Some(root) = &options.root {
+            match lab_catalog::LabCatalog::discover(root) {
+                Ok(catalog) => lab.catalog = catalog,
+                Err(error) => {
+                    lab.status =
+                        format!("Asset scan failed: {error}; direct paths remain available")
+                }
+            }
+        }
+        lab
+    });
+    let lab_camera_home = lab_camera::Bookmark::capture(&camera);
+    let lab_pivot = Camera::fit(&scene).map_or(camera.target, |fit| fit.target);
+    let lab_draw_labels = if options.synthetic {
+        lab_app::synthetic_preset(&options)
+            .map(|preset| preset.mesh_labels())
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
     let mut app = App {
+        snapshots,
         canonical,
         startup_patches,
         scene_frame,
@@ -2510,6 +2635,15 @@ fn run() -> Result<(), String> {
         lab,
         native_lab: None,
         last_lab_redraw: std::time::Instant::now(),
+        lab_camera_home,
+        lab_bookmark: None,
+        lab_pivot,
+        lab_draw_labels,
+        lab_preview_seconds: 0.,
+        lab_turntable_degrees: 0.,
+        lab_delta_seconds: 0.,
+        lab_pointer: None,
+        lab_drag: None,
         config: None,
         keys: HashSet::new(),
         steering_preview_active: false,
@@ -2574,6 +2708,116 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Generated public triangle, not an original asset. This passes through the
+    // same serialized 4DS source and CLI loader as an interactive Lab model.
+    fn animated_cli_model(visual: u8, flags: u32, load_animation_count: u8) -> Vec<u8> {
+        let mut bytes = b"4DS\0".to_vec();
+        bytes.extend(29u16.to_le_bytes());
+        bytes.extend([0; 8]);
+        bytes.extend(1u16.to_le_bytes());
+        bytes.extend(flags.to_le_bytes());
+        for value in [0f32, 0., 0., 1., 1., 1., 0., 0., 0., 1.] {
+            bytes.extend(value.to_le_bytes());
+        }
+        bytes.push(8);
+        bytes.extend(b"fx00.bmp");
+        if flags & 0x04000000 != 0 {
+            bytes.extend([3, 0]);
+            for value in [0i32, 10, 0, 0] {
+                bytes.extend(value.to_le_bytes());
+            }
+        }
+        bytes.extend(1u16.to_le_bytes());
+        bytes.extend([1, visual, 0, 0]);
+        bytes.extend(0u16.to_le_bytes());
+        for value in [0f32, 0., 0., 1., 1., 1., 1., 0., 0., 0.] {
+            bytes.extend(value.to_le_bytes());
+        }
+        bytes.extend([1, 4]);
+        bytes.extend(b"mesh");
+        bytes.push(0);
+        bytes.extend(0u16.to_le_bytes());
+        bytes.push(1);
+        bytes.extend(0f32.to_le_bytes());
+        bytes.extend(3u16.to_le_bytes());
+        for position in [[-1f32, -1., 0.], [1., -1., 0.], [0., 1., 0.]] {
+            for value in position.into_iter().chain([0., 0., 1., 0., 0.]) {
+                bytes.extend(value.to_le_bytes());
+            }
+        }
+        bytes.push(1);
+        bytes.extend(1u16.to_le_bytes());
+        for value in [0u16, 1, 2, 1] {
+            bytes.extend(value.to_le_bytes());
+        }
+        bytes.push(load_animation_count);
+        bytes
+    }
+
+    #[test]
+    fn cli_animated_model_source_reaches_owned_material_draws_and_preserves_guards() {
+        // Reuse the established bitmap fixture and release its initial owner.
+        let (path, _, mut initial_runtime) = assembly::tests::retained_animated_fixture();
+        initial_runtime.close_owned_material_draws().unwrap();
+        std::fs::create_dir_all(path.join("models")).unwrap();
+        let model_path = path.join("models/animated.4ds");
+        let mut args = vec![
+            "--root".into(),
+            path.to_string_lossy().into_owned(),
+            "--model".into(),
+            "models/animated.4ds".into(),
+        ];
+        if cfg!(feature = "engine-lab") {
+            args.push("--lab".into());
+        }
+        let options = parse_options(args.into_iter()).unwrap();
+        let patches = lhr_engine::program_patch::ProgramPatchStartup::default();
+        let bytes = animated_cli_model(0, 0x14048000, 0);
+        assert!(lhr_assets::parse_four_ds(&bytes).is_err());
+        assert!(lhr_assets::parse_four_ds_skin(&bytes).is_err());
+        assert!(lhr_assets::parse_four_ds_singlemorph(&bytes).is_err());
+        std::fs::write(&model_path, &bytes).unwrap();
+        let mut loaded = load(&options, [640, 480], 100, &patches).unwrap();
+        assert!(loaded.runtime.has_owned_material_draws());
+        assert_eq!(
+            loaded.scene.meshes[0].texture.as_ref().unwrap().rgba,
+            [255, 0, 0, 255]
+        );
+        let updates = loaded
+            .runtime
+            .snapshot_animated_material_draws(110)
+            .unwrap();
+        assert_eq!(
+            updates[0].snapshot.scene.meshes[0]
+                .texture
+                .as_ref()
+                .unwrap()
+                .rgba,
+            [0, 255, 0, 255]
+        );
+        loaded.runtime.close_owned_material_draws().unwrap();
+        // Actual load/source admission must retain animation and lit guards.
+        for (visual, flags, count, expected) in [
+            (0, 0x14048000, 1, "animated model unsupported"),
+            (0, 0x01000000, 0, "requires an animated material"),
+            (
+                1,
+                0x14048000,
+                0,
+                "Static unconstructed lit animation unavailable",
+            ),
+            (0, 0x94048000, 0, "unsupported material effects"),
+        ] {
+            std::fs::write(&model_path, animated_cli_model(visual, flags, count)).unwrap();
+            let error = match load(&options, [640, 480], 100, &patches) {
+                Ok(_) => panic!("unexpected admission: {expected}"),
+                Err(error) => error,
+            };
+            assert!(error.contains(expected), "{error}");
+        }
+        std::fs::remove_dir_all(path).unwrap();
+    }
 
     #[test]
     fn post_admission_setup_error_drops_playback_before_closing_real_material_owner() {

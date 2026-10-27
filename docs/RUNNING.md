@@ -103,3 +103,90 @@ cross-check does not establish a native macOS result. `--graphics` is a
 Debian-only setup option. The full `scripts/test.sh` also exercises the Linux
 analysis wrapper, which requires `/proc`, CPU affinity and `prctl`; use the
 portable checks listed above on macOS.
+
+## Engine Lab
+
+Build the optional native panel with the same locked dependencies:
+
+```sh
+source scripts/common.sh
+cargo run --locked -p lhr-engine --features engine-lab -- --synthetic --lab
+cargo run --locked -p lhr-engine --features engine-lab -- --synthetic --lab --root /path/to/Mafia
+cargo run --locked -p lhr-engine --features engine-lab -- --root /path/to/Mafia --mission mise01 --lab
+```
+
+| Tab | Controls |
+| --- | --- |
+| Scene | Material gallery, outdoor courtyard, geometry playground and light/fog study; searchable installed mission/model catalog; direct relative paths; model, car inspection and driving entry points. |
+| Environment | Source reset, daylight/dusk/mist/rain/snow presets; background, sun direction/color/intensity, ambient light, exposure, saturation, distance fog, precipitation and wind; normals and UV views. |
+| Camera | FOV, frame subject, six directions, motion speed, auto orbit, one bookmark per loaded scene; chase distance/height/look-ahead for driving. |
+| Model | Whole-preview translation, rotation, scale and turntable; select, isolate, hide and frame a material group; reset. Available for procedural scenes and standalone models. |
+| Materials | Live animated-material owners, color/environment frame indices, independent clocks, delay/remainder, loop mode and current textures. Reading the panel does not advance lazy getters or consume random values. |
+| Vehicle | Keyboard or manual throttle/brake/steering/handbrake, neutral inputs and actual control feedback. Requires driving mode. |
+| Diagnostics | Active source, camera pose, draw/triangle/vertex counts, frame interval, actual runtime counters, startup replacement rows, canonical mission intake counts and retained Scene/Car cleanup failures. |
+
+F1 toggles the panel, F2 pauses simulation, F3 dispatches one 16 ms step and F4
+reloads. Original scene/model owners retain a driver timeline for animated
+materials even when gameplay callbacks are unavailable. Procedural scenes have
+no original simulation callbacks. **Animate preview** controls
+weather animation, auto orbit and turntable separately; runtime pause also freezes
+those previews, with one preview advance per deliberate simulation step.
+
+Outside the panel: arrows orbit, W/S zoom, J/L pan sideways, I/K pan vertically;
+right-drag orbits, middle-drag pans and the wheel zooms. Driving retains W/S,
+A/D and Space for the vehicle and uses the chase camera. Focus loss clears held
+controls and pending steps. Camera bookmarks and draw selections reset when the
+source changes. Reload resets scene-local previews and completed-update counts,
+while preserving the driver timeline used to admit new material owners. The host
+sampling clock is rebased after loading so load duration is not dispatched as a
+simulation step. Installed mission names accept the same bounded ASCII letters,
+digits, underscores and hyphens as the command-line probe.
+
+Material rows show the last resolved state; a draw must reach its lazy getter
+before a texture frame changes. Environment animation state is retained, but
+environment-map rendering remains unsupported. Diagnostics distinguish source
+intake from authored mission execution and report the exact retained loading
+boundary. Inspection never retries or clears an interrupted cleanup owner.
+
+The catalog reads selected archive names and bounded loose directories without
+loading every asset. Discovered content can still be unsupported by the original
+loader. A failed selection or preset import reports an error and keeps the current
+scene/settings; unrecoverable owner cleanup faults remain fatal.
+
+**Portable preset** saves and loads a versioned `.lhr-lab` file. It contains FOV,
+chase/navigation parameters, environment and model-preview settings. Camera pose
+bookmarks, asset paths, held vehicle inputs and draw indices are not serialized.
+Saving uses a temporary file and replacement; importing validates the complete
+file before applying it. Local preset files are ignored by Git.
+
+For reproducible scene-only captures (no panel), choose a public scene and an
+optional saved preset:
+
+```sh
+cargo run --locked -p lhr-engine -- --synthetic --lab-scene courtyard --headless --capture /tmp/courtyard.png
+cargo run --locked -p lhr-engine -- --synthetic --lab-scene lights --lab-preset /tmp/mist.lhr-lab --headless --capture /tmp/mist.png
+```
+
+Scene names are `gallery`, `courtyard`, `primitives` and `lights`. Without
+`--lab-scene`, the original `--synthetic` capture remains the small color quad;
+`--synthetic --lab` starts the gallery. Headless previews sample time zero.
+
+Lab lighting uses face normals derived in the shader; it has no shadow maps or
+smooth-normal reconstruction. Rain and snow are screen-space visual previews,
+without collisions, accumulation or wet-surface physics. Original Scene owners,
+saved lighting, camera passes, physics and game assets are unchanged by these
+overrides. Canonical scenes and live cars deliberately disable draw-index editing
+and model transforms because their visible material groups change with LOD and
+visibility. Source restores the loaded appearance; model/camera resets are separate.
+
+After `scripts/test.sh`, check the optional profile explicitly:
+
+```sh
+cargo test --workspace --locked --features lhr-engine/engine-lab
+cargo clippy --workspace --all-targets --locked --features lhr-engine/engine-lab -- -D warnings
+cargo test -p lhr-render --locked -- --ignored --test-threads=1
+```
+
+The last command requires a working Vulkan or Metal adapter. Native macOS/Metal
+and original installation interaction need separate runs; synthetic checks do not
+establish either result.

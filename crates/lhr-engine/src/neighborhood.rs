@@ -152,6 +152,7 @@ pub fn load(installation: &Installation, textures: &str) -> Result<LoadedScene, 
     );
     runtime.retain_metadata(metadata)?;
     Ok(LoadedScene {
+        snapshots: Default::default(),
         canonical: None,
         scene_frame: None,
         scene,
