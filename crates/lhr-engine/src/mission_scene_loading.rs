@@ -2567,29 +2567,36 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_name_preserves_already_published_live_identity() {
+    fn high_byte_names_preserve_scene_publication_order_and_identity() {
         let mut arena = ModelArena::default();
         let scene = arena.construct_scene_owner_prefix().unwrap();
         let sectors = arena.scene(scene).unwrap().sectors;
-        let good = arena.create_model().unwrap().root();
-        let unsupported = arena.create_model().unwrap().root();
-        arena.set_frame_name(good, Some(b"retained")).unwrap();
-        arena.set_frame_name(unsupported, Some(&[0xe8])).unwrap();
-        arena.link_frame(good, Some(sectors[0].frame()), 0).unwrap();
+        let ascii = arena.create_model().unwrap().root();
+        let high_byte = arena.create_model().unwrap().root();
+        let name = b"fixture.\xe8\x81\xff";
+        arena.set_frame_name(ascii, Some(b"retained")).unwrap();
+        arena.set_frame_name(high_byte, Some(name)).unwrap();
+        arena.link_frame(ascii, Some(sectors[0].frame()), 0).unwrap();
         arena
-            .link_frame(unsupported, Some(sectors[1].frame()), 0)
+            .link_frame(high_byte, Some(sectors[1].frame()), 0)
             .unwrap();
-        let error = match initialize_scene_load_map(&arena, scene) {
-            Ok(_) => panic!("unsupported host map name accepted"),
-            Err(error) => error,
-        };
-        assert_eq!(error.prefix.publications.len(), 1);
-        assert_eq!(
-            error.prefix.map.slot(b"retained"),
-            Some(Some(arena.lookup_reference(good)))
-        );
-        assert_eq!(error.prefix.map.slot(b"Primary sector"), None);
-        assert!(error.detail.contains("name domain"));
+        let result = initialize_scene_load_map(&arena, scene)
+            .unwrap_or_else(|error| panic!("{}", error.detail));
+        let expected = [
+            (ascii, b"retained".as_slice()),
+            (high_byte, name.as_slice()),
+            (sectors[0].frame(), b"Primary sector".as_slice()),
+            (sectors[1].frame(), b"Backdrop sector".as_slice()),
+            (sectors[2].frame(), b"Omni sector".as_slice()),
+        ];
+        assert_eq!(result.publications.len(), expected.len());
+        for (publication, (key, name)) in result.publications.iter().zip(expected) {
+            let reference = arena.lookup_reference(key);
+            assert_eq!(publication.name, name);
+            assert_eq!(publication.frame, reference);
+            assert_eq!(result.map.slot(name), Some(Some(reference)));
+        }
+        assert_eq!(result.map.slot(b"fixture.\xe8\xff\x81"), None);
     }
     fn with_scene(
         test: impl FnOnce(
