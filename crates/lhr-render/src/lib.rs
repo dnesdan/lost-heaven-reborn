@@ -330,7 +330,7 @@ impl Renderer {
                     ..Default::default()
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
-                    format: wgpu::TextureFormat::Depth32Float,
+                    format: material::ORIGINAL_DEPTH_FORMAT,
                     depth_write_enabled: depth_enabled,
                     depth_compare: if depth_enabled {
                         wgpu::CompareFunction::Less
@@ -368,12 +368,14 @@ impl Renderer {
             ] {
                 for two_sided in [false, true] {
                     for front_face in [FrontFace::CounterClockwise, FrontFace::Clockwise] {
-                        let key = PipelineKey {
-                            alpha,
-                            two_sided,
-                            front_face,
-                        };
-                        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                        for visual_z_bias in [false, true] {
+                            let key = PipelineKey {
+                                alpha,
+                                two_sided,
+                                front_face,
+                                visual_z_bias,
+                            };
+                            let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                         label: Some("Original material draw"),
                         layout: Some(&original_layout),
                         vertex: wgpu::VertexState {
@@ -409,17 +411,18 @@ impl Renderer {
                             ..Default::default()
                         },
                         depth_stencil: Some(wgpu::DepthStencilState {
-                            format: wgpu::TextureFormat::Depth32Float,
+                            format: material::ORIGINAL_DEPTH_FORMAT,
                             depth_write_enabled: depth_enabled,
                             depth_compare: if depth_enabled { wgpu::CompareFunction::LessEqual } else { wgpu::CompareFunction::Always },
                             stencil: Default::default(),
-                            bias: Default::default(),
+                            bias: material::visual_depth_bias(material::ORIGINAL_DEPTH_FORMAT, visual_z_bias),
                         }),
                         multisample: Default::default(),
                         multiview: None,
                         cache: None,
                     });
-                        original_pipelines.insert((key, depth_enabled), pipeline);
+                            original_pipelines.insert((key, depth_enabled), pipeline);
+                        }
                     }
                 }
             }
@@ -646,7 +649,7 @@ impl Renderer {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Depth32Float,
+            format: material::ORIGINAL_DEPTH_FORMAT,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         });
@@ -744,11 +747,12 @@ impl Renderer {
                     } else {
                         &self.pipeline
                     }),
-                    RenderMaterial::OriginalNull { .. } => {
+                    RenderMaterial::OriginalNull { visual_z_bias, .. } => {
                         let key = PipelineKey {
                             alpha: AlphaMode::Opaque,
                             two_sided: current_cull.is_none(),
                             front_face: current_cull.unwrap_or(FrontFace::CounterClockwise),
+                            visual_z_bias,
                         };
                         pass.set_pipeline(&self.original_pipelines[&(key, true)]);
                         pass.set_bind_group(2, &draw.parameters, &[]);

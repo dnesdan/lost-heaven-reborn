@@ -636,6 +636,129 @@ mod tests {
             .unwrap();
         key
     }
+    fn backdrop_submission_fixture() -> (
+        crate::scene_render::CanonicalSceneSnapshot,
+        crate::scene_render::CanonicalSceneSnapshot,
+    ) {
+        crate::native_precision::Pc24PrecisionState::default().run(|| {
+            let dir = std::env::temp_dir().join(format!(
+                "lhr-backdrop-gate-{}-{}",
+                std::process::id(),
+                crate::frame_lookup::incarnation()
+            ));
+            std::fs::create_dir(&dir).unwrap();
+            let installation = lhr_assets::Installation::open(&dir).unwrap();
+            let mut arena = ModelArena::default();
+            let scene = arena.construct_scene_owner_prefix().unwrap();
+            let [primary, backdrop, _, _] = arena.scene(scene).unwrap().sectors;
+            let interior = sector(&mut arena, scene, [[-10., -10., -5.], [10., 10., 5.]]);
+            let mut source = crate::model_loading::tests::frame(1, None, [0., 0., 10.]);
+            source.render_flags = 0;
+            source.logic_flags = 0;
+            source.lods.push(lhr_assets::Lod {
+                distance: 0.,
+                uv_only: None,
+                vertices: [[-1., -1., 0.], [0., 1., 0.], [1., -1., 0.]]
+                    .map(|position| lhr_assets::Vertex {
+                        position,
+                        normal: [0., 0., -1.],
+                        uv: [0.; 2],
+                    })
+                    .to_vec(),
+                groups: vec![lhr_assets::FaceGroup {
+                    material: lhr_assets::UNASSIGNED_MATERIAL,
+                    indices: vec![0, 1, 2],
+                }],
+            });
+            let model = arena.create_model().unwrap();
+            arena.scene_add_frame(scene, model.root()).unwrap();
+            arena
+                .link_frame(model.root(), Some(backdrop.frame()), 0)
+                .unwrap();
+            let loaded = arena
+                .load_parsed_into_model(
+                    model,
+                    Arc::new(lhr_assets::Model {
+                        materials: vec![],
+                        frames: vec![source],
+                    }),
+                )
+                .unwrap();
+            let sky = loaded.frames()[0];
+            arena
+                .load_plain_visual_resources(model, &installation)
+                .unwrap();
+            let camera = arena.create_camera(&mut Screen).unwrap();
+            arena.scene_set_active_camera(scene, Some(camera)).unwrap();
+            let viewport = crate::scene_resources::SceneViewport {
+                rectangle: [0, 0, 800, 600],
+                half_extent: [400., -300.],
+                center: [400., 300.],
+            };
+            let visible = arena.process_scene_visibility(scene, options(1)).unwrap();
+            assert_eq!(visible.camera_sector, interior);
+            assert!(visible.backdrop.contains(&sky)); // CullSector is unconditional.
+            assert_ne!(arena.sector(backdrop).unwrap().sector_flags & CULLED, 0);
+            assert_eq!(arena.sector(primary).unwrap().sector_flags & VISIBLE, 0);
+            let closed =
+                crate::scene_render::snapshot_scene(&mut arena, scene, viewport, [800, 600], 2)
+                    .unwrap();
+            assert!(closed.draw_frames.is_empty());
+            assert!(closed.frame.backdrop.draws.is_empty());
+            // A portal with no matching interior sector connects to primary.
+            portal(&mut arena, interior, 5., false);
+            arena.graph.projected_state_mut(sky).unwrap().visual_flags |= 0x100;
+            let open =
+                crate::scene_render::snapshot_scene(&mut arena, scene, viewport, [800, 600], 3)
+                    .unwrap();
+            assert_ne!(arena.sector(primary).unwrap().sector_flags & VISIBLE, 0);
+            assert_eq!(open.draw_frames, [sky]);
+            assert_eq!(open.frame.backdrop.draws, [0]);
+            assert!(matches!(
+                open.scene.meshes[0].material,
+                lhr_render::RenderMaterial::OriginalNull {
+                    visual_z_bias: true,
+                    ..
+                }
+            ));
+            std::fs::remove_dir_all(dir).unwrap();
+            (closed, open)
+        })
+    }
+    #[test]
+    fn closed_interior_culls_backdrop_but_submits_it_only_after_primary_is_visible() {
+        backdrop_submission_fixture();
+    }
+    #[test]
+    #[ignore = "requires a Vulkan or Metal adapter; run with --ignored"]
+    fn closed_interior_backdrop_submission_gate_reaches_gpu_pixels() {
+        let (closed, open) = backdrop_submission_fixture();
+        let instance = lhr_render::instance();
+        let adapter = pollster::block_on(instance.request_adapter(&Default::default())).unwrap();
+        let mut renderer = pollster::block_on(lhr_render::Renderer::with_adapter(
+            &adapter,
+            &open.scene,
+            wgpu::TextureFormat::Rgba8Unorm,
+            false,
+        ))
+        .unwrap();
+        for (index, lighting) in open.lighting.iter().enumerate() {
+            if let Some(lighting) = lighting {
+                renderer.set_mesh_lighting(index, lighting).unwrap();
+            }
+        }
+        let hidden = renderer
+            .readback_scene_frame(800, 600, &closed.frame)
+            .unwrap();
+        let shown = renderer
+            .readback_scene_frame(800, 600, &open.frame)
+            .unwrap();
+        let center = (300 * 800 + 400) * 4;
+        assert_eq!(&hidden[center..center + 4], &[6, 9, 14, 255]);
+        // Null material receives black vertex lighting without registered lights.
+        assert_eq!(&shown[center..center + 4], &[0, 0, 0, 255]);
+        assert_ne!(hidden, shown);
+    }
     #[test]
     fn canonical_scene_portals_select_render_frames_and_camera_motion_changes_list() {
         crate::native_precision::Pc24PrecisionState::default().run(|| {

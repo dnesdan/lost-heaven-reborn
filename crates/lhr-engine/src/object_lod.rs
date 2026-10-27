@@ -190,9 +190,10 @@ pub(crate) fn render_fade(
     ))?;
     Ok(if fade > 1. { 1. } else { fade })
 }
-/// I3D_billboard::m_AddFGroups uses the full previous LOD distance when
+/// I3D_singlemesh::m_AddFGroups (also inherited by Singlemorph) and
+/// I3D_billboard::m_AddFGroups use the full previous LOD distance when
 /// starting the last-level fade. Its current-last half distance is unchanged.
-pub(crate) fn render_billboard_fade(
+pub(crate) fn render_derived_visual_fade(
     distance_squared: f32,
     quality: f32,
     world_scale: f32,

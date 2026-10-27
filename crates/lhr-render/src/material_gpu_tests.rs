@@ -17,6 +17,7 @@ fn policy(alpha: AlphaMode, queue: MaterialQueue, depth: f32) -> RenderMaterial 
         color_key_reference: 200,
         two_sided: false,
         front_face: FrontFace::CounterClockwise,
+        visual_z_bias: false,
         sort_center: [0., 0., depth],
     })
 }
@@ -205,5 +206,106 @@ fn source_front_camera_and_back_camera_obey_both_bridge_index_conversions() {
         }
         renderer.update_render_material(0, material).unwrap();
         assert_eq!(read(&renderer, camera(-3.)), [255, 0, 0, 255]);
+    }
+}
+
+#[test]
+#[ignore = "requires a Vulkan or Metal adapter; run with --ignored"]
+fn visual_z_bias_portable_d32_policy_reorders_coplanar_pixels_and_resets_per_draw() {
+    let mut renderer = renderer();
+    let white = texture([255; 4]);
+    for null_first in [false, true] {
+        for reverse in [false, true] {
+            let mut red = policy(AlphaMode::Opaque, MaterialQueue::Opaque, 0.5);
+            if let RenderMaterial::Original(ref mut m) = red {
+                m.color = [1., 0., 0., 1.];
+                m.front_face = if reverse {
+                    FrontFace::Clockwise
+                } else {
+                    FrontFace::CounterClockwise
+                };
+            }
+            if null_first {
+                red = RenderMaterial::OriginalNull {
+                    color: [1., 0., 0., 1.],
+                    sort_center: [0., 0., 0.5],
+                    visual_z_bias: false,
+                };
+            }
+            let mut green = policy(AlphaMode::Opaque, MaterialQueue::Opaque, 0.5);
+            if let RenderMaterial::Original(ref mut m) = green {
+                m.color = [0., 1., 0., 1.];
+                m.front_face = if reverse {
+                    FrontFace::Clockwise
+                } else {
+                    FrontFace::CounterClockwise
+                };
+            }
+            let mut meshes = [
+                triangle(white.clone(), 0.5, red),
+                triangle(white.clone(), 0.5, green),
+            ];
+            if reverse {
+                for mesh in &mut meshes {
+                    mesh.indices.swap(1, 2);
+                }
+            }
+            replace(&mut renderer, &meshes);
+            assert_eq!(pixel(&renderer), [0, 255, 0, 255]); // Equal depth: later draw wins.
+            match &mut red {
+                RenderMaterial::Original(m) => m.visual_z_bias = true,
+                RenderMaterial::OriginalNull { visual_z_bias, .. } => *visual_z_bias = true,
+                RenderMaterial::Legacy => unreachable!(),
+            }
+            renderer.update_render_material(0, red).unwrap();
+            // The first draw moves toward the viewer; the following unbiased
+            // draw must reset bias instead of inheriting it from the first.
+            assert_eq!(pixel(&renderer), [255, 0, 0, 255]);
+            let frame = SceneRenderFrame {
+                viewport: [0, 0, 32, 32],
+                initial_cull: None,
+                backdrop: SceneRenderPass {
+                    view_projection: Mat4::IDENTITY,
+                    draws: vec![0, 1],
+                },
+                main: SceneRenderPass {
+                    view_projection: Mat4::IDENTITY,
+                    draws: vec![],
+                },
+                near: SceneRenderPass {
+                    view_projection: Mat4::IDENTITY,
+                    draws: vec![],
+                },
+            };
+            let rgba = renderer.readback_scene_frame(32, 32, &frame).unwrap();
+            assert_eq!(
+                &rgba[(16 * 32 + 16) * 4..(16 * 32 + 16) * 4 + 4],
+                &[0, 255, 0, 255]
+            );
+            // Backdrop remains depth-disabled even when its visual has bias.
+            let mut main = frame.clone();
+            main.main.draws = std::mem::take(&mut main.backdrop.draws);
+            let rgba = renderer.readback_scene_frame(32, 32, &main).unwrap();
+            assert_eq!(
+                &rgba[(16 * 32 + 16) * 4..(16 * 32 + 16) * 4 + 4],
+                &[255, 0, 0, 255]
+            );
+            if !null_first {
+                let RenderMaterial::Original(ref mut m) = red else {
+                    unreachable!()
+                };
+                m.front_face = if reverse {
+                    FrontFace::CounterClockwise
+                } else {
+                    FrontFace::Clockwise
+                };
+                renderer.update_render_material(0, red).unwrap();
+                assert_eq!(pixel(&renderer), [0, 255, 0, 255]); // Bias never bypasses face culling.
+            }
+            renderer
+                .update_render_material(0, meshes[0].material)
+                .unwrap();
+            assert_eq!(pixel(&renderer), [0, 255, 0, 255]);
+        }
     }
 }

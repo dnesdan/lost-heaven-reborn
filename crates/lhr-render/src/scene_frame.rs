@@ -137,11 +137,12 @@ impl Renderer {
                     } else {
                         &self.pipeline
                     }),
-                    RenderMaterial::OriginalNull { .. } => {
+                    RenderMaterial::OriginalNull { visual_z_bias, .. } => {
                         let key = PipelineKey {
                             alpha: AlphaMode::Opaque,
                             two_sided: current_cull.is_none(),
                             front_face: current_cull.unwrap_or(FrontFace::CounterClockwise),
+                            visual_z_bias,
                         };
                         pass.set_pipeline(&self.original_pipelines[&(key, number != 0)]);
                         pass.set_bind_group(2, &draw.parameters, &[]);
@@ -224,6 +225,7 @@ mod tests {
                 color_key_reference: 0,
                 two_sided: true,
                 front_face: FrontFace::CounterClockwise,
+                visual_z_bias: false,
                 sort_center: [0., 0., z],
             }),
             vertices: [[-1., -1., z], [1., -1., z], [1., 1., z], [-1., 1., z]]
@@ -412,6 +414,7 @@ mod tests {
         null.material = RenderMaterial::OriginalNull {
             color: [0., 1., 0., 1.],
             sort_center: [0., 0., 0.5],
+            visual_z_bias: false,
         };
         for face in null.indices.as_chunks_mut::<3>().0 {
             face.swap(1, 2);
@@ -466,6 +469,7 @@ mod tests {
         null.material = RenderMaterial::OriginalNull {
             color: [0., 0., 0., 1.],
             sort_center: [0., 0., 0.5],
+            visual_z_bias: false,
         };
         // The texture is deliberately uploaded first. The source NULL key0
         // must draw first while keeping both real coplanar triangles present.
