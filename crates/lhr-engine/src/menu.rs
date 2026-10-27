@@ -12,6 +12,16 @@ pub enum Action {
     Unsupported(u32),
 }
 
+/// GM_Menu::Tick distinguishes component-list traversal from traversal by ID.
+/// This is the existing button-only host menu, not the complete component API.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Navigation {
+    Previous,
+    Next,
+    PreviousId,
+    NextId,
+}
+
 /// Last actual window position. Tracking is independent of UI capture; hover
 /// and click effects are applied only after the application admits an event.
 #[derive(Default)]
@@ -173,6 +183,37 @@ impl MenuUi {
     }
     pub fn focus_id(&self) -> u32 {
         self.definition.items[self.selected_index()].id
+    }
+    pub fn navigate(&mut self, navigation: Navigation) -> bool {
+        let previous = self.selected;
+        match navigation {
+            Navigation::Previous => self.move_selection(-1),
+            Navigation::Next => self.move_selection(1),
+            Navigation::PreviousId | Navigation::NextId => {
+                let current = self.focus_id();
+                let rows: Vec<_> = self
+                    .rows()
+                    .enumerate()
+                    .map(|(selection, index)| (selection, self.definition.items[index].id))
+                    .filter(|(_, id)| enabled(*id))
+                    .collect();
+                let selected = if navigation == Navigation::NextId {
+                    rows.iter()
+                        .filter(|(_, id)| *id > current)
+                        .min_by_key(|(_, id)| *id)
+                        .or_else(|| rows.iter().min_by_key(|(_, id)| *id))
+                } else {
+                    rows.iter()
+                        .filter(|(_, id)| *id < current)
+                        .max_by_key(|(_, id)| *id)
+                        .or_else(|| rows.iter().max_by_key(|(_, id)| *id))
+                };
+                if let Some((selection, _)) = selected {
+                    self.selected = *selection;
+                }
+            }
+        }
+        previous != self.selected
     }
     pub fn move_selection(&mut self, direction: i32) {
         let rows: Vec<_> = self.rows().collect();
@@ -514,6 +555,34 @@ mod tests {
         assert_eq!(ui.activate(), Action::Quit);
         ui.move_selection(-1);
         assert_eq!(ui.activate(), Action::NewGame);
+    }
+
+    #[test]
+    fn navigation_wraps_enabled_rows_and_leaves_a_single_action_stable() {
+        let mut ui = fixture();
+        for navigation in [
+            Navigation::Next,
+            Navigation::Previous,
+            Navigation::NextId,
+            Navigation::PreviousId,
+        ] {
+            assert!(ui.navigate(navigation));
+            assert_eq!(ui.activate(), Action::Quit);
+            assert!(ui.navigate(navigation));
+            assert_eq!(ui.activate(), Action::NewGame);
+        }
+        // Keep the disabled rows in their original positions. A navigation
+        // press must neither focus one of them nor repaint unchanged focus.
+        ui.definition.items[4].id = 990106;
+        for navigation in [
+            Navigation::Next,
+            Navigation::Previous,
+            Navigation::NextId,
+            Navigation::PreviousId,
+        ] {
+            assert!(!ui.navigate(navigation));
+            assert_eq!(ui.activate(), Action::NewGame);
+        }
     }
 
     #[test]

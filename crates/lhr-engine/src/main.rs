@@ -48,6 +48,18 @@ fn application_key(
     }
 }
 
+fn menu_navigation(code: KeyCode, shift: bool) -> Option<menu::Navigation> {
+    match code {
+        KeyCode::ArrowLeft => Some(menu::Navigation::Previous),
+        KeyCode::ArrowRight => Some(menu::Navigation::Next),
+        KeyCode::Tab if shift => Some(menu::Navigation::Previous),
+        KeyCode::Tab => Some(menu::Navigation::Next),
+        KeyCode::ArrowUp => Some(menu::Navigation::PreviousId),
+        KeyCode::ArrowDown => Some(menu::Navigation::NextId),
+        _ => None,
+    }
+}
+
 struct Options {
     mission_load_probe: bool,
     probe_model_directories: Vec<String>,
@@ -140,7 +152,7 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
                 "--steer accepts a finite normalized request in [-1,1]; --steer-steps 0..600 (default 1) applies that request through controlled 16 ms host inspection-clock steps before presentation. This previews actual initialized wheel frames, without translating the car or claiming a driving simulation. ",
                 "Headless --animation-steps 0..600 uses controlled 16 ms inspection-clock steps; omit it for one platform-clock step. ",
                 "Root alone opens the supported original Czech main-menu subset (New Game/Exit). ",
-                "Menu: arrows/Enter or mouse. New Game loads static INTRO; Esc loads static MISE01, then returns to menu. ",
+                "Menu: arrows, Tab/Shift+Tab, Enter or mouse. New Game loads static INTRO; Esc loads static MISE01, then returns to menu. ",
                 "Scene inspection: arrows orbit, W/S zoom. --animation alone admits a matched single-root position track. Add --skeletal-animation for sequential skeletal slot0 mode2 playback, or --sample-animation-ms MS for one independent skeletal pose. Original profile, cutscene, mission-script and gameplay execution are not implemented. ",
                 "Sampling is provisional nearest (or --linear), not verified original behavior."
             ).into()),
@@ -673,6 +685,7 @@ struct App {
     mode: AppMode,
     ui: Option<menu::MenuUi>,
     pointer: menu::Pointer,
+    menu_shift: bool,
     adapter: Option<wgpu::Adapter>,
     scene: Scene,
     camera: Camera,
@@ -1236,6 +1249,9 @@ impl ApplicationHandler for App {
                 self.pointer.observe([position.x as f32, position.y as f32]);
             }
             WindowEvent::CursorLeft { .. } => self.pointer.leave(),
+            WindowEvent::ModifiersChanged(modifiers) => {
+                self.menu_shift = modifiers.state().shift_key();
+            }
             _ => {}
         }
         let consumed = match (&mut self.native_lab, &self.window, &self.lab) {
@@ -1281,7 +1297,10 @@ impl ApplicationHandler for App {
         }
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
-            WindowEvent::Focused(false) => self.keys.clear(),
+            WindowEvent::Focused(false) => {
+                self.keys.clear();
+                self.menu_shift = false;
+            }
             WindowEvent::KeyboardInput {
                 event,
                 is_synthetic,
@@ -1293,13 +1312,10 @@ impl ApplicationHandler for App {
                     event.state,
                     is_synthetic,
                 ) {
-                    if event.state == ElementState::Pressed && !event.repeat {
+                    if event.state == ElementState::Pressed {
                         if self.mode == AppMode::Menu {
-                            match code {
-                                KeyCode::ArrowDown | KeyCode::ArrowUp => {
-                                    self.ui.as_mut().unwrap().move_selection(
-                                        if code == KeyCode::ArrowDown { 1 } else { -1 },
-                                    );
+                            if let Some(navigation) = menu_navigation(code, self.menu_shift) {
+                                if self.ui.as_mut().unwrap().navigate(navigation) {
                                     println!(
                                         "Menu focus: {}",
                                         self.ui.as_ref().unwrap().focus_id()
@@ -1308,17 +1324,23 @@ impl ApplicationHandler for App {
                                         self.fail(event_loop, &error);
                                     }
                                 }
-                                KeyCode::Enter | KeyCode::NumpadEnter => self.activate(event_loop),
-                                KeyCode::Escape => event_loop.exit(),
-                                _ => {}
+                            } else if !event.repeat {
+                                match code {
+                                    KeyCode::Enter | KeyCode::NumpadEnter => {
+                                        self.activate(event_loop)
+                                    }
+                                    KeyCode::Escape => event_loop.exit(),
+                                    _ => {}
+                                }
                             }
                         } else if code == KeyCode::KeyR
+                            && !event.repeat
                             && (self.options.car_inspection || self.options.car_driving)
                         {
                             if let Err(error) = self.reload_car() {
                                 self.fail(event_loop, &error);
                             }
-                        } else if code == KeyCode::Escape {
+                        } else if code == KeyCode::Escape && !event.repeat {
                             let next = if self.mode == AppMode::IntroScene {
                                 AppMode::FirstMissionScene
                             } else {
@@ -2246,6 +2268,7 @@ fn run() -> Result<(), String> {
         mode,
         ui,
         pointer: menu::Pointer::default(),
+        menu_shift: false,
         adapter: None,
         scene,
         camera,
