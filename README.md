@@ -92,6 +92,21 @@ remain inspection entry points; authored first-mission gameplay is incomplete.
 prerequisites, captures and platform validation status.
 [Historical commands and validation](docs/history/2026-10-25-readme-narrative.md) remain available.
 
+## Engine Lab
+
+The optional native Lab has a scene/model browser, four public procedural scenes,
+lighting and weather previews, orbit/pan cameras and bookmarks, model transforms,
+draw isolation, vehicle inputs and portable presets. Start without game files:
+
+```sh
+source scripts/common.sh
+cargo run --locked -p lhr-engine --features engine-lab -- --synthetic --lab
+```
+
+Add `--root /path/to/Mafia` to browse your installation. Lighting, fog and
+precipitation are optional host previews; they do not implement original weather
+or mission gameplay. [Controls, presets and captures](docs/RUNNING.md#engine-lab).
+
 ## Actual Rust captures
 
 ![MISE01 road and source sky](docs/screenshots/2026-10-26-mise01-road-sky.webp)

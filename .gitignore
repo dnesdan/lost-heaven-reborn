@@ -54,3 +54,6 @@ downloads/
 
 # Rust outputs remain external by default.
 /target/
+
+# Local Engine Lab preferences.
+*.lhr-lab

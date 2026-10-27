@@ -231,6 +231,7 @@ pub struct Commands {
     pub save_preset: bool,
     pub load_preset: bool,
     pub fit_selection: bool,
+    pub reset_model: bool,
 }
 
 impl Commands {
@@ -257,11 +258,13 @@ impl Commands {
             save_preset: false,
             load_preset: false,
             fit_selection: false,
+            reset_model: false,
         }
     }
 }
 
 #[derive(Clone, Debug)]
+#[cfg_attr(not(feature = "engine-lab"), allow(dead_code))]
 pub struct DrawInfo {
     pub index: usize,
     pub label: String,

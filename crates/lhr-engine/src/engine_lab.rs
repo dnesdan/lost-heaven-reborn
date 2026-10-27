@@ -347,7 +347,7 @@ fn show(context: &egui::Context, state: &State, d: &Diagnostics, commands: &mut 
 fn scene_ui(ui: &mut egui::Ui, state: &State, d: &Diagnostics, commands: &mut Commands) {
     use crate::{lab_scene::SyntheticPreset, lab_state::SceneRequest};
     ui.heading("Public test scenes");
-    ui.small("Synthetic inspection fixtures; no original-game parity claim.");
+    ui.small("Explore geometry, materials and depth without game files.");
     ui.horizontal_wrapped(|ui| {
         for preset in SyntheticPreset::ALL {
             if ui.button(preset.label()).clicked() {
@@ -440,10 +440,8 @@ fn scene_ui(ui: &mut egui::Ui, state: &State, d: &Diagnostics, commands: &mut Co
 
 fn environment_ui(ui: &mut egui::Ui, settings: &mut Settings) {
     use lhr_render::{DebugView, LabEnvironment, Weather};
-    ui.heading("Host environment preview");
-    ui.small(
-        "Optional renderer inspection effects. Source weather and saved lighting remain separate.",
-    );
+    ui.heading("Lighting and weather preview");
+    ui.small("Optional visual overrides. Source restores the loaded appearance.");
     ui.checkbox(&mut settings.animate_preview, "Animate preview");
     ui.horizontal_wrapped(|ui| {
         for label in ["Source", "Daylight", "Dusk", "Mist", "Rain", "Snow"] {
@@ -611,7 +609,10 @@ fn camera_ui(ui: &mut egui::Ui, d: &Diagnostics, commands: &mut Commands) {
         {
             commands.fit_selection = true;
         }
-        if ui.button("Save bookmark").clicked() {
+        if ui
+            .add_enabled(!d.camera_locked, egui::Button::new("Save bookmark"))
+            .clicked()
+        {
             commands.capture_bookmark = true;
         }
         if ui
@@ -672,6 +673,7 @@ fn model_ui(ui: &mut egui::Ui, d: &Diagnostics, commands: &mut Commands) {
         if ui.button("Reset transform").clicked() {
             settings.transform = crate::lab_state::ModelTransform::default();
             settings.turntable_speed = 0.;
+            commands.reset_model = true;
         }
         ui.separator();
         ui.horizontal(|ui| {
