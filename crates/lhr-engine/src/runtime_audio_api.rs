@@ -44,10 +44,7 @@ pub enum PlaybackQuery {
 enum Command {
     Release,
     Update,
-    Enable {
-        enabled: bool,
-        immediate: bool,
-    },
+    Enable { enabled: bool, immediate: bool },
     LinkParent(u32),
     IsPlaying(PlaybackQuery),
     // Raw kind is confined to the legacy adapter; validate after handle lookup.
@@ -82,7 +79,9 @@ impl RuntimeAudio {
 
     fn sound_command(&self, id: &SoundId, command: Command) -> Result<u32> {
         if !Weak::ptr_eq(&id.owner, &Arc::downgrade(&self.0)) {
-            return Err(AudioError("sound belongs to a different audio owner".into()));
+            return Err(AudioError(
+                "sound belongs to a different audio owner".into(),
+            ));
         }
         let mut mixer = self.lock()?;
         if !mixer
@@ -119,7 +118,8 @@ impl RuntimeAudio {
             .map(|value| value != 0)
     }
     pub fn set_sound_kind(&self, id: &SoundId, kind: SoundKind) -> Result<()> {
-        self.sound_command(id, Command::Kind(kind as u32)).map(|_| ())
+        self.sound_command(id, Command::Kind(kind as u32))
+            .map(|_| ())
     }
     /// Original parameter order: near, far, middle fraction, middle volume.
     /// Preserve existing finite checks; do not invent clamping or sorting.
@@ -244,12 +244,16 @@ fn apply(mixer: &mut Mixer, handle: u32, command: Command) -> Result<u32> {
                 return Ok(0);
             }
             sound.native_tail[0] |= 0x100;
-            sound.sound_type =
-                if sound.source.as_ref().is_some_and(|source| source.channels > 1) && kind != 0 {
-                    3
-                } else {
-                    kind
-                };
+            sound.sound_type = if sound
+                .source
+                .as_ref()
+                .is_some_and(|source| source.channels > 1)
+                && kind != 0
+            {
+                3
+            } else {
+                kind
+            };
         }
         Command::Range(range) => {
             finite(&range)?;
@@ -303,7 +307,10 @@ fn apply(mixer: &mut Mixer, handle: u32, command: Command) -> Result<u32> {
         }
         Command::Position => return Ok(sound.current_time_ms()),
         Command::Duration => {
-            return Ok(sound.source.as_ref().map_or(0, |source| source.duration_ms()));
+            return Ok(sound
+                .source
+                .as_ref()
+                .map_or(0, |source| source.duration_ms()));
         }
     }
     Ok(0)

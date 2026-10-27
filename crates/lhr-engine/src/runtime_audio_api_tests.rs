@@ -145,7 +145,11 @@ fn named_operations_match_legacy_dispatch_state_and_pcm() {
     let (named, id) = loaded();
     let (legacy, _) = loaded();
     let steps: Vec<(Setter, u32, Vec<u32>)> = vec![
-        (|a, s| a.set_sound_kind(s, SoundKind::Ambient), 0x58, vec![3]),
+        (
+            |a, s| a.set_sound_kind(s, SoundKind::Ambient),
+            0x58,
+            vec![3],
+        ),
         (
             |a, s| a.set_sound_range(s, [1., 10., 0.5, 0.25]),
             0x5c,
@@ -161,7 +165,11 @@ fn named_operations_match_legacy_dispatch_state_and_pcm() {
             0x64,
             vec![0.25f32.to_bits()],
         ),
-        (|a, s| a.set_sound_volume(s, 0.5), 0x68, vec![0.5f32.to_bits()]),
+        (
+            |a, s| a.set_sound_volume(s, 0.5),
+            0x68,
+            vec![0.5f32.to_bits()],
+        ),
         (|a, s| a.set_sound_looping(s, true), 0x6c, vec![1]),
         (
             |a, s| a.set_sound_frequency(s, 2.),
