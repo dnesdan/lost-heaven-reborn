@@ -398,7 +398,7 @@ impl SoundState {
             (0x178, far * far),
             (0x180, middle),
         ] {
-            self.native_tail[(offset - 0x140) / 4] = value;
+            self.native_tail[(offset - 0x140) / 4] = value.to_bits();
         }
         self.native_tail[0] &= !0x84;
     }
@@ -784,7 +784,7 @@ impl RuntimeAudio {
         &self,
         handle: u32,
         name: &str,
-        read: impl FnOnce() -> Result<Vec<u8>>>,
+        read: impl FnOnce() -> Result<Vec<u8>>,
     ) -> Result<()> {
         self.load_sound_with_optional(handle, name, 0, || read().map(Some))?;
         Ok(())
