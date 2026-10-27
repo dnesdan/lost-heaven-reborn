@@ -4,13 +4,20 @@
 //! dtor0x159d00; C_web_path inline constructor in0x13f230/dtor0x14a1e0.
 //! Web node dtor0x149f90 and empty connection dtor0x4990.
 //! Effects is an upstream descriptive name; its ctor0x49080 calls Load0x49380.
-//! Constructors preserve padding and allocation seeds. Cleanup below admits
-//! constructor-empty path/road arrays only. Loaded effects have an owned Rust
-//! tree; its host allocations never masquerade as native x86 pointer words.
+//! Constructors preserve padding and allocation seeds. Web paths retain owned
+//! populated arrays; road cleanup admits constructor-empty arrays only. Loaded
+//! effects have an owned Rust tree; host allocations never masquerade as native
+//! x86 pointer words.
 
 #[path = "mission_game.rs"]
 mod game;
 pub use game::{CameraProfile, CameraResetError, GameConstructorGlobals, GameConstructorInputs};
+#[path = "mission_web_path.rs"]
+mod web_path;
+pub use web_path::{
+    WebArrayKind, WebConnection, WebPathAllocator, WebPathBoundary, WebPathChunk, WebPathLoadError,
+    WebPathNodeView, WebPathView,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MissionComponentKind {
@@ -90,6 +97,7 @@ pub enum ComponentError<E> {
     ConstructorIncomplete,
     ConstructorAlreadyComplete,
     ForeignDomain,
+    WebPath(WebPathBoundary),
 }
 pub struct MissionComponent {
     kind: MissionComponentKind,
@@ -98,6 +106,7 @@ pub struct MissionComponent {
     constructed: bool,
     destroyed: bool,
     effects: Option<crate::effects_table::EffectsTable>,
+    web_path: Option<web_path::WebPathGraph>,
 }
 impl MissionComponent {
     pub fn construct(
@@ -114,6 +123,7 @@ impl MissionComponent {
             constructed: true,
             destroyed: false,
             effects: None,
+            web_path: (kind == MissionComponentKind::WebPath).then(Default::default),
         };
         match kind {
             MissionComponentKind::Tshift => out.vector(0, (out.identity() >> 24) as u8),
@@ -153,6 +163,7 @@ impl MissionComponent {
             constructed: false,
             destroyed: false,
             effects: None,
+            web_path: None,
         };
         for offset in [0, 0x10, 0x20] {
             out.vector(offset, stack_control);
@@ -224,6 +235,7 @@ impl MissionComponent {
             constructed: true,
             destroyed: false,
             effects: None,
+            web_path: None,
         };
         let identity = out.identity();
         game::construct(&mut out.allocation.bytes, identity, inputs, globals);
@@ -254,6 +266,94 @@ impl MissionComponent {
     }
     pub fn effects(&self) -> Option<&crate::effects_table::EffectsTable> {
         self.effects.as_ref()
+    }
+    /// Actual borrowed graph, including the retained prefix of an interrupted
+    /// load. It is inspectable but cannot be automatically resumed or destroyed.
+    pub fn web_path(&self) -> Option<WebPathView<'_>> {
+        if self.destroyed {
+            return None;
+        }
+        self.web_path
+            .as_ref()
+            .map(|graph| graph.view(&self.allocation.bytes, self.allocation.domain))
+    }
+    /// C_web_path::LoadNodes dependency, through an explicitly bound live
+    /// chunk and allocator. No production check.bin reader is implied.
+    pub fn load_web_nodes<A: WebPathAllocator, C: WebPathChunk>(
+        &mut self,
+        allocator: &mut A,
+        chunk: &mut C,
+    ) -> Result<(), WebPathLoadError<A::Error, C::Error>> {
+        self.web_operation_ready(allocator)
+            .map_err(WebPathLoadError::Component)?;
+        let result =
+            self.web_path
+                .as_mut()
+                .unwrap()
+                .load(&mut self.allocation.bytes, allocator, chunk);
+        if result.is_err() {
+            self.interrupted = true;
+        }
+        result
+    }
+    /// C_web_path::Resize preserves the active graph through deep copies and
+    /// releases the old node/connection arrays after those copies complete.
+    pub fn resize_web_nodes<A: WebPathAllocator>(
+        &mut self,
+        requested: u32,
+        allocator: &mut A,
+    ) -> Result<(), ComponentError<A::Error>> {
+        self.web_operation_ready(allocator)?;
+        let result = self.web_path.as_mut().unwrap().resize(
+            &mut self.allocation.bytes,
+            requested,
+            allocator,
+        );
+        if result.is_err() {
+            self.interrupted = true;
+        }
+        result
+    }
+    /// Resize the actual connection array of an existing active node. The
+    /// unsigned16 request retains the original byte truncation on growth.
+    pub fn resize_web_connections<A: WebPathAllocator>(
+        &mut self,
+        index: u32,
+        requested: u16,
+        allocator: &mut A,
+    ) -> Result<(), ComponentError<A::Error>> {
+        self.web_operation_ready(allocator)?;
+        let result = self.web_path.as_mut().unwrap().resize_connections(
+            &self.allocation.bytes,
+            index,
+            requested,
+            allocator,
+        );
+        if result.is_err() {
+            self.interrupted = true;
+        }
+        result
+    }
+    fn web_operation_ready<A: MissionAllocator>(
+        &self,
+        allocator: &A,
+    ) -> Result<(), ComponentError<A::Error>> {
+        if self.allocation.domain != allocator.mission_memory_domain() {
+            return Err(ComponentError::ForeignDomain);
+        }
+        if self.interrupted || self.destroyed {
+            return Err(ComponentError::Interrupted);
+        }
+        if !self.constructed {
+            return Err(ComponentError::ConstructorIncomplete);
+        }
+        if self.kind != MissionComponentKind::WebPath {
+            return Err(ComponentError::Unavailable {
+                kind: self.kind,
+                offset: 0,
+            });
+        }
+        Ok(())
     }
     pub fn kind(&self) -> MissionComponentKind {
         self.kind
@@ -381,11 +481,14 @@ impl MissionComponent {
             MissionComponentKind::Tshift => &[4],
             MissionComponentKind::WebPath => {
                 self.put(0, 0x6251f8);
-                if self.word(4) != 0 {
-                    return Err(ComponentError::Unavailable {
-                        kind: self.kind,
-                        offset: 4,
-                    });
+                if let Err(error) = self
+                    .web_path
+                    .as_mut()
+                    .unwrap()
+                    .destroy_nodes(&self.allocation.bytes, allocator)
+                {
+                    self.interrupted = true;
+                    return Err(error);
                 }
                 &[0x14]
             }
