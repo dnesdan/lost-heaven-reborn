@@ -13,16 +13,22 @@ use std::{fmt::Write as _, path::Path};
 /// needs a different original prestate should use MissionLoadSession directly.
 const PROBE_SIZE: [i32; 2] = [800, 600];
 
-pub(super) fn validate_inputs(mission: &str, model_directories: &[String]) -> Result<(), String> {
+pub(super) fn validate_mission_name(mission: &str) -> Result<(), String> {
     if mission.is_empty()
+        || mission.len() > 64
         || !mission
             .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
     {
         return Err(
-            "Probe mission name must contain only ASCII letters, digits and underscore".into(),
+            "Mission name must contain 1..=64 ASCII letters, digits, underscores or hyphens".into(),
         );
     }
+    Ok(())
+}
+
+pub(super) fn validate_inputs(mission: &str, model_directories: &[String]) -> Result<(), String> {
+    validate_mission_name(mission)?;
     for directory in model_directories {
         if directory.is_empty() || !directory.is_ascii() || directory.contains('\0') {
             return Err("Probe model directories must be nonempty ASCII paths without NUL".into());
