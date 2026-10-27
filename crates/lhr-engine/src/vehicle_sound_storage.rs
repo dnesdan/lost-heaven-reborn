@@ -103,4 +103,3 @@ pub(super) fn store<T: AsRef<[u8]> + AsMut<[u8]>>(
         .copy_from_slice(&value.to_le_bytes());
     Ok(())
 }
-
