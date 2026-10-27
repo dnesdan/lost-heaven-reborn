@@ -302,12 +302,15 @@ mod tests {
 
     #[test]
     fn observing_loader_context_does_not_consume_or_change_retained_state() {
+        use lhr_engine::frame_lookup::ModelFrameLookup;
         use lhr_engine::model_loading::ModelArena;
 
         let mut arena = ModelArena::default();
         let scene = arena.construct_scene_owner_prefix().unwrap();
         let model = arena.create_model().unwrap();
-        let frame = arena.lookup_reference(model.root());
+        let frame = ModelFrameLookup::borrow(&arena, true)
+            .reference(model.root())
+            .unwrap();
         let mut loader = MissionSceneLoader::new(&arena, scene)
             .unwrap_or_else(|error| panic!("{}", error.detail));
         loader.current_name = b"scratch.\xe8\xff".to_vec();
