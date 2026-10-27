@@ -51,6 +51,10 @@ impl<'a> StartupAssetBackend<'a> {
     pub fn program_replacements(&self) -> &[crate::original_program::ProgramReplacement] {
         self.patches.replacements()
     }
+    /// Borrow the actual table; mission loaders never copy the startup rows.
+    pub fn program_patch_table(&self) -> &crate::program_patch::ProgramPatchTable {
+        &self.patches
+    }
     pub fn unload_patch_files(&mut self) {
         self.patches.unload();
     }

@@ -5,6 +5,7 @@
 use crate::original_data_chunk::Chunk;
 pub use crate::original_data_chunk::DataChunkError;
 use crate::original_program::ProgramReplacement;
+use std::rc::Rc;
 
 #[derive(Debug, Default)]
 pub struct ProgramPatchTable {
@@ -43,6 +44,129 @@ impl ProgramPatchTable {
     }
     pub fn unload(&mut self) {
         while self.changes.pop().is_some() {}
+    }
+}
+
+/// Source replacement data has startup lifetime, spanning mission replacement.
+/// Loading is one ordered attempt; a failure retains every complete prior row.
+/// This host composition does not execute or claim original InitSystem.
+#[derive(Debug, Default)]
+pub struct ProgramPatchStartup {
+    table: Rc<ProgramPatchTable>,
+    phase: ProgramPatchStartupPhase,
+    failure: Option<ProgramPatchStartupError>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ProgramPatchStartupPhase {
+    #[default]
+    NotStarted,
+    Loading(usize),
+    Ready,
+    Stopped(usize),
+    Unloaded,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ProgramPatchStartupError {
+    AlreadyEntered,
+    NotReady,
+    SourcesRetainTable,
+    Input {
+        path: &'static str,
+        detail: String,
+    },
+    Data {
+        path: &'static str,
+        error: DataChunkError,
+    },
+}
+
+/// A lease keeps the same immutable startup table alive with retained source
+/// owners. Cloning this value copies only an Rc handle, never the table rows.
+#[derive(Clone, Debug)]
+pub struct ProgramPatchLease(Rc<ProgramPatchTable>);
+impl ProgramPatchLease {
+    pub fn table(&self) -> &ProgramPatchTable {
+        &self.0
+    }
+    pub(crate) fn empty_for_inspection() -> Self {
+        Self(Rc::new(ProgramPatchTable::default()))
+    }
+    #[cfg(test)]
+    pub(crate) fn weak_table(&self) -> std::rc::Weak<ProgramPatchTable> {
+        Rc::downgrade(&self.0)
+    }
+}
+
+impl ProgramPatchStartup {
+    pub fn table(&self) -> &ProgramPatchTable {
+        &self.table
+    }
+    pub fn lease(&self) -> Result<ProgramPatchLease, ProgramPatchStartupError> {
+        if self.phase != ProgramPatchStartupPhase::Ready {
+            return Err(ProgramPatchStartupError::NotReady);
+        }
+        Ok(ProgramPatchLease(Rc::clone(&self.table)))
+    }
+    pub fn phase(&self) -> ProgramPatchStartupPhase {
+        self.phase
+    }
+    pub fn failure(&self) -> Option<&ProgramPatchStartupError> {
+        self.failure.as_ref()
+    }
+    /// Installation already owns the selected DTA-first archive/file backend.
+    /// Missing optional files are skipped; selected-source errors stop loading.
+    pub fn initialize(
+        &mut self,
+        installation: &lhr_assets::Installation,
+    ) -> Result<(), ProgramPatchStartupError> {
+        self.initialize_with(|path| installation.read_optional(path).map_err(|e| e.to_string()))
+    }
+    fn initialize_with(
+        &mut self,
+        mut read: impl FnMut(&str) -> Result<Option<Vec<u8>>, String>,
+    ) -> Result<(), ProgramPatchStartupError> {
+        if self.phase != ProgramPatchStartupPhase::NotStarted {
+            return Err(ProgramPatchStartupError::AlreadyEntered);
+        }
+        let table =
+            Rc::get_mut(&mut self.table).ok_or(ProgramPatchStartupError::SourcesRetainTable)?;
+        for (index, path) in [
+            "patch/a1.bin",
+            "patch/a2.bin",
+            "patch/a3.bin",
+            "patch/a4.bin",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            self.phase = ProgramPatchStartupPhase::Loading(index);
+            let result = match read(path) {
+                Ok(Some(bytes)) => table
+                    .load(&bytes)
+                    .map_err(|error| ProgramPatchStartupError::Data { path, error }),
+                Ok(None) => Ok(()),
+                Err(detail) => Err(ProgramPatchStartupError::Input { path, detail }),
+            };
+            if let Err(error) = result {
+                self.phase = ProgramPatchStartupPhase::Stopped(index);
+                self.failure = Some(error.clone());
+                return Err(error);
+            }
+        }
+        self.phase = ProgramPatchStartupPhase::Ready;
+        Ok(())
+    }
+    /// Caller performs this only after disposing every source actor/program.
+    /// Rust storage cleanup carries no native UnloadPatchFiles coverage credit.
+    pub fn unload_after_sources(&mut self) -> Result<(), ProgramPatchStartupError> {
+        // Busy admission precedes every row mutation and phase change.
+        let table =
+            Rc::get_mut(&mut self.table).ok_or(ProgramPatchStartupError::SourcesRetainTable)?;
+        table.unload();
+        self.phase = ProgramPatchStartupPhase::Unloaded;
+        Ok(())
     }
 }
 fn read_string(chunk: &mut Chunk<'_>, key: u8) -> Result<Option<Vec<u8>>, DataChunkError> {

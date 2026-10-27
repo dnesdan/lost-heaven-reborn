@@ -1457,3 +1457,188 @@ fn failed_railway_init_releases_derived_allocation_and_continues_with_next_recor
     );
     discard(&mut session);
 }
+
+type PatchRow<'a> = (&'a [u8], Option<&'a [u8]>, Option<&'a [u8]>, &'a [u8]);
+fn patch_file(rows: &[PatchRow<'_>]) -> Vec<u8> {
+    let mut payload = Vec::new();
+    for (index, (mission, name, frame, source)) in rows.iter().enumerate() {
+        for value in [Some(*mission), *name, *frame, Some(*source)] {
+            payload.extend((value.map_or(0, |value| value.len()) as i32).to_le_bytes());
+            if let Some(value) = value {
+                payload.extend(value.iter().map(|byte| byte ^ (index % 13 + 0x85) as u8));
+            }
+        }
+    }
+    chunk(0x64, &payload)
+}
+fn write_patch(fixture: &Fixture, file: &str, bytes: &[u8]) {
+    std::fs::create_dir_all(fixture.0.join("patch")).unwrap();
+    std::fs::write(fixture.0.join("patch").join(file), bytes).unwrap();
+}
+fn patched_scene_input() -> Vec<u8> {
+    let source = program_record(b"detector", b"authored detector source");
+    let data = [vec![0], 9u32.to_le_bytes().to_vec(), source[6..].to_vec()].concat();
+    scene2(
+        &[
+            chunk(0xae20, &actor_record(b"world part", 5, &data)),
+            chunk(
+                0xae50,
+                &program_record(b"standalone", b"authored standalone source"),
+            ),
+        ]
+        .concat(),
+    )
+}
+fn patch_rows(source: &'static [u8]) -> Vec<u8> {
+    patch_file(&[
+        (b"synthetic\0", Some(b"standalone\0"), None, source),
+        (
+            b"synthetic\0",
+            Some(b"detector\0"),
+            Some(b"world part\0"),
+            source,
+        ),
+    ])
+}
+fn assert_patched_content(loader: &MissionSceneLoader, expected: &[u8]) {
+    use crate::actor_world::ActorSource;
+    assert_eq!(loader.content.programs().len(), 1);
+    assert_eq!(
+        loader.content.programs()[0].source().unwrap().c_bytes(),
+        Some(expected)
+    );
+    let world = &loader.content.actors.world;
+    let actor = world.source(ActorSource::Primary)[0].unwrap();
+    assert_eq!(
+        world
+            .detector(actor)
+            .unwrap()
+            .program()
+            .unwrap()
+            .source()
+            .unwrap()
+            .c_bytes(),
+        Some(expected)
+    );
+}
+
+#[test]
+fn startup_a4_replaces_standalone_and_detector_sources_from_one_borrowed_table() {
+    use crate::program_patch::ProgramPatchStartupPhase;
+    let fixture = Fixture::new(
+        Some(&world(&[dummy(0, b"world part")])),
+        Some(&patched_scene_input()),
+        None,
+    );
+    write_patch(&fixture, "a1.bin", &patch_rows(b"a1 replacement\0"));
+    write_patch(&fixture, "a4.bin", &patch_rows(b"a4 replacement\0"));
+    let mut session = fixture.session();
+    let identity = session.startup_patches().table() as *const _;
+    load(&mut session, &[]).unwrap();
+    assert_eq!(session.startup_patches().table() as *const _, identity);
+    assert_eq!(
+        session.startup_patches().phase(),
+        ProgramPatchStartupPhase::Ready
+    );
+    assert_eq!(session.startup_patches().table().replacements().len(), 4);
+    assert_patched_content(session.loader().unwrap(), b"a4 replacement");
+    discard(&mut session);
+    assert_eq!(
+        session.startup_patches().phase(),
+        ProgramPatchStartupPhase::Unloaded
+    );
+    assert!(session.startup_patches().table().replacements().is_empty());
+}
+
+#[test]
+fn startup_patch_failure_retains_complete_file_and_record_prefix_before_scene_creation() {
+    use crate::program_patch::{ProgramPatchStartupError, ProgramPatchStartupPhase};
+    let fixture = Fixture::new(Some(&world(&[])), Some(&scene2(&[])), None);
+    write_patch(&fixture, "a1.bin", &patch_rows(b"before failure\0"));
+    // a3 admits one whole record, then reaches a malformed second record.
+    let first = patch_file(&[(b"synthetic\0", None, None, b"retained a3\0")]);
+    write_patch(
+        &fixture,
+        "a3.bin",
+        &chunk(0x64, &[&first[6..], &[1, 2, 3]].concat()),
+    );
+    write_patch(&fixture, "a4.bin", &patch_rows(b"must not load\0"));
+    let mut session = fixture.session();
+    assert_eq!(load(&mut session, &[]), Err(MissionLoadCallError::Stopped));
+    assert_eq!(session.phase(), MissionLoadPhase::StartupPatches);
+    assert_eq!(
+        session.startup_patches().phase(),
+        ProgramPatchStartupPhase::Stopped(2)
+    );
+    assert_eq!(session.startup_patches().table().replacements().len(), 3);
+    assert!(matches!(
+        session.startup_patches().failure(),
+        Some(ProgramPatchStartupError::Data {
+            path: "patch/a3.bin",
+            ..
+        })
+    ));
+    assert!(session.scene().is_none());
+    assert_eq!(
+        session.owned_counts().unwrap(),
+        MissionOwnedCounts::default()
+    );
+    let failure = format!("{:?}", session.failure());
+    assert_eq!(
+        load(&mut session, &[]),
+        Err(MissionLoadCallError::AlreadyEntered)
+    );
+    assert_eq!(format!("{:?}", session.failure()), failure);
+    session.discard_terminal().unwrap();
+    assert_eq!(
+        session.startup_patches().phase(),
+        ProgramPatchStartupPhase::Unloaded
+    );
+}
+
+#[test]
+fn canonical_scene_reloads_borrow_same_startup_table_without_rereading_patch_files() {
+    use crate::program_patch::{ProgramPatchStartup, ProgramPatchStartupError};
+    use crate::scene_render::CanonicalSceneOwner;
+    let fixture = Fixture::new(
+        Some(&world(&[dummy(0, b"world part")])),
+        Some(&patched_scene_input()),
+        None,
+    );
+    write_patch(&fixture, "a1.bin", &patch_rows(b"old\0"));
+    write_patch(&fixture, "a4.bin", &patch_rows(b"startup a4\0"));
+    let installation = lhr_assets::Installation::open(&fixture.0).unwrap();
+    let mut startup = ProgramPatchStartup::default();
+    startup.initialize(&installation).unwrap();
+    let table_identity = startup.table() as *const _;
+    for time in [0, 31] {
+        let mut scene = CanonicalSceneOwner::open_at_driver_time_and_patches(
+            &installation,
+            "synthetic",
+            [800, 600],
+            time,
+            &startup.lease().unwrap(),
+        )
+        .unwrap();
+        assert!(scene.frontier.is_none(), "{:?}", scene.frontier);
+        assert_patched_content(scene.loader.as_ref().unwrap(), b"startup a4");
+        assert_eq!(startup.table() as *const _, table_identity);
+        assert_eq!(startup.table().replacements().len(), 4);
+        assert_eq!(
+            startup.unload_after_sources(),
+            Err(ProgramPatchStartupError::SourcesRetainTable)
+        );
+        assert_eq!(startup.table().replacements().len(), 4);
+        assert_patched_content(scene.loader.as_ref().unwrap(), b"startup a4");
+        scene.close().unwrap();
+        // A later mission cannot silently reload globals from changed files.
+        write_patch(&fixture, "a4.bin", &patch_rows(b"later disk data\0"));
+    }
+    assert_eq!(
+        startup.initialize(&installation),
+        Err(ProgramPatchStartupError::AlreadyEntered)
+    );
+    assert_eq!(startup.table().replacements().len(), 4);
+    startup.unload_after_sources().unwrap();
+    assert!(startup.table().replacements().is_empty());
+}

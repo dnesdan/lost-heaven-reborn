@@ -53,6 +53,8 @@ pub struct CanonicalSceneState {
     closed: bool,
     pub lighting: Vec<Option<lhr_render::MeshLighting>>,
     cleanup_failure: Option<String>,
+    // Keep startup data through automatic dropping of every source field too.
+    startup_patches: Option<crate::program_patch::ProgramPatchLease>,
 }
 /// Each live owner reserves its own failure slot before creating a Scene.
 /// Failed cleanup moves the same complete state there, preserving diagnostics.
@@ -147,10 +149,28 @@ impl CanonicalSceneOwner {
         viewport: [u32; 2],
         material_driver_time: i32,
     ) -> Result<Self, String> {
+        Self::open_at_driver_time_and_patches(
+            installation,
+            mission,
+            viewport,
+            material_driver_time,
+            &crate::program_patch::ProgramPatchLease::empty_for_inspection(),
+        )
+    }
+    /// Production startup supplies its retained table; only source replacements
+    /// are consumed here. The table remains owned outside this Scene lifetime.
+    pub fn open_at_driver_time_and_patches(
+        installation: &lhr_assets::Installation,
+        mission: &str,
+        viewport: [u32; 2],
+        material_driver_time: i32,
+        patches: &crate::program_patch::ProgramPatchLease,
+    ) -> Result<Self, String> {
         if viewport.contains(&0) || viewport.iter().any(|&v| v > 8192) {
             return Err("Canonical scene target extent unsupported".into());
         }
         let mut state = CanonicalSceneState {
+            startup_patches: Some(patches.clone()),
             arena: ModelArena::default(),
             scene: None,
             resources: SceneResources::default(),
@@ -192,7 +212,7 @@ impl CanonicalSceneOwner {
                 .as_deref_mut()
                 .expect("live canonical owner state"),
             |o| &mut o.precision,
-            |o| o.open_inner(installation, mission, viewport),
+            |o| o.open_inner(installation, mission, viewport, patches.table()),
         );
         if let Err(error) = result {
             let cleanup = owner.close();
@@ -213,6 +233,7 @@ impl CanonicalSceneState {
         installation: &lhr_assets::Installation,
         mission: &str,
         viewport: [u32; 2],
+        patches: &crate::program_patch::ProgramPatchTable,
     ) -> Result<(), String> {
         self.arena
             .visual_resource_owner_mut()
@@ -265,14 +286,14 @@ impl CanonicalSceneState {
         let mut loader = MissionSceneLoader::new(&self.arena, scene).map_err(|e| e.detail)?;
         loader
             .content
-            .set_program_context(Some(mission.as_bytes().to_vec()), Vec::new())
+            .set_program_context(Some(mission.as_bytes().to_vec()))
             .map_err(|error| format!("Mission program context: {error}"))?;
         let bytes = installation
             .read(&format!("missions/{mission}/scene2.bin"))
             .map_err(|e| format!("Canonical scene2 input: {e}"))?;
         // Explicit ordinary host screen mode used by this inspection caller.
         // This is not original GameInit or player-camera scheduling.
-        let result = loader.load_prefix_with_resource_cache(
+        let result = loader.load_prefix_with_resource_cache_and_patches(
             &mut self.driver,
             &mut self.arena,
             &self.resources,
@@ -285,6 +306,7 @@ impl CanonicalSceneState {
             &mut self.caches,
             installation,
             &mut self.cache_memory,
+            patches,
         );
         self.frontier = result.err();
         self.loader = Some(loader);
@@ -525,6 +547,7 @@ impl CanonicalSceneState {
                     ));
                 }
                 o.lighting.clear();
+                o.startup_patches = None;
                 o.closed = true;
                 Ok(())
             },
@@ -616,6 +639,7 @@ mod cleanup_tests {
     }
     fn fixture() -> CanonicalSceneOwner {
         let mut state = CanonicalSceneState {
+            startup_patches: None,
             arena: ModelArena::default(),
             scene: None,
             resources: SceneResources::default(),
@@ -705,6 +729,77 @@ mod cleanup_tests {
             })
             .expect("failed owner retained for inspection");
         });
+    }
+    #[test]
+    fn early_error_retains_actual_startup_table_with_interrupted_scene_cleanup() {
+        use crate::program_patch::{ProgramPatchStartup, ProgramPatchStartupError};
+        let path = std::env::temp_dir().join(format!(
+            "lhr-retained-startup-{}-{}",
+            std::process::id(),
+            crate::frame_lookup::incarnation()
+        ));
+        std::fs::create_dir_all(path.join("patch")).unwrap();
+        let mut payload = Vec::new();
+        for value in [
+            Some(b"synthetic\0".as_slice()),
+            None,
+            None,
+            Some(b"retained startup source\0".as_slice()),
+        ] {
+            payload.extend((value.map_or(0, |value| value.len()) as i32).to_le_bytes());
+            if let Some(value) = value {
+                payload.extend(value.iter().map(|byte| byte ^ 0x85));
+            }
+        }
+        std::fs::write(
+            path.join("patch/a4.bin"),
+            crate::original_data_chunk::chunk(0x64, &payload),
+        )
+        .unwrap();
+        let installation = lhr_assets::Installation::open(&path).unwrap();
+        let mut startup = ProgramPatchStartup::default();
+        startup.initialize(&installation).unwrap();
+        let lease = startup.lease().unwrap();
+        let weak = lease.weak_table();
+        let table = startup.table() as *const _;
+        let mut owner = fixture();
+        owner.startup_patches = Some(lease);
+        let scene = owner.scene.unwrap();
+        owner.arena.retain(scene.root()).unwrap();
+        let slot = owner.cleanup_slot;
+        assert_eq!(
+            startup.unload_after_sources(),
+            Err(ProgramPatchStartupError::SourcesRetainTable)
+        );
+        assert_eq!(startup.table().replacements().len(), 1);
+        fn early_error(
+            _owner: CanonicalSceneOwner,
+            _startup: ProgramPatchStartup,
+        ) -> Result<(), String> {
+            Err("synthetic admission failure after Scene construction".into())
+        }
+        assert!(early_error(owner, startup).is_err());
+        let retained = weak
+            .upgrade()
+            .expect("actual startup table retained by failed Scene");
+        assert_eq!(std::rc::Rc::as_ptr(&retained), table);
+        assert_eq!(
+            retained.replacements()[0].source.as_deref(),
+            Some(b"retained startup source\0".as_slice())
+        );
+        inspect_cleanup_failure(slot, |state| {
+            assert!(state.cleanup_failure().is_some());
+            assert_eq!(
+                state.startup_patches.as_ref().unwrap().table() as *const _,
+                table
+            );
+        })
+        .unwrap();
+        // Only this synthetic test's slot is discarded, with no native cleanup claim.
+        CLEANUP_STATES.with(|states| states.borrow_mut()[slot] = CleanupSlot::Vacant);
+        drop(retained);
+        assert!(weak.upgrade().is_none());
+        std::fs::remove_dir_all(path).unwrap();
     }
     #[test]
     fn canonical_window_scene_opens_sound_with_same_live_owner_and_closes_it() {
