@@ -606,6 +606,7 @@ mod tests {
         let mut state = engine_lab::State::default();
         state.settings.fov_degrees = 65.;
         let mut app = App {
+            snapshots: loaded.snapshots,
             canonical: None,
             scene_frame: None,
             mode: AppMode::Inspection,

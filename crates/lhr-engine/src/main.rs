@@ -373,6 +373,7 @@ impl AnimationPlayback {
     }
 }
 struct LoadedScene {
+    snapshots: lhr_engine::scene_render::SceneSnapshotSequence,
     canonical: Option<lhr_engine::scene_render::CanonicalSceneOwner>,
     scene_frame: Option<lhr_render::SceneRenderFrame>,
     scene: Scene,
@@ -389,6 +390,7 @@ fn load(options: &Options, viewport: [u32; 2]) -> Result<LoadedScene, String> {
         };
         let camera = Camera::fit(&scene)?;
         return Ok(LoadedScene {
+            snapshots: Default::default(),
             canonical: None,
             scene_frame: None,
             scene,
@@ -422,7 +424,8 @@ fn load(options: &Options, viewport: [u32; 2]) -> Result<LoadedScene, String> {
             println!("Canonical scene2 retained frontier: cursor {}, entry {:#x}: {}; mission initialization remains incomplete",frontier.cursor,frontier.entry,frontier.detail);
         }
         let camera = canonical.camera_control()?;
-        let snapshot = match canonical.snapshot(viewport, 1) {
+        let mut snapshots = lhr_engine::scene_render::SceneSnapshotSequence::default();
+        let snapshot = match canonical.snapshot(viewport, snapshots.next_number()?) {
             Ok(snapshot) => snapshot,
             Err(error) => {
                 let cleanup = canonical.close();
@@ -431,6 +434,7 @@ fn load(options: &Options, viewport: [u32; 2]) -> Result<LoadedScene, String> {
         };
         println!("Canonical Scene active-camera rendering: {} selected material groups; source sector/portal/occluder visibility, main/backdrop/near projections; bounded material support",snapshot.scene.meshes.len());
         return Ok(LoadedScene {
+            snapshots,
             scene: snapshot.scene,
             camera,
             runtime: Default::default(),
@@ -566,6 +570,7 @@ fn load(options: &Options, viewport: [u32; 2]) -> Result<LoadedScene, String> {
         )?
     };
     Ok(LoadedScene {
+        snapshots: Default::default(),
         canonical: None,
         scene_frame: None,
         scene,
@@ -582,11 +587,12 @@ fn live_draw_state(
     driving: bool,
     camera: &Camera,
     viewport: [u32; 2],
+    snapshots: &mut lhr_engine::scene_render::SceneSnapshotSequence,
 ) -> Result<(usize, Option<DrivingWorldView>), String> {
     let Some(owner) = car.as_mut() else {
         return Ok((0, None));
     };
-    let snapshot = driving_view::snapshot_scene(owner, camera, viewport, 1)?;
+    let snapshot = driving_view::snapshot_scene(owner, camera, viewport, snapshots.next_number()?)?;
     let _ = driving;
     Ok((snapshot.scene.meshes.len(), None))
 }
@@ -620,6 +626,7 @@ fn load_car(
     if let Some(frontier) = owner.scene2_frontier() {
         println!("Canonical driving scene2 retained frontier: cursor {}, entry {:#x}: {}; mission initialization remains incomplete",frontier.cursor,frontier.entry,frontier.detail);
     }
+    let mut snapshots = lhr_engine::scene_render::SceneSnapshotSequence::default();
     let result: Result<(Scene, Camera, lhr_render::SceneRenderFrame), String> = (|| {
         if driving {
             let _ = owner.start_driving("mise01")?;
@@ -635,7 +642,8 @@ fn load_car(
         } else {
             lhr_engine::car_inspection::camera_from_arena_bounds(owner.arena_mut(), root)?
         };
-        let snapshot = driving_view::snapshot_scene(&mut owner, &camera, viewport, 1)?;
+        let snapshot =
+            driving_view::snapshot_scene(&mut owner, &camera, viewport, snapshots.next_number()?)?;
         if driving {
             driving_view::sync_audio_listener(&mut owner, &camera)?;
         }
@@ -647,6 +655,7 @@ fn load_car(
     })();
     match result {
         Ok((scene, camera, scene_frame)) => Ok(LoadedScene {
+            snapshots,
             canonical: None,
             scene_frame: Some(scene_frame),
             scene,
@@ -712,6 +721,7 @@ enum AppMode {
     Inspection,
 }
 struct App {
+    snapshots: lhr_engine::scene_render::SceneSnapshotSequence,
     canonical: Option<lhr_engine::scene_render::CanonicalSceneOwner>,
     scene_frame: Option<lhr_render::SceneRenderFrame>,
     mode: AppMode,
@@ -799,6 +809,7 @@ impl App {
             .as_ref()
             .map_or(INITIAL_CAR_VIEWPORT, |c| [c.width, c.height]);
         let LoadedScene {
+            mut snapshots,
             canonical,
             scene_frame,
             mut scene,
@@ -807,14 +818,19 @@ impl App {
             animation,
             mut car,
         } = load(&candidate, viewport)?;
-        let (car_draws, world_bucket) =
-            match live_draw_state(&mut car, candidate.car_driving, &camera, viewport) {
-                Ok(draws) => draws,
-                Err(error) => {
-                    let cleanup = close_car(&mut car);
-                    return Err(format!("{error}; new car cleanup: {cleanup:?}"));
-                }
-            };
+        let (car_draws, world_bucket) = match live_draw_state(
+            &mut car,
+            candidate.car_driving,
+            &camera,
+            viewport,
+            &mut snapshots,
+        ) {
+            Ok(draws) => draws,
+            Err(error) => {
+                let cleanup = close_car(&mut car);
+                return Err(format!("{error}; new car cleanup: {cleanup:?}"));
+            }
+        };
         if mode == AppMode::Menu {
             scene
                 .meshes
@@ -896,6 +912,7 @@ impl App {
         });
         self.config = Some(config);
         self.renderer = Some(renderer);
+        self.snapshots = snapshots;
         self.canonical = canonical;
         self.scene_frame = scene_frame;
         self.lab_camera_home = lab_camera::Bookmark::capture(&camera);
@@ -1063,7 +1080,7 @@ impl App {
             owner,
             &self.camera,
             viewport,
-            self.count.wrapping_add(1),
+            self.snapshots.next_number()?,
         )?;
         let renderer = self.renderer.as_mut().ok_or("Car renderer absent")?;
         let mut count = self.scene.meshes.len();
@@ -1557,7 +1574,7 @@ impl ApplicationHandler for App {
                         if self.lab.is_some() {
                             owner.set_inspection_camera_fov(&self.camera, viewport)?;
                         }
-                        let snapshot = owner.snapshot(viewport, self.count.wrapping_add(1))?;
+                        let snapshot = owner.snapshot(viewport, self.snapshots.next_number()?)?;
                         let renderer = self
                             .renderer
                             .as_mut()
@@ -2032,6 +2049,7 @@ fn run() -> Result<(), String> {
         .map(lab_files::load)
         .transpose()?;
     let LoadedScene {
+        mut snapshots,
         mut canonical,
         mut scene_frame,
         mut scene,
@@ -2045,7 +2063,7 @@ fn run() -> Result<(), String> {
         camera.validate()?;
         if let Some(owner) = &mut canonical {
             owner.set_inspection_camera_fov(&camera, INITIAL_CAR_VIEWPORT)?;
-            let snapshot = owner.snapshot(INITIAL_CAR_VIEWPORT, 1)?;
+            let snapshot = owner.snapshot(INITIAL_CAR_VIEWPORT, snapshots.next_number()?)?;
             scene = snapshot.scene;
             scene_frame = Some(snapshot.frame);
         }
@@ -2156,8 +2174,12 @@ fn run() -> Result<(), String> {
         if car.is_some() {
             let result = (|| {
                 let owner = car.as_mut().ok_or("Canonical car owner absent")?;
-                let snapshot =
-                    driving_view::snapshot_scene(owner, &camera, INITIAL_CAR_VIEWPORT, 1)?;
+                let snapshot = driving_view::snapshot_scene(
+                    owner,
+                    &camera,
+                    INITIAL_CAR_VIEWPORT,
+                    snapshots.next_number()?,
+                )?;
                 let instance = lhr_render::instance();
                 let mut renderer = pollster::block_on(Renderer::new(
                     &instance,
@@ -2273,14 +2295,19 @@ fn run() -> Result<(), String> {
             ));
         }
     };
-    let (car_draws, world_bucket) =
-        match live_draw_state(&mut car, options.car_driving, &camera, INITIAL_CAR_VIEWPORT) {
-            Ok(draws) => draws,
-            Err(error) => {
-                let cleanup = close_car(&mut car);
-                return Err(format!("{error}; car cleanup: {cleanup:?}"));
-            }
-        };
+    let (car_draws, world_bucket) = match live_draw_state(
+        &mut car,
+        options.car_driving,
+        &camera,
+        INITIAL_CAR_VIEWPORT,
+        &mut snapshots,
+    ) {
+        Ok(draws) => draws,
+        Err(error) => {
+            let cleanup = close_car(&mut car);
+            return Err(format!("{error}; car cleanup: {cleanup:?}"));
+        }
+    };
     let audio_capture = match options.audio_capture.as_ref() {
         Some(path) => match lhr_engine::runtime_audio::StereoWavCapture::create(path, 48_000) {
             Ok(capture) => Some(capture),
@@ -2343,6 +2370,7 @@ fn run() -> Result<(), String> {
         Vec::new()
     };
     let mut app = App {
+        snapshots,
         canonical,
         scene_frame,
         mode,

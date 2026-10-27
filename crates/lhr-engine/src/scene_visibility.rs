@@ -664,7 +664,10 @@ mod tests {
             );
             let camera = arena.create_camera(&mut Screen).unwrap();
             arena.scene_set_active_camera(scene, Some(camera)).unwrap();
-            let visible = arena.process_scene_visibility(scene, options(1)).unwrap();
+            let mut snapshots = crate::scene_render::SceneSnapshotSequence::default();
+            let visible = arena
+                .process_scene_visibility(scene, options(snapshots.next_number().unwrap()))
+                .unwrap();
             assert_eq!(visible.camera, camera);
             assert_eq!(visible.camera_sector, a);
             assert!(visible.main.contains(&inside));
@@ -673,9 +676,22 @@ mod tests {
             assert_eq!(arena.portal(pa).unwrap().twin, Some(pb));
             assert_eq!(arena.portal(pb).unwrap().twin, Some(pa));
             assert_eq!(arena.sector(b).unwrap().geometry.incoming_portals, vec![pa]);
+            // A startup preset or skipped surface presentation prepares another
+            // output list without moving the camera. Its traversal still needs
+            // a fresh identifier or cached portal children disappear.
+            for _ in 0..3 {
+                let repeated = arena
+                    .process_scene_visibility(scene, options(snapshots.next_number().unwrap()))
+                    .unwrap();
+                assert!(repeated.main.contains(&inside));
+                assert!(!repeated.main.contains(&off_portal));
+                assert!(!repeated.main.contains(&isolated));
+            }
             // The live camera's sector and list change without rebuilding a scene.
             arena.camera_set_position(camera, [8., 0., 8.]).unwrap();
-            let visible = arena.process_scene_visibility(scene, options(2)).unwrap();
+            let visible = arena
+                .process_scene_visibility(scene, options(snapshots.next_number().unwrap()))
+                .unwrap();
             assert_eq!(visible.camera_sector, b);
             assert!(!visible.main.contains(&inside));
             assert!(visible.main.contains(&off_portal));
