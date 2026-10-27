@@ -1,4 +1,5 @@
-//! Original PC morph weights and CPU vertex summation before singlemesh skinning.
+//! Original PC morphBase weights and CPU vertex summation shared by MRPH and
+//! singlemorph before its inherited singlemesh skinning.
 //!
 //! This implements the caller-owned data portion of morphBase::LoadImageB,
 //! NormalizeWeights and UpdateMorphLod. Driver buffers, allocation failure,
@@ -63,9 +64,10 @@ impl SinglemorphState {
         }
     }
 
-    /// Successful parsed-data projection of singlemorph::LoadImage (0x575d0)
-    /// followed by morphBase::LoadImageB (0x34bd0). Each region initially selects
-    /// level zero. This requires the inherited singlemesh load to have succeeded.
+    /// Successful parsed-data projection of morphBase::LoadImageB (0x34bd0)
+    /// after the derived LoadImage clears flag4 (MRPH0x36750/SMMR0x575d0).
+    /// Each region initially selects level zero. The caller owns the appropriate
+    /// inherited mesh load and immutable definition lifetime.
     /// It does not reproduce stream reads, partial failure or native ownership.
     pub fn from_record(record: &MorphRecord) -> Result<Self, SinglemorphError> {
         let levels = usize::from(record.target_count);
@@ -110,6 +112,21 @@ impl SinglemorphState {
         Ok(state)
     }
 
+    /// Successful DuplicateMorphDef weight portion (RVA0x34ad0). The caller
+    /// shares the immutable definition and duplicates the mutable mesh. Only
+    /// raw weights are copied; native normalized storage starts unwritten.
+    pub(crate) fn duplicate_morph_def(&self) -> Result<Self, SinglemorphError> {
+        if self.flags & LOADED == 0 {
+            return Err(SinglemorphError::Definition);
+        }
+        Ok(Self {
+            flags: DIRTY | LOADED,
+            levels: self.levels,
+            regions: self.regions,
+            weights: self.weights.clone(),
+            normalized: None,
+        })
+    }
     /// Retained weight storage, excluding the containing state object.
     pub fn storage_bytes(&self) -> usize {
         (self.weights.capacity() + self.normalized.as_ref().map_or(0, Vec::capacity))

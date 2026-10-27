@@ -302,6 +302,19 @@ impl ObjectResources {
         };
         Ok(key)
     }
+    /// I3D_morph inherits ordinary mesh/LOD ownership. Its live morphBase
+    /// weights and retained source definition belong to the owning frame.
+    pub fn create_morph_resources(
+        &mut self,
+        mesh: Option<MeshObjectKey>,
+    ) -> Result<ObjectResourceKey, ObjectError> {
+        let key = self.create_object_resources(mesh)?;
+        self.objects[(key.slot - 1) as usize]
+            .as_mut()
+            .unwrap()
+            .visual_type = ObjectVisualType::Morph;
+        Ok(key)
+    }
     /// Native I3D_billboard inherits I3D_object mesh and LOD teardown. Its
     /// orientation and camera matrix are held by the owning live Frame.
     pub fn create_billboard_resources(
@@ -330,7 +343,10 @@ impl ObjectResources {
         if index >= 10 {
             return Err(ObjectError::InvalidIndex(index));
         }
-        if self.object(object)?.visual_type() != ObjectVisualType::Plain {
+        if !matches!(
+            self.object(object)?.visual_type(),
+            ObjectVisualType::Plain | ObjectVisualType::Morph
+        ) {
             return Err(ObjectError::UnsupportedVisualSubtype);
         }
         if self.object(object)?.lods[index as usize].is_some() {
@@ -348,6 +364,27 @@ impl ObjectResources {
             .as_mut()
             .unwrap()
             .lods[index as usize] = Some(lod);
+        Ok(())
+    }
+    /// Commit the native MRPH lod update-count field on its actual owned slot.
+    /// CPU publication failures leave the prior count available for inspection.
+    pub(crate) fn commit_morph_lod_update_count(
+        &mut self,
+        lod: PlainLodKey,
+        count: u32,
+    ) -> Result<(), ObjectError> {
+        self.available()?;
+        let owner = self
+            .lod(lod)?
+            .owner
+            .ok_or(ObjectError::UnsupportedVisualSubtype)?;
+        if self.object(owner)?.visual_type() != ObjectVisualType::Morph {
+            return Err(ObjectError::UnsupportedVisualSubtype);
+        }
+        self.lods[(lod.slot - 1) as usize]
+            .as_mut()
+            .unwrap()
+            .update_count = count;
         Ok(())
     }
     /// Fresh managed storage only; no original lod::Create or upload claim.

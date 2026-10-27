@@ -25,6 +25,8 @@ mod crash_duplicate;
 mod frame_dummy;
 #[path = "model_glass.rs"]
 mod glass;
+#[path = "model_morph.rs"]
+mod morph;
 
 use crate::frame_transform::{FrameError, FrameKey, FrameKind, I3dFrameGraph, I3dFrameState};
 use crate::joint_state::{I3dJointState, SinglemeshInvalidationState};
@@ -60,6 +62,7 @@ pub struct LoadedFrame {
     pub(crate) object_resources: Option<crate::i3d_object::ObjectResourceKey>,
     /// Native BBRD suffix and live orientation, separate from canonical world.
     pub(crate) billboard: Option<billboard::BillboardFrame>,
+    pub(crate) morph: Option<morph::MorphFrame>,
     /// A visual LoadImage/derived Duplicate entered resource admission. Native
     /// visual destruction still runs if that call returns before publication.
     pub(crate) visual_admission_attempted: bool,
@@ -188,6 +191,7 @@ pub enum ModelError {
     MissingTargetRecord(usize),
     Target(TargetError),
     SkinPose(SkinPoseError),
+    Morph(crate::singlemorph_state::SinglemorphError),
     Animation(crate::skeletal_animation::SkeletalAnimationError),
     AnimationIdentity,
     InvalidParent {
@@ -372,6 +376,7 @@ impl ModelArena {
             visual_bounds: None,
             object_resources: None,
             billboard: None,
+            morph: None,
             visual_admission_attempted: false,
             lensflare_materials: None,
             lensflare_release_cursor: 0,
@@ -403,7 +408,7 @@ impl ModelArena {
     ) -> Result<(), ModelError> {
         let source = &source_model.frames[index];
         let mut state = match (source.kind, source.visual) {
-            (1, Some(0 | 1 | 4)) => I3dFrameState::mesh(),
+            (1, Some(0 | 1 | 4 | 5)) => I3dFrameState::mesh(),
             (1, Some(6)) => I3dFrameState::lensflare(),
             (1, Some(2 | 3)) => {
                 let mut state = I3dFrameState::mesh();
@@ -509,11 +514,23 @@ impl ModelArena {
         let morph = if source.visual == Some(3) {
             Some(MorphPose::from_frame(source).map_err(ModelError::SkinPose)?)
         } else {
-            if source.morph.is_some() {
+            if source.morph.is_some() && source.visual != Some(5) {
                 return Err(ModelError::SkinPose(SkinPoseError::Source(
                     "morph on non-singlemorph frame",
                 )));
             }
+            None
+        };
+        let plain_morph = if source.visual == Some(5) {
+            if source.skin.is_some() {
+                return Err(ModelError::Morph(
+                    crate::singlemorph_state::SinglemorphError::Definition,
+                ));
+            }
+            Some(morph::MorphFrame::load(source.morph.as_ref().ok_or(
+                ModelError::Morph(crate::singlemorph_state::SinglemorphError::Definition),
+            )?)?)
+        } else {
             None
         };
         source_frame_keys
@@ -547,6 +564,7 @@ impl ModelArena {
         }
         let fi = self.frame_index(key)?;
         self.frames[fi].source = Some(Arc::clone(source_model));
+        self.frames[fi].morph = plain_morph;
         self.frames[fi].billboard = billboard_source.map(billboard::BillboardFrame::from_source);
         if let Some(lensflare) = &source.lensflare {
             if !lensflare.glows.is_empty() {
@@ -1112,7 +1130,9 @@ impl ModelArena {
             let admission = {
                 let owner = self.loaded_visual_resources.as_mut().unwrap();
                 if let Some(original) = instance_object {
-                    if source.frames[source_index].visual == Some(4) {
+                    if source.frames[source_index].visual == Some(5) {
+                        owner.load_morph_mesh_instance(original)
+                    } else if source.frames[source_index].visual == Some(4) {
                         owner.load_billboard_instance(original)
                     } else {
                         owner.load_plain_instance(original)
@@ -1121,6 +1141,8 @@ impl ModelArena {
                     owner.load_unconstructed_lit_object(&source, source_index, installation)
                 } else if matches!(source.frames[source_index].visual, Some(2 | 3)) {
                     owner.load_singlemesh_source(&source, source_index, installation)
+                } else if source.frames[source_index].visual == Some(5) {
+                    owner.load_morph_source(&source, source_index, installation)
                 } else if source.frames[source_index].visual == Some(4) {
                     owner.load_billboard_source(&source, source_index, installation)
                 } else {
@@ -1188,7 +1210,9 @@ impl ModelArena {
                 let source_frame = &source.frames[source_index];
                 let inherited_bound = if source_frame.visual == Some(4) {
                     billboard::cube_local_bound(bounds)
-                } else if self.state(key)?.kind == FrameKind::Singlemesh {
+                } else if self.state(key)?.kind == FrameKind::Singlemesh
+                    || source_frame.visual == Some(5)
+                {
                     if let Some(definition) = source_frame
                         .morph
                         .as_ref()
@@ -1215,6 +1239,8 @@ impl ModelArena {
                             ],
                             radius: f32::from_bits(words[9]),
                         }
+                    } else if source_frame.visual == Some(5) {
+                        bounds
                     } else {
                         let volume = self.graph.singlemesh_bound_volume(key)?;
                         crate::mesh_bounds::MeshBoundVolume {
@@ -1226,12 +1252,13 @@ impl ModelArena {
                 } else {
                     bounds
                 };
-                self.frames[fi].visual_bounds =
-                    Some(if self.state(key)?.visual_flags & 0x40 == 0 {
+                self.frames[fi].visual_bounds = Some(
+                    if self.state(key)?.visual_flags & 0x40 == 0 || source_frame.visual == Some(5) {
                         inherited_bound
                     } else {
                         crate::mesh_bounds::MeshBoundVolume::CONSTRUCTOR
-                    });
+                    },
+                );
                 self.graph.discard_hr_bound_vol(key)?;
                 Ok(())
             })();
@@ -1634,7 +1661,7 @@ impl ModelArena {
                 error: ModelError::Asset(error.to_string()),
                 partial: empty(),
             })?;
-        let parsed = lhr_assets::parse_four_ds_scene_billboards(&bytes).map_err(|error| {
+        let parsed = lhr_assets::parse_four_ds_scene_morphs(&bytes).map_err(|error| {
             SharedModelLoadFailure {
                 error: ModelError::Asset(error.to_string()),
                 partial: empty(),
@@ -1743,7 +1770,7 @@ impl ModelArena {
                         error: ModelError::Asset(error.to_string()),
                         partial: empty(),
                     })?;
-            let source = lhr_assets::parse_four_ds_scene_billboards(&bytes).map_err(|error| {
+            let source = lhr_assets::parse_four_ds_scene_morphs(&bytes).map_err(|error| {
                 SharedModelLoadFailure {
                     error: ModelError::Asset(error.to_string()),
                     partial: empty(),
@@ -2201,6 +2228,8 @@ impl ModelArena {
             self.models[mi].frames = Vec::new();
             self.models[mi].native_capacity = 0;
         }
+        // morphBase destructor precedes inherited object resource destruction.
+        self.frames[i].morph = None;
         if let Some(object) = self.frames[i].object_resources {
             self.loaded_visual_resources
                 .as_mut()
@@ -2485,6 +2514,9 @@ impl ModelArena {
                 add(original.capacity())?;
             }
             add(f.properties.capacity())?;
+            if let Some(morph) = &f.morph {
+                add(morph.weights.storage_bytes())?;
+            }
             if let Some(materials) = &f.lensflare_materials {
                 add(materials
                     .capacity()

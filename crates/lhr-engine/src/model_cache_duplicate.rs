@@ -45,7 +45,7 @@ impl ModelArena {
                     .is_some_and(|s| Arc::ptr_eq(s, &backing))
                 || !matches!(
                     (original.kind, original.visual),
-                    (1, Some(0 | 2 | 3 | 4 | 6)) | (6, None) | (10, None) | (7, None)
+                    (1, Some(0 | 2 | 3 | 4 | 5 | 6)) | (6, None) | (10, None) | (7, None)
                 )
                 || (original.visual == Some(4)) != frame.billboard.is_some()
                 || frame.original_name_bytes.as_deref() != Some(original.name_bytes.as_slice())
@@ -173,6 +173,11 @@ impl ModelArena {
                 // Billboard::Duplicate copies the live derived orientation,
                 // after the common Frame::Duplicate state projection.
                 self.frames[dst].billboard = self.frames[src].billboard;
+                self.frames[dst].morph = self.frames[src]
+                    .morph
+                    .as_ref()
+                    .map(|m| m.duplicate())
+                    .transpose()?;
                 if state.kind == FrameKind::Target {
                     let live_flags = self.graph.target_state(from)?.flags();
                     self.graph.copy_target_duplicate_flags(to, live_flags)?;
@@ -183,6 +188,9 @@ impl ModelArena {
                     let object = if matches!(subtype, Some(2 | 3)) {
                         self.visual_resource_owner_mut()?
                             .load_singlemesh_instance(original)
+                    } else if subtype == Some(5) {
+                        self.visual_resource_owner_mut()?
+                            .load_morph_instance(original)
                     } else if subtype == Some(4) {
                         self.visual_resource_owner_mut()?
                             .load_billboard_instance(original)
