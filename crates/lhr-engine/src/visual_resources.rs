@@ -218,6 +218,9 @@ impl AnimatedMaterialFrames {
 }
 /// Host guard failures describe boundaries outside the admitted safe source
 /// domain. They are not original LS3D_RESULT values or native success claims.
+// Keep the two independent channels' actual fields borrowed separately; a
+// copied channel state would obscure the reached source mutation prefix.
+#[allow(clippy::too_many_arguments)]
 fn update_material_channel(
     textures: &[Option<TextureKey>],
     frame: &mut usize,
@@ -541,6 +544,25 @@ impl VisualResources {
             .get(self.slot(key.arena, key.slot)?)
             .and_then(Option::as_ref)
             .ok_or(VisualResourceError::UnknownMaterial(key))
+    }
+    /// Borrow actual material state for host diagnostics, including an
+    /// interrupted owner. Inspection never invokes the lazy texture getters,
+    /// advances either clock, consumes random values, or retains textures.
+    pub fn materials(&self) -> impl Iterator<Item = (MaterialKey, &I3dMaterial)> {
+        self.materials
+            .iter()
+            .enumerate()
+            .filter_map(|(index, value)| {
+                value.as_ref().map(|material| {
+                    (
+                        MaterialKey {
+                            arena: self.identity,
+                            slot: index as u32 + 1,
+                        },
+                        material,
+                    )
+                })
+            })
     }
     pub fn face_group(&self, key: FaceGroupKey) -> Result<&I3dFaceGroup, VisualResourceError> {
         self.face_groups
@@ -2000,6 +2022,50 @@ mod tests {
         }
         resources.finish_loaded_animated_material(material).unwrap();
         material
+    }
+    #[test]
+    fn material_inspection_observes_lazy_state_without_advancing_or_retaining() {
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let removed = resources.create_material().unwrap();
+        resources.release_material(removed, &mut backend).unwrap();
+        let key = playback_fixture(&mut resources, &mut backend, 100, 10, -1, 15, -1);
+        let mut random = crate::frame_light::LightCrtRandom::default();
+        resources.set_material_driver_time(125).unwrap();
+        let before = resources.material(key).unwrap().animation.clone();
+        let events = backend.events.len();
+        for _ in 0..3 {
+            let observed: Vec<_> = resources.materials().collect();
+            assert_eq!(observed.len(), 1);
+            assert_eq!(observed[0].0, key);
+            assert!(std::ptr::eq(
+                observed[0].1,
+                resources.material(key).unwrap()
+            ));
+            assert_eq!(observed[0].1.animation, before);
+            assert_eq!(observed[0].1.texture, Some(TextureKey(100)));
+        }
+        assert_eq!(backend.events.len(), events);
+        assert_eq!(random.state(), 1);
+        // A real draw getter still consumes exactly the next shared random
+        // sample, even after repeated UI inspection at a later driver time.
+        resources.get_material_texture(key, &mut random).unwrap();
+        let advanced = random.state();
+        assert_ne!(advanced, 1);
+        assert_eq!(
+            resources
+                .material(key)
+                .unwrap()
+                .animation
+                .as_ref()
+                .unwrap()
+                .env_last_time,
+            100
+        );
+        assert_eq!(resources.materials().count(), 1);
+        assert_eq!(random.state(), advanced);
+        resources.release_material(key, &mut backend).unwrap();
+        assert_eq!(resources.materials().count(), 0);
     }
     #[test]
     fn lazy_channels_have_independent_clocks_and_playback_never_retains_aliases() {

@@ -17,27 +17,48 @@ ledger and system gates. The campaign is not playable.
 
 ## Current foundation and next work
 
-The current MISE01 diagnostic loaded all 3,183 objects and stopped at the
-ordered Game actor-dispatch boundary (cursor 3,794,014, actor `0x544a16`).
-The same owner produced 267 draws, including five real sky passes, then closed
-cleanly. This is real model and scene intake, but not completed SceneOpen,
-MissionOpen or authored mission play. The explicit `--probe-model-dir Models`
-CPU probe independently reaches that same actor boundary and releases all
-tracked resources, including 423 textures, through terminal disposal.
+The current MISE01 diagnostic loads all 3,183 objects and reaches
+`UnsupportedKind(27)` during ordered Game actor intake at cursor 3,795,696,
+entry `0x544a16`, retaining 27 live actors. The initial 1280 × 800 inspection
+produces 267 draws; visible draw counts depend on the viewport and camera.
+Actor/program source intake and deferred sound
+resolution are connected, but the stopped load does not prove that later arms
+or deferred resolution complete on MISE01. Retained source owners do not supply
+the original compiler, full VM, mission scheduler or GameInit. This remains
+scene inspection, not completed SceneOpen, MissionOpen or authored mission play.
 
-1. Connect actor registration, deferred sound links, mission scripts and
-   scheduling in source order; preserve the reached errors and live owners.
-2. Connect the player, taxi, active HUD/profile, collision and mission
-   objectives. Current Game controls, 64-bit key mask, camera, four tables and
+Lazy animated materials now consume the live driver timeline through their
+actual owners. A public fixture proves changing GPU material resources and
+rendered pixels. The original MISE01 material owner advances its frame index
+and texture alias under controlled steps, but the unchanged-camera captures
+have zero changed pixels; visible original-content animation remains unproven.
+Engine Lab exposes live resources and supports controlled inspection,
+pause and stepping; it does not close a gameplay gate.
+
+Track the seven work stages and LS3D/library parity separately from these six
+first-mission acceptance gates. Matching the pinned mafia-re reference does not
+establish Game.exe mission compatibility.
+
+1. Reconstruct actual MissionOpen and active Close in native order, including
+   navigation from `check.bin`, road loading, cache and sound dependencies.
+   Connect the owned navigation graph without skipping earlier unavailable work.
+2. Continue reached actor factories and LoadData branches, then original program
+   compilation, VM dispatch, initialization and Game scheduling over the retained
+   live owners. Preserve executed prefixes, reached errors and cleanup order.
+3. Connect the player, taxi, original camera, active HUD/profile, collision and
+   damage. Existing controls, 64-bit key mask, camera, definition tables and
    load/save helpers are dependencies, not completed gameplay.
-3. Complete play-critical animation and presentation: `menugl` animation in
-   `missions/00menu`, 5DS rotation/scale, texture-animation ticks, animated lit
-   visuals, general GPU fog and environment effects.
-4. Run repeatable authored first-mission sequences and compare the necessary
-   visual, audio and gameplay behavior with suitable original-runtime evidence.
+4. Complete play-critical model animation, controller timing/blending/events,
+   rotation/scale and animated lit visuals; verify original menu animation and
+   original-content material/audio behavior. General GPU fog and environment
+   effects remain open.
+5. Connect navigation and AI to objectives, pursuit, cutscenes, checkpoints and
+   mission completion. Run repeatable menu-to-completion and restart sequences
+   against suitable original-runtime evidence, then validate target platforms
+   and hardware audio.
 
 PC REA instruction receipts and PS2 symbols supply bounded evidence for names,
 scalar behavior and control flow. They do not prove the full native call graph.
-[Current evidence](implementation/mafia-re-remediation.md) ·
+[Current evidence](implementation/parity-continuation.md) ·
 [coverage](../COVERAGE.md) · [progress](PROGRESS.md) ·
 [preceding goals, verbatim](history/2026-10-26-pre-final-documentation.md#docsgoalsmd).

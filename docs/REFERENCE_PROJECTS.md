@@ -1,6 +1,26 @@
 # Reference-project audit
 
-## Current source and tool check — 2026-10-26
+## Current source and tool check — 2026-10-27
+
+The current parity stack is pinned to [mafia-re
+`eb5a9216eea23210e96a3148e351e8211b27e240`](https://github.com/Marvisak/mafia-re/tree/eb5a9216eea23210e96a3148e351e8211b27e240).
+Sound/render contracts, mission source order, menu navigation, material clocks,
+MRPH, startup patches and navigation ownership are reviewed against that
+checkout and separate PC REA evidence. The original campaign is still not
+playable; the reference's GameInit/Done and road-reader stubs remain dependencies.
+
+New local PS2 intake found 15,236 ELF symbol entries, including 7,788 function
+symbols, in `SLUS_206.71` SHA-256
+`adf4944c5cdac23fcc4e9af9ef3ec1ba6234497e57cec2af2ff1a7a15c62a46f`.
+The symbols corroborate original navigation, MRPH and program names, without
+establishing PC layout or platform-equivalent behavior. REA 6.7.0 commit
+`6d356b84344659085f2b912857b5e27fe0160c9b` with Ghidra 12.1.4 refuses this
+R5900 target before analysis. No provider check was bypassed and no original
+executable was run. [Current evidence and exact limits](implementation/parity-continuation.md)
+separate source comparison, original-data compatibility, static metadata and
+runtime validation. Earlier revisions below retain their original scope.
+
+## Retained source and tool check — 2026-10-26
 
 The implementation source cross-check is [mafia-re
 `f42a25d9b2cbd674792fe78f5700d5f77b499d0d`](https://github.com/Marvisak/mafia-re/tree/f42a25d9b2cbd674792fe78f5700d5f77b499d0d).
@@ -28,7 +48,7 @@ The source also separates nonvirtual `C_roads::LoadData` (PC RVA `0x159e60`)
 from virtual `MergeData` (`0x15a210`, an upstream working name). Both readers
 remain upstream stubs. Neither is the 4DS road geometry already rendered here.
 
-## Connected Rust scope
+## Retained connected Rust scope — 2026-10-26
 
 Current Rust owners cover actual Scene/Camera and saved-lightmap rendering,
 corrected road culling, typed Singlemesh/Singlemorph/Billboard/Lensflare
@@ -64,5 +84,5 @@ Earlier inbound audit/name-mapping anchors are retained here. Their original
 dated text is in the [complete preceding reference page](history/2026-10-26-pre-final-documentation.md#docsreference_projectsmd);
 the current dependency order is in [goals](GOALS.md).
 
-[Current implementation and validation](implementation/mafia-re-remediation.md) ·
+[Current implementation and validation](implementation/parity-continuation.md) ·
 [remaining goals](GOALS.md) · [coverage](../COVERAGE.md) · [history](history/README.md).

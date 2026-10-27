@@ -195,7 +195,7 @@ impl NativeLab {
             false,
         );
         let raw = self.input.take_egui_input(window);
-        let mut commands = Commands::new(state.settings);
+        let mut commands = Commands::from_state(state);
         let output = self.context.run(raw, |context| {
             // A discarded egui pass must not toggle pause again, enqueue a
             // second step, reload the scene, or advance the vehicle.
@@ -294,199 +294,507 @@ fn show(context: &egui::Context, state: &State, d: &Diagnostics, commands: &mut 
     egui::Window::new("Engine Lab")
         .id(egui::Id::new("engine_lab"))
         .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-14., 14.))
-        .default_width(318.)
-        .resizable(false)
-        .collapsible(false)
+        .default_width(380.)
+        .default_height((context.screen_rect().height() - 28.).clamp(200., 900.))
+        .max_height((context.screen_rect().height() - 28.).max(120.))
+        .min_width(300.)
+        .resizable(true)
+        .collapsible(true)
         .show(context, |ui| {
+            ui.label(RichText::new(d.profile).color(Color32::from_rgb(146, 190, 204)));
+            if !d.scene_label.is_empty() { ui.label(&d.scene_label); }
+            ui.small("F1 panel · F2 pause · F3 step · F4 reload");
+            ui.horizontal(|ui| {
+                if ui.add_enabled(d.runtime_available, egui::Button::new(if state.playback.paused() {"Resume"} else {"Pause"})).clicked() {
+                    commands.paused = Some(!state.playback.paused());
+                }
+                if ui.add_enabled(d.runtime_available, egui::Button::new("Step 16 ms")).clicked() { commands.step = true; }
+                if ui.button("Reload").clicked() { commands.reload_scene = true; }
+                ui.strong(if !d.runtime_available { "Static" } else if state.playback.paused() { "Paused" } else { "Running" });
+            });
+            if d.runtime_available { ui.small(format!("{} ms · {} updates", d.driver_time_ms, state.completed_frames)); }
+            ui.horizontal_wrapped(|ui| {
+                use crate::lab_state::LabTab;
+                for (tab,label) in [(LabTab::Scene,"Scene"),(LabTab::Environment,"Environment"),(LabTab::Camera,"Camera"),(LabTab::Model,"Model"),(LabTab::Materials,"Materials"),(LabTab::Vehicle,"Vehicle"),(LabTab::Diagnostics,"Diagnostics")] {
+                    ui.selectable_value(&mut commands.drafts.tab,tab,label);
+                }
+            });
+            ui.separator();
             egui::ScrollArea::vertical()
-                .max_height((context.screen_rect().height() - 100.).max(160.))
+                .max_height(ui.available_height().max(40.))
                 .show(ui, |ui| {
-                    ui.label(RichText::new(d.profile).color(Color32::from_rgb(146, 190, 204)));
-                    ui.small("F1 panel · F2 pause · F3 step · F4 reload");
-                    ui.separator();
-                    ui.horizontal(|ui| {
-                        if ui
-                            .add_enabled(
-                                d.runtime_available,
-                                egui::Button::new(if state.playback.paused() {
-                                    "Resume"
-                                } else {
-                                    "Pause"
-                                }),
-                            )
-                            .clicked()
-                        {
-                            commands.paused = Some(!state.playback.paused());
-                        }
-                        if ui
-                            .add_enabled(d.runtime_available, egui::Button::new("Step 16 ms"))
-                            .clicked()
-                        {
-                            commands.step = true;
-                        }
-                        if ui.button("Reload scene").clicked() {
-                            commands.reload_scene = true;
-                        }
-                    });
-                    ui.horizontal(|ui| {
-                        if !d.runtime_available {
-                            ui.strong("Static scene");
-                            ui.label("No simulation clock");
-                        } else {
-                            ui.strong(if state.playback.paused() {
-                                "Paused"
-                            } else {
-                                "Running"
-                            });
-                            ui.label(format!(
-                                "{} ms · {} updates",
-                                d.driver_time_ms, state.completed_frames
-                            ));
-                        }
-                    });
-                    ui.separator();
-                    ui.heading("Camera");
-                    ui.small("Host view");
-                    ui.add(
-                        egui::Slider::new(&mut commands.settings.fov_degrees, 30.0..=100.0)
-                            .text("FOV °"),
-                    );
-                    ui.add_enabled_ui(d.driving, |ui| {
-                        ui.add(
-                            egui::Slider::new(&mut commands.settings.chase.distance, 3.0..=20.0)
-                                .text("Distance"),
-                        );
-                        ui.add(
-                            egui::Slider::new(&mut commands.settings.chase.height, 0.5..=8.0)
-                                .text("Height"),
-                        );
-                        ui.add(
-                            egui::Slider::new(&mut commands.settings.chase.look_ahead, 0.0..=10.0)
-                                .text("Look ahead"),
-                        );
-                    });
-                    ui.horizontal(|ui| {
-                        if ui.button("Default view").clicked() {
-                            commands.settings.fov_degrees = 50.;
-                            commands.settings.chase = driving_view::ChaseSettings::default();
-                        }
-                        if ui
-                            .add_enabled(d.driving, egui::Button::new("Close view"))
-                            .clicked()
-                        {
-                            commands.settings.fov_degrees = 55.;
-                            commands.settings.chase = driving_view::ChaseSettings {
-                                distance: 4.5,
-                                height: 1.8,
-                                look_ahead: 1.4,
-                            };
-                        }
-                        if ui
-                            .add_enabled(d.driving, egui::Button::new("Wide"))
-                            .clicked()
-                        {
-                            commands.settings.fov_degrees = 65.;
-                            commands.settings.chase = driving_view::ChaseSettings {
-                                distance: 12.,
-                                height: 4.5,
-                                look_ahead: 3.,
-                            };
-                        }
-                    });
-                    ui.separator();
-                    ui.heading("Vehicle inputs");
-                    if !d.driving {
-                        ui.small("Open a car in driving mode to test its actual controls.");
+                    use crate::lab_state::LabTab;
+                    match commands.drafts.tab {
+                        LabTab::Scene => scene_ui(ui,state,d,commands),
+                        LabTab::Environment => environment_ui(ui,&mut commands.settings),
+                        LabTab::Camera => camera_ui(ui,d,commands),
+                        LabTab::Model => model_ui(ui,d,commands),
+                        LabTab::Materials => crate::lab_owner_ui::materials(ui,&d.owners),
+                        LabTab::Vehicle => vehicle_ui(ui,d,commands),
+                        LabTab::Diagnostics => diagnostics_ui(ui,state,d),
                     }
-                    ui.add_enabled_ui(d.driving, |ui| {
+                    ui.separator();
+                    ui.collapsing("Portable preset", |ui| {
+                        ui.small("Camera, environment and model preview settings. Held vehicle inputs and asset paths are excluded.");
+                        ui.text_edit_singleline(&mut commands.drafts.preset_path);
                         ui.horizontal(|ui| {
-                            ui.selectable_value(
-                                &mut commands.settings.control_source,
-                                ControlSource::Keyboard,
-                                "Keyboard",
-                            );
-                            ui.selectable_value(
-                                &mut commands.settings.control_source,
-                                ControlSource::Manual,
-                                "Manual",
-                            );
+                            if ui.button("Save preset").clicked() { commands.save_preset=true; }
+                            if ui.button("Load preset").clicked() { commands.load_preset=true; }
                         });
-                        if commands.settings.control_source == ControlSource::Keyboard {
-                            ui.small("W throttle · S brake · A/D steer · Space handbrake");
-                        }
-                        ui.add_enabled_ui(
-                            commands.settings.control_source == ControlSource::Manual,
-                            |ui| {
-                                ui.add(
-                                    egui::Slider::new(
-                                        &mut commands.settings.manual.throttle,
-                                        0.0..=1.0,
-                                    )
-                                    .text("Throttle"),
-                                );
-                                ui.add(
-                                    egui::Slider::new(
-                                        &mut commands.settings.manual.brake,
-                                        0.0..=1.0,
-                                    )
-                                    .text("Brake"),
-                                );
-                                ui.add(
-                                    egui::Slider::new(
-                                        &mut commands.settings.manual.steer,
-                                        -1.0..=1.0,
-                                    )
-                                    .text("Steering"),
-                                );
-                                ui.checkbox(&mut commands.settings.manual.handbrake, "Handbrake");
-                                if ui.button("Neutral inputs").clicked() {
-                                    commands.settings.manual = driving_view::Controls::default();
-                                }
-                            },
-                        );
                     });
-                    if let Some(feedback) = d.feedback {
-                        ui.small(format!(
-                            "Applied throttle {:.3} · brake {:.3}",
-                            feedback.throttle, feedback.brake
-                        ));
-                        ui.small(format!(
-                            "Steering {:.3} / {:.3} rad · gear {}",
-                            feedback.steering_applied_radians,
-                            feedback.steering_limit_radians,
-                            feedback.gear
-                        ));
-                    }
-                    ui.separator();
-                    egui::CollapsingHeader::new("Live diagnostics")
-                        .default_open(true)
-                        .show(ui, |ui| {
-                            if d.frame_ms.is_finite() && d.frame_ms > 0. {
-                                ui.monospace(format!(
-                                    "Frame interval  {:6.2} ms  ({:.0} Hz)",
-                                    d.frame_ms,
-                                    1000. / d.frame_ms
-                                ));
-                            }
-                            ui.monospace(format!("Scene draws     {}", d.scene_draws));
-                            ui.monospace(format!("Vertices        {}", d.vertices));
-                            ui.monospace(format!("Triangles       {}", d.triangles));
-                            ui.monospace(format!(
-                                "Viewport        {} × {}",
-                                d.viewport[0], d.viewport[1]
-                            ));
-                            if let Some(car) = d.car {
-                                ui.monospace(format!("Vehicle ticks   {}", d.driving_ticks));
-                                ui.monospace(format!("Source speed    {:.3}", car.speed));
-                                ui.monospace(format!("Contacts        {}", car.contacts));
-                                ui.monospace(format!(
-                                    "Position        {:.2}, {:.2}, {:.2}",
-                                    car.position[0], car.position[1], car.position[2]
-                                ));
-                            }
-                        });
+                    ui.small(&state.status);
                 });
         });
+}
+
+fn scene_ui(ui: &mut egui::Ui, state: &State, d: &Diagnostics, commands: &mut Commands) {
+    use crate::{lab_scene::SyntheticPreset, lab_state::SceneRequest};
+    ui.heading("Public test scenes");
+    ui.small("Explore geometry, materials and depth without game files.");
+    ui.horizontal_wrapped(|ui| {
+        for preset in SyntheticPreset::ALL {
+            if ui.button(preset.label()).clicked() {
+                commands.open_scene = Some(SceneRequest::Synthetic(preset));
+            }
+        }
+    });
+    ui.separator();
+    ui.heading("Installed original data");
+    if !d.assets_available {
+        ui.small("Start with --root DIRECTORY to browse your installed game data.");
+    }
+    ui.add_enabled_ui(d.assets_available, |ui| {
+        if ui.button("Discover scenes and models").clicked() {
+            commands.discover_assets = true;
+        }
+        ui.horizontal(|ui| {
+            ui.label("Filter");
+            ui.text_edit_singleline(&mut commands.drafts.search);
+        });
+        ui.label("Mission directory");
+        ui.text_edit_singleline(&mut commands.drafts.mission_path);
+        if ui.button("Open mission scene").clicked() {
+            commands.open_scene = Some(SceneRequest::Mission(commands.drafts.mission_path.clone()));
+        }
+        ui.label("Model path (relative to installation)");
+        ui.text_edit_singleline(&mut commands.drafts.model_path);
+        ui.horizontal_wrapped(|ui| {
+            let valid = !commands.drafts.model_path.trim().is_empty();
+            if ui
+                .add_enabled(valid, egui::Button::new("Open model"))
+                .clicked()
+            {
+                commands.open_scene = Some(SceneRequest::Model(commands.drafts.model_path.clone()));
+            }
+            if ui
+                .add_enabled(valid, egui::Button::new("Inspect car"))
+                .clicked()
+            {
+                commands.open_scene = Some(SceneRequest::CarInspection(
+                    commands.drafts.model_path.clone(),
+                ));
+            }
+            if ui
+                .add_enabled(valid, egui::Button::new("Drive car"))
+                .clicked()
+            {
+                commands.open_scene =
+                    Some(SceneRequest::CarDriving(commands.drafts.model_path.clone()));
+            }
+        });
+        let query = commands.drafts.search.to_lowercase();
+        ui.collapsing(
+            format!("Missions ({})", state.catalog.missions.len()),
+            |ui| {
+                for name in state
+                    .catalog
+                    .missions
+                    .iter()
+                    .filter(|name| name.to_lowercase().contains(&query))
+                {
+                    if ui
+                        .selectable_label(commands.drafts.mission_path == *name, name)
+                        .clicked()
+                    {
+                        commands.drafts.mission_path = name.clone();
+                    }
+                }
+            },
+        );
+        ui.collapsing(format!("Models ({})", state.catalog.models.len()), |ui| {
+            for name in state
+                .catalog
+                .models
+                .iter()
+                .filter(|name| name.to_lowercase().contains(&query))
+                .take(300)
+            {
+                if ui
+                    .selectable_label(commands.drafts.model_path == *name, name)
+                    .clicked()
+                {
+                    commands.drafts.model_path = name.clone();
+                }
+            }
+            ui.small("Up to 300 matching models shown; narrow the filter for more.");
+        });
+    });
+}
+
+fn environment_ui(ui: &mut egui::Ui, settings: &mut Settings) {
+    use lhr_render::{DebugView, LabEnvironment, Weather};
+    ui.heading("Lighting and weather preview");
+    ui.small("Optional visual overrides. Source restores the loaded appearance.");
+    ui.checkbox(&mut settings.animate_preview, "Animate preview");
+    ui.horizontal_wrapped(|ui| {
+        for label in ["Source", "Daylight", "Dusk", "Mist", "Rain", "Snow"] {
+            if ui.button(label).clicked() {
+                let mut environment = LabEnvironment::default();
+                if label != "Source" {
+                    environment.enabled = true;
+                    environment.debug_view = DebugView::Lit;
+                }
+                match label {
+                    "Dusk" => {
+                        environment.background = [0.12, 0.08, 0.16];
+                        environment.ambient = 0.35;
+                        environment.sun_color = [1., 0.55, 0.3];
+                        environment.sun_elevation_degrees = 12.;
+                    }
+                    "Mist" => {
+                        environment.fog_enabled = true;
+                        environment.fog_start = 8.;
+                        environment.fog_end = 70.;
+                        environment.background = environment.fog_color;
+                    }
+                    "Rain" => {
+                        environment.weather = Weather::Rain;
+                        environment.ambient = 0.5;
+                        environment.background = [0.12, 0.16, 0.2];
+                        environment.fog_enabled = true;
+                    }
+                    "Snow" => {
+                        environment.weather = Weather::Snow;
+                        environment.background = [0.45, 0.5, 0.55];
+                        environment.fog_enabled = true;
+                    }
+                    _ => {}
+                }
+                settings.environment = environment;
+            }
+        }
+    });
+    let e = &mut settings.environment;
+    ui.checkbox(&mut e.enabled, "Enable host environment override");
+    ui.add_enabled_ui(e.enabled, |ui| {
+        ui.horizontal_wrapped(|ui| {
+            for (mode, label) in [
+                (DebugView::Source, "Source"),
+                (DebugView::Lit, "Lit preview"),
+                (DebugView::Normals, "Normals"),
+                (DebugView::Uv, "UV"),
+            ] {
+                ui.selectable_value(&mut e.debug_view, mode, label);
+            }
+        });
+        color(ui, "Background", &mut e.background);
+        ui.add(egui::Slider::new(&mut e.exposure, 0.1..=4.).text("Exposure"));
+        ui.add(egui::Slider::new(&mut e.saturation, 0. ..=2.).text("Saturation"));
+        ui.collapsing("Inspection lighting", |ui| {
+            ui.add(egui::Slider::new(&mut e.ambient, 0. ..=2.).text("Ambient"));
+            ui.add(egui::Slider::new(&mut e.sun_intensity, 0. ..=4.).text("Sun intensity"));
+            ui.add(egui::Slider::new(&mut e.sun_azimuth_degrees, -180. ..=180.).text("Azimuth °"));
+            ui.add(
+                egui::Slider::new(&mut e.sun_elevation_degrees, -90. ..=90.).text("Elevation °"),
+            );
+            color(ui, "Sun color", &mut e.sun_color);
+        });
+        ui.checkbox(&mut e.fog_enabled, "Distance fog");
+        ui.add_enabled_ui(e.fog_enabled, |ui| {
+            color(ui, "Fog color", &mut e.fog_color);
+            ui.add(
+                egui::Slider::new(&mut e.fog_start, 0. ..=99999.)
+                    .logarithmic(true)
+                    .text("Fog start"),
+            );
+            e.fog_end = e.fog_end.max(e.fog_start + 1.);
+            ui.add(
+                egui::Slider::new(&mut e.fog_end, (e.fog_start + 1.)..=100000.)
+                    .logarithmic(true)
+                    .text("Fog end"),
+            );
+        });
+        ui.horizontal(|ui| {
+            for (weather, label) in [
+                (Weather::Clear, "Clear"),
+                (Weather::Rain, "Rain"),
+                (Weather::Snow, "Snow"),
+            ] {
+                ui.selectable_value(&mut e.weather, weather, label);
+            }
+        });
+        ui.add_enabled_ui(e.weather != Weather::Clear, |ui| {
+            ui.add(egui::Slider::new(&mut e.precipitation, 0. ..=1.).text("Precipitation"));
+            ui.add(egui::Slider::new(&mut e.wind, -2. ..=2.).text("Wind"));
+        });
+    });
+}
+fn color(ui: &mut egui::Ui, label: &str, rgb: &mut [f32; 3]) {
+    ui.horizontal(|ui| {
+        ui.label(label);
+        ui.color_edit_button_rgb(rgb);
+    });
+}
+
+fn camera_ui(ui: &mut egui::Ui, d: &Diagnostics, commands: &mut Commands) {
+    use crate::lab_state::CameraView;
+    ui.heading("Host camera");
+    ui.add(egui::Slider::new(&mut commands.settings.fov_degrees, 30. ..=100.).text("FOV °"));
+    ui.add(egui::Slider::new(&mut commands.settings.camera_speed, 0.1..=10.).text("Motion speed"));
+    if d.camera_locked {
+        ui.small("Driving uses the live vehicle chase view.");
+    } else {
+        ui.small("Arrows orbit · W/S zoom · J/L pan sideways · I/K pan vertically");
+        ui.small("Right drag orbit · middle drag pan · wheel zoom");
+    }
+    ui.add_enabled_ui(!d.camera_locked, |ui| {
+        ui.add(egui::Slider::new(&mut commands.settings.auto_orbit, -90. ..=90.).text("Orbit °/s"));
+        ui.horizontal_wrapped(|ui| {
+            for (view, label) in [
+                (CameraView::Front, "Front"),
+                (CameraView::Back, "Back"),
+                (CameraView::Left, "Left"),
+                (CameraView::Right, "Right"),
+                (CameraView::Top, "Top"),
+                (CameraView::Isometric, "Isometric"),
+            ] {
+                if ui.button(label).clicked() {
+                    commands.camera_view = Some(view);
+                }
+            }
+        });
+    });
+    ui.add_enabled_ui(d.driving, |ui| {
+        ui.add(
+            egui::Slider::new(&mut commands.settings.chase.distance, 3. ..=20.).text("Distance"),
+        );
+        ui.add(egui::Slider::new(&mut commands.settings.chase.height, 0.5..=8.).text("Height"));
+        ui.add(
+            egui::Slider::new(&mut commands.settings.chase.look_ahead, 0. ..=10.)
+                .text("Look ahead"),
+        );
+        ui.horizontal(|ui| {
+            if ui.button("Close").clicked() {
+                commands.settings.chase = driving_view::ChaseSettings {
+                    distance: 4.5,
+                    height: 1.8,
+                    look_ahead: 1.4,
+                };
+                commands.settings.fov_degrees = 55.;
+            }
+            if ui.button("Wide").clicked() {
+                commands.settings.chase = driving_view::ChaseSettings {
+                    distance: 12.,
+                    height: 4.5,
+                    look_ahead: 3.,
+                };
+                commands.settings.fov_degrees = 65.;
+            }
+        });
+    });
+    ui.horizontal_wrapped(|ui| {
+        if ui.button("Reset camera").clicked() {
+            commands.reset_camera = true;
+        }
+        if ui
+            .add_enabled(d.inspectable_model, egui::Button::new("Frame subject"))
+            .clicked()
+        {
+            commands.fit_selection = true;
+        }
+        if ui
+            .add_enabled(!d.camera_locked, egui::Button::new("Save bookmark"))
+            .clicked()
+        {
+            commands.capture_bookmark = true;
+        }
+        if ui
+            .add_enabled(
+                d.has_bookmark && !d.camera_locked,
+                egui::Button::new("Restore bookmark"),
+            )
+            .clicked()
+        {
+            commands.restore_bookmark = true;
+        }
+    });
+    ui.small(format!(
+        "Eye {:.2}, {:.2}, {:.2}",
+        d.camera_eye[0], d.camera_eye[1], d.camera_eye[2]
+    ));
+    ui.small(format!(
+        "Target {:.2}, {:.2}, {:.2}",
+        d.camera_target[0], d.camera_target[1], d.camera_target[2]
+    ));
+}
+
+fn model_ui(ui: &mut egui::Ui, d: &Diagnostics, commands: &mut Commands) {
+    ui.heading("Model preview").on_hover_text("Renderer-only inspection transform after source geometry calculations. Does not edit original model objects, collisions or vehicle physics.");
+    if !d.inspectable_model {
+        ui.small("Transforms and draw isolation require a standalone model or public synthetic scene. Canonical scenes and live vehicles retain their owner transforms.");
+    }
+    ui.add_enabled_ui(d.inspectable_model, |ui| {
+        let settings = &mut commands.settings;
+        ui.add(
+            egui::Slider::new(&mut settings.turntable_speed, -180. ..=180.).text("Turntable °/s"),
+        );
+        for (label, values, range) in [
+            (
+                "Translation",
+                &mut settings.transform.translation,
+                -10000. ..=10000.,
+            ),
+            (
+                "Rotation °",
+                &mut settings.transform.rotation_degrees,
+                -180. ..=180.,
+            ),
+        ] {
+            ui.label(label);
+            ui.horizontal(|ui| {
+                for (axis, value) in ["X", "Y", "Z"].into_iter().zip(values) {
+                    ui.label(axis);
+                    ui.add(egui::DragValue::new(value).speed(0.1).range(range.clone()));
+                }
+            });
+        }
+        ui.add(
+            egui::Slider::new(&mut settings.transform.scale, 0.01..=100.)
+                .logarithmic(true)
+                .text("Scale"),
+        );
+        if ui.button("Reset transform").clicked() {
+            settings.transform = crate::lab_state::ModelTransform::default();
+            settings.turntable_speed = 0.;
+            commands.reset_model = true;
+        }
+        ui.separator();
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut settings.isolate_draw, "Isolate selected");
+            ui.checkbox(&mut settings.hide_selected, "Hide selected");
+        });
+        if ui.button("Show all draws").clicked() {
+            settings.selected_draw = None;
+            settings.isolate_draw = false;
+            settings.hide_selected = false;
+        }
+        egui::ComboBox::from_id_salt("lab_draw_selection")
+            .selected_text(
+                settings
+                    .selected_draw
+                    .map_or_else(|| "All draws".into(), |i| format!("Draw {i}")),
+            )
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut settings.selected_draw, None, "All draws");
+                for draw in &d.draws {
+                    ui.selectable_value(
+                        &mut settings.selected_draw,
+                        Some(draw.index),
+                        format!(
+                            "{} · {} vertices · {} triangles",
+                            draw.label, draw.vertices, draw.triangles
+                        ),
+                    );
+                }
+            });
+        if ui.button("Frame selection").clicked() {
+            commands.fit_selection = true;
+        }
+    });
+}
+
+fn vehicle_ui(ui: &mut egui::Ui, d: &Diagnostics, commands: &mut Commands) {
+    ui.heading("Vehicle inputs");
+    if !d.driving {
+        ui.small("Open a car in driving mode to test its actual controls.");
+    }
+    ui.add_enabled_ui(d.driving, |ui| {
+        ui.horizontal(|ui| {
+            ui.selectable_value(
+                &mut commands.settings.control_source,
+                ControlSource::Keyboard,
+                "Keyboard",
+            );
+            ui.selectable_value(
+                &mut commands.settings.control_source,
+                ControlSource::Manual,
+                "Manual",
+            );
+        });
+        ui.small("W throttle · S brake · A/D steer · Space handbrake");
+        ui.add_enabled_ui(
+            commands.settings.control_source == ControlSource::Manual,
+            |ui| {
+                ui.add(
+                    egui::Slider::new(&mut commands.settings.manual.throttle, 0. ..=1.)
+                        .text("Throttle"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut commands.settings.manual.brake, 0. ..=1.).text("Brake"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut commands.settings.manual.steer, -1. ..=1.)
+                        .text("Steering"),
+                );
+                ui.checkbox(&mut commands.settings.manual.handbrake, "Handbrake");
+                if ui.button("Neutral inputs").clicked() {
+                    commands.settings.manual = driving_view::Controls::default();
+                }
+            },
+        );
+    });
+    if let Some(feedback) = d.feedback {
+        ui.small(format!(
+            "Applied throttle {:.3} · brake {:.3}",
+            feedback.throttle, feedback.brake
+        ));
+        ui.small(format!(
+            "Steering {:.3} / {:.3} rad · gear {}",
+            feedback.steering_applied_radians, feedback.steering_limit_radians, feedback.gear
+        ));
+    }
+}
+fn diagnostics_ui(ui: &mut egui::Ui, state: &State, d: &Diagnostics) {
+    ui.heading("Live diagnostics");
+    ui.small("Frame interval is CPU redraw spacing, not GPU timing.");
+    if d.frame_ms.is_finite() && d.frame_ms > 0. {
+        ui.monospace(format!(
+            "Frame interval {:6.2} ms ({:.0} Hz)",
+            d.frame_ms,
+            1000. / d.frame_ms
+        ));
+    }
+    for line in [
+        format!("Scene draws {} ({} source)", d.scene_draws, d.source_draws),
+        format!("Vertices {}", d.vertices),
+        format!("Triangles {}", d.triangles),
+        format!("Viewport {} × {}", d.viewport[0], d.viewport[1]),
+        format!("Completed updates {}", state.completed_frames),
+    ] {
+        ui.monospace(line);
+    }
+    if let Some(car) = d.car {
+        ui.monospace(format!("Vehicle ticks {}", d.driving_ticks));
+        ui.monospace(format!(
+            "Source speed {:.3} · contacts {}",
+            car.speed, car.contacts
+        ));
+        ui.monospace(format!(
+            "Position {:.2}, {:.2}, {:.2}",
+            car.position[0], car.position[1], car.position[2]
+        ));
+    }
+    crate::lab_owner_ui::mission(ui, &d.owners);
 }
 
 #[cfg(test)]

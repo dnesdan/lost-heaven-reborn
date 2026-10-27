@@ -1,6 +1,50 @@
 # Screenshot history
 
-Actual captures from the Rust application using separately supplied PC game data. Images are compressed WebP previews; uncompressed validation captures remain private. Add dated images for visible milestones, up to 960 pixels wide and 200 KiB per image, rather than a capture for every commit. Game content retains its original ownership.
+Actual captures from the Rust application using separately supplied PC game data. Images are compressed WebP previews or original PNG captures; full validation receipts remain private. Add dated images for visible milestones, up to 960 pixels wide and 200 KiB per image, rather than a capture for every commit. Game content retains its original ownership.
+
+## 2026-10-27 — live mission/material inspectors and MRPH deformation
+
+![Actual mission owner and reached loader boundary](2026-10-27-engine-lab-mission-owners.webp)
+
+![Actual original material frame after controlled steps](2026-10-27-engine-lab-materials.webp)
+
+Root-inspected final Rust X11/software-Vulkan captures, both 960 × 700, from
+source `72612874ddb3eb47b63a486c070907efe0e3cf82`; executable SHA-256
+`df5e672b147ac6430ee4f3ef45102152aa85ce18a5c594999e3301b37ea07959`.
+The first shows 3,183 completed MISE01 objects, 27 actors and the explicit
+kind-27 frontier at byte 3,795,696. F4 reload preserves driver time 16 ms and
+the next F3 step reaches 32 ms. The second shows the original 20-frame material
+at index 1 after 96 ms. Its alias advances, but overlay-free captures at 32/96 ms
+have zero changed scene pixels at this camera; visible original material
+animation is not established. F1, pause/resume and Escape exit 0 were exercised.
+Task-owned UI/display processes were stopped.
+
+The two WebP previews use quality 90 encoding with no crop, resize or other
+image edits; exact PNGs remain private. They are 73,492 and 72,002 bytes.
+SHA-256 values respectively:
+`c75a35011e517ac7a7c056c451b1f472ca4eec0adb63dd50249397ce80987586`,
+`41a169ac8c6d89745e6e3346a435197a9193610be8a19dc7e907970679b2d331`.
+
+| Actual MRPH weights `[1, 0, 0, 0]` | Actual MRPH weights `[0, 1, 0, 0]` |
+| --- | --- |
+| ![Hand before](2026-10-27-morph-hand-before.png) | ![Hand after](2026-10-27-morph-hand-after.png) |
+
+The same complete 30-frame model, 11 draws and host camera are retained.
+Changing live MRPH weights changes 166 uploaded vertices and 16,997 pixels
+in this focused hand view. [Full-model context](2026-10-27-morph-full-model.png).
+All three are unmodified 512 × 512 PNGs from the actual renderer, not asset
+exports. Final graphics bytes are zero. Harness executable SHA-256:
+`8af77102308d2c428a62f996d0cbb688491f0720e023ceff9e494fec9990b357`.
+
+| PNG | Bytes | SHA-256 |
+| --- | ---: | --- |
+| Full model | 47,317 | `e78bb4aa849254acacc4a936a8afd8565b6709070a4c95fd5a4f13daa9098289` |
+| Hand before | 37,592 | `557034ebc9f7595ff03e1962746fac9886f92b4ce99a911efb6825eea10aa21f` |
+| Hand after | 32,794 | `154e335e5ad3ed207cca32cfc9ba92324a90eb4adc1fba92caf2142e51b735b4` |
+
+These images prove bounded Rust rendering/inspection, not authored mission
+execution or original-renderer equivalence. No original executable ran.
+[Implementation, reviews, probes and remaining gates](../implementation/parity-continuation.md).
 
 ## 2026-10-26 — road, source sky and complete object intake
 
@@ -350,3 +394,13 @@ shows no occluder or mission gameplay, weather drawing, original renderer parity
 or hardware audio verification. No new video was made.
 
 [Source-bound evidence and limits](../../COVERAGE.md).
+
+## 2026-10-27 — Engine Lab workbench
+
+![Engine Lab with the public courtyard and rain preview](2026-10-27-engine-lab-workbench.png)
+
+Native 1280 × 800 Linux software-Vulkan window capture.
+Launch `--synthetic --lab`, select **Outdoor courtyard**, then **Rain** in
+Environment. Geometry and textures are generated public fixtures; no game
+installation is needed. Rain is a screen-space Lab preview. This capture does
+not establish original-data gameplay or native macOS/Metal behavior.
