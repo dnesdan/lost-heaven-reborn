@@ -481,35 +481,81 @@ fn malformed_model_stops_cache_call_and_terminal_discard_preserves_interrupted_r
 }
 
 #[test]
-fn load_map_failure_keeps_the_published_prefix_without_creating_a_camera() {
+fn load_map_preserves_non_utf8_names_and_continues_to_the_camera() {
+    let bytes = scene2(&[]);
     let fixture = Fixture::new(
         Some(&world(&[dummy(0, b"first"), dummy(1, &[0xe8])])),
-        Some(&scene2(&[])),
+        Some(&bytes),
         None,
     );
     let mut session = fixture.session();
-    assert_eq!(load(&mut session, &[]), Err(MissionLoadCallError::Stopped));
-    assert_eq!(session.phase(), MissionLoadPhase::LoadMap);
-    assert!(matches!(
-        session.failure().unwrap().cause,
-        MissionLoadCause::LoadMap(_)
-    ));
-    assert!(session.loader().is_none());
-    assert_eq!(session.load_map().unwrap().publications.len(), 1);
-    assert_eq!(session.load_map().unwrap().publications[0].name, b"first");
+    assert_eq!(load(&mut session, &[]), Ok(()));
+    assert_eq!(session.phase(), MissionLoadPhase::PrefixComplete);
+    assert!(session.failure().is_none());
+    let frames = session.world_progress().unwrap().frames().to_vec();
+    assert_eq!(frames.len(), 2);
     assert_eq!(
-        session.load_map().unwrap().map.slot(b"Primary sector"),
-        None
+        session.arena().links(frames[1]).unwrap().parent,
+        Some(frames[0])
     );
-    assert_eq!(session.scene2_byte_count(), None);
+    assert_eq!(session.arena().frame(frames[1]).unwrap().name_bytes, [0xe8]);
+    let scene = session.scene().unwrap();
+    let sectors = session.arena().scene(scene).unwrap().sectors;
+    let expected = [
+        (
+            b"first".as_slice(),
+            session.arena().lookup_reference(frames[0]),
+        ),
+        (&[0xe8], session.arena().lookup_reference(frames[1])),
+        (
+            b"Primary sector",
+            session.arena().lookup_reference(sectors[0].frame()),
+        ),
+        (
+            b"Backdrop sector",
+            session.arena().lookup_reference(sectors[1].frame()),
+        ),
+        (
+            b"Omni sector",
+            session.arena().lookup_reference(sectors[2].frame()),
+        ),
+    ];
     assert_eq!(
         session
-            .arena()
-            .scene_active_camera(session.scene().unwrap())
-            .unwrap(),
-        None
+            .load_map()
+            .unwrap()
+            .publications
+            .iter()
+            .map(|publication| (publication.name.as_slice(), publication.frame))
+            .collect::<Vec<_>>(),
+        expected
+    );
+    for (name, frame) in expected {
+        assert_eq!(
+            session.load_map().unwrap().map.slot(name),
+            Some(Some(frame))
+        );
+    }
+    // Source names are byte strings, not lossy UTF-8 presentation text.
+    assert_eq!(session.load_map().unwrap().map.slot(b"\xef\xbf\xbd"), None);
+    let loader = session.loader().unwrap();
+    assert_eq!(loader.cursor, bytes.len());
+    assert_eq!(loader.version, [Some(5), Some(1)]);
+    assert_eq!(loader.finished_objects, 0);
+    assert_eq!(session.scene2_byte_count(), Some(bytes.len()));
+    let camera = loader
+        .camera
+        .expect("camera after successful map publication");
+    assert_eq!(
+        session.arena().scene_active_camera(scene).unwrap(),
+        Some(camera)
     );
     discard(&mut session);
+    for frame in frames {
+        assert!(session.arena().frame(frame).is_err());
+    }
+    assert!(session.arena().camera(camera).is_err());
+    assert!(session.arena().scene(scene).is_err());
 }
 
 #[test]
