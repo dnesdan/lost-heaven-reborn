@@ -45,7 +45,7 @@ RAW_CALLS = {
 
 
 def tokens(source: str):
-    """Yield (text, line); omit literal contents and raw identifiers."""
+    """Yield (text, line); omit literal contents, retaining raw-identifier spelling."""
     newlines = [-1] + [i for i, char in enumerate(source) if char == '\n']
     i = 0
     while i < len(source):
@@ -94,8 +94,7 @@ def tokens(source: str):
         if source.startswith('r#', i):
             raw_identifier = IDENT.match(source, i + 2)
             if raw_identifier:
-                # A token separator avoids joining punctuation across an identifier.
-                yield '<raw-identifier>', bisect_right(newlines, i)
+                yield source[i:raw_identifier.end()], bisect_right(newlines, i)
                 i = raw_identifier.end()
                 continue
         match = IDENT.match(source, i) or NUMBER.match(source, i)
@@ -109,8 +108,10 @@ def scan(path: str, source: str) -> list[Finding]:
     found = []
     for index, (token, line) in enumerate(stream):
         after = stream[index + 1][0] if index + 1 < len(stream) else ''
+        is_raw_identifier = token.startswith('r#')
+        token = token[2:] if is_raw_identifier else token
         kind = None
-        if token == 'unsafe':
+        if token == 'unsafe' and not is_raw_identifier:
             kind = 'unsafe-keyword'
         elif token in {'asm', 'global_asm', 'naked_asm'} and after == '!':
             kind = 'assembly-macro'
