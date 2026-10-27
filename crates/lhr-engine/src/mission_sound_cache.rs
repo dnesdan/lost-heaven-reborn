@@ -252,8 +252,7 @@ impl MissionCaches {
         if self.sound_open.as_ref().unwrap().phase == SoundCachePhase::DuplicateHit {
             let source = self.sound_open.as_ref().unwrap().cached_source.unwrap();
             let _open_result =
-                audio.duplicate_sound_derived(target.frame().0, source.frame().0, installation)?;
-            arena.duplicate_sound_frame_base(target, source)?;
+                audio.reopen_cached_sound(target.frame().0, source.frame().0, installation)?;
             let progress = self.sound_open.as_mut().unwrap();
             progress.sound_open_result = Some(0);
             progress.phase = SoundCachePhase::Complete;
@@ -338,8 +337,7 @@ impl MissionCaches {
             };
             self.sound_open.as_mut().unwrap().cached_source = Some(cached);
             let _copy_open =
-                audio.duplicate_sound_derived(cached.frame().0, target.frame().0, installation)?;
-            arena.duplicate_sound_frame_base(cached, target)?;
+                audio.reopen_cached_sound(cached.frame().0, target.frame().0, installation)?;
             self.caches[slot].items.last_mut().unwrap().resource =
                 Some(CacheResource::Sound(cached.frame()));
             self.sound_open.as_mut().unwrap().phase = SoundCachePhase::Complete;
@@ -439,5 +437,121 @@ impl MissionCaches {
             put(&mut self.caches[slot].header, 12, begin + new_count * 8);
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::driver_scene::DriverSceneOwner;
+    use crate::runtime_audio::RuntimeAudio;
+
+    #[test]
+    fn cache_duplicate_reopens_source_preserving_each_destination_frame_and_parameters() {
+        let path = std::env::temp_dir().join(format!(
+            "lhr-sound-cache-{}-{}",
+            std::process::id(),
+            crate::frame_lookup::incarnation()
+        ));
+        std::fs::create_dir_all(path.join("Sounds")).unwrap();
+        let mut wav = b"RIFF".to_vec();
+        wav.extend(52u32.to_le_bytes());
+        wav.extend(b"WAVEfmt ");
+        wav.extend(16u32.to_le_bytes());
+        wav.extend(1u16.to_le_bytes());
+        wav.extend(1u16.to_le_bytes());
+        wav.extend(4u32.to_le_bytes());
+        wav.extend(8u32.to_le_bytes());
+        wav.extend(2u16.to_le_bytes());
+        wav.extend(16u16.to_le_bytes());
+        wav.extend(b"data");
+        wav.extend(16u32.to_le_bytes());
+        wav.extend([1000i16; 8].into_iter().flat_map(i16::to_le_bytes));
+        std::fs::write(path.join("Sounds/a.wav"), wav).unwrap();
+        let installation = lhr_assets::Installation::open(&path).unwrap();
+        let audio = RuntimeAudio::default();
+        let mut arena = ModelArena::default();
+        let mut driver = DriverSceneOwner::default();
+        driver.bind_host_sound_backend(&mut arena, &audio).unwrap();
+        let mut caches = MissionCaches::empty().unwrap();
+        let mut memory = CpuMissionCacheMemory::default();
+        caches
+            .add_dir(MissionCacheKind::Sound, b"Sounds", &mut memory)
+            .unwrap();
+        let first = arena.create_owned_sound_frame().unwrap();
+        arena.set_frame_name(first.frame(), Some(b"first")).unwrap();
+        audio
+            .sound_virtual(first.frame().0, 0x68, &[0.25f32.to_bits()])
+            .unwrap();
+        assert_eq!(
+            caches
+                .open_static_sound(&mut arena, &installation, first, b"a.wav", &mut memory)
+                .unwrap(),
+            0
+        );
+        let cached = caches.sound_open_progress().unwrap().cached_source.unwrap();
+        assert!(arena.frame(cached.frame()).unwrap().name_bytes.is_empty());
+        assert_eq!(audio.sound(cached.frame().0).unwrap().volume, 1.0);
+        // Once cached, Open shares the original source even after its file is gone.
+        std::fs::remove_file(path.join("Sounds/a.wav")).unwrap();
+        let second = arena.create_owned_sound_frame().unwrap();
+        arena
+            .set_frame_name(second.frame(), Some(b"second"))
+            .unwrap();
+        audio
+            .sound_virtual(second.frame().0, 0x68, &[0.75f32.to_bits()])
+            .unwrap();
+        audio.sound_virtual(second.frame().0, 0x58, &[1]).unwrap();
+        audio
+            .sound_virtual(second.frame().0, 0x74, &[1.5f32.to_bits()])
+            .unwrap();
+        assert_eq!(
+            caches
+                .open_static_sound(&mut arena, &installation, second, b"a.wav", &mut memory)
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            arena.frame(second.frame()).unwrap().name_bytes.as_slice(),
+            b"second"
+        );
+        let state = audio.sound(second.frame().0).unwrap();
+        assert_eq!(
+            (state.volume, state.frequency, state.sound_type),
+            (0.75, 1.5, 1)
+        );
+        assert!(std::sync::Arc::ptr_eq(
+            state.source.as_ref().unwrap(),
+            audio
+                .sound(first.frame().0)
+                .unwrap()
+                .source
+                .as_ref()
+                .unwrap()
+        ));
+        // Equal names used to fail base Duplicate and poison the whole cache.
+        let same_name = arena.create_owned_sound_frame().unwrap();
+        arena
+            .set_frame_name(same_name.frame(), Some(b"first"))
+            .unwrap();
+        assert_eq!(
+            caches
+                .open_static_sound(&mut arena, &installation, same_name, b"a.wav", &mut memory)
+                .unwrap(),
+            0
+        );
+        assert!(!caches.is_interrupted(MissionCacheKind::Sound));
+        drop(state);
+        for frame in [first, second, same_name] {
+            arena.release(frame.frame()).unwrap();
+        }
+        assert_eq!(audio.live_voice_count().unwrap(), 1);
+        assert_eq!(audio.live_source_count().unwrap(), 1);
+        caches
+            .destruct(MissionCacheKind::Sound, &mut arena, &mut memory)
+            .unwrap();
+        assert_eq!(audio.live_voice_count().unwrap(), 0);
+        assert_eq!(audio.live_source_count().unwrap(), 0);
+        std::fs::remove_dir_all(path).unwrap();
     }
 }

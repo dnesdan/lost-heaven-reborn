@@ -154,7 +154,9 @@ impl<B: VehicleComponentsBackend> VehicleFrameBackend<'_, B> {
                 }
                 Ok(address)
             }
-            VehicleResourceEffect::LoadSound { sound, name, .. } => {
+            VehicleResourceEffect::LoadSound {
+                sound, name, flags, ..
+            } => {
                 let mut name_bytes = Vec::new();
                 // Cache::Open408d90 constructs an empty S_string for NULL.
                 // Its registered directory prefix and real file Open still run.
@@ -185,7 +187,9 @@ impl<B: VehicleComponentsBackend> VehicleFrameBackend<'_, B> {
                 // Game startup registers "Sounds\\" with this sound cache.
                 // Cache::Open prefixes each requested original table filename.
                 let original_path = format!("Sounds\\{name}");
-                if let Err(error) = audio.load_sound(sound, &original_path, installation) {
+                if let Err(error) =
+                    audio.load_sound_with_flags(sound, &original_path, flags | 0x10, installation)
+                {
                     audio
                         .record_load_failure(sound, &original_path, &error)
                         .map_err(failure)?;
@@ -371,6 +375,123 @@ impl<B: VehicleComponentsBackend> VehicleFrameBackend<'_, B> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vehicle_resource_load_preserves_frequency_flag_through_cache_and_source_owner() {
+        struct Host(RuntimeAudio);
+        impl VehicleFrameGameHost<VehicleMemoryError> for Host {
+            fn audio(&self) -> Option<RuntimeAudio> {
+                Some(self.0.clone())
+            }
+        }
+        let path = std::env::temp_dir().join(format!(
+            "lhr-vehicle-sound-flags-{}-{}",
+            std::process::id(),
+            crate::frame_lookup::incarnation()
+        ));
+        std::fs::create_dir_all(path.join("Sounds")).unwrap();
+        let mut wav = b"RIFF".to_vec();
+        wav.extend(44u32.to_le_bytes());
+        wav.extend(b"WAVEfmt ");
+        wav.extend(16u32.to_le_bytes());
+        wav.extend(1u16.to_le_bytes());
+        wav.extend(1u16.to_le_bytes());
+        wav.extend(4u32.to_le_bytes());
+        wav.extend(8u32.to_le_bytes());
+        wav.extend(2u16.to_le_bytes());
+        wav.extend(16u16.to_le_bytes());
+        wav.extend(b"data");
+        wav.extend(8u32.to_le_bytes());
+        wav.extend([4096i16; 4].into_iter().flat_map(i16::to_le_bytes));
+        std::fs::write(path.join("Sounds/engine.wav"), wav).unwrap();
+        let installation = lhr_assets::Installation::open(&path).unwrap();
+        let audio = RuntimeAudio::default();
+        let mut host = Host(audio.clone());
+        let mut arena = ModelArena::default();
+        let mut memory = VehicleFrameMemory::default();
+        memory.map_bytes(0x1000, b"engine.wav\0").unwrap();
+        let mut vehicle = VehicleInitState::from_car_bytes(
+            0x10000,
+            vec![0; 0x2204],
+            CarInitScratch {
+                address: 0x20000,
+                bytes: [0; CAR_INIT_STACK_BYTES],
+            },
+            CarInitRegisters {
+                ebx: 0,
+                ebp: 0,
+                esi: 0,
+                edi: 0,
+            },
+        )
+        .unwrap();
+        let mut scratch = VehicleComponentTailScratch {
+            address: 0x3000,
+            bytes: [0; VEHICLE_INIT_STACK_BYTES],
+        };
+        let mut projection = vehicle.car_live_memory(&mut scratch).unwrap();
+        let mut backend =
+            VehicleFrameBackend::with_installation(&mut arena, &mut memory, &installation)
+                .with_game_host(&mut host);
+        let mut handles = Vec::new();
+        for flags in [8, 0] {
+            let sound = backend
+                .vehicle_resource_effect(
+                    projection.reborrow(),
+                    VehicleResourceEffect::CreateSound {
+                        driver: 1,
+                        frame_type: 4,
+                    },
+                )
+                .unwrap();
+            handles.push(sound);
+            assert_eq!(
+                backend
+                    .vehicle_resource_effect(
+                        projection.reborrow(),
+                        VehicleResourceEffect::LoadSound {
+                            vehicle: 0x2000,
+                            sound,
+                            name: 0x1000,
+                            flags,
+                        }
+                    )
+                    .unwrap(),
+                0
+            );
+            // Cache adds 0x10; I3D_sound Open adds 0x200 and maps 8 to 0x10.
+            // The second caller inherits the first shared source's flags.
+            assert_eq!(audio.read_sound_word(sound, 0x198).unwrap(), 0x218);
+        }
+        let first = audio.sound(handles[0]).unwrap();
+        let second = audio.sound(handles[1]).unwrap();
+        assert!(std::sync::Arc::ptr_eq(
+            first.source.as_ref().unwrap(),
+            second.source.as_ref().unwrap()
+        ));
+        assert_eq!(audio.live_source_count().unwrap(), 1);
+        assert!(audio
+            .source_projection("Sounds\\engine.wav")
+            .unwrap()
+            .is_some());
+        drop((first, second));
+        for sound in handles {
+            backend
+                .vehicle_resource_effect(
+                    projection.reborrow(),
+                    VehicleResourceEffect::SoundVirtual {
+                        sound,
+                        slot: 0,
+                        arguments: [0; 4],
+                        count: 0,
+                    },
+                )
+                .unwrap();
+        }
+        assert_eq!(audio.live_voice_count().unwrap(), 0);
+        assert_eq!(audio.live_source_count().unwrap(), 0);
+        std::fs::remove_dir_all(path).unwrap();
+    }
 
     #[test]
     fn audio_frame_sync_reads_canonical_inherited_scale_after_parent_changes() {
