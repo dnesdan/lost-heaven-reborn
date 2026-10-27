@@ -53,8 +53,8 @@ pub struct SceneLoadMapError {
 /// enabled; omni and near subtree flags are absent. Callback5455e0 copies the
 /// current full name (+100), mapping a null name pointer to an empty key.
 /// Native C_str allocation/refcounts and map balancing remain host projections.
-/// The existing host map admits ASCII names; other name bytes return the
-/// already-published prefix without continuing to later frames or sectors.
+/// The host map preserves non-NUL name bytes in native unsigned strcmp order;
+/// invalid names retain the already-published prefix without further traversal.
 pub fn initialize_scene_load_map(
     arena: &ModelArena,
     scene: SceneKey,

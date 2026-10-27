@@ -23,6 +23,8 @@ pub struct MissionActorError {
 /// It never enumerates a scene or manufactures frames from inspection metadata.
 /// This is a logical host map projection; native C_str/map allocation, reference
 /// counting and tree balancing are not claimed as reconstructed functions.
+/// Keys preserve every non-NUL source byte. Game's comparator at 53efb0 uses
+/// unsigned-byte strcmp ordering, which matches Vec<u8>'s lexicographic order.
 pub struct OriginalLoadMap {
     slots: BTreeMap<Vec<u8>, Option<FrameReferenceId>>,
 }
@@ -395,7 +397,7 @@ fn publish_actor_data(
         .map_err(|e| format!("{e:?}"))
 }
 fn valid_name(name: &[u8]) -> Result<(), String> {
-    if name.is_ascii() && !name.contains(&0) {
+    if !name.contains(&0) {
         Ok(())
     } else {
         Err("unsupported actor map name domain".into())
@@ -614,6 +616,80 @@ mod tests {
             model,
             r,
         )
+    }
+    #[test]
+    fn load_map_preserves_all_non_nul_bytes_unsigned_order_and_slot_effects() {
+        let (_, model, frame) = setup();
+        let mut map = OriginalLoadMap::for_preceding_loader();
+        // These generated keys include invalid UTF-8 and undefined code-page
+        // bytes: native strcmp compares bytes, without decoding a character set.
+        for byte in (1..=255).rev() {
+            let name = [b'k', byte];
+            assert_eq!(map.lookup_or_insert_null(&name).unwrap(), None);
+            assert_eq!(map.slot(&name), Some(None));
+            map.publish_loaded_frame(model.arena(), &name, frame)
+                .unwrap();
+            assert_eq!(map.lookup_or_insert_null(&name).unwrap(), Some(frame));
+        }
+        map.publish_loaded_frame(model.arena(), b"", frame).unwrap();
+        map.publish_loaded_frame(model.arena(), b"k", frame)
+            .unwrap();
+        let expected = [vec![], b"k".to_vec()]
+            .into_iter()
+            .chain((1..=255).map(|byte| vec![b'k', byte]))
+            .collect::<Vec<_>>();
+        assert_eq!(map.slots.keys().cloned().collect::<Vec<_>>(), expected);
+
+        // A duplicate publication overwrites the actual slot. Invalid names do
+        // not insert a new slot or disturb the already-published prefix.
+        let replacement = model.arena().lookup_reference(model.root());
+        map.publish_loaded_frame(model.arena(), b"k\xff", replacement)
+            .unwrap();
+        assert_eq!(map.slot(b"k\xff"), Some(Some(replacement)));
+        let before = map.slots.clone();
+        assert!(map
+            .publish_loaded_frame(model.arena(), b"k\0\xff", frame)
+            .is_err());
+        assert!(map.lookup_or_insert_null(b"missing\0suffix").is_err());
+        assert_eq!(map.slots, before);
+    }
+    #[test]
+    fn actor_collection_resolves_exact_high_byte_name_before_factory() {
+        let (mut loader, mut model, frame) = setup();
+        let name = b"fixture.\x81\x80\xff";
+        loader
+            .publish_loaded_frame(model.arena(), name, frame)
+            .unwrap();
+        let mut terminated = name.to_vec();
+        terminated.extend_from_slice(b"\0ignored field padding");
+        let bytes = input(
+            &[
+                chunk(0xae23, &terminated),
+                chunk(0xae22, &1u32.to_le_bytes()),
+            ]
+            .concat(),
+        );
+        loader
+            .load_collection(
+                collection(&bytes),
+                model.arena_mut(),
+                None,
+                &[],
+                &mut Storage::default(),
+            )
+            .unwrap();
+        let actor = loader.current_actor.unwrap();
+        assert_eq!(loader.world.state(actor).unwrap().frame, Some(frame));
+        assert_eq!(loader.world.source(ActorSource::Primary), [Some(actor)]);
+        assert_eq!(loader.load_map_slot(name), Some(Some(frame)));
+        assert_eq!(loader.load_map_slot(b"fixture.\x80\x81\xff"), None);
+        assert_eq!(loader.cursor, bytes.len());
+        assert_eq!(
+            ModelActorFrames::borrow(model.arena_mut(), true)
+                .actor_data(frame)
+                .unwrap(),
+            FrameActorData::Present(Some(actor))
+        );
     }
     #[test]
     fn truncated_detector_payload_retains_registered_actor_and_real_frame() {
