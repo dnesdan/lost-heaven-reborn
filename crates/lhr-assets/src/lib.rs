@@ -1213,6 +1213,123 @@ impl Installation {
         self.read_optional(name)?
             .ok_or_else(|| Error("original asset unavailable".into()))
     }
+    /// Discover canonical asset names below one top-level directory without
+    /// reading payloads. Selected archive names and loose regular files share
+    /// the same namespace as `read`; archive precedence is unchanged. Hidden
+    /// entries and symlinks are excluded. A bounded host scan is diagnostic
+    /// discovery, not the original runtime's resource enumeration.
+    pub fn asset_paths(&self, directory: &str) -> Result<Vec<String>> {
+        safe_relative(directory)?;
+        if directory.contains('/') || directory.starts_with('.') {
+            return err("asset catalog requires one visible top-level directory");
+        }
+        let directory = dta::canonical(directory).map_err(Error)?;
+        let prefix = format!("{directory}/");
+        let mut paths = std::collections::BTreeSet::new();
+        for path in self
+            .archive_index
+            .keys()
+            .filter(|path| path.starts_with(&prefix))
+        {
+            if path.split('/').all(|part| !part.starts_with('.')) {
+                if paths.len() >= 100_000 || path.len() > 1024 {
+                    return err("asset catalog quota exceeded");
+                }
+                paths.insert(path.clone());
+            }
+        }
+        let children = fs::read_dir(&self.root)
+            .map_err(|_| Error("asset catalog directory unreadable".into()))?;
+        let mut visited = 0usize;
+        let mut selected = None;
+        for child in children {
+            if visited == 100_000 {
+                return err("asset catalog quota exceeded");
+            }
+            visited += 1;
+            let child = child
+                .map_err(|_| Error("asset catalog entry unreadable".into()))?
+                .path();
+            let Some(name) = child.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            if name.to_lowercase() == directory && selected.replace(child).is_some() {
+                return err("ambiguous loose asset directory");
+            }
+        }
+        if let Some(path) = selected {
+            let metadata = fs::symlink_metadata(&path)
+                .map_err(|_| Error("asset catalog metadata unavailable".into()))?;
+            if metadata.is_dir() && !metadata.file_type().is_symlink() {
+                verify_contained(&self.root, &path)?;
+                self.collect_asset_paths(&path, &directory, 0, &mut visited, &mut paths)?;
+            }
+        }
+        Ok(paths.into_iter().collect())
+    }
+
+    fn collect_asset_paths(
+        &self,
+        directory: &Path,
+        relative: &str,
+        depth: usize,
+        visited: &mut usize,
+        paths: &mut std::collections::BTreeSet<String>,
+    ) -> Result<()> {
+        if depth > 16 {
+            return err("asset catalog quota exceeded");
+        }
+        let children = fs::read_dir(directory)
+            .map_err(|_| Error("asset catalog directory unreadable".into()))?;
+        let mut names = std::collections::BTreeSet::new();
+        for child in children {
+            if *visited == 100_000 {
+                return err("asset catalog quota exceeded");
+            }
+            *visited += 1;
+            let child = child
+                .map_err(|_| Error("asset catalog entry unreadable".into()))?
+                .path();
+            let Some(name) = child.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            if name.starts_with('.') {
+                continue;
+            }
+            let name = name.to_lowercase();
+            let relative = format!("{relative}/{name}");
+            if safe_relative(&relative).is_err() {
+                continue;
+            }
+            let Ok(relative) = dta::canonical(&relative) else {
+                continue;
+            };
+            if !names.insert(name) {
+                return err("ambiguous loose asset path");
+            }
+            if relative.len() > 1024 {
+                return err("asset catalog quota exceeded");
+            }
+            let metadata = fs::symlink_metadata(&child)
+                .map_err(|_| Error("asset catalog metadata unavailable".into()))?;
+            if metadata.file_type().is_symlink() {
+                continue;
+            }
+            if !metadata.is_dir() && !metadata.is_file() {
+                continue;
+            }
+            verify_contained(&self.root, &child)?;
+            if metadata.is_dir() {
+                self.collect_asset_paths(&child, &relative, depth + 1, visited, paths)?;
+            } else {
+                if paths.len() >= 100_000 && !paths.contains(&relative) {
+                    return err("asset catalog quota exceeded");
+                }
+                paths.insert(relative);
+            }
+        }
+        Ok(())
+    }
     /// None means no archive or loose entry has this path. Selected-source,
     /// containment, ambiguity and IO errors remain errors rather than absence.
     pub fn read_optional(&self, name: &str) -> Result<Option<Vec<u8>>> {
@@ -3150,6 +3267,87 @@ mod animation_archive_tests {
         fs::remove_file(directory.0.join("a4.dta")).unwrap();
         let installation = Installation::open(&directory.0).unwrap();
         assert_eq!(installation.read_original_path(original).unwrap(), b"loose");
+    }
+
+    #[test]
+    fn asset_catalog_merges_archive_and_loose_names_without_payload_reads() {
+        let path = std::env::temp_dir().join(format!("lhr-asset-catalog-{}", std::process::id()));
+        fs::create_dir(&path).unwrap();
+        let directory = Directory(path);
+        fs::create_dir(directory.0.join("Anims")).unwrap();
+        fs::create_dir(directory.0.join("Anims/Nested")).unwrap();
+        fs::create_dir(directory.0.join("Anims/.private")).unwrap();
+        fs::write(directory.0.join("Anims/SYNTHETIC.5DS"), b"loose shadowed").unwrap();
+        fs::write(directory.0.join("Anims/Nested/Other.5ds"), b"loose").unwrap();
+        fs::write(directory.0.join("Anims/.private/hidden.5ds"), b"hidden").unwrap();
+        fs::write(
+            directory.0.join("a4.dta"),
+            archive(b"archive", 0x43876fea, 0x900cdba8),
+        )
+        .unwrap();
+        let installation = Installation::open(&directory.0).unwrap();
+        assert_eq!(
+            installation.asset_paths("ANIMS").unwrap(),
+            ["anims/nested/other.5ds", "anims/synthetic.5ds"]
+        );
+        assert!(installation.asset_paths("missing").unwrap().is_empty());
+        for invalid in ["..", "/anims", "anims/nested", "anims\\nested", ".private"] {
+            assert!(installation.asset_paths(invalid).is_err());
+        }
+        // Discovery uses admitted names, not payloads. A corrupted selected
+        // archive still fails its actual read and never selects the loose copy.
+        fs::write(directory.0.join("a4.dta"), b"corrupt").unwrap();
+        assert!(installation.asset_paths("anims").is_ok());
+        assert!(installation.read("anims/synthetic.5ds").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn asset_catalog_excludes_symlinks_and_rejects_case_ambiguity() {
+        let path =
+            std::env::temp_dir().join(format!("lhr-asset-catalog-links-{}", std::process::id()));
+        fs::create_dir(&path).unwrap();
+        let directory = Directory(path);
+        fs::create_dir(directory.0.join("Models")).unwrap();
+        fs::write(directory.0.join("Models/box.4ds"), b"box").unwrap();
+        std::os::unix::fs::symlink("/", directory.0.join("Models/outside")).unwrap();
+        std::os::unix::fs::symlink("box.4ds", directory.0.join("Models/link.4ds")).unwrap();
+        let installation = Installation::open(&directory.0).unwrap();
+        assert_eq!(
+            installation.asset_paths("models").unwrap(),
+            ["models/box.4ds"]
+        );
+        fs::write(directory.0.join("Models/BOX.4ds"), b"ambiguous").unwrap();
+        assert!(installation.asset_paths("models").is_err());
+    }
+
+    #[test]
+    fn asset_catalog_depth_is_bounded_and_unreadable_names_are_omitted() {
+        let path =
+            std::env::temp_dir().join(format!("lhr-asset-catalog-depth-{}", std::process::id()));
+        fs::create_dir(&path).unwrap();
+        let directory = Directory(path);
+        fs::create_dir(directory.0.join("models")).unwrap();
+        #[cfg(unix)]
+        fs::write(
+            directory.0.join("models/ignored.4ds "),
+            b"not an asset name",
+        )
+        .unwrap();
+        let installation = Installation::open(&directory.0).unwrap();
+        assert!(installation.asset_paths("models").unwrap().is_empty());
+        let mut nested = directory.0.join("models");
+        for _ in 0..18 {
+            nested.push("nested");
+            fs::create_dir(&nested).unwrap();
+        }
+        assert!(
+            installation
+                .asset_paths("models")
+                .unwrap_err()
+                .0
+                .contains("quota")
+        );
     }
 
     #[test]
