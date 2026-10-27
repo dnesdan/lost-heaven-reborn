@@ -539,8 +539,22 @@ pub fn snapshot_scene(
         .scene_active_camera(scene)
         .map_err(|e| e.to_string())?
         .ok_or("Canonical Scene has no active camera")?;
-    let frames: Vec<_> = visible
-        .backdrop
+    // CullSector still processes the backdrop even inside a closed interior.
+    // Render's later AddSectorFGroups gate reads the PRIMARY sector's visible
+    // bit, not the backdrop's CULLED bit (render.cpp, mafia-re eb5a921).
+    let primary = arena.scene(scene).map_err(|e| e.to_string())?.sectors[0];
+    let draw_backdrop = arena
+        .sector(primary)
+        .map_err(|e| e.to_string())?
+        .sector_flags
+        & crate::scene_visibility::VISIBLE
+        != 0;
+    let backdrop = if draw_backdrop {
+        visible.backdrop.as_slice()
+    } else {
+        &[]
+    };
+    let frames: Vec<_> = backdrop
         .iter()
         .chain(&visible.main)
         .chain(&visible.near)
@@ -558,7 +572,7 @@ pub fn snapshot_scene(
             .collect()
     };
     let draws = ScenePassDraws {
-        backdrop: indices(&visible.backdrop),
+        backdrop: indices(backdrop),
         main: indices(&visible.main),
         near: indices(&visible.near),
     };

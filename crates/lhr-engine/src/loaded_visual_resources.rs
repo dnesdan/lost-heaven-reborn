@@ -2737,6 +2737,69 @@ mod tests {
         std::fs::remove_dir(root).unwrap();
     }
     #[test]
+    fn selected_last_lod_fade_dispatches_on_live_visual_class() {
+        crate::native_precision::Pc24PrecisionState::default().run(|| {
+            let path = std::env::temp_dir().join(format!(
+                "lhr-class-fade-{}-{}",
+                std::process::id(),
+                identity().unwrap()
+            ));
+            std::fs::create_dir(&path).unwrap();
+            let installation = lhr_assets::Installation::open(&path).unwrap();
+            for visual in [0, 2, 3] {
+                let mut frame = plain_frame_fixture();
+                frame.visual = Some(visual);
+                frame.lods[0].distance = 100.;
+                let mut last = frame.lods[0].clone();
+                last.distance = 400.;
+                frame.lods.push(last);
+                if visual != 0 {
+                    frame.skin = Some(lhr_assets::SkinRecord {
+                        lods: vec![lhr_assets::SkinLodRecord { definition: None }; 2],
+                    });
+                    if visual == 3 {
+                        frame.morph = Some(lhr_assets::MorphRecord {
+                            target_count: 0,
+                            definition: None,
+                        });
+                    }
+                }
+                let source = lhr_assets::Model {
+                    materials: vec![],
+                    frames: vec![frame],
+                };
+                let mut owner = LoadedVisualResources::new().unwrap();
+                let object = if visual == 0 {
+                    owner.load_plain_object(&source, 0, &installation).unwrap()
+                } else {
+                    owner
+                        .load_singlemesh_source(&source, 0, &installation)
+                        .unwrap()
+                };
+                for (distance, expected) in if visual == 0 {
+                    [(300., 2. / 3.), (350., 1. / 3.)]
+                } else {
+                    [(300., 1.), (350., 0.5)]
+                } {
+                    let selected = owner
+                        .select_render_lod(object, distance, 1., 1., 0, 0)
+                        .unwrap();
+                    let RenderLodSelection::Selected { index, fade } = selected else {
+                        panic!()
+                    };
+                    assert_eq!(index, 1);
+                    assert!(
+                        (fade - expected).abs() < 0.000001,
+                        "visual {visual}, distance {distance}: {fade}"
+                    );
+                    assert_eq!(owner.objects.object(object).unwrap().fade, fade);
+                }
+                owner.destroy_object(object).unwrap();
+            }
+            std::fs::remove_dir_all(path).unwrap();
+        });
+    }
+    #[test]
     fn ordinary_open_ended_last_lod_keeps_rendering_without_fade_or_cull() {
         let mut frame = plain_frame_fixture();
         frame.lods[0].distance = 25.;
@@ -3106,7 +3169,8 @@ impl LoadedVisualResources {
         if (record.visual_type() == crate::i3d_object::ObjectVisualType::Billboard) != billboard {
             return Err(LoadedVisualError::UnsupportedVisual(billboard.then_some(4)));
         }
-        let lit = record.visual_type() == crate::i3d_object::ObjectVisualType::LitUnconstructed;
+        let visual_type = record.visual_type();
+        let lit = visual_type == crate::i3d_object::ObjectVisualType::LitUnconstructed;
         let Some(mesh) = record.mesh else {
             return Ok(RenderLodSelection::Missing { index: 0 });
         };
@@ -3162,8 +3226,16 @@ impl LoadedVisualResources {
         if lit {
             return Ok(RenderLodSelection::Selected { index, fade: 1. });
         }
-        let fade = if billboard {
-            crate::i3d_object::render_billboard_fade(
+        // Singlemorph inherits Singlemesh's m_AddFGroups. Both it and
+        // Billboard start fading at half the last limit PLUS the full previous
+        // limit; ordinary Object uses half of each limit (mafia-re eb5a921).
+        let fade = if billboard
+            || matches!(
+                visual_type,
+                crate::i3d_object::ObjectVisualType::Singlemesh
+                    | crate::i3d_object::ObjectVisualType::Singlemorph
+            ) {
+            crate::i3d_object::render_derived_visual_fade(
                 distance_squared,
                 quality,
                 world_scale,

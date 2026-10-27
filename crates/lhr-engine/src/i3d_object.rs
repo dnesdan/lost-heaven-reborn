@@ -1616,4 +1616,4 @@ mod tests {
 #[path = "object_lod.rs"]
 mod object_lod;
 pub use object_lod::ObjectLodError;
-pub(crate) use object_lod::{render_billboard_fade, render_fade};
+pub(crate) use object_lod::{render_derived_visual_fade, render_fade};

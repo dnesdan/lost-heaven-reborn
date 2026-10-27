@@ -99,8 +99,29 @@ pub fn live_material_with_fade(
         color_key_reference: 200,
         two_sided: flags & 0x10000000 != 0,
         front_face,
+        visual_z_bias: false,
         sort_center,
     }))
+}
+
+/// T_l.cpp PrepareLights/SetVertexAlpha pack one alpha for the entire LOD
+/// from its FIRST face-group material. Draw queue/blend decisions independently
+/// read each current group. Object transparency is one in this admitted bridge.
+pub fn packed_object_vertex_alpha(
+    first_material: Option<&I3dMaterial>,
+    fade: f32,
+) -> Result<f32, String> {
+    let alpha = first_material.map_or(1., |material| material.alpha);
+    if !alpha.is_finite()
+        || !(0. ..=1.).contains(&alpha)
+        || !fade.is_finite()
+        || !(0. ..=1.).contains(&fade)
+    {
+        return Err("First face-group alpha/fade is outside the presentation domain".into());
+    }
+    let total = crate::native_matrix::checked_f32_mul(fade, alpha)
+        .map_err(|_| "Object/first-material alpha arithmetic unavailable")?;
+    Ok((total * 255.).round_ties_even() / 255.)
 }
 
 /// I3d_lit_object.cpp m_RenderFGroup's unconstructed branch. Alpha/add/key
@@ -137,6 +158,7 @@ pub fn unconstructed_lit_material_flags(
         color_key_reference: 200,
         two_sided: flags & 0x10000000 != 0,
         front_face,
+        visual_z_bias: false,
         sort_center,
     }))
 }

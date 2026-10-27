@@ -451,6 +451,16 @@ fn snapshot_arena_tree_inner(
                     .collect::<Result<Vec<_>, String>>()
             })
             .transpose()?;
+        let object_vertex_alpha = if !billboard
+            && view.visual_type != crate::i3d_object::ObjectVisualType::LitUnconstructed
+        {
+            Some(crate::presentation_material::packed_object_vertex_alpha(
+                view.groups.first().and_then(|group| group.material),
+                *fade,
+            )?)
+        } else {
+            None
+        };
         for (group_number, group) in view.groups.into_iter().enumerate() {
             if meshes.len() >= CAR_INSPECTION_MAX_DRAWS {
                 return Err("Car inspection exceeds its draw budget".into());
@@ -522,8 +532,30 @@ fn snapshot_arena_tree_inner(
                 lhr_render::RenderMaterial::OriginalNull {
                     color,
                     sort_center: *center,
+                    visual_z_bias: false,
                 }
             };
+            // Render's per-group state uses the current live visual, even
+            // when the face-group material is null.
+            let visual_z_bias =
+                arena.state(*frame).map_err(|e| e.to_string())?.visual_flags & 0x100 != 0;
+            match &mut policy {
+                lhr_render::RenderMaterial::Original(material) => {
+                    material.visual_z_bias = visual_z_bias
+                }
+                lhr_render::RenderMaterial::OriginalNull {
+                    visual_z_bias: value,
+                    ..
+                } => *value = visual_z_bias,
+                lhr_render::RenderMaterial::Legacy => unreachable!(),
+            }
+            if let Some(alpha) = object_vertex_alpha {
+                match &mut policy {
+                    lhr_render::RenderMaterial::Original(material) => material.color[3] = alpha,
+                    lhr_render::RenderMaterial::OriginalNull { color, .. } => color[3] = alpha,
+                    lhr_render::RenderMaterial::Legacy => unreachable!(),
+                }
+            }
             if billboard {
                 // VertexColors supplies native first-material RGB. The shader
                 // reads alpha from the material policy, not the sidecar, so
@@ -976,6 +1008,7 @@ fn constructed_lit_material(
         color_key_reference: 200,
         two_sided: flags & 0x10000000 != 0,
         front_face: source_ccw_cull_front_face(SourceIndexOrder::Retained),
+        visual_z_bias: false,
         sort_center: center,
     }))
 }
@@ -1130,6 +1163,124 @@ mod tests {
         std::fs::remove_dir_all(path).unwrap();
     }
     #[test]
+    fn ordinary_and_skinned_lod_share_first_group_alpha_across_group_order_and_fade() {
+        crate::native_precision::Pc24PrecisionState::default().run(|| {
+            use lhr_render::{AlphaMode, MaterialQueue, RenderMaterial};
+            let path = std::env::temp_dir().join(format!(
+                "lhr-first-group-alpha-{}-{}",
+                std::process::id(),
+                crate::frame_lookup::incarnation()
+            ));
+            std::fs::create_dir(&path).unwrap();
+            let installation = lhr_assets::Installation::open(&path).unwrap();
+            for skinned in [false, true] {
+                for order in [[0, 1], [1, 0]] {
+                    let mut source = (*crate::model_loading::tests::skinned_source()).clone();
+                    let visual = &mut source.frames[0];
+                    visual.lods[0].distance = 400.;
+                    visual.lods[0].vertices.push(lhr_assets::Vertex {
+                        position: [0.; 3],
+                        normal: [0., 0., 1.],
+                        uv: [0.; 2],
+                    });
+                    visual.lods[0].groups = order
+                        .map(|material| lhr_assets::FaceGroup {
+                            material,
+                            indices: vec![0, 1, 2],
+                        })
+                        .to_vec();
+                    if skinned {
+                        visual.skin.as_mut().unwrap().lods[0]
+                            .definition
+                            .as_mut()
+                            .unwrap()
+                            .root_vertex_count = 2;
+                    } else {
+                        visual.visual = Some(0);
+                        visual.skin = None;
+                        source.frames.truncate(1);
+                    }
+                    source.materials = [0.5, 1.]
+                        .map(|opacity| lhr_assets::Material {
+                            flags: 0,
+                            ambient: [0.; 3],
+                            diffuse: [1.; 3],
+                            texture: String::new(),
+                            emission: [0.; 3],
+                            opacity,
+                            alpha_texture: None,
+                            reflection: None,
+                            environment_texture: None,
+                            animation: None,
+                        })
+                        .to_vec();
+                    let mut arena = ModelArena::default();
+                    let scene = arena.construct_scene_owner_prefix().unwrap();
+                    let model = arena.create_model().unwrap();
+                    arena.scene_add_frame(scene, model.root()).unwrap();
+                    let loaded = arena
+                        .load_parsed_into_model(model, Arc::new(source))
+                        .unwrap();
+                    let frame = loaded.frames()[0];
+                    arena
+                        .load_plain_visual_resources(model, &installation)
+                        .unwrap();
+                    arena.graph.projected_state_mut(frame).unwrap().visual_flags &= !0x100;
+                    let unfaded = snapshot_arena_tree(&mut arena, model.root()).unwrap();
+                    arena.graph.projected_state_mut(frame).unwrap().visual_flags |= 0x100;
+                    let center = arena.visual_world_bounds(frame).unwrap().center;
+                    // Three exact offsets produce dist²=300 and fade=.5 for
+                    // this one-level LOD (limit=400, fade starts at 200).
+                    let faded = snapshot_selected_frames_with_view(
+                        &mut arena,
+                        &[frame],
+                        crate::inspection_lod::InspectionLodView {
+                            camera_pc: center.map(|v| v + 10.),
+                            rs_lod_quality: 1.,
+                        },
+                    )
+                    .unwrap();
+                    for (snapshot, fade) in [(&unfaded, 1.), (&faded, 0.5)] {
+                        assert_eq!(snapshot.scene.meshes.len(), 2);
+                        let first_alpha = if order[0] == 0 { 0.5 } else { 1. };
+                        let packed = (first_alpha * fade * 255_f32).round_ties_even() / 255.;
+                        for (draw, material_index) in snapshot.scene.meshes.iter().zip(order) {
+                            let RenderMaterial::Original(material) = draw.material else {
+                                panic!()
+                            };
+                            assert_eq!(material.visual_z_bias, fade < 1.);
+                            assert_eq!(
+                                material.color[3], packed,
+                                "skinned={skinned}, order={order:?}, fade={fade}"
+                            );
+                            // Current-group float alpha still determines its
+                            // draw blend and queue, before shared alpha packing.
+                            let transparent = material_index == 0 || fade < 1.;
+                            assert_eq!(
+                                material.queue,
+                                if transparent {
+                                    MaterialQueue::Transparent
+                                } else {
+                                    MaterialQueue::Opaque
+                                }
+                            );
+                            assert_eq!(
+                                material.alpha,
+                                if transparent {
+                                    AlphaMode::Blend
+                                } else {
+                                    AlphaMode::Opaque
+                                }
+                            );
+                        }
+                    }
+                    arena.close(model).unwrap();
+                }
+            }
+            std::fs::remove_dir_all(path).unwrap();
+        });
+    }
+    #[test]
     fn live_arena_materials_share_pixels_and_preserve_diffuse_opacity_and_world_center() {
         use crate::model_loading::tests::frame;
         use lhr_render::{AlphaMode, MaterialQueue, RenderMaterial};
@@ -1222,7 +1373,7 @@ mod tests {
             panic!()
         };
         assert_eq!(a.color, [1.; 4]);
-        assert_eq!(b.color, [0.25, 0.5, 1., 128. / 255.]);
+        assert_eq!(b.color, [0.25, 0.5, 1., 1.]);
         assert_eq!(b.sort_center, [10., 20., -30.]);
         assert_eq!(
             (b.alpha, b.queue),
