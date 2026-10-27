@@ -470,12 +470,10 @@ mod tests {
             second.source.as_ref().unwrap()
         ));
         assert_eq!(audio.live_source_count().unwrap(), 1);
-        assert!(
-            audio
-                .source_projection("Sounds\\engine.wav")
-                .unwrap()
-                .is_some()
-        );
+        assert!(audio
+            .source_projection("Sounds\\engine.wav")
+            .unwrap()
+            .is_some());
         drop((first, second));
         for sound in handles {
             backend
