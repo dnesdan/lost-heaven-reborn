@@ -13,16 +13,24 @@ use std::{fmt::Write as _, path::Path};
 /// needs a different original prestate should use MissionLoadSession directly.
 const PROBE_SIZE: [i32; 2] = [800, 600];
 
-pub(super) fn validate_inputs(mission: &str, model_directories: &[String]) -> Result<(), String> {
+/// Original mission directories include hyphenated names such as
+/// `mise02-saliery`. Reject dots and separators so they cannot escape the
+/// installation's `missions/` directory when forming source filenames.
+pub(super) fn validate_mission_name(mission: &str) -> Result<(), String> {
     if mission.is_empty()
         || !mission
             .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
     {
         return Err(
-            "Probe mission name must contain only ASCII letters, digits and underscore".into(),
+            "Mission name must contain only ASCII letters, digits, underscore and hyphen".into(),
         );
     }
+    Ok(())
+}
+
+pub(super) fn validate_inputs(mission: &str, model_directories: &[String]) -> Result<(), String> {
+    validate_mission_name(mission)?;
     for directory in model_directories {
         if directory.is_empty() || !directory.is_ascii() || directory.contains('\0') {
             return Err("Probe model directories must be nonempty ASCII paths without NUL".into());
@@ -211,5 +219,26 @@ fn append_load_report(report: &mut String, session: &MissionLoadSession) {
             "Only the admitted prefix completed; this is not a playable mission result."
         )
         .unwrap();
+    }
+}
+
+
+#[cfg(test)]
+mod mission_name_tests {
+    use super::*;
+
+    #[test]
+    fn accepts_original_hyphenated_mission_directories() {
+        for name in ["00menu", "INTRO", "mise01", "mise02-saliery", "mission_extra"] {
+            assert!(validate_mission_name(name).is_ok(), "{name}");
+            assert!(validate_inputs(name, &[]).is_ok(), "{name}");
+        }
+    }
+
+    #[test]
+    fn rejects_directory_escape_and_unknown_name_encodings() {
+        for name in ["", ".", "..", "../intro", "intro/scene2.bin", "intro\\scene2.bin", "úvod"] {
+            assert!(validate_mission_name(name).is_err(), "{name:?}");
+        }
     }
 }

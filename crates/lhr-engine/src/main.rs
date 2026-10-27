@@ -251,11 +251,7 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
         return Err("A mission requires an installation root and no model".into());
     }
     if let Some(name) = &result.mission {
-        if name.is_empty() || !name.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_') {
-            return Err(
-                "Mission name must contain only ASCII letters, digits and underscore".into(),
-            );
-        }
+        mission_load_probe::validate_mission_name(name)?;
     }
     if result.lab && result.headless {
         return Err("Engine Lab requires a native window; omit --headless".into());
@@ -2746,6 +2742,40 @@ mod mission_probe_option_tests {
                 parse(&args).is_err(),
                 "accepted incompatible flags: {args:?}"
             );
+        }
+    }
+
+
+    #[test]
+    fn ordinary_and_probe_modes_accept_hyphenated_original_missions() {
+        for mission in ["mise02-saliery", "MISE01", "00menu", "intro"] {
+            assert!(parse(&[
+                "--root", "/synthetic-installation", "--mission", mission,
+            ]).is_ok(), "ordinary mode rejected {mission}");
+            assert!(parse(&[
+                "--mission-load-probe", "--root", "/synthetic-installation",
+                "--mission", mission,
+            ]).is_ok(), "probe mode rejected {mission}");
+        }
+    }
+
+    #[test]
+    fn both_entrypoints_reject_path_traversal_and_non_ascii_missions() {
+        for mission in [
+            "", ".", "..", "../intro", "mise02/scene2.bin",
+            "mise02\\intro", "mise02-saliery/../intro", "úvod",
+        ] {
+            for prefix in [
+                vec!["--root", "/synthetic-installation", "--mission"],
+                vec![
+                    "--mission-load-probe", "--root", "/synthetic-installation",
+                    "--mission",
+                ],
+            ] {
+                let mut args = prefix;
+                args.push(mission);
+                assert!(parse(&args).is_err(), "accepted invalid mission {mission:?}");
+            }
         }
     }
 
