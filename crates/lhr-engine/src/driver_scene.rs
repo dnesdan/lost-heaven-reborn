@@ -150,6 +150,10 @@ impl DriverSceneOwner {
     pub fn host_sound_backend(&self) -> Option<&crate::frame_sound::HostSoundBackend> {
         self.host_sound_backend.as_ref()
     }
+    /// Actual driver owner identity for host lifetime-domain checks.
+    pub(crate) fn identity(&self) -> u64 {
+        self.identity
+    }
     pub fn scenes(&self) -> &[SceneKey] {
         &self.scenes
     }
