@@ -1,7 +1,7 @@
 //! Host composition of the existing CPU world intake and scene2 prefix loader.
 //!
 //! This is deliberately not C_mission::Open, MissionRuntime, GameInit, or an
-//! actor/script scheduler. A completed admitted prefix does not establish a
+//! compiled-script scheduler. Source-only actor/program intake does not establish a
 //! playable mission. All scene, frame, texture and cache effects use the same
 //! actual owners; a stopped load retains its first error and executed prefix.
 use crate::c_str::StringError;
@@ -49,8 +49,8 @@ pub enum MissionLoadPhase {
     LoadMap,
     Scene2Input,
     Scene2Prefix,
-    /// Only the existing loader's admitted input completed. There is no
-    /// transition to actor installation, gameplay, or mission completion.
+    /// The admitted scene2 input, including source actors/programs, completed.
+    /// This does not imply GameInit, compiled scripts or gameplay completion.
     PrefixComplete,
 }
 
@@ -138,6 +138,9 @@ impl Default for MissionDiscardProgress {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct MissionOwnedCounts {
     pub live_frames: usize,
+    pub mission_actors: u32,
+    pub mission_program_sources: usize,
+    pub mission_content_allocations: usize,
     pub driver_scenes: usize,
     pub driver_scene_capacity: u32,
     pub cache_allocations: usize,
@@ -213,6 +216,10 @@ impl MissionOwnedCounts {
         let sound_backend = driver.host_sound_backend();
         Ok(MissionOwnedCounts {
             live_frames: arena.live_frame_count(),
+            mission_actors: loader.map_or(0, |loader| loader.content.actors.world.actor_count),
+            mission_program_sources: loader.map_or(0, |loader| loader.content.live_program_count()),
+            mission_content_allocations: loader
+                .map_or(0, |loader| loader.content.live_allocation_count()),
             driver_scenes: driver.scenes().len(),
             driver_scene_capacity: driver.capacity(),
             cache_allocations: cache_memory.live_allocations(),
@@ -519,7 +526,24 @@ impl MissionLoadSession {
 
         self.phase = MissionLoadPhase::LoadMap;
         match MissionSceneLoader::new(&self.arena, scene) {
-            Ok(loader) => self.loader = Some(loader),
+            Ok(mut loader) => {
+                // Open copies the mission name, not the scene2 filename. The
+                // requested path's immediate parent supplies that actual name;
+                // an unqualified file has no supplied context and remains None.
+                let mission_path = request.scene2_path.rfind(['/', '\\']).map(|end| {
+                    request.scene2_path[..end]
+                        .rsplit(['/', '\\'])
+                        .next()
+                        .unwrap()
+                        .as_bytes()
+                        .to_vec()
+                });
+                loader
+                    .content
+                    .set_program_context(mission_path, Vec::new())
+                    .map_err(MissionLoadCause::LoadMap)?;
+                self.loader = Some(loader);
+            }
             Err(failure) => {
                 self.partial_map = Some(failure.prefix);
                 return Err(MissionLoadCause::LoadMap(failure.detail));

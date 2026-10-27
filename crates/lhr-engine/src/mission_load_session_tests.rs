@@ -1,4 +1,4 @@
-//! Synthetic composition tests. No original game data, actors or script stand-ins.
+//! Synthetic composition tests over actual scene, actor and source owners.
 use super::*;
 use crate::frame_transform::FrameKey;
 use crate::mission_resources::ModelCachePhase;
@@ -270,7 +270,7 @@ fn missing_scene2_retains_world_transfer_and_actual_name_map_without_camera_crea
 }
 
 #[test]
-fn unsupported_actor_root_is_the_exact_frontier_and_does_not_run_later_objects() {
+fn malformed_actor_root_is_the_exact_frontier_and_does_not_run_later_objects() {
     let bytes = scene2(
         &[
             chunk(0xae20, &[1, 2, 3, 4]),
@@ -285,13 +285,11 @@ fn unsupported_actor_root_is_the_exact_frontier_and_does_not_run_later_objects()
     let MissionLoadCause::Scene2Prefix(error) = &session.failure().unwrap().cause else {
         panic!("wrong frontier: {:?}", session.failure());
     };
-    // The reached actor-root arm now stops at the first unimplemented ordered
-    // actor dispatch, before the later object record can run.
+    // The actor collection reads its first child header lazily; the malformed
+    // header stops the invocation before the later object root can run.
     assert_eq!(error.cursor, 22); // LS header + version chunk + reached root header
     assert_eq!(error.entry, 0x544a16);
-    assert!(error
-        .detail
-        .contains("actor root requires ordered Game actor dispatch"));
+    assert!(error.detail.contains("truncated scene chunk header"));
     let loader = session.loader().unwrap();
     assert_eq!(loader.cursor, error.cursor);
     assert_eq!(loader.version, [Some(5), Some(1)]);
@@ -1046,4 +1044,416 @@ fn scene2_saved_lighting_replacement_uses_current_owner_and_terminal_disposal() 
     session.loader = Some(loader);
     discard(&mut session);
     assert!(session.arena().frame(replacement).is_err());
+}
+
+fn actor_record(name: &[u8], kind: u32, data: &[u8]) -> Vec<u8> {
+    let mut name = name.to_vec();
+    name.push(0);
+    chunk(
+        0xae21,
+        &[
+            chunk(0xae23, &name),
+            chunk(0xae22, &kind.to_le_bytes()),
+            chunk(0xae24, data),
+        ]
+        .concat(),
+    )
+}
+fn program_record(name: &[u8], source: &[u8]) -> Vec<u8> {
+    chunk(
+        0xae51,
+        &[
+            vec![0],
+            (name.len() as u32).to_le_bytes().to_vec(),
+            name.to_vec(),
+            (source.len() as u32).to_le_bytes().to_vec(),
+            source.to_vec(),
+        ]
+        .concat(),
+    )
+}
+#[test]
+fn ordered_actor_and_program_roots_share_the_live_scene_map_and_terminal_owner() {
+    use crate::actor_frames::FrameUserData;
+    use crate::actor_world::ActorSource;
+    use crate::original_program::ProgramPhase;
+    let bytes = scene2(
+        &[
+            chunk(0x4000, &object(9, b"first", &[])),
+            chunk(
+                0xae20,
+                &[
+                    actor_record(b"first", 3, b"default ignored"),
+                    actor_record(b"first", 1, b"opaque base payload"),
+                    actor_record(b"later", 2, b"unreached missing frame"),
+                ]
+                .concat(),
+            ),
+            chunk(
+                0xae50,
+                &program_record(b"first-source", b"original unknown commands stay source"),
+            ),
+            chunk(0x4000, &object(9, b"later", &[])),
+            chunk(
+                0xae20,
+                &[
+                    actor_record(
+                        b"first",
+                        2,
+                        b"duplicate userdata prevents unsupported factory",
+                    ),
+                    actor_record(b"later", 1, b""),
+                ]
+                .concat(),
+            ),
+            chunk(0xae50, &program_record(b"second-source", b"")),
+        ]
+        .concat(),
+    );
+    let fixture = Fixture::new(Some(&world(&[])), Some(&bytes), None);
+    let mut session = fixture.session();
+    load(&mut session, &[]).unwrap();
+    let loader = session.loader().unwrap();
+    assert_eq!(loader.finished_objects, 2);
+    assert_eq!(loader.cursor, bytes.len());
+    assert_eq!(loader.content.mission_path(), Some(b"synthetic".as_slice()));
+    let actors = loader
+        .content
+        .actors
+        .world
+        .source(ActorSource::Primary)
+        .to_vec();
+    assert_eq!(actors.len(), 2);
+    assert_eq!(loader.content.actors.world.actor_count, 2);
+    assert!(loader
+        .content
+        .actors
+        .world
+        .source(ActorSource::Active)
+        .is_empty());
+    for (name, actor) in [
+        (b"first".as_slice(), actors[0].unwrap()),
+        (b"later".as_slice(), actors[1].unwrap()),
+    ] {
+        let frame = loader.load_map.map.slot(name).flatten().unwrap();
+        assert_eq!(
+            loader.content.actors.world.state(actor).unwrap().frame,
+            Some(frame)
+        );
+        assert_eq!(loader.content.actors.world.state(actor).unwrap().byte_66, 1);
+        assert!(matches!(
+            session
+                .arena()
+                .user_data(FrameKey(frame.identity()))
+                .unwrap(),
+            FrameUserData::ActorRecord(_)
+        ));
+    }
+    assert_eq!(loader.content.programs().len(), 2);
+    assert_eq!(
+        loader.content.programs()[0].name().unwrap().c_bytes(),
+        Some(b"first-source".as_slice())
+    );
+    assert_eq!(
+        loader.content.programs()[0].source().unwrap().c_bytes(),
+        Some(b"original unknown commands stay source".as_slice())
+    );
+    assert!(loader
+        .content
+        .programs()
+        .iter()
+        .all(|program| program.phase() == ProgramPhase::Source));
+    assert!(loader.content.live_allocation_count() > 0);
+    // Frame and actor references above refer to the same owners used by disposal.
+    discard(&mut session);
+    let loader = session.loader().unwrap();
+    assert_eq!(loader.content.actors.world.actor_count, 0);
+    assert_eq!(loader.content.live_allocation_count(), 0);
+    assert!(loader.content.terminal_complete());
+    assert!(loader
+        .content
+        .programs()
+        .iter()
+        .all(|program| program.phase() == ProgramPhase::Dead));
+}
+#[test]
+fn unsupported_named_actor_stops_at_kind_read_and_preserves_prior_program_and_actor() {
+    use crate::actor_world::ActorSource;
+    let bytes = scene2(
+        &[
+            chunk(0xae20, &actor_record(b"first", 1, b"")),
+            chunk(0xae50, &program_record(b"retained", b"source")),
+            chunk(0xae20, &actor_record(b"second", 2, b"")),
+            chunk(0x4000, &object(9, b"unreached", &[])),
+        ]
+        .concat(),
+    );
+    let root = lhr_assets::scene_actor_stream::scene2_root(&bytes).unwrap();
+    let actor_root = root.children().nth(3).unwrap().unwrap();
+    let record = actor_root.children().next().unwrap().unwrap();
+    let kind = record.children().nth(1).unwrap().unwrap();
+    let fixture = Fixture::new(
+        Some(&world(&[dummy(0, b"first"), dummy(0, b"second")])),
+        Some(&bytes),
+        None,
+    );
+    let mut session = fixture.session();
+    assert_eq!(load(&mut session, &[]), Err(MissionLoadCallError::Stopped));
+    let MissionLoadCause::Scene2Prefix(error) = &session.failure().unwrap().cause else {
+        panic!("wrong failure");
+    };
+    assert_eq!(error.entry, 0x544a16);
+    assert_eq!(error.cursor, kind.offset + 10);
+    assert!(error.detail.contains("UnsupportedKind(2)"));
+    let loader = session.loader().unwrap();
+    assert_eq!(
+        loader
+            .content
+            .actors
+            .world
+            .source(ActorSource::Primary)
+            .len(),
+        1
+    );
+    assert_eq!(loader.content.programs().len(), 1);
+    assert_eq!(loader.load_map.map.slot(b"unreached"), None);
+    let failure = format!("{:?}", session.failure());
+    discard(&mut session);
+    assert_eq!(format!("{:?}", session.failure()), failure);
+}
+#[test]
+fn padded_kind_field_is_closed_before_factory_failure_and_preserves_registered_prefix() {
+    use crate::actor_world::ActorSource;
+    let unavailable = chunk(
+        0xae21,
+        &[
+            chunk(0xae23, b"second\0"),
+            chunk(
+                0xae22,
+                &[2u32.to_le_bytes().as_slice(), b"unread padding"].concat(),
+            ),
+            chunk(0xae24, b"must not reach actor data"),
+        ]
+        .concat(),
+    );
+    let bytes = scene2(
+        &[
+            chunk(0xae20, &actor_record(b"first", 1, b"")),
+            chunk(0xae50, &program_record(b"retained", b"source")),
+            chunk(0xae20, &unavailable),
+            chunk(0x4000, &object(9, b"unreached", &[])),
+        ]
+        .concat(),
+    );
+    let root = lhr_assets::scene_actor_stream::scene2_root(&bytes).unwrap();
+    let actor_root = root.children().nth(3).unwrap().unwrap();
+    let record = actor_root.children().next().unwrap().unwrap();
+    let kind = record.children().nth(1).unwrap().unwrap();
+    let fixture = Fixture::new(
+        Some(&world(&[dummy(0, b"first"), dummy(0, b"second")])),
+        Some(&bytes),
+        None,
+    );
+    let mut session = fixture.session();
+    assert_eq!(load(&mut session, &[]), Err(MissionLoadCallError::Stopped));
+    let MissionLoadCause::Scene2Prefix(error) = &session.failure().unwrap().cause else {
+        panic!("wrong failure");
+    };
+    assert_eq!(error.entry, 0x544a16);
+    assert_eq!(error.cursor, kind.offset + kind.raw.len());
+    assert!(error.detail.contains("UnsupportedKind(2)"));
+    let loader = session.loader().unwrap();
+    assert_eq!(loader.cursor, error.cursor);
+    assert_eq!(loader.content.actors.cursor, error.cursor);
+    assert_eq!(
+        loader
+            .content
+            .actors
+            .world
+            .source(ActorSource::Primary)
+            .len(),
+        1
+    );
+    assert_eq!(loader.content.programs().len(), 1);
+    assert!(loader.content.actors.current_actor.is_none());
+    assert!(loader.content.actors.pending_load_data.is_none());
+    assert_eq!(loader.load_map.map.slot(b"unreached"), None);
+    let failure = format!("{:?}", session.failure());
+    discard(&mut session);
+    assert_eq!(format!("{:?}", session.failure()), failure);
+}
+#[test]
+fn interrupted_program_source_retains_pending_owner_and_does_not_push_or_visit_later_roots() {
+    let partial = chunk(
+        0xae51,
+        &[
+            vec![0],
+            4u32.to_le_bytes().to_vec(),
+            b"name".to_vec(),
+            8u32.to_le_bytes().to_vec(),
+            b"bad".to_vec(),
+        ]
+        .concat(),
+    );
+    let bytes = scene2(
+        &[
+            chunk(0xae50, &program_record(b"before", b"complete")),
+            chunk(0xae50, &partial),
+            chunk(0xae20, &actor_record(b"world part", 1, b"")),
+        ]
+        .concat(),
+    );
+    let fixture = Fixture::new(Some(&world(&[dummy(0, b"world part")])), Some(&bytes), None);
+    let mut session = fixture.session();
+    assert_eq!(load(&mut session, &[]), Err(MissionLoadCallError::Stopped));
+    let MissionLoadCause::Scene2Prefix(error) = &session.failure().unwrap().cause else {
+        panic!("wrong failure");
+    };
+    assert_eq!(error.entry, 0x544b92);
+    assert!(error.detail.contains("truncated chunk"));
+    let loader = session.loader().unwrap();
+    assert_eq!(loader.content.programs().len(), 1);
+    let pending = loader.content.pending_program().unwrap();
+    assert_eq!(pending.name().unwrap().c_bytes(), Some(b"name".as_slice()));
+    assert!(!pending.source().unwrap().complete);
+    assert_eq!(loader.content.actors.world.actor_count, 0);
+    let failed = format!("{:?}", session.failure());
+    discard(&mut session);
+    assert_eq!(session.loader().unwrap().content.live_allocation_count(), 0);
+    assert_eq!(format!("{:?}", session.failure()), failed);
+}
+
+#[test]
+fn forward_sound_links_resolve_only_after_interleaved_actor_program_and_later_area_roots() {
+    let bytes = scene2(
+        &[
+            chunk(
+                0x4000,
+                &object(
+                    4,
+                    b"pending sound",
+                    &chunk(0x4060, &chunk(0xb201, b"later area\0")),
+                ),
+            ),
+            chunk(0xae20, &actor_record(b"world part", 1, b"")),
+            chunk(
+                0xae50,
+                &program_record(b"source between roots", b"source only"),
+            ),
+            chunk(0x4000, &object(14, b"later area", &[])),
+        ]
+        .concat(),
+    );
+    let fixture = Fixture::new(Some(&world(&[dummy(0, b"world part")])), Some(&bytes), None);
+    let mut session = fixture.session();
+    load(&mut session, &[]).unwrap();
+    let loader = session.loader().unwrap();
+    assert!(loader.pending_sound_area_links.is_empty());
+    let sound_frame = FrameKey(
+        loader
+            .load_map
+            .map
+            .slot(b"pending sound")
+            .flatten()
+            .unwrap()
+            .identity(),
+    );
+    let area_frame = FrameKey(
+        loader
+            .load_map
+            .map
+            .slot(b"later area")
+            .flatten()
+            .unwrap()
+            .identity(),
+    );
+    let sound = session.arena().sound_key(sound_frame).unwrap();
+    let area = session.arena().area_key(area_frame).unwrap();
+    assert_eq!(session.arena().sound(sound).unwrap().areas(), &[area]);
+    assert_eq!(session.arena().area(area).unwrap().sounds, [sound_frame]);
+    assert_eq!(session.owned_counts().unwrap().mission_actors, 1);
+    assert_eq!(session.owned_counts().unwrap().mission_program_sources, 1);
+    discard(&mut session);
+}
+
+#[test]
+fn failed_derived_load_data_keeps_registration_and_pending_bytes_then_disposes_real_owners() {
+    use crate::actor_frames::ModelActorFrames;
+    use crate::actor_world::FrameActorData;
+    use crate::actor_world::{ActorPhase, ActorSource};
+    let bytes = scene2(
+        &[
+            chunk(0xae20, &actor_record(b"world part", 5, &[9, 8, 7])),
+            chunk(0xae50, &program_record(b"must not load", b"source")),
+        ]
+        .concat(),
+    );
+    let fixture = Fixture::new(Some(&world(&[dummy(0, b"world part")])), Some(&bytes), None);
+    let mut session = fixture.session();
+    assert_eq!(load(&mut session, &[]), Err(MissionLoadCallError::Stopped));
+    let loader = session.loader().unwrap();
+    let actor = loader.content.actors.world.source(ActorSource::Primary)[0].unwrap();
+    let frame = loader.load_map.map.slot(b"world part").flatten().unwrap();
+    assert_eq!(
+        loader.content.actors.world.phase(actor),
+        Ok(ActorPhase::LoadingInterrupted)
+    );
+    assert_eq!(
+        loader.content.actors.pending_load_data.as_deref(),
+        Some([9, 8, 7].as_slice())
+    );
+    assert!(loader.content.programs().is_empty());
+    assert_eq!(
+        ModelActorFrames::borrow(&mut session.arena, true)
+            .actor_data(frame)
+            .unwrap(),
+        FrameActorData::Present(Some(actor))
+    );
+    let initial_failure = format!("{:?}", session.failure());
+    discard(&mut session);
+    assert_eq!(
+        session
+            .loader()
+            .unwrap()
+            .content
+            .actors
+            .world
+            .inspect(actor)
+            .unwrap()
+            .0,
+        ActorPhase::Dead
+    );
+    assert_eq!(format!("{:?}", session.failure()), initial_failure);
+}
+
+#[test]
+fn failed_railway_init_releases_derived_allocation_and_continues_with_next_record() {
+    use crate::actor_world::ActorSource;
+    let bytes = scene2(&chunk(
+        0xae20,
+        &[
+            actor_record(b"world part", 8, b"must not load for rejected dummy frame"),
+            actor_record(b"world part", 1, b""),
+        ]
+        .concat(),
+    ));
+    let fixture = Fixture::new(Some(&world(&[dummy(0, b"world part")])), Some(&bytes), None);
+    let mut session = fixture.session();
+    load(&mut session, &[]).unwrap();
+    let loader = session.loader().unwrap();
+    assert_eq!(loader.content.actors.world.actor_count, 1);
+    assert_eq!(
+        loader
+            .content
+            .actors
+            .world
+            .source(ActorSource::Primary)
+            .len(),
+        1
+    );
+    assert_eq!(
+        loader.content.actors.world.owned_actor_references().count(),
+        1
+    );
+    discard(&mut session);
 }

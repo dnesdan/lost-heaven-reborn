@@ -104,6 +104,16 @@ impl<'a> MissionSceneInput<'a> {
         self.cursor = level.end;
         Ok(())
     }
+    /// Synchronize an enclosing root with its ordered bounded actor/program
+    /// reader, including a stopped nested read. This cannot leave this chunk.
+    pub fn advance_current_to(&mut self, cursor: usize) -> Result<(), String> {
+        let chunk = self.current.ok_or("no current scene chunk")?;
+        if cursor < self.cursor || cursor > chunk.offset + chunk.raw.len() {
+            return Err("nested scene cursor outside current chunk".into());
+        }
+        self.cursor = cursor;
+        Ok(())
+    }
     pub fn read(&mut self, length: usize) -> Result<&'a [u8], String> {
         let chunk = self.current.ok_or("no current scene chunk")?;
         let start = self.cursor - chunk.offset;

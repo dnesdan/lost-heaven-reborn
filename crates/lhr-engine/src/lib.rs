@@ -80,6 +80,7 @@ pub mod managed_visual_resources;
 pub mod mesh_bounds;
 pub mod mission_actor_stream;
 pub mod mission_components;
+pub mod mission_content_loading;
 pub mod mission_effects;
 pub mod mission_lifecycle;
 pub mod mission_load_session;

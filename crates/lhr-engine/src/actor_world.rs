@@ -447,6 +447,47 @@ impl ActorWorld {
             .position(|a| a.lifetime.reference() == actor && a.phase != ActorPhase::Dead)
             .ok_or(ActorWorldError::StaleActor(actor))
     }
+    /// Identities of actual live owned incarnations, including stopped prefixes.
+    pub fn owned_actor_references(&self) -> impl Iterator<Item = ActorReferenceId> + '_ {
+        self.actors
+            .iter()
+            .filter(|actor| actor.phase != ActorPhase::Dead)
+            .map(|actor| actor.lifetime.reference())
+    }
+    /// Host terminal storage cleanup after every owned actor has died. Context
+    /// lists may retain dead references; they carry no additional ownership.
+    /// Each successful free commits its empty header before the next call.
+    pub fn discard_empty_source_backings<B: ActorCollectionBackend>(
+        &mut self,
+        backend: &mut B,
+    ) -> Result<(), ActorWorldError> {
+        if let Some(actor) = self.owned_actor_references().next() {
+            return Err(ActorWorldError::Busy(actor));
+        }
+        for source in [
+            ActorSource::Static,
+            ActorSource::Primary,
+            ActorSource::Active,
+        ] {
+            if self.collection(source).pending.is_some() {
+                return Err(ActorWorldError::IncompleteGrowth(source));
+            }
+            let storage = self.backing(source).storage;
+            backend
+                .free_collection(self, source, storage)
+                .map_err(|detail| ActorWorldError::Effect {
+                    stage: "discard_source_backing",
+                    detail,
+                })?;
+            let collection = self.collection_mut(source);
+            collection.values.clear();
+            collection.backing = SourceBacking {
+                storage: None,
+                capacity: 0,
+            };
+        }
+        Ok(())
+    }
     /// Read-only storage inspection, including retired/interrupted incarnations.
     /// This grants no live actor resolution and cannot mutate retired storage.
     pub fn inspect(&self, actor: ActorReferenceId) -> Option<(ActorPhase, &BaseActorState)> {
@@ -789,7 +830,9 @@ impl ActorWorld {
         kind: u32,
         backend: &mut B,
     ) -> Result<Option<ActorReferenceId>, ActorCreationError> {
-        if !(1..=38).contains(&kind) {
+        // The original switch names this sparse set. Its default returns NULL,
+        // including holes inside 1..=38; only named unavailable classes fail.
+        if !matches!(kind, 1 | 2 | 4 | 5 | 6 | 8 | 9 | 10 | 12 | 18 | 20..=25 | 27..=36 | 38) {
             return Ok(None);
         }
         if kind == 8 {
@@ -2069,6 +2112,41 @@ mod tests {
         e.fail = Some("allocate_actor");
         assert!(w.create_actor(1, &mut e).is_err());
         assert_eq!(w.actor_count, 0);
+    }
+    #[test]
+    fn factory_classifies_every_switch_value_and_default_without_default_effects() {
+        let named = [
+            1, 2, 4, 5, 6, 8, 9, 10, 12, 18, 20, 21, 22, 23, 24, 25, 27, 28, 29, 30, 31, 32, 33,
+            34, 35, 36, 38,
+        ];
+        for kind in (0..=39).chain([0x8000_0000, u32::MAX]) {
+            let mut w = world();
+            let mut effects = Effects::default();
+            let result = w.create_actor(kind, &mut effects);
+            if !named.contains(&kind) {
+                assert_eq!(result, Ok(None), "default kind {kind}");
+                assert!(effects.events.is_empty());
+                assert_eq!(w.actor_count, 0);
+                for source in [
+                    ActorSource::Static,
+                    ActorSource::Primary,
+                    ActorSource::Active,
+                ] {
+                    assert!(w.source(source).is_empty());
+                }
+            } else if ![1, 5, 8].contains(&kind) {
+                assert_eq!(
+                    result.unwrap_err().source,
+                    ActorWorldError::UnsupportedKind(kind)
+                );
+                assert!(effects.events.is_empty());
+                assert_eq!(w.actor_count, 0);
+            } else {
+                // This backend admits only the base class; derived allocation
+                // dependency errors still demonstrate these are named cases.
+                assert_ne!(result, Ok(None));
+            }
+        }
     }
     fn detector_seed() -> DetectorSeed {
         DetectorSeed {
