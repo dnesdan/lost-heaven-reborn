@@ -11,6 +11,10 @@ use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use crate::frame_transform::FrameKey;
 use lhr_assets::Installation;
 
+#[path = "runtime_audio_api.rs"]
+mod api;
+pub use api::{PlaybackQuery, SoundId, SoundKind};
+
 #[path = "runtime_audio_device.rs"]
 mod device;
 pub use device::{DeviceAudioOutput, DeviceAudioStatus};
@@ -184,6 +188,7 @@ impl PlaybackState {
 #[derive(Clone, Debug)]
 pub struct SoundState {
     pub handle: u32,
+    generation: u64,
     frame_owner: Option<SoundFrameOwner>,
     pub source: Option<Arc<PcmSource>>,
     pub open_flags: u32,
@@ -215,7 +220,7 @@ pub struct SoundState {
 }
 
 impl SoundState {
-    fn new(handle: u32, frame_owner: Option<SoundFrameOwner>) -> Self {
+    fn new(handle: u32, frame_owner: Option<SoundFrameOwner>, generation: u64) -> Self {
         let mut tail = [0; 43];
         for (offset, value) in [
             (0x140, 0x208f),
@@ -241,6 +246,7 @@ impl SoundState {
         }
         Self {
             handle,
+            generation,
             frame_owner,
             source: None,
             open_flags: 0,
@@ -400,6 +406,7 @@ impl SoundState {
 
 #[derive(Debug)]
 struct Mixer {
+    next_sound_generation: u64,
     sounds: BTreeMap<u32, SoundState>,
     sources: BTreeMap<String, Weak<PcmSource>>,
     listener_position: [f32; 3],
@@ -440,6 +447,7 @@ impl RuntimeAudio {
 impl Default for RuntimeAudio {
     fn default() -> Self {
         Self(Arc::new(Mutex::new(Mixer {
+            next_sound_generation: 0,
             sounds: BTreeMap::new(),
             sources: BTreeMap::new(),
             listener_position: [0.0; 3],
@@ -583,9 +591,14 @@ impl RuntimeAudio {
         if handle == 0 || mixer.sounds.contains_key(&handle) {
             return Err(AudioError("invalid or already owned sound address".into()));
         }
-        let mut sound = SoundState::new(handle, owner);
+        let generation = mixer
+            .next_sound_generation
+            .checked_add(1)
+            .ok_or_else(|| AudioError("sound identity generation exhausted".into()))?;
+        let mut sound = SoundState::new(handle, owner, generation);
         sound.clock_ms = mixer.clock_ms as u64 as u32;
         mixer.sounds.insert(handle, sound);
+        mixer.next_sound_generation = generation;
         Ok(())
     }
 
@@ -902,124 +915,7 @@ impl RuntimeAudio {
     /// Primary PC vtable calls with scalar words. Pointer arguments (position,
     /// velocity, GetRange/GetCone outputs) are resolved by the canonical host.
     pub fn sound_virtual(&self, handle: u32, slot: u32, arguments: &[u32]) -> Result<u32> {
-        let expected = match slot {
-            0x00 | 0x18 | 0x80 | 0x84 | 0x90 => 0,
-            0x24 | 0x54 | 0x58 | 0x64 | 0x68 | 0x6c | 0x70 | 0x74 => 1,
-            0x2c | 0x60 | 0x88 => 2,
-            0x5c => 4,
-            _ => {
-                return Err(AudioError(format!(
-                    "unsupported sound vtable slot {slot:#x}"
-                )));
-            }
-        };
-        if arguments.len() != expected {
-            return Err(AudioError(format!("sound slot {slot:#x} argument count")));
-        }
-        let mut mixer = self.lock()?;
-        if slot == 0 {
-            mixer
-                .sounds
-                .remove(&handle)
-                .ok_or_else(|| AudioError("release of unowned sound".into()))?;
-            mixer.sources.retain(|_, source| source.strong_count() != 0);
-            return Ok(0);
-        }
-        let camera = mixer.camera_present;
-        let sector = mixer.listener_sector;
-        let mixer_listener = mixer.listener_position;
-        let sound = sound_mut(&mut mixer, handle)?;
-        let float = |i| -> Result<f32> {
-            let value = f32::from_bits(arguments[i]);
-            finite(&[value])?;
-            Ok(value)
-        };
-        match slot {
-            0x18 | 0x90 => update_sound(sound, camera, sector, mixer_listener)?,
-            0x24 | 0x88 => {
-                sound.set_on(arguments[0] != 0, camera, sector);
-                if slot == 0x88 && arguments[1] != 0 {
-                    update_sound(sound, camera, sector, mixer_listener)?;
-                }
-            }
-            0x2c => sound.parent = arguments[0],
-            0x54 => {
-                return Ok(u32::from(if arguments[0] != 0 {
-                    sound.voice_playing
-                } else {
-                    sound.is_playing()
-                }));
-            }
-            0x58 => {
-                if arguments[0] > 3 {
-                    return Err(AudioError("unsupported sound type".into()));
-                }
-                if sound.sound_type == arguments[0] {
-                    return Ok(0);
-                }
-                sound.native_tail[0] |= 0x100;
-                sound.sound_type =
-                    if sound.source.as_ref().is_some_and(|s| s.channels > 1) && arguments[0] != 0 {
-                        3
-                    } else {
-                        arguments[0]
-                    };
-            }
-            0x5c => {
-                let range = [float(0)?, float(1)?, float(2)?, float(3)?];
-                if !near_equal(&sound.range, &range) {
-                    sound.range = range;
-                    sound.native_tail[0] |= 0x4;
-                }
-            }
-            0x60 => {
-                let cone = [float(0)?, float(1)?];
-                if !near_equal(&sound.cone, &cone) {
-                    sound.cone = cone.map(|angle| angle.min(std::f32::consts::PI));
-                    sound.native_tail[0] |= 0x40;
-                }
-            }
-            0x64 => {
-                let value = float(0)?;
-                if !near_equal(&[sound.out_volume], &[value]) {
-                    sound.out_volume = value;
-                    sound.native_tail[0] |= 0x10;
-                }
-            }
-            0x68 => {
-                let value = float(0)?;
-                if !near_equal(&[sound.volume], &[value]) {
-                    sound.volume = value;
-                    sound.native_tail[0] |= 0x8;
-                }
-            }
-            0x6c => {
-                sound.looping = arguments[0] != 0;
-                if sound.looping {
-                    sound.open_flags |= 0x100;
-                } else {
-                    sound.open_flags &= !0x100;
-                }
-                if sound.on {
-                    sound.set_on(true, camera, sector);
-                }
-            }
-            0x70 => sound.seek(arguments[0]),
-            0x74 => {
-                let value = float(0)?;
-                if value <= 0.0 {
-                    return Err(AudioError("nonpositive sound frequency".into()));
-                }
-                if !near_equal(&[sound.frequency], &[value]) {
-                    sound.frequency = value;
-                    sound.native_tail[0] |= 0x20;
-                }
-            }
-            0x80 => return Ok(sound.current_time_ms()),
-            0x84 => return Ok(sound.source.as_ref().map_or(0, |s| s.duration_ms())),
-            _ => unreachable!(),
-        }
-        Ok(0)
+        self.legacy_sound_call(handle, slot, arguments)
     }
 
     pub fn set_velocity(&self, handle: u32, velocity: [f32; 3]) -> Result<()> {
@@ -1124,8 +1020,18 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> crate::vehicle_sound::VehicleGearSoundEffects
         use crate::vehicle_sound::{
             VehicleGearSoundCall as Call, VehicleGearSoundUnavailable as Error,
         };
-        self.sound_virtual(sound, 0x54, &[u32::from(query_flag)])
-            .map(|v| v as u8)
+        self.sound_id_from_handle(sound)
+            .and_then(|id| {
+                self.sound_is_playing(
+                    &id,
+                    if query_flag {
+                        PlaybackQuery::Voice
+                    } else {
+                        PlaybackQuery::Logical
+                    },
+                )
+            })
+            .map(u8::from)
             .map_err(|_| Error::Effect(Call::IsPlaying { sound, query_flag }))
     }
     fn set_on(
@@ -1137,8 +1043,8 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> crate::vehicle_sound::VehicleGearSoundEffects
         use crate::vehicle_sound::{
             VehicleGearSoundCall as Call, VehicleGearSoundUnavailable as Error,
         };
-        self.sound_virtual(sound, 0x24, &[u32::from(enabled)])
-            .map(|_| ())
+        self.sound_id_from_handle(sound)
+            .and_then(|id| self.set_sound_enabled(&id, enabled))
             .map_err(|_| Error::Effect(Call::SetOn { sound, enabled }))
     }
     fn set_volume(
@@ -1150,8 +1056,8 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> crate::vehicle_sound::VehicleGearSoundEffects
         use crate::vehicle_sound::{
             VehicleGearSoundCall as Call, VehicleGearSoundUnavailable as Error,
         };
-        self.sound_virtual(sound, 0x68, &[volume_bits])
-            .map(|_| ())
+        self.sound_id_from_handle(sound)
+            .and_then(|id| self.set_sound_volume(&id, f32::from_bits(volume_bits)))
             .map_err(|_| Error::Effect(Call::SetVolume { sound, volume_bits }))
     }
 }
