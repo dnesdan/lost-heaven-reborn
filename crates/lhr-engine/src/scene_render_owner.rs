@@ -137,10 +137,20 @@ impl CanonicalSceneOwner {
         mission: &str,
         viewport: [u32; 2],
     ) -> Result<Self, String> {
+        Self::open_at_driver_time(installation, mission, viewport, 0)
+    }
+    /// Preserve the host driver timeline across scene replacement; material
+    /// constructors observe this time before any model/material admission.
+    pub fn open_at_driver_time(
+        installation: &lhr_assets::Installation,
+        mission: &str,
+        viewport: [u32; 2],
+        material_driver_time: i32,
+    ) -> Result<Self, String> {
         if viewport.contains(&0) || viewport.iter().any(|&v| v > 8192) {
             return Err("Canonical scene target extent unsupported".into());
         }
-        let state = CanonicalSceneState {
+        let mut state = CanonicalSceneState {
             arena: ModelArena::default(),
             scene: None,
             resources: SceneResources::default(),
@@ -158,6 +168,10 @@ impl CanonicalSceneOwner {
             lighting: Vec::new(),
             cleanup_failure: None,
         };
+        state
+            .arena
+            .set_material_driver_time(material_driver_time)
+            .map_err(|e| e.to_string())?;
         let cleanup_slot = CLEANUP_STATES.with(|states| {
             let mut states = states.borrow_mut();
             let slot = states

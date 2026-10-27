@@ -578,6 +578,43 @@ impl ObjectResources {
 }
 
 impl ObjectResources {
+    pub fn set_material_driver_time(&mut self, time: i32) -> Result<(), ObjectError> {
+        self.available()?;
+        self.managed
+            .set_material_driver_time(time)
+            .map_err(Into::into)
+    }
+    pub fn get_material_texture(
+        &mut self,
+        key: MaterialKey,
+        random: &mut crate::frame_light::LightCrtRandom,
+    ) -> Result<Option<TextureKey>, ObjectError> {
+        self.available()?;
+        self.managed
+            .get_material_texture(key, random)
+            .map_err(Into::into)
+    }
+    pub fn get_material_env_texture(
+        &mut self,
+        key: MaterialKey,
+        random: &mut crate::frame_light::LightCrtRandom,
+    ) -> Result<Option<TextureKey>, ObjectError> {
+        self.available()?;
+        self.managed
+            .get_material_env_texture(key, random)
+            .map_err(Into::into)
+    }
+    pub fn set_material_current_frame(
+        &mut self,
+        key: MaterialKey,
+        frame: i32,
+        environment: bool,
+    ) -> Result<bool, ObjectError> {
+        self.available()?;
+        self.managed
+            .set_material_current_frame(key, frame, environment)
+            .map_err(Into::into)
+    }
     pub fn create_material(&mut self) -> Result<MaterialKey, ObjectError> {
         self.available()?;
         self.managed.create_material().map_err(Into::into)

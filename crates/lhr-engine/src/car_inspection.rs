@@ -372,9 +372,6 @@ fn snapshot_arena_tree_inner(
             lod_culled_meshes,
         });
     }
-    let resources = arena
-        .loaded_visual_resources()
-        .ok_or("Car CPU resource owner unavailable")?;
     let mut bytes = 0usize;
     let mut meshes = Vec::new();
     let mut draw_frames = Vec::new();
@@ -395,73 +392,111 @@ fn snapshot_arena_tree_inner(
         billboard_colors,
     ) in &frames
     {
-        let Some(view) = resources
-            .inspection_mesh_at_lod(*object, *lod_index, CAR_INSPECTION_MAX_DRAWS - meshes.len())
-            .map_err(|e| format!("Canonical CPU geometry frame {frame:?} LOD{lod_index}: {e:?}"))?
-        else {
-            continue;
+        let material_accesses = {
+            let resources = arena
+                .loaded_visual_resources()
+                .ok_or("Car CPU resource owner unavailable")?;
+            let Some(view) = resources
+                .inspection_mesh_at_lod_for_group(
+                    *object,
+                    *lod_index,
+                    CAR_INSPECTION_MAX_DRAWS - meshes.len(),
+                    usize::MAX,
+                )
+                .map_err(|e| {
+                    format!("Canonical CPU geometry frame {frame:?} LOD{lod_index}: {e:?}")
+                })?
+            else {
+                continue;
+            };
+            view.groups
+                .iter()
+                .map(|group| {
+                    group
+                        .material_key
+                        .filter(|_| group.material.is_some_and(|m| m.flags & 0x40000 != 0))
+                })
+                .collect::<Vec<_>>()
         };
-        let billboard = view.visual_type == crate::i3d_object::ObjectVisualType::Billboard;
-        let pose = if matches!(
-            view.visual_type,
-            crate::i3d_object::ObjectVisualType::Singlemesh
-                | crate::i3d_object::ObjectVisualType::Singlemorph
-        ) {
-            let pose = arena
-                .owned_singlemesh_selected_vertices(*frame, *lod_index)
-                .map_err(|e| format!("Selected singlemesh pose frame {frame:?}: {e:?}"))?;
-            if pose.len() != view.vertex_count as usize {
-                return Err(format!(
-                    "Selected singlemesh pose/geometry extent frame {frame:?}"
-                ));
+        for (group_number, material_key) in material_accesses.into_iter().enumerate() {
+            if let Some(key) = material_key {
+                arena.access_material_texture(key).map_err(|e| {
+                    format!("Live material GetTexture frame {frame:?} group {group_number}: {e:?}")
+                })?;
             }
-            Some(pose)
-        } else {
-            None
-        };
-        let saved = resources
-            .saved_lit_lod(*object, *lod_index)
-            .map_err(|e| format!("Saved lighting view: {e:?}"))?;
-        let managed_colors = view
-            .color_byte_offset
-            .map(|offset| {
-                view.vertex_bytes
-                    .chunks_exact(view.vertex_stride)
-                    .map(|v| {
-                        let raw = v
-                            .get(offset..offset + 4)
-                            .ok_or("Incomplete managed diffuse")?;
-                        let c = u32::from_le_bytes(raw.try_into().unwrap());
-                        Ok([
-                            ((c >> 16) & 255) as f32 / 255.,
-                            ((c >> 8) & 255) as f32 / 255.,
-                            (c & 255) as f32 / 255.,
-                            ((c >> 24) & 255) as f32 / 255.,
-                        ])
-                    })
-                    .collect::<Result<Vec<_>, String>>()
-            })
-            .transpose()?;
-        let managed_uv2 = view
-            .lightmap_uv_byte_offset
-            .map(|offset| {
-                view.vertex_bytes
-                    .chunks_exact(view.vertex_stride)
-                    .map(|v| Ok([word(v, offset)?, word(v, offset + 4)?]))
-                    .collect::<Result<Vec<_>, String>>()
-            })
-            .transpose()?;
-        let object_vertex_alpha = if !billboard
-            && view.visual_type != crate::i3d_object::ObjectVisualType::LitUnconstructed
-        {
-            Some(crate::presentation_material::packed_object_vertex_alpha(
-                view.groups.first().and_then(|group| group.material),
-                *fade,
-            )?)
-        } else {
-            None
-        };
-        for (group_number, group) in view.groups.into_iter().enumerate() {
+            let resources = arena
+                .loaded_visual_resources()
+                .ok_or("Car CPU resource owner unavailable")?;
+            let view = resources
+                .inspection_mesh_at_lod_for_group(
+                    *object,
+                    *lod_index,
+                    CAR_INSPECTION_MAX_DRAWS,
+                    group_number,
+                )
+                .map_err(|e| format!("Live material geometry frame {frame:?}: {e:?}"))?
+                .ok_or("Live selected geometry disappeared")?;
+            let billboard = view.visual_type == crate::i3d_object::ObjectVisualType::Billboard;
+            let pose = if matches!(
+                view.visual_type,
+                crate::i3d_object::ObjectVisualType::Singlemesh
+                    | crate::i3d_object::ObjectVisualType::Singlemorph
+            ) {
+                let pose = arena
+                    .owned_singlemesh_selected_vertices(*frame, *lod_index)
+                    .map_err(|e| format!("Selected singlemesh pose frame {frame:?}: {e:?}"))?;
+                if pose.len() != view.vertex_count as usize {
+                    return Err(format!(
+                        "Selected singlemesh pose/geometry extent frame {frame:?}"
+                    ));
+                }
+                Some(pose)
+            } else {
+                None
+            };
+            let saved = resources
+                .saved_lit_lod(*object, *lod_index)
+                .map_err(|e| format!("Saved lighting view: {e:?}"))?;
+            let managed_colors = view
+                .color_byte_offset
+                .map(|offset| {
+                    view.vertex_bytes
+                        .chunks_exact(view.vertex_stride)
+                        .map(|v| {
+                            let raw = v
+                                .get(offset..offset + 4)
+                                .ok_or("Incomplete managed diffuse")?;
+                            let c = u32::from_le_bytes(raw.try_into().unwrap());
+                            Ok([
+                                ((c >> 16) & 255) as f32 / 255.,
+                                ((c >> 8) & 255) as f32 / 255.,
+                                (c & 255) as f32 / 255.,
+                                ((c >> 24) & 255) as f32 / 255.,
+                            ])
+                        })
+                        .collect::<Result<Vec<_>, String>>()
+                })
+                .transpose()?;
+            let managed_uv2 = view
+                .lightmap_uv_byte_offset
+                .map(|offset| {
+                    view.vertex_bytes
+                        .chunks_exact(view.vertex_stride)
+                        .map(|v| Ok([word(v, offset)?, word(v, offset + 4)?]))
+                        .collect::<Result<Vec<_>, String>>()
+                })
+                .transpose()?;
+            let object_vertex_alpha = if !billboard
+                && view.visual_type != crate::i3d_object::ObjectVisualType::LitUnconstructed
+            {
+                Some(crate::presentation_material::packed_object_vertex_alpha(
+                    view.groups.first().and_then(|group| group.material),
+                    *fade,
+                )?)
+            } else {
+                None
+            };
+            let group = &view.groups[group_number];
             if meshes.len() >= CAR_INSPECTION_MAX_DRAWS {
                 return Err("Car inspection exceeds its draw budget".into());
             }
@@ -595,7 +630,7 @@ fn snapshot_arena_tree_inner(
                 && (alpha.omitted
                     || material.is_some_and(|m| m.env_texture.is_some())
                     || (!billboard && material.is_some_and(|m| m.emissive != [0.; 3]))
-                    || flags & (0x80000 | 0x01000000 | 0x04000000) != 0)
+                    || flags & (0x80000 | 0x01000000) != 0)
             {
                 omitted += 1;
             }
@@ -1381,6 +1416,169 @@ mod tests {
         );
         assert_eq!(snapshot.omitted_material_effects, 0);
         arena.close(model).unwrap();
+        std::fs::remove_dir_all(path).unwrap();
+    }
+
+    #[test]
+    fn canonical_snapshot_uses_owned_animated_frames_lazily_in_group_order() {
+        canonical_animated_snapshot_fixture(false);
+    }
+    #[test]
+    #[ignore = "requires a Vulkan or Metal adapter; run with --ignored"]
+    fn gpu_canonical_animated_frames_change_rendered_pixels() {
+        canonical_animated_snapshot_fixture(true);
+    }
+    fn canonical_animated_snapshot_fixture(check_gpu: bool) {
+        use crate::model_loading::tests::frame;
+        let path = std::env::temp_dir().join(format!(
+            "lhr-material-playback-{}-{}",
+            std::process::id(),
+            crate::frame_lookup::incarnation()
+        ));
+        std::fs::create_dir(&path).unwrap();
+        std::fs::create_dir(path.join("maps")).unwrap();
+        for (index, rgb) in [[255, 0, 0], [0, 255, 0], [0, 0, 255]]
+            .into_iter()
+            .enumerate()
+        {
+            let mut bmp = vec![0u8; 58];
+            bmp[..2].copy_from_slice(b"BM");
+            bmp[2..6].copy_from_slice(&58u32.to_le_bytes());
+            bmp[10..14].copy_from_slice(&54u32.to_le_bytes());
+            bmp[14..18].copy_from_slice(&40u32.to_le_bytes());
+            bmp[18..22].copy_from_slice(&1i32.to_le_bytes());
+            bmp[22..26].copy_from_slice(&1i32.to_le_bytes());
+            bmp[26..28].copy_from_slice(&1u16.to_le_bytes());
+            bmp[28..30].copy_from_slice(&24u16.to_le_bytes());
+            bmp[54..57].copy_from_slice(&[rgb[2], rgb[1], rgb[0]]);
+            std::fs::write(path.join(format!("maps/fx{index:02}.bmp")), bmp).unwrap();
+        }
+        let material = lhr_assets::Material {
+            flags: 0x14048000,
+            ambient: [0.; 3],
+            diffuse: [1.; 3],
+            texture: "fx00.bmp".into(),
+            emission: [0.; 3],
+            opacity: 1.,
+            alpha_texture: None,
+            reflection: None,
+            environment_texture: None,
+            animation: Some(lhr_assets::TextureAnimation {
+                num_frames: 3,
+                env_num_frames: 0,
+                loop_frame: -1,
+                frame_delay: 10,
+                env_loop_frame: -1,
+                env_frame_delay: 10,
+            }),
+        };
+        let mut visual = frame(1, None, [0.; 3]);
+        visual.render_flags = 0;
+        visual.logic_flags = 0;
+        visual.lods.push(lhr_assets::Lod {
+            distance: 0.,
+            uv_only: None,
+            vertices: [[-1., -1., 0.], [1., -1., 0.], [0., 1., 0.]]
+                .map(|position| lhr_assets::Vertex {
+                    position,
+                    normal: [0., 0., -1.],
+                    uv: [0.; 2],
+                })
+                .to_vec(),
+            groups: [0, 1, 0]
+                .map(|material| lhr_assets::FaceGroup {
+                    material,
+                    indices: vec![0, 1, 2],
+                })
+                .to_vec(),
+        });
+        let installation = lhr_assets::Installation::open(&path).unwrap();
+        let mut arena = ModelArena::default();
+        arena.set_material_driver_time(100).unwrap();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let model = arena.create_model().unwrap();
+        arena.scene_add_frame(scene, model.root()).unwrap();
+        arena
+            .load_parsed_into_model(
+                model,
+                Arc::new(lhr_assets::Model {
+                    materials: vec![material.clone(), material],
+                    frames: vec![visual],
+                }),
+            )
+            .unwrap();
+        arena
+            .load_plain_visual_resources(model, &installation)
+            .unwrap();
+        arena.light_random_state().seed(1);
+        let first = snapshot_car_arena(&mut arena, model.root()).unwrap();
+        assert_eq!(first.scene.meshes.len(), 3);
+        assert!(first
+            .scene
+            .meshes
+            .iter()
+            .all(|mesh| mesh.texture.as_ref().unwrap().rgba == [255, 0, 0, 255]));
+        assert_eq!(arena.light_random_state().state(), 1);
+        let camera = camera_from_arena_bounds(&mut arena, model.root()).unwrap();
+        let mut renderer = check_gpu.then(|| {
+            let instance = lhr_render::instance();
+            let adapter = pollster::block_on(instance.request_adapter(&Default::default()))
+                .expect("animated material GPU fixture requires adapter");
+            let renderer = pollster::block_on(lhr_render::Renderer::with_adapter(
+                &adapter,
+                &first.scene,
+                wgpu::TextureFormat::Rgba8Unorm,
+                false,
+            ))
+            .unwrap();
+            let pixels = renderer.readback(64, 64, &camera).unwrap();
+            assert!(
+                pixels
+                    .chunks_exact(4)
+                    .any(|p| p[0] > 200 && p[1] < 40 && p[2] < 40),
+                "first owned frame must render red pixels"
+            );
+            renderer
+        });
+        arena.set_material_driver_time(110).unwrap();
+        let second = snapshot_car_arena(&mut arena, model.root()).unwrap();
+        assert!(second
+            .scene
+            .meshes
+            .iter()
+            .all(|mesh| mesh.texture.as_ref().unwrap().rgba == [0, 0, 255, 255]));
+        // Two distinct materials consume rand41/rand18467; the third group
+        // shares the first material and cannot consume again at the same tick.
+        assert_eq!(arena.light_random_state().state(), 3357800067);
+        assert_eq!(second.omitted_material_effects, 0);
+        if let Some(renderer) = renderer.as_mut() {
+            renderer.replace_meshes(0..3, &second.scene.meshes).unwrap();
+            let pixels = renderer.readback(64, 64, &camera).unwrap();
+            assert!(
+                pixels
+                    .chunks_exact(4)
+                    .any(|p| p[2] > 200 && p[0] < 40 && p[1] < 40),
+                "new owned frame must render blue pixels after mesh replacement"
+            );
+            assert!(!pixels
+                .chunks_exact(4)
+                .any(|p| p[0] > 200 && p[1] < 40 && p[2] < 40));
+        }
+        let repeated = snapshot_car_arena(&mut arena, model.root()).unwrap();
+        assert_eq!(arena.light_random_state().state(), 3357800067);
+        assert_eq!(
+            repeated.scene.meshes[0].texture.as_ref().unwrap().rgba,
+            [0, 0, 255, 255]
+        );
+        arena.close(model).unwrap();
+        arena
+            .loaded_visual_resources_mut()
+            .unwrap()
+            .reclaim_unused_buffers()
+            .unwrap();
+        let owner = arena.loaded_visual_resources().unwrap();
+        assert_eq!(owner.backend().live_textures(), 0);
+        assert_eq!(owner.backend().live_graphics(), 0);
         std::fs::remove_dir_all(path).unwrap();
     }
 

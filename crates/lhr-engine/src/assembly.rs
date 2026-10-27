@@ -49,6 +49,7 @@ pub struct SceneBuilder<'a> {
     texture_cache: HashMap<(String, [bool; 2]), Arc<Texture>>,
     allow_texture_fallback: bool,
     original_model_loading: bool,
+    material_driver_time: i32,
     animation_sample: Option<(Arc<lhr_assets::animation::AnimationSet>, u32)>,
     pub cropped_triangles: usize,
     pub unassigned_groups: usize,
@@ -65,6 +66,7 @@ impl<'a> SceneBuilder<'a> {
             texture_cache: HashMap::new(),
             allow_texture_fallback: true,
             original_model_loading: false,
+            material_driver_time: 0,
             animation_sample: None,
             cropped_triangles: 0,
             unassigned_groups: 0,
@@ -72,6 +74,11 @@ impl<'a> SceneBuilder<'a> {
     }
     pub fn deny_texture_fallback(&mut self) {
         self.allow_texture_fallback = false;
+    }
+    /// Host driver time at admission; initial material constructors and
+    /// LoadImage restart use this same timeline as subsequent snapshots.
+    pub fn set_material_driver_time(&mut self, time: i32) {
+        self.material_driver_time = time;
     }
     pub fn use_original_model_loading(&mut self) {
         self.original_model_loading = true;
@@ -141,8 +148,17 @@ impl<'a> SceneBuilder<'a> {
         }
         if strict
             && model.materials.iter().enumerate().any(|(index, material)| {
-                (!lit_materials.contains(&index) || ordinary_materials.contains(&index))
-                    && super::material_effects_omitted(material)
+                let omitted = if self.original_model_loading && material.animation.is_some() {
+                    // Only this intake routes animation into the retained live
+                    // owner. Preserve every unrelated strict material guard.
+                    let mut plain_effects = material.clone();
+                    plain_effects.flags &= !0x04000000;
+                    plain_effects.animation = None;
+                    super::material_effects_omitted(&plain_effects)
+                } else {
+                    super::material_effects_omitted(material)
+                };
+                (!lit_materials.contains(&index) || ordinary_materials.contains(&index)) && omitted
             })
         {
             return Err("Selected model requires unsupported material effects".into());
@@ -201,6 +217,10 @@ impl<'a> SceneBuilder<'a> {
                 source.clone(),
             )
             .map_err(|failure| format!("Original model materialization: {}", failure.error))?;
+            loaded
+                .arena_mut()
+                .set_material_driver_time(self.material_driver_time)
+                .map_err(|error| error.to_string())?;
             if let Some((animation, milliseconds)) = self.animation_sample.take() {
                 let binding = lhr_engine::skeletal_animation::SkeletalAnimation::new(
                     &source,
@@ -244,6 +264,90 @@ impl<'a> SceneBuilder<'a> {
         } else {
             None
         };
+        // Animated ordinary models are admitted through the actual loaded
+        // visual/material owner. Initial pixels and subsequent redraws therefore
+        // share the same retained frame arrays, aliases, clock and CRT stream.
+        if source
+            .materials
+            .iter()
+            .any(|material| material.animation.is_some())
+            && self.original_model_loading
+        {
+            if crop.is_some() || !self.textures_directory.eq_ignore_ascii_case("maps") {
+                return Err("Owned animated model requires uncropped original maps".into());
+            }
+            let mut loaded = materialized.take().ok_or("Owned animated model absent")?;
+            if self.retained.has_owned_material_draws() {
+                return Err(
+                    "Multiple retained animated arenas require a shared canonical Scene".into(),
+                );
+            }
+            let admitted = (|| -> Result<(), String> {
+                let model_key = loaded.model_key();
+                loaded
+                    .arena_mut()
+                    .load_plain_visual_resources(model_key, installation)
+                    .map_err(|e| format!("Owned animated material admission: {e}"))?;
+                loaded
+                    .arena_mut()
+                    .publish_runtime_buffers()
+                    .map_err(|e| e.to_string())?;
+                let root = loaded.root();
+                let snapshot =
+                    lhr_engine::car_inspection::snapshot_arena_tree(loaded.arena_mut(), root)?;
+                if snapshot.scene.meshes.is_empty() {
+                    return Err("Owned animated model contains no visible geometry".into());
+                }
+                if snapshot.lighting.iter().any(Option::is_some) {
+                    return Err("Retained animated model lighting upload unavailable".into());
+                }
+                if self.meshes.len() + snapshot.scene.meshes.len() > MAX_DRAWS {
+                    return Err("Scene exceeds draw quota".into());
+                }
+                charge_scene(&mut self.bytes, snapshot.budgeted_bytes, MAX_SCENE_BYTES)?;
+                for (mesh, frame) in snapshot.scene.meshes.into_iter().zip(snapshot.draw_frames) {
+                    let frame_index = loaded
+                        .source_frame_keys()
+                        .iter()
+                        .position(|&key| key == frame)
+                        .ok_or("Owned material draw frame is not retained")?;
+                    let geometry_frame = source.frames[frame_index].instance.unwrap_or(frame_index);
+                    let source_vertices = (0..mesh.vertices.len())
+                        .map(|index| {
+                            u32::try_from(index).map_err(|_| "Owned material vertex index overflow")
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let binding_bytes = source_vertices
+                        .len()
+                        .checked_mul(4)
+                        .and_then(|bytes| bytes.checked_add(std::mem::size_of::<DrawBinding>()))
+                        .ok_or("Owned material binding size overflow")?;
+                    charge_scene(&mut self.bytes, binding_bytes, MAX_SCENE_BYTES)?;
+                    bindings.push(DrawBinding {
+                        draw_index: self.meshes.len(),
+                        frame_index,
+                        geometry_frame,
+                        source_vertices,
+                    });
+                    self.meshes.push(mesh);
+                }
+
+                Ok(())
+            })();
+            if let Err(error) = admitted {
+                let cleanup = loaded.close().map_err(|e| e.to_string());
+                let buffers = loaded
+                    .arena_mut()
+                    .reclaim_unused_visual_buffers()
+                    .map_err(|e| e.to_string());
+                return Err(format!(
+                    "{error}; owned animated model cleanup: {cleanup:?}; buffers: {buffers:?}"
+                ));
+            }
+            self.retained
+                .retain_materialized(source_name.to_owned(), loaded, bindings)?;
+            return Ok(());
+        }
         let transforms: Vec<GeometryTransform> = if let Some(loaded) = &mut materialized {
             loaded
                 .world_matrices()
@@ -638,7 +742,7 @@ fn make_geometry(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     fn lod(points: &[[f32; 3]]) -> Lod {
         Lod {
@@ -1036,6 +1140,113 @@ mod tests {
             .unwrap_err()
             .contains("unsupported material effects"));
     }
+    pub(crate) fn retained_animated_fixture() -> (std::path::PathBuf, Scene, RetainedScene) {
+        let path = std::env::temp_dir().join(format!(
+            "lhr-retained-material-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(path.join("maps")).unwrap();
+        for (index, rgb) in [[255, 0, 0], [0, 255, 0], [0, 0, 255]]
+            .into_iter()
+            .enumerate()
+        {
+            let mut bmp = vec![0u8; 58];
+            bmp[..2].copy_from_slice(b"BM");
+            bmp[2..6].copy_from_slice(&58u32.to_le_bytes());
+            bmp[10..14].copy_from_slice(&54u32.to_le_bytes());
+            bmp[14..18].copy_from_slice(&40u32.to_le_bytes());
+            bmp[18..22].copy_from_slice(&1i32.to_le_bytes());
+            bmp[22..26].copy_from_slice(&1i32.to_le_bytes());
+            bmp[26..28].copy_from_slice(&1u16.to_le_bytes());
+            bmp[28..30].copy_from_slice(&24u16.to_le_bytes());
+            bmp[54..57].copy_from_slice(&[rgb[2], rgb[1], rgb[0]]);
+            std::fs::write(path.join(format!("maps/fx{index:02}.bmp")), bmp).unwrap();
+        }
+        let mut visual = frame(None, [0.; 3]);
+        visual.culling = 1;
+        visual
+            .lods
+            .push(lod(&[[-1., -1., 0.], [1., -1., 0.], [0., 1., 0.]]));
+        visual.lods[0].groups.push(FaceGroup {
+            material: 0,
+            indices: vec![0, 1, 2],
+        });
+        let source = Arc::new(Model {
+            frames: vec![visual],
+            materials: vec![lhr_assets::Material {
+                flags: 0x14048000,
+                ambient: [0.; 3],
+                diffuse: [1.; 3],
+                texture: "fx00.bmp".into(),
+                emission: [0.; 3],
+                opacity: 1.,
+                alpha_texture: None,
+                reflection: None,
+                environment_texture: None,
+                animation: Some(lhr_assets::TextureAnimation {
+                    num_frames: 3,
+                    env_num_frames: 0,
+                    loop_frame: 0,
+                    frame_delay: 10,
+                    env_loop_frame: 0,
+                    env_frame_delay: 0,
+                }),
+            }],
+        });
+        let installation = Installation::open(&path).unwrap();
+        let mut builder = SceneBuilder::new(&installation, "maps");
+        builder.use_original_model_loading();
+        builder.set_material_driver_time(100);
+        builder
+            .append_retained(
+                "synthetic animated material",
+                source,
+                Mat4::IDENTITY,
+                None,
+                true,
+                None,
+            )
+            .unwrap();
+        let (initial, runtime) = builder.finish().unwrap();
+        (path, initial, runtime)
+    }
+    #[test]
+    fn ordinary_animated_assembly_retains_real_material_owner_for_driver_redraw() {
+        let (path, initial, mut runtime) = retained_animated_fixture();
+        assert!(runtime.has_owned_material_draws());
+        assert_eq!(
+            initial.meshes[0].texture.as_ref().unwrap().rgba,
+            [255, 0, 0, 255]
+        );
+        // Admission at the driver's current nonzero time avoids reload catch-up.
+        for (time, rgb) in [
+            (100, [255, 0, 0, 255]),
+            (110, [0, 255, 0, 255]),
+            (110, [0, 255, 0, 255]),
+            (120, [0, 0, 255, 255]),
+            (130, [255, 0, 0, 255]),
+        ] {
+            let updates = runtime.snapshot_animated_material_draws(time).unwrap();
+            assert_eq!(updates.len(), 1);
+            assert_eq!(updates[0].draw_range, 0..1);
+            assert_eq!(
+                updates[0].snapshot.scene.meshes[0]
+                    .texture
+                    .as_ref()
+                    .unwrap()
+                    .rgba,
+                rgb
+            );
+        }
+        runtime.close_owned_material_draws().unwrap();
+        assert!(!runtime.has_owned_material_draws());
+        std::fs::remove_dir_all(path).unwrap();
+    }
+
     #[test]
     fn crossing_triangle_is_retained_when_all_vertices_are_outside_crop() {
         let lod = lod(&[

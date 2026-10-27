@@ -8,8 +8,8 @@
 //! not native pointers or GPU managers. Texture references and buffer-block
 //! destruction require a concrete backend; there is no implicit no-op backend.
 //! Mesh-object constructor/Release/SetLOD/UpdateBoundVolume use RVAs
-//! 0x31320/0x313a0/0x31550/0x31400. Animated materials, geometry allocation
-//! and rendering are separate.
+//! 0x31320/0x313a0/0x31550/0x31400. Animated material playback follows pinned
+//! mafia-re eb5a921 I3d_material.cpp; native runtime parity remains unverified.
 //! The mesh constructor constant uses the verified PC24 round-to-nearest context;
 //! alternate original floating-control modes are not represented.
 //!
@@ -146,6 +146,7 @@ pub enum VisualResourceError {
     InvalidFaceGroupChain,
     StorageAlreadyInstalled,
     AnimatedMaterialRequiresDerivedCopy,
+    UnsupportedMaterialAnimation(&'static str),
     InvalidVertexStorage,
     InvalidExternalIdentity,
     BufferBlockAlreadyOwned,
@@ -178,8 +179,8 @@ pub struct I3dMaterial {
     pub animation: Option<AnimatedMaterialFrames>,
     external_references: u32,
 }
-/// Loaded I3D_anim_material frame arrays and timing words. A driver tick has
-/// not been admitted; frame zero is the LoadImage SetCurrentFrame(-1) result.
+/// Owned I3D_anim_material frame arrays and independent lazy playback clocks.
+/// Current texture aliases never own an additional reference.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AnimatedMaterialFrames {
     pub textures: Vec<Option<TextureKey>>,
@@ -190,10 +191,14 @@ pub struct AnimatedMaterialFrames {
     pub frame_delay: i32,
     pub env_loop_frame: i32,
     pub env_frame_delay: i32,
+    pub elapsed: i32,
+    pub last_time: i32,
+    pub env_elapsed: i32,
+    pub env_last_time: i32,
     configured: bool,
 }
 impl AnimatedMaterialFrames {
-    fn constructor() -> Self {
+    fn constructor(time: i32) -> Self {
         Self {
             textures: vec![None],
             env_textures: vec![None],
@@ -203,10 +208,229 @@ impl AnimatedMaterialFrames {
             frame_delay: 0,
             env_loop_frame: 0,
             env_frame_delay: 0,
+            elapsed: 0,
+            last_time: time,
+            env_elapsed: 0,
+            env_last_time: time,
             configured: false,
         }
     }
 }
+/// Host guard failures describe boundaries outside the admitted safe source
+/// domain. They are not original LS3D_RESULT values or native success claims.
+fn update_material_channel(
+    textures: &[Option<TextureKey>],
+    frame: &mut usize,
+    elapsed: &mut i32,
+    last_time: &mut i32,
+    delay: i32,
+    loop_frame: i32,
+    texture: &mut Option<TextureKey>,
+    time: i32,
+    random: &mut crate::frame_light::LightCrtRandom,
+) -> Result<(), VisualResourceError> {
+    use VisualResourceError::UnsupportedMaterialAnimation as Unsupported;
+    if textures.is_empty() {
+        return Err(Unsupported("empty frame array access"));
+    }
+    if textures.len() < 2 || delay == 0 {
+        *texture = textures[0];
+        return Ok(());
+    }
+    if *last_time == 0 {
+        *texture = *textures
+            .get(*frame)
+            .ok_or(Unsupported("current frame access"))?;
+        *last_time = time;
+        *elapsed = 0;
+        return Ok(());
+    }
+    if *last_time != time {
+        // PC integer arithmetic wraps at 32 bits; no wall-clock saturation.
+        let delta = time.wrapping_sub(*last_time);
+        if loop_frame == -1 {
+            if delta < delay {
+                return Ok(());
+            }
+            if delay < 0 {
+                return Err(Unsupported("negative random frame delay"));
+            }
+            *frame = random.next_value() as usize % textures.len();
+        } else {
+            *elapsed = elapsed.wrapping_add(delta);
+            if *elapsed >= delay {
+                if delay < 0 {
+                    return Err(Unsupported("negative sequential frame delay"));
+                }
+                // Count source while-loop iterations arithmetically. At the
+                // wrap the source uses frame % (len-loop), not (frame-loop) %
+                // (len-loop). Its nonzero-loop cycle can therefore start later
+                // than loop_frame. No RNG calls or intermediate callbacks occur.
+                let steps = (*elapsed / delay) as usize;
+                if *frame >= textures.len() {
+                    return Err(Unsupported("current frame before sequential increment"));
+                }
+                let until_wrap = textures.len() - *frame;
+                if steps < until_wrap {
+                    *elapsed %= delay;
+                    *frame += steps;
+                } else {
+                    // Preserve the reached subtraction/increment prefix when
+                    // the original would divide by zero or index outside its
+                    // admitted frame domain on the first wrap.
+                    *elapsed = elapsed.wrapping_sub((until_wrap as i32).wrapping_mul(delay));
+                    *frame = textures.len();
+                    if loop_frame < 0 || loop_frame as usize >= textures.len() {
+                        return Err(Unsupported("sequential loop frame at wrap"));
+                    }
+                    let loop_frame = loop_frame as usize;
+                    let start = loop_frame + *frame % (textures.len() - loop_frame);
+                    *frame = start + (steps - until_wrap) % (textures.len() - start);
+                    *elapsed %= delay;
+                }
+            }
+        }
+        *last_time = time;
+    }
+    *texture = *textures
+        .get(*frame)
+        .ok_or(Unsupported("current frame access"))?;
+    Ok(())
+}
+
+impl VisualResources {
+    /// Publish the host's driver timeline without advancing any material.
+    pub fn set_material_driver_time(&mut self, time: i32) -> Result<(), VisualResourceError> {
+        self.available()?;
+        self.material_driver_time = time;
+        Ok(())
+    }
+    pub fn material_driver_time(&self) -> i32 {
+        self.material_driver_time
+    }
+    /// I3D_material::GetTexture: UpdateTexture is reached only for animated
+    /// flags, and only this channel consumes elapsed time or CRT random values.
+    pub fn get_material_texture(
+        &mut self,
+        key: MaterialKey,
+        random: &mut crate::frame_light::LightCrtRandom,
+    ) -> Result<Option<TextureKey>, VisualResourceError> {
+        self.material_texture_access(key, false, random)
+    }
+    pub fn get_material_env_texture(
+        &mut self,
+        key: MaterialKey,
+        random: &mut crate::frame_light::LightCrtRandom,
+    ) -> Result<Option<TextureKey>, VisualResourceError> {
+        self.material_texture_access(key, true, random)
+    }
+    fn material_texture_access(
+        &mut self,
+        key: MaterialKey,
+        environment: bool,
+        random: &mut crate::frame_light::LightCrtRandom,
+    ) -> Result<Option<TextureKey>, VisualResourceError> {
+        self.available()?;
+        let time = self.material_driver_time;
+        let material = self.material_mut(key)?;
+        if material.flags & 0x0400_0000 != 0 {
+            let frames = material.animation.as_mut().ok_or(
+                VisualResourceError::UnsupportedMaterialAnimation(
+                    "animated flag without derived owner",
+                ),
+            )?;
+            if environment {
+                update_material_channel(
+                    &frames.env_textures,
+                    &mut frames.env_frame,
+                    &mut frames.env_elapsed,
+                    &mut frames.env_last_time,
+                    frames.env_frame_delay,
+                    frames.env_loop_frame,
+                    &mut material.env_texture,
+                    time,
+                    random,
+                )?;
+            } else {
+                update_material_channel(
+                    &frames.textures,
+                    &mut frames.frame,
+                    &mut frames.elapsed,
+                    &mut frames.last_time,
+                    frames.frame_delay,
+                    frames.loop_frame,
+                    &mut material.texture,
+                    time,
+                    random,
+                )?;
+            }
+        }
+        Ok(if environment {
+            material.env_texture
+        } else {
+            material.texture
+        })
+    }
+    /// Source SetCurrentFrame wraps nonnegative color indices, whereas the
+    /// environment setter rejects indices strictly greater than its length.
+    /// The source's accepted f==env_len would index outside its vector; expose
+    /// that reached boundary as unsupported after its timing/frame writes.
+    pub fn set_material_current_frame(
+        &mut self,
+        key: MaterialKey,
+        mut frame: i32,
+        environment: bool,
+    ) -> Result<bool, VisualResourceError> {
+        self.available()?;
+        let time = self.material_driver_time;
+        let material = self.material_mut(key)?;
+        let frames = material
+            .animation
+            .as_mut()
+            .ok_or(VisualResourceError::AnimatedMaterialRequiresDerivedCopy)?;
+        let (textures, current, last_time, alias) = if environment {
+            (
+                &frames.env_textures,
+                &mut frames.env_frame,
+                &mut frames.env_last_time,
+                &mut material.env_texture,
+            )
+        } else {
+            (
+                &frames.textures,
+                &mut frames.frame,
+                &mut frames.last_time,
+                &mut material.texture,
+            )
+        };
+        if environment && (textures.is_empty() || i64::from(frame) > textures.len() as i64) {
+            return Ok(false);
+        }
+        if textures.is_empty() || textures.len() > i32::MAX as usize {
+            return Err(VisualResourceError::UnsupportedMaterialAnimation(
+                "frame selection array length",
+            ));
+        }
+        if !environment && frame >= textures.len() as i32 {
+            frame %= textures.len() as i32;
+        }
+        if frame >= 0 {
+            *current = frame as usize;
+            *last_time = 0;
+        } else {
+            *last_time = time;
+            *current = 0;
+        }
+        *alias =
+            *textures
+                .get(*current)
+                .ok_or(VisualResourceError::UnsupportedMaterialAnimation(
+                    "environment frame equals array length",
+                ))?;
+        Ok(true)
+    }
+}
+
 impl I3dMaterial {
     pub fn external_references(&self) -> u32 {
         self.external_references
@@ -269,6 +493,7 @@ impl I3dMeshObject {
 #[derive(Debug)]
 pub struct VisualResources {
     identity: u64,
+    material_driver_time: i32,
     materials: Vec<Option<I3dMaterial>>,
     face_groups: Vec<Option<I3dFaceGroup>>,
     mesh_levels: Vec<Option<I3dMeshLevel>>,
@@ -282,6 +507,7 @@ impl VisualResources {
             .map_err(|_| VisualResourceError::IdentityOverflow)?;
         Ok(Self {
             identity,
+            material_driver_time: 0,
             materials: Vec::new(),
             face_groups: Vec::new(),
             mesh_levels: Vec::new(),
@@ -408,9 +634,10 @@ impl VisualResources {
     /// The derived constructor owns one null entry in each frame array.
     pub fn create_animated_material(&mut self) -> Result<MaterialKey, VisualResourceError> {
         let key = self.create_material()?;
+        let time = self.material_driver_time;
         let material = self.material_mut(key)?;
         material.flags |= 0x0400_0000;
-        material.animation = Some(AnimatedMaterialFrames::constructor());
+        material.animation = Some(AnimatedMaterialFrames::constructor(time));
         Ok(key)
     }
     pub fn create_face_group(&mut self) -> Result<FaceGroupKey, VisualResourceError> {
@@ -1239,6 +1466,10 @@ impl VisualResources {
                 target_frames.env_textures.clear();
                 target_frames.frame = 0;
                 target_frames.env_frame = 0;
+                target_frames.elapsed = 0;
+                target_frames.env_elapsed = 0;
+                target_frames.last_time = self.material_driver_time;
+                target_frames.env_last_time = self.material_driver_time;
                 target_frames.configured = true;
                 let material = self.material_mut(destination)?;
                 material.texture = None;
@@ -1253,6 +1484,7 @@ impl VisualResources {
                 }
                 self.finish_loaded_animated_material(destination)?;
             } else {
+                let time = self.material_driver_time;
                 let material = self.material_mut(destination)?;
                 material.animation = Some(AnimatedMaterialFrames {
                     textures: vec![source_texture],
@@ -1263,6 +1495,10 @@ impl VisualResources {
                     frame_delay: 0,
                     env_loop_frame: 0,
                     env_frame_delay: 0,
+                    elapsed: 0,
+                    last_time: time,
+                    env_elapsed: 0,
+                    env_last_time: time,
                     configured: true,
                 });
             }
@@ -1575,6 +1811,7 @@ impl VisualResources {
         key: MaterialKey,
     ) -> Result<(), VisualResourceError> {
         self.available()?;
+        let time = self.material_driver_time;
         let material = self.material_mut(key)?;
         let frames = material
             .animation
@@ -1585,6 +1822,8 @@ impl VisualResources {
         }
         frames.frame = 0;
         frames.env_frame = 0;
+        frames.last_time = time;
+        frames.env_last_time = time;
         material.texture = frames.textures[0];
         material.env_texture = frames.env_textures[0];
         Ok(())
@@ -1727,6 +1966,294 @@ mod tests {
                 env_frame_delay: 0,
             }),
         }
+    }
+
+    fn playback_fixture(
+        resources: &mut VisualResources,
+        backend: &mut Backend,
+        time: i32,
+        color_delay: i32,
+        color_loop: i32,
+        env_delay: i32,
+        env_loop: i32,
+    ) -> MaterialKey {
+        resources.set_material_driver_time(time).unwrap();
+        let material = resources.create_animated_material().unwrap();
+        let mut source = animated_source();
+        source.environment_texture = Some("env00.tga".into());
+        let timing = source.animation.as_mut().unwrap();
+        timing.frame_delay = color_delay;
+        timing.loop_frame = color_loop;
+        timing.env_frame_delay = env_delay;
+        timing.env_loop_frame = env_loop;
+        resources
+            .configure_loaded_animated_material(material, &source)
+            .unwrap();
+        for (environment, base) in [(false, 100), (true, 200)] {
+            for index in 0..3 {
+                let key = backend.texture(base + index, 0);
+                resources
+                    .append_loaded_animated_frame(material, Some(key), environment, backend)
+                    .unwrap();
+                backend.release_texture(key).unwrap();
+            }
+        }
+        resources.finish_loaded_animated_material(material).unwrap();
+        material
+    }
+    #[test]
+    fn lazy_channels_have_independent_clocks_and_playback_never_retains_aliases() {
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let key = playback_fixture(&mut resources, &mut backend, 100, 10, 0, 15, 0);
+        let event_count = backend.events.len();
+        let mut random = crate::frame_light::LightCrtRandom::default();
+        resources.set_material_driver_time(125).unwrap();
+        assert_eq!(
+            resources.material(key).unwrap().texture,
+            Some(TextureKey(100))
+        );
+        assert_eq!(
+            resources.get_material_texture(key, &mut random),
+            Ok(Some(TextureKey(102)))
+        );
+        let state = resources.material(key).unwrap().animation.as_ref().unwrap();
+        assert_eq!(
+            (
+                state.elapsed,
+                state.last_time,
+                state.env_elapsed,
+                state.env_last_time
+            ),
+            (5, 125, 0, 100)
+        );
+        assert_eq!(
+            resources.get_material_texture(key, &mut random),
+            Ok(Some(TextureKey(102)))
+        );
+        assert_eq!(
+            resources.get_material_env_texture(key, &mut random),
+            Ok(Some(TextureKey(201)))
+        );
+        resources.set_material_driver_time(130).unwrap();
+        assert_eq!(
+            resources.get_material_texture(key, &mut random),
+            Ok(Some(TextureKey(100)))
+        );
+        assert_eq!(backend.events.len(), event_count);
+        assert_eq!(random.state(), 1);
+        resources.release_material(key, &mut backend).unwrap();
+        assert!(backend.textures.is_empty());
+        assert_eq!(
+            &backend.events[event_count..],
+            &[
+                Event::Release(TextureKey(102)),
+                Event::Release(TextureKey(101)),
+                Event::Release(TextureKey(100)),
+                Event::Release(TextureKey(202)),
+                Event::Release(TextureKey(201)),
+                Event::Release(TextureKey(200)),
+            ]
+        );
+    }
+    #[test]
+    fn source_nonzero_loop_formula_and_large_delta_preserve_exact_remainder() {
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let key = playback_fixture(&mut resources, &mut backend, 1, 10, 1, 10, 0);
+        let mut random = crate::frame_light::LightCrtRandom::default();
+        // Three frames and loop1 restart at 1 + 3 % 2 == 2, not frame1.
+        for time in [31, 41, i32::MAX] {
+            resources.set_material_driver_time(time).unwrap();
+            assert_eq!(
+                resources.get_material_texture(key, &mut random),
+                Ok(Some(TextureKey(102)))
+            );
+        }
+        let state = resources.material(key).unwrap().animation.as_ref().unwrap();
+        assert_eq!((state.elapsed, state.last_time), (6, i32::MAX));
+        resources.release_material(key, &mut backend).unwrap();
+    }
+    #[test]
+    fn random_access_is_one_shared_crt_draw_after_full_interval_not_per_missed_frame() {
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let a = playback_fixture(&mut resources, &mut backend, 100, 10, -1, 10, -1);
+        // Duplicate shares texture references, but its timing starts at now.
+        let b = resources.create_animated_material().unwrap();
+        resources.copy_material(b, Some(a), &mut backend).unwrap();
+        let mut random = crate::frame_light::LightCrtRandom::default();
+        resources.set_material_driver_time(109).unwrap();
+        resources.get_material_texture(a, &mut random).unwrap();
+        assert_eq!(random.state(), 1);
+        assert_eq!(
+            resources
+                .material(a)
+                .unwrap()
+                .animation
+                .as_ref()
+                .unwrap()
+                .last_time,
+            100
+        );
+        resources.set_material_driver_time(110).unwrap();
+        assert_eq!(
+            resources.get_material_texture(b, &mut random),
+            Ok(Some(TextureKey(102)))
+        ); // rand41
+        assert_eq!(
+            resources.get_material_env_texture(a, &mut random),
+            Ok(Some(TextureKey(202)))
+        ); // rand18467
+        assert_eq!(
+            resources.get_material_texture(a, &mut random),
+            Ok(Some(TextureKey(101)))
+        ); // rand6334
+        let state = random.state();
+        resources.get_material_texture(a, &mut random).unwrap();
+        assert_eq!(random.state(), state);
+        resources.set_material_driver_time(1000).unwrap();
+        resources.get_material_texture(a, &mut random).unwrap(); // rand26500 once
+        assert_eq!(random.state(), 3884216597);
+        resources.release_material(a, &mut backend).unwrap();
+        resources.release_material(b, &mut backend).unwrap();
+    }
+    #[test]
+    fn frame_selection_zero_time_restart_and_env_equal_length_are_explicit() {
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let key = playback_fixture(&mut resources, &mut backend, 100, 10, 0, 10, 0);
+        let mut random = crate::frame_light::LightCrtRandom::default();
+        assert_eq!(
+            resources.set_material_current_frame(key, 7, false),
+            Ok(true)
+        );
+        assert_eq!(
+            resources.material(key).unwrap().texture,
+            Some(TextureKey(101))
+        );
+        resources.set_material_driver_time(500).unwrap();
+        assert_eq!(
+            resources.get_material_texture(key, &mut random),
+            Ok(Some(TextureKey(101)))
+        );
+        assert_eq!(
+            resources
+                .material(key)
+                .unwrap()
+                .animation
+                .as_ref()
+                .unwrap()
+                .last_time,
+            500
+        );
+        resources
+            .set_material_current_frame(key, -1, false)
+            .unwrap();
+        resources.set_material_driver_time(510).unwrap();
+        assert_eq!(
+            resources.get_material_texture(key, &mut random),
+            Ok(Some(TextureKey(101)))
+        );
+        assert_eq!(
+            resources.set_material_current_frame(key, 4, true),
+            Ok(false)
+        );
+        assert_eq!(
+            resources.set_material_current_frame(key, 3, true),
+            Err(VisualResourceError::UnsupportedMaterialAnimation(
+                "environment frame equals array length"
+            ))
+        );
+        let state = resources.material(key).unwrap();
+        assert_eq!(state.env_texture, Some(TextureKey(200)));
+        assert_eq!(
+            (
+                state.animation.as_ref().unwrap().env_frame,
+                state.animation.as_ref().unwrap().env_last_time
+            ),
+            (3, 0)
+        );
+        resources.set_material_current_frame(key, -1, true).unwrap();
+        resources.release_material(key, &mut backend).unwrap();
+    }
+    #[test]
+    fn zero_tick_sentinel_duplicate_reset_and_wrapping_driver_clock_follow_source() {
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let key = playback_fixture(&mut resources, &mut backend, 0, 10, 0, 10, 0);
+        let mut random = crate::frame_light::LightCrtRandom::default();
+        resources.get_material_texture(key, &mut random).unwrap();
+        resources.set_material_driver_time(100).unwrap();
+        assert_eq!(
+            resources.get_material_texture(key, &mut random),
+            Ok(Some(TextureKey(100)))
+        );
+        resources.set_material_driver_time(120).unwrap();
+        resources.get_material_texture(key, &mut random).unwrap();
+        let copy = resources.create_animated_material().unwrap();
+        resources
+            .copy_material(copy, Some(key), &mut backend)
+            .unwrap();
+        let state = resources
+            .material(copy)
+            .unwrap()
+            .animation
+            .as_ref()
+            .unwrap();
+        assert_eq!(
+            (
+                state.frame,
+                state.elapsed,
+                state.last_time,
+                state.env_last_time
+            ),
+            (0, 0, 120, 120)
+        );
+        resources.set_material_driver_time(i32::MAX - 4).unwrap();
+        resources
+            .set_material_current_frame(copy, -1, false)
+            .unwrap();
+        resources.set_material_driver_time(i32::MIN + 5).unwrap();
+        assert_eq!(
+            resources.get_material_texture(copy, &mut random),
+            Ok(Some(TextureKey(101)))
+        );
+        resources.release_material(key, &mut backend).unwrap();
+        resources.release_material(copy, &mut backend).unwrap();
+    }
+    #[test]
+    fn invalid_sequential_domains_guard_only_when_the_source_boundary_is_reached() {
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let key = playback_fixture(&mut resources, &mut backend, 100, 10, 3, 10, 0);
+        let mut random = crate::frame_light::LightCrtRandom::default();
+        resources.set_material_driver_time(120).unwrap();
+        assert_eq!(
+            resources.get_material_texture(key, &mut random),
+            Ok(Some(TextureKey(102)))
+        );
+        resources.set_material_driver_time(130).unwrap();
+        assert_eq!(
+            resources.get_material_texture(key, &mut random),
+            Err(VisualResourceError::UnsupportedMaterialAnimation(
+                "sequential loop frame at wrap"
+            ))
+        );
+        let state = resources.material(key).unwrap().animation.as_ref().unwrap();
+        assert_eq!((state.frame, state.elapsed, state.last_time), (3, 0, 120));
+        resources.release_material(key, &mut backend).unwrap();
+        let key = playback_fixture(&mut resources, &mut backend, 100, -10, 0, 10, 0);
+        // Same tick does not enter the negative-delay while-loop.
+        resources.get_material_texture(key, &mut random).unwrap();
+        resources.set_material_driver_time(101).unwrap();
+        assert_eq!(
+            resources.get_material_texture(key, &mut random),
+            Err(VisualResourceError::UnsupportedMaterialAnimation(
+                "negative sequential frame delay"
+            ))
+        );
+        resources.release_material(key, &mut backend).unwrap();
     }
 
     #[test]
