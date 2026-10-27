@@ -212,7 +212,6 @@ pub struct SoundState {
     start_time: u32,
     pause_time: u32,
     pause_pos: u32,
-    pending_play: bool,
 }
 
 impl SoundState {
@@ -267,7 +266,6 @@ impl SoundState {
             start_time: 0,
             pause_time: 0,
             pause_pos: 0,
-            pending_play: false,
         }
     }
 
@@ -304,7 +302,7 @@ impl SoundState {
             self.pause_time = self.clock_ms;
             self.pause_pos = self.current_time_ms();
             self.state = PlaybackState::Pause;
-            self.pending_play = false;
+            self.native_tail[0] &= !0x1000;
             self.voice_playing = false;
         }
     }
@@ -334,7 +332,9 @@ impl SoundState {
         if !on || self.sound_type == 0 {
             self.state = PlaybackState::Stop;
             self.voice_playing = false;
-            self.pending_play = false;
+            if self.sound_type != 0 {
+                self.native_tail[0] &= !0x1000;
+            }
         } else if !camera {
             self.state = PlaybackState::NoCamera;
         } else if !self.sectors.is_empty()
@@ -342,6 +342,9 @@ impl SoundState {
         {
             self.pause();
         } else {
+            if !self.sectors.is_empty() {
+                self.native_tail[0] |= 0x200;
+            }
             if matches!(self.state, PlaybackState::Pause | PlaybackState::Resume) {
                 let elapsed = self.clock_ms.wrapping_sub(self.pause_time);
                 let duration = self.logical_duration_ms();
@@ -359,7 +362,7 @@ impl SoundState {
                 self.pause_pos = 0;
             }
             self.state = PlaybackState::Play;
-            self.pending_play = true;
+            self.native_tail[0] |= 0x1000;
             self.start_time = self.clock_ms;
         }
     }
@@ -647,11 +650,23 @@ impl RuntimeAudio {
     }
 
     pub fn load_sound(&self, handle: u32, name: &str, installation: &Installation) -> Result<()> {
-        self.load_sound_with(handle, name, || {
+        self.load_sound_with_flags(handle, name, 0, installation)
+    }
+
+    pub fn load_sound_with_flags(
+        &self,
+        handle: u32,
+        name: &str,
+        flags: u32,
+        installation: &Installation,
+    ) -> Result<()> {
+        self.load_sound_with_optional(handle, name, flags, || {
             installation
                 .read_original_path(name)
+                .map(Some)
                 .map_err(|e| AudioError(format!("sound source {name}: {e:?}")))
-        })
+        })?;
+        Ok(())
     }
 
     /// Host-backed original path Open. Only a proven absent archive/loose
@@ -678,6 +693,23 @@ impl RuntimeAudio {
         Ok(if opened { 0 } else { 0x8000_0001u32 as i32 })
     }
 
+    /// C_I3D_sound_cache::Duplicate (Game 0x5c23f0) only reopens the
+    /// source file. Unlike I3D_sound::Duplicate, it preserves destination
+    /// parameters and its common frame, and the cache ignores Open's HRESULT.
+    pub(crate) fn reopen_cached_sound(
+        &self,
+        destination: u32,
+        source: u32,
+        installation: &Installation,
+    ) -> Result<i32> {
+        let source = self.sound(source)?;
+        let filename = source
+            .source
+            .as_ref()
+            .map_or("", |source| source.name.as_str());
+        self.open_original_sound(destination, filename, source.open_flags, installation)
+    }
+
     /// Native derived Duplicate RVA 0x59250. The common frame Duplicate is a
     /// separate ModelArena operation after these source, voice and field writes.
     pub fn duplicate_sound_derived(
@@ -696,7 +728,6 @@ impl RuntimeAudio {
             let target = sound_mut(&mut mixer, destination)?;
             target.source = None;
             target.voice_playing = false;
-            target.pending_play = false;
             target.frame_position = 0.0;
         }
         let filename = original
@@ -735,6 +766,7 @@ impl RuntimeAudio {
         Ok(result)
     }
 
+    #[cfg(test)]
     fn load_sound_with(
         &self,
         handle: u32,
@@ -767,7 +799,6 @@ impl RuntimeAudio {
             // Release the old voice and source BEFORE opening the replacement.
             sound.source = None;
             sound.voice_playing = false;
-            sound.pending_play = false;
             sound.frame_position = 0.0;
             mixer.sources.get(&canonical).and_then(Weak::upgrade)
         };
@@ -778,7 +809,8 @@ impl RuntimeAudio {
                     return Ok(false);
                 };
                 let mut source = PcmSource::from_wav(name, &bytes)?;
-                source.open_flags = (flags | 0x200) & if source.channels > 1 { !0x200 } else { !0 };
+                let flags = flags | 0x200 | if flags & 0x8 != 0 { 0x10 } else { 0 };
+                source.open_flags = flags & if source.channels > 1 { !0x200 } else { !0 };
                 Arc::new(source)
             }
         };
@@ -795,11 +827,11 @@ impl RuntimeAudio {
         }
         sound.source = Some(source);
         sound.open_flags = sound.source.as_ref().unwrap().open_flags;
-        sound.native_tail[0] = 0x21ff;
         if sound.on {
             sound.set_on(true, camera, sector);
         }
         sound.seek(0);
+        sound.native_tail[0] = 0x21ff;
         Ok(true)
     }
 
@@ -831,8 +863,14 @@ impl RuntimeAudio {
         finite(&direction)?;
         let mut mixer = self.lock()?;
         let sound = sound_mut(&mut mixer, handle)?;
-        sound.position = position;
-        sound.direction = direction;
+        if sound.position != position {
+            sound.position = position;
+            sound.native_tail[0] |= 0x1;
+        }
+        if sound.direction != direction {
+            sound.direction = direction;
+            sound.native_tail[0] |= 0x2;
+        }
         Ok(())
     }
 
@@ -916,6 +954,10 @@ impl RuntimeAudio {
                 if arguments[0] > 3 {
                     return Err(AudioError("unsupported sound type".into()));
                 }
+                if sound.sound_type == arguments[0] {
+                    return Ok(0);
+                }
+                sound.native_tail[0] |= 0x100;
                 sound.sound_type =
                     if sound.source.as_ref().is_some_and(|s| s.channels > 1) && arguments[0] != 0 {
                         3
@@ -925,21 +967,39 @@ impl RuntimeAudio {
             }
             0x5c => {
                 let range = [float(0)?, float(1)?, float(2)?, float(3)?];
-                if sound.range != range {
+                if !near_equal(&sound.range, &range) {
                     sound.range = range;
                     sound.native_tail[0] |= 0x4;
                 }
             }
             0x60 => {
-                sound.cone = [
-                    float(0)?.min(std::f32::consts::PI),
-                    float(1)?.min(std::f32::consts::PI),
-                ]
+                let cone = [float(0)?, float(1)?];
+                if !near_equal(&sound.cone, &cone) {
+                    sound.cone = cone.map(|angle| angle.min(std::f32::consts::PI));
+                    sound.native_tail[0] |= 0x40;
+                }
             }
-            0x64 => sound.out_volume = float(0)?,
-            0x68 => sound.volume = float(0)?,
+            0x64 => {
+                let value = float(0)?;
+                if !near_equal(&[sound.out_volume], &[value]) {
+                    sound.out_volume = value;
+                    sound.native_tail[0] |= 0x10;
+                }
+            }
+            0x68 => {
+                let value = float(0)?;
+                if !near_equal(&[sound.volume], &[value]) {
+                    sound.volume = value;
+                    sound.native_tail[0] |= 0x8;
+                }
+            }
             0x6c => {
                 sound.looping = arguments[0] != 0;
+                if sound.looping {
+                    sound.open_flags |= 0x100;
+                } else {
+                    sound.open_flags &= !0x100;
+                }
                 if sound.on {
                     sound.set_on(true, camera, sector);
                 }
@@ -950,7 +1010,10 @@ impl RuntimeAudio {
                 if value <= 0.0 {
                     return Err(AudioError("nonpositive sound frequency".into()));
                 }
-                sound.frequency = value;
+                if !near_equal(&[sound.frequency], &[value]) {
+                    sound.frequency = value;
+                    sound.native_tail[0] |= 0x20;
+                }
             }
             0x80 => return Ok(sound.current_time_ms()),
             0x84 => return Ok(sound.source.as_ref().map_or(0, |s| s.duration_ms())),
@@ -961,7 +1024,12 @@ impl RuntimeAudio {
 
     pub fn set_velocity(&self, handle: u32, velocity: [f32; 3]) -> Result<()> {
         finite(&velocity)?;
-        sound_mut(&mut *self.lock()?, handle)?.velocity = velocity;
+        let mut mixer = self.lock()?;
+        let sound = sound_mut(&mut mixer, handle)?;
+        if !near_equal(&sound.velocity, &velocity) {
+            sound.velocity = velocity;
+            sound.native_tail[0] |= 0x2000;
+        }
         Ok(())
     }
 
@@ -1088,6 +1156,12 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> crate::vehicle_sound::VehicleGearSoundEffects
     }
 }
 
+fn near_equal<const N: usize>(left: &[f32; N], right: &[f32; N]) -> bool {
+    left.iter()
+        .zip(right)
+        .all(|(left, right)| (left - right).abs() < 1e-8)
+}
+
 fn finite(values: &[f32]) -> Result<()> {
     if values.iter().all(|v| v.is_finite()) {
         Ok(())
@@ -1155,13 +1229,14 @@ fn update_sound(
     if sound.state == PlaybackState::NoCamera {
         sound.set_on(true, camera, sector);
     }
+    sound.native_tail[0] &= !0x100;
     if sound.sound_type == 0 {
         sound.set_on(false, camera, sector);
         return Ok(());
     }
     if !sound.is_playing() {
         sound.state = PlaybackState::Stop;
-        sound.pending_play = false;
+        sound.native_tail[0] &= !0x1000;
         return Ok(());
     }
     sound.refresh_scaled_range();
@@ -1189,12 +1264,13 @@ fn update_sound(
         sound.state = PlaybackState::Resume;
         sound.set_on(true, camera, sector);
     }
-    if sound.pending_play {
+    sound.native_tail[0] &= !0x207f;
+    if sound.native_tail[0] & 0x1000 != 0 {
         if sound.pause_pos == 0 {
             sound.frame_position = 0.0;
         }
         sound.voice_playing = true;
-        sound.pending_play = false;
+        sound.native_tail[0] &= !0x1000;
     }
     Ok(())
 }
@@ -1411,6 +1487,107 @@ mod tests {
         std::fs::remove_dir_all(path).unwrap();
     }
 
+    #[test]
+    fn loaded_sound_setters_dirty_flags_and_update_drive_duplicate_state() {
+        let path = std::env::temp_dir().join(format!(
+            "lhr-sound-flags-{}-{}",
+            std::process::id(),
+            crate::frame_lookup::incarnation()
+        ));
+        std::fs::create_dir_all(&path).unwrap();
+        std::fs::write(path.join("a.wav"), wav(&[4096; 16], 1, 4)).unwrap();
+        let installation = Installation::open(&path).unwrap();
+        let audio = RuntimeAudio::default();
+        audio.create_sound_at(0x1000).unwrap();
+        audio.create_sound_at(0x1001).unwrap();
+        assert_eq!(
+            audio
+                .open_original_sound(0x1000, "a.wav", 8, &installation)
+                .unwrap(),
+            0
+        );
+        assert_eq!(audio.read_sound_word(0x1000, 0x198).unwrap(), 0x218);
+        assert_eq!(audio.read_sound_word(0x1000, 0x140).unwrap(), 0x21ff);
+        audio.set_listener([0.0; 3], [1.0, 0.0, 0.0], None).unwrap();
+        audio.sound_virtual(0x1000, 0x58, &[3]).unwrap();
+        audio.sound_virtual(0x1000, 0x6c, &[1]).unwrap();
+        assert_eq!(audio.read_sound_word(0x1000, 0x198).unwrap(), 0x318);
+        // Loop is a per-sound play flag; its shared source retains its Open flags.
+        assert_eq!(
+            audio.sound(0x1000).unwrap().source.unwrap().open_flags,
+            0x218
+        );
+        audio.sound_virtual(0x1000, 0x24, &[1]).unwrap();
+        assert_eq!(audio.read_sound_word(0x1000, 0x140).unwrap(), 0x31ff);
+        let mut output = [0.0; 2];
+        audio.mix_stereo(4, &mut output).unwrap();
+        assert_eq!(audio.read_sound_word(0x1000, 0x140).unwrap(), 0);
+        assert!(output.iter().all(|sample| *sample > 0.0));
+        audio
+            .duplicate_sound_derived(0x1001, 0x1000, &installation)
+            .unwrap();
+        assert_eq!(audio.read_sound_word(0x1001, 0x144).unwrap(), 0);
+        for (slot, arguments, bit) in [
+            (0x58, vec![1], 0x100),
+            (
+                0x5c,
+                vec![
+                    2f32.to_bits(),
+                    20f32.to_bits(),
+                    0.5f32.to_bits(),
+                    0.1f32.to_bits(),
+                ],
+                4,
+            ),
+            (0x60, vec![0.5f32.to_bits(), 1f32.to_bits()], 0x40),
+            (0x64, vec![0.2f32.to_bits()], 0x10),
+            (0x68, vec![0.75f32.to_bits()], 8),
+            (0x74, vec![1.5f32.to_bits()], 0x20),
+        ] {
+            audio.sound_virtual(0x1000, slot, &arguments).unwrap();
+            assert_eq!(audio.read_sound_word(0x1000, 0x140).unwrap(), bit);
+            audio.sound_virtual(0x1000, 0x90, &[]).unwrap();
+            assert_eq!(audio.read_sound_word(0x1000, 0x140).unwrap(), 0);
+            audio.sound_virtual(0x1000, slot, &arguments).unwrap();
+            assert_eq!(audio.read_sound_word(0x1000, 0x140).unwrap(), 0);
+        }
+        audio.set_velocity(0x1000, [1.0, 0.0, 0.0]).unwrap();
+        assert_eq!(audio.read_sound_word(0x1000, 0x140).unwrap(), 0x2000);
+        audio.sound_virtual(0x1000, 0x90, &[]).unwrap();
+        assert_eq!(audio.read_sound_word(0x1000, 0x140).unwrap(), 0);
+        audio.sound_virtual(0x1000, 0x6c, &[0]).unwrap();
+        assert_eq!(audio.read_sound_word(0x1000, 0x198).unwrap(), 0x218);
+        std::fs::remove_dir_all(path).unwrap();
+    }
+
+    #[test]
+    fn source_open_frequency_conversion_only_applies_to_first_shared_source() {
+        let audio = RuntimeAudio::default();
+        for handle in 1..=4 {
+            audio.create_sound_at(handle).unwrap();
+        }
+        audio
+            .load_sound_with_optional(1, "a.wav", 8, || Ok(Some(wav(&[1; 4], 1, 4))))
+            .unwrap();
+        audio
+            .load_sound_with_optional(2, "A.WAV", 0, || {
+                panic!("shared source must not read again")
+            })
+            .unwrap();
+        assert_eq!(audio.read_sound_word(1, 0x198).unwrap(), 0x218);
+        assert_eq!(audio.read_sound_word(2, 0x198).unwrap(), 0x218);
+        audio
+            .load_sound_with_optional(3, "b.wav", 0, || Ok(Some(wav(&[1; 4], 1, 4))))
+            .unwrap();
+        audio
+            .load_sound_with_optional(4, "B.WAV", 8, || {
+                panic!("later request cannot upgrade source")
+            })
+            .unwrap();
+        assert_eq!(audio.read_sound_word(3, 0x198).unwrap(), 0x200);
+        assert_eq!(audio.read_sound_word(4, 0x198).unwrap(), 0x200);
+    }
+
     fn loaded() -> RuntimeAudio {
         let audio = RuntimeAudio::default();
         audio.create_sound_at(0x1000).unwrap();
@@ -1527,13 +1704,15 @@ mod tests {
                 },
             )
             .unwrap();
-        assert!(audio
-            .load_sound_with(0x1000, "missing.wav", || {
-                assert!(audio.sound(0x1000).unwrap().source.is_none());
-                assert_eq!(playing(&audio, true), 0);
-                Err(AudioError("synthetic missing file".into()))
-            })
-            .is_err());
+        assert!(
+            audio
+                .load_sound_with(0x1000, "missing.wav", || {
+                    assert!(audio.sound(0x1000).unwrap().source.is_none());
+                    assert_eq!(playing(&audio, true), 0);
+                    Err(AudioError("synthetic missing file".into()))
+                })
+                .is_err()
+        );
         assert_eq!(playing(&audio, false), 0);
         assert_eq!(audio.live_source_count().unwrap(), 0);
         assert_eq!(
@@ -1547,7 +1726,11 @@ mod tests {
         audio
             .load_sound_with(0x1000, "replacement.wav", || Ok(wav(&[8192; 4], 1, 4)))
             .unwrap();
+        // Open resets snd_flags after its internal SetOn, including pending Play.
+        assert_eq!(audio.read_sound_word(0x1000, 0x140).unwrap(), 0x21ff);
         audio.mix_stereo(4, &mut [0.0; 2]).unwrap();
+        assert_eq!(playing(&audio, true), 0);
+        audio.sound_virtual(0x1000, 0x88, &[1, 1]).unwrap();
         assert_eq!(playing(&audio, true), 1);
     }
 
