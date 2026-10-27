@@ -251,11 +251,7 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
         return Err("A mission requires an installation root and no model".into());
     }
     if let Some(name) = &result.mission {
-        if name.is_empty() || !name.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_') {
-            return Err(
-                "Mission name must contain only ASCII letters, digits and underscore".into(),
-            );
-        }
+        mission_load_probe::validate_mission_name(name)?;
     }
     if result.lab && result.headless {
         return Err("Engine Lab requires a native window; omit --headless".into());
@@ -2686,6 +2682,49 @@ mod mission_probe_option_tests {
 
     fn parse(args: &[&str]) -> Result<Options, String> {
         parse_options(args.iter().map(|arg| (*arg).into()))
+    }
+
+    #[test]
+    fn campaign_directory_names_are_accepted_by_cli_and_direct_probe_validation() {
+        for name in ["mise02-saliery", "mise03-morello", "MISE01", "mission_02"] {
+            let args = ["--root", "/synthetic-installation", "--mission", name];
+            assert_eq!(parse(&args).unwrap().mission.as_deref(), Some(name));
+            let mut probe_args = args.to_vec();
+            probe_args.push("--mission-load-probe");
+            assert_eq!(parse(&probe_args).unwrap().mission.as_deref(), Some(name));
+            assert!(mission_load_probe::validate_inputs(name, &[]).is_ok());
+        }
+        let longest = "a".repeat(64);
+        assert!(parse(&["--root", "/synthetic-installation", "--mission", &longest]).is_ok());
+        assert!(mission_load_probe::validate_inputs(&longest, &[]).is_ok());
+    }
+
+    #[test]
+    fn cli_and_direct_probe_reject_unsafe_or_overlong_mission_names() {
+        let overlong = "a".repeat(65);
+        for name in [
+            "",
+            "/mise02-saliery",
+            "mise02/morello",
+            "mise02\\morello",
+            ".",
+            "..",
+            "../mise02",
+            "mise02..",
+            "mise02 morello",
+            "mise02\tmorello",
+            "mise02\nmorello",
+            "mise02\0morello",
+            "mise02-č",
+            &overlong,
+        ] {
+            let args = ["--root", "/synthetic-installation", "--mission", name];
+            assert!(parse(&args).is_err(), "accepted mission name: {name:?}");
+            let mut probe_args = args.to_vec();
+            probe_args.push("--mission-load-probe");
+            assert!(parse(&probe_args).is_err(), "accepted probe name: {name:?}");
+            assert!(mission_load_probe::validate_inputs(name, &[]).is_err());
+        }
     }
 
     #[test]
