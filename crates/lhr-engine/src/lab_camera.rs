@@ -121,6 +121,7 @@ pub fn orbit(camera: &mut Camera, yaw: f32, pitch: f32, zoom: f32) -> Result<(),
     if !yaw.is_finite() || !pitch.is_finite() || !zoom.is_finite() || zoom <= 0. {
         return Err("Invalid camera motion".into());
     }
+    camera.validate()?;
     if yaw == 0. && pitch == 0. && zoom == 1. {
         return Ok(());
     }
@@ -128,7 +129,17 @@ pub fn orbit(camera: &mut Camera, yaw: f32, pitch: f32, zoom: f32) -> Result<(),
     let distance = offset.length();
     let azimuth = offset.x.atan2(offset.z) + yaw;
     let elevation = ((offset.y / distance).clamp(-1., 1.).asin() + pitch).clamp(-1.55, 1.55);
-    let distance = (distance * zoom).clamp(camera.near * 2., camera.far * 0.8);
+    let minimum = camera.near * 2.;
+    let maximum = camera.far * 0.8;
+    // A valid camera only requires far > near. The preferred orbit margins
+    // can overlap (near=1, far=2), which would make clamp panic. Retain those
+    // margins where possible; otherwise use the validated clipping interval.
+    let (minimum, maximum) = if minimum.is_finite() && minimum <= maximum {
+        (minimum, maximum)
+    } else {
+        (camera.near, camera.far)
+    };
+    let distance = (distance * zoom).clamp(minimum, maximum);
     let mut next = Bookmark::capture(camera).camera();
     next.eye = camera.target
         + Vec3::new(
@@ -172,6 +183,42 @@ mod tests {
         let before = Bookmark::capture(&camera);
         assert!(orbit(&mut camera, f32::NAN, 0., 1.).is_err());
         assert!(pan(&mut camera, f32::INFINITY, 0.).is_err());
+        assert_eq!(Bookmark::capture(&camera), before);
+    }
+
+    #[test]
+    fn orbit_accepts_narrow_clipping_ranges_without_reversed_clamp_bounds() {
+        for (zoom, expected) in [(0.01, 1.), (0.9, 1.35), (100., 2.)] {
+            let mut camera = Camera {
+                eye: Vec3::new(0., 0., 1.5),
+                target: Vec3::ZERO,
+                up: Vec3::Y,
+                near: 1.,
+                far: 2.,
+                vertical_fov_radians: 50f32.to_radians(),
+            };
+            camera.validate().unwrap();
+            orbit(&mut camera, 0.2, 0., zoom).unwrap();
+            camera.validate().unwrap();
+            assert!(((camera.eye - camera.target).length() - expected).abs() < 0.0001);
+            assert_eq!(camera.near, 1.);
+            assert_eq!(camera.far, 2.);
+        }
+    }
+
+    #[test]
+    fn orbit_preserves_ordinary_margins_and_rejects_invalid_camera_atomically() {
+        let mut camera = Camera::fit_bounds([-1.; 3], [1.; 3]).unwrap();
+        let minimum = camera.near * 2.;
+        let maximum = camera.far * 0.8;
+        orbit(&mut camera, 0., 0., 1.0e-6).unwrap();
+        assert!(((camera.eye - camera.target).length() - minimum).abs() < 0.0001);
+        orbit(&mut camera, 0., 0., 1.0e8).unwrap();
+        assert!(((camera.eye - camera.target).length() - maximum).abs() < 0.0001);
+        camera.far = camera.near;
+        let before = Bookmark::capture(&camera);
+        assert!(orbit(&mut camera, 0.1, 0., 1.).is_err());
+        assert!(orbit(&mut camera, 0., 0., 1.).is_err());
         assert_eq!(Bookmark::capture(&camera), before);
     }
 
