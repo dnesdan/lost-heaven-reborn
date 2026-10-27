@@ -9,9 +9,11 @@ use std::{
     sync::{mpsc, Arc, Weak},
 };
 use wgpu::util::DeviceExt;
+mod lab_environment;
 mod lighting;
 mod material;
 mod scene_frame;
+pub use lab_environment::{DebugView, LabEnvironment, Weather};
 pub use lighting::{LightingMode, MeshLighting};
 use material::PipelineKey;
 pub use material::{AlphaMode, FrontFace, MaterialQueue, OriginalMaterial, RenderMaterial};
@@ -182,6 +184,13 @@ pub struct Renderer {
     camera_layout: wgpu::BindGroupLayout,
     camera_buffer: wgpu::Buffer,
     camera_group: wgpu::BindGroup,
+    lab_buffer: wgpu::Buffer,
+    lab_weather_pipeline: wgpu::RenderPipeline,
+    lab_environment: LabEnvironment,
+    lab_eye: [f32; 3],
+    lab_seconds: f32,
+    lab_model_transform: Mat4,
+    lab_hidden_draws: std::collections::HashSet<usize>,
     draws: Vec<Draw>,
     texture_layout: wgpu::BindGroupLayout,
     material_layout: wgpu::BindGroupLayout,
@@ -234,29 +243,53 @@ impl Renderer {
             .map_err(|_| "Graphics device initialization failed")?;
         let camera_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
                 },
-                count: None,
-            }],
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
         });
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
             contents: bytemuck::cast_slice(&Mat4::IDENTITY.to_cols_array()),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
+        let lab_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Engine Lab presentation uniform"),
+            size: std::mem::size_of::<lab_environment::LabUniform>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
         let camera_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &camera_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: camera_buffer.as_entire_binding(),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: camera_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: lab_buffer.as_entire_binding(),
+                },
+            ],
         });
         let texture_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
@@ -307,7 +340,11 @@ impl Renderer {
                 layout: Some(&layout),
                 vertex: wgpu::VertexState {
                     module: &shader,
-                    entry_point: Some("vertex"),
+                    entry_point: Some(if depth_enabled {
+                        "vertex_lab"
+                    } else {
+                        "vertex"
+                    }),
                     buffers: &[wgpu::VertexBufferLayout {
                         array_stride: 20,
                         step_mode: wgpu::VertexStepMode::Vertex,
@@ -345,7 +382,7 @@ impl Renderer {
                 cache: None,
             })
         };
-        let pipeline = scene_pipeline("fragment", true);
+        let pipeline = scene_pipeline("fragment_lab", true);
         let backdrop_pipeline = scene_pipeline("fragment", false);
         let inspection_cutout_pipeline = scene_pipeline("fragment_inspection_cutout", true);
         let original_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -468,10 +505,46 @@ impl Renderer {
         let overlay_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &camera_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: overlay_buffer.as_entire_binding(),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: overlay_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: lab_buffer.as_entire_binding(),
+                },
+            ],
+        });
+        let weather_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Engine Lab precipitation layout"),
+            bind_group_layouts: &[&camera_layout],
+            push_constant_ranges: &[],
+        });
+        let lab_weather_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Engine Lab screen-space precipitation preview"),
+            layout: Some(&weather_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vertex_weather"),
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fragment_weather"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: Default::default(),
+            depth_stencil: None,
+            multisample: Default::default(),
+            multiview: None,
+            cache: None,
         });
         let mut materials = MaterialCache::new();
         let draws = upload_meshes(
@@ -497,6 +570,13 @@ impl Renderer {
             camera_layout,
             camera_buffer,
             camera_group,
+            lab_buffer,
+            lab_weather_pipeline,
+            lab_environment: LabEnvironment::default(),
+            lab_eye: [0.; 3],
+            lab_seconds: 0.,
+            lab_model_transform: Mat4::IDENTITY,
+            lab_hidden_draws: Default::default(),
             draws,
             texture_layout,
             material_layout,
@@ -528,6 +608,7 @@ impl Renderer {
             &mut self.materials.borrow_mut(),
         )?;
         self.draws.splice(range, next);
+        self.lab_hidden_draws.clear();
         self.materials
             .borrow_mut()
             .retain(|_, cached| cached.source.strong_count() != 0);
@@ -555,7 +636,14 @@ impl Renderer {
         height: u32,
         design: [f32; 2],
     ) -> wgpu::CommandEncoder {
-        self.render_matrix(view, width, height, screen_matrix(width, height, design))
+        self.render_layers_preview(
+            view,
+            width,
+            height,
+            screen_matrix(width, height, design),
+            None,
+            false,
+        )
     }
     /// Replace pixels of an existing material without recreating the device or geometry.
     pub fn update_texture(&self, index: usize, pixels: &Texture) -> Result<(), String> {
@@ -691,10 +779,26 @@ impl Renderer {
         matrix: Mat4,
         overlay: Option<[f32; 2]>,
     ) -> wgpu::CommandEncoder {
+        self.render_layers_preview(view, width, height, matrix, overlay, true)
+    }
+    fn render_layers_preview(
+        &self,
+        view: &wgpu::TextureView,
+        width: u32,
+        height: u32,
+        matrix: Mat4,
+        overlay: Option<[f32; 2]>,
+        preview: bool,
+    ) -> wgpu::CommandEncoder {
         self.queue.write_buffer(
             &self.camera_buffer,
             0,
             bytemuck::cast_slice(&matrix.to_cols_array()),
+        );
+        self.queue.write_buffer(
+            &self.lab_buffer,
+            0,
+            bytemuck::bytes_of(&self.lab_uniform(width, height, preview, preview)),
         );
         let depth_view = self.depth_view(width, height);
         let mut encoder = self.device.create_command_encoder(&Default::default());
@@ -705,12 +809,7 @@ impl Renderer {
                     view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.025,
-                            g: 0.035,
-                            b: 0.055,
-                            a: 1.0,
-                        }),
+                        load: wgpu::LoadOp::Clear(self.lab_clear_color(preview)),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -736,7 +835,12 @@ impl Renderer {
                 .len()
                 .saturating_sub(usize::from(overlay.is_some()));
             let mut current_cull = None;
-            for index in self.draw_order(count, matrix) {
+            let sort_matrix = if preview {
+                matrix * self.lab_model_transform
+            } else {
+                matrix
+            };
+            for index in self.draw_order(count, sort_matrix) {
                 let draw = &self.draws[index];
                 match draw.policy {
                     RenderMaterial::Legacy => pass.set_pipeline(if self.inspection_alpha_cutout {
@@ -763,11 +867,22 @@ impl Renderer {
                         pass.set_vertex_buffer(1, draw.lighting_vertex.slice(..));
                     }
                 }
+                if preview && self.lab_hidden_draws.contains(&index) {
+                    continue;
+                }
                 pass.set_bind_group(1, &draw.material.group, &[]);
                 pass.set_vertex_buffer(0, draw.vertex.slice(..));
                 pass.set_index_buffer(draw.index.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..draw.count, 0, 0..1);
             }
+        }
+        if preview {
+            self.render_lab_precipitation(
+                &mut encoder,
+                view,
+                &self.camera_group,
+                [0, 0, width, height],
+            );
         }
         if let Some(design) = overlay {
             self.render_overlay(&mut encoder, view, width, height, design);
@@ -879,13 +994,8 @@ impl Renderer {
         design: [f32; 2],
         path: &Path,
     ) -> Result<(), String> {
-        self.capture_matrix(
-            width,
-            height,
-            screen_matrix(width, height, design),
-            None,
-            path,
-        )
+        let rgba = self.readback_screen(width, height, design)?;
+        write_capture(width, height, &rgba, path)
     }
     pub fn capture_with_overlay(
         &self,
@@ -1004,7 +1114,9 @@ impl Renderer {
         height: u32,
         design: [f32; 2],
     ) -> Result<Vec<u8>, String> {
-        self.readback_matrix(width, height, screen_matrix(width, height, design), None)
+        self.readback_using(width, height, |view| {
+            Ok(self.render_screen(view, width, height, design))
+        })
     }
     fn capture_matrix(
         &self,
