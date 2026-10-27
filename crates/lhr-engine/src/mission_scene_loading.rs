@@ -2,7 +2,8 @@
 //! PC SHA256 08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27.
 //! This borrows an existing scene and executes its ordered camera/header/sector
 //! prefix, admitted occluders/lights and fresh model construction. Original
-//! static model-cache loading. World SceneOpen and actor installation remain
+//! static model-cache loading and ordered source-only actor/program installation.
+//! World SceneOpen and gameplay initialization remain
 //! explicit boundaries; a constructor-empty scene is not native mission context.
 use crate::driver_scene::DriverSceneOwner;
 use crate::frame_camera::CameraKey;
@@ -206,6 +207,8 @@ pub struct PendingSoundLink {
 /// driver and resources; an error leaves their executed effects in place.
 pub struct MissionSceneLoader {
     pub scene: SceneKey,
+    /// Source-only actors/programs use this loader's live map and arena.
+    pub content: crate::mission_content_loading::MissionContentOwner,
     pub load_map: SceneLoadMapPrefix,
     pub camera: Option<CameraKey>,
     pub version: [Option<u16>; 2],
@@ -239,6 +242,7 @@ impl MissionSceneLoader {
     pub fn new(arena: &ModelArena, scene: SceneKey) -> Result<Self, SceneLoadMapError> {
         Ok(Self {
             scene,
+            content: crate::mission_content_loading::MissionContentOwner::default(),
             load_map: initialize_scene_load_map(arena, scene)?,
             camera: None,
             version: [None; 2],
@@ -276,14 +280,20 @@ impl MissionSceneLoader {
             detail: detail.into(),
         }
     }
-    /// Host shutdown of an interrupted invocation: release exactly the visual
-    /// factory's outstanding creator reference before scene/cache teardown.
+    /// Terminal host shutdown: dispose source actor/program owners and release
+    /// outstanding visual creator references before scene/cache teardown.
     /// Non-owning map/current diagnostics may then be stale and cannot resume
     /// this invocation. An unavailable destructor retains the pending owner.
     pub fn release_pending_visual_replacement(
         &mut self,
         arena: &mut ModelArena,
     ) -> Result<(), crate::model_loading::ModelError> {
+        self.entered = true;
+        // Every caller already performs this terminal step before releasing the
+        // scene. Source actors/programs must die while their real frames live.
+        self.content
+            .discard_terminal(arena)
+            .map_err(crate::model_loading::ModelError::Asset)?;
         if let Some(pending) = self.pending_factory_creator {
             let key = FrameKey(pending.identity());
             if arena.lookup_reference(key) != pending {
@@ -590,14 +600,20 @@ impl MissionSceneLoader {
                     continue;
                 }
                 0xae20 => {
-                    return Err((0x544a16, "actor root requires ordered Game actor dispatch; object stage and pending links retained".into()));
+                    let result = self
+                        .content
+                        .load_actors(chunk, arena, &mut self.load_map.map);
+                    input
+                        .advance_current_to(self.content.cursor)
+                        .map_err(|e| (0x544a16, e))?;
+                    result.map_err(|detail| (0x544a16, detail))?;
                 }
                 0xae50 => {
-                    return Err((
-                        0x544b92,
-                        "script root requires ordered Game script dispatch; pending links retained"
-                            .into(),
-                    ));
+                    let result = self.content.load_programs(chunk, arena);
+                    input
+                        .advance_current_to(self.content.cursor)
+                        .map_err(|e| (0x544b92, e))?;
+                    result.map_err(|detail| (0x544b92, detail))?;
                 }
                 _ => {
                     return Err((
@@ -2756,7 +2772,17 @@ mod tests {
                 &[
                     chunk(1, &[5u16.to_le_bytes(), 1u16.to_le_bytes()].concat()),
                     chunk(0x4000, &sound),
-                    chunk(0xae20, &[]),
+                    chunk(
+                        0xae20,
+                        &chunk(
+                            0xae21,
+                            &[
+                                chunk(0xae23, b"pending sound\0"),
+                                chunk(0xae22, &2u32.to_le_bytes()),
+                            ]
+                            .concat(),
+                        ),
+                    ),
                 ]
                 .concat(),
             );

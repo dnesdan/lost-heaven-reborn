@@ -249,6 +249,10 @@ impl CanonicalSceneState {
             .add_dir(MissionCacheKind::Model, b"Models", &mut self.cache_memory)
             .map_err(|e| format!("Scene model directory: {e:?}"))?;
         let mut loader = MissionSceneLoader::new(&self.arena, scene).map_err(|e| e.detail)?;
+        loader
+            .content
+            .set_program_context(Some(mission.as_bytes().to_vec()), Vec::new())
+            .map_err(|error| format!("Mission program context: {error}"))?;
         let bytes = installation
             .read(&format!("missions/{mission}/scene2.bin"))
             .map_err(|e| format!("Canonical scene2 input: {e}"))?;

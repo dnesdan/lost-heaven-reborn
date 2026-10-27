@@ -60,11 +60,13 @@ impl OriginalLoadMap {
 }
 pub struct MissionActorLoader {
     pub world: ActorWorld,
-    load_map: OriginalLoadMap,
+    load_map: Option<OriginalLoadMap>,
     pub current_actor: Option<ActorReferenceId>,
     pub current_frame: Option<FrameReferenceId>,
     current_kind: Option<u32>,
     pub interrupted_offset: Option<usize>,
+    /// Absolute byte position reached by the current bounded read.
+    pub cursor: usize,
     /// Exact current ae21 bytes survive an interrupted Installation call.
     pub current_record: Vec<u8>,
     pub pending_load_data: Option<Vec<u8>>,
@@ -73,11 +75,27 @@ impl MissionActorLoader {
     pub fn new(world: ActorWorld, load_map: OriginalLoadMap) -> Self {
         Self {
             world,
-            load_map,
+            load_map: Some(load_map),
             current_actor: None,
             current_frame: None,
             current_kind: None,
             interrupted_offset: None,
+            cursor: 0,
+            current_record: Vec::new(),
+            pending_load_data: None,
+        }
+    }
+    /// An enclosing scene loader supplies its actual map at each root. No
+    /// independent map or scene snapshot is constructed by this owner.
+    pub fn borrowing_scene_map(world: ActorWorld) -> Self {
+        Self {
+            world,
+            load_map: None,
+            current_actor: None,
+            current_frame: None,
+            current_kind: None,
+            interrupted_offset: None,
+            cursor: 0,
             current_record: Vec::new(),
             pending_load_data: None,
         }
@@ -90,10 +108,13 @@ impl MissionActorLoader {
         name: &[u8],
         frame: FrameReferenceId,
     ) -> Result<(), String> {
-        self.load_map.publish_loaded_frame(arena, name, frame)
+        self.load_map
+            .as_mut()
+            .ok_or("actor loader borrows the enclosing scene map")?
+            .publish_loaded_frame(arena, name, frame)
     }
     pub fn load_map_slot(&self, name: &[u8]) -> Option<Option<FrameReferenceId>> {
-        self.load_map.slot(name)
+        self.load_map.as_ref().and_then(|map| map.slot(name))
     }
     /// Actual installation bytes feed the same ordered executor used by an
     /// enclosing scene loader. Non-actor phases must already have been loaded
@@ -148,6 +169,35 @@ impl MissionActorLoader {
         replacements: &[ProgramReplacement],
         backend: &mut B,
     ) -> Result<(), MissionActorError> {
+        let Some(mut map) = self.load_map.take() else {
+            return Err(self.error(
+                collection.offset,
+                "actor loader requires the enclosing scene map".into(),
+            ));
+        };
+        // Move, rather than copy, the original map. Restore it on every result.
+        let result = self.load_collection_with_map(
+            collection,
+            arena,
+            &mut map,
+            mission_path,
+            replacements,
+            backend,
+        );
+        self.load_map = Some(map);
+        result
+    }
+    pub fn load_collection_with_map<
+        B: ActorAllocationBackend + ActorCollectionBackend + ActorDeallocationBackend + ProgramBackend,
+    >(
+        &mut self,
+        collection: Chunk<'_>,
+        arena: &mut ModelArena,
+        map: &mut OriginalLoadMap,
+        mission_path: Option<&[u8]>,
+        replacements: &[ProgramReplacement],
+        backend: &mut B,
+    ) -> Result<(), MissionActorError> {
         if self.interrupted_offset.is_some() {
             return Err(self.error(
                 collection.offset,
@@ -160,9 +210,12 @@ impl MissionActorLoader {
                 "expected original actor collection ae20".into(),
             ));
         }
+        self.cursor = collection.offset + 6;
         for record in collection.children() {
             let record = record.map_err(|e| self.error(collection.offset, e.to_string()))?;
+            self.cursor = record.offset + 6;
             if record.kind != 0xae21 {
+                self.cursor = record.offset + record.raw.len();
                 continue;
             }
             self.current_record = record.raw.to_vec();
@@ -172,11 +225,17 @@ impl MissionActorLoader {
             self.current_kind = None;
             for field in record.children() {
                 let field = field.map_err(|e| self.error(record.offset, e.to_string()))?;
-                if let Err(detail) = self.field(field, arena, mission_path, replacements, backend) {
+                self.cursor = field.offset + 6;
+                if let Err(detail) =
+                    self.field(field, arena, map, mission_path, replacements, backend)
+                {
                     return Err(self.error(field.offset, detail));
                 }
+                self.cursor = field.offset + field.raw.len();
             }
+            self.cursor = record.offset + record.raw.len();
         }
+        self.cursor = collection.offset + collection.raw.len();
         Ok(())
     }
     fn field<
@@ -185,6 +244,7 @@ impl MissionActorLoader {
         &mut self,
         field: Chunk<'_>,
         arena: &mut ModelArena,
+        map: &mut OriginalLoadMap,
         mission_path: Option<&[u8]>,
         replacements: &[ProgramReplacement],
         backend: &mut B,
@@ -196,8 +256,11 @@ impl MissionActorLoader {
                     .iter()
                     .position(|x| *x == 0)
                     .ok_or("unterminated actor frame name")?;
+                // C_chunk::ReadString descends to the declared field end
+                // before returning to the map/frame effects, including padding.
+                self.cursor = field.offset + field.raw.len();
                 let name = &field.payload[..end];
-                self.current_frame = self.load_map.lookup_or_insert_null(name)?;
+                self.current_frame = map.lookup_or_insert_null(name)?;
                 self.current_actor = None;
                 self.current_kind = None;
                 if let Some(frame) = self.current_frame {
@@ -214,6 +277,9 @@ impl MissionActorLoader {
             0xae22 => {
                 let raw = field.payload.get(..4).ok_or("truncated actor kind")?;
                 let kind = u32::from_le_bytes(raw.try_into().unwrap());
+                // C_chunk::ReadDword descends before CreateActor/Init. Keep
+                // that reached input prefix even when a later effect fails.
+                self.cursor = field.offset + field.raw.len();
                 if let Some(frame) = self.current_frame {
                     self.current_actor = match self.world.create_actor(kind, backend) {
                         Ok(actor) => actor,
@@ -283,16 +349,17 @@ impl MissionActorLoader {
                             ));
                         }
                         let frames = ModelFrameLookup::borrow(arena, true);
-                        self.world
-                            .load_detector_data(
-                                actor,
-                                &mut ProgramSliceReader::new(field.payload),
-                                replacements,
-                                mission_path,
-                                &frames,
-                                backend,
-                            )
-                            .map_err(|e| format!("{e:?}"))?;
+                        let mut reader = ProgramSliceReader::new(field.payload);
+                        let result = self.world.load_detector_data(
+                            actor,
+                            &mut reader,
+                            replacements,
+                            mission_path,
+                            &frames,
+                            backend,
+                        );
+                        self.cursor = field.offset + 6 + reader.position();
+                        result.map_err(|e| format!("{e:?}"))?;
                         self.pending_load_data = None;
                     }
                 }
@@ -590,6 +657,47 @@ mod tests {
         );
     }
     #[test]
+    fn default_factory_hole_does_not_hide_following_supported_actor_record() {
+        let (mut loader, mut model, frame) = setup();
+        loader
+            .publish_loaded_frame(model.arena(), b"actual", frame)
+            .unwrap();
+        let record = |kind: u32| {
+            chunk(
+                0xae21,
+                &[
+                    chunk(0xae23, b"actual\0"),
+                    chunk(0xae22, &kind.to_le_bytes()),
+                    chunk(0xae24, b"ignored base payload"),
+                ]
+                .concat(),
+            )
+        };
+        let bytes = chunk(0x4c53, &chunk(0xae20, &[record(3), record(1)].concat()));
+        let mut storage = Storage::default();
+        loader
+            .load_collection(
+                collection(&bytes),
+                model.arena_mut(),
+                None,
+                &[],
+                &mut storage,
+            )
+            .unwrap();
+        let actor = loader.current_actor.unwrap();
+        assert_eq!(storage.next, 1);
+        assert_eq!(loader.world.actor_count, 1);
+        assert_eq!(loader.world.source(ActorSource::Primary), [Some(actor)]);
+        assert_eq!(loader.world.state(actor).unwrap().frame, Some(frame));
+        assert_eq!(
+            ModelActorFrames::borrow(model.arena_mut(), true)
+                .actor_data(frame)
+                .unwrap(),
+            FrameActorData::Present(Some(actor))
+        );
+        assert!(loader.interrupted_offset.is_none());
+    }
+    #[test]
     fn original_base_literal_load_data_leaves_opaque_payload_uninterpreted() {
         let (mut loader, mut model, r) = setup();
         loader
@@ -782,6 +890,47 @@ mod tests {
         assert!(loader.world.source(ActorSource::Primary).is_empty());
         assert!(loader.world.source(ActorSource::Static).is_empty());
         assert!(loader.current_actor.is_none());
+    }
+    #[test]
+    fn padded_frame_field_is_closed_before_live_userdata_admission_fails() {
+        let (mut loader, mut model, frame) = setup();
+        loader
+            .publish_loaded_frame(model.arena(), b"actual", frame)
+            .unwrap();
+        let key = FrameKey(frame.identity());
+        model
+            .arena_mut()
+            .set_user_data(key, FrameUserData::Opaque)
+            .unwrap();
+        let bytes = input(
+            &[
+                chunk(0xae23, b"actual\0unread padding"),
+                chunk(0xae22, &1u32.to_le_bytes()),
+            ]
+            .concat(),
+        );
+        let record = collection(&bytes).children().next().unwrap().unwrap();
+        let name = record.children().next().unwrap().unwrap();
+        let mut storage = Storage::default();
+        let error = loader
+            .load_collection(
+                collection(&bytes),
+                model.arena_mut(),
+                None,
+                &[],
+                &mut storage,
+            )
+            .unwrap_err();
+        assert!(error.detail.contains("UnsupportedUserData"));
+        assert_eq!(error.offset, name.offset);
+        assert_eq!(loader.cursor, name.offset + name.raw.len());
+        assert_eq!(loader.current_frame, Some(frame));
+        assert_eq!(loader.interrupted_offset, Some(name.offset));
+        assert_eq!(storage.next, 0);
+        assert_eq!(loader.world.actor_count, 0);
+        assert_eq!(model.arena().user_data(key).unwrap(), FrameUserData::Opaque);
+        assert!(loader.current_actor.is_none());
+        assert!(loader.current_kind.is_none());
     }
     #[test]
     fn missing_name_map_slot_never_constructs_metadata_actor() {
