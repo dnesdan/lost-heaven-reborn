@@ -2576,7 +2576,9 @@ mod tests {
         let name = b"fixture.\xe8\x81\xff";
         arena.set_frame_name(ascii, Some(b"retained")).unwrap();
         arena.set_frame_name(high_byte, Some(name)).unwrap();
-        arena.link_frame(ascii, Some(sectors[0].frame()), 0).unwrap();
+        arena
+            .link_frame(ascii, Some(sectors[0].frame()), 0)
+            .unwrap();
         arena
             .link_frame(high_byte, Some(sectors[1].frame()), 0)
             .unwrap();

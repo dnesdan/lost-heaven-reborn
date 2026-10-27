@@ -54,8 +54,12 @@ impl LoadingContext {
         Self {
             object_kind: loader.current_kind,
             object_name: SourceName::read(&loader.current_name),
-            object_frame: loader.current_frame.map(|frame| frame.identity().to_string()),
-            actor_frame: actors.current_frame.map(|frame| frame.identity().to_string()),
+            object_frame: loader
+                .current_frame
+                .map(|frame| frame.identity().to_string()),
+            actor_frame: actors
+                .current_frame
+                .map(|frame| frame.identity().to_string()),
             actor_record_bytes: actors.current_record.len(),
             actor_payload_bytes: actors.pending_load_data.as_ref().map_or(0, Vec::len),
             actor_stop: actors.interrupted_offset,
@@ -340,7 +344,10 @@ mod tests {
         assert_eq!(loader.content.actors.pending_load_data, Some(vec![4, 5]));
         assert_eq!(loader.content.actors.interrupted_offset, Some(42));
         assert_eq!(arena.live_frame_count(), frames_before);
-        assert_eq!(arena.frame(model.root()).unwrap().references, references_before);
+        assert_eq!(
+            arena.frame(model.root()).unwrap().references,
+            references_before
+        );
     }
 
     #[test]
