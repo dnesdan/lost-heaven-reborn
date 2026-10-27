@@ -350,3 +350,13 @@ shows no occluder or mission gameplay, weather drawing, original renderer parity
 or hardware audio verification. No new video was made.
 
 [Source-bound evidence and limits](../../COVERAGE.md).
+
+## 2026-10-27 — Engine Lab workbench
+
+![Engine Lab with the public courtyard and rain preview](2026-10-27-engine-lab-workbench.png)
+
+Native 1280 × 800 Linux software-Vulkan window capture.
+Launch `--synthetic --lab`, select **Outdoor courtyard**, then **Rain** in
+Environment. Geometry and textures are generated public fixtures; no game
+installation is needed. Rain is a screen-space Lab preview. This capture does
+not establish original-data gameplay or native macOS/Metal behavior.

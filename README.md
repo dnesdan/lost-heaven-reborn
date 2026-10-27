@@ -106,6 +106,7 @@ cargo run --locked -p lhr-engine --features engine-lab -- --synthetic --lab
 Add `--root /path/to/Mafia` to browse your installation. Lighting, fog and
 precipitation are optional host previews; they do not implement original weather
 or mission gameplay. [Controls, presets and captures](docs/RUNNING.md#engine-lab).
+[Native Lab preview](docs/screenshots/2026-10-27-engine-lab-workbench.png).
 
 ## Actual Rust captures
 
