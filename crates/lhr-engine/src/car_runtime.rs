@@ -42,6 +42,8 @@ pub struct CarRuntimeOptions {
     pub allocator_fill: u8,
     pub random_seed: u32,
     pub material_context: MaterialLoadContext,
+    /// Host driver milliseconds before any material constructor/load restart.
+    pub material_driver_time: i32,
     /// Host CPU inspection screen used by the Scene constructor queries.
     pub scene_screen_size: [i32; 2],
     /// IGraph viewport boundaries; None uses the full host inspection screen.
@@ -55,6 +57,7 @@ impl Default for CarRuntimeOptions {
             scene_viewport: None,
             random_seed: 1,
             material_context: MaterialLoadContext::ORIGINAL_DRIVER_INIT_DEFAULTS,
+            material_driver_time: 0,
         }
     }
 }
@@ -255,7 +258,12 @@ impl CarRuntime {
             wheel_preview_started: false,
             wheel_preview_failed: false,
         };
-        if let Err(message) = runtime.initialize(path, options, mission, canonical_world) {
+        let initialized = runtime
+            .arena
+            .set_material_driver_time(options.material_driver_time)
+            .map_err(|e| e.to_string())
+            .and_then(|()| runtime.initialize(path, options, mission, canonical_world));
+        if let Err(message) = initialized {
             return Err(CarRuntimeOpenFailure {
                 message,
                 partial: Box::new(runtime),

@@ -280,6 +280,7 @@ pub struct ModelArena {
     pub(crate) sector_version: u32,
     destruction_depth: usize,
     pub(crate) light_random: crate::frame_light::LightCrtRandom,
+    material_driver_time: i32,
     pub(crate) last_destroyed_frame: Option<FrameKey>,
     next_name_generation: u64,
     lookup_owner: crate::frame_lookup::FrameLookupOwner,
@@ -740,6 +741,31 @@ impl ModelArena {
         }
         Ok(())
     }
+    /// Host-supplied LS3DF driver timeline. Publication is lazy: no material
+    /// clocks or CRT random values are consumed until a channel is accessed.
+    pub fn set_material_driver_time(&mut self, time: i32) -> Result<(), ModelError> {
+        if let Some(owner) = self.loaded_visual_resources.as_mut() {
+            owner
+                .set_material_driver_time(time)
+                .map_err(ModelError::LoadedVisual)?;
+        }
+        self.material_driver_time = time;
+        Ok(())
+    }
+    pub(crate) fn access_material_texture(
+        &mut self,
+        key: crate::visual_resources::MaterialKey,
+    ) -> Result<Option<crate::visual_resources::TextureKey>, ModelError> {
+        self.loaded_visual_resources
+            .as_mut()
+            .ok_or(ModelError::LoadedVisual(
+                crate::loaded_visual_resources::LoadedVisualError::Backend(
+                    "material owner unavailable",
+                ),
+            ))?
+            .access_material_texture(key, &mut self.light_random)
+            .map_err(ModelError::LoadedVisual)
+    }
     pub fn loaded_visual_resources(
         &self,
     ) -> Option<&crate::loaded_visual_resources::LoadedVisualResources> {
@@ -782,6 +808,11 @@ impl ModelArena {
                 crate::loaded_visual_resources::LoadedVisualResources::new()
                     .map_err(ModelError::LoadedVisual)?,
             );
+            self.loaded_visual_resources
+                .as_mut()
+                .unwrap()
+                .set_material_driver_time(self.material_driver_time)
+                .map_err(ModelError::LoadedVisual)?;
         }
         Ok(self.loaded_visual_resources.as_mut().unwrap())
     }
@@ -910,6 +941,11 @@ impl ModelArena {
                 crate::loaded_visual_resources::LoadedVisualResources::new()
                     .map_err(ModelError::LoadedVisual)?,
             );
+            self.loaded_visual_resources
+                .as_mut()
+                .unwrap()
+                .set_material_driver_time(self.material_driver_time)
+                .map_err(ModelError::LoadedVisual)?;
         }
         self.loaded_visual_resources
             .as_mut()
@@ -943,6 +979,11 @@ impl ModelArena {
                 crate::loaded_visual_resources::LoadedVisualResources::new()
                     .map_err(ModelError::LoadedVisual)?,
             );
+            self.loaded_visual_resources
+                .as_mut()
+                .unwrap()
+                .set_material_driver_time(self.material_driver_time)
+                .map_err(ModelError::LoadedVisual)?;
         }
         if self
             .loaded_visual_resources

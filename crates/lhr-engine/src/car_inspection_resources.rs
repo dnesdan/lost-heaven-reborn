@@ -9,6 +9,7 @@ use crate::visual_resources::I3dMaterial;
 pub struct CpuInspectionGroup<'a> {
     pub index_bytes: &'a [u8],
     pub material: Option<&'a I3dMaterial>,
+    pub material_key: Option<crate::visual_resources::MaterialKey>,
     pub texture: Option<&'a lhr_assets::Texture>,
     pub texture_alpha: Option<&'a lhr_assets::Texture>,
     pub texture_flags: u32,
@@ -30,6 +31,20 @@ pub struct CpuInspectionMesh<'a> {
     pub groups: Vec<CpuInspectionGroup<'a>>,
 }
 impl LoadedVisualResources {
+    pub(crate) fn set_material_driver_time(&mut self, time: i32) -> Result<()> {
+        self.objects.set_material_driver_time(time)?;
+        Ok(())
+    }
+    pub(crate) fn access_material_texture(
+        &mut self,
+        key: crate::visual_resources::MaterialKey,
+        random: &mut crate::frame_light::LightCrtRandom,
+    ) -> Result<Option<TextureKey>> {
+        if self.incomplete {
+            return Err(LoadedVisualError::IncompleteAdmission);
+        }
+        Ok(self.objects.get_material_texture(key, random)?)
+    }
     pub(super) fn inspection_graphics(
         &self,
         graphics: GraphicsBuffer,
@@ -86,6 +101,27 @@ impl LoadedVisualResources {
         object: ObjectResourceKey,
         index: u32,
         maximum_groups: usize,
+    ) -> Result<Option<CpuInspectionMesh<'_>>> {
+        self.inspection_mesh_at_lod_inner(object, index, maximum_groups, None)
+    }
+    /// Geometry preparation never accesses animated texture channels. The
+    /// canonical draw adapter resolves only the reached group after its lazy
+    /// GetTexture call, preserving access order and random consumption.
+    pub(crate) fn inspection_mesh_at_lod_for_group(
+        &self,
+        object: ObjectResourceKey,
+        index: u32,
+        maximum_groups: usize,
+        texture_group: usize,
+    ) -> Result<Option<CpuInspectionMesh<'_>>> {
+        self.inspection_mesh_at_lod_inner(object, index, maximum_groups, Some(texture_group))
+    }
+    fn inspection_mesh_at_lod_inner(
+        &self,
+        object: ObjectResourceKey,
+        index: u32,
+        maximum_groups: usize,
+        texture_group: Option<usize>,
     ) -> Result<Option<CpuInspectionMesh<'_>>> {
         if self.incomplete {
             return Err(LoadedVisualError::IncompleteAdmission);
@@ -253,7 +289,7 @@ impl LoadedVisualResources {
             .map_err(|_| LoadedVisualError::Backend("inspection allocation"))?;
         let mut next = level.fgroups;
         let mut lit_first = 0u32;
-        for _ in 0..level.num_fgroups {
+        for group_index in 0..level.num_fgroups {
             let key = next.ok_or(LoadedVisualError::InvalidGeometry)?;
             let group = resources
                 .face_group(key)
@@ -294,16 +330,17 @@ impl LoadedVisualResources {
                     .ok_or(LoadedVisualError::InvalidGeometry)?,
                 None,
             )?;
-            let texture = material
-                .and_then(|material| material.texture)
-                .map(|key| self.cpu_texture(key))
-                .transpose()?;
-            let owned_texture = material
-                .and_then(|material| material.texture)
-                .and_then(|key| self.backend.textures.get(&key.0));
+            let texture_key = if texture_group.is_none_or(|index| index == group_index as usize) {
+                material.and_then(|material| material.texture)
+            } else {
+                None
+            };
+            let texture = texture_key.map(|key| self.cpu_texture(key)).transpose()?;
+            let owned_texture = texture_key.and_then(|key| self.backend.textures.get(&key.0));
             groups.push(CpuInspectionGroup {
                 index_bytes,
                 material,
+                material_key: group.material,
                 texture,
                 texture_alpha: owned_texture.and_then(|texture| texture.alpha.as_ref()),
                 texture_flags: owned_texture.map_or(0, |texture| texture.flags),

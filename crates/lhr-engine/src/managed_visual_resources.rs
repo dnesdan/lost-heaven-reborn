@@ -697,6 +697,43 @@ impl<B: ManagedVisualBackend + ?Sized> VisualResourceBackend for BridgeBackend<'
 }
 
 impl ManagedVisualResources {
+    pub fn set_material_driver_time(&mut self, time: i32) -> Result<(), ManagedError> {
+        self.available()?;
+        self.resources
+            .set_material_driver_time(time)
+            .map_err(Into::into)
+    }
+    pub fn get_material_texture(
+        &mut self,
+        key: MaterialKey,
+        random: &mut crate::frame_light::LightCrtRandom,
+    ) -> Result<Option<TextureKey>, ManagedError> {
+        self.available()?;
+        self.resources
+            .get_material_texture(key, random)
+            .map_err(Into::into)
+    }
+    pub fn get_material_env_texture(
+        &mut self,
+        key: MaterialKey,
+        random: &mut crate::frame_light::LightCrtRandom,
+    ) -> Result<Option<TextureKey>, ManagedError> {
+        self.available()?;
+        self.resources
+            .get_material_env_texture(key, random)
+            .map_err(Into::into)
+    }
+    pub fn set_material_current_frame(
+        &mut self,
+        key: MaterialKey,
+        frame: i32,
+        environment: bool,
+    ) -> Result<bool, ManagedError> {
+        self.available()?;
+        self.resources
+            .set_material_current_frame(key, frame, environment)
+            .map_err(Into::into)
+    }
     pub fn create_material(&mut self) -> Result<MaterialKey, ManagedError> {
         self.available()?;
         self.resources.create_material().map_err(Into::into)

@@ -70,6 +70,7 @@ pub struct RetainedModel {
     pub native: ModelTickState,
     materialized: Option<crate::model_loading::MaterializedModel>,
     skeletal_bound: bool,
+    owned_material_draws: bool,
 }
 #[derive(Debug, Default)]
 pub struct RetainedScene {
@@ -321,6 +322,21 @@ impl RetainedScene {
                 scale: frame.scale,
             });
         }
+        let owned_material_draws = materialized.as_ref().is_some_and(|loaded| {
+            loaded.arena().loaded_visual_resources().is_some()
+                && source
+                    .materials
+                    .iter()
+                    .any(|material| material.animation.is_some())
+        });
+        // A standalone retained model owns its own ModelArena. Multiple such
+        // arenas cannot silently stand in for one driver's shared LS3DF CRT
+        // stream; general multi-model playback belongs to canonical Scene.
+        if owned_material_draws && self.models.iter().any(|model| model.owned_material_draws) {
+            return Err(
+                "Multiple retained animated arenas require a shared canonical Scene".into(),
+            );
+        }
         let model = RetainedModel {
             identity,
             source_name,
@@ -333,6 +349,7 @@ impl RetainedScene {
             native: ModelTickState::new(ModelVTableId(0x1009c160)),
             materialized,
             skeletal_bound: false,
+            owned_material_draws,
         };
         if model.materialized.is_none() {
             model.transforms()?;
@@ -341,6 +358,95 @@ impl RetainedScene {
         Ok(())
     }
 }
+/// One contiguous retained model draw range rebuilt from its live CPU owner.
+/// Host adapters replace this exact range in both the renderer and cached Scene.
+/// Draws remain LOD0 here; camera-selected Scene rendering uses scene_render.
+pub struct RetainedMaterialSnapshot {
+    pub draw_range: std::ops::Range<usize>,
+    pub snapshot: crate::car_inspection::CarInspectionScene,
+}
+impl RetainedScene {
+    pub fn has_owned_material_draws(&self) -> bool {
+        self.models.iter().any(|model| model.owned_material_draws)
+    }
+    /// Publish the same host driver millisecond timeline to each actual retained
+    /// material owner, then invoke ordinary lazy material accesses in draw order.
+    /// The source-backed path never samples a source asset frame by wall time.
+    pub fn snapshot_animated_material_draws(
+        &mut self,
+        time: i32,
+    ) -> Result<Vec<RetainedMaterialSnapshot>, String> {
+        let mut updates = Vec::new();
+        for model in &mut self.models {
+            if !model.owned_material_draws {
+                continue;
+            }
+            model.validate_materialized()?;
+            let first = model
+                .draws
+                .first()
+                .ok_or("Owned material model has no retained draws")?
+                .draw_index;
+            if model
+                .draws
+                .iter()
+                .enumerate()
+                .any(|(index, binding)| binding.draw_index != first + index)
+            {
+                return Err("Owned material draw range is no longer contiguous".into());
+            }
+            let loaded = model
+                .materialized
+                .as_mut()
+                .ok_or("Owned material model absent")?;
+            let root = loaded.root();
+            loaded
+                .arena_mut()
+                .set_material_driver_time(time)
+                .map_err(|e| e.to_string())?;
+            loaded
+                .arena_mut()
+                .publish_runtime_buffers()
+                .map_err(|e| e.to_string())?;
+            let snapshot = crate::car_inspection::snapshot_arena_tree(loaded.arena_mut(), root)?;
+            if snapshot.scene.meshes.len() != model.draws.len() {
+                return Err("Owned material snapshot changed retained draw topology".into());
+            }
+            for (frame, binding) in snapshot.draw_frames.iter().zip(&model.draws) {
+                if loaded.source_frame_keys().get(binding.frame_index) != Some(frame) {
+                    return Err("Owned material snapshot changed retained frame order".into());
+                }
+            }
+            updates.push(RetainedMaterialSnapshot {
+                draw_range: first..first + model.draws.len(),
+                snapshot,
+            });
+        }
+        Ok(updates)
+    }
+    /// Explicit host teardown before replacing or discarding an animated model
+    /// scene. Playback/controllers must be dropped by their owner first.
+    pub fn close_owned_material_draws(&mut self) -> Result<(), String> {
+        for model in &mut self.models {
+            if !model.owned_material_draws {
+                continue;
+            }
+            let loaded = model
+                .materialized
+                .as_mut()
+                .ok_or("Owned material model absent")?;
+            loaded.close().map_err(|e| e.to_string())?;
+            if let Some(owner) = loaded.arena_mut().loaded_visual_resources_mut() {
+                owner
+                    .reclaim_unused_buffers()
+                    .map_err(|e| format!("Owned material buffer cleanup: {e:?}"))?;
+            }
+            model.owned_material_draws = false;
+        }
+        Ok(())
+    }
+}
+
 impl RetainedModel {
     fn validate_materialized(&self) -> Result<(), String> {
         let loaded = self
