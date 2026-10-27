@@ -377,7 +377,12 @@ fn setup_retained_scene<P, T>(
         }
     }
 }
-fn load(options: &Options, viewport: [u32; 2], driver_time: u32) -> Result<LoadedScene, String> {
+fn load(
+    options: &Options,
+    viewport: [u32; 2],
+    driver_time: u32,
+    patches: &lhr_engine::program_patch::ProgramPatchStartup,
+) -> Result<LoadedScene, String> {
     let Some(root) = &options.root else {
         let scene = synthetic();
         let camera = Camera::fit(&scene)?;
@@ -402,18 +407,26 @@ fn load(options: &Options, viewport: [u32; 2], driver_time: u32) -> Result<Loade
             options.car_driving,
             viewport,
             driver_time,
+            patches,
         );
     }
     if options.model.is_none() {
         let mission = options.mission.as_deref().unwrap_or("00menu");
-        let mut canonical = lhr_engine::scene_render::CanonicalSceneOwner::open_at_driver_time(
-            &installation,
-            mission,
-            viewport,
-            driver_time as i32,
-        )?;
+        let mut canonical =
+            lhr_engine::scene_render::CanonicalSceneOwner::open_at_driver_time_and_patches(
+                &installation,
+                mission,
+                viewport,
+                driver_time as i32,
+                &patches
+                    .lease()
+                    .map_err(|e| format!("Startup patch owner: {e:?}"))?,
+            )?;
         if let Some(frontier) = &canonical.frontier {
-            println!("Canonical scene2 retained frontier: cursor {}, entry {:#x}: {}; mission initialization remains incomplete",frontier.cursor,frontier.entry,frontier.detail);
+            println!(
+                "Canonical scene2 retained frontier: cursor {}, entry {:#x}: {}; mission initialization remains incomplete",
+                frontier.cursor, frontier.entry, frontier.detail
+            );
         }
         let camera = canonical.camera_control()?;
         let snapshot = match canonical.snapshot(viewport, 1) {
@@ -423,7 +436,10 @@ fn load(options: &Options, viewport: [u32; 2], driver_time: u32) -> Result<Loade
                 return Err(format!("{error}; canonical Scene cleanup: {cleanup:?}"));
             }
         };
-        println!("Canonical Scene active-camera rendering: {} selected material groups; source sector/portal/occluder visibility, main/backdrop/near projections; bounded material support",snapshot.scene.meshes.len());
+        println!(
+            "Canonical Scene active-camera rendering: {} selected material groups; source sector/portal/occluder visibility, main/backdrop/near projections; bounded material support",
+            snapshot.scene.meshes.len()
+        );
         return Ok(LoadedScene {
             scene: snapshot.scene,
             camera,
@@ -543,13 +559,16 @@ fn load(options: &Options, viewport: [u32; 2], driver_time: u32) -> Result<Loade
         }
         if let Some(source) = skeletal_source {
             let playback = runtime.bind_skeletal(0, source)?;
-            println!("Bound original skeletal controller: slot0 mode2, {} ms; position/rotation, Target, morph and first-LOD CPU skin; host inspection initialization, camera and rendering; no mission integration", playback.duration_ms());
+            println!(
+                "Bound original skeletal controller: slot0 mode2, {} ms; position/rotation, Target, morph and first-LOD CPU skin; host inspection initialization, camera and rendering; no mission integration",
+                playback.duration_ms()
+            );
             *animation = Some(AnimationPlayback::Skeletal(Box::new(playback)));
         }
         if matches!(&*animation, Some(AnimationPlayback::Position(_))) {
             println!(
-            "Bound original position-only animation: slot0 mode2; one model wrapper and root mesh; native control flow, pose, frame caches and matrix/point arithmetic; host camera, handedness and rendering, no mission integration"
-        );
+                "Bound original position-only animation: slot0 mode2; one model wrapper and root mesh; native control flow, pose, frame caches and matrix/point arithmetic; host camera, handedness and rendering, no mission integration"
+            );
         }
         if options.model.is_some() {
             Camera::fit(&scene)
@@ -591,11 +610,21 @@ fn live_draw_state(
 fn close_car(car: &mut Option<lhr_engine::car_runtime::GuardedCarRuntime>) -> Result<(), String> {
     if let Some(owner) = car.as_mut() {
         let cleanup = owner.close()?;
-        println!("CPU car/model/scene resources released; actor registrations {}, CPU heap blocks {}, visual buffers {}, textures {}, retained scene frames {}, driver scene registrations {}, driver scene capacity {}; native device discard unexecuted (CPU projection)",cleanup.actor_registry_entries,cleanup.heap_allocations,cleanup.graphics,cleanup.textures,cleanup.retained_scene_prefix_frames,cleanup.driver_scene_registrations,cleanup.driver_scene_capacity);
+        println!(
+            "CPU car/model/scene resources released; actor registrations {}, CPU heap blocks {}, visual buffers {}, textures {}, retained scene frames {}, driver scene registrations {}, driver scene capacity {}; native device discard unexecuted (CPU projection)",
+            cleanup.actor_registry_entries,
+            cleanup.heap_allocations,
+            cleanup.graphics,
+            cleanup.textures,
+            cleanup.retained_scene_prefix_frames,
+            cleanup.driver_scene_registrations,
+            cleanup.driver_scene_capacity
+        );
     }
     *car = None;
     Ok(())
 }
+#[allow(clippy::too_many_arguments)] // Existing driving inputs plus the actual startup owner.
 fn load_car(
     installation: lhr_assets::Installation,
     path: &str,
@@ -604,24 +633,31 @@ fn load_car(
     driving: bool,
     viewport: [u32; 2],
     driver_time: u32,
+    patches: &lhr_engine::program_patch::ProgramPatchStartup,
 ) -> Result<LoadedScene, String> {
     let runtime_options = lhr_engine::car_runtime::CarRuntimeOptions {
         material_driver_time: driver_time as i32,
         ..Default::default()
     };
     let opened = if driving {
-        lhr_engine::car_runtime::GuardedCarRuntime::open_driving_scene(
+        lhr_engine::car_runtime::GuardedCarRuntime::open_driving_scene_with_patches(
             installation,
             path,
             runtime_options,
             "mise01",
+            &patches
+                .lease()
+                .map_err(|e| format!("Startup patch owner: {e:?}"))?,
         )
     } else {
         lhr_engine::car_runtime::GuardedCarRuntime::open(installation, path, runtime_options)
     };
     let mut owner = opened?;
     if let Some(frontier) = owner.scene2_frontier() {
-        println!("Canonical driving scene2 retained frontier: cursor {}, entry {:#x}: {}; mission initialization remains incomplete",frontier.cursor,frontier.entry,frontier.detail);
+        println!(
+            "Canonical driving scene2 retained frontier: cursor {}, entry {:#x}: {}; mission initialization remains incomplete",
+            frontier.cursor, frontier.entry, frontier.detail
+        );
     }
     let result: Result<(Scene, Camera, lhr_render::SceneRenderFrame), String> = (|| {
         if driving {
@@ -642,9 +678,16 @@ fn load_car(
         if driving {
             driving_view::sync_audio_listener(&mut owner, &camera)?;
         }
-        println!("Canonical car Scene: {} seats, {} cached animation tracks; {} selected material groups; actual active camera, source visibility and owned LOD buffers",owner.summary().seats,owner.summary().cached_tracks,snapshot.scene.meshes.len());
+        println!(
+            "Canonical car Scene: {} seats, {} cached animation tracks; {} selected material groups; actual active camera, source visibility and owned LOD buffers",
+            owner.summary().seats,
+            owner.summary().cached_tracks,
+            snapshot.scene.meshes.len()
+        );
         if driving {
-            println!("Driving controls: W throttle, S brake, A/D steer, Space handbrake; R reload, Escape exit. Fixed 16 ms simulation, same canonical car/world Scene; host chase controller authors its active camera. Mission scripts and traffic are not executed.");
+            println!(
+                "Driving controls: W throttle, S brake, A/D steer, Space handbrake; R reload, Escape exit. Fixed 16 ms simulation, same canonical car/world Scene; host chase controller authors its active camera. Mission scripts and traffic are not executed."
+            );
         }
         Ok((snapshot.scene, camera, snapshot.frame))
     })();
@@ -716,6 +759,7 @@ enum AppMode {
 }
 struct App {
     canonical: Option<lhr_engine::scene_render::CanonicalSceneOwner>,
+    startup_patches: lhr_engine::program_patch::ProgramPatchStartup,
     scene_frame: Option<lhr_render::SceneRenderFrame>,
     mode: AppMode,
     ui: Option<menu::MenuUi>,
@@ -944,7 +988,12 @@ impl App {
             mut runtime,
             mut animation,
             mut car,
-        } = load(&self.options, viewport, self.runtime_engine.driver_time())?;
+        } = load(
+            &self.options,
+            viewport,
+            self.runtime_engine.driver_time(),
+            &self.startup_patches,
+        )?;
         let (car_draws, world_bucket) = match live_draw_state(
             &mut car,
             self.options.car_driving,
@@ -955,7 +1004,9 @@ impl App {
             Err(error) => {
                 let cleanup = close_car(&mut car);
                 let material_cleanup = close_retained_materials(&mut animation, &mut runtime);
-                return Err(format!("{error}; new car cleanup: {cleanup:?}; new material cleanup: {material_cleanup:?}"));
+                return Err(format!(
+                    "{error}; new car cleanup: {cleanup:?}; new material cleanup: {material_cleanup:?}"
+                ));
             }
         };
         if mode == AppMode::Menu {
@@ -1009,7 +1060,9 @@ impl App {
             if let Err(error) = owner.close() {
                 let cleanup = close_car(&mut car);
                 let material_cleanup = close_retained_materials(&mut animation, &mut runtime);
-                return Err(format!("{error}; new car cleanup: {cleanup:?}; new material cleanup: {material_cleanup:?}"));
+                return Err(format!(
+                    "{error}; new car cleanup: {cleanup:?}; new material cleanup: {material_cleanup:?}"
+                ));
             }
         }
         self.animation = None;
@@ -1046,9 +1099,13 @@ impl App {
         }
         self.last_lab_redraw = std::time::Instant::now();
         if self.options.car_driving {
-            println!("Application state: {mode:?}; driving car and original static world loaded; mission scripts and traffic are not executed");
+            println!(
+                "Application state: {mode:?}; driving car and original static world loaded; mission scripts and traffic are not executed"
+            );
         } else {
-            println!("Application state: {mode:?}; scene assets loaded; gameplay and cutscene execution unsupported");
+            println!(
+                "Application state: {mode:?}; scene assets loaded; gameplay and cutscene execution unsupported"
+            );
         }
         Ok(())
     }
@@ -1138,7 +1195,27 @@ impl App {
             let feedback = owner.driving_control_feedback()?;
             let steering_limit_at_input =
                 steering_limit_at_input.ok_or("Driving scheduler dispatched no input feedback")?;
-            println!("Driving state: {{\"tick\":{},\"position\":{:?},\"speed\":{},\"contacts\":{},\"throttle\":{},\"brake\":{},\"steer\":{},\"handbrake\":{},\"audio_frames\":{},\"host_unix_ms\":{},\"actual_throttle\":{},\"actual_brake\":{},\"steering_requested_radians\":{},\"steering_applied_radians\":{},\"steering_limit_radians\":{},\"steering_limit_at_input_radians\":{},\"handbrake_force\":{},\"gear\":{}}}", self.driving_clock.ticks, state.position, state.speed, state.contacts, controls.throttle, controls.brake, controls.steer, controls.handbrake, audio_frames, host_unix_ms, feedback.throttle, feedback.brake, feedback.steering_requested_radians, feedback.steering_applied_radians, feedback.steering_limit_radians, steering_limit_at_input, feedback.handbrake_force, feedback.gear);
+            println!(
+                "Driving state: {{\"tick\":{},\"position\":{:?},\"speed\":{},\"contacts\":{},\"throttle\":{},\"brake\":{},\"steer\":{},\"handbrake\":{},\"audio_frames\":{},\"host_unix_ms\":{},\"actual_throttle\":{},\"actual_brake\":{},\"steering_requested_radians\":{},\"steering_applied_radians\":{},\"steering_limit_radians\":{},\"steering_limit_at_input_radians\":{},\"handbrake_force\":{},\"gear\":{}}}",
+                self.driving_clock.ticks,
+                state.position,
+                state.speed,
+                state.contacts,
+                controls.throttle,
+                controls.brake,
+                controls.steer,
+                controls.handbrake,
+                audio_frames,
+                host_unix_ms,
+                feedback.throttle,
+                feedback.brake,
+                feedback.steering_requested_radians,
+                feedback.steering_applied_radians,
+                feedback.steering_limit_radians,
+                steering_limit_at_input,
+                feedback.handbrake_force,
+                feedback.gear
+            );
         }
         self.driving_controls = controls;
         if owner.has_canonical_scene_world() {
@@ -1153,7 +1230,10 @@ impl App {
             self.scene.meshes.truncate(self.car_draws);
             self.scene.meshes.extend(world.meshes);
             self.world_bucket = Some((bucket, owner.driving_world_render_revision()?));
-            println!("Driving world presentation refreshed at source bucket {bucket:?}; {} actual static draws", self.scene.meshes.len() - self.car_draws);
+            println!(
+                "Driving world presentation refreshed at source bucket {bucket:?}; {} actual static draws",
+                self.scene.meshes.len() - self.car_draws
+            );
         }
         Ok(())
     }
@@ -1565,7 +1645,10 @@ impl ApplicationHandler for App {
                     if let Some(lab) = &mut self.lab {
                         lab.completed_frames += 1;
                         if lab.playback.paused() {
-                            println!("Engine Lab: single step {} ms; driver_time_ms={}; driving_ticks={}", step.raw_delta, step.driver_time, self.driving_clock.ticks);
+                            println!(
+                                "Engine Lab: single step {} ms; driver_time_ms={}; driving_ticks={}",
+                                step.raw_delta, step.driver_time, self.driving_clock.ticks
+                            );
                         }
                     }
                 }
@@ -2121,6 +2204,15 @@ fn run() -> Result<(), String> {
             &options.probe_model_directories,
         );
     }
+    // These optional startup files are read once, before any Scene/source owner.
+    // Keep their actual table across App transitions and inspection reloads.
+    let mut startup_patches = lhr_engine::program_patch::ProgramPatchStartup::default();
+    if let Some(root) = &options.root {
+        let installation = lhr_assets::Installation::open(root).map_err(|e| e.to_string())?;
+        startup_patches
+            .initialize(&installation)
+            .map_err(|e| format!("Startup program patches: {e:?}"))?;
+    }
     let LoadedScene {
         mut canonical,
         scene_frame,
@@ -2129,7 +2221,7 @@ fn run() -> Result<(), String> {
         mut runtime,
         mut animation,
         mut car,
-    } = load(&options, INITIAL_CAR_VIEWPORT, 0)?;
+    } = load(&options, INITIAL_CAR_VIEWPORT, 0, &startup_patches)?;
     let ui = match &options.root {
         Some(root) if options.model.is_none() && options.mission.is_none() => {
             let installation = lhr_assets::Installation::open(root).map_err(|e| e.to_string())?;
@@ -2186,7 +2278,9 @@ fn run() -> Result<(), String> {
             .iter()
             .map(|model| model.pose().len())
             .sum::<usize>(),
-        animation.as_ref().map_or("static model guards only", AnimationPlayback::description)
+        animation
+            .as_ref()
+            .map_or("static model guards only", AnimationPlayback::description)
     );
     if options.headless {
         if let Some(owner) = &mut canonical {
@@ -2221,6 +2315,9 @@ fn run() -> Result<(), String> {
             let cleanup = owner.close();
             result?;
             cleanup?;
+            startup_patches
+                .unload_after_sources()
+                .map_err(|e| format!("Startup patch cleanup: {e:?}"))?;
             println!("Canonical active-camera Scene GPU readback complete");
             return Ok(());
         }
@@ -2257,6 +2354,9 @@ fn run() -> Result<(), String> {
             let cleanup = close_car(&mut car);
             result?;
             cleanup?;
+            startup_patches
+                .unload_after_sources()
+                .map_err(|e| format!("Startup patch cleanup: {e:?}"))?;
             println!("Initialized car GPU readback capture complete");
             return Ok(());
         }
@@ -2274,9 +2374,9 @@ fn run() -> Result<(), String> {
                     .map_err(|error| format!("Bound inspection runtime failed: {error:?}"))?;
                 }
                 println!(
-                "Headless animation inspection: {steps} controlled clock steps, {} ms; host time policy, not native wall-clock execution",
-                steps * 16
-            );
+                    "Headless animation inspection: {steps} controlled clock steps, {} ms; host time policy, not native wall-clock execution",
+                    steps * 16
+                );
             } else {
                 let step = advance_bound(
                     &mut runtime_engine,
@@ -2286,9 +2386,9 @@ fn run() -> Result<(), String> {
                 )
                 .map_err(|error| format!("Bound runtime failed: {error:?}"))?;
                 println!(
-                "Bound runtime: raw delta {}, driver time {}, {} retained model ticks dispatched",
-                step.raw_delta, step.driver_time, step.models_dispatched
-            );
+                    "Bound runtime: raw delta {}, driver time {}, {} retained model ticks dispatched",
+                    step.raw_delta, step.driver_time, step.models_dispatched
+                );
             }
             let instance = lhr_render::instance();
             let mut renderer = pollster::block_on(Renderer::new(
@@ -2328,6 +2428,9 @@ fn run() -> Result<(), String> {
         let cleanup = runtime.close_owned_material_draws();
         result?;
         cleanup?;
+        startup_patches
+            .unload_after_sources()
+            .map_err(|e| format!("Startup patch cleanup: {e:?}"))?;
         return Ok(());
     }
     let event_loop = match EventLoop::new() {
@@ -2374,7 +2477,9 @@ fn run() -> Result<(), String> {
                 Some(output)
             }
             Err(error) => {
-                println!("Driving native audio output unavailable: {error}; actual PCM mixing remains active");
+                println!(
+                    "Driving native audio output unavailable: {error}; actual PCM mixing remains active"
+                );
                 None
             }
         }
@@ -2384,6 +2489,7 @@ fn run() -> Result<(), String> {
     let lab = options.lab.then(engine_lab::State::default);
     let mut app = App {
         canonical,
+        startup_patches,
         scene_frame,
         mode,
         ui,
@@ -2448,6 +2554,14 @@ fn run() -> Result<(), String> {
     if let Some(error) = app.error {
         return Err(error);
     }
+    // Failed transitions can retain a distinct Scene in the cleanup registry.
+    // Do not unload startup source data while any such owner remains retained.
+    if !lhr_engine::scene_render::cleanup_failure_slots().is_empty() {
+        return Err("Canonical Scene source cleanup remains interrupted".into());
+    }
+    app.startup_patches
+        .unload_after_sources()
+        .map_err(|e| format!("Startup patch cleanup: {e:?}"))?;
     Ok(())
 }
 fn main() {

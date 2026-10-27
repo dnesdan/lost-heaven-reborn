@@ -23,7 +23,6 @@ pub struct MissionContentOwner {
     pending_program: Option<CProgram>,
     memory: ContentMemory,
     mission_path: Option<Vec<u8>>,
-    replacements: Vec<ProgramReplacement>,
     pub cursor: usize,
     stopped: bool,
     terminal_entered: bool,
@@ -43,7 +42,6 @@ impl Default for MissionContentOwner {
             pending_program: None,
             memory: ContentMemory::default(),
             mission_path: None,
-            replacements: Vec::new(),
             cursor: 0,
             stopped: false,
             terminal_entered: false,
@@ -52,20 +50,13 @@ impl Default for MissionContentOwner {
     }
 }
 impl MissionContentOwner {
-    /// Caller supplies the live mission's actual source-replacement table/path.
-    /// This must precede root dispatch; no mission-specific path is invented.
-    /// The default table is explicitly empty: original patch-file population
-    /// is a separate dependency, never inferred from mission source content.
-    pub fn set_program_context(
-        &mut self,
-        path: Option<Vec<u8>>,
-        replacements: Vec<ProgramReplacement>,
-    ) -> Result<(), String> {
+    /// Caller supplies the live mission path before root dispatch. The actual
+    /// startup replacement owner is borrowed separately at each invocation.
+    pub fn set_program_context(&mut self, path: Option<Vec<u8>>) -> Result<(), String> {
         if self.cursor != 0 || self.stopped || self.terminal_entered {
             return Err("mission content invocation already entered".into());
         }
         self.mission_path = path;
-        self.replacements = replacements;
         Ok(())
     }
     pub fn mission_path(&self) -> Option<&[u8]> {
@@ -95,6 +86,7 @@ impl MissionContentOwner {
         root: Chunk<'_>,
         arena: &mut ModelArena,
         map: &mut OriginalLoadMap,
+        patches: &crate::program_patch::ProgramPatchTable,
     ) -> Result<(), String> {
         self.available()?;
         let result = self.actors.load_collection_with_map(
@@ -102,7 +94,7 @@ impl MissionContentOwner {
             arena,
             map,
             self.mission_path.as_deref(),
-            &self.replacements,
+            patches.replacements(),
             &mut self.memory,
         );
         self.cursor = self.actors.cursor;
@@ -119,15 +111,25 @@ impl MissionContentOwner {
             Ok(())
         }
     }
-    pub fn load_programs(&mut self, root: Chunk<'_>, arena: &ModelArena) -> Result<(), String> {
+    pub fn load_programs(
+        &mut self,
+        root: Chunk<'_>,
+        arena: &ModelArena,
+        patches: &crate::program_patch::ProgramPatchTable,
+    ) -> Result<(), String> {
         self.available()?;
-        let result = self.load_programs_inner(root, arena);
+        let result = self.load_programs_inner(root, arena, patches);
         if result.is_err() {
             self.stopped = true;
         }
         result
     }
-    fn load_programs_inner(&mut self, root: Chunk<'_>, arena: &ModelArena) -> Result<(), String> {
+    fn load_programs_inner(
+        &mut self,
+        root: Chunk<'_>,
+        arena: &ModelArena,
+        patches: &crate::program_patch::ProgramPatchTable,
+    ) -> Result<(), String> {
         self.cursor = root.offset + 6;
         if root.kind != 0xae50 {
             return Err("expected script collection ae50".into());
@@ -153,7 +155,7 @@ impl MissionContentOwner {
                 };
                 let result = self.pending_program.as_mut().unwrap().load_source_code(
                     &mut reader,
-                    &self.replacements,
+                    patches.replacements(),
                     &mut context,
                     &mut self.memory,
                 );

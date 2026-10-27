@@ -14,6 +14,7 @@ use crate::mission_actor_stream::OriginalLoadMap;
 use crate::mission_scene_stream::MissionSceneInput;
 use crate::model_loading::ModelArena;
 use crate::native_transform::SQuat;
+use crate::program_patch::ProgramPatchTable;
 use crate::scene_ownership::SceneKey;
 use crate::scene_resources::{SceneResources, SceneScreen};
 use crate::script_scheduler::FrameReferenceId;
@@ -324,7 +325,14 @@ impl MissionSceneLoader {
         S::Error: std::fmt::Debug,
     {
         self.load_prefix_inner(
-            driver, arena, resources, screen, projection, bytes, &mut None,
+            driver,
+            arena,
+            resources,
+            screen,
+            projection,
+            bytes,
+            &mut None,
+            &ProgramPatchTable::default(),
         )
     }
     /// Use the same cache owner/directories as startup and mission UnInit.
@@ -370,6 +378,7 @@ impl MissionSceneLoader {
             projection,
             bytes,
             &mut Some(&mut open),
+            &ProgramPatchTable::default(),
         )
     }
     /// Ordered static scene ingestion with the real model and sound cache
@@ -389,6 +398,42 @@ impl MissionSceneLoader {
         caches: &mut crate::mission_resources::MissionCaches,
         installation: &lhr_assets::Installation,
         memory: &mut B,
+    ) -> Result<(), MissionSceneLoadError>
+    where
+        S::Error: std::fmt::Debug,
+        B::Error: std::fmt::Debug,
+    {
+        self.load_prefix_with_resource_cache_and_patches(
+            driver,
+            arena,
+            resources,
+            screen,
+            projection,
+            bytes,
+            caches,
+            installation,
+            memory,
+            &ProgramPatchTable::default(),
+        )
+    }
+    /// Borrow the actual startup table for this entire ordered input. Mission
+    /// content stores no table snapshot; each reached root reads this owner.
+    #[allow(clippy::too_many_arguments)]
+    pub fn load_prefix_with_resource_cache_and_patches<
+        S: SceneScreen,
+        B: crate::mission_resources::MissionCacheAllocator,
+    >(
+        &mut self,
+        driver: &mut DriverSceneOwner,
+        arena: &mut ModelArena,
+        resources: &SceneResources,
+        screen: &mut S,
+        projection: GameCameraProjection,
+        bytes: &[u8],
+        caches: &mut crate::mission_resources::MissionCaches,
+        installation: &lhr_assets::Installation,
+        memory: &mut B,
+        patches: &ProgramPatchTable,
     ) -> Result<(), MissionSceneLoadError>
     where
         S::Error: std::fmt::Debug,
@@ -419,6 +464,7 @@ impl MissionSceneLoader {
             projection,
             bytes,
             &mut Some(&mut open),
+            patches,
         )
     }
     #[allow(clippy::too_many_arguments)] // Original invocation plus explicit resource owners.
@@ -431,6 +477,7 @@ impl MissionSceneLoader {
         projection: GameCameraProjection,
         bytes: &[u8],
         resource_open: &mut Option<&mut ResourceOpenAdapter<'_>>,
+        patches: &ProgramPatchTable,
     ) -> Result<(), MissionSceneLoadError>
     where
         S::Error: std::fmt::Debug,
@@ -453,6 +500,7 @@ impl MissionSceneLoader {
             projection,
             &mut input,
             resource_open,
+            patches,
         );
         self.cursor = input.cursor();
         result.map_err(|(entry, detail)| self.error(entry, detail))
@@ -534,6 +582,7 @@ impl MissionSceneLoader {
         projection: GameCameraProjection,
         input: &mut MissionSceneInput<'_>,
         resource_open: &mut Option<&mut ResourceOpenAdapter<'_>>,
+        patches: &ProgramPatchTable,
     ) -> Result<(), (u32, String)>
     where
         S::Error: std::fmt::Debug,
@@ -600,16 +649,16 @@ impl MissionSceneLoader {
                     continue;
                 }
                 0xae20 => {
-                    let result = self
-                        .content
-                        .load_actors(chunk, arena, &mut self.load_map.map);
+                    let result =
+                        self.content
+                            .load_actors(chunk, arena, &mut self.load_map.map, patches);
                     input
                         .advance_current_to(self.content.cursor)
                         .map_err(|e| (0x544a16, e))?;
                     result.map_err(|detail| (0x544a16, detail))?;
                 }
                 0xae50 => {
-                    let result = self.content.load_programs(chunk, arena);
+                    let result = self.content.load_programs(chunk, arena, patches);
                     input
                         .advance_current_to(self.content.cursor)
                         .map_err(|e| (0x544b92, e))?;

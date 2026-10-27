@@ -155,6 +155,25 @@ impl GuardedCarRuntime {
             CarRuntime::open_driving_scene(installation, path, options, mission),
         )
     }
+    pub fn open_driving_scene_with_patches(
+        installation: lhr_assets::Installation,
+        path: &str,
+        options: CarRuntimeOptions,
+        mission: &str,
+        patches: &crate::program_patch::ProgramPatchLease,
+    ) -> Result<Self, String> {
+        let reservation = Reservation::new()?;
+        Self::finish_open(
+            reservation,
+            CarRuntime::open_driving_scene_with_patches(
+                installation,
+                path,
+                options,
+                mission,
+                patches,
+            ),
+        )
+    }
     /// Calls the existing shutdown once. Repeated success returns its report;
     /// repeated failure returns the first error and leaves the prefix intact.
     pub fn close(&mut self) -> Result<CarRuntimeCleanup, String> {
@@ -259,6 +278,80 @@ mod tests {
         bytes.push(0);
         std::fs::write(directory.join("models/dummy.4ds"), bytes).unwrap();
     }
+    fn startup_source(directory: &Path) -> crate::program_patch::ProgramPatchStartup {
+        std::fs::create_dir_all(directory.join("patch")).unwrap();
+        let mut payload = Vec::new();
+        for value in [
+            Some(b"synthetic\0".as_slice()),
+            Some(b"retained\0".as_slice()),
+            None,
+            Some(b"startup car source\0".as_slice()),
+        ] {
+            payload.extend((value.map_or(0, |value| value.len()) as i32).to_le_bytes());
+            if let Some(value) = value {
+                payload.extend(value.iter().map(|byte| byte ^ 0x85));
+            }
+        }
+        std::fs::write(
+            directory.join("patch/a4.bin"),
+            crate::original_data_chunk::chunk(0x64, &payload),
+        )
+        .unwrap();
+        let mut startup = crate::program_patch::ProgramPatchStartup::default();
+        startup
+            .initialize(&lhr_assets::Installation::open(directory).unwrap())
+            .unwrap();
+        startup
+    }
+    #[test]
+    fn driving_source_loader_borrows_actual_startup_table_until_successful_close() {
+        use crate::program_patch::ProgramPatchStartupError;
+        let directory = directory();
+        let mut startup = startup_source(&directory);
+        std::fs::create_dir_all(directory.join("missions/synthetic")).unwrap();
+        let chunk = crate::original_data_chunk::chunk;
+        let program = chunk(
+            0xae51,
+            &[
+                vec![0],
+                8u32.to_le_bytes().to_vec(),
+                b"retained".to_vec(),
+                8u32.to_le_bytes().to_vec(),
+                b"authored".to_vec(),
+            ]
+            .concat(),
+        );
+        std::fs::write(
+            directory.join("missions/synthetic/scene2.bin"),
+            chunk(
+                0x4c53,
+                &[chunk(1, &[5, 0, 1, 0]), chunk(0xae50, &program)].concat(),
+            ),
+        )
+        .unwrap();
+        let mut runtime = missing_prefix(&directory);
+        runtime.startup_patches = Some(startup.lease().unwrap());
+        runtime
+            .load_driving_scene2("synthetic", CarRuntimeOptions::default())
+            .unwrap();
+        let content = &runtime.scene_mission.as_ref().unwrap().loader.content;
+        assert_eq!(content.mission_path(), Some(b"synthetic".as_slice()));
+        assert_eq!(
+            content.programs()[0].source().unwrap().c_bytes(),
+            Some(b"startup car source".as_slice())
+        );
+        assert_eq!(
+            startup.unload_after_sources(),
+            Err(ProgramPatchStartupError::SourcesRetainTable)
+        );
+        let mut owner = Reservation::new().unwrap().attach(runtime);
+        owner.close().unwrap();
+        assert!(owner.startup_patches.is_none());
+        startup.unload_after_sources().unwrap();
+        assert!(startup.table().replacements().is_empty());
+        drop(owner);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
     #[test]
     fn missing_asset_prefix_auto_closes_real_scene_and_reuses_its_slot() {
         let directory = directory();
@@ -295,7 +388,11 @@ mod tests {
         crate::native_precision::Pc24PrecisionState::default().run(|| {
             let directory = directory();
             write_dummy(&directory);
+            let mut startup = startup_source(&directory);
+            let lease = startup.lease().unwrap();
+            let weak_table = lease.weak_table();
             let mut runtime = missing_prefix(&directory);
+            runtime.startup_patches = Some(lease);
             let scene = runtime.scene().unwrap();
             let source = runtime.arena.create_model().unwrap();
             let dummy = crate::model_loading::tests::frame(6, None, [0.; 3]);
@@ -388,8 +485,22 @@ mod tests {
             assert_eq!(owner.close().unwrap_err(), first);
             assert!(owner.shutdown_started);
             assert!(!owner.game_done.has_started());
+            assert_eq!(
+                startup.unload_after_sources(),
+                Err(crate::program_patch::ProgramPatchStartupError::SourcesRetainTable)
+            );
+            assert_eq!(startup.table().replacements().len(), 1);
+            drop(startup);
             drop(owner);
             assert!(failure_slots().contains(&slot));
+            assert_eq!(
+                weak_table
+                    .upgrade()
+                    .expect("failed car retains actual startup data")
+                    .replacements()
+                    .len(),
+                1
+            );
             inspect_failed_car(slot, |runtime, error| {
                 assert_eq!((runtime as *const CarRuntime) as usize, pointer);
                 assert_eq!(error, first);

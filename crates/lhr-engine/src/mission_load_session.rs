@@ -21,6 +21,7 @@ use crate::mission_scene_loading::{MissionSceneLoadError, MissionSceneLoader, Sc
 use crate::model_loading::ModelError;
 use crate::model_loading::{CpuSceneWorldError, CpuSceneWorldProgress, ModelArena};
 use crate::native_precision::Pc24PrecisionState;
+use crate::program_patch::{ProgramPatchStartup, ProgramPatchStartupError};
 use crate::runtime_audio::{AudioError, RuntimeAudio};
 use crate::scene_ownership::SceneKey;
 use crate::scene_resources::{SceneCpuCloseReport, SceneResourceError, SceneResources};
@@ -42,6 +43,7 @@ pub struct MissionLoadRequest<'a> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MissionLoadPhase {
     NotStarted,
+    StartupPatches,
     CacheDirectories,
     SoundBackend,
     SceneCreation,
@@ -62,6 +64,7 @@ pub enum MissionLoadInitError {
 
 #[derive(Debug)]
 pub enum MissionLoadCause {
+    StartupPatches(ProgramPatchStartupError),
     CacheDirectory {
         kind: MissionCacheKind,
         index: usize,
@@ -108,6 +111,7 @@ pub enum MissionDiscardPhase {
     Scene,
     DriverRegistry,
     RemainingOwners,
+    StartupPatches,
     Complete,
 }
 
@@ -175,6 +179,7 @@ pub struct MissionOwnedCounts {
 
 #[derive(Debug)]
 pub enum MissionDiscardCause {
+    StartupPatches(ProgramPatchStartupError),
     PendingVisual(ModelError),
     VisualBuffers(ModelError),
     WorldStaging(DriverSceneError<Infallible>),
@@ -317,6 +322,9 @@ pub struct MissionLoadSession {
     failure: Option<MissionLoadFailure>,
     discard: MissionDiscardProgress,
     discard_failure: Option<MissionDiscardFailure>,
+    // Rust drops fields in declaration order: source owners precede this table
+    // even if a host caller abandons the session without explicit disposal.
+    startup_patches: ProgramPatchStartup,
 }
 
 impl MissionLoadSession {
@@ -326,6 +334,7 @@ impl MissionLoadSession {
     ) -> Result<Self, MissionLoadInitError> {
         Ok(Self {
             installation,
+            startup_patches: ProgramPatchStartup::default(),
             audio: RuntimeAudio::default(),
             driver: DriverSceneOwner::default(),
             arena: ModelArena::default(),
@@ -350,6 +359,9 @@ impl MissionLoadSession {
 
     pub fn phase(&self) -> MissionLoadPhase {
         self.phase
+    }
+    pub fn startup_patches(&self) -> &ProgramPatchStartup {
+        &self.startup_patches
     }
     pub fn failure(&self) -> Option<&MissionLoadFailure> {
         self.failure.as_ref()
@@ -461,6 +473,10 @@ impl MissionLoadSession {
     where
         S::Error: std::fmt::Debug,
     {
+        self.phase = MissionLoadPhase::StartupPatches;
+        self.startup_patches
+            .initialize(&self.installation)
+            .map_err(MissionLoadCause::StartupPatches)?;
         self.phase = MissionLoadPhase::CacheDirectories;
         // Game startup installs Sounds as the first Sound cache directory.
         // Its source Open flags 0x10 are applied by the Sound cache open path.
@@ -540,7 +556,7 @@ impl MissionLoadSession {
                 });
                 loader
                     .content
-                    .set_program_context(mission_path, Vec::new())
+                    .set_program_context(mission_path)
                     .map_err(MissionLoadCause::LoadMap)?;
                 self.loader = Some(loader);
             }
@@ -563,7 +579,7 @@ impl MissionLoadSession {
         self.loader
             .as_mut()
             .unwrap()
-            .load_prefix_with_resource_cache(
+            .load_prefix_with_resource_cache_and_patches(
                 &mut self.driver,
                 &mut self.arena,
                 &self.resources,
@@ -573,6 +589,7 @@ impl MissionLoadSession {
                 &mut self.caches,
                 &self.installation,
                 &mut self.cache_memory,
+                self.startup_patches.table(),
             )
             .map_err(MissionLoadCause::Scene2Prefix)
     }
@@ -685,6 +702,10 @@ impl MissionLoadSession {
         if remaining != MissionOwnedCounts::default() {
             return Err(MissionDiscardCause::RemainingOwners(Box::new(remaining)));
         }
+        self.discard.phase = MissionDiscardPhase::StartupPatches;
+        self.startup_patches
+            .unload_after_sources()
+            .map_err(MissionDiscardCause::StartupPatches)?;
         Ok(())
     }
 }

@@ -144,6 +144,8 @@ pub struct CarRuntime {
     shutdown_started: bool,
     wheel_preview_started: bool,
     wheel_preview_failed: bool,
+    // Last field: even retained-runtime destruction drops source owners first.
+    startup_patches: Option<crate::program_patch::ProgramPatchLease>,
 }
 struct ConstructorBackend<'a>(&'a mut VehicleFrameMemory);
 impl CarConstructionBackend for ConstructorBackend<'_> {
@@ -177,7 +179,7 @@ impl CarRuntime {
         path: &str,
         options: CarRuntimeOptions,
     ) -> Result<Self, CarRuntimeOpenFailure> {
-        Self::open_context(installation, path, options, None, false)
+        Self::open_context(installation, path, options, None, false, None)
     }
     /// Establishes the authored model transform before construction and Init.
     pub fn open_driving(
@@ -186,7 +188,7 @@ impl CarRuntime {
         options: CarRuntimeOptions,
         mission: &str,
     ) -> Result<Self, CarRuntimeOpenFailure> {
-        Self::open_context(installation, path, options, Some(mission), false)
+        Self::open_context(installation, path, options, Some(mission), false, None)
     }
     /// Driving inspection with the original static world owned by the same
     /// Scene as the car. This does not imply original MissionOpen scheduling.
@@ -196,7 +198,25 @@ impl CarRuntime {
         options: CarRuntimeOptions,
         mission: &str,
     ) -> Result<Self, CarRuntimeOpenFailure> {
-        Self::open_context(installation, path, options, Some(mission), true)
+        Self::open_context(installation, path, options, Some(mission), true, None)
+    }
+    /// Production driving borrows startup data and retains its actual owner
+    /// through initialization, source loading and any interrupted cleanup.
+    pub fn open_driving_scene_with_patches(
+        installation: lhr_assets::Installation,
+        path: &str,
+        options: CarRuntimeOptions,
+        mission: &str,
+        patches: &crate::program_patch::ProgramPatchLease,
+    ) -> Result<Self, CarRuntimeOpenFailure> {
+        Self::open_context(
+            installation,
+            path,
+            options,
+            Some(mission),
+            true,
+            Some(patches.clone()),
+        )
     }
     fn open_context(
         installation: lhr_assets::Installation,
@@ -204,9 +224,11 @@ impl CarRuntime {
         options: CarRuntimeOptions,
         mission: Option<&str>,
         canonical_world: bool,
+        startup_patches: Option<crate::program_patch::ProgramPatchLease>,
     ) -> Result<Self, CarRuntimeOpenFailure> {
         let tracks = CarInitAnimationCatalog::resources().expect("bounded unique semantic catalog");
         let mut runtime = Self {
+            startup_patches,
             precision: Pc24PrecisionState::default(),
             services: driving::CarRuntimeServices {
                 allocator_fill: options.allocator_fill,
@@ -1088,6 +1110,7 @@ impl CarRuntime {
             ));
         }
         self.driving = None;
+        self.startup_patches = None;
         Ok(cleanup)
     }
 }

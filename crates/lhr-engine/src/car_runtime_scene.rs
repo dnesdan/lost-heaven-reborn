@@ -79,6 +79,10 @@ impl CarRuntime {
             memory: Default::default(),
         });
         let state = self.scene_mission.as_mut().unwrap();
+        state
+            .loader
+            .content
+            .set_program_context(Some(mission.as_bytes().to_vec()))?;
         // Game startup supplies Sounds before the model directory. The cache
         // open path applies the source's 0x10 Sound Open flag.
         state
@@ -96,9 +100,16 @@ impl CarRuntime {
         let [width, height] = options.scene_screen_size;
         // This host inspection caller supplies the ordinary screen mode.
         // A stopped prefix stays owned and inspectable; it is not MissionOpen.
+        // Legacy standalone inspection selects an explicitly empty table.
+        // The production App supplies a lease to its actual startup owner.
+        let empty = crate::program_patch::ProgramPatchTable::default();
+        let patches = self
+            .startup_patches
+            .as_ref()
+            .map_or(&empty, |owner| owner.table());
         state.frontier = state
             .loader
-            .load_prefix_with_resource_cache(
+            .load_prefix_with_resource_cache_and_patches(
                 &mut self.scene_driver,
                 &mut self.arena,
                 &self.scene_resources,
@@ -114,6 +125,7 @@ impl CarRuntime {
                 &mut state.caches,
                 &self.installation,
                 &mut state.memory,
+                patches,
             )
             .err();
         self.arena
