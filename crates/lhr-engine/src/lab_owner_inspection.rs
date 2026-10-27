@@ -2,11 +2,70 @@
 //! UI values are presentation data, never inputs to original engine operations.
 #![cfg_attr(not(feature = "engine-lab"), allow(dead_code))]
 
+use lhr_engine::mission_scene_loading::MissionSceneLoader;
 use lhr_engine::scene_render::CanonicalSceneState;
 use lhr_engine::visual_resources::{I3dMaterial, MaterialKey, VisualResources};
 use std::collections::HashSet;
 
 pub const MAX_ANIMATED_ROWS: usize = 128;
+pub const MAX_NAME_BYTES: usize = 128;
+
+/// Bounded presentation of source bytes, without lossy Unicode conversion.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SourceName {
+    pub escaped: String,
+    pub bytes: usize,
+    pub shown_bytes: usize,
+}
+impl SourceName {
+    fn read(bytes: &[u8]) -> Self {
+        let shown_bytes = bytes.len().min(MAX_NAME_BYTES);
+        let escaped = bytes[..shown_bytes]
+            .iter()
+            .flat_map(|&byte| std::ascii::escape_default(byte))
+            .map(char::from)
+            .collect();
+        Self {
+            escaped,
+            bytes: bytes.len(),
+            shown_bytes,
+        }
+    }
+}
+
+/// Last observed loader scratch, not a claimed current gameplay object.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LoadingContext {
+    pub object_kind: u32,
+    pub object_name: SourceName,
+    pub object_frame: Option<String>,
+    pub actor_frame: Option<String>,
+    pub actor_record_bytes: usize,
+    pub actor_payload_bytes: usize,
+    pub actor_stop: Option<usize>,
+    pub sound_sector_requests: usize,
+    pub sound_area_requests: usize,
+    pub retained_light_sector_request: bool,
+    pub retained_model_open: bool,
+}
+impl LoadingContext {
+    fn read(loader: &MissionSceneLoader) -> Self {
+        let actors = &loader.content.actors;
+        Self {
+            object_kind: loader.current_kind,
+            object_name: SourceName::read(&loader.current_name),
+            object_frame: loader.current_frame.map(|frame| frame.identity().to_string()),
+            actor_frame: actors.current_frame.map(|frame| frame.identity().to_string()),
+            actor_record_bytes: actors.current_record.len(),
+            actor_payload_bytes: actors.pending_load_data.as_ref().map_or(0, Vec::len),
+            actor_stop: actors.interrupted_offset,
+            sound_sector_requests: loader.pending_sound_sector_links.len(),
+            sound_area_requests: loader.pending_sound_area_links.len(),
+            retained_light_sector_request: loader.pending_light_sector_link.is_some(),
+            retained_model_open: loader.pending_model_open.is_some(),
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Channel {
@@ -77,6 +136,7 @@ pub struct Mission {
     pub content_allocations: usize,
     pub cursor: usize,
     pub frontier: Option<Frontier>,
+    pub loading: Option<LoadingContext>,
 }
 impl Mission {
     fn read(owner: &CanonicalSceneState) -> Self {
@@ -96,6 +156,7 @@ impl Mission {
             result.standalone_programs = loader.content.live_program_count();
             result.content_allocations = loader.content.live_allocation_count();
             result.cursor = loader.cursor;
+            result.loading = Some(LoadingContext::read(loader));
         }
         result
     }
@@ -210,6 +271,74 @@ impl Inspection {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn source_names_distinguish_raw_bytes_from_literal_escapes() {
+        let name = SourceName::read(b"name\xff\n\t\"\\");
+        assert_eq!(name.escaped, "name\\xff\\n\\t\\\"\\\\");
+        assert_eq!(name.bytes, 9);
+        assert_eq!(name.shown_bytes, 9);
+        assert_ne!(SourceName::read(b"\xff"), SourceName::read(b"\\xff"));
+        assert_eq!(SourceName::read(b"\xc3\xa9").escaped, "\\xc3\\xa9");
+        assert_eq!(SourceName::read(b"\0").escaped, "\\x00");
+        let empty = SourceName::read(b"");
+        assert!(empty.escaped.is_empty());
+        assert_eq!(empty.bytes, 0);
+        assert_eq!(empty.shown_bytes, 0);
+    }
+
+    #[test]
+    fn source_name_budget_counts_input_bytes_and_keeps_complete_escapes() {
+        let exact = SourceName::read(&[0xff; MAX_NAME_BYTES]);
+        assert_eq!(exact.shown_bytes, exact.bytes);
+        assert_eq!(exact.escaped, "\\xff".repeat(MAX_NAME_BYTES));
+        let longer = SourceName::read(&[0xff; MAX_NAME_BYTES + 1]);
+        assert_eq!(longer.bytes, MAX_NAME_BYTES + 1);
+        assert_eq!(longer.shown_bytes, MAX_NAME_BYTES);
+        assert_eq!(longer.escaped, exact.escaped);
+        assert!(longer.escaped.is_ascii());
+        assert_eq!(longer.escaped.len(), MAX_NAME_BYTES * 4);
+    }
+
+    #[test]
+    fn observing_loader_context_does_not_consume_or_change_retained_state() {
+        use lhr_engine::model_loading::ModelArena;
+
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let model = arena.create_model().unwrap();
+        let frame = arena.lookup_reference(model.root());
+        let mut loader = MissionSceneLoader::new(&arena, scene)
+            .unwrap_or_else(|error| panic!("{}", error.detail));
+        loader.current_name = b"scratch.\xe8\xff".to_vec();
+        loader.current_kind = 9;
+        loader.current_frame = Some(frame);
+        loader.content.actors.current_frame = Some(frame);
+        loader.content.actors.current_record = vec![1, 2, 3];
+        loader.content.actors.pending_load_data = Some(vec![4, 5]);
+        loader.content.actors.interrupted_offset = Some(42);
+        let frames_before = arena.live_frame_count();
+        let references_before = arena.frame(model.root()).unwrap().references;
+        let first = LoadingContext::read(&loader);
+        assert_eq!(LoadingContext::read(&loader), first);
+        assert_eq!(first.object_name.escaped, "scratch.\\xe8\\xff");
+        assert_eq!(first.object_kind, 9);
+        assert_eq!(first.object_frame, Some(frame.identity().to_string()));
+        assert_eq!(first.actor_frame, first.object_frame);
+        assert_eq!(first.actor_record_bytes, 3);
+        assert_eq!(first.actor_payload_bytes, 2);
+        assert_eq!(first.actor_stop, Some(42));
+        assert_eq!(first.sound_sector_requests, 0);
+        assert_eq!(first.sound_area_requests, 0);
+        assert!(!first.retained_light_sector_request);
+        assert!(!first.retained_model_open);
+        assert_eq!(loader.current_name, b"scratch.\xe8\xff");
+        assert_eq!(loader.content.actors.current_record, [1, 2, 3]);
+        assert_eq!(loader.content.actors.pending_load_data, Some(vec![4, 5]));
+        assert_eq!(loader.content.actors.interrupted_offset, Some(42));
+        assert_eq!(arena.live_frame_count(), frames_before);
+        assert_eq!(arena.frame(model.root()).unwrap().references, references_before);
+    }
 
     #[test]
     fn diagnostic_rows_are_bounded_but_counts_and_owner_identity_remain_exact() {

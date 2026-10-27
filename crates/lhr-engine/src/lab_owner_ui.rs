@@ -1,5 +1,5 @@
 //! Engine Lab presentation of read-only owner observations.
-use crate::lab_owner_inspection::{Channel, Inspection, MAX_ANIMATED_ROWS};
+use crate::lab_owner_inspection::{Channel, Inspection, LoadingContext, MAX_ANIMATED_ROWS};
 use egui::{Color32, RichText};
 
 pub fn materials(ui: &mut egui::Ui, inspection: &Inspection) {
@@ -87,6 +87,53 @@ fn channel(ui: &mut egui::Ui, name: &str, channel: &Channel) {
     ui.small("Frame indices are zero-based; clock values retain signed 32-bit source state.");
 }
 
+fn loading_context(ui: &mut egui::Ui, context: &LoadingContext) {
+    egui::CollapsingHeader::new("Object-loader scratch and pending links")
+        .id_salt("mission loading context")
+        .show(ui, |ui| {
+            ui.small("Last observed object-loader scratch. At an actor or script boundary these fields can still describe an earlier object; they are not the current gameplay object.");
+            ui.monospace(format!(
+                "Object kind {} · frame {}",
+                context.object_kind,
+                context.object_frame.as_deref().unwrap_or("None")
+            ));
+            ui.label("Object name (escaped source bytes)");
+            ui.monospace(format!("\"{}\"", context.object_name.escaped));
+            ui.small(format!(
+                "{} of {} source bytes shown; no Unicode conversion",
+                context.object_name.shown_bytes, context.object_name.bytes
+            ));
+            ui.monospace(format!(
+                "Actor frame {} · record {} bytes · pending payload {} bytes",
+                context.actor_frame.as_deref().unwrap_or("None"),
+                context.actor_record_bytes,
+                context.actor_payload_bytes
+            ));
+            if let Some(offset) = context.actor_stop {
+                ui.monospace(format!("Actor input interrupted at byte {offset}"));
+            }
+            egui::Grid::new(("mission pending links", ui.id()))
+                .num_columns(2)
+                .spacing([14., 4.])
+                .show(ui, |ui| {
+                    for (label, count) in [
+                        ("Pending sound-sector links", context.sound_sector_requests),
+                        ("Pending sound-area links", context.sound_area_requests),
+                        (
+                            "Retained light-sector request",
+                            usize::from(context.retained_light_sector_request),
+                        ),
+                        ("Retained model open", usize::from(context.retained_model_open)),
+                    ] {
+                        ui.label(label);
+                        ui.monospace(count.to_string());
+                        ui.end_row();
+                    }
+                });
+            ui.small("Observation only: this panel does not resolve links, retry loading or execute pending operations.");
+        });
+}
+
 pub fn mission(ui: &mut egui::Ui, inspection: &Inspection) {
     ui.separator();
     ui.heading("Mission source owners");
@@ -103,7 +150,7 @@ pub fn mission(ui: &mut egui::Ui, inspection: &Inspection) {
                 for (label, count) in [
                     ("Live frames", mission.frames),
                     ("Completed Scene2 objects", mission.objects),
-                    ("Published frame names", mission.map_entries),
+                    ("Frame-name publications", mission.map_entries),
                     ("Live actors", mission.actors),
                     ("Standalone source programs", mission.standalone_programs),
                     ("Content allocations", mission.content_allocations),
@@ -114,6 +161,7 @@ pub fn mission(ui: &mut egui::Ui, inspection: &Inspection) {
                     ui.end_row();
                 }
             });
+        ui.small("Frame-name publications include overwrites, not just unique map keys.");
         if let Some(frontier) = &mission.frontier {
             ui.label(
                 RichText::new("Loading stopped at an explicit boundary")
@@ -126,6 +174,9 @@ pub fn mission(ui: &mut egui::Ui, inspection: &Inspection) {
             ui.label(&frontier.detail);
         } else {
             ui.label("No recorded Scene2 stop. Game initialization and authored mission execution remain unbound.");
+        }
+        if let Some(context) = &mission.loading {
+            loading_context(ui, context);
         }
     } else {
         ui.small("No active canonical mission source owner in this view.");
