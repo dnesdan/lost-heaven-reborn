@@ -818,6 +818,7 @@ mod tests {
         let mut after = SavedEnvironment([0; SAVED_BYTES]);
         let control = 0x0b7f_u16;
         let values = [2.5_f64, -7.25, 3.];
+        let instruction_pointer: usize;
         // SAFETY: every memory image is aligned and complete. Capturing with
         // FXSAVE64 is nonwaiting and leaves the live caller state unchanged.
         // Keep a pending unmasked invalid exception across actual Rust helpers.
@@ -825,14 +826,18 @@ mod tests {
             asm!(
                 "fxsave64 [{caller}]", "fninit", "fldcw word ptr [{control}]",
                 "fldz", "fldz", "fdivp st(1), st(0)", "fstp st(0)",
-                "fld qword ptr [{values}]", "fld qword ptr [{values}+8]", "fld qword ptr [{values}+16]",
+                "fld qword ptr [{values}]", "fld qword ptr [{values}+8]",
+                "2: fld qword ptr [{values}+16]", "lea {fip}, [rip + 2b]",
                 "fxsave64 [{before}]",
-                // Some CPUs report zero FDP after nonfaulting loads. Seed a
-                // valid caller data pointer through its architectural image.
+                // Some hosts report zero FIP/FDP after nonfaulting loads.
+                // Seed the actual code/data addresses: this fixture tests their
+                // restoration, not the host's nonfaulting-address reporting.
+                "mov qword ptr [{before}+8], {fip}",
                 "mov qword ptr [{before}+16], {values}",
                 "and word ptr [{before}], 0xfffe", "or word ptr [{before}+2], 0x8080",
                 "fxrstor64 [{before}]", "fxsave64 [{before}]",
-                caller=in(reg)&mut caller,before=in(reg)&mut before,control=in(reg)&control,values=in(reg)values.as_ptr(),options(nostack),
+                caller=in(reg)&mut caller,before=in(reg)&mut before,control=in(reg)&control,values=in(reg)values.as_ptr(),
+                fip=out(reg)instruction_pointer,options(nostack),
             );
         }
         let result = try_wheel_friction_limit([3., 0.5, -2.], [1., 0., 0.], 30., 20.);
@@ -860,6 +865,7 @@ mod tests {
         assert_eq!(comparison, Ok(std::cmp::Ordering::Greater));
         let fip = u64::from_le_bytes(before.0[8..16].try_into().unwrap());
         let fdp = u64::from_le_bytes(before.0[16..24].try_into().unwrap());
+        assert_eq!(fip, instruction_pointer as u64);
         assert!(fip > u64::from(u32::MAX));
         assert!(fdp > u64::from(u32::MAX));
         // Ordinary Rust calls may use caller-saved XMM registers/MXCSR flags.
@@ -877,13 +883,14 @@ mod tests {
         let mut saved = SavedEnvironment([0; SAVED_BYTES]);
         let control = 0x007f_u16;
         let values = [2.5_f64, -7.25, 3.];
+        let instruction_pointer: usize;
         let pattern = std::array::from_fn::<_, 256, _>(|i| (i as u8).wrapping_mul(37));
         let caller_mxcsr = 0x5f81_u32;
         let work_mxcsr = 0x1f80_u32;
         // SAFETY: use the production save/restore instructions in one block,
         // so compiler-generated scalar/SIMD instructions cannot intervene.
-        // A real memory FLD supplies the instruction pointer; the data
-        // pointer is explicitly seeded where nonfaulting loads leave it zero. The
+        // Seed actual code/data addresses through the saved image, including
+        // FIP on hosts whose nonfaulting FLD reports zero. The
         // pending unmasked invalid operation is restored without any FWAIT.
         // The test deliberately changes SSE state inside the isolated block
         // to verify that the full captured image, not only x87, is restored.
@@ -891,7 +898,8 @@ mod tests {
             asm!(
                 "fxsave64 [{caller}]", "fninit", "fldcw word ptr [{control}]",
                 "fldz", "fldz", "fdivp st(1), st(0)", "fstp st(0)",
-                "fld qword ptr [{values}]", "fld qword ptr [{values}+8]", "fld qword ptr [{values}+16]",
+                "fld qword ptr [{values}]", "fld qword ptr [{values}+8]",
+                "2: fld qword ptr [{values}+16]", "lea {fip}, [rip + 2b]",
                 "ldmxcsr dword ptr [{caller_mxcsr}]",
                 "movdqu xmm0, [{pattern}]", "movdqu xmm1, [{pattern}+16]",
                 "movdqu xmm2, [{pattern}+32]", "movdqu xmm3, [{pattern}+48]",
@@ -902,6 +910,7 @@ mod tests {
                 "movdqu xmm12, [{pattern}+192]", "movdqu xmm13, [{pattern}+208]",
                 "movdqu xmm14, [{pattern}+224]", "movdqu xmm15, [{pattern}+240]",
                 "fxsave64 [{before}]",
+                "mov qword ptr [{before}+8], {fip}",
                 "mov qword ptr [{before}+16], {values}",
                 "and word ptr [{before}], 0xfffe", "or word ptr [{before}+2], 0x8080",
                 "fxrstor64 [{before}]", "fxsave64 [{before}]",
@@ -911,9 +920,14 @@ mod tests {
                 restore_environment!(), "fxsave64 [{after}]", "fxrstor64 [{caller}]",
                 caller=in(reg)&mut caller,before=in(reg)&mut before,after=in(reg)&mut after,saved=in(reg)&mut saved,
                 control=in(reg)&control,values=in(reg)values.as_ptr(),pattern=in(reg)pattern.as_ptr(),
-                caller_mxcsr=in(reg)&caller_mxcsr,work_mxcsr=in(reg)&work_mxcsr,options(nostack),
+                caller_mxcsr=in(reg)&caller_mxcsr,work_mxcsr=in(reg)&work_mxcsr,
+                fip=out(reg)instruction_pointer,options(nostack),
             );
         }
+        assert_eq!(
+            u64::from_le_bytes(before.0[8..16].try_into().unwrap()),
+            instruction_pointer as u64
+        );
         assert!(u64::from_le_bytes(before.0[8..16].try_into().unwrap()) > u64::from(u32::MAX));
         assert!(u64::from_le_bytes(before.0[16..24].try_into().unwrap()) > u64::from(u32::MAX));
         assert_eq!(

@@ -295,13 +295,14 @@ impl ModelArena {
                 error: SoundError::AllocationUnavailable.into(),
             });
         }
-        let audio_id = backend
-            .audio
-            .create_scene_sound(frame)
-            .map_err(|error| SoundCreateFailure {
-                frame: Some(key),
-                error: SoundError::from(error).into(),
-            })?;
+        let audio_id =
+            backend
+                .audio
+                .create_scene_sound(frame)
+                .map_err(|error| SoundCreateFailure {
+                    frame: Some(key),
+                    error: SoundError::from(error).into(),
+                })?;
         self.sound_frames.push(SoundFrame::new(key, audio_id));
         if let Err(error) = backend.register(key) {
             return Err(SoundCreateFailure {
