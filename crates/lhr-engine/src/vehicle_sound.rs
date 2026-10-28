@@ -1,8 +1,15 @@
 //! Original `C_Vehicle::GearSnd` selection and its MotorRot call boundary.
 //! Sound objects remain caller-supplied opaque handles. Sound playback methods
 //! are explicit external effects; this module does not create an audio engine.
+#![forbid(unsafe_code)]
 
 use crate::vehicle_drivetrain::{VehicleDrivetrainState, VehicleMotorRotUnavailable};
+
+#[path = "vehicle_sound_storage.rs"]
+mod storage;
+#[cfg(test)]
+use storage::{store, word};
+use storage::{GearSoundBank, GearSounds};
 
 /// Supplied shared PC state, retained between vehicles and calls.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -71,59 +78,6 @@ pub trait VehicleGearSoundEffects<T = Vec<u8>> {
     }
 }
 
-fn byte<T: AsRef<[u8]> + AsMut<[u8]>>(
-    state: &VehicleDrivetrainState<T>,
-    offset: u32,
-) -> Result<u8, VehicleGearSoundUnavailable> {
-    state
-        .as_bytes()
-        .get(offset as usize)
-        .copied()
-        .ok_or(VehicleGearSoundUnavailable::Storage(offset))
-}
-
-fn word<T: AsRef<[u8]> + AsMut<[u8]>>(
-    state: &VehicleDrivetrainState<T>,
-    offset: u32,
-) -> Result<u32, VehicleGearSoundUnavailable> {
-    let start = offset as usize;
-    let end = start
-        .checked_add(4)
-        .ok_or(VehicleGearSoundUnavailable::Storage(offset))?;
-    let bytes = state
-        .as_bytes()
-        .get(start..end)
-        .ok_or(VehicleGearSoundUnavailable::Storage(offset))?;
-    Ok(u32::from_le_bytes(bytes.try_into().unwrap()))
-}
-
-fn store<T: AsRef<[u8]> + AsMut<[u8]>>(
-    state: &mut VehicleDrivetrainState<T>,
-    offset: u32,
-    value: u32,
-) -> Result<(), VehicleGearSoundUnavailable> {
-    let start = offset as usize;
-    let end = start
-        .checked_add(4)
-        .ok_or(VehicleGearSoundUnavailable::Storage(offset))?;
-    state
-        .as_bytes_mut()
-        .get_mut(start..end)
-        .ok_or(VehicleGearSoundUnavailable::Storage(offset))?
-        .copy_from_slice(&value.to_le_bytes());
-    Ok(())
-}
-
-fn sound<T: AsRef<[u8]> + AsMut<[u8]>>(
-    state: &VehicleDrivetrainState<T>,
-    bank: u32,
-) -> Result<u32, VehicleGearSoundUnavailable> {
-    word(
-        state,
-        bank.wrapping_add(word(state, 0x200)?.wrapping_mul(4)),
-    )
-}
-
 impl<T: AsRef<[u8]> + AsMut<[u8]>> VehicleDrivetrainState<T> {
     /// Original GearSnd: query both current sounds, choose a random variant only
     /// when neither plays, enable the selected sound, then reread its handle and
@@ -134,10 +88,10 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> VehicleDrivetrainState<T> {
         globals: &mut VehicleGearSoundGlobals,
         effects: &mut impl VehicleGearSoundEffects<T>,
     ) -> Result<(), VehicleGearSoundUnavailable> {
-        if byte(self, 0xc68)? & 0x20 == 0 {
+        if !GearSounds::borrow(self).enabled()? {
             return Ok(());
         }
-        let first = sound(self, 0x6a8)?;
+        let first = GearSounds::borrow(self).current_sound(GearSoundBank::First)?;
         let first_busy = if first != 0 {
             effects.is_playing(
                 first,
@@ -152,7 +106,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> VehicleDrivetrainState<T> {
             false
         };
         // This second query still runs when the first sound is playing.
-        let second = sound(self, 0x98c)?;
+        let second = GearSounds::borrow(self).current_sound(GearSoundBank::Second)?;
         if second != 0
             && effects.is_playing(
                 second,
@@ -175,14 +129,9 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> VehicleDrivetrainState<T> {
             .wrapping_mul(214013)
             .wrapping_add(2531011);
         let remainder = ((globals.random_seed >> 16) & 0x7fff) % 100;
-        store(self, 0x200, remainder)?;
-        store(self, 0x200, u32::from(remainder > 79))?;
-        let bank = if byte(self, 0x491)? != 0 {
-            0x6a8
-        } else {
-            0x98c
-        };
-        let selected = sound(self, bank)?;
+        GearSounds::borrow(self).select_random_variant(remainder)?;
+        let bank = GearSounds::borrow(self).selected_bank()?;
+        let selected = GearSounds::borrow(self).current_sound(bank)?;
         if selected == 0 {
             return Ok(());
         }
@@ -195,7 +144,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> VehicleDrivetrainState<T> {
                 globals,
             },
         )?;
-        let selected = sound(self, bank)?;
+        let selected = GearSounds::borrow(self).current_sound(bank)?;
         let call = VehicleGearSoundCall::SetVolume {
             sound: selected,
             volume_bits: globals.volume_bits,
@@ -492,3 +441,7 @@ mod tests {
         assert_eq!(globals.random_seed, 1);
     }
 }
+
+#[cfg(test)]
+#[path = "vehicle_sound_regression_tests.rs"]
+mod regression_tests;
