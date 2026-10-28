@@ -3,6 +3,8 @@
 #![forbid(unsafe_code)]
 
 use super::{finite, near_equal, sound_mut, update_sound, AudioError, Mixer, Result, RuntimeAudio};
+use super::{SoundFrameOwner, SoundState};
+use crate::frame_transform::FrameKey;
 use std::sync::{Arc, Mutex, Weak};
 
 /// Borrowed identity of one sound incarnation in one mixer. Cloning an ID does
@@ -43,6 +45,9 @@ pub enum PlaybackQuery {
 #[derive(Clone, Copy)]
 enum Command {
     Release,
+    Validate,
+    AddSector(FrameKey),
+    DeleteSector(FrameKey),
     Update,
     Enable { enabled: bool, immediate: bool },
     LinkParent(u32),
@@ -61,6 +66,79 @@ enum Command {
 }
 
 impl RuntimeAudio {
+    /// Scene factory boundary: construct the sound and return its incarnation
+    /// under one lock, before the frame can publish it to the driver registry.
+    /// Legacy projected factories share this mixer's counter and SoundState
+    /// constructor; they must not allocate identities in a separate namespace.
+    pub(crate) fn create_scene_sound(&self, frame: FrameKey) -> Result<SoundId> {
+        let mut mixer = self.lock()?;
+        let handle = frame.0;
+        if handle == 0 || mixer.sounds.contains_key(&handle) {
+            return Err(AudioError("invalid or already owned sound address".into()));
+        }
+        let generation = mixer
+            .next_sound_generation
+            .checked_add(1)
+            .ok_or_else(|| AudioError("sound identity generation exhausted".into()))?;
+        let mut sound = SoundState::new(handle, Some(SoundFrameOwner::Scene(frame)), generation);
+        sound.clock_ms = mixer.clock_ms as u64 as u32;
+        let id = SoundId {
+            owner: Arc::downgrade(&self.0),
+            handle,
+            generation,
+        };
+        mixer.sounds.insert(handle, sound);
+        mixer.next_sound_generation = generation;
+        Ok(id)
+    }
+
+    /// Reversible missing-owner fault for lifecycle tests. Preserve the exact
+    /// state and generation; the callback runs without holding the mixer lock.
+    #[cfg(test)]
+    pub(crate) fn with_sound_temporarily_missing<R>(
+        &self,
+        id: &SoundId,
+        callback: impl FnOnce() -> R,
+    ) -> R {
+        assert!(Weak::ptr_eq(&id.owner, &Arc::downgrade(&self.0)));
+        let sound = {
+            let mut mixer = self.lock().unwrap();
+            assert_eq!(
+                mixer.sounds.get(&id.handle).unwrap().generation,
+                id.generation
+            );
+            mixer.sounds.remove(&id.handle).unwrap()
+        };
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(callback));
+        {
+            let mut mixer = self.lock().unwrap();
+            assert!(!mixer.sounds.contains_key(&id.handle));
+            mixer.sounds.insert(id.handle, sound);
+        }
+        match outcome {
+            Ok(value) => value,
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
+    }
+
+    /// Read-only preflight, not a lease. Each subsequent operation revalidates
+    /// the retained ID under its own lock before touching the current sound.
+    pub(crate) fn validate_sound_id(&self, id: &SoundId) -> Result<()> {
+        self.sound_command(id, Command::Validate).map(|_| ())
+    }
+
+    /// The scene owner validates sector ownership and maintains reciprocal
+    /// lists. These methods only update this incarnation's PCM membership.
+    pub(crate) fn add_sound_sector(&self, id: &SoundId, sector: FrameKey) -> Result<()> {
+        self.sound_command(id, Command::AddSector(sector))
+            .map(|_| ())
+    }
+
+    pub(crate) fn delete_sound_sector(&self, id: &SoundId, sector: FrameKey) -> Result<()> {
+        self.sound_command(id, Command::DeleteSector(sector))
+            .map(|_| ())
+    }
+
     /// Compatibility bridge for a handle issued by the existing frame factory.
     /// Capture its incarnation once; semantic consumers should retain this ID,
     /// not repeatedly turn an old integer into an ID after a possible release.
@@ -222,6 +300,13 @@ fn apply(mixer: &mut Mixer, handle: u32, command: Command) -> Result<u32> {
     let sound = sound_mut(mixer, handle)?;
     match command {
         Command::Release => unreachable!(),
+        Command::Validate => {}
+        Command::AddSector(sector) => {
+            sound.sectors.insert(sector.0);
+        }
+        Command::DeleteSector(sector) => {
+            sound.sectors.remove(&sector.0);
+        }
         Command::Update => update_sound(sound, camera, sector, listener)?,
         Command::Enable { enabled, immediate } => {
             sound.set_on(enabled, camera, sector);
@@ -319,3 +404,7 @@ fn apply(mixer: &mut Mixer, handle: u32, command: Command) -> Result<u32> {
 #[cfg(test)]
 #[path = "runtime_audio_api_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "runtime_audio_scene_tests.rs"]
+mod scene_tests;

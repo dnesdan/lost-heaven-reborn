@@ -5,10 +5,12 @@
 //! destructor 0x577e0 removes reciprocal sector/AREA links and that list,
 //! then releases source and voice before base frame destruction. RuntimeAudio
 //! owns host PCM source/voice storage; it is not an original DirectSound object.
+#![forbid(unsafe_code)]
+
 use crate::frame_area::AreaKey;
 use crate::frame_transform::FrameKey;
 use crate::model_loading::{ModelArena, ModelError};
-use crate::runtime_audio::{AudioError, RuntimeAudio};
+use crate::runtime_audio::{AudioError, RuntimeAudio, SoundId};
 use crate::scene_ownership::SectorKey;
 use crate::script_scheduler::FrameReferenceId;
 use std::sync::{Arc, Mutex};
@@ -168,18 +170,25 @@ impl HostSoundBackend {
 #[derive(Debug)]
 pub struct SoundFrame {
     pub key: SoundKey,
+    audio_id: SoundId,
     registry_member: bool,
     pub(crate) sectors: Vec<SectorKey>,
     pub(crate) areas: Vec<AreaKey>,
 }
 impl SoundFrame {
-    fn new(key: SoundKey) -> Self {
+    fn new(key: SoundKey, audio_id: SoundId) -> Self {
         Self {
             key,
+            audio_id,
             registry_member: false,
             sectors: Vec::new(),
             areas: Vec::new(),
         }
+    }
+    /// The original mixer incarnation, never refreshed from the frame number.
+    /// Borrowing/cloning this token does not retain a PCM source or voice.
+    pub fn audio_id(&self) -> &SoundId {
+        &self.audio_id
     }
     pub fn sectors(&self) -> &[SectorKey] {
         &self.sectors
@@ -286,16 +295,15 @@ impl ModelArena {
                 error: SoundError::AllocationUnavailable.into(),
             });
         }
-        if let Err(error) = backend
-            .audio
-            .create_frame_sound_at(frame.0, crate::runtime_audio::SoundFrameOwner::Scene(frame))
-        {
-            return Err(SoundCreateFailure {
-                frame: Some(key),
-                error: SoundError::from(error).into(),
-            });
-        }
-        self.sound_frames.push(SoundFrame::new(key));
+        let audio_id =
+            backend
+                .audio
+                .create_scene_sound(frame)
+                .map_err(|error| SoundCreateFailure {
+                    frame: Some(key),
+                    error: SoundError::from(error).into(),
+                })?;
+        self.sound_frames.push(SoundFrame::new(key, audio_id));
         if let Err(error) = backend.register(key) {
             return Err(SoundCreateFailure {
                 frame: Some(key),
@@ -311,9 +319,12 @@ impl ModelArena {
         if sound.registry_member {
             backend.check_member(key)?;
         }
-        if !backend.audio.owns(key.frame.0) {
-            return Err(SoundError::BackendUnavailable.into());
-        }
+        // Preserve the existing preflight error while rejecting a replacement
+        // at the same legacy handle before any stop/unlink/release effects.
+        backend
+            .audio
+            .validate_sound_id(&sound.audio_id)
+            .map_err(|_| SoundError::BackendUnavailable)?;
         for &area in &sound.areas {
             self.area(area)?;
         }
@@ -325,9 +336,10 @@ impl ModelArena {
     pub(crate) fn destroy_sound_derived(&mut self, key: SoundKey) -> Result<(), ModelError> {
         self.check_sound_destruction(key)?;
         let backend = self.host_sound_backend()?.clone();
+        let audio_id = self.sound(key)?.audio_id.clone();
         backend
             .audio
-            .sound_virtual(key.frame.0, 0x24, &[0])
+            .set_sound_enabled(&audio_id, false)
             .map_err(SoundError::from)?;
         let position = self
             .sound_frames
@@ -347,7 +359,7 @@ impl ModelArena {
         }
         backend
             .audio
-            .sound_virtual(key.frame.0, 0, &[])
+            .release_sound(&audio_id)
             .map_err(SoundError::from)?;
         self.sound_frames.remove(position);
         Ok(())
@@ -431,14 +443,15 @@ impl ModelArena {
                 .map_err(|_| SoundError::AllocationUnavailable)?;
             owner.sectors.push(sector);
         }
+        let audio_id = owner.audio_id.clone();
         self.host_sound_backend()?
             .audio
-            .add_sector_sound(sector.frame().0, sound.frame.0)
+            .add_sound_sector(&audio_id, sector.frame())
             .map_err(SoundError::from)?;
         if self.state(sound.frame)?.flags & 1 != 0 {
             self.host_sound_backend()?
                 .audio
-                .sound_virtual(sound.frame.0, 0x24, &[1])
+                .set_sound_enabled(&audio_id, true)
                 .map_err(SoundError::from)?;
         }
         Ok(())
@@ -468,9 +481,10 @@ impl ModelArena {
         if let Some(at) = reciprocal {
             owner.sectors.swap_remove(at);
         }
+        let audio_id = owner.audio_id.clone();
         self.host_sound_backend()?
             .audio
-            .delete_sector_sound(sector.frame().0, sound.frame.0)
+            .delete_sound_sector(&audio_id, sector.frame())
             .map_err(SoundError::from)?;
         if reciprocal.is_some() && !self.sound(sound)?.sectors.is_empty() {
             if let Some(scene) = self.sector(sector)?.scene {
@@ -478,7 +492,7 @@ impl ModelArena {
                     if self.camera(camera)?.sector == Some(sector) {
                         self.host_sound_backend()?
                             .audio
-                            .sound_virtual(sound.frame.0, 0x24, &[0])
+                            .set_sound_enabled(&audio_id, false)
                             .map_err(SoundError::from)?;
                     }
                 }
@@ -574,3 +588,7 @@ mod tests {
         arena.release(area.frame()).unwrap();
     }
 }
+
+#[cfg(test)]
+#[path = "frame_sound_identity_tests.rs"]
+mod identity_tests;
