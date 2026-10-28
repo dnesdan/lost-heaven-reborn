@@ -50,7 +50,7 @@ pub enum MissionLoadPhase {
     CacheDirectories,
     SoundBackend,
     SceneCreation,
-    /// World intake followed by mission primary-sector group initialization.
+    /// World intake followed by mission weather and primary-sector setup.
     World,
     LoadMap,
     Scene2Input,
@@ -544,10 +544,18 @@ impl MissionLoadSession {
             }
         }
 
-        // Mission setup, not a change to the reusable SceneOpen adapter. This
-        // includes SetGroupBits' lighting invalidation on the actual hierarchy.
-        // Weather, navigation and the remaining MissionOpen work are not
-        // supplied by this narrow host composition.
+        // MissionOpen resets existing weather, then disables it, before touching
+        // sector groups. Retain a numeric/lifetime failure as the first load
+        // error; the session guard prevents replay of its reached state changes.
+        self.resources
+            .prepare_mission_weather(&self.arena, scene)
+            .map_err(|error| {
+                MissionLoadCause::World(CpuSceneWorldError::DriverDomain(format!(
+                    "mission weather setup: {error:?}"
+                )))
+            })?;
+        // This is mission setup, not a change to the reusable SceneOpen adapter.
+        // Navigation and the remaining MissionOpen work are still separate.
         sector_groups::fill_primary_sector_groups(&mut self.arena, scene)
             .map_err(|error| MissionLoadCause::World(CpuSceneWorldError::Model(error)))?;
 

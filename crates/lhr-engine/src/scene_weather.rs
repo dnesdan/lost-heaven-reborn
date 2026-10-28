@@ -3,6 +3,7 @@
 //! PC SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6.
 //! Raw words preserve unknown fields without assigning guessed member names.
 //! These operations do not construct a Scene, create Snow.tga or own resources.
+#![forbid(unsafe_code)]
 
 /// Native scene allocation size, 0x33c bytes, expressed as little-endian words.
 pub const SCENE_WORDS: usize = 0x33c / 4;
@@ -74,6 +75,18 @@ pub fn weather_system_reset(scene: &mut [u32; SCENE_WORDS]) -> Result<(), Weathe
     scene[0x2a4 / 4] = 0;
     scene[0x328 / 4] = sqrt(add(mul(25., 25.), mul(12., 12.))).to_bits();
     Ok(())
+}
+
+/// The ON branch of SetWeatherSystemParam, PC RVA0x4bce0. This is a
+/// storage adapter, not the complete parameter dispatcher or particle update.
+/// Only bit zero changes; turning weather off does not clear live particle data.
+pub(crate) fn set_weather_enabled(scene: &mut [u32; SCENE_WORDS], enabled: bool) {
+    const FLAGS: usize = 0x298 / 4;
+    if enabled {
+        scene[FLAGS] |= 1;
+    } else {
+        scene[FLAGS] &= !1;
+    }
 }
 
 /// Original SetupDefaults__25S_sector_sound_propertiesFv (PS2 0x453910),
