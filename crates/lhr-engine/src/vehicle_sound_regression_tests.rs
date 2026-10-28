@@ -223,9 +223,7 @@ fn enable_callback_rereads_index_and_volume_but_keeps_the_selected_bank() {
             calls: vec![],
             action: AfterEnable::ChangeBankAndIndex,
         };
-        vehicle
-            .gear_snd(&mut 0, &mut shared, &mut effects)
-            .unwrap();
+        vehicle.gear_snd(&mut 0, &mut shared, &mut effects).unwrap();
         assert_eq!(
             effects.calls,
             [

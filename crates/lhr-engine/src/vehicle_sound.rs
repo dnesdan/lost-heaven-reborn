@@ -7,9 +7,9 @@ use crate::vehicle_drivetrain::{VehicleDrivetrainState, VehicleMotorRotUnavailab
 
 #[path = "vehicle_sound_storage.rs"]
 mod storage;
-use storage::{GearSoundBank, GearSounds};
 #[cfg(test)]
 use storage::{store, word};
+use storage::{GearSoundBank, GearSounds};
 
 /// Supplied shared PC state, retained between vehicles and calls.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
