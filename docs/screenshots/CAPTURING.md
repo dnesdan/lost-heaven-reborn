@@ -24,6 +24,8 @@ PID; the final wait is bounded. The runner requires default SIGCHLD handling.
 The receipt verifies ordinary tracked files at capture boundaries, not a hermetic
 build. Host libraries, ignored files, Cargo configuration and the environment are
 not attested by the source commit; native build/runtime validation is separate.
+Raw tracked file bytes are compared with Git blobs, so clean filters cannot hide
+source changes from the receipt checks.
 
 These are **headless synthetic scene-only captures at time zero**, not screenshots
 of the UI panel or authored gameplay. The receipt checks PNG framing and chunk

@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "source_commit": "c60abc133fc789502ac0a1acd301088ee56bea0c",
+  "created_utc": "2026-10-28T11:51:28.177394+00:00",
+  "platform": {
+    "system": "Linux",
+    "machine": "x86_64"
+  },
+  "runner": "scripts/run.sh; default features; locked Cargo dependencies",
+  "mode": "public synthetic Lab scenes; headless; no UI panel; time zero",
+  "validation": "successful process; PNG framing/CRCs; pixels NOT decoded or reviewed",
+  "original_game_parity": false,
+  "images": [
+    {
+      "scene": "gallery",
+      "file": "gallery.png",
+      "width": 960,
+      "height": 640,
+      "bytes": 74803,
+      "sha256": "fec207e9bc905678b8569947d9d05a0465b39d1b22a15fc7309f9db8cd41eff1"
+    },
+    {
+      "scene": "courtyard",
+      "file": "courtyard.png",
+      "width": 960,
+      "height": 640,
+      "bytes": 96644,
+      "sha256": "cec7b786c54b5724f6b71c08159b9d80f86f03171a6916641e2cdca9fddecff2"
+    },
+    {
+      "scene": "primitives",
+      "file": "primitives.png",
+      "width": 960,
+      "height": 640,
+      "bytes": 74760,
+      "sha256": "3f619a7ce1acac5b75862159acc178d5bc22db279d08fe779293ee41e2f8754c"
+    },
+    {
+      "scene": "lights",
+      "file": "lights.png",
+      "width": 960,
+      "height": 640,
+      "bytes": 76534,
+      "sha256": "802cc9418cd984357304e53b79bede1e29dcf24837e67417c58fb37e9871fb0e"
+    }
+  ]
+}
