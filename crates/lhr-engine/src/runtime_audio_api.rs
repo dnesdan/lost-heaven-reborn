@@ -101,7 +101,8 @@ impl RuntimeAudio {
     /// The scene owner validates sector ownership and maintains reciprocal
     /// lists. These methods only update this incarnation's PCM membership.
     pub(crate) fn add_sound_sector(&self, id: &SoundId, sector: FrameKey) -> Result<()> {
-        self.sound_command(id, Command::AddSector(sector)).map(|_| ())
+        self.sound_command(id, Command::AddSector(sector))
+            .map(|_| ())
     }
 
     pub(crate) fn delete_sound_sector(&self, id: &SoundId, sector: FrameKey) -> Result<()> {

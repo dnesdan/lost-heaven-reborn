@@ -52,14 +52,19 @@ fn stale_frame_teardown_cannot_stop_unlink_or_release_a_replacement_sound() {
     arena.add_sound_to_sector(sector, sound).unwrap();
     arena.add_sound_to_area(area, sound).unwrap();
     let replacement = replace_legacy_sound(&audio, sound);
-    audio.add_sound_sector(&replacement, sector.frame()).unwrap();
+    audio
+        .add_sound_sector(&replacement, sector.frame())
+        .unwrap();
     let before = format!("{:?}", audio.sound(sound.frame().0).unwrap());
 
     assert!(matches!(
         arena.destroy_sound_derived(sound),
         Err(ModelError::Sound(SoundError::BackendUnavailable))
     ));
-    assert_eq!(format!("{:?}", audio.sound(sound.frame().0).unwrap()), before);
+    assert_eq!(
+        format!("{:?}", audio.sound(sound.frame().0).unwrap()),
+        before
+    );
     assert_eq!(arena.sound(sound).unwrap().audio_id(), &old);
     assert_eq!(arena.sound(sound).unwrap().sectors(), &[sector]);
     assert_eq!(arena.sound(sound).unwrap().areas(), &[area]);
@@ -105,7 +110,10 @@ fn failed_sector_add_preserves_reached_scene_prefix_but_not_replacement_audio() 
     // interrupted prefix; never retry by refreshing the frame's SoundId.
     assert_eq!(arena.sound(sound).unwrap().sectors(), &[sector]);
     assert_eq!(arena.sector(sector).unwrap().sounds, [sound.frame()]);
-    assert_eq!(format!("{:?}", audio.sound(sound.frame().0).unwrap()), before);
+    assert_eq!(
+        format!("{:?}", audio.sound(sound.frame().0).unwrap()),
+        before
+    );
     audio.validate_sound_id(&replacement).unwrap();
 }
 
@@ -117,13 +125,18 @@ fn failed_sector_delete_preserves_reached_prefix_and_replacement_membership() {
     let sound = arena.create_owned_sound_frame().unwrap();
     arena.add_sound_to_sector(sector, sound).unwrap();
     let replacement = replace_legacy_sound(&audio, sound);
-    audio.add_sound_sector(&replacement, sector.frame()).unwrap();
+    audio
+        .add_sound_sector(&replacement, sector.frame())
+        .unwrap();
     let before = format!("{:?}", audio.sound(sound.frame().0).unwrap());
     assert!(arena.delete_sound_from_sector(sector, sound).is_err());
     // The reciprocal removal precedes the PCM operation; the sector's own
     // removal follows it and must not be reached on failure.
     assert!(arena.sound(sound).unwrap().sectors().is_empty());
     assert_eq!(arena.sector(sector).unwrap().sounds, [sound.frame()]);
-    assert_eq!(format!("{:?}", audio.sound(sound.frame().0).unwrap()), before);
+    assert_eq!(
+        format!("{:?}", audio.sound(sound.frame().0).unwrap()),
+        before
+    );
     audio.validate_sound_id(&replacement).unwrap();
 }

@@ -85,6 +85,8 @@ fn typed_sector_edits_reject_stale_ids_and_preserve_replacement_membership() {
     assert!(audio.add_sound_sector(&old, FrameKey(12)).is_err());
     assert!(audio.delete_sound_sector(&old, FrameKey(11)).is_err());
     assert_eq!(format!("{:?}", audio.sound(7).unwrap()), before);
-    audio.delete_sound_sector(&replacement, FrameKey(11)).unwrap();
+    audio
+        .delete_sound_sector(&replacement, FrameKey(11))
+        .unwrap();
     assert!(audio.sound(7).unwrap().sectors.is_empty());
 }
