@@ -994,25 +994,32 @@ mod tests {
             }
             // A real host source-owner failure at the second DeleteSound call
             // leaves the first reciprocal unlink completed in BeforeFrames.
-            audio.sound_virtual(sounds[1].frame().0, 0, &[]).unwrap();
-            assert!(matches!(
-                resources.close_constructed_scene(&mut arena, scene, &mut textures, &mut storage),
-                Err(SceneResourceError::Model(ModelError::Sound(
-                    crate::frame_sound::SoundError::Audio(_)
-                )))
-            ));
-            assert_eq!(
-                arena.scene(scene).unwrap().close_phase(),
-                ClosePhase::BeforeFrames
-            );
-            assert_eq!(arena.scene(scene).unwrap().close_cursor(), 0);
-            assert_eq!(arena.sector(primary).unwrap().sounds, [sounds[1].frame()]);
-            assert!(arena.sound(sounds[0]).unwrap().sectors().is_empty());
-            assert!(arena.sound(sounds[1]).unwrap().sectors().is_empty());
-            assert!(arena.frame(sounds[0].frame()).is_ok());
-            assert!(arena.frame(sounds[1].frame()).is_ok());
-
-            audio.create_sound_at(sounds[1].frame().0).unwrap();
+            let original_id = arena.sound(sounds[1]).unwrap().audio_id().clone();
+            audio.with_sound_temporarily_missing(&original_id, || {
+                assert!(matches!(
+                    resources.close_constructed_scene(
+                        &mut arena,
+                        scene,
+                        &mut textures,
+                        &mut storage
+                    ),
+                    Err(SceneResourceError::Model(ModelError::Sound(
+                        crate::frame_sound::SoundError::Audio(_)
+                    )))
+                ));
+                assert_eq!(
+                    arena.scene(scene).unwrap().close_phase(),
+                    ClosePhase::BeforeFrames
+                );
+                assert_eq!(arena.scene(scene).unwrap().close_cursor(), 0);
+                assert_eq!(arena.sector(primary).unwrap().sounds, [sounds[1].frame()]);
+                assert!(arena.sound(sounds[0]).unwrap().sectors().is_empty());
+                assert!(arena.sound(sounds[1]).unwrap().sectors().is_empty());
+                assert!(arena.frame(sounds[0].frame()).is_ok());
+                assert!(arena.frame(sounds[1].frame()).is_ok());
+            });
+            assert_eq!(arena.sound(sounds[1]).unwrap().audio_id(), &original_id);
+            audio.validate_sound_id(&original_id).unwrap();
             resources
                 .close_constructed_scene(&mut arena, scene, &mut textures, &mut storage)
                 .unwrap();
@@ -1025,6 +1032,81 @@ mod tests {
             assert_eq!(audio.live_sound_count().unwrap(), 0);
         });
     }
+    #[test]
+    fn scene_close_rejects_stale_sound_without_touching_replacement() {
+        crate::native_precision::Pc24PrecisionState::default().run(|| {
+            let mut arena = ModelArena::default();
+            let audio = crate::runtime_audio::RuntimeAudio::default();
+            arena
+                .bind_host_sound_backend(crate::frame_sound::HostSoundBackend::new(1, &audio))
+                .unwrap();
+            let mut resources = SceneResources::default();
+            let mut textures = TextureResources::new().unwrap();
+            let mut storage = CpuTextureStorage::default();
+            let scene = arena.construct_scene_owner_prefix().unwrap();
+            resources
+                .continue_constructor(
+                    &arena,
+                    scene,
+                    &mut Screen(Vec::new()),
+                    &mut textures,
+                    &mut Images {
+                        reads: 0,
+                        missing: true,
+                    },
+                    &mut storage,
+                )
+                .unwrap();
+            let primary = arena.scene(scene).unwrap().sectors[0];
+            let sound = arena.create_owned_sound_frame().unwrap();
+            arena.scene_add_frame(scene, sound.frame()).unwrap();
+            arena.release(sound.frame()).unwrap();
+            arena.add_sound_to_sector(primary, sound).unwrap();
+            let original_id = arena.sound(sound).unwrap().audio_id().clone();
+            audio.release_sound(&original_id).unwrap();
+            audio.create_sound_at(sound.frame().0).unwrap();
+            let replacement = audio.sound_id_from_handle(sound.frame().0).unwrap();
+            assert_ne!(original_id, replacement);
+            audio.set_sound_enabled(&replacement, true).unwrap();
+            audio.set_sound_volume(&replacement, 0.75).unwrap();
+            audio
+                .add_sound_sector(&replacement, primary.frame())
+                .unwrap();
+            let before = format!("{:?}", audio.sound(sound.frame().0).unwrap());
+
+            // Neither the first attempt nor a retry may adopt the new incarnation.
+            for _ in 0..2 {
+                assert!(matches!(
+                    resources.close_constructed_scene(
+                        &mut arena,
+                        scene,
+                        &mut textures,
+                        &mut storage
+                    ),
+                    Err(SceneResourceError::Model(ModelError::Sound(
+                        crate::frame_sound::SoundError::Audio(_)
+                    )))
+                ));
+                assert_eq!(
+                    arena.scene(scene).unwrap().close_phase(),
+                    ClosePhase::BeforeFrames
+                );
+                assert_eq!(arena.scene(scene).unwrap().close_cursor(), 0);
+                assert_eq!(arena.sector(primary).unwrap().sounds, [sound.frame()]);
+                assert!(arena.sound(sound).unwrap().sectors().is_empty());
+                assert_eq!(arena.sound(sound).unwrap().audio_id(), &original_id);
+                assert!(arena.frame(sound.frame()).is_ok());
+                assert_eq!(
+                    format!("{:?}", audio.sound(sound.frame().0).unwrap()),
+                    before
+                );
+                audio.validate_sound_id(&replacement).unwrap();
+                assert!(audio.validate_sound_id(&original_id).is_err());
+                assert_eq!(audio.live_sound_count().unwrap(), 1);
+            }
+        });
+    }
+
     #[test]
     fn two_scenes_share_the_factory_reference_and_only_last_destruction_releases_it() {
         let mut precision = crate::native_precision::Pc24PrecisionState::default();

@@ -92,6 +92,35 @@ impl RuntimeAudio {
         Ok(id)
     }
 
+    /// Reversible missing-owner fault for lifecycle tests. Preserve the exact
+    /// state and generation; the callback runs without holding the mixer lock.
+    #[cfg(test)]
+    pub(crate) fn with_sound_temporarily_missing<R>(
+        &self,
+        id: &SoundId,
+        callback: impl FnOnce() -> R,
+    ) -> R {
+        assert!(Weak::ptr_eq(&id.owner, &Arc::downgrade(&self.0)));
+        let sound = {
+            let mut mixer = self.lock().unwrap();
+            assert_eq!(
+                mixer.sounds.get(&id.handle).unwrap().generation,
+                id.generation
+            );
+            mixer.sounds.remove(&id.handle).unwrap()
+        };
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(callback));
+        {
+            let mut mixer = self.lock().unwrap();
+            assert!(!mixer.sounds.contains_key(&id.handle));
+            mixer.sounds.insert(id.handle, sound);
+        }
+        match outcome {
+            Ok(value) => value,
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
+    }
+
     /// Read-only preflight, not a lease. Each subsequent operation revalidates
     /// the retained ID under its own lock before touching the current sound.
     pub(crate) fn validate_sound_id(&self, id: &SoundId) -> Result<()> {
