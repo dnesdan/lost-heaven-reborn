@@ -35,7 +35,13 @@ fn input(bytes: &[u8]) -> MissionSceneInput<'_> {
     input
 }
 
-fn fixture() -> (ModelArena, RuntimeAudio, MissionSceneLoader, SoundKey, SoundId) {
+fn fixture() -> (
+    ModelArena,
+    RuntimeAudio,
+    MissionSceneLoader,
+    SoundKey,
+    SoundId,
+) {
     let mut arena = ModelArena::default();
     let audio = RuntimeAudio::default();
     arena
@@ -44,8 +50,8 @@ fn fixture() -> (ModelArena, RuntimeAudio, MissionSceneLoader, SoundKey, SoundId
     let scene = arena.construct_scene_owner_prefix().unwrap();
     let sound = arena.create_owned_sound_frame().unwrap();
     let id = arena.sound(sound).unwrap().audio_id().clone();
-    let mut loader = MissionSceneLoader::new(&arena, scene)
-        .unwrap_or_else(|error| panic!("{}", error.detail));
+    let mut loader =
+        MissionSceneLoader::new(&arena, scene).unwrap_or_else(|error| panic!("{}", error.detail));
     loader.current_frame = Some(arena.lookup_reference(sound.frame()));
     (arena, audio, loader, sound, id)
 }
@@ -221,18 +227,16 @@ fn callback_reuse_cannot_redirect_any_subsequent_sound_setter() {
         let mut before = String::new();
         let mut calls = 0;
         let error = {
-            let mut open = |_: &mut ModelArena,
-                            frame: FrameKey,
-                            name: &[u8],
-                            request: ResourceOpenKind| {
-                assert_eq!(frame, sound.frame());
-                assert_eq!(name, b"synthetic.wav");
-                assert!(matches!(request, ResourceOpenKind::Sound));
-                calls += 1;
-                replacement(&audio, sound, &old);
-                before = snapshot(&audio, sound);
-                Ok(0)
-            };
+            let mut open =
+                |_: &mut ModelArena, frame: FrameKey, name: &[u8], request: ResourceOpenKind| {
+                    assert_eq!(frame, sound.frame());
+                    assert_eq!(name, b"synthetic.wav");
+                    assert!(matches!(request, ResourceOpenKind::Sound));
+                    calls += 1;
+                    replacement(&audio, sound, &old);
+                    before = snapshot(&audio, sound);
+                    Ok(0)
+                };
             loader
                 .read_sound(&mut arena, &mut cursor, &mut Some(&mut open))
                 .unwrap_err()
@@ -261,10 +265,7 @@ fn callback_reuse_cannot_redirect_any_subsequent_sound_setter() {
 #[test]
 fn final_enable_failure_keeps_the_completed_record_prefix() {
     let (mut arena, audio, mut loader, sound, old) = fixture();
-    let bytes = record(&[
-        chunk(0x10, b"synthetic.wav\0"),
-        chunk(0x4067, &[1, 2, 3]),
-    ]);
+    let bytes = record(&[chunk(0x10, b"synthetic.wav\0"), chunk(0x4067, &[1, 2, 3])]);
     let mut cursor = input(&bytes);
     let mut before = String::new();
     let error = {

@@ -1136,9 +1136,7 @@ impl MissionSceneLoader {
                     match field.kind {
                         0x4061 => audio.set_sound_kind_from_record(&audio_id, word),
                         0x4062 => audio.set_sound_volume(&audio_id, f32::from_bits(word)),
-                        0x4063 => {
-                            audio.set_sound_outside_volume(&audio_id, f32::from_bits(word))
-                        }
+                        0x4063 => audio.set_sound_outside_volume(&audio_id, f32::from_bits(word)),
                         _ => audio.set_sound_frequency(&audio_id, f32::from_bits(word)),
                     }
                     .map_err(|e| (0x542dad, e.to_string()))?;
