@@ -17,6 +17,7 @@ import os
 from pathlib import Path
 import platform
 import signal
+import stat
 import struct
 import subprocess
 import sys
@@ -57,11 +58,25 @@ def source_revision(repo: Path) -> str:
     for entry in git(repo, 'ls-files', '--stage', '-z').split(b'\0'):
         if not entry:
             continue
-        metadata, separator, _name = entry.partition(b'\t')
+        metadata, separator, name = entry.partition(b'\t')
         fields = metadata.split()
         if (not separator or len(fields) != 3
                 or fields[0] not in {b'100644', b'100755'} or fields[2] != b'0'):
             raise CaptureError('symlink, submodule or unmerged sources prevent verification')
+        # Git status compares after configured clean filters, which can hide
+        # changed runtime source bytes. Hash the raw regular file as a Git blob
+        # as well; the clean status below then ties this index blob to HEAD.
+        path = repo / os.fsdecode(name)
+        if not stat.S_ISREG(path.lstat().st_mode):
+            raise CaptureError('tracked source is not a regular file')
+        with path.open('rb') as source:
+            size = os.fstat(source.fileno()).st_size
+            digest = hashlib.new('sha1' if len(fields[1]) == 40 else 'sha256')
+            digest.update(f'blob {size}\0'.encode('ascii'))
+            for block in iter(lambda: source.read(1024 * 1024), b''):
+                digest.update(block)
+        if digest.hexdigest().encode('ascii') != fields[1]:
+            raise CaptureError('tracked source bytes differ from the committed source')
     if git(repo, 'status', '--porcelain=v1', '-z', '--untracked-files=all'):
         raise CaptureError('commit or set aside local changes before capturing')
     revision = git(repo, 'rev-parse', '--verify', 'HEAD^{commit}').decode('ascii').strip()

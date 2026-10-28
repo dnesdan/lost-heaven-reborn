@@ -108,6 +108,37 @@ class CaptureTests(unittest.TestCase):
                     self.capture()
                 self.assertFalse(self.out.exists())
 
+    def configure_clean_filter(self):
+        self.git('config', 'filter.upper.clean', 'tr a-z A-Z')
+        (self.repo / '.gitattributes').write_text('scripts/run.sh filter=upper\n')
+        (self.repo / 'scripts/run.sh').write_text('# ORIGINAL SOURCE\n')
+        self.git('add', '.')
+        self.git('commit', '-qm', 'synthetic clean filter')
+
+    def test_clean_filter_cannot_hide_changed_raw_source(self):
+        self.configure_clean_filter()
+        (self.repo / 'scripts/run.sh').write_text('# original source\n')
+        self.assertEqual(self.git('status', '--porcelain=v1'), b'')
+        with patch.object(lab, 'run_capture', self.render):
+            with self.assertRaises(lab.CaptureError):
+                self.capture()
+        self.assertFalse(self.out.exists())
+        self.assertFalse(self.calls)
+
+    def test_clean_filter_source_change_during_capture_gets_no_receipt(self):
+        self.configure_clean_filter()
+
+        def changed(*args):
+            self.render(*args)
+            (self.repo / 'scripts/run.sh').write_text('# original source\n')
+            self.assertEqual(self.git('status', '--porcelain=v1'), b'')
+
+        with patch.object(lab, 'run_capture', changed):
+            with self.assertRaises(lab.CaptureError):
+                self.capture()
+        self.assertFalse((self.out / 'receipt.json').exists())
+        self.assertTrue((self.out / 'courtyard.png').exists())
+
     def test_untracked_source_is_refused(self):
         (self.repo / 'new.rs').write_text('fn main() {}\n')
         with self.assertRaises(lab.CaptureError):
