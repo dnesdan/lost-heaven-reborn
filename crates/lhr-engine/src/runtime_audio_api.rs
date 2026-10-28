@@ -52,7 +52,7 @@ enum Command {
     Enable { enabled: bool, immediate: bool },
     LinkParent(u32),
     IsPlaying(PlaybackQuery),
-    // Raw kind is confined to the legacy adapter; validate after handle lookup.
+    // Raw kind is confined to binary/legacy adapters; validate after identity lookup.
     Kind(u32),
     Range([f32; 4]),
     Cone([f32; 2]),
@@ -198,6 +198,12 @@ impl RuntimeAudio {
     pub fn set_sound_kind(&self, id: &SoundId, kind: SoundKind) -> Result<()> {
         self.sound_command(id, Command::Kind(kind as u32))
             .map(|_| ())
+    }
+    /// Binary scene-record boundary. Delay raw-kind validation until the same
+    /// locked identity check used by the other setters; a bad record must not
+    /// hide a stale incarnation. Semantic callers use set_sound_kind instead.
+    pub(crate) fn set_sound_kind_from_record(&self, id: &SoundId, kind: u32) -> Result<()> {
+        self.sound_command(id, Command::Kind(kind)).map(|_| ())
     }
     /// Original parameter order: near, far, middle fraction, middle volume.
     /// Preserve existing finite checks; do not invent clamping or sorting.

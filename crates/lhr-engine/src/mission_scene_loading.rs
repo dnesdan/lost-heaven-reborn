@@ -1094,11 +1094,18 @@ impl MissionSceneLoader {
             .map_err(|e| (0x542c6f, format!("{e:?}")))?
             .audio
             .clone();
+        // Keep the factory-issued incarnation across resource callbacks. Never
+        // rebind an old frame number to a replacement sound in the mixer.
+        let audio_id = arena
+            .sound(sound)
+            .map_err(|e| (0x542c6f, format!("{e:?}")))?
+            .audio_id()
+            .clone();
         audio
-            .sound_virtual(key.0, 0x24, &[0])
+            .set_sound_enabled(&audio_id, false)
             .map_err(|e| (0x542c6f, e.to_string()))?;
         audio
-            .sound_virtual(key.0, 0x6c, &[0])
+            .set_sound_looping(&audio_id, false)
             .map_err(|e| (0x542c77, e.to_string()))?;
         input.enter_current().map_err(|e| (0x542c80, e))?;
         while let Some(field) = input.next_chunk().map_err(|e| (0x542c80, e))? {
@@ -1126,15 +1133,13 @@ impl MissionSceneLoader {
                 0x4061 | 0x4062 | 0x4063 | 0xb800 => {
                     let word = input.read_u32().map_err(|e| (0x542d95, e))?;
                     input.close_current().map_err(|e| (0x404ce0, e))?;
-                    let slot = match field.kind {
-                        0x4061 => 0x58,
-                        0x4062 => 0x68,
-                        0x4063 => 0x64,
-                        _ => 0x74,
-                    };
-                    audio
-                        .sound_virtual(key.0, slot, &[word])
-                        .map_err(|e| (0x542dad, e.to_string()))?;
+                    match field.kind {
+                        0x4061 => audio.set_sound_kind_from_record(&audio_id, word),
+                        0x4062 => audio.set_sound_volume(&audio_id, f32::from_bits(word)),
+                        0x4063 => audio.set_sound_outside_volume(&audio_id, f32::from_bits(word)),
+                        _ => audio.set_sound_frequency(&audio_id, f32::from_bits(word)),
+                    }
+                    .map_err(|e| (0x542dad, e.to_string()))?;
                     continue;
                 }
                 0x4064 => {
@@ -1145,7 +1150,7 @@ impl MissionSceneLoader {
                     ];
                     input.close_current().map_err(|e| (0x404ce0, e))?;
                     audio
-                        .sound_virtual(key.0, 0x60, &args)
+                        .set_sound_cone(&audio_id, args.map(f32::from_bits))
                         .map_err(|e| (0x5432c4, e.to_string()))?;
                     continue;
                 }
@@ -1159,7 +1164,7 @@ impl MissionSceneLoader {
                     ];
                     input.close_current().map_err(|e| (0x404ce0, e))?;
                     audio
-                        .sound_virtual(key.0, 0x5c, &args)
+                        .set_sound_range(&audio_id, args.map(f32::from_bits))
                         .map_err(|e| (0x5431c6, e.to_string()))?;
                     continue;
                 }
@@ -1170,13 +1175,13 @@ impl MissionSceneLoader {
                     });
                     input.close_current().map_err(|e| (0x404ce0, e))?;
                     audio
-                        .sound_virtual(key.0, 0x5c, &args)
+                        .set_sound_range(&audio_id, args.map(f32::from_bits))
                         .map_err(|e| (0x5435ad, e.to_string()))?;
                     continue;
                 }
                 0x4066 => {
                     audio
-                        .sound_virtual(key.0, 0x6c, &[1])
+                        .set_sound_looping(&audio_id, true)
                         .map_err(|e| (0x5432d1, e.to_string()))?;
                 }
                 0xb200 | 0xb201 => {
@@ -1204,7 +1209,7 @@ impl MissionSceneLoader {
         input.leave_container().map_err(|e| (0x54393f, e))?;
         self.object_fields.flags |= 0x40;
         audio
-            .sound_virtual(key.0, 0x24, &[1])
+            .set_sound_enabled(&audio_id, true)
             .map_err(|e| (0x54394f, e.to_string()))?;
         Ok(())
     }
@@ -3524,3 +3529,7 @@ mod tests {
     }
     include!("mission_visual_replacement_tests.rs");
 }
+
+#[cfg(test)]
+#[path = "mission_scene_sound_identity_tests.rs"]
+mod sound_identity_tests;
