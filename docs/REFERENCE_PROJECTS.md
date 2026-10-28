@@ -1,6 +1,36 @@
 # Reference-project audit
 
-## Current integration check — 2026-10-28
+## Latest upstream source comparison — 2026-10-28
+
+Fresh GitHub commit and file reads reached [mafia-re
+`dc867c3238488de27d094bb79b6550e392566e3c`](https://github.com/Marvisak/mafia-re/tree/dc867c3238488de27d094bb79b6550e392566e3c),
+two commits beyond `eb5a921`. This is a pinned source comparison, not a fresh
+full checkout: the execution host is disconnected and local `git clone` failed
+DNS. Rust integration baseline remains `1d2fd3b` from the record below.
+
+| Area | Newly available source | Still not established |
+| --- | --- | --- |
+| `game/mission/game.cpp` | Bodies for `Init`, `Done`, `DoneIntern` and many dependencies reached by the menu. | Upstream says those three bodies are not matched yet; their presence is not runtime equivalence or our integration. |
+| `game/mission/C_program.cpp` | `Init`, `Done`, `Compile`, `CallSubroutine`, `CallProcess` and keyword decoding. | `DecodeParams` and `Process` are still stubs; a complete original script cannot run from this source alone. |
+| `game/ai/pathweb.cpp` | `DeRiciConns` clears the two evidenced flag bits on nodes and connections. | `LoadNodes` remains a stub; the installed `check.bin` stream still needs its actual loader. |
+| `game/ai/jp_ai_entity.cpp` | No new constructor implementation. | `C_entity` is still a stub; actor 27 cannot be admitted as a generic actor. |
+| `game/mission/Mission.cpp` | More lifecycle and named-program orchestration. | `Tick` remains a stub; ordered loading is not mission execution. |
+
+The new Rust `program_compiler` module implements bounded line-scan orchestration
+with the existing keyword recognizer and an explicit instruction-owner/parameter-
+decoder boundary. Its only concrete backend here is a synthetic test backend.
+It is not called by `CProgram::Init`, does not supply `DecodeParams` or a VM, and
+does not change the first-mission frontier. No accepted-function credit is added.
+
+Next functional work: implement evidenced parameter decoding and payload
+ownership, compose program Init/Done with the actual source owner, then connect
+the new GameInit/Done sequence in dependency order. Keep C_entity reconstruction
+and production navigation intake explicit parallel dependencies. Preserve typed
+live state rather than importing the reference's native pointer/layout spelling.
+Earlier evidence below keeps its original revision and scope; in particular,
+the old statements that GameInit/Done have no bodies are historical, not current.
+
+## Retained integration check — 2026-10-28
 
 A fresh checkout remains at [mafia-re
 `eb5a9216eea23210e96a3148e351e8211b27e240`](https://github.com/Marvisak/mafia-re/tree/eb5a9216eea23210e96a3148e351e8211b27e240).
