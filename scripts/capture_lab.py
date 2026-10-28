@@ -20,11 +20,14 @@ import signal
 import struct
 import subprocess
 import sys
+import time
 import zlib
 
 SCENES = ('gallery', 'courtyard', 'primitives', 'lights')
 PNG_SIGNATURE = b'\x89PNG\r\n\x1a\n'
 MAX_PNG_BYTES = 64 * 1024 * 1024
+TERMINATION_GRACE_SECONDS = 3
+REAP_TIMEOUT_SECONDS = 3
 
 
 class CaptureError(Exception):
@@ -48,6 +51,17 @@ def source_revision(repo: Path) -> str:
     for entry in git(repo, 'ls-files', '-v', '-z').split(b'\0'):
         if entry and (entry[:1] == b'S' or entry[:1].islower()):
             raise CaptureError('sparse or assume-unchanged files prevent source verification')
+    # A clean status only verifies a symlink's target *name*, not the code at
+    # that target. Gitlinks likewise do not attest to nested working trees.
+    # This runner deliberately supports ordinary tracked files only.
+    for entry in git(repo, 'ls-files', '--stage', '-z').split(b'\0'):
+        if not entry:
+            continue
+        metadata, separator, _name = entry.partition(b'\t')
+        fields = metadata.split()
+        if (not separator or len(fields) != 3
+                or fields[0] not in {b'100644', b'100755'} or fields[2] != b'0'):
+            raise CaptureError('symlink, submodule or unmerged sources prevent verification')
     if git(repo, 'status', '--porcelain=v1', '-z', '--untracked-files=all'):
         raise CaptureError('commit or set aside local changes before capturing')
     revision = git(repo, 'rev-parse', '--verify', 'HEAD^{commit}').decode('ascii').strip()
@@ -101,23 +115,26 @@ def png_info(path: Path) -> dict:
 
 
 def stop_owned_group(process: subprocess.Popen) -> None:
-    # Only this capture's fresh session/process group is signalled.
+    # Requires our exclusive waiter and the default SIGCHLD disposition (checked
+    # before spawning). Never poll/wait between the two group signals: reaping
+    # the session leader permits its numeric PID/PGID to be reused.
+    if process.returncode is not None:
+        return
     try:
         os.killpg(process.pid, signal.SIGTERM)
     except ProcessLookupError:
         pass
     try:
-        process.wait(timeout=3)
-    except subprocess.TimeoutExpired:
-        pass
+        # Give descendants the same bounded grace even if the leader exits
+        # immediately. Leave that child unreaped until signalling is complete.
+        time.sleep(TERMINATION_GRACE_SECONDS)
     finally:
-        # The leader may already have exited while a compiler child is alive.
         try:
             os.killpg(process.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
         try:
-            process.wait(timeout=3)
+            process.wait(timeout=REAP_TIMEOUT_SECONDS)
         except subprocess.TimeoutExpired as error:
             raise CaptureError('capture process did not stop after termination') from error
 
@@ -125,6 +142,8 @@ def stop_owned_group(process: subprocess.Popen) -> None:
 def run_capture(command: list[str], repo: Path, log: Path, timeout: float) -> None:
     if os.name != 'posix':
         raise CaptureError('this Bash capture runner supports Linux and macOS')
+    if signal.getsignal(signal.SIGCHLD) != signal.SIG_DFL:
+        raise CaptureError('capture requires default SIGCHLD handling and an exclusive waiter')
     with log.open('xb') as output:
         process = subprocess.Popen(
             command, cwd=repo, stdout=output, stderr=subprocess.STDOUT,

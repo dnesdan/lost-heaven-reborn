@@ -14,9 +14,16 @@ and `lights`. Select a subset with repeated `--scene` arguments. The default
 The output directory must be new and outside the repository. It contains PNGs,
 local build/runtime logs and `receipt.json` with the source commit, platform,
 dimensions and image SHA-256 hashes. Dirty, sparse or assume-unchanged sources,
-source changes during capture, unsuccessful processes and incomplete PNG framing
-are rejected. A failed batch keeps local evidence but produces no success receipt.
-Timeout cleanup signals only the runner's own process group.
+tracked symlinks/submodules, source changes during capture, unsuccessful processes
+and incomplete PNG framing are rejected. A failed batch keeps local evidence
+but produces no success receipt.
+Timeout cleanup sends TERM, allows a three-second grace, then sends KILL before
+reaping its exclusively owned session leader. It never signals an already reaped
+PID; the final wait is bounded. The runner requires default SIGCHLD handling.
+
+The receipt verifies ordinary tracked files at capture boundaries, not a hermetic
+build. Host libraries, ignored files, Cargo configuration and the environment are
+not attested by the source commit; native build/runtime validation is separate.
 
 These are **headless synthetic scene-only captures at time zero**, not screenshots
 of the UI panel or authored gameplay. The receipt checks PNG framing and chunk

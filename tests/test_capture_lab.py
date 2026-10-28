@@ -6,6 +6,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import Mock, call, patch
 import zlib
@@ -193,15 +194,177 @@ class CaptureTests(unittest.TestCase):
 
     @unittest.skipUnless(os.name == 'posix', 'POSIX process group helper')
     def test_termination_waits_are_bounded(self):
-        process = Mock(pid=123456)
+        process = Mock(pid=123456, returncode=None)
         process.wait.side_effect = subprocess.TimeoutExpired('synthetic', 3)
-        with patch.object(lab.os, 'killpg') as kill:
+        with (patch.object(lab.os, 'killpg') as kill,
+              patch.object(lab.time, 'sleep') as sleep):
             with self.assertRaises(lab.CaptureError):
                 lab.stop_owned_group(process)
         self.assertEqual(kill.call_args_list, [
             call(process.pid, lab.signal.SIGTERM), call(process.pid, lab.signal.SIGKILL),
         ])
-        self.assertEqual(process.wait.call_args_list, [call(timeout=3), call(timeout=3)])
+        self.assertEqual(sleep.call_args_list, [call(3)])
+        self.assertEqual(process.wait.call_args_list, [call(timeout=3)])
+
+
+    @unittest.skipUnless(os.name == 'posix', 'symlink source check')
+    def test_committed_source_symlink_is_refused_before_running(self):
+        external = self.root / 'external.sh'
+        external.write_text('# external source version one\n')
+        runner = self.repo / 'scripts/run.sh'
+        runner.unlink()
+        runner.symlink_to(external)
+        self.git('add', 'scripts/run.sh')
+        self.git('commit', '-qm', 'synthetic source symlink')
+        external.write_text('# external source changed without a commit\n')
+        self.assertEqual(self.git('status', '--porcelain=v1'), b'')
+        with patch.object(lab, 'run_capture', self.render):
+            with self.assertRaises(lab.CaptureError):
+                self.capture()
+        self.assertFalse(self.out.exists())
+        self.assertFalse(self.calls)
+
+    def test_committed_gitlink_is_refused_before_running(self):
+        revision = self.git('rev-parse', 'HEAD').decode().strip()
+        (self.repo / 'vendor').mkdir()
+        self.git('update-index', '--add', '--cacheinfo', f'160000,{revision},vendor')
+        self.git('commit', '-qm', 'synthetic gitlink')
+        self.git('config', 'diff.ignoreSubmodules', 'all')
+        self.assertEqual(self.git('status', '--porcelain=v1'), b'')
+        with patch.object(lab, 'run_capture', self.render):
+            with self.assertRaises(lab.CaptureError):
+                self.capture()
+        self.assertFalse(self.out.exists())
+        self.assertFalse(self.calls)
+
+    @unittest.skipUnless(os.name == 'posix', 'POSIX process group helper')
+    def test_already_reaped_process_is_never_signalled(self):
+        process = Mock(pid=123456, returncode=0)
+        with patch.object(lab.os, 'killpg') as kill:
+            lab.stop_owned_group(process)
+        kill.assert_not_called()
+        process.wait.assert_not_called()
+
+    @unittest.skipUnless(os.name == 'posix', 'POSIX process group helper')
+    def test_group_signals_precede_the_only_reap(self):
+        process = Mock(pid=123456, returncode=None)
+        events = []
+
+        def kill(pid, sig):
+            self.assertIsNone(process.returncode, 'never signal after reaping the leader')
+            events.append(('signal', sig))
+
+        def wait(*, timeout):
+            events.append(('wait', timeout))
+            process.returncode = 0
+            return 0
+
+        process.wait.side_effect = wait
+        with patch.object(lab.os, 'killpg', kill), patch.object(lab.time, 'sleep'):
+            lab.stop_owned_group(process)
+        self.assertEqual(events, [
+            ('signal', lab.signal.SIGTERM), ('signal', lab.signal.SIGKILL), ('wait', 3),
+        ])
+
+    @unittest.skipUnless(os.name == 'posix', 'POSIX child ownership')
+    def test_custom_sigchld_handler_is_refused_before_spawning(self):
+        log = self.root / 'handler.log'
+        for disposition in (lab.signal.SIG_IGN, lambda *_: None):
+            with self.subTest(disposition=disposition):
+                with (patch.object(lab.signal, 'getsignal', return_value=disposition),
+                      patch.object(lab.subprocess, 'Popen') as popen):
+                    with self.assertRaises(lab.CaptureError):
+                        lab.run_capture(['unused'], self.repo, log, 1)
+                    popen.assert_not_called()
+                    self.assertFalse(log.exists())
+
+    @unittest.skipUnless(os.name == 'posix', 'POSIX process group helper')
+    def test_interrupted_grace_still_signals_before_bounded_reap(self):
+        process = Mock(pid=123456, returncode=None)
+        with (patch.object(lab.os, 'killpg') as kill,
+              patch.object(lab.time, 'sleep', side_effect=KeyboardInterrupt)):
+            with self.assertRaises(KeyboardInterrupt):
+                lab.stop_owned_group(process)
+        self.assertEqual(kill.call_args_list, [
+            call(process.pid, lab.signal.SIGTERM), call(process.pid, lab.signal.SIGKILL),
+        ])
+        self.assertEqual(process.wait.call_args_list, [call(timeout=3)])
+
+    @unittest.skipUnless(os.name == 'posix', 'POSIX process group helper')
+    def test_missing_group_still_reaps_the_owned_child(self):
+        process = Mock(pid=123456, returncode=None)
+        with (patch.object(lab.os, 'killpg', side_effect=ProcessLookupError),
+              patch.object(lab.time, 'sleep')):
+            lab.stop_owned_group(process)
+        self.assertEqual(process.wait.call_args_list, [call(timeout=3)])
+
+    @unittest.skipUnless(os.name == 'posix', 'POSIX executable file modes')
+    def test_regular_executable_sources_still_capture(self):
+        self.git('update-index', '--chmod=+x', 'scripts/run.sh')
+        (self.repo / 'scripts/run.sh').chmod(0o755)
+        self.git('commit', '-qm', 'synthetic executable runner')
+        with patch.object(lab, 'run_capture', self.render):
+            receipt = self.capture()
+        self.assertEqual(receipt['source_commit'], self.git('rev-parse', 'HEAD').decode().strip())
+
+    @unittest.skipUnless(
+        os.name == 'posix' and hasattr(os, 'waitid') and hasattr(os, 'WNOWAIT'),
+        'nonreaping wait observation',
+    )
+    def test_real_terminated_leader_stays_unreaped_until_final_group_signal(self):
+        child = subprocess.Popen(
+            [sys.executable, '-c', 'import time; time.sleep(30)'], start_new_session=True,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        # Save the real sleep before replacing the module's clock hook.
+        real_sleep = time.sleep
+        observed = []
+
+        def grace(_seconds):
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                status = os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+                if status is not None:
+                    observed.append(status.si_pid)
+                    self.assertIsNone(child.returncode)
+                    self.assertEqual(os.getpgid(child.pid), child.pid)
+                    return
+                real_sleep(0.01)
+            self.fail('child did not terminate during grace')
+
+        try:
+            with patch.object(lab.time, 'sleep', grace):
+                lab.stop_owned_group(child)
+            self.assertEqual(observed, [child.pid])
+            self.assertEqual(child.returncode, -lab.signal.SIGTERM)
+        finally:
+            # This test owns this exact child; Popen.kill guards an already reaped PID.
+            if child.returncode is None:
+                child.kill()
+                child.wait(timeout=3)
+
+    @unittest.skipUnless(os.name == 'posix', 'POSIX forced termination')
+    def test_real_sigterm_ignoring_child_is_killed_and_reaped(self):
+        ready = self.root / 'ready'
+        child = subprocess.Popen(
+            [sys.executable, '-c',
+             'import signal, sys, time; from pathlib import Path; '
+             'signal.signal(signal.SIGTERM, signal.SIG_IGN); '
+             'Path(sys.argv[1]).write_text("ready"); time.sleep(30)', str(ready)],
+            start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        try:
+            deadline = time.monotonic() + 5
+            while not ready.exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertTrue(ready.exists(), 'child did not install its signal handler')
+            with patch.object(lab, 'TERMINATION_GRACE_SECONDS', 0.02):
+                lab.stop_owned_group(child)
+            self.assertEqual(child.returncode, -lab.signal.SIGKILL)
+        finally:
+            if child.returncode is None:
+                child.kill()
+                child.wait(timeout=3)
 
 
 if __name__ == '__main__':
