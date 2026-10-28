@@ -1,8 +1,23 @@
 # Reference-project audit
 
-## Current integration check — 2026-10-28
+## Latest source refresh — 2026-10-28
 
-A fresh checkout remains at [mafia-re
+The live upstream head is now [mafia-re
+`dc867c3238488de27d094bb79b6550e392566e3c`](https://github.com/Marvisak/mafia-re/tree/dc867c3238488de27d094bb79b6550e392566e3c),
+two commits after the integration reference below. Fresh pinned source reads
+show new Game Init/Done, compiler-front-end and navigation-reset bodies;
+DecodeParams, Process, C_entity construction and LoadNodes still have stubs.
+The new Game lifecycle bodies are explicitly not matched yet upstream.
+
+[Updated dependency order and this change's exact verification limits](implementation/2026-10-28-upstream-refresh.md)
+replace the old upstream-status assumptions, not the dated runtime evidence.
+A full new local checkout was attempted but not obtained: the execution host
+is disconnected and download DNS is unavailable. Do not label these API reads
+as a completed clone or as original-runtime validation.
+
+## Validated integration baseline — 2026-10-28
+
+The integration checkout was pinned to [mafia-re
 `eb5a9216eea23210e96a3148e351e8211b27e240`](https://github.com/Marvisak/mafia-re/tree/eb5a9216eea23210e96a3148e351e8211b27e240).
 Sound destruction and reciprocal sector-list ordering were compared with its
 LS3DF source during the independent audio reviews. Its vehicle-sound file does
