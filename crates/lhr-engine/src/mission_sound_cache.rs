@@ -249,10 +249,14 @@ impl MissionCaches {
     ) -> Result<i32, SoundCacheOpenError<B::Error>> {
         let audio = arena.host_sound_backend()?.audio.clone();
         let mut path = self.begin_sound_open(arena, target, name, backend)?;
+        // Keep the frame's factory-issued token across all directory attempts.
+        // Never resolve a replacement incarnation from its numeric frame key.
+        let target_id = arena.sound(target)?.audio_id().clone();
         if self.sound_open.as_ref().unwrap().phase == SoundCachePhase::DuplicateHit {
             let source = self.sound_open.as_ref().unwrap().cached_source.unwrap();
+            let source_id = arena.sound(source)?.audio_id().clone();
             let _open_result =
-                audio.reopen_cached_sound(target.frame().0, source.frame().0, installation)?;
+                audio.reopen_cached_sound(&target_id, &source_id, installation)?;
             let progress = self.sound_open.as_mut().unwrap();
             progress.sound_open_result = Some(0);
             progress.phase = SoundCachePhase::Complete;
@@ -286,7 +290,7 @@ impl MissionCaches {
                     detail: "sound path outside original ASCII admission",
                 })?;
             let result =
-                audio.open_original_sound(target.frame().0, path_str, 0x10, installation)?;
+                audio.open_original_sound_id(&target_id, path_str, 0x10, installation)?;
             self.strings
                 .destruct_string(temporary, backend)
                 .map_err(MissionCacheError::Strings)?;
@@ -336,8 +340,9 @@ impl MissionCaches {
                 }
             };
             self.sound_open.as_mut().unwrap().cached_source = Some(cached);
+            let cached_id = arena.sound(cached)?.audio_id().clone();
             let _copy_open =
-                audio.reopen_cached_sound(cached.frame().0, target.frame().0, installation)?;
+                audio.reopen_cached_sound(&cached_id, &target_id, installation)?;
             self.caches[slot].items.last_mut().unwrap().resource =
                 Some(CacheResource::Sound(cached.frame()));
             self.sound_open.as_mut().unwrap().phase = SoundCachePhase::Complete;
@@ -555,3 +560,7 @@ mod tests {
         std::fs::remove_dir_all(path).unwrap();
     }
 }
+
+#[cfg(test)]
+#[path = "mission_sound_source_tests.rs"]
+mod source_tests;

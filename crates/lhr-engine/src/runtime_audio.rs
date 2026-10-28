@@ -706,23 +706,6 @@ impl RuntimeAudio {
         Ok(if opened { 0 } else { 0x8000_0001u32 as i32 })
     }
 
-    /// C_I3D_sound_cache::Duplicate (Game 0x5c23f0) only reopens the
-    /// source file. Unlike I3D_sound::Duplicate, it preserves destination
-    /// parameters and its common frame, and the cache ignores Open's HRESULT.
-    pub(crate) fn reopen_cached_sound(
-        &self,
-        destination: u32,
-        source: u32,
-        installation: &Installation,
-    ) -> Result<i32> {
-        let source = self.sound(source)?;
-        let filename = source
-            .source
-            .as_ref()
-            .map_or("", |source| source.name.as_str());
-        self.open_original_sound(destination, filename, source.open_flags, installation)
-    }
-
     /// Native derived Duplicate RVA 0x59250. The common frame Duplicate is a
     /// separate ModelArena operation after these source, voice and field writes.
     pub fn duplicate_sound_derived(
@@ -797,55 +780,10 @@ impl RuntimeAudio {
         flags: u32,
         read: impl FnOnce() -> Result<Option<Vec<u8>>>,
     ) -> Result<bool> {
-        let canonical = canonical_name(name);
-        let cached = {
-            let mut mixer = self.lock()?;
-            let sound = sound_mut(&mut mixer, handle)?;
-            // Open's strcmp fast path is exact, unlike its shared-source stricmp lookup.
-            if sound
-                .source
-                .as_ref()
-                .is_some_and(|source| source.name == name)
-            {
-                return Ok(true);
-            }
-            // Release the old voice and source BEFORE opening the replacement.
-            sound.source = None;
-            sound.voice_playing = false;
-            sound.frame_position = 0.0;
-            mixer.sources.get(&canonical).and_then(Weak::upgrade)
-        };
-        let source = match cached {
-            Some(source) => source,
-            None => {
-                let Some(bytes) = read()? else {
-                    return Ok(false);
-                };
-                let mut source = PcmSource::from_wav(name, &bytes)?;
-                let flags = flags | 0x200 | if flags & 0x8 != 0 { 0x10 } else { 0 };
-                source.open_flags = flags & if source.channels > 1 { !0x200 } else { !0 };
-                Arc::new(source)
-            }
-        };
-        let mut mixer = self.lock()?;
-        mixer.sources.insert(canonical, Arc::downgrade(&source));
-        let camera = mixer.camera_present;
-        let sector = mixer.listener_sector;
-        let sound = sound_mut(&mut mixer, handle)?;
-        if source.channels > 1 && sound.sound_type != 0 {
-            sound.sound_type = 3;
-        }
-        if source.channels == 1 {
-            sound.cone = [std::f32::consts::FRAC_PI_3, std::f32::consts::FRAC_PI_2];
-        }
-        sound.source = Some(source);
-        sound.open_flags = sound.source.as_ref().unwrap().open_flags;
-        if sound.on {
-            sound.set_on(true, camera, sector);
-        }
-        sound.seek(0);
-        sound.native_tail[0] = 0x21ff;
-        Ok(true)
+        // Resolve the legacy handle once, before any unlocked source I/O.
+        // Reusing that number must not redirect the remainder of this Open.
+        let id = self.sound_id_from_handle(handle)?;
+        self.load_sound_with_optional_id(&id, name, flags, read)
     }
 
     /// No active camera is distinct from a camera with no assigned sector.

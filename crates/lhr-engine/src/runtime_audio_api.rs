@@ -7,6 +7,9 @@ use super::{SoundFrameOwner, SoundState};
 use crate::frame_transform::FrameKey;
 use std::sync::{Arc, Mutex, Weak};
 
+#[path = "runtime_audio_source.rs"]
+mod source;
+
 /// Borrowed identity of one sound incarnation in one mixer. Cloning an ID does
 /// not retain a voice, PCM source or mixer. A released/reused handle stays stale.
 #[derive(Clone, Debug)]
