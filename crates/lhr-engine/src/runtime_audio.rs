@@ -706,21 +706,49 @@ impl RuntimeAudio {
         Ok(if opened { 0 } else { 0x8000_0001u32 as i32 })
     }
 
-    /// C_I3D_sound_cache::Duplicate (Game 0x5c23f0) only reopens the
-    /// source file. Unlike I3D_sound::Duplicate, it preserves destination
-    /// parameters and its common frame, and the cache ignores Open's HRESULT.
-    pub(crate) fn reopen_cached_sound(
+    /// Scene/cache path Open bound to the factory-issued sound incarnation.
+    pub(crate) fn open_sound_source(
         &self,
-        destination: u32,
-        source: u32,
+        id: &SoundId,
+        name: &str,
+        flags: u32,
         installation: &Installation,
     ) -> Result<i32> {
-        let source = self.sound(source)?;
+        if !name.is_ascii() {
+            return Err(AudioError(
+                "non-ASCII sound path requires original filename encoding".into(),
+            ));
+        }
+        let normalized = name.replace('\\', "/");
+        let opened = self.load_sound_source_with(id, name, flags, || {
+            installation
+                .read_optional(&normalized)
+                .map_err(|e| AudioError(format!("sound source {name}: {e:?}")))
+        })?;
+        Ok(if opened { 0 } else { 0x8000_0001u32 as i32 })
+    }
+
+    /// C_I3D_sound_cache::Duplicate (Game 0x5c23f0) only reopens the
+    /// source file. The cache ignores Open's HRESULT, not host identity errors.
+    /// Read source fields once, then revalidate the retained destination on
+    /// both sides of I/O. Never refresh either ID from an integer handle.
+    pub(crate) fn reopen_cached_sound(
+        &self,
+        destination: &SoundId,
+        source: &SoundId,
+        installation: &Installation,
+    ) -> Result<i32> {
+        source.check_owner(self)?;
+        let source = {
+            let mut mixer = self.lock()?;
+            let handle = source.checked_handle(&mixer)?;
+            sound_mut(&mut mixer, handle)?.clone()
+        };
         let filename = source
             .source
             .as_ref()
             .map_or("", |source| source.name.as_str());
-        self.open_original_sound(destination, filename, source.open_flags, installation)
+        self.open_sound_source(destination, filename, source.open_flags, installation)
     }
 
     /// Native derived Duplicate RVA 0x59250. The common frame Duplicate is a
@@ -797,9 +825,23 @@ impl RuntimeAudio {
         flags: u32,
         read: impl FnOnce() -> Result<Option<Vec<u8>>>,
     ) -> Result<bool> {
+        // Compatibility callers supply a handle at entry, not after I/O.
+        let id = self.sound_id_from_handle(handle)?;
+        self.load_sound_source_with(&id, name, flags, read)
+    }
+
+    fn load_sound_source_with(
+        &self,
+        id: &SoundId,
+        name: &str,
+        flags: u32,
+        read: impl FnOnce() -> Result<Option<Vec<u8>>>,
+    ) -> Result<bool> {
+        id.check_owner(self)?;
         let canonical = canonical_name(name);
         let cached = {
             let mut mixer = self.lock()?;
+            let handle = id.checked_handle(&mixer)?;
             let sound = sound_mut(&mut mixer, handle)?;
             // Open's strcmp fast path is exact, unlike its shared-source stricmp lookup.
             if sound
@@ -818,7 +860,10 @@ impl RuntimeAudio {
         let source = match cached {
             Some(source) => source,
             None => {
+                // Do not hold the mixer lock across archive/filesystem I/O.
+                // A real read/decode error keeps its original precedence.
                 let Some(bytes) = read()? else {
+                    self.validate_sound_id(id)?;
                     return Ok(false);
                 };
                 let mut source = PcmSource::from_wav(name, &bytes)?;
@@ -828,6 +873,9 @@ impl RuntimeAudio {
             }
         };
         let mut mixer = self.lock()?;
+        // Check before publishing even a weak cache entry. Release/reuse during
+        // I/O must not attach data to, or change the cache for, a replacement.
+        let handle = id.checked_handle(&mixer)?;
         mixer.sources.insert(canonical, Arc::downgrade(&source));
         let camera = mixer.camera_present;
         let sector = mixer.listener_sector;
@@ -1874,3 +1922,7 @@ mod tests {
         assert!(audio.sound_virtual(0x1000, 0x90, &[]).is_err());
     }
 }
+
+#[cfg(test)]
+#[path = "runtime_audio_source_tests.rs"]
+mod source_tests;
