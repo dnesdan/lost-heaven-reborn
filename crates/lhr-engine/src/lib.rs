@@ -84,6 +84,7 @@ pub mod mission_content_loading;
 pub mod mission_effects;
 pub mod mission_lifecycle;
 pub mod mission_load_session;
+pub mod mission_open_order;
 pub mod mission_resources;
 pub mod mission_scene_loading;
 pub mod mission_scene_stream;
