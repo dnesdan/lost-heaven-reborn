@@ -570,6 +570,10 @@ impl WebPathNodeView<'_> {
     pub fn raw_bytes(&self) -> &[u8] {
         self.bytes
     }
+    /// Packed navigation flags, without assigning meanings to unknown bits.
+    pub fn flags(&self) -> u16 {
+        u16::from_le_bytes(self.bytes[0xc..0xe].try_into().unwrap())
+    }
     pub fn connection_count(&self) -> u8 {
         self.bytes[0x1d]
     }
@@ -602,3 +606,6 @@ pub struct WebConnection {
 #[cfg(test)]
 #[path = "mission_web_path_tests.rs"]
 mod tests;
+
+#[path = "mission_web_path_reset.rs"]
+mod reset;
