@@ -358,3 +358,51 @@ fn original_open_keeps_missing_hresult_and_path_error_before_identity() {
         Err(AudioError("stale sound identity".into()))
     );
 }
+
+#[test]
+fn self_cache_reopen_preserves_pcm_voice_and_retained_identity() {
+    let scratch = Scratch::new();
+    let installation = scratch.installation();
+    let (audio, id) = loaded();
+    audio.set_listener([0.0; 3], [1.0, 0.0, 0.0], None).unwrap();
+    audio.set_sound_kind(&id, SoundKind::Ambient).unwrap();
+    audio.set_sound_playback(&id, true, true).unwrap();
+    audio.mix_stereo(4, &mut [0.0; 2]).unwrap();
+    let before = snapshot(&audio, 7);
+    let source = audio.sound(7).unwrap().source.unwrap();
+    // There is no a.wav in this installation. Self-open must use its exact-name
+    // fast path, not detach and reload, even when source and destination alias.
+    assert_eq!(audio.reopen_cached_sound(&id, &id, &installation), Ok(0));
+    assert_eq!(snapshot(&audio, 7), before);
+    assert_eq!(audio.sound_position_ms(&id).unwrap(), 250);
+    assert!(Arc::ptr_eq(
+        &source,
+        audio.sound(7).unwrap().source.as_ref().unwrap()
+    ));
+    assert_eq!(audio.sound_id_from_handle(7).unwrap(), id);
+}
+
+#[test]
+fn source_channel_count_controls_cone_reset_without_changing_live_parameters() {
+    for channels in [1, 2] {
+        let audio = RuntimeAudio::default();
+        let id = sound(&audio, 7);
+        audio.set_sound_kind(&id, SoundKind::Spot).unwrap();
+        audio.set_sound_cone(&id, [0.25, 0.5]).unwrap();
+        audio.set_sound_volume(&id, 0.75).unwrap();
+        audio
+            .load_sound_source_with(&id, "channels.wav", 8, || Ok(Some(wav(channels))))
+            .unwrap();
+        let state = audio.sound(7).unwrap();
+        let expected_cone = if channels == 1 {
+            [std::f32::consts::FRAC_PI_3, std::f32::consts::FRAC_PI_2]
+        } else {
+            [0.25, 0.5]
+        };
+        assert_eq!(state.cone, expected_cone);
+        assert_eq!(state.volume, 0.75);
+        assert_eq!(state.sound_type, if channels == 1 { 2 } else { 3 });
+        assert_eq!(state.open_flags, if channels == 1 { 0x218 } else { 0x18 });
+        audio.validate_sound_id(&id).unwrap();
+    }
+}
