@@ -27,6 +27,9 @@ use crate::scene_ownership::SceneKey;
 use crate::scene_resources::{SceneCpuCloseReport, SceneResourceError, SceneResources};
 use std::convert::Infallible;
 
+#[path = "mission_sector_groups.rs"]
+mod sector_groups;
+
 /// Explicit probe inputs. Projection and model directories are supplied by
 /// the caller; this host adapter does not infer original GameInit.
 pub struct MissionLoadRequest<'a> {
@@ -47,6 +50,7 @@ pub enum MissionLoadPhase {
     CacheDirectories,
     SoundBackend,
     SceneCreation,
+    /// World intake followed by mission primary-sector group initialization.
     World,
     LoadMap,
     Scene2Input,
@@ -539,6 +543,13 @@ impl MissionLoadSession {
                 return Err(MissionLoadCause::World(failure.error));
             }
         }
+
+        // Mission setup, not a change to the reusable SceneOpen adapter. This
+        // includes SetGroupBits' lighting invalidation on the actual hierarchy.
+        // Weather, navigation and the remaining MissionOpen work are not
+        // supplied by this narrow host composition.
+        sector_groups::fill_primary_sector_groups(&mut self.arena, scene)
+            .map_err(|error| MissionLoadCause::World(CpuSceneWorldError::Model(error)))?;
 
         self.phase = MissionLoadPhase::LoadMap;
         match MissionSceneLoader::new(&self.arena, scene) {
