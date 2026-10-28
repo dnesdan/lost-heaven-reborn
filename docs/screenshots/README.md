@@ -1,6 +1,32 @@
 # Screenshot history
 
-Actual captures from the Rust application using separately supplied PC game data. Images are compressed WebP previews or original PNG captures; full validation receipts remain private. Add dated images for visible milestones, up to 960 pixels wide and 200 KiB per image, rather than a capture for every commit. Game content retains its original ownership.
+Actual captures from the Rust application using supplied PC data or named public procedural scenes. Images are WebP previews or original PNGs. Scene previews normally stay within 960 pixels and 200 KiB; native UI captures may retain their full window dimensions for readability. Sanitized receipts can be published; original inputs and raw logs remain private. Add dated images for visible milestones. Game content retains its original ownership.
+
+## 2026-10-28 — reviewed integration and fresh original-data checks
+
+![Standalone taxi after actual keyboard input](2026-10-28/driving.webp)
+
+![Native Engine Lab after selecting Outdoor courtyard](2026-10-28/engine-lab.png)
+
+[Menu inspection](2026-10-28/menu.webp) ·
+[MISE01 inspection](2026-10-28/mise01.webp) ·
+[public Lab scenes and receipt](2026-10-28/lab/receipt.json) ·
+[image hashes and check summary](2026-10-28/evidence.json).
+
+All captures use source `c60abc133fc789502ac0a1acd301088ee56bea0c`, whose tree
+equals merged integration `fec33b59688760f9fd33c02060a5d13c9a750b50`.
+They were inspected on Linux x86_64 with Mesa llvmpipe Vulkan. Native UI used
+Xvfb. Public scene PNGs are 960 × 640; the unmodified UI PNG is 1280 × 800.
+The three original-data previews retain 960 × 640 and use WebP quality 90,
+without crop or resize; exact source PNG hashes are recorded in evidence.json.
+
+The Lab changed from gallery to courtyard. Taxi telemetry records throttle,
+steering and handbrake input, followed by zero tracked resources at cleanup.
+The MISE01 image is static inspection at the known unsupported-kind-27 frontier;
+it is not authored gameplay. The menu PNG was produced before its existing
+animated-model limitation caused retained interrupted cleanup and exit 1.
+The [full record](../implementation/2026-10-28-pr-integration.md) includes these
+limits, executed tests and separate PS2 metadata evidence.
 
 ## 2026-10-27 — live mission/material inspectors and MRPH deformation
 

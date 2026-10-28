@@ -1,0 +1,173 @@
+{
+  "schema": 1,
+  "date_utc": "2026-10-28",
+  "tested_source_commit": "c60abc133fc789502ac0a1acd301088ee56bea0c",
+  "merged_source_commit": "fec33b59688760f9fd33c02060a5d13c9a750b50",
+  "source_trees_equal": true,
+  "source_tree": "0443655383b30a93749e6b314fd3362b8a2f22b5",
+  "platform": {
+    "system": "Linux",
+    "machine": "x86_64",
+    "rust": "1.99.1",
+    "graphics": "Mesa 25.0.7 llvmpipe Vulkan; LLVM 19.1.7",
+    "native_display": "Xvfb"
+  },
+  "images": [
+    {
+      "file": "lab/gallery.png",
+      "source_png_sha256": "fec207e9bc905678b8569947d9d05a0465b39d1b22a15fc7309f9db8cd41eff1",
+      "published_sha256": "fec207e9bc905678b8569947d9d05a0465b39d1b22a15fc7309f9db8cd41eff1",
+      "bytes": 74803,
+      "dimensions": [
+        960,
+        640
+      ],
+      "encoding": "exact PNG copy",
+      "mode": "headless synthetic scene; time zero",
+      "process_exit_code": 0
+    },
+    {
+      "file": "lab/courtyard.png",
+      "source_png_sha256": "cec7b786c54b5724f6b71c08159b9d80f86f03171a6916641e2cdca9fddecff2",
+      "published_sha256": "cec7b786c54b5724f6b71c08159b9d80f86f03171a6916641e2cdca9fddecff2",
+      "bytes": 96644,
+      "dimensions": [
+        960,
+        640
+      ],
+      "encoding": "exact PNG copy",
+      "mode": "headless synthetic scene; time zero",
+      "process_exit_code": 0
+    },
+    {
+      "file": "lab/primitives.png",
+      "source_png_sha256": "3f619a7ce1acac5b75862159acc178d5bc22db279d08fe779293ee41e2f8754c",
+      "published_sha256": "3f619a7ce1acac5b75862159acc178d5bc22db279d08fe779293ee41e2f8754c",
+      "bytes": 74760,
+      "dimensions": [
+        960,
+        640
+      ],
+      "encoding": "exact PNG copy",
+      "mode": "headless synthetic scene; time zero",
+      "process_exit_code": 0
+    },
+    {
+      "file": "lab/lights.png",
+      "source_png_sha256": "802cc9418cd984357304e53b79bede1e29dcf24837e67417c58fb37e9871fb0e",
+      "published_sha256": "802cc9418cd984357304e53b79bede1e29dcf24837e67417c58fb37e9871fb0e",
+      "bytes": 76534,
+      "dimensions": [
+        960,
+        640
+      ],
+      "encoding": "exact PNG copy",
+      "mode": "headless synthetic scene; time zero",
+      "process_exit_code": 0
+    },
+    {
+      "file": "menu.webp",
+      "source_png_sha256": "39aec7002f8061d6712d0157feed255c632d8d6b4ed308067852a43179c41a8f",
+      "published_sha256": "0c544443d8c52b36704850a2728d0ae7750edb38d15e7e437e8084bd35109c2d",
+      "bytes": 66576,
+      "dimensions": [
+        960,
+        640
+      ],
+      "encoding": "WebP quality 90; no crop or resize",
+      "mode": "original-data menu inspection; animated-model frontier and retained cleanup failure",
+      "process_exit_code": 1
+    },
+    {
+      "file": "mise01.webp",
+      "source_png_sha256": "57033de9d979b1bdb65259f07ad8eb1e8cd2404545da5e1e58a2356a69b6396b",
+      "published_sha256": "fa3d7e7443885ad8b13966d9a9025d5e4cc8f5792a8ccd37657754f0fda43525",
+      "bytes": 92350,
+      "dimensions": [
+        960,
+        640
+      ],
+      "encoding": "WebP quality 90; no crop or resize",
+      "mode": "original-data static scene inspection; unsupported actor kind 27",
+      "process_exit_code": 0
+    },
+    {
+      "file": "engine-lab.png",
+      "source_png_sha256": "585d989649f1894aa7db46fee616547fd90958ee5d3c22f0a34fdf60119f6178",
+      "published_sha256": "585d989649f1894aa7db46fee616547fd90958ee5d3c22f0a34fdf60119f6178",
+      "bytes": 72512,
+      "dimensions": [
+        1280,
+        800
+      ],
+      "encoding": "exact PNG copy",
+      "mode": "native Xvfb UI; gallery changed to courtyard",
+      "process_exit_code": 0
+    },
+    {
+      "file": "driving.webp",
+      "source_png_sha256": "6888df59fdd0fdb77f6ce94ea1a472358c849117170fd3adeddbdf981d4aa300",
+      "published_sha256": "59c2cc39903854d1719bce39d26fa6ea80948262e0850f8da08ac745d499dc42",
+      "bytes": 164666,
+      "dimensions": [
+        960,
+        640
+      ],
+      "encoding": "WebP quality 90; no crop or resize",
+      "mode": "native original-data standalone taxi; W/A/Space/Escape",
+      "process_exit_code": 0
+    }
+  ],
+  "tests": {
+    "default_rust_passed": 1695,
+    "all_features_rust_passed": 1698,
+    "explicit_gpu_passed": 21,
+    "python_passed": 106,
+    "optimized_preservation_subset_passed": 168,
+    "overlap": "default/all-feature/optimized counts overlap; GPU suite is additional"
+  },
+  "original_data": {
+    "mise01_objects": 3183,
+    "mise01_actors": 27,
+    "mise01_frontier_kind": 27,
+    "mise01_frontier_cursor": 3795696,
+    "terminal_disposal_complete": true,
+    "tracked_owners_after_disposal_zero": true,
+    "mission_complete": false
+  },
+  "driving": {
+    "inputs_observed": [
+      "throttle=1",
+      "steer=-1",
+      "handbrake=true"
+    ],
+    "maximum_observed_handbrake_force": 1200.0001,
+    "cleanup_tracked_owners_zero": true,
+    "audio": {
+      "channels": 2,
+      "sample_width_bytes": 2,
+      "sample_rate": 48000,
+      "frames": 27648,
+      "nonzero_samples": 55285,
+      "peak_pcm16": 32767,
+      "physical_audio_device_opened": false
+    }
+  },
+  "reference": {
+    "repository": "Marvisak/mafia-re",
+    "commit": "eb5a9216eea23210e96a3148e351e8211b27e240",
+    "comparison": "source ordering; not original-runtime differential validation"
+  },
+  "ps2": {
+    "elf_sha256": "adf4944c5cdac23fcc4e9af9ef3ec1ba6234497e57cec2af2ff1a7a15c62a46f",
+    "symbol_entries": 15236,
+    "function_symbols": 7788,
+    "validation": "ELF metadata only; no emulation"
+  },
+  "branch_cleanup": {
+    "obsolete_remote_branches_deleted": 50,
+    "remaining_default_branch": "rust-engine",
+    "former_heads_preserved_in_verified_private_git_bundle": true
+  },
+  "original_game_runtime_equivalence": false
+}

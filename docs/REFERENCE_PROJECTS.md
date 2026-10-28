@@ -1,6 +1,25 @@
 # Reference-project audit
 
-## Current source and tool check — 2026-10-27
+## Current integration check — 2026-10-28
+
+A fresh checkout remains at [mafia-re
+`eb5a9216eea23210e96a3148e351e8211b27e240`](https://github.com/Marvisak/mafia-re/tree/eb5a9216eea23210e96a3148e351e8211b27e240).
+Sound destruction and reciprocal sector-list ordering were compared with its
+LS3DF source during the independent audio reviews. Its vehicle-sound file does
+not supply a GearSnd body, so it does not independently validate that function.
+
+The supplied PC Game.exe, LS3DF.dll and rw_data.dll hashes match the versioned
+binary catalog. Fresh PS2 ELF metadata again matches the recorded boot binary,
+15,236 symbol entries and 7,788 function symbols; its actual
+`GearSnd__9C_VehicleFv` symbol is at `0x0026b900`, size 412 bytes. This is symbol
+metadata, not a new REA analysis, a PC layout proof or an emulator execution.
+
+[The integration record](implementation/2026-10-28-pr-integration.md) separates
+Rust tests, GPU checks, original-data loading, native UI/driving and the remaining
+menu/mission limits. No original-executable differential comparison or new parity
+credit follows from these checks.
+
+## Retained source and tool check — 2026-10-27
 
 The current parity stack is pinned to [mafia-re
 `eb5a9216eea23210e96a3148e351e8211b27e240`](https://github.com/Marvisak/mafia-re/tree/eb5a9216eea23210e96a3148e351e8211b27e240).

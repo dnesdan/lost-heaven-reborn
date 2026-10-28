@@ -109,18 +109,23 @@ cargo run --locked -p lhr-engine --features engine-lab -- --synthetic --lab
 Add `--root /path/to/Mafia` to browse your installation. Lighting, fog and
 precipitation are optional host previews; they do not implement original weather
 or mission gameplay. [Controls, presets and captures](docs/RUNNING.md#engine-lab).
-[Native Lab preview](docs/screenshots/2026-10-27-engine-lab-workbench.png) ·
+[Native Lab preview](docs/screenshots/2026-10-28/engine-lab.png) ·
 [actual mission owners](docs/screenshots/2026-10-27-engine-lab-mission-owners.webp).
 
 ## Actual Rust captures
 
-![MISE01 road and source sky](docs/screenshots/2026-10-26-mise01-road-sky.webp)
+![Original-data standalone taxi after throttle, steering and handbrake input](docs/screenshots/2026-10-28/driving.webp)
 
-This dated 2026-10-26 inspection reaches actor dispatch after all 3,183 scene
-objects. New [MRPH before/after and Lab captures](docs/implementation/parity-continuation.md)
-record the current source and exact limits. [Menu sky](docs/screenshots/2026-10-26-menu-sky.webp) ·
-[earlier Engine Lab](docs/screenshots/2026-10-26-engine-lab.webp).
-Earlier media and their dated scope remain in [capture history](docs/screenshots/README.md).
+Fresh 2026-10-28 captures: [MISE01 inspection](docs/screenshots/2026-10-28/mise01.webp),
+[menu inspection](docs/screenshots/2026-10-28/menu.webp),
+[native Lab](docs/screenshots/2026-10-28/engine-lab.png) and
+[four public renderer scenes](docs/screenshots/2026-10-28/lab/receipt.json).
+[Executed checks and exact limits](docs/implementation/2026-10-28-pr-integration.md)
+include actual driving inputs, 21 GPU tests, the known actor-kind-27 frontier
+and the menu's retained interrupted cleanup. These are inspection and standalone
+driving results; authored mission completion remains open.
+[MRPH evidence](docs/implementation/parity-continuation.md) and earlier media
+retain their dated scope in [capture history](docs/screenshots/README.md).
 
 ## Research and assets
 
