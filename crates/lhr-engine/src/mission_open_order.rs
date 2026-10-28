@@ -8,8 +8,10 @@
 pub enum OpenStep {
     ResetGame,
     ClosePrevious,
+    ResetPostClose,
     WaitForMedia,
     BindVehicleScene,
+    PrepareProgress,
     OpenWorld,
     ResetWeather,
     FillSectorBits,
@@ -19,6 +21,7 @@ pub enum OpenStep {
     MuteAudioAndRender,
     OpenBin,
     RestoreAudio,
+    MarkMissionOpened,
     OpenCache,
     FinishProgress,
 }
@@ -76,11 +79,13 @@ impl OpenAttempt {
         }
         step!(OpenStep::ResetGame);
         step!(OpenStep::ClosePrevious);
+        step!(OpenStep::ResetPostClose);
         self.last = Some(OpenStep::WaitForMedia);
         if !ops.media_ready().map_err(|error| OpenRunError::Callback(OpenFailure { step: OpenStep::WaitForMedia, error }))? {
             return Ok(OpenResult::NoMedia);
         }
         step!(OpenStep::BindVehicleScene);
+        step!(OpenStep::PrepareProgress);
         step!(OpenStep::OpenWorld);
         step!(OpenStep::ResetWeather);
         step!(OpenStep::FillSectorBits);
@@ -96,6 +101,7 @@ impl OpenAttempt {
         let opened = ops.open_bin().map_err(|error| OpenRunError::Callback(OpenFailure { step: OpenStep::OpenBin, error }))?;
         if audio { step!(OpenStep::RestoreAudio); }
         if !opened { return Ok(OpenResult::OpenBinFailed); }
+        step!(OpenStep::MarkMissionOpened);
         if cache { step!(OpenStep::OpenCache); }
         step!(OpenStep::FinishProgress);
         Ok(OpenResult::Opened)
@@ -136,11 +142,11 @@ mod tests {
         let mut ops = Ops { media: true, bin: true, cache: true, audio: true, ..Ops::default() };
         assert_eq!(OpenAttempt::default().run(&mut ops), Ok(OpenResult::Opened));
         assert_eq!(ops.trace, [
-            OpenStep::ResetGame, OpenStep::ClosePrevious, OpenStep::WaitForMedia,
-            OpenStep::BindVehicleScene, OpenStep::OpenWorld, OpenStep::ResetWeather,
+            OpenStep::ResetGame, OpenStep::ClosePrevious, OpenStep::ResetPostClose, OpenStep::WaitForMedia,
+            OpenStep::BindVehicleScene, OpenStep::PrepareProgress, OpenStep::OpenWorld, OpenStep::ResetWeather,
             OpenStep::FillSectorBits, OpenStep::LoadNavigation, OpenStep::LoadRoads,
             OpenStep::ProbeCache, OpenStep::MuteAudioAndRender, OpenStep::OpenBin,
-            OpenStep::RestoreAudio, OpenStep::OpenCache, OpenStep::FinishProgress
+            OpenStep::RestoreAudio, OpenStep::MarkMissionOpened, OpenStep::OpenCache, OpenStep::FinishProgress
         ]);
     }
     #[test]
