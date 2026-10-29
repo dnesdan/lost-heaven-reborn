@@ -2864,9 +2864,6 @@ impl MaterializedModel {
     pub fn source(&self) -> &Arc<Model> {
         &self.source
     }
-    pub(crate) fn identity(&self) -> &Arc<()> {
-        &self.identity
-    }
     pub(crate) fn mark_animated(&mut self, frame: FrameKey) -> Result<(), ModelError> {
         self.arena.graph.mark_animated(frame)?;
         Ok(())
