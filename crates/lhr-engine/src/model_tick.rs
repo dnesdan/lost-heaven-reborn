@@ -44,6 +44,56 @@ pub trait ModelBackend {
     ) -> Result<(), Self::Error>;
 }
 
+/// Typed live owners implement the same recovered guard/call ordering without
+/// building a detached ModelTickState. The final operation dispatches through
+/// the owner's current state, after the interpolator call has completed.
+pub(crate) trait LiveModelTickOwner {
+    type Error;
+    fn active_evaluator_count(&self) -> Result<Option<u32>, Self::Error>;
+    fn tick_current_controller(&mut self, delta: i32) -> Result<(), Self::Error>;
+    fn update_current_model(&mut self) -> Result<(), Self::Error>;
+}
+pub(crate) fn tick_live_model<O: LiveModelTickOwner + ?Sized>(
+    owner: &mut O,
+    delta: i32,
+) -> Result<bool, O::Error> {
+    let Some(count) = owner.active_evaluator_count()? else {
+        return Ok(false);
+    };
+    if count == 0 {
+        return Ok(false);
+    }
+    owner.tick_current_controller(delta)?;
+    owner.update_current_model()?;
+    Ok(true)
+}
+
+struct StateOwner<'a, B: ?Sized> {
+    model: &'a mut ModelTickState,
+    backend: &'a mut B,
+    // The original entry captures the pointer before the pure count read.
+    entry_interpolator: Option<InterpolatorId>,
+}
+impl<B: ModelBackend + ?Sized> LiveModelTickOwner for StateOwner<'_, B> {
+    type Error = B::Error;
+    fn active_evaluator_count(&self) -> Result<Option<u32>, Self::Error> {
+        self.entry_interpolator
+            .map(|id| self.backend.evaluator_count(id))
+            .transpose()
+    }
+    fn tick_current_controller(&mut self, delta: i32) -> Result<(), Self::Error> {
+        self.backend.tick_interpolator(
+            self.model,
+            self.entry_interpolator.expect("nonnull entry guard"),
+            delta,
+        )
+    }
+    fn update_current_model(&mut self) -> Result<(), Self::Error> {
+        let vtable = self.model.vtable;
+        self.backend.update_model(self.model, vtable)
+    }
+}
+
 impl ModelTickState {
     /// Construct this view of a fresh model: the original constructor leaves
     /// its interpolator pointer null. Loading/binding is a separate operation.
@@ -63,15 +113,16 @@ impl ModelTickState {
         backend: &mut B,
         delta: i32,
     ) -> Result<(), B::Error> {
-        let Some(interpolator) = self.interpolator else {
-            return Ok(());
-        };
-        if backend.evaluator_count(interpolator)? == 0 {
-            return Ok(());
-        }
-        backend.tick_interpolator(self, interpolator, delta)?;
-        let vtable = self.vtable;
-        backend.update_model(self, vtable)
+        let entry_interpolator = self.interpolator;
+        tick_live_model(
+            &mut StateOwner {
+                model: self,
+                backend,
+                entry_interpolator,
+            },
+            delta,
+        )
+        .map(|_| ())
     }
 }
 

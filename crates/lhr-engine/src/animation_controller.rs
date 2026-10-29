@@ -243,7 +243,73 @@ pub struct IPolSet {
     closed: bool,
 }
 
+/// A borrowed read view of the same controller allocations/resources whose
+/// clocks are mutably borrowed by Tick. No state or evaluator is copied out.
+pub(crate) struct ControllerEvaluationView<'a> {
+    animations: &'a [Option<BoundAnimationResource>; 8],
+    storage: &'a [EvaluatorId],
+    owned: &'a [ControllerEvaluator],
+    allocation: &'a AllocationId,
+    active_count: &'a usize,
+}
+impl ControllerEvaluationView<'_> {
+    pub(crate) fn evaluator_at(
+        &self,
+        allocation: AllocationId,
+        index: usize,
+    ) -> Option<EvaluatorId> {
+        if allocation != *self.allocation || index >= *self.active_count {
+            return None;
+        }
+        self.storage.get(index).copied()
+    }
+    pub(crate) fn evaluator(&self, id: EvaluatorId) -> Option<&ControllerEvaluator> {
+        self.owned.iter().find(|evaluator| evaluator.id == id)
+    }
+    pub(crate) fn live_animation(&self, slot: usize) -> Option<&LiveAnimationResource> {
+        match self.animations.get(slot)?.as_ref()? {
+            BoundAnimationResource::Live(resource) => Some(resource),
+            BoundAnimationResource::Host(_) => None,
+        }
+    }
+    pub(crate) fn live_resource(&self, id: AnimSetId) -> Option<&LiveAnimationResource> {
+        self.animations
+            .iter()
+            .flatten()
+            .find_map(|resource| match resource {
+                BoundAnimationResource::Live(resource) if resource.id() == id => Some(resource),
+                _ => None,
+            })
+    }
+}
+
 impl IPolSet {
+    pub(crate) fn borrow_tick_parts(
+        &mut self,
+    ) -> Result<
+        (&mut InterpolatorSet, ControllerEvaluationView<'_>),
+        ControllerError<std::convert::Infallible>,
+    > {
+        if self.closed {
+            return Err(ControllerError::Closed);
+        }
+        if self.poisoned {
+            return Err(ControllerError::Poisoned);
+        }
+        if !self.owns_view() {
+            return Err(ControllerError::InvalidView);
+        }
+        Ok((
+            &mut self.state,
+            ControllerEvaluationView {
+                animations: &self.animations,
+                storage: &self.storage,
+                owned: &self.owned,
+                allocation: &self.allocation,
+                active_count: &self.active_count,
+            },
+        ))
+    }
     /// Constructor stores at 0x337d2..0x33809 zero the eight slots and vector,
     /// and set growth to32. They leave the dirty byte unwritten. The host must
     /// supply that allocation byte explicitly, rather than infer a native zero.

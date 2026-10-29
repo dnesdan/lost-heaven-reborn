@@ -2125,6 +2125,21 @@ impl ModelArena {
         self.models[mi].skin_pose = Some(pose);
         Ok(())
     }
+    /// Host render-admission guard after a Tick wrote a pose but could not
+    /// finish its model update. Keep the owned pose and any earlier failure;
+    /// an old vertex result must not stand in for the interrupted operation.
+    pub(crate) fn interrupt_owned_model_animation_pose(
+        &mut self,
+        model: ModelKey,
+    ) -> Result<(), ModelError> {
+        let mi = self.model_index(model)?;
+        if self.models[mi].skin_pose.is_some() && self.models[mi].skin_pose_error.is_none() {
+            self.models[mi].skin_pose_error = Some(SkinPoseError::Source(
+                "model animation pose update interrupted",
+            ));
+        }
+        Ok(())
+    }
     /// Prepare the selected LOD only after the live render selector admits it.
     /// Its skin definition and source vertices belong to the original source
     /// Arc; a failed derived evaluation poisons this model's pose admission.
@@ -4001,6 +4016,65 @@ pub(crate) mod tests {
         bytes.extend((payload.len() as u32).to_le_bytes());
         bytes.extend(payload);
         Arc::new(lhr_assets::animation::parse_5ds(&bytes).unwrap())
+    }
+
+    #[test]
+    fn successful_owned_animation_tick_preserves_prior_terminal_skin_error() {
+        use crate::animation_controller::LiveAnimationResource;
+        use crate::model_animation_runtime::{
+            ModelAnimationDestination, ModelControllerAllocation, ModelControllerAllocationFailure,
+            ModelControllerFactory,
+        };
+        struct Factory;
+        impl ModelControllerFactory for Factory {
+            type Error = std::convert::Infallible;
+            fn allocate(
+                &mut self,
+                owner: ModelAnimationDestination,
+            ) -> Result<Option<ModelControllerAllocation>, Self::Error> {
+                Ok(Some(ModelControllerAllocation::new(owner, false)))
+            }
+            fn allocation_failed(
+                &mut self,
+                _: ModelControllerAllocationFailure,
+            ) -> Result<(), Self::Error> {
+                unreachable!("allocated fixture")
+            }
+        }
+        let directory = std::env::temp_dir().join(format!(
+            "lhr-owned-tick-prior-error-{}-{}",
+            std::process::id(),
+            crate::frame_lookup::incarnation()
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let installation = lhr_assets::Installation::open(&directory).unwrap();
+        let mut source = skinned_source();
+        let joint = &mut Arc::make_mut(&mut source).frames[1];
+        joint.name = "bone".into();
+        joint.name_bytes = b"bone".to_vec();
+        let mut arena = ModelArena::default();
+        let model = arena.create_model().unwrap();
+        let content = arena.load_parsed_into_model(model, source).unwrap();
+        arena
+            .load_plain_visual_resources(model, &installation)
+            .unwrap();
+        let mi = arena.model_index(model).unwrap();
+        let prior = SkinPoseError::Source("prior interrupted lazy pose");
+        arena.models[mi].skin_pose_error = Some(prior.clone());
+        let resource = LiveAnimationResource::new(synthetic_joint_animation(), 2).unwrap();
+        arena
+            .set_original_model_animation(model, Some(&resource), 0, 1., 0, &mut Factory)
+            .unwrap();
+        assert!(arena.tick_original_model_animation(model, 0).unwrap());
+        assert!(arena.tick_original_model_animation(model, 40).unwrap());
+        assert_eq!(arena.models[mi].skin_pose_error, Some(prior.clone()));
+        assert_eq!(
+            arena.owned_singlemesh_lod0_vertices(content.frames()[0], 0),
+            Err(ModelError::SkinPose(prior))
+        );
+        arena.publish_runtime_buffers().unwrap();
+        arena.close(model).unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

@@ -2,17 +2,24 @@
 //! e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
 //! SetAnimation RVA0x337b0; model controls0x33860..0x33a60.
 //! Original allocation boundaries remain explicit. No Game selection, loader,
-//! evaluator Tick, scene scheduling or multi-slot evaluation is supplied here.
+//! scene scheduling or multi-slot blending is supplied here. Model Tick admits
+//! callback-free position/rotation channels through the existing verified
+//! samplers; unsupported work stops at its reached phase without rollback.
 #![forbid(unsafe_code)]
 
 use crate::{
     animation_controller::{
-        ControllerError, ControllerResourceBackend, IPolSet, LiveAnimationResource,
-        LiveControllerResourceBackend,
+        ControllerError, ControllerEvaluationView, ControllerResourceBackend, IPolSet,
+        LiveAnimationResource, LiveControllerResourceBackend,
     },
     frame_transform::{FrameKey, I3dFrameGraph},
-    interpolator::{AllocationId, AnimSetId, EvaluatorId},
+    interpolator::{
+        AllocationId, AnimSetId, EvaluatorId, InterpolatorBackend, InterpolatorSet, TickError,
+    },
     model_loading::{LoadedFrame, ModelArena, ModelError, ModelKey},
+    model_tick::{tick_live_model, LiveModelTickOwner},
+    rotation_animation::sample_rotation_channel,
+    scene_tick::FrameId,
     scene_tick::InterpolatorId,
 };
 use std::convert::Infallible;
@@ -39,6 +46,8 @@ pub struct ModelControllerAllocation {
     destination: ModelAnimationDestination,
     controller: Box<IPolSet>,
     next_identity: u32,
+    /// Host admission guard after an interrupted Tick; not a native field.
+    tick_interrupted: bool,
     #[cfg(test)]
     fail_evaluator_after: Option<usize>,
     #[cfg(test)]
@@ -50,6 +59,7 @@ impl ModelControllerAllocation {
             destination: owner,
             controller: Box::new(IPolSet::new(owner.model.root(), allocation_dirty)),
             next_identity: 0,
+            tick_interrupted: false,
             #[cfg(test)]
             fail_evaluator_after: None,
             #[cfg(test)]
@@ -499,6 +509,331 @@ impl ModelArena {
     }
 }
 
+#[derive(Debug)]
+pub enum ModelAnimationTickError {
+    Model(ModelError),
+    Controller(ControllerError<Infallible>),
+    Interpolator(TickError),
+    /// Host admission lock after a prior interrupted operation, not a native
+    /// poison flag. Close remains available and releases the actual owner.
+    Interrupted,
+    Unsupported {
+        evaluator: Option<EvaluatorId>,
+        slot: Option<usize>,
+        feature: &'static str,
+    },
+    Sampling {
+        evaluator: EvaluatorId,
+        slot: usize,
+        message: String,
+    },
+}
+impl From<ModelError> for ModelAnimationTickError {
+    fn from(error: ModelError) -> Self {
+        Self::Model(error)
+    }
+}
+
+struct OwnedModelTick<'a> {
+    arena: &'a mut ModelArena,
+    model: ModelKey,
+    pose_written: bool,
+}
+impl LiveModelTickOwner for OwnedModelTick<'_> {
+    type Error = ModelAnimationTickError;
+    fn active_evaluator_count(&self) -> Result<Option<u32>, Self::Error> {
+        self.arena
+            .original_model_controller(self.model)?
+            .map(|controller| {
+                u32::try_from(controller.state().evaluators.count).map_err(|_| {
+                    ModelAnimationTickError::Unsupported {
+                        evaluator: None,
+                        slot: None,
+                        feature: "evaluator count exceeds native width",
+                    }
+                })
+            })
+            .transpose()
+    }
+    fn tick_current_controller(&mut self, delta: i32) -> Result<(), Self::Error> {
+        let mi = self.arena.model_index(self.model)?;
+        let Some(OriginalModelController::Owned(allocation)) =
+            &mut self.arena.models[mi].original_ipol_set
+        else {
+            return Err(ModelError::UnsupportedActiveModelController(self.model).into());
+        };
+        if allocation.tick_interrupted {
+            return Err(ModelAnimationTickError::Interrupted);
+        }
+        let (state, view) = allocation
+            .controller
+            .borrow_tick_parts()
+            .map_err(ModelAnimationTickError::Controller)?;
+        let mut backend = OwnedInterpolatorTick {
+            view,
+            graph: &mut self.arena.graph,
+            failure: None,
+            pose_written: false,
+        };
+        // This is the actual stored InterpolatorSet. It remains in place and
+        // callbacks receive that same mutable state, including reached clocks.
+        let result = state.tick(&mut backend, delta);
+        self.pose_written |= backend.pose_written;
+        if let Some(error) = backend.failure {
+            return Err(error);
+        }
+        result.map_err(ModelAnimationTickError::Interpolator)
+    }
+    fn update_current_model(&mut self) -> Result<(), Self::Error> {
+        // Actual live frame-kind dispatch replaces a native vtable read. No
+        // copied ModelTickState or cached virtual-table projection is used.
+        self.arena
+            .update_frame(self.model.root())
+            .map_err(Into::into)
+    }
+}
+
+struct OwnedInterpolatorTick<'a> {
+    view: ControllerEvaluationView<'a>,
+    graph: &'a mut I3dFrameGraph,
+    failure: Option<ModelAnimationTickError>,
+    pose_written: bool,
+}
+impl OwnedInterpolatorTick<'_> {
+    fn unsupported(
+        evaluator: EvaluatorId,
+        slot: usize,
+        feature: &'static str,
+    ) -> ModelAnimationTickError {
+        ModelAnimationTickError::Unsupported {
+            evaluator: Some(evaluator),
+            slot: Some(slot),
+            feature,
+        }
+    }
+    fn evaluate_frame(
+        &mut self,
+        set: &InterpolatorSet,
+        id: EvaluatorId,
+    ) -> Result<(), ModelAnimationTickError> {
+        let evaluator = self
+            .view
+            .evaluator(id)
+            .ok_or(ModelAnimationTickError::Interpolator(
+                TickError::MissingEvaluator(id),
+            ))?;
+        let mut position = None;
+        let mut rotation = None;
+        let mut contributor = None;
+        // The original helper is channel-major: position slots, rotation slots,
+        // scale slots, pose, destination writes, then note dispatch. Numeric
+        // sampling is preflighted within this evaluator; no native arithmetic
+        // exception-prefix claim is made outside the verified sampler domain.
+        for channel in [2u16, 4, 8] {
+            for slot_index in 0..8 {
+                let binding = evaluator.bindings[slot_index];
+                let slot = &set.slots[slot_index];
+                if binding.flags & channel == 0 || !slot.enabled {
+                    continue;
+                }
+                // Native ordered comparisons skip nonpositive weights; NaNs
+                // reach the sampling branch and are explicitly unadmitted.
+                if slot.weight <= 0. {
+                    continue;
+                }
+                if channel == 8 {
+                    return Err(Self::unsupported(
+                        id,
+                        slot_index,
+                        "scale channel evaluation",
+                    ));
+                }
+                if slot.weight.to_bits() != 1f32.to_bits() {
+                    return Err(Self::unsupported(id, slot_index, "non-unit slot weight"));
+                }
+                if contributor.is_some_and(|previous| previous != slot_index) {
+                    return Err(Self::unsupported(
+                        id,
+                        slot_index,
+                        "multiple contributing slots",
+                    ));
+                }
+                contributor = Some(slot_index);
+                let resource = self.view.live_animation(slot_index).ok_or(
+                    ModelAnimationTickError::Interpolator(TickError::MissingAnimationSet {
+                        slot: slot_index,
+                    }),
+                )?;
+                let track = resource
+                    .source()
+                    .tracks
+                    .get(binding.track_index)
+                    .ok_or_else(|| Self::unsupported(id, slot_index, "bound track unavailable"))?;
+                let time = u32::try_from(slot.current)
+                    .map_err(|_| Self::unsupported(id, slot_index, "negative evaluator time"))?;
+                if channel == 2 {
+                    position = Some(
+                        track
+                            .position
+                            .as_ref()
+                            .ok_or_else(|| {
+                                Self::unsupported(id, slot_index, "position channel unavailable")
+                            })?
+                            .sample_position_channel(time)
+                            .map_err(|error| ModelAnimationTickError::Sampling {
+                                evaluator: id,
+                                slot: slot_index,
+                                message: error.to_string(),
+                            })?,
+                    );
+                } else {
+                    rotation = Some(
+                        sample_rotation_channel(
+                            track.rotation.as_ref().ok_or_else(|| {
+                                Self::unsupported(id, slot_index, "rotation channel unavailable")
+                            })?,
+                            time,
+                        )
+                        .map_err(|error| {
+                            ModelAnimationTickError::Sampling {
+                                evaluator: id,
+                                slot: slot_index,
+                                message: format!("{error:?}"),
+                            }
+                        })?,
+                    );
+                }
+            }
+        }
+        let destination = evaluator.destination;
+        if let Some(position) = position {
+            let unlocked = self
+                .graph
+                .state(destination)
+                .map_err(ModelError::from)?
+                .flags
+                & 0x80
+                == 0;
+            self.graph
+                .assign_position(destination, position)
+                .map_err(ModelError::from)?;
+            self.pose_written |= unlocked;
+        }
+        if let Some(rotation) = rotation {
+            self.graph
+                .apply_evaluated_rotation(destination, rotation)
+                .map_err(ModelError::from)?;
+            self.pose_written = true;
+        }
+        let frame_flags = self
+            .graph
+            .state(destination)
+            .map_err(ModelError::from)?
+            .flags;
+        if frame_flags & 0x1200 != 0 {
+            for slot_index in 0..8 {
+                if set.slots[slot_index].enabled && evaluator.bindings[slot_index].flags & 0x30 != 0
+                {
+                    return Err(Self::unsupported(
+                        id,
+                        slot_index,
+                        "note callback/resource owner",
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+}
+impl InterpolatorBackend for OwnedInterpolatorTick<'_> {
+    fn evaluator_at(
+        &self,
+        allocation: AllocationId,
+        index: usize,
+    ) -> Result<EvaluatorId, TickError> {
+        self.view
+            .evaluator_at(allocation, index)
+            .ok_or(TickError::InvalidEvaluatorStorage { allocation, index })
+    }
+    fn evaluate(
+        &mut self,
+        set: &mut InterpolatorSet,
+        evaluator: EvaluatorId,
+    ) -> Result<(), TickError> {
+        if let Err(error) = self.evaluate_frame(set, evaluator) {
+            self.failure = Some(error);
+            return Err(TickError::MissingEvaluator(evaluator));
+        }
+        Ok(())
+    }
+    fn boundary_destination(&self, evaluator: EvaluatorId) -> Result<Option<FrameId>, TickError> {
+        let evaluator = self
+            .view
+            .evaluator(evaluator)
+            .ok_or(TickError::MissingEvaluator(evaluator))?;
+        let frame = FrameId(evaluator.destination.0);
+        let flags = self
+            .graph
+            .state(evaluator.destination)
+            .map_err(|_| TickError::MissingFrame(frame))?
+            .flags;
+        Ok((flags & 0x800 != 0).then_some(frame))
+    }
+    fn notify_boundary(
+        &mut self,
+        _: &mut InterpolatorSet,
+        frame: FrameId,
+        slot: usize,
+    ) -> Result<(), TickError> {
+        self.failure = Some(ModelAnimationTickError::Unsupported {
+            evaluator: None,
+            slot: Some(slot),
+            feature: "animation boundary callback owner",
+        });
+        Err(TickError::MissingFrame(frame))
+    }
+    fn duration(&mut self, _: &mut InterpolatorSet, id: AnimSetId) -> Result<i32, TickError> {
+        // end_frame is u16 and duration=end_frame*40, so this conversion is exact.
+        self.view
+            .live_resource(id)
+            .map(|resource| resource.source().duration_ms() as i32)
+            .ok_or(TickError::MissingDuration(id))
+    }
+}
+
+impl ModelArena {
+    /// Explicit native model Tick ordering on its actual owned controller.
+    /// Returns whether the nonnull/nonempty entry guard admitted the body.
+    /// This does not select an animation or schedule a scene/game update.
+    pub fn tick_original_model_animation(
+        &mut self,
+        model: ModelKey,
+        delta: i32,
+    ) -> Result<bool, ModelAnimationTickError> {
+        let mi = self.model_index(model)?;
+        if self.models[mi].closing {
+            return Err(ModelError::CloseIncomplete(model).into());
+        }
+        let mut owner = OwnedModelTick {
+            arena: self,
+            model,
+            pose_written: false,
+        };
+        let result = tick_live_model(&mut owner, delta);
+        if result.is_err() {
+            if let Some(OriginalModelController::Owned(allocation)) =
+                &mut owner.arena.models[mi].original_ipol_set
+            {
+                allocation.tick_interrupted = true;
+            }
+            if owner.pose_written {
+                owner.arena.interrupt_owned_model_animation_pose(model)?;
+            }
+        }
+        result
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -578,6 +913,81 @@ mod tests {
             mode,
         )
         .unwrap()
+    }
+    fn moving_source(records: &[(&[u8], u16)]) -> Arc<AnimationSet> {
+        let mut payload = vec![0; 4 + records.len() * 8];
+        payload[..2].copy_from_slice(&(records.len() as u16).to_le_bytes());
+        payload[2..4].copy_from_slice(&10u16.to_le_bytes());
+        for (index, (name, flags)) in records.iter().enumerate() {
+            let offset = payload.len() as u32;
+            payload[4 + index * 8..8 + index * 8].copy_from_slice(&offset.to_le_bytes());
+            payload.extend_from_slice(name);
+            payload.push(0);
+            let offset = payload.len() as u32;
+            payload[8 + index * 8..12 + index * 8].copy_from_slice(&offset.to_le_bytes());
+            payload.extend(flags.to_le_bytes());
+            payload.extend(0u16.to_le_bytes());
+            for channel in [4, 2, 8] {
+                if flags & channel == 0 {
+                    continue;
+                }
+                payload.extend(2u16.to_le_bytes());
+                payload.extend(0u16.to_le_bytes());
+                payload.extend(10u16.to_le_bytes());
+                payload.extend(0u16.to_le_bytes());
+                let values: Vec<f32> = match channel {
+                    4 => vec![1., 0., 0., 0., 1., 0.001, 0., 0.],
+                    2 => vec![0., 0., 0., 10., 0., 0.],
+                    _ => vec![1., 1., 1., 2., 2., 2.],
+                };
+                for value in values {
+                    payload.extend(value.to_le_bytes());
+                }
+            }
+        }
+        let mut bytes = b"5DS\0".to_vec();
+        bytes.extend(20u16.to_le_bytes());
+        bytes.extend([0; 8]);
+        bytes.extend((payload.len() as u32).to_le_bytes());
+        bytes.extend(payload);
+        Arc::new(lhr_assets::animation::parse_5ds(&bytes).unwrap())
+    }
+    fn moving(records: &[(&[u8], u16)]) -> LiveAnimationResource {
+        LiveAnimationResource::new(moving_source(records), 2).unwrap()
+    }
+    struct SkinFixture {
+        directory: std::path::PathBuf,
+        arena: ModelArena,
+        model: ModelKey,
+        keys: Vec<FrameKey>,
+        source: Arc<Model>,
+    }
+    fn skin_fixture() -> SkinFixture {
+        let mut source = crate::model_loading::tests::skinned_source();
+        for (index, name) in [(1, b"first".as_slice()), (2, b"second".as_slice())] {
+            let frame = &mut Arc::make_mut(&mut source).frames[index];
+            frame.name = String::from_utf8_lossy(name).into_owned();
+            frame.name_bytes = name.to_vec();
+        }
+        let directory = std::env::temp_dir().join(format!(
+            "lhr-owned-animation-tick-{}-{}",
+            std::process::id(),
+            crate::frame_lookup::incarnation()
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let installation = lhr_assets::Installation::open(&directory).unwrap();
+        let mut arena = ModelArena::default();
+        let (model, keys) = load(&mut arena, Arc::clone(&source));
+        arena
+            .load_plain_visual_resources(model, &installation)
+            .unwrap();
+        SkinFixture {
+            directory,
+            arena,
+            model,
+            keys,
+            source,
+        }
     }
     fn load(arena: &mut ModelArena, source: Arc<Model>) -> (ModelKey, Vec<FrameKey>) {
         let model = arena.create_model().unwrap();
@@ -1038,5 +1448,381 @@ mod tests {
         assert_eq!(source.frames[0].name_bytes, b"before");
         assert_eq!(source.frames[1].name_bytes, b"before");
         arena.close(model).unwrap();
+    }
+
+    #[test]
+    fn owned_tick_uses_actual_clock_endpoint_wrap_stop_and_bound_destination() {
+        let mut arena = ModelArena::default();
+        let (model, keys) = load(&mut arena, parsed(&[b"moving"]));
+        let animation = moving(&[(b"moving", 2)]);
+        arena
+            .set_original_model_animation(
+                model,
+                Some(&animation),
+                7,
+                1.,
+                0,
+                &mut Factory::default(),
+            )
+            .unwrap();
+        // Binding is already complete. Changing the current/local name cannot
+        // redirect Tick to a newly resolved parsed or scene frame.
+        let fi = arena.frame_index(keys[0]).unwrap();
+        arena.frames[fi].original_name_bytes = Some(b"renamed".to_vec());
+        assert!(arena.tick_original_model_animation(model, 0).unwrap());
+        arena.tick_original_model_animation(model, 40).unwrap();
+        assert_eq!(arena.state(keys[0]).unwrap().local.elements[12], 1.);
+        arena
+            .set_original_model_animation_time(model, 7, 360)
+            .unwrap();
+        arena.tick_original_model_animation(model, 40).unwrap();
+        assert_eq!(arena.state(keys[0]).unwrap().local.elements[12], 10.);
+        let slot = arena
+            .original_model_controller(model)
+            .unwrap()
+            .unwrap()
+            .state()
+            .slots[7];
+        assert_eq!((slot.current, slot.previous, slot.last_delta), (0, 400, 40));
+        arena.tick_original_model_animation(model, 40).unwrap();
+        assert_eq!(arena.state(keys[0]).unwrap().local.elements[12], 1.);
+        arena.stop_original_model_animation(model, 7).unwrap();
+        arena.tick_original_model_animation(model, 83).unwrap();
+        assert_eq!(arena.original_model_animation_time(model, 7).unwrap(), 40);
+        assert_eq!(arena.state(keys[0]).unwrap().local.elements[12], 1.);
+        arena.start_original_model_animation(model, 7).unwrap();
+        arena.tick_original_model_animation(model, 40).unwrap();
+        assert_eq!(arena.state(keys[0]).unwrap().local.elements[12], 2.);
+        arena.close(model).unwrap();
+    }
+
+    #[test]
+    fn null_and_zero_evaluator_owners_skip_clock_and_root_update() {
+        let mut arena = ModelArena::default();
+        let (model, _) = load(&mut arena, parsed(&[b"present"]));
+        arena
+            .graph
+            .assign_position(model.root(), [3., 0., 0.])
+            .unwrap();
+        let before = *arena.state(model.root()).unwrap();
+        assert!(!arena.tick_original_model_animation(model, 40).unwrap());
+        assert_eq!(*arena.state(model.root()).unwrap(), before);
+        let unmatched = moving(&[(b"absent", 8)]);
+        arena
+            .set_original_model_animation(
+                model,
+                Some(&unmatched),
+                0,
+                1.,
+                0,
+                &mut Factory::default(),
+            )
+            .unwrap();
+        assert!(!arena.tick_original_model_animation(model, 40).unwrap());
+        assert_eq!(*arena.state(model.root()).unwrap(), before);
+        let slot = arena
+            .original_model_controller(model)
+            .unwrap()
+            .unwrap()
+            .state()
+            .slots[0];
+        assert_eq!((slot.current, slot.previous, slot.last_delta), (0, -40, 0));
+        assert!(slot.enabled);
+        assert!(
+            arena
+                .original_model_controller(model)
+                .unwrap()
+                .unwrap()
+                .state()
+                .dirty
+        );
+        arena.close(model).unwrap();
+    }
+
+    #[test]
+    fn disabled_unmatched_and_zero_weight_channels_are_not_prescanned() {
+        let mut arena = ModelArena::default();
+        let (model, keys) = load(&mut arena, parsed(&[b"moving"]));
+        let animation = moving(&[(b"moving", 2), (b"unmatched-scale", 8)]);
+        let scale = moving(&[(b"moving", 8)]);
+        let mut factory = Factory::default();
+        arena
+            .set_original_model_animation(model, Some(&animation), 0, 1., 0, &mut factory)
+            .unwrap();
+        arena
+            .set_original_model_animation(model, Some(&scale), 1, 1., 0, &mut factory)
+            .unwrap();
+        arena.stop_original_model_animation(model, 1).unwrap();
+        arena.tick_original_model_animation(model, 40).unwrap();
+        assert_eq!(arena.state(keys[0]).unwrap().local.elements[12], 1.);
+        arena.start_original_model_animation(model, 1).unwrap();
+        arena
+            .set_original_model_animation_blend(model, 1, 0.)
+            .unwrap();
+        arena.tick_original_model_animation(model, 40).unwrap();
+        assert_eq!(arena.state(keys[0]).unwrap().local.elements[12], 2.);
+        assert_eq!(arena.original_model_animation_time(model, 1).unwrap(), 40);
+        arena.close(model).unwrap();
+    }
+
+    #[test]
+    fn scale_and_multiple_slots_stop_before_current_evaluator_destination_writes() {
+        for multislot in [false, true] {
+            let mut arena = ModelArena::default();
+            let (model, keys) = load(&mut arena, parsed(&[b"moving"]));
+            arena.graph.assign_position(keys[0], [17., 0., 0.]).unwrap();
+            arena.update_frame(model.root()).unwrap();
+            let mut factory = Factory::default();
+            let animation = moving(&[(b"moving", if multislot { 2 } else { 10 })]);
+            arena
+                .set_original_model_animation(model, Some(&animation), 0, 1., 0, &mut factory)
+                .unwrap();
+            let second = moving(&[(b"moving", 4)]);
+            if multislot {
+                arena
+                    .set_original_model_animation(model, Some(&second), 1, 1., 0, &mut factory)
+                    .unwrap();
+            }
+            let result = arena.tick_original_model_animation(model, 40);
+            let expected = if multislot {
+                "multiple contributing slots"
+            } else {
+                "scale channel evaluation"
+            };
+            assert!(
+                matches!(result, Err(ModelAnimationTickError::Unsupported { feature, .. }) if feature == expected)
+            );
+            assert_eq!(arena.state(keys[0]).unwrap().local.elements[12], 17.);
+            let slot = arena
+                .original_model_controller(model)
+                .unwrap()
+                .unwrap()
+                .state()
+                .slots[0];
+            assert_eq!(
+                (slot.current, slot.previous, slot.last_delta),
+                (40, -40, 40)
+            );
+            assert!(matches!(
+                arena.tick_original_model_animation(model, 40),
+                Err(ModelAnimationTickError::Interrupted)
+            ));
+            assert_eq!(arena.original_model_animation_time(model, 0).unwrap(), 40);
+            arena.close(model).unwrap();
+        }
+    }
+
+    #[test]
+    fn boundary_callback_guard_runs_after_evaluation_and_previous_time_write() {
+        let mut arena = ModelArena::default();
+        let (model, keys) = load(&mut arena, parsed(&[b"moving"]));
+        let animation = moving(&[(b"moving", 2)]);
+        arena
+            .set_original_model_animation(
+                model,
+                Some(&animation),
+                0,
+                1.,
+                0,
+                &mut Factory::default(),
+            )
+            .unwrap();
+        arena.graph.change_flags(keys[0], 0, 0x800).unwrap();
+        // Flag0x800 does not require notification during an in-range tick.
+        arena.tick_original_model_animation(model, 40).unwrap();
+        arena
+            .set_original_model_animation_time(model, 0, 360)
+            .unwrap();
+        arena
+            .graph
+            .assign_position(model.root(), [3., 0., 0.])
+            .unwrap();
+        let root_before = *arena.state(model.root()).unwrap();
+        assert!(matches!(
+            arena.tick_original_model_animation(model, 40),
+            Err(ModelAnimationTickError::Unsupported {
+                feature: "animation boundary callback owner",
+                ..
+            })
+        ));
+        let slot = arena
+            .original_model_controller(model)
+            .unwrap()
+            .unwrap()
+            .state()
+            .slots[0];
+        assert_eq!(
+            (slot.current, slot.previous, slot.last_delta),
+            (400, 400, 40)
+        );
+        assert!(slot.enabled);
+        assert_eq!(arena.state(keys[0]).unwrap().local.elements[12], 10.);
+        assert_eq!(*arena.state(model.root()).unwrap(), root_before);
+        arena.close(model).unwrap();
+    }
+
+    #[test]
+    fn two_owned_ticks_refresh_actual_selected_skin_without_detached_pose_or_source_changes() {
+        let SkinFixture {
+            directory,
+            mut arena,
+            model,
+            keys,
+            source,
+        } = skin_fixture();
+        let visual = keys[0];
+        let animation = moving(&[(b"first", 6)]);
+        arena
+            .set_original_model_animation(
+                model,
+                Some(&animation),
+                0,
+                1.,
+                0,
+                &mut Factory::default(),
+            )
+            .unwrap();
+        arena.tick_original_model_animation(model, 0).unwrap();
+        assert!(arena.owned_singlemesh_lod0_vertices(visual, 0).is_err());
+        arena
+            .prepare_owned_selected_singlemesh_lod(visual, 0)
+            .unwrap();
+        let first = arena.owned_singlemesh_lod0_vertices(visual, 0).unwrap()[0].position;
+        arena.tick_original_model_animation(model, 80).unwrap();
+        assert!(arena.owned_singlemesh_lod0_vertices(visual, 0).is_err());
+        arena
+            .prepare_owned_selected_singlemesh_lod(visual, 0)
+            .unwrap();
+        let second = arena.owned_singlemesh_lod0_vertices(visual, 0).unwrap()[0].position;
+        assert_ne!(first, second);
+        assert_eq!(arena.state(keys[1]).unwrap().local.elements[12], 2.);
+        assert_eq!(source.frames[1].position, [4., 0., 0.]);
+        assert_eq!(source.frames[0].lods[0].vertices[0].position, [1., 2., 3.]);
+        assert_eq!(arena.original_model_animation_time(model, 0).unwrap(), 80);
+        arena.publish_runtime_buffers().unwrap();
+        arena.close(model).unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn failed_later_evaluator_keeps_clock_and_pose_prefix_but_cannot_present_old_skin_or_replay() {
+        let SkinFixture {
+            directory,
+            mut arena,
+            model,
+            keys,
+            ..
+        } = skin_fixture();
+        let visual = keys[0];
+        assert!(arena.owned_singlemesh_lod0_vertices(visual, 0).is_ok());
+        let animation = moving(&[(b"first", 2), (b"second", 8)]);
+        arena
+            .set_original_model_animation(
+                model,
+                Some(&animation),
+                0,
+                1.,
+                0,
+                &mut Factory::default(),
+            )
+            .unwrap();
+        let root = *arena.state(model.root()).unwrap();
+        assert!(matches!(
+            arena.tick_original_model_animation(model, 40),
+            Err(ModelAnimationTickError::Unsupported {
+                feature: "scale channel evaluation",
+                ..
+            })
+        ));
+        assert_eq!(arena.state(keys[1]).unwrap().local.elements[12], 1.);
+        assert_eq!(arena.state(keys[2]).unwrap().local.elements[12], 0.);
+        assert_eq!(*arena.state(model.root()).unwrap(), root);
+        let slot = arena
+            .original_model_controller(model)
+            .unwrap()
+            .unwrap()
+            .state()
+            .slots[0];
+        assert_eq!(
+            (slot.current, slot.previous, slot.last_delta),
+            (40, -40, 40)
+        );
+        let expected = ModelError::SkinPose(crate::singlemesh_pose::SkinPoseError::Source(
+            "model animation pose update interrupted",
+        ));
+        assert_eq!(
+            arena.owned_singlemesh_lod0_vertices(visual, 0),
+            Err(expected.clone())
+        );
+        assert_eq!(
+            arena.prepare_owned_selected_singlemesh_lod(visual, 0),
+            Err(expected)
+        );
+        assert!(matches!(
+            arena.tick_original_model_animation(model, 40),
+            Err(ModelAnimationTickError::Interrupted)
+        ));
+        let after = arena
+            .original_model_controller(model)
+            .unwrap()
+            .unwrap()
+            .state()
+            .slots[0];
+        assert_eq!(
+            (after.current, after.previous, after.last_delta),
+            (slot.current, slot.previous, slot.last_delta)
+        );
+        arena.publish_runtime_buffers().unwrap();
+        arena.close(model).unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn note_dispatch_guard_is_reached_after_current_evaluator_destination_writes() {
+        let SkinFixture {
+            directory,
+            mut arena,
+            model,
+            keys,
+            ..
+        } = skin_fixture();
+        let mut source = moving_source(&[(b"first", 2)]);
+        // File intake deliberately rejects unavailable note payloads. This
+        // synthetic resource reaches the required callback-owner guard itself.
+        Arc::make_mut(&mut source).tracks[0].flags |= 0x10;
+        let animation = LiveAnimationResource::new(source, 2).unwrap();
+        arena
+            .set_original_model_animation(
+                model,
+                Some(&animation),
+                0,
+                1.,
+                0,
+                &mut Factory::default(),
+            )
+            .unwrap();
+        arena.graph.change_flags(keys[1], 0, 0x200).unwrap();
+        assert!(matches!(
+            arena.tick_original_model_animation(model, 40),
+            Err(ModelAnimationTickError::Unsupported {
+                feature: "note callback/resource owner",
+                ..
+            })
+        ));
+        assert_eq!(arena.state(keys[1]).unwrap().local.elements[12], 1.);
+        assert!(matches!(
+            arena.owned_singlemesh_lod0_vertices(keys[0], 0),
+            Err(ModelError::SkinPose(_))
+        ));
+        let slot = arena
+            .original_model_controller(model)
+            .unwrap()
+            .unwrap()
+            .state()
+            .slots[0];
+        assert_eq!((slot.current, slot.previous), (40, -40));
+        arena.publish_runtime_buffers().unwrap();
+        arena.close(model).unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
     }
 }

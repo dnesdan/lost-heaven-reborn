@@ -989,10 +989,15 @@ mod tests {
 
     #[test]
     fn checked_normalize_admits_tiny_axes_and_preserves_native_branches() {
-        let bits = [0xbe9128ab, 0x26757ea0, 0x3f757ef2, 0xa5912437];
-        let mut rotation = SQuat {
-            wxyz: bits.map(f32::from_bits),
-        };
+        // Constructed [-3/5, 2^-50, 4/5, -2^-52], with independent tiny axes.
+        let components = [
+            -0.6,
+            f32::from_bits(0x26800000),
+            0.8,
+            -f32::from_bits(0x25800000),
+        ];
+        let bits = components.map(f32::to_bits);
+        let mut rotation = SQuat { wxyz: components };
         assert!(!rotation.is_verified_input());
         rotation.try_normalize().unwrap();
         assert_eq!(rotation.wxyz.map(f32::to_bits), bits);
