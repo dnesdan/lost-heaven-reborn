@@ -1133,7 +1133,7 @@ impl ModelArena {
                     if source.frames[source_index].visual == Some(5) {
                         owner.load_morph_mesh_instance(original)
                     } else if source.frames[source_index].visual == Some(4) {
-                        owner.load_billboard_instance(original)
+                        owner.load_billboard_mesh_instance(original)
                     } else {
                         owner.load_plain_instance(original)
                     }

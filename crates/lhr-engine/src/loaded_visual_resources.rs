@@ -982,6 +982,8 @@ impl LoadedVisualResources {
     }
     /// I3D_billboard::Duplicate retains the inherited mesh while the Frame
     /// duplicate owns its live orientation. The result remains a Billboard.
+    /// This host entry currently admits only Billboard sources; the native
+    /// Duplicate accepts additional visual classes that remain outside it.
     pub fn load_billboard_instance(
         &mut self,
         original: ObjectResourceKey,
@@ -991,6 +993,26 @@ impl LoadedVisualResources {
         }
         let source = self.objects.object(original)?;
         if source.visual_type() != crate::i3d_object::ObjectVisualType::Billboard {
+            return Err(LoadedVisualError::UnsupportedVisual(Some(4)));
+        }
+        self.load_billboard_mesh_instance(original)
+    }
+    /// LoadMeshImage (LS3DF 0x10061120) retains an earlier object's inherited
+    /// mesh, independently of the new frame's visual class. Billboard LoadImage
+    /// then reads its own orientation suffix. This is distinct from Duplicate.
+    pub(crate) fn load_billboard_mesh_instance(
+        &mut self,
+        original: ObjectResourceKey,
+    ) -> Result<ObjectResourceKey> {
+        if self.incomplete {
+            return Err(LoadedVisualError::IncompleteAdmission);
+        }
+        let source = self.objects.object(original)?;
+        if !matches!(
+            source.visual_type(),
+            crate::i3d_object::ObjectVisualType::Plain
+                | crate::i3d_object::ObjectVisualType::Billboard
+        ) {
             return Err(LoadedVisualError::UnsupportedVisual(Some(4)));
         }
         let mesh = source.mesh;
