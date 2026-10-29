@@ -1,8 +1,6 @@
 //! Actual SceneResources/arena ownership; only reset failures are injected.
 use super::*;
-use crate::itexture::{
-    CpuTextureStorage, TextureImageError, TextureImageSource, TextureResources,
-};
+use crate::itexture::{CpuTextureStorage, TextureImageError, TextureImageSource, TextureResources};
 use crate::native_precision::Pc24PrecisionState;
 use crate::scene_resources::SceneScreen;
 use std::cell::Cell;
@@ -81,8 +79,10 @@ impl Fixture {
             .unwrap()
     }
     fn prepare(&mut self) -> Result<(), SceneResourceError> {
-        Pc24PrecisionState::default()
-            .run(|| self.resources.prepare_mission_weather(&self.arena, self.scene))
+        Pc24PrecisionState::default().run(|| {
+            self.resources
+                .prepare_mission_weather(&self.arena, self.scene)
+        })
     }
     fn dispose(&mut self) {
         self.resources
@@ -135,7 +135,10 @@ fn weather_setup_resets_live_fields_then_disables_without_recreating_resources()
         assert_eq!(fixture.arena.live_frame_count(), frames);
         assert_eq!(fixture.resources.ws_ref_count(), 1);
         assert_eq!(fixture.resources.snow_texture(), Some(snow));
-        assert_eq!(fixture.textures.texture(snow).unwrap().references, references);
+        assert_eq!(
+            fixture.textures.texture(snow).unwrap().references,
+            references
+        );
         assert_eq!(fixture.image_reads.get(), 1);
         assert!(!fixture.entry().weather_setup_interrupted);
         fixture.dispose();
@@ -147,7 +150,8 @@ fn preparing_one_scene_keeps_another_scene_and_the_shared_snow_reference() {
     let mut fixture = Fixture::new();
     let second = fixture.arena.construct_scene_owner_prefix().unwrap();
     Pc24PrecisionState::default().run(|| {
-        fixture.resources
+        fixture
+            .resources
             .continue_constructor(
                 &fixture.arena,
                 second,
@@ -167,7 +171,8 @@ fn preparing_one_scene_keeps_another_scene_and_the_shared_snow_reference() {
     assert_eq!(fixture.resources.ws_ref_count(), 2);
     assert_eq!(fixture.resources.snow_texture(), snow);
     assert_eq!(fixture.image_reads.get(), 1);
-    fixture.resources
+    fixture
+        .resources
         .release_scene(
             &mut fixture.arena,
             second,
@@ -186,7 +191,9 @@ fn foreign_arena_with_equal_numeric_scene_key_is_rejected_before_reset() {
     assert_eq!(other, fixture.scene);
     let before = fixture.words();
     assert!(matches!(
-        fixture.resources.prepare_mission_weather_with(&foreign, other, |_| panic!("unreached")),
+        fixture
+            .resources
+            .prepare_mission_weather_with(&foreign, other, |_| panic!("unreached")),
         Err(SceneResourceError::UnsupportedDomain("foreign arena"))
     ));
     assert_eq!(fixture.words(), before);
@@ -220,7 +227,9 @@ fn incomplete_construction_never_enters_weather_reset() {
         let before = fixture.words();
         assert!(matches!(
             fixture.resources.prepare_mission_weather_with(
-                &fixture.arena, fixture.scene, |_| panic!("unreached")
+                &fixture.arena,
+                fixture.scene,
+                |_| panic!("unreached")
             ),
             Err(SceneResourceError::IncompleteConstruction(_))
         ));
@@ -245,9 +254,13 @@ fn destruction_prefix_is_rejected_even_when_the_scene_frame_is_still_alive() {
         let before = fixture.words();
         assert!(matches!(
             fixture.resources.prepare_mission_weather_with(
-                &fixture.arena, fixture.scene, |_| panic!("unreached")
+                &fixture.arena,
+                fixture.scene,
+                |_| panic!("unreached")
             ),
-            Err(SceneResourceError::UnsupportedDomain("scene destruction already entered"))
+            Err(SceneResourceError::UnsupportedDomain(
+                "scene destruction already entered"
+            ))
         ));
         assert_eq!(fixture.words(), before);
         assert!(!fixture.entry().weather_setup_interrupted);
@@ -270,15 +283,25 @@ fn failed_world_intake_and_in_progress_close_cannot_reset_weather() {
     for closing in [false, true] {
         let mut fixture = Fixture::new();
         if closing {
-            assert!(fixture.arena.close_scene_with_backend(fixture.scene, &mut Stop).is_err());
+            assert!(
+                fixture
+                    .arena
+                    .close_scene_with_backend(fixture.scene, &mut Stop)
+                    .is_err()
+            );
         } else {
             let index = fixture.arena.scene_index(fixture.scene).unwrap();
             fixture.arena.scenes[index].cpu_world_intake_active = true;
         }
         let before = fixture.words();
-        assert!(fixture.resources.prepare_mission_weather_with(
-            &fixture.arena, fixture.scene, |_| panic!("unreached")
-        ).is_err());
+        assert!(
+            fixture
+                .resources
+                .prepare_mission_weather_with(&fixture.arena, fixture.scene, |_| panic!(
+                    "unreached"
+                ))
+                .is_err()
+        );
         assert_eq!(fixture.words(), before);
         assert!(!fixture.entry().weather_setup_interrupted);
     }
@@ -289,7 +312,10 @@ fn retired_scene_keeps_its_receipt_but_cannot_restart_weather_or_shared_count() 
     let mut fixture = Fixture::new();
     fixture.dispose();
     let before = fixture.words();
-    assert!(matches!(fixture.prepare(), Err(SceneResourceError::AlreadyDestroyed(_))));
+    assert!(matches!(
+        fixture.prepare(),
+        Err(SceneResourceError::AlreadyDestroyed(_))
+    ));
     assert_eq!(fixture.words(), before);
     assert_eq!(fixture.resources.ws_ref_count(), 0);
     assert!(fixture.resources.snow_texture().is_none());
@@ -299,26 +325,31 @@ fn retired_scene_keeps_its_receipt_but_cannot_restart_weather_or_shared_count() 
 fn reset_error_preserves_its_prefix_does_not_disable_and_blocks_replay() {
     let mut fixture = Fixture::new();
     fixture.entry().words[0x298 / 4] = 0x41;
-    let error = fixture.resources.prepare_mission_weather_with(
-        &fixture.arena,
-        fixture.scene,
-        |words| {
-            assert_eq!(words[0x298 / 4], 0x41); // ON has not been cleared early.
-            words[0x298 / 4] = 0x47;
-            words[0x2b8 / 4] = 17f32.to_bits();
-            Err(WeatherResetUnavailable)
-        },
-    );
-    assert!(matches!(error, Err(SceneResourceError::UnsupportedDomain(
-        "mission weather numeric reset unavailable"
-    ))));
+    let error =
+        fixture
+            .resources
+            .prepare_mission_weather_with(&fixture.arena, fixture.scene, |words| {
+                assert_eq!(words[0x298 / 4], 0x41); // ON has not been cleared early.
+                words[0x298 / 4] = 0x47;
+                words[0x2b8 / 4] = 17f32.to_bits();
+                Err(WeatherResetUnavailable)
+            });
+    assert!(matches!(
+        error,
+        Err(SceneResourceError::UnsupportedDomain(
+            "mission weather numeric reset unavailable"
+        ))
+    ));
     assert_eq!(fixture.words()[0x298 / 4], 0x47);
     assert_eq!(fixture.words()[0x2b8 / 4], 17f32.to_bits());
     assert!(fixture.entry().weather_setup_interrupted);
     let before = fixture.words();
-    assert!(matches!(fixture.prepare(), Err(SceneResourceError::UnsupportedDomain(
-        "mission weather reset interrupted"
-    ))));
+    assert!(matches!(
+        fixture.prepare(),
+        Err(SceneResourceError::UnsupportedDomain(
+            "mission weather reset interrupted"
+        ))
+    ));
     assert_eq!(fixture.words(), before);
     // Numeric setup did not destroy resources; their canonical disposal remains valid.
     fixture.dispose();
@@ -328,14 +359,12 @@ fn reset_error_preserves_its_prefix_does_not_disable_and_blocks_replay() {
 fn unwound_reset_also_keeps_the_guard_before_a_later_call() {
     let mut fixture = Fixture::new();
     let unwind = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        fixture.resources.prepare_mission_weather_with(
-            &fixture.arena,
-            fixture.scene,
-            |words| {
+        fixture
+            .resources
+            .prepare_mission_weather_with(&fixture.arena, fixture.scene, |words| {
                 words[0x298 / 4] = 0x47;
                 panic!("synthetic host reset panic");
-            },
-        )
+            })
     }));
     assert!(unwind.is_err());
     assert_eq!(fixture.words()[0x298 / 4], 0x47);

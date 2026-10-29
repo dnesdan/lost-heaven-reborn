@@ -48,7 +48,10 @@ fn lighting_generation_wraps_without_saturating_or_resetting_other_sectors() {
     let mut arena = ModelArena::default();
     let a = arena.create_sector_frame().unwrap();
     let b = arena.create_sector_frame().unwrap();
-    arena.graph.sector_light_changes.insert(a.frame().0, u32::MAX);
+    arena
+        .graph
+        .sector_light_changes
+        .insert(a.frame().0, u32::MAX);
     arena.graph.sector_light_changes.insert(b.frame().0, 17);
     arena.set_sector_group_bits(a, 0).unwrap();
     assert_eq!(changes(&arena, a), 0);
@@ -80,7 +83,9 @@ fn only_the_primary_hierarchy_is_filled_including_sectors_below_non_sectors() {
         for sector in sectors.into_iter().chain([nested, detached]) {
             seed_bits(&mut arena, sector, 0x1357);
         }
-        arena.link_frame(branch, Some(sectors[0].frame()), 0).unwrap();
+        arena
+            .link_frame(branch, Some(sectors[0].frame()), 0)
+            .unwrap();
         arena.link_frame(nested.frame(), Some(branch), 0).unwrap();
         let count = arena.live_frame_count();
         let membership = arena.scene(scene).unwrap().frames().to_vec();
@@ -116,12 +121,16 @@ fn reverse_children_preserve_completed_subtrees_before_a_reached_owner_error() {
         let primary = arena.scene(scene).unwrap().sectors[0];
         for _ in 0..2 {
             let sector = arena.create_sector_frame().unwrap();
-            arena.link_frame(sector.frame(), Some(primary.frame()), 0).unwrap();
+            arena
+                .link_frame(sector.frame(), Some(primary.frame()), 0)
+                .unwrap();
         }
         let first = SectorKey(child_at(&arena, primary.frame(), 0).unwrap());
         let last = SectorKey(child_at(&arena, primary.frame(), 1).unwrap());
         let leaf = arena.create_sector_frame().unwrap();
-        arena.link_frame(leaf.frame(), Some(last.frame()), 0).unwrap();
+        arena
+            .link_frame(leaf.frame(), Some(last.frame()), 0)
+            .unwrap();
         let first_index = arena.sector_index(first).unwrap();
         arena.sectors[first_index].geometry.update_interrupted = true;
         assert_eq!(
@@ -255,9 +264,20 @@ fn load(session: &mut MissionLoadSession) -> Result<(), MissionLoadCallError> {
     )
 }
 fn discard(session: &mut MissionLoadSession) {
-    assert_eq!(session.discard_terminal(), Ok(()), "{:?}", session.discard_failure());
-    assert_eq!(session.discard_progress().phase, MissionDiscardPhase::Complete);
-    assert_eq!(session.owned_counts().unwrap(), MissionOwnedCounts::default());
+    assert_eq!(
+        session.discard_terminal(),
+        Ok(()),
+        "{:?}",
+        session.discard_failure()
+    );
+    assert_eq!(
+        session.discard_progress().phase,
+        MissionDiscardPhase::Complete
+    );
+    assert_eq!(
+        session.owned_counts().unwrap(),
+        MissionOwnedCounts::default()
+    );
 }
 
 #[test]
@@ -291,10 +311,22 @@ fn later_scene2_failure_keeps_group_changes_and_does_not_repeat_invalidation() {
     let primary = session.arena().scene(scene).unwrap().sectors[0];
     let loaded = SectorKey(session.world_progress().unwrap().frames()[0]);
     assert_eq!(bits(session.arena(), loaded), u32::MAX);
-    let before = [changes(session.arena(), primary), changes(session.arena(), loaded)];
+    let before = [
+        changes(session.arena(), primary),
+        changes(session.arena(), loaded),
+    ];
     assert_eq!(before, [1, 1]);
-    assert_eq!(load(&mut session), Err(MissionLoadCallError::AlreadyEntered));
-    assert_eq!([changes(session.arena(), primary), changes(session.arena(), loaded)], before);
+    assert_eq!(
+        load(&mut session),
+        Err(MissionLoadCallError::AlreadyEntered)
+    );
+    assert_eq!(
+        [
+            changes(session.arena(), primary),
+            changes(session.arena(), loaded)
+        ],
+        before
+    );
     discard(&mut session);
 }
 
@@ -305,7 +337,11 @@ fn failed_world_never_enters_group_initialization() {
     let mut session = fixture.session();
     assert_eq!(load(&mut session), Err(MissionLoadCallError::Stopped));
     assert_eq!(session.phase(), MissionLoadPhase::World);
-    let primary = session.arena().scene(session.scene().unwrap()).unwrap().sectors[0];
+    let primary = session
+        .arena()
+        .scene(session.scene().unwrap())
+        .unwrap()
+        .sectors[0];
     assert_eq!(bits(session.arena(), primary), 0);
     assert_eq!(changes(session.arena(), primary), 0);
     discard(&mut session);
