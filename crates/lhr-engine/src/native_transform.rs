@@ -534,6 +534,41 @@ impl SQuat {
         }
     }
 
+    /// Checked original Normalize, RVA0x30140. Unlike the generic transform
+    /// domain, this admits tiny normal components when every reached PC24
+    /// arithmetic result remains normal or zero. Extended-exponent paths stay
+    /// unavailable; no component is clamped or replaced to admit an input.
+    pub fn try_normalize(&mut self) -> Result<(), MakeUnavailable> {
+        let arithmetic = native_trig::Arithmetic::new();
+        let [w, x, y, z] = self.wxyz.map(|v| arithmetic.input(v));
+        let squared = ((w * w + x * x) + y * y) + z * z;
+        arithmetic.finish()?;
+        let mut result = *self;
+        if squared.value <= 1e-8_f32 {
+            result.wxyz[0] = 0.;
+            let axis = if x.value != 0. {
+                1
+            } else if z.value != 0. {
+                3
+            } else {
+                2
+            };
+            result.wxyz[axis] = if result.wxyz[axis] < 0. { -1. } else { 1. };
+        } else {
+            let difference = (squared - arithmetic.input(1.)).abs();
+            arithmetic.finish()?;
+            if f64::from(difference.value) >= f64::from(1e-8_f32) {
+                let reciprocal = arithmetic.input(1.) / squared.sqrt();
+                for axis in [1, 2, 3, 0] {
+                    result.wxyz[axis] = (arithmetic.input(self.wxyz[axis]) * reciprocal).value;
+                }
+                arithmetic.finish()?;
+            }
+        }
+        *self = result;
+        Ok(())
+    }
+
     /// Original `S_quat::Normalize`, RVA0x30140, under the verified input policy.
     /// Degenerate input selects X, then Z, then Y, preserving other components;
     /// an all-zero quaternion therefore becomes [0,0,1,0], not identity.
@@ -950,6 +985,48 @@ mod tests {
             wxyz: [1., 1e-20, 0., 0.]
         }
         .is_verified_input());
+    }
+
+    #[test]
+    fn checked_normalize_admits_tiny_axes_and_preserves_native_branches() {
+        let bits = [0xbe9128ab, 0x26757ea0, 0x3f757ef2, 0xa5912437];
+        let mut rotation = SQuat {
+            wxyz: bits.map(f32::from_bits),
+        };
+        assert!(!rotation.is_verified_input());
+        rotation.try_normalize().unwrap();
+        assert_eq!(rotation.wxyz.map(f32::to_bits), bits);
+        let mut scaled = SQuat {
+            wxyz: [2., 1e-16, 0., -0.],
+        };
+        scaled.try_normalize().unwrap();
+        assert_eq!(
+            scaled.wxyz.map(f32::to_bits),
+            [1., 5e-17, 0., -0.].map(f32::to_bits)
+        );
+        let mut tiny = SQuat {
+            wxyz: [1e-16, -1e-16, 2e-16, 3e-16],
+        };
+        tiny.try_normalize().unwrap();
+        assert_eq!(tiny.wxyz, [0., -1., 2e-16, 3e-16]);
+        let mut zero = SQuat { wxyz: [-0.; 4] };
+        zero.try_normalize().unwrap();
+        assert_eq!(
+            zero.wxyz.map(f32::to_bits),
+            [0, 0x80000000, 0x3f800000, 0x80000000]
+        );
+    }
+
+    #[test]
+    fn checked_normalize_retains_unavailable_input_without_partial_output() {
+        for value in [1e-20, f32::MIN_POSITIVE, f32::MAX, f32::INFINITY, f32::NAN] {
+            let mut rotation = SQuat {
+                wxyz: [1., value, 0., 0.],
+            };
+            let bits = rotation.wxyz.map(f32::to_bits);
+            assert!(rotation.try_normalize().is_err());
+            assert_eq!(rotation.wxyz.map(f32::to_bits), bits);
+        }
     }
 
     #[test]

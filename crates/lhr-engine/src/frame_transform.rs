@@ -1108,18 +1108,17 @@ impl I3dFrameGraph {
         Ok(())
     }
     /// Observed animation assignment: copy, original Normalize, then invalidate.
-    /// Availability is checked before Normalize; a later matrix operation must
-    /// recheck its resulting quaternion, including tiny normalized components.
+    /// Normalize checks each reached arithmetic intermediate; later matrix
+    /// operations independently check their own numeric availability.
     pub fn assign_rotation(
         &mut self,
         key: FrameKey,
         mut rotation: SQuat,
     ) -> Result<(), FrameError> {
         self.index(key)?;
-        if !rotation.is_verified_input() {
-            return Err(FrameError::NumericDomain("Normalize"));
-        }
-        rotation.normalize();
+        rotation
+            .try_normalize()
+            .map_err(|_| FrameError::NumericDomain("Normalize"))?;
         let state = &mut self.node_mut(key)?.state;
         state.rotation = rotation;
         state.flags = (state.flags & 0xfffffecb) | 0x40000008;
@@ -2109,6 +2108,31 @@ mod tests {
             Err(roll_error)
         );
         assert_eq!(graph.state(child).unwrap().flags & 0x4000003c, 0x40000010);
+    }
+
+    #[test]
+    fn assigned_tiny_rotation_reaches_local_matrix_without_clamping() {
+        let mut graph = I3dFrameGraph::default();
+        let key = graph.insert(I3dFrameState::dummy()).unwrap();
+        let rotation = SQuat {
+            wxyz: [0.5, 1e-16, 0.5, -1e-16],
+        };
+        graph.assign_rotation(key, rotation).unwrap();
+        let assigned = graph.state(key).unwrap().rotation;
+        assert!(assigned.wxyz[1] > 0. && assigned.wxyz[1] < 1e-12);
+        assert!(assigned.wxyz[3] < 0. && assigned.wxyz[3] > -1e-12);
+        graph.local_matrix(key).unwrap();
+        let before = *graph.state(key).unwrap();
+        assert_eq!(
+            graph.assign_rotation(
+                key,
+                SQuat {
+                    wxyz: [1., 1e-20, 0., 0.]
+                }
+            ),
+            Err(FrameError::NumericDomain("Normalize"))
+        );
+        assert_eq!(*graph.state(key).unwrap(), before);
     }
 
     #[test]
