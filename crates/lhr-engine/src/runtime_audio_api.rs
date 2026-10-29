@@ -2,7 +2,7 @@
 //! Legacy numeric slots are decoded only at the compatibility entry below.
 #![forbid(unsafe_code)]
 
-use super::{finite, near_equal, sound_mut, update_sound, AudioError, Mixer, Result, RuntimeAudio};
+use super::{AudioError, Mixer, Result, RuntimeAudio, finite, near_equal, sound_mut, update_sound};
 use super::{SoundFrameOwner, SoundState};
 use crate::frame_transform::FrameKey;
 use std::sync::{Arc, Mutex, Weak};
@@ -24,6 +24,30 @@ impl PartialEq for SoundId {
     }
 }
 impl Eq for SoundId {}
+
+impl SoundId {
+    pub(super) fn check_owner(&self, audio: &RuntimeAudio) -> Result<()> {
+        if !Weak::ptr_eq(&self.owner, &Arc::downgrade(&audio.0)) {
+            return Err(AudioError(
+                "sound belongs to a different audio owner".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Only the audio owner may translate an ID while holding its mixer lock.
+    /// The returned compatibility handle must not survive that lock scope.
+    pub(super) fn checked_handle(&self, mixer: &Mixer) -> Result<u32> {
+        if !mixer
+            .sounds
+            .get(&self.handle)
+            .is_some_and(|sound| sound.generation == self.generation)
+        {
+            return Err(AudioError("stale sound identity".into()));
+        }
+        Ok(self.handle)
+    }
+}
 
 /// Descriptive names for the existing runtime's four source sound kinds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -156,22 +180,12 @@ impl RuntimeAudio {
     }
 
     fn sound_command(&self, id: &SoundId, command: Command) -> Result<u32> {
-        if !Weak::ptr_eq(&id.owner, &Arc::downgrade(&self.0)) {
-            return Err(AudioError(
-                "sound belongs to a different audio owner".into(),
-            ));
-        }
+        id.check_owner(self)?;
         let mut mixer = self.lock()?;
-        if !mixer
-            .sounds
-            .get(&id.handle)
-            .is_some_and(|sound| sound.generation == id.generation)
-        {
-            return Err(AudioError("stale sound identity".into()));
-        }
+        let handle = id.checked_handle(&mixer)?;
         // Liveness validation and the operation share this lock. No raw-handle
         // lookup, release or reuse can intervene between them.
-        apply(&mut mixer, id.handle, command)
+        apply(&mut mixer, handle, command)
     }
 
     /// Release only when the caller owns the existing frame's release operation.
