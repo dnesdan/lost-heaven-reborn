@@ -7,7 +7,7 @@ use crate::{
     interpolator::{
         AllocationId, AnimSetId, EvaluatorId, InterpolatorBackend, InterpolatorSet, TickError,
     },
-    model_loading::{MaterializedModel, ModelError},
+    model_loading::{MaterializedModel, ModelArena, ModelError, SharedAnimationModel},
     model_tick::{ModelBackend, ModelTickState, ModelVTableId},
     rotation_animation::sample_rotation_channel,
     scene_tick::{FrameId, InterpolatorId},
@@ -15,6 +15,79 @@ use crate::{
 };
 use lhr_assets::{animation::AnimationSet, Model};
 use std::{fmt, sync::Arc};
+
+mod sealed {
+    pub trait Target {}
+    impl Target for super::MaterializedModel {}
+    impl Target for super::SharedAnimationModel<'_> {}
+}
+/// Actual mutable model owners admitted by explicit host playback. This does
+/// not install the original model controller or choose a game animation.
+pub trait SkeletalPlaybackModel: sealed::Target {
+    fn playback_mapping(&self) -> Result<(Arc<Model>, Vec<FrameKey>), ModelError>;
+    fn playback_arena(&self) -> &ModelArena;
+    fn playback_root(&self) -> FrameKey;
+    fn playback_epoch(&self) -> Result<u64, ModelError>;
+    fn playback_mark_animated(&mut self, frame: FrameKey) -> Result<(), ModelError>;
+    fn playback_apply(&mut self, sample: SampledFrame) -> Result<(), ModelError>;
+    fn playback_update(&mut self) -> Result<(), ModelError>;
+    fn playback_prepare_pose(&mut self) -> Result<(), ModelError>;
+}
+impl SkeletalPlaybackModel for MaterializedModel {
+    fn playback_mapping(&self) -> Result<(Arc<Model>, Vec<FrameKey>), ModelError> {
+        if !self.is_complete() {
+            return Err(ModelError::IncompleteModel);
+        }
+        Ok((Arc::clone(self.source()), self.source_frame_keys().to_vec()))
+    }
+    fn playback_arena(&self) -> &ModelArena {
+        self.arena()
+    }
+    fn playback_root(&self) -> FrameKey {
+        self.root()
+    }
+    fn playback_epoch(&self) -> Result<u64, ModelError> {
+        self.lifecycle_epoch()
+    }
+    fn playback_mark_animated(&mut self, frame: FrameKey) -> Result<(), ModelError> {
+        self.mark_animated(frame)
+    }
+    fn playback_apply(&mut self, sample: SampledFrame) -> Result<(), ModelError> {
+        self.apply_animation_sample(sample)
+    }
+    fn playback_update(&mut self) -> Result<(), ModelError> {
+        self.update_animation_model()
+    }
+    fn playback_prepare_pose(&mut self) -> Result<(), ModelError> {
+        self.prepare_skin_pose()
+    }
+}
+impl SkeletalPlaybackModel for SharedAnimationModel<'_> {
+    fn playback_mapping(&self) -> Result<(Arc<Model>, Vec<FrameKey>), ModelError> {
+        self.source_mapping()
+    }
+    fn playback_arena(&self) -> &ModelArena {
+        self.arena()
+    }
+    fn playback_root(&self) -> FrameKey {
+        self.root()
+    }
+    fn playback_epoch(&self) -> Result<u64, ModelError> {
+        self.lifecycle_epoch()
+    }
+    fn playback_mark_animated(&mut self, frame: FrameKey) -> Result<(), ModelError> {
+        self.mark_animated(frame)
+    }
+    fn playback_apply(&mut self, sample: SampledFrame) -> Result<(), ModelError> {
+        self.apply_animation_sample(sample)
+    }
+    fn playback_update(&mut self) -> Result<(), ModelError> {
+        self.update_animation_model()
+    }
+    fn playback_prepare_pose(&mut self) -> Result<(), ModelError> {
+        self.prepare_skin_pose()
+    }
+}
 
 #[derive(Debug)]
 pub enum SkeletalPlaybackError {
@@ -42,7 +115,7 @@ impl From<ModelError> for SkeletalPlaybackError {
 #[derive(Debug)]
 pub struct SkeletalPlayback {
     source: Arc<Model>,
-    identity: Arc<()>,
+    identity: crate::script_scheduler::FrameReferenceId,
     lifecycle_epoch: u64,
     binding: SkeletalAnimation,
     controller: IPolSet,
@@ -54,7 +127,7 @@ pub struct SkeletalPlayback {
 // Arc references. IDs model their identity; free/retain/release callbacks are
 // intentionally bookkeeping-free because the owning Rust fields perform them.
 struct Resources<'a> {
-    model: Option<&'a mut MaterializedModel>,
+    model: Option<&'a mut dyn SkeletalPlaybackModel>,
     next: u32,
 }
 impl ControllerResourceBackend for Resources<'_> {
@@ -83,7 +156,7 @@ impl ControllerResourceBackend for Resources<'_> {
         self.model
             .as_mut()
             .expect("binding resource context")
-            .mark_animated(destination)
+            .playback_mark_animated(destination)
             .expect("validated destination");
     }
 }
@@ -91,37 +164,34 @@ impl SkeletalPlayback {
     /// Bind slot0 with unit weight and explicit loop mode2. This is a host
     /// playback request, not an inferred game animation selection/default.
     pub fn new(
-        model: &mut MaterializedModel,
+        model: &mut impl SkeletalPlaybackModel,
         animation: Arc<AnimationSet>,
     ) -> Result<Self, SkeletalPlaybackError> {
-        if !model.is_complete() || animation.duration_ms() == 0 {
+        if animation.duration_ms() == 0 {
             return Err(SkeletalPlaybackError::Unsupported(
                 "complete model and positive animation duration required",
             ));
         }
-        let binding = SkeletalAnimation::new(
-            model.source(),
-            Arc::clone(&animation),
-            model.source_frame_keys(),
-        )
-        .map_err(|e| SkeletalPlaybackError::Sampling(format!("{e:?}")))?;
+        let (source, keys) = model.playback_mapping()?;
+        let binding = SkeletalAnimation::new(&source, Arc::clone(&animation), &keys)
+            .map_err(|e| SkeletalPlaybackError::Sampling(format!("{e:?}")))?;
         if binding.bindings().is_empty() {
             return Err(SkeletalPlaybackError::Unsupported(
                 "no matching animation channels",
             ));
         }
         for binding in binding.bindings() {
-            if model.arena().state(binding.frame)?.flags & 0x800 != 0 {
+            if model.playback_arena().state(binding.frame)?.flags & 0x800 != 0 {
                 return Err(SkeletalPlaybackError::Unsupported(
                     "animation boundary notification backend required",
                 ));
             }
         }
-        let source = Arc::clone(model.source());
-        let identity = Arc::clone(model.identity());
-        let lifecycle_epoch = model.lifecycle_epoch()?;
-        let keys = model.source_frame_keys().to_vec();
-        let mut controller = IPolSet::new(model.root(), false);
+        let identity = model
+            .playback_arena()
+            .lookup_reference(model.playback_root());
+        let lifecycle_epoch = model.playback_epoch()?;
+        let mut controller = IPolSet::new(model.playback_root(), false);
         let resource = AnimationResource {
             id: AnimSetId(1),
             source: animation,
@@ -165,14 +235,30 @@ impl SkeletalPlayback {
     pub fn controller(&self) -> &IPolSet {
         &self.controller
     }
-    pub fn validate_model(&self, model: &MaterializedModel) -> Result<(), SkeletalPlaybackError> {
+    pub fn validate_model(
+        &self,
+        model: &dyn SkeletalPlaybackModel,
+    ) -> Result<(), SkeletalPlaybackError> {
         if self.poisoned {
             return Err(SkeletalPlaybackError::Poisoned);
         }
-        if !Arc::ptr_eq(&self.identity, model.identity())
-            || !Arc::ptr_eq(&self.source, model.source())
-            || !model.is_complete()
-            || model.lifecycle_epoch()? != self.lifecycle_epoch
+        if self.identity
+            != model
+                .playback_arena()
+                .lookup_reference(model.playback_root())
+            || model.playback_epoch()? != self.lifecycle_epoch
+        {
+            return Err(SkeletalPlaybackError::Identity);
+        }
+        let (source, keys) = model
+            .playback_mapping()
+            .map_err(|_| SkeletalPlaybackError::Identity)?;
+        if !Arc::ptr_eq(&self.source, &source)
+            || self
+                .binding
+                .bindings()
+                .iter()
+                .any(|binding| keys.get(binding.frame_index) != Some(&binding.frame))
         {
             return Err(SkeletalPlaybackError::Identity);
         }
@@ -180,7 +266,7 @@ impl SkeletalPlayback {
         // the parsed source. Validate every binding before advancing the clock
         // or writing an earlier destination in the evaluator sequence.
         for binding in self.binding.bindings() {
-            model.arena().frame(binding.frame)?;
+            model.playback_arena().frame(binding.frame)?;
         }
         Ok(())
     }
@@ -217,7 +303,7 @@ impl SkeletalPlayback {
     /// preserves last_delta and resource identity, and makes the set dirty.
     pub fn restart_animation(
         &mut self,
-        model: &mut MaterializedModel,
+        model: &mut impl SkeletalPlaybackModel,
         mode: i32,
     ) -> Result<(), SkeletalPlaybackError> {
         self.validate_model(model)?;
@@ -231,7 +317,7 @@ impl SkeletalPlayback {
             .animation(0)
             .cloned()
             .ok_or(SkeletalPlaybackError::Identity)?;
-        let keys = model.source_frame_keys().to_vec();
+        let (_, keys) = model.playback_mapping()?;
         // Same-resource rebinding reuses every existing evaluator. Fresh IDs
         // remain distinct should that invariant ever be violated.
         let next = self
@@ -306,7 +392,7 @@ impl SkeletalPlayback {
     /// exceptions inside the destination write sequence. Failure poisons playback.
     pub fn tick(
         &mut self,
-        model: &mut MaterializedModel,
+        model: &mut impl SkeletalPlaybackModel,
         delta: i32,
     ) -> Result<bool, SkeletalPlaybackError> {
         self.validate_model(model)?;
@@ -340,7 +426,7 @@ impl SkeletalPlayback {
             self.poisoned = true;
             return Err(error);
         }
-        if let Err(error) = model.prepare_skin_pose() {
+        if let Err(error) = model.playback_prepare_pose() {
             self.poisoned = true;
             return Err(error.into());
         }
@@ -361,7 +447,7 @@ impl Drop for SkeletalPlayback {
 
 struct PlaybackBackend<'a> {
     controller: &'a IPolSet,
-    model: &'a mut MaterializedModel,
+    model: &'a mut dyn SkeletalPlaybackModel,
     state: &'a mut InterpolatorSet,
     allocation: AllocationId,
     failure: Option<SkeletalPlaybackError>,
@@ -395,7 +481,7 @@ impl ModelBackend for PlaybackBackend<'_> {
         if table != ModelVTableId(0x1009c160) {
             return Err(SkeletalPlaybackError::Identity);
         }
-        self.model.update_animation_model().map_err(Into::into)
+        self.model.playback_update().map_err(Into::into)
     }
 }
 impl PlaybackBackend<'_> {
@@ -435,7 +521,7 @@ impl PlaybackBackend<'_> {
             .map(|c| sample_rotation_channel(c, time))
             .transpose()
             .map_err(|e| SkeletalPlaybackError::Sampling(format!("{e:?}")))?;
-        self.model.apply_animation_sample(SampledFrame {
+        self.model.playback_apply(SampledFrame {
             frame: evaluator.destination,
             position,
             rotation,
@@ -474,7 +560,7 @@ impl InterpolatorBackend for PlaybackBackend<'_> {
         let frame = FrameId(evaluator.destination.0);
         let state = self
             .model
-            .arena()
+            .playback_arena()
             .state(evaluator.destination)
             .map_err(|_| TickError::MissingFrame(frame))?;
         if state.flags & 0x800 != 0 {
@@ -707,5 +793,178 @@ mod tests {
             (after.current, after.previous, after.last_delta),
             (before.current, before.previous, before.last_delta)
         );
+    }
+    #[test]
+    fn shared_playback_borrows_actual_models_and_rejects_foreign_owner_and_reload() {
+        let (model, animation) = lifecycle_fixture();
+        let source = Arc::clone(model.source());
+        let mut arena = ModelArena::default();
+        let first = arena.create_model().unwrap();
+        let first_content = arena
+            .load_parsed_into_model(first, Arc::clone(&source))
+            .unwrap();
+        let second = arena.create_model().unwrap();
+        let second_content = arena
+            .load_parsed_into_model(second, Arc::clone(&source))
+            .unwrap();
+        let mut playback = SkeletalPlayback::new(
+            &mut SharedAnimationModel::borrow(&mut arena, first).unwrap(),
+            Arc::clone(&animation),
+        )
+        .unwrap();
+        playback
+            .tick(
+                &mut SharedAnimationModel::borrow(&mut arena, first).unwrap(),
+                80,
+            )
+            .unwrap();
+        assert_eq!(
+            arena
+                .world_matrix(first_content.frames()[0])
+                .unwrap()
+                .elements[12],
+            2.
+        );
+        assert_eq!(
+            arena
+                .world_matrix(second_content.frames()[0])
+                .unwrap()
+                .elements[12],
+            0.
+        );
+        assert_eq!(arena.original_model_animation_set(first, 0).unwrap(), None);
+        let before = playback.controller().state().slots[0];
+        assert!(matches!(
+            playback.tick(
+                &mut SharedAnimationModel::borrow(&mut arena, second).unwrap(),
+                40
+            ),
+            Err(SkeletalPlaybackError::Identity)
+        ));
+        let mut foreign = ModelArena::default();
+        let foreign_model = foreign.create_model().unwrap();
+        foreign
+            .load_parsed_into_model(foreign_model, Arc::clone(&source))
+            .unwrap();
+        assert_eq!(first, foreign_model);
+        assert!(matches!(
+            playback.tick(
+                &mut SharedAnimationModel::borrow(&mut foreign, foreign_model).unwrap(),
+                40
+            ),
+            Err(SkeletalPlaybackError::Identity)
+        ));
+        arena.close(first).unwrap();
+        let replacement = arena.load_parsed_into_model(first, source).unwrap();
+        assert_ne!(replacement.frames(), first_content.frames());
+        assert!(matches!(
+            playback.tick(
+                &mut SharedAnimationModel::borrow(&mut arena, first).unwrap(),
+                40
+            ),
+            Err(SkeletalPlaybackError::Identity)
+        ));
+        let after = playback.controller().state().slots[0];
+        assert_eq!(
+            (after.current, after.previous, after.last_delta),
+            (before.current, before.previous, before.last_delta)
+        );
+        // Dropping host playback never closes another owner's model or claims
+        // the original native controller slot. Other models remain usable.
+        let weak = Arc::downgrade(&animation);
+        drop(animation);
+        drop(playback);
+        assert!(weak.upgrade().is_none());
+        arena.close(first).unwrap();
+        assert!(arena.frame(second_content.frames()[0]).is_ok());
+        arena.close(second).unwrap();
+    }
+
+    #[test]
+    fn shared_view_rereads_membership_and_rejects_incomplete_mapping() {
+        let (model, _) = lifecycle_fixture();
+        let source = Arc::clone(model.source());
+        let mut arena = ModelArena::default();
+        let key = arena.create_model().unwrap();
+        assert!(SharedAnimationModel::borrow(&mut arena, key).is_err());
+        let content = arena.load_parsed_into_model(key, source).unwrap();
+        let frame = content.frames()[0];
+        arena.retain(frame).unwrap();
+        arena.delete_frame(key, frame).unwrap();
+        assert!(SharedAnimationModel::borrow(&mut arena, key).is_err());
+        assert!(arena.frame(frame).is_ok());
+        arena.release(frame).unwrap();
+    }
+
+    #[test]
+    fn shared_playback_refreshes_actual_owned_skin_and_retains_failed_tick_prefix() {
+        let (_, animation) = lifecycle_fixture();
+        let mut source = crate::model_loading::tests::skinned_source();
+        let joint = &mut Arc::make_mut(&mut source).frames[1];
+        joint.name = "channel".into();
+        joint.name_bytes = b"channel".to_vec();
+        let directory = std::env::temp_dir().join(format!(
+            "lhr-shared-playback-{}-{}",
+            std::process::id(),
+            crate::frame_lookup::incarnation()
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let installation = lhr_assets::Installation::open(&directory).unwrap();
+        let mut arena = ModelArena::default();
+        let model = arena.create_model().unwrap();
+        let content = arena
+            .load_parsed_into_model(model, Arc::clone(&source))
+            .unwrap();
+        arena
+            .load_plain_visual_resources(model, &installation)
+            .unwrap();
+        let visual = content.frames()[0];
+        let mut playback = SkeletalPlayback::new(
+            &mut SharedAnimationModel::borrow(&mut arena, model).unwrap(),
+            Arc::clone(&animation),
+        )
+        .unwrap();
+        let before = arena.owned_singlemesh_lod0_vertices(visual, 0).unwrap()[0].position;
+        playback
+            .tick(
+                &mut SharedAnimationModel::borrow(&mut arena, model).unwrap(),
+                80,
+            )
+            .unwrap();
+        let after = arena.owned_singlemesh_lod0_vertices(visual, 0).unwrap()[0].position;
+        assert_ne!(before, after);
+        assert_eq!(
+            arena.state(content.frames()[1]).unwrap().local.elements[12],
+            2.
+        );
+        assert_eq!(source.frames[1].position, [4., 0., 0.]);
+        drop(playback);
+        arena.publish_runtime_buffers().unwrap();
+        arena.close(model).unwrap();
+
+        // Without the visual resource owner the evaluator still writes its
+        // reached position/time prefix, then pose publication fails. Replay is
+        // poisoned rather than silently accepting a static or detached pose.
+        let bare = arena.create_model().unwrap();
+        let content = arena.load_parsed_into_model(bare, source).unwrap();
+        let playback = SkeletalPlayback::new(
+            &mut SharedAnimationModel::borrow(&mut arena, bare).unwrap(),
+            animation,
+        );
+        assert!(playback.is_err());
+        assert_eq!(
+            arena.state(content.frames()[1]).unwrap().local.elements[12],
+            0.
+        );
+        // The constructor failed after its zero-time evaluator write; no host
+        // controller was installed in the original slot or leaked to the arena.
+        assert_eq!(arena.original_model_animation_set(bare, 0).unwrap(), None);
+        drop(playback);
+        arena
+            .load_plain_visual_resources(bare, &installation)
+            .unwrap();
+        arena.publish_runtime_buffers().unwrap();
+        arena.close(bare).unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
     }
 }

@@ -294,6 +294,101 @@ pub struct ModelArena {
     static_load_profile: Option<StaticModelLoadProfile>,
     loaded_visual_resources: Option<crate::loaded_visual_resources::LoadedVisualResources>,
 }
+/// Borrowed target for explicit host skeletal playback in the actual shared
+/// scene arena. It owns no frames, controller, source mapping or pose copy.
+/// Original game animation selection and the model's native controller producer
+/// remain separate, unsupported operations.
+pub struct SharedAnimationModel<'a> {
+    arena: &'a mut ModelArena,
+    model: ModelKey,
+}
+impl<'a> SharedAnimationModel<'a> {
+    pub fn borrow(arena: &'a mut ModelArena, model: ModelKey) -> Result<Self, ModelError> {
+        let view = Self { arena, model };
+        view.source_mapping()?;
+        Ok(view)
+    }
+    /// Re-read current membership, source identity and source indices.
+    /// Incomplete mappings, mixed sources and external surviving frames cannot
+    /// stand in for the model's current source hierarchy.
+    pub(crate) fn source_mapping(&self) -> Result<(Arc<Model>, Vec<FrameKey>), ModelError> {
+        let loaded = self.arena.model(self.model)?;
+        if loaded.closing {
+            return Err(ModelError::CloseIncomplete(self.model));
+        }
+        if loaded.original_ipol_set.is_some() {
+            return Err(ModelError::UnsupportedActiveModelController(self.model));
+        }
+        let source = loaded
+            .frames
+            .first()
+            .and_then(|key| self.arena.frame(*key).ok())
+            .and_then(|frame| frame.source.as_ref())
+            .cloned()
+            .ok_or(ModelError::IncompleteModel)?;
+        let mut keys = vec![None; source.frames.len()];
+        for &key in &loaded.frames {
+            let frame = self.arena.frame(key)?;
+            let index = frame.source_index.ok_or(ModelError::AnimationIdentity)?;
+            if frame.owner != Some(crate::scene_ownership::FrameOwner::Model(self.model))
+                || !frame
+                    .source
+                    .as_ref()
+                    .is_some_and(|s| Arc::ptr_eq(s, &source))
+                || index >= keys.len()
+                || keys[index].replace(key).is_some()
+            {
+                return Err(ModelError::AnimationIdentity);
+            }
+        }
+        let keys = keys
+            .into_iter()
+            .collect::<Option<Vec<_>>>()
+            .ok_or(ModelError::IncompleteModel)?;
+        Ok((source, keys))
+    }
+    pub(crate) fn arena(&self) -> &ModelArena {
+        self.arena
+    }
+    pub(crate) fn root(&self) -> FrameKey {
+        self.model.root()
+    }
+    pub(crate) fn lifecycle_epoch(&self) -> Result<u64, ModelError> {
+        self.arena.lifecycle_epoch(self.model)
+    }
+    pub(crate) fn mark_animated(&mut self, frame: FrameKey) -> Result<(), ModelError> {
+        self.arena.graph.mark_animated(frame)?;
+        Ok(())
+    }
+    pub(crate) fn apply_animation_sample(
+        &mut self,
+        sample: crate::skeletal_animation::SampledFrame,
+    ) -> Result<(), ModelError> {
+        if let Some(position) = sample.position {
+            self.arena.graph.assign_position(sample.frame, position)?;
+        }
+        if let Some(rotation) = sample.rotation {
+            self.arena
+                .graph
+                .apply_evaluated_rotation(sample.frame, rotation)?;
+        }
+        Ok(())
+    }
+    pub(crate) fn update_animation_model(&mut self) -> Result<(), ModelError> {
+        self.arena.update_frame(self.model.root())
+    }
+    pub(crate) fn prepare_skin_pose(&mut self) -> Result<(), ModelError> {
+        // Shared rendering owns its real pose and refreshes lazily after Joint
+        // invalidation. Never build the detached MaterializedModel pose here.
+        let (_, keys) = self.source_mapping()?;
+        for key in keys {
+            if self.arena.state(key)?.kind == FrameKind::Singlemesh {
+                self.arena.refresh_owned_singlemesh_pose(key)?;
+            }
+        }
+        Ok(())
+    }
+}
 impl ModelArena {
     pub(crate) fn mark_loaded_model_root(&mut self, key: FrameKey) -> Result<(), ModelError> {
         self.graph.mark_loaded_root_fields(key)?;
@@ -2960,6 +3055,10 @@ mod original_controller_admission_tests {
             arena.close(model),
             Err(ModelError::UnsupportedActiveModelController(model))
         );
+        assert!(matches!(
+            SharedAnimationModel::borrow(&mut arena, model),
+            Err(ModelError::UnsupportedActiveModelController(key)) if key == model
+        ));
         assert_eq!(
             arena.models[i].original_ipol_set,
             Some(crate::scene_tick::InterpolatorId(7))
