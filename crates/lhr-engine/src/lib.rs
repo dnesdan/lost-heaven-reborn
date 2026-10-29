@@ -38,6 +38,8 @@ pub mod collision_world_driving;
 pub mod collision_world_driving_contacts;
 pub mod crash_actor;
 pub mod crash_actors;
+pub mod cutscene_owner;
+pub mod cutscene_source;
 pub mod debris;
 pub mod driver_scene;
 pub mod driver_state;
