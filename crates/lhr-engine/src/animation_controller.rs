@@ -12,7 +12,10 @@ use crate::{
     interpolator::{AllocationId, AnimSetId, EvaluatorId, InterpolatorSet, Slot},
 };
 use lhr_assets::{animation::AnimationSet, Model};
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicI32, AtomicU32, Ordering},
+    Arc,
+};
 
 /// The native weight parameter/getter passes through x87 FLD/FSTP. With the
 /// evidenced masked exceptions this quiets signaling NaNs, preserving sign and
@@ -32,6 +35,100 @@ pub struct AnimationResource {
     pub source: Arc<AnimationSet>,
     /// Native animation object +8, separate from the serialized payload.
     pub default_mode: i32,
+}
+
+static NEXT_LIVE_ANIMATION: AtomicU32 = AtomicU32::new(1);
+
+#[derive(Debug)]
+struct LiveAnimationObject {
+    id: AnimSetId,
+    source: Arc<AnimationSet>,
+    default_mode: AtomicI32,
+}
+
+/// Actual shared animation-resource owner. Separate resource objects may share
+/// immutable parsed channels while retaining independent identity and mode.
+/// Clones alias the same mode word; SetAnimation reads it after retain effects.
+#[derive(Clone, Debug)]
+pub struct LiveAnimationResource(Arc<LiveAnimationObject>);
+impl LiveAnimationResource {
+    pub fn new(source: Arc<AnimationSet>, default_mode: i32) -> Option<Self> {
+        let id = NEXT_LIVE_ANIMATION
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+            .ok()?;
+        Some(Self(Arc::new(LiveAnimationObject {
+            id: AnimSetId(id),
+            source,
+            default_mode: AtomicI32::new(default_mode),
+        })))
+    }
+    pub fn id(&self) -> AnimSetId {
+        self.0.id
+    }
+    pub fn source(&self) -> &Arc<AnimationSet> {
+        &self.0.source
+    }
+    pub fn default_mode(&self) -> i32 {
+        self.0.default_mode.load(Ordering::Relaxed)
+    }
+    pub fn set_default_mode(&self, mode: i32) {
+        self.0.default_mode.store(mode, Ordering::Relaxed);
+    }
+}
+
+#[derive(Clone, Debug)]
+enum BoundAnimationResource {
+    Host(AnimationResource),
+    Live(LiveAnimationResource),
+}
+#[derive(Clone, Copy)]
+enum AnimationResourceRef<'a> {
+    Host(&'a AnimationResource),
+    Live(&'a LiveAnimationResource),
+}
+impl<'a> AnimationResourceRef<'a> {
+    fn id(self) -> AnimSetId {
+        match self {
+            Self::Host(a) => a.id,
+            Self::Live(a) => a.id(),
+        }
+    }
+    fn source(self) -> &'a Arc<AnimationSet> {
+        match self {
+            Self::Host(a) => &a.source,
+            Self::Live(a) => a.source(),
+        }
+    }
+    fn default_mode(self) -> i32 {
+        match self {
+            Self::Host(a) => a.default_mode,
+            Self::Live(a) => a.default_mode(),
+        }
+    }
+    fn retained(self) -> BoundAnimationResource {
+        match self {
+            Self::Host(a) => BoundAnimationResource::Host(a.clone()),
+            Self::Live(a) => BoundAnimationResource::Live(a.clone()),
+        }
+    }
+    fn same(self, other: Self) -> bool {
+        match (self, other) {
+            (Self::Host(a), Self::Host(b)) => Arc::ptr_eq(&a.source, &b.source),
+            (Self::Live(a), Self::Live(b)) => Arc::ptr_eq(&a.0, &b.0),
+            _ => false,
+        }
+    }
+}
+impl BoundAnimationResource {
+    fn borrowed(&self) -> AnimationResourceRef<'_> {
+        match self {
+            Self::Host(a) => AnimationResourceRef::Host(a),
+            Self::Live(a) => AnimationResourceRef::Live(a),
+        }
+    }
+    fn id(&self) -> AnimSetId {
+        self.borrowed().id()
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -67,7 +164,13 @@ pub trait ControllerResourceBackend {
     fn mark_animated(&mut self, destination: FrameKey);
 }
 
-#[derive(Debug, Eq, PartialEq)]
+/// Resolve each record against the owner's current membership and local
+/// original names. This is called after preceding resource/allocation effects.
+pub trait LiveControllerResourceBackend: ControllerResourceBackend {
+    fn first_frame_named(&mut self, name: &[u8]) -> Result<Option<(usize, FrameKey)>, Self::Error>;
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ControllerError<E> {
     InvalidSlot,
     InvalidFrameKeys,
@@ -76,9 +179,50 @@ pub enum ControllerError<E> {
     Resource(E),
     InvalidResourceIdentity,
     CapacityOverflow,
+    HostAllocation,
     Closed,
     Poisoned,
     InvalidView,
+}
+
+struct ParsedBinding<'a, B> {
+    backend: &'a mut B,
+    model: &'a Model,
+    frame_keys: &'a [FrameKey],
+}
+impl<B: ControllerResourceBackend> ControllerResourceBackend for ParsedBinding<'_, B> {
+    type Error = B::Error;
+    fn allocate_evaluator(&mut self) -> Result<EvaluatorId, Self::Error> {
+        self.backend.allocate_evaluator()
+    }
+    fn free_evaluator(&mut self, id: EvaluatorId) {
+        self.backend.free_evaluator(id);
+    }
+    fn allocate_storage(&mut self, capacity: usize) -> Result<AllocationId, Self::Error> {
+        self.backend.allocate_storage(capacity)
+    }
+    fn free_storage(&mut self, id: AllocationId) {
+        self.backend.free_storage(id);
+    }
+    fn retain_animation(&mut self, id: AnimSetId) {
+        self.backend.retain_animation(id);
+    }
+    fn release_animation(&mut self, id: AnimSetId) {
+        self.backend.release_animation(id);
+    }
+    fn mark_animated(&mut self, destination: FrameKey) {
+        self.backend.mark_animated(destination);
+    }
+}
+impl<B: ControllerResourceBackend> LiveControllerResourceBackend for ParsedBinding<'_, B> {
+    fn first_frame_named(&mut self, name: &[u8]) -> Result<Option<(usize, FrameKey)>, Self::Error> {
+        Ok(self
+            .model
+            .frames
+            .iter()
+            .position(|f| f.name_bytes == name)
+            .map(|index| (index, self.frame_keys[index])))
+    }
 }
 
 /// The eight native slots and evaluator prefix belong to one destination owner.
@@ -89,7 +233,7 @@ pub enum ControllerError<E> {
 pub struct IPolSet {
     owner: FrameKey,
     state: InterpolatorSet,
-    animations: [Option<AnimationResource>; 8],
+    animations: [Option<BoundAnimationResource>; 8],
     storage: Vec<EvaluatorId>,
     owned: Vec<ControllerEvaluator>,
     capacity: usize,
@@ -129,8 +273,25 @@ impl IPolSet {
     pub fn state_mut(&mut self) -> &mut InterpolatorSet {
         &mut self.state
     }
+    /// Existing parsed host resource view; actual shared objects use
+    /// `live_animation`. `animation_id` covers both admitted resource kinds.
     pub fn animation(&self, slot: usize) -> Option<&AnimationResource> {
-        self.animations.get(slot)?.as_ref()
+        match self.animations.get(slot)?.as_ref()? {
+            BoundAnimationResource::Host(a) => Some(a),
+            BoundAnimationResource::Live(_) => None,
+        }
+    }
+    pub fn live_animation(&self, slot: usize) -> Option<&LiveAnimationResource> {
+        match self.animations.get(slot)?.as_ref()? {
+            BoundAnimationResource::Live(a) => Some(a),
+            BoundAnimationResource::Host(_) => None,
+        }
+    }
+    pub fn animation_id(&self, slot: usize) -> Option<AnimSetId> {
+        self.animations
+            .get(slot)?
+            .as_ref()
+            .map(BoundAnimationResource::id)
     }
     pub fn evaluator(&self, id: EvaluatorId) -> Option<&ControllerEvaluator> {
         self.owned.iter().find(|e| e.id == id)
@@ -155,7 +316,7 @@ impl IPolSet {
                 .slots
                 .iter()
                 .zip(&self.animations)
-                .all(|(s, a)| s.animset == a.as_ref().map(|a| a.id))
+                .all(|(s, a)| s.animset == a.as_ref().map(|a| a.id()))
     }
 
     /// Exact first destination identity match, append after initializing a new
@@ -182,6 +343,9 @@ impl IPolSet {
         {
             return Ok(id);
         }
+        self.owned
+            .try_reserve(1)
+            .map_err(|_| ControllerError::HostAllocation)?;
         let id = backend
             .allocate_evaluator()
             .map_err(ControllerError::Resource)?;
@@ -221,6 +385,10 @@ impl IPolSet {
         if count < self.storage.len() {
             self.storage[count] = id;
         } else {
+            if self.storage.try_reserve(1).is_err() {
+                self.poisoned = true;
+                return Err(ControllerError::HostAllocation);
+            }
             self.storage.push(id);
         }
         self.state.evaluators.count += 1;
@@ -268,20 +436,72 @@ impl IPolSet {
         {
             return Err(ControllerError::EmbeddedNameTerminator);
         }
+        let mut backend = ParsedBinding {
+            backend,
+            model,
+            frame_keys,
+        };
+        self.set_animation_resolved(
+            &mut backend,
+            animation.map(AnimationResourceRef::Host),
+            slot,
+            weight,
+            mode,
+        )
+    }
+
+    /// Actual resource handle and live owner resolver. Safe-host slot admission
+    /// remains explicit; native SetAnimation itself has no out-of-range guard.
+    pub fn set_live_animation<B: LiveControllerResourceBackend>(
+        &mut self,
+        backend: &mut B,
+        animation: Option<&LiveAnimationResource>,
+        slot: usize,
+        weight: f32,
+        mode: i32,
+    ) -> Result<(), ControllerError<B::Error>> {
+        if self.closed {
+            return Err(ControllerError::Closed);
+        }
+        if self.poisoned {
+            return Err(ControllerError::Poisoned);
+        }
+        if !self.owns_view() {
+            return Err(ControllerError::InvalidView);
+        }
+        if slot >= 8 {
+            return Err(ControllerError::InvalidSlot);
+        }
+        self.set_animation_resolved(
+            backend,
+            animation.map(AnimationResourceRef::Live),
+            slot,
+            weight,
+            mode,
+        )
+    }
+    fn set_animation_resolved<B: LiveControllerResourceBackend>(
+        &mut self,
+        backend: &mut B,
+        animation: Option<AnimationResourceRef<'_>>,
+        slot: usize,
+        weight: f32,
+        mode: i32,
+    ) -> Result<(), ControllerError<B::Error>> {
         if let Some(a) = animation {
-            if a.id.0 == 0
+            if a.id().0 == 0
                 || self
                     .animations
                     .iter()
                     .flatten()
-                    .any(|old| (old.id == a.id) != Arc::ptr_eq(&old.source, &a.source))
+                    .any(|old| (old.id() == a.id()) != old.borrowed().same(a))
             {
                 return Err(ControllerError::AnimationIdentity);
             }
         }
         let same = match (&self.animations[slot], animation) {
             (None, None) => true,
-            (Some(a), Some(b)) => Arc::ptr_eq(&a.source, &b.source),
+            (Some(a), Some(b)) => a.borrowed().same(b),
             _ => false,
         };
         if !same {
@@ -290,12 +510,12 @@ impl IPolSet {
                 for id in active {
                     self.owned.iter_mut().find(|e| e.id == id).unwrap().bindings[slot].flags = 0;
                 }
-                backend.release_animation(old.id);
+                backend.release_animation(old.id());
             }
-            self.state.slots[slot].animset = animation.map(|a| a.id);
-            self.animations[slot] = animation.cloned();
+            self.state.slots[slot].animset = animation.map(|a| a.id());
+            self.animations[slot] = animation.map(|a| a.retained());
             if let Some(new) = animation {
-                backend.retain_animation(new.id);
+                backend.retain_animation(new.id());
             } else {
                 self.state.slots[slot].enabled = false;
                 self.release_unused_interpolators(backend);
@@ -311,16 +531,18 @@ impl IPolSet {
         s.previous = -40;
         s.weight = x87_loaded_weight(weight);
         s.mode = if mode == 0 {
-            animation.default_mode
+            animation.default_mode()
         } else {
             mode
         };
-        for (track_index, track) in animation.source.tracks.iter().enumerate() {
-            let Some(frame_index) = model.frames.iter().position(|f| f.name_bytes == track.name)
+        for (track_index, track) in animation.source().tracks.iter().enumerate() {
+            let Some((frame_index, destination)) = backend
+                .first_frame_named(&track.name)
+                .map_err(ControllerError::Resource)?
             else {
                 continue;
             };
-            let id = self.get_frame_interpolator(backend, frame_keys[frame_index])?;
+            let id = self.get_frame_interpolator(backend, destination)?;
             self.owned.iter_mut().find(|e| e.id == id).unwrap().bindings[slot] =
                 ControllerBinding {
                     track_index,
@@ -364,7 +586,7 @@ impl IPolSet {
         self.active_count = 0;
         for animation in &mut self.animations {
             if let Some(animation) = animation.take() {
-                backend.release_animation(animation.id);
+                backend.release_animation(animation.id());
             }
         }
         self.state.slots = [Slot::default(); 8];
@@ -810,5 +1032,97 @@ mod tests {
         assert_eq!(c.state().slots[0].weight.to_bits(), before);
         assert_eq!(c.anim_blend(8).to_bits(), 0);
         c.close(&mut b);
+    }
+
+    #[test]
+    fn live_binding_rereads_names_membership_and_shared_default_after_effects() {
+        struct LiveBackend {
+            allocator: Resources,
+            members: Vec<(FrameKey, Vec<u8>)>,
+            resource: LiveAnimationResource,
+            allocations: usize,
+        }
+        impl ControllerResourceBackend for LiveBackend {
+            type Error = ();
+            fn allocate_evaluator(&mut self) -> Result<EvaluatorId, ()> {
+                self.allocations += 1;
+                if self.allocations == 1 {
+                    self.members[1].1 = b"two".to_vec();
+                    self.members.swap(0, 1);
+                }
+                self.allocator.allocate_evaluator()
+            }
+            fn free_evaluator(&mut self, id: EvaluatorId) {
+                self.allocator.free_evaluator(id);
+            }
+            fn allocate_storage(&mut self, capacity: usize) -> Result<AllocationId, ()> {
+                self.allocator.allocate_storage(capacity)
+            }
+            fn free_storage(&mut self, id: AllocationId) {
+                self.allocator.free_storage(id);
+            }
+            fn retain_animation(&mut self, id: AnimSetId) {
+                self.members[0].1 = b"one".to_vec();
+                self.resource.set_default_mode(7);
+                self.allocator.retain_animation(id);
+            }
+            fn release_animation(&mut self, id: AnimSetId) {
+                self.allocator.release_animation(id);
+            }
+            fn mark_animated(&mut self, destination: FrameKey) {
+                self.allocator.mark_animated(destination);
+            }
+        }
+        impl LiveControllerResourceBackend for LiveBackend {
+            fn first_frame_named(&mut self, name: &[u8]) -> Result<Option<(usize, FrameKey)>, ()> {
+                Ok(self
+                    .members
+                    .iter()
+                    .enumerate()
+                    .find(|(_, (_, local))| local == name)
+                    .map(|(index, (key, _))| (index, *key)))
+            }
+        }
+        let parsed = resource(1, &[(b"one", 2), (b"two", 4)]).source;
+        let resource = LiveAnimationResource::new(Arc::clone(&parsed), 2).unwrap();
+        let independent = LiveAnimationResource::new(parsed, 99).unwrap();
+        assert_ne!(resource.id(), independent.id());
+        let mut backend = LiveBackend {
+            allocator: Resources::default(),
+            members: vec![(KEYS[0], b"before".to_vec()), (KEYS[1], b"before".to_vec())],
+            resource: resource.clone(),
+            allocations: 0,
+        };
+        let mut controller = IPolSet::new(FrameKey(1), false);
+        controller
+            .set_live_animation(&mut backend, Some(&resource), 0, 1., 0)
+            .unwrap();
+        assert_eq!(controller.anim_options(0), 7);
+        assert_eq!(resource.default_mode(), 7);
+        assert_eq!(independent.default_mode(), 99);
+        let evaluators = controller.active_evaluators();
+        let first = controller.evaluator(evaluators[0]).unwrap();
+        let second = controller.evaluator(evaluators[1]).unwrap();
+        assert_eq!(
+            (first.destination, first.bindings[0].frame_index),
+            (KEYS[0], 0)
+        );
+        assert_eq!(
+            (second.destination, second.bindings[0].frame_index),
+            (KEYS[1], 0)
+        );
+        // A same-object restart reads the resource's current mode without a
+        // second retain. A separate resource with identical channels replaces it.
+        resource.set_default_mode(3);
+        controller
+            .set_live_animation(&mut backend, Some(&resource), 0, 1., 0)
+            .unwrap();
+        assert_eq!(controller.anim_options(0), 3);
+        controller
+            .set_live_animation(&mut backend, Some(&independent), 0, 1., 0)
+            .unwrap();
+        assert_eq!(controller.animation_id(0), Some(independent.id()));
+        assert_eq!(controller.anim_options(0), 99);
+        controller.close(&mut backend);
     }
 }

@@ -87,6 +87,11 @@ pub struct LoadedFrame {
     pub(crate) ff_left: Option<FrameKey>,
     pub(crate) ff_right: Option<FrameKey>,
 }
+impl LoadedFrame {
+    pub(crate) fn is_alive(&self) -> bool {
+        self.alive
+    }
+}
 #[derive(Debug)]
 pub struct LoadedModel {
     pub key: ModelKey,
@@ -97,9 +102,9 @@ pub struct LoadedModel {
     close_cursor: usize,
     pub(crate) closing: bool,
     filename: Option<ModelFileNameKey>,
-    /// Actual fresh I3D_model+150 is null. Host inspection playback is separate.
-    /// An active native set requires its producer/resource owner before admission.
-    original_ipol_set: Option<crate::scene_tick::InterpolatorId>,
+    /// Actual fresh I3D_model+150 is null. Owned producer allocations live here;
+    /// imported identities without their owner remain explicitly unsupported.
+    pub(crate) original_ipol_set: Option<crate::model_animation_runtime::OriginalModelController>,
     /// Owned first LOD skin/morph state for the loaded source hierarchy.
     skin_pose: Option<SinglemeshPose>,
     /// A failed lazy refresh retains its owned prefix and cannot be replayed
@@ -194,6 +199,7 @@ pub enum ModelError {
     Morph(crate::singlemorph_state::SinglemorphError),
     Animation(crate::skeletal_animation::SkeletalAnimationError),
     AnimationIdentity,
+    AnimationController(crate::animation_controller::ControllerError<std::convert::Infallible>),
     InvalidParent {
         index: usize,
         parent: usize,
@@ -2460,50 +2466,45 @@ impl ModelArena {
         self.frames[fi].owner = None;
         self.release(key)
     }
-    /// Forward ownership release for the represented destructor subset. Native
-    /// list storage is retained. An unavailable later destructor retains its
-    /// successful prefix; a host cursor prevents releasing that prefix twice.
-    /// A host lock and restored failed-slot owner keep unavailable nested
-    /// destruction consistent; these are not native exception semantics.
-    /// External references survive with their hierarchy links and source backing.
-    /// StopAnimation(index), LS3DF33890. Only the constructor-owned null set
-    /// branch is admitted here; host playback cannot be substituted for+150.
-    /// GetAnimationSet(index), original LS3DF RVA0x33860. Constructor-owned
-    /// null IPolSet and unsigned out-of-range index return null; the external
-    /// host playback object is not an original controller resource owner.
+    /// GetAnimationSet(index), original LS3DF RVA0x33860. Null controller and
+    /// unsigned out-of-range index return null. Imported external identities
+    /// without a resource owner remain unsupported.
     pub fn original_model_animation_set(
         &self,
         model: ModelKey,
         index: u32,
     ) -> Result<Option<crate::interpolator::AnimSetId>, ModelError> {
-        let mi = self.model_index(model)?;
+        self.model_index(model)?;
         if index >= 8 {
             return Ok(None);
         }
-        if self.models[mi].original_ipol_set.is_some() {
-            return Err(ModelError::UnsupportedActiveModelController(model));
-        }
-        Ok(None)
+        Ok(self
+            .original_model_controller(model)?
+            .and_then(|controller| controller.animation_id(index as usize)))
     }
+    /// StopAnimation(index), LS3DF33890: only toggle the current slot's enable
+    /// flag. Null controller and unsigned out-of-range index do nothing.
     pub fn stop_original_model_animation(
         &mut self,
         model: ModelKey,
         index: u32,
     ) -> Result<(), ModelError> {
-        let mi = self.model_index(model)?;
+        self.model_index(model)?;
         if index >= 8 {
             return Ok(());
         }
-        if self.models[mi].original_ipol_set.is_some() {
-            return Err(ModelError::UnsupportedActiveModelController(model));
+        if let Some(controller) = self.original_model_controller_mut(model)? {
+            controller.stop_animation(index as usize);
         }
         Ok(())
     }
+    /// Destroy the actual controller before forward member ownership release.
+    /// An unavailable member destructor retains its successful prefix; the host
+    /// cursor prevents releasing that prefix twice. External frame references
+    /// survive with hierarchy links and source backing.
     pub fn close(&mut self, model: ModelKey) -> Result<(), ModelError> {
         let mi = self.model_index(model)?;
-        if self.models[mi].original_ipol_set.is_some() {
-            return Err(ModelError::UnsupportedActiveModelController(model));
-        }
+        self.close_original_model_controller(model)?;
         self.models[mi].lifecycle_epoch = self.models[mi]
             .lifecycle_epoch
             .checked_add(1)
@@ -2620,6 +2621,16 @@ impl ModelArena {
             }
         }
         for m in &self.models {
+            if let Some(crate::model_animation_runtime::OriginalModelController::Owned(
+                controller,
+            )) = &m.original_ipol_set
+            {
+                // Shared animation resources/payloads are charged by their
+                // resource owner, separately from this model-owned controller.
+                add(controller
+                    .storage_bytes()
+                    .ok_or(ModelError::AllocationOverflow)?)?;
+            }
             add(m
                 .frames
                 .capacity()
@@ -3039,7 +3050,11 @@ mod original_controller_admission_tests {
         }
         let i = arena.model_index(model).unwrap();
         let epoch = arena.models[i].lifecycle_epoch;
-        arena.models[i].original_ipol_set = Some(crate::scene_tick::InterpolatorId(7));
+        arena.models[i].original_ipol_set = Some(
+            crate::model_animation_runtime::OriginalModelController::External(
+                crate::scene_tick::InterpolatorId(7),
+            ),
+        );
         arena.stop_original_model_animation(model, 8).unwrap();
         assert_eq!(
             arena.original_model_animation_set(model, 0),
@@ -3060,10 +3075,14 @@ mod original_controller_admission_tests {
             SharedAnimationModel::borrow(&mut arena, model),
             Err(ModelError::UnsupportedActiveModelController(key)) if key == model
         ));
-        assert_eq!(
+        assert!(matches!(
             arena.models[i].original_ipol_set,
-            Some(crate::scene_tick::InterpolatorId(7))
-        );
+            Some(
+                crate::model_animation_runtime::OriginalModelController::External(
+                    crate::scene_tick::InterpolatorId(7)
+                )
+            )
+        ));
         assert_eq!(arena.models[i].lifecycle_epoch, epoch);
         assert!(!arena.models[i].closing);
     }

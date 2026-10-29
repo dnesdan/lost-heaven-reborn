@@ -90,6 +90,7 @@ pub mod mission_resources;
 pub mod mission_scene_loading;
 pub mod mission_scene_stream;
 pub mod model_loading;
+pub mod model_animation_runtime;
 pub mod model_tick;
 pub mod named_script;
 pub mod native_matrix;
