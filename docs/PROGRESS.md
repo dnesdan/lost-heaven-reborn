@@ -1,6 +1,22 @@
 # Progress
 
-## Current milestone — 2026-10-27
+## Current milestone — 2026-10-29
+
+The [model-owned animation milestone](implementation/2026-10-29-animation-runtime.md)
+at `b3b6b67` binds actual shared resources, advances the in-place controller and
+refreshes the owned skin through live joints. Original Tommy, Paulie and Sam
+have changed geometry and GPU pixels. Controlled original-instruction Tick
+comparison matches 12 snapshots / 264 normalized words in its supported domain.
+Human actor initialization, replay, mission VM and scheduling remain open.
+
+`scripts/test.sh` is now green: 1,839 Rust and 106 Python tests; the all-feature
+run including GPU passes 1,863 Rust tests with zero ignored. Both independent
+review rounds, Clippy and the application build passed. INTRO now reaches all
+358 objects before actor kind 2; MISE01 still reaches kind 27 and the menu's
+animated model still interrupts cleanup. Accepted totals remain 311 entries /
+114 contracts, strict system gates 0/12; no first-mission gate is closed.
+
+## Retained milestone — 2026-10-27
 
 The reviewed parity stack adds sound/render fixes, ordered actor/program source
 intake, interrupted cleanup, menu navigation, owned material clocks and MRPH

@@ -5,15 +5,21 @@ An independent Rust reimplementation of *Mafia: The City of Lost Heaven*
 first mission from the original menu through completion. The campaign is not
 playable; all six first-mission gates remain open.
 
-The current Rust application can inspect the menu and owned scene, render an
-actual sky and road view, and drive a car in a standalone mode. Its MISE01
+The engine now advances animation on the actual loaded model's controller,
+updates its bound joints and refreshes its owned skin. Original Tommy, Paulie
+and Sam models have been rendered from bind pose through moving poses. This
+is an explicit resource diagnostic; mission-controlled human animation and
+the first mission remain incomplete.
+
+The Rust application can inspect the menu and owned scene, render an actual
+sky and road view, and drive a car in a standalone mode. Its MISE01
 diagnostic loads all 3,183 scene objects and 27 actors before stopping at
 unsupported actor kind 27, cursor 3,795,696. Ordered actor/program source intake,
 startup replacements, live material clocks and owned MRPH deformation are
 connected within their documented domains. Full MissionOpen, the remaining
 actors, program execution and authored mission play remain open.
 
-[Build and run](docs/RUNNING.md) · [current evidence](docs/implementation/parity-continuation.md) ·
+[Build and run](docs/RUNNING.md) · [current evidence](docs/implementation/2026-10-29-animation-runtime.md) ·
 [coverage](COVERAGE.md) · [goals](docs/GOALS.md) · [dated history](docs/history/README.md).
 
 [Latest reviewed integration: PRs #51–57](docs/implementation/2026-10-29-pr-integration.md)
@@ -118,6 +124,22 @@ or mission gameplay. [Controls, presets and captures](docs/RUNNING.md#engine-lab
 [actual mission owners](docs/screenshots/2026-10-27-engine-lab-mission-owners.webp).
 
 ## Actual Rust captures
+
+![Tommy breathing through the actual model-owned controller](docs/screenshots/2026-10-29-animation/tommy-breath.webp)
+
+24 actual GPU samples at 100 ms intervals, source times 0–2,300 ms, 512 × 512,
+102 KiB. The preview repeats this sampled segment; it is an explicitly selected
+original animation, without mission scheduling or image interpolation.
+
+| Original bind pose | Actual model-owned animation at 1,746 ms |
+| --- | --- |
+| ![Tommy before animation](docs/screenshots/2026-10-29-animation/tommy-bind.webp) | ![Tommy after owned animation](docs/screenshots/2026-10-29-animation/tommy-animated.webp) |
+
+Fresh original-resource animation checks cover Tommy, Paulie and Sam, with
+actual changed vertices and GPU pixels. [Implementation and validation](docs/implementation/2026-10-29-animation-runtime.md)
+record 1,863 all-feature Rust tests, the exact supported animation domain and
+remaining actor/replay/script dependencies. These are model diagnostics;
+the original first-mission startup is not running yet.
 
 ![Original-data standalone taxi after actual keyboard input](docs/screenshots/2026-10-29/driving.webp)
 

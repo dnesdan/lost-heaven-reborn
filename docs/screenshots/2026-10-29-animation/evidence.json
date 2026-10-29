@@ -1,0 +1,322 @@
+{
+  "schema": 1,
+  "date_utc": "2026-10-29",
+  "tested_source_commit": "b3b6b67d6eea3d025b42618c349b8929a077d25c",
+  "application_binary_sha256": "85a910ae6904a84700497ea6dfbc67fe6996804a0d72f926382e657bf36c3d81",
+  "engine_library_sha256": "4545d9c4915e4fbbac5aff360dc24c0b4ef6ea5d301b03e9a1e8dd7ec9381412",
+  "diagnostic_binary_sha256": "f0a22c85821aa019225241542f8ff992182b0b3de2424011794bed3950ff90c8",
+  "diagnostic_source_sha256": "1cdeced822436da437e05bd8cb9d41535c3b3b45e3aa39ee071809d5ef2718aa",
+  "platform": "Linux x86_64; Mesa25.0.7 llvmpipe Vulkan; offscreen readback",
+  "mode": "Explicit original-resource diagnostic on the actual ModelArena controller; not mission execution",
+  "selection": {
+    "resource": "anims/breath01a.5ds",
+    "resource_default_mode": 2,
+    "slot": 0,
+    "weight": 1,
+    "model_options": 0,
+    "allocation_dirty": false,
+    "first_bind_order": [
+      "SetAnimation",
+      "Tick(0)",
+      "SetAnimTime(0,0)",
+      "Tick(1746)"
+    ],
+    "original_game_selection_executed": false
+  },
+  "images": [
+    {
+      "file": "tommy-bind.webp",
+      "model": "TommyTAXIDRIVER",
+      "sample_ms": "bind",
+      "source_png_sha256": "bbdb306af8940934cd5e64b4645b078b957c31c783f6e494b68e72401e96058c",
+      "published_sha256": "7a0275b10cd953f395550d60a1000f09cb0d80a4bb46679f41b8cfc4d2f5ee97",
+      "bytes": 10296,
+      "dimensions": [
+        768,
+        768
+      ],
+      "encoding": "WebP quality90; RGB conversion; no crop, resize or generated image content"
+    },
+    {
+      "file": "tommy-animated.webp",
+      "model": "TommyTAXIDRIVER",
+      "sample_ms": 1746,
+      "source_png_sha256": "1ecc14fd5fcf1c1e6e313c0e31f9d47998ce331621a81f871d8e0facb926dd85",
+      "published_sha256": "cb3567ad37c5d4a6dfe9f82066587f2b857c47ce9344b3ef6e326f1dd288b062",
+      "bytes": 8156,
+      "dimensions": [
+        768,
+        768
+      ],
+      "encoding": "WebP quality90; RGB conversion; no crop, resize or generated image content"
+    },
+    {
+      "file": "paulie-animated.webp",
+      "model": "Paulie",
+      "sample_ms": 1746,
+      "source_png_sha256": "c968ddf1f7faab808499914d5d55f133155ffea4d10b41c81bd7b6204f0f55db",
+      "published_sha256": "802cc7e9b17e00b50af27eceab898a5cf2fe696626ff7f90960e9fc594dca2a6",
+      "bytes": 7126,
+      "dimensions": [
+        768,
+        768
+      ],
+      "encoding": "WebP quality90; RGB conversion; no crop, resize or generated image content"
+    },
+    {
+      "file": "sam-animated.webp",
+      "model": "Sam",
+      "sample_ms": 1746,
+      "source_png_sha256": "135babcbdf74e4b35e177a2a56ce7c23bf6bb017895d9c534544f19e300f8807",
+      "published_sha256": "2f0003a28a05cf18fa4cac59ee5c09ad9903373700b0059d6d7f03c74bc06601",
+      "bytes": 7532,
+      "dimensions": [
+        768,
+        768
+      ],
+      "encoding": "WebP quality90; RGB conversion; no crop, resize or generated image content"
+    }
+  ],
+  "models": [
+    {
+      "model": "TommyTAXIDRIVER",
+      "source_frames": 24,
+      "active_evaluators": 20,
+      "meshes": 6,
+      "bind_to_zero_vertex_coordinate_words": 15516,
+      "bind_to_zero_pixels": 64588,
+      "zero_to_1746_vertex_coordinate_words": 15516,
+      "zero_to_1746_pixels": 43817,
+      "bridge74_vertex_and_rgba_hashes_all_match": true
+    },
+    {
+      "model": "Paulie",
+      "source_frames": 24,
+      "active_evaluators": 20,
+      "meshes": 5,
+      "bind_to_zero_vertex_coordinate_words": 12270,
+      "bind_to_zero_pixels": 67325,
+      "zero_to_1746_vertex_coordinate_words": 12270,
+      "zero_to_1746_pixels": 43367,
+      "bridge74_vertex_and_rgba_hashes_all_match": true
+    },
+    {
+      "model": "Sam",
+      "source_frames": 23,
+      "active_evaluators": 20,
+      "meshes": 5,
+      "bind_to_zero_vertex_coordinate_words": 11730,
+      "bind_to_zero_pixels": 66078,
+      "zero_to_1746_vertex_coordinate_words": 11730,
+      "zero_to_1746_pixels": 44564,
+      "bridge74_vertex_and_rgba_hashes_all_match": true
+    }
+  ],
+  "tests": {
+    "default_rust_passed": 1839,
+    "default_ignored": 21,
+    "all_features_include_ignored_rust_passed": 1863,
+    "all_features_ignored": 0,
+    "python_passed": 106,
+    "counts_overlap": true,
+    "fmt_check_clippy_build_passed": true
+  },
+  "cleanup": "Every model Close followed by explicit existing buffer-manager reclaim: graphics/textures/allocations0; empty root remains until arena drop. All bounded subprocesses exited0.",
+  "first_mission_playable": false,
+  "c_human_gameinit_or_mission_scheduler_executed": false,
+  "new_interactive_gameplay_validation": false,
+  "all_libraries_and_probe_source_unchanged": true,
+  "accepted_scoped_entries_unchanged": 311,
+  "reviewed_contracts_unchanged": 114,
+  "strict_system_gate_unchanged": "0/12",
+  "original_instruction_comparisons": {
+    "normalize": {
+      "cases": 74,
+      "component_words": 296,
+      "mismatches": 0
+    },
+    "producer": {
+      "checkpoint": "b3b6b67d6eea3d025b42618c349b8929a077d25c",
+      "snapshots": 15,
+      "normalized_words": 345,
+      "mismatches": 0,
+      "scope": "Explicit controlled allocation/error boundaries; normalized identities; not reference-count totals",
+      "retained_original_native_output_reused": true
+    },
+    "owned_tick": {
+      "checkpoint": "b3b6b67d6eea3d025b42618c349b8929a077d25c",
+      "snapshots": 12,
+      "normalized_words": 264,
+      "mismatches_each_probe_profile": 0,
+      "slots_physically_compared": [
+        0,
+        7
+      ],
+      "selected_original_bodies_hash_checked": 20,
+      "state_prefix_sha256": "28dcb974ced1dd7ba1bff9f02a4d632589ad86fa526111f2b9786a91edf6cb95",
+      "comparison_receipt_sha256": "e219781fa7f9035057afc3da43745f6f2df6eb84e1e96d6cd1dc9c99b6cb2e53",
+      "same_default_debug_engine_for_both_probe_profiles": true,
+      "update_observable": "Native per-call original Update-entry delta boolean vs Rust completed-Tick body-admission result; not a graph dirty-work counter",
+      "retained_limitations": [
+        "Synthetic position/rotation, one unit-weight slot",
+        "Wide-angle fixture unavailable under existing sampler domain",
+        "Earlier invalid counter projection retained privately and corrected before final independent freeze",
+        "No native callback, blending, scale, arithmetic-exception or mission parity"
+      ]
+    }
+  },
+  "original_cpu_load_probes": {
+    "all_app_exit_codes": [
+      1,
+      1,
+      1
+    ],
+    "intro": {
+      "objects": 358,
+      "unsupported_actor_kind": 2,
+      "cursor": 429872,
+      "terminal_disposal_complete": true,
+      "tracked_owners_zero": true
+    },
+    "mise01": {
+      "objects": 3183,
+      "actors_reached": 27,
+      "unsupported_actor_kind": 27,
+      "cursor": 3795696,
+      "terminal_disposal_complete": true,
+      "tracked_owners_zero": true
+    },
+    "00menu": {
+      "objects": 69,
+      "cursor": 466049,
+      "frontier": "animated model unsupported",
+      "terminal_disposal_complete": false,
+      "retained_frames": 24,
+      "retained_cache_allocations": 11,
+      "retained_graphics": 3,
+      "retained_textures": 22,
+      "retained_visual_allocations": 52
+    }
+  },
+  "sequence": {
+    "file": "tommy-breath.webp",
+    "published_sha256": "68b1eb6282a09024ef4a58bb05ac07b7ce025cf4ebdb8c150f48e86c8b864da0",
+    "bytes": 104332,
+    "dimensions": [
+      512,
+      512
+    ],
+    "frames": 24,
+    "source_sample_times_ms": [
+      0,
+      100,
+      200,
+      300,
+      400,
+      500,
+      600,
+      700,
+      800,
+      900,
+      1000,
+      1100,
+      1200,
+      1300,
+      1400,
+      1500,
+      1600,
+      1700,
+      1800,
+      1900,
+      2000,
+      2100,
+      2200,
+      2300
+    ],
+    "source_frame_png_sha256": [
+      "3a01566fb3ffd902bee75c02eb56229290df063086341b42d482554253b41d0b",
+      "54e3d8a7cd90580aeb57ae3efbff04d39f5691cdcba31c7d1d23fb764b0b14b8",
+      "138809c1532f4c8d3d721b617d164c3716307bc533579f86845cf54f449d5037",
+      "70312e9b7a3b40749756020c0108c9ce8e02da596ac27777d290340189580a20",
+      "45a9e6dad8f1beec487f4e5539aaa1e92f699486a494e7c5c437f357651d5dcf",
+      "ec818a56a1888a4dc07c4fa47e60ad46e17e8d09dfb96798c834dd359ea6516a",
+      "b52606a26b27ab54c807bab7292976a58c74c6a2f9e512047376505b4a235d94",
+      "2176a8e66e9d5d416841bd8b1a3215b9c7d02b2a569eb2c90d5f19f9bd4e8653",
+      "42e6e13a7299a46d8861287d4d23b800295681dca38e30570dc47313223922a3",
+      "d44f1f63180dc5c4fd8f6fcc5a3c5560a414ad74917f2e7aeaba20e30517d933",
+      "06a8b96a5811f76074c5131859af1d7d7562b44c4b432dcf174cd0dd9634e4c5",
+      "f9762129b365007aacf4c62363f2e21b51b9a11653f8371a796dbf0b49ada1fb",
+      "402b77b29a876a3118229548df232f34c61e9646d3b7a20000f33bce8cff2b90",
+      "904f3b9166583b4c4097c35df9611117bb7b36ff22cb21eff9c4782e4fd072f3",
+      "c4b4f40e98fc5d384aeddd6c2577bb5d20c4db81c311ac6ea4f13e8d4ef32cca",
+      "84ccbaf5a7b2cc39536eba133b4142976d307cb481264bc46ad9b375431c6381",
+      "18ea9f3f7f62d567677c214583a213b79ef837c2e64b98e8b50bf812dd700a68",
+      "8db3019b0f0e7a26eed4a0d512c27e050b0ce695bd116d0f338a74b463c35641",
+      "20707064c72a93026d81b793e72a85003e8bdbd89686a52e7233cfad02d53c27",
+      "142f0d92ff2f122127a18b8f53d9aaa0b020d262fa467b21d926af05822df11b",
+      "8fffb99db339b7e04a41d6c629c75b997da96e61440a23bd655e86037932ba67",
+      "bc5f080f16429a5829db4eb2153055232871675b89f5436dd94fe9f62bc4ae69",
+      "1997fc0b4d2c242d7f42d9b76c2ad44a888615d63ad0432718db1984c85dc34b",
+      "ddeea93f35e35ce48606b203d656013fdc7a511567e0704eb1f79790fd8cf3a2"
+    ],
+    "source_frame_rgba_sha256": [
+      "21900178ae45b8487e695f209afb72b3767af8babc41b34b8e148844c1898cd4",
+      "6237fc88a8ac1d7c02fd59cd9a6cf7f0d3ad711ba85de8d9dda5eadd6301b986",
+      "6d00568023b0df992b4d71b896aa862b23614f7684dae6b1fc98e3512425b4df",
+      "79bac5f005c3528560e8bd6f32a45ad207ea2d126fa87b9c02d6bdee74f142c3",
+      "cc883d7db937895bd733406e723b8bdaca50a78fee440a8eaaf5fc26ad669f55",
+      "73a9bc3d27fb17698396a3a203f236d721a7f66f77fbb5256d9cd8b4344df910",
+      "2cf2e9ecb2b979d70a134b18b80609da12ded2821420101e35ffc8eaa9c8f474",
+      "4dace5095474e95f299348093959ab73a51e01c225482847d7b8583f7ed2949c",
+      "91a94dd890897930d48d03b4ffd035ffcf146f646a81aa1ebbd7bb0aebd44cd3",
+      "ede89424ded94c4bcc59074f1c11103621e7782f84a3bcf14255aa999ef3a521",
+      "046f20aa3136a1acb0c05146f2d36c07736d28b1f04e5a271febc46372fba700",
+      "d5733b609cc6e59be90a2b5cea0a199422c4019d27e1bb0f5a3429225d7d9869",
+      "1ea47f503e0aa763f15de1d15dd32fb4126845ed6d89b7b9cde1e1476beea86f",
+      "5475cbeb5224e5d950671577f8499c1300d7644202cc588d42aea17bf448ade3",
+      "39da53dea31ce500840a28aeb0a29774649b8825dda824d068b13c496f9873e6",
+      "5f05c28ad59199439e729775c8a769186cfadda180b5a3065953075e2e8a4551",
+      "1bf01564846df0147a7cafdab4453f797d5286951b4b1ae51468e65ff91199d2",
+      "03ef25d9cfcc2dc282b8c1b095a62cef8c7d31d17fc3028c53b8faa2aa473b0f",
+      "60ead35192b7fd4487a945d25e9568144676ef93c4559f8ec72d18ecec7cdb64",
+      "b04807ee2d79897c3d2bb49fde462aaf00736d2a3f8a8cf14edeecb666a63138",
+      "b934b2869e1994a7972e2ef36223645c146661cccb433cf33b9c14492aa978f9",
+      "3ca110d32f728cabf0b8b2de3ef33473a4d3ede4ad334822780390925b37ae4d",
+      "de9423f31f5e989f01860d6ca2cf92ec0a0041457b81ae949d40d3035dab9501",
+      "3c854adb8635d695c33b19bc68fff50ea8fd2bac0bb32ab211c66aa23d396440"
+    ],
+    "frame_display_duration_ms": 100,
+    "container_duration_ms": 2400,
+    "container_loop": 0,
+    "encoding": "WebP quality85; RGB conversion; no crop, resize, image interpolation or generated content; one encoded frame per actual GPU sample",
+    "scope": "Explicit original-resource diagnostic; 24 sequential real owned Tick samples0..2300ms. Container repeats the sampled segment; full original animation loop and mission scheduling are not verified. Fixed host front camera.",
+    "diagnostic_source_sha256": "f8be99f475a99430f5025e68e8d5fdbc2b250de69c08b9ee8f19aafb78e4c7d7",
+    "diagnostic_binary_sha256": "ca3456e093b5c80ca619bb05e636ed94a61653fcfe5d65544fc4d579e0b734d5",
+    "per_step_vertex_coordinate_words_changed_range": [
+      15492,
+      15516
+    ],
+    "per_step_pixels_changed_range": [
+      4321,
+      10747
+    ],
+    "libraries_and_source_unchanged": true,
+    "closed_resources_zero": true
+  },
+  "public_cli_host_regression": {
+    "controlled_steps": [
+      0,
+      100
+    ],
+    "source_times_ms": [
+      0,
+      1600
+    ],
+    "app_exit_codes": [
+      0,
+      0
+    ],
+    "changed_pixels": 18563,
+    "scope": "Existing separate --skeletal-animation host preview; not the owned-B diagnostic or mission actors"
+  }
+}

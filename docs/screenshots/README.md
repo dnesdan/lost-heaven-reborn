@@ -2,6 +2,34 @@
 
 Actual captures from the Rust application using supplied PC data or named public procedural scenes. Images are WebP previews or original PNGs. Scene previews normally stay within 960 pixels and 200 KiB; native UI captures may retain their full window dimensions for readability. Sanitized receipts can be published; original inputs and raw logs remain private. Add dated images for visible milestones. Game content retains its original ownership.
 
+## 2026-10-29 — actual model-owned animation
+
+![Actual sequential Tommy animation](2026-10-29-animation/tommy-breath.webp)
+
+24 real GPU frames at 512 × 512, source times 0–2,300 ms at 100 ms Tick
+intervals. Animated WebP quality 85, 104,332 bytes, no crop, resize or image
+interpolation. The 2,400 ms container repeats this sampled segment; this is
+not proof of the complete source clip loop or mission playback.
+
+| Original bind pose | Actual model-owned Tick at 1,746 ms |
+| --- | --- |
+| ![Tommy bind pose](2026-10-29-animation/tommy-bind.webp) | ![Tommy animated pose](2026-10-29-animation/tommy-animated.webp) |
+
+Source `b3b6b67d6eea3d025b42618c349b8929a077d25c`, Linux x86_64/Mesa
+llvmpipe Vulkan. These are actual 768 × 768 offscreen renders of original
+resources on their live model-owned controller, not asset exports or generated
+images. WebP quality 90, no crop or resize; the four stills total 33,110 bytes.
+[Paulie](2026-10-29-animation/paulie-animated.webp) ·
+[Sam](2026-10-29-animation/sam-animated.webp) ·
+[hashes and exact scopes](2026-10-29-animation/evidence.json).
+
+The explicit resource diagnostic changes geometry and pixels on all three
+models at Tick(0) and Tick(1746). It does not run original human selection,
+recording playback or the first mission. The existing public CLI host preview
+also rendered at zero and 100 controlled steps (1,600 ms), changing 18,563
+pixels. [Implementation, original-instruction comparisons and open gates](../implementation/2026-10-29-animation-runtime.md).
+Historical city/menu screenshots below retain their earlier source and limits.
+
 ## 2026-10-29 — reviewed PR integration
 
 ![Standalone taxi with actual keyboard input](2026-10-29/driving.webp)

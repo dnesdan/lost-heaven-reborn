@@ -29,6 +29,7 @@ From the repository root:
 ./scripts/test.sh
 ./scripts/run.sh --root /path/to/Mafia
 ./scripts/run.sh --root /path/to/Mafia --model models/taxi00.4ds --car-driving
+./scripts/run.sh --root /path/to/Mafia --model models/TommyTAXIDRIVER.4ds --animation anims/breath01a.5ds --skeletal-animation --headless --animation-steps 100 --capture /tmp/tommy.png
 ./scripts/run.sh --root /path/to/Mafia --mission mise01 --headless --capture /tmp/mise01.png
 ./scripts/run.sh --root /path/to/Mafia --mission mise01 --mission-load-probe --probe-model-dir Models
 source scripts/common.sh
@@ -52,6 +53,13 @@ F3 steps and F4 reloads. It is disabled in the default build. The CPU
 execute gameplay. Pass `--probe-model-dir Models` explicitly for model intake;
 its intentional default is an empty directory list, so a run without that
 argument proves no model geometry.
+
+The explicit skeletal command is an existing host inspection path, separate
+from the new model-owned controller and mission actors. Its 100 controlled
+steps sample 1,600 ms; this command and the zero-step baseline were rendered
+successfully at `b3b6b67`, changing 18,563 pixels. Omit `--headless`,
+`--animation-steps` and `--capture` to open the animated model in a window;
+this batch verified the headless command, not the window controls.
 
 ## Windows — native build and run not yet tested
 
