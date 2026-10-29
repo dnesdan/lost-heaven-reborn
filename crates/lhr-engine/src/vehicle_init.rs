@@ -168,8 +168,37 @@ pub enum VehicleInitUnavailable<E> {
 /// empty enumeration. `collect_frame` is the still external original collecting
 /// callback, including its vector allocation, copying and failure behavior.
 /// There are deliberately no default implementations or assumed successes.
+/// A byte belongs to the actual vehicle owner but has no established value.
+/// It must never fall through to external storage or become numeric zero.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VehicleUninitializedStorage {
+    pub address: u32,
+}
+impl From<VehicleUninitializedStorage> for () {
+    fn from(_: VehicleUninitializedStorage) {}
+}
+impl From<VehicleUninitializedStorage> for u32 {
+    fn from(error: VehicleUninitializedStorage) -> Self {
+        error.address
+    }
+}
+impl From<VehicleUninitializedStorage> for usize {
+    fn from(error: VehicleUninitializedStorage) -> Self {
+        error.address as usize
+    }
+}
+impl From<VehicleUninitializedStorage> for &'static str {
+    fn from(_: VehicleUninitializedStorage) -> Self {
+        "uninitialized owned vehicle byte"
+    }
+}
+impl From<VehicleUninitializedStorage> for String {
+    fn from(error: VehicleUninitializedStorage) -> Self {
+        format!("uninitialized owned vehicle byte at {:#x}", error.address)
+    }
+}
 pub trait VehicleInitBackend {
-    type Error;
+    type Error: From<VehicleUninitializedStorage>;
 
     fn read_byte(&mut self, address: u32) -> Result<u8, Self::Error>;
     fn read_word(&mut self, address: u32) -> Result<u32, Self::Error>;
@@ -287,6 +316,7 @@ impl VehicleInitEnumeration<'_> {
 #[derive(Debug, PartialEq, Eq)]
 pub struct VehicleInitState {
     bytes: Vec<u8>,
+    known: Vec<bool>,
     car: Option<CarInitOwned>,
     started: bool,
     scratch: Option<VehicleInitFrameVector>,
@@ -330,8 +360,10 @@ impl VehicleInitState {
         }
     }
     pub fn from_bytes(bytes: Vec<u8>) -> Self {
+        let known = vec![true; bytes.len()];
         Self {
             bytes,
+            known,
             car: None,
             started: false,
             scratch: None,
@@ -353,21 +385,51 @@ impl VehicleInitState {
     }
 
     pub fn as_bytes(&self) -> &[u8] {
-        &self.bytes
+        self.known_bytes()
+            .expect("masked vehicle storage requires a validity-aware view")
+    }
+    pub fn known_bytes(&self) -> Option<&[u8]> {
+        self.known
+            .iter()
+            .all(|known| *known)
+            .then_some(self.bytes.as_slice())
+    }
+    pub fn known_range(&self, offset: usize, width: usize) -> Option<&[u8]> {
+        let end = offset.checked_add(width)?;
+        self.known
+            .get(offset..end)?
+            .iter()
+            .all(|known| *known)
+            .then_some(self.bytes.get(offset..end)?)
+    }
+    pub fn byte_validity(&self) -> &[bool] {
+        &self.known
     }
 
     /// Applies reconstructed input setters to this owner's embedded vehicle.
     /// This borrow neither initializes dynamics nor advances simulation.
     pub fn controls(&mut self) -> crate::vehicle_controls::VehicleControlState<&mut [u8]> {
+        assert!(
+            self.known_bytes().is_some(),
+            "masked vehicle storage cannot enter a raw numeric worker"
+        );
         crate::vehicle_controls::VehicleControlState::from_bytes_mut(&mut self.bytes)
     }
 
     /// Borrows the canonical storage for the reconstructed simulation worker.
     pub fn dynamics(&mut self) -> crate::vehicle_dynamics::VehicleDynamicsState<'_> {
+        assert!(
+            self.known_bytes().is_some(),
+            "masked vehicle storage cannot enter a raw numeric worker"
+        );
         crate::vehicle_dynamics::VehicleDynamicsState::from_bytes(&mut self.bytes)
     }
 
     pub fn wheel_pose(&mut self) -> crate::vehicle_wheel_pose::VehicleWheelPoseState<'_> {
+        assert!(
+            self.known_bytes().is_some(),
+            "masked vehicle storage cannot enter a raw numeric worker"
+        );
         crate::vehicle_wheel_pose::VehicleWheelPoseState::from_bytes(&mut self.bytes)
     }
 
@@ -387,6 +449,13 @@ impl VehicleInitState {
 
     fn load<E>(&self, offset: u32) -> Result<u32, VehicleInitUnavailable<E>> {
         let start = offset as usize;
+        if !self
+            .known
+            .get(start..start + 4)
+            .is_some_and(|known| known.iter().all(|known| *known))
+        {
+            return Err(VehicleInitUnavailable::Storage(offset));
+        }
         let bytes = self
             .bytes
             .get(start..start + 4)
@@ -401,6 +470,7 @@ impl VehicleInitState {
             .get_mut(start..start + 4)
             .ok_or(VehicleInitUnavailable::Storage(offset))?;
         bytes.copy_from_slice(&value.to_le_bytes());
+        self.known[start..start + 4].fill(true);
         Ok(())
     }
 
@@ -980,3 +1050,7 @@ mod tests {
         assert!(backend.events.is_empty());
     }
 }
+
+#[cfg(test)]
+#[path = "vehicle_byte_validity_tests.rs"]
+mod byte_validity_tests;

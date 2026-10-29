@@ -590,6 +590,12 @@ mod tests {
         Filter,
         Impact,
     }
+    impl From<crate::vehicle_init::VehicleUninitializedStorage> for Error {
+        fn from(error: crate::vehicle_init::VehicleUninitializedStorage) -> Self {
+            Self::Storage(error.address)
+        }
+    }
+
     #[derive(Clone, Copy)]
     struct ImpactTest {
         original_impulse: f32,

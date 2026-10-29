@@ -70,7 +70,15 @@ impl VehicleOwnerState {
     /// Stores run in original order; host storage failure keeps their prefix.
     /// Each four-byte store requires all four bytes and is otherwise unapplied.
     pub fn construct(&mut self, native_this: u32) -> Result<u32> {
-        let marker = (native_this >> 24) as u8;
+        self.construct_with_receiver_tag(native_this, (native_this >> 24) as u8)
+    }
+    /// Contained host identity adapters supply the original receiver-byte seed
+    /// separately; host address translation must not invent allocator tags.
+    pub(crate) fn construct_with_receiver_tag(
+        &mut self,
+        native_this: u32,
+        marker: u8,
+    ) -> Result<u32> {
         for offset in [0xd8, 0xe8, 0xfc, 0x10c, 0x204, 0x214] {
             self.construct_member(offset, marker)?;
         }

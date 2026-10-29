@@ -37,6 +37,8 @@ pub(crate) struct ActorDataRecord {
     pub(crate) identity: ActorDataRecordId,
     pub(crate) actor: Option<ActorReferenceId>,
     pub(crate) alive: bool,
+    /// Non-reused identity for the contained vehicle pointer adapter only.
+    pub(crate) vehicle_token: u32,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ActorFrameError {
@@ -55,13 +57,22 @@ impl From<ModelError> for ActorFrameError {
 pub struct ModelActorFrames<'a> {
     arena: &'a mut ModelArena,
     default_c_locale: bool,
+    car_installation: Option<&'a lhr_assets::Installation>,
 }
 impl<'a> ModelActorFrames<'a> {
     pub fn borrow(arena: &'a mut ModelArena, default_c_locale: bool) -> Self {
         Self {
             arena,
             default_c_locale,
+            car_installation: None,
         }
+    }
+    pub fn with_car_resources(
+        mut self,
+        installation: Option<&'a lhr_assets::Installation>,
+    ) -> Self {
+        self.car_installation = installation;
+        self
     }
     pub fn reference(&self, key: FrameKey) -> Result<FrameReferenceId, ActorFrameError> {
         let reference = self.arena.lookup_reference(key);
@@ -185,6 +196,31 @@ impl<'a> ModelActorFrames<'a> {
 }
 
 impl ActorFrameBackend for ModelActorFrames<'_> {
+    fn init_car_owner(
+        &mut self,
+        world: &mut ActorWorld,
+        actor: ActorReferenceId,
+        frame: Option<FrameReferenceId>,
+    ) -> Result<bool, String> {
+        world
+            .init_car_on_arena(
+                actor,
+                frame,
+                self.arena,
+                self.car_installation,
+                self.default_c_locale,
+            )
+            .map_err(|e| format!("{e:?}"))
+    }
+    fn destroy_car_resources(
+        &mut self,
+        world: &mut ActorWorld,
+        actor: ActorReferenceId,
+    ) -> Result<(), String> {
+        world
+            .destroy_car_on_arena(actor, self.arena)
+            .map_err(|e| format!("{e:?}"))
+    }
     fn frame_is_model(
         &mut self,
         _: &mut ActorWorld,

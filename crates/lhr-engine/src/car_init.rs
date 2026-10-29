@@ -553,6 +553,45 @@ impl VehicleInitState {
             },
         }
     }
+    /// Continue after the actual ActorWorld base attachment and caller suffix.
+    pub(crate) fn init_car_after_actor<B>(
+        &mut self,
+        backend: &mut B,
+        model: u32,
+        storage: VehicleComponentTailStorage,
+        vehicle_returned_initialized: impl FnOnce(),
+    ) -> Result<CarInitOutcome, CarCompleteInitUnavailable<B::Error>>
+    where
+        B: CarInitBackend
+            + CarEffectsBackend
+            + VehicleComponentTailBackend
+            + VehicleWheelsBackend
+            + VehicleAxisBackend
+            + VehicleAxisUpdateBackend
+            + VehicleInitFinishBackend
+            + VehicleSetupBackend,
+    {
+        let outcome = self.init(backend, model, storage).map_err(|error| {
+            CarCompleteInitUnavailable::Vehicle(VehicleCarInitUnavailable::Vehicle(error))
+        })?;
+        if let VehicleCompleteInitOutcome::Rejected(reason) = outcome {
+            return Ok(CarInitOutcome::VehicleRejected(reason));
+        }
+        // Native Vehicle::Init has returned successfully after disposing its
+        // four automatic vectors. The host owner may now retire that scope.
+        vehicle_returned_initialized();
+        self.car
+            .as_mut()
+            .ok_or(CarCompleteInitUnavailable::Car(CarInitUnavailable::Storage))?
+            .post_vehicle_ready = true;
+        match self
+            .continue_car_init(backend)
+            .map_err(CarCompleteInitUnavailable::Car)?
+        {
+            Some(reason) => Ok(CarInitOutcome::CarRejected(reason)),
+            None => Ok(CarInitOutcome::Initialized),
+        }
+    }
 }
 impl<B: CarEffectsBackend> CarEffectsBackend for component_tail::Projection<'_, B> {
     fn car_normalize_frame_quaternion(&mut self, frame: u32) -> Result<(), Self::Error> {

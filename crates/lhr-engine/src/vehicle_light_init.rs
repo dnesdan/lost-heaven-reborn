@@ -64,6 +64,7 @@ impl VehicleLightEnumeration<'_> {
                         car: memory.car.as_mut().map(CarInitMemory::reborrow),
                         vehicle_address: memory.vehicle_address,
                         vehicle: &mut *memory.vehicle,
+                        vehicle_known: memory.vehicle_known.as_deref_mut(),
                         scratch: &mut *memory.scratch,
                     },
                 },
@@ -674,6 +675,7 @@ impl<B: VehicleInitBackend + ?Sized> component_tail::Projection<'_, B> {
                 car: self.memory.car.as_mut().map(CarInitMemory::reborrow),
                 vehicle_address: self.memory.vehicle_address,
                 vehicle: &mut *self.memory.vehicle,
+                vehicle_known: self.memory.vehicle_known.as_deref_mut(),
                 scratch: &mut *self.memory.scratch,
             }),
         };
@@ -838,6 +840,7 @@ mod projection_tests {
                     car: None,
                     vehicle_address: VEHICLE,
                     vehicle: &mut vehicle,
+                    vehicle_known: None,
                     scratch: &mut scratch,
                 },
             }

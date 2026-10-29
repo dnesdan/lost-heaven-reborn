@@ -99,6 +99,22 @@ impl VehicleInitState {
         model: u32,
         storage: &VehicleComponentTailStorage,
     ) -> Result<bool, VehicleCarCallerUnavailable<B::Error>> {
+        self.prepare_car_init_before_base::<B>(b, car, model, storage)?;
+        let mut memory = self.tail_projection(b, storage.bodycol.vehicle_address);
+        if !vehicle_actor_init(&mut memory, car, model)
+            .map_err(|e| VehicleCarCallerUnavailable::Init(VehicleInitUnavailable::Effect(e)))?
+        {
+            return Ok(false);
+        }
+        self.finish_car_init_after_base(b, car, model)
+    }
+    pub(crate) fn prepare_car_init_before_base<B: VehicleInitBackend>(
+        &mut self,
+        b: &mut B,
+        car: u32,
+        model: u32,
+        storage: &VehicleComponentTailStorage,
+    ) -> Result<(), VehicleCarCallerUnavailable<B::Error>> {
         if self.started || self.car_caller_started {
             return Err(VehicleCarCallerUnavailable::AlreadyStarted);
         }
@@ -141,11 +157,19 @@ impl VehicleInitState {
                     VehicleCarCallerUnavailable::Init(VehicleInitUnavailable::Effect(e))
                 })?;
         }
-        if !vehicle_actor_init(&mut memory, car, model)
-            .map_err(|e| VehicleCarCallerUnavailable::Init(VehicleInitUnavailable::Effect(e)))?
-        {
-            return Ok(false);
-        }
+        Ok(())
+    }
+    pub(crate) fn finish_car_init_after_base<B: VehicleInitBackend>(
+        &mut self,
+        b: &mut B,
+        car: u32,
+        model: u32,
+    ) -> Result<bool, VehicleCarCallerUnavailable<B::Error>> {
+        let car_stack = self.car.as_ref().map(|owned| owned.scratch.address);
+        let vehicle = self
+            .tail_vehicle_address
+            .ok_or(VehicleCarCallerUnavailable::Storage)?;
+        let mut memory = self.tail_projection(b, vehicle);
         for (offset, value) in [
             (0x20bc, 0x42c80000),
             (0x20b4, 0x41dd999a),

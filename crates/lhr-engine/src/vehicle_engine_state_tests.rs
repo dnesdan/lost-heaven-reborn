@@ -3,6 +3,7 @@ use crate::{
     vehicle_frame_backend::{VehicleFrameMemory, VehicleMemoryError},
     vehicle_init::{
         VehicleInitEnumeration, VehicleInitFrameVector, VehicleInitQuery, VehicleInitUnavailable,
+        VehicleUninitializedStorage,
     },
 };
 
@@ -25,6 +26,11 @@ enum Error {
     Injected,
     Callback,
     UnexpectedOperation,
+}
+impl From<VehicleUninitializedStorage> for Error {
+    fn from(error: VehicleUninitializedStorage) -> Self {
+        Self::Storage(VehicleMemoryError::Uninitialized(error.address))
+    }
 }
 
 #[derive(Clone, Copy, Default)]

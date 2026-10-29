@@ -121,7 +121,7 @@ pub fn run(root: &Path, mission: &str, model_directories: &[String]) -> Result<(
         session.owned_counts()
     )
     .unwrap();
-    writeln!(report, "Gameplay acceptance: NOT EVALUATED. This probe does not execute MissionOpen, actor installation, scripts, objectives or mission completion.").unwrap();
+    writeln!(report, "Gameplay acceptance: NOT EVALUATED. This probe installs the reached actor/program sources, but does not execute complete MissionOpen, later GameInit, mission scheduling, objectives or mission completion.").unwrap();
     {
         use std::io::Write as _;
         std::io::stdout()
@@ -167,6 +167,19 @@ fn append_load_report(report: &mut String, session: &MissionLoadSession) {
             loader.pending_factory_creator.is_some()
         )
         .unwrap();
+        let world = &loader.content.actors.world;
+        for actor in world.owned_actor_references() {
+            if let Some(car) = world.inspect_car(actor) {
+                writeln!(
+                    report,
+                    "Car actor {}: Init temporaries={:?}; retained source allocations={}",
+                    actor.identity(),
+                    world.inspect_car_init_temporaries(actor),
+                    car.retained_source_allocation_count()
+                )
+                .unwrap();
+            }
+        }
     }
     if let Some(progress) = session.caches().model_open_progress() {
         writeln!(report, "Model cache: phase={:?}; directory index={}; cached source retained={}; native ModelOpen result={:?}",

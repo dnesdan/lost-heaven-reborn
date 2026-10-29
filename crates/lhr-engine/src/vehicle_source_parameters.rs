@@ -9,6 +9,26 @@ use crate::native_matrix::{checked_f32_add, checked_f32_mul};
 pub trait VehicleSourceParametersBackend: VehicleInitBackend {
     fn parameter_update_frame_world(&mut self, frame: u32) -> Result<(), Self::Error>;
     fn parameter_frame_world_scale(&mut self, frame: u32) -> Result<[u32; 3], Self::Error>;
+    /// Pure native DWORD move, not a numeric interpretation. The source-aware
+    /// adapter carries byte validity; legacy supplied-known callers preserve
+    /// their original read_word then write_word operations.
+    fn parameter_copy_word(
+        &mut self,
+        mut memory: Option<VehicleComponentTailMemory<'_>>,
+        destination: u32,
+        source: u32,
+    ) -> Result<(), Self::Error>
+    where
+        Self: Sized,
+    {
+        if let Some(memory) = &mut memory {
+            let value = memory.read_word_with_backend(self, source)?;
+            memory.write_word_with_backend(self, destination, value)
+        } else {
+            let value = self.read_word(source)?;
+            self.write_word(destination, value)
+        }
+    }
     /// Actual InitSounds dependency (RVA0xeac70), after the source copy.
     /// Some supplies the canonical VehicleInitState memory; None means the
     /// backend itself owns every addressed vehicle byte. An unavailable audio
@@ -21,6 +41,15 @@ pub trait VehicleSourceParametersBackend: VehicleInitBackend {
     ) -> Result<(), Self::Error>;
 }
 impl<B: VehicleSourceParametersBackend> VehicleSourceParametersBackend for Projection<'_, B> {
+    fn parameter_copy_word(
+        &mut self,
+        _: Option<VehicleComponentTailMemory<'_>>,
+        destination: u32,
+        source: u32,
+    ) -> Result<(), Self::Error> {
+        self.backend
+            .parameter_copy_word(Some(self.memory.reborrow()), destination, source)
+    }
     fn parameter_update_frame_world(&mut self, f: u32) -> Result<(), Self::Error> {
         self.backend.parameter_update_frame_world(f)
     }
@@ -107,12 +136,14 @@ impl<B: VehicleSourceParametersBackend> Parameters<'_, B> {
         self.set(self.v.wrapping_add(o), x)
     }
     fn copy_source(&mut self, i: u32, o: u32) -> R<B, ()> {
-        let x = self.word(self.s.wrapping_add(i * 4))?;
-        self.vc(o, x)
+        self.b
+            .parameter_copy_word(None, self.v.wrapping_add(o), self.s.wrapping_add(i * 4))
+            .map_err(|error| VehicleInitUnavailable::Effect(error).into())
     }
     fn copy_vehicle(&mut self, from: u32, to: u32) -> R<B, ()> {
-        let x = self.vw(from)?;
-        self.vc(to, x)
+        self.b
+            .parameter_copy_word(None, self.v.wrapping_add(to), self.v.wrapping_add(from))
+            .map_err(|error| VehicleInitUnavailable::Effect(error).into())
     }
     fn wheel(&mut self, i: u32) -> R<B, u32> {
         let base = self.vw(0xc38)?;
@@ -1072,8 +1103,7 @@ pub(super) fn apply_parameters<B: VehicleSourceParametersBackend>(
         p.vs(0x354, mul(radius, 1.1)?)?;
     }
     for i in 0..0x449u32 {
-        let x = p.word(source.wrapping_add(i * 4))?;
-        p.vc(0xe6c + i * 4, x)?;
+        p.copy_source(i, 0xe6c + i * 4)?;
     }
     Ok(true)
 }

@@ -395,6 +395,10 @@ impl<'a> SharedAnimationModel<'a> {
         Ok(())
     }
 }
+// Non-reused allocation identities for actual ArenaActorDataRecord owners.
+// No actor values, host pointers or additional record registry are stored here.
+static NEXT_ACTOR_RECORD_VEHICLE_OFFSET: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(0);
 impl ModelArena {
     pub(crate) fn mark_loaded_model_root(&mut self, key: FrameKey) -> Result<(), ModelError> {
         self.graph.mark_loaded_root_fields(key)?;
@@ -1979,11 +1983,22 @@ impl ModelArena {
             .try_reserve(1)
             .map_err(|_| ModelError::AllocationOverflow)?;
         let identity = crate::actor_frames::ActorDataRecordId(self.lookup_reference(FrameKey(raw)));
+        let offset = NEXT_ACTOR_RECORD_VEHICLE_OFFSET
+            .try_update(
+                std::sync::atomic::Ordering::Relaxed,
+                std::sync::atomic::Ordering::Relaxed,
+                |offset| offset.checked_add(16).filter(|next| *next <= 0x0100_0000),
+            )
+            .map_err(|_| ModelError::AllocationOverflow)?;
+        let vehicle_token = 0xff00_0000u32
+            .checked_add(offset)
+            .ok_or(ModelError::AllocationOverflow)?;
         self.actor_data_records
             .push(crate::actor_frames::ActorDataRecord {
                 identity,
                 actor,
                 alive: true,
+                vehicle_token,
             });
         Ok(identity)
     }
@@ -2007,6 +2022,43 @@ impl ModelArena {
         record: crate::actor_frames::ActorDataRecordId,
     ) -> Result<Option<crate::script_scheduler::ActorReferenceId>, ModelError> {
         Ok(self.actor_data_records[self.actor_data_record_index(record)?].actor)
+    }
+    pub(crate) fn actor_data_record_vehicle_token(
+        &self,
+        record: crate::actor_frames::ActorDataRecordId,
+    ) -> Result<u32, ModelError> {
+        Ok(self.actor_data_records[self.actor_data_record_index(record)?].vehicle_token)
+    }
+    pub(crate) fn actor_data_record_for_vehicle_token(
+        &self,
+        token: u32,
+    ) -> Result<crate::actor_frames::ActorDataRecordId, ModelError> {
+        let record = self
+            .actor_data_records
+            .iter()
+            .find(|record| record.vehicle_token == token)
+            .ok_or(ModelError::AllocationOverflow)?
+            .identity;
+        self.actor_data_record_index(record)?; // Full Arena scope/generation and liveness.
+        Ok(record)
+    }
+    pub fn live_actor_data_record_count(&self) -> usize {
+        self.actor_data_records
+            .iter()
+            .filter(|record| record.alive)
+            .count()
+    }
+    /// Explicit host retirement only after the Scene has no surviving frames.
+    /// The caller additionally proves its actual actor context is dead. Tokens
+    /// and retained diagnostic record slots are never reused.
+    pub(crate) fn retire_actor_data_records_host_after_frames(&mut self) -> Result<(), ModelError> {
+        if self.live_frame_count() != 0 {
+            return Err(ModelError::AllocationOverflow);
+        }
+        for record in &mut self.actor_data_records {
+            record.alive = false;
+        }
+        Ok(())
     }
     pub fn set_actor_data_record(
         &mut self,

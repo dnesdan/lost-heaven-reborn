@@ -62,6 +62,14 @@ pub enum CrashActorError<E> {
     AllocationFailed,
     Dependency(u32),
 }
+impl<E: From<crate::vehicle_init::VehicleUninitializedStorage>>
+    From<crate::vehicle_init::VehicleUninitializedStorage> for CrashActorError<E>
+{
+    fn from(error: crate::vehicle_init::VehicleUninitializedStorage) -> Self {
+        Self::Backend(E::from(error))
+    }
+}
+
 type Out<T, E> = Result<T, CrashActorError<E>>;
 fn word<B: VehicleInitBackend + ?Sized>(b: &mut B, a: u32) -> Out<u32, B::Error> {
     b.read_word(a).map_err(CrashActorError::Backend)

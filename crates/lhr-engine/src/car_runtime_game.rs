@@ -39,6 +39,14 @@ pub(super) enum CarRuntimeGameError<E> {
     },
     SourceParameters(Box<VehicleWheelsUnavailable<CarRuntimeGameError<E>>>),
 }
+impl<E: From<crate::vehicle_init::VehicleUninitializedStorage>>
+    From<crate::vehicle_init::VehicleUninitializedStorage> for CarRuntimeGameError<E>
+{
+    fn from(error: crate::vehicle_init::VehicleUninitializedStorage) -> Self {
+        Self::Backend(E::from(error))
+    }
+}
+
 impl<E: std::fmt::Debug> std::fmt::Display for CarRuntimeGameError<E> {
     fn fmt(&self, output: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

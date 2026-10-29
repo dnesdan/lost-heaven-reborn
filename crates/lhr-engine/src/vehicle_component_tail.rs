@@ -105,6 +105,7 @@ pub struct VehicleComponentTailMemory<'a> {
     pub(super) car: Option<CarInitMemory<'a>>,
     pub(super) vehicle_address: u32,
     pub(super) vehicle: &'a mut [u8],
+    pub(super) vehicle_known: Option<&'a mut [bool]>,
     pub(super) scratch: &'a mut VehicleComponentTailScratch,
 }
 impl VehicleComponentTailMemory<'_> {
@@ -116,6 +117,12 @@ impl VehicleComponentTailMemory<'_> {
 
     /// Borrows the canonical embedded vehicle for ordered arithmetic workers.
     pub fn vehicle_bytes_mut(&mut self) -> &mut [u8] {
+        assert!(
+            self.vehicle_known
+                .as_deref()
+                .is_none_or(|known| known.iter().all(|known| *known)),
+            "masked vehicle requires a validity-aware numeric view"
+        );
         self.vehicle
     }
 
@@ -125,6 +132,7 @@ impl VehicleComponentTailMemory<'_> {
             car: self.car.as_mut().map(CarInitMemory::reborrow),
             vehicle_address: self.vehicle_address,
             vehicle: self.vehicle,
+            vehicle_known: self.vehicle_known.as_deref_mut(),
             scratch: self.scratch,
         }
     }
@@ -171,13 +179,67 @@ impl VehicleComponentTailMemory<'_> {
         }
         Some(u32::from_le_bytes(bytes))
     }
+    pub(crate) fn projected_opaque_byte(&self, address: u32) -> Option<(u8, bool)> {
+        let byte = self.region(address, 1)?[0];
+        let known = address
+            .checked_sub(self.vehicle_address)
+            .filter(|offset| (*offset as usize) < self.vehicle.len())
+            .and_then(|offset| {
+                self.vehicle_known
+                    .as_deref()
+                    .map(|known| known.get(offset as usize).copied().unwrap_or(false))
+            })
+            .unwrap_or(true);
+        Some((byte, known))
+    }
+    pub(crate) fn projected_byte(&self, address: u32) -> Option<Option<u8>> {
+        self.projected_opaque_byte(address)
+            .map(|(byte, known)| known.then_some(byte))
+    }
     pub fn read_byte(&self, address: u32) -> Option<u8> {
-        Some(self.region(address, 1)?[0])
+        self.projected_byte(address).flatten()
+    }
+    pub(crate) fn write_opaque_word(&mut self, address: u32, bytes: [(u8, bool); 4]) -> Option<()> {
+        for (offset, (_, known)) in bytes.iter().enumerate() {
+            let address = address.wrapping_add(offset as u32);
+            self.region(address, 1)?;
+            if let Some(index) = address
+                .checked_sub(self.vehicle_address)
+                .filter(|index| (*index as usize) < self.vehicle.len())
+            {
+                if let Some(mask) = self.vehicle_known.as_deref() {
+                    mask.get(index as usize)?;
+                } else if !*known {
+                    return None;
+                }
+            } else if !*known {
+                return None;
+            }
+        }
+        for (offset, (value, known)) in bytes.into_iter().enumerate() {
+            let address = address.wrapping_add(offset as u32);
+            self.region_mut(address, 1)?[0] = value;
+            if let Some(offset) = address
+                .checked_sub(self.vehicle_address)
+                .filter(|offset| (*offset as usize) < self.vehicle.len())
+            {
+                if let Some(mask) = self.vehicle_known.as_deref_mut() {
+                    *mask.get_mut(offset as usize)? = known;
+                } else if !known {
+                    return None;
+                }
+            } else if !known {
+                return None;
+            }
+        }
+        Some(())
     }
     /// Writes only fully projected words. On `None`, no byte is changed; callers
     /// must use `write_word_with_backend` to handle mixed ownership.
     pub fn write_word(&mut self, address: u32, value: u32) -> Option<()> {
-        self.read_word(address)?;
+        for offset in 0..4 {
+            self.region(address.wrapping_add(offset), 1)?;
+        }
         for (offset, byte) in value.to_le_bytes().into_iter().enumerate() {
             self.write_byte(address.wrapping_add(offset as u32), byte)?;
         }
@@ -185,6 +247,14 @@ impl VehicleComponentTailMemory<'_> {
     }
     pub fn write_byte(&mut self, address: u32, value: u8) -> Option<()> {
         self.region_mut(address, 1)?[0] = value;
+        if let Some(offset) = address
+            .checked_sub(self.vehicle_address)
+            .filter(|offset| (*offset as usize) < self.vehicle.len())
+        {
+            if let Some(mask) = self.vehicle_known.as_deref_mut() {
+                *mask.get_mut(offset as usize)? = true;
+            }
+        }
         Some(())
     }
 
@@ -193,8 +263,9 @@ impl VehicleComponentTailMemory<'_> {
         backend: &mut B,
         address: u32,
     ) -> Result<u8, B::Error> {
-        match self.read_byte(address) {
-            Some(value) => Ok(value),
+        match self.projected_byte(address) {
+            Some(Some(value)) => Ok(value),
+            Some(None) => Err(VehicleUninitializedStorage { address }.into()),
             None => backend.read_byte(address),
         }
     }
@@ -211,7 +282,7 @@ impl VehicleComponentTailMemory<'_> {
     }
 
     fn touches_projection(&self, address: u32) -> bool {
-        (0..4).any(|offset| self.read_byte(address.wrapping_add(offset)).is_some())
+        (0..4).any(|offset| self.region(address.wrapping_add(offset), 1).is_some())
     }
 
     /// Keeps a wholly external read as one backend word operation. Mixed words
@@ -230,10 +301,7 @@ impl VehicleComponentTailMemory<'_> {
         let mut bytes = [0; 4];
         for (offset, byte) in bytes.iter_mut().enumerate() {
             let address = address.wrapping_add(offset as u32);
-            *byte = match self.read_byte(address) {
-                Some(value) => value,
-                None => backend.read_byte(address)?,
-            };
+            *byte = self.read_byte_with_backend(backend, address)?;
         }
         Ok(u32::from_le_bytes(bytes))
     }
@@ -269,10 +337,7 @@ pub(super) struct Projection<'a, B: ?Sized> {
 impl<B: VehicleInitBackend + ?Sized> VehicleInitBackend for Projection<'_, B> {
     type Error = B::Error;
     fn read_byte(&mut self, a: u32) -> Result<u8, Self::Error> {
-        match self.memory.read_byte(a) {
-            Some(v) => Ok(v),
-            None => self.backend.read_byte(a),
-        }
+        self.memory.read_byte_with_backend(self.backend, a)
     }
     fn read_word(&mut self, a: u32) -> Result<u32, Self::Error> {
         self.memory.read_word_with_backend(self.backend, a)
@@ -323,6 +388,7 @@ pub(super) fn insert_exhaust_projection<B: VehicleInitBackend>(
                 car: None,
                 vehicle_address,
                 vehicle,
+                vehicle_known: None, // Explicit known caller bytes during first Init only.
                 scratch,
             },
         },
@@ -361,6 +427,7 @@ pub struct VehicleComponentTailEnumeration<'a> {
     car: Option<CarInitMemory<'a>>,
     scratch: &'a mut VehicleComponentTailScratch,
     vehicle: &'a mut [u8],
+    vehicle_known: Option<&'a mut [bool]>,
     vehicle_address: u32,
     offset: usize,
 }
@@ -376,6 +443,7 @@ impl VehicleComponentTailEnumeration<'_> {
                 car: self.car.as_mut().map(CarInitMemory::reborrow),
                 vehicle_address: self.vehicle_address,
                 vehicle: self.vehicle,
+                vehicle_known: self.vehicle_known.as_deref_mut(),
                 scratch: self.scratch,
             },
             header,
@@ -507,6 +575,7 @@ impl VehicleInitState {
             car: self.car.as_mut().map(CarInitOwned::memory),
             vehicle_address: self.tail_vehicle_address.unwrap(),
             vehicle: &mut self.bytes,
+            vehicle_known: Some(&mut self.known),
             scratch: self.tail_scratch.as_mut().unwrap(),
         }
     }
@@ -633,6 +702,7 @@ impl VehicleInitState {
                 scratch,
                 offset,
                 vehicle: &mut self.bytes,
+                vehicle_known: Some(&mut self.known),
                 vehicle_address: self.tail_vehicle_address.unwrap(),
             },
         )?;
@@ -649,6 +719,7 @@ impl VehicleInitState {
                 car: self.car.as_mut().map(CarInitOwned::memory),
                 vehicle_address: base,
                 vehicle: &mut self.bytes,
+                vehicle_known: Some(&mut self.known),
                 scratch: self.tail_scratch.as_mut().unwrap(),
             },
         }
@@ -1105,6 +1176,7 @@ impl VehicleInitState {
                     car: self.car.as_mut().map(CarInitOwned::memory),
                     vehicle_address: base,
                     vehicle: &mut self.bytes,
+                    vehicle_known: Some(&mut self.known),
                     scratch: self.tail_scratch.as_mut().unwrap(),
                 };
                 b.seat_callback(memory, function, context, frame)
@@ -1323,6 +1395,7 @@ mod projection_tests {
                         car: None,
                         vehicle_address: 0x1000,
                         vehicle: &mut vehicle,
+                        vehicle_known: None,
                         scratch: &mut scratch,
                     },
                 };
@@ -1370,6 +1443,7 @@ mod projection_tests {
             car: None,
             vehicle_address: 0x1000,
             vehicle: &mut vehicle,
+            vehicle_known: None,
             scratch: &mut scratch,
         };
         assert_eq!(memory.read_word(0x1006), Some(0x22221111));
@@ -1404,6 +1478,7 @@ mod projection_tests {
             car: None,
             vehicle_address: 0x1000,
             vehicle: &mut vehicle,
+            vehicle_known: None,
             scratch: &mut scratch,
         };
         let mut backend = MemoryBackend::default();
@@ -1433,6 +1508,7 @@ mod projection_tests {
                 car: None,
                 vehicle_address: 0x1000,
                 vehicle: &mut vehicle,
+                vehicle_known: None,
                 scratch: &mut scratch,
             };
             let failure = if address < 0x1000 { 0xfff } else { 0x1009 };
@@ -1475,6 +1551,7 @@ mod projection_tests {
             car: None,
             vehicle_address: 0,
             vehicle: &mut vehicle,
+            vehicle_known: None,
             scratch: &mut scratch,
         };
         let mut backend = MemoryBackend::default();

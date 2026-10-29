@@ -282,30 +282,36 @@ impl<B: RuntimeBackend> CompileBackend for Compiler<'_, B> {
         parameters: &mut [u8],
     ) -> Result<bool, RuntimeError> {
         let opcode = opcode as u32;
+        let zero_payload = crate::program_zero_parameters::supports_zero_parameter_opcode(opcode);
         *self.pending = Some(OwnedInstruction {
             opcode,
-            parameter: Some(ScalarParameterSlot::default()),
+            parameter: (!zero_payload).then(ScalarParameterSlot::default),
         });
         let pending = self.pending.as_mut().unwrap();
-        let mut boundary = ParameterBoundary {
-            fields: self.fields,
-            backend: self.backend,
-        };
-        let decoded = pending
-            .parameter
-            .as_mut()
-            .unwrap()
-            .decode(opcode, parameters, &mut boundary);
-        match decoded {
-            Ok(false) => {
-                *self.pending = None;
-                return Ok(false);
+        if zero_payload {
+            crate::program_zero_parameters::decode_zero_parameters(opcode, parameters)
+                .map_err(|error| RuntimeError::Parameter(format!("{error:?}")))?;
+        } else {
+            let mut boundary = ParameterBoundary {
+                fields: self.fields,
+                backend: self.backend,
+            };
+            match pending
+                .parameter
+                .as_mut()
+                .unwrap()
+                .decode(opcode, parameters, &mut boundary)
+            {
+                Ok(false) => {
+                    *self.pending = None;
+                    return Ok(false);
+                }
+                Ok(true) => {}
+                Err(ScalarDecodeError::UnsupportedOpcode(id)) => {
+                    return Err(RuntimeError::UnsupportedParameters(id));
+                }
+                Err(error) => return Err(RuntimeError::Parameter(format!("{error:?}"))),
             }
-            Ok(true) => {}
-            Err(ScalarDecodeError::UnsupportedOpcode(id)) => {
-                return Err(RuntimeError::UnsupportedParameters(id));
-            }
-            Err(e) => return Err(RuntimeError::Parameter(format!("{e:?}"))),
         }
         let storage = &mut self.instructions;
         if storage.logical_end == storage.native_capacity {
@@ -435,6 +441,34 @@ impl CProgram {
         }
         runtime.stage = RuntimeStage::Ready;
         Ok(progress)
+    }
+    /// Original CallSubroutine (RVA0x6cbc0): reset the actual program's PC,
+    /// empty-return cursor and owner, enable continuation, then synchronously
+    /// enter its owned CallProcess with delta1. No diagnostic program or state
+    /// copy is constructed. Derived virtual dispatch remains unadmitted.
+    pub fn call_owned_subroutine<B: RuntimeBackend>(
+        &mut self,
+        budget: &mut DispatchBudget,
+        backend: &mut B,
+    ) -> Result<(), RuntimeError> {
+        if self.vtable != ProgramVtable::Base {
+            return Err(RuntimeError::UnsupportedDerivedRuntime(self.vtable));
+        }
+        let runtime = self
+            .runtime
+            .as_mut()
+            .ok_or(RuntimeError::Domain("uninitialized program"))?;
+        if runtime.stage != RuntimeStage::Ready {
+            return Err(RuntimeError::Domain("runtime not ready"));
+        }
+        runtime.fields.scheduler.program_counter = 0;
+        runtime.fields.scheduler.short_stack_end = runtime.fields.scheduler.short_stack_begin;
+        // CProgram's typed owner is authoritative. The legacy scheduler word
+        // stays private/zero in this empty-return, no-saved-program boundary.
+        self.owner = None;
+        runtime.fields.scheduler.field_44 = 0;
+        runtime.fields.scheduler.continuation = 1;
+        self.call_owned_process(1, budget, backend)
     }
     pub fn call_owned_process<B: RuntimeBackend>(
         &mut self,
@@ -664,15 +698,13 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
     fn dispatch(&mut self, state: &mut ResetState, delta: i32) -> Result<(), RuntimeError> {
         *self.elapsed = self.elapsed.wrapping_add(delta as u32);
         let instruction = &self.instructions.active()[state.program_counter as usize];
-        let value = instruction
-            .parameter
-            .as_ref()
-            .and_then(|p| p.parameter())
-            .and_then(|p| p.value())
-            .ok_or(RuntimeError::Domain("unwritten parameter"))?;
         match instruction.opcode {
-            34 => state.continuation = u8::from(value != 0),
+            34 => {
+                let value = self.value_at(state)?;
+                state.continuation = u8::from(value != 0);
+            }
             11 | 12 => {
+                let value = self.value_at(state)?;
                 let requested = value as u32;
                 let actors = instruction.opcode == 12;
                 let current = if actors {
@@ -1253,6 +1285,114 @@ mod tests {
             .events
             .iter()
             .any(|event| event.0 == RuntimeEffect::ReleaseActors));
+        p.discard_runtime_host().unwrap();
+    }
+    #[test]
+    fn no_payload_instructions_compile_without_scalar_allocation_and_stop_at_dispatch_dependency() {
+        let mut memory = Memory::default();
+        let mut p = program(
+            b"commandblock 1\nuse_lightcache ignored, arguments",
+            &mut memory,
+        );
+        let progress = p.init_fresh_runtime(&mut memory).unwrap();
+        assert_eq!((progress.accepted, progress.errors), (2, 0));
+        assert!(p.runtime().unwrap().instructions.active()[1]
+            .parameter
+            .is_none());
+        assert_eq!(
+            memory
+                .events
+                .iter()
+                .filter(|event| event.0 == RuntimeEffect::AllocateScalar)
+                .count(),
+            1
+        );
+        assert!(p
+            .call_owned_process(7, &mut DispatchBudget::new(5).unwrap(), &mut memory)
+            .unwrap_err()
+            .to_debug()
+            .contains("UnsupportedCommand(180)"));
+        assert_eq!(p.runtime().unwrap().fields.elapsed, 7);
+        p.done_fresh_runtime(&mut memory).unwrap();
+        assert_eq!(
+            memory
+                .events
+                .iter()
+                .filter(|event| matches!(event.0, RuntimeEffect::ReleaseScalar(_)))
+                .count(),
+            1
+        );
+        p.discard_runtime_host().unwrap();
+    }
+    #[test]
+    fn compiled_end_keeps_scheduler_preclear_but_never_fakes_end_execution() {
+        let mut memory = Memory::default();
+        let mut p = program(b"commandblock 1\nend", &mut memory);
+        p.init_fresh_runtime(&mut memory).unwrap();
+        assert!(p
+            .call_owned_process(9, &mut DispatchBudget::new(5).unwrap(), &mut memory)
+            .unwrap_err()
+            .to_debug()
+            .contains("UnsupportedCommand(6)"));
+        let f = &p.runtime().unwrap().fields;
+        assert_eq!(f.program_counter(), 1);
+        assert!(!f.continuation());
+        assert_eq!(f.elapsed, 9);
+        p.done_fresh_runtime(&mut memory).unwrap();
+        p.discard_runtime_host().unwrap();
+    }
+    #[test]
+    fn owned_subroutine_resets_actual_owner_and_pc_before_synchronous_delta_one_process() {
+        let mut memory = Memory::default();
+        let mut p = program(b"dim_act 2", &mut memory);
+        p.set_owner(Some(ActorReferenceId::from_existing(9)))
+            .unwrap();
+        p.init_fresh_runtime(&mut memory).unwrap();
+        {
+            let f = &mut p.runtime.as_mut().unwrap().fields;
+            f.scheduler.program_counter = 37;
+            f.last_pc = 19;
+            f.elapsed = 55;
+            f.scheduler.continuation = 0;
+        }
+        p.call_owned_subroutine(&mut DispatchBudget::new(8).unwrap(), &mut memory)
+            .unwrap();
+        let f = &p.runtime().unwrap().fields;
+        assert_eq!(
+            (f.program_counter(), f.last_pc, f.elapsed, f.actor_count),
+            (1, 0, 0, 2)
+        );
+        assert!(f.continuation());
+        assert_eq!(p.owner(), None);
+        // Native CallSubroutine passes delta1 without resetting elapsed55.
+        // DIM sees56 at allocation; common advance resets elapsed afterward.
+        assert!(memory
+            .events
+            .iter()
+            .any(|event| event.0 == RuntimeEffect::AllocateActors(2)
+                && event.1 == 0
+                && event.2 == 56));
+        p.done_fresh_runtime(&mut memory).unwrap();
+        p.discard_runtime_host().unwrap();
+    }
+    #[test]
+    fn owned_subroutine_required_effect_failure_keeps_reset_prefix_and_delta_one_elapsed() {
+        let mut memory = Memory::default();
+        let mut p = program(b"use_lightcache", &mut memory);
+        p.set_owner(Some(ActorReferenceId::from_existing(9)))
+            .unwrap();
+        p.init_fresh_runtime(&mut memory).unwrap();
+        p.runtime.as_mut().unwrap().fields.scheduler.program_counter = 12;
+        assert!(p
+            .call_owned_subroutine(&mut DispatchBudget::new(8).unwrap(), &mut memory)
+            .is_err());
+        let f = &p.runtime().unwrap().fields;
+        assert_eq!(f.program_counter(), 0);
+        assert_eq!(f.elapsed, 1);
+        assert!(f.continuation());
+        assert_eq!(p.owner(), None);
+        assert_eq!(p.runtime().unwrap().stage, RuntimeStage::ProcessInterrupted);
+        p.done_fresh_runtime(&mut memory).unwrap();
         p.discard_runtime_host().unwrap();
     }
     impl RuntimeError {

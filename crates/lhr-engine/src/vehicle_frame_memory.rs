@@ -14,6 +14,11 @@ pub enum VehicleMemoryError {
     IntrinsicAdapterRequired,
     CallbackRequired { function: u32, context: u32 },
 }
+impl From<VehicleUninitializedStorage> for VehicleMemoryError {
+    fn from(error: VehicleUninitializedStorage) -> Self {
+        Self::Uninitialized(error.address)
+    }
+}
 struct Block {
     bytes: Vec<u8>,
     initialized: Vec<bool>,
@@ -45,6 +50,7 @@ impl VehicleFrameMemory {
             || address == 0
             || address < FRAME_END && FRAME_BASE < end
             || address < FILENAME_END && PROPERTY_BASE < end
+            || end > 0xff00_0000
             || address < self.limit && self.cursor < end
         {
             return Err(VehicleMemoryError::Overlap(address));
@@ -71,6 +77,24 @@ impl VehicleFrameMemory {
             .iter()
             .filter(|(_, block)| block.heap)
             .map(|(&base, block)| (base, block.bytes.len()))
+    }
+    /// Explicit host disposal of one proven retained compatibility allocation.
+    /// This drops its actual Rust owner without replaying a native free callback.
+    /// Allocation identities are never reused by this backend.
+    pub(crate) fn discard_host_allocation(
+        &mut self,
+        identity: u32,
+        bytes: u32,
+    ) -> Result<(), VehicleMemoryError> {
+        if !self
+            .blocks
+            .get(&identity)
+            .is_some_and(|block| block.heap && block.bytes.len() == bytes as usize)
+        {
+            return Err(VehicleMemoryError::Address(identity));
+        }
+        self.blocks.remove(&identity);
+        Ok(())
     }
     fn at(&self, address: u32) -> Result<(&Block, usize), VehicleMemoryError> {
         let (&base, block) = self
@@ -397,5 +421,37 @@ mod tests {
             Err(VehicleMemoryError::Address(0x1000))
         );
         assert_eq!(memory.read_byte(0x1000), Ok(1));
+    }
+}
+
+#[cfg(test)]
+mod retained_host_allocation_tests {
+    use super::*;
+    #[test]
+    fn exact_host_discard_rejects_foreign_extent_and_stale_identity_without_native_retry() {
+        let mut memory = VehicleFrameMemory::default();
+        memory.map_bytes(0x500000, &[7; 4]).unwrap();
+        let first = memory.allocate(8).unwrap();
+        memory.write_word(first, 0x12345678).unwrap();
+        assert_eq!(
+            memory.discard_host_allocation(first, 4),
+            Err(VehicleMemoryError::Address(first))
+        );
+        assert_eq!(memory.read_word(first), Ok(0x12345678));
+        assert_eq!(
+            memory.discard_host_allocation(0x500000, 4),
+            Err(VehicleMemoryError::Address(0x500000))
+        );
+        memory.discard_host_allocation(first, 8).unwrap();
+        let next = memory.allocate(8).unwrap();
+        assert!(next > first);
+        assert_eq!(
+            memory.discard_host_allocation(first, 8),
+            Err(VehicleMemoryError::Address(first))
+        );
+        assert_eq!(memory.allocations().collect::<Vec<_>>(), [(next, 8)]);
+        memory.discard_host_allocation(next, 8).unwrap();
+        assert_eq!(memory.allocations().count(), 0);
+        assert_eq!(memory.read_word(0x500000), Ok(0x07070707));
     }
 }

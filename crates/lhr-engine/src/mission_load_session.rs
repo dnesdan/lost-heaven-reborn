@@ -149,6 +149,10 @@ pub struct MissionOwnedCounts {
     pub mission_actors: u32,
     pub mission_program_sources: usize,
     pub mission_content_allocations: usize,
+    pub mission_car_heap_allocations: usize,
+    pub mission_car_cached_tracks: usize,
+    pub mission_car_table_allocations: usize,
+    pub arena_actor_data_records: usize,
     pub driver_scenes: usize,
     pub driver_scene_capacity: u32,
     pub cache_allocations: usize,
@@ -225,10 +229,17 @@ impl MissionOwnedCounts {
         let sound_backend = driver.host_sound_backend();
         Ok(MissionOwnedCounts {
             live_frames: arena.live_frame_count(),
+            arena_actor_data_records: arena.live_actor_data_record_count(),
             mission_actors: loader.map_or(0, |loader| loader.content.actors.world.actor_count),
             mission_program_sources: loader.map_or(0, |loader| loader.content.live_program_count()),
             mission_content_allocations: loader
                 .map_or(0, |loader| loader.content.live_allocation_count()),
+            mission_car_heap_allocations: loader
+                .map_or(0, |loader| loader.content.live_car_allocation_count()),
+            mission_car_cached_tracks: loader
+                .map_or(0, |loader| loader.content.live_car_track_count()),
+            mission_car_table_allocations: loader
+                .map_or(0, |loader| loader.content.live_car_table_allocation_count()),
             driver_scenes: driver.scenes().len(),
             driver_scene_capacity: driver.capacity(),
             cache_allocations: cache_memory.live_allocations(),
@@ -295,6 +306,7 @@ pub struct MissionDiscardFailure {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MissionDiscardCallError {
     AlreadyEntered,
+    ProgramRuntimeRetained,
     Stopped,
 }
 
@@ -361,6 +373,87 @@ impl MissionLoadSession {
         })
     }
 
+    fn global_program_admission(
+        &self,
+    ) -> Result<(), crate::mission_content_loading::MissionGlobalProgramError> {
+        if self.phase != MissionLoadPhase::PrefixComplete
+            || self.discard.phase != MissionDiscardPhase::NotStarted
+            || self.loader.is_none()
+        {
+            return Err(
+                crate::mission_content_loading::MissionGlobalProgramError::SourceUnavailable(
+                    "global programs require completed source prefix before terminal disposal"
+                        .into(),
+                ),
+            );
+        }
+        Ok(())
+    }
+    /// Explicit native global-program loop on this session's actual source
+    /// owners. This does not run actor/Game Init or start script scheduling.
+    pub fn global_program_game_init<B: crate::original_program::RuntimeBackend>(
+        &mut self,
+        backend: &mut B,
+    ) -> Result<
+        (),
+        crate::mission_content_loading::GlobalProgramError<
+            crate::mission_content_loading::MissionGlobalProgramError,
+        >,
+    > {
+        self.global_program_admission()
+            .map_err(crate::mission_content_loading::GlobalProgramError::EntryCountUnavailable)?;
+        Pc24PrecisionState::run_owner(
+            self,
+            |session| &mut session.precision,
+            |session| {
+                session
+                    .loader
+                    .as_mut()
+                    .unwrap()
+                    .content
+                    .global_program_game_init(backend)
+            },
+        )
+    }
+    pub fn global_program_game_done<B: crate::original_program::RuntimeBackend>(
+        &mut self,
+        backend: &mut B,
+    ) -> Result<
+        (),
+        crate::mission_content_loading::GlobalProgramError<
+            crate::mission_content_loading::MissionGlobalProgramError,
+        >,
+    > {
+        self.global_program_admission()
+            .map_err(crate::mission_content_loading::GlobalProgramError::EntryCountUnavailable)?;
+        Pc24PrecisionState::run_owner(
+            self,
+            |session| &mut session.precision,
+            |session| {
+                session
+                    .loader
+                    .as_mut()
+                    .unwrap()
+                    .content
+                    .global_program_game_done(backend)
+            },
+        )
+    }
+    /// Explicit host cleanup after a stopped global runtime. Native Done is not
+    /// replayed; the source-prefix state remains available for terminal disposal.
+    pub fn discard_global_program_runtimes_host(
+        &mut self,
+    ) -> Result<
+        Vec<crate::mission_content_loading::GlobalProgramDiscard>,
+        crate::mission_content_loading::MissionGlobalProgramError,
+    > {
+        self.global_program_admission()?;
+        self.loader
+            .as_mut()
+            .unwrap()
+            .content
+            .discard_global_program_runtimes_host()
+    }
     pub fn phase(&self) -> MissionLoadPhase {
         self.phase
     }
@@ -621,6 +714,13 @@ impl MissionLoadSession {
         if self.discard.phase != MissionDiscardPhase::NotStarted {
             return Err(MissionDiscardCallError::AlreadyEntered);
         }
+        if self
+            .loader
+            .as_ref()
+            .is_some_and(|loader| loader.content.has_retained_program_runtime())
+        {
+            return Err(MissionDiscardCallError::ProgramRuntimeRetained);
+        }
         let result = Pc24PrecisionState::run_owner(
             self,
             |session| &mut session.precision,
@@ -715,6 +815,23 @@ impl MissionLoadSession {
         self.arena
             .reclaim_unused_visual_buffers()
             .map_err(MissionDiscardCause::VisualBuffers)?;
+        let actors_dead = self.loader.as_ref().is_none_or(|loader| {
+            loader
+                .content
+                .actors
+                .world
+                .owned_actor_references()
+                .next()
+                .is_none()
+        });
+        if actors_dead && self.arena.live_frame_count() == 0 {
+            // External userdata cells have their own Arena lifetime. This host
+            // retirement happens only after every actual actor/frame borrower
+            // is dead; it reconstructs no native record destructor.
+            self.arena
+                .retire_actor_data_records_host_after_frames()
+                .map_err(MissionDiscardCause::VisualBuffers)?;
+        }
         let remaining = self
             .owned_counts()
             .map_err(MissionDiscardCause::Diagnostics)?;

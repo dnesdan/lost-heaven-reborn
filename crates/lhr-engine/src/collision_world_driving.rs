@@ -754,6 +754,12 @@ mod tests {
         Missing,
         Query(CollisionQueryError),
     }
+    impl From<crate::vehicle_init::VehicleUninitializedStorage> for BackendError {
+        fn from(_: crate::vehicle_init::VehicleUninitializedStorage) -> Self {
+            // This legacy fixture represents unavailable storage with Missing.
+            Self::Missing
+        }
+    }
     struct Backend;
     impl crate::vehicle_init::VehicleInitBackend for Backend {
         type Error = BackendError;

@@ -172,6 +172,21 @@ impl VehicleInitState {
         &mut self,
         b: &mut B,
     ) -> Result<(), CarDestructorUnavailable<B::Error>> {
+        self.destruct_car_parts(b, true)
+    }
+    /// Derived cleanup only; its caller owns the real typed base actor and
+    /// invokes that destructor after this exact ordered prefix succeeds.
+    pub(crate) fn destruct_car_derived<B: VehicleDestructorBackend>(
+        &mut self,
+        b: &mut B,
+    ) -> Result<(), CarDestructorUnavailable<B::Error>> {
+        self.destruct_car_parts(b, false)
+    }
+    fn destruct_car_parts<B: VehicleDestructorBackend>(
+        &mut self,
+        b: &mut B,
+        owns_base: bool,
+    ) -> Result<(), CarDestructorUnavailable<B::Error>> {
         if self.destructor_started {
             return Err(CarDestructorUnavailable::AlreadyStarted);
         }
@@ -192,7 +207,9 @@ impl VehicleInitState {
         }
         let mut projection = self.tail_projection(b, car + 0x70);
         let result = (|| {
-            projection.write_word(car, 0x623618)?;
+            if owns_base {
+                projection.write_word(car, 0x623618)?;
+            }
             projection.write_word(car + 0x70, 0x6236b0)?;
             remove_car_pair(&mut projection, car)?;
             for offset in [0x21f8, 0x21cc, 0x21b4] {
@@ -203,7 +220,11 @@ impl VehicleInitState {
                 }
             }
             vehicle_destruct(&mut projection, car + 0x70)?;
-            actor_destruct(&mut projection, car)
+            if owns_base {
+                actor_destruct(&mut projection, car)
+            } else {
+                Ok(())
+            }
         })();
         result.map_err(CarDestructorUnavailable::Effect)
     }

@@ -65,7 +65,7 @@ impl CutsceneSourceHeader {
     pub fn serialized_bytes(&self) -> &[u8; 96] {
         &self.0
     }
-    fn word(&self, offset: usize) -> u32 {
+    pub(crate) fn word(&self, offset: usize) -> u32 {
         u32::from_le_bytes(self.0[offset..offset + 4].try_into().unwrap())
     }
 }

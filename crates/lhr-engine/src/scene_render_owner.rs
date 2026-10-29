@@ -530,6 +530,23 @@ impl CanonicalSceneState {
                 o.arena
                     .reclaim_unused_visual_buffers()
                     .map_err(|e| format!("Canonical visual reclamation: {e:?}"))?;
+                let actors_dead = o.loader.as_ref().is_none_or(|loader| {
+                    loader
+                        .content
+                        .actors
+                        .world
+                        .owned_actor_references()
+                        .next()
+                        .is_none()
+                });
+                if actors_dead && o.arena.live_frame_count() == 0 {
+                    // The same explicit HOST record lifetime end as headless
+                    // session disposal, after every actual actor/frame borrower
+                    // is dead. This is separate from native Scene Close.
+                    o.arena
+                        .retire_actor_data_records_host_after_frames()
+                        .map_err(|e| format!("Canonical actor-record host retirement: {e:?}"))?;
+                }
                 let remaining = crate::mission_load_session::MissionOwnedCounts::from_owners(
                     &o.arena,
                     &o.driver,

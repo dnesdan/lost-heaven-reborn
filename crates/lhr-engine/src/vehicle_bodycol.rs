@@ -19,6 +19,13 @@ pub enum VehicleBodycolUnavailable<E> {
     NumericDomain(&'static str),
     ProjectionStorage,
 }
+impl<E: From<crate::vehicle_init::VehicleUninitializedStorage>>
+    From<crate::vehicle_init::VehicleUninitializedStorage> for VehicleBodycolUnavailable<E>
+{
+    fn from(error: crate::vehicle_init::VehicleUninitializedStorage) -> Self {
+        Self::Effect(E::from(error))
+    }
+}
 
 /// Stack storage, separate from the original native heap. The two bytes are
 /// opaque caller stack contents copied by constructors before the memset;

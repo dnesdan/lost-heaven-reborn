@@ -21,6 +21,14 @@ use crate::script_scheduler::ActorReferenceId;
 use lhr_assets::scene_actor_stream::Chunk;
 use std::collections::BTreeMap;
 
+#[path = "mission_program_lifecycle.rs"]
+mod global_program_lifecycle;
+pub use global_program_lifecycle::{
+    finish_global_programs, initialize_global_programs, GameGlobalProgramRunner,
+    GlobalProgramDiscard, GlobalProgramError, GlobalProgramOperation, GlobalProgramOwner,
+    MissionGlobalProgramError, NamedGlobalProgramError, NamedGlobalProgramOutcome,
+};
+
 /// One actual source owner shared by every reached actor/program root.
 /// Terminal disposal is host cleanup of these source lifetimes, not GameDone.
 pub struct MissionContentOwner {
@@ -40,10 +48,15 @@ impl Default for MissionContentOwner {
             storage: None,
             capacity: 0,
         };
+        let mut world =
+            ActorWorld::new(0, 0, empty, empty, empty).expect("empty actor collections");
+        // Explicit source-host resource/random seed, not an original heap image
+        // or the game's post-startup random state.
+        world
+            .configure_car_resources(1)
+            .expect("bounded source car resources");
         Self {
-            actors: MissionActorLoader::borrowing_scene_map(
-                ActorWorld::new(0, 0, empty, empty, empty).expect("empty actor collections"),
-            ),
+            actors: MissionActorLoader::borrowing_scene_map(world),
             programs: Vec::new(),
             pending_program: None,
             memory: ContentMemory::default(),
@@ -75,7 +88,25 @@ impl MissionContentOwner {
         self.pending_program.as_ref()
     }
     pub fn live_allocation_count(&self) -> usize {
-        self.memory.actors.len() + self.memory.collections.len() + self.memory.programs.len()
+        self.memory.actors.len()
+            + self.memory.collections.len()
+            + self.memory.programs.len()
+            + self.actors.world.live_car_allocation_count()
+    }
+    pub fn live_car_allocation_count(&self) -> usize {
+        self.actors.world.live_car_allocation_count()
+    }
+    pub fn live_car_table_allocation_count(&self) -> usize {
+        self.actors.world.live_car_table_allocation_count()
+    }
+    pub fn live_car_track_count(&self) -> usize {
+        self.actors.world.live_car_track_count()
+    }
+    pub fn has_retained_program_runtime(&self) -> bool {
+        self.programs
+            .iter()
+            .chain(self.pending_program.iter())
+            .any(|program| program.runtime().is_some())
     }
     pub fn live_program_count(&self) -> usize {
         self.programs
@@ -94,14 +125,25 @@ impl MissionContentOwner {
         map: &mut OriginalLoadMap,
         patches: &crate::program_patch::ProgramPatchTable,
     ) -> Result<(), String> {
+        self.load_actors_with_car_resources(root, arena, map, patches, None)
+    }
+    pub fn load_actors_with_car_resources(
+        &mut self,
+        root: Chunk<'_>,
+        arena: &mut ModelArena,
+        map: &mut OriginalLoadMap,
+        patches: &crate::program_patch::ProgramPatchTable,
+        installation: Option<&lhr_assets::Installation>,
+    ) -> Result<(), String> {
         self.available()?;
-        let result = self.actors.load_collection_with_map(
+        let result = self.actors.load_collection_with_car_resources(
             root,
             arena,
             map,
             self.mission_path.as_deref(),
             patches.replacements(),
             &mut self.memory,
+            installation,
         );
         self.cursor = self.actors.cursor;
         if let Err(error) = result {
@@ -185,6 +227,15 @@ impl MissionContentOwner {
         if self.terminal_entered {
             return Err("mission content disposal already entered".into());
         }
+        // Source destruction cannot dispose a retained executable runtime. This
+        // host preflight leaves terminal entry available after explicit discard;
+        // it neither calls original Done nor replays uncertain runtime effects.
+        if self.has_retained_program_runtime() {
+            return Err(
+                "explicit global program runtime host discard required before source disposal"
+                    .into(),
+            );
+        }
         self.terminal_entered = true;
         if let Some(program) = self.pending_program.as_mut() {
             program
@@ -210,6 +261,7 @@ impl MissionContentOwner {
                 ActorVtable::Railway => {
                     world.delete_railway(actor, 1, &mut frames, &mut self.memory)
                 }
+                ActorVtable::Car => world.delete_car(actor, 1, &mut frames, &mut self.memory),
                 ActorVtable::Human => world.delete_human(actor, 1, &mut frames, &mut self.memory),
                 ActorVtable::Player => world.delete_player(actor, 1, &mut frames, &mut self.memory),
                 ActorVtable::Entity => world.delete_entity(actor, 1, &mut frames, &mut self.memory),
@@ -229,6 +281,10 @@ impl MissionContentOwner {
             .world
             .discard_empty_source_backings(&mut self.memory)
             .map_err(|e| format!("{e:?}"))?;
+        self.actors
+            .world
+            .discard_car_services_host()
+            .map_err(|e| format!("car service host disposal: {e:?}"))?;
         if self.live_allocation_count() != 0 {
             return Err("mission content backing remains owned".into());
         }
@@ -327,6 +383,20 @@ impl ContentMemory {
     }
 }
 impl ActorAllocationBackend for ContentMemory {
+    fn allocate_car(
+        &mut self,
+        bytes: u32,
+    ) -> Result<Option<(u32, BaseActorSeed, crate::car_actor::CarSeed)>, String> {
+        Ok(Some((
+            self.actor(bytes, 0x221c)?,
+            base_seed(),
+            crate::car_actor::CarSeed {
+                allocator_fill: 0,
+                constructor_allocator_tag: 0,
+                vehicle_allocator_tag: 0,
+            },
+        )))
+    }
     fn allocate_player(
         &mut self,
         bytes: u32,
@@ -840,6 +910,61 @@ mod human_source_tests {
         assert_eq!(arena.actor_data_record(record).unwrap(), Some(a));
         owner.discard_terminal(&mut arena).unwrap();
         assert_eq!(owner.live_allocation_count(), 0);
+        arena.close(model).unwrap();
+    }
+    #[test]
+    fn car_source_factory_and_rejected_vehicle_init_use_one_real_actor_and_model_owner() {
+        let (mut arena, model, mut map, _) = setup(true);
+        let references = arena.frame(model.root()).unwrap().references;
+        let mut owner = MissionContentOwner::default();
+        let bytes = input(4, &[]);
+        owner
+            .load_actors(
+                collection(&bytes),
+                &mut arena,
+                &mut map,
+                &crate::program_patch::ProgramPatchTable::default(),
+            )
+            .unwrap();
+        // The real base attachment happened once before Vehicle rejected the
+        // model with no BODY. The source caller dispatches actual car Release.
+        assert_eq!(owner.actors.world.attachment_counter, 1);
+        assert_eq!(owner.actors.world.actor_count, 0);
+        assert!(owner.actors.current_actor.is_none());
+        assert!(owner.actors.world.source(ActorSource::Static).is_empty());
+        assert!(owner.actors.world.source(ActorSource::Primary).is_empty());
+        assert!(owner.actors.world.owned_actor_references().next().is_none());
+        assert_eq!(arena.frame(model.root()).unwrap().references, references);
+        assert_eq!(arena.user_data(model.root()).unwrap(), FrameUserData::Null);
+        // Base registration allocated the one static-vector backing. Erasing
+        // its actor does not free its retained capacity; terminal host disposal
+        // releases that exact backing after the derived/model cleanup.
+        assert_eq!(
+            owner.actors.world.backing(ActorSource::Static),
+            SourceBacking {
+                storage: Some(ActorStorageId(2)),
+                capacity: 1
+            }
+        );
+        assert_eq!(
+            owner.memory.collections.keys().copied().collect::<Vec<_>>(),
+            [2]
+        );
+        assert_eq!(owner.memory.collections[&2].0, ActorSource::Static);
+        assert_eq!(owner.memory.collections[&2].1.len(), 4);
+        assert!(owner.memory.actors.is_empty());
+        assert_eq!(owner.live_car_allocation_count(), 0);
+        assert_eq!(owner.live_car_track_count(), 0);
+        assert_eq!(owner.live_allocation_count(), 1);
+        owner.discard_terminal(&mut arena).unwrap();
+        assert_eq!(owner.live_allocation_count(), 0);
+        assert_eq!(
+            owner.actors.world.backing(ActorSource::Static),
+            SourceBacking {
+                storage: None,
+                capacity: 0
+            }
+        );
         arena.close(model).unwrap();
     }
 }

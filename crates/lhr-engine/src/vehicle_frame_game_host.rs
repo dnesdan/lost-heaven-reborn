@@ -97,6 +97,7 @@ impl<B: VehicleComponentTailBackend> VehicleFrameBackend<'_, B> {
             host: &mut *self.host,
             installation: self.installation,
             car_tracks: self.car_tracks.as_deref_mut(),
+            vehicle_tables: self.vehicle_tables.as_deref_mut(),
             game_init_stack: self.game_init_stack,
             game_host: None,
         };

@@ -35,6 +35,7 @@ impl VehicleSetupEnumeration<'_> {
                     car: self.memory.car.as_mut().map(CarInitMemory::reborrow),
                     vehicle_address: self.memory.vehicle_address,
                     vehicle: self.memory.vehicle,
+                    vehicle_known: self.memory.vehicle_known.as_deref_mut(),
                     scratch: self.memory.scratch,
                 },
             };

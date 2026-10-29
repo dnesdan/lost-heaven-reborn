@@ -360,7 +360,7 @@ impl CarConstructionMemory<'_> {
         if let Some(offset) = address.checked_sub(car.address) {
             let offset = offset as usize;
             if offset < 0x70 {
-                return car.prefix.get(offset..offset.checked_add(size)?);
+                return car.prefix.as_ref()?.get(offset..offset.checked_add(size)?);
             }
             if let Some(bytes) = self
                 .state
@@ -378,7 +378,10 @@ impl CarConstructionMemory<'_> {
         if let Some(offset) = address.checked_sub(car.address) {
             let offset = offset as usize;
             if offset < 0x70 {
-                return car.prefix.get_mut(offset..offset.checked_add(size)?);
+                return car
+                    .prefix
+                    .as_mut()?
+                    .get_mut(offset..offset.checked_add(size)?);
             }
             let start = offset.checked_sub(0x70)?;
             if start.checked_add(size)? <= self.state.bytes.len() {
@@ -534,6 +537,48 @@ impl CarConstructionState {
             checkpoint: CarConstructionCheckpoint::Unstarted,
         })
     }
+    pub(crate) fn from_actor_allocator_tail(
+        address: u32,
+        bytes: Vec<u8>,
+        scratch: CarConstructionScratch,
+        registers: CarConstructionRegisters,
+        init_scratch: CarInitScratch,
+        init_registers: CarInitRegisters,
+    ) -> Result<Self, CarConstructionStorageError> {
+        if bytes.len() < 0x2214 - 0x70 {
+            return Err(CarConstructionStorageError::CarSpan);
+        }
+        let length =
+            u32::try_from(bytes.len()).map_err(|_| CarConstructionStorageError::CarSpan)?;
+        let end = address
+            .checked_add(0x70)
+            .and_then(|v| v.checked_add(length))
+            .ok_or(CarConstructionStorageError::CarSpan)?;
+        let stack_end = scratch
+            .address
+            .checked_add(CAR_CONSTRUCTION_STACK_BYTES as u32)
+            .ok_or(CarConstructionStorageError::ConstructorStackSpan)?;
+        let init_end = init_scratch
+            .address
+            .checked_add(CAR_INIT_STACK_BYTES as u32)
+            .ok_or(CarConstructionStorageError::Init(
+                CarInitStorageError::StackSpan,
+            ))?;
+        if address < stack_end && scratch.address < end
+            || scratch.address < init_end && init_scratch.address < stack_end
+        {
+            return Err(CarConstructionStorageError::Overlap);
+        }
+        let state =
+            VehicleInitState::from_actor_car_tail(address, bytes, init_scratch, init_registers)
+                .map_err(CarConstructionStorageError::Init)?;
+        Ok(Self {
+            state,
+            scratch,
+            registers,
+            checkpoint: CarConstructionCheckpoint::Unstarted,
+        })
+    }
     pub fn checkpoint(&self) -> CarConstructionCheckpoint {
         self.checkpoint
     }
@@ -598,7 +643,13 @@ impl CarConstructionState {
     }
     fn byte(&mut self, offset: usize, value: u8) {
         if offset < 0x70 {
-            self.state.car.as_mut().unwrap().prefix[offset] = value;
+            self.state
+                .car
+                .as_mut()
+                .unwrap()
+                .prefix
+                .as_mut()
+                .expect("standalone base storage")[offset] = value;
         } else {
             self.state.bytes[offset - 0x70] = value;
         }
@@ -643,13 +694,42 @@ impl CarConstructionState {
         self.checkpoint = CarConstructionCheckpoint::StaticRegistration;
         self.register_static(backend, address)?;
         self.stack_word(0x1c, 0);
+        let receiver_tag = ((address + 0x70) >> 24) as u8;
+        self.construct_derived(backend, receiver_tag, |state| {
+            state.word(0, 0x623618);
+            state.word(0x10, 4);
+            Ok(())
+        })
+    }
+    /// Starts at the evidenced embedded Vehicle constructor after the actual
+    /// ActorWorld base constructor has already published its one live owner.
+    pub(crate) fn construct_for_actor<B: CarConstructionBackend>(
+        &mut self,
+        backend: &mut B,
+        vehicle_allocator_tag: u8,
+        mut publish_base: impl FnMut() -> Result<(), B::Error>,
+    ) -> Result<u32, CarConstructionUnavailable<B::Error>> {
+        if self.checkpoint != CarConstructionCheckpoint::Unstarted {
+            return Err(CarConstructionUnavailable::AlreadyStarted);
+        }
+        self.construct_derived(backend, vehicle_allocator_tag, |_| {
+            publish_base().map_err(CarConstructionUnavailable::Effect)
+        })
+    }
+    fn construct_derived<B: CarConstructionBackend>(
+        &mut self,
+        backend: &mut B,
+        vehicle_allocator_tag: u8,
+        mut publish_base: impl FnMut(&mut Self) -> Result<(), CarConstructionUnavailable<B::Error>>,
+    ) -> Result<u32, CarConstructionUnavailable<B::Error>> {
+        let address = self.state.car.as_ref().unwrap().address;
         self.checkpoint = CarConstructionCheckpoint::Vehicle;
         let mut vehicle = VehicleOwnerState::from_bytes(std::mem::take(&mut self.state.bytes));
         // Storage was admitted before any effects, so the embedded constructor
         // cannot encounter a local span failure. Moving the bytes duplicates no
         // native allocation or resource ownership.
         vehicle
-            .construct(address + 0x70)
+            .construct_with_receiver_tag(address + 0x70, vehicle_allocator_tag)
             .expect("admitted constructor span");
         self.state.bytes = vehicle.into_bytes();
         self.checkpoint = CarConstructionCheckpoint::Derived;
@@ -661,8 +741,7 @@ impl CarConstructionState {
             }
         }
         self.word(0x70, 0x6236b0);
-        self.word(0, 0x623618);
-        self.word(0x10, 4);
+        publish_base(self)?;
         self.word(0xce4, address);
         self.byte(0x217d, 0);
         self.byte(0x217e, 0);

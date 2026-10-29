@@ -496,6 +496,7 @@ impl<'a> VehicleDeformEnumeration<'a> {
                 car: self.memory.car.as_mut().map(CarInitMemory::reborrow),
                 vehicle_address: self.memory.vehicle_address,
                 vehicle: self.memory.vehicle,
+                vehicle_known: self.memory.vehicle_known.as_deref_mut(),
                 scratch: self.memory.scratch,
             },
         };
@@ -511,6 +512,7 @@ impl<'a> VehicleDeformEnumeration<'a> {
                 car: self.memory.car.as_mut().map(CarInitMemory::reborrow),
                 vehicle_address: vehicle,
                 vehicle: self.memory.vehicle,
+                vehicle_known: self.memory.vehicle_known.as_deref_mut(),
                 scratch: self.memory.scratch,
             },
         };

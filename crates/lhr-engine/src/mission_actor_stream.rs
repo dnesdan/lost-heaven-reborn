@@ -201,6 +201,29 @@ impl MissionActorLoader {
         replacements: &[ProgramReplacement],
         backend: &mut B,
     ) -> Result<(), MissionActorError> {
+        self.load_collection_with_car_resources(
+            collection,
+            arena,
+            map,
+            mission_path,
+            replacements,
+            backend,
+            None,
+        )
+    }
+    #[allow(clippy::too_many_arguments)] // Existing source owners plus borrowed original car resources.
+    pub fn load_collection_with_car_resources<
+        B: ActorAllocationBackend + ActorCollectionBackend + ActorDeallocationBackend + ProgramBackend,
+    >(
+        &mut self,
+        collection: Chunk<'_>,
+        arena: &mut ModelArena,
+        map: &mut OriginalLoadMap,
+        mission_path: Option<&[u8]>,
+        replacements: &[ProgramReplacement],
+        backend: &mut B,
+        installation: Option<&lhr_assets::Installation>,
+    ) -> Result<(), MissionActorError> {
         if self.interrupted_offset.is_some() {
             return Err(self.error(
                 collection.offset,
@@ -229,9 +252,15 @@ impl MissionActorLoader {
             for field in record.children() {
                 let field = field.map_err(|e| self.error(record.offset, e.to_string()))?;
                 self.cursor = field.offset + 6;
-                if let Err(detail) =
-                    self.field(field, arena, map, mission_path, replacements, backend)
-                {
+                if let Err(detail) = self.field(
+                    field,
+                    arena,
+                    map,
+                    mission_path,
+                    replacements,
+                    backend,
+                    installation,
+                ) {
                     return Err(self.error(field.offset, detail));
                 }
                 self.cursor = field.offset + field.raw.len();
@@ -241,6 +270,7 @@ impl MissionActorLoader {
         self.cursor = collection.offset + collection.raw.len();
         Ok(())
     }
+    #[allow(clippy::too_many_arguments)] // Ordered source field dispatch borrows the same live owners.
     fn field<
         B: ActorAllocationBackend + ActorCollectionBackend + ActorDeallocationBackend + ProgramBackend,
     >(
@@ -251,6 +281,7 @@ impl MissionActorLoader {
         mission_path: Option<&[u8]>,
         replacements: &[ProgramReplacement],
         backend: &mut B,
+        installation: Option<&lhr_assets::Installation>,
     ) -> Result<(), String> {
         match field.kind {
             0xae23 => {
@@ -293,7 +324,8 @@ impl MissionActorLoader {
                     };
                     self.current_kind = Some(kind);
                     if let Some(actor) = self.current_actor {
-                        let mut frames = ModelActorFrames::borrow(arena, true);
+                        let mut frames =
+                            ModelActorFrames::borrow(arena, true).with_car_resources(installation);
                         if self
                             .world
                             .init(actor, Some(frame), &mut frames)
@@ -309,7 +341,11 @@ impl MissionActorLoader {
                             let key = validate_frame(arena, frame)?;
                             publish_actor_data(arena, key, actor)?;
                         } else {
-                            if kind == 2 {
+                            if kind == 4 {
+                                self.world
+                                    .release_car(actor, &mut frames, backend)
+                                    .map_err(|e| format!("{e:?}"))?;
+                            } else if kind == 2 {
                                 self.world
                                     .release_player(actor, &mut frames, backend)
                                     .map_err(|e| format!("{e:?}"))?;
@@ -339,6 +375,14 @@ impl MissionActorLoader {
                 if let Some(actor) = self.current_actor {
                     if !field.payload.is_empty() {
                         self.pending_load_data = Some(field.payload.to_vec());
+                        if self.current_kind == Some(4) {
+                            let mut reader = ActorDataReader::new(field.payload);
+                            let result = self.world.load_car_data(actor, &mut reader, arena);
+                            self.cursor = field.offset + 6 + reader.position();
+                            result.map_err(|e| format!("{e:?}"))?;
+                            self.pending_load_data = None;
+                            return Ok(());
+                        }
                         if matches!(self.current_kind, Some(2 | 27)) {
                             let mut reader = ActorDataReader::new(field.payload);
                             let result = if self.current_kind == Some(27) {
@@ -975,7 +1019,7 @@ mod tests {
         let bytes = input(
             &[
                 chunk(0xae23, b"actual\0"),
-                chunk(0xae22, &4u32.to_le_bytes()),
+                chunk(0xae22, &6u32.to_le_bytes()),
                 chunk(0xae22, &5u32.to_le_bytes()),
             ]
             .concat(),
@@ -990,7 +1034,7 @@ mod tests {
                 &mut storage,
             )
             .unwrap_err();
-        assert!(error.detail.contains("UnsupportedKind(4)"));
+        assert!(error.detail.contains("UnsupportedKind(6)"));
         assert_eq!(storage.next, 0);
         assert!(loader.world.source(ActorSource::Primary).is_empty());
         assert!(loader.world.source(ActorSource::Static).is_empty());

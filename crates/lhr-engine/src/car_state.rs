@@ -19,21 +19,21 @@ pub struct CarInitRegisters {
 #[derive(Debug, PartialEq, Eq)]
 pub(super) struct CarInitOwned {
     pub address: u32,
-    pub prefix: [u8; 0x70],
+    pub prefix: Option<[u8; 0x70]>,
     pub scratch: CarInitScratch,
     pub registers: CarInitRegisters,
     pub post_vehicle_ready: bool,
 }
 pub(super) struct CarInitMemory<'a> {
     address: u32,
-    prefix: &'a mut [u8; 0x70],
+    prefix: Option<&'a mut [u8; 0x70]>,
     scratch: &'a mut CarInitScratch,
 }
 impl CarInitOwned {
     pub(super) fn memory(&mut self) -> CarInitMemory<'_> {
         CarInitMemory {
             address: self.address,
-            prefix: &mut self.prefix,
+            prefix: self.prefix.as_mut(),
             scratch: &mut self.scratch,
         }
     }
@@ -42,17 +42,18 @@ impl CarInitMemory<'_> {
     pub(super) fn reborrow(&mut self) -> CarInitMemory<'_> {
         CarInitMemory {
             address: self.address,
-            prefix: self.prefix,
+            prefix: self.prefix.as_deref_mut(),
             scratch: self.scratch,
         }
     }
     pub(super) fn region(&self, address: u32, size: usize) -> Option<&[u8]> {
         if let Some(offset) = address.checked_sub(self.address) {
-            if let Some(bytes) = self
-                .prefix
-                .get(offset as usize..(offset as usize).checked_add(size)?)
-            {
-                return Some(bytes);
+            if let Some(prefix) = &self.prefix {
+                if let Some(bytes) =
+                    prefix.get(offset as usize..(offset as usize).checked_add(size)?)
+                {
+                    return Some(bytes);
+                }
             }
         }
         let offset = address.checked_sub(self.scratch.address)? as usize;
@@ -61,8 +62,10 @@ impl CarInitMemory<'_> {
     pub(super) fn region_mut(&mut self, address: u32, size: usize) -> Option<&mut [u8]> {
         if let Some(offset) = address.checked_sub(self.address) {
             let offset = offset as usize;
-            if offset.checked_add(size)? <= self.prefix.len() {
-                return self.prefix.get_mut(offset..offset + size);
+            if let Some(prefix) = &mut self.prefix {
+                if offset.checked_add(size)? <= prefix.len() {
+                    return prefix.get_mut(offset..offset + size);
+                }
             }
         }
         let offset = address.checked_sub(self.scratch.address)? as usize;
@@ -107,7 +110,40 @@ impl VehicleInitState {
         let mut state = Self::from_bytes(bytes[0x70..].to_vec());
         state.car = Some(CarInitOwned {
             address: car,
-            prefix,
+            prefix: Some(prefix),
+            scratch,
+            registers,
+            post_vehicle_ready: false,
+        });
+        Ok(state)
+    }
+    /// The real base actor is owned elsewhere; this compatibility owner contains
+    /// only the embedded Vehicle/car tail. Base addresses are never shadowed.
+    pub(crate) fn from_actor_car_tail(
+        car: u32,
+        bytes: Vec<u8>,
+        scratch: CarInitScratch,
+        registers: CarInitRegisters,
+    ) -> Result<Self, CarInitStorageError> {
+        let length = u32::try_from(bytes.len()).map_err(|_| CarInitStorageError::CarSpan)?;
+        if length < 0x2204 - 0x70 {
+            return Err(CarInitStorageError::CarSpan);
+        }
+        let car_end = car
+            .checked_add(0x70)
+            .and_then(|v| v.checked_add(length))
+            .ok_or(CarInitStorageError::CarSpan)?;
+        let end = scratch
+            .address
+            .checked_add(CAR_INIT_STACK_BYTES as u32)
+            .ok_or(CarInitStorageError::StackSpan)?;
+        if car < end && scratch.address < car_end {
+            return Err(CarInitStorageError::Overlap);
+        }
+        let mut state = Self::from_bytes(bytes);
+        state.car = Some(CarInitOwned {
+            address: car,
+            prefix: None,
             scratch,
             registers,
             post_vehicle_ready: false,
@@ -116,8 +152,9 @@ impl VehicleInitState {
     }
     pub fn car_bytes(&self) -> Option<Vec<u8>> {
         let car = self.car.as_ref()?;
+        self.known_bytes()?;
         let mut bytes = Vec::with_capacity(0x70 + self.bytes.len());
-        bytes.extend_from_slice(&car.prefix);
+        bytes.extend_from_slice(car.prefix.as_ref()?);
         bytes.extend_from_slice(&self.bytes);
         Some(bytes)
     }
@@ -130,8 +167,41 @@ impl VehicleInitState {
             car: self.car.as_mut().map(CarInitOwned::memory),
             vehicle_address: address + 0x70,
             vehicle: &mut self.bytes,
+            vehicle_known: Some(&mut self.known),
             scratch,
         })
+    }
+    pub(crate) fn set_actor_car_init_model(
+        &mut self,
+        model: u32,
+    ) -> Result<(), CarInitStorageError> {
+        if self.car_caller_started {
+            return Err(CarInitStorageError::CarSpan);
+        }
+        let car = self.car.as_mut().ok_or(CarInitStorageError::CarSpan)?;
+        if car.prefix.is_some() {
+            return Err(CarInitStorageError::CarSpan);
+        }
+        car.scratch.bytes[0x26c..0x270].copy_from_slice(&model.to_le_bytes());
+        Ok(())
+    }
+    /// Explicit caller storage for constructor-complete cleanup before Init.
+    /// A previously reached Init context is retained, including failure effects.
+    pub(crate) fn prepare_actor_car_destruction(
+        &mut self,
+        storage: VehicleComponentTailStorage,
+    ) -> Result<(), CarInitStorageError> {
+        let car = self.car.as_ref().ok_or(CarInitStorageError::CarSpan)?;
+        if car.prefix.is_some()
+            || car.address.checked_add(0x70) != Some(storage.bodycol.vehicle_address)
+        {
+            return Err(CarInitStorageError::CarSpan);
+        }
+        if self.tail_scratch.is_none() {
+            self.tail_vehicle_address = Some(storage.bodycol.vehicle_address);
+            self.tail_scratch = Some(storage.scratch);
+        }
+        Ok(())
     }
     pub fn car_init_scratch(&self) -> Option<&CarInitScratch> {
         self.car.as_ref().map(|car| &car.scratch)

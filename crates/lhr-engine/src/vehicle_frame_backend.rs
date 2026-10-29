@@ -61,6 +61,14 @@ pub enum VehicleFrameError<E> {
     UnsupportedCarLocale(u32),
     Audio(String),
 }
+impl<E> From<VehicleUninitializedStorage> for VehicleFrameError<E> {
+    fn from(error: VehicleUninitializedStorage) -> Self {
+        Self::UnavailableGameEffect(format!(
+            "uninitialized owned vehicle byte at {:#x}",
+            error.address
+        ))
+    }
+}
 impl<E> From<ModelError> for VehicleFrameError<E> {
     fn from(error: ModelError) -> Self {
         Self::Arena(error)
@@ -114,6 +122,7 @@ pub struct VehicleFrameBackend<'a, B: VehicleInitBackend> {
     host: &'a mut B,
     installation: Option<&'a lhr_assets::Installation>,
     car_tracks: Option<&'a mut crate::car_effects::CarTrackResources>,
+    vehicle_tables: Option<&'a mut crate::car_actor_tables::VehicleTableResources>,
     game_init_stack: Option<u32>,
     game_host: Option<&'a mut dyn VehicleFrameGameHost<B::Error>>,
 }
@@ -124,6 +133,7 @@ impl<'a, B: VehicleInitBackend> VehicleFrameBackend<'a, B> {
             host,
             installation: None,
             car_tracks: None,
+            vehicle_tables: None,
             game_init_stack: None,
             game_host: None,
         }
@@ -138,9 +148,49 @@ impl<'a, B: VehicleInitBackend> VehicleFrameBackend<'a, B> {
             host,
             installation: Some(installation),
             car_tracks: None,
+            vehicle_tables: None,
             game_init_stack: None,
             game_host: None,
         }
+    }
+    /// Lazy host projection of the same Game's actual original tables. It is
+    /// consulted only at a reached table-global read, never as an Init prescan.
+    pub(crate) fn with_vehicle_tables(
+        mut self,
+        tables: &'a mut crate::car_actor_tables::VehicleTableResources,
+    ) -> Self {
+        self.vehicle_tables = Some(tables);
+        self
+    }
+    fn vehicle_table_byte(
+        &mut self,
+        address: u32,
+    ) -> Result<Option<u8>, VehicleFrameError<B::Error>> {
+        let Some(tables) = self.vehicle_tables.as_mut() else {
+            return Ok(None);
+        };
+        tables
+            .read_byte(self.host, self.installation, address)
+            .map_err(|error| {
+                use crate::car_actor_tables::VehicleTableError;
+                match error {
+                    VehicleTableError::Host(error) => VehicleFrameError::Host(error),
+                    VehicleTableError::MissingInstallation => {
+                        VehicleFrameError::UnavailableGameEffect(
+                            "actual vehicle table installation required".into(),
+                        )
+                    }
+                    VehicleTableError::Load(error) => VehicleFrameError::UnavailableGameEffect(
+                        format!("actual vehicle tables: {error}"),
+                    ),
+                    VehicleTableError::AllocationNull => VehicleFrameError::UnavailableGameEffect(
+                        "vehicle table host projection allocation returned null".into(),
+                    ),
+                    VehicleTableError::Interrupted => VehicleFrameError::UnavailableGameEffect(
+                        "vehicle table host projection interrupted".into(),
+                    ),
+                }
+            })
     }
     /// Borrows the Game-owned animation-track cache used by car components.
     /// The model arena and this temporary adapter acquire no ownership of it.
@@ -233,7 +283,14 @@ impl<'a, B: VehicleInitBackend> VehicleFrameBackend<'a, B> {
             4 => frame.references,
             8 => match frame.user_data {
                 crate::actor_frames::FrameUserData::Null => 0,
-                crate::actor_frames::FrameUserData::ExternalRecord(address) => address,
+                crate::actor_frames::FrameUserData::ExternalRecord(address)
+                    if address < 0xff00_0000 =>
+                {
+                    address
+                }
+                crate::actor_frames::FrameUserData::ActorRecord(record) => {
+                    self.arena.actor_data_record_vehicle_token(record)?
+                }
                 _ => return Err(VehicleFrameError::UnsupportedField { frame: key, offset }),
             },
             0xc => {
@@ -356,6 +413,10 @@ impl<'a, B: VehicleInitBackend> VehicleFrameBackend<'a, B> {
                 key,
                 if value == 0 {
                     crate::actor_frames::FrameUserData::Null
+                } else if value >= 0xff00_0000 {
+                    crate::actor_frames::FrameUserData::ActorRecord(
+                        self.arena.actor_data_record_for_vehicle_token(value)?,
+                    )
                 } else {
                     crate::actor_frames::FrameUserData::ExternalRecord(value)
                 },
@@ -664,6 +725,14 @@ impl<E> From<VehicleFrameError<E>> for VehicleBodycolUnavailable<VehicleFrameErr
 impl<B: VehicleInitBackend> VehicleInitBackend for VehicleFrameBackend<'_, B> {
     type Error = VehicleFrameError<B::Error>;
     fn read_byte(&mut self, address: u32) -> Result<u8, Self::Error> {
+        if address >= 0xff00_0000 {
+            return Err(VehicleFrameError::UnavailableFrameMethod(
+                "Arena actor-record value dereference requires actual ActorWorld",
+            ));
+        }
+        if let Some(byte) = self.vehicle_table_byte(address)? {
+            return Ok(byte);
+        }
         if (FILENAME_BASE..FILENAME_END).contains(&address) {
             return self.live_filename_byte(address);
         }
@@ -710,6 +779,22 @@ impl<B: VehicleInitBackend> VehicleInitBackend for VehicleFrameBackend<'_, B> {
             .map_err(VehicleFrameError::Host)
     }
     fn read_word(&mut self, address: u32) -> Result<u32, Self::Error> {
+        if address >= 0xff00_0000 {
+            return Err(VehicleFrameError::UnavailableFrameMethod(
+                "Arena actor-record value dereference requires actual ActorWorld",
+            ));
+        }
+        if self.vehicle_tables.is_some()
+            && crate::car_actor_tables::VehicleTableResources::contains(address)
+        {
+            let mut bytes = [0; 4];
+            for (offset, byte) in bytes.iter_mut().enumerate() {
+                *byte = self
+                    .vehicle_table_byte(address.wrapping_add(offset as u32))?
+                    .ok_or(VehicleFrameError::Address(address))?;
+            }
+            return Ok(u32::from_le_bytes(bytes));
+        }
         if (RESOURCE_BASE..RESOURCE_END).contains(&address) {
             let mut bytes = [0; 4];
             for (i, byte) in bytes.iter_mut().enumerate() {
@@ -738,6 +823,11 @@ impl<B: VehicleInitBackend> VehicleInitBackend for VehicleFrameBackend<'_, B> {
             .map_err(VehicleFrameError::Host)
     }
     fn write_byte(&mut self, address: u32, value: u8) -> Result<(), Self::Error> {
+        if address >= 0xff00_0000 {
+            return Err(VehicleFrameError::UnavailableFrameMethod(
+                "Arena actor-record value store requires actual ActorWorld",
+            ));
+        }
         if self.game_write_resource_byte(address, value)? {
             return Ok(());
         }
@@ -759,6 +849,11 @@ impl<B: VehicleInitBackend> VehicleInitBackend for VehicleFrameBackend<'_, B> {
             .map_err(VehicleFrameError::Host)
     }
     fn write_word(&mut self, address: u32, value: u32) -> Result<(), Self::Error> {
+        if address >= 0xff00_0000 {
+            return Err(VehicleFrameError::UnavailableFrameMethod(
+                "Arena actor-record value store requires actual ActorWorld",
+            ));
+        }
         if (0xc500_0000..0xf000_0000).contains(&address) {
             for (i, byte) in value.to_le_bytes().into_iter().enumerate() {
                 self.write_byte(address.wrapping_add(i as u32), byte)?;
@@ -786,6 +881,13 @@ impl<B: VehicleInitBackend> VehicleInitBackend for VehicleFrameBackend<'_, B> {
             .map_err(VehicleFrameError::Host)
     }
     fn free(&mut self, address: u32) -> Result<(), Self::Error> {
+        if address >= 0xff00_0000 {
+            let record = self.arena.actor_data_record_for_vehicle_token(address)?;
+            // The following native Frame8 store is a separate operation. Other
+            // aliases see this actual allocation as retired, never fake Null.
+            self.arena.retire_actor_data_record(record)?;
+            return Ok(());
+        }
         if (RESOURCE_BASE..FILENAME_END).contains(&address)
             || native_literal_byte(address).is_some()
         {
@@ -799,6 +901,9 @@ impl<B: VehicleInitBackend> VehicleInitBackend for VehicleFrameBackend<'_, B> {
     fn allocate(&mut self, bytes: u32) -> Result<u32, Self::Error> {
         let address = self.host.allocate(bytes).map_err(VehicleFrameError::Host)?;
         if address != 0 {
+            if address >= 0xff00_0000 {
+                return Err(VehicleFrameError::Address(address));
+            }
             let end = address
                 .checked_add(bytes.max(1))
                 .ok_or(VehicleFrameError::Address(address))?;
@@ -825,6 +930,9 @@ impl<B: VehicleInitBackend> VehicleInitBackend for VehicleFrameBackend<'_, B> {
             .allocate_projected(memory, bytes)
             .map_err(VehicleFrameError::Host)?;
         if address != 0 {
+            if address >= 0xff00_0000 {
+                return Err(VehicleFrameError::Address(address));
+            }
             let end = address
                 .checked_add(bytes.max(1))
                 .ok_or(VehicleFrameError::Address(address))?;
@@ -846,6 +954,9 @@ impl<B: VehicleInitBackend> VehicleInitBackend for VehicleFrameBackend<'_, B> {
         memory: &mut VehicleComponentTailMemory<'_>,
         allocation: u32,
     ) -> Result<(), Self::Error> {
+        if allocation >= 0xff00_0000 {
+            return self.free(allocation);
+        }
         if Self::field(allocation).is_some() || (PROPERTY_BASE..FILENAME_END).contains(&allocation)
         {
             return Err(VehicleFrameError::Address(allocation));
@@ -1833,3 +1944,7 @@ impl<B: VehicleSourceParametersBackend + VehicleComponentTailBackend> VehicleSou
         }
     }
 }
+
+#[cfg(test)]
+#[path = "vehicle_actor_record_tests.rs"]
+mod actor_record_tests;

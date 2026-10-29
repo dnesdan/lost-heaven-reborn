@@ -335,6 +335,7 @@ impl MissionSceneLoader {
             bytes,
             &mut None,
             &ProgramPatchTable::default(),
+            None,
         )
     }
     /// Use the same cache owner/directories as startup and mission UnInit.
@@ -381,6 +382,7 @@ impl MissionSceneLoader {
             bytes,
             &mut Some(&mut open),
             &ProgramPatchTable::default(),
+            Some(installation),
         )
     }
     /// Ordered static scene ingestion with the real model and sound cache
@@ -467,6 +469,7 @@ impl MissionSceneLoader {
             bytes,
             &mut Some(&mut open),
             patches,
+            Some(installation),
         )
     }
     #[allow(clippy::too_many_arguments)] // Original invocation plus explicit resource owners.
@@ -480,6 +483,7 @@ impl MissionSceneLoader {
         bytes: &[u8],
         resource_open: &mut Option<&mut ResourceOpenAdapter<'_>>,
         patches: &ProgramPatchTable,
+        car_installation: Option<&lhr_assets::Installation>,
     ) -> Result<(), MissionSceneLoadError>
     where
         S::Error: std::fmt::Debug,
@@ -503,6 +507,7 @@ impl MissionSceneLoader {
             &mut input,
             resource_open,
             patches,
+            car_installation,
         );
         self.cursor = input.cursor();
         result.map_err(|(entry, detail)| self.error(entry, detail))
@@ -585,6 +590,7 @@ impl MissionSceneLoader {
         input: &mut MissionSceneInput<'_>,
         resource_open: &mut Option<&mut ResourceOpenAdapter<'_>>,
         patches: &ProgramPatchTable,
+        car_installation: Option<&lhr_assets::Installation>,
     ) -> Result<(), (u32, String)>
     where
         S::Error: std::fmt::Debug,
@@ -651,9 +657,13 @@ impl MissionSceneLoader {
                     continue;
                 }
                 0xae20 => {
-                    let result =
-                        self.content
-                            .load_actors(chunk, arena, &mut self.load_map.map, patches);
+                    let result = self.content.load_actors_with_car_resources(
+                        chunk,
+                        arena,
+                        &mut self.load_map.map,
+                        patches,
+                        car_installation,
+                    );
                     input
                         .advance_current_to(self.content.cursor)
                         .map_err(|e| (0x544a16, e))?;
@@ -3023,7 +3033,7 @@ mod tests {
                             0xae21,
                             &[
                                 chunk(0xae23, b"pending sound\0"),
-                                chunk(0xae22, &4u32.to_le_bytes()),
+                                chunk(0xae22, &6u32.to_le_bytes()),
                             ]
                             .concat(),
                         ),

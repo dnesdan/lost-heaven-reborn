@@ -12,6 +12,10 @@
 //! admission limits, not native actor limits. Unsupported native allocator
 //! exceptions, allocator callback reentry into collection mutation, other derived virtuals and
 //! nonzero manager cleanup flags have no implicit successful implementation.
+use crate::car_actor::{CarActorServices, CarActorState, CarSeed};
+use crate::cutscene_records::{
+    ActorUserData, CutsceneRecordArena, RecordedActorAssociation, RecordedActorId,
+};
 use crate::entity_actor::{EntityResourceSlot, EntitySeed, EntityState};
 use crate::frame_lookup::{FrameLookupBackend, SceneRoots};
 use crate::human_actor::{
@@ -46,7 +50,7 @@ pub struct BaseActorSeed {
 pub struct BaseActorState {
     pub vtable: ActorVtable,
     pub flags: u32,
-    pub user_data: u32,
+    pub user_data: ActorUserData,
     pub references: u16,
     pub word_0e: u16,
     pub word_10: u32,
@@ -68,7 +72,7 @@ impl BaseActorState {
         Self {
             vtable: ActorVtable::Base,
             flags: 0,
-            user_data: 0,
+            user_data: ActorUserData::Null,
             references: 1,
             word_0e: seed.word_0e,
             word_10: 1,
@@ -96,6 +100,7 @@ pub enum ActorVtable {
     Human,
     Player,
     Entity,
+    Car,
     Opaque(u32),
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -120,6 +125,7 @@ struct OwnedActor {
     human: Option<HumanState>,
     player: Option<PlayerState>,
     entity: Option<EntityState>,
+    car: Option<CarActorState>,
 }
 /// Untouched native detector storage, including the embedded program seed.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -284,6 +290,21 @@ pub enum FrameActorData {
 /// Backend errors preserve the exact already-applied prefix; they never imply
 /// successful frame attachment, virtual release, or gameplay initialization.
 pub trait ActorFrameBackend {
+    fn init_car_owner(
+        &mut self,
+        _world: &mut ActorWorld,
+        _actor: ActorReferenceId,
+        _frame: Option<FrameReferenceId>,
+    ) -> Result<bool, String> {
+        Err("actual car model Init adapter unavailable".into())
+    }
+    fn destroy_car_resources(
+        &mut self,
+        _world: &mut ActorWorld,
+        _actor: ActorReferenceId,
+    ) -> Result<(), String> {
+        Err("actual car model destruction adapter unavailable".into())
+    }
     fn frame_is_model(
         &mut self,
         _world: &mut ActorWorld,
@@ -332,6 +353,12 @@ pub trait ActorFrameBackend {
 /// seed does not construct a frame, BODY or mission payload.
 pub trait ActorAllocationBackend {
     fn allocate_actor(&mut self, bytes: u32) -> Result<Option<(u32, BaseActorSeed)>, String>;
+    fn allocate_car(
+        &mut self,
+        _bytes: u32,
+    ) -> Result<Option<(u32, BaseActorSeed, CarSeed)>, String> {
+        Err("car allocation unavailable".into())
+    }
     fn allocate_player(
         &mut self,
         _bytes: u32,
@@ -395,14 +422,33 @@ pub trait ActorDeallocationBackend {
 /// One manager+0x90 association record (native stride 0x58). Unknown payload is
 /// preserved; the flag-zero destructor branch only reads/clears `actor`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ActorAssociation {
-    pub prefix: [u8; 80],
-    pub actor: Option<ActorReferenceId>,
-    pub tail: u32,
+pub enum ActorAssociation {
+    OpaqueLegacy {
+        prefix: [u8; 80],
+        actor: Option<ActorReferenceId>,
+        tail: u32,
+    },
+    Recorded(RecordedActorAssociation),
 }
+impl ActorAssociation {
+    pub fn actor(&self) -> Option<ActorReferenceId> {
+        match self {
+            Self::OpaqueLegacy { actor, .. } => *actor,
+            Self::Recorded(record) => record.actor,
+        }
+    }
+    fn clear_actor(&mut self) {
+        match self {
+            Self::OpaqueLegacy { actor, .. } => *actor = None,
+            Self::Recorded(record) => record.actor = None,
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct ActorManager {
     pub associations: Vec<ActorAssociation>,
+    pub records: CutsceneRecordArena,
     pub first: Vec<ActorReferenceId>,
     pub second: Vec<ActorReferenceId>,
 }
@@ -420,18 +466,23 @@ impl ActorManager {
         if let Some(index) = self
             .associations
             .iter()
-            .position(|r| r.actor == Some(actor))
+            .position(|r| r.actor() == Some(actor))
         {
-            self.associations[index].actor = None;
+            self.associations[index].clear_actor();
             self.associations.remove(index);
         }
         Ok(())
     }
 }
+/// Opaque lifetime identity of the real mission actor context. Moving the
+/// owner preserves it; moving a manager out cannot impersonate this context.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ActorWorldIdentity(u64);
 /// Genuine Rust ownership of base actor storage plus separate native-comparable
 /// source collections. This does not construct the mission's derived actors.
 #[derive(Debug)]
 pub struct ActorWorld {
+    identity: ActorWorldIdentity,
     actors: Vec<OwnedActor>,
     static_actors: ActorCollection,
     primary: ActorCollection,
@@ -441,8 +492,12 @@ pub struct ActorWorld {
     pub attachment_counter: u32,
     pub manager: ActorManager,
     railway_global_byte: Option<u8>,
+    car_services: Option<CarActorServices>,
 }
 impl ActorWorld {
+    pub fn identity(&self) -> ActorWorldIdentity {
+        self.identity
+    }
     /// Supply actual admitted initial counter/backing state. Empty sources are
     /// owned here; caller-provided native backing tokens retain their allocator.
     pub fn new(
@@ -453,6 +508,7 @@ impl ActorWorld {
         active_backing: SourceBacking,
     ) -> Result<Self, ActorWorldError> {
         Ok(Self {
+            identity: ActorWorldIdentity(crate::frame_lookup::incarnation()),
             actors: Vec::new(),
             static_actors: ActorCollection::new(static_backing)?,
             primary: ActorCollection::new(primary_backing)?,
@@ -462,6 +518,7 @@ impl ActorWorld {
             attachment_counter,
             manager: ActorManager::default(),
             railway_global_byte: None,
+            car_services: None,
         })
     }
     fn collection(&self, source: ActorSource) -> &ActorCollection {
@@ -553,6 +610,7 @@ impl ActorWorld {
         if self.actors[i].detector.is_some()
             || self.actors[i].railway.is_some()
             || self.actors[i].human.is_some()
+            || self.actors[i].car.is_some()
         {
             return Err(ActorWorldError::UnsupportedVtable);
         }
@@ -747,6 +805,7 @@ impl ActorWorld {
             human: None,
             player: None,
             entity: None,
+            car: None,
         });
         self.actor_count = self.actor_count.wrapping_add(1);
         self.add_actor_to_global(Some(actor), backend)
@@ -757,6 +816,432 @@ impl ActorWorld {
         let i = self.index(actor).expect("constructor owns actor");
         self.actors[i].phase = ActorPhase::Ready;
         Ok(actor)
+    }
+    /// Reached cutscene-manager attach, preserving the existing manager lists.
+    /// Only the proven base/Car virtual flag operations are admitted; other
+    /// classes retain list/userdata/flag effects before their virtual guard.
+    pub fn attach_recorded_actor(
+        &mut self,
+        actor: ActorReferenceId,
+    ) -> Result<(), ActorWorldError> {
+        self.ready(actor)?;
+        if self.manager.first.contains(&actor) || self.manager.second.contains(&actor) {
+            return Ok(());
+        }
+        self.manager
+            .first
+            .try_reserve(1)
+            .map_err(|_| ActorWorldError::HostAllocation)?;
+        self.manager.first.push(actor);
+        self.state_mut_inner(actor)?.user_data = ActorUserData::Null;
+        self.state_mut_inner(actor)?.flags |= 0x10;
+        if !matches!(
+            self.state(actor)?.vtable,
+            ActorVtable::Base | ActorVtable::Car
+        ) {
+            return Err(ActorWorldError::Effect {
+                stage: "recorded_actor_virtual_mode",
+                detail: "derived recording mode callbacks unavailable".into(),
+            });
+        }
+        // Actual base virtual7(true), then virtual6(false). Reread live flags
+        // at each operation; these native leaves invoke no external callbacks.
+        let flags = self.state(actor)?.flags;
+        if flags & 1 == 0 {
+            self.state_mut_inner(actor)?.flags = flags | 4;
+        }
+        let flags = self.state(actor)?.flags;
+        self.state_mut_inner(actor)?.flags = flags & !0x0a;
+        Ok(())
+    }
+    pub fn set_recorded_actor_data(
+        &mut self,
+        actor: ActorReferenceId,
+        record: RecordedActorId,
+    ) -> Result<(), ActorWorldError> {
+        self.ready(actor)?;
+        self.manager
+            .records
+            .record(&record)
+            .map_err(|error| ActorWorldError::Effect {
+                stage: "recorded_actor_data",
+                detail: format!("{error:?}"),
+            })?;
+        self.state_mut_inner(actor)?.user_data = ActorUserData::Recorded(record);
+        Ok(())
+    }
+    pub fn append_recorded_association(
+        &mut self,
+        association: RecordedActorAssociation,
+    ) -> Result<(), ActorWorldError> {
+        if let Some(record) = &association.record {
+            self.manager
+                .records
+                .record(record)
+                .map_err(|error| ActorWorldError::Effect {
+                    stage: "recorded_actor_association",
+                    detail: format!("{error:?}"),
+                })?;
+        }
+        self.manager
+            .associations
+            .try_reserve(1)
+            .map_err(|_| ActorWorldError::HostAllocation)?;
+        self.manager
+            .associations
+            .push(ActorAssociation::Recorded(association));
+        Ok(())
+    }
+    /// Explicit host source context. It must be supplied before car construction;
+    /// it does not assert an original process random state or run GameInit.
+    pub fn configure_car_resources(&mut self, random_seed: u32) -> Result<(), ActorWorldError> {
+        if self.car_services.is_some() {
+            return Err(ActorWorldError::InvalidBacking);
+        }
+        self.car_services =
+            Some(
+                CarActorServices::new(random_seed).map_err(|detail| ActorWorldError::Effect {
+                    stage: "car_resources",
+                    detail,
+                })?,
+            );
+        Ok(())
+    }
+    pub fn live_car_table_allocation_count(&self) -> usize {
+        self.car_services
+            .as_ref()
+            .map_or(0, CarActorServices::table_allocations)
+    }
+    /// Inspector only: includes dead/interrupted actual owners without reviving
+    /// them, and validates each pointer against its non-reused backend lease.
+    pub fn inspect_car_init_temporaries(
+        &self,
+        actor: ActorReferenceId,
+    ) -> Result<Vec<crate::car_actor::CarInitTemporaryDiagnostic>, ActorWorldError> {
+        let car = self
+            .inspect_car(actor)
+            .ok_or(ActorWorldError::UnsupportedVtable)?;
+        let Some(services) = self.car_services.as_ref() else {
+            return Ok(Vec::new());
+        };
+        car.init_temporaries(services)
+            .map_err(|detail| ActorWorldError::Effect {
+                stage: "car_init_temporaries",
+                detail,
+            })
+    }
+    pub fn live_car_track_count(&self) -> usize {
+        self.car_services
+            .as_ref()
+            .map_or(0, CarActorServices::cached_tracks)
+    }
+    /// Explicit terminal host resource disposal, after actual car destruction.
+    /// This releases the retained source cache; it executes no original GameDone.
+    pub fn discard_car_services_host(&mut self) -> Result<(), ActorWorldError> {
+        if let Some(owner) = self
+            .actors
+            .iter()
+            .find(|owner| owner.car.is_some() && owner.phase != ActorPhase::Dead)
+        {
+            return Err(ActorWorldError::Busy(owner.lifetime.reference()));
+        }
+        if let Some(services) = self.car_services.as_mut() {
+            for owner in &mut self.actors {
+                if let Some(car) = &mut owner.car {
+                    car.discard_init_temporaries_host(services)
+                        .map_err(|detail| ActorWorldError::Effect {
+                            stage: "car_init_temporary_host_discard",
+                            detail,
+                        })?;
+                }
+            }
+            services
+                .discard_tables_host()
+                .map_err(|detail| ActorWorldError::Effect {
+                    stage: "car_table_host_discard",
+                    detail,
+                })?;
+        }
+        if self
+            .car_services
+            .as_ref()
+            .is_some_and(|services| services.allocations() != 0)
+        {
+            return Err(ActorWorldError::Effect {
+                stage: "car_service_host_discard",
+                detail: "actual vehicle heap allocations remain owned".into(),
+            });
+        }
+        for owner in &mut self.actors {
+            if let Some(car) = &mut owner.car {
+                car.discard_source_host();
+            }
+        }
+        self.car_services = None;
+        Ok(())
+    }
+    pub fn live_car_allocation_count(&self) -> usize {
+        self.car_services
+            .as_ref()
+            .map_or(0, CarActorServices::allocations)
+            + self
+                .actors
+                .iter()
+                .filter_map(|owner| owner.car.as_ref())
+                .map(CarActorState::retained_source_allocation_count)
+                .sum::<usize>()
+    }
+    /// Read-only inspection of the retained actual tail, including dead and
+    /// interrupted owners. This does not restore semantic actor liveness.
+    pub fn inspect_car(&self, actor: ActorReferenceId) -> Option<&CarActorState> {
+        self.actors
+            .iter()
+            .find(|owner| owner.lifetime.reference() == actor)?
+            .car
+            .as_ref()
+    }
+    pub fn car(&self, actor: ActorReferenceId) -> Result<&CarActorState, ActorWorldError> {
+        self.actors[self.index(actor)?]
+            .car
+            .as_ref()
+            .ok_or(ActorWorldError::UnsupportedVtable)
+    }
+    pub fn construct_car<B: ActorCollectionBackend + ?Sized>(
+        &mut self,
+        identity: u32,
+        base: BaseActorSeed,
+        seed: CarSeed,
+        backend: &mut B,
+    ) -> Result<ActorReferenceId, ActorCreationError> {
+        if self.car_services.is_none() {
+            return Err(ActorCreationError {
+                actor: None,
+                source: ActorWorldError::Effect {
+                    stage: "car_resources",
+                    detail: "Game car resource context unavailable".into(),
+                },
+            });
+        }
+        let actor = self.construct_base(identity, base, backend)?;
+        let i = self.index(actor).expect("constructed base actor");
+        self.actors[i].phase = ActorPhase::Constructing;
+        let result = (|| {
+            let state = CarActorState::allocation(actor, seed).map_err(|detail| {
+                ActorWorldError::Effect {
+                    stage: "car_allocation",
+                    detail,
+                }
+            })?;
+            self.actors[i].car = Some(state);
+            let owner = &mut self.actors[i];
+            let base = &mut owner.state;
+            owner
+                .car
+                .as_mut()
+                .unwrap()
+                .construct(self.car_services.as_mut().unwrap(), || {
+                    base.vtable = ActorVtable::Car;
+                    base.word_10 = 4;
+                    Ok(())
+                })
+                .map_err(|detail| ActorWorldError::Effect {
+                    stage: "car_constructor",
+                    detail,
+                })
+        })();
+        result.map_err(|source| ActorCreationError {
+            actor: Some(actor),
+            source,
+        })?;
+        self.actors[i].phase = ActorPhase::Ready;
+        Ok(actor)
+    }
+    /// Actual shared-arena adapter entry. Base attachment remains the same
+    /// ActorWorld operation, between the native car prelude and caller suffix.
+    pub(crate) fn init_car_on_arena(
+        &mut self,
+        actor: ActorReferenceId,
+        frame: Option<FrameReferenceId>,
+        arena: &mut crate::model_loading::ModelArena,
+        installation: Option<&lhr_assets::Installation>,
+        default_c_locale: bool,
+    ) -> Result<bool, ActorWorldError> {
+        let i = self.index(actor)?;
+        if self.actors[i].phase != ActorPhase::Initializing {
+            return Err(ActorWorldError::Busy(actor));
+        }
+        let model = self.actors[i]
+            .car
+            .as_mut()
+            .ok_or(ActorWorldError::UnsupportedVtable)?
+            .prepare_init(
+                self.car_services
+                    .as_mut()
+                    .ok_or(ActorWorldError::InvalidBacking)?,
+                arena,
+                frame,
+            )
+            .map_err(|detail| ActorWorldError::Effect {
+                stage: "car_init_prelude",
+                detail,
+            })?;
+        let Some(frame) = frame else {
+            return Ok(false);
+        };
+        if !self.init_inner(
+            actor,
+            frame,
+            &mut crate::actor_frames::ModelActorFrames::borrow(arena, default_c_locale),
+        )? {
+            return Ok(false);
+        }
+        self.actors[i]
+            .car
+            .as_mut()
+            .unwrap()
+            .finish_init(
+                self.car_services.as_mut().unwrap(),
+                arena,
+                installation,
+                model,
+            )
+            .map_err(|detail| ActorWorldError::Effect {
+                stage: "car_init",
+                detail,
+            })
+    }
+    pub fn load_car_data(
+        &mut self,
+        actor: ActorReferenceId,
+        reader: &mut ActorDataReader<'_>,
+        arena: &mut crate::model_loading::ModelArena,
+    ) -> Result<bool, ActorWorldError> {
+        let i = self.ready(actor)?;
+        if self.actors[i].car.is_none() || self.actors[i].state.vtable != ActorVtable::Car {
+            return Err(ActorWorldError::UnsupportedVtable);
+        }
+        self.actors[i].phase = ActorPhase::Loading;
+        let result = self.actors[i]
+            .car
+            .as_mut()
+            .unwrap()
+            .load_source(
+                self.car_services
+                    .as_mut()
+                    .ok_or(ActorWorldError::InvalidBacking)?,
+                arena,
+                reader,
+            )
+            .map_err(|detail| ActorWorldError::Effect {
+                stage: "car_load_data",
+                detail,
+            });
+        self.actors[i].phase = if result.is_err() {
+            ActorPhase::LoadingInterrupted
+        } else {
+            ActorPhase::Ready
+        };
+        result
+    }
+    pub(crate) fn destroy_car_on_arena(
+        &mut self,
+        actor: ActorReferenceId,
+        arena: &mut crate::model_loading::ModelArena,
+    ) -> Result<(), ActorWorldError> {
+        let i = self.index(actor)?;
+        if self.actors[i].phase != ActorPhase::Destroying {
+            return Err(ActorWorldError::Busy(actor));
+        }
+        if let Some(reference) = self.actors[i].state.frame {
+            let key = crate::frame_transform::FrameKey(reference.identity());
+            if arena.lookup_reference(key) != reference || arena.frame(key).is_err() {
+                return Err(ActorWorldError::Effect {
+                    stage: "car_destructor_arena",
+                    detail: "foreign or stale actual base frame".into(),
+                });
+            }
+        }
+        self.actors[i]
+            .car
+            .as_mut()
+            .ok_or(ActorWorldError::UnsupportedVtable)?
+            .destroy_derived(
+                self.car_services
+                    .as_mut()
+                    .ok_or(ActorWorldError::InvalidBacking)?,
+                arena,
+            )
+            .map_err(|detail| ActorWorldError::Effect {
+                stage: "car_destructor",
+                detail,
+            })
+    }
+    pub fn destroy_car<F: ActorFrameBackend + ?Sized>(
+        &mut self,
+        actor: ActorReferenceId,
+        frames: &mut F,
+    ) -> Result<(), ActorWorldError> {
+        let i = self.index(actor)?;
+        if !matches!(
+            self.actors[i].phase,
+            ActorPhase::Ready
+                | ActorPhase::InitializationInterrupted
+                | ActorPhase::LoadingInterrupted
+        ) {
+            return Err(ActorWorldError::Busy(actor));
+        }
+        if self.actors[i].car.is_none() {
+            return Err(ActorWorldError::UnsupportedVtable);
+        }
+        self.actors[i].phase = ActorPhase::Destroying;
+        self.actors[i].state.vtable = ActorVtable::Car;
+        let result = frames
+            .destroy_car_resources(self, actor)
+            .map_err(|detail| ActorWorldError::Effect {
+                stage: "car_destructor",
+                detail,
+            })
+            .and_then(|()| self.destroy_base_inner(actor, frames));
+        if result.is_err() {
+            let i = self.index(actor)?;
+            self.actors[i].phase = ActorPhase::DestructionInterrupted;
+        }
+        result
+    }
+    pub fn delete_car<F: ActorFrameBackend + ?Sized, B: ActorDeallocationBackend + ?Sized>(
+        &mut self,
+        actor: ActorReferenceId,
+        argument: u32,
+        frames: &mut F,
+        backend: &mut B,
+    ) -> Result<(), ActorWorldError> {
+        self.destroy_car(actor, frames)?;
+        if argument & 1 != 0 {
+            backend
+                .free_actor(self, actor.identity())
+                .map_err(|detail| ActorWorldError::Effect {
+                    stage: "free_car",
+                    detail,
+                })?;
+        }
+        Ok(())
+    }
+    pub fn release_car<F: ActorFrameBackend + ?Sized, B: ActorDeallocationBackend + ?Sized>(
+        &mut self,
+        actor: ActorReferenceId,
+        frames: &mut F,
+        backend: &mut B,
+    ) -> Result<u16, ActorWorldError> {
+        let i = self.ready(actor)?;
+        if self.actors[i].state.vtable != ActorVtable::Car {
+            return Err(ActorWorldError::UnsupportedVtable);
+        }
+        let count = self.actors[i].state.references.wrapping_sub(1);
+        self.actors[i].state.references = count;
+        if count == 0 {
+            self.delete_car(actor, 1, frames, backend)?;
+        }
+        Ok(count)
     }
     /// Base registration completes before the embedded source program and
     /// detector vtables are installed. No compiler/GameInit is invoked.
@@ -1440,6 +1925,20 @@ impl ActorWorld {
                 .map(|(identity, base, seed)| self.construct_player(identity, base, seed, backend))
                 .transpose();
         }
+        if kind == 4 {
+            let allocation = backend
+                .allocate_car(0x221c)
+                .map_err(|detail| ActorCreationError {
+                    actor: None,
+                    source: ActorWorldError::Effect {
+                        stage: "allocate_car",
+                        detail,
+                    },
+                })?;
+            return allocation
+                .map(|(identity, base, seed)| self.construct_car(identity, base, seed, backend))
+                .transpose();
+        }
         if kind == 27 {
             let allocation =
                 backend
@@ -1514,6 +2013,21 @@ impl ActorWorld {
         backend: &mut B,
     ) -> Result<bool, ActorWorldError> {
         let i = self.ready(actor)?;
+        if self.actors[i].car.is_some() {
+            self.actors[i].phase = ActorPhase::Initializing;
+            let result = backend
+                .init_car_owner(self, actor, frame)
+                .map_err(|detail| ActorWorldError::Effect {
+                    stage: "car_init",
+                    detail,
+                });
+            self.actors[i].phase = if result.is_err() {
+                ActorPhase::InitializationInterrupted
+            } else {
+                ActorPhase::Ready
+            };
+            return result;
+        }
         if self.actors[i].human.is_some() {
             return self.init_human_owner(actor, frame, backend);
         }
@@ -1641,6 +2155,7 @@ impl ActorWorld {
         if self.actors[i].detector.is_some()
             || self.actors[i].railway.is_some()
             || self.actors[i].human.is_some()
+            || self.actors[i].car.is_some()
         {
             return Err(ActorWorldError::UnsupportedVtable);
         }
@@ -2244,8 +2759,14 @@ mod tests {
         let s = w.state(a).unwrap();
         assert_eq!(s.vtable, ActorVtable::Base);
         assert_eq!(
-            (s.flags, s.user_data, s.references, s.word_10, s.word_14),
-            (0, 0, 1, 1, 1)
+            (
+                s.flags,
+                s.user_data.clone(),
+                s.references,
+                s.word_10,
+                s.word_14
+            ),
+            (0, ActorUserData::Null, 1, 1, 1)
         );
         assert_eq!((s.byte_20, s.word_60, s.byte_66, s.frame), (0, 0, 0, None));
         assert_eq!(
@@ -2461,17 +2982,17 @@ mod tests {
         w.manager.first = vec![b, a, b];
         w.manager.second = vec![a, b];
         w.manager.associations = vec![
-            ActorAssociation {
+            ActorAssociation::OpaqueLegacy {
                 prefix: [1; 80],
                 actor: Some(b),
                 tail: 1,
             },
-            ActorAssociation {
+            ActorAssociation::OpaqueLegacy {
                 prefix: [2; 80],
                 actor: Some(a),
                 tail: 2,
             },
-            ActorAssociation {
+            ActorAssociation::OpaqueLegacy {
                 prefix: [3; 80],
                 actor: Some(a),
                 tail: 3,
@@ -2484,11 +3005,16 @@ mod tests {
             w.manager
                 .associations
                 .iter()
-                .map(|r| r.tail)
+                .map(|r| match r {
+                    ActorAssociation::OpaqueLegacy { tail, .. } => *tail,
+                    _ => panic!("opaque fixture"),
+                })
                 .collect::<Vec<_>>(),
             [1, 3]
         );
-        assert_eq!(w.manager.associations[1].prefix, [3; 80]);
+        assert!(
+            matches!(&w.manager.associations[1], ActorAssociation::OpaqueLegacy { prefix, .. } if *prefix == [3; 80])
+        );
         assert_eq!(w.source(ActorSource::Primary), &[Some(a)]);
         assert_eq!(w.players[0], Some(a));
         assert_eq!(w.source(ActorSource::Static), &[Some(b)]);
@@ -2713,8 +3239,8 @@ mod tests {
         let mut w = world();
         let mut e = Effects::default();
         assert_eq!(
-            w.create_actor(4, &mut e).unwrap_err().source,
-            ActorWorldError::UnsupportedKind(4)
+            w.create_actor(6, &mut e).unwrap_err().source,
+            ActorWorldError::UnsupportedKind(6)
         );
         assert!(e.events.is_empty());
         let a = w.create_actor(1, &mut e).unwrap().unwrap();
@@ -2760,7 +3286,7 @@ mod tests {
                 ] {
                     assert!(w.source(source).is_empty());
                 }
-            } else if ![1, 2, 5, 8, 27].contains(&kind) {
+            } else if ![1, 2, 4, 5, 8, 27].contains(&kind) {
                 assert_eq!(
                     result.unwrap_err().source,
                     ActorWorldError::UnsupportedKind(kind)

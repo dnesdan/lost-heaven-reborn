@@ -1229,7 +1229,7 @@ fn unsupported_named_actor_stops_at_kind_read_and_preserves_prior_program_and_ac
         &[
             chunk(0xae20, &actor_record(b"first", 1, b"")),
             chunk(0xae50, &program_record(b"retained", b"source")),
-            chunk(0xae20, &actor_record(b"second", 4, b"")),
+            chunk(0xae20, &actor_record(b"second", 6, b"")),
             chunk(0x4000, &object(9, b"unreached", &[])),
         ]
         .concat(),
@@ -1250,7 +1250,7 @@ fn unsupported_named_actor_stops_at_kind_read_and_preserves_prior_program_and_ac
     };
     assert_eq!(error.entry, 0x544a16);
     assert_eq!(error.cursor, kind.offset + 10);
-    assert!(error.detail.contains("UnsupportedKind(4)"));
+    assert!(error.detail.contains("UnsupportedKind(6)"));
     let loader = session.loader().unwrap();
     assert_eq!(
         loader
@@ -1276,7 +1276,7 @@ fn padded_kind_field_is_closed_before_factory_failure_and_preserves_registered_p
             chunk(0xae23, b"second\0"),
             chunk(
                 0xae22,
-                &[4u32.to_le_bytes().as_slice(), b"unread padding"].concat(),
+                &[6u32.to_le_bytes().as_slice(), b"unread padding"].concat(),
             ),
             chunk(0xae24, b"must not reach actor data"),
         ]
@@ -1307,7 +1307,7 @@ fn padded_kind_field_is_closed_before_factory_failure_and_preserves_registered_p
     };
     assert_eq!(error.entry, 0x544a16);
     assert_eq!(error.cursor, kind.offset + kind.raw.len());
-    assert!(error.detail.contains("UnsupportedKind(4)"));
+    assert!(error.detail.contains("UnsupportedKind(6)"));
     let loader = session.loader().unwrap();
     assert_eq!(loader.cursor, error.cursor);
     assert_eq!(loader.content.actors.cursor, error.cursor);
@@ -1687,4 +1687,47 @@ fn canonical_scene_reloads_borrow_same_startup_table_without_rereading_patch_fil
     assert_eq!(startup.table().replacements().len(), 4);
     startup.unload_after_sources().unwrap();
     assert!(startup.table().replacements().is_empty());
+}
+
+#[test]
+fn retained_global_runtime_blocks_terminal_without_effects_until_explicit_host_discard() {
+    struct Runtime;
+    impl crate::original_program::RuntimeBackend for Runtime {
+        fn effect(
+            &mut self,
+            _: crate::original_program::RuntimeView<'_>,
+            _: crate::original_program::RuntimeEffect,
+            _: Option<&crate::program_parameters::ScalarParameter>,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+    }
+    let bytes = scene2(&chunk(0xae50, &program_record(b"guard", b"dim_act 1")));
+    let fixture = Fixture::new(Some(&world(&[])), Some(&bytes), None);
+    let mut session = fixture.session();
+    load(&mut session, &[]).unwrap();
+    session.global_program_game_init(&mut Runtime).unwrap();
+    assert!(session
+        .loader()
+        .unwrap()
+        .content
+        .has_retained_program_runtime());
+    let before = session.owned_counts().unwrap();
+    let progress = *session.discard_progress();
+    assert_eq!(
+        session.discard_terminal(),
+        Err(MissionDiscardCallError::ProgramRuntimeRetained)
+    );
+    assert_eq!(session.discard_progress(), &progress);
+    assert_eq!(session.owned_counts().unwrap(), before);
+    assert!(session.discard_failure().is_none());
+    assert_eq!(session.phase(), MissionLoadPhase::PrefixComplete);
+    let reports = session.discard_global_program_runtimes_host().unwrap();
+    assert_eq!(reports.len(), 1);
+    assert!(!session
+        .loader()
+        .unwrap()
+        .content
+        .has_retained_program_runtime());
+    discard(&mut session);
 }
