@@ -117,4 +117,3 @@ and a verified complete Git bundle. Its SHA-256 is
 `ac38200f11e70da947e175bc6c6562817fab937cf0769031e081a44469d3a805`.
 The superseded #50 branch and historical Godot stash remain recoverable
 privately. Only `rust-engine` remains; history was not rewritten.
-
