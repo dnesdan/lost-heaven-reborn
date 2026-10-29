@@ -106,12 +106,10 @@ fn cache_miss_refuses_replaced_destination_and_retains_open_prefix() {
     let mut fixture = Fixture::new(true);
     let target = fixture.arena.create_owned_sound_frame().unwrap();
     let before = fixture.replace(target);
-    assert!(
-        fixture
-            .open(target)
-            .unwrap_err()
-            .contains("stale sound identity")
-    );
+    assert!(fixture
+        .open(target)
+        .unwrap_err()
+        .contains("stale sound identity"));
     assert_eq!(fixture.snapshot(target), before);
     assert!(fixture.caches.is_interrupted(MissionCacheKind::Sound));
     let progress = fixture.caches.sound_open_progress().unwrap();
@@ -129,12 +127,10 @@ fn cache_hit_refuses_replaced_cached_source_before_destination_changes() {
     let target = fixture.arena.create_owned_sound_frame().unwrap();
     let before = fixture.snapshot(target);
     let replaced = fixture.replace(cached);
-    assert!(
-        fixture
-            .open(target)
-            .unwrap_err()
-            .contains("stale sound identity")
-    );
+    assert!(fixture
+        .open(target)
+        .unwrap_err()
+        .contains("stale sound identity"));
     assert_eq!(fixture.snapshot(target), before);
     assert_eq!(fixture.snapshot(cached), replaced);
     assert!(fixture.caches.is_interrupted(MissionCacheKind::Sound));
@@ -151,12 +147,10 @@ fn cache_hit_refuses_replaced_destination_without_copying_cached_source() {
     let target = fixture.arena.create_owned_sound_frame().unwrap();
     let before = fixture.replace(target);
     let cached_before = fixture.snapshot(cached);
-    assert!(
-        fixture
-            .open(target)
-            .unwrap_err()
-            .contains("stale sound identity")
-    );
+    assert!(fixture
+        .open(target)
+        .unwrap_err()
+        .contains("stale sound identity"));
     assert_eq!(fixture.snapshot(target), before);
     assert_eq!(fixture.snapshot(cached), cached_before);
     assert!(fixture.caches.is_interrupted(MissionCacheKind::Sound));

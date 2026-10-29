@@ -2,7 +2,7 @@
 //! Legacy numeric slots are decoded only at the compatibility entry below.
 #![forbid(unsafe_code)]
 
-use super::{AudioError, Mixer, Result, RuntimeAudio, finite, near_equal, sound_mut, update_sound};
+use super::{finite, near_equal, sound_mut, update_sound, AudioError, Mixer, Result, RuntimeAudio};
 use super::{SoundFrameOwner, SoundState};
 use crate::frame_transform::FrameKey;
 use std::sync::{Arc, Mutex, Weak};

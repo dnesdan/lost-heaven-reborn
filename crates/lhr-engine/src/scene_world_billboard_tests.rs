@@ -126,11 +126,9 @@ fn installed_world_keeps_billboard_class_suffix_bounds_and_scene_ownership() {
         let scratch = Scratch::new();
         let bytes = world(&[visual(b"sprite", 0, 0, Some((0, 1)))], b"");
         // The strict scene parser must continue to reject a visual-4 source.
-        assert!(
-            lhr_assets::parse_four_ds_scene(&bytes)
-                .unwrap_err()
-                .is_unsupported_billboard()
-        );
+        assert!(lhr_assets::parse_four_ds_scene(&bytes)
+            .unwrap_err()
+            .is_unsupported_billboard());
         let installation = scratch.install(&bytes);
         let mut arena = ModelArena::default();
         let scene = arena.construct_scene_owner_prefix().unwrap();
@@ -399,11 +397,9 @@ fn resource_failure_retains_staging_and_never_applies_the_suffix_early() {
             BillboardOrientation::default()
         );
         assert_eq!(frame.billboard.unwrap().source.unwrap().rot_axis_word, 0);
-        assert!(
-            arena
-                .load_scene_world_cpu(scene, &installation, "world.i3d")
-                .is_err()
-        );
+        assert!(arena
+            .load_scene_world_cpu(scene, &installation, "world.i3d")
+            .is_err());
         arena
             .discard_scene_world_staging_cpu(&mut failure.progress)
             .unwrap();

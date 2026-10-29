@@ -1658,15 +1658,13 @@ mod tests {
                 },
             )
             .unwrap();
-        assert!(
-            audio
-                .load_sound_with(0x1000, "missing.wav", || {
-                    assert!(audio.sound(0x1000).unwrap().source.is_none());
-                    assert_eq!(playing(&audio, true), 0);
-                    Err(AudioError("synthetic missing file".into()))
-                })
-                .is_err()
-        );
+        assert!(audio
+            .load_sound_with(0x1000, "missing.wav", || {
+                assert!(audio.sound(0x1000).unwrap().source.is_none());
+                assert_eq!(playing(&audio, true), 0);
+                Err(AudioError("synthetic missing file".into()))
+            })
+            .is_err());
         assert_eq!(playing(&audio, false), 0);
         assert_eq!(audio.live_source_count().unwrap(), 0);
         assert_eq!(

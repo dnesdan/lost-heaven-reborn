@@ -12,7 +12,7 @@ use crate::driver_scene::{
 use crate::frame_sound::SoundError;
 use crate::game_camera_projection::GameCameraProjection;
 use crate::host_scene_adapters::InstallationImages;
-use crate::i3d_object::{LitStorageCounts, lightmap_atlas::AtlasStatistics};
+use crate::i3d_object::{lightmap_atlas::AtlasStatistics, LitStorageCounts};
 use crate::itexture::{CpuTextureStorage, TextureError, TextureResources};
 use crate::mission_resources::{
     CacheMemoryError, CpuMissionCacheMemory, MissionCacheError, MissionCacheKind, MissionCaches,

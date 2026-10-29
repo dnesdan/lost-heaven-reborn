@@ -9,7 +9,7 @@
 #![forbid(unsafe_code)]
 
 use crate::program_instructions::decode_instruction;
-use crate::program_parser::{ParserLocale, ProgramParserError, c_length};
+use crate::program_parser::{c_length, ParserLocale, ProgramParserError};
 
 /// The original writes this pair only on a native compile error, and only when
 /// both output pointers are supplied. A single optional value models that pair.

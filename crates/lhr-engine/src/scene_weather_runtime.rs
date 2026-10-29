@@ -8,7 +8,7 @@
 use super::{SceneConstructionPhase, SceneResourceError, SceneResources};
 use crate::model_loading::ModelArena;
 use crate::scene_ownership::SceneKey;
-use crate::scene_weather::{self, SCENE_WORDS, WeatherResetUnavailable};
+use crate::scene_weather::{self, WeatherResetUnavailable, SCENE_WORDS};
 
 impl SceneResources {
     /// Reset the existing weather record, then execute SetWeatherSystemParam(ON, 0).

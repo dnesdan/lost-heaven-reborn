@@ -19,7 +19,7 @@ pub struct WeatherResetUnavailable;
 /// direction; their host availability error is not a native return code.
 pub fn weather_system_reset(scene: &mut [u32; SCENE_WORDS]) -> Result<(), WeatherResetUnavailable> {
     use crate::native_precision::{add, div, mul, sqrt, sub};
-    use crate::native_transform::{SMatrix, try_rounded_sin_cos};
+    use crate::native_transform::{try_rounded_sin_cos, SMatrix};
     let input = scene[0x298 / 4];
     scene[0x298 / 4] = (input & 0x41) | 6;
     let parameters = if input & 0x40 != 0 {

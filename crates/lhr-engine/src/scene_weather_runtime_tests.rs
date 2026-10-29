@@ -283,25 +283,19 @@ fn failed_world_intake_and_in_progress_close_cannot_reset_weather() {
     for closing in [false, true] {
         let mut fixture = Fixture::new();
         if closing {
-            assert!(
-                fixture
-                    .arena
-                    .close_scene_with_backend(fixture.scene, &mut Stop)
-                    .is_err()
-            );
+            assert!(fixture
+                .arena
+                .close_scene_with_backend(fixture.scene, &mut Stop)
+                .is_err());
         } else {
             let index = fixture.arena.scene_index(fixture.scene).unwrap();
             fixture.arena.scenes[index].cpu_world_intake_active = true;
         }
         let before = fixture.words();
-        assert!(
-            fixture
-                .resources
-                .prepare_mission_weather_with(&fixture.arena, fixture.scene, |_| panic!(
-                    "unreached"
-                ))
-                .is_err()
-        );
+        assert!(fixture
+            .resources
+            .prepare_mission_weather_with(&fixture.arena, fixture.scene, |_| panic!("unreached"))
+            .is_err());
         assert_eq!(fixture.words(), before);
         assert!(!fixture.entry().weather_setup_interrupted);
     }
