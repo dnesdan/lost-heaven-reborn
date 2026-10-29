@@ -126,6 +126,9 @@ pub struct CProgram {
     seed: ProgramSeed,
     phase: ProgramPhase,
     vtable: ProgramVtable,
+    runtime: Option<ProgramRuntime>,
+    /// Host fresh-runtime admission history; not a reconstructed native field.
+    runtime_started: bool,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProgramError {
@@ -197,6 +200,8 @@ impl CProgram {
             seed,
             phase: ProgramPhase::Source,
             vtable: ProgramVtable::Base,
+            runtime: None,
+            runtime_started: false,
         }
     }
     pub fn name(&self) -> Option<&ProgramString> {
@@ -230,7 +235,7 @@ impl CProgram {
         Ok(())
     }
     fn available(&self) -> Result<(), ProgramError> {
-        if self.phase == ProgramPhase::Source {
+        if self.phase == ProgramPhase::Source && self.runtime.is_none() {
             Ok(())
         } else {
             Err(ProgramError::Unavailable)
@@ -449,7 +454,9 @@ impl CProgram {
         &mut self,
         backend: &mut B,
     ) -> Result<(), ProgramError> {
-        if !matches!(self.phase, ProgramPhase::Source | ProgramPhase::Interrupted) {
+        if self.runtime.is_some()
+            || !matches!(self.phase, ProgramPhase::Source | ProgramPhase::Interrupted)
+        {
             return Err(ProgramError::Unavailable);
         }
         self.phase = ProgramPhase::Destroying;
@@ -492,3 +499,7 @@ impl CProgram {
         Ok(())
     }
 }
+
+#[path = "program_runtime.rs"]
+mod owned_runtime;
+pub use owned_runtime::*;
