@@ -135,8 +135,7 @@ impl WebPathChunk for RootNavigationInput<'_> {
     }
     fn read_data(&mut self, destination: &mut [u8]) -> Result<usize, Self::Error> {
         let count = destination.len().min(self.bytes.len() - self.position);
-        destination[..count]
-            .copy_from_slice(&self.bytes[self.position..self.position + count]);
+        destination[..count].copy_from_slice(&self.bytes[self.position..self.position + count]);
         self.position += count;
         self.read_calls = self.read_calls.saturating_add(1);
         if count < destination.len() {

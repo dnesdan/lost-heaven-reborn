@@ -1,8 +1,8 @@
 //! Actual Installation/LoadNodes composition with authored files and allocations.
 use super::*;
 use crate::mission_components::{
-    ComponentError, MissionAllocation, MissionAllocator, MissionComponentKind,
-    MissionMemoryDomain, MissionMemoryDomainId, WebArrayKind,
+    ComponentError, MissionAllocation, MissionAllocator, MissionComponentKind, MissionMemoryDomain,
+    MissionMemoryDomainId, WebArrayKind,
 };
 use std::collections::BTreeSet;
 
@@ -143,7 +143,10 @@ fn returned(outcome: NavigationLoadOutcome) -> NavigationReadReceipt {
 }
 fn prime(scratch: &Scratch, component: &mut MissionComponent, memory: &mut Memory) {
     scratch.write(&payload(&[node(1, 0x31)], &[[0; 8]]));
-    assert_eq!(returned(load(scratch, component, memory).unwrap()).consumed_bytes, 46);
+    assert_eq!(
+        returned(load(scratch, component, memory).unwrap()).consumed_bytes,
+        46
+    );
     assert_eq!(component.web_path().unwrap().node_count(), 1);
     assert_eq!(memory.live.len(), 3);
 }
@@ -171,12 +174,15 @@ fn root_reads_have_no_chunk_bound_and_preserve_the_unread_destination_suffix() {
     assert_eq!(input.read_data(&mut eof), Ok(0));
     assert_eq!(eof, [0x39; 2]);
     assert_eq!(input.seek_current(), Ok(3));
-    assert_eq!(input.receipt(), NavigationReadReceipt {
-        source_bytes: 3,
-        consumed_bytes: 3,
-        read_calls: 4,
-        short_reads: 2,
-    });
+    assert_eq!(
+        input.receipt(),
+        NavigationReadReceipt {
+            source_bytes: 3,
+            consumed_bytes: 3,
+            read_calls: 4,
+            short_reads: 2,
+        }
+    );
 }
 
 #[test]
@@ -189,7 +195,10 @@ fn absent_optional_input_does_not_clear_or_validate_the_existing_owner() {
     let frees = memory.frees.len();
     let domain = memory.domain;
     memory.domain = MissionMemoryDomainId::fresh();
-    assert_eq!(load(&scratch, &mut component, &mut memory).unwrap(), NavigationLoadOutcome::Absent);
+    assert_eq!(
+        load(&scratch, &mut component, &mut memory).unwrap(),
+        NavigationLoadOutcome::Absent
+    );
     assert_eq!(component.raw_bytes(), before);
     assert_eq!(memory.frees.len(), frees);
     assert_eq!(component.web_path().unwrap().node_count(), 1);
@@ -206,19 +215,28 @@ fn actual_installation_payload_populates_the_same_owner_and_destroys_normally() 
     let links = [[1, 0, 9, 0, 0, 0, 0x80, 0x3f], [0, 0, 7, 0, 0, 0, 0, 0x40]];
     scratch.write(&payload(&nodes, &links));
     let receipt = returned(load(&scratch, &mut component, &mut memory).unwrap());
-    assert_eq!(receipt, NavigationReadReceipt {
-        source_bytes: 84,
-        consumed_bytes: 84,
-        read_calls: 5,
-        short_reads: 0,
-    });
+    assert_eq!(
+        receipt,
+        NavigationReadReceipt {
+            source_bytes: 84,
+            consumed_bytes: 84,
+            read_calls: 5,
+            short_reads: 0,
+        }
+    );
     assert_eq!(component.identity(), identity);
     let graph = component.web_path().unwrap();
     assert_eq!((graph.node_count(), graph.node_capacity()), (2, 50));
     assert_eq!(&graph.node(0).unwrap().raw_bytes()[..24], &nodes[0][..24]);
     let first = graph.node(0).unwrap().connection(0).unwrap();
-    assert_eq!((first.node_index, first.word_2, first.distance_bits), (1, 9, 1f32.to_bits()));
-    assert_eq!(graph.node(1).unwrap().connection(0).unwrap().distance_bits, 2f32.to_bits());
+    assert_eq!(
+        (first.node_index, first.word_2, first.distance_bits),
+        (1, 9, 1f32.to_bits())
+    );
+    assert_eq!(
+        graph.node(1).unwrap().connection(0).unwrap().distance_bits,
+        2f32.to_bits()
+    );
     assert_eq!(memory.live.len(), 4);
     close(&mut component, &mut memory);
 }
@@ -256,7 +274,10 @@ fn short_signature_retains_disposal_prefix_and_rejects_destructive_replay() {
                 read,
             } => {
                 assert_eq!(initialized_prefix, signature[..size]);
-                assert_eq!((read.consumed_bytes, read.read_calls, read.short_reads), (size, 1, 1));
+                assert_eq!(
+                    (read.consumed_bytes, read.read_calls, read.short_reads),
+                    (size, 1, 1)
+                );
             }
             other => panic!("unexpected error: {other:?}"),
         }
@@ -268,7 +289,11 @@ fn short_signature_retains_disposal_prefix_and_rejects_destructive_replay() {
             load(&scratch, &mut component, &mut memory),
             Err(NavigationInputError::Load {
                 error: WebPathLoadError::Component(ComponentError::Interrupted),
-                read: NavigationReadReceipt { consumed_bytes: 0, read_calls: 0, .. },
+                read: NavigationReadReceipt {
+                    consumed_bytes: 0,
+                    read_calls: 0,
+                    ..
+                },
             })
         ));
         assert_eq!(memory.frees, frees);
@@ -285,7 +310,10 @@ fn short_zero_count_is_reported_without_inventing_a_strict_read_failure() {
         bytes.extend_from_slice(&[0; 4][..initialized]);
         scratch.write(&bytes);
         let read = returned(load(&scratch, &mut component, &mut memory).unwrap());
-        assert_eq!((read.consumed_bytes, read.read_calls, read.short_reads), (4 + initialized, 3, 1));
+        assert_eq!(
+            (read.consumed_bytes, read.read_calls, read.short_reads),
+            (4 + initialized, 3, 1)
+        );
         assert_eq!(component.web_path().unwrap().node_count(), 0);
         assert_eq!(memory.arrays, 0);
         close(&mut component, &mut memory);
@@ -299,7 +327,10 @@ fn short_node_read_preserves_the_constructed_record_suffix() {
     let bytes = payload(&[node(0, 0x31)], &[]);
     scratch.write(&bytes[..10]);
     let read = returned(load(&scratch, &mut component, &mut memory).unwrap());
-    assert_eq!((read.consumed_bytes, read.read_calls, read.short_reads), (10, 4, 1));
+    assert_eq!(
+        (read.consumed_bytes, read.read_calls, read.short_reads),
+        (10, 4, 1)
+    );
     let graph = component.web_path().unwrap();
     assert_eq!(graph.node_count(), 1);
     let record = graph.node(0).unwrap();
@@ -316,9 +347,21 @@ fn short_connection_read_keeps_allocator_seed_for_unwritten_distance() {
     let bytes = payload(&[node(1, 0x31)], &[[0x34, 0x12, 0x77, 0x66, 1, 2, 3, 4]]);
     scratch.write(&bytes[..41]);
     let read = returned(load(&scratch, &mut component, &mut memory).unwrap());
-    assert_eq!((read.consumed_bytes, read.read_calls, read.short_reads), (41, 4, 1));
-    let link = component.web_path().unwrap().node(0).unwrap().connection(0).unwrap();
-    assert_eq!((link.node_index, link.word_2, link.distance_bits), (0x1234, 0x77, 0xa5a5_a5a5));
+    assert_eq!(
+        (read.consumed_bytes, read.read_calls, read.short_reads),
+        (41, 4, 1)
+    );
+    let link = component
+        .web_path()
+        .unwrap()
+        .node(0)
+        .unwrap()
+        .connection(0)
+        .unwrap();
+    assert_eq!(
+        (link.node_index, link.word_2, link.distance_bits),
+        (0x1234, 0x77, 0xa5a5_a5a5)
+    );
     close(&mut component, &mut memory);
 }
 
@@ -372,8 +415,14 @@ fn allocation_failure_reports_read_prefix_and_never_replays_prior_frees() {
     assert!(matches!(
         load(&scratch, &mut component, &mut memory),
         Err(NavigationInputError::Load {
-            error: WebPathLoadError::Component(ComponentError::Allocator("array allocation unavailable")),
-            read: NavigationReadReceipt { consumed_bytes: 8, read_calls: 2, .. },
+            error: WebPathLoadError::Component(ComponentError::Allocator(
+                "array allocation unavailable"
+            )),
+            read: NavigationReadReceipt {
+                consumed_bytes: 8,
+                read_calls: 2,
+                ..
+            },
         })
     ));
     assert_eq!(memory.frees.len(), 2);
@@ -383,7 +432,11 @@ fn allocation_failure_reports_read_prefix_and_never_replays_prior_frees() {
         load(&scratch, &mut component, &mut memory),
         Err(NavigationInputError::Load {
             error: WebPathLoadError::Component(ComponentError::Interrupted),
-            read: NavigationReadReceipt { consumed_bytes: 0, read_calls: 0, .. },
+            read: NavigationReadReceipt {
+                consumed_bytes: 0,
+                read_calls: 0,
+                ..
+            },
         })
     ));
     assert_eq!(memory.frees, frees);
@@ -394,7 +447,11 @@ fn actual_owner_rejection_happens_before_any_payload_read() {
     for foreign in [false, true] {
         let scratch = Scratch::new();
         scratch.write(&payload(&[], &[]));
-        let kind = if foreign { MissionComponentKind::WebPath } else { MissionComponentKind::Roads };
+        let kind = if foreign {
+            MissionComponentKind::WebPath
+        } else {
+            MissionComponentKind::Roads
+        };
         let (mut component, mut memory) = owner(kind);
         let before = component.raw_bytes().to_vec();
         let domain = memory.domain;
@@ -403,7 +460,10 @@ fn actual_owner_rejection_happens_before_any_payload_read() {
         }
         let error = load(&scratch, &mut component, &mut memory).unwrap_err();
         match error {
-            NavigationInputError::Load { error: WebPathLoadError::Component(error), read } => {
+            NavigationInputError::Load {
+                error: WebPathLoadError::Component(error),
+                read,
+            } => {
                 if foreign {
                     assert!(matches!(error, ComponentError::ForeignDomain));
                 } else {
