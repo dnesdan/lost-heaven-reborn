@@ -3023,7 +3023,7 @@ mod tests {
                             0xae21,
                             &[
                                 chunk(0xae23, b"pending sound\0"),
-                                chunk(0xae22, &2u32.to_le_bytes()),
+                                chunk(0xae22, &4u32.to_le_bytes()),
                             ]
                             .concat(),
                         ),

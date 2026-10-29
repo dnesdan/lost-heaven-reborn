@@ -1,7 +1,8 @@
 //! Owned base actors and their distinct Game source collections.
 //!
-//! Base C_actor construction/Init/destruction and source-only C_detector own
-//! their actual embedded program lifetime. This is not detector GameInit,
+//! Base C_actor, C_detector, C_railway and constructor/source-admitted
+//! Human/Player/Entity own their real derived and embedded program lifetimes.
+//! This is not derived GameInit,
 //! compiled instruction execution, a mission loader or an LS3DF scene constructor.
 //! Names C_actor, AddActorToGlobal and C_mission::UnloadActor are corroborated
 //! by original PS2 symbols; field names below remain descriptive PC projections.
@@ -11,11 +12,16 @@
 //! admission limits, not native actor limits. Unsupported native allocator
 //! exceptions, allocator callback reentry into collection mutation, other derived virtuals and
 //! nonzero manager cleanup flags have no implicit successful implementation.
+use crate::entity_actor::{EntityResourceSlot, EntitySeed, EntityState};
 use crate::frame_lookup::{FrameLookupBackend, SceneRoots};
+use crate::human_actor::{
+    ActorDataReader, HumanDataError, HumanResourceSlot, HumanSeed, HumanState,
+};
 use crate::original_program::{
     CProgram, OwnerFrameName, ProgramBackend, ProgramContext, ProgramError, ProgramReader,
     ProgramReplacement, ProgramSeed,
 };
+use crate::player_actor::{PlayerSeed, PlayerState};
 use crate::railway_actor::{RailwayAllocation, RailwaySeed, RailwayState, RailwayVectorSlot};
 use crate::script_lookup::{ActorLifetime, LookupError, LookupWorldBackend, MAX_ACTOR_SOURCES};
 use crate::script_scheduler::{ActorReferenceId, FrameReferenceId};
@@ -87,6 +93,9 @@ pub enum ActorVtable {
     Base,
     Detector,
     Railway,
+    Human,
+    Player,
+    Entity,
     Opaque(u32),
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -108,6 +117,9 @@ struct OwnedActor {
     phase: ActorPhase,
     detector: Option<DetectorState>,
     railway: Option<RailwayState>,
+    human: Option<HumanState>,
+    player: Option<PlayerState>,
+    entity: Option<EntityState>,
 }
 /// Untouched native detector storage, including the embedded program seed.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -227,6 +239,10 @@ pub enum ActorWorldError {
     UnsupportedVtable,
     NotDetector,
     NotRailway,
+    NotHuman,
+    NotPlayer,
+    NotEntity,
+    HumanData(HumanDataError),
     Program(ProgramError),
     Effect { stage: &'static str, detail: String },
 }
@@ -312,10 +328,22 @@ pub trait ActorFrameBackend {
         frame: FrameReferenceId,
     ) -> Result<(), String>;
 }
-/// Allocator for supported kind1/kind5 factory branches. Returning storage and
+/// Allocator for supported actor factory branches. Returning storage and
 /// seed does not construct a frame, BODY or mission payload.
 pub trait ActorAllocationBackend {
     fn allocate_actor(&mut self, bytes: u32) -> Result<Option<(u32, BaseActorSeed)>, String>;
+    fn allocate_player(
+        &mut self,
+        _bytes: u32,
+    ) -> Result<Option<(u32, BaseActorSeed, PlayerSeed)>, String> {
+        Err("player allocation unavailable".into())
+    }
+    fn allocate_entity(
+        &mut self,
+        _bytes: u32,
+    ) -> Result<Option<(u32, BaseActorSeed, EntitySeed)>, String> {
+        Err("entity allocation unavailable".into())
+    }
     fn allocate_railway(
         &mut self,
         _bytes: u32,
@@ -333,6 +361,24 @@ pub trait ActorAllocationBackend {
 /// Native scalar deleting-wrapper free dependency. Failed host frees retain
 /// backing ownership in this backend; object destruction has already completed.
 pub trait ActorDeallocationBackend {
+    /// Constructor-domain collections are genuinely empty. The native free
+    /// boundary is still called in order, including its null allocation.
+    fn free_human_collection(
+        &mut self,
+        _world: &ActorWorld,
+        _actor: ActorReferenceId,
+        _slot: HumanResourceSlot,
+    ) -> Result<(), String> {
+        Err("human empty collection disposal unavailable".into())
+    }
+    fn free_entity_collection(
+        &mut self,
+        _world: &ActorWorld,
+        _actor: ActorReferenceId,
+        _slot: EntityResourceSlot,
+    ) -> Result<(), String> {
+        Err("entity empty collection disposal unavailable".into())
+    }
     /// Scalar free of each actual railway-owned backing, including null. Failed
     /// frees retain the header and backend ownership for explicit recovery.
     fn free_railway_allocation(
@@ -504,7 +550,10 @@ impl ActorWorld {
         actor: ActorReferenceId,
     ) -> Result<&mut BaseActorState, ActorWorldError> {
         let i = self.index(actor)?;
-        if self.actors[i].detector.is_some() || self.actors[i].railway.is_some() {
+        if self.actors[i].detector.is_some()
+            || self.actors[i].railway.is_some()
+            || self.actors[i].human.is_some()
+        {
             return Err(ActorWorldError::UnsupportedVtable);
         }
         Ok(&mut self.actors[i].state)
@@ -695,6 +744,9 @@ impl ActorWorld {
             phase: ActorPhase::Constructing,
             detector: None,
             railway,
+            human: None,
+            player: None,
+            entity: None,
         });
         self.actor_count = self.actor_count.wrapping_add(1);
         self.add_actor_to_global(Some(actor), backend)
@@ -823,7 +875,545 @@ impl ActorWorld {
             .ok_or(ActorWorldError::NotRailway)?;
         Ok(railway.load_payload(payload))
     }
-    /// Supported factory branches: kind1 allocates0x70, kind5 0x128, kind8 0x370.
+    /// Actual Human primary-base construction. Factory kind3 remains absent;
+    /// this owner is composed by the genuine Player/Entity constructors.
+    pub fn construct_human<B: ActorCollectionBackend + ?Sized>(
+        &mut self,
+        identity: u32,
+        base: BaseActorSeed,
+        seed: HumanSeed,
+        backend: &mut B,
+    ) -> Result<ActorReferenceId, ActorCreationError> {
+        let actor = self.construct_base(identity, base, backend)?;
+        let i = self.index(actor).expect("constructed human base");
+        self.actors[i].human = Some(HumanState::construct(seed));
+        self.actors[i].state.vtable = ActorVtable::Human;
+        self.actors[i].state.word_10 = 3;
+        self.actors[i].state.word_14 = 2;
+        Ok(actor)
+    }
+    pub fn construct_player<B: ActorCollectionBackend + ?Sized>(
+        &mut self,
+        identity: u32,
+        base: BaseActorSeed,
+        seed: PlayerSeed,
+        backend: &mut B,
+    ) -> Result<ActorReferenceId, ActorCreationError> {
+        identity.checked_add(0xaff).ok_or(ActorCreationError {
+            actor: None,
+            source: ActorWorldError::InvalidBacking,
+        })?;
+        let actor = self.construct_human(identity, base, seed.human, backend)?;
+        let i = self.index(actor).expect("constructed player base");
+        let player =
+            PlayerState::construct(seed.allocator_tag, self.actors[i].human.as_mut().unwrap());
+        self.actors[i].player = Some(player);
+        self.actors[i].state.vtable = ActorVtable::Player;
+        self.actors[i].state.word_10 = 2;
+        Ok(actor)
+    }
+    pub fn construct_entity<B: ActorCollectionBackend + ?Sized>(
+        &mut self,
+        identity: u32,
+        base: BaseActorSeed,
+        mut seed: EntitySeed,
+        backend: &mut B,
+    ) -> Result<ActorReferenceId, ActorCreationError> {
+        identity.checked_add(0x128b).ok_or(ActorCreationError {
+            actor: None,
+            source: ActorWorldError::InvalidBacking,
+        })?;
+        let program_identity = identity.checked_add(0xa9c).ok_or(ActorCreationError {
+            actor: None,
+            source: ActorWorldError::InvalidBacking,
+        })?;
+        seed.program.address_high_byte = (program_identity >> 24) as u8;
+        let actor = self.construct_human(identity, base, seed.human.clone(), backend)?;
+        let i = self.index(actor).expect("constructed entity base");
+        self.actors[i].entity = Some(EntityState::construct(seed));
+        self.actors[i].state.vtable = ActorVtable::Entity;
+        self.actors[i].state.word_10 = 27;
+        Ok(actor)
+    }
+    pub fn human(&self, actor: ActorReferenceId) -> Result<&HumanState, ActorWorldError> {
+        self.actors[self.index(actor)?]
+            .human
+            .as_ref()
+            .ok_or(ActorWorldError::NotHuman)
+    }
+    pub fn player(&self, actor: ActorReferenceId) -> Result<&PlayerState, ActorWorldError> {
+        self.actors[self.index(actor)?]
+            .player
+            .as_ref()
+            .ok_or(ActorWorldError::NotPlayer)
+    }
+    pub fn entity(&self, actor: ActorReferenceId) -> Result<&EntityState, ActorWorldError> {
+        self.actors[self.index(actor)?]
+            .entity
+            .as_ref()
+            .ok_or(ActorWorldError::NotEntity)
+    }
+    pub fn inspect_human(&self, actor: ActorReferenceId) -> Option<&HumanState> {
+        self.actors
+            .iter()
+            .find(|owned| owned.lifetime.reference() == actor)?
+            .human
+            .as_ref()
+    }
+    pub fn inspect_entity(&self, actor: ActorReferenceId) -> Option<&EntityState> {
+        self.actors
+            .iter()
+            .find(|owned| owned.lifetime.reference() == actor)?
+            .entity
+            .as_ref()
+    }
+    fn init_human_owner<B: ActorFrameBackend + ?Sized>(
+        &mut self,
+        actor: ActorReferenceId,
+        frame: Option<FrameReferenceId>,
+        backend: &mut B,
+    ) -> Result<bool, ActorWorldError> {
+        let i = self.ready(actor)?;
+        self.actors[i].phase = ActorPhase::Initializing;
+        let result = (|| {
+            // Entity stores the secondary C_program owner before Human's
+            // null/type/base guards, including every rejected Init prefix.
+            if let Some(entity) = self.actors[i].entity.as_mut() {
+                entity
+                    .program
+                    .as_mut()
+                    .expect("constructed entity program")
+                    .set_owner(Some(actor))
+                    .map_err(ActorWorldError::Program)?;
+            }
+            let Some(frame) = frame else {
+                return Ok(false);
+            };
+            if !backend
+                .frame_is_model(self, frame)
+                .map_err(|detail| ActorWorldError::Effect {
+                    stage: "human_frame_kind",
+                    detail,
+                })?
+            {
+                return Ok(false);
+            }
+            if !self.init_inner(actor, frame, backend)? {
+                return Ok(false);
+            }
+            let i = self.index(actor)?;
+            self.actors[i].human.as_mut().unwrap().human_type_mask = 0;
+            for (name, target_e) in [
+                (b"targetE".as_slice(), true),
+                (b"targetN".as_slice(), false),
+            ] {
+                let frame = self
+                    .state(actor)?
+                    .frame
+                    .ok_or(ActorWorldError::MissingAttachedFrame)?;
+                let found = backend
+                    .find_child(self, frame, name, 0x40)
+                    .map_err(|detail| ActorWorldError::Effect {
+                        stage: "human_find_target",
+                        detail,
+                    })?;
+                let i = self.index(actor)?;
+                let human = self.actors[i].human.as_mut().unwrap();
+                if target_e {
+                    human.target_e = found;
+                } else {
+                    human.target_n = found;
+                }
+            }
+            if let Some(child) = self.human(actor)?.target_e {
+                backend
+                    .set_child_enabled(self, child, 0)
+                    .map_err(|detail| ActorWorldError::Effect {
+                        stage: "human_disable_target_e",
+                        detail,
+                    })?;
+            }
+            if let Some(child) = self.human(actor)?.target_n {
+                backend
+                    .set_child_enabled(self, child, 0)
+                    .map_err(|detail| ActorWorldError::Effect {
+                        stage: "human_disable_target_n",
+                        detail,
+                    })?;
+            }
+            let frame = self
+                .state(actor)?
+                .frame
+                .ok_or(ActorWorldError::MissingAttachedFrame)?;
+            let base = backend
+                .find_child(self, frame, b"base", 0xffff)
+                .map_err(|detail| ActorWorldError::Effect {
+                    stage: "human_find_base",
+                    detail,
+                })?;
+            let i = self.index(actor)?;
+            self.actors[i].human.as_mut().unwrap().base_frame = base;
+            if self.actors[i].player.is_some() {
+                self.actors[i].human.as_mut().unwrap().human_type_mask = 1;
+            }
+            Ok(true)
+        })();
+        let i = self.index(actor)?;
+        self.actors[i].phase = if result.is_err() {
+            ActorPhase::InitializationInterrupted
+        } else {
+            ActorPhase::Ready
+        };
+        result
+    }
+    pub fn load_human_data(
+        &mut self,
+        actor: ActorReferenceId,
+        reader: &mut ActorDataReader<'_>,
+    ) -> Result<(), ActorWorldError> {
+        let i = self.ready(actor)?;
+        if self.actors[i].human.is_none() {
+            return Err(ActorWorldError::NotHuman);
+        }
+        self.actors[i].phase = ActorPhase::Loading;
+        let result = self.actors[i]
+            .human
+            .as_mut()
+            .unwrap()
+            .load_source_data(reader)
+            .map_err(ActorWorldError::HumanData);
+        self.actors[i].phase = if result.is_err() {
+            ActorPhase::LoadingInterrupted
+        } else {
+            ActorPhase::Ready
+        };
+        result
+    }
+    pub fn load_entity_data<P: ProgramBackend + ?Sized>(
+        &mut self,
+        actor: ActorReferenceId,
+        reader: &mut ActorDataReader<'_>,
+        replacements: &[ProgramReplacement],
+        mission_path: Option<&[u8]>,
+        frames: &dyn FrameLookupBackend,
+        backend: &mut P,
+    ) -> Result<(), ActorWorldError> {
+        let i = self.ready(actor)?;
+        if self.actors[i].entity.is_none() {
+            return Err(ActorWorldError::NotEntity);
+        }
+        self.actors[i].phase = ActorPhase::Loading;
+        let result = self.actors[i]
+            .human
+            .as_mut()
+            .unwrap()
+            .load_source_data(reader)
+            .map_err(ActorWorldError::HumanData);
+        if let Err(error) = result {
+            self.actors[i].phase = ActorPhase::LoadingInterrupted;
+            return Err(error);
+        }
+        // The derived version byte is ignored, including an unavailable bounded
+        // read. CProgram sees the exact same cursor after this native operation.
+        reader.read_bounded(&mut [0]);
+        let mut program = self.actors[i]
+            .entity
+            .as_mut()
+            .unwrap()
+            .program
+            .take()
+            .expect("constructed entity program");
+        let mut context = ActorProgramContext {
+            world: self,
+            frames,
+            mission_path,
+        };
+        let result = program.load_source_code(reader, replacements, &mut context, backend);
+        self.actors[i].entity.as_mut().unwrap().program = Some(program);
+        self.actors[i].phase = if result.is_err() {
+            ActorPhase::LoadingInterrupted
+        } else {
+            ActorPhase::Ready
+        };
+        result.map_err(ActorWorldError::Program)
+    }
+    fn begin_human_destruction(
+        &mut self,
+        actor: ActorReferenceId,
+        vtable: ActorVtable,
+    ) -> Result<(), ActorWorldError> {
+        let i = self.index(actor)?;
+        if !matches!(
+            self.actors[i].phase,
+            ActorPhase::Ready
+                | ActorPhase::InitializationInterrupted
+                | ActorPhase::LoadingInterrupted
+        ) {
+            return Err(ActorWorldError::Busy(actor));
+        }
+        if self.actors[i].human.is_none() {
+            return Err(ActorWorldError::NotHuman);
+        }
+        self.actors[i].phase = ActorPhase::Destroying;
+        self.actors[i].state.vtable = vtable;
+        Ok(())
+    }
+    fn human_destruction_result(
+        &mut self,
+        actor: ActorReferenceId,
+        result: Result<(), ActorWorldError>,
+    ) -> Result<(), ActorWorldError> {
+        if result.is_err() {
+            let i = self.index(actor)?;
+            self.actors[i].phase = ActorPhase::DestructionInterrupted;
+        }
+        result
+    }
+    fn destroy_human_inner<F: ActorFrameBackend + ?Sized, B: ActorDeallocationBackend + ?Sized>(
+        &mut self,
+        actor: ActorReferenceId,
+        frames: &mut F,
+        backend: &mut B,
+    ) -> Result<(), ActorWorldError> {
+        self.state_mut_inner(actor)?.vtable = ActorVtable::Human;
+        // Actual dtor captures this frame once for its inline type check and
+        // StopAnimation call. Later fields/base destruction are read live.
+        if let Some(frame) = self.state(actor)?.frame {
+            if frames
+                .frame_is_model(self, frame)
+                .map_err(|detail| ActorWorldError::Effect {
+                    stage: "human_destructor_frame_kind",
+                    detail,
+                })?
+            {
+                frames
+                    .stop_model_animation(self, frame, 0)
+                    .map_err(|detail| ActorWorldError::Effect {
+                        stage: "human_stop_animation",
+                        detail,
+                    })?;
+            }
+        }
+        for slot in [
+            HumanResourceSlot::LastAuxiliary,
+            HumanResourceSlot::SecondAuxiliary,
+            HumanResourceSlot::FirstAuxiliary,
+            HumanResourceSlot::Inventory,
+        ] {
+            backend
+                .free_human_collection(self, actor, slot)
+                .map_err(|detail| ActorWorldError::Effect {
+                    stage: "free_human_collection",
+                    detail,
+                })?;
+            let i = self.index(actor)?;
+            self.actors[i].human.as_mut().unwrap().clear_resource(slot);
+        }
+        let i = self.index(actor)?;
+        self.actors[i]
+            .human
+            .as_mut()
+            .unwrap()
+            .animation_machine
+            .destruct();
+        backend
+            .free_human_collection(self, actor, HumanResourceSlot::CustomAnimations)
+            .map_err(|detail| ActorWorldError::Effect {
+                stage: "free_human_collection",
+                detail,
+            })?;
+        let i = self.index(actor)?;
+        self.actors[i]
+            .human
+            .as_mut()
+            .unwrap()
+            .clear_resource(HumanResourceSlot::CustomAnimations);
+        self.destroy_base_inner(actor, frames)
+    }
+    pub fn destroy_human<F: ActorFrameBackend + ?Sized, B: ActorDeallocationBackend + ?Sized>(
+        &mut self,
+        actor: ActorReferenceId,
+        frames: &mut F,
+        backend: &mut B,
+    ) -> Result<(), ActorWorldError> {
+        let i = self.index(actor)?;
+        if self.actors[i].player.is_some() || self.actors[i].entity.is_some() {
+            return Err(ActorWorldError::UnsupportedVtable);
+        }
+        self.begin_human_destruction(actor, ActorVtable::Human)?;
+        let result = self.destroy_human_inner(actor, frames, backend);
+        self.human_destruction_result(actor, result)
+    }
+    pub fn destroy_player<F: ActorFrameBackend + ?Sized, B: ActorDeallocationBackend + ?Sized>(
+        &mut self,
+        actor: ActorReferenceId,
+        frames: &mut F,
+        backend: &mut B,
+    ) -> Result<(), ActorWorldError> {
+        self.player(actor)?;
+        self.begin_human_destruction(actor, ActorVtable::Player)?;
+        let result = (|| {
+            backend
+                .free_human_collection(self, actor, HumanResourceSlot::Player)
+                .map_err(|detail| ActorWorldError::Effect {
+                    stage: "free_player_collection",
+                    detail,
+                })?;
+            let i = self.index(actor)?;
+            self.actors[i].player.as_mut().unwrap().collection.clear();
+            self.destroy_human_inner(actor, frames, backend)
+        })();
+        self.human_destruction_result(actor, result)
+    }
+    pub fn destroy_entity<
+        F: ActorFrameBackend + ?Sized,
+        B: ActorDeallocationBackend + ProgramBackend + ?Sized,
+    >(
+        &mut self,
+        actor: ActorReferenceId,
+        frames: &mut F,
+        backend: &mut B,
+    ) -> Result<(), ActorWorldError> {
+        self.entity(actor)?;
+        self.begin_human_destruction(actor, ActorVtable::Entity)?;
+        let i = self.index(actor)?;
+        self.actors[i]
+            .entity
+            .as_mut()
+            .unwrap()
+            .program
+            .as_mut()
+            .expect("owned entity program")
+            .set_entity_vtable();
+        let result = (|| {
+            for slot in [
+                EntityResourceSlot::Last,
+                EntityResourceSlot::Auxiliary,
+                EntityResourceSlot::ThirdUnsigned,
+                EntityResourceSlot::SecondUnsigned,
+                EntityResourceSlot::FirstUnsigned,
+                EntityResourceSlot::SubstateLocks,
+                EntityResourceSlot::CharacterLogs,
+            ] {
+                backend
+                    .free_entity_collection(self, actor, slot)
+                    .map_err(|detail| ActorWorldError::Effect {
+                        stage: "free_entity_collection",
+                        detail,
+                    })?;
+                let i = self.index(actor)?;
+                self.actors[i].entity.as_mut().unwrap().clear_resource(slot);
+            }
+            let i = self.index(actor)?;
+            let mut program = self.actors[i]
+                .entity
+                .as_mut()
+                .unwrap()
+                .program
+                .take()
+                .expect("owned entity program");
+            let result = program.destruct(backend);
+            self.actors[i].entity.as_mut().unwrap().program = Some(program);
+            result.map_err(ActorWorldError::Program)?;
+            self.destroy_human_inner(actor, frames, backend)
+        })();
+        self.human_destruction_result(actor, result)
+    }
+    pub fn delete_human<F: ActorFrameBackend + ?Sized, B: ActorDeallocationBackend + ?Sized>(
+        &mut self,
+        actor: ActorReferenceId,
+        argument: u32,
+        frames: &mut F,
+        backend: &mut B,
+    ) -> Result<(), ActorWorldError> {
+        self.destroy_human(actor, frames, backend)?;
+        if argument & 1 != 0 {
+            backend
+                .free_actor(self, actor.identity())
+                .map_err(|detail| ActorWorldError::Effect {
+                    stage: "free_human",
+                    detail,
+                })?;
+        }
+        Ok(())
+    }
+    pub fn delete_player<F: ActorFrameBackend + ?Sized, B: ActorDeallocationBackend + ?Sized>(
+        &mut self,
+        actor: ActorReferenceId,
+        argument: u32,
+        frames: &mut F,
+        backend: &mut B,
+    ) -> Result<(), ActorWorldError> {
+        self.destroy_player(actor, frames, backend)?;
+        if argument & 1 != 0 {
+            backend
+                .free_actor(self, actor.identity())
+                .map_err(|detail| ActorWorldError::Effect {
+                    stage: "free_player",
+                    detail,
+                })?;
+        }
+        Ok(())
+    }
+    pub fn delete_entity<
+        F: ActorFrameBackend + ?Sized,
+        B: ActorDeallocationBackend + ProgramBackend + ?Sized,
+    >(
+        &mut self,
+        actor: ActorReferenceId,
+        argument: u32,
+        frames: &mut F,
+        backend: &mut B,
+    ) -> Result<(), ActorWorldError> {
+        self.destroy_entity(actor, frames, backend)?;
+        if argument & 1 != 0 {
+            backend
+                .free_actor(self, actor.identity())
+                .map_err(|detail| ActorWorldError::Effect {
+                    stage: "free_entity",
+                    detail,
+                })?;
+        }
+        Ok(())
+    }
+    pub fn release_player<F: ActorFrameBackend + ?Sized, B: ActorDeallocationBackend + ?Sized>(
+        &mut self,
+        actor: ActorReferenceId,
+        frames: &mut F,
+        backend: &mut B,
+    ) -> Result<u16, ActorWorldError> {
+        let i = self.ready(actor)?;
+        if self.actors[i].state.vtable != ActorVtable::Player {
+            return Err(ActorWorldError::NotPlayer);
+        }
+        let references = self.actors[i].state.references.wrapping_sub(1);
+        self.actors[i].state.references = references;
+        if references == 0 {
+            self.delete_player(actor, 1, frames, backend)?;
+        }
+        Ok(references)
+    }
+    pub fn release_entity<
+        F: ActorFrameBackend + ?Sized,
+        B: ActorDeallocationBackend + ProgramBackend + ?Sized,
+    >(
+        &mut self,
+        actor: ActorReferenceId,
+        frames: &mut F,
+        backend: &mut B,
+    ) -> Result<u16, ActorWorldError> {
+        let i = self.ready(actor)?;
+        if self.actors[i].state.vtable != ActorVtable::Entity {
+            return Err(ActorWorldError::NotEntity);
+        }
+        let references = self.actors[i].state.references.wrapping_sub(1);
+        self.actors[i].state.references = references;
+        if references == 0 {
+            self.delete_entity(actor, 1, frames, backend)?;
+        }
+        Ok(references)
+    }
+    /// Supported factory branches allocate their actual derived extents.
     /// Other derived kinds remain explicit dependencies.
     pub fn create_actor<B: ActorAllocationBackend + ActorCollectionBackend + ?Sized>(
         &mut self,
@@ -834,6 +1424,36 @@ impl ActorWorld {
         // including holes inside 1..=38; only named unavailable classes fail.
         if !matches!(kind, 1 | 2 | 4 | 5 | 6 | 8 | 9 | 10 | 12 | 18 | 20..=25 | 27..=36 | 38) {
             return Ok(None);
+        }
+        if kind == 2 {
+            let allocation =
+                backend
+                    .allocate_player(0xb00)
+                    .map_err(|detail| ActorCreationError {
+                        actor: None,
+                        source: ActorWorldError::Effect {
+                            stage: "allocate_player",
+                            detail,
+                        },
+                    })?;
+            return allocation
+                .map(|(identity, base, seed)| self.construct_player(identity, base, seed, backend))
+                .transpose();
+        }
+        if kind == 27 {
+            let allocation =
+                backend
+                    .allocate_entity(0x128c)
+                    .map_err(|detail| ActorCreationError {
+                        actor: None,
+                        source: ActorWorldError::Effect {
+                            stage: "allocate_entity",
+                            detail,
+                        },
+                    })?;
+            return allocation
+                .map(|(identity, base, seed)| self.construct_entity(identity, base, seed, backend))
+                .transpose();
         }
         if kind == 8 {
             let allocation =
@@ -894,6 +1514,9 @@ impl ActorWorld {
         backend: &mut B,
     ) -> Result<bool, ActorWorldError> {
         let i = self.ready(actor)?;
+        if self.actors[i].human.is_some() {
+            return self.init_human_owner(actor, frame, backend);
+        }
         let Some(frame) = frame else {
             return Ok(false);
         };
@@ -1015,7 +1638,10 @@ impl ActorWorld {
         backend: &mut B,
     ) -> Result<(), ActorWorldError> {
         let i = self.ready(actor)?;
-        if self.actors[i].detector.is_some() || self.actors[i].railway.is_some() {
+        if self.actors[i].detector.is_some()
+            || self.actors[i].railway.is_some()
+            || self.actors[i].human.is_some()
+        {
             return Err(ActorWorldError::UnsupportedVtable);
         }
         self.destroy_base_inner(actor, backend)
@@ -2134,7 +2760,7 @@ mod tests {
                 ] {
                     assert!(w.source(source).is_empty());
                 }
-            } else if ![1, 5, 8].contains(&kind) {
+            } else if ![1, 2, 5, 8, 27].contains(&kind) {
                 assert_eq!(
                     result.unwrap_err().source,
                     ActorWorldError::UnsupportedKind(kind)
@@ -2876,5 +3502,541 @@ mod railway_tests {
             )
             .is_err());
         assert_eq!(heap.frees.len(), 2);
+    }
+}
+
+#[cfg(test)]
+mod human_owner_tests {
+    use super::*;
+    use crate::frame_lookup::{FrameLifetime, ModelFrameLookup};
+    use crate::human_actor::{HumanAnimationMachineSeed, HumanAuxiliarySeed, HumanProperties};
+    use crate::original_program::{ProgramAllocation, ProgramBuffer, ProgramVtable};
+    use std::{cell::RefCell, collections::BTreeSet, rc::Rc};
+    fn base() -> BaseActorSeed {
+        BaseActorSeed {
+            word_0e: 3,
+            actor_id: 4,
+            state_1c: 5,
+            bytes_21_5f: [6; 63],
+            bytes_64_65: [7; 2],
+            byte_67: 8,
+            release_frame: 0,
+            bytes_6d_6f: [9; 3],
+        }
+    }
+    fn human() -> HumanSeed {
+        HumanSeed {
+            allocator_tag: 0x3c,
+            animation_machine: HumanAnimationMachineSeed {
+                untouched_word: 0xa5a5a5a5,
+            },
+            previous_animation_code: 0x11111111,
+            requested_animation_code: 0x22222222,
+            human_type_mask: 0xa5a5a5a5,
+            current_properties: HumanProperties::from_record([0xa5; 64]),
+            target_e: None,
+            target_n: None,
+            base_frame: None,
+            auxiliary: std::array::from_fn(|_| HumanAuxiliarySeed {
+                untouched_word: 0xa5a5a5a5,
+                padding: [0xa5; 3],
+                untouched_tail: [0xa5; 16],
+            }),
+        }
+    }
+    fn program() -> ProgramSeed {
+        ProgramSeed {
+            address_high_byte: 0xff,
+            padding_0d: [0xa5; 3],
+            words_1c_2c: [0xa5a5a5a5; 5],
+            padding_31: [0xa5; 3],
+            word_40: 0xa5a5a5a5,
+            bytes_64: [0xa5; 4],
+        }
+    }
+    fn entity() -> EntitySeed {
+        EntitySeed {
+            human: human(),
+            program: program(),
+            allocator_tag_a: 0x12,
+            allocator_tag_b: 0x9a,
+            untouched_word: 0xa5a5a5a5,
+            untouched_padding: [0xa5; 3],
+        }
+    }
+    fn world() -> ActorWorld {
+        let b = SourceBacking {
+            storage: Some(ActorStorageId(1)),
+            capacity: 16,
+        };
+        ActorWorld::new(0, 0, b, b, b).unwrap()
+    }
+    #[derive(Default)]
+    struct Heap {
+        next: u32,
+        log: Rc<RefCell<Vec<String>>>,
+        null: bool,
+        fail_source_free: bool,
+        fail_human: Option<HumanResourceSlot>,
+        allocations: BTreeSet<u64>,
+    }
+    impl ActorAllocationBackend for Heap {
+        fn allocate_actor(&mut self, _: u32) -> Result<Option<(u32, BaseActorSeed)>, String> {
+            panic!("derived allocation must not use base extent")
+        }
+        fn allocate_player(
+            &mut self,
+            bytes: u32,
+        ) -> Result<Option<(u32, BaseActorSeed, PlayerSeed)>, String> {
+            assert_eq!(bytes, 0xb00);
+            self.log.borrow_mut().push("allocate-player".into());
+            if self.null {
+                return Ok(None);
+            }
+            self.next += 1;
+            Ok(Some((
+                self.next,
+                base(),
+                PlayerSeed {
+                    human: human(),
+                    allocator_tag: 0xd7,
+                },
+            )))
+        }
+        fn allocate_entity(
+            &mut self,
+            bytes: u32,
+        ) -> Result<Option<(u32, BaseActorSeed, EntitySeed)>, String> {
+            assert_eq!(bytes, 0x128c);
+            self.log.borrow_mut().push("allocate-entity".into());
+            if self.null {
+                return Ok(None);
+            }
+            self.next += 1;
+            Ok(Some((self.next, base(), entity())))
+        }
+    }
+    impl ActorCollectionBackend for Heap {
+        fn allocate_collection(
+            &mut self,
+            _: &ActorWorld,
+            _: ActorSource,
+            _: u32,
+        ) -> Result<ActorStorageId, String> {
+            Err("unexpected source growth".into())
+        }
+        fn free_collection(
+            &mut self,
+            _: &ActorWorld,
+            _: ActorSource,
+            _: Option<ActorStorageId>,
+        ) -> Result<(), String> {
+            panic!("preallocated sources")
+        }
+    }
+    impl ActorDeallocationBackend for Heap {
+        fn free_human_collection(
+            &mut self,
+            w: &ActorWorld,
+            a: ActorReferenceId,
+            slot: HumanResourceSlot,
+        ) -> Result<(), String> {
+            self.log
+                .borrow_mut()
+                .push(format!("human:{slot:?}:{:?}", w.state(a).unwrap().vtable));
+            if self.fail_human == Some(slot) {
+                Err("human free unavailable".into())
+            } else {
+                Ok(())
+            }
+        }
+        fn free_entity_collection(
+            &mut self,
+            w: &ActorWorld,
+            a: ActorReferenceId,
+            slot: EntityResourceSlot,
+        ) -> Result<(), String> {
+            assert_eq!(
+                w.entity(a).unwrap().program().unwrap().vtable(),
+                ProgramVtable::Entity
+            );
+            self.log.borrow_mut().push(format!("entity:{slot:?}"));
+            Ok(())
+        }
+        fn free_actor(&mut self, w: &ActorWorld, id: u32) -> Result<(), String> {
+            assert_eq!(w.actor_count, 0);
+            assert!(w.source(ActorSource::Static).is_empty());
+            self.log.borrow_mut().push(format!("actor:{id}"));
+            Ok(())
+        }
+    }
+    impl ProgramBackend for Heap {
+        fn allocate(
+            &mut self,
+            _: &CProgram,
+            b: ProgramBuffer,
+            _: u32,
+        ) -> Result<ProgramAllocation, String> {
+            self.next += 1;
+            let id = self.next as u64;
+            self.allocations.insert(id);
+            self.log
+                .borrow_mut()
+                .push(format!("allocate-program:{b:?}"));
+            Ok(ProgramAllocation(id))
+        }
+        fn free(
+            &mut self,
+            p: &CProgram,
+            b: ProgramBuffer,
+            a: Option<ProgramAllocation>,
+        ) -> Result<(), String> {
+            self.log
+                .borrow_mut()
+                .push(format!("program:{b:?}:{:?}", p.vtable()));
+            if self.fail_source_free && b == ProgramBuffer::Source && a.is_some() {
+                return Err("source free unavailable".into());
+            }
+            if let Some(a) = a {
+                assert!(self.allocations.remove(&a.0));
+            }
+            Ok(())
+        }
+    }
+    struct Frames {
+        leases: Vec<FrameLifetime>,
+        actor: Option<ActorReferenceId>,
+        log: Rc<RefCell<Vec<String>>>,
+        model: bool,
+        e_calls: usize,
+        n_calls: usize,
+        mutate: bool,
+    }
+    impl Frames {
+        fn new(log: Rc<RefCell<Vec<String>>>) -> Self {
+            Self {
+                leases: (10..20).map(FrameLifetime::for_existing).collect(),
+                actor: None,
+                log,
+                model: true,
+                e_calls: 0,
+                n_calls: 0,
+                mutate: false,
+            }
+        }
+        fn r(&self, index: usize) -> FrameReferenceId {
+            self.leases[index].reference()
+        }
+    }
+    impl ActorFrameBackend for Frames {
+        fn frame_is_model(
+            &mut self,
+            _: &mut ActorWorld,
+            f: FrameReferenceId,
+        ) -> Result<bool, String> {
+            self.log.borrow_mut().push(format!("type:{}", f.identity()));
+            Ok(self.model)
+        }
+        fn stop_model_animation(
+            &mut self,
+            _: &mut ActorWorld,
+            f: FrameReferenceId,
+            i: u32,
+        ) -> Result<(), String> {
+            assert_eq!(i, 0);
+            self.log.borrow_mut().push(format!("stop:{}", f.identity()));
+            Ok(())
+        }
+        fn actor_data(
+            &mut self,
+            _: &mut ActorWorld,
+            _: FrameReferenceId,
+        ) -> Result<FrameActorData, String> {
+            self.log.borrow_mut().push("data".into());
+            Ok(FrameActorData::Null)
+        }
+        fn clear_actor_data(
+            &mut self,
+            _: &mut ActorWorld,
+            _: FrameReferenceId,
+        ) -> Result<(), String> {
+            self.log.borrow_mut().push("clear".into());
+            Ok(())
+        }
+        fn find_child(
+            &mut self,
+            w: &mut ActorWorld,
+            f: FrameReferenceId,
+            name: &[u8],
+            flags: u32,
+        ) -> Result<Option<FrameReferenceId>, String> {
+            self.log.borrow_mut().push(format!(
+                "find:{}:{}:{flags:x}",
+                f.identity(),
+                String::from_utf8_lossy(name)
+            ));
+            let a = self.actor.unwrap();
+            if name == b"targetE" {
+                self.e_calls += 1;
+                if self.mutate {
+                    *w.actor_frame_mut(a).unwrap() =
+                        Some(self.r(if self.e_calls == 1 { 1 } else { 2 }));
+                }
+                Ok(Some(self.r(if self.e_calls == 1 { 4 } else { 6 })))
+            } else if name == b"targetN" {
+                self.n_calls += 1;
+                Ok(Some(self.r(if self.n_calls == 1 { 5 } else { 7 })))
+            } else {
+                assert_eq!(flags, 0xffff);
+                Ok(Some(self.r(9)))
+            }
+        }
+        fn set_child_enabled(
+            &mut self,
+            w: &mut ActorWorld,
+            f: FrameReferenceId,
+            e: u32,
+        ) -> Result<(), String> {
+            assert_eq!(e, 0);
+            self.log
+                .borrow_mut()
+                .push(format!("disable:{}", f.identity()));
+            if self.mutate && f == self.r(6) {
+                let a = self.actor.unwrap();
+                let i = w.index(a).unwrap();
+                w.actors[i].human.as_mut().unwrap().target_n = Some(self.r(8));
+                *w.actor_frame_mut(a).unwrap() = Some(self.r(3));
+            }
+            Ok(())
+        }
+        fn release_frame(&mut self, _: &mut ActorWorld, f: FrameReferenceId) -> Result<(), String> {
+            self.log
+                .borrow_mut()
+                .push(format!("release-frame:{}", f.identity()));
+            Ok(())
+        }
+    }
+    #[test]
+    fn human_player_entity_factories_own_real_derived_defaults_and_separate_program() {
+        let mut w = world();
+        let mut heap = Heap::default();
+        let player = w.create_actor(2, &mut heap).unwrap().unwrap();
+        let entity = w.create_actor(27, &mut heap).unwrap().unwrap();
+        assert_eq!(
+            (
+                w.state(player).unwrap().vtable,
+                w.state(player).unwrap().word_10,
+                w.state(player).unwrap().word_14
+            ),
+            (ActorVtable::Player, 2, 2)
+        );
+        assert_eq!(w.player(player).unwrap().constructor_words(), &[0, 200]);
+        assert_eq!(w.player(player).unwrap().allocator_tag(), 0xd7);
+        assert_eq!(w.human(player).unwrap().voice_index(), 3);
+        assert_eq!(w.human(player).unwrap().human_type_mask(), 0xa5a5a5a5);
+        let bits = w.human(player).unwrap().properties().component_bits();
+        assert_eq!(&bits[2..6], &[0x42200000; 4]);
+        assert_eq!(bits[1], 0x43480000);
+        assert_eq!(bits[10], 0x3f800000);
+        assert_eq!(
+            w.human(player).unwrap().current_properties().record(),
+            &[0xa5; 64]
+        );
+        assert_eq!(w.state(entity).unwrap().vtable, ActorVtable::Entity);
+        let e = w.entity(entity).unwrap();
+        assert_eq!(e.program().unwrap().vtable(), ProgramVtable::Entity);
+        assert_eq!(e.program().unwrap().owner(), None);
+        assert_eq!(
+            e.program().unwrap().seed().address_high_byte,
+            ((entity.identity() + 0xa9c) >> 24) as u8
+        );
+        assert_eq!(e.untouched_word(), 0xa5a5a5a5);
+        assert_eq!(e.untouched_padding(), &[0xa5; 3]);
+        assert_eq!(e.constructor_words(), &[0; 8]);
+        assert_eq!(e.allocator_tag(EntityResourceSlot::CharacterLogs), 0x12);
+        assert_eq!(e.allocator_tag(EntityResourceSlot::SecondUnsigned), 0x12);
+        assert_eq!(e.allocator_tag(EntityResourceSlot::ThirdUnsigned), 0x9a);
+        assert_eq!(e.allocator_tag(EntityResourceSlot::Last), 0x9a);
+        assert_eq!(w.source(ActorSource::Static), &[Some(player), Some(entity)]);
+        assert!(w.source(ActorSource::Primary).is_empty());
+        let mut empty = world();
+        let mut null = Heap {
+            null: true,
+            ..Heap::default()
+        };
+        assert_eq!(empty.create_actor(2, &mut null).unwrap(), None);
+        assert_eq!(empty.create_actor(27, &mut null).unwrap(), None);
+        assert_eq!(empty.actor_count, 0);
+    }
+    #[test]
+    fn human_init_repeats_lookups_and_rereads_saved_targets_after_callbacks() {
+        let mut w = world();
+        let mut heap = Heap::default();
+        let a = w.create_actor(2, &mut heap).unwrap().unwrap();
+        let mut frames = Frames::new(heap.log.clone());
+        frames.actor = Some(a);
+        frames.mutate = true;
+        let root = frames.r(0);
+        assert!(w.init(a, Some(root), &mut frames).unwrap());
+        assert_eq!(w.human(a).unwrap().human_type_mask(), 1);
+        assert_eq!(w.human(a).unwrap().target_e(), Some(frames.r(6)));
+        assert_eq!(w.human(a).unwrap().target_n(), Some(frames.r(8)));
+        assert_eq!(w.human(a).unwrap().base_frame(), Some(frames.r(9)));
+        let log = heap.log.borrow();
+        let actual: Vec<_> = log
+            .iter()
+            .filter(|s| s.starts_with("find:") || s.starts_with("disable:"))
+            .cloned()
+            .collect();
+        assert_eq!(
+            actual,
+            [
+                "find:10:targetE:40",
+                "disable:14",
+                "find:11:targetN:40",
+                "disable:15",
+                "find:11:targetE:40",
+                "find:12:targetN:40",
+                "disable:16",
+                "disable:18",
+                "find:13:base:ffff"
+            ]
+        );
+    }
+    #[test]
+    fn entity_owner_link_precedes_rejected_init_and_player_false_init_releases_derived_storage() {
+        let mut w = world();
+        let mut heap = Heap::default();
+        let a = w.create_actor(27, &mut heap).unwrap().unwrap();
+        let mut frames = Frames::new(heap.log.clone());
+        frames.actor = Some(a);
+        frames.model = false;
+        assert!(!w.init(a, Some(frames.r(0)), &mut frames).unwrap());
+        assert_eq!(w.entity(a).unwrap().program().unwrap().owner(), Some(a));
+        assert_eq!(w.human(a).unwrap().human_type_mask(), 0xa5a5a5a5);
+        assert_eq!(w.state(a).unwrap().frame, None);
+        w.delete_entity(a, 1, &mut frames, &mut heap).unwrap();
+        assert_eq!(w.actor_count, 0);
+        let mut w = world();
+        let a = w.create_actor(2, &mut heap).unwrap().unwrap();
+        frames.actor = Some(a);
+        assert!(!w.init(a, None, &mut frames).unwrap());
+        assert_eq!(w.release_player(a, &mut frames, &mut heap).unwrap(), 0);
+        assert_eq!(w.inspect(a).unwrap().0, ActorPhase::Dead);
+        let log = heap.log.borrow();
+        assert!(log.iter().any(|e| e == "human:Player:Player"));
+    }
+    fn payload(code: &[u8], short_human: bool) -> Vec<u8> {
+        let mut p = vec![6];
+        p.extend(7u32.to_le_bytes());
+        p.extend(9u32.to_le_bytes());
+        if !short_human {
+            p.extend([0xff; 64]);
+        }
+        p.push(0xfe);
+        p.push(1);
+        p.extend(0u32.to_le_bytes());
+        p.extend((code.len() as u32).to_le_bytes());
+        p.extend(code);
+        p
+    }
+    #[test]
+    fn entity_same_reader_supports_bounded_human_skips_and_real_program_lifetime() {
+        for short in [false, true] {
+            let mut w = world();
+            let mut heap = Heap::default();
+            let a = w.create_actor(27, &mut heap).unwrap().unwrap();
+            let mut frames = Frames::new(heap.log.clone());
+            frames.actor = Some(a);
+            assert!(!w.init(a, None, &mut frames).unwrap());
+            let data = payload(b"End;", short);
+            let mut reader = ActorDataReader::new(&data);
+            let arena = crate::model_loading::ModelArena::default();
+            let lookup = ModelFrameLookup::borrow(&arena, true);
+            w.load_entity_data(a, &mut reader, &[], None, &lookup, &mut heap)
+                .unwrap();
+            assert_eq!(reader.position(), data.len());
+            assert_eq!(w.human(a).unwrap().human_type_mask(), 7);
+            assert_eq!(w.human(a).unwrap().voice_index(), 9);
+            assert_eq!(
+                w.entity(a)
+                    .unwrap()
+                    .program()
+                    .unwrap()
+                    .source()
+                    .unwrap()
+                    .c_bytes(),
+                Some(b"End;".as_slice())
+            );
+            if !short {
+                assert_eq!(w.human(a).unwrap().properties().record(), &[0xff; 64]);
+            }
+            let log_start = heap.log.borrow().len();
+            w.release_entity(a, &mut frames, &mut heap).unwrap();
+            assert!(heap.allocations.is_empty());
+            let log = heap.log.borrow();
+            let tail = &log[log_start..];
+            assert_eq!(
+                &tail[..7],
+                [
+                    "entity:Last",
+                    "entity:Auxiliary",
+                    "entity:ThirdUnsigned",
+                    "entity:SecondUnsigned",
+                    "entity:FirstUnsigned",
+                    "entity:SubstateLocks",
+                    "entity:CharacterLogs"
+                ]
+            );
+            let program = tail
+                .iter()
+                .position(|s| s == "program:Source:Base")
+                .unwrap();
+            let human = tail
+                .iter()
+                .position(|s| s == "human:LastAuxiliary:Human")
+                .unwrap();
+            assert!(program < human);
+            assert!(tail.last().unwrap().starts_with("actor:"));
+        }
+    }
+    #[test]
+    fn entity_program_free_failure_preserves_prefix_and_prevents_human_stop_or_replay() {
+        let mut w = world();
+        let mut heap = Heap::default();
+        let a = w.create_actor(27, &mut heap).unwrap().unwrap();
+        let mut frames = Frames::new(heap.log.clone());
+        frames.actor = Some(a);
+        assert!(w.init(a, Some(frames.r(0)), &mut frames).unwrap());
+        let data = payload(b"End;", false);
+        let mut reader = ActorDataReader::new(&data);
+        let arena = crate::model_loading::ModelArena::default();
+        let lookup = ModelFrameLookup::borrow(&arena, true);
+        w.load_entity_data(a, &mut reader, &[], None, &lookup, &mut heap)
+            .unwrap();
+        heap.fail_source_free = true;
+        heap.log.borrow_mut().clear();
+        assert!(w.delete_entity(a, 1, &mut frames, &mut heap).is_err());
+        assert_eq!(w.phase(a).unwrap(), ActorPhase::DestructionInterrupted);
+        assert_eq!(w.actor_count, 1);
+        let log = heap.log.borrow().clone();
+        assert!(!log
+            .iter()
+            .any(|s| s.starts_with("stop:") || s.starts_with("human:")));
+        assert_eq!(
+            w.entity(a).unwrap().program().unwrap().vtable(),
+            ProgramVtable::Base
+        );
+        assert!(
+            w.entity(a)
+                .unwrap()
+                .program()
+                .unwrap()
+                .source()
+                .unwrap()
+                .disposal_uncertain
+        );
+        assert!(w.delete_entity(a, 1, &mut frames, &mut heap).is_err());
+        assert_eq!(*heap.log.borrow(), log);
     }
 }

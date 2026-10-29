@@ -116,6 +116,7 @@ pub enum ProgramPhase {
 pub enum ProgramVtable {
     Base,
     Detector,
+    Entity,
 }
 #[derive(Debug)]
 pub struct CProgram {
@@ -218,6 +219,9 @@ impl CProgram {
     }
     pub(crate) fn set_detector_vtable(&mut self) {
         self.vtable = ProgramVtable::Detector;
+    }
+    pub(crate) fn set_entity_vtable(&mut self) {
+        self.vtable = ProgramVtable::Entity;
     }
     /// Used by the evidenced owning actor Init; does not compile or schedule.
     pub fn set_owner(&mut self, owner: Option<ActorReferenceId>) -> Result<(), ProgramError> {

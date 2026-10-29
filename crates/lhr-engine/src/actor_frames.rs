@@ -13,6 +13,7 @@ use crate::model_loading::{ModelArena, ModelError};
 use crate::script_scheduler::{ActorReferenceId, FrameReferenceId};
 
 pub const ACTOR_FIND_FLAGS: u32 = 0x40;
+pub const ACTOR_FIND_ALL_FLAGS: u32 = 0xffff;
 
 /// Pointer-to-record projection of frame+8. Clearing the pointer does not clear
 /// the pointed record or retain/release its actor. Opaque userdata cannot be
@@ -93,8 +94,8 @@ impl<'a> ModelActorFrames<'a> {
         self.arena.set_user_data(key, FrameUserData::Null)?;
         Ok(())
     }
-    /// First Target descendant in actual child/next depth-first order. Only
-    /// flags0x40, nonempty exact ASCII names and the default C locale are
+    /// First matching descendant in actual child/next depth-first order. Only
+    /// flags0x40/0xffff, nonempty exact ASCII names and the default C locale are
     /// admitted. This is not an EnumFrames callback API and cannot mutate links
     /// during traversal; native saved-next behavior therefore has no reentry.
     pub fn find_child_frame(
@@ -105,7 +106,7 @@ impl<'a> ModelActorFrames<'a> {
         visits: usize,
     ) -> Result<Option<FrameReferenceId>, ActorFrameError> {
         let fail = |error| ActorFrameError::Lookup(error);
-        if flags != ACTOR_FIND_FLAGS {
+        if !matches!(flags, ACTOR_FIND_FLAGS | ACTOR_FIND_ALL_FLAGS) {
             return Err(fail(FrameLookupError::UnsupportedFlags(flags)));
         }
         if visits == 0 || visits > MAX_LOOKUP_VISITS {
@@ -144,7 +145,9 @@ impl<'a> ModelActorFrames<'a> {
             if let Some(next) = links.next {
                 pending.push(next);
             }
-            if self.arena.state(key)?.kind == FrameKind::Target {
+            // EnumSubtree1001c02c..3a masks the low word and bypasses the
+            // entire type switch for0xffff. Human Init uses this for `base`.
+            if flags == ACTOR_FIND_ALL_FLAGS || self.arena.state(key)?.kind == FrameKind::Target {
                 if let Some(stored) = &self.arena.frame(key)?.original_name_bytes {
                     // Class admission precedes stored-name inspection. A
                     // filtered visual/dummy name cannot interrupt this search.
@@ -608,6 +611,32 @@ mod tests {
         assert_eq!(
             backend.find_child_frame(root, b"targetE", ACTOR_FIND_FLAGS, 2),
             Ok(Some(e))
+        );
+    }
+
+    #[test]
+    fn human_all_types_search_uses_original_names_and_same_live_depth_first_order() {
+        let mut model = loaded(vec![named(7, None, b"base"), named(6, None, b"BASE")]);
+        let keys = model.source_frame_keys().to_vec();
+        let root = reference(&model, model.root());
+        let target = reference(&model, keys[0]);
+        let dummy = reference(&model, keys[1]);
+        model
+            .arena_mut()
+            .set_frame_model_name(keys[1], b"prefixed")
+            .unwrap();
+        let backend = ModelActorFrames::borrow(model.arena_mut(), true);
+        assert_eq!(
+            backend.find_child_frame(root, b"base", ACTOR_FIND_FLAGS, 2),
+            Ok(Some(target))
+        );
+        assert_eq!(
+            backend.find_child_frame(root, b"base", ACTOR_FIND_ALL_FLAGS, 2),
+            Ok(Some(dummy))
+        );
+        assert_eq!(
+            backend.find_child_frame(dummy, b"base", ACTOR_FIND_ALL_FLAGS, 2),
+            Ok(None)
         );
     }
 

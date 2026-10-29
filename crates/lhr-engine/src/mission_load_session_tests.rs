@@ -1229,7 +1229,7 @@ fn unsupported_named_actor_stops_at_kind_read_and_preserves_prior_program_and_ac
         &[
             chunk(0xae20, &actor_record(b"first", 1, b"")),
             chunk(0xae50, &program_record(b"retained", b"source")),
-            chunk(0xae20, &actor_record(b"second", 2, b"")),
+            chunk(0xae20, &actor_record(b"second", 4, b"")),
             chunk(0x4000, &object(9, b"unreached", &[])),
         ]
         .concat(),
@@ -1250,7 +1250,7 @@ fn unsupported_named_actor_stops_at_kind_read_and_preserves_prior_program_and_ac
     };
     assert_eq!(error.entry, 0x544a16);
     assert_eq!(error.cursor, kind.offset + 10);
-    assert!(error.detail.contains("UnsupportedKind(2)"));
+    assert!(error.detail.contains("UnsupportedKind(4)"));
     let loader = session.loader().unwrap();
     assert_eq!(
         loader
@@ -1276,7 +1276,7 @@ fn padded_kind_field_is_closed_before_factory_failure_and_preserves_registered_p
             chunk(0xae23, b"second\0"),
             chunk(
                 0xae22,
-                &[2u32.to_le_bytes().as_slice(), b"unread padding"].concat(),
+                &[4u32.to_le_bytes().as_slice(), b"unread padding"].concat(),
             ),
             chunk(0xae24, b"must not reach actor data"),
         ]
@@ -1307,7 +1307,7 @@ fn padded_kind_field_is_closed_before_factory_failure_and_preserves_registered_p
     };
     assert_eq!(error.entry, 0x544a16);
     assert_eq!(error.cursor, kind.offset + kind.raw.len());
-    assert!(error.detail.contains("UnsupportedKind(2)"));
+    assert!(error.detail.contains("UnsupportedKind(4)"));
     let loader = session.loader().unwrap();
     assert_eq!(loader.cursor, error.cursor);
     assert_eq!(loader.content.actors.cursor, error.cursor);

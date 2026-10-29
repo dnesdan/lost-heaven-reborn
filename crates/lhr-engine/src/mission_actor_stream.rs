@@ -6,6 +6,7 @@ use crate::actor_frames::{FrameUserData, ModelActorFrames};
 use crate::actor_world::*;
 use crate::frame_lookup::ModelFrameLookup;
 use crate::frame_transform::FrameKey;
+use crate::human_actor::ActorDataReader;
 use crate::model_loading::ModelArena;
 use crate::original_program::{ProgramBackend, ProgramReplacement, ProgramSliceReader};
 use crate::script_scheduler::{ActorReferenceId, FrameReferenceId};
@@ -308,7 +309,15 @@ impl MissionActorLoader {
                             let key = validate_frame(arena, frame)?;
                             publish_actor_data(arena, key, actor)?;
                         } else {
-                            if kind == 8 {
+                            if kind == 2 {
+                                self.world
+                                    .release_player(actor, &mut frames, backend)
+                                    .map_err(|e| format!("{e:?}"))?;
+                            } else if kind == 27 {
+                                self.world
+                                    .release_entity(actor, &mut frames, backend)
+                                    .map_err(|e| format!("{e:?}"))?;
+                            } else if kind == 8 {
                                 self.world
                                     .release_railway(actor, &mut frames, backend)
                                     .map_err(|e| format!("{e:?}"))?;
@@ -330,6 +339,26 @@ impl MissionActorLoader {
                 if let Some(actor) = self.current_actor {
                     if !field.payload.is_empty() {
                         self.pending_load_data = Some(field.payload.to_vec());
+                        if matches!(self.current_kind, Some(2 | 27)) {
+                            let mut reader = ActorDataReader::new(field.payload);
+                            let result = if self.current_kind == Some(27) {
+                                let frames = ModelFrameLookup::borrow(arena, true);
+                                self.world.load_entity_data(
+                                    actor,
+                                    &mut reader,
+                                    replacements,
+                                    mission_path,
+                                    &frames,
+                                    backend,
+                                )
+                            } else {
+                                self.world.load_human_data(actor, &mut reader)
+                            };
+                            self.cursor = field.offset + 6 + reader.position();
+                            result.map_err(|e| format!("{e:?}"))?;
+                            self.pending_load_data = None;
+                            return Ok(());
+                        }
                         if self.current_kind == Some(1) {
                             // Base vtable623248+50 ->4aa490: MOV AL,1;RET4.
                             // This actual literal-success leaf reads no payload.
@@ -946,7 +975,7 @@ mod tests {
         let bytes = input(
             &[
                 chunk(0xae23, b"actual\0"),
-                chunk(0xae22, &27u32.to_le_bytes()),
+                chunk(0xae22, &4u32.to_le_bytes()),
                 chunk(0xae22, &5u32.to_le_bytes()),
             ]
             .concat(),
@@ -961,7 +990,7 @@ mod tests {
                 &mut storage,
             )
             .unwrap_err();
-        assert!(error.detail.contains("UnsupportedKind(27)"));
+        assert!(error.detail.contains("UnsupportedKind(4)"));
         assert_eq!(storage.next, 0);
         assert!(loader.world.source(ActorSource::Primary).is_empty());
         assert!(loader.world.source(ActorSource::Static).is_empty());

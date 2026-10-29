@@ -2,14 +2,20 @@
 //!
 //! Actors attach to the caller's live arena and load map. Programs retain actual
 //! CProgram source owners; no compiler, GameInit or scheduler is supplied here.
-//! CPU allocation seeds describe this host's zero-filled backing, not observed
-//! original heap bytes. This composition receives no original-function credit.
+//! Allocation seeds use an explicit host zero-value policy, not observed
+//! original heap bytes. Actor backing is a typed lifetime lease, not a byte
+//! object. This composition receives no original-function credit.
 use crate::actor_frames::ModelActorFrames;
 use crate::actor_world::*;
+use crate::entity_actor::{EntityResourceSlot, EntitySeed};
 use crate::frame_lookup::ModelFrameLookup;
+use crate::human_actor::{
+    HumanAnimationMachineSeed, HumanAuxiliarySeed, HumanProperties, HumanResourceSlot, HumanSeed,
+};
 use crate::mission_actor_stream::{MissionActorLoader, OriginalLoadMap};
 use crate::model_loading::ModelArena;
 use crate::original_program::*;
+use crate::player_actor::PlayerSeed;
 use crate::railway_actor::{RailwayAllocation, RailwaySeed, RailwayVectorSlot};
 use crate::script_scheduler::ActorReferenceId;
 use lhr_assets::scene_actor_stream::Chunk;
@@ -204,6 +210,9 @@ impl MissionContentOwner {
                 ActorVtable::Railway => {
                     world.delete_railway(actor, 1, &mut frames, &mut self.memory)
                 }
+                ActorVtable::Human => world.delete_human(actor, 1, &mut frames, &mut self.memory),
+                ActorVtable::Player => world.delete_player(actor, 1, &mut frames, &mut self.memory),
+                ActorVtable::Entity => world.delete_entity(actor, 1, &mut frames, &mut self.memory),
                 ActorVtable::Base => world.delete_base(
                     actor,
                     1,
@@ -237,6 +246,27 @@ fn program_seed() -> ProgramSeed {
         bytes_64: [0; 4],
     }
 }
+fn human_seed() -> HumanSeed {
+    // Explicit host seed policy, not an assertion about original allocator
+    // bytes. Constructor-unwritten current properties stay separate from the
+    // constructor/loaded maxima; no GameInit copy or animation request occurs.
+    HumanSeed {
+        allocator_tag: 0,
+        animation_machine: HumanAnimationMachineSeed { untouched_word: 0 },
+        previous_animation_code: 0,
+        requested_animation_code: 0,
+        human_type_mask: 0,
+        current_properties: HumanProperties::from_record([0; 64]),
+        target_e: None,
+        target_n: None,
+        base_frame: None,
+        auxiliary: std::array::from_fn(|_| HumanAuxiliarySeed {
+            untouched_word: 0,
+            padding: [0; 3],
+            untouched_tail: [0; 16],
+        }),
+    }
+}
 fn base_seed() -> BaseActorSeed {
     BaseActorSeed {
         word_0e: 0,
@@ -251,9 +281,13 @@ fn base_seed() -> BaseActorSeed {
 }
 /// Real CPU backing tracked independently from the logical typed owners.
 #[derive(Default)]
+struct ActorStorageLease {
+    _native_extent: u32,
+}
+#[derive(Default)]
 struct ContentMemory {
     next: u32,
-    actors: BTreeMap<u32, Vec<u8>>,
+    actors: BTreeMap<u32, ActorStorageLease>,
     collections: BTreeMap<u32, (ActorSource, Vec<u8>)>,
     programs: BTreeMap<u64, (ProgramBuffer, Vec<u8>)>,
 }
@@ -275,12 +309,54 @@ impl ContentMemory {
         if bytes != expected {
             return Err("invalid actor allocation size".into());
         }
-        let (identity, backing) = self.allocation(bytes)?;
-        self.actors.insert(identity, backing);
+        // The actual ordinary object lives in ActorWorld's typed owner. This
+        // heap-boundary lease records the requested native extent; no byte
+        // array shadows a Human/Player/Entity or any other actor.
+        let identity = self
+            .next
+            .checked_add(1)
+            .ok_or("mission allocation identity exhausted")?;
+        self.next = identity;
+        self.actors.insert(
+            identity,
+            ActorStorageLease {
+                _native_extent: bytes,
+            },
+        );
         Ok(identity)
     }
 }
 impl ActorAllocationBackend for ContentMemory {
+    fn allocate_player(
+        &mut self,
+        bytes: u32,
+    ) -> Result<Option<(u32, BaseActorSeed, PlayerSeed)>, String> {
+        Ok(Some((
+            self.actor(bytes, 0xb00)?,
+            base_seed(),
+            PlayerSeed {
+                human: human_seed(),
+                allocator_tag: 0,
+            },
+        )))
+    }
+    fn allocate_entity(
+        &mut self,
+        bytes: u32,
+    ) -> Result<Option<(u32, BaseActorSeed, EntitySeed)>, String> {
+        Ok(Some((
+            self.actor(bytes, 0x128c)?,
+            base_seed(),
+            EntitySeed {
+                human: human_seed(),
+                program: program_seed(),
+                allocator_tag_a: 0,
+                allocator_tag_b: 0,
+                untouched_word: 0,
+                untouched_padding: [0; 3],
+            },
+        )))
+    }
     fn allocate_actor(&mut self, bytes: u32) -> Result<Option<(u32, BaseActorSeed)>, String> {
         Ok(Some((self.actor(bytes, 0x70)?, base_seed())))
     }
@@ -344,6 +420,45 @@ impl ActorCollectionBackend for ContentMemory {
     }
 }
 impl ActorDeallocationBackend for ContentMemory {
+    fn free_human_collection(
+        &mut self,
+        world: &ActorWorld,
+        actor: ActorReferenceId,
+        slot: HumanResourceSlot,
+    ) -> Result<(), String> {
+        let empty = if slot == HumanResourceSlot::Player {
+            world
+                .player(actor)
+                .map_err(|e| format!("{e:?}"))?
+                .collection
+                .is_empty()
+        } else {
+            world
+                .human(actor)
+                .map_err(|e| format!("{e:?}"))?
+                .collection_is_empty(slot)
+        };
+        if !empty {
+            return Err("populated human collection disposal unavailable".into());
+        }
+        // Actual native free(NULL) has no allocation to release.
+        Ok(())
+    }
+    fn free_entity_collection(
+        &mut self,
+        world: &ActorWorld,
+        actor: ActorReferenceId,
+        slot: EntityResourceSlot,
+    ) -> Result<(), String> {
+        if !world
+            .entity(actor)
+            .map_err(|e| format!("{e:?}"))?
+            .collection_is_empty(slot)
+        {
+            return Err("populated entity collection disposal unavailable".into());
+        }
+        Ok(())
+    }
     fn free_actor(&mut self, _: &ActorWorld, identity: u32) -> Result<(), String> {
         self.actors
             .remove(&identity)
@@ -442,5 +557,289 @@ impl ActorFrameBackend for ContentFrames<'_, '_> {
         f: crate::script_scheduler::FrameReferenceId,
     ) -> Result<(), String> {
         ActorFrameBackend::release_frame(&mut self.frames, w, f)
+    }
+}
+
+#[cfg(test)]
+mod human_source_tests {
+    use super::*;
+    use crate::actor_frames::FrameUserData;
+    use crate::actor_world::{ActorPhase, ActorSource, ActorVtable};
+    use crate::model_loading::tests::frame;
+    use lhr_assets::scene_actor_stream::scene2_root;
+    use std::sync::Arc;
+    fn bind_actual_two_slot_model_controller(
+        arena: &mut ModelArena,
+        model: crate::model_loading::ModelKey,
+    ) {
+        use crate::model_animation_runtime::{
+            ModelAnimationDestination, ModelControllerAllocation, ModelControllerAllocationFailure,
+            ModelControllerFactory,
+        };
+        struct Factory;
+        impl ModelControllerFactory for Factory {
+            type Error = std::convert::Infallible;
+            fn allocate(
+                &mut self,
+                owner: ModelAnimationDestination,
+            ) -> Result<Option<ModelControllerAllocation>, Self::Error> {
+                Ok(Some(ModelControllerAllocation::new(owner, false)))
+            }
+            fn allocation_failed(
+                &mut self,
+                _: ModelControllerAllocationFailure,
+            ) -> Result<(), Self::Error> {
+                unreachable!("fixture allocation")
+            }
+        }
+        let mut payload = vec![1, 0, 10, 0];
+        payload.extend(12u32.to_le_bytes());
+        payload.extend(17u32.to_le_bytes());
+        payload.extend(b"base\0");
+        payload.extend(2u16.to_le_bytes());
+        payload.extend(0u16.to_le_bytes());
+        payload.extend(1u16.to_le_bytes());
+        payload.extend(0u16.to_le_bytes());
+        payload.extend([0; 12]);
+        let mut bytes = b"5DS\0".to_vec();
+        bytes.extend(20u16.to_le_bytes());
+        bytes.extend([0; 8]);
+        bytes.extend((payload.len() as u32).to_le_bytes());
+        bytes.extend(payload);
+        let parsed = Arc::new(lhr_assets::animation::parse_5ds(&bytes).unwrap());
+        let resource = crate::animation_controller::LiveAnimationResource::new(parsed, 2).unwrap();
+        for slot in [0, 1] {
+            assert_eq!(
+                arena
+                    .set_original_model_animation(model, Some(&resource), slot, 1., 0, &mut Factory)
+                    .unwrap(),
+                0
+            );
+        }
+    }
+    fn chunk(kind: u16, payload: &[u8]) -> Vec<u8> {
+        [
+            kind.to_le_bytes().as_slice(),
+            &((payload.len() + 6) as u32).to_le_bytes(),
+            payload,
+        ]
+        .concat()
+    }
+    fn input(kind: u32, payload: &[u8]) -> Vec<u8> {
+        chunk(
+            0x4c53,
+            &chunk(
+                0xae20,
+                &chunk(
+                    0xae21,
+                    &[
+                        chunk(0xae23, b"human-root\0"),
+                        chunk(0xae22, &kind.to_le_bytes()),
+                        chunk(0xae24, payload),
+                    ]
+                    .concat(),
+                ),
+            ),
+        )
+    }
+    fn collection(bytes: &[u8]) -> Chunk<'_> {
+        scene2_root(bytes)
+            .unwrap()
+            .children()
+            .next()
+            .unwrap()
+            .unwrap()
+    }
+    fn actor_data(entity: bool) -> Vec<u8> {
+        let mut bytes = vec![6];
+        bytes.extend(0x12000001u32.to_le_bytes());
+        bytes.extend(17u32.to_le_bytes());
+        bytes.extend([0xff; 64]);
+        if entity {
+            bytes.extend([0xfe, 1]);
+            bytes.extend(0u32.to_le_bytes());
+            bytes.extend(4u32.to_le_bytes());
+            bytes.extend(b"End;");
+        }
+        bytes
+    }
+    fn setup(
+        root: bool,
+    ) -> (
+        ModelArena,
+        crate::model_loading::ModelKey,
+        OriginalLoadMap,
+        Vec<crate::frame_transform::FrameKey>,
+    ) {
+        let mut arena = ModelArena::default();
+        let model = arena.create_model().unwrap();
+        let mut frames = Vec::new();
+        for (kind, name) in [
+            (7, b"targetE".as_slice()),
+            (7, b"targetN".as_slice()),
+            (6, b"base".as_slice()),
+        ] {
+            let mut f = frame(kind, None, [0.; 3]);
+            f.name_bytes = name.to_vec();
+            if kind == 7 {
+                f.target = Some(lhr_assets::TargetRecord {
+                    flags: 0,
+                    frame_indices: vec![],
+                });
+            }
+            frames.push(f);
+        }
+        let content = arena
+            .load_parsed_into_model(
+                model,
+                Arc::new(lhr_assets::Model {
+                    materials: vec![],
+                    frames,
+                }),
+            )
+            .unwrap();
+        let keys = content.frames().to_vec();
+        let key = if root { model.root() } else { keys[2] };
+        let reference = arena.lookup_reference(key);
+        let mut map = OriginalLoadMap::for_preceding_loader();
+        map.publish_loaded_frame(&arena, b"human-root", reference)
+            .unwrap();
+        (arena, model, map, keys)
+    }
+    #[test]
+    fn actual_model_player_and_entity_admission_publishes_userdata_after_real_init_and_owns_source()
+    {
+        for kind in [2, 27] {
+            let (mut arena, model, mut map, keys) = setup(true);
+            bind_actual_two_slot_model_controller(&mut arena, model);
+            let mut owner = MissionContentOwner::default();
+            let bytes = input(kind, &actor_data(kind == 27));
+            owner
+                .load_actors(
+                    collection(&bytes),
+                    &mut arena,
+                    &mut map,
+                    &crate::program_patch::ProgramPatchTable::default(),
+                )
+                .unwrap();
+            let a = owner.actors.current_actor.unwrap();
+            let world = &owner.actors.world;
+            assert_eq!(
+                world.state(a).unwrap().vtable,
+                if kind == 2 {
+                    ActorVtable::Player
+                } else {
+                    ActorVtable::Entity
+                }
+            );
+            assert_eq!(
+                world.state(a).unwrap().frame,
+                Some(arena.lookup_reference(model.root()))
+            );
+            assert_eq!(world.state(a).unwrap().byte_66, 1);
+            assert_eq!(world.source(ActorSource::Primary), &[Some(a)]);
+            assert!(world.source(ActorSource::Active).is_empty());
+            assert_eq!(world.human(a).unwrap().human_type_mask(), 0x12000001);
+            assert_eq!(world.human(a).unwrap().voice_index(), 17);
+            assert_eq!(world.human(a).unwrap().properties().record(), &[0xff; 64]);
+            assert_eq!(
+                world.human(a).unwrap().current_properties().record(),
+                &[0; 64]
+            );
+            assert_eq!(world.human(a).unwrap().animation_machine().model(), None);
+            assert_eq!(
+                world.human(a).unwrap().base_frame(),
+                Some(arena.lookup_reference(keys[2]))
+            );
+            for key in &keys[..2] {
+                assert_eq!(arena.state(*key).unwrap().flags & 1, 0);
+            }
+            let FrameUserData::ActorRecord(record) = arena.user_data(model.root()).unwrap() else {
+                panic!("actual record required")
+            };
+            assert_eq!(arena.actor_data_record(record).unwrap(), Some(a));
+            if kind == 27 {
+                let p = world.entity(a).unwrap().program().unwrap();
+                assert_eq!(p.owner(), Some(a));
+                assert_eq!(p.source().unwrap().c_bytes(), Some(b"End;".as_slice()));
+                assert_eq!(owner.memory.programs.len(), 1);
+            }
+            assert_eq!(owner.memory.actors.len(), 1);
+            owner.discard_terminal(&mut arena).unwrap();
+            assert!(owner.terminal_complete());
+            assert_eq!(owner.live_allocation_count(), 0);
+            assert_eq!(owner.actors.world.inspect(a).unwrap().0, ActorPhase::Dead);
+            let controller = arena.original_model_controller(model).unwrap().unwrap();
+            assert!(!controller.state().slots[0].enabled);
+            assert!(controller.state().slots[1].enabled);
+            arena.close(model).unwrap();
+        }
+    }
+    #[test]
+    fn non_model_human_init_false_releases_actual_derived_owner_without_userdata_publication() {
+        for kind in [2, 27] {
+            let (mut arena, model, mut map, keys) = setup(false);
+            let mut owner = MissionContentOwner::default();
+            let bytes = input(kind, &actor_data(kind == 27));
+            owner
+                .load_actors(
+                    collection(&bytes),
+                    &mut arena,
+                    &mut map,
+                    &crate::program_patch::ProgramPatchTable::default(),
+                )
+                .unwrap();
+            assert_eq!(owner.actors.current_actor, None);
+            assert!(owner.actors.world.owned_actor_references().next().is_none());
+            assert!(owner.actors.world.source(ActorSource::Static).is_empty());
+            assert!(owner.actors.world.source(ActorSource::Primary).is_empty());
+            assert_eq!(arena.user_data(keys[2]).unwrap(), FrameUserData::Null);
+            assert!(owner.memory.actors.is_empty());
+            owner.discard_terminal(&mut arena).unwrap();
+            assert_eq!(owner.live_allocation_count(), 0);
+            arena.close(model).unwrap();
+        }
+    }
+    #[test]
+    fn unsupported_older_human_data_retains_registered_actor_userdata_and_exact_read_prefix() {
+        let (mut arena, model, mut map, _) = setup(true);
+        let mut owner = MissionContentOwner::default();
+        let bytes = input(2, &[4, 0x99, 0x88]);
+        let root = collection(&bytes);
+        let field = root
+            .children()
+            .next()
+            .unwrap()
+            .unwrap()
+            .children()
+            .nth(2)
+            .unwrap()
+            .unwrap();
+        assert!(owner
+            .load_actors(
+                root,
+                &mut arena,
+                &mut map,
+                &crate::program_patch::ProgramPatchTable::default()
+            )
+            .is_err());
+        let a = owner.actors.current_actor.unwrap();
+        assert_eq!(owner.cursor, field.offset + 7);
+        assert_eq!(
+            owner.actors.pending_load_data.as_deref(),
+            Some([4, 0x99, 0x88].as_slice())
+        );
+        assert_eq!(
+            owner.actors.world.phase(a).unwrap(),
+            ActorPhase::LoadingInterrupted
+        );
+        assert_eq!(owner.actors.world.source(ActorSource::Primary), &[Some(a)]);
+        let FrameUserData::ActorRecord(record) = arena.user_data(model.root()).unwrap() else {
+            panic!("registered prefix")
+        };
+        assert_eq!(arena.actor_data_record(record).unwrap(), Some(a));
+        owner.discard_terminal(&mut arena).unwrap();
+        assert_eq!(owner.live_allocation_count(), 0);
+        arena.close(model).unwrap();
     }
 }
