@@ -9,7 +9,7 @@
 #![forbid(unsafe_code)]
 
 use crate::program_instructions::decode_instruction;
-use crate::program_parser::{c_length, ParserLocale, ProgramParserError};
+use crate::program_parser::{ParserLocale, ProgramParserError, c_length};
 
 /// The original writes this pair only on a native compile error, and only when
 /// both output pointers are supplied. A single optional value models that pair.
@@ -130,12 +130,13 @@ pub fn compile<B: CompileBackend>(
         }
         if !source[line..end].starts_with(b"//") {
             let mut compared = 0;
-            let opcode = decode_instruction(&source[line..=end], &mut compared, locale)
-                .map_err(|error| CompileError::Parser {
+            let opcode = decode_instruction(&source[line..=end], &mut compared, locale).map_err(
+                |error| CompileError::Parser {
                     offset: line,
                     error,
                     progress,
-                })?;
+                },
+            )?;
             let accepted = if opcode == -1 {
                 false
             } else {
