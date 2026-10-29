@@ -240,7 +240,9 @@ impl LiveControllerResourceBackend for LiveResources<'_> {
                 .checked_sub(1)
                 .and_then(|slot| self.frames.get(slot as usize))
                 .filter(|frame| frame.key == key && frame.is_alive())
-                .ok_or_else(|| ModelAnimationResourceError::Model(ModelError::AnimationIdentity))?;
+                .ok_or(ModelAnimationResourceError::Model(
+                    ModelError::AnimationIdentity,
+                ))?;
             let local = frame.original_name_bytes.as_deref().unwrap_or(b"");
             if matches!(
                 frame.name_pointer,
