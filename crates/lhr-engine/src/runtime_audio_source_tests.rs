@@ -90,12 +90,14 @@ fn foreign_or_stale_id_is_rejected_before_read_or_source_release() {
     let before = snapshot(&audio, 7);
     let reads = Cell::new(0);
     for id in [&old, &foreign] {
-        assert!(audio
-            .load_sound_source_with(id, "other.wav", 0, || {
-                reads.set(reads.get() + 1);
-                Ok(Some(wav(1)))
-            })
-            .is_err());
+        assert!(
+            audio
+                .load_sound_source_with(id, "other.wav", 0, || {
+                    reads.set(reads.get() + 1);
+                    Ok(Some(wav(1)))
+                })
+                .is_err()
+        );
         assert_eq!(snapshot(&audio, 7), before);
     }
     assert_eq!(reads.get(), 0);
