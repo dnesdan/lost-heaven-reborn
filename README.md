@@ -5,21 +5,24 @@ An independent Rust reimplementation of *Mafia: The City of Lost Heaven*
 first mission from the original menu through completion. The campaign is not
 playable; all six first-mission gates remain open.
 
-The engine now advances animation on the actual loaded model's controller,
-updates its bound joints and refreshes its owned skin. Original Tommy, Paulie
-and Sam models have been rendered from bind pose through moving poses. This
-is an explicit resource diagnostic; mission-controlled human animation and
-the first mission remain incomplete.
+The engine now constructs, initializes and loads genuine Human/Player and
+`C_entity` source owners. Original INTRO completes Scene2 intake: 358 objects,
+28 actors and 15 global program sources. MISE01 reaches 3,183 objects and
+33 actors before stopping at car kind 4, cursor 3,805,059. These are source
+loading results; later GameInit and authored mission execution remain open.
 
-The Rust application can inspect the menu and owned scene, render an actual
-sky and road view, and drive a car in a standalone mode. Its MISE01
-diagnostic loads all 3,183 scene objects and 27 actors before stopping at
-unsupported actor kind 27, cursor 3,795,696. Ordered actor/program source intake,
-startup replacements, live material clocks and owned MRPH deformation are
-connected within their documented domains. Full MissionOpen, the remaining
-actors, program execution and authored mission play remain open.
+The actual base CProgram now owns compilation and execution of DIM_ACT,
+DIM_FRM and COMMANDBLOCK. Its scalar parameter layout covers 102 opcode IDs;
+other execution remains explicit unsupported work. Original recording intake
+loads the header and 28-entry dictionary, then stops before actor descriptors.
+The [new milestone](docs/implementation/2026-10-29-human-program-runtime.md)
+records exact comparisons and remaining dependencies.
 
-[Build and run](docs/RUNNING.md) · [current evidence](docs/implementation/2026-10-29-animation-runtime.md) ·
+The application also inspects original scenes, drives a car in standalone mode
+and animates original models through their owned controller. Mission-controlled
+human animation, recorded cutscenes and a playable first mission remain open.
+
+[Build and run](docs/RUNNING.md) · [current evidence](docs/implementation/2026-10-29-human-program-runtime.md) ·
 [coverage](COVERAGE.md) · [goals](docs/GOALS.md) · [dated history](docs/history/README.md).
 
 [Latest reviewed integration: PRs #51–57](docs/implementation/2026-10-29-pr-integration.md)
@@ -124,6 +127,13 @@ or mission gameplay. [Controls, presets and captures](docs/RUNNING.md#engine-lab
 [actual mission owners](docs/screenshots/2026-10-27-engine-lab-mission-owners.webp).
 
 ## Actual Rust captures
+
+Latest source/VM checkpoint: [MISE01 static street view](docs/screenshots/2026-10-29-human-vm/mise01-source.webp),
+[INTRO sky-only view](docs/screenshots/2026-10-29-human-vm/intro-source.webp) and
+[receipts](docs/screenshots/2026-10-29-human-vm/evidence.json). The engine passed
+1,905 all-feature Rust tests and 106 Python tests. These captures do not show
+running mission actors or replay. Earlier model-animation and driving evidence
+below retains its own source and scope.
 
 ![Tommy breathing through the actual model-owned controller](docs/screenshots/2026-10-29-animation/tommy-breath.webp)
 

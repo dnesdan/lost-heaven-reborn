@@ -1,6 +1,23 @@
 # Progress
 
-## Current milestone — 2026-10-29
+## Current milestone — 2026-10-29, Human/source owners and base VM
+
+[Tested code `041eed8`](implementation/2026-10-29-human-program-runtime.md)
+adds actual Human/Player and C_entity constructors, Init, bounded source reads
+and derived cleanup. INTRO source loading now completes all 358 objects,
+28 actors and 15 global program sources. MISE01 reaches 33 actors before the
+genuine car-kind-4 boundary. Both CPU probes dispose all tracked owners.
+
+The same actual CProgram now compiles and executes three base commands; its
+scalar layout supports 102 IDs. Original REP intake reads the header and
+28-entry dictionary, then requires the recorded-actor pipeline. Final public
+library comparisons match 3,492 Human words, 1,632 scalar cases and 368 VM words.
+Whole checks pass 1,881 default / 1,905 all-feature Rust tests and 106 Python
+tests, plus Clippy/build; every substantive milestone has two independent
+reviews. Gameplay/GameInit and the original mission remain open. Accepted
+snapshot totals remain 311 entries / 114 contracts, strict system gates 0/12.
+
+## Retained milestone — 2026-10-29, model-owned animation
 
 The [model-owned animation milestone](implementation/2026-10-29-animation-runtime.md)
 at `b3b6b67` binds actual shared resources, advances the in-place controller and

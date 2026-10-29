@@ -1,0 +1,138 @@
+{
+  "schema": 1,
+  "date_utc": "2026-10-29",
+  "tested_source_commit": "041eed8ba03546c945a92dbbf15a33af2e5e0ed2",
+  "application_binary_sha256": "cdc7a563dd8cf3359da5c91daec9873e0491b2264f9cc83484d4e3864b0b7ebf",
+  "engine_library_sha256": "6d8a99efeee8538213ef25d4bb657007330acac113452a96ed1636154e32ca8f",
+  "platform": "Linux x86_64; Mesa25.0.7 llvmpipe Vulkan; offscreen readback",
+  "images": [
+    {
+      "file": "intro-source.webp",
+      "source_png_sha256": "cdf7f77a171f45b56f8debb190a2135d203e35657c067ede83da87c79a14bc3b",
+      "published_sha256": "805c3e17d0c097645f96a4f30a2c095ab14bf5d8b090e17e2fd9172ba67286f5",
+      "bytes": 67918,
+      "dimensions": [
+        960,
+        640
+      ],
+      "encoding": "WebP quality90; RGB conversion; no crop, resize or generated content",
+      "capture_exit_code": 0,
+      "scope": "Static sky/cloud source view only; no visible street or actor and no replay proof"
+    },
+    {
+      "file": "mise01-source.webp",
+      "source_png_sha256": "57033de9d979b1bdb65259f07ad8eb1e8cd2404545da5e1e58a2356a69b6396b",
+      "published_sha256": "b4c4a5f230cca2c4cf5b2c8402e6e85b6ae039862156b01683e357be50c86023",
+      "bytes": 90058,
+      "dimensions": [
+        960,
+        640
+      ],
+      "encoding": "WebP quality90; RGB conversion; no crop, resize or generated content",
+      "capture_exit_code": 0,
+      "scope": "Static street/construction/bridge source view at unsupported actor kind4; no gameplay proof"
+    }
+  ],
+  "tests": {
+    "default_rust_passed": 1881,
+    "default_ignored": 21,
+    "all_features_including_ignored_rust_passed": 1905,
+    "all_features_ignored": 0,
+    "python_passed": 106,
+    "counts_overlap": true,
+    "fmt_check_clippy_build_passed": true
+  },
+  "cpu_source_probes": {
+    "execution_binding": "Executed on staged executable bit-identical to the final committed application; equality verified by full SHA256",
+    "app_exit_codes": {
+      "intro": 0,
+      "MISE01": 1,
+      "00menu": 1
+    },
+    "intro": {
+      "scene2_prefix_complete": true,
+      "scene2_bytes": 434014,
+      "objects": 358,
+      "actors": 28,
+      "global_program_sources": 15,
+      "terminal_disposal_complete": true,
+      "tracked_owners_zero": true
+    },
+    "MISE01": {
+      "objects": 3183,
+      "actors": 33,
+      "global_program_sources": 0,
+      "global_count_excludes_embedded_entity_programs": true,
+      "frontier": "UnsupportedKind(4)",
+      "cursor": 3805059,
+      "entry_rva": "0x144a16",
+      "terminal_disposal_complete": true,
+      "tracked_owners_zero": true
+    },
+    "00menu": {
+      "objects": 69,
+      "frontier": "animated model unsupported",
+      "cursor": 466049,
+      "terminal_disposal_complete": false,
+      "retained_frames": 24,
+      "retained_cache_allocations": 11,
+      "retained_graphics": 3,
+      "retained_textures": 22,
+      "retained_visual_allocations": 52
+    }
+  },
+  "original_instruction_comparisons": {
+    "human_player": {
+      "construct_fresh_destruct_cases": 4,
+      "bounded_read_cases": 142,
+      "normalized_words": 3492,
+      "mismatches": 0,
+      "state_sha256": "c114f5182d069b8c0355dd170fee1b7c4074ffba5a3f20c5d947d5f1c3e2c66b",
+      "same_default_debug_library_for_both_probe_profiles": true,
+      "scope": "Controlled base/effect boundaries; no full ABI/global registration or underlying partialIO equivalence"
+    },
+    "scalar_decoder": {
+      "cases": 1632,
+      "scalar_parameter_layout_opcode_ids": 102,
+      "compared_bytes": 900864,
+      "mismatches": 0,
+      "scope": "Original full DecodeParams reached scalar arm/tokenizer/CRT with controlled malloc/free; other parameter layouts unavailable"
+    },
+    "fresh_base_vm": {
+      "cases": 7,
+      "normalized_words": 368,
+      "compared_bytes": 1472,
+      "mismatches": 0,
+      "executed_opcodes": [
+        11,
+        12,
+        34
+      ],
+      "scope": "Original Init/Compile/CallProcess/selectedProcess/Done; constructor-compatible supplied fixtures, not native constructor execution; controlled allocation/free; no derived or authored mission execution"
+    }
+  },
+  "replay_prefix": {
+    "original_resource": "records/record01a.rep",
+    "resource_sha256": "c2d25ce638bc5222e6df45cbbfcefca272bdebf431a3ce5bccf68526f3517c4d",
+    "source_bytes": 107352,
+    "header_bytes": 96,
+    "resource_dictionary_entries": 28,
+    "source_cursor": 1560,
+    "next_actor_descriptor_count": 38,
+    "frontier": "BeforeActorDescriptorAllocation",
+    "next_entry_rva": "0x19a48d",
+    "state": 4,
+    "clocks_unchanged": true,
+    "playing": false,
+    "host_discard_releases_source_and_dictionary": true,
+    "native_close_verified": false
+  },
+  "gpu_scope": "Real static source views. No visible mission actor animation, replay or interactive gameplay acceptance. CPU typed actor intake is separately verified.",
+  "all_capture_processes_reaped": true,
+  "source_and_binaries_unchanged_during_tests": true,
+  "full_original_game_launched": false,
+  "first_mission_playable": false,
+  "accepted_scoped_entries_unchanged": 311,
+  "reviewed_contracts_unchanged": 114,
+  "strict_system_gate_unchanged": "0/12"
+}

@@ -32,6 +32,7 @@ From the repository root:
 ./scripts/run.sh --root /path/to/Mafia --model models/TommyTAXIDRIVER.4ds --animation anims/breath01a.5ds --skeletal-animation --headless --animation-steps 100 --capture /tmp/tommy.png
 ./scripts/run.sh --root /path/to/Mafia --mission mise01 --headless --capture /tmp/mise01.png
 ./scripts/run.sh --root /path/to/Mafia --mission mise01 --mission-load-probe --probe-model-dir Models
+./scripts/run.sh --root /path/to/Mafia --mission intro --mission-load-probe --probe-model-dir Models
 source scripts/common.sh
 cargo run --locked -p lhr-engine --features engine-lab -- --root /path/to/Mafia --model models/taxi00.4ds --car-driving --lab
 ```
@@ -53,6 +54,23 @@ F3 steps and F4 reloads. It is disabled in the default build. The CPU
 execute gameplay. Pass `--probe-model-dir Models` explicitly for model intake;
 its intentional default is an empty directory list, so a run without that
 argument proves no model geometry.
+
+At tested engine `041eed8`, INTRO's CPU probe completes source loading and
+exits 0. MISE01's CPU probe intentionally exits 1 at unsupported car actor
+kind 4, cursor 3,805,059; both dispose all tracked owners. This does not run
+GameInit or mission scripts. The corresponding INTRO headless GPU source view
+currently shows only sky/clouds, without recorded camera playback.
+
+The owned base VM and recording-prefix regressions use synthetic inputs:
+
+```sh
+source scripts/common.sh
+cargo test --locked -p lhr-engine --lib original_program::owned_runtime
+cargo test --locked -p lhr-engine --lib cutscene_owner
+```
+
+These exercise the actual owner APIs; there is no public authored mission-play
+command yet. [Supported commands, original comparisons and gaps](implementation/2026-10-29-human-program-runtime.md).
 
 The explicit skeletal command is an existing host inspection path, separate
 from the new model-owned controller and mission actors. Its 100 controlled

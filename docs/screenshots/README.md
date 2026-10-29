@@ -2,6 +2,24 @@
 
 Actual captures from the Rust application using supplied PC data or named public procedural scenes. Images are WebP previews or original PNGs. Scene previews normally stay within 960 pixels and 200 KiB; native UI captures may retain their full window dimensions for readability. Sanitized receipts can be published; original inputs and raw logs remain private. Add dated images for visible milestones. Game content retains its original ownership.
 
+## 2026-10-29 — Human/source and base-VM checkpoint
+
+[MISE01 static street view](2026-10-29-human-vm/mise01-source.webp) ·
+[INTRO sky-only view](2026-10-29-human-vm/intro-source.webp) ·
+[source/image hashes and exact scopes](2026-10-29-human-vm/evidence.json).
+
+Actual offscreen captures from `041eed8`, Linux x86_64/software Vulkan,
+960 × 640. Both commands exit 0. WebP quality 90, no crop or resize; files
+67,918 / 90,058 bytes. INTRO contains only sky/clouds. MISE01 contains the
+static street/bridge/construction view at car-kind-4 frontier 3,805,059.
+Neither proves mission actor animation, recorded cameras or gameplay.
+
+Separate CPU intake completes INTRO's 358 objects, 28 actors and 15 global
+program sources; MISE01 reaches 33 actors and stops at kind 4. Both dispose
+all tracked owners. The CPU runner used a staged executable whose complete
+hash equals the final application. Original images/logs remain private;
+[implementation and verification](../implementation/2026-10-29-human-program-runtime.md).
+
 ## 2026-10-29 — actual model-owned animation
 
 ![Actual sequential Tommy animation](2026-10-29-animation/tommy-breath.webp)
