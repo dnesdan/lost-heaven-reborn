@@ -1,6 +1,22 @@
 # Reference-project audit
 
-## Latest upstream source comparison — 2026-10-28
+## Latest pinned source comparison — 2026-10-29
+
+The existing private cache was fetched and its master reference pinned to
+[`dc867c3238488de27d094bb79b6550e392566e3c`](https://github.com/Marvisak/mafia-re/tree/dc867c3238488de27d094bb79b6550e392566e3c).
+The comparison inventories all 111 changed paths and inspects selected diffs
+and source bodies from the two-commit delta after `eb5a921`. Game Init/Done bodies
+now provide dependency maps; the main loop, mission Tick, parameter decoding,
+actor and road dependencies remain incomplete. The Rust PR integration adds
+bounded compiler/navigation/loading dependencies, without claiming full parity.
+
+[Executed integration and fresh PC REA evidence](implementation/2026-10-29-pr-integration.md)
+separate source comparison, native instruction observations, PS2 symbol naming,
+Rust original-data probes and actual captures. The new driver-volume analysis
+does not yet provide a production master-volume operation or original-runtime
+comparison. Earlier records retain their original dates and tool limitations.
+
+## Retained upstream source comparison — 2026-10-28
 
 Fresh GitHub commit and file reads reached [mafia-re
 `dc867c3238488de27d094bb79b6550e392566e3c`](https://github.com/Marvisak/mafia-re/tree/dc867c3238488de27d094bb79b6550e392566e3c),

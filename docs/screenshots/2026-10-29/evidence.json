@@ -1,0 +1,129 @@
+{
+  "schema": 1,
+  "date_utc": "2026-10-29",
+  "tested_source_commit": "d8e9f3fc2ad92cb43052153149a001cd2b9a4206",
+  "binary_sha256": "afad3901aa81d06371b7cd9017856a092b4e451d062f8631a97bd892ea27c329",
+  "platform": "Linux x86_64; Mesa25.0.7 llvmpipe Vulkan; Xvfb",
+  "images": [
+    {
+      "file": "menu.webp",
+      "source_png_sha256": "da1d0d6aeee6ed2c8f99c56eda08e1028ef049220b6c0c247b7888a15d9a7f9c",
+      "published_sha256": "524cef6d4191af8e5ea1571aab70e6837a6ff80a74aa6341f59427e0d15442dc",
+      "bytes": 40086,
+      "source_dimensions": [
+        640,
+        480
+      ],
+      "dimensions": [
+        640,
+        480
+      ],
+      "encoding": "WebP quality 90; RGB conversion; no crop; resize only if source exceeds 960 pixels",
+      "resized": false,
+      "mode": "menu",
+      "mode_passed": false,
+      "raw_receipt_sha256": "8a3b8983c836b466a87526ce90bb949f43c18b9dacd5fd0a906cd990f6bd508d",
+      "actual_image_captured": true
+    },
+    {
+      "file": "driving.webp",
+      "source_png_sha256": "13735cef8a86d8759b59d71be5f4b659d92f433cb01d5db32ef1b8e70fb8b40e",
+      "published_sha256": "a641dfe797d7ae93810d0c3eff3905a6e4ea3c74dd97daaf6bb250f66e89fd2c",
+      "bytes": 158534,
+      "source_dimensions": [
+        960,
+        640
+      ],
+      "dimensions": [
+        960,
+        640
+      ],
+      "encoding": "WebP quality 90; RGB conversion; no crop; resize only if source exceeds 960 pixels",
+      "resized": false,
+      "mode": "driving",
+      "mode_passed": true,
+      "raw_receipt_sha256": "b90c319604239cb2b387f13503fa03012ac5a622732546e7a4e59026de2c394a",
+      "actual_image_captured": true
+    },
+    {
+      "file": "mise01.webp",
+      "source_png_sha256": "fe5801b92936483934f63a78baddbbeb101931a2e33eb2775a747ab276055fd1",
+      "published_sha256": "b4c4a5f230cca2c4cf5b2c8402e6e85b6ae039862156b01683e357be50c86023",
+      "bytes": 90058,
+      "source_dimensions": [
+        960,
+        640
+      ],
+      "dimensions": [
+        960,
+        640
+      ],
+      "encoding": "WebP quality 90; RGB conversion; no crop; resize only if source exceeds 960 pixels",
+      "resized": false,
+      "mode": "mise01",
+      "mode_passed": true,
+      "raw_receipt_sha256": "54667a812a39d9a83f6dd24017408e22e6df7d00cd31818a127fbc2bfc1f52b3",
+      "actual_image_captured": true
+    }
+  ],
+  "tests": {
+    "default_rust_passed": 1809,
+    "all_features_including_gpu_rust_passed": 1833,
+    "all_features_ignored": 0,
+    "explicit_gpu_tests_included": 21,
+    "python_passed": 106,
+    "counts_overlap": true
+  },
+  "navigation": {
+    "input_sha256": "6b0bb2b8d9bc1221e5d4639247c577264b2a9bd951b38c18bbb84a97871db455",
+    "input_bytes": 953798,
+    "nodes": 13857,
+    "links": 67260,
+    "short_reads": 0,
+    "reset_idempotent": true,
+    "tested_reset_bits_already_clear": true,
+    "retained_allocations_after_teardown": 0,
+    "pathfinding_verified": false
+  },
+  "mise01": {
+    "objects": 3183,
+    "actors": 27,
+    "unsupported_actor_kind": 27,
+    "frontier_cursor": 3795696,
+    "terminal_disposal_complete": true,
+    "tracked_owners_after_disposal_zero": true,
+    "headless_exit_code": 0,
+    "window_exit_code": 0,
+    "camera_right_input_and_pixel_change_observed": true
+  },
+  "menu": {
+    "rendered": true,
+    "new_game_entered_intro": false,
+    "intro_frontier": "NumericDomain Normalize",
+    "intro_cursor": 39797,
+    "canonical_cache_cleanup_interrupted": true,
+    "engine_exit_code": 1
+  },
+  "driving": {
+    "engine_exit_code": 0,
+    "controls_observed": [
+      "throttle",
+      "brake",
+      "left_steer",
+      "right_steer",
+      "handbrake"
+    ],
+    "start_end_distance_source_units": 0.123774819,
+    "zero_tracked_owner_cleanup": true,
+    "mixed_stereo_frames": 107520,
+    "sample_rate": 48000,
+    "audio_sink": "ALSA null; physical audibility not verified"
+  },
+  "runtime_source_and_binary_unchanged": true,
+  "all_final_capture_processes_reaped": true,
+  "original_executable_run": false,
+  "authored_mission_complete": false,
+  "reference_commit": "dc867c3238488de27d094bb79b6550e392566e3c",
+  "accepted_scoped_entries_unchanged": 311,
+  "strict_system_gates_unchanged": "0/12"
+}

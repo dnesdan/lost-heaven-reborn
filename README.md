@@ -16,6 +16,11 @@ actors, program execution and authored mission play remain open.
 [Build and run](docs/RUNNING.md) · [current evidence](docs/implementation/parity-continuation.md) ·
 [coverage](COVERAGE.md) · [goals](docs/GOALS.md) · [dated history](docs/history/README.md).
 
+[Latest reviewed integration: PRs #51–57](docs/implementation/2026-10-29-pr-integration.md)
+adds world billboards, installed navigation intake and mission weather/sector
+preparation. Original MISE01 navigation loads 13,857 nodes and 67,260 links;
+pathfinding and authored mission execution remain open.
+
 <details>
 <summary>Static research and accepted scoped-port dashboard</summary>
 
@@ -114,15 +119,15 @@ or mission gameplay. [Controls, presets and captures](docs/RUNNING.md#engine-lab
 
 ## Actual Rust captures
 
-![Original-data standalone taxi after throttle, steering and handbrake input](docs/screenshots/2026-10-28/driving.webp)
+![Original-data standalone taxi after actual keyboard input](docs/screenshots/2026-10-29/driving.webp)
 
-Fresh 2026-10-28 captures: [MISE01 inspection](docs/screenshots/2026-10-28/mise01.webp),
-[menu inspection](docs/screenshots/2026-10-28/menu.webp),
-[native Lab](docs/screenshots/2026-10-28/engine-lab.png) and
-[four public renderer scenes](docs/screenshots/2026-10-28/lab/receipt.json).
-[Executed checks and exact limits](docs/implementation/2026-10-28-pr-integration.md)
-include actual driving inputs, 21 GPU tests, the known actor-kind-27 frontier
-and the menu's retained interrupted cleanup. These are inspection and standalone
+Fresh 2026-10-29 captures: [MISE01 inspection](docs/screenshots/2026-10-29/mise01.webp),
+[menu inspection](docs/screenshots/2026-10-29/menu.webp) and
+[image hashes](docs/screenshots/2026-10-29/evidence.json).
+[Executed checks and exact limits](docs/implementation/2026-10-29-pr-integration.md)
+include 1,833 all-feature Rust tests, actual driving controls and zero-owner
+taxi cleanup. MISE01 still stops at actor kind 27; New Game stops during INTRO
+and retains interrupted cache cleanup. These are inspection and standalone
 driving results; authored mission completion remains open.
 [MRPH evidence](docs/implementation/parity-continuation.md) and earlier media
 retain their dated scope in [capture history](docs/screenshots/README.md).

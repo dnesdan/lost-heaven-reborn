@@ -1,34 +1,31 @@
 # Reconstruction coverage
 
-**311 accepted scoped entries across 114 reviewed contracts. Strict full-system
-gate: 0/12. Whole-function coverage: N/A.** The campaign is not playable and
-all six first-mission gates remain open. These measures are separate from the
-static retained pseudocode inventory and are not a completion percentage.
+**311 accepted scoped entries / 114 reviewed contracts. Strict full-system gate:
+0/12. Whole-function coverage: N/A.** The campaign is not playable and all six
+[first-mission gates](docs/GOALS.md) remain open. Static pseudocode, scoped ports,
+tests and original-runtime comparisons are independent measures.
 
-The owned Scene/Camera renderer now culls the road correctly and draws a real
-zapad backdrop. Managed saved-lightmap VB/IB resources, UV2 and atlas leases,
-typed Singlemesh/Singlemorph/Billboard/Lensflare owners, initial animated
-material pose, and actual Dummy/Sound/AREA lifetimes are connected. A real
-MISE01 diagnostic loaded all 3,183 objects, reached actor dispatch at cursor
-3,794,014 and produced 267 draws with `Close Ok`. This is a loader and scene
-inspection result, not full SceneOpen or MissionOpen.
+The [2026-10-29 integration record](docs/implementation/2026-10-29-pr-integration.md)
+pins the code, independent reviews, executed checks, original-data probes and
+remaining frontiers. No new original-function credit follows from this batch.
 
-The Game control/key-mask, camera, four definition tables and load/save order
-helpers are bounded dependencies. Active player/HUD/profile, actor
-registration, scripts and mission scheduling are still open. General GPU fog,
-environment effects, time-evolving animated materials and native image/audio
-parity are also open. [Current evidence and limits](docs/implementation/mafia-re-remediation.md)
-records the tested paths: 1,561 Rust/56 Python tests, 13 Vulkan checks, 48
-feature-enabled Lab tests and two independent applied-source reviews. The
-explicit `Models` probe reaches the actor boundary and disposes all tracked
-owners to zero; the GPU sky contribution changes 136,934 pixels and restores
-byte-identically.
+| Subsystem | Source evidence | Recovered behavior | Rust implementation | Validation | Remaining gaps |
+| --- | --- | --- | --- | --- | --- |
+| Assets / world | PC REA archive/model contracts; pinned mafia-re | Ordered source intake, hierarchy and resource lifetime | Original archives/images, world billboards and inherited mesh sharing | Synthetic malformed/lifetime cases; MISE01 and Salieri world intake | Full SceneOpen, streaming, visibility and remaining derived classes |
+| Rendering / materials | [Scene/material contracts](docs/implementation/mafia-re-remediation.md) | Bounded material, LOD, sky and saved-lightmap operations | Owned Scene/Camera, buffers, textures and material clocks | Software-Vulkan GPU tests and actual city captures | Original lighting/effects, general fog, full visual parity |
+| Animation | PC contracts; PS2 naming; [scoped ports](docs/implementation/parity-continuation.md) | Bounded clocks, skeleton and MRPH state | Initial poses, owned deformation and live material state | Synthetic state/GPU tests; retained focused MRPH captures | Full controllers, blending/events and original-content animation |
+| Collision / physics | PC instruction/numeric contracts | Scoped matrix and native arithmetic behavior | Contained compatibility math and bounded simulation pieces | Numeric and error-prefix regressions | Complete world collision, contacts and gameplay coupling |
+| Vehicles | PC vehicle contracts; retained runtime traces | Scoped driving, damage and sound operations | Standalone owned car path | Native-derived regressions and bounded standalone input probes | Mission taxi/player binding and full collision/damage validation |
+| Characters / combat | Ordered actor source contracts | Reached actor construction/load prefixes | Existing actor owners and explicit unsupported kinds | MISE01 reaches 27 actors, kind 27 boundary | C_entity, player/combat and remaining actor factories |
+| Traffic / pedestrians | PC tables and source leads | Bounded definitions and ownership | Definition tables and prerequisites | Scoped fixture tests | City population, simulation and mission interactions |
+| AI / navigation / police | PC loader contracts; PS2 symbols; pinned pathweb | Navigation intake and reverse flag reset | Installed input into the existing owned graph | Original MISE01: 13,857 nodes / 67,260 links; zero retained allocations | Pathfinding, roads, AI/police and GameInit integration |
+| Scripts / cutscenes | PC control-VM contracts; pinned C_program | Scoped VM operations, source intake and compiler scanning | Retained sources and explicit decoder/backend boundary | Synthetic control/error/keyword tests | DecodeParams, production instruction owner, interpreter and scheduling |
+| Cameras / input | PC key-mask/camera contracts | Bounded camera and input operations | Authored view inspection and standalone controls | Source tests and bounded X11 input | Original player camera, collisions and gameplay transitions |
+| Audio / UI / localization | [Audio contracts](docs/implementation/stage-6-audio.md); PC menu sources | Sound lifetimes, source/cache order and localization intake | Typed sound identities, host mixer and original menu inspection | Synthetic owner/I/O tests; actual-data loading and PCM checks | Driver master update, hardware audio, active HUD/profile and menu transition cleanup |
+| Save / load | PC order/helper contracts | Scoped ordering and state helpers | Explicit bounded helpers | Synthetic sequence tests | Full original save compatibility, restart and campaign state |
 
-Linux software Vulkan has been exercised. Native Windows/Vulkan and
-macOS/Metal have not. Recent PC REA receipts are static instruction evidence;
-no original executable or function was run in this milestone. The twelve
-system gates remain open across world streaming, rendering, animation,
-collision/physics, vehicles, characters/combat, traffic/pedestrians,
-AI/navigation/police, scripts/cutscenes, camera/input,
-audio/UI/localization and save/load. [Goals](docs/GOALS.md) define the
-first-mission target. The full preceding page is [preserved verbatim](docs/history/2026-10-26-pre-final-documentation.md#coveragemd).
+Latest native research uses PC REA/Ghidra and a separate PS2 symbol check;
+no original executable ran in this milestone. Linux llvmpipe Vulkan was exercised.
+Native Windows/Vulkan and macOS/Metal remain unverified. Build, logic, rendering,
+interactive and original-runtime validation must not be combined into a single
+completion percentage. Earlier evidence retains its own revision and scope.

@@ -2,6 +2,32 @@
 
 Actual captures from the Rust application using supplied PC data or named public procedural scenes. Images are WebP previews or original PNGs. Scene previews normally stay within 960 pixels and 200 KiB; native UI captures may retain their full window dimensions for readability. Sanitized receipts can be published; original inputs and raw logs remain private. Add dated images for visible milestones. Game content retains its original ownership.
 
+## 2026-10-29 — reviewed PR integration
+
+![Standalone taxi with actual keyboard input](2026-10-29/driving.webp)
+
+[MISE01 city inspection](2026-10-29/mise01.webp) ·
+[actual menu inspection](2026-10-29/menu.webp) ·
+[source/image hashes and check summary](2026-10-29/evidence.json).
+
+All three use source `d8e9f3fc2ad92cb43052153149a001cd2b9a4206` on Linux
+x86_64/Mesa llvmpipe Vulkan. They are WebP quality 90 previews of actual,
+visually inspected PNGs, with no crop or resize: menu 640 × 480; city and taxi
+960 × 640. Files are 40,086 / 90,058 / 158,534 bytes respectively; exact PNGs
+and raw mode receipts remain private. No generated imagery was used.
+
+MISE01 headless and window modes exited 0; Right input changed the nonblack
+camera view. The taxi confirmed W/A/D/S/Space through fresh actual telemetry,
+moved 0.123774819 source units and exited 0 with zero tracked owners. Its
+107,520 mixed stereo frames used a null sink, without physical audio output.
+Menu pixels are valid, but New Game failed during INTRO and cache cleanup
+remained interrupted (exit 1). Black startup frames and a false camera baseline
+were rejected. Final source/binary seals and owned-process cleanup passed.
+
+[Full validation, reviews, native research and remaining frontiers](../implementation/2026-10-29-pr-integration.md).
+These are static inspection and bounded standalone input checks, not a playable
+first mission or original-renderer equivalence.
+
 ## 2026-10-28 — reviewed integration and fresh original-data checks
 
 ![Standalone taxi after actual keyboard input](2026-10-28/driving.webp)
