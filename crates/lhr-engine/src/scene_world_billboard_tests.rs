@@ -126,11 +126,17 @@ fn installed_world_keeps_billboard_class_suffix_bounds_and_scene_ownership() {
         let scratch = Scratch::new();
         let bytes = world(&[visual(b"sprite", 0, 0, Some((0, 1)))], b"");
         // The strict scene parser must continue to reject a visual-4 source.
-        assert!(lhr_assets::parse_four_ds_scene(&bytes).unwrap_err().is_unsupported_billboard());
+        assert!(
+            lhr_assets::parse_four_ds_scene(&bytes)
+                .unwrap_err()
+                .is_unsupported_billboard()
+        );
         let installation = scratch.install(&bytes);
         let mut arena = ModelArena::default();
         let scene = arena.construct_scene_owner_prefix().unwrap();
-        let progress = arena.load_scene_world_cpu(scene, &installation, "world.i3d").unwrap();
+        let progress = arena
+            .load_scene_world_cpu(scene, &installation, "world.i3d")
+            .unwrap();
         assert_eq!(progress.phase(), CpuSceneWorldPhase::Complete);
         assert!(progress.staging_model().is_none());
         assert_eq!(progress.transferred_frames(), 1);
@@ -172,27 +178,46 @@ fn installed_world_keeps_billboard_class_suffix_bounds_and_scene_ownership() {
 fn mixed_world_preserves_source_indices_parents_and_per_instance_orientation() {
     crate::native_precision::Pc24PrecisionState::default().run(|| {
         let scratch = Scratch::new();
-        let installation = scratch.install(&world(&[
-            dummy(),
-            visual(b"solid", 1, 0, None),
-            visual(b"sprite", 1, 2, Some((1, 1))),
-            visual(b"sprite2", 0, 2, Some((2, 0))),
-        ], b""));
+        let installation = scratch.install(&world(
+            &[
+                dummy(),
+                visual(b"solid", 1, 0, None),
+                visual(b"sprite", 1, 2, Some((1, 1))),
+                visual(b"sprite2", 0, 2, Some((2, 0))),
+            ],
+            b"",
+        ));
         let mut arena = ModelArena::default();
         let scene = arena.construct_scene_owner_prefix().unwrap();
-        let progress = arena.load_scene_world_cpu(scene, &installation, "world.i3d").unwrap();
+        let progress = arena
+            .load_scene_world_cpu(scene, &installation, "world.i3d")
+            .unwrap();
         assert_eq!(progress.transferred_frames(), 4);
         let keys = progress.frames();
         let primary = arena.scene(scene).unwrap().sectors[0].frame();
         for (index, &key) in keys.iter().enumerate() {
             assert_eq!(arena.frame(key).unwrap().source_index, Some(index));
             assert_eq!(arena.frame(key).unwrap().owner, Some(scene.into()));
-            let parent = if index == 1 || index == 2 { keys[0] } else { primary };
+            let parent = if index == 1 || index == 2 {
+                keys[0]
+            } else {
+                primary
+            };
             assert_eq!(arena.links(key).unwrap().parent, Some(parent));
         }
         assert!(arena.frame(keys[0]).unwrap().billboard.is_none());
         assert!(arena.frame(keys[1]).unwrap().billboard.is_none());
-        assert_eq!(arena.frame(keys[2]).unwrap().billboard.unwrap().source.unwrap().frame_index, 2);
+        assert_eq!(
+            arena
+                .frame(keys[2])
+                .unwrap()
+                .billboard
+                .unwrap()
+                .source
+                .unwrap()
+                .frame_index,
+            2
+        );
         assert_eq!(
             arena.frame(keys[2]).unwrap().billboard.unwrap().orientation,
             BillboardOrientation {
@@ -200,7 +225,17 @@ fn mixed_world_preserves_source_indices_parents_and_per_instance_orientation() {
                 axis_mode: 1,
             }
         );
-        assert_eq!(arena.frame(keys[3]).unwrap().billboard.unwrap().source.unwrap().frame_index, 3);
+        assert_eq!(
+            arena
+                .frame(keys[3])
+                .unwrap()
+                .billboard
+                .unwrap()
+                .source
+                .unwrap()
+                .frame_index,
+            3
+        );
         assert_eq!(
             arena.frame(keys[3]).unwrap().billboard.unwrap().orientation,
             BillboardOrientation {
@@ -212,8 +247,14 @@ fn mixed_world_preserves_source_indices_parents_and_per_instance_orientation() {
         let a = arena.frame(keys[2]).unwrap().object_resources.unwrap();
         let b = arena.frame(keys[3]).unwrap().object_resources.unwrap();
         let resources = arena.loaded_visual_resources().unwrap();
-        assert_eq!(resources.object_mesh(first).unwrap(), resources.object_mesh(a).unwrap());
-        assert_eq!(resources.object_mesh(a).unwrap(), resources.object_mesh(b).unwrap());
+        assert_eq!(
+            resources.object_mesh(first).unwrap(),
+            resources.object_mesh(a).unwrap()
+        );
+        assert_eq!(
+            resources.object_mesh(a).unwrap(),
+            resources.object_mesh(b).unwrap()
+        );
         close_world(&mut arena, scene);
     });
 }
@@ -225,10 +266,15 @@ fn plain_world_keeps_ordinary_class_and_non_cubic_bounds() {
         let installation = scratch.install(&world(&[visual(b"solid", 0, 0, None)], b""));
         let mut arena = ModelArena::default();
         let scene = arena.construct_scene_owner_prefix().unwrap();
-        let progress = arena.load_scene_world_cpu(scene, &installation, "world.i3d").unwrap();
+        let progress = arena
+            .load_scene_world_cpu(scene, &installation, "world.i3d")
+            .unwrap();
         let frame = arena.frame(progress.frames()[0]).unwrap();
         assert!(frame.billboard.is_none());
-        assert_eq!(frame.visual_bounds.unwrap().bbox, [[-2.0, -1.0, 0.0], [2.0, 1.0, 0.0]]);
+        assert_eq!(
+            frame.visual_bounds.unwrap().bbox,
+            [[-2.0, -1.0, 0.0], [2.0, 1.0, 0.0]]
+        );
         let object = frame.object_resources.unwrap();
         arena.publish_runtime_buffers().unwrap();
         assert_eq!(
@@ -264,11 +310,18 @@ fn other_frame_classes_still_stop_before_world_owner_mutation() {
         let scene = arena.construct_scene_owner_prefix().unwrap();
         let mut frame = super::super::tests::frame(kind, None, [0.0; 3]);
         frame.visual = visual;
-        let source = Arc::new(Model { materials: Vec::new(), frames: vec![frame] });
+        let source = Arc::new(Model {
+            materials: Vec::new(),
+            frames: vec![frame],
+        });
         let mut progress = CpuSceneWorldProgress::empty(&arena, scene);
         assert_eq!(
             arena.load_scene_world_parsed_cpu(scene, &installation, source, &[], &mut progress),
-            Err(ModelError::UnsupportedFrame { index: 0, kind, visual })
+            Err(ModelError::UnsupportedFrame {
+                index: 0,
+                kind,
+                visual
+            })
         );
         assert!(progress.staging_model().is_none());
         assert!(arena.scene(scene).unwrap().frames().is_empty());
@@ -284,7 +337,9 @@ fn truncated_billboard_suffix_never_creates_scene_frames() {
         let installation = scratch.install(&bytes[..keep]);
         let mut arena = ModelArena::default();
         let scene = arena.construct_scene_owner_prefix().unwrap();
-        let failure = arena.load_scene_world_cpu(scene, &installation, "world.i3d").unwrap_err();
+        let failure = arena
+            .load_scene_world_cpu(scene, &installation, "world.i3d")
+            .unwrap_err();
         assert_empty_failure(&arena, scene, &failure);
         close_world(&mut arena, scene);
     }
@@ -298,7 +353,9 @@ fn nonzero_load_animation_count_remains_an_explicit_boundary() {
     let installation = scratch.install(&bytes);
     let mut arena = ModelArena::default();
     let scene = arena.construct_scene_owner_prefix().unwrap();
-    let failure = arena.load_scene_world_cpu(scene, &installation, "world.i3d").unwrap_err();
+    let failure = arena
+        .load_scene_world_cpu(scene, &installation, "world.i3d")
+        .unwrap_err();
     assert_empty_failure(&arena, scene, &failure);
     close_world(&mut arena, scene);
 }
@@ -309,7 +366,9 @@ fn invalid_mesh_instance_does_not_fall_back_to_an_ordinary_object() {
     let installation = scratch.install(&world(&[visual(b"bad", 0, 2, Some((1, 1)))], b""));
     let mut arena = ModelArena::default();
     let scene = arena.construct_scene_owner_prefix().unwrap();
-    let failure = arena.load_scene_world_cpu(scene, &installation, "world.i3d").unwrap_err();
+    let failure = arena
+        .load_scene_world_cpu(scene, &installation, "world.i3d")
+        .unwrap_err();
     assert_empty_failure(&arena, scene, &failure);
     close_world(&mut arena, scene);
 }
@@ -335,10 +394,19 @@ fn resource_failure_retains_staging_and_never_applies_the_suffix_early() {
         let key = failure.progress.frames()[0];
         let frame = arena.frame(key).unwrap();
         assert_eq!(frame.owner, Some(staging.into()));
-        assert_eq!(frame.billboard.unwrap().orientation, BillboardOrientation::default());
+        assert_eq!(
+            frame.billboard.unwrap().orientation,
+            BillboardOrientation::default()
+        );
         assert_eq!(frame.billboard.unwrap().source.unwrap().rot_axis_word, 0);
-        assert!(arena.load_scene_world_cpu(scene, &installation, "world.i3d").is_err());
-        arena.discard_scene_world_staging_cpu(&mut failure.progress).unwrap();
+        assert!(
+            arena
+                .load_scene_world_cpu(scene, &installation, "world.i3d")
+                .is_err()
+        );
+        arena
+            .discard_scene_world_staging_cpu(&mut failure.progress)
+            .unwrap();
         assert!(failure.progress.staging_model().is_none());
         assert!(arena.frame(key).is_err());
         close_world(&mut arena, scene);
@@ -352,12 +420,16 @@ fn repeat_world_intake_is_rejected_without_replacing_existing_billboard_owners()
         let installation = scratch.install(&world(&[visual(b"sprite", 0, 0, Some((1, 1)))], b""));
         let mut arena = ModelArena::default();
         let scene = arena.construct_scene_owner_prefix().unwrap();
-        let progress = arena.load_scene_world_cpu(scene, &installation, "world.i3d").unwrap();
+        let progress = arena
+            .load_scene_world_cpu(scene, &installation, "world.i3d")
+            .unwrap();
         let key = progress.frames()[0];
         let object = arena.frame(key).unwrap().object_resources;
         let suffix = arena.frame(key).unwrap().billboard;
         let count = arena.live_frame_count();
-        let failure = arena.load_scene_world_cpu(scene, &installation, "world.i3d").unwrap_err();
+        let failure = arena
+            .load_scene_world_cpu(scene, &installation, "world.i3d")
+            .unwrap_err();
         assert_eq!(failure.progress.phase(), CpuSceneWorldPhase::Admission);
         assert!(failure.progress.frames().is_empty());
         assert_eq!(arena.live_frame_count(), count);
@@ -372,20 +444,27 @@ fn world_suffix_uses_existing_native_orientation_corrections() {
     crate::native_precision::Pc24PrecisionState::default().run(|| {
         for (axis, mode, expected_axis, expected_mode) in [(3, 0, 0, 2), (2, 9, 2, 1)] {
             let scratch = Scratch::new();
-            let installation = scratch.install(&world(
-                &[visual(b"sprite", 0, 0, Some((axis, mode)))],
-                b"",
-            ));
+            let installation =
+                scratch.install(&world(&[visual(b"sprite", 0, 0, Some((axis, mode)))], b""));
             let mut arena = ModelArena::default();
             let scene = arena.construct_scene_owner_prefix().unwrap();
-            let progress = arena.load_scene_world_cpu(scene, &installation, "world.i3d").unwrap();
-            let state = arena.frame(progress.frames()[0]).unwrap().billboard.unwrap();
+            let progress = arena
+                .load_scene_world_cpu(scene, &installation, "world.i3d")
+                .unwrap();
+            let state = arena
+                .frame(progress.frames()[0])
+                .unwrap()
+                .billboard
+                .unwrap();
             assert_eq!(state.source.unwrap().rot_axis_word, axis);
             assert_eq!(state.source.unwrap().axis_mode_byte, mode);
-            assert_eq!(state.orientation, BillboardOrientation {
-                rot_axis: expected_axis,
-                axis_mode: expected_mode,
-            });
+            assert_eq!(
+                state.orientation,
+                BillboardOrientation {
+                    rot_axis: expected_axis,
+                    axis_mode: expected_mode,
+                }
+            );
             close_world(&mut arena, scene);
         }
     });
