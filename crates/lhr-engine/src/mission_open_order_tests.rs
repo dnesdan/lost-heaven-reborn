@@ -298,10 +298,7 @@ fn audio_presence_is_reread_after_both_native_open_bin_results() {
                 };
                 assert_eq!(OpenAttempt::default().run(&mut ops), Ok(expected));
                 assert_eq!(ops.muted, if before { vec![1] } else { vec![] });
-                assert_eq!(
-                    ops.restored,
-                    if after { vec![(2, 0.75)] } else { vec![] }
-                );
+                assert_eq!(ops.restored, if after { vec![(2, 0.75)] } else { vec![] });
                 assert_eq!(ops.audio_queries.get(), 2);
             }
         }

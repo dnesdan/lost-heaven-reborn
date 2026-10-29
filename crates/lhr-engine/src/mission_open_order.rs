@@ -116,9 +116,8 @@ impl OpenAttempt {
         macro_rules! step {
             ($step:expr) => {{
                 self.last = Some($step);
-                ops.execute($step).map_err(|error| {
-                    OpenRunError::Callback(OpenFailure { step: $step, error })
-                })?;
+                ops.execute($step)
+                    .map_err(|error| OpenRunError::Callback(OpenFailure { step: $step, error }))?;
             }};
         }
         step!(OpenStep::ResetGame);
