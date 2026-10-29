@@ -1,6 +1,23 @@
 # Progress
 
-## Current milestone — 2026-10-29, Human/source owners and base VM
+## Current milestone — 2026-10-29, mission cars, recordings and global programs
+
+[Tested code `d9c2d3e`](implementation/2026-10-29-car-replay-programs.md) connects
+genuine Car/Vehicle owners to the same ActorWorld/ModelArena, original source
+conversion, shared resources, validity-aware opaque copies and actual record
+cleanup. Both MISE01 cars load; 38 actors precede unsupported kind 20. Disposal
+closes every tracked lifetime. Original REP intake and bounded first binding,
+global Init/Done and synchronous CallSubroutine are implemented in their stated
+domains. INTRO GlobalInit still stops at opcode-13 parameters; no mission plays.
+
+Final public APIs match controlled original projections: 17,248 car words,
+184 binding words, four destructor fields, 390 zero-parameter cases, 295 global
+loop words and 332/668 subroutine projections. Full Linux checks pass 1,942
+default / 1,966 all-feature Rust tests and 106 Python tests, plus Clippy/build;
+two sequential independent reviews passed. A fresh static MISE01 capture exits 0.
+Accepted snapshot totals remain 311 entries / 114 contracts; strict gates 0/12.
+
+## Retained milestone — 2026-10-29, Human/source owners and base VM
 
 [Tested code `041eed8`](implementation/2026-10-29-human-program-runtime.md)
 adds actual Human/Player and C_entity constructors, Init, bounded source reads

@@ -1,0 +1,36 @@
+{
+  "source_commit": "d9c2d3eefecefc2325f9fb6ac0aa1bb840102986",
+  "rust_application_sha256": "7ad7d4861dd8a990148fbd5611c05636c4452a05ac8c89b54215be44d5988611",
+  "rust_library_sha256": "6cf0961415bbe001f828695417aeffea6230e6c694cfa0aa1312a2fba53a0632",
+  "platform": "Linux x86_64 / software Vulkan",
+  "capture": {
+    "file": "mise01-source.webp",
+    "dimensions": [
+      960,
+      640
+    ],
+    "bytes": 90058,
+    "sha256": "b4c4a5f230cca2c4cf5b2c8402e6e85b6ae039862156b01683e357be50c86023",
+    "source_png_sha256": "57033de9d979b1bdb65259f07ad8eb1e8cd2404545da5e1e58a2356a69b6396b",
+    "returncode": 0,
+    "conversion": "WebP quality 90, no crop or resize",
+    "scope": "Fresh actual static source-view render. Same street camera as prior captures; mission car actors are not visible. No authored mission/replay/animation or interactive verification."
+  },
+  "source_intake": {
+    "objects": 3183,
+    "actors": 38,
+    "cars": 2,
+    "frontier_kind": 20,
+    "cursor": 3814295,
+    "terminal_disposal": "Complete; all tracked lifetime counters zero"
+  },
+  "verification": {
+    "default_rust_passed": 1942,
+    "default_ignored": 21,
+    "all_features_rust_passed": 1966,
+    "all_features_ignored": 0,
+    "python_passed": 106,
+    "rust_counts_overlap": true,
+    "sequential_independent_code_reviews": 2
+  }
+}

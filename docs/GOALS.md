@@ -17,15 +17,19 @@ ledger and system gates. The campaign is not playable.
 
 ## Current foundation and next work
 
-The current MISE01 diagnostic loads all 3,183 objects and reaches
-`UnsupportedKind(27)` during ordered Game actor intake at cursor 3,795,696,
-entry `0x544a16`, retaining 27 live actors. The initial 1280 × 800 inspection
-produces 267 draws; visible draw counts depend on the viewport and camera.
-Actor/program source intake and deferred sound
-resolution are connected, but the stopped load does not prove that later arms
-or deferred resolution complete on MISE01. Retained source owners do not supply
-the original compiler, full VM, mission scheduler or GameInit. This remains
-scene inspection, not completed SceneOpen, MissionOpen or authored mission play.
+The current MISE01 diagnostic loads all 3,183 objects and 38 genuine actors,
+including both Car/Vehicle owners. Original Init and LoadData complete for both
+cars, preserving unknown parameter padding and actual frame-record ownership.
+It stops at `UnsupportedKind(20)`, cursor 3,814,295, entry `0x544a16`.
+Terminal disposal completes with all tracked lifetime counters zero. This remains
+source inspection, not completed MissionOpen or authored play.
+
+Actual global Init/Done and reset/start now use the source-owned CProgram.
+INTRO GlobalInit reaches reverse index 14, then stops at FINDFRAME parameters
+(opcode 13). The evidenced 13/18/43 decoder is the next parameter family.
+Recorded intake consumes record01a; actual mission actor binding first needs
+LoadDifferences(dif01a.chg), followed by the remaining recording pipeline.
+[Reviewed implementation and validation](implementation/2026-10-29-car-replay-programs.md).
 
 Lazy animated materials now consume the live driver timeline through their
 actual owners. A public fixture proves changing GPU material resources and

@@ -2,6 +2,18 @@
 
 Actual captures from the Rust application using supplied PC data or named public procedural scenes. Images are WebP previews or original PNGs. Scene previews normally stay within 960 pixels and 200 KiB; native UI captures may retain their full window dimensions for readability. Sanitized receipts can be published; original inputs and raw logs remain private. Add dated images for visible milestones. Game content retains its original ownership.
 
+## 2026-10-29 — mission car / replay / global-program checkpoint
+
+[Fresh MISE01 source view](2026-10-29-car-replay/mise01-source.webp) ·
+[sanitized source/image receipt](2026-10-29-car-replay/evidence.json).
+
+Source `d9c2d3e`, Linux/software Vulkan, 960 × 640; exit 0 after clean canonical
+disposal. WebP quality 90, no crop or resize, 90,058 bytes. The static street
+camera matches the preceding view and does not show the loaded car actors.
+This is original-content rendering, not authored animation, replay or gameplay.
+Separate CPU intake now loads both genuine cars and 38 actors before kind 20;
+[implementation and exact proof scopes](../implementation/2026-10-29-car-replay-programs.md).
+
 ## 2026-10-29 — Human/source and base-VM checkpoint
 
 [MISE01 static street view](2026-10-29-human-vm/mise01-source.webp) ·
