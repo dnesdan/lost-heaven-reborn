@@ -12,7 +12,7 @@ use crate::driver_scene::{
 use crate::frame_sound::SoundError;
 use crate::game_camera_projection::GameCameraProjection;
 use crate::host_scene_adapters::InstallationImages;
-use crate::i3d_object::{lightmap_atlas::AtlasStatistics, LitStorageCounts};
+use crate::i3d_object::{LitStorageCounts, lightmap_atlas::AtlasStatistics};
 use crate::itexture::{CpuTextureStorage, TextureError, TextureResources};
 use crate::mission_resources::{
     CacheMemoryError, CpuMissionCacheMemory, MissionCacheError, MissionCacheKind, MissionCaches,
@@ -26,6 +26,9 @@ use crate::runtime_audio::{AudioError, RuntimeAudio};
 use crate::scene_ownership::SceneKey;
 use crate::scene_resources::{SceneCpuCloseReport, SceneResourceError, SceneResources};
 use std::convert::Infallible;
+
+#[path = "mission_sector_groups.rs"]
+mod sector_groups;
 
 /// Explicit probe inputs. Projection and model directories are supplied by
 /// the caller; this host adapter does not infer original GameInit.
@@ -47,6 +50,7 @@ pub enum MissionLoadPhase {
     CacheDirectories,
     SoundBackend,
     SceneCreation,
+    /// World intake followed by mission weather and primary-sector setup.
     World,
     LoadMap,
     Scene2Input,
@@ -539,6 +543,21 @@ impl MissionLoadSession {
                 return Err(MissionLoadCause::World(failure.error));
             }
         }
+
+        // MissionOpen resets existing weather, then disables it, before touching
+        // sector groups. Retain a numeric/lifetime failure as the first load
+        // error; the session guard prevents replay of its reached state changes.
+        self.resources
+            .prepare_mission_weather(&self.arena, scene)
+            .map_err(|error| {
+                MissionLoadCause::World(CpuSceneWorldError::DriverDomain(format!(
+                    "mission weather setup: {error:?}"
+                )))
+            })?;
+        // This is mission setup, not a change to the reusable SceneOpen adapter.
+        // Navigation and the remaining MissionOpen work are still separate.
+        sector_groups::fill_primary_sector_groups(&mut self.arena, scene)
+            .map_err(|error| MissionLoadCause::World(CpuSceneWorldError::Model(error)))?;
 
         self.phase = MissionLoadPhase::LoadMap;
         match MissionSceneLoader::new(&self.arena, scene) {

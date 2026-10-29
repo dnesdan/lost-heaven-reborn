@@ -10,6 +10,9 @@ use crate::model_loading::{ModelArena, ModelError};
 use crate::scene_ownership::SceneKey;
 use crate::scene_weather::{self, SCENE_WORDS, SECTOR_SOUND_PROPERTIES_WORDS};
 
+#[path = "scene_weather_runtime.rs"]
+mod weather_runtime;
+
 /// Screen dimensions are queried in the native order, sy then sx. This is not
 /// the viewport override performed later by the driver's CreateFrame caller.
 pub trait SceneScreen {
@@ -46,6 +49,8 @@ pub struct SceneConstruction {
     /// unavailable; use weather_word instead of treating scratch zero as native.
     pub words: [u32; SCENE_WORDS],
     pub phase: SceneConstructionPhase,
+    /// Host availability guard for a partially executed mission weather reset.
+    weather_setup_interrupted: bool,
     close_complete: bool,
     sector_cursor: usize,
     count_released: bool,
@@ -279,6 +284,7 @@ impl SceneResources {
             listener_released: false,
             words: [0; SCENE_WORDS],
             phase: SceneConstructionPhase::Viewport,
+            weather_setup_interrupted: false,
             close_complete: false,
             sector_cursor: 0,
             count_released: false,
