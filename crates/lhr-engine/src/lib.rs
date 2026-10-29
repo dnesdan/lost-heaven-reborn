@@ -109,6 +109,7 @@ pub mod player_control;
 pub mod police_state;
 mod portal_visibility;
 pub mod presentation_material;
+pub mod program_compiler;
 pub mod program_instructions;
 pub mod program_parser;
 pub mod program_patch;
