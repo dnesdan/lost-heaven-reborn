@@ -170,6 +170,15 @@ impl ModelArena {
                 copied.rotation = state.rotation;
                 copied.flags = (state.flags & 0x0fa7_3e9f) | 0x4000_0000;
                 copied.update_count = 1;
+                if let Some(parameters) = state.lensflare_parameters {
+                    copied
+                        .lensflare_parameters
+                        .as_mut()
+                        .ok_or(ModelError::OriginalModelOpenUnavailable(
+                            "lensflare parameter owner unavailable",
+                        ))?
+                        .duplicate_from(parameters);
+                }
                 // Billboard::Duplicate copies the live derived orientation,
                 // after the common Frame::Duplicate state projection.
                 self.frames[dst].billboard = self.frames[src].billboard;

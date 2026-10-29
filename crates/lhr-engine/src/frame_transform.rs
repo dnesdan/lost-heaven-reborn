@@ -27,6 +27,10 @@ use crate::{
     },
 };
 const DIRTY: u32 = 0x40002000;
+#[path = "frame_lensflare_parameters.rs"]
+mod lensflare_parameters;
+pub(crate) use lensflare_parameters::LensflareParameter;
+pub use lensflare_parameters::{LensflareParameterUnavailable, LensflareParameters};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FrameKey(pub u32);
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -54,6 +58,7 @@ pub enum FrameKind {
 /// Fields observed by these methods, not a complete native object.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct I3dFrameState {
+    pub lensflare_parameters: Option<LensflareParameters>,
     pub kind: FrameKind,
     pub local: SMatrix,
     pub world: SMatrix,
@@ -75,6 +80,7 @@ impl I3dFrameState {
     /// Actual model/base-frame constructor field projection.
     pub fn model() -> Self {
         Self {
+            lensflare_parameters: None,
             kind: FrameKind::Model,
             local: SMatrix::identity(),
             world: SMatrix::identity(),
@@ -105,6 +111,7 @@ impl I3dFrameState {
         let mut state = Self::model();
         state.kind = FrameKind::Lensflare;
         state.visual_flags = 0x2a00;
+        state.lensflare_parameters = Some(LensflareParameters::constructed());
         state
     }
     /// Original dummy constructor projection, RVA0x1a1e0. Bounds and other
@@ -190,6 +197,7 @@ pub struct I3dFrameGraph {
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FrameError {
+    LensflareParameterUnavailable(LensflareParameterUnavailable),
     UnknownFrame(FrameKey),
     IdentityOverflow,
     Cycle,
@@ -1086,6 +1094,23 @@ impl I3dFrameGraph {
             s.flags = (s.flags & 0xfffffedf) | 0x40000000;
         }
         Ok(())
+    }
+    pub(crate) fn assign_lensflare_parameter(
+        &mut self,
+        key: FrameKey,
+        parameter: LensflareParameter,
+        value: f32,
+    ) -> Result<(), FrameError> {
+        let state = &mut self.node_mut(key)?.state;
+        if state.kind != FrameKind::Lensflare {
+            return Err(FrameError::NumericDomain("lensflare owner"));
+        }
+        state
+            .lensflare_parameters
+            .as_mut()
+            .ok_or(FrameError::NumericDomain("lensflare owner"))?
+            .assign(parameter, value)
+            .map_err(FrameError::LensflareParameterUnavailable)
     }
     /// Scale stores precede the guarded matrix-to-quaternion dependency.
     pub fn assign_scale(&mut self, key: FrameKey, scale: [f32; 3]) -> Result<(), FrameError> {

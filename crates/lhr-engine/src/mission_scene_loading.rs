@@ -20,6 +20,8 @@ use crate::scene_resources::{SceneResources, SceneScreen};
 use crate::script_scheduler::FrameReferenceId;
 use crate::sector_sound_data::SectorSoundInput;
 use std::collections::HashSet;
+#[path = "mission_scene_lensflare.rs"]
+mod lensflare;
 
 #[derive(Clone, Copy)]
 enum ResourceOpenKind {
@@ -949,6 +951,10 @@ impl MissionSceneLoader {
                     }
                     0xb151 => {
                         self.read_area_geometry(arena, input)?;
+                        continue;
+                    }
+                    0xb110 => {
+                        self.read_lensflare_parameters(arena, input)?;
                         continue;
                     }
                     0x4083 => self.read_occluder_geometry(arena, input)?,
@@ -2144,6 +2150,182 @@ mod tests {
             payload,
         ]
         .concat()
+    }
+    fn lensflare_fixture(arena: &mut ModelArena) -> (crate::model_loading::ModelKey, FrameKey) {
+        let mut frame = crate::model_loading::tests::frame(1, None, [0.; 3]);
+        frame.visual = Some(6);
+        frame.lensflare = Some(lhr_assets::LensflareRecord { glows: vec![] });
+        let model = arena.create_model().unwrap();
+        let source = std::sync::Arc::new(lhr_assets::Model {
+            materials: vec![],
+            frames: vec![frame],
+        });
+        let key = arena
+            .load_parsed_into_model(model, source)
+            .unwrap()
+            .frames()[0];
+        static NEXT_DIRECTORY: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let directory = std::env::temp_dir().join(format!(
+            "lhr-lens-scalars-{}-{}",
+            std::process::id(),
+            NEXT_DIRECTORY.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let installation = lhr_assets::Installation::open(&directory).unwrap();
+        arena
+            .load_plain_visual_resources(model, &installation)
+            .unwrap();
+        std::fs::remove_dir(&directory).unwrap();
+        (model, key)
+    }
+    #[test]
+    fn lensflare_fields_apply_ordered_live_stores_and_duplicate_excludes_intensity() {
+        with_scene(|_, arena, _, _, scene| {
+            let (model, key) = lensflare_fixture(arena);
+            let mut loader =
+                MissionSceneLoader::new(arena, scene).unwrap_or_else(|e| panic!("{}", e.detail));
+            loader.version[0] = Some(5);
+            loader.current_frame = Some(arena.lookup_reference(key));
+            let fields = [
+                (0xb112, 2.),
+                (0xb113, 0.25),
+                (0xb114, -1.75),
+                (0xb115, 3.),
+                (0xb116, 4.),
+                (0xb117, 5.),
+                (0xb112, -0.),
+            ];
+            let children = fields
+                .into_iter()
+                .flat_map(|(k, v): (u16, f32)| chunk(k, &v.to_le_bytes()))
+                .collect::<Vec<_>>();
+            let bytes = chunk(0x4c53, &chunk(0xb110, &children));
+            let mut input = MissionSceneInput::new(&bytes).unwrap();
+            input.next_chunk().unwrap();
+            loader.read_lensflare_parameters(arena, &mut input).unwrap();
+            assert_eq!(input.cursor(), bytes.len());
+            assert!(input.current().is_none());
+            assert_eq!(loader.object_fields.flags & 0x400, 0x400);
+            let parameters = arena.state(key).unwrap().lensflare_parameters.unwrap();
+            assert_eq!(parameters.size.to_bits(), (-0.0f32).to_bits());
+            assert_eq!(parameters.intensity, 0.25);
+            assert_eq!(parameters.test_interval, u32::MAX);
+            assert_eq!(
+                (parameters.fade_in, parameters.fade_out, parameters.range),
+                (3., 4., 5.)
+            );
+            let destination = arena.create_model().unwrap();
+            arena
+                .duplicate_pristine_cache_model(destination, model)
+                .unwrap();
+            let copy = arena.model(destination).unwrap().frames[0];
+            let copied = arena.state(copy).unwrap().lensflare_parameters.unwrap();
+            assert_eq!(copied.intensity, 1.);
+            assert_eq!(copied.size.to_bits(), parameters.size.to_bits());
+            assert_eq!(
+                (
+                    copied.test_interval,
+                    copied.fade_in,
+                    copied.fade_out,
+                    copied.range
+                ),
+                (u32::MAX, 3., 4., 5.)
+            );
+            arena.release(destination.root()).unwrap();
+            arena.release(model.root()).unwrap();
+        });
+    }
+    #[test]
+    fn lensflare_short_fields_keep_prior_writes_and_exact_cursor() {
+        with_scene(|_, arena, _, _, scene| {
+            let (model, key) = lensflare_fixture(arena);
+            let mut loader =
+                MissionSceneLoader::new(arena, scene).unwrap_or_else(|e| panic!("{}", e.detail));
+            loader.version[0] = Some(5);
+            loader.current_frame = Some(arena.lookup_reference(key));
+            let entries = [0x543f3f, 0x543f6d, 0x543f9b, 0x543fce, 0x544008, 0x544042];
+            for (index, entry) in entries.into_iter().enumerate() {
+                for length in 0..4 {
+                    let children = [
+                        chunk(0xb112, &7f32.to_le_bytes()),
+                        chunk(0xb112 + index as u16, &[0; 4][..length]),
+                    ]
+                    .concat();
+                    let bytes = chunk(0x4c53, &chunk(0xb110, &children));
+                    let mut input = MissionSceneInput::new(&bytes).unwrap();
+                    input.next_chunk().unwrap();
+                    let error = loader
+                        .read_lensflare_parameters(arena, &mut input)
+                        .unwrap_err();
+                    assert_eq!(error.0, entry);
+                    assert_eq!(input.cursor(), 28);
+                    assert_eq!(input.current().unwrap().kind, 0xb112 + index as u16);
+                    assert_eq!(
+                        arena.state(key).unwrap().lensflare_parameters.unwrap().size,
+                        7.
+                    );
+                    assert_eq!(loader.object_fields.flags & 0x400, 0x400);
+                }
+            }
+            arena.release(model.root()).unwrap();
+        });
+    }
+    #[test]
+    fn lensflare_skip_guards_and_unknown_or_numeric_failures_preserve_prefix() {
+        with_scene(|_, arena, _, _, scene| {
+            let (model, key) = lensflare_fixture(arena);
+            let mut loader =
+                MissionSceneLoader::new(arena, scene).unwrap_or_else(|e| panic!("{}", e.detail));
+            for (frame, version) in [
+                (None, None),
+                (Some(arena.lookup_reference(key)), Some(4)),
+                (Some(arena.lookup_reference(key)), Some(0x8000)),
+            ] {
+                loader.current_frame = frame;
+                loader.version[0] = version;
+                let bytes = chunk(0x4c53, &chunk(0xb110, &[1, 2, 3]));
+                let mut input = MissionSceneInput::new(&bytes).unwrap();
+                input.next_chunk().unwrap();
+                loader.read_lensflare_parameters(arena, &mut input).unwrap();
+                assert_eq!(input.cursor(), bytes.len());
+                assert_eq!(loader.object_fields.flags, 0);
+            }
+            loader.current_frame = Some(arena.lookup_reference(key));
+            loader.version[0] = Some(5);
+            for (kind, value, entry) in [(0xb118, 1f32, 0x543f24), (0xb117, f32::NAN, 0x544050)] {
+                let children = [
+                    chunk(0xb112, &9f32.to_le_bytes()),
+                    chunk(kind, &value.to_le_bytes()),
+                ]
+                .concat();
+                let bytes = chunk(0x4c53, &chunk(0xb110, &children));
+                let mut input = MissionSceneInput::new(&bytes).unwrap();
+                input.next_chunk().unwrap();
+                assert_eq!(
+                    loader
+                        .read_lensflare_parameters(arena, &mut input)
+                        .unwrap_err()
+                        .0,
+                    entry
+                );
+                assert_eq!(input.cursor(), if kind == 0xb118 { 28 } else { 32 });
+                assert_eq!(input.current().is_some(), kind == 0xb118);
+                assert_eq!(
+                    arena.state(key).unwrap().lensflare_parameters.unwrap().size,
+                    9.
+                );
+                assert_eq!(
+                    arena
+                        .state(key)
+                        .unwrap()
+                        .lensflare_parameters
+                        .unwrap()
+                        .range,
+                    300.
+                );
+            }
+            arena.release(model.root()).unwrap();
+        });
     }
     fn prefix_input() -> Vec<u8> {
         let sector = chunk(
