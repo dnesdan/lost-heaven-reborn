@@ -126,11 +126,9 @@ fn installed_world_keeps_billboard_class_suffix_bounds_and_scene_ownership() {
         let scratch = Scratch::new();
         let bytes = world(&[visual(b"sprite", 0, 0, Some((0, 1)))], b"");
         // The strict scene parser must continue to reject a visual-4 source.
-        assert!(
-            lhr_assets::parse_four_ds_scene(&bytes)
-                .unwrap_err()
-                .is_unsupported_billboard()
-        );
+        assert!(lhr_assets::parse_four_ds_scene(&bytes)
+            .unwrap_err()
+            .is_unsupported_billboard());
         let installation = scratch.install(&bytes);
         let mut arena = ModelArena::default();
         let scene = arena.construct_scene_owner_prefix().unwrap();
@@ -247,6 +245,16 @@ fn mixed_world_preserves_source_indices_parents_and_per_instance_orientation() {
         let a = arena.frame(keys[2]).unwrap().object_resources.unwrap();
         let b = arena.frame(keys[3]).unwrap().object_resources.unwrap();
         let resources = arena.loaded_visual_resources().unwrap();
+        for (object, expected) in [
+            (first, ObjectVisualType::Plain),
+            (a, ObjectVisualType::Billboard),
+            (b, ObjectVisualType::Billboard),
+        ] {
+            assert_eq!(
+                resources.objects().object(object).unwrap().visual_type(),
+                expected
+            );
+        }
         assert_eq!(
             resources.object_mesh(first).unwrap(),
             resources.object_mesh(a).unwrap()
@@ -254,6 +262,70 @@ fn mixed_world_preserves_source_indices_parents_and_per_instance_orientation() {
         assert_eq!(
             resources.object_mesh(a).unwrap(),
             resources.object_mesh(b).unwrap()
+        );
+        close_world(&mut arena, scene);
+    });
+}
+
+#[test]
+fn billboard_mesh_instances_survive_both_original_visual_owners() {
+    crate::native_precision::Pc24PrecisionState::default().run(|| {
+        let scratch = Scratch::new();
+        let installation = scratch.install(&world(
+            &[
+                visual(b"solid", 0, 0, None),
+                visual(b"sprite", 0, 1, Some((1, 1))),
+                visual(b"copy", 0, 1, Some((2, 0))),
+            ],
+            b"",
+        ));
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let progress = arena
+            .load_scene_world_cpu(scene, &installation, "world.i3d")
+            .unwrap();
+        let keys = progress.frames();
+        let plain = arena.frame(keys[0]).unwrap().object_resources.unwrap();
+        assert_eq!(
+            arena
+                .visual_resource_owner_mut()
+                .unwrap()
+                .load_billboard_instance(plain),
+            Err(crate::loaded_visual_resources::LoadedVisualError::UnsupportedVisual(Some(4)))
+        );
+        let survivor = arena.frame(keys[2]).unwrap().object_resources.unwrap();
+        let mesh = arena
+            .loaded_visual_resources()
+            .unwrap()
+            .object_mesh(survivor)
+            .unwrap();
+        arena.release(keys[0]).unwrap();
+        arena.release(keys[1]).unwrap();
+        assert_eq!(
+            arena
+                .loaded_visual_resources()
+                .unwrap()
+                .object_mesh(survivor)
+                .unwrap(),
+            mesh
+        );
+        assert_eq!(
+            arena.frame(keys[2]).unwrap().billboard.unwrap().orientation,
+            BillboardOrientation {
+                rot_axis: 2,
+                axis_mode: 0
+            }
+        );
+        arena.publish_runtime_buffers().unwrap();
+        assert_eq!(
+            arena
+                .loaded_visual_resources()
+                .unwrap()
+                .inspection_mesh(survivor, 8)
+                .unwrap()
+                .unwrap()
+                .visual_type,
+            ObjectVisualType::Billboard
         );
         close_world(&mut arena, scene);
     });
@@ -399,11 +471,9 @@ fn resource_failure_retains_staging_and_never_applies_the_suffix_early() {
             BillboardOrientation::default()
         );
         assert_eq!(frame.billboard.unwrap().source.unwrap().rot_axis_word, 0);
-        assert!(
-            arena
-                .load_scene_world_cpu(scene, &installation, "world.i3d")
-                .is_err()
-        );
+        assert!(arena
+            .load_scene_world_cpu(scene, &installation, "world.i3d")
+            .is_err());
         arena
             .discard_scene_world_staging_cpu(&mut failure.progress)
             .unwrap();
