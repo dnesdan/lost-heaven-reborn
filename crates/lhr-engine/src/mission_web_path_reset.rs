@@ -5,7 +5,7 @@
 //! allocation-identity checks stay in the private storage views below.
 #![forbid(unsafe_code)]
 
-use super::{boundary, word, NodeArray, WebPathBoundary, CONNECTION_SIZE};
+use super::{CONNECTION_SIZE, NodeArray, WebPathBoundary, boundary, word};
 use crate::mission_components::{ComponentError, MissionComponent, MissionMemoryDomainId};
 use std::convert::Infallible;
 

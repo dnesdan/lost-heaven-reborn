@@ -138,7 +138,11 @@ fn link_flag(owner: &MissionComponent, node: usize, connection: usize) -> u16 {
 }
 fn image(owner: &MissionComponent) -> Vec<Vec<u8>> {
     let mut result = vec![owner.raw_bytes().to_vec()];
-    if let Some(nodes) = owner.web_path.as_ref().and_then(|graph| graph.nodes.as_ref()) {
+    if let Some(nodes) = owner
+        .web_path
+        .as_ref()
+        .and_then(|graph| graph.nodes.as_ref())
+    {
         result.push(nodes.allocation.bytes.clone());
         for connection in &nodes.connections {
             result.push(
@@ -219,7 +223,11 @@ fn zero_connection_count_never_checks_unused_link_storage() {
     owner.de_rici_conns().unwrap();
     assert_eq!(flag(&owner, 0), 0xafff);
     assert_eq!(
-        nodes(&mut owner).connections[0].as_ref().unwrap().allocation.bytes,
+        nodes(&mut owner).connections[0]
+            .as_ref()
+            .unwrap()
+            .allocation
+            .bytes,
         links_before
     );
 }
@@ -297,7 +305,9 @@ fn missing_node_owner_is_not_treated_as_an_empty_graph() {
     owner.put(0xc, 1);
     assert!(matches!(
         owner.de_rici_conns(),
-        Err(ComponentError::WebPath(WebPathBoundary::NullNodeDestination))
+        Err(ComponentError::WebPath(
+            WebPathBoundary::NullNodeDestination
+        ))
     ));
 }
 
@@ -308,7 +318,9 @@ fn node_count_outside_allocation_fails_at_first_reverse_visit() {
     let before = image(&owner);
     assert!(matches!(
         owner.de_rici_conns(),
-        Err(ComponentError::WebPath(WebPathBoundary::NodeOutsideAllocation))
+        Err(ComponentError::WebPath(
+            WebPathBoundary::NodeOutsideAllocation
+        ))
     ));
     assert_eq!(image(&owner), before);
 }
@@ -348,7 +360,11 @@ fn freed_and_foreign_connection_storage_preserves_node_first_order() {
         ));
         assert_eq!((flag(&owner, 0), flag(&owner, 1)), (0xffff, 0xafff));
         assert_eq!(
-            nodes(&mut owner).connections[1].as_ref().unwrap().allocation.bytes,
+            nodes(&mut owner).connections[1]
+                .as_ref()
+                .unwrap()
+                .allocation
+                .bytes,
             before
         );
     }
