@@ -1,5 +1,5 @@
 //! Canonical CPU world-source adapter, NOT original SceneOpen/LoadHierarchy.
-//! Actual static source frames/resources are staged in a real temporary model's
+//! Actual static/billboard frames/resources are staged in a real temporary model's
 //! member list. Source roots link to the genuine Primary sector only after all
 //! image records load, in file order; the temporary model is NEVER their parent.
 //! Every frame then transfers through canonical SceneAddFrame into the actual
@@ -7,6 +7,8 @@
 //! earlier-parent links and real resources survive. Original flags6/7, loadingUI
 //! callback540fd0→5bcc10, native allocation/error timing and GPU upload remain
 //! outside this CPU adapter. No original MissionOpen success is implied.
+//! Visual 4 retains its existing BBRD owner; other derived world types stay gated.
+#![forbid(unsafe_code)]
 use super::*;
 use crate::scene_ownership::SceneKey;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -94,11 +96,15 @@ impl ModelArena {
             let bytes = installation
                 .read_original_path(&path)
                 .map_err(|e| ModelError::Asset(e.to_string()))?;
-            let source = Arc::new(
-                lhr_assets::parse_four_ds_scene(&bytes)
-                    .map_err(|e| ModelError::Asset(e.to_string()))?,
-            );
-            self.load_scene_world_parsed_cpu(scene, installation, source, &mut progress)
+            let source = lhr_assets::parse_four_ds_scene_billboards(&bytes)
+                .map_err(|e| ModelError::Asset(e.to_string()))?;
+            self.load_scene_world_parsed_cpu(
+                scene,
+                installation,
+                Arc::new(source.model),
+                &source.billboards,
+                &mut progress,
+            )
         })();
         match result {
             Ok(()) => Ok(progress),
@@ -113,6 +119,7 @@ impl ModelArena {
         scene: SceneKey,
         installation: &lhr_assets::Installation,
         source: Arc<Model>,
+        billboards: &[lhr_assets::BillboardSource],
         progress: &mut CpuSceneWorldProgress,
     ) -> Result<(), ModelError> {
         let si = self.scene_index(scene)?;
@@ -120,7 +127,7 @@ impl ModelArena {
         for (index, frame) in source.frames.iter().enumerate() {
             if !matches!(
                 (frame.kind, frame.visual),
-                (1, Some(0)) | (6, None) | (5, None)
+                (1, Some(0 | 4)) | (6, None) | (5, None)
             ) {
                 return Err(ModelError::UnsupportedFrame {
                     index,
@@ -133,14 +140,21 @@ impl ModelArena {
         let staging = self.create_model()?;
         progress.staging_model = Some(staging);
         progress.phase = CpuSceneWorldPhase::Geometry;
-        let content =
-            match self.load_parsed_into_model_for_root(staging, source, Some(primary.frame())) {
-                Ok(content) => content,
-                Err(failure) => {
-                    progress.frames = failure.partial.frames;
-                    return Err(failure.error);
-                }
-            };
+        // Keep BBRD suffixes on their actual derived frames through the same
+        // root-parent and staging-owner path as ordinary world geometry.
+        // The existing resource loader applies them after inherited LoadImage.
+        let content = match self.load_parsed_into_model_for_root_with_billboards(
+            staging,
+            source,
+            Some(primary.frame()),
+            billboards,
+        ) {
+            Ok(content) => content,
+            Err(failure) => {
+                progress.frames = failure.partial.frames;
+                return Err(failure.error);
+            }
+        };
         progress.frames = content.frames.clone();
         progress.phase = CpuSceneWorldPhase::Resources;
         self.load_plain_visual_resources(staging, installation)?;
@@ -246,7 +260,7 @@ mod tests {
         arena.sector_storage_mut().fail_on_allocation(Some(1));
         let mut progress = CpuSceneWorldProgress::empty(&arena, scene);
         let error = arena
-            .load_scene_world_parsed_cpu(scene, &installation, source, &mut progress)
+            .load_scene_world_parsed_cpu(scene, &installation, source, &[], &mut progress)
             .unwrap_err();
         assert_eq!(error, ModelError::NativeModelOpenResult(0x80000002));
         assert_eq!(progress.phase(), CpuSceneWorldPhase::Geometry);
@@ -273,3 +287,7 @@ mod tests {
         std::fs::remove_dir_all(directory).unwrap();
     }
 }
+
+#[cfg(test)]
+#[path = "scene_world_billboard_tests.rs"]
+mod billboard_tests;
