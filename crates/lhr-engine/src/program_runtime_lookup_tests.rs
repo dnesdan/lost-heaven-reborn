@@ -39,10 +39,12 @@ fn finish(program: &mut CProgram, memory: &mut Memory) {
 
 struct World {
     actor: ActorLifetime,
+    other_actor: ActorLifetime,
     frame: FrameLifetime,
     name: Vec<u8>,
     primary: Vec<Option<ActorReferenceId>>,
     diagnostics: usize,
+    redirect: bool,
 }
 impl World {
     fn new(name: &[u8]) -> Self {
@@ -50,9 +52,11 @@ impl World {
         Self {
             primary: vec![Some(actor.reference())],
             actor,
+            other_actor: ActorLifetime::for_existing(18),
             frame: FrameLifetime::for_existing(42),
             name: name.to_vec(),
             diagnostics: 0,
+            redirect: false,
         }
     }
 }
@@ -90,13 +94,19 @@ impl LookupWorldBackend for World {
 impl RuntimeLookupWorld for World {
     fn runtime_message_beep(
         &mut self,
-        _: RuntimeView<'_>,
+        mut fields: RuntimeView<'_>,
         owner: &mut Option<ActorReferenceId>,
         value: i32,
     ) -> Result<(), LookupError> {
         assert_eq!(value, -1);
         assert_eq!(*owner, Some(self.actor.reference()));
         self.diagnostics += 1;
+        if self.redirect {
+            fields.set_program_counter(2);
+            *fields.actor_count = 2;
+            *fields.actors = Some(vec![RuntimeReferenceSlot::Empty; 2].into_boxed_slice());
+            *owner = Some(self.other_actor.reference());
+        }
         Ok(())
     }
 }
@@ -158,5 +168,30 @@ fn an_unbound_world_is_a_terminal_lookup_error_not_a_synthetic_success() {
     );
     assert_eq!(program.runtime().unwrap().stage, RuntimeStage::ProcessInterrupted);
     assert_eq!(program.runtime().unwrap().fields.program_counter(), 1);
+    finish(&mut program, &mut memory);
+}
+
+#[test]
+fn diagnostic_reloads_current_instruction_owner_and_live_bank_after_mutation() {
+    let mut memory = Memory::default();
+    let mut world = World::new(b"chcipnuti chlapka");
+    world.redirect = true;
+    let original = world.actor.reference();
+    let replacement = world.other_actor.reference();
+    let mut program = compiled(
+        b"dim_act 1\nfindactor 0,\"must not look up\"\nfindactor 1",
+        &mut memory,
+    );
+    program.set_owner(Some(original)).unwrap();
+    execute(&mut program, &mut memory, &mut world).unwrap();
+    let runtime = program.runtime().unwrap();
+    assert_eq!(runtime.stage, RuntimeStage::Ready);
+    assert_eq!(runtime.fields.program_counter(), 3);
+    assert_eq!(runtime.fields.actor_count, 2);
+    assert_eq!(runtime.fields.actors.as_ref().unwrap().len(), 2);
+    assert_eq!(runtime.fields.actors.as_ref().unwrap()[0].reference(), Ok(None));
+    assert_eq!(runtime.fields.actors.as_ref().unwrap()[1].reference().unwrap().copied(), Some(replacement));
+    assert_eq!(program.owner(), Some(replacement));
+    assert_eq!(world.diagnostics, 1);
     finish(&mut program, &mut memory);
 }
