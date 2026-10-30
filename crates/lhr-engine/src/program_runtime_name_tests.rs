@@ -134,13 +134,25 @@ fn oversized_name_keeps_allocated_pending_prefix_and_requires_host_discard() {
 }
 
 #[test]
-fn name_decoding_never_pretends_to_execute_lookup_or_record_binding() {
-    for (source, opcode) in [(b"findframe 0,\"x\"".as_slice(), 13), (b"findactor 0,\"x\"".as_slice(), 18), (b"recaddactor 0,\"x\"".as_slice(), 43)] {
+fn name_parameters_compile_but_unbound_world_and_recording_are_not_silent_success() {
+    for (source, opcode) in [
+        (b"findframe 0,\"x\"".as_slice(), 13),
+        (b"findactor 0,\"x\"".as_slice(), 18),
+        (b"recaddactor 0,\"x\"".as_slice(), 43),
+    ] {
         let mut backend = Probe::default();
         let mut p = program(source, &mut backend);
         p.init_fresh_runtime(&mut backend).unwrap();
-        let error = p.call_owned_process(7, &mut DispatchBudget::new(4).unwrap(), &mut backend).unwrap_err();
-        assert!(format!("{error:?}").contains(&format!("UnsupportedCommand({opcode})")));
+        let error = p.call_owned_process(
+            7, &mut DispatchBudget::new(4).unwrap(), &mut backend
+        ).unwrap_err();
+        if opcode == 43 {
+            assert!(format!("{error:?}").contains("UnsupportedCommand(43)"));
+        } else {
+            assert_eq!(error, RuntimeError::Lookup(
+                crate::script_lookup::LookupError::UnsupportedWorldBackend
+            ));
+        }
         let runtime = p.runtime().unwrap();
         assert_eq!(runtime.stage, RuntimeStage::ProcessInterrupted);
         assert_eq!((runtime.fields.program_counter(), runtime.fields.elapsed), (0, 7));
@@ -149,7 +161,6 @@ fn name_decoding_never_pretends_to_execute_lookup_or_record_binding() {
         cleanup(&mut p, &mut backend);
     }
 }
-
 #[test]
 fn mixed_payloads_release_once_in_reverse_instruction_order() {
     let mut backend = Probe::default();

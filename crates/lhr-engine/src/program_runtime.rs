@@ -4,7 +4,8 @@
 //! Init RVA0x61580, Done RVA0x616a0, Compile RVA0x6c770, CallProcess RVA0x6ccb0.
 //! Fresh compilation also owns the named payload family 13/18/43. Instruction
 //! recognition retains its existing ASCII admission.
-//! Process RVA0x6d3b0 is admitted only for DIM_FRM, DIM_ACT and COMMANDBLOCK.
+//! Process also executes FINDFRAME/FINDACTOR with an explicit borrowed lookup world.
+//! Recording and remaining unsupported commands still stop when reached.
 //! Admission is explicitly base C_program only; derived Entity/Detector virtual
 //! decoder/dispatcher execution is not supplied by this runtime.
 //! Unsupported dependencies retain reached state and never become no-op success.
@@ -12,6 +13,9 @@
 //! outside admission. Explicit host discard releases actual Rust allocations;
 //! it is additional cleanup, not original Done or a mission completion result.
 use super::*;
+#[path = "program_runtime_lookup.rs"]
+mod lookup;
+pub use lookup::{LookupRuntimeBackend, RuntimeLookupWorld};
 #[path = "program_name_parameters.rs"]
 mod name_parameters;
 pub use name_parameters::{
@@ -229,6 +233,23 @@ pub trait RuntimeBackend {
         effect: RuntimeEffect,
         published: Option<&ScalarParameter>,
     ) -> Result<(), String>;
+    /// Required lookup world; allocation-only backends explicitly refuse lookup.
+    fn lookup_world(
+        &mut self,
+    ) -> Result<&mut dyn crate::script_lookup::LookupWorldBackend, crate::script_lookup::LookupError> {
+        Err(crate::script_lookup::LookupError::UnsupportedWorldBackend)
+    }
+    /// FINDACTOR diagnostic borrows the actual program state, including its owner.
+    fn lookup_message_beep(
+        &mut self,
+        _fields: RuntimeView<'_>,
+        _owner: &mut Option<ActorReferenceId>,
+        _argument: i32,
+    ) -> Result<(), crate::script_lookup::LookupError> {
+        Err(crate::script_lookup::LookupError::Backend(
+            "runtime lookup diagnostic unavailable".into(),
+        ))
+    }
     /// Named allocation/conversion/release uses the same required effect
     /// boundary. Backends may inspect its published payload by overriding this
     /// method; the default delegates, never manufactures effect success.
@@ -256,6 +277,7 @@ pub enum RuntimeError {
     Parameter(String),
     Compile(String),
     UnsupportedCommand(u32),
+    Lookup(crate::script_lookup::LookupError),
     ReferenceCount(u32),
     Allocation,
     Scheduler(String),
@@ -581,6 +603,8 @@ impl CProgram {
         if runtime.stage != RuntimeStage::Ready {
             return Err(RuntimeError::Domain("runtime not ready"));
         }
+        // A diagnostic that unwinds must not leave executable state ready.
+        runtime.stage = RuntimeStage::ProcessInterrupted;
         let RuntimeFields {
             flags,
             scheduler,
@@ -593,6 +617,8 @@ impl CProgram {
             frames,
         } = &mut runtime.fields;
         let mut dispatch = Process {
+            owner: &mut self.owner,
+            stage: &mut runtime.stage,
             flags,
             instructions: &runtime.instructions,
             last_pc,
@@ -605,22 +631,14 @@ impl CProgram {
             backend,
         };
         let result = run_scheduler(scheduler, &mut dispatch, delta, budget);
-        if result.is_err() {
-            runtime.stage = if matches!(
-                &result,
-                Err(crate::script_scheduler::SchedulerError::Backend(
-                    RuntimeError::DestructiveEffect { .. }
-                ))
-            ) {
-                RuntimeStage::DisposalInterrupted
-            } else {
-                RuntimeStage::ProcessInterrupted
-            };
+        if result.is_ok() {
+            runtime.stage = RuntimeStage::Ready;
         }
         result.map_err(|error| match error {
             crate::script_scheduler::SchedulerError::Backend(
                 error @ RuntimeError::DestructiveEffect { .. },
             ) => error,
+            crate::script_scheduler::SchedulerError::Backend(error @ RuntimeError::Lookup(_)) => error,
             other => RuntimeError::Scheduler(format!("{other:?}")),
         })
     }
@@ -746,6 +764,8 @@ impl CProgram {
     }
 }
 struct Process<'a, B> {
+    owner: &'a mut Option<ActorReferenceId>,
+    stage: &'a mut RuntimeStage,
     flags: &'a mut RuntimeFlags,
     instructions: &'a InstructionStorage,
     last_pc: &'a mut u32,
@@ -772,28 +792,35 @@ impl<B: RuntimeBackend> Process<'_, B> {
         state: &mut ResetState,
         effect: RuntimeEffect,
     ) -> Result<(), RuntimeError> {
-        self.backend
-            .effect(
-                RuntimeView {
-                    flags: self.flags,
-                    scheduler: state,
-                    last_pc: self.last_pc,
-                    elapsed: self.elapsed,
-                    command_budget_bits: self.command_budget_bits,
-                    actor_count: self.actor_count,
-                    frame_count: self.frame_count,
-                    actors: self.actors,
-                    frames: self.frames,
-                },
-                effect,
-                None,
-            )
-            .map_err(|detail| match effect {
-                RuntimeEffect::ReleaseActors | RuntimeEffect::ReleaseFrames => {
-                    RuntimeError::DestructiveEffect { effect, detail }
-                }
-                _ => RuntimeError::Effect(detail),
-            })
+        let destructive = matches!(effect, RuntimeEffect::ReleaseActors | RuntimeEffect::ReleaseFrames);
+        if destructive {
+            *self.stage = RuntimeStage::DisposalInterrupted;
+        }
+        let result = self.backend.effect(
+            RuntimeView {
+                flags: self.flags,
+                scheduler: state,
+                last_pc: self.last_pc,
+                elapsed: self.elapsed,
+                command_budget_bits: self.command_budget_bits,
+                actor_count: self.actor_count,
+                frame_count: self.frame_count,
+                actors: self.actors,
+                frames: self.frames,
+            },
+            effect,
+            None,
+        );
+        if destructive && result.is_ok() {
+            *self.stage = RuntimeStage::ProcessInterrupted;
+        }
+        result.map_err(|detail| {
+            if destructive {
+                RuntimeError::DestructiveEffect { effect, detail }
+            } else {
+                RuntimeError::Effect(detail)
+            }
+        })
     }
 }
 impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
@@ -816,8 +843,9 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
     }
     fn dispatch(&mut self, state: &mut ResetState, delta: i32) -> Result<(), RuntimeError> {
         *self.elapsed = self.elapsed.wrapping_add(delta as u32);
-        let instruction = &self.instructions.active()[state.program_counter as usize];
-        match instruction.opcode {
+        let opcode = self.instructions.active()[state.program_counter as usize].opcode;
+        match opcode {
+            13 | 18 => self.dispatch_lookup(state, opcode == 18)?,
             34 => {
                 let value = self.value_at(state)?;
                 state.continuation = u8::from(value != 0);
@@ -825,7 +853,7 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
             11 | 12 => {
                 let value = self.value_at(state)?;
                 let requested = value as u32;
-                let actors = instruction.opcode == 12;
+                let actors = opcode == 12;
                 let current = if actors {
                     *self.actor_count
                 } else {
