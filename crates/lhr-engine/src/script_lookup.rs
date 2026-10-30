@@ -183,13 +183,51 @@ fn actor_matches(
     }
     Ok(stored == name)
 }
-/// Diagnostic precedes the safe index boundary, including upper-bound no-ops.
-pub fn find_actor(
-    control: &mut ControlState,
-    world: &mut dyn LookupWorldBackend,
-    index: i32,
-    name: &[u8],
-) -> Result<(), LookupError> {
+/// Borrow the actual destination register bank. Counts are logical lengths,
+/// not proof that backing exists; validate storage only at a reached write.
+/// Implementations must not retain a second bank or synchronize a snapshot.
+pub trait LookupRegisters {
+    fn actor_register_count(&self) -> usize;
+    fn frame_register_count(&self) -> usize;
+    fn write_actor_register(
+        &mut self,
+        index: u32,
+        value: Option<ActorReferenceId>,
+    ) -> Result<(), LookupError>;
+    fn write_frame_register(
+        &mut self,
+        index: u32,
+        value: Option<FrameReferenceId>,
+    ) -> Result<(), LookupError>;
+}
+impl LookupRegisters for ControlState {
+    fn actor_register_count(&self) -> usize {
+        self.actor_references().len()
+    }
+    fn frame_register_count(&self) -> usize {
+        self.frame_references().len()
+    }
+    fn write_actor_register(
+        &mut self,
+        index: u32,
+        value: Option<ActorReferenceId>,
+    ) -> Result<(), LookupError> {
+        self.set_actor_reference(index, value)
+            .map_err(|_| LookupError::Backend("actor register backing unavailable".into()))
+    }
+    fn write_frame_register(
+        &mut self,
+        index: u32,
+        value: Option<FrameReferenceId>,
+    ) -> Result<(), LookupError> {
+        self.set_frame_reference(index, value)
+            .map_err(|_| LookupError::Backend("frame register backing unavailable".into()))
+    }
+}
+
+/// Read the FINDACTOR diagnostic condition without invoking its callback.
+/// The owned VM must read its current instruction only AFTER that callback.
+pub fn actor_lookup_needs_beep(world: &dyn LookupWorldBackend) -> Result<bool, LookupError> {
     if let Some(owner) = world.owner()? {
         if let Some(frame) = world.actor_frame(owner)? {
             let frames = world.frames()?;
@@ -201,23 +239,45 @@ pub fn find_actor(
                 return Err(FrameLookupError::UnsupportedName.into());
             }
             if owner_name.eq_ignore_ascii_case(b"chcipnuti chlapka") {
-                world.message_beep(-1)?;
+                return Ok(true);
             }
         }
     }
+    Ok(false)
+}
+
+/// Diagnostic precedes the safe index boundary, including upper-bound no-ops.
+pub fn find_actor(
+    control: &mut ControlState,
+    world: &mut dyn LookupWorldBackend,
+    index: i32,
+    name: &[u8],
+) -> Result<(), LookupError> {
+    if actor_lookup_needs_beep(world)? {
+        world.message_beep(-1)?;
+    }
+    find_actor_after_diagnostic(control, world, index, name)
+}
+
+/// Shared post-diagnostic arm. The caller has executed the required diagnostic
+/// and acquired the live operand afterwards. No callbacks run in this suffix.
+pub fn find_actor_after_diagnostic(
+    control: &mut impl LookupRegisters,
+    world: &dyn LookupWorldBackend,
+    index: i32,
+    name: &[u8],
+) -> Result<(), LookupError> {
     if index < 0 {
         return Err(LookupError::NegativeIndex(index));
     }
     let index = index as u32;
-    if index as usize >= control.actor_references().len() {
+    if index as usize >= control.actor_register_count() {
         return Ok(());
     }
     valid_name(name)?;
     if name.is_empty() {
         let owner = world.owner()?;
-        control
-            .set_actor_reference(index, owner)
-            .expect("checked slot");
+        control.write_actor_register(index, owner)?;
         return Ok(());
     }
     let primary = world.primary()?;
@@ -227,17 +287,13 @@ pub fn find_actor(
     for actor in primary.iter().rev() {
         let actor = actor.ok_or(LookupError::NullPrimaryActor)?;
         if actor_matches(world, actor, name, false)? {
-            control
-                .set_actor_reference(index, Some(actor))
-                .expect("checked slot");
+            control.write_actor_register(index, Some(actor))?;
             return Ok(());
         }
     }
     for actor in world.players()?.into_iter().flatten() {
         if actor_matches(world, actor, name, true)? {
-            control
-                .set_actor_reference(index, Some(actor))
-                .expect("checked slot");
+            control.write_actor_register(index, Some(actor))?;
             break;
         }
     }
@@ -247,9 +303,7 @@ pub fn find_actor(
     }
     for actor in secondary.iter().rev().flatten() {
         if actor_matches(world, *actor, name, false)? {
-            control
-                .set_actor_reference(index, Some(*actor))
-                .expect("checked slot");
+            control.write_actor_register(index, Some(*actor))?;
             return Ok(());
         }
     }
@@ -261,11 +315,21 @@ pub fn find_frame(
     index: i32,
     name: &[u8],
 ) -> Result<(), LookupError> {
+    find_frame_into(control, world, index, name)
+}
+
+/// The same frame search writes directly into a borrowed destination bank.
+pub fn find_frame_into(
+    control: &mut impl LookupRegisters,
+    world: &dyn LookupWorldBackend,
+    index: i32,
+    name: &[u8],
+) -> Result<(), LookupError> {
     if index < 0 {
         return Err(LookupError::NegativeIndex(index));
     }
     let index = index as u32;
-    if index as usize >= control.frame_references().len() {
+    if index as usize >= control.frame_register_count() {
         return Ok(());
     }
     valid_name(name)?;
@@ -283,9 +347,7 @@ pub fn find_frame(
             frame_lookup::MAX_LOOKUP_VISITS,
         )?
     };
-    control
-        .set_frame_reference(index, frame)
-        .expect("checked slot");
+    control.write_frame_register(index, frame)?;
     Ok(())
 }
 

@@ -222,6 +222,39 @@ impl MissionContentOwner {
         }
         Ok(NamedGlobalProgramOutcome::NoMatch)
     }
+    /// Step one already initialized global CProgram against this collection's
+    /// actual ActorWorld and the caller's borrowed scene. No program, register
+    /// bank or actor collection is cloned. This is an explicit host step, not
+    /// automatic GameInit, mission Tick or derived Entity/Detector execution.
+    pub fn call_global_program_process_with_lookup<B: RuntimeBackend>(
+        &mut self,
+        index: usize,
+        delta: i32,
+        budget: &mut crate::script_scheduler::DispatchBudget,
+        effects: &mut B,
+        scene: crate::original_program::ProgramLookupScene<'_>,
+    ) -> Result<(), MissionGlobalProgramError> {
+        self.available().map_err(MissionGlobalProgramError::SourceUnavailable)?;
+        if self.pending_program.is_some() {
+            return Err(MissionGlobalProgramError::PendingSource);
+        }
+        let program = self.programs.get_mut(index)
+            .ok_or(MissionGlobalProgramError::MissingCurrentProgram(index))?;
+        let mut world = crate::actor_world::ActorWorldLookup {
+            world: &mut self.actors.world,
+            // Ignored by this adapter: the real CProgram owner is borrowed at
+            // every lookup and passed directly to the diagnostic callback.
+            owner: None,
+            frames: scene.frames,
+            scene: scene.roots,
+            diagnostic: scene.diagnostic,
+            diagnostic_default_c_locale: scene.diagnostic_default_c_locale,
+        };
+        let mut backend = crate::original_program::LookupRuntimeBackend::new(effects, &mut world);
+        program.call_owned_process(delta, budget, &mut backend)
+            .map_err(MissionGlobalProgramError::Runtime)
+    }
+
     /// Explicit additional host cleanup, not GlobalProgramGameDone. Invoke
     /// before source terminal disposal; callbacks and native cleanup are not
     /// replayed, including for interrupted CProgram runtimes.
@@ -691,5 +724,147 @@ mod tests {
         assert!(reports.iter().all(|report| report.resources.name_allocations == 0));
         owner.discard_terminal(&mut crate::model_loading::ModelArena::default()).unwrap();
         assert_eq!(owner.live_allocation_count(), 0);
+    }
+
+    fn lookup_chunk(kind: u16, payload: &[u8]) -> Vec<u8> {
+        let mut out = kind.to_le_bytes().to_vec();
+        out.extend_from_slice(&((payload.len() + 6) as u32).to_le_bytes());
+        out.extend_from_slice(payload);
+        out
+    }
+    fn lookup_fixture(source: &[u8], names: &[&[u8]]) -> (
+        crate::model_loading::ModelArena,
+        crate::scene_ownership::SceneKey,
+        crate::mission_scene_loading::MissionSceneLoader,
+    ) {
+        use crate::frame_transform::I3dFrameState;
+        use crate::mission_scene_loading::MissionSceneLoader;
+        use crate::model_loading::ModelArena;
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let primary = arena.scene(scene).unwrap().sectors[0];
+        let mut records = Vec::new();
+        for name in names {
+            let frame = arena.insert(I3dFrameState::dummy(), None, Vec::new(), Vec::new(), None).unwrap();
+            arena.set_frame_name(frame, Some(*name)).unwrap();
+            arena.link_frame(frame, Some(primary.frame()), 0).unwrap();
+            arena.scene_add_frame(scene, frame).unwrap();
+            arena.release(frame).unwrap();
+            let mut name = name.to_vec(); name.push(0);
+            records.extend(lookup_chunk(0xae21, &[
+                lookup_chunk(0xae23, &name),
+                lookup_chunk(0xae22, &1u32.to_le_bytes()),
+                lookup_chunk(0xae24, &[]),
+            ].concat()));
+        }
+        let mut loader = MissionSceneLoader::new(&arena, scene)
+            .unwrap_or_else(|failure| panic!("{}", failure.detail));
+        let bytes = lookup_chunk(0x4c53, &lookup_chunk(0xae20, &records));
+        let root = lhr_assets::scene_actor_stream::scene2_root(&bytes).unwrap();
+        let actors = root.children().next().unwrap().unwrap();
+        let patches = crate::program_patch::ProgramPatchTable::default();
+        loader.content.load_actors(actors, &mut arena, &mut loader.load_map.map, &patches).unwrap();
+        let mut record = vec![0];
+        record.extend_from_slice(&5u32.to_le_bytes()); record.extend_from_slice(b"probe");
+        record.extend_from_slice(&(source.len() as u32).to_le_bytes()); record.extend_from_slice(source);
+        let bytes = lookup_chunk(0x4c53, &lookup_chunk(0xae50, &lookup_chunk(0xae51, &record)));
+        let root = lhr_assets::scene_actor_stream::scene2_root(&bytes).unwrap();
+        loader.content.load_programs(root.children().next().unwrap().unwrap(), &arena, &patches).unwrap();
+        (arena, scene, loader)
+    }
+    struct LookupDiagnostic {
+        replacement: Option<crate::script_scheduler::ActorReferenceId>,
+        calls: usize,
+    }
+    impl crate::actor_world::ActorWorldDiagnosticBackend for LookupDiagnostic {
+        fn message_beep(
+            &mut self,
+            world: &mut crate::actor_world::ActorWorld,
+            owner: &mut Option<crate::script_scheduler::ActorReferenceId>,
+            argument: i32,
+        ) -> Result<(), crate::script_lookup::LookupError> {
+            assert_eq!(argument, -1);
+            self.calls += 1;
+            world.unload_actor(*owner);
+            *owner = self.replacement;
+            Ok(())
+        }
+    }
+    #[test]
+    fn source_loaded_global_program_uses_its_actual_mission_actor_and_scene_owners() {
+        crate::native_precision::Pc24PrecisionState::default().run(|| {
+            use crate::actor_world::ActorSource;
+            use crate::frame_lookup::{ModelFrameLookup, SceneRoots};
+            let (mut arena, scene, mut loader) = lookup_fixture(
+                b"commandblock 1\ndim_act 1\ndim_frm 1\nfindactor 0,\"alpha\"\nfindframe 0,\"ALPHA\"\ncommandblock 0",
+                &[b"alpha"],
+            );
+            let actor = loader.content.actors.world.source(ActorSource::Primary)[0].unwrap();
+            let frame = loader.content.actors.world.state(actor).unwrap().frame.unwrap();
+            let count = arena.live_frame_count();
+            let refs = arena.frame(crate::frame_transform::FrameKey(frame.identity())).unwrap().references;
+            let mut memory = Memory::default();
+            loader.content.global_program_game_init(&mut memory).unwrap();
+            let mut diagnostic = LookupDiagnostic { replacement: None, calls: 0 };
+            let sectors = arena.scene(scene).unwrap().sectors;
+            loader.content.call_global_program_process_with_lookup(
+                0, 7, &mut crate::script_scheduler::DispatchBudget::new(16).unwrap(), &mut memory,
+                crate::original_program::ProgramLookupScene {
+                    frames: &ModelFrameLookup::borrow(&arena, true),
+                    roots: Some(SceneRoots {
+                        primary: Some(arena.lookup_reference(sectors[0].frame())),
+                        backdrop: Some(arena.lookup_reference(sectors[1].frame())),
+                    }),
+                    diagnostic: &mut diagnostic,
+                    diagnostic_default_c_locale: true,
+                },
+            ).unwrap();
+            let fields = &loader.content.programs()[0].runtime().unwrap().fields;
+            assert_eq!(fields.actors.as_ref().unwrap()[0].reference(), Ok(Some(&actor)));
+            assert_eq!(fields.frames.as_ref().unwrap()[0].reference(), Ok(Some(&frame)));
+            assert_eq!(fields.program_counter(), 6);
+            assert_eq!(diagnostic.calls, 0);
+            assert_eq!(arena.live_frame_count(), count);
+            assert_eq!(arena.frame(crate::frame_transform::FrameKey(frame.identity())).unwrap().references, refs);
+            assert_eq!(loader.content.actors.world.source(ActorSource::Primary), [Some(actor)]);
+            loader.content.global_program_game_done(&mut memory).unwrap();
+            loader.content.discard_global_program_runtimes_host().unwrap();
+            loader.content.discard_terminal(&mut arena).unwrap();
+            assert_eq!(loader.content.live_allocation_count(), 0);
+            assert!(loader.content.actors.world.state(actor).is_err());
+        });
+    }
+    #[test]
+    fn actual_actorworld_diagnostic_changes_the_real_program_owner_not_a_view_copy() {
+        crate::native_precision::Pc24PrecisionState::default().run(|| {
+            use crate::actor_world::ActorSource;
+            use crate::frame_lookup::ModelFrameLookup;
+            let (mut arena, _scene, mut loader) = lookup_fixture(
+                b"commandblock 1\ndim_act 1\nfindactor 0\ncommandblock 0",
+                &[b"chcipnuti chlapka", b"replacement"],
+            );
+            let actors = loader.content.actors.world.source(ActorSource::Primary);
+            let first = actors[0].unwrap(); let replacement = actors[1].unwrap();
+            loader.content.programs[0].set_owner(Some(first)).unwrap();
+            let mut memory = Memory::default();
+            loader.content.global_program_game_init(&mut memory).unwrap();
+            let mut diagnostic = LookupDiagnostic { replacement: Some(replacement), calls: 0 };
+            loader.content.call_global_program_process_with_lookup(
+                0, 1, &mut crate::script_scheduler::DispatchBudget::new(16).unwrap(), &mut memory,
+                crate::original_program::ProgramLookupScene {
+                    frames: &ModelFrameLookup::borrow(&arena, true), roots: None,
+                    diagnostic: &mut diagnostic, diagnostic_default_c_locale: true,
+                },
+            ).unwrap();
+            let p = &loader.content.programs()[0];
+            assert_eq!(p.owner(), Some(replacement));
+            assert_eq!(p.runtime().unwrap().fields.actors.as_ref().unwrap()[0].reference(), Ok(Some(&replacement)));
+            assert_eq!(diagnostic.calls, 1);
+            assert!(!loader.content.actors.world.source(ActorSource::Primary).contains(&Some(first)));
+            loader.content.global_program_game_done(&mut memory).unwrap();
+            loader.content.discard_global_program_runtimes_host().unwrap();
+            loader.content.discard_terminal(&mut arena).unwrap();
+            assert_eq!(loader.content.live_allocation_count(), 0);
+        });
     }
 }

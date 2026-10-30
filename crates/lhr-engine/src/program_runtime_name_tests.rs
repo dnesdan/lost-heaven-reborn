@@ -134,18 +134,29 @@ fn oversized_name_keeps_allocated_pending_prefix_and_requires_host_discard() {
 }
 
 #[test]
-fn name_decoding_never_pretends_to_execute_lookup_or_record_binding() {
-    for (source, opcode) in [(b"findframe 0,\"x\"".as_slice(), 13), (b"findactor 0,\"x\"".as_slice(), 18), (b"recaddactor 0,\"x\"".as_slice(), 43)] {
+fn named_lookup_requires_a_world_and_record_binding_remains_unsupported() {
+    for (source, opcode) in [
+        (b"dim_frm 1\nfindframe 0,\"x\"".as_slice(), 13),
+        (b"dim_act 1\nfindactor 0,\"x\"".as_slice(), 18),
+        (b"recaddactor 0,\"x\"".as_slice(), 43),
+    ] {
         let mut backend = Probe::default();
         let mut p = program(source, &mut backend);
         p.init_fresh_runtime(&mut backend).unwrap();
+        if opcode != 43 {
+            p.call_owned_process(1, &mut DispatchBudget::new(4).unwrap(), &mut backend).unwrap();
+        }
         let error = p.call_owned_process(7, &mut DispatchBudget::new(4).unwrap(), &mut backend).unwrap_err();
-        assert!(format!("{error:?}").contains(&format!("UnsupportedCommand({opcode})")));
+        if opcode == 43 {
+            assert!(format!("{error:?}").contains("UnsupportedCommand(43)"));
+        } else {
+            assert_eq!(error, RuntimeError::Lookup(crate::script_lookup::LookupError::UnsupportedWorldBackend));
+        }
         let runtime = p.runtime().unwrap();
         assert_eq!(runtime.stage, RuntimeStage::ProcessInterrupted);
-        assert_eq!((runtime.fields.program_counter(), runtime.fields.elapsed), (0, 7));
-        assert!(runtime.fields.actors.is_none());
-        assert!(runtime.fields.frames.is_none());
+        assert_eq!((runtime.fields.program_counter(), runtime.fields.elapsed), (u32::from(opcode != 43), 7));
+        assert_eq!(runtime.fields.actors.is_some(), opcode == 18);
+        assert_eq!(runtime.fields.frames.is_some(), opcode == 13);
         cleanup(&mut p, &mut backend);
     }
 }
