@@ -353,6 +353,9 @@ mod tests {
         working_sizes: Vec<usize>,
         scalar_allocations: usize,
         scalar_releases: usize,
+        fail_name_allocation: bool,
+        name_allocations: usize,
+        name_releases: usize,
     }
     impl RuntimeBackend for Memory {
         fn effect(
@@ -370,6 +373,15 @@ mod tests {
                 }
                 crate::original_program::RuntimeEffect::ReleaseScalar(_) => {
                     self.scalar_releases += 1
+                }
+                crate::original_program::RuntimeEffect::AllocateName => {
+                    if self.fail_name_allocation {
+                        return Err("injected named allocation failure".into());
+                    }
+                    self.name_allocations += 1;
+                }
+                crate::original_program::RuntimeEffect::ReleaseName(_) => {
+                    self.name_releases += 1;
                 }
                 _ => {}
             }
@@ -444,6 +456,7 @@ mod tests {
     fn required_parameter_failure_keeps_earlier_reverse_init_and_blocks_replay_without_prescan() {
         let mut owner = content(&[b"findactor 0,\"person\"", b"dim_frm 3"]);
         let mut memory = Memory::default();
+        memory.fail_name_allocation = true;
         assert!(matches!(
             owner.global_program_game_init(&mut memory),
             Err(GlobalProgramError::Program {
@@ -650,5 +663,33 @@ mod tests {
         owner
             .discard_terminal(&mut crate::model_loading::ModelArena::default())
             .unwrap();
+    }
+
+    #[test]
+    fn actual_global_sources_compile_names_and_release_their_owned_payloads() {
+        let mut owner = content(&[
+            b"findframe 0,\"frame\"",
+            b"findactor 1,\"person\"\nrecaddactor 2",
+        ]);
+        let originals = owner.programs.iter()
+            .map(|p| p.source().unwrap().bytes.clone()).collect::<Vec<_>>();
+        let mut memory = Memory::default();
+        owner.global_program_game_init(&mut memory).unwrap();
+        assert_eq!(memory.name_allocations, 3);
+        assert_eq!(memory.scalar_allocations, 0);
+        for (program, original) in owner.programs.iter().zip(originals) {
+            assert_eq!(program.source().unwrap().bytes, original);
+            assert_eq!(program.runtime().unwrap().stage, crate::original_program::RuntimeStage::Ready);
+            assert_eq!(program.runtime().unwrap().fields.program_counter(), 0);
+            assert!(program.runtime().unwrap().instructions.active().iter().all(|instruction| {
+                instruction.parameter.as_ref().unwrap().name_parameter().is_some()
+            }));
+        }
+        owner.global_program_game_done(&mut memory).unwrap();
+        assert_eq!(memory.name_releases, 3);
+        let reports = owner.discard_global_program_runtimes_host().unwrap();
+        assert!(reports.iter().all(|report| report.resources.name_allocations == 0));
+        owner.discard_terminal(&mut crate::model_loading::ModelArena::default()).unwrap();
+        assert_eq!(owner.live_allocation_count(), 0);
     }
 }
