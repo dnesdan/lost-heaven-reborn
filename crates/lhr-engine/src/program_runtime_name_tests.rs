@@ -136,8 +136,8 @@ fn oversized_name_keeps_allocated_pending_prefix_and_requires_host_discard() {
 #[test]
 fn name_parameters_compile_but_unbound_world_and_recording_are_not_silent_success() {
     for (source, opcode) in [
-        (b"findframe 0,\"x\"".as_slice(), 13),
-        (b"findactor 0,\"x\"".as_slice(), 18),
+        (b"dim_frm 1\nfindframe 0,\"x\"".as_slice(), 13),
+        (b"dim_act 1\nfindactor 0,\"x\"".as_slice(), 18),
         (b"recaddactor 0,\"x\"".as_slice(), 43),
     ] {
         let mut backend = Probe::default();
@@ -155,9 +155,11 @@ fn name_parameters_compile_but_unbound_world_and_recording_are_not_silent_succes
         }
         let runtime = p.runtime().unwrap();
         assert_eq!(runtime.stage, RuntimeStage::ProcessInterrupted);
-        assert_eq!((runtime.fields.program_counter(), runtime.fields.elapsed), (0, 7));
-        assert!(runtime.fields.actors.is_none());
-        assert!(runtime.fields.frames.is_none());
+        let expected_pc = if opcode == 43 { 0 } else { 1 };
+        assert_eq!((runtime.fields.program_counter(), runtime.fields.elapsed),
+                   (expected_pc, 7));
+        assert_eq!(runtime.fields.actors.is_some(), opcode == 18);
+        assert_eq!(runtime.fields.frames.is_some(), opcode == 13);
         cleanup(&mut p, &mut backend);
     }
 }
