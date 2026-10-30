@@ -195,3 +195,21 @@ fn diagnostic_reloads_current_instruction_owner_and_live_bank_after_mutation() {
     assert_eq!(world.diagnostics, 1);
     finish(&mut program, &mut memory);
 }
+
+#[test]
+fn out_of_range_named_lookup_is_the_native_no_op_without_a_world() {
+    let mut memory = Memory::default();
+    let mut program = compiled(
+        b"findframe 99,\"unread\"\nfindactor 99,\"unread\"",
+        &mut memory,
+    );
+    program.call_owned_process(
+        1, &mut DispatchBudget::new(4).unwrap(), &mut memory,
+    ).unwrap();
+    let runtime = program.runtime().unwrap();
+    assert_eq!(runtime.stage, RuntimeStage::Ready);
+    assert_eq!(runtime.fields.program_counter(), 2);
+    assert!(runtime.fields.frames.is_none());
+    assert!(runtime.fields.actors.is_none());
+    finish(&mut program, &mut memory);
+}
