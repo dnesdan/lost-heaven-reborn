@@ -190,11 +190,12 @@ impl<B: RuntimeBackend> Process<'_, B> {
             actors: self.actors,
             frames: self.frames,
         };
-        if index as usize >= if actor_lookup {
+        let count = if actor_lookup {
             registers.actor_register_count()
         } else {
             registers.frame_register_count()
-        } {
+        };
+        if index as usize >= count {
             return Ok(());
         }
         let name = parameter.name()
