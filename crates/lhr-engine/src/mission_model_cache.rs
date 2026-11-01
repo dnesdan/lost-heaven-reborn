@@ -693,6 +693,80 @@ mod tests {
         std::fs::remove_dir_all(path).unwrap();
     }
     #[test]
+    fn empty_installed_hierarchy_miss_and_hit_share_filename_until_last_release() {
+        let (path, installation) = installation_fixture();
+        // Authored minimal static4DS: no materials, no frames, no companion.
+        let mut bytes = b"4DS\0".to_vec();
+        bytes.extend(29u16.to_le_bytes());
+        bytes.extend([0; 13]);
+        let empty_path = path.join("models/empty.4ds");
+        std::fs::write(&empty_path, bytes).unwrap();
+        let mut arena = ModelArena::default();
+        let mut cache = MissionCaches::empty().unwrap();
+        let mut memory = CpuMissionCacheMemory::default();
+        cache
+            .add_dir(MissionCacheKind::Model, b"Models", &mut memory)
+            .unwrap();
+        let first = arena.create_model().unwrap();
+        arena.set_frame_name(first.root(), Some(b"first")).unwrap();
+        cache
+            .open_static_model(&mut arena, &installation, first, b"a1.i3d", &mut memory)
+            .unwrap();
+        let old = arena.model(first).unwrap().frames[0];
+        assert_eq!(
+            cache
+                .open_static_model(&mut arena, &installation, first, b"empty.i3d", &mut memory)
+                .unwrap(),
+            0
+        );
+        assert!(arena.frame(old).is_err());
+        assert!(arena.model(first).unwrap().frames.is_empty());
+        assert!(arena.links(first.root()).unwrap().child.is_none());
+        let cached = cache.model_open_progress().unwrap().cached_source.unwrap();
+        assert!(arena.model(cached).unwrap().frames.is_empty());
+        assert_eq!(
+            cache.model_open_progress().unwrap().phase,
+            ModelCachePhase::Complete
+        );
+        let filename = arena.model_filename(first).unwrap().unwrap();
+        assert_eq!(arena.model_filename(cached).unwrap(), Some(filename));
+        assert_eq!(arena.filename(filename).unwrap().references(), 2);
+        assert_eq!(cache.len(MissionCacheKind::Model), 2);
+        // The hit must use the actual cached model; the source file is gone.
+        std::fs::remove_file(empty_path).unwrap();
+        let hit = arena.create_model().unwrap();
+        arena.set_frame_name(hit.root(), Some(b"hit")).unwrap();
+        let old = arena
+            .open_original_static_model(hit, &installation, "Models\\a3.i3d")
+            .unwrap()
+            .frames()[0];
+        assert_eq!(
+            cache
+                .open_static_model(&mut arena, &installation, hit, b"EMPTY.I3D", &mut memory)
+                .unwrap(),
+            0
+        );
+        assert!(arena.frame(old).is_err());
+        assert!(arena.model(hit).unwrap().frames.is_empty());
+        assert_eq!(arena.frame(first.root()).unwrap().name_bytes, b"first");
+        assert_eq!(arena.frame(hit.root()).unwrap().name_bytes, b"hit");
+        assert_eq!(arena.model_filename(hit).unwrap(), Some(filename));
+        assert_eq!(arena.filename(filename).unwrap().references(), 3);
+        assert_eq!(cache.len(MissionCacheKind::Model), 2);
+        assert!(!cache.is_interrupted(MissionCacheKind::Model));
+        cache
+            .destruct(MissionCacheKind::Model, &mut arena, &mut memory)
+            .unwrap();
+        assert_eq!(memory.live_allocations(), 0);
+        assert_eq!(arena.filename(filename).unwrap().references(), 2);
+        arena.release(first.root()).unwrap();
+        assert_eq!(arena.filename(filename).unwrap().references(), 1);
+        arena.release(hit.root()).unwrap();
+        assert!(arena.filename(filename).is_err());
+        assert_eq!(arena.live_frame_count(), 0);
+        std::fs::remove_dir_all(path).unwrap();
+    }
+    #[test]
     fn zero_limit_evicts_unpinned_but_all_pinned_grows_beyond_limit() {
         for pinned in [false, true] {
             let (path, installation) = installation_fixture();

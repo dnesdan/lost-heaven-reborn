@@ -24,17 +24,27 @@ impl ModelArena {
         self.model(destination)?;
         let mut source_frames = source_model.frames.clone();
         source_frames.sort_by_key(|&key| self.frame(key).ok().and_then(|f| f.source_index));
-        let first = *source_frames.first().ok_or_else(unavailable)?;
-        let backing = self
-            .frame(first)?
-            .source
+        // DuplicateHierarchy33e10 finalizes a zero-child source as well. Parsed
+        // backing is needed only for members; validate live child chains below
+        // even when the owned frame list is empty.
+        let backing = source_frames
+            .first()
+            .map(|&first| {
+                self.frame(first)?
+                    .source
+                    .as_ref()
+                    .cloned()
+                    .ok_or_else(unavailable)
+            })
+            .transpose()?;
+        if backing
             .as_ref()
-            .cloned()
-            .ok_or_else(unavailable)?;
-        if source_frames.len() != backing.frames.len() {
+            .is_some_and(|backing| source_frames.len() != backing.frames.len())
+        {
             return Err(unavailable());
         }
         for (i, &key) in source_frames.iter().enumerate() {
+            let backing = backing.as_ref().ok_or_else(unavailable)?;
             let frame = self.frame(key)?;
             let state = self.state(key)?;
             let original = &backing.frames[i];
@@ -42,7 +52,7 @@ impl ModelArena {
                 || !frame
                     .source
                     .as_ref()
-                    .is_some_and(|s| Arc::ptr_eq(s, &backing))
+                    .is_some_and(|s| Arc::ptr_eq(s, backing))
                 || !matches!(
                     (original.kind, original.visual),
                     (1, Some(0 | 2 | 3 | 4 | 5 | 6)) | (6, None) | (10, None) | (7, None)
@@ -136,6 +146,11 @@ impl ModelArena {
         // Target owner, in source DFS order, for post-SetName relinking.
         let mut deferred_target_pairs = Vec::new();
         let result: Result<(), ModelError> = (|| {
+            let Some(backing) = backing.as_ref() else {
+                // Close/filename sharing already ran; use the same fast-find,
+                // SetName and Update finalization as nonempty hierarchies.
+                return Ok(());
+            };
             // Reuse frame intake without LoadHierarchy's EndLoad root flag store:
             // DuplicateHierarchy preserves the destination root and calls Update.
             let mut content = SharedModelContent {
@@ -149,7 +164,7 @@ impl ModelArena {
             for (index, &source_frame) in source_frames.iter().enumerate() {
                 let billboard = self.frame(source_frame)?.billboard.and_then(|b| b.source);
                 if let Err(error) = self.load_parsed_frame(
-                    &backing,
+                    backing,
                     &mut content.frames,
                     &mut poses,
                     index,
@@ -229,7 +244,7 @@ impl ModelArena {
                     for (glow, material) in glows.iter().zip(materials) {
                         let key = self
                             .visual_resource_owner_mut()?
-                            .duplicate_lensflare_glow_material(&backing, glow.material, material)
+                            .duplicate_lensflare_glow_material(backing, glow.material, material)
                             .map_err(ModelError::LoadedVisual)?;
                         self.frames[dst]
                             .lensflare_materials
@@ -285,7 +300,7 @@ impl ModelArena {
                 .any(|frame| matches!(frame.visual, Some(2 | 3)))
             {
                 let pose =
-                    SinglemeshPose::build(&backing, content.frames(), &mut self.graph, &mut poses)
+                    SinglemeshPose::build(backing, content.frames(), &mut self.graph, &mut poses)
                         .map_err(ModelError::SkinPose)?;
                 self.models[mi].skin_pose = Some(pose);
                 self.models[mi].morph_poses = poses;
@@ -320,9 +335,31 @@ impl ModelArena {
             }
         }
         self.update_frame(destination.root())?;
-        // Cache wrapper cbNullData visits descendants, not the destination root.
-        for key in self.model(destination)?.frames.clone() {
+        // Game5c23a0 EnumFrames(cbClearData, ENUMF_ALL, NULL) visits the live
+        // child hierarchy, including old members retained outside Close. The
+        // callback only clears userdata; it neither destroys nor relinks frames.
+        let mut pending = Vec::new();
+        if let Some(child) = self.links(destination.root())?.child {
+            self.last_destroyed_frame = None;
+            pending.push(child);
+        }
+        let mut visited = std::collections::BTreeSet::new();
+        while let Some(key) = pending.pop() {
+            if !visited.insert(key.0) || visited.len() > 65_536 {
+                return Err(ModelError::OriginalModelOpenUnavailable(
+                    "cache descendant enumeration cycle or quota",
+                ));
+            }
+            // EnumFrames/EnumSubtree save next before the callback and read
+            // child afterwards. No detached model membership list is used.
+            let next = self.links(key)?.next;
             self.set_user_data(key, crate::actor_frames::FrameUserData::Null)?;
+            if let Some(next) = next {
+                pending.push(next);
+            }
+            if let Some(child) = self.links(key)?.child {
+                pending.push(child);
+            }
         }
         Ok(0)
     }
@@ -331,6 +368,283 @@ impl ModelArena {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn empty_source_still_closes_destination_shares_filename_and_updates_root() {
+        for fast_find in [false, true] {
+            let mut arena = ModelArena::default();
+            let source = arena.create_model().unwrap();
+            let destination = arena.create_model().unwrap();
+            arena
+                .allocate_model_filename(source, b"Models/empty.i3d")
+                .unwrap();
+            let filename = arena.model_filename(source).unwrap().unwrap();
+            let child = arena
+                .load_parsed_into_model(destination, self::source())
+                .unwrap()
+                .frames()[0];
+            arena.retain(child).unwrap();
+            arena
+                .set_user_data(
+                    child,
+                    crate::actor_frames::FrameUserData::ExternalRecord(456),
+                )
+                .unwrap();
+            arena
+                .allocate_model_filename(destination, b"Models/old.i3d")
+                .unwrap();
+            let old_filename = arena.model_filename(destination).unwrap().unwrap();
+            arena
+                .set_frame_name(destination.root(), Some(b"destination"))
+                .unwrap();
+            let root_data = crate::actor_frames::FrameUserData::ExternalRecord(123);
+            arena.set_user_data(destination.root(), root_data).unwrap();
+            arena
+                .graph
+                .assign_position(destination.root(), [3., 4., 5.])
+                .unwrap();
+            let updates = arena.state(destination.root()).unwrap().update_count;
+            let capacity = arena.model(destination).unwrap().capacity();
+            let epoch = arena.lifecycle_epoch(destination).unwrap();
+            arena.fast_tree.enabled = fast_find;
+            assert_eq!(
+                arena.duplicate_pristine_cache_model(destination, source),
+                Ok(0)
+            );
+            assert!(arena.model(destination).unwrap().frames.is_empty());
+            assert_eq!(arena.model(destination).unwrap().capacity(), capacity);
+            assert_eq!(arena.lifecycle_epoch(destination).unwrap(), epoch + 1);
+            assert_eq!(arena.lifecycle_epoch(source).unwrap(), 0);
+            assert_eq!(
+                arena.state(destination.root()).unwrap().update_count,
+                updates + 1
+            );
+            assert_eq!(
+                arena.state(destination.root()).unwrap().local.elements[12..15],
+                [3., 4., 5.]
+            );
+            assert_eq!(
+                arena.frame(destination.root()).unwrap().name_bytes,
+                b"destination"
+            );
+            assert_eq!(arena.user_data(destination.root()).unwrap(), root_data);
+            assert_eq!(arena.fast_tree.enabled, fast_find);
+            assert_eq!(arena.model_filename(destination).unwrap(), Some(filename));
+            assert_eq!(arena.filename(filename).unwrap().references(), 2);
+            assert!(arena.filename(old_filename).is_err());
+            // Native Close retains externally held members and their links.
+            assert_eq!(arena.frame(child).unwrap().owner, None);
+            assert_eq!(arena.frame(child).unwrap().references, 1);
+            assert_eq!(
+                arena.user_data(child).unwrap(),
+                crate::actor_frames::FrameUserData::Null
+            );
+            arena.close(source).unwrap();
+            assert_eq!(arena.filename(filename).unwrap().references(), 1);
+            arena.close(destination).unwrap();
+            assert!(arena.filename(filename).is_err());
+            arena.release(child).unwrap();
+            arena.release(source.root()).unwrap();
+            arena.release(destination.root()).unwrap();
+            assert_eq!(arena.live_frame_count(), 0);
+        }
+    }
+
+    #[test]
+    fn nonempty_copy_also_clears_live_external_descendants_without_clearing_root() {
+        let mut arena = ModelArena::default();
+        let source = arena.create_model().unwrap();
+        let destination = arena.create_model().unwrap();
+        arena
+            .load_parsed_into_model(source, self::source())
+            .unwrap();
+        let old = Arc::new(lhr_assets::Model {
+            materials: vec![],
+            frames: vec![
+                super::super::tests::frame(6, None, [0.; 3]),
+                super::super::tests::frame(6, Some(0), [0.; 3]),
+            ],
+        });
+        let old = arena
+            .load_parsed_into_model(destination, old)
+            .unwrap()
+            .frames()
+            .to_vec();
+        let root_data = crate::actor_frames::FrameUserData::ExternalRecord(123);
+        arena.set_user_data(destination.root(), root_data).unwrap();
+        for (index, &key) in old.iter().enumerate() {
+            arena.retain(key).unwrap();
+            arena
+                .set_user_data(
+                    key,
+                    crate::actor_frames::FrameUserData::ExternalRecord(456 + index as u32),
+                )
+                .unwrap();
+        }
+        arena
+            .duplicate_pristine_cache_model(destination, source)
+            .unwrap();
+        assert_eq!(arena.model(destination).unwrap().frames.len(), 1);
+        assert_eq!(arena.user_data(destination.root()).unwrap(), root_data);
+        for &key in &old {
+            assert_eq!(arena.frame(key).unwrap().owner, None);
+            assert_eq!(
+                arena.user_data(key).unwrap(),
+                crate::actor_frames::FrameUserData::Null
+            );
+        }
+        assert_eq!(
+            arena.links(old[0]).unwrap().parent,
+            Some(destination.root())
+        );
+        assert_eq!(arena.links(old[1]).unwrap().parent, Some(old[0]));
+        for model in [source, destination] {
+            arena.close(model).unwrap();
+        }
+        for &key in old.iter().rev() {
+            arena.release(key).unwrap();
+        }
+        arena.release(source.root()).unwrap();
+        arena.release(destination.root()).unwrap();
+        assert_eq!(arena.live_frame_count(), 0);
+    }
+
+    #[test]
+    fn empty_member_list_with_live_children_is_rejected_before_destination_close() {
+        let mut arena = ModelArena::default();
+        let source = arena.create_model().unwrap();
+        let destination = arena.create_model().unwrap();
+        let owner = arena.create_model().unwrap();
+        let child = arena
+            .load_parsed_into_model(owner, self::source())
+            .unwrap()
+            .frames()[0];
+        arena.link_frame(child, Some(source.root()), 0).unwrap();
+        let old = arena
+            .load_parsed_into_model(destination, self::source())
+            .unwrap()
+            .frames()
+            .to_vec();
+        let epoch = arena.lifecycle_epoch(destination).unwrap();
+        let fast_find = arena.fast_tree.enabled;
+        assert!(arena.model(source).unwrap().frames.is_empty());
+        assert_eq!(
+            arena.duplicate_pristine_cache_model(destination, source),
+            Err(ModelError::OriginalModelOpenUnavailable(
+                "non-pristine cache hierarchy"
+            ))
+        );
+        assert_eq!(arena.model(destination).unwrap().frames, old);
+        assert_eq!(arena.lifecycle_epoch(destination).unwrap(), epoch);
+        assert_eq!(arena.fast_tree.enabled, fast_find);
+        arena.link_frame(child, None, 0).unwrap();
+        for model in [owner, source, destination] {
+            arena.close(model).unwrap();
+            arena.release(model.root()).unwrap();
+        }
+        assert_eq!(arena.live_frame_count(), 0);
+    }
+
+    #[test]
+    fn empty_source_keeps_owned_controller_admission_frontier() {
+        use crate::model_animation_runtime::{
+            ModelAnimationDestination, ModelControllerAllocation, ModelControllerAllocationFailure,
+            ModelControllerFactory,
+        };
+        struct Factory;
+        impl ModelControllerFactory for Factory {
+            type Error = std::convert::Infallible;
+            fn allocate(
+                &mut self,
+                owner: ModelAnimationDestination,
+            ) -> Result<Option<ModelControllerAllocation>, Self::Error> {
+                Ok(Some(ModelControllerAllocation::new(owner, false)))
+            }
+            fn allocation_failed(
+                &mut self,
+                _: ModelControllerAllocationFailure,
+            ) -> Result<(), Self::Error> {
+                unreachable!("test factory allocates its actual controller")
+            }
+        }
+        let mut arena = ModelArena::default();
+        let source = arena.create_model().unwrap();
+        let destination = arena.create_model().unwrap();
+        assert_eq!(
+            arena
+                .set_original_model_animation(source, None, 0, 1., 0, &mut Factory)
+                .unwrap(),
+            0
+        );
+        let old = arena
+            .load_parsed_into_model(destination, self::source())
+            .unwrap()
+            .frames()
+            .to_vec();
+        let epoch = arena.lifecycle_epoch(destination).unwrap();
+        assert_eq!(
+            arena.duplicate_pristine_cache_model(destination, source),
+            Err(ModelError::OriginalModelOpenUnavailable(
+                "non-pristine cache hierarchy"
+            ))
+        );
+        assert!(arena.original_model_controller(source).unwrap().is_some());
+        assert_eq!(arena.model(destination).unwrap().frames, old);
+        assert_eq!(arena.lifecycle_epoch(destination).unwrap(), epoch);
+        for model in [source, destination] {
+            arena.close(model).unwrap();
+            arena.release(model.root()).unwrap();
+        }
+        assert_eq!(arena.live_frame_count(), 0);
+    }
+
+    #[test]
+    fn empty_copy_update_error_retains_closed_and_shared_filename_prefix() {
+        for fast_find in [false, true] {
+            let mut arena = ModelArena::default();
+            let source = arena.create_model().unwrap();
+            let destination = arena.create_model().unwrap();
+            arena
+                .allocate_model_filename(source, b"Models/empty.i3d")
+                .unwrap();
+            let filename = arena.model_filename(source).unwrap().unwrap();
+            let old = arena
+                .load_parsed_into_model(destination, self::source())
+                .unwrap()
+                .frames()[0];
+            // An externally owned real light remains linked through Close.
+            // Its UpdateV lazily requests the scaled parent world matrix;
+            // ordinary Model::Update alone does not calculate that cache.
+            let light = arena.create_light().unwrap();
+            arena
+                .link_frame(light, Some(destination.root()), 0)
+                .unwrap();
+            let retained_data = crate::actor_frames::FrameUserData::ExternalRecord(789);
+            arena.set_user_data(light, retained_data).unwrap();
+            arena
+                .graph
+                .assign_scale(destination.root(), [f32::MAX; 3])
+                .unwrap();
+            arena.fast_tree.enabled = fast_find;
+            assert_eq!(
+                arena.duplicate_pristine_cache_model(destination, source),
+                Err(ModelError::Frame(FrameError::NumericDomain("world scale")))
+            );
+            assert!(arena.model(destination).unwrap().frames.is_empty());
+            assert!(arena.frame(old).is_err());
+            assert_eq!(arena.model_filename(destination).unwrap(), Some(filename));
+            assert_eq!(arena.filename(filename).unwrap().references(), 2);
+            assert_eq!(arena.fast_tree.enabled, fast_find);
+            assert_eq!(arena.user_data(light).unwrap(), retained_data);
+            for model in [source, destination] {
+                arena.close(model).unwrap();
+            }
+            arena.release(light).unwrap();
+            arena.release(source.root()).unwrap();
+            arena.release(destination.root()).unwrap();
+            assert!(arena.filename(filename).is_err());
+            assert_eq!(arena.live_frame_count(), 0);
+        }
+    }
     #[test]
     fn disabled_source_frame_is_copied_with_live_native_flag_mask() {
         let mut arena = ModelArena::default();
