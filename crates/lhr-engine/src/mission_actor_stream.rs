@@ -10,6 +10,7 @@ use crate::human_actor::ActorDataReader;
 use crate::model_loading::ModelArena;
 use crate::original_program::{ProgramBackend, ProgramReplacement, ProgramSliceReader};
 use crate::script_scheduler::{ActorReferenceId, FrameReferenceId};
+use crate::traffic_generator::TrafficChunkReader;
 use lhr_assets::scene_actor_stream::{scene2_root, Chunk};
 use std::collections::BTreeMap;
 
@@ -341,7 +342,11 @@ impl MissionActorLoader {
                             let key = validate_frame(arena, frame)?;
                             publish_actor_data(arena, key, actor)?;
                         } else {
-                            if kind == 4 {
+                            if kind == 18 {
+                                self.world
+                                    .release_traffic_generator(actor, &mut frames, backend)
+                                    .map_err(|e| format!("{e:?}"))?;
+                            } else if kind == 4 {
                                 self.world
                                     .release_car(actor, &mut frames, backend)
                                     .map_err(|e| format!("{e:?}"))?;
@@ -373,8 +378,18 @@ impl MissionActorLoader {
             }
             0xae24 => {
                 if let Some(actor) = self.current_actor {
-                    if !field.payload.is_empty() {
+                    if !field.payload.is_empty() || self.current_kind == Some(18) {
                         self.pending_load_data = Some(field.payload.to_vec());
+                        if self.current_kind == Some(18) {
+                            let mut reader = TrafficChunkReader::new(field.payload);
+                            let result =
+                                self.world
+                                    .load_traffic_generator_data(actor, &mut reader, backend);
+                            self.cursor = field.offset + 6 + reader.position();
+                            result.map_err(|e| format!("{e:?}"))?;
+                            self.pending_load_data = None;
+                            return Ok(());
+                        }
                         if self.current_kind == Some(4) {
                             let mut reader = ActorDataReader::new(field.payload);
                             let result = self.world.load_car_data(actor, &mut reader, arena);

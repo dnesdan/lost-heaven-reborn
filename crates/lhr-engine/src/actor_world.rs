@@ -29,6 +29,12 @@ use crate::player_actor::{PlayerSeed, PlayerState};
 use crate::railway_actor::{RailwayAllocation, RailwaySeed, RailwayState, RailwayVectorSlot};
 use crate::script_lookup::{ActorLifetime, LookupError, LookupWorldBackend, MAX_ACTOR_SOURCES};
 use crate::script_scheduler::{ActorReferenceId, FrameReferenceId};
+use crate::traffic_generator::{
+    TrafficAllocationId, TrafficBackingKind, TrafficGeneratorSeed, TrafficGeneratorState,
+};
+
+#[path = "actor_world_traffic.rs"]
+mod traffic;
 
 /// Bytes/fields left untouched by the base constructor. There is deliberately
 /// no default: the allocator/caller must supply the actual storage seed.
@@ -101,6 +107,7 @@ pub enum ActorVtable {
     Player,
     Entity,
     Car,
+    TrafficGenerator,
     Opaque(u32),
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -126,6 +133,7 @@ struct OwnedActor {
     player: Option<PlayerState>,
     entity: Option<EntityState>,
     car: Option<CarActorState>,
+    traffic: Option<TrafficGeneratorState>,
 }
 /// Untouched native detector storage, including the embedded program seed.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -248,6 +256,7 @@ pub enum ActorWorldError {
     NotHuman,
     NotPlayer,
     NotEntity,
+    NotTrafficGenerator,
     HumanData(HumanDataError),
     Program(ProgramError),
     Effect { stage: &'static str, detail: String },
@@ -353,6 +362,23 @@ pub trait ActorFrameBackend {
 /// seed does not construct a frame, BODY or mission payload.
 pub trait ActorAllocationBackend {
     fn allocate_actor(&mut self, bytes: u32) -> Result<Option<(u32, BaseActorSeed)>, String>;
+    fn allocate_traffic_generator(
+        &mut self,
+        _bytes: u32,
+    ) -> Result<Option<(u32, BaseActorSeed, TrafficGeneratorSeed)>, String> {
+        Err("traffic generator allocation unavailable".into())
+    }
+    /// Actual heap effect; content storage is published into the typed actor.
+    /// Calls do not reenter actor mutation. Err/unwind may retain a heap lease.
+    fn allocate_traffic_backing(
+        &mut self,
+        _world: &ActorWorld,
+        _actor: ActorReferenceId,
+        _kind: TrafficBackingKind,
+        _bytes: u32,
+    ) -> Result<Option<TrafficAllocationId>, String> {
+        Err("traffic backing allocation unavailable".into())
+    }
     fn allocate_car(
         &mut self,
         _bytes: u32,
@@ -385,9 +411,30 @@ pub trait ActorAllocationBackend {
         Err("detector allocation unavailable".into())
     }
 }
-/// Native scalar deleting-wrapper free dependency. Failed host frees retain
-/// backing ownership in this backend; object destruction has already completed.
+/// Native backing/free dependencies. A failed scalar `free_actor` retains its
+/// backend lease after object destruction. Traffic's reached resource frees may
+/// instead have uncertain post-effect failure, as specified on that method.
 pub trait ActorDeallocationBackend {
+    /// May Err/unwind after the actual free. The caller latches interruption
+    /// before entry and must use explicit host disposal, never replay this free.
+    fn free_traffic_backing(
+        &mut self,
+        _world: &ActorWorld,
+        _actor: ActorReferenceId,
+        _kind: TrafficBackingKind,
+        _allocation: Option<TrafficAllocationId>,
+    ) -> Result<(), String> {
+        Err("traffic backing free unavailable".into())
+    }
+    /// Explicit host terminal disposal of still-live actual heap leases. This
+    /// must not replay original free callbacks after an uncertain prior effect.
+    fn discard_traffic_backings_host(
+        &mut self,
+        _world: &ActorWorld,
+        _actor: ActorReferenceId,
+    ) -> Result<(), String> {
+        Err("traffic host disposal unavailable".into())
+    }
     /// Constructor-domain collections are genuinely empty. The native free
     /// boundary is still called in order, including its null allocation.
     fn free_human_collection(
@@ -623,6 +670,7 @@ impl ActorWorld {
             || self.actors[i].railway.is_some()
             || self.actors[i].human.is_some()
             || self.actors[i].car.is_some()
+            || self.actors[i].traffic.is_some()
         {
             return Err(ActorWorldError::UnsupportedVtable);
         }
@@ -818,6 +866,7 @@ impl ActorWorld {
             player: None,
             entity: None,
             car: None,
+            traffic: None,
         });
         self.actor_count = self.actor_count.wrapping_add(1);
         self.add_actor_to_global(Some(actor), backend)
@@ -1937,6 +1986,23 @@ impl ActorWorld {
                 .map(|(identity, base, seed)| self.construct_player(identity, base, seed, backend))
                 .transpose();
         }
+        if kind == 18 {
+            let allocation =
+                backend
+                    .allocate_traffic_generator(0xb8)
+                    .map_err(|detail| ActorCreationError {
+                        actor: None,
+                        source: ActorWorldError::Effect {
+                            stage: "allocate_traffic_generator",
+                            detail,
+                        },
+                    })?;
+            return allocation
+                .map(|(identity, base, seed)| {
+                    self.construct_traffic_generator(identity, base, seed, backend)
+                })
+                .transpose();
+        }
         if kind == 4 {
             let allocation = backend
                 .allocate_car(0x221c)
@@ -2056,7 +2122,13 @@ impl ActorWorld {
         {
             return Ok(false);
         }
-        self.actors[i].phase = ActorPhase::Initializing;
+        self.actors[i].phase = if self.actors[i].traffic.is_some() {
+            // Latch before base Init callbacks, including caught unwind. The
+            // derived Init4393a0 has no effects beyond this actual base call.
+            ActorPhase::InitializationInterrupted
+        } else {
+            ActorPhase::Initializing
+        };
         let mut result = self.init_inner(actor, frame, backend);
         let i = self.index(actor)?;
         if matches!(result, Ok(true)) {
@@ -2168,6 +2240,7 @@ impl ActorWorld {
             || self.actors[i].railway.is_some()
             || self.actors[i].human.is_some()
             || self.actors[i].car.is_some()
+            || self.actors[i].traffic.is_some()
         {
             return Err(ActorWorldError::UnsupportedVtable);
         }
@@ -2179,7 +2252,11 @@ impl ActorWorld {
         backend: &mut B,
     ) -> Result<(), ActorWorldError> {
         let i = self.index(actor)?;
-        self.actors[i].phase = ActorPhase::Destroying;
+        self.actors[i].phase = if self.actors[i].traffic.is_some() {
+            ActorPhase::DestructionInterrupted
+        } else {
+            ActorPhase::Destroying
+        };
         self.actors[i].state.vtable = ActorVtable::Base;
         self.actor_count = self.actor_count.wrapping_sub(1);
         self.remove_from_manager(actor)?;
@@ -3291,7 +3368,7 @@ mod tests {
                 ] {
                     assert!(w.source(source).is_empty());
                 }
-            } else if ![1, 2, 4, 5, 8, 27].contains(&kind) {
+            } else if ![1, 2, 4, 5, 8, 18, 27].contains(&kind) {
                 assert_eq!(
                     result.unwrap_err().source,
                     ActorWorldError::UnsupportedKind(kind)

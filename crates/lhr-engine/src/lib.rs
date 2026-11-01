@@ -151,6 +151,7 @@ pub mod singlemesh_deformation;
 pub mod singlemesh_pose;
 pub mod singlemorph_state;
 pub mod startup_asset_backend;
+pub mod traffic_generator;
 #[path = "car_runtime_simulation_effects.rs"]
 pub mod vehicle_runtime_effects;
 

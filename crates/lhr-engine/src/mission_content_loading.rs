@@ -18,6 +18,9 @@ use crate::original_program::*;
 use crate::player_actor::PlayerSeed;
 use crate::railway_actor::{RailwayAllocation, RailwaySeed, RailwayVectorSlot};
 use crate::script_scheduler::ActorReferenceId;
+use crate::traffic_generator::{
+    TrafficAllocationId, TrafficBackingKind, TrafficGeneratorSeed, TrafficHeap,
+};
 use lhr_assets::scene_actor_stream::Chunk;
 use std::collections::BTreeMap;
 
@@ -98,6 +101,7 @@ impl MissionContentOwner {
             + self.memory.collections.len()
             + self.memory.programs.len()
             + self.actors.world.live_car_allocation_count()
+            + self.memory.traffic_heap.live_allocations()
     }
     pub fn live_car_allocation_count(&self) -> usize {
         self.actors.world.live_car_allocation_count()
@@ -267,6 +271,13 @@ impl MissionContentOwner {
                 ActorVtable::Railway => {
                     world.delete_railway(actor, 1, &mut frames, &mut self.memory)
                 }
+                ActorVtable::TrafficGenerator => {
+                    if world.phase(actor).map_err(|e| format!("{e:?}"))? == ActorPhase::Ready {
+                        world.delete_traffic_generator(actor, 1, &mut frames, &mut self.memory)
+                    } else {
+                        world.discard_traffic_generator_host(actor, &mut frames, &mut self.memory)
+                    }
+                }
                 ActorVtable::Car => world.delete_car(actor, 1, &mut frames, &mut self.memory),
                 ActorVtable::Human => world.delete_human(actor, 1, &mut frames, &mut self.memory),
                 ActorVtable::Player => world.delete_player(actor, 1, &mut frames, &mut self.memory),
@@ -352,6 +363,7 @@ struct ContentMemory {
     actors: BTreeMap<u32, ActorStorageLease>,
     collections: BTreeMap<u32, (ActorSource, Vec<u8>)>,
     programs: BTreeMap<u64, (ProgramBuffer, Vec<u8>)>,
+    traffic_heap: TrafficHeap,
 }
 impl ContentMemory {
     fn allocation(&mut self, bytes: u32) -> Result<(u32, Vec<u8>), String> {
@@ -389,6 +401,33 @@ impl ContentMemory {
     }
 }
 impl ActorAllocationBackend for ContentMemory {
+    fn allocate_traffic_generator(
+        &mut self,
+        bytes: u32,
+    ) -> Result<Option<(u32, BaseActorSeed, TrafficGeneratorSeed)>, String> {
+        Ok(Some((
+            self.actor(bytes, 0xb8)?,
+            base_seed(),
+            TrafficGeneratorSeed {
+                // Explicit existing source-host zero seed policy; not original heap
+                // values. Source-unwritten record/weight allocations stay unknown.
+                bytes_71_73: [0; 3],
+                word_78: 0,
+                words_80_84: [0; 2],
+                word_a4: 0,
+                words_ac_b4: [0; 3],
+            },
+        )))
+    }
+    fn allocate_traffic_backing(
+        &mut self,
+        _: &ActorWorld,
+        actor: ActorReferenceId,
+        kind: TrafficBackingKind,
+        bytes: u32,
+    ) -> Result<Option<TrafficAllocationId>, String> {
+        self.traffic_heap.allocate(actor, kind, bytes).map(Some)
+    }
     fn allocate_car(
         &mut self,
         bytes: u32,
@@ -496,6 +535,23 @@ impl ActorCollectionBackend for ContentMemory {
     }
 }
 impl ActorDeallocationBackend for ContentMemory {
+    fn free_traffic_backing(
+        &mut self,
+        _: &ActorWorld,
+        actor: ActorReferenceId,
+        kind: TrafficBackingKind,
+        allocation: Option<TrafficAllocationId>,
+    ) -> Result<(), String> {
+        self.traffic_heap.free(actor, kind, allocation)
+    }
+    fn discard_traffic_backings_host(
+        &mut self,
+        _: &ActorWorld,
+        actor: ActorReferenceId,
+    ) -> Result<(), String> {
+        self.traffic_heap.discard_actor_host(actor);
+        Ok(())
+    }
     fn free_human_collection(
         &mut self,
         world: &ActorWorld,
@@ -644,6 +700,110 @@ mod human_source_tests {
     use crate::model_loading::tests::frame;
     use lhr_assets::scene_actor_stream::scene2_root;
     use std::sync::Arc;
+    #[test]
+    fn traffic_scene_actor_record_uses_real_factory_attachment_payload_and_terminal_heap() {
+        for version in [0u32, 1] {
+            let (mut arena, model, mut map, _) = setup(true);
+            let mut owner = MissionContentOwner::default();
+            let mut payload = version.to_le_bytes().to_vec();
+            payload.push(0x7e);
+            for word in [1u32, 2, 3, 4, 5] {
+                payload.extend(word.to_le_bytes());
+            }
+            if version == 1 {
+                payload.extend(77u32.to_le_bytes());
+            }
+            payload.extend(1u32.to_le_bytes());
+            payload.extend(0u8..17);
+            payload.extend(0xfffffff0u32.to_le_bytes());
+            let bytes = input(18, &payload);
+            owner
+                .load_actors(
+                    collection(&bytes),
+                    &mut arena,
+                    &mut map,
+                    &crate::program_patch::ProgramPatchTable::default(),
+                )
+                .unwrap();
+            let actor = owner.actors.current_actor.unwrap();
+            let world = &owner.actors.world;
+            assert_eq!(
+                world.state(actor).unwrap().vtable,
+                ActorVtable::TrafficGenerator
+            );
+            assert_eq!(
+                world.state(actor).unwrap().frame,
+                Some(arena.lookup_reference(model.root()))
+            );
+            assert_eq!(world.state(actor).unwrap().byte_66, 1);
+            assert_eq!(world.source(ActorSource::Primary), &[Some(actor)]);
+            assert!(world.source(ActorSource::Active).is_empty());
+            assert_eq!(
+                world.traffic_generator(actor).unwrap().total_bits(),
+                Some(if version == 0 { 0xfffffff0 } else { 77 })
+            );
+            let FrameUserData::ActorRecord(record) = arena.user_data(model.root()).unwrap() else {
+                panic!("published actual actor record")
+            };
+            assert_eq!(arena.actor_data_record(record).unwrap(), Some(actor));
+            assert_eq!(owner.memory.traffic_heap.live_allocations(), 3);
+            assert!(owner.actors.pending_load_data.is_none());
+            owner.discard_terminal(&mut arena).unwrap();
+            assert_eq!(owner.live_allocation_count(), 0);
+            assert!(owner.terminal_complete());
+            assert_eq!(
+                owner.actors.world.inspect(actor).unwrap().0,
+                ActorPhase::Dead
+            );
+            arena.close(model).unwrap();
+            arena.release(model.root()).unwrap();
+            assert_eq!(arena.live_frame_count(), 0);
+        }
+    }
+    #[test]
+    fn traffic_empty_or_short_version_keeps_published_source_and_requires_explicit_host_terminal_disposal(
+    ) {
+        for payload in [&[][..], &[1, 0][..]] {
+            let (mut arena, model, mut map, _) = setup(true);
+            let mut owner = MissionContentOwner::default();
+            let bytes = input(18, payload);
+            let collection = collection(&bytes);
+            let field = collection
+                .children()
+                .next()
+                .unwrap()
+                .unwrap()
+                .children()
+                .nth(2)
+                .unwrap()
+                .unwrap();
+            assert!(owner
+                .load_actors(
+                    collection,
+                    &mut arena,
+                    &mut map,
+                    &crate::program_patch::ProgramPatchTable::default()
+                )
+                .is_err());
+            let actor = owner.actors.current_actor.unwrap();
+            assert_eq!(
+                owner.actors.world.phase(actor),
+                Ok(ActorPhase::LoadingInterrupted)
+            );
+            assert_eq!(owner.cursor, field.offset + 6);
+            assert_eq!(owner.actors.pending_load_data.as_deref(), Some(payload));
+            assert_eq!(
+                owner.actors.world.source(ActorSource::Primary),
+                &[Some(actor)]
+            );
+            owner.discard_terminal(&mut arena).unwrap();
+            assert_eq!(owner.live_allocation_count(), 0);
+            assert!(owner.terminal_complete());
+            arena.close(model).unwrap();
+            arena.release(model.root()).unwrap();
+            assert_eq!(arena.live_frame_count(), 0);
+        }
+    }
     fn bind_actual_two_slot_model_controller(
         arena: &mut ModelArena,
         model: crate::model_loading::ModelKey,
