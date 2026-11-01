@@ -177,6 +177,27 @@ impl MissionContentOwner {
         budget: &mut crate::script_scheduler::DispatchBudget,
         backend: &mut B,
     ) -> Result<NamedGlobalProgramOutcome, NamedGlobalProgramError> {
+        self.named_program_run_admission(name)?;
+        if game
+            .run_game_global(self, name, budget, backend)
+            .map_err(NamedGlobalProgramError::GameOwner)?
+        {
+            return Ok(NamedGlobalProgramOutcome::GameHandled);
+        }
+        let Some(index) = self.named_mission_program_index(name)? else {
+            return Ok(NamedGlobalProgramOutcome::NoMatch);
+        };
+        self.programs
+            .get_mut(index)
+            .ok_or(NamedGlobalProgramError::MissingCurrentProgram(index))?
+            .call_owned_subroutine(budget, backend)
+            .map_err(|error| NamedGlobalProgramError::Runtime { index, error })?;
+        Ok(NamedGlobalProgramOutcome::MissionHandled { index })
+    }
+    pub(super) fn named_program_run_admission(
+        &self,
+        name: &[u8],
+    ) -> Result<(), NamedGlobalProgramError> {
         self.available()
             .map_err(NamedGlobalProgramError::SourceUnavailable)?;
         if self.pending_program.is_some() {
@@ -185,19 +206,15 @@ impl MissionContentOwner {
         if !name.is_ascii() || name.contains(&0) {
             return Err(NamedGlobalProgramError::NameOutsideDomain);
         }
-        if game
-            .run_game_global(self, name, budget, backend)
-            .map_err(NamedGlobalProgramError::GameOwner)?
-        {
-            return Ok(NamedGlobalProgramOutcome::GameHandled);
-        }
-        // The game call may replace the mission's actual collection. Do not
-        // cache its members or names across that call.
-        self.available()
-            .map_err(NamedGlobalProgramError::SourceUnavailable)?;
-        if self.pending_program.is_some() {
-            return Err(NamedGlobalProgramError::PendingSource);
-        }
+        Ok(())
+    }
+    pub(super) fn named_mission_program_index(
+        &self,
+        name: &[u8],
+    ) -> Result<Option<usize>, NamedGlobalProgramError> {
+        // Game execution may replace the actual collection. Resolve names and
+        // members only after that call, in the original reverse priority.
+        self.named_program_run_admission(name)?;
         let count = self.programs.len();
         for index in (0..count).rev() {
             let program = self
@@ -212,15 +229,10 @@ impl MissionContentOwner {
                 return Err(NamedGlobalProgramError::NameOutsideDomain);
             }
             if candidate.eq_ignore_ascii_case(name) {
-                self.programs
-                    .get_mut(index)
-                    .ok_or(NamedGlobalProgramError::MissingCurrentProgram(index))?
-                    .call_owned_subroutine(budget, backend)
-                    .map_err(|error| NamedGlobalProgramError::Runtime { index, error })?;
-                return Ok(NamedGlobalProgramOutcome::MissionHandled { index });
+                return Ok(Some(index));
             }
         }
-        Ok(NamedGlobalProgramOutcome::NoMatch)
+        Ok(None)
     }
     /// Explicit additional host cleanup, not GlobalProgramGameDone. Invoke
     /// before source terminal disposal; callbacks and native cleanup are not

@@ -495,6 +495,18 @@ pub struct ActorWorld {
     car_services: Option<CarActorServices>,
 }
 impl ActorWorld {
+    pub(crate) fn lookup_actor_frame(
+        &self,
+        actor: ActorReferenceId,
+    ) -> Result<Option<FrameReferenceId>, LookupError> {
+        let i = self
+            .index(actor)
+            .map_err(|_| LookupError::StaleActor(actor))?;
+        if self.actors[i].phase != ActorPhase::Ready {
+            return Err(LookupError::Backend("actor lifecycle is incomplete".into()));
+        }
+        Ok(self.actors[i].state.frame)
+    }
     pub fn identity(&self) -> ActorWorldIdentity {
         self.identity
     }
@@ -2491,14 +2503,7 @@ impl LookupWorldBackend for ActorWorldLookup<'_> {
         &self,
         actor: ActorReferenceId,
     ) -> Result<Option<FrameReferenceId>, LookupError> {
-        let i = self
-            .world
-            .index(actor)
-            .map_err(|_| LookupError::StaleActor(actor))?;
-        if self.world.actors[i].phase != ActorPhase::Ready {
-            return Err(LookupError::Backend("actor lifecycle is incomplete".into()));
-        }
-        Ok(self.world.actors[i].state.frame)
+        self.world.lookup_actor_frame(actor)
     }
     fn primary(&self) -> Result<&[Option<ActorReferenceId>], LookupError> {
         Ok(self.world.source(ActorSource::Primary))

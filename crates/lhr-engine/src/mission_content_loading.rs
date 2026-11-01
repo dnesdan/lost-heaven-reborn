@@ -23,10 +23,16 @@ use std::collections::BTreeMap;
 
 #[path = "mission_program_lifecycle.rs"]
 mod global_program_lifecycle;
+#[path = "mission_program_world.rs"]
+mod program_world;
 pub use global_program_lifecycle::{
     finish_global_programs, initialize_global_programs, GameGlobalProgramRunner,
     GlobalProgramDiscard, GlobalProgramError, GlobalProgramOperation, GlobalProgramOwner,
     MissionGlobalProgramError, NamedGlobalProgramError, NamedGlobalProgramOutcome,
+};
+pub use program_world::{
+    GameGlobalProgramWorldRunner, MissionProgramDiagnostic, MissionProgramWorldContext,
+    ProgramWorldLocales,
 };
 
 /// One actual source owner shared by every reached actor/program root.
