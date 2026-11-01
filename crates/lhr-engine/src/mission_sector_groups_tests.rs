@@ -287,7 +287,7 @@ fn actual_session_fills_world_sectors_before_scene2_and_preserves_normal_disposa
     let mut session = fixture.session();
     assert_eq!(load(&mut session), Ok(()), "{:?}", session.failure());
     assert_eq!(session.phase(), MissionLoadPhase::PrefixComplete);
-    let scene = session.scene().unwrap();
+    let scene = session.scene().unwrap().unwrap();
     let sectors = session.arena().scene(scene).unwrap().sectors;
     let loaded = SectorKey(session.world_progress().unwrap().frames()[0]);
     for sector in [sectors[0], loaded] {
@@ -307,7 +307,7 @@ fn later_scene2_failure_keeps_group_changes_and_does_not_repeat_invalidation() {
     let mut session = fixture.session();
     assert_eq!(load(&mut session), Err(MissionLoadCallError::Stopped));
     assert_eq!(session.phase(), MissionLoadPhase::Scene2Input);
-    let scene = session.scene().unwrap();
+    let scene = session.scene().unwrap().unwrap();
     let primary = session.arena().scene(scene).unwrap().sectors[0];
     let loaded = SectorKey(session.world_progress().unwrap().frames()[0]);
     assert_eq!(bits(session.arena(), loaded), u32::MAX);
@@ -339,7 +339,7 @@ fn failed_world_never_enters_group_initialization() {
     assert_eq!(session.phase(), MissionLoadPhase::World);
     let primary = session
         .arena()
-        .scene(session.scene().unwrap())
+        .scene(session.scene().unwrap().unwrap())
         .unwrap()
         .sectors[0];
     assert_eq!(bits(session.arena(), primary), 0);

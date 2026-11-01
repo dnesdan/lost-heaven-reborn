@@ -14,6 +14,11 @@ use crate::game_camera_projection::GameCameraProjection;
 use crate::host_scene_adapters::InstallationImages;
 use crate::i3d_object::{lightmap_atlas::AtlasStatistics, LitStorageCounts};
 use crate::itexture::{CpuTextureStorage, TextureError, TextureResources};
+use crate::mission_content_loading::{
+    GameGlobalProgramWorldRunner, MissionGlobalProgramError, MissionProgramDiagnostic,
+    MissionProgramWorldContext, NamedGlobalProgramError, NamedGlobalProgramOutcome,
+    ProgramWorldLocales,
+};
 use crate::mission_resources::{
     CacheMemoryError, CpuMissionCacheMemory, MissionCacheError, MissionCacheKind, MissionCaches,
 };
@@ -25,6 +30,7 @@ use crate::program_patch::{ProgramPatchStartup, ProgramPatchStartupError};
 use crate::runtime_audio::{AudioError, RuntimeAudio};
 use crate::scene_ownership::SceneKey;
 use crate::scene_resources::{SceneCpuCloseReport, SceneResourceError, SceneResources};
+use crate::script_scheduler::{DispatchBudget, FrameReferenceId};
 use std::convert::Infallible;
 
 #[path = "mission_sector_groups.rs"]
@@ -198,6 +204,7 @@ pub enum MissionDiscardCause {
     UnregisteredListener(DriverSceneError<Infallible>),
     Audio(AudioError),
     Diagnostics(MissionOwnerDiagnosticsError),
+    SceneOwner(MissionSceneSelectionError),
     RegisteredScene(DriverSceneError<Infallible>),
     UnregisteredScene(SceneResourceError),
     DriverRegistry(DriverSceneError<Infallible>),
@@ -208,6 +215,16 @@ pub enum MissionDiscardCause {
 pub enum MissionOwnerDiagnosticsError {
     Audio(AudioError),
     SoundRegistry(SoundError),
+}
+
+/// An absent Scene is `Ok(None)`; a selected invalid owner is never absence.
+#[derive(Debug)]
+pub enum MissionSceneSelectionError {
+    ForeignReference(FrameReferenceId),
+    InvalidScene {
+        reference: FrameReferenceId,
+        error: ModelError,
+    },
 }
 
 impl MissionOwnedCounts {
@@ -330,7 +347,7 @@ pub struct MissionLoadSession {
     precision: Pc24PrecisionState,
     phase: MissionLoadPhase,
     entered: bool,
-    scene: Option<SceneKey>,
+    scene: Option<FrameReferenceId>,
     world: Option<CpuSceneWorldProgress>,
     partial_map: Option<SceneLoadMapPrefix>,
     loader: Option<MissionSceneLoader>,
@@ -373,21 +390,109 @@ impl MissionLoadSession {
         })
     }
 
-    fn global_program_admission(
-        &self,
-    ) -> Result<(), crate::mission_content_loading::MissionGlobalProgramError> {
+    fn global_program_source_admission(&self) -> Result<(), String> {
         if self.phase != MissionLoadPhase::PrefixComplete
             || self.discard.phase != MissionDiscardPhase::NotStarted
             || self.loader.is_none()
         {
             return Err(
-                crate::mission_content_loading::MissionGlobalProgramError::SourceUnavailable(
-                    "global programs require completed source prefix before terminal disposal"
-                        .into(),
-                ),
+                "global programs require completed source prefix before terminal disposal".into(),
             );
         }
         Ok(())
+    }
+    fn global_program_admission(&self) -> Result<(), MissionGlobalProgramError> {
+        self.global_program_source_admission()
+            .map_err(MissionGlobalProgramError::SourceUnavailable)
+    }
+    /// Execute one already initialized source-owned program against this
+    /// session's actual actors, arena and mutable Scene selection. Required
+    /// effects/diagnostics remain supplied by the caller; no scheduler runs.
+    pub fn process_program_in_world<B, D>(
+        &mut self,
+        index: usize,
+        delta: i32,
+        budget: &mut DispatchBudget,
+        effects: &mut B,
+        diagnostic: &mut D,
+        locales: ProgramWorldLocales,
+    ) -> Result<(), MissionGlobalProgramError>
+    where
+        B: crate::original_program::RuntimeBackend,
+        D: MissionProgramDiagnostic,
+    {
+        self.global_program_admission()?;
+        Pc24PrecisionState::run_owner(
+            self,
+            |session| &mut session.precision,
+            |session| {
+                let scene = session.scene.as_mut().ok_or_else(|| {
+                    MissionGlobalProgramError::SourceUnavailable("session Scene unavailable".into())
+                })?;
+                session
+                    .loader
+                    .as_mut()
+                    .unwrap()
+                    .content
+                    .process_program_in_world(
+                        index,
+                        delta,
+                        budget,
+                        &mut MissionProgramWorldContext::new(
+                            &mut session.arena,
+                            scene,
+                            effects,
+                            diagnostic,
+                            locales,
+                        ),
+                    )
+            },
+        )
+    }
+    /// Required Game-global execution precedes current reverse-priority mission
+    /// fallback. Both use the same retained session world and Scene slot.
+    pub fn global_program_run_in_world<B, D, G>(
+        &mut self,
+        name: &[u8],
+        game: &mut G,
+        budget: &mut DispatchBudget,
+        effects: &mut B,
+        diagnostic: &mut D,
+        locales: ProgramWorldLocales,
+    ) -> Result<NamedGlobalProgramOutcome, NamedGlobalProgramError>
+    where
+        B: crate::original_program::RuntimeBackend,
+        D: MissionProgramDiagnostic,
+        G: GameGlobalProgramWorldRunner<B, D>,
+    {
+        self.global_program_source_admission()
+            .map_err(NamedGlobalProgramError::SourceUnavailable)?;
+        Pc24PrecisionState::run_owner(
+            self,
+            |session| &mut session.precision,
+            |session| {
+                let scene = session.scene.as_mut().ok_or_else(|| {
+                    NamedGlobalProgramError::SourceUnavailable("session Scene unavailable".into())
+                })?;
+                session
+                    .loader
+                    .as_mut()
+                    .unwrap()
+                    .content
+                    .global_program_run_in_world(
+                        name,
+                        game,
+                        budget,
+                        &mut MissionProgramWorldContext::new(
+                            &mut session.arena,
+                            scene,
+                            effects,
+                            diagnostic,
+                            locales,
+                        ),
+                    )
+            },
+        )
     }
     /// Explicit native global-program loop on this session's actual source
     /// owners. This does not run actor/Game Init or start script scheduling.
@@ -463,15 +568,37 @@ impl MissionLoadSession {
     pub fn failure(&self) -> Option<&MissionLoadFailure> {
         self.failure.as_ref()
     }
-    /// Historical identity; after successful terminal disposal it is stale.
-    pub fn scene(&self) -> Option<SceneKey> {
+    /// Resolve only the current live Scene in this session's actual arena.
+    /// Callback redirection to a foreign, stale or non-Scene owner is an error.
+    pub fn scene(&self) -> Result<Option<SceneKey>, MissionSceneSelectionError> {
+        self.scene
+            .map(|reference| {
+                let key = SceneKey(crate::frame_transform::FrameKey(reference.identity()));
+                if self.arena.lookup_reference(key.root()) != reference {
+                    return Err(MissionSceneSelectionError::ForeignReference(reference));
+                }
+                self.arena.scene(key).map_err(|error| {
+                    MissionSceneSelectionError::InvalidScene { reference, error }
+                })?;
+                Ok(key)
+            })
+            .transpose()
+    }
+    /// The single retained Scene selection, including callback redirection.
+    /// Execution and disposal validate its actual arena/type when reached.
+    pub fn scene_reference(&self) -> Option<FrameReferenceId> {
         self.scene
     }
-    /// Retained CPU Close evidence for the actual Scene owner. The native
-    /// device virtual remains outside this headless admission.
+    /// Retained CPU Close evidence can outlive its Scene. Namespace validation
+    /// still precedes this historical report lookup; no live owner is resolved.
+    /// The native device virtual remains outside this headless admission.
     pub fn scene_close_report(&self) -> Option<SceneCpuCloseReport> {
-        self.scene
-            .and_then(|scene| self.resources.cpu_close_report(scene))
+        self.scene.and_then(|reference| {
+            let key = SceneKey(crate::frame_transform::FrameKey(reference.identity()));
+            (self.arena.lookup_reference(key.root()) == reference)
+                .then(|| self.resources.cpu_close_report(key))
+                .flatten()
+        })
     }
     pub fn driver(&self) -> &DriverSceneOwner {
         &self.driver
@@ -610,11 +737,13 @@ impl MissionLoadSession {
             NativeSceneSoundDriver::Initialized,
         ) {
             Ok(scene) => {
-                self.scene = Some(scene);
+                self.scene = Some(self.arena.lookup_reference(scene.root()));
                 scene
             }
             Err(failure) => {
-                self.scene = failure.scene;
+                self.scene = failure
+                    .scene
+                    .map(|scene| self.arena.lookup_reference(scene.root()));
                 return Err(MissionLoadCause::SceneCreation {
                     phase: failure.phase,
                     detail: format!("{:?}", failure.error),
@@ -753,7 +882,7 @@ impl MissionLoadSession {
                 .map_err(MissionDiscardCause::WorldStaging)?;
         }
         self.discard.phase = MissionDiscardPhase::Scene;
-        if let Some(scene) = self.scene {
+        if let Some(scene) = self.scene().map_err(MissionDiscardCause::SceneOwner)? {
             let registered = self.driver.scenes().contains(&scene);
             if registered {
                 self.driver
