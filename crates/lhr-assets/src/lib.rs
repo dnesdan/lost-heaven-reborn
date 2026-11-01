@@ -305,6 +305,15 @@ pub struct BillboardModel {
     pub model: Model,
     pub billboards: Vec<BillboardSource>,
 }
+/// General LoadHierarchy input. The nonzero animation byte requests one
+/// companion animation after geometry transfer; it is not a repeat count.
+/// It remains alongside geometry so consumers can execute or report the request.
+#[derive(Debug, Clone)]
+pub struct HierarchyModel {
+    pub model: Model,
+    pub billboards: Vec<BillboardSource>,
+    pub load_animation_count: u8,
+}
 #[derive(Debug, Clone)]
 pub struct Texture {
     pub width: u32,
@@ -450,6 +459,18 @@ pub fn parse_four_ds_scene_billboards(b: &[u8]) -> Result<BillboardModel> {
 pub fn parse_four_ds_scene_morphs(b: &[u8]) -> Result<BillboardModel> {
     parse_four_ds_impl(b, true, false, true, true, true, true)
         .map(|(model, _, billboards)| BillboardModel { model, billboards })
+}
+/// Retains the complete admitted scene material/hierarchy domain and the
+/// trailing companion request. Callers must execute or report that request;
+/// this parser alone does not establish animation or rendering availability.
+pub fn parse_four_ds_hierarchy(b: &[u8]) -> Result<HierarchyModel> {
+    parse_four_ds_impl(b, true, true, true, true, true, true).map(
+        |(model, load_animation_count, billboards)| HierarchyModel {
+            model,
+            billboards,
+            load_animation_count,
+        },
+    )
 }
 /// Bounded singlemesh metadata intake with the static material and animation
 /// gates. Accepts only mesh, dummy and joint frames and requires a visual-2
@@ -2773,6 +2794,24 @@ mod scene_model_tests {
 #[cfg(test)]
 mod position_animation_intake_tests {
     use super::*;
+    #[test]
+    fn general_hierarchy_retains_nonzero_companion_request_and_scene_materials() {
+        let mut model = mesh_tests::mesh();
+        // Scene material effect metadata lies outside the old position-only
+        // intake, and must survive the general scene hierarchy route.
+        model[16..20].copy_from_slice(&0x01000000u32.to_le_bytes());
+        for count in [0, 1, 7, u8::MAX] {
+            *model.last_mut().unwrap() = count;
+            let parsed = parse_four_ds_hierarchy(&model).unwrap();
+            assert_eq!(parsed.load_animation_count, count);
+            assert_eq!(parsed.model.frames.len(), 1);
+            assert_eq!(parsed.model.materials.len(), 1);
+            assert_eq!(parsed.model.materials[0].flags & 0x01000000, 0x01000000);
+            if count != 0 {
+                assert!(parse_four_ds_scene_morphs(&model).is_err());
+            }
+        }
+    }
     fn pair() -> (Vec<u8>, Vec<u8>) {
         let mut model = mesh_tests::mesh();
         model[110] = 4;

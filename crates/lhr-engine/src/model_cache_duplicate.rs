@@ -1,4 +1,4 @@
-//! Bounded pristine source-model cache copy; not general DuplicateHierarchy.
+//! Bounded pristine-geometry cache copy with owned slot0 animation binding.
 //! PC Game wrapper 0x5c23a0 invokes LS3DF DuplicateHierarchy 0x33e10 then
 //! cbNullData enumeration. Base Duplicate 0x1c5b0 supplies copied common state.
 //! Success is admitted CPU ownership only; unsupported/native failure domains
@@ -18,9 +18,10 @@ impl ModelArena {
             return Err(unavailable());
         }
         let source_model = self.model(source)?;
-        if source_model.closing || source_model.original_ipol_set.is_some() {
+        if source_model.closing {
             return Err(unavailable());
         }
+        self.admit_cache_animation_source(source)?;
         self.model(destination)?;
         let mut source_frames = source_model.frames.clone();
         source_frames.sort_by_key(|&key| self.frame(key).ok().and_then(|f| f.source_index));
@@ -335,6 +336,7 @@ impl ModelArena {
             }
         }
         self.update_frame(destination.root())?;
+        self.duplicate_cache_animation(destination, source)?;
         // Game5c23a0 EnumFrames(cbClearData, ENUMF_ALL, NULL) visits the live
         // child hierarchy, including old members retained outside Close. The
         // callback only clears userdata; it neither destroys nor relinks frames.
@@ -545,7 +547,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_source_keeps_owned_controller_admission_frontier() {
+    fn empty_source_with_null_animation_creates_fresh_destination_controller() {
         use crate::model_animation_runtime::{
             ModelAnimationDestination, ModelControllerAllocation, ModelControllerAllocationFailure,
             ModelControllerFactory,
@@ -583,13 +585,18 @@ mod tests {
         let epoch = arena.lifecycle_epoch(destination).unwrap();
         assert_eq!(
             arena.duplicate_pristine_cache_model(destination, source),
-            Err(ModelError::OriginalModelOpenUnavailable(
-                "non-pristine cache hierarchy"
-            ))
+            Ok(0)
         );
         assert!(arena.original_model_controller(source).unwrap().is_some());
-        assert_eq!(arena.model(destination).unwrap().frames, old);
-        assert_eq!(arena.lifecycle_epoch(destination).unwrap(), epoch);
+        let controller = arena
+            .original_model_controller(destination)
+            .unwrap()
+            .unwrap();
+        assert_eq!(controller.owner(), destination.root());
+        assert!(controller.live_animation(0).is_none());
+        assert!(arena.model(destination).unwrap().frames.is_empty());
+        assert!(old.into_iter().all(|key| arena.frame(key).is_err()));
+        assert_ne!(arena.lifecycle_epoch(destination).unwrap(), epoch);
         for model in [source, destination] {
             arena.close(model).unwrap();
             arena.release(model.root()).unwrap();
@@ -603,6 +610,7 @@ mod tests {
             let mut arena = ModelArena::default();
             let source = arena.create_model().unwrap();
             let destination = arena.create_model().unwrap();
+            arena.bind_loaded_model_animation(source, None).unwrap();
             arena
                 .allocate_model_filename(source, b"Models/empty.i3d")
                 .unwrap();
@@ -635,6 +643,10 @@ mod tests {
             assert_eq!(arena.filename(filename).unwrap().references(), 2);
             assert_eq!(arena.fast_tree.enabled, fast_find);
             assert_eq!(arena.user_data(light).unwrap(), retained_data);
+            assert!(arena
+                .original_model_controller(destination)
+                .unwrap()
+                .is_none());
             for model in [source, destination] {
                 arena.close(model).unwrap();
             }
@@ -644,6 +656,33 @@ mod tests {
             assert!(arena.filename(filename).is_err());
             assert_eq!(arena.live_frame_count(), 0);
         }
+    }
+    #[test]
+    fn external_animation_owner_still_refuses_before_destination_close() {
+        let mut arena = ModelArena::default();
+        let source = arena.create_model().unwrap();
+        let destination = arena.create_model().unwrap();
+        let old = arena
+            .load_parsed_into_model(destination, self::source())
+            .unwrap()
+            .frames()[0];
+        let mi = arena.model_index(source).unwrap();
+        arena.models[mi].original_ipol_set = Some(
+            crate::model_animation_runtime::OriginalModelController::External(
+                crate::scene_tick::InterpolatorId(77),
+            ),
+        );
+        let epoch = arena.lifecycle_epoch(destination).unwrap();
+        assert_eq!(
+            arena.duplicate_pristine_cache_model(destination, source),
+            Err(ModelError::UnsupportedActiveModelController(source))
+        );
+        assert_eq!(arena.lifecycle_epoch(destination).unwrap(), epoch);
+        assert_eq!(arena.model(destination).unwrap().frames, [old]);
+        // The external owner is still an explicit unavailable boundary.
+        assert!(arena.close(source).is_err());
+        arena.close(destination).unwrap();
+        arena.release(destination.root()).unwrap();
     }
     #[test]
     fn disabled_source_frame_is_copied_with_live_native_flag_mask() {

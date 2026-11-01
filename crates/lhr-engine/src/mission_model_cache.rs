@@ -323,6 +323,7 @@ impl MissionCacheAllocator for CpuMissionCacheMemory {
 impl MissionCaches {
     /// Original flags0/no-outer-callback cache caller. Resource loading and
     /// pristine hierarchy copying use actual shared CPU resource owners.
+    /// The historical method name now includes owned companion animations.
     /// Entered host errors permanently interrupt this cache; they do not model
     /// an original HRESULT or exception recovery. Rejected admission leaves the
     /// previously valid owner usable, and native HRESULTs complete normally.
@@ -390,16 +391,15 @@ impl MissionCaches {
                     entry: 0x408a40,
                     detail: "model path outside original ASCII admission",
                 })?;
-            let result =
-                match arena.open_original_static_cache_model(target, installation, path_str) {
-                    Ok(_) => 0,
-                    Err(failure) => match failure.error {
-                        ModelError::NativeModelOpenResult(result) => result as i32,
-                        // No invented NoFile/corrupt/OOM mapping for host adapter
-                        // errors; destination and temporary path retain the prefix.
-                        error => return Err(ModelCacheOpenError::Model(error)),
-                    },
-                };
+            let result = match arena.open_original_cache_model(target, installation, path_str) {
+                Ok(_) => 0,
+                Err(failure) => match failure.error {
+                    ModelError::NativeModelOpenResult(result) => result as i32,
+                    // No invented NoFile/corrupt/OOM mapping for host adapter
+                    // errors; destination and temporary path retain the prefix.
+                    error => return Err(ModelCacheOpenError::Model(error)),
+                },
+            };
             self.strings
                 .destruct_string(temporary, backend)
                 .map_err(MissionCacheError::Strings)?;
@@ -621,6 +621,178 @@ mod tests {
         }
         let installation = lhr_assets::Installation::open(&path).unwrap();
         (path, installation)
+    }
+    fn companion_fixture(path: &std::path::Path, count: u8) {
+        // Two authored dummy members, with a real parent relationship. The
+        // companion mixes position/rotation/scale on the first original name.
+        let mut model = std::fs::read(path.join("models/a1.4ds")).unwrap();
+        let mut child = model[18..model.len() - 1].to_vec();
+        child[1..3].copy_from_slice(&1u16.to_le_bytes());
+        child[45..49].copy_from_slice(b"tail");
+        let end = model.len() - 1;
+        model.splice(end..end, child);
+        model[16..18].copy_from_slice(&2u16.to_le_bytes());
+        *model.last_mut().unwrap() = count;
+        std::fs::write(path.join("models/a1.4ds"), model).unwrap();
+        let mut payload = Vec::new();
+        payload.extend(1u16.to_le_bytes());
+        payload.extend(10u16.to_le_bytes());
+        payload.extend(12u32.to_le_bytes());
+        payload.extend(17u32.to_le_bytes());
+        payload.extend(b"part\0");
+        payload.extend(14u32.to_le_bytes());
+        for values in [
+            vec![1f32, 0., 0., 0., 1., 0.001, 0., 0.],
+            vec![0., 0., 0., 10., 0., 0.],
+            vec![1., 1., 1., 2., 2., 2.],
+        ] {
+            payload.extend(2u16.to_le_bytes());
+            payload.extend(0u16.to_le_bytes());
+            payload.extend(10u16.to_le_bytes());
+            payload.extend(0u16.to_le_bytes());
+            for value in values {
+                payload.extend(value.to_le_bytes());
+            }
+        }
+        let mut animation = b"5DS\0".to_vec();
+        animation.extend(20u16.to_le_bytes());
+        animation.extend([0; 8]);
+        animation.extend((payload.len() as u32).to_le_bytes());
+        animation.extend(payload);
+        std::fs::write(path.join("models/a1.5ds"), animation).unwrap();
+    }
+    #[test]
+    fn companion_hierarchy_miss_then_fileless_hit_share_resource_and_reset_actual_controller() {
+        let (path, installation) = installation_fixture();
+        companion_fixture(&path, 7); // nonzero triggers one set, not seven.
+        let mut arena = ModelArena::default();
+        let mut cache = MissionCaches::empty().unwrap();
+        let mut memory = CpuMissionCacheMemory::default();
+        cache
+            .add_dir(MissionCacheKind::Model, b"Models", &mut memory)
+            .unwrap();
+        let first = arena.create_model().unwrap();
+        arena.set_frame_name(first.root(), Some(b"placed")).unwrap();
+        cache
+            .open_static_model(&mut arena, &installation, first, b"a1.i3d", &mut memory)
+            .unwrap();
+        let cached = cache.model_open_progress().unwrap().cached_source.unwrap();
+        assert_eq!(arena.model(first).unwrap().frames.len(), 2);
+        let keys = arena.model(first).unwrap().frames.clone();
+        assert_eq!(arena.links(keys[1]).unwrap().parent, Some(keys[0]));
+        assert_eq!(arena.frame(keys[0]).unwrap().name_bytes, b"placed.part");
+        let resource = arena
+            .original_model_controller(cached)
+            .unwrap()
+            .unwrap()
+            .live_animation(0)
+            .unwrap()
+            .clone();
+        assert_eq!(resource.default_mode(), 2);
+        assert_eq!(
+            arena
+                .original_model_controller(first)
+                .unwrap()
+                .unwrap()
+                .live_animation(0)
+                .unwrap()
+                .id(),
+            resource.id()
+        );
+        arena.tick_original_model_animation(first, 200).unwrap();
+        assert_eq!(arena.state(keys[0]).unwrap().local.elements[12], 5.);
+        assert_eq!(
+            arena.state(keys[0]).unwrap().scale.map(f32::to_bits),
+            [1.5f32.to_bits(); 3]
+        );
+        // Only the source's resource is copied; clocks/enable/weight are fresh.
+        arena
+            .set_original_model_animation_time(cached, 0, 120)
+            .unwrap();
+        arena.stop_original_model_animation(cached, 0).unwrap();
+        arena
+            .set_original_model_animation_blend(cached, 0, 0.25)
+            .unwrap();
+        std::fs::remove_file(path.join("models/a1.4ds")).unwrap();
+        std::fs::remove_file(path.join("models/a1.5ds")).unwrap();
+        let hit = arena.create_model().unwrap();
+        arena.set_frame_name(hit.root(), Some(b"hit")).unwrap();
+        cache
+            .open_static_model(&mut arena, &installation, hit, b"A1.I3D", &mut memory)
+            .unwrap();
+        let controller = arena.original_model_controller(hit).unwrap().unwrap();
+        let slot = controller.state().slots[0];
+        assert_eq!((slot.current, slot.previous, slot.last_delta), (0, -40, 0));
+        assert!(slot.enabled);
+        assert_eq!(slot.weight.to_bits(), 1f32.to_bits());
+        assert_eq!(slot.mode, 2);
+        assert_eq!(controller.live_animation(0).unwrap().id(), resource.id());
+        resource.set_default_mode(3);
+        assert_eq!(controller.live_animation(0).unwrap().default_mode(), 3);
+        let destination = arena.model(hit).unwrap().frames[0];
+        assert_ne!(destination, keys[0]);
+        assert!(controller.active_evaluators().iter().all(|&id| controller
+            .evaluator(id)
+            .unwrap()
+            .destination
+            == destination));
+        cache
+            .destruct(MissionCacheKind::Model, &mut arena, &mut memory)
+            .unwrap();
+        for model in [first, hit] {
+            arena.release(model.root()).unwrap();
+        }
+        assert_eq!(arena.live_frame_count(), 0);
+        assert_eq!(memory.live_allocations(), 0);
+        std::fs::remove_dir_all(path).unwrap();
+    }
+    #[test]
+    fn companion_open_failure_retains_transferred_root_prefix_and_cache_refuses_replay() {
+        let (path, installation) = installation_fixture();
+        companion_fixture(&path, 1);
+        std::fs::remove_file(path.join("models/a1.5ds")).unwrap();
+        let mut arena = ModelArena::default();
+        let mut cache = MissionCaches::empty().unwrap();
+        let mut memory = CpuMissionCacheMemory::default();
+        cache
+            .add_dir(MissionCacheKind::Model, b"Models", &mut memory)
+            .unwrap();
+        let target = arena.create_model().unwrap();
+        arena
+            .set_frame_name(target.root(), Some(b"prefix"))
+            .unwrap();
+        let fast_find = arena.fast_tree.enabled;
+        let updates = arena.state(target.root()).unwrap().update_count;
+        assert!(matches!(
+            cache.open_static_model(&mut arena, &installation, target, b"a1.i3d", &mut memory),
+            Err(ModelCacheOpenError::Model(ModelError::Asset(_)))
+        ));
+        assert_eq!(arena.model(target).unwrap().frames.len(), 2);
+        assert_eq!(
+            arena.state(target.root()).unwrap().update_count,
+            updates + 1
+        );
+        assert_eq!(arena.fast_tree.enabled, fast_find);
+        assert!(arena.model_filename(target).unwrap().is_none());
+        assert!(arena.original_model_controller(target).unwrap().is_none());
+        assert_eq!(cache.len(MissionCacheKind::Model), 0);
+        assert!(cache.is_interrupted(MissionCacheKind::Model));
+        let epoch = arena.lifecycle_epoch(target).unwrap();
+        assert!(matches!(
+            cache.open_static_model(&mut arena, &installation, target, b"a1.i3d", &mut memory),
+            Err(ModelCacheOpenError::Cache(MissionCacheError::Interrupted))
+        ));
+        assert_eq!(arena.lifecycle_epoch(target).unwrap(), epoch);
+        // Geometry can be explicitly closed; interrupted cache temporaries stay
+        // retained. Do not clear the cache guard or label this zero-owner cleanup.
+        arena.close(target).unwrap();
+        arena.release(target.root()).unwrap();
+        assert_eq!(arena.live_frame_count(), 0);
+        assert!(memory.live_allocations() > 0);
+        assert!(cache
+            .destruct(MissionCacheKind::Model, &mut arena, &mut memory)
+            .is_err());
+        std::fs::remove_dir_all(path).unwrap();
     }
     #[test]
     fn real_cache_miss_growth_hit_and_last_release_use_same_owners() {

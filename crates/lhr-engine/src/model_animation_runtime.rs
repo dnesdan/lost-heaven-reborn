@@ -3,7 +3,7 @@
 //! SetAnimation RVA0x337b0; model controls0x33860..0x33a60.
 //! Original allocation boundaries remain explicit. No Game selection, loader,
 //! scene scheduling or multi-slot blending is supplied here. Model Tick admits
-//! callback-free position/rotation channels through the existing verified
+//! callback-free position/rotation/scale channels through the bounded
 //! samplers; unsupported work stops at its reached phase without rollback.
 #![forbid(unsafe_code)]
 
@@ -274,6 +274,70 @@ impl LiveControllerResourceBackend for LiveResources<'_> {
 }
 
 impl ModelArena {
+    /// Concrete source-host allocation policy for the original loader/cache
+    /// caller. The Box/IPolSet is the actual controller allocation. Its unwritten
+    /// dirty byte uses an explicit host false seed; SetAnimation sets it before
+    /// use. This is not a native heap observation or recoverable native OOM.
+    pub(crate) fn bind_loaded_model_animation(
+        &mut self,
+        model: ModelKey,
+        resource: Option<&LiveAnimationResource>,
+    ) -> Result<u32, ModelError> {
+        struct HostControllerFactory;
+        impl ModelControllerFactory for HostControllerFactory {
+            type Error = Infallible;
+            fn allocate(
+                &mut self,
+                owner: ModelAnimationDestination,
+            ) -> Result<Option<ModelControllerAllocation>, Self::Error> {
+                Ok(Some(ModelControllerAllocation::new(owner, false)))
+            }
+            fn allocation_failed(
+                &mut self,
+                _: ModelControllerAllocationFailure,
+            ) -> Result<(), Self::Error> {
+                unreachable!("host Box allocation does not return a native null")
+            }
+        }
+        self.set_original_model_animation(model, resource, 0, 1., 0, &mut HostControllerFactory)
+            .map_err(|error| ModelError::AnimationBinding(format!("{error:?}")))
+    }
+    pub(crate) fn admit_cache_animation_source(&self, model: ModelKey) -> Result<(), ModelError> {
+        match &self.model(model)?.original_ipol_set {
+            None => Ok(()),
+            Some(OriginalModelController::External(_)) => {
+                Err(ModelError::UnsupportedActiveModelController(model))
+            }
+            Some(OriginalModelController::Owned(owner)) => {
+                if owner.tick_interrupted {
+                    return Err(ModelError::UnsupportedActiveModelController(model));
+                }
+                owner
+                    .controller
+                    .validate_live_view()
+                    .map_err(ModelError::AnimationController)
+            }
+        }
+    }
+    /// Native DuplicateHierarchy suffix, after destination Update. Obtain the
+    /// source's current slot0 object and retain that same resource; destination
+    /// evaluators/clocks are freshly constructed by SetAnimation, never copied.
+    pub(crate) fn duplicate_cache_animation(
+        &mut self,
+        destination: ModelKey,
+        source: ModelKey,
+    ) -> Result<(), ModelError> {
+        let Some(controller) = self.original_model_controller(source)? else {
+            return Ok(());
+        };
+        let resource = controller.live_animation(0).cloned();
+        if resource.is_none() && controller.animation_id(0).is_some() {
+            return Err(ModelError::UnsupportedActiveModelController(source));
+        }
+        // The native call also runs for a source controller with null slot0.
+        self.bind_loaded_model_animation(destination, resource.as_ref())?;
+        Ok(())
+    }
     /// Native successful/delegate HRESULT, or host/required-boundary failure.
     /// No evaluator Tick occurs here. Even source=None lazily creates an owner.
     #[allow(clippy::too_many_arguments)]
@@ -624,6 +688,7 @@ impl OwnedInterpolatorTick<'_> {
             ))?;
         let mut position = None;
         let mut rotation = None;
+        let mut scale = None;
         let mut contributor = None;
         // The original helper is channel-major: position slots, rotation slots,
         // scale slots, pose, destination writes, then note dispatch. Numeric
@@ -640,13 +705,6 @@ impl OwnedInterpolatorTick<'_> {
                 // reach the sampling branch and are explicitly unadmitted.
                 if slot.weight <= 0. {
                     continue;
-                }
-                if channel == 8 {
-                    return Err(Self::unsupported(
-                        id,
-                        slot_index,
-                        "scale channel evaluation",
-                    ));
                 }
                 if slot.weight.to_bits() != 1f32.to_bits() {
                     return Err(Self::unsupported(id, slot_index, "non-unit slot weight"));
@@ -686,7 +744,7 @@ impl OwnedInterpolatorTick<'_> {
                                 message: error.to_string(),
                             })?,
                     );
-                } else {
+                } else if channel == 4 {
                     rotation = Some(
                         sample_rotation_channel(
                             track.rotation.as_ref().ok_or_else(|| {
@@ -701,6 +759,21 @@ impl OwnedInterpolatorTick<'_> {
                                 message: format!("{error:?}"),
                             }
                         })?,
+                    );
+                } else {
+                    scale = Some(
+                        track
+                            .scale
+                            .as_ref()
+                            .ok_or_else(|| {
+                                Self::unsupported(id, slot_index, "scale channel unavailable")
+                            })?
+                            .sample_scale_channel(time)
+                            .map_err(|error| ModelAnimationTickError::Sampling {
+                                evaluator: id,
+                                slot: slot_index,
+                                message: error.to_string(),
+                            })?,
                     );
                 }
             }
@@ -724,6 +797,14 @@ impl OwnedInterpolatorTick<'_> {
                 .apply_evaluated_rotation(destination, rotation)
                 .map_err(ModelError::from)?;
             self.pose_written = true;
+        }
+        if let Some(scale) = scale {
+            // Evaluate1001db7f stores scale before the guarded quaternion
+            // dependency and uses exactly this original frame operation.
+            self.pose_written = true;
+            self.graph
+                .assign_scale(destination, scale)
+                .map_err(ModelError::from)?;
         }
         let frame_flags = self
             .graph
@@ -1543,6 +1624,7 @@ mod tests {
     fn disabled_unmatched_and_zero_weight_channels_are_not_prescanned() {
         let mut arena = ModelArena::default();
         let (model, keys) = load(&mut arena, parsed(&[b"moving"]));
+        arena.graph.assign_scale(keys[0], [7., 8., 9.]).unwrap();
         let animation = moving(&[(b"moving", 2), (b"unmatched-scale", 8)]);
         let scale = moving(&[(b"moving", 8)]);
         let mut factory = Factory::default();
@@ -1555,60 +1637,80 @@ mod tests {
         arena.stop_original_model_animation(model, 1).unwrap();
         arena.tick_original_model_animation(model, 40).unwrap();
         assert_eq!(arena.state(keys[0]).unwrap().local.elements[12], 1.);
+        assert_eq!(arena.state(keys[0]).unwrap().scale, [7., 8., 9.]);
         arena.start_original_model_animation(model, 1).unwrap();
         arena
             .set_original_model_animation_blend(model, 1, 0.)
             .unwrap();
         arena.tick_original_model_animation(model, 40).unwrap();
         assert_eq!(arena.state(keys[0]).unwrap().local.elements[12], 2.);
+        assert_eq!(arena.state(keys[0]).unwrap().scale, [7., 8., 9.]);
         assert_eq!(arena.original_model_animation_time(model, 1).unwrap(), 40);
         arena.close(model).unwrap();
     }
 
     #[test]
-    fn scale_and_multiple_slots_stop_before_current_evaluator_destination_writes() {
-        for multislot in [false, true] {
+    fn multiple_slots_still_stop_before_current_evaluator_destination_writes() {
+        let mut arena = ModelArena::default();
+        let (model, keys) = load(&mut arena, parsed(&[b"moving"]));
+        arena.graph.assign_position(keys[0], [17., 0., 0.]).unwrap();
+        arena.update_frame(model.root()).unwrap();
+        let mut factory = Factory::default();
+        let animation = moving(&[(b"moving", 2)]);
+        let second = moving(&[(b"moving", 4)]);
+        arena
+            .set_original_model_animation(model, Some(&animation), 0, 1., 0, &mut factory)
+            .unwrap();
+        arena
+            .set_original_model_animation(model, Some(&second), 1, 1., 0, &mut factory)
+            .unwrap();
+        assert!(matches!(
+            arena.tick_original_model_animation(model, 40),
+            Err(ModelAnimationTickError::Unsupported {
+                feature: "multiple contributing slots",
+                ..
+            })
+        ));
+        assert_eq!(arena.state(keys[0]).unwrap().local.elements[12], 17.);
+        let slot = arena
+            .original_model_controller(model)
+            .unwrap()
+            .unwrap()
+            .state()
+            .slots[0];
+        assert_eq!(
+            (slot.current, slot.previous, slot.last_delta),
+            (40, -40, 40)
+        );
+        assert!(matches!(
+            arena.tick_original_model_animation(model, 40),
+            Err(ModelAnimationTickError::Interrupted)
+        ));
+        assert_eq!(arena.original_model_animation_time(model, 0).unwrap(), 40);
+        arena.close(model).unwrap();
+    }
+
+    #[test]
+    fn position_rotation_scale_use_one_live_binding_and_original_destination_order() {
+        for flags in [8, 10, 14] {
             let mut arena = ModelArena::default();
             let (model, keys) = load(&mut arena, parsed(&[b"moving"]));
-            arena.graph.assign_position(keys[0], [17., 0., 0.]).unwrap();
-            arena.update_frame(model.root()).unwrap();
-            let mut factory = Factory::default();
-            let animation = moving(&[(b"moving", if multislot { 2 } else { 10 })]);
+            let animation = moving(&[(b"moving", flags)]);
             arena
-                .set_original_model_animation(model, Some(&animation), 0, 1., 0, &mut factory)
+                .bind_loaded_model_animation(model, Some(&animation))
                 .unwrap();
-            let second = moving(&[(b"moving", 4)]);
-            if multislot {
-                arena
-                    .set_original_model_animation(model, Some(&second), 1, 1., 0, &mut factory)
-                    .unwrap();
-            }
-            let result = arena.tick_original_model_animation(model, 40);
-            let expected = if multislot {
-                "multiple contributing slots"
-            } else {
-                "scale channel evaluation"
-            };
-            assert!(
-                matches!(result, Err(ModelAnimationTickError::Unsupported { feature, .. }) if feature == expected)
-            );
-            assert_eq!(arena.state(keys[0]).unwrap().local.elements[12], 17.);
-            let slot = arena
-                .original_model_controller(model)
-                .unwrap()
-                .unwrap()
-                .state()
-                .slots[0];
+            arena.tick_original_model_animation(model, 200).unwrap();
+            let state = arena.state(keys[0]).unwrap();
+            assert_eq!(state.scale.map(f32::to_bits), [1.5f32.to_bits(); 3]);
             assert_eq!(
-                (slot.current, slot.previous, slot.last_delta),
-                (40, -40, 40)
+                state.local.elements[12],
+                if flags & 2 != 0 { 5. } else { 0. }
             );
-            assert!(matches!(
-                arena.tick_original_model_animation(model, 40),
-                Err(ModelAnimationTickError::Interrupted)
-            ));
-            assert_eq!(arena.original_model_animation_time(model, 0).unwrap(), 40);
+            assert_eq!(state.flags & 8, 8);
+            assert_eq!(arena.original_model_animation_time(model, 0).unwrap(), 200);
             arena.close(model).unwrap();
+            arena.release(model.root()).unwrap();
+            assert_eq!(arena.live_frame_count(), 0);
         }
     }
 
@@ -1715,7 +1817,7 @@ mod tests {
         } = skin_fixture();
         let visual = keys[0];
         assert!(arena.owned_singlemesh_lod0_vertices(visual, 0).is_ok());
-        let animation = moving(&[(b"first", 2), (b"second", 8)]);
+        let animation = moving(&[(b"first", 2)]);
         arena
             .set_original_model_animation(
                 model,
@@ -1726,14 +1828,22 @@ mod tests {
                 &mut Factory::default(),
             )
             .unwrap();
+        let second = moving(&[(b"second", 8)]);
+        arena
+            .set_original_model_animation(model, Some(&second), 1, 0.5, 0, &mut Factory::default())
+            .unwrap();
         let root = *arena.state(model.root()).unwrap();
         assert!(matches!(
             arena.tick_original_model_animation(model, 40),
             Err(ModelAnimationTickError::Unsupported {
-                feature: "scale channel evaluation",
+                feature: "non-unit slot weight",
                 ..
             })
         ));
+        assert_eq!(
+            arena.admit_cache_animation_source(model),
+            Err(ModelError::UnsupportedActiveModelController(model))
+        );
         assert_eq!(arena.state(keys[1]).unwrap().local.elements[12], 1.);
         assert_eq!(arena.state(keys[2]).unwrap().local.elements[12], 0.);
         assert_eq!(*arena.state(model.root()).unwrap(), root);

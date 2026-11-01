@@ -1,9 +1,9 @@
-//! Bounded 5DS v20 channel intake and isolated position-channel sampling.
+//! Bounded 5DS v20 channel intake and isolated position/scale sampling.
 //!
 //! These are descriptive Rust names, not recovered original symbols. Layout is
-//! evidenced by the PC loader; sampling corresponds to the position branch of
-//! LS3DF RVA 0x1d320 under the game's single-precision x87 control word. Sampling
-//! one channel does not apply a model pose, rotation, scale, notes or skinning.
+//! evidenced by the PC loader; vector sampling follows the position and scale
+//! branches of LS3DF RVA0x1d320 under Game's single-precision x87 control word. Sampling
+//! one channel does not apply a model pose, rotation, notes or skinning.
 use crate::{Error, Result};
 
 const MAX_FILE: usize = 64 * 1024 * 1024;
@@ -76,7 +76,7 @@ impl RotationTrack {
     }
 }
 
-/// Retained scale records only; no scale playback is implied.
+/// Original scale records, retained without changing source IEEE bits.
 #[derive(Clone, Debug)]
 pub struct ScaleTrack {
     times: Vec<u16>,
@@ -98,6 +98,12 @@ impl ScaleTrack {
     }
     pub fn storage_bytes(&self) -> Result<usize> {
         channel_storage_bytes(self.times.capacity(), self.values.capacity(), 3)
+    }
+    /// The scale branch of Evaluate1001d320 uses the same vector interpolation
+    /// as position. Only reached keys enter the bounded numeric domain; intake
+    /// continues to retain arbitrary source bits and unused keys are not scanned.
+    pub fn sample_scale_channel(&self, current_ms: u32) -> Result<[f32; 3]> {
+        sample_vector_channel(&self.times, &self.values, current_ms, "scale")
     }
 }
 
@@ -144,34 +150,58 @@ impl PositionTrack {
     /// here. The supported domain excludes signed times, frame-index wrapping,
     /// nonfinite values and extreme magnitudes outside the tested numeric policy.
     pub fn sample_position_channel(&self, current_ms: u32) -> Result<[f32; 3]> {
-        if current_ms > MAX_SAMPLE_MS {
-            return Err(Error(
-                "position sample time outside supported domain".into(),
-            ));
-        }
-        let frame = (current_ms / 40) as u16;
-        if frame < self.times[0] {
-            return Ok(self.values[0]);
-        }
-        let last = self.times.len() - 1;
-        if frame >= self.times[last] {
-            return Ok(self.values[last]);
-        }
-        let right = self.times.partition_point(|&key| key <= frame);
-        let left = right - 1;
-        // Keep separate f32 operations: original Game control word rounds each
-        // arithmetic result to 24 significant bits. Do not replace with mul_add.
-        let frame_time = current_ms as f32 * 0.025_f32;
-        let numerator = frame_time - f32::from(self.times[left]);
-        let fraction = numerator / f32::from(self.times[right] - self.times[left]);
-        let mut out = [0.0; 3];
-        for (axis, output) in out.iter_mut().enumerate() {
-            let difference = self.values[right][axis] - self.values[left][axis];
-            let displacement = difference * fraction;
-            *output = self.values[left][axis] + displacement;
-        }
-        Ok(out)
+        sample_vector_channel(&self.times, &self.values, current_ms, "position")
     }
+}
+
+fn sample_vector_channel(
+    times: &[u16],
+    values: &[[f32; 3]],
+    current_ms: u32,
+    channel: &str,
+) -> Result<[f32; 3]> {
+    let admit = |value: [f32; 3]| -> Result<[f32; 3]> {
+        if value.iter().any(|component| {
+            let magnitude = component.abs();
+            !component.is_finite()
+                || magnitude > 1_000_000.0
+                || (magnitude != 0.0 && magnitude < f32::from_bits(897988541))
+        }) {
+            return Err(Error(format!(
+                "5DS {channel} outside supported numeric domain"
+            )));
+        }
+        Ok(value)
+    };
+    if current_ms > MAX_SAMPLE_MS {
+        return Err(Error(format!(
+            "{channel} sample time outside supported domain"
+        )));
+    }
+    let frame = (current_ms / 40) as u16;
+    if frame < times[0] {
+        return admit(values[0]);
+    }
+    let last = times.len() - 1;
+    if frame >= times[last] {
+        return admit(values[last]);
+    }
+    let right = times.partition_point(|&key| key <= frame);
+    let left = right - 1;
+    let left_value = admit(values[left])?;
+    let right_value = admit(values[right])?;
+    // Keep separate f32 operations: original Game control word rounds each
+    // arithmetic result to 24 significant bits. Do not replace with mul_add.
+    let frame_time = current_ms as f32 * 0.025_f32;
+    let numerator = frame_time - f32::from(times[left]);
+    let fraction = numerator / f32::from(times[right] - times[left]);
+    let mut out = [0.0; 3];
+    for (axis, output) in out.iter_mut().enumerate() {
+        let difference = right_value[axis] - left_value[axis];
+        let displacement = difference * fraction;
+        *output = left_value[axis] + displacement;
+    }
+    Ok(out)
 }
 
 fn bytes(data: &[u8], offset: usize, size: usize) -> Result<&[u8]> {
@@ -415,6 +445,301 @@ fn parse_tracks(data: &[u8], selected: Option<usize>) -> Result<AnimationSet> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scale_samples_match_original_evaluate_pc24_returned_bits() {
+        // Synthetic inputs executed by unchanged LS3DF Evaluate RVA1d320 on
+        // x86_64 through a32-bit compatibility bridge, CW007f (PC24/RN).
+        // DLL SHAe211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6.
+        // The private native receipt is independent of this Rust sampler.
+        type Case = (
+            &'static str,
+            &'static [u16],
+            &'static [[u32; 3]],
+            u32,
+            [u32; 3],
+        );
+        let cases: &[Case] = &[
+            (
+                "single_key",
+                &[0],
+                &[[0x3f800000, 0x40000000, 0x40400000]],
+                137,
+                [0x3f800000, 0x40000000, 0x40400000],
+            ),
+            (
+                "even_two_first_endpoint",
+                &[0, 10],
+                &[
+                    [0x3f800000, 0x40000000, 0x40400000],
+                    [0x40800000, 0x41000000, 0x41800000],
+                ],
+                0,
+                [0x3f800000, 0x40000000, 0x40400000],
+            ),
+            (
+                "even_two_last_endpoint",
+                &[0, 10],
+                &[
+                    [0x3f800000, 0x40000000, 0x40400000],
+                    [0x40800000, 0x41000000, 0x41800000],
+                ],
+                400,
+                [0x40800000, 0x41000000, 0x41800000],
+            ),
+            (
+                "even_two_midpoint",
+                &[0, 10],
+                &[
+                    [0x3f800000, 0x40000000, 0x40400000],
+                    [0x40800000, 0x41000000, 0x41800000],
+                ],
+                200,
+                [0x40200000, 0x40a00000, 0x41180000],
+            ),
+            (
+                "fractional_awkward_bits",
+                &[0, 10],
+                &[
+                    [0x3dcccccd, 0x3f99999a, 0x40490fdb],
+                    [0x3e4ccccd, 0x3f333333, 0x422aaaaa],
+                ],
+                137,
+                [0x3e0978d5, 0x3f83ae15, 0x41856e72],
+            ),
+            (
+                "signed_zero_first",
+                &[0, 10],
+                &[
+                    [0x00000000, 0x80000000, 0x3f800000],
+                    [0x80000000, 0x00000000, 0x3f800000],
+                ],
+                0,
+                [0x00000000, 0x00000000, 0x3f800000],
+            ),
+            (
+                "signed_zero_last",
+                &[0, 10],
+                &[
+                    [0x00000000, 0x80000000, 0x3f800000],
+                    [0x80000000, 0x00000000, 0x3f800000],
+                ],
+                400,
+                [0x80000000, 0x00000000, 0x3f800000],
+            ),
+            (
+                "odd_three_interior",
+                &[0, 3, 10],
+                &[
+                    [0x3f800000, 0x40000000, 0x40400000],
+                    [0x40800000, 0x40a00000, 0x40c00000],
+                    [0x40e00000, 0x41000000, 0x41100000],
+                ],
+                160,
+                [0x408db6dc, 0x40adb6dc, 0x40cdb6dc],
+            ),
+            (
+                "before_nonzero_first",
+                &[3, 10],
+                &[
+                    [0x3f800000, 0x40000000, 0x40400000],
+                    [0x40800000, 0x41000000, 0x41800000],
+                ],
+                0,
+                [0x3f800000, 0x40000000, 0x40400000],
+            ),
+            (
+                "fraction_before_first_integer_tick",
+                &[0, 10],
+                &[
+                    [0x3f800000, 0x40000000, 0x40400000],
+                    [0x40800000, 0x41000000, 0x41800000],
+                ],
+                39,
+                [0x3fa570a4, 0x402570a4, 0x40888f5c],
+            ),
+            (
+                "authored_three_0ms",
+                &[5, 10, 20],
+                &[
+                    [0x3f800000, 0x80000000, 0x40000000],
+                    [0x40400000, 0x00000000, 0x40c00000],
+                    [0x40e00000, 0x40800000, 0x41200000],
+                ],
+                0,
+                [0x3f800000, 0x80000000, 0x40000000],
+            ),
+            (
+                "authored_three_199ms",
+                &[5, 10, 20],
+                &[
+                    [0x3f800000, 0x80000000, 0x40000000],
+                    [0x40400000, 0x00000000, 0x40c00000],
+                    [0x40e00000, 0x40800000, 0x41200000],
+                ],
+                199,
+                [0x3f800000, 0x80000000, 0x40000000],
+            ),
+            (
+                "authored_three_200ms",
+                &[5, 10, 20],
+                &[
+                    [0x3f800000, 0x80000000, 0x40000000],
+                    [0x40400000, 0x00000000, 0x40c00000],
+                    [0x40e00000, 0x40800000, 0x41200000],
+                ],
+                200,
+                [0x3f800000, 0x00000000, 0x40000000],
+            ),
+            (
+                "authored_three_201ms",
+                &[5, 10, 20],
+                &[
+                    [0x3f800000, 0x80000000, 0x40000000],
+                    [0x40400000, 0x00000000, 0x40c00000],
+                    [0x40e00000, 0x40800000, 0x41200000],
+                ],
+                201,
+                [0x3f8147ae, 0x00000000, 0x400147ae],
+            ),
+            (
+                "authored_three_300ms",
+                &[5, 10, 20],
+                &[
+                    [0x3f800000, 0x80000000, 0x40000000],
+                    [0x40400000, 0x00000000, 0x40c00000],
+                    [0x40e00000, 0x40800000, 0x41200000],
+                ],
+                300,
+                [0x40000000, 0x00000000, 0x40800000],
+            ),
+            (
+                "authored_three_400ms",
+                &[5, 10, 20],
+                &[
+                    [0x3f800000, 0x80000000, 0x40000000],
+                    [0x40400000, 0x00000000, 0x40c00000],
+                    [0x40e00000, 0x40800000, 0x41200000],
+                ],
+                400,
+                [0x40400000, 0x00000000, 0x40c00000],
+            ),
+            (
+                "authored_three_600ms",
+                &[5, 10, 20],
+                &[
+                    [0x3f800000, 0x80000000, 0x40000000],
+                    [0x40400000, 0x00000000, 0x40c00000],
+                    [0x40e00000, 0x40800000, 0x41200000],
+                ],
+                600,
+                [0x40a00000, 0x40000000, 0x41000000],
+            ),
+            (
+                "authored_three_799ms",
+                &[5, 10, 20],
+                &[
+                    [0x3f800000, 0x80000000, 0x40000000],
+                    [0x40400000, 0x00000000, 0x40c00000],
+                    [0x40e00000, 0x40800000, 0x41200000],
+                ],
+                799,
+                [0x40dfae15, 0x407f5c2a, 0x411fd70a],
+            ),
+            (
+                "authored_three_800ms",
+                &[5, 10, 20],
+                &[
+                    [0x3f800000, 0x80000000, 0x40000000],
+                    [0x40400000, 0x00000000, 0x40c00000],
+                    [0x40e00000, 0x40800000, 0x41200000],
+                ],
+                800,
+                [0x40e00000, 0x40800000, 0x41200000],
+            ),
+            (
+                "authored_three_1000ms",
+                &[5, 10, 20],
+                &[
+                    [0x3f800000, 0x80000000, 0x40000000],
+                    [0x40400000, 0x00000000, 0x40c00000],
+                    [0x40e00000, 0x40800000, 0x41200000],
+                ],
+                1000,
+                [0x40e00000, 0x40800000, 0x41200000],
+            ),
+            (
+                "finite_domain_upper",
+                &[0, 100],
+                &[
+                    [0x49742400, 0xc9742400, 0x358637bd],
+                    [0xc9742400, 0x49742400, 0xb58637bd],
+                ],
+                1337,
+                [0x48a1dd80, 0xc8a1dd80, 0x34b1f904],
+            ),
+            (
+                "signed_zero_single",
+                &[0],
+                &[[0x80000000, 0x00000000, 0x80000000]],
+                123,
+                [0x80000000, 0x00000000, 0x80000000],
+            ),
+        ];
+        for &(name, times, values, ms, expected) in cases {
+            let track = ScaleTrack {
+                times: times.to_vec(),
+                values: values
+                    .iter()
+                    .map(|value| value.map(f32::from_bits))
+                    .collect(),
+                padding: None,
+            };
+            assert_eq!(
+                track.sample_scale_channel(ms).unwrap().map(f32::to_bits),
+                expected,
+                "{name}"
+            );
+        }
+        // The oracle also executed negative time and1e-20/1e20 keys. Those remain explicitly
+        // outside this sampler's established bounded vector numeric domain.
+        let outside = ScaleTrack {
+            times: vec![0, 10],
+            values: vec![[1e-20, 1e20, 1.], [2e-20, 3e20, 5.]],
+            padding: None,
+        };
+        assert!(outside.sample_scale_channel(121).is_err());
+    }
+
+    #[test]
+    fn scale_sampling_clamps_and_interpolates_reached_source_bits() {
+        let track = ScaleTrack {
+            times: vec![5, 10, 20],
+            values: vec![[1., -0., 2.], [3., 0., 6.], [7., 4., 10.]],
+            padding: Some(0xa53c),
+        };
+        assert_eq!(
+            track.sample_scale_channel(0).unwrap().map(f32::to_bits),
+            [1f32.to_bits(), (-0f32).to_bits(), 2f32.to_bits()]
+        );
+        assert_eq!(track.sample_scale_channel(300).unwrap(), [2., 0., 4.]);
+        assert_eq!(track.sample_scale_channel(600).unwrap(), [5., 2., 8.]);
+        assert_eq!(track.sample_scale_channel(1000).unwrap(), [7., 4., 10.]);
+        assert_eq!(track.padding(), Some(0xa53c));
+    }
+
+    #[test]
+    fn scale_numeric_boundary_is_lazy_and_retains_unadmitted_intake_bits() {
+        let track = ScaleTrack {
+            times: vec![0, 10, 20],
+            values: vec![[1.; 3], [2.; 3], [f32::from_bits(0x7fc01234); 3]],
+            padding: None,
+        };
+        assert_eq!(track.sample_scale_channel(200).unwrap(), [1.5; 3]);
+        assert!(track.sample_scale_channel(400).is_err());
+        assert_eq!(track.key_value_bits().last().unwrap(), [0x7fc01234; 3]);
+        assert!(track.sample_scale_channel(MAX_SAMPLE_MS + 1).is_err());
+    }
 
     fn fixture(flags: u16, times: &[u16], values: &[[f32; 3]]) -> Vec<u8> {
         let mut payload = Vec::new();

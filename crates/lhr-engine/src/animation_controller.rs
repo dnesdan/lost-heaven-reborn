@@ -284,12 +284,9 @@ impl ControllerEvaluationView<'_> {
 }
 
 impl IPolSet {
-    pub(crate) fn borrow_tick_parts(
-        &mut self,
-    ) -> Result<
-        (&mut InterpolatorSet, ControllerEvaluationView<'_>),
-        ControllerError<std::convert::Infallible>,
-    > {
+    pub(crate) fn validate_live_view(
+        &self,
+    ) -> Result<(), ControllerError<std::convert::Infallible>> {
         if self.closed {
             return Err(ControllerError::Closed);
         }
@@ -299,6 +296,15 @@ impl IPolSet {
         if !self.owns_view() {
             return Err(ControllerError::InvalidView);
         }
+        Ok(())
+    }
+    pub(crate) fn borrow_tick_parts(
+        &mut self,
+    ) -> Result<
+        (&mut InterpolatorSet, ControllerEvaluationView<'_>),
+        ControllerError<std::convert::Infallible>,
+    > {
+        self.validate_live_view()?;
         Ok((
             &mut self.state,
             ControllerEvaluationView {
