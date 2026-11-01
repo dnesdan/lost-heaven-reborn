@@ -74,6 +74,26 @@ impl<'a> ModelFrameLookup<'a> {
             .map_err(|_| FrameLookupError::StaleFrame(reference))?;
         Ok(reference)
     }
+    pub(crate) fn arena_frame(
+        arena: &crate::model_loading::ModelArena,
+        reference: FrameReferenceId,
+    ) -> Result<FrameView<'_>, FrameLookupError> {
+        let key = crate::frame_transform::FrameKey(reference.identity());
+        if arena.lookup_reference(key) != reference {
+            return Err(FrameLookupError::StaleFrame(reference));
+        }
+        let frame = arena
+            .frame(key)
+            .map_err(|_| FrameLookupError::StaleFrame(reference))?;
+        let links = arena
+            .links(key)
+            .map_err(|_| FrameLookupError::StaleFrame(reference))?;
+        Ok(FrameView {
+            name: (!frame.name_bytes.is_empty()).then_some(frame.name_bytes.as_slice()),
+            child: links.child.map(|key| arena.lookup_reference(key)),
+            next: links.next.map(|key| arena.lookup_reference(key)),
+        })
+    }
 }
 impl FrameLookupBackend for ModelFrameLookup<'_> {
     fn default_c_locale(&self) -> bool {
@@ -83,24 +103,7 @@ impl FrameLookupBackend for ModelFrameLookup<'_> {
         false
     }
     fn frame(&self, reference: FrameReferenceId) -> Result<FrameView<'_>, FrameLookupError> {
-        let key = crate::frame_transform::FrameKey(reference.identity());
-        if self.arena.lookup_reference(key) != reference {
-            return Err(FrameLookupError::StaleFrame(reference));
-        }
-        let frame = self
-            .arena
-            .frame(key)
-            .map_err(|_| FrameLookupError::StaleFrame(reference))?;
-        let links = self
-            .arena
-            .links(key)
-            .map_err(|_| FrameLookupError::StaleFrame(reference))?;
-        Ok(FrameView {
-            // Empty metadata is ambiguous; this adapter rejects empty queries.
-            name: (!frame.name_bytes.is_empty()).then_some(frame.name_bytes.as_slice()),
-            child: links.child.map(|key| self.arena.lookup_reference(key)),
-            next: links.next.map(|key| self.arena.lookup_reference(key)),
-        })
+        Self::arena_frame(self.arena, reference)
     }
 }
 
