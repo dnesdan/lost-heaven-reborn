@@ -1,5 +1,10 @@
 # Parity roadmap after main integration
 
+Historical roadmap. The current pinned reference, nine follow-ups and current
+execution evidence are recorded in the
+[2026-11-01 continuation](2026-11-01-parity-continuation.md).
+The older observations below are retained with their original scope.
+
 Updated 2026-10-27. Code baseline: `6e790279dd5d9bf2a111d0a9330527e8bc4b968a`.
 This is a work plan, not a claim that the campaign or the listed features are
 complete. See the [integration record](2026-10-27-main-integration.md) and the
