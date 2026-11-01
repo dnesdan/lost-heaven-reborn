@@ -90,8 +90,8 @@ pub struct ProgramString {
     pub complete: bool,
     /// Destruction preserves pointer observations without retaining live backing.
     pub released: bool,
-    /// A failed free has no admitted live/freed result; bytes are only a host
-    /// snapshot and the allocation token cannot be submitted again.
+    /// A pending, failed or unwound free has no admitted live/freed result;
+    /// bytes remain a host snapshot and the allocation token cannot be replayed.
     pub disposal_uncertain: bool,
 }
 impl ProgramString {
@@ -106,8 +106,8 @@ impl ProgramString {
 pub enum ProgramPhase {
     Source,
     Interrupted,
-    /// A failed disposal may already have freed backing. Only explicit backend
-    /// recovery can resolve it; no operation may submit that token again.
+    /// A pending, failed or unwound disposal may already have freed backing.
+    /// No operation may submit that token again; host drop discards snapshots.
     Poisoned,
     Destroying,
     Dead,
@@ -261,19 +261,25 @@ impl CProgram {
         }
         .map(|s| s.allocation);
         if let Some(allocation) = allocation {
+            let previous_phase = self.phase;
+            // The callback can finish the external free and then unwind. Latch
+            // host uncertainty before entering it, retaining the native pointer
+            // observation until successful completion. Never replay this token.
+            self.phase = ProgramPhase::Poisoned;
+            match buffer {
+                ProgramBuffer::Name => self.name.as_mut(),
+                _ => self.source.as_mut(),
+            }
+            .unwrap()
+            .disposal_uncertain = true;
             if let Err(error) = backend.free(self, buffer, Some(allocation)) {
-                match buffer {
-                    ProgramBuffer::Name => self.name.as_mut(),
-                    _ => self.source.as_mut(),
-                }
-                .unwrap()
-                .disposal_uncertain = true;
                 return Err(self.effect("free", error));
             }
             match buffer {
                 ProgramBuffer::Name => self.name = None,
                 _ => self.source = None,
             }
+            self.phase = previous_phase;
         }
         Ok(())
     }
