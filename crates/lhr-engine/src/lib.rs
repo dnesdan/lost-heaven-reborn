@@ -18,6 +18,7 @@ pub mod break_plain_glass_update;
 pub mod buffer_managers;
 pub mod c_str;
 pub mod canonical_city_cache;
+mod canonical_scene2_models;
 pub mod car_actor;
 pub(crate) mod car_actor_tables;
 pub mod car_effects;

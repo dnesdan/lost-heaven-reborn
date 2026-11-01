@@ -93,6 +93,7 @@ pub(crate) struct CarRuntimeSimulationBackend<'a, 'b, B: VehicleComponentTailBac
     frames: &'a mut VehicleFrameBackend<'b, B>,
     memory: VehicleComponentTailMemory<'a>,
     world: &'a mut DrivingWorldAssets,
+    scene2_models: Option<&'a crate::canonical_scene2_models::CanonicalScene2Models>,
     audio: RuntimeAudio,
     state: &'a mut SimulationState,
 }
@@ -112,9 +113,17 @@ where
             frames,
             memory,
             world,
+            scene2_models: None,
             audio,
             state,
         }
+    }
+    pub(crate) fn with_scene2_models(
+        mut self,
+        models: Option<&'a crate::canonical_scene2_models::CanonicalScene2Models>,
+    ) -> Self {
+        self.scene2_models = models;
+        self
     }
     pub(crate) fn start_engine(&mut self) -> Result<bool, String> {
         let vehicle = self.memory.vehicle_address();
@@ -999,7 +1008,21 @@ where
     }
     fn crash_set_on(&mut self, frame: u32, on: bool) -> Result<(), String> {
         let key = self.world.crash_frame_key(frame)?;
-        self.world.set_frame_on(key, u32::from(on))
+        // Resolve at this effect, after actor/registry work. Errors retain that
+        // exact prefix; earlier collision disable must not prematurely hide it.
+        let canonical = self
+            .scene2_models
+            .map(|models| models.resolve(self.frames.arena(), self.world, key))
+            .transpose()?
+            .flatten();
+        self.world.set_frame_on(key, u32::from(on))?;
+        if let Some(frame) = canonical {
+            self.frames
+                .arena_mut()
+                .set_frame_on(frame, u32::from(on))
+                .map_err(failure)?;
+        }
+        Ok(())
     }
     fn crash_debustize(&mut self, frame: u32) -> Result<(), String> {
         let key = self.world.crash_frame_key(frame)?;
@@ -1444,3 +1467,7 @@ mod tests {
         assert!(state.cleanup(&mut memory).is_err());
     }
 }
+
+#[cfg(test)]
+#[path = "car_runtime_scene2_crash_tests.rs"]
+mod scene2_crash_tests;

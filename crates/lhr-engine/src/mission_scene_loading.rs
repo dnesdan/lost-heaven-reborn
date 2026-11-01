@@ -206,9 +206,18 @@ pub struct PendingSoundLink {
     pub name: Vec<u8>,
     pub kind: SoundLinkKind,
 }
+/// Completed object record provenance; independent of ambiguous frame names.
+#[derive(Clone, Copy, Debug)]
+pub struct LoadedSceneObject {
+    pub model_epoch: Option<u64>,
+    pub source_offset: usize,
+    pub frame: Option<FrameReferenceId>,
+}
 /// State of one original scene2 invocation. The caller retains its real scene,
 /// driver and resources; an error leaves their executed effects in place.
 pub struct MissionSceneLoader {
+    /// Host provenance for completed object records; this owns no frames.
+    pub loaded_objects: Vec<LoadedSceneObject>,
     pub scene: SceneKey,
     /// Source-only actors/programs use this loader's live map and arena.
     pub content: crate::mission_content_loading::MissionContentOwner,
@@ -245,6 +254,7 @@ impl MissionSceneLoader {
     pub fn new(arena: &ModelArena, scene: SceneKey) -> Result<Self, SceneLoadMapError> {
         Ok(Self {
             scene,
+            loaded_objects: Vec::new(),
             content: crate::mission_content_loading::MissionContentOwner::default(),
             load_map: initialize_scene_load_map(arena, scene)?,
             camera: None,
@@ -1076,6 +1086,17 @@ impl MissionSceneLoader {
                         .map_err(|e| (0x544683, format!("{e:?}")))?;
                 }
             }
+            self.loaded_objects.push(LoadedSceneObject {
+                model_epoch: self.current_frame.and_then(|reference| {
+                    arena
+                        .lifecycle_epoch(crate::model_loading::ModelKey(FrameKey(
+                            reference.identity(),
+                        )))
+                        .ok()
+                }),
+                source_offset: chunk.offset,
+                frame: self.current_frame,
+            });
             self.finished_objects += 1;
             input.leave_container().map_err(|e| (0x5446aa, e))?;
         }
