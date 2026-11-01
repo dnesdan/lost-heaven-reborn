@@ -205,6 +205,186 @@ fn payload() -> Vec<u8> {
     b.extend(0u16.to_le_bytes());
     b
 }
+
+fn load_lightmap(
+    w: &mut World,
+    frame: FrameKey,
+) -> crate::i3d_object::lightmap_atlas::LightmapAtlasOwner {
+    let object = w.arena.frame_object_resources(frame).unwrap().unwrap();
+    let resources = w.arena.loaded_visual_resources_mut().unwrap();
+    resources
+        .load_saved_lightmaps(
+            object,
+            &payload(),
+            crate::loaded_visual_resources::SavedLightmapLoadContext::TrueColorRgba8,
+        )
+        .unwrap();
+    let Some(crate::i3d_object::saved_lightmaps::SavedLitLod::Lightmap(lod)) =
+        resources.saved_lit_lod(object, 0).unwrap()
+    else {
+        panic!("loaded lightmap")
+    };
+    Arc::clone(&lod.atlas)
+}
+
+fn canonical_snapshot(w: &mut World, number: u32) -> crate::scene_render::CanonicalSceneSnapshot {
+    let viewport = w
+        .resources
+        .construction(w.scene)
+        .unwrap()
+        .viewport_projection
+        .unwrap();
+    crate::scene_render::snapshot_scene(&mut w.arena, w.scene, viewport, [64, 64], number).unwrap()
+}
+
+#[test]
+fn canonical_saved_lightmap_images_persist_by_source_revision() {
+    persistent_lightmap_fixture(false);
+}
+
+#[test]
+#[ignore = "requires a Vulkan or Metal adapter; run with --ignored"]
+fn canonical_saved_lightmap_uploads_persist_across_snapshots() {
+    persistent_lightmap_fixture(true);
+}
+
+fn persistent_lightmap_fixture(gpu: bool) {
+    crate::native_precision::Pc24PrecisionState::default().run(|| {
+        let mut w = World::new();
+        let primary = w.arena.scene(w.scene).unwrap().sectors[0];
+        let a = w.visual(primary, true);
+        let b = w.visual(primary, true);
+        let source = load_lightmap(&mut w, a);
+        let shared = load_lightmap(&mut w, b);
+        assert!(Arc::ptr_eq(&source, &shared));
+        drop(shared);
+        let source_weak = Arc::downgrade(&source);
+        let first = canonical_snapshot(&mut w, 1);
+        assert_eq!(first.lighting.len(), 2);
+        let image = |snapshot: &crate::scene_render::CanonicalSceneSnapshot, index: usize| {
+            Arc::clone(
+                snapshot.lighting[index]
+                    .as_ref()
+                    .unwrap()
+                    .atlas
+                    .as_ref()
+                    .unwrap(),
+            )
+        };
+        let original = image(&first, 0);
+        assert!(Arc::ptr_eq(&original, &image(&first, 1)));
+        let mut renderer = gpu.then(|| {
+            let instance = lhr_render::instance();
+            let adapter =
+                pollster::block_on(instance.request_adapter(&Default::default())).unwrap();
+            pollster::block_on(lhr_render::Renderer::with_adapter(
+                &adapter,
+                &first.scene,
+                wgpu::TextureFormat::Rgba8Unorm,
+                false,
+            ))
+            .unwrap()
+        });
+        let upload = |renderer: &mut Option<lhr_render::Renderer>,
+                      snapshot: &crate::scene_render::CanonicalSceneSnapshot| {
+            if let Some(renderer) = renderer {
+                for (index, lighting) in snapshot.lighting.iter().enumerate() {
+                    renderer
+                        .set_mesh_lighting(index, lighting.as_ref().unwrap())
+                        .unwrap();
+                }
+            }
+        };
+        upload(&mut renderer, &first);
+        let initial_writes = renderer.as_ref().map(|r| r.lighting_upload_statistics());
+        if let Some(writes) = initial_writes {
+            assert_eq!(writes.atlas_uploads, 1);
+            assert_eq!(writes.vertex_uploads, 2);
+        }
+        // Fresh canonical visibility/camera/snapshot work does not change image identity.
+        let second = canonical_snapshot(&mut w, 2);
+        assert!(Arc::ptr_eq(&original, &image(&second, 0)));
+        upload(&mut renderer, &second);
+        let legacy = crate::car_inspection::snapshot_arena_tree(&mut w.arena, a).unwrap();
+        assert!(Arc::ptr_eq(
+            &original,
+            legacy.lighting[0].as_ref().unwrap().atlas.as_ref().unwrap()
+        ));
+        drop(legacy);
+        // Pose and camera changes read the same saved UV/atlas owners.
+        w.arena.graph.assign_position(a, [0.25, 0., 5.]).unwrap();
+        let camera = w.arena.scene_active_camera(w.scene).unwrap().unwrap();
+        w.arena.camera_set_position(camera, [0.1, 0., 0.]).unwrap();
+        let moved = canonical_snapshot(&mut w, 3);
+        assert_eq!(moved.lighting.len(), 2);
+        assert!(Arc::ptr_eq(&original, &image(&moved, 0)));
+        upload(&mut renderer, &moved);
+        assert_eq!(
+            renderer.as_ref().map(|r| r.lighting_upload_statistics()),
+            initial_writes
+        );
+        // Mutate the actual source owner while keeping old snapshots alive.
+        {
+            let mut atlas = source.write().unwrap();
+            atlas.rgba[0] ^= 0xff;
+            atlas.revision += 1;
+        }
+        let changed = canonical_snapshot(&mut w, 4);
+        let revised = image(&changed, 0);
+        let revised_weak = Arc::downgrade(&revised);
+        assert!(!Arc::ptr_eq(&original, &revised));
+        assert!(Arc::ptr_eq(&revised, &image(&changed, 1)));
+        assert_ne!(original.rgba[0], revised.rgba[0]);
+        upload(&mut renderer, &changed);
+        let repeated = canonical_snapshot(&mut w, 5);
+        assert!(Arc::ptr_eq(&revised, &image(&repeated, 0)));
+        upload(&mut renderer, &repeated);
+        if let Some(renderer) = &renderer {
+            assert_eq!(renderer.lighting_upload_statistics().atlas_uploads, 2);
+            assert_eq!(renderer.lighting_upload_statistics().vertex_uploads, 2);
+        }
+        drop((
+            first, second, moved, changed, repeated, original, revised, source,
+        ));
+        for frame in [a, b] {
+            let Some(crate::scene_ownership::FrameOwner::Model(model)) =
+                w.arena.frame(frame).unwrap().owner
+            else {
+                panic!("model-owned visual")
+            };
+            w.arena.scene_delete_frame(w.scene, model.root()).unwrap();
+        }
+        assert!(
+            source_weak.upgrade().is_none(),
+            "presentation does not retain the source"
+        );
+        let empty = canonical_snapshot(&mut w, 6);
+        assert!(empty.lighting.is_empty());
+        if let Some(renderer) = &mut renderer {
+            renderer.replace_meshes(0..2, &empty.scene.meshes).unwrap();
+        }
+        assert!(
+            revised_weak.upgrade().is_none(),
+            "next snapshot prunes images of dead owners"
+        );
+        w.close();
+        // A new scene/source domain, even with identical pixels/revision, uploads once.
+        let mut reloaded = World::new();
+        let primary = reloaded.arena.scene(reloaded.scene).unwrap().sectors[0];
+        let frame = reloaded.visual(primary, true);
+        drop(load_lightmap(&mut reloaded, frame));
+        let fresh = canonical_snapshot(&mut reloaded, 1);
+        if let Some(renderer) = &mut renderer {
+            renderer.replace_meshes(0..0, &fresh.scene.meshes).unwrap();
+            renderer
+                .set_mesh_lighting(0, fresh.lighting[0].as_ref().unwrap())
+                .unwrap();
+            assert_eq!(renderer.lighting_upload_statistics().atlas_uploads, 3);
+        }
+        drop(fresh);
+        reloaded.close();
+    });
+}
 #[test]
 fn actual_omni_keeps_its_lights_and_near_uses_the_camera_sector() {
     crate::native_precision::Pc24PrecisionState::default().run(|| {

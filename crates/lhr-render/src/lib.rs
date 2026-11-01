@@ -14,7 +14,7 @@ mod lighting;
 mod material;
 mod scene_frame;
 pub use lab_environment::{DebugView, LabEnvironment, Weather};
-pub use lighting::{LightingMode, MeshLighting};
+pub use lighting::{LightingMode, LightingUploadStatistics, MeshLighting};
 use material::PipelineKey;
 pub use material::{AlphaMode, FrontFace, MaterialQueue, OriginalMaterial, RenderMaterial};
 pub use scene_frame::{SceneRenderFrame, SceneRenderPass};
@@ -154,6 +154,7 @@ struct Draw {
     parameters_buffer: wgpu::Buffer,
     policy: RenderMaterial,
     lighting_vertex: wgpu::Buffer,
+    lighting_vertices: Vec<[f32; 6]>,
     lighting_material: Arc<GpuMaterial>,
     lighting_parameters: [f32; 3],
 }
@@ -198,6 +199,7 @@ pub struct Renderer {
     linear: bool,
     materials: RefCell<MaterialCache>,
     lighting_materials: RefCell<MaterialCache>,
+    lighting_uploads: lighting::LightingUploadStatistics,
     depth: RefCell<Option<DepthTarget>>,
 }
 impl Renderer {
@@ -587,6 +589,7 @@ impl Renderer {
             linear,
             materials: RefCell::new(materials),
             lighting_materials: RefCell::new(MaterialCache::new()),
+            lighting_uploads: Default::default(),
             depth: RefCell::new(None),
         })
     }
@@ -613,6 +616,9 @@ impl Renderer {
         self.draws.splice(range, next);
         self.lab_hidden_draws.clear();
         self.materials
+            .borrow_mut()
+            .retain(|_, cached| cached.source.strong_count() != 0);
+        self.lighting_materials
             .borrow_mut()
             .retain(|_, cached| cached.source.strong_count() != 0);
         Ok(())
@@ -1295,6 +1301,12 @@ fn upload_meshes(
                 resource: parameters_buffer.as_entire_binding(),
             }],
         });
+        let lighting_vertices = vec![[0f32, 0., 0., 0., 0., 1.]; mesh.vertices.len()];
+        let lighting_vertex = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Default original lighting vertices"),
+            contents: bytemuck::cast_slice(&lighting_vertices),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        });
         draws.push(Draw {
             vertex: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: None,
@@ -1313,14 +1325,8 @@ fn upload_meshes(
                 .try_into()
                 .map_err(|_| "Too many indices")?,
             lighting_material: Arc::clone(&material),
-            lighting_vertex: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Default original lighting vertices"),
-                contents: bytemuck::cast_slice(&vec![
-                    [0f32, 0., 0., 0., 0., 1.];
-                    mesh.vertices.len()
-                ]),
-                usage: wgpu::BufferUsages::VERTEX,
-            }),
+            lighting_vertices,
+            lighting_vertex,
             lighting_parameters: [0., 1., 1.],
             material,
             source: Arc::downgrade(tex),

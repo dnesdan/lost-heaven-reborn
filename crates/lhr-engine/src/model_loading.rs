@@ -270,6 +270,8 @@ impl StaticModelLoadProfile {
 /// owns reference counts, model/scene membership, names and fast-tree links.
 #[derive(Debug, Default)]
 pub struct ModelArena {
+    pub(crate) presentation_lighting:
+        std::cell::RefCell<crate::presentation_lighting::PresentationLighting>,
     pub(crate) graph: I3dFrameGraph,
     pub(crate) frames: Vec<LoadedFrame>,
     pub(crate) models: Vec<LoadedModel>,
