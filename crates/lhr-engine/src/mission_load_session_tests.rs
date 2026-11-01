@@ -1,5 +1,7 @@
 //! Synthetic composition tests over actual scene, actor and source owners.
 use super::*;
+#[path = "mission_load_session_program_tests.rs"]
+mod program_world;
 use crate::frame_transform::FrameKey;
 use crate::mission_resources::ModelCachePhase;
 use crate::model_loading::{CpuSceneWorldPhase, ModelKey};
@@ -217,7 +219,7 @@ fn missing_world_preserves_real_scene_and_first_error_without_reentry() {
         session.world_progress().unwrap().phase(),
         CpuSceneWorldPhase::Input
     );
-    let scene = session.scene().unwrap();
+    let scene = session.scene().unwrap().unwrap();
     assert_eq!(session.driver().scenes(), &[scene]);
     assert!(session.arena().scene(scene).unwrap().frames().is_empty());
     assert!(session.loader().is_none());
@@ -262,7 +264,7 @@ fn missing_scene2_retains_world_transfer_and_actual_name_map_without_camera_crea
     assert_eq!(session.load_map().unwrap().publications.len(), 4);
     assert!(session.loader().unwrap().camera.is_none());
     assert_eq!(session.loader().unwrap().cursor, 0);
-    let scene = session.scene().unwrap();
+    let scene = session.scene().unwrap().unwrap();
     assert_eq!(session.arena().scene(scene).unwrap().frames(), &[frame]);
     assert_eq!(session.arena().scene_active_camera(scene).unwrap(), None);
     discard(&mut session);
@@ -299,7 +301,7 @@ fn malformed_actor_root_is_the_exact_frontier_and_does_not_run_later_objects() {
     assert_eq!(
         session
             .arena()
-            .scene_active_camera(session.scene().unwrap())
+            .scene_active_camera(session.scene().unwrap().unwrap())
             .unwrap(),
         Some(camera)
     );
@@ -342,7 +344,7 @@ fn admitted_prefix_changes_the_same_world_frame_and_closes_owned_resources() {
         .run(|| session.arena.world_matrix(frame))
         .unwrap();
     assert_eq!(world.elements[12..15], [3., 4., 5.]);
-    let scene = session.scene().unwrap();
+    let scene = session.scene().unwrap().unwrap();
     discard(&mut session);
     let report = session.resources().cpu_close_report(scene).unwrap();
     assert!(report.native_managed_residency_absent);
@@ -451,7 +453,7 @@ fn malformed_model_stops_cache_call_and_terminal_discard_preserves_interrupted_r
         .pending_names(MissionCacheKind::Model)
         .is_empty());
     let before = session.owned_counts().unwrap();
-    let scene = session.scene().unwrap();
+    let scene = session.scene().unwrap().unwrap();
     assert_eq!(
         session.discard_terminal(),
         Err(MissionDiscardCallError::Stopped)
@@ -499,7 +501,7 @@ fn load_map_preserves_non_utf8_names_and_continues_to_the_camera() {
         Some(frames[0])
     );
     assert_eq!(session.arena().frame(frames[1]).unwrap().name_bytes, [0xe8]);
-    let scene = session.scene().unwrap();
+    let scene = session.scene().unwrap().unwrap();
     let sectors = session.arena().scene(scene).unwrap().sectors;
     let expected = [
         (
@@ -612,7 +614,7 @@ fn failed_world_prepare_preserves_scene_ownership_and_the_actual_cleanup_refusal
     assert_eq!(progress.prepared_sectors(), 0);
     assert_eq!(progress.staging_model(), None);
     let frames = progress.frames().to_vec();
-    let scene = session.scene().unwrap();
+    let scene = session.scene().unwrap().unwrap();
     assert_eq!(session.arena().scene(scene).unwrap().frames(), frames);
     for &frame in &frames {
         assert_eq!(
@@ -674,7 +676,7 @@ fn initialized_host_audio_creates_and_releases_actual_listener() {
     let fixture = Fixture::new(Some(&world(&[dummy(0, b"part")])), Some(&scene2(&[])), None);
     let mut session = fixture.session();
     load(&mut session, &[]).unwrap();
-    let scene = session.scene().unwrap();
+    let scene = session.scene().unwrap().unwrap();
     assert_eq!(session.driver().scenes(), &[scene]);
     assert_eq!(session.owned_counts().unwrap().driver_listeners, 1);
     assert_eq!(session.owned_counts().unwrap().audio_sounds, 0);
@@ -764,7 +766,7 @@ fn early_constructor_failure_is_retained_and_cannot_be_force_destroyed() {
             ..
         }
     ));
-    let scene = session.scene().unwrap();
+    let scene = session.scene().unwrap().unwrap();
     let before = session.owned_counts().unwrap();
     assert!(session.arena().scene(scene).is_ok());
     assert!(session.resources().construction(scene).is_none());
@@ -805,7 +807,7 @@ fn independent_sessions_cannot_resolve_each_others_map_references() {
         first.driver().validate_scene_domain(
             second.arena(),
             second.resources(),
-            first.scene().unwrap()
+            first.scene().unwrap().unwrap()
         ),
         Err(DriverSceneError::ForeignDomain)
     ));
@@ -851,7 +853,7 @@ fn install_scene_visual(session: &mut MissionLoadSession) -> FrameKey {
         }],
         frames: vec![visual],
     });
-    let scene = session.scene().unwrap();
+    let scene = session.scene().unwrap().unwrap();
     let primary = session.arena.scene(scene).unwrap().sectors[0];
     let model = session.arena.create_model().unwrap();
     session.arena.load_parsed_into_model(model, source).unwrap();
@@ -933,7 +935,7 @@ fn terminal_disposal_counts_and_releases_actual_saved_lightmap_owners() {
             .concat(),
         ),
     ));
-    let scene = session.scene().unwrap();
+    let scene = session.scene().unwrap().unwrap();
     let mut loader =
         MissionSceneLoader::new(&session.arena, scene).unwrap_or_else(|e| panic!("{}", e.detail));
     assert_eq!(
@@ -1040,7 +1042,7 @@ fn scene2_saved_lighting_replacement_uses_current_owner_and_terminal_disposal() 
     // Drive the actual current scene2 dispatcher over the session's real Scene
     // and model arena. This controlled second input is a synthetic regression,
     // not another MissionLoadSession::load admission.
-    let scene = session.scene().unwrap();
+    let scene = session.scene().unwrap().unwrap();
     let mut loader =
         MissionSceneLoader::new(&session.arena, scene).unwrap_or_else(|e| panic!("{}", e.detail));
     loader
@@ -1624,7 +1626,7 @@ fn startup_patch_failure_retains_complete_file_and_record_prefix_before_scene_cr
             ..
         })
     ));
-    assert!(session.scene().is_none());
+    assert!(session.scene().unwrap().is_none());
     assert_eq!(
         session.owned_counts().unwrap(),
         MissionOwnedCounts::default()
