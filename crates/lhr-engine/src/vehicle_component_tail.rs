@@ -108,6 +108,24 @@ pub struct VehicleComponentTailMemory<'a> {
     pub(super) vehicle_known: Option<&'a mut [bool]>,
     pub(super) scratch: &'a mut VehicleComponentTailScratch,
 }
+#[cfg(test)]
+impl<'a> VehicleComponentTailMemory<'a> {
+    /// Explicit synthetic caller storage for cross-module integration fixtures.
+    /// This does not construct or initialize a vehicle or claim native state.
+    pub(crate) fn synthetic_caller(
+        vehicle_address: u32,
+        vehicle: &'a mut [u8],
+        scratch: &'a mut VehicleComponentTailScratch,
+    ) -> Self {
+        Self {
+            car: None,
+            vehicle_address,
+            vehicle,
+            vehicle_known: None,
+            scratch,
+        }
+    }
+}
 impl VehicleComponentTailMemory<'_> {
     /// Identity of this projection's embedded vehicle, never a host pointer.
     /// Owner-bound runtime operations obtain their address from the live borrow.

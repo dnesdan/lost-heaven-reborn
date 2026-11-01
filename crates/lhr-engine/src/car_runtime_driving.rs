@@ -87,7 +87,8 @@ impl CarRuntime {
             &mut session.world,
             audio,
             &mut session.simulation,
-        );
+        )
+        .with_scene2_models(self.scene2_models.as_ref());
         backend.cleanup_temporary_actors()?;
         session.actor_cleanup = OperationState::Complete;
         Ok(())
@@ -334,7 +335,8 @@ impl CarRuntime {
                 &mut session.world,
                 audio,
                 &mut session.simulation,
-            );
+            )
+            .with_scene2_models(self.scene2_models.as_ref());
             if !session.engine_started {
                 session.services_started = true;
                 backend.prepare_glass_services()?;

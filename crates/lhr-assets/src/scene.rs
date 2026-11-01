@@ -4,6 +4,8 @@ use super::{Error, MAX_BYTES, Reader, Result, err};
 
 #[derive(Debug, Clone, Default)]
 pub struct SceneObject {
+    /// Absolute source record offset, used for cross-owner provenance.
+    pub source_offset: usize,
     pub name: String,
     pub frame_type: Option<u32>,
     pub model: Option<String>,
@@ -37,6 +39,7 @@ pub struct Scene {
 struct Chunk<'a> {
     kind: u16,
     payload: &'a [u8],
+    offset: usize,
 }
 fn chunks<'a>(bytes: &'a [u8], count: &mut usize) -> Result<Vec<Chunk<'a>>> {
     let mut r = Reader { b: bytes, p: 0 };
@@ -46,6 +49,7 @@ fn chunks<'a>(bytes: &'a [u8], count: &mut usize) -> Result<Vec<Chunk<'a>>> {
         if *count > 200_000 {
             return err("scene chunk quota exceeded");
         }
+        let offset = r.p;
         let kind = r.u16()?;
         let size = r.u32()? as usize;
         if size < 6 {
@@ -53,6 +57,7 @@ fn chunks<'a>(bytes: &'a [u8], count: &mut usize) -> Result<Vec<Chunk<'a>>> {
         }
         result.push(Chunk {
             kind,
+            offset,
             payload: r.take(size - 6)?,
         });
     }
@@ -115,7 +120,13 @@ fn object(bytes: &[u8], count: &mut usize, unknown: &mut usize) -> Result<SceneO
     result.name = name.ok_or_else(|| Error("scene object lacks name".into()))?;
     Ok(result)
 }
-fn visit(bytes: &[u8], depth: usize, count: &mut usize, scene: &mut Scene) -> Result<()> {
+fn visit(
+    bytes: &[u8],
+    base: usize,
+    depth: usize,
+    count: &mut usize,
+    scene: &mut Scene,
+) -> Result<()> {
     if depth > 32 {
         return err("scene nesting quota exceeded");
     }
@@ -125,9 +136,9 @@ fn visit(bytes: &[u8], depth: usize, count: &mut usize, scene: &mut Scene) -> Re
                 if scene.objects.len() >= 16_384 {
                     return err("scene object quota exceeded");
                 }
-                scene
-                    .objects
-                    .push(object(chunk.payload, count, &mut scene.unknown_chunks)?);
+                let mut record = object(chunk.payload, count, &mut scene.unknown_chunks)?;
+                record.source_offset = base + chunk.offset;
+                scene.objects.push(record);
             }
             0xae21 => {
                 if scene.actors.len() >= 16_384 {
@@ -161,7 +172,13 @@ fn visit(bytes: &[u8], depth: usize, count: &mut usize, scene: &mut Scene) -> Re
                 }
                 scene.actors.push(SceneActor { name, kind });
             }
-            0x4000 | 0xae20 | 0xae50 => visit(chunk.payload, depth + 1, count, scene)?,
+            0x4000 | 0xae20 | 0xae50 => visit(
+                chunk.payload,
+                base + chunk.offset + 6,
+                depth + 1,
+                count,
+                scene,
+            )?,
             0xae51 => {
                 if scene.scripts.len() >= 4096 {
                     return err("scene script quota exceeded");
@@ -201,7 +218,7 @@ pub fn parse_scene2(bytes: &[u8]) -> Result<Scene> {
         return err("expected single LS scene root");
     }
     let mut scene = Scene::default();
-    visit(roots[0].payload, 0, &mut count, &mut scene)?;
+    visit(roots[0].payload, 6, 0, &mut count, &mut scene)?;
     Ok(scene)
 }
 

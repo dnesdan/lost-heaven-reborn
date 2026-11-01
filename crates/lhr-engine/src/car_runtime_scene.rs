@@ -128,6 +128,15 @@ impl CarRuntime {
                 patches,
             )
             .err();
+        if let Some(driving) = self.driving.as_ref() {
+            self.scene2_models = Some(crate::canonical_scene2_models::CanonicalScene2Models::bind(
+                &self.arena,
+                scene,
+                &driving.world,
+                &bytes,
+                &state.loader.loaded_objects,
+            )?);
+        }
         self.arena
             .publish_runtime_buffers()
             .map_err(|e| format!("Driving world publication: {e:?}"))?;
@@ -155,6 +164,7 @@ impl CarRuntime {
                 .reclaim_unused_visual_buffers()
                 .map_err(|e| format!("Driving cached visual reclamation: {e:?}"))?;
         }
+        self.scene2_models = None;
         self.scene_mission = None;
         Ok(())
     }

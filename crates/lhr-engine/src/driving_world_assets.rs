@@ -109,6 +109,8 @@ pub struct AdmittedCityCacheInstance {
 /// It is never seeded from a native process. Render snapshots can be moved out
 /// while this owner and its independently owned collision candidates remain.
 pub struct DrivingWorldAssets {
+    scene2_bytes: Vec<u8>,
+    scene2_models: BTreeMap<u32, usize>,
     identity: DrivingWorldIdentity,
     collision: DrivingCollisionWorld,
     render_scene: Scene,
@@ -403,6 +405,12 @@ fn append_cache_source(
     })
 }
 impl DrivingWorldAssets {
+    pub(crate) fn scene2_source(&self) -> &[u8] {
+        &self.scene2_bytes
+    }
+    pub(crate) fn scene2_models(&self) -> &BTreeMap<u32, usize> {
+        &self.scene2_models
+    }
     pub fn load(installation: &Installation, mission: &str) -> Result<Self, String> {
         if mission.is_empty()
             || mission.len() > 64
@@ -431,8 +439,8 @@ impl DrivingWorldAssets {
             lhr_assets::parse_four_ds_scene(&read(&format!("missions/{mission}/scene.4ds"))?)
                 .map_err(|e| e.to_string())?,
         );
-        let metadata = lhr_assets::parse_scene2(&read(&format!("missions/{mission}/scene2.bin"))?)
-            .map_err(|e| e.to_string())?;
+        let scene2_bytes = read(&format!("missions/{mission}/scene2.bin"))?;
+        let metadata = lhr_assets::parse_scene2(&scene2_bytes).map_err(|e| e.to_string())?;
         let mut graph = I3dFrameGraph::default();
         let mut tree = I3dFastFrameTree::new(true);
         let mut primary = I3dFrameState::model();
@@ -448,6 +456,7 @@ impl DrivingWorldAssets {
         )?;
         let mut sources = vec![append_source(&mut graph, &mut tree, scene, primary, None)?];
         let mut model_roots = BTreeMap::new();
+        let mut scene2_models = BTreeMap::new();
         let mut summary = DrivingWorldAssetSummary::default();
         let link_names: BTreeSet<_> = klz
             .links
@@ -537,6 +546,7 @@ impl DrivingWorldAssets {
                 Some(primary),
                 9,
             )?;
+            scene2_models.insert(root.0, object.source_offset);
             model_roots.insert(
                 root.0,
                 WorldModelSource {
@@ -605,6 +615,8 @@ impl DrivingWorldAssets {
             &mut render_mesh_frames,
         )?;
         Ok(Self {
+            scene2_bytes,
+            scene2_models,
             identity: DrivingWorldIdentity::fresh()?,
             collision,
             render_scene,
@@ -1251,6 +1263,8 @@ pub(crate) mod tests {
             frames: vec![visual],
         });
         DrivingWorldAssets {
+            scene2_bytes: Vec::new(),
+            scene2_models: BTreeMap::new(),
             identity: DrivingWorldIdentity::fresh().unwrap(),
             collision: empty_collision_world(),
             render_scene: Scene { meshes: Vec::new() },
