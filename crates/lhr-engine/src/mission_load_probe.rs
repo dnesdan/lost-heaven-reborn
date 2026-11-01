@@ -169,6 +169,30 @@ fn append_load_report(report: &mut String, session: &MissionLoadSession) {
         .unwrap();
         let world = &loader.content.actors.world;
         for actor in world.owned_actor_references() {
+            if let Some(traffic) = world.inspect_traffic_generator(actor) {
+                let unknown_record_bytes: usize = traffic
+                    .records()
+                    .into_iter()
+                    .flat_map(|p| p.records())
+                    .filter_map(|slot| {
+                        if let lhr_engine::traffic_generator::TrafficRecordSlot::Owned(record) =
+                            slot
+                        {
+                            Some(record.bytes().iter().filter(|byte| byte.is_none()).count())
+                        } else {
+                            None
+                        }
+                    })
+                    .sum();
+                let unknown_weight_bytes = traffic.weights().map_or(0, |weights| {
+                    weights.bytes().iter().filter(|byte| byte.is_none()).count()
+                });
+                writeln!(report, "Traffic generator actor {}: phase={:?}; count={:?}; total bits={:?}; record slots={}; weight bytes={}; unknown record bytes={}; unknown weight bytes={}",
+                    actor.identity(), world.phase(actor), traffic.count_bits(), traffic.total_bits(),
+                    traffic.records().map_or(0, |records| records.records().len()),
+                    traffic.weights().map_or(0, |weights| weights.bytes().len()),
+                    unknown_record_bytes, unknown_weight_bytes).unwrap();
+            }
             if let Some(car) = world.inspect_car(actor) {
                 writeln!(
                     report,
