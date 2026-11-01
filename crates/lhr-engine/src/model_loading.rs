@@ -199,6 +199,7 @@ pub enum ModelError {
     Morph(crate::singlemorph_state::SinglemorphError),
     Animation(crate::skeletal_animation::SkeletalAnimationError),
     AnimationIdentity,
+    AnimationBinding(String),
     AnimationController(crate::animation_controller::ControllerError<std::convert::Infallible>),
     InvalidParent {
         index: usize,
@@ -1628,6 +1629,16 @@ impl ModelArena {
         root_parent: Option<FrameKey>,
         billboards: &[lhr_assets::BillboardSource],
     ) -> Result<SharedModelContent, SharedModelLoadFailure> {
+        self.load_parsed_hierarchy_profile(model, source, root_parent, billboards, true)
+    }
+    fn load_parsed_hierarchy_profile(
+        &mut self,
+        model: ModelKey,
+        source: Arc<Model>,
+        root_parent: Option<FrameKey>,
+        billboards: &[lhr_assets::BillboardSource],
+        finalize_root: bool,
+    ) -> Result<SharedModelContent, SharedModelLoadFailure> {
         let mut content = SharedModelContent {
             model,
             frames: Vec::new(),
@@ -1695,7 +1706,7 @@ impl ModelArena {
                 partial: content,
             });
         }
-        if result.is_ok() && root_parent.is_none() {
+        if result.is_ok() && root_parent.is_none() && finalize_root {
             result = self.mark_loaded_model_root(model.root());
         }
         match result {
@@ -1806,7 +1817,7 @@ impl ModelArena {
         installation: &lhr_assets::Installation,
         input_name: &str,
     ) -> Result<SharedModelContent, SharedModelLoadFailure> {
-        self.open_original_static_profile(model, installation, input_name, false)
+        self.open_original_static_profile(model, installation, input_name, false, false)
     }
     /// Original cache caller profile: flags0x10 with non-null410c50 thunk and
     /// null outer callback. Static geometry admits no animation set, and the
@@ -1818,7 +1829,19 @@ impl ModelArena {
         installation: &lhr_assets::Installation,
         input_name: &str,
     ) -> Result<SharedModelContent, SharedModelLoadFailure> {
-        self.open_original_static_profile(model, installation, input_name, true)
+        self.open_original_static_profile(model, installation, input_name, true, false)
+    }
+    /// Original cache caller with the general hierarchy companion path. A
+    /// nonzero LoadAnimCount executes one actual 5DS resource Open/binding after
+    /// geometry/resource transfer, before EndLoad/Update and filename ownership.
+    /// Static-only APIs retain their explicit animation admission boundary.
+    pub fn open_original_cache_model(
+        &mut self,
+        model: ModelKey,
+        installation: &lhr_assets::Installation,
+        input_name: &str,
+    ) -> Result<SharedModelContent, SharedModelLoadFailure> {
+        self.open_original_static_profile(model, installation, input_name, true, true)
     }
     pub fn static_model_load_profile(&self) -> Option<StaticModelLoadProfile> {
         self.static_load_profile
@@ -1829,6 +1852,7 @@ impl ModelArena {
         installation: &lhr_assets::Installation,
         input_name: &str,
         cache_thunk: bool,
+        companion: bool,
     ) -> Result<SharedModelContent, SharedModelLoadFailure> {
         let arena = self.lookup_owner.reference(0);
         let empty = || SharedModelContent {
@@ -1877,22 +1901,72 @@ impl ModelArena {
                         error: ModelError::Asset(error.to_string()),
                         partial: empty(),
                     })?;
-            let source = lhr_assets::parse_four_ds_scene_morphs(&bytes).map_err(|error| {
-                SharedModelLoadFailure {
-                    error: ModelError::Asset(error.to_string()),
-                    partial: empty(),
-                }
+            let source = if companion {
+                lhr_assets::parse_four_ds_hierarchy(&bytes)
+            } else {
+                lhr_assets::parse_four_ds_scene_morphs(&bytes).map(|source| {
+                    lhr_assets::HierarchyModel {
+                        model: source.model,
+                        billboards: source.billboards,
+                        load_animation_count: 0,
+                    }
+                })
+            }
+            .map_err(|error| SharedModelLoadFailure {
+                error: ModelError::Asset(error.to_string()),
+                partial: empty(),
             })?;
-            let content = self.load_parsed_billboards_into_model(
+            let content = self.load_parsed_hierarchy_profile(
                 model,
                 Arc::new(source.model),
+                None,
                 &source.billboards,
+                !companion,
             )?;
             if let Err(error) = self.load_plain_visual_resources(model, installation) {
                 return Err(SharedModelLoadFailure {
                     error,
                     partial: content,
                 });
+            }
+            if companion {
+                let animation = if source.load_animation_count != 0 {
+                    // LoadHierarchy603e0 uses nonzero as one companion request,
+                    // not a loop count. Open60840 applies the same suffix rewrite.
+                    let animation_path = format!("{}.5ds", &path[..path.len() - 4]);
+                    (|| {
+                        let bytes = installation
+                            .read_original_path(&animation_path)
+                            .map_err(|error| ModelError::Asset(error.to_string()))?;
+                        let source = lhr_assets::animation::parse_5ds(&bytes)
+                            .map_err(|error| ModelError::Asset(error.to_string()))?;
+                        let resource = crate::animation_controller::LiveAnimationResource::new(
+                            Arc::new(source),
+                            2,
+                        )
+                        .ok_or(ModelError::AllocationOverflow)?;
+                        // Native writes default mode2, invokes SetAnimation,
+                        // ignores its HRESULT, then releases its temporary owner.
+                        self.bind_loaded_model_animation(model, Some(&resource))?;
+                        Ok::<(), ModelError>(())
+                    })()
+                } else {
+                    Ok(())
+                };
+                // Native finalization follows companion Release even when its
+                // Open failed. Retain that reached root prefix on host failure.
+                if let Err(error) = self.mark_loaded_model_root(model.root()) {
+                    return Err(SharedModelLoadFailure {
+                        error,
+                        partial: content,
+                    });
+                }
+                if let Err(error) = animation {
+                    return Err(SharedModelLoadFailure {
+                        error,
+                        partial: content,
+                    });
+                }
             }
             Ok(content)
         })();
