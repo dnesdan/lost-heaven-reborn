@@ -400,10 +400,7 @@ fn derived_program_source_lifetime_survives_explicit_base_runtime_admission_reje
         assert_eq!(p.phase(), ProgramPhase::Dead);
     }
 }
-fn interrupted_process_release_blocks_done_and_execution(
-    source: &[u8],
-    release: RuntimeEffect,
-) {
+fn interrupted_process_release_blocks_done_and_execution(source: &[u8], release: RuntimeEffect) {
     struct UncertainRelease {
         release: RuntimeEffect,
         calls: usize,
@@ -569,9 +566,7 @@ fn owned_subroutine_resets_actual_owner_and_pc_before_synchronous_delta_one_proc
     assert!(memory
         .events
         .iter()
-        .any(|event| event.0 == RuntimeEffect::AllocateActors(2)
-            && event.1 == 0
-            && event.2 == 56));
+        .any(|event| event.0 == RuntimeEffect::AllocateActors(2) && event.1 == 0 && event.2 == 56));
     p.done_fresh_runtime(&mut memory).unwrap();
     p.discard_runtime_host().unwrap();
 }

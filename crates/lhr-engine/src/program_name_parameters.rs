@@ -66,7 +66,9 @@ pub enum NameDecodeError<E> {
     RejectionRelease(E),
     /// Host boundary before the original strcpy would exceed its 64-byte field.
     /// The closing-quote write, allocation and register store have already run.
-    NameTooLong { length: usize },
+    NameTooLong {
+        length: usize,
+    },
 }
 
 /// One fresh instruction slot. A returned error or unwound callback cannot be
@@ -99,8 +101,13 @@ impl NameParameterSlot {
         if !(1..=2).contains(&parameters.count) {
             return Ok(false);
         }
-        self.parameter = backend.allocate_name().map_err(NameDecodeError::Allocation)?;
-        let parameter = self.parameter.as_mut().ok_or(NameDecodeError::NullAllocation)?;
+        self.parameter = backend
+            .allocate_name()
+            .map_err(NameDecodeError::Allocation)?;
+        let parameter = self
+            .parameter
+            .as_mut()
+            .ok_or(NameDecodeError::NullAllocation)?;
         parameter.register = None;
         parameter.name_len = None;
         let first = parameters.offsets[0].expect("counted first token");
@@ -126,7 +133,9 @@ impl NameParameterSlot {
             return Ok(false);
         };
         if range.len() >= NAME_CAPACITY {
-            return Err(NameDecodeError::NameTooLong { length: range.len() });
+            return Err(NameDecodeError::NameTooLong {
+                length: range.len(),
+            });
         }
         parameter.write_name(&source[second + range.start..second + range.end]);
         Ok(true)

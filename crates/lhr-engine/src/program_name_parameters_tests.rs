@@ -46,7 +46,8 @@ fn decode(opcode: u32, input: &[u8]) -> (NameParameterSlot, Backend, Vec<u8>, bo
 #[test]
 fn all_three_selectors_keep_original_name_bytes_and_integer_prefix() {
     for opcode in [13, 18, 43] {
-        let (slot, backend, bytes, accepted) = decode(opcode, b"  -4294967295junk, \"p\x80\xff\"tail \0after");
+        let (slot, backend, bytes, accepted) =
+            decode(opcode, b"  -4294967295junk, \"p\x80\xff\"tail \0after");
         assert!(accepted);
         assert_eq!(backend.calls, ["allocate", "convert"]);
         let p = slot.parameter().unwrap();
@@ -134,7 +135,10 @@ fn non_ascii_register_is_not_confused_with_allowed_non_ascii_name() {
     let mut source = b"1\xff,\"valid\"\0".to_vec();
     let mut slot = NameParameterSlot::default();
     let mut backend = Backend::default();
-    assert_eq!(slot.decode(13, &mut source, &mut backend), Err(NameDecodeError::Conversion("conversion domain")));
+    assert_eq!(
+        slot.decode(13, &mut source, &mut backend),
+        Err(NameDecodeError::Conversion("conversion domain"))
+    );
     assert_eq!(source, b"1\xff\0\"valid\"\0"); // the closing quote is still untouched
     assert_eq!(slot.parameter().unwrap().register(), None);
     assert_eq!(slot.parameter().unwrap().name(), None);
@@ -143,7 +147,10 @@ fn non_ascii_register_is_not_confused_with_allowed_non_ascii_name() {
 #[test]
 fn every_effect_failure_keeps_its_prefix_and_cannot_be_reentered() {
     for stop in ["allocate", "convert", "release"] {
-        let mut backend = Backend { stop: Some(stop), ..Backend::default() };
+        let mut backend = Backend {
+            stop: Some(stop),
+            ..Backend::default()
+        };
         let mut slot = NameParameterSlot::default();
         let mut source = b"4,invalid\0".to_vec();
         let result = slot.decode(18, &mut source, &mut backend);
@@ -159,7 +166,10 @@ fn every_effect_failure_keeps_its_prefix_and_cannot_be_reentered() {
         }
         let calls = backend.calls.clone();
         let written = source.clone();
-        assert_eq!(slot.decode(18, &mut source, &mut backend), Err(NameDecodeError::AlreadyEntered));
+        assert_eq!(
+            slot.decode(18, &mut source, &mut backend),
+            Err(NameDecodeError::AlreadyEntered)
+        );
         assert_eq!(backend.calls, calls);
         assert_eq!(source, written);
     }
@@ -167,9 +177,15 @@ fn every_effect_failure_keeps_its_prefix_and_cannot_be_reentered() {
 
 #[test]
 fn null_allocation_never_reaches_conversion() {
-    let mut backend = Backend { null: true, ..Backend::default() };
+    let mut backend = Backend {
+        null: true,
+        ..Backend::default()
+    };
     let mut slot = NameParameterSlot::default();
-    assert_eq!(slot.decode(13, &mut b"0,\"x\"\0".to_vec(), &mut backend), Err(NameDecodeError::NullAllocation));
+    assert_eq!(
+        slot.decode(13, &mut b"0,\"x\"\0".to_vec(), &mut backend),
+        Err(NameDecodeError::NullAllocation)
+    );
     assert!(slot.parameter().is_none());
     assert_eq!(backend.calls, ["allocate"]);
 }
@@ -179,12 +195,20 @@ fn unsupported_selector_runs_common_tokenization_only_and_missing_nul_preserves_
     let mut slot = NameParameterSlot::default();
     let mut backend = Backend::default();
     let mut source = b" 1 , \"x\" \0suffix".to_vec();
-    assert_eq!(slot.decode(67, &mut source, &mut backend), Err(NameDecodeError::UnsupportedOpcode(67)));
+    assert_eq!(
+        slot.decode(67, &mut source, &mut backend),
+        Err(NameDecodeError::UnsupportedOpcode(67))
+    );
     assert_eq!(source, b" 1\0\0 \"x\"\0\0suffix");
     assert!(backend.calls.is_empty());
     let mut source = b"1,\"x\"".to_vec();
     let before = source.clone();
-    assert_eq!(NameParameterSlot::default().decode(13, &mut source, &mut backend), Err(NameDecodeError::Parser(ProgramParserError::MissingTerminator)));
+    assert_eq!(
+        NameParameterSlot::default().decode(13, &mut source, &mut backend),
+        Err(NameDecodeError::Parser(
+            ProgramParserError::MissingTerminator
+        ))
+    );
     assert_eq!(source, before);
     assert!(backend.calls.is_empty());
 }
@@ -197,7 +221,11 @@ fn unwound_rejection_release_keeps_the_register_and_prevents_replay() {
         fn allocate_name(&mut self) -> Result<Option<Box<NameParameter>>, Self::Error> {
             self.0.allocate_name()
         }
-        fn convert_register(&mut self, token: &[u8], p: &NameParameter) -> Result<i32, Self::Error> {
+        fn convert_register(
+            &mut self,
+            token: &[u8],
+            p: &NameParameter,
+        ) -> Result<i32, Self::Error> {
             self.0.convert_register(token, p)
         }
         fn release_rejected_name(&mut self, _: &NameParameter) -> Result<(), Self::Error> {
@@ -210,8 +238,12 @@ fn unwound_rejection_release_keeps_the_register_and_prevents_replay() {
     let mut source = b"9,invalid\0".to_vec();
     assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let _ = slot.decode(13, &mut source, &mut backend);
-    })).is_err());
+    }))
+    .is_err());
     assert_eq!(slot.parameter().unwrap().register(), Some(9));
-    assert_eq!(slot.decode(13, &mut source, &mut backend), Err(NameDecodeError::AlreadyEntered));
+    assert_eq!(
+        slot.decode(13, &mut source, &mut backend),
+        Err(NameDecodeError::AlreadyEntered)
+    );
     assert_eq!(backend.0.calls, ["allocate", "convert", "release"]);
 }

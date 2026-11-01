@@ -14,9 +14,6 @@
 use super::*;
 #[path = "program_name_parameters.rs"]
 mod name_parameters;
-pub use name_parameters::{
-    supports_name_opcode, NameDecodeError, NameParameter, NameParameterBackend, NameParameterSlot,
-};
 use crate::named_script::ResetState;
 use crate::program_compiler::{self, CompileBackend, CompileDiagnostic, CompileProgress};
 use crate::program_parameters::{
@@ -27,6 +24,9 @@ use crate::program_parser::ParserLocale;
 use crate::script_scheduler::{
     run_scheduler, ActorReferenceId, DispatchBudget, FrameReferenceId, InstructionView,
     SchedulerBackend,
+};
+pub use name_parameters::{
+    supports_name_opcode, NameDecodeError, NameParameter, NameParameterBackend, NameParameterSlot,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
