@@ -55,7 +55,8 @@ impl<B: RuntimeBackend, W: RuntimeLookupWorld> RuntimeBackend for LookupRuntimeB
         effect: RuntimeEffect,
         published: Option<&NameParameter>,
     ) -> Result<(), String> {
-        self.effects.name_parameter_effect(fields, effect, published)
+        self.effects
+            .name_parameter_effect(fields, effect, published)
     }
     fn lookup_world(&mut self) -> Result<&mut dyn LookupWorldBackend, LookupError> {
         Ok(self.world)
@@ -83,7 +84,10 @@ impl LookupWorldBackend for ProgramOwnerWorld<'_> {
     fn owner(&self) -> Result<Option<ActorReferenceId>, LookupError> {
         Ok(*self.owner)
     }
-    fn actor_frame(&self, actor: ActorReferenceId) -> Result<Option<FrameReferenceId>, LookupError> {
+    fn actor_frame(
+        &self,
+        actor: ActorReferenceId,
+    ) -> Result<Option<FrameReferenceId>, LookupError> {
         self.world.actor_frame(actor)
     }
     fn primary(&self) -> Result<&[Option<ActorReferenceId>], LookupError> {
@@ -102,7 +106,9 @@ impl LookupWorldBackend for ProgramOwnerWorld<'_> {
         self.world.scene()
     }
     fn message_beep(&mut self, _: i32) -> Result<(), LookupError> {
-        Err(LookupError::Backend("diagnostic requires live program state".into()))
+        Err(LookupError::Backend(
+            "diagnostic requires live program state".into(),
+        ))
     }
 }
 
@@ -125,7 +131,10 @@ impl LookupRegisters for Registers<'_> {
         index: u32,
         value: Option<ActorReferenceId>,
     ) -> Result<(), LookupError> {
-        let slot = self.actors.as_mut().and_then(|v| v.get_mut(index as usize))
+        let slot = self
+            .actors
+            .as_mut()
+            .and_then(|v| v.get_mut(index as usize))
             .ok_or_else(|| LookupError::Backend("actor register backing unavailable".into()))?;
         *slot = value.map_or(RuntimeReferenceSlot::Empty, RuntimeReferenceSlot::Reference);
         Ok(())
@@ -135,7 +144,10 @@ impl LookupRegisters for Registers<'_> {
         index: u32,
         value: Option<FrameReferenceId>,
     ) -> Result<(), LookupError> {
-        let slot = self.frames.as_mut().and_then(|v| v.get_mut(index as usize))
+        let slot = self
+            .frames
+            .as_mut()
+            .and_then(|v| v.get_mut(index as usize))
             .ok_or_else(|| LookupError::Backend("frame register backing unavailable".into()))?;
         *slot = value.map_or(RuntimeReferenceSlot::Empty, RuntimeReferenceSlot::Reference);
         Ok(())
@@ -158,28 +170,34 @@ impl<B: RuntimeBackend> Process<'_, B> {
                 script_lookup::actor_lookup_needs_beep(&world).map_err(RuntimeError::Lookup)?
             };
             if needs_beep {
-                self.backend.lookup_message_beep(
-                    RuntimeView {
-                        flags: self.flags,
-                        scheduler: state,
-                        last_pc: self.last_pc,
-                        elapsed: self.elapsed,
-                        command_budget_bits: self.command_budget_bits,
-                        actor_count: self.actor_count,
-                        frame_count: self.frame_count,
-                        actors: self.actors,
-                        frames: self.frames,
-                    },
-                    self.owner,
-                    -1,
-                ).map_err(RuntimeError::Lookup)?;
+                self.backend
+                    .lookup_message_beep(
+                        RuntimeView {
+                            flags: self.flags,
+                            scheduler: state,
+                            last_pc: self.last_pc,
+                            elapsed: self.elapsed,
+                            command_budget_bits: self.command_budget_bits,
+                            actor_count: self.actor_count,
+                            frame_count: self.frame_count,
+                            actors: self.actors,
+                            frames: self.frames,
+                        },
+                        self.owner,
+                        -1,
+                    )
+                    .map_err(RuntimeError::Lookup)?;
             }
         }
-        let parameter = self.instructions.active().get(state.program_counter as usize)
+        let parameter = self
+            .instructions
+            .active()
+            .get(state.program_counter as usize)
             .and_then(|i| i.parameter.as_ref())
             .and_then(|p| p.name_parameter())
             .ok_or(RuntimeError::Domain("current named parameter unavailable"))?;
-        let index = parameter.register()
+        let index = parameter
+            .register()
             .ok_or(RuntimeError::Domain("current named register unavailable"))?;
         if index < 0 {
             return Err(RuntimeError::Lookup(LookupError::NegativeIndex(index)));
@@ -198,14 +216,16 @@ impl<B: RuntimeBackend> Process<'_, B> {
         if index as usize >= count {
             return Ok(());
         }
-        let name = parameter.name()
+        let name = parameter
+            .name()
             .ok_or(RuntimeError::Domain("current named string unavailable"))?;
         if name.is_empty() && (actor_lookup || self.owner.is_none()) {
             return if actor_lookup {
                 registers.write_actor_register(index as u32, *self.owner)
             } else {
                 registers.write_frame_register(index as u32, None)
-            }.map_err(RuntimeError::Lookup);
+            }
+            .map_err(RuntimeError::Lookup);
         }
         let world = ProgramOwnerWorld {
             world: self.backend.lookup_world().map_err(RuntimeError::Lookup)?,
@@ -215,7 +235,8 @@ impl<B: RuntimeBackend> Process<'_, B> {
             script_lookup::find_actor_after_diagnostic(&mut registers, &world, index, name)
         } else {
             script_lookup::find_frame_into(&mut registers, &world, index, name)
-        }.map_err(RuntimeError::Lookup)
+        }
+        .map_err(RuntimeError::Lookup)
     }
 }
 

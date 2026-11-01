@@ -188,21 +188,37 @@ fn actor_matches(
 pub trait LookupRegisters {
     fn actor_register_count(&self) -> usize;
     fn frame_register_count(&self) -> usize;
-    fn write_actor_register(&mut self, index: u32, value: Option<ActorReferenceId>)
-        -> Result<(), LookupError>;
-    fn write_frame_register(&mut self, index: u32, value: Option<FrameReferenceId>)
-        -> Result<(), LookupError>;
+    fn write_actor_register(
+        &mut self,
+        index: u32,
+        value: Option<ActorReferenceId>,
+    ) -> Result<(), LookupError>;
+    fn write_frame_register(
+        &mut self,
+        index: u32,
+        value: Option<FrameReferenceId>,
+    ) -> Result<(), LookupError>;
 }
 impl LookupRegisters for ControlState {
-    fn actor_register_count(&self) -> usize { self.actor_references().len() }
-    fn frame_register_count(&self) -> usize { self.frame_references().len() }
-    fn write_actor_register(&mut self, index: u32, value: Option<ActorReferenceId>)
-        -> Result<(), LookupError> {
+    fn actor_register_count(&self) -> usize {
+        self.actor_references().len()
+    }
+    fn frame_register_count(&self) -> usize {
+        self.frame_references().len()
+    }
+    fn write_actor_register(
+        &mut self,
+        index: u32,
+        value: Option<ActorReferenceId>,
+    ) -> Result<(), LookupError> {
         self.set_actor_reference(index, value)
             .map_err(|_| LookupError::Backend("actor register backing unavailable".into()))
     }
-    fn write_frame_register(&mut self, index: u32, value: Option<FrameReferenceId>)
-        -> Result<(), LookupError> {
+    fn write_frame_register(
+        &mut self,
+        index: u32,
+        value: Option<FrameReferenceId>,
+    ) -> Result<(), LookupError> {
         self.set_frame_reference(index, value)
             .map_err(|_| LookupError::Backend("frame register backing unavailable".into()))
     }

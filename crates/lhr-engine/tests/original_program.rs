@@ -261,6 +261,206 @@ fn allocation_and_free_failures_stop_at_ordered_prefix_and_huge_length_is_bounde
     assert_eq!(reader.position(), 5);
     assert!(b.effects.is_empty());
 }
+
+struct UnwindBackend {
+    memory: Backend,
+    panic_free: Option<ProgramBuffer>,
+}
+
+#[test]
+fn load_clear_free_errors_preserve_completed_prefix_and_success_restores_admission() {
+    for failed_free in [Some(1), Some(2), None] {
+        let mut program = CProgram::construct(seed());
+        let mut backend = Backend::default();
+        program
+            .load_source_code(
+                &mut ProgramSliceReader::new(&payload(b"name", b"code")),
+                &[],
+                &mut context(),
+                &mut backend,
+            )
+            .unwrap();
+        backend.effects.clear();
+        backend.fail = failed_free;
+        let replacement = payload(b"new name", b"new code");
+        let mut reader = ProgramSliceReader::new(&replacement);
+        let result = program.load_source_code(&mut reader, &[], &mut context(), &mut backend);
+        match failed_free {
+            Some(count) => {
+                assert_eq!(
+                    result,
+                    Err(ProgramError::Effect {
+                        stage: "free",
+                        detail: "injected".into()
+                    })
+                );
+                assert_eq!(program.phase(), ProgramPhase::Poisoned);
+                assert_eq!(reader.position(), 0);
+                assert_eq!(backend.effects.len(), count);
+                assert_eq!(program.name().is_some(), count == 1);
+                if let Some(name) = program.name() {
+                    assert_eq!(name.bytes, b"name\0");
+                    assert!(name.disposal_uncertain);
+                    assert_eq!(name.c_bytes(), None);
+                }
+                let source = program.source().unwrap();
+                assert_eq!(source.bytes, b"code\0");
+                assert_eq!(source.disposal_uncertain, count == 2);
+                assert_eq!(
+                    program.destruct(&mut backend),
+                    Err(ProgramError::Unavailable)
+                );
+                assert_eq!(backend.effects.len(), count);
+            }
+            None => {
+                result.unwrap();
+                assert_eq!(program.phase(), ProgramPhase::Source);
+                assert_eq!(reader.position(), replacement.len());
+                assert_eq!(
+                    program.name().unwrap().c_bytes(),
+                    Some(b"new name".as_slice())
+                );
+                assert_eq!(
+                    program.source().unwrap().c_bytes(),
+                    Some(b"new code".as_slice())
+                );
+                assert!(!program.name().unwrap().disposal_uncertain);
+                assert!(!program.source().unwrap().disposal_uncertain);
+                assert_eq!(
+                    backend.effects,
+                    [
+                        Effect::Free(ProgramBuffer::Name, Some(1), true, true),
+                        Effect::Free(ProgramBuffer::Source, Some(2), false, true),
+                        Effect::Allocate(ProgramBuffer::Name, 9, false, false),
+                        Effect::Allocate(ProgramBuffer::Source, 9, true, false),
+                    ]
+                );
+                program.destruct(&mut backend).unwrap();
+            }
+        }
+    }
+}
+impl ProgramBackend for UnwindBackend {
+    fn allocate(
+        &mut self,
+        program: &CProgram,
+        buffer: ProgramBuffer,
+        bytes: u32,
+    ) -> Result<ProgramAllocation, String> {
+        self.memory.allocate(program, buffer, bytes)
+    }
+    fn free(
+        &mut self,
+        program: &CProgram,
+        buffer: ProgramBuffer,
+        allocation: Option<ProgramAllocation>,
+    ) -> Result<(), String> {
+        self.memory.free(program, buffer, allocation)?;
+        if self.panic_free == Some(buffer) {
+            assert_eq!(program.phase(), ProgramPhase::Poisoned);
+            let (string, expected) = match buffer {
+                ProgramBuffer::Name => (program.name().unwrap(), b"name\0".as_slice()),
+                ProgramBuffer::Source => (program.source().unwrap(), b"code\0".as_slice()),
+                _ => unreachable!(),
+            };
+            // Native pointer observations and underlying bytes remain intact.
+            // c_bytes is host admission and refuses uncertain external backing.
+            assert_eq!(Some(string.allocation), allocation);
+            assert_eq!(string.bytes, expected);
+            assert!(string.complete && !string.released && string.disposal_uncertain);
+            assert_eq!(string.c_bytes(), None);
+            panic!("external free completed before unwind");
+        }
+        Ok(())
+    }
+}
+
+#[test]
+fn clear_unwind_retains_exact_prefix_and_never_replays_name_or_source_free() {
+    for (buffer, replace_source) in [
+        (ProgramBuffer::Name, false),
+        (ProgramBuffer::Source, false),
+        (ProgramBuffer::Source, true),
+    ] {
+        let mut program = CProgram::construct(seed());
+        let mut backend = UnwindBackend {
+            memory: Backend::default(),
+            panic_free: None,
+        };
+        program
+            .load_source_code(
+                &mut ProgramSliceReader::new(&payload(b"name", b"code")),
+                &[],
+                &mut context(),
+                &mut backend,
+            )
+            .unwrap();
+        let name = program.name().unwrap().allocation;
+        let source = program.source().unwrap().allocation;
+        backend.memory.effects.clear();
+        backend.panic_free = Some(buffer);
+        let replacement = payload(b"new name", b"new code");
+        let mut reader = ProgramSliceReader::new(&replacement);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            if replace_source {
+                program.set_source_code(Some(b"replacement"), &mut backend)
+            } else {
+                program.load_source_code(&mut reader, &[], &mut context(), &mut backend)
+            }
+        }));
+        assert!(result.is_err());
+        assert_eq!(program.phase(), ProgramPhase::Poisoned);
+        assert_eq!(reader.position(), 0);
+        let expected = if replace_source {
+            vec![Effect::Free(
+                ProgramBuffer::Source,
+                Some(source.0),
+                true,
+                true,
+            )]
+        } else if buffer == ProgramBuffer::Name {
+            vec![Effect::Free(ProgramBuffer::Name, Some(name.0), true, true)]
+        } else {
+            vec![
+                Effect::Free(ProgramBuffer::Name, Some(name.0), true, true),
+                Effect::Free(ProgramBuffer::Source, Some(source.0), false, true),
+            ]
+        };
+        assert_eq!(backend.memory.effects, expected);
+        assert_eq!(
+            program.name().is_some(),
+            replace_source || buffer == ProgramBuffer::Name
+        );
+        if let Some(retained) = program.name() {
+            assert_eq!(retained.allocation, name);
+            assert_eq!(retained.bytes, b"name\0");
+            assert_eq!(retained.disposal_uncertain, buffer == ProgramBuffer::Name);
+        }
+        let retained = program.source().unwrap();
+        assert_eq!(retained.allocation, source);
+        assert_eq!(retained.bytes, b"code\0");
+        assert_eq!(retained.disposal_uncertain, buffer == ProgramBuffer::Source);
+        backend.panic_free = None;
+        assert_eq!(
+            program.set_source_code(None, &mut backend),
+            Err(ProgramError::Unavailable)
+        );
+        assert_eq!(
+            program.load_source_code(&mut reader, &[], &mut context(), &mut backend),
+            Err(ProgramError::Unavailable)
+        );
+        assert_eq!(
+            program.destruct(&mut backend),
+            Err(ProgramError::Unavailable)
+        );
+        assert_eq!(reader.position(), 0);
+        assert_eq!(backend.memory.effects, expected);
+        // Explicit host discard releases Rust snapshots, never uncertain native
+        // backing. No Drop callback retries either this token or later owners.
+        drop(program);
+        assert_eq!(backend.memory.effects, expected);
+    }
+}
 #[test]
 fn destructor_preserves_pointer_observations_and_is_distinct_from_done() {
     let mut p = CProgram::construct(seed());

@@ -1,33 +1,65 @@
 //! Synthetic execution tests over one CProgram and a borrowed lookup world.
+use super::super::{
+    CProgram, ProgramAllocation, ProgramBackend, ProgramBuffer, ProgramSeed, RuntimeStage,
+};
 use super::*;
-use super::super::{CProgram, ProgramAllocation, ProgramBackend, ProgramBuffer, ProgramSeed, RuntimeStage};
-use crate::frame_lookup::{FrameLifetime, FrameLookupError, FrameView, FrameLookupBackend, SceneRoots};
+use crate::frame_lookup::{
+    FrameLifetime, FrameLookupBackend, FrameLookupError, FrameView, SceneRoots,
+};
 use crate::script_lookup::ActorLifetime;
 use crate::script_scheduler::DispatchBudget;
 
 #[derive(Default)]
-struct Memory { next: u64 }
+struct Memory {
+    next: u64,
+}
 impl ProgramBackend for Memory {
-    fn allocate(&mut self, _: &CProgram, _: ProgramBuffer, _: u32) -> Result<ProgramAllocation, String> {
+    fn allocate(
+        &mut self,
+        _: &CProgram,
+        _: ProgramBuffer,
+        _: u32,
+    ) -> Result<ProgramAllocation, String> {
         self.next += 1;
         Ok(ProgramAllocation(self.next))
     }
-    fn free(&mut self, _: &CProgram, _: ProgramBuffer, _: Option<ProgramAllocation>) -> Result<(), String> {
+    fn free(
+        &mut self,
+        _: &CProgram,
+        _: ProgramBuffer,
+        _: Option<ProgramAllocation>,
+    ) -> Result<(), String> {
         Ok(())
     }
 }
 impl RuntimeBackend for Memory {
-    fn effect(&mut self, _: RuntimeView<'_>, _: RuntimeEffect, _: Option<&ScalarParameter>) -> Result<(), String> {
+    fn effect(
+        &mut self,
+        _: RuntimeView<'_>,
+        _: RuntimeEffect,
+        _: Option<&ScalarParameter>,
+    ) -> Result<(), String> {
         Ok(())
     }
 }
 fn compiled(source: &[u8], memory: &mut Memory) -> CProgram {
+    compiled_with_owner(source, memory, None)
+}
+fn compiled_with_owner(
+    source: &[u8],
+    memory: &mut Memory,
+    owner: Option<ActorReferenceId>,
+) -> CProgram {
     let mut program = CProgram::construct(ProgramSeed {
-        address_high_byte: 0x81, padding_0d: [5; 3],
-        words_1c_2c: [0xdeadbeef; 5], padding_31: [7; 3],
-        word_40: 0x12345678, bytes_64: [0xff; 4],
+        address_high_byte: 0x81,
+        padding_0d: [5; 3],
+        words_1c_2c: [0xdeadbeef; 5],
+        padding_31: [7; 3],
+        word_40: 0x12345678,
+        bytes_64: [0xff; 4],
     });
     program.set_source_code(Some(source), memory).unwrap();
+    program.set_owner(owner).unwrap();
     program.init_fresh_runtime(memory).unwrap();
     program
 }
@@ -41,10 +73,13 @@ struct World {
     actor: ActorLifetime,
     other_actor: ActorLifetime,
     frame: FrameLifetime,
+    backdrop: FrameLifetime,
+    frame_reads: std::cell::Cell<usize>,
     name: Vec<u8>,
     primary: Vec<Option<ActorReferenceId>>,
     diagnostics: usize,
     redirect: bool,
+    panic_after_redirect: bool,
 }
 impl World {
     fn new(name: &[u8]) -> Self {
@@ -54,38 +89,71 @@ impl World {
             actor,
             other_actor: ActorLifetime::for_existing(18),
             frame: FrameLifetime::for_existing(42),
+            backdrop: FrameLifetime::for_existing(43),
+            frame_reads: std::cell::Cell::new(0),
             name: name.to_vec(),
             diagnostics: 0,
             redirect: false,
+            panic_after_redirect: false,
         }
     }
 }
 impl FrameLookupBackend for World {
-    fn default_c_locale(&self) -> bool { true }
+    fn default_c_locale(&self) -> bool {
+        true
+    }
     fn frame(&self, key: FrameReferenceId) -> Result<FrameView<'_>, FrameLookupError> {
+        self.frame_reads.set(self.frame_reads.get() + 1);
+        if key == self.backdrop.reference() {
+            return Ok(FrameView {
+                name: Some(b"backdrop"),
+                child: None,
+                next: None,
+            });
+        }
         if key != self.frame.reference() {
             return Err(FrameLookupError::StaleFrame(key));
         }
-        Ok(FrameView { name: Some(&self.name), child: None, next: None })
+        Ok(FrameView {
+            name: Some(&self.name),
+            child: None,
+            next: None,
+        })
     }
 }
 impl LookupWorldBackend for World {
-    fn diagnostic_default_c_locale(&self) -> bool { true }
+    fn diagnostic_default_c_locale(&self) -> bool {
+        true
+    }
     fn owner(&self) -> Result<Option<ActorReferenceId>, LookupError> {
         panic!("CProgram must supply its own owner")
     }
-    fn actor_frame(&self, actor: ActorReferenceId) -> Result<Option<FrameReferenceId>, LookupError> {
+    fn actor_frame(
+        &self,
+        actor: ActorReferenceId,
+    ) -> Result<Option<FrameReferenceId>, LookupError> {
         if actor != self.actor.reference() {
             return Err(LookupError::StaleActor(actor));
         }
         Ok(Some(self.frame.reference()))
     }
-    fn primary(&self) -> Result<&[Option<ActorReferenceId>], LookupError> { Ok(&self.primary) }
-    fn players(&self) -> Result<[Option<ActorReferenceId>; 2], LookupError> { Ok([None; 2]) }
-    fn secondary(&self) -> Result<&[Option<ActorReferenceId>], LookupError> { Ok(&[]) }
-    fn frames(&self) -> Result<&dyn FrameLookupBackend, LookupError> { Ok(self) }
+    fn primary(&self) -> Result<&[Option<ActorReferenceId>], LookupError> {
+        Ok(&self.primary)
+    }
+    fn players(&self) -> Result<[Option<ActorReferenceId>; 2], LookupError> {
+        Ok([None; 2])
+    }
+    fn secondary(&self) -> Result<&[Option<ActorReferenceId>], LookupError> {
+        Ok(&[])
+    }
+    fn frames(&self) -> Result<&dyn FrameLookupBackend, LookupError> {
+        Ok(self)
+    }
     fn scene(&self) -> Result<SceneRoots, LookupError> {
-        Ok(SceneRoots { primary: Some(self.frame.reference()), backdrop: None })
+        Ok(SceneRoots {
+            primary: Some(self.frame.reference()),
+            backdrop: Some(self.backdrop.reference()),
+        })
     }
     fn message_beep(&mut self, _: i32) -> Result<(), LookupError> {
         panic!("diagnostic must receive actual CProgram owner")
@@ -107,14 +175,20 @@ impl RuntimeLookupWorld for World {
             *fields.actors = Some(vec![RuntimeReferenceSlot::Empty; 2].into_boxed_slice());
             *owner = Some(self.other_actor.reference());
         }
+        if self.panic_after_redirect {
+            panic!("diagnostic mutated actual program before unwind");
+        }
         Ok(())
     }
 }
-fn execute(program: &mut CProgram, memory: &mut Memory, world: &mut World)
-    -> Result<(), RuntimeError>
-{
+fn execute(
+    program: &mut CProgram,
+    memory: &mut Memory,
+    world: &mut World,
+) -> Result<(), RuntimeError> {
     program.call_owned_process(
-        7, &mut DispatchBudget::new(16).unwrap(),
+        7,
+        &mut DispatchBudget::new(16).unwrap(),
         &mut LookupRuntimeBackend::new(memory, world),
     )
 }
@@ -131,10 +205,20 @@ fn source_owned_program_writes_directly_to_both_register_banks() {
     let runtime = program.runtime().unwrap();
     assert_eq!(runtime.stage, RuntimeStage::Ready);
     assert_eq!(runtime.fields.program_counter(), 6);
-    assert_eq!(runtime.fields.actors.as_ref().unwrap()[0].reference().unwrap().copied(),
-               Some(world.actor.reference()));
-    assert_eq!(runtime.fields.frames.as_ref().unwrap()[0].reference().unwrap().copied(),
-               Some(world.frame.reference()));
+    assert_eq!(
+        runtime.fields.actors.as_ref().unwrap()[0]
+            .reference()
+            .unwrap()
+            .copied(),
+        Some(world.actor.reference())
+    );
+    assert_eq!(
+        runtime.fields.frames.as_ref().unwrap()[0]
+            .reference()
+            .unwrap()
+            .copied(),
+        Some(world.frame.reference())
+    );
     assert_eq!(program.source().unwrap().bytes, original);
     finish(&mut program, &mut memory);
 }
@@ -142,16 +226,24 @@ fn source_owned_program_writes_directly_to_both_register_banks() {
 fn diagnostic_precedes_live_name_lookup_and_runs_once() {
     let mut memory = Memory::default();
     let mut world = World::new(b"chcipnuti chlapka");
-    let mut program = compiled(
+    let mut program = compiled_with_owner(
         b"dim_act 1\nfindactor 0\nfindactor 1",
         &mut memory,
+        Some(world.actor.reference()),
     );
-    program.set_owner(Some(world.actor.reference())).unwrap();
+    // With continuation zero, each call executes one command. Reach both
+    // lookups through the actual scheduler after DIM_ACT has yielded.
+    execute(&mut program, &mut memory, &mut world).unwrap();
+    assert_eq!(world.diagnostics, 0);
+    execute(&mut program, &mut memory, &mut world).unwrap();
+    assert_eq!(world.diagnostics, 1);
     execute(&mut program, &mut memory, &mut world).unwrap();
     assert_eq!(world.diagnostics, 2);
     assert_eq!(
         program.runtime().unwrap().fields.actors.as_ref().unwrap()[0]
-            .reference().unwrap().copied(),
+            .reference()
+            .unwrap()
+            .copied(),
         Some(world.actor.reference()),
     );
     assert_eq!(program.runtime().unwrap().fields.program_counter(), 3);
@@ -161,12 +253,19 @@ fn diagnostic_precedes_live_name_lookup_and_runs_once() {
 fn an_unbound_world_is_a_terminal_lookup_error_not_a_synthetic_success() {
     let mut memory = Memory::default();
     let mut program = compiled(b"dim_frm 1\nfindframe 0,\"alpha\"", &mut memory);
+    program
+        .call_owned_process(0, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(program.runtime().unwrap().fields.program_counter(), 1);
     let result = program.call_owned_process(7, &mut DispatchBudget::new(8).unwrap(), &mut memory);
     assert_eq!(
         result,
         Err(RuntimeError::Lookup(LookupError::UnsupportedWorldBackend)),
     );
-    assert_eq!(program.runtime().unwrap().stage, RuntimeStage::ProcessInterrupted);
+    assert_eq!(
+        program.runtime().unwrap().stage,
+        RuntimeStage::ProcessInterrupted
+    );
     assert_eq!(program.runtime().unwrap().fields.program_counter(), 1);
     finish(&mut program, &mut memory);
 }
@@ -178,19 +277,30 @@ fn diagnostic_reloads_current_instruction_owner_and_live_bank_after_mutation() {
     world.redirect = true;
     let original = world.actor.reference();
     let replacement = world.other_actor.reference();
-    let mut program = compiled(
+    let mut program = compiled_with_owner(
         b"dim_act 1\nfindactor 0,\"must not look up\"\nfindactor 1",
         &mut memory,
+        Some(original),
     );
-    program.set_owner(Some(original)).unwrap();
+    execute(&mut program, &mut memory, &mut world).unwrap();
+    assert_eq!(world.diagnostics, 0);
     execute(&mut program, &mut memory, &mut world).unwrap();
     let runtime = program.runtime().unwrap();
     assert_eq!(runtime.stage, RuntimeStage::Ready);
     assert_eq!(runtime.fields.program_counter(), 3);
     assert_eq!(runtime.fields.actor_count, 2);
     assert_eq!(runtime.fields.actors.as_ref().unwrap().len(), 2);
-    assert_eq!(runtime.fields.actors.as_ref().unwrap()[0].reference(), Ok(None));
-    assert_eq!(runtime.fields.actors.as_ref().unwrap()[1].reference().unwrap().copied(), Some(replacement));
+    assert_eq!(
+        runtime.fields.actors.as_ref().unwrap()[0].reference(),
+        Ok(None)
+    );
+    assert_eq!(
+        runtime.fields.actors.as_ref().unwrap()[1]
+            .reference()
+            .unwrap()
+            .copied(),
+        Some(replacement)
+    );
     assert_eq!(program.owner(), Some(replacement));
     assert_eq!(world.diagnostics, 1);
     finish(&mut program, &mut memory);
@@ -203,13 +313,177 @@ fn out_of_range_named_lookup_is_the_native_no_op_without_a_world() {
         b"findframe 99,\"unread\"\nfindactor 99,\"unread\"",
         &mut memory,
     );
-    program.call_owned_process(
-        1, &mut DispatchBudget::new(4).unwrap(), &mut memory,
-    ).unwrap();
+    program
+        .call_owned_process(1, &mut DispatchBudget::new(4).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(program.runtime().unwrap().fields.program_counter(), 1);
+    program
+        .call_owned_process(1, &mut DispatchBudget::new(4).unwrap(), &mut memory)
+        .unwrap();
     let runtime = program.runtime().unwrap();
     assert_eq!(runtime.stage, RuntimeStage::Ready);
     assert_eq!(runtime.fields.program_counter(), 2);
     assert!(runtime.fields.frames.is_none());
     assert!(runtime.fields.actors.is_none());
     finish(&mut program, &mut memory);
+}
+
+#[test]
+fn diagnostic_unwind_retains_actual_mutations_and_blocks_execution_replay() {
+    let mut memory = Memory::default();
+    let mut world = World::new(b"chcipnuti chlapka");
+    world.redirect = true;
+    world.panic_after_redirect = true;
+    let replacement = world.other_actor.reference();
+    let mut program = compiled_with_owner(
+        b"dim_act 1\nfindactor 0,\"must not look up\"\nfindactor 1",
+        &mut memory,
+        Some(world.actor.reference()),
+    );
+    let source = program.source().unwrap().bytes.clone();
+    execute(&mut program, &mut memory, &mut world).unwrap();
+    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        execute(&mut program, &mut memory, &mut world)
+    }))
+    .is_err());
+    let runtime = program.runtime().unwrap();
+    assert_eq!(runtime.stage, RuntimeStage::ProcessInterrupted);
+    assert_eq!(
+        (
+            runtime.fields.program_counter(),
+            runtime.fields.last_pc,
+            runtime.fields.elapsed
+        ),
+        (2, 0, 7)
+    );
+    assert_eq!(runtime.fields.actor_count, 2);
+    let actors = runtime.fields.actors.as_ref().unwrap();
+    assert_eq!(actors.len(), 2);
+    assert!(actors.iter().all(|slot| slot.reference() == Ok(None)));
+    assert_eq!(program.owner(), Some(replacement));
+    assert_eq!(program.source().unwrap().bytes, source);
+    assert_eq!(world.diagnostics, 1);
+    world.panic_after_redirect = false;
+    assert!(execute(&mut program, &mut memory, &mut world).is_err());
+    assert_eq!(world.diagnostics, 1);
+    // The diagnostic is nondestructive: explicit Done may still release the
+    // retained actual bank and payloads, without replaying the diagnostic.
+    finish(&mut program, &mut memory);
+    assert_eq!(world.diagnostics, 1);
+}
+
+#[test]
+fn live_counts_control_admission_independently_of_existing_backing() {
+    for actor in [false, true] {
+        for count in [1, u32::MAX] {
+            let mut memory = Memory::default();
+            let source = if actor {
+                b"findactor 1,\"unread\"".as_slice()
+            } else {
+                b"findframe 1,\"unread\"".as_slice()
+            };
+            let mut program = compiled(source, &mut memory);
+            let fields = &mut program.runtime.as_mut().unwrap().fields;
+            if actor {
+                fields.actor_count = count;
+                fields.actors = Some(vec![RuntimeReferenceSlot::Empty; 2].into_boxed_slice());
+            } else {
+                fields.frame_count = count;
+                fields.frames = Some(vec![RuntimeReferenceSlot::Empty; 2].into_boxed_slice());
+            }
+            // Index1 exists in host backing but is outside the native signed
+            // count. Even an unbound world must remain unread on this branch.
+            program
+                .call_owned_process(7, &mut DispatchBudget::new(4).unwrap(), &mut memory)
+                .unwrap();
+            let runtime = program.runtime().unwrap();
+            assert_eq!(runtime.stage, RuntimeStage::Ready);
+            assert_eq!(runtime.fields.program_counter(), 1);
+            if actor {
+                assert_eq!(runtime.fields.actor_count, count);
+                assert_eq!(
+                    runtime.fields.actors.as_ref().unwrap()[1].reference(),
+                    Ok(None)
+                );
+            } else {
+                assert_eq!(runtime.fields.frame_count, count);
+                assert_eq!(
+                    runtime.fields.frames.as_ref().unwrap()[1].reference(),
+                    Ok(None)
+                );
+            }
+            finish(&mut program, &mut memory);
+        }
+    }
+}
+
+#[test]
+fn backing_mismatch_is_checked_only_after_lookup_reaches_a_write() {
+    for actor in [false, true] {
+        for matched in [false, true] {
+            let mut memory = Memory::default();
+            let mut world = World::new(b"alpha");
+            let name = if matched { "alpha" } else { "missing" };
+            let source = format!(
+                "{} 1,\"{name}\"",
+                if actor { "findactor" } else { "findframe" }
+            );
+            let mut program = compiled(source.as_bytes(), &mut memory);
+            let fields = &mut program.runtime.as_mut().unwrap().fields;
+            if actor {
+                fields.actor_count = 2;
+                fields.actors =
+                    matched.then(|| vec![RuntimeReferenceSlot::Empty; 1].into_boxed_slice());
+            } else {
+                fields.frame_count = 2;
+                fields.frames =
+                    matched.then(|| vec![RuntimeReferenceSlot::Empty; 1].into_boxed_slice());
+            }
+            let result = execute(&mut program, &mut memory, &mut world);
+            let runtime = program.runtime().unwrap();
+            if actor && !matched {
+                // FINDACTOR miss leaves the slot untouched, so missing backing
+                // has not been reached and cannot become an eager error.
+                result.unwrap();
+                assert_eq!(runtime.stage, RuntimeStage::Ready);
+                assert_eq!(runtime.fields.program_counter(), 1);
+                assert!(runtime.fields.actors.is_none());
+            } else {
+                // FINDFRAME also writes a null miss; both hit paths write only
+                // after the real world search, then expose unavailable backing.
+                let message = if actor {
+                    "actor register backing unavailable"
+                } else {
+                    "frame register backing unavailable"
+                };
+                assert_eq!(
+                    result,
+                    Err(RuntimeError::Lookup(LookupError::Backend(message.into())))
+                );
+                assert_eq!(runtime.stage, RuntimeStage::ProcessInterrupted);
+                assert_eq!(
+                    (runtime.fields.program_counter(), runtime.fields.elapsed),
+                    (0, 7)
+                );
+                if matched {
+                    if actor {
+                        assert_eq!(
+                            runtime.fields.actors.as_ref().unwrap()[0].reference(),
+                            Ok(None)
+                        );
+                    } else {
+                        assert_eq!(
+                            runtime.fields.frames.as_ref().unwrap()[0].reference(),
+                            Ok(None)
+                        );
+                    }
+                }
+            }
+            assert_eq!(
+                world.frame_reads.get(),
+                if !actor && !matched { 2 } else { 1 }
+            );
+            finish(&mut program, &mut memory);
+        }
+    }
 }

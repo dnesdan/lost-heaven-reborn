@@ -18,9 +18,6 @@ mod lookup;
 pub use lookup::{LookupRuntimeBackend, RuntimeLookupWorld};
 #[path = "program_name_parameters.rs"]
 mod name_parameters;
-pub use name_parameters::{
-    supports_name_opcode, NameDecodeError, NameParameter, NameParameterBackend, NameParameterSlot,
-};
 use crate::named_script::ResetState;
 use crate::program_compiler::{self, CompileBackend, CompileDiagnostic, CompileProgress};
 use crate::program_parameters::{
@@ -31,6 +28,9 @@ use crate::program_parser::ParserLocale;
 use crate::script_scheduler::{
     run_scheduler, ActorReferenceId, DispatchBudget, FrameReferenceId, InstructionView,
     SchedulerBackend,
+};
+pub use name_parameters::{
+    supports_name_opcode, NameDecodeError, NameParameter, NameParameterBackend, NameParameterSlot,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -236,7 +236,8 @@ pub trait RuntimeBackend {
     /// Required lookup world; allocation-only backends explicitly refuse lookup.
     fn lookup_world(
         &mut self,
-    ) -> Result<&mut dyn crate::script_lookup::LookupWorldBackend, crate::script_lookup::LookupError> {
+    ) -> Result<&mut dyn crate::script_lookup::LookupWorldBackend, crate::script_lookup::LookupError>
+    {
         Err(crate::script_lookup::LookupError::UnsupportedWorldBackend)
     }
     /// FINDACTOR diagnostic borrows the actual program state, including its owner.
@@ -638,7 +639,9 @@ impl CProgram {
             crate::script_scheduler::SchedulerError::Backend(
                 error @ RuntimeError::DestructiveEffect { .. },
             ) => error,
-            crate::script_scheduler::SchedulerError::Backend(error @ RuntimeError::Lookup(_)) => error,
+            crate::script_scheduler::SchedulerError::Backend(error @ RuntimeError::Lookup(_)) => {
+                error
+            }
             other => RuntimeError::Scheduler(format!("{other:?}")),
         })
     }
@@ -792,7 +795,10 @@ impl<B: RuntimeBackend> Process<'_, B> {
         state: &mut ResetState,
         effect: RuntimeEffect,
     ) -> Result<(), RuntimeError> {
-        let destructive = matches!(effect, RuntimeEffect::ReleaseActors | RuntimeEffect::ReleaseFrames);
+        let destructive = matches!(
+            effect,
+            RuntimeEffect::ReleaseActors | RuntimeEffect::ReleaseFrames
+        );
         if destructive {
             *self.stage = RuntimeStage::DisposalInterrupted;
         }

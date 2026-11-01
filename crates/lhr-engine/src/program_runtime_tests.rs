@@ -403,11 +403,13 @@ fn derived_program_source_lifetime_survives_explicit_base_runtime_admission_reje
 fn interrupted_process_release_blocks_done_and_execution(
     source: &[u8],
     release: RuntimeEffect,
+    unwind: bool,
 ) {
     struct UncertainRelease {
         release: RuntimeEffect,
         calls: usize,
         observable_frees: usize,
+        unwind: bool,
     }
     impl RuntimeBackend for UncertainRelease {
         fn effect(
@@ -419,6 +421,9 @@ fn interrupted_process_release_blocks_done_and_execution(
             self.calls += 1;
             if effect == self.release {
                 self.observable_frees += 1;
+                if self.unwind {
+                    panic!("external free completed before unwind");
+                }
                 return Err("external free completed before interruption".into());
             }
             Ok(())
@@ -433,14 +438,39 @@ fn interrupted_process_release_blocks_done_and_execution(
         release,
         calls: 0,
         observable_frees: 0,
+        unwind,
     };
-    assert!(
-        matches!(p.call_owned_process(5,&mut DispatchBudget::new(4).unwrap(),&mut backend),Err(RuntimeError::DestructiveEffect{effect,..}) if effect==release)
-    );
+    if unwind {
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            p.call_owned_process(5, &mut DispatchBudget::new(4).unwrap(), &mut backend)
+        }))
+        .is_err());
+    } else {
+        assert!(
+            matches!(p.call_owned_process(5,&mut DispatchBudget::new(4).unwrap(),&mut backend),Err(RuntimeError::DestructiveEffect{effect,..}) if effect==release)
+        );
+    }
+    // Assert before Done can latch its own disposal stage. Moving the Process
+    // guard after the callback would leave ProcessInterrupted on unwind.
     assert_eq!(
         p.runtime().unwrap().stage,
         RuntimeStage::DisposalInterrupted
     );
+    let fields = &p.runtime().unwrap().fields;
+    assert_eq!(
+        (fields.program_counter(), fields.last_pc, fields.elapsed),
+        (1, 0, 5)
+    );
+    if release == RuntimeEffect::ReleaseActors {
+        assert_eq!((fields.actor_count, fields.frame_count), (2, 0));
+        assert_eq!(fields.actors.as_ref().unwrap().len(), 2);
+        assert!(fields.frames.is_none());
+    } else {
+        assert_eq!((fields.actor_count, fields.frame_count), (0, 2));
+        assert_eq!(fields.frames.as_ref().unwrap().len(), 2);
+        assert!(fields.actors.is_none());
+    }
+    assert_eq!(backend.calls, 1);
     assert_eq!(backend.observable_frees, 1);
     let calls = backend.calls;
     assert!(p.done_fresh_runtime(&mut backend).is_err());
@@ -458,6 +488,7 @@ fn failed_process_actor_release_is_uncertain_and_never_retried_by_done() {
     interrupted_process_release_blocks_done_and_execution(
         b"dim_act 2\ndim_act 4",
         RuntimeEffect::ReleaseActors,
+        false,
     );
 }
 #[test]
@@ -465,6 +496,23 @@ fn failed_process_frame_release_is_uncertain_and_never_retried_by_done() {
     interrupted_process_release_blocks_done_and_execution(
         b"dim_frm 2\ndim_frm 4",
         RuntimeEffect::ReleaseFrames,
+        false,
+    );
+}
+#[test]
+fn unwound_process_actor_release_is_uncertain_and_never_retried_by_done() {
+    interrupted_process_release_blocks_done_and_execution(
+        b"dim_act 2\ndim_act 4",
+        RuntimeEffect::ReleaseActors,
+        true,
+    );
+}
+#[test]
+fn unwound_process_frame_release_is_uncertain_and_never_retried_by_done() {
+    interrupted_process_release_blocks_done_and_execution(
+        b"dim_frm 2\ndim_frm 4",
+        RuntimeEffect::ReleaseFrames,
+        true,
     );
 }
 #[test]
@@ -569,9 +617,7 @@ fn owned_subroutine_resets_actual_owner_and_pc_before_synchronous_delta_one_proc
     assert!(memory
         .events
         .iter()
-        .any(|event| event.0 == RuntimeEffect::AllocateActors(2)
-            && event.1 == 0
-            && event.2 == 56));
+        .any(|event| event.0 == RuntimeEffect::AllocateActors(2) && event.1 == 0 && event.2 == 56));
     p.done_fresh_runtime(&mut memory).unwrap();
     p.discard_runtime_host().unwrap();
 }
