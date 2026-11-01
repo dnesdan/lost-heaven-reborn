@@ -184,6 +184,7 @@ fn snapshot_arena_tree_inner(
     view: Option<crate::inspection_lod::InspectionLodView>,
     camera: Option<crate::frame_camera::CameraKey>,
 ) -> Result<CarInspectionScene, String> {
+    arena.presentation_lighting.borrow_mut().prune();
     let mut lod_culled_meshes = 0;
     let mut pending: Vec<_> = roots.iter().copied().rev().collect();
     let mut seen = BTreeSet::new();
@@ -827,16 +828,10 @@ fn snapshot_arena_tree_inner(
                             texture.clone()
                         } else {
                             charge(&mut bytes, atlas.rgba.len())?;
-                            let mut rgba = Vec::new();
-                            rgba.try_reserve_exact(atlas.rgba.len())
-                                .map_err(|_| "Saved lightmap atlas allocation unavailable")?;
-                            rgba.extend_from_slice(&atlas.rgba);
-                            let texture = Arc::new(Texture {
-                                width: atlas.width,
-                                height: atlas.height,
-                                rgba,
-                                repeat: [false; 2],
-                            });
+                            let texture = arena
+                                .presentation_lighting
+                                .borrow_mut()
+                                .atlas_image(&lod.atlas, &atlas)?;
                             atlas_textures.insert(key, texture.clone());
                             texture
                         };

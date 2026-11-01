@@ -120,6 +120,7 @@ pub mod player_actor;
 pub mod player_control;
 pub mod police_state;
 mod portal_visibility;
+mod presentation_lighting;
 pub mod presentation_material;
 pub mod program_compiler;
 pub mod program_instructions;

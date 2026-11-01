@@ -362,6 +362,11 @@ mod tests {
             },
         };
         renderer.set_mesh_lighting(0, &lighting).unwrap();
+        let material = Arc::clone(&renderer.draws[0].lighting_material);
+        renderer.set_mesh_lighting(0, &lighting).unwrap();
+        assert!(Arc::ptr_eq(&material, &renderer.draws[0].lighting_material));
+        assert_eq!(renderer.lighting_upload_statistics().atlas_uploads, 1);
+        drop(material);
         let rgba = renderer.readback_scene_frame(16, 16, &frame).unwrap();
         let pixel = &rgba[(8 * 16 + 8) * 4..(8 * 16 + 8) * 4 + 4];
         assert!(
@@ -406,6 +411,173 @@ mod tests {
             &rgba[(8 * 16 + 8) * 4..(8 * 16 + 8) * 4 + 4],
             &[128, 128, 128, 255]
         );
+    }
+    #[test]
+    #[ignore = "requires a Vulkan or Metal adapter; run with --ignored"]
+    fn saved_lightmap_cache_releases_removed_and_vertex_color_draws() {
+        let instance = instance();
+        let adapter = pollster::block_on(instance.request_adapter(&Default::default())).unwrap();
+        let scene = Scene {
+            meshes: (0..3).map(|_| quad([255; 3], 0.5)).collect(),
+        };
+        let mut renderer = pollster::block_on(Renderer::with_adapter(
+            &adapter,
+            &scene,
+            wgpu::TextureFormat::Rgba8Unorm,
+            false,
+        ))
+        .unwrap();
+        let lightmap = |color| MeshLighting {
+            uv2: vec![[0.5; 2]; 4],
+            colors: vec![[0., 0., 0., 1.]; 4],
+            atlas: Some(Arc::new(Texture {
+                width: 1,
+                height: 1,
+                rgba: vec![color, 0, 0, 255],
+                repeat: [false; 2],
+            })),
+            mode: LightingMode::LightMap {
+                base_texture: true,
+                modulate_2x: false,
+            },
+        };
+        let lighting = [lightmap(32), lightmap(64), lightmap(96)];
+        for (index, lighting) in lighting.iter().enumerate() {
+            renderer.set_mesh_lighting(index, lighting).unwrap();
+        }
+        let [removed, unaffected, live_source] =
+            std::array::from_fn(|index| Arc::downgrade(&renderer.draws[index].lighting_material));
+        let retained = Arc::clone(lighting[2].atlas.as_ref().unwrap());
+        drop(lighting);
+        assert_eq!(renderer.lighting_materials.borrow().len(), 3);
+        // An invalid replacement must not discard existing draw/cache ownership.
+        let mut invalid = quad([255; 3], 0.5);
+        invalid.vertices[0].position[0] = f32::NAN;
+        assert!(renderer.replace_meshes(0..1, &[invalid]).is_err());
+        assert!(removed.upgrade().is_some());
+        assert_eq!(renderer.lighting_materials.borrow().len(), 3);
+        renderer
+            .replace_meshes(0..1, &[quad([255; 3], 0.5)])
+            .unwrap();
+        // No set/clear follows the replacement before observing reclamation.
+        assert!(removed.upgrade().is_none());
+        assert!(
+            unaffected.upgrade().is_some(),
+            "a surviving draw keeps its GPU owner"
+        );
+        assert!(live_source.upgrade().is_some());
+        assert_eq!(renderer.lighting_materials.borrow().len(), 1);
+        // A live source remains cached even if its draw temporarily disappears.
+        renderer
+            .replace_meshes(2..3, &[quad([255; 3], 0.5)])
+            .unwrap();
+        assert!(live_source.upgrade().is_some());
+        let mut restored = lightmap(0);
+        restored.atlas = Some(retained);
+        renderer.set_mesh_lighting(2, &restored).unwrap();
+        assert_eq!(renderer.lighting_upload_statistics().atlas_uploads, 3);
+        assert!(Arc::ptr_eq(
+            &live_source.upgrade().unwrap(),
+            &renderer.draws[2].lighting_material
+        ));
+        // A different reused draw changes to vertex colors without a clear call.
+        let mut switched = lightmap(128);
+        renderer.set_mesh_lighting(0, &switched).unwrap();
+        let old_atlas = Arc::downgrade(&renderer.draws[0].lighting_material);
+        switched.atlas = None;
+        switched.mode = LightingMode::VertexColors { modulate_2x: false };
+        renderer.set_mesh_lighting(0, &switched).unwrap();
+        assert!(old_atlas.upgrade().is_none());
+        assert_eq!(renderer.lighting_materials.borrow().len(), 1);
+        assert!(unaffected.upgrade().is_some());
+        assert!(live_source.upgrade().is_some());
+        drop(restored);
+        renderer.replace_meshes(0..3, &[]).unwrap();
+        // Empty removal must release the last atlas without a later lighting call.
+        assert!(unaffected.upgrade().is_none());
+        assert!(live_source.upgrade().is_none());
+        assert!(renderer.lighting_materials.borrow().is_empty());
+        assert!(renderer.draws.is_empty());
+    }
+    #[test]
+    #[ignore = "requires a Vulkan or Metal adapter; run with --ignored"]
+    fn saved_lighting_buffers_reuse_allocations_and_update_exact_bytes() {
+        let instance = instance();
+        let adapter = pollster::block_on(instance.request_adapter(&Default::default())).unwrap();
+        let scene = Scene {
+            meshes: vec![quad([255; 3], 0.5)],
+        };
+        let mut renderer = pollster::block_on(Renderer::with_adapter(
+            &adapter,
+            &scene,
+            wgpu::TextureFormat::Rgba8Unorm,
+            false,
+        ))
+        .unwrap();
+        let buffer = renderer.draws[0].lighting_vertex.clone();
+        let mut lighting = MeshLighting {
+            uv2: vec![[0., 0.]; 4],
+            colors: vec![[0.25, 0.5, 0.75, 1.]; 4],
+            atlas: None,
+            mode: LightingMode::VertexColors { modulate_2x: false },
+        };
+        renderer.set_mesh_lighting(0, &lighting).unwrap();
+        assert_eq!(renderer.lighting_upload_statistics().vertex_uploads, 1);
+        renderer.set_mesh_lighting(0, &lighting).unwrap();
+        assert_eq!(renderer.lighting_upload_statistics().vertex_uploads, 1);
+        assert_eq!(renderer.draws[0].lighting_vertex, buffer);
+        lighting.uv2[0][0] = -0.;
+        renderer.set_mesh_lighting(0, &lighting).unwrap();
+        assert_eq!(renderer.lighting_upload_statistics().vertex_uploads, 2);
+        assert_eq!(
+            renderer.draws[0].lighting_vertices[0][0].to_bits(),
+            (-0f32).to_bits()
+        );
+        lighting.colors.fill([0.75, 0.25, 0.5, 1.]);
+        renderer.set_mesh_lighting(0, &lighting).unwrap();
+        assert_eq!(renderer.lighting_upload_statistics().vertex_uploads, 3);
+        assert_eq!(renderer.draws[0].lighting_vertex, buffer);
+        let frame = SceneRenderFrame {
+            initial_cull: None,
+            viewport: [0, 0, 16, 16],
+            backdrop: SceneRenderPass {
+                view_projection: Mat4::IDENTITY,
+                draws: vec![],
+            },
+            main: SceneRenderPass {
+                view_projection: Mat4::IDENTITY,
+                draws: vec![0],
+            },
+            near: SceneRenderPass {
+                view_projection: Mat4::IDENTITY,
+                draws: vec![],
+            },
+        };
+        let rgba = renderer.readback_scene_frame(16, 16, &frame).unwrap();
+        assert_eq!(
+            &rgba[(8 * 16 + 8) * 4..(8 * 16 + 8) * 4 + 4],
+            &[191, 64, 128, 255]
+        );
+        // Clearing switches policy only; returning identical lighting reuses its bytes.
+        renderer.clear_mesh_lighting(0).unwrap();
+        renderer.set_mesh_lighting(0, &lighting).unwrap();
+        assert_eq!(renderer.lighting_upload_statistics().vertex_uploads, 3);
+        lighting.colors[0][0] = f32::NAN;
+        assert!(renderer.set_mesh_lighting(0, &lighting).is_err());
+        assert_eq!(renderer.lighting_upload_statistics().vertex_uploads, 3);
+        lighting.colors[0][0] = 0.75;
+        // Topology replacement owns a new correctly sized buffer. Stale data is rejected.
+        let mut triangle = quad([255; 3], 0.5);
+        triangle.vertices.truncate(3);
+        triangle.indices = vec![0, 1, 2];
+        renderer.replace_meshes(0..1, &[triangle]).unwrap();
+        assert_ne!(renderer.draws[0].lighting_vertex, buffer);
+        assert_eq!(renderer.draws[0].lighting_vertex.size(), 3 * 24);
+        assert!(renderer.set_mesh_lighting(0, &lighting).is_err());
+        lighting.uv2.truncate(3);
+        lighting.colors = vec![[1.; 4]; 3];
+        renderer.set_mesh_lighting(0, &lighting).unwrap();
+        assert_eq!(renderer.lighting_upload_statistics().vertex_uploads, 4);
     }
     #[test]
     #[ignore = "requires a Vulkan or Metal adapter; run with --ignored"]

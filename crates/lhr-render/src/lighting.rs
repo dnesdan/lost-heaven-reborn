@@ -1,5 +1,12 @@
 //! Saved lighting draw data, supplied by the existing CPU visual owner.
 use super::*;
+/// Cumulative saved-lighting writes, excluding default draw initialization.
+/// These counters describe resource traffic, not original-renderer parity.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LightingUploadStatistics {
+    pub atlas_uploads: u64,
+    pub vertex_uploads: u64,
+}
 #[derive(Clone, Copy, Debug)]
 pub enum LightingMode {
     LightMap {
@@ -24,6 +31,9 @@ pub(super) fn parameters(material: RenderMaterial, lighting: [f32; 3]) -> [f32; 
     parameters
 }
 impl Renderer {
+    pub fn lighting_upload_statistics(&self) -> LightingUploadStatistics {
+        self.lighting_uploads
+    }
     /// Reset a reused draw when its current canonical visual has no saved
     /// lighting. Existing topology/texture reuse must not retain an old atlas.
     pub fn clear_mesh_lighting(&mut self, index: usize) -> Result<(), String> {
@@ -95,7 +105,6 @@ impl Renderer {
                 }
                 let key = (Arc::as_ptr(source) as usize, false);
                 let mut cache = self.lighting_materials.borrow_mut();
-                cache.retain(|_, entry| entry.source.strong_count() != 0);
                 if let Some(entry) = cache.get(&key) {
                     Arc::clone(&entry.material)
                 } else {
@@ -128,6 +137,8 @@ impl Renderer {
                         },
                         texture.size(),
                     );
+                    self.lighting_uploads.atlas_uploads =
+                        self.lighting_uploads.atlas_uploads.saturating_add(1);
                     let sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
                         mag_filter: wgpu::FilterMode::Linear,
                         min_filter: wgpu::FilterMode::Linear,
@@ -162,21 +173,33 @@ impl Renderer {
             }
             LightingMode::VertexColors { .. } => Arc::clone(&draw.material),
         };
-        let vertices: Vec<[f32; 6]> = lighting
-            .uv2
-            .iter()
-            .zip(&lighting.colors)
-            .map(|(uv, c)| [uv[0], uv[1], c[0], c[1], c[2], c[3]])
-            .collect();
-        let vertex = self
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Saved lighting TEX1 and diffuse"),
-                contents: bytemuck::cast_slice(&vertices),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
         let draw = &mut self.draws[index];
-        draw.lighting_vertex = vertex;
+        // The draw owns a topology-sized COPY_DST buffer. Compare bytes, so
+        // signed zero changes are not hidden by floating-point equality.
+        let vertices = || {
+            lighting
+                .uv2
+                .iter()
+                .zip(&lighting.colors)
+                .map(|(uv, c)| [uv[0], uv[1], c[0], c[1], c[2], c[3]])
+        };
+        if draw
+            .lighting_vertices
+            .iter()
+            .zip(vertices())
+            .any(|(old, new)| bytemuck::bytes_of(old) != bytemuck::bytes_of(&new))
+        {
+            for (old, new) in draw.lighting_vertices.iter_mut().zip(vertices()) {
+                *old = new;
+            }
+            self.queue.write_buffer(
+                &draw.lighting_vertex,
+                0,
+                bytemuck::cast_slice(&draw.lighting_vertices),
+            );
+            self.lighting_uploads.vertex_uploads =
+                self.lighting_uploads.vertex_uploads.saturating_add(1);
+        }
         draw.lighting_material = atlas;
         draw.lighting_parameters = [mode, factor, base];
         self.queue.write_buffer(
@@ -184,6 +207,9 @@ impl Renderer {
             0,
             bytemuck::cast_slice(&parameters(draw.policy, draw.lighting_parameters)),
         );
+        self.lighting_materials
+            .borrow_mut()
+            .retain(|_, entry| entry.source.strong_count() != 0);
         Ok(())
     }
 }
