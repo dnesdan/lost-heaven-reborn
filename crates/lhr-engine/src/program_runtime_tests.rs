@@ -646,3 +646,98 @@ impl RuntimeError {
         format!("{self:?}")
     }
 }
+
+#[test]
+fn original_frame_visibility_parameters_compile_on_the_owned_runtime_but_do_not_fake_game_effects()
+{
+    let mut memory = Memory::default();
+    let mut program = program(
+        b"commandblock 1\nfrm_seton 0, 1\nfrm_seton1 2, 0\ncommandblock 0",
+        &mut memory,
+    );
+    let progress = program.init_fresh_runtime(&mut memory).unwrap();
+    assert_eq!((progress.accepted, progress.errors), (4, 0));
+    let instructions = program.runtime().unwrap().instructions.active();
+    assert_eq!(instructions[1].opcode, 14);
+    assert_eq!(instructions[2].opcode, 15);
+    assert_eq!(
+        instructions[1]
+            .parameter
+            .as_ref()
+            .unwrap()
+            .pair_parameter()
+            .unwrap()
+            .values(),
+        [Some(0), Some(1)]
+    );
+    assert_eq!(
+        instructions[2]
+            .parameter
+            .as_ref()
+            .unwrap()
+            .pair_parameter()
+            .unwrap()
+            .values(),
+        [Some(2), Some(0)]
+    );
+    assert_eq!(
+        memory
+            .events
+            .iter()
+            .filter(|event| event.0 == RuntimeEffect::AllocatePair)
+            .count(),
+        2
+    );
+
+    let mut budget = DispatchBudget::new(8).unwrap();
+    assert!(program
+        .call_owned_process(9, &mut budget, &mut memory)
+        .unwrap_err()
+        .to_debug()
+        .contains("UnsupportedCommand(14)"));
+    let fields = &program.runtime().unwrap().fields;
+    assert_eq!((fields.program_counter(), fields.elapsed), (1, 9));
+
+    memory.events.clear();
+    program.done_fresh_runtime(&mut memory).unwrap();
+    let releases: Vec<_> = memory
+        .events
+        .iter()
+        .filter_map(|event| matches!(event.0, RuntimeEffect::ReleasePair(_)).then_some(event.0))
+        .collect();
+    assert_eq!(
+        releases,
+        [
+            RuntimeEffect::ReleasePair(15),
+            RuntimeEffect::ReleasePair(14)
+        ]
+    );
+    assert_eq!(program.runtime().unwrap().instructions.active().len(), 0);
+}
+
+#[test]
+fn interrupted_second_pair_conversion_keeps_the_first_word_owned_until_host_discard() {
+    let mut memory = Memory::default();
+    let mut program = program(b"frm_seton 3, 1", &mut memory);
+    memory.fail = Some(RuntimeEffect::ConvertPair(1));
+    assert!(program.init_fresh_runtime(&mut memory).is_err());
+    let runtime = program.runtime().unwrap();
+    assert_eq!(runtime.stage, RuntimeStage::CompileInterrupted);
+    let pending = runtime.pending.as_ref().unwrap();
+    assert_eq!(pending.opcode, 14);
+    assert_eq!(
+        pending
+            .parameter
+            .as_ref()
+            .unwrap()
+            .pair_parameter()
+            .unwrap()
+            .values(),
+        [Some(3), None]
+    );
+    assert!(runtime.working_source.is_some());
+    let report = program.discard_runtime_host().unwrap();
+    assert_eq!(report.pair_allocations, 1);
+    assert_eq!(report.scalar_allocations, 0);
+    assert_eq!(report.name_allocations, 0);
+}

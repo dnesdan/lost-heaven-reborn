@@ -18,6 +18,8 @@ mod lookup;
 pub use lookup::{LookupRuntimeBackend, RuntimeLookupWorld};
 #[path = "program_name_parameters.rs"]
 mod name_parameters;
+#[path = "program_pair_parameters.rs"]
+mod pair_parameters;
 use crate::named_script::ResetState;
 use crate::program_compiler::{self, CompileBackend, CompileDiagnostic, CompileProgress};
 use crate::program_parameters::{
@@ -31,6 +33,9 @@ use crate::script_scheduler::{
 };
 pub use name_parameters::{
     supports_name_opcode, NameDecodeError, NameParameter, NameParameterBackend, NameParameterSlot,
+};
+pub use pair_parameters::{
+    supports_pair_opcode, PairDecodeError, PairParameter, PairParameterBackend, PairParameterSlot,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -134,19 +139,26 @@ impl RuntimeFields {
 pub enum InstructionParameter {
     Scalar(ScalarParameterSlot),
     Name(NameParameterSlot),
+    Pair(PairParameterSlot),
 }
 impl InstructionParameter {
     /// Scalar-only accessor retained for existing runtime diagnostics.
     pub fn parameter(&self) -> Option<&ScalarParameter> {
         match self {
             Self::Scalar(slot) => slot.parameter(),
-            Self::Name(_) => None,
+            Self::Name(_) | Self::Pair(_) => None,
         }
     }
     pub fn name_parameter(&self) -> Option<&NameParameter> {
         match self {
-            Self::Scalar(_) => None,
+            Self::Scalar(_) | Self::Pair(_) => None,
             Self::Name(slot) => slot.parameter(),
+        }
+    }
+    pub fn pair_parameter(&self) -> Option<&PairParameter> {
+        match self {
+            Self::Pair(slot) => slot.parameter(),
+            Self::Scalar(_) | Self::Name(_) => None,
         }
     }
 }
@@ -188,6 +200,9 @@ pub enum RuntimeEffect {
     AllocateName,
     ConvertNameRegister,
     ReleaseName(u32),
+    AllocatePair,
+    ConvertPair(usize),
+    ReleasePair(u32),
     AllocateRecords(usize),
     ReleaseOldRecordBacking,
     ReleaseScalar(u32),
@@ -262,6 +277,16 @@ pub trait RuntimeBackend {
     ) -> Result<(), String> {
         self.effect(fields, effect, None)
     }
+    /// Paired numeric parameters have their own actual instruction-owned payload.
+    /// A default backend still observes the required allocation/conversion/free.
+    fn pair_parameter_effect(
+        &mut self,
+        fields: RuntimeView<'_>,
+        effect: RuntimeEffect,
+        _published: Option<&PairParameter>,
+    ) -> Result<(), String> {
+        self.effect(fields, effect, None)
+    }
 }
 #[derive(Debug, PartialEq, Eq)]
 pub enum RuntimeError {
@@ -324,6 +349,34 @@ impl<B: RuntimeBackend> ScalarParameterBackend for ParameterBoundary<'_, B> {
             )
             .map_err(RuntimeError::Effect)?;
         ascii_integer_prefix(token).map_err(|e| RuntimeError::Parameter(e.to_string()))
+    }
+}
+struct PairBoundary<'a, B> {
+    fields: &'a mut RuntimeFields,
+    backend: &'a mut B,
+}
+impl<B: RuntimeBackend> PairParameterBackend for PairBoundary<'_, B> {
+    type Error = RuntimeError;
+    fn allocate_pair(&mut self) -> Result<Option<Box<PairParameter>>, RuntimeError> {
+        self.backend
+            .pair_parameter_effect(self.fields.view(), RuntimeEffect::AllocatePair, None)
+            .map_err(RuntimeError::Effect)?;
+        Ok(Some(Box::new(PairParameter::default())))
+    }
+    fn convert_integer(
+        &mut self,
+        index: usize,
+        token: &[u8],
+        published: &PairParameter,
+    ) -> Result<i32, RuntimeError> {
+        self.backend
+            .pair_parameter_effect(
+                self.fields.view(),
+                RuntimeEffect::ConvertPair(index),
+                Some(published),
+            )
+            .map_err(RuntimeError::Effect)?;
+        ascii_integer_prefix(token).map_err(|error| RuntimeError::Parameter(error.to_string()))
     }
 }
 struct NameBoundary<'a, B> {
@@ -395,6 +448,8 @@ impl<B: RuntimeBackend> CompileBackend for Compiler<'_, B> {
                 None
             } else if supports_name_opcode(opcode) {
                 Some(InstructionParameter::Name(NameParameterSlot::default()))
+            } else if supports_pair_opcode(opcode) {
+                Some(InstructionParameter::Pair(PairParameterSlot::default()))
             } else {
                 Some(InstructionParameter::Scalar(ScalarParameterSlot::default()))
             },
@@ -423,6 +478,14 @@ impl<B: RuntimeBackend> CompileBackend for Compiler<'_, B> {
                         fields: self.fields,
                         backend: self.backend,
                         opcode,
+                    };
+                    slot.decode(opcode, parameters, &mut boundary)
+                        .map_err(|error| RuntimeError::Parameter(format!("{error:?}")))?
+                }
+                InstructionParameter::Pair(slot) => {
+                    let mut boundary = PairBoundary {
+                        fields: self.fields,
+                        backend: self.backend,
                     };
                     slot.decode(opcode, parameters, &mut boundary)
                         .map_err(|error| RuntimeError::Parameter(format!("{error:?}")))?
@@ -472,6 +535,7 @@ impl<B: RuntimeBackend> CompileBackend for Compiler<'_, B> {
 pub struct HostRuntimeDiscard {
     pub scalar_allocations: usize,
     pub name_allocations: usize,
+    pub pair_allocations: usize,
     pub actor_slots: usize,
     pub frame_slots: usize,
     pub working_source_bytes: usize,
@@ -684,6 +748,18 @@ impl CProgram {
                         .is_some_and(|payload| payload.name_parameter().is_some())
                 })
                 .count(),
+            pair_allocations: runtime
+                .instructions
+                .records
+                .iter()
+                .chain(runtime.pending.iter())
+                .filter(|instruction| {
+                    instruction
+                        .parameter
+                        .as_ref()
+                        .is_some_and(|payload| payload.pair_parameter().is_some())
+                })
+                .count(),
             actor_slots: runtime.fields.actors.as_ref().map_or(0, |a| a.len()),
             frame_slots: runtime.fields.frames.as_ref().map_or(0, |a| a.len()),
             working_source_bytes: runtime.working_source.as_ref().map_or(0, |s| s.len()),
@@ -729,6 +805,11 @@ impl CProgram {
                     InstructionParameter::Name(slot) => backend.name_parameter_effect(
                         runtime.fields.view(),
                         RuntimeEffect::ReleaseName(opcode),
+                        slot.parameter(),
+                    ),
+                    InstructionParameter::Pair(slot) => backend.pair_parameter_effect(
+                        runtime.fields.view(),
+                        RuntimeEffect::ReleasePair(opcode),
                         slot.parameter(),
                     ),
                 };
