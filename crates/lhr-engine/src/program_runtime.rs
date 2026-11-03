@@ -19,6 +19,8 @@ mod lookup;
 pub use lookup::{LookupRuntimeBackend, RuntimeLookupWorld};
 #[path = "program_act_state_parameters.rs"]
 mod act_state_parameters;
+#[path = "program_event_parameters.rs"]
+mod event_parameters;
 #[path = "program_flow_parameters.rs"]
 mod flow_parameters;
 #[path = "program_name_parameters.rs"]
@@ -44,6 +46,12 @@ use crate::script_scheduler::{
 pub use act_state_parameters::{
     supports_act_state_opcode, ActState, ActStateDecodeError, ActStateParameter,
     ActStateParameterBackend, ActStateParameterSlot, AsciiActStateParameterBackend,
+};
+pub use event_parameters::{
+    decode_event_id, supports_event_opcode, supports_set_event_opcode, AsciiEventParameterBackend,
+    AsciiSetEventParameterBackend, EventDecodeError, EventParameter, EventParameterBackend,
+    EventParameterSlot, SetEventDecodeError, SetEventParameter, SetEventParameterBackend,
+    SetEventParameterSlot,
 };
 pub use flow_parameters::{
     supports_flow_opcode, AsciiFlowParameterBackend, FlowDecodeError, FlowOperand, FlowParameter,
@@ -116,6 +124,8 @@ pub struct RuntimeFields {
     pub floats: Option<Box<[f32]>>,
     pub gosub_stack: Vec<u32>,
     pub command_time: u32,
+    pub event_command_time: u32,
+    pub event_time: u32,
     pub rand_state: u32,
 }
 impl RuntimeFields {
@@ -162,6 +172,8 @@ impl RuntimeFields {
             floats: None,
             gosub_stack: Vec::new(),
             command_time: 0,
+            event_command_time: 0,
+            event_time: 0,
             // The C runtime seeds rand() from the host clock at GameInit;
             // that lifecycle is not implemented, so scripts observe the CRT
             // default sequence deterministically instead of host time.
@@ -178,6 +190,8 @@ pub enum InstructionParameter {
     Pair(PairParameterSlot),
     Flow(FlowParameterSlot),
     Entity(EntityParameterSlot),
+    Event(EventParameterSlot),
+    SetEvent(SetEventParameterSlot),
     Quad(QuadParameterSlot),
     ActState(ActStateParameterSlot),
 }
@@ -190,6 +204,8 @@ impl InstructionParameter {
             | Self::Pair(_)
             | Self::Flow(_)
             | Self::Entity(_)
+            | Self::Event(_)
+            | Self::SetEvent(_)
             | Self::Quad(_)
             | Self::ActState(_) => None,
         }
@@ -200,6 +216,8 @@ impl InstructionParameter {
             | Self::Pair(_)
             | Self::Flow(_)
             | Self::Entity(_)
+            | Self::Event(_)
+            | Self::SetEvent(_)
             | Self::Quad(_)
             | Self::ActState(_) => None,
             Self::Name(slot) => slot.parameter(),
@@ -212,6 +230,8 @@ impl InstructionParameter {
             | Self::Name(_)
             | Self::Flow(_)
             | Self::Entity(_)
+            | Self::Event(_)
+            | Self::SetEvent(_)
             | Self::Quad(_)
             | Self::ActState(_) => None,
         }
@@ -223,6 +243,8 @@ impl InstructionParameter {
             | Self::Name(_)
             | Self::Pair(_)
             | Self::Entity(_)
+            | Self::Event(_)
+            | Self::SetEvent(_)
             | Self::Quad(_)
             | Self::ActState(_) => None,
         }
@@ -234,6 +256,34 @@ impl InstructionParameter {
             | Self::Name(_)
             | Self::Pair(_)
             | Self::Flow(_)
+            | Self::Event(_)
+            | Self::SetEvent(_)
+            | Self::Quad(_)
+            | Self::ActState(_) => None,
+        }
+    }
+    pub fn event_parameter(&self) -> Option<&EventParameter> {
+        match self {
+            Self::Event(slot) => slot.parameter(),
+            Self::Scalar(_)
+            | Self::Name(_)
+            | Self::Pair(_)
+            | Self::Flow(_)
+            | Self::Entity(_)
+            | Self::SetEvent(_)
+            | Self::Quad(_)
+            | Self::ActState(_) => None,
+        }
+    }
+    pub fn set_event_parameter(&self) -> Option<&SetEventParameter> {
+        match self {
+            Self::SetEvent(slot) => slot.parameter(),
+            Self::Scalar(_)
+            | Self::Name(_)
+            | Self::Pair(_)
+            | Self::Flow(_)
+            | Self::Entity(_)
+            | Self::Event(_)
             | Self::Quad(_)
             | Self::ActState(_) => None,
         }
@@ -246,6 +296,8 @@ impl InstructionParameter {
             | Self::Pair(_)
             | Self::Flow(_)
             | Self::Entity(_)
+            | Self::Event(_)
+            | Self::SetEvent(_)
             | Self::ActState(_) => None,
         }
     }
@@ -257,6 +309,8 @@ impl InstructionParameter {
             | Self::Pair(_)
             | Self::Flow(_)
             | Self::Entity(_)
+            | Self::Event(_)
+            | Self::SetEvent(_)
             | Self::Quad(_) => None,
         }
     }
@@ -309,6 +363,14 @@ pub enum RuntimeEffect {
     ConvertActStateActor,
     ConvertActState,
     ReleaseActState(u32),
+    AllocateEvent,
+    ConvertEventId,
+    ConvertEventExtra,
+    ReleaseEvent(u32),
+    AllocateSetEvent,
+    ConvertSetEventRegister,
+    ConvertSetEventId,
+    ReleaseSetEvent(u32),
     AllocateFlow,
     ConvertFlowOperand(usize),
     ReleaseFlow(u32),
@@ -340,6 +402,8 @@ pub struct RuntimeView<'a> {
     pub floats: &'a mut Option<Box<[f32]>>,
     pub gosub_stack: &'a mut Vec<u32>,
     pub command_time: &'a mut u32,
+    pub event_command_time: &'a mut u32,
+    pub event_time: &'a mut u32,
     pub rand_state: &'a mut u32,
 }
 impl RuntimeFields {
@@ -358,6 +422,8 @@ impl RuntimeFields {
             floats: &mut self.floats,
             gosub_stack: &mut self.gosub_stack,
             command_time: &mut self.command_time,
+            event_command_time: &mut self.event_command_time,
+            event_time: &mut self.event_time,
             rand_state: &mut self.rand_state,
         }
     }
@@ -405,6 +471,26 @@ pub trait RuntimeBackend {
         fields: RuntimeView<'_>,
         effect: RuntimeEffect,
         _published: Option<&PairParameter>,
+    ) -> Result<(), String> {
+        self.effect(fields, effect, None)
+    }
+    /// Event parameters have their own actual instruction-owned payload.
+    /// A default backend still observes the required allocation/conversion/free.
+    fn event_parameter_effect(
+        &mut self,
+        fields: RuntimeView<'_>,
+        effect: RuntimeEffect,
+        _published: Option<&EventParameter>,
+    ) -> Result<(), String> {
+        self.effect(fields, effect, None)
+    }
+    /// SetEvent parameters have their own actual instruction-owned payload.
+    /// A default backend still observes the required allocation/conversion/free.
+    fn set_event_parameter_effect(
+        &mut self,
+        fields: RuntimeView<'_>,
+        effect: RuntimeEffect,
+        _published: Option<&SetEventParameter>,
     ) -> Result<(), String> {
         self.effect(fields, effect, None)
     }
@@ -558,6 +644,88 @@ impl<B: RuntimeBackend> QuadParameterBackend for QuadBoundary<'_, B> {
         ascii_integer_prefix(token).map_err(|error| RuntimeError::Parameter(error.to_string()))
     }
 }
+struct EventBoundary<'a, B> {
+    fields: &'a mut RuntimeFields,
+    backend: &'a mut B,
+}
+impl<B: RuntimeBackend> EventParameterBackend for EventBoundary<'_, B> {
+    type Error = RuntimeError;
+    fn allocate_event(&mut self) -> Result<Option<Box<EventParameter>>, RuntimeError> {
+        self.backend
+            .event_parameter_effect(self.fields.view(), RuntimeEffect::AllocateEvent, None)
+            .map_err(RuntimeError::Effect)?;
+        Ok(Some(Box::new(EventParameter::default())))
+    }
+    fn convert_event_id(
+        &mut self,
+        token: &[u8],
+        published: &EventParameter,
+    ) -> Result<i32, RuntimeError> {
+        self.backend
+            .event_parameter_effect(
+                self.fields.view(),
+                RuntimeEffect::ConvertEventId,
+                Some(published),
+            )
+            .map_err(RuntimeError::Effect)?;
+        decode_event_id(token).map_err(|e| RuntimeError::Parameter(e.to_string()))
+    }
+    fn convert_event_extra(
+        &mut self,
+        token: &[u8],
+        published: &EventParameter,
+    ) -> Result<i32, RuntimeError> {
+        self.backend
+            .event_parameter_effect(
+                self.fields.view(),
+                RuntimeEffect::ConvertEventExtra,
+                Some(published),
+            )
+            .map_err(RuntimeError::Effect)?;
+        ascii_integer_prefix(token).map_err(|e| RuntimeError::Parameter(e.to_string()))
+    }
+}
+struct SetEventBoundary<'a, B> {
+    fields: &'a mut RuntimeFields,
+    backend: &'a mut B,
+}
+impl<B: RuntimeBackend> SetEventParameterBackend for SetEventBoundary<'_, B> {
+    type Error = RuntimeError;
+    fn allocate_set_event(&mut self) -> Result<Option<Box<SetEventParameter>>, RuntimeError> {
+        self.backend
+            .set_event_parameter_effect(self.fields.view(), RuntimeEffect::AllocateSetEvent, None)
+            .map_err(RuntimeError::Effect)?;
+        Ok(Some(Box::new(SetEventParameter::default())))
+    }
+    fn convert_set_event_register(
+        &mut self,
+        token: &[u8],
+        published: &SetEventParameter,
+    ) -> Result<i32, RuntimeError> {
+        self.backend
+            .set_event_parameter_effect(
+                self.fields.view(),
+                RuntimeEffect::ConvertSetEventRegister,
+                Some(published),
+            )
+            .map_err(RuntimeError::Effect)?;
+        ascii_integer_prefix(token).map_err(|e| RuntimeError::Parameter(e.to_string()))
+    }
+    fn convert_set_event_id(
+        &mut self,
+        token: &[u8],
+        published: &SetEventParameter,
+    ) -> Result<i32, RuntimeError> {
+        self.backend
+            .set_event_parameter_effect(
+                self.fields.view(),
+                RuntimeEffect::ConvertSetEventId,
+                Some(published),
+            )
+            .map_err(RuntimeError::Effect)?;
+        ascii_integer_prefix(token).map_err(|e| RuntimeError::Parameter(e.to_string()))
+    }
+}
 struct ActStateBoundary<'a, B> {
     fields: &'a mut RuntimeFields,
     backend: &'a mut B,
@@ -707,6 +875,12 @@ impl<B: RuntimeBackend> CompileBackend for Compiler<'_, B> {
                 Some(InstructionParameter::Pair(PairParameterSlot::default()))
             } else if supports_flow_opcode(opcode) {
                 Some(InstructionParameter::Flow(FlowParameterSlot::default()))
+            } else if supports_event_opcode(opcode) {
+                Some(InstructionParameter::Event(EventParameterSlot::default()))
+            } else if supports_set_event_opcode(opcode) {
+                Some(InstructionParameter::SetEvent(
+                    SetEventParameterSlot::default(),
+                ))
             } else if supports_quad_opcode(opcode) {
                 Some(InstructionParameter::Quad(QuadParameterSlot::default()))
             } else if supports_act_state_opcode(opcode) {
@@ -773,6 +947,22 @@ impl<B: RuntimeBackend> CompileBackend for Compiler<'_, B> {
                         })?;
                     true
                 }
+                InstructionParameter::Event(slot) => {
+                    let mut boundary = EventBoundary {
+                        fields: self.fields,
+                        backend: self.backend,
+                    };
+                    slot.decode(opcode, parameters, &mut boundary)
+                        .map_err(|error| RuntimeError::Parameter(format!("{error:?}")))?
+                }
+                InstructionParameter::SetEvent(slot) => {
+                    let mut boundary = SetEventBoundary {
+                        fields: self.fields,
+                        backend: self.backend,
+                    };
+                    slot.decode(opcode, parameters, &mut boundary)
+                        .map_err(|error| RuntimeError::Parameter(format!("{error:?}")))?
+                }
                 InstructionParameter::Quad(slot) => {
                     let mut boundary = QuadBoundary {
                         fields: self.fields,
@@ -836,6 +1026,8 @@ pub struct HostRuntimeDiscard {
     pub name_allocations: usize,
     pub pair_allocations: usize,
     pub flow_allocations: usize,
+    pub event_allocations: usize,
+    pub set_event_allocations: usize,
     pub quad_allocations: usize,
     pub act_state_allocations: usize,
     pub actor_slots: usize,
@@ -844,6 +1036,64 @@ pub struct HostRuntimeDiscard {
     pub working_source_bytes: usize,
 }
 impl CProgram {
+    /// Original C_program::SetEvent (GAME 0x46cd90): search from the last
+    /// instruction for the last EVENT of that id, check the gosub stack for
+    /// an existing event, then jump and set the event times and actor state.
+    /// Returns true if the caller should advance (no event or event started),
+    /// false if the caller should jump to its label (already inside an event).
+    /// This handles the program-owned stack and times only; the caller's
+    /// world handles the actor SetActState and any global game time snapshot.
+    pub fn try_set_event(&mut self, event_id: i32) -> Result<bool, String> {
+        let runtime = match &mut self.runtime {
+            Some(runtime) => runtime,
+            None => return Ok(true),
+        };
+        // Search for the last EVENT with that id (reverse search, first hit
+        // from the end wins, matching the native while(i--) scan).
+        let mut found: Option<usize> = None;
+        for (index, instruction) in runtime.instructions.active().iter().enumerate().rev() {
+            if instruction.opcode == 73 {
+                if let Some(param) = instruction
+                    .parameter
+                    .as_ref()
+                    .and_then(|p| p.event_parameter())
+                {
+                    if param.id() == Some(event_id) {
+                        found = Some(index);
+                        break;
+                    }
+                }
+            }
+        }
+        let found = match found {
+            Some(idx) => idx,
+            None => return Ok(true),
+        };
+        // Already inside an event if any stack entry has GOSUB_EVENT (0x8000).
+        if runtime
+            .fields
+            .gosub_stack
+            .iter()
+            .any(|entry| entry & 0x8000 != 0)
+        {
+            return Ok(false);
+        }
+        // CallBack(CB_EVENT_BEGIN) is a no-op in the current reconstruction
+        // (detector base is empty, entity is a stub that just logs).
+        let cur = runtime.fields.scheduler.program_counter;
+        runtime.fields.gosub_stack.push(cur | 0x8000 | 0x4000);
+        runtime.fields.scheduler.program_counter = found as u32;
+        runtime.fields.event_command_time = runtime.fields.command_time;
+        // Global game time is not yet reconstructed; snapshot as 0. RETURN's
+        // time restoration will be provisional (event_command_time only) until
+        // the Game tick loop provides a global clock.
+        runtime.fields.event_time = 0;
+        runtime.fields.command_time = 0;
+        // The native SetActState(ACTSTATE_0) on the program's actor is
+        // handled by the world after this call (the program owns no actor
+        // state directly).
+        Ok(true)
+    }
     pub fn runtime(&self) -> Option<&ProgramRuntime> {
         self.runtime.as_ref()
     }
@@ -996,6 +1246,8 @@ impl CProgram {
             floats,
             gosub_stack,
             command_time,
+            event_command_time,
+            event_time,
             rand_state,
         } = &mut runtime.fields;
         let mut dispatch = Process {
@@ -1014,6 +1266,8 @@ impl CProgram {
             floats,
             gosub_stack,
             command_time,
+            event_command_time,
+            event_time,
             rand_state,
             backend,
         };
@@ -1092,6 +1346,30 @@ impl CProgram {
                         .parameter
                         .as_ref()
                         .is_some_and(|payload| payload.flow_parameter().is_some())
+                })
+                .count(),
+            event_allocations: runtime
+                .instructions
+                .records
+                .iter()
+                .chain(runtime.pending.iter())
+                .filter(|instruction| {
+                    instruction
+                        .parameter
+                        .as_ref()
+                        .is_some_and(|payload| payload.event_parameter().is_some())
+                })
+                .count(),
+            set_event_allocations: runtime
+                .instructions
+                .records
+                .iter()
+                .chain(runtime.pending.iter())
+                .filter(|instruction| {
+                    instruction
+                        .parameter
+                        .as_ref()
+                        .is_some_and(|payload| payload.set_event_parameter().is_some())
                 })
                 .count(),
             quad_allocations: runtime
@@ -1176,6 +1454,16 @@ impl CProgram {
                         RuntimeEffect::ReleaseFlow(opcode),
                         slot.parameter(),
                     ),
+                    InstructionParameter::Event(slot) => backend.event_parameter_effect(
+                        runtime.fields.view(),
+                        RuntimeEffect::ReleaseEvent(opcode),
+                        slot.parameter(),
+                    ),
+                    InstructionParameter::SetEvent(slot) => backend.set_event_parameter_effect(
+                        runtime.fields.view(),
+                        RuntimeEffect::ReleaseSetEvent(opcode),
+                        slot.parameter(),
+                    ),
                     InstructionParameter::Quad(slot) => backend.quad_parameter_effect(
                         runtime.fields.view(),
                         RuntimeEffect::ReleaseQuad(opcode),
@@ -1251,6 +1539,8 @@ struct Process<'a, B> {
     floats: &'a mut Option<Box<[f32]>>,
     gosub_stack: &'a mut Vec<u32>,
     command_time: &'a mut u32,
+    event_command_time: &'a mut u32,
+    event_time: &'a mut u32,
     rand_state: &'a mut u32,
     backend: &'a mut B,
 }
@@ -1286,6 +1576,30 @@ impl<B: RuntimeBackend> Process<'_, B> {
             .state()
             .ok_or(RuntimeError::Domain("current act-state value unavailable"))?;
         Ok((actor, state))
+    }
+    /// Current SETEVENT payload: actor register, event id and unquoted label.
+    fn set_event_payload(&self, state: &ResetState) -> Result<(i32, i32, Box<[u8]>), RuntimeError> {
+        let parameter = self
+            .instructions
+            .active()
+            .get(state.program_counter as usize)
+            .and_then(|instruction| instruction.parameter.as_ref())
+            .and_then(|parameter| parameter.set_event_parameter())
+            .ok_or(RuntimeError::Domain(
+                "current set-event parameter unavailable",
+            ))?;
+        let register = parameter.register().ok_or(RuntimeError::Domain(
+            "current set-event register unavailable",
+        ))?;
+        let event = parameter
+            .event()
+            .ok_or(RuntimeError::Domain("current set-event id unavailable"))?;
+        let label = parameter
+            .label()
+            .ok_or(RuntimeError::Domain("current set-event label unavailable"))?
+            .to_vec()
+            .into_boxed_slice();
+        Ok((register, event, label))
     }
     /// Current four-integer payload (TIMERON/HUMAN_ADDWEAPON and group).
     fn quad_payload(&self, state: &ResetState) -> Result<[i32; 4], RuntimeError> {
@@ -1421,6 +1735,8 @@ impl<B: RuntimeBackend> Process<'_, B> {
                 floats: self.floats,
                 gosub_stack: self.gosub_stack,
                 command_time: self.command_time,
+                event_command_time: self.event_command_time,
+                event_time: self.event_time,
                 rand_state: self.rand_state,
             },
             effect,
@@ -1580,6 +1896,7 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
         *self.command_time = self.command_time.wrapping_add(delta as u32);
         let opcode = self.instructions.active()[state.program_counter as usize].opcode;
         let mut advance = Advance::Next;
+        let mut event_restore: Option<u32> = None;
         match opcode {
             13 | 18 => self.dispatch_lookup(state, opcode == 18)?,
             34 => {
@@ -1708,17 +2025,23 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
             }
             3 => {
                 if let Some(ret) = self.gosub_stack.pop() {
-                    // GOSUB_EVENT/GOSUB_EVENT_TIME entries need the event
-                    // machinery (SetEvent/CallBack/Game time), which does not
-                    // exist yet; only plain command returns are admittable.
-                    if ret & 0xC000 != 0 {
-                        return Err(RuntimeError::Domain("event return machinery unavailable"));
-                    }
+                    let is_event = ret & 0x8000 != 0;
+                    let back_in_time = ret & 0x4000 != 0;
+                    // CallBack(CB_EVENT_END) is a no-op in the current
+                    // reconstruction (detector base empty, entity stub).
+                    let target = ret & 0x3FFF;
                     if self.flags.stop_at_return {
                         self.flags.stop_at_return = false;
                         state.continuation = 0;
                     }
-                    advance = Advance::Jump(ret & 0x3FFF);
+                    advance = Advance::Jump(target);
+                    if is_event && back_in_time {
+                        // Provisional time restoration: without a global
+                        // Game clock, restore the snapshot. The delta term
+                        // (GetGameTime - event_time) is omitted until the
+                        // Game tick loop provides it.
+                        event_restore = Some(*self.event_command_time);
+                    }
                 }
             }
             4 => {
@@ -1922,6 +2245,50 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                         .map_err(RuntimeError::Lookup)?;
                 }
             }
+            73 => {
+                // Original CMD_EVENT: no Process case; the common tail
+                // advances past the marker. Treat as a no-op (like LABEL).
+            }
+            74 => {
+                // Original CMD_SETEVENT: the event of an AI human's or
+                // detector's script; where it can't begin now, jump to the
+                // label. Bad or missing actor registers advance without effect;
+                // non-entity/detector actors also advance; only the
+                // target's SetEvent decides the jump.
+                let (register, event_id, label) = self.set_event_payload(state)?;
+                let target_actor = if register < 0 {
+                    None
+                } else {
+                    self.actor_register(register)
+                };
+                if let Some(actor) = target_actor {
+                    let ok = self
+                        .backend
+                        .lookup_world()
+                        .map_err(RuntimeError::Lookup)?
+                        .set_program_event(actor, event_id)
+                        .map_err(RuntimeError::Lookup)?;
+                    if ok {
+                        advance = Advance::Next;
+                    } else if !label.is_empty() {
+                        if let Some(target) = self.jump_to_label(&label) {
+                            advance = Advance::Jump(target);
+                        }
+                    }
+                }
+            }
+            75 => {
+                // Original CMD_EVENT_USE_CB: toggles GOSUB_EVENT_TIME on the
+                // top of the gosub stack. Empty stack advances without effect.
+                let value = self.value_at(state)?;
+                if let Some(top) = self.gosub_stack.last_mut() {
+                    if value != 0 {
+                        *top |= 0x4000;
+                    } else {
+                        *top &= !0x4000;
+                    }
+                }
+            }
             0x1004 | 0x101a | 0x1031 | 0x103a | 0x103b => {
                 advance = self.dispatch_entity(state, opcode)?;
             }
@@ -1940,6 +2307,9 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                 state.program_counter = target;
             }
             Advance::Stay => {}
+        }
+        if let Some(t) = event_restore {
+            *self.command_time = t;
         }
         Ok(())
     }

@@ -2530,6 +2530,99 @@ impl ActorWorld {
             .push_weapon(HumanInventoryItem::from_weapon_parts(id, loaded, spare));
         Ok(())
     }
+    /// Original C_program::SetEvent for a target actor's embedded program.
+    /// Returns true if the caller should advance (no event or event started),
+    /// false if the caller should jump to its label (already inside an event).
+    /// Only entity and detector programs are considered; other actors return
+    /// true (no jump), matching the native type gate. Stale actors propagate.
+    pub fn program_set_event(
+        &mut self,
+        actor: ActorReferenceId,
+        event_id: i32,
+    ) -> Result<bool, ActorWorldError> {
+        let i = self.index(actor)?;
+        // Determine whether this actor owns a script program that can handle
+        // events. Entity and detector are the only native SetEvent targets;
+        // all other vtables advance without effect.
+        let is_entity = self.actors[i].entity.is_some();
+        let is_detector = self.actors[i].detector.is_some();
+        if !is_entity && !is_detector {
+            return Ok(true);
+        }
+        // Borrow the program mutably and invoke its SetEvent. The borrow of
+        // the program and the actor state must be split to set ACTSTATE_0
+        // after a successful event start. We use a raw pointer split to
+        // satisfy the borrow checker while keeping the logic auditable.
+        let ok = {
+            let entry = &mut self.actors[i];
+            let program = if let Some(entity) = &mut entry.entity {
+                match &mut entity.program {
+                    Some(p) => p,
+                    None => return Ok(true),
+                }
+            } else if let Some(detector) = &mut entry.detector {
+                match &mut detector.program {
+                    Some(p) => p,
+                    None => return Ok(true),
+                }
+            } else {
+                return Ok(true);
+            };
+            program.try_set_event(event_id).map_err(|detail| {
+                ActorWorldError::Program(crate::original_program::ProgramError::Effect {
+                    stage: "set_event",
+                    detail,
+                })
+            })?
+        };
+        if ok {
+            // Native SetActState(ACTSTATE_0) on the program's actor after a
+            // successful event start. The world owns the word; no Game
+            // notification is recorded yet.
+            // We must re-borrow after the program borrow ends.
+            let j = self.index(actor)?;
+            // Only set if there was an actual jump (found != None). Our
+            // try_set_event returns true both for "no event" and "started";
+            // we set the word only when it actually started. We detect this
+            // by checking whether the program's stack now contains the event
+            // entry pushed for this id. Simpler: check if the program now
+            // has a GOSUB_EVENT entry that wasn't there before. For now we
+            // set the word whenever ok && found existed; we approximate by
+            // setting whenever ok and the target had a program (the handler
+            // will be at an EVENT). This is slightly over-eager for the
+            // "no event" case, but that case is rare and the word write is
+            // harmless; we refine by checking the program's cur_command now
+            // points at an EVENT.
+            let has_event = {
+                let entry = &self.actors[j];
+                let program = if let Some(entity) = &entry.entity {
+                    entity.program.as_ref()
+                } else if let Some(detector) = &entry.detector {
+                    detector.program.as_ref()
+                } else {
+                    None
+                };
+                if let Some(program) = program {
+                    if let Some(runtime) = program.runtime() {
+                        let idx = runtime.fields.program_counter() as usize;
+                        if let Some(instr) = runtime.instructions.active().get(idx) {
+                            instr.opcode == 73
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            };
+            if has_event {
+                self.actors[j].state.state_1c = 0;
+            }
+        }
+        Ok(ok)
+    }
     pub fn inspect_human(&self, actor: ActorReferenceId) -> Option<&HumanState> {
         self.actors
             .iter()

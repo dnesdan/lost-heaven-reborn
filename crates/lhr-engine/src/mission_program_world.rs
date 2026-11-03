@@ -319,6 +319,15 @@ impl<D> LookupWorldBackend for MissionLookupWorld<'_, D> {
             result => result.map_err(|error| LookupError::Backend(format!("{error:?}"))),
         }
     }
+    fn set_program_event(
+        &mut self,
+        actor: ActorReferenceId,
+        event_id: i32,
+    ) -> Result<bool, LookupError> {
+        self.world
+            .program_set_event(actor, event_id)
+            .map_err(|error| LookupError::Backend(format!("{error:?}")))
+    }
 }
 impl<D: MissionProgramDiagnostic> RuntimeLookupWorld for MissionLookupWorld<'_, D> {
     fn runtime_message_beep(

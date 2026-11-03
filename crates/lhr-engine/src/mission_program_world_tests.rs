@@ -3,6 +3,8 @@ use super::*;
 use crate::driver_scene::{
     DriverSceneContext, DriverSceneOwner, DriverSceneScreen, NativeSceneSoundDriver,
 };
+#[allow(unused_imports)]
+use crate::entity_actor::EntityProcessState;
 use crate::itexture::{CpuTextureStorage, TextureImageError, TextureImageSource, TextureResources};
 use crate::mission_scene_loading::MissionSceneLoader;
 use crate::original_data_chunk::chunk;
@@ -740,7 +742,9 @@ fn tick_entity_programs_steps_owned_live_state_through_context() {
         ActorAllocationBackend, ActorCollectionBackend, ActorSource, ActorStorageId, ActorWorld,
         BaseActorSeed, SourceBacking,
     };
-    use crate::entity_actor::{EntityProcessState, EntitySeed};
+    #[allow(unused_imports)]
+    use crate::entity_actor::EntityProcessState;
+    use crate::entity_actor::EntitySeed;
     use crate::human_actor::{
         HumanAnimationMachineSeed, HumanAuxiliarySeed, HumanProperties, HumanSeed,
     };
@@ -954,7 +958,6 @@ fn lookup_world_maps_type_mismatch_silently_and_propagates_stale() {
     use crate::entity_actor::EntityProcessState;
     use crate::model_loading::ModelArena;
     use crate::original_program::ProgramSeed;
-    use crate::script_lookup::LookupWorldBackend;
 
     struct Heap {
         next: u32,
@@ -1078,4 +1081,240 @@ fn lookup_world_maps_type_mismatch_silently_and_propagates_stale() {
         lookup.human_add_weapon(stale, 0, 0, 0),
         Err(crate::script_lookup::LookupError::Backend(_))
     ));
+}
+
+#[test]
+fn program_set_event_via_world_sets_jump_and_act_state() {
+    use crate::actor_world::{ActorStorageId, BaseActorSeed, SourceBacking};
+    #[allow(unused_imports)]
+    use crate::entity_actor::EntityProcessState;
+    use crate::entity_actor::EntitySeed;
+    use crate::human_actor::{
+        HumanAnimationMachineSeed, HumanAuxiliarySeed, HumanProperties, HumanSeed,
+    };
+    use crate::original_program::{
+        CProgram, ProgramAllocation, ProgramBackend, ProgramBuffer, ProgramSeed,
+    };
+
+    struct ProgMem {
+        next: u64,
+    }
+    impl ProgramBackend for ProgMem {
+        fn allocate(
+            &mut self,
+            _: &CProgram,
+            _: ProgramBuffer,
+            _: u32,
+        ) -> Result<ProgramAllocation, String> {
+            self.next += 1;
+            Ok(ProgramAllocation(self.next))
+        }
+        fn free(
+            &mut self,
+            _: &CProgram,
+            _: ProgramBuffer,
+            _: Option<ProgramAllocation>,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+    }
+    struct WorldHeap {
+        next: u32,
+    }
+    impl crate::actor_world::ActorAllocationBackend for WorldHeap {
+        fn allocate_actor(&mut self, _: u32) -> Result<Option<(u32, BaseActorSeed)>, String> {
+            Ok(Some((
+                self.next,
+                BaseActorSeed {
+                    word_0e: 0,
+                    actor_id: 0,
+                    state_1c: 5,
+                    bytes_21_5f: [0; 63],
+                    bytes_64_65: [0; 2],
+                    byte_67: 0,
+                    release_frame: 0,
+                    bytes_6d_6f: [0; 3],
+                },
+            )))
+        }
+        fn allocate_entity(
+            &mut self,
+            _: u32,
+        ) -> Result<Option<(u32, BaseActorSeed, EntitySeed)>, String> {
+            let base = BaseActorSeed {
+                word_0e: 0,
+                actor_id: 0,
+                state_1c: 5,
+                bytes_21_5f: [0; 63],
+                bytes_64_65: [0; 2],
+                byte_67: 0,
+                release_frame: 0,
+                bytes_6d_6f: [0; 3],
+            };
+            let human = HumanSeed {
+                allocator_tag: 0x3c,
+                animation_machine: HumanAnimationMachineSeed { untouched_word: 0 },
+                previous_animation_code: 0,
+                requested_animation_code: 0,
+                human_type_mask: 0,
+                current_properties: HumanProperties::from_record([0; 64]),
+                target_e: None,
+                target_n: None,
+                base_frame: None,
+                auxiliary: std::array::from_fn(|_| HumanAuxiliarySeed {
+                    untouched_word: 0,
+                    padding: [0; 3],
+                    untouched_tail: [0; 16],
+                }),
+            };
+            let prog_seed = ProgramSeed {
+                address_high_byte: 0xff,
+                padding_0d: [0; 3],
+                words_1c_2c: [0; 5],
+                padding_31: [0; 3],
+                word_40: 0,
+                bytes_64: [0; 4],
+            };
+            let entity = EntitySeed {
+                human,
+                program: prog_seed,
+                allocator_tag_a: 0,
+                allocator_tag_b: 0,
+                untouched_word: 0,
+                untouched_padding: [0; 3],
+            };
+            self.next += 1;
+            Ok(Some((self.next, base, entity)))
+        }
+    }
+    impl crate::actor_world::ActorCollectionBackend for WorldHeap {
+        fn allocate_collection(
+            &mut self,
+            _: &crate::actor_world::ActorWorld,
+            _: crate::actor_world::ActorSource,
+            _: u32,
+        ) -> Result<ActorStorageId, String> {
+            Ok(ActorStorageId(2))
+        }
+        fn free_collection(
+            &mut self,
+            _: &crate::actor_world::ActorWorld,
+            _: crate::actor_world::ActorSource,
+            _: Option<ActorStorageId>,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+    }
+    let backing = SourceBacking {
+        storage: Some(ActorStorageId(1)),
+        capacity: 16,
+    };
+    let mut world = crate::actor_world::ActorWorld::new(0, 0, backing, backing, backing).unwrap();
+    let mut heap = WorldHeap { next: 0x81000000 };
+    let base = BaseActorSeed {
+        word_0e: 0,
+        actor_id: 0,
+        state_1c: 5,
+        bytes_21_5f: [0; 63],
+        bytes_64_65: [0; 2],
+        byte_67: 0,
+        release_frame: 0,
+        bytes_6d_6f: [0; 3],
+    };
+    let human = HumanSeed {
+        allocator_tag: 0x3c,
+        animation_machine: HumanAnimationMachineSeed { untouched_word: 0 },
+        previous_animation_code: 0,
+        requested_animation_code: 0,
+        human_type_mask: 0,
+        current_properties: HumanProperties::from_record([0; 64]),
+        target_e: None,
+        target_n: None,
+        base_frame: None,
+        auxiliary: std::array::from_fn(|_| HumanAuxiliarySeed {
+            untouched_word: 0,
+            padding: [0; 3],
+            untouched_tail: [0; 16],
+        }),
+    };
+    let prog_seed = ProgramSeed {
+        address_high_byte: 0xff,
+        padding_0d: [0; 3],
+        words_1c_2c: [0; 5],
+        padding_31: [0; 3],
+        word_40: 0,
+        bytes_64: [0; 4],
+    };
+    let entity_seed = EntitySeed {
+        human,
+        program: prog_seed,
+        allocator_tag_a: 0,
+        allocator_tag_b: 0,
+        untouched_word: 0,
+        untouched_padding: [0; 3],
+    };
+    let actor = world
+        .construct_entity(0x81000000, base, entity_seed, &mut heap)
+        .unwrap();
+    // Install a program with an EVENT and take it through the world
+    let mut prog = world.take_entity_program(actor).unwrap().unwrap();
+    let mut prog_mem = ProgMem { next: 0 };
+    prog.set_source_code(Some(b"event 60001\nlabel after"), &mut prog_mem)
+        .unwrap();
+    // Minimal runtime backend for init
+    struct RuntimeMem;
+    impl crate::original_program::RuntimeBackend for RuntimeMem {
+        fn effect(
+            &mut self,
+            _: crate::original_program::RuntimeView<'_>,
+            _: crate::original_program::RuntimeEffect,
+            _: Option<&crate::program_parameters::ScalarParameter>,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+    }
+    let mut rt_mem = RuntimeMem;
+    prog.init_fresh_runtime(&mut rt_mem).unwrap();
+    world.return_entity_program(actor, Some(prog)).unwrap();
+    assert_eq!(world.state(actor).unwrap().state_1c, 5);
+    // First SetEvent should succeed, jump to EVENT (index 0) and set act_state to 0
+    let ok = world.program_set_event(actor, 60001).unwrap();
+    assert!(ok);
+    let prog_ref = world.entity(actor).unwrap().program.as_ref().unwrap();
+    let rt = prog_ref.runtime().unwrap();
+    assert_eq!(rt.fields.program_counter(), 0);
+    assert_eq!(rt.fields.gosub_stack, vec![0x8000 | 0x4000]);
+    assert_eq!(world.state(actor).unwrap().state_1c, 0);
+    // Already inside event -> second call should return false (busy)
+    let busy = world.program_set_event(actor, 60001).unwrap();
+    assert!(!busy);
+    // Missing event -> true (no jump, no state change)
+    let missing = world.program_set_event(actor, 99999).unwrap();
+    assert!(missing);
+    // Stale actor propagates
+    let stale = crate::script_scheduler::ActorReferenceId::from_existing(9999);
+    assert!(world.program_set_event(stale, 60001).is_err());
+    // Non-entity actor returns true without effect (native type gate)
+    let backing2 = SourceBacking {
+        storage: Some(ActorStorageId(1)),
+        capacity: 16,
+    };
+    let mut world2 =
+        crate::actor_world::ActorWorld::new(0, 0, backing2, backing2, backing2).unwrap();
+    let mut heap2 = WorldHeap { next: 0x82000000 };
+    let base2 = BaseActorSeed {
+        word_0e: 0,
+        actor_id: 0,
+        state_1c: 7,
+        bytes_21_5f: [0; 63],
+        bytes_64_65: [0; 2],
+        byte_67: 0,
+        release_frame: 0,
+        bytes_6d_6f: [0; 3],
+    };
+    let base_actor = world2
+        .construct_base(0x83000000, base2, &mut heap2)
+        .unwrap();
+    assert!(world2.program_set_event(base_actor, 60001).unwrap());
+    assert_eq!(world2.state(base_actor).unwrap().state_1c, 7);
 }

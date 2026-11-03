@@ -96,6 +96,19 @@ pub trait LookupWorldBackend {
         let _ = state;
         Err(LookupError::UnsupportedWorldBackend)
     }
+    /// Original C_program::SetEvent for a target actor's program (EVENT
+    /// 73/SETEVENT 74). Returns true if the caller should advance (no event or
+    /// event started), false if the caller should jump to its label (already
+    /// inside an event on the target). The default refuses.
+    fn set_program_event(
+        &mut self,
+        actor: ActorReferenceId,
+        event_id: i32,
+    ) -> Result<bool, LookupError> {
+        let _ = actor;
+        let _ = event_id;
+        Err(LookupError::UnsupportedWorldBackend)
+    }
     /// Original CMD_HUMAN_ADDWEAPON inventory push for a resolved human. The
     /// default refuses; the mission world serves the live actor.
     fn human_add_weapon(

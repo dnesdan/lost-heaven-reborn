@@ -186,6 +186,8 @@ impl<B: RuntimeBackend> Process<'_, B> {
                             floats: self.floats,
                             gosub_stack: self.gosub_stack,
                             command_time: self.command_time,
+                            event_command_time: self.event_command_time,
+                            event_time: self.event_time,
                             rand_state: self.rand_state,
                         },
                         self.owner,

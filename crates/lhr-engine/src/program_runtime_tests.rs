@@ -16,6 +16,9 @@ struct FakeEntityWorld {
     act_states: HashMap<ActorReferenceId, u32>,
     weapons: HashMap<ActorReferenceId, Vec<(u16, i32, i32)>>,
     fail_writes: bool,
+    set_event_calls: Vec<(ActorReferenceId, i32)>,
+    set_event_results: HashMap<(ActorReferenceId, i32), bool>,
+    set_event_fail: Option<ActorReferenceId>,
 }
 impl LookupWorldBackend for FakeEntityWorld {
     fn diagnostic_default_c_locale(&self) -> bool {
@@ -89,6 +92,23 @@ impl LookupWorldBackend for FakeEntityWorld {
             .or_default()
             .push((id, loaded, spare));
         Ok(())
+    }
+    fn set_program_event(
+        &mut self,
+        actor: ActorReferenceId,
+        event_id: i32,
+    ) -> Result<bool, LookupError> {
+        if let Some(fail_actor) = self.set_event_fail {
+            if fail_actor == actor {
+                return Err(LookupError::Backend("injected set-event failure".into()));
+            }
+        }
+        self.set_event_calls.push((actor, event_id));
+        Ok(self
+            .set_event_results
+            .get(&(actor, event_id))
+            .copied()
+            .unwrap_or(true))
     }
 }
 impl ProgramBackend for Memory {
@@ -894,6 +914,199 @@ fn quad_family_refuses_execution_and_reports_disposal() {
     let report = p.discard_runtime_host().unwrap();
     assert_eq!(report.quad_allocations, 1);
     assert_eq!(report.act_state_allocations, 0);
+}
+#[test]
+fn event_marker_advances_like_label_and_counts_in_discard() {
+    let mut memory = Memory::default();
+    let mut p = program(b"event 60001\nevent death,7\nlabel after", &mut memory);
+    let progress = p.init_fresh_runtime(&mut memory).unwrap();
+    assert_eq!((progress.accepted, progress.errors), (3, 0));
+    // Both events advance without effect, like LABEL.
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 2);
+    let report = p.discard_runtime_host().unwrap();
+    assert_eq!(report.event_allocations, 2);
+    assert_eq!(report.set_event_allocations, 0);
+}
+#[test]
+fn setevent_resolves_register_and_jumps_on_event_busy() {
+    use crate::original_program::RuntimeReferenceSlot;
+    // Program: setevent 0,60001,retry -> dim 55 -> label retry -> dim 99
+    // Success (ok true) advances to dim 55; busy (ok false) jumps to retry.
+    let mut memory = Memory::default();
+    let mut p = program(
+        b"setevent 0,60001,retry\ndim_flt 1\nlabel retry\ndim_flt 2",
+        &mut memory,
+    );
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.runtime.as_mut().unwrap().fields.actors = Some(
+        vec![RuntimeReferenceSlot::Reference(
+            ActorReferenceId::from_existing(11),
+        )]
+        .into_boxed_slice(),
+    );
+    // Success path: world returns true (no jump)
+    memory
+        .entity_world
+        .set_event_results
+        .insert((ActorReferenceId::from_existing(11), 60001), true);
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
+    assert_eq!(
+        memory.entity_world.set_event_calls,
+        vec![(ActorReferenceId::from_existing(11), 60001)]
+    );
+    // Reset to setevent and test busy path (jump)
+    p.runtime.as_mut().unwrap().fields.scheduler.program_counter = 0;
+    p.runtime.as_mut().unwrap().fields.command_time = 0;
+    memory.entity_world.set_event_calls.clear();
+    memory
+        .entity_world
+        .set_event_results
+        .insert((ActorReferenceId::from_existing(11), 60001), false);
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    // Jumped to label retry at index 2
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 2);
+    // Missing actor (empty slot) advances without calling world
+    p.runtime.as_mut().unwrap().fields.scheduler.program_counter = 0;
+    p.runtime.as_mut().unwrap().fields.actors =
+        Some(vec![RuntimeReferenceSlot::Empty].into_boxed_slice());
+    memory.entity_world.set_event_calls.clear();
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
+    assert!(memory.entity_world.set_event_calls.is_empty());
+    // Host failure propagates
+    p.runtime.as_mut().unwrap().fields.scheduler.program_counter = 0;
+    p.runtime.as_mut().unwrap().fields.actors = Some(
+        vec![RuntimeReferenceSlot::Reference(
+            ActorReferenceId::from_existing(11),
+        )]
+        .into_boxed_slice(),
+    );
+    memory.entity_world.set_event_fail = Some(ActorReferenceId::from_existing(11));
+    let err = p
+        .call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap_err();
+    assert!(
+        format!("{err:?}").contains("injected set-event failure"),
+        "{err:?}"
+    );
+    memory.entity_world.set_event_fail = None;
+    let report = p.discard_runtime_host().unwrap();
+    assert_eq!(report.set_event_allocations, 1);
+}
+#[test]
+fn event_use_cb_toggles_top_flag_and_needs_stack() {
+    let mut memory = Memory::default();
+    // event_use_cb 1 sets GOSUB_EVENT_TIME (0x4000) on the top entry
+    let mut p = program(b"event_use_cb 1", &mut memory);
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.runtime.as_mut().unwrap().fields.gosub_stack = vec![1];
+    p.runtime.as_mut().unwrap().fields.scheduler.program_counter = 0;
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.gosub_stack, vec![0x4001]);
+    // event_use_cb 0 clears it
+    let mut p2 = program(b"event_use_cb 0", &mut memory);
+    p2.init_fresh_runtime(&mut memory).unwrap();
+    p2.runtime.as_mut().unwrap().fields.gosub_stack = vec![0x4001];
+    p2.runtime
+        .as_mut()
+        .unwrap()
+        .fields
+        .scheduler
+        .program_counter = 0;
+    p2.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p2.runtime().unwrap().fields.gosub_stack, vec![0x0001]);
+    // Empty stack advances without effect
+    let mut p3 = program(b"event_use_cb 1", &mut memory);
+    p3.init_fresh_runtime(&mut memory).unwrap();
+    p3.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p3.runtime().unwrap().fields.program_counter(), 1);
+    assert!(p3.runtime().unwrap().fields.gosub_stack.is_empty());
+}
+#[test]
+fn try_set_event_on_program_jumps_and_pushes_event_stack() {
+    let mut memory = Memory::default();
+    // Program with two events, the last (index 1) should be found
+    let mut p = program(b"event 60001\nevent 60001\nlabel after", &mut memory);
+    p.init_fresh_runtime(&mut memory).unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 0);
+    // First SetEvent should succeed and jump to last EVENT (index 1)
+    let ok = p.try_set_event(60001).unwrap();
+    assert!(ok);
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
+    assert_eq!(
+        p.runtime().unwrap().fields.gosub_stack,
+        vec![0x8000 | 0x4000]
+    );
+    assert_eq!(p.runtime().unwrap().fields.event_command_time, 0);
+    assert_eq!(p.runtime().unwrap().fields.command_time, 0);
+    // Already inside event -> second call should return false (jump to label)
+    let ok2 = p.try_set_event(60001).unwrap();
+    assert!(!ok2);
+    // Missing event id -> true (no jump)
+    let ok3 = p.try_set_event(99999).unwrap();
+    assert!(ok3);
+    // Plain return should pop and restore
+    p.runtime.as_mut().unwrap().fields.command_time = 7;
+    p.runtime.as_mut().unwrap().fields.event_command_time = 42;
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    // The program at PC 1 is EVENT, which advances to 2 (label) on next tick
+    // But we set PC to 1 and have stack with event, then return at PC 1? Actually
+    // we need to test return: set PC to a return instruction
+    let mut p2 = program(b"return", &mut memory);
+    p2.init_fresh_runtime(&mut memory).unwrap();
+    p2.runtime.as_mut().unwrap().fields.gosub_stack = vec![0x8000 | 0x4000 | 5];
+    p2.runtime.as_mut().unwrap().fields.event_command_time = 11;
+    p2.runtime.as_mut().unwrap().fields.command_time = 3;
+    p2.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p2.runtime().unwrap().fields.program_counter(), 5);
+    assert_eq!(p2.runtime().unwrap().fields.command_time, 11);
+}
+#[test]
+fn return_handles_event_time_restoration_and_plain_pop() {
+    let mut memory = Memory::default();
+    // Event return with back_in_time set should restore event_command_time
+    let mut p = program(b"return", &mut memory);
+    p.init_fresh_runtime(&mut memory).unwrap();
+    {
+        let fields = &mut p.runtime.as_mut().unwrap().fields;
+        fields.gosub_stack = vec![0x8000 | 0x4000 | 5]; // event + time
+        fields.event_command_time = 42;
+        fields.command_time = 7;
+        fields.scheduler.program_counter = 0;
+    }
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 5);
+    assert_eq!(p.runtime().unwrap().fields.command_time, 42);
+    assert!(p.runtime().unwrap().fields.gosub_stack.is_empty());
+    // Plain gosub return just jumps without time restore
+    let mut p2 = program(b"return", &mut memory);
+    p2.init_fresh_runtime(&mut memory).unwrap();
+    {
+        let fields = &mut p2.runtime.as_mut().unwrap().fields;
+        fields.gosub_stack = vec![9];
+        fields.command_time = 7;
+        fields.event_command_time = 99;
+        fields.scheduler.program_counter = 0;
+    }
+    p2.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p2.runtime().unwrap().fields.program_counter(), 9);
+    assert_eq!(p2.runtime().unwrap().fields.command_time, 0);
 }
 #[test]
 fn act_setstate_and_addweapon_advance_silently_without_resolution() {
