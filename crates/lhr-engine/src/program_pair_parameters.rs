@@ -275,8 +275,8 @@ mod tests {
         let mut input = b"2,3\0".to_vec();
         let mut second = PairParameterSlot::default();
         assert_eq!(
-            second.decode(16, &mut input, &mut Boundary::default()),
-            Err(PairDecodeError::UnsupportedOpcode(16))
+            second.decode(7, &mut input, &mut Boundary::default()),
+            Err(PairDecodeError::UnsupportedOpcode(7))
         );
         assert_eq!(input, [b'2', 0, b'3', 0]);
     }
