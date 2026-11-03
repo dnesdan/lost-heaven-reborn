@@ -1052,6 +1052,20 @@ fn dialogue_commands_advance_as_noop_and_count_in_discard() {
     assert_eq!(report.human_talk_allocations, 1);
 }
 #[test]
+fn mission_flow_commands_advance_as_noop_and_count_in_discard() {
+    let mut memory = Memory::default();
+    let mut p = program(b"mission_objectives 5\nmission_objectivesclear\nendofmission 1,2\nchange_mission \"a\",\"b\",1.0", &mut memory);
+    let progress = p.init_fresh_runtime(&mut memory).unwrap();
+    assert_eq!((progress.accepted, progress.errors), (4, 0));
+    for expected in 1..=4 {
+        p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory).unwrap();
+        assert_eq!(p.runtime().unwrap().fields.program_counter(), expected);
+    }
+    let report = p.discard_runtime_host().unwrap();
+    assert_eq!(report.end_of_mission_allocations, 1);
+    assert_eq!(report.change_mission_allocations, 1);
+}
+#[test]
 fn try_set_event_on_program_jumps_and_pushes_event_stack() {
     let mut memory = Memory::default();
     // Program with two events, the last (index 1) should be found
