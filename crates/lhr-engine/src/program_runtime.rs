@@ -6,8 +6,9 @@
 //! recognition retains its existing ASCII admission.
 //! Process also executes FINDFRAME/FINDACTOR with an explicit borrowed lookup world.
 //! Recording and remaining unsupported commands still stop when reached.
-//! Admission is explicitly base C_program only; derived Entity/Detector virtual
-//! decoder/dispatcher execution is not supplied by this runtime.
+//! Fresh compilation admits base and entity sources (entity word-count
+//! admission only); detector sources stay refused and no derived dispatch runs:
+//! entity opcodes stop at UnsupportedCommand and CallSubroutine stays base-only.
 //! Unsupported dependencies retain reached state and never become no-op success.
 //! Saved-code chains, repeated Init and runtime-owning source destruction remain
 //! outside admission. Explicit host discard releases actual Rust allocations;
@@ -24,6 +25,9 @@ mod name_parameters;
 mod pair_parameters;
 use crate::named_script::ResetState;
 use crate::program_compiler::{self, CompileBackend, CompileDiagnostic, CompileProgress};
+use crate::program_entity_parameters::{
+    supports_entity_opcode, EntityParameter, EntityParameterError, EntityParameterSlot,
+};
 use crate::program_parameters::{
     ascii_integer_prefix, ScalarDecodeError, ScalarParameter, ScalarParameterBackend,
     ScalarParameterSlot,
@@ -161,31 +165,38 @@ pub enum InstructionParameter {
     Name(NameParameterSlot),
     Pair(PairParameterSlot),
     Flow(FlowParameterSlot),
+    Entity(EntityParameterSlot),
 }
 impl InstructionParameter {
     /// Scalar-only accessor retained for existing runtime diagnostics.
     pub fn parameter(&self) -> Option<&ScalarParameter> {
         match self {
             Self::Scalar(slot) => slot.parameter(),
-            Self::Name(_) | Self::Pair(_) | Self::Flow(_) => None,
+            Self::Name(_) | Self::Pair(_) | Self::Flow(_) | Self::Entity(_) => None,
         }
     }
     pub fn name_parameter(&self) -> Option<&NameParameter> {
         match self {
-            Self::Scalar(_) | Self::Pair(_) | Self::Flow(_) => None,
+            Self::Scalar(_) | Self::Pair(_) | Self::Flow(_) | Self::Entity(_) => None,
             Self::Name(slot) => slot.parameter(),
         }
     }
     pub fn pair_parameter(&self) -> Option<&PairParameter> {
         match self {
             Self::Pair(slot) => slot.parameter(),
-            Self::Scalar(_) | Self::Name(_) | Self::Flow(_) => None,
+            Self::Scalar(_) | Self::Name(_) | Self::Flow(_) | Self::Entity(_) => None,
         }
     }
     pub fn flow_parameter(&self) -> Option<&FlowParameter> {
         match self {
             Self::Flow(slot) => slot.parameter(),
-            Self::Scalar(_) | Self::Name(_) | Self::Pair(_) => None,
+            Self::Scalar(_) | Self::Name(_) | Self::Pair(_) | Self::Entity(_) => None,
+        }
+    }
+    pub fn entity_parameter(&self) -> Option<&EntityParameter> {
+        match self {
+            Self::Entity(slot) => slot.parameter(),
+            Self::Scalar(_) | Self::Name(_) | Self::Pair(_) | Self::Flow(_) => None,
         }
     }
 }
@@ -533,6 +544,8 @@ impl<B: RuntimeBackend> CompileBackend for Compiler<'_, B> {
                 Some(InstructionParameter::Pair(PairParameterSlot::default()))
             } else if supports_flow_opcode(opcode) {
                 Some(InstructionParameter::Flow(FlowParameterSlot::default()))
+            } else if supports_entity_opcode(opcode) {
+                Some(InstructionParameter::Entity(EntityParameterSlot::default()))
             } else {
                 Some(InstructionParameter::Scalar(ScalarParameterSlot::default()))
             },
@@ -580,6 +593,16 @@ impl<B: RuntimeBackend> CompileBackend for Compiler<'_, B> {
                     };
                     slot.decode(opcode, parameters, &mut boundary)
                         .map_err(|error| RuntimeError::Parameter(format!("{error:?}")))?
+                }
+                InstructionParameter::Entity(slot) => {
+                    slot.decode(opcode, parameters)
+                        .map_err(|error| match error {
+                            EntityParameterError::UnsupportedOpcode(id) => {
+                                RuntimeError::UnsupportedParameters(id)
+                            }
+                            other => RuntimeError::Parameter(format!("{other:?}")),
+                        })?;
+                    true
                 }
             };
             if !accepted {
@@ -643,12 +666,16 @@ impl CProgram {
         &mut self,
         backend: &mut B,
     ) -> Result<CompileProgress, RuntimeError> {
-        // This bounded runtime supplies base C_program's virtual decoder and
-        // dispatcher only. Derived program source lifetime remains supported,
-        // but its different virtual behavior is outside this host admission.
-        if self.vtable != ProgramVtable::Base {
-            return Err(RuntimeError::UnsupportedDerivedRuntime(self.vtable));
-        }
+        // Base programs decode with the 398-keyword table; entity programs
+        // decode embedded AI sources with the entity table plus base fallback
+        // (word-count admission only). Detector programs stay refused, and no
+        // vtable executes derived dispatch: entity opcodes stop at
+        // UnsupportedCommand and CallSubroutine stays base-only.
+        let decoder = match self.vtable {
+            ProgramVtable::Base => crate::program_instructions::InstructionDecoder::Base,
+            ProgramVtable::Entity => crate::program_instructions::InstructionDecoder::Entity,
+            _ => return Err(RuntimeError::UnsupportedDerivedRuntime(self.vtable)),
+        };
         if self.runtime.is_some() || self.runtime_started || self.phase != ProgramPhase::Source {
             return Err(RuntimeError::Domain("fresh source program required"));
         }
@@ -690,6 +717,7 @@ impl CProgram {
             false,
             Some(&mut runtime.diagnostic),
             ParserLocale::AsciiC,
+            decoder,
             &mut Compiler {
                 fields: &mut runtime.fields,
                 instructions: &mut runtime.instructions,
@@ -723,7 +751,8 @@ impl CProgram {
     /// Original CallSubroutine (RVA0x6cbc0): reset the actual program's PC,
     /// empty-return cursor and owner, enable continuation, then synchronously
     /// enter its owned CallProcess with delta1. No diagnostic program or state
-    /// copy is constructed. Derived virtual dispatch remains unadmitted.
+    /// copy is constructed. Entity CallProcess remains unadmitted: compiled
+    /// entity sources stop at UnsupportedCommand on dispatch and here.
     pub fn call_owned_subroutine<B: RuntimeBackend>(
         &mut self,
         budget: &mut DispatchBudget,
@@ -936,6 +965,10 @@ impl CProgram {
                         RuntimeEffect::ReleaseFlow(opcode),
                         slot.parameter(),
                     ),
+                    // Entity payloads are pure host word copies: decode runs
+                    // no backend allocation boundary, so disposal is host
+                    // cleanup only, unlike the backend-allocated families.
+                    InstructionParameter::Entity(_) => Ok(()),
                 };
                 if let Err(error) = result {
                     runtime.stage = RuntimeStage::DisposalInterrupted;

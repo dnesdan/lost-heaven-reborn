@@ -14,6 +14,15 @@ pub struct InstructionKeyword {
     pub id: i32,
 }
 
+/// Which recognition table `program_compiler::compile` scans. Base covers the
+/// 398 C_program keywords; Entity scans the 121-entry C_entity table first and
+/// falls back to the base table, mirroring entity sources that mix both.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InstructionDecoder {
+    Base,
+    Entity,
+}
+
 /// All 398 original instruction keywords, in recognition order (not ID order).
 pub const INSTRUCTION_KEYWORDS: [InstructionKeyword; 398] = [
     InstructionKeyword {
@@ -1601,6 +1610,504 @@ pub const INSTRUCTION_KEYWORDS: [InstructionKeyword; 398] = [
     },
 ];
 
+/// Original C_entity::DecodeInstruction recognition table (GAME 0x51cdd0).
+///
+/// 121 entries in table order: `{name[32], id}` records at stride 0x24 with the
+/// ID at +32, entry 0 at the table base. Most commands occupy an ENEMY_/ENTITY_
+/// pair sharing one ID; eight commands are singles with their own ID
+/// (COMPAREOWNERWITH 0x1009, FINDCORNER 0x100a, BLUESCREEN 0x100f, TEXT 0x1010,
+/// ACTION_MOVE 0x1011, DEBUG_GRAPHS 0x1032, ACTION_CARJUMP 0x1033), and
+/// NEVYHAZUJ 0x103d stores its single ENEMY_ spelling twice. Entry/slot order,
+/// IDs and spellings are capstone-verified against the shipped binary; the two
+/// spellings of each pair decode identically. This describes recognition only,
+/// not DecodeParams or execution.
+pub const ENTITY_INSTRUCTION_KEYWORDS: [InstructionKeyword; 121] = [
+    InstructionKeyword {
+        name: "ENEMY_MOVE ",
+        id: 0x1000,
+    },
+    InstructionKeyword {
+        name: "ENTITY_MOVE ",
+        id: 0x1000,
+    },
+    InstructionKeyword {
+        name: "ENEMY_PLAYANIM ",
+        id: 0x1001,
+    },
+    InstructionKeyword {
+        name: "ENTITY_PLAYANIM ",
+        id: 0x1001,
+    },
+    InstructionKeyword {
+        name: "ENEMY_STOPANIM ",
+        id: 0x1002,
+    },
+    InstructionKeyword {
+        name: "ENTITY_STOPANIM ",
+        id: 0x1002,
+    },
+    InstructionKeyword {
+        name: "ENEMY_LOOKTO ",
+        id: 0x1003,
+    },
+    InstructionKeyword {
+        name: "ENTITY_LOOKTO ",
+        id: 0x1003,
+    },
+    InstructionKeyword {
+        name: "ENEMY_WAIT ",
+        id: 0x1004,
+    },
+    InstructionKeyword {
+        name: "ENTITY_WAIT ",
+        id: 0x1004,
+    },
+    InstructionKeyword {
+        name: "ENEMY_LOOK ",
+        id: 0x1005,
+    },
+    InstructionKeyword {
+        name: "ENTITY_LOOK ",
+        id: 0x1005,
+    },
+    InstructionKeyword {
+        name: "ENTITY_TALK ",
+        id: 0x1006,
+    },
+    InstructionKeyword {
+        name: "ENEMY_TALK ",
+        id: 0x1006,
+    },
+    InstructionKeyword {
+        name: "ENTITY_STOP ",
+        id: 0x1007,
+    },
+    InstructionKeyword {
+        name: "ENEMY_STOP ",
+        id: 0x1007,
+    },
+    InstructionKeyword {
+        name: "ENEMY_USECAR ",
+        id: 0x1008,
+    },
+    InstructionKeyword {
+        name: "ENTITY_USECAR ",
+        id: 0x1008,
+    },
+    InstructionKeyword {
+        name: "COMPAREOWNERWITH ",
+        id: 0x1009,
+    },
+    InstructionKeyword {
+        name: "ENTITY_FINDCORNER ",
+        id: 0x100a,
+    },
+    InstructionKeyword {
+        name: "ENEMY_MOVE_TO_CAR ",
+        id: 0x100b,
+    },
+    InstructionKeyword {
+        name: "ENTITY_MOVE_TO_CAR ",
+        id: 0x100b,
+    },
+    InstructionKeyword {
+        name: "ENEMY_CAR_HUNT ",
+        id: 0x100c,
+    },
+    InstructionKeyword {
+        name: "ENTITY_CAR_HUNT ",
+        id: 0x100c,
+    },
+    InstructionKeyword {
+        name: "ENEMY_CAR_ESCAPE ",
+        id: 0x100d,
+    },
+    InstructionKeyword {
+        name: "ENTITY_CAR_ESCAPE ",
+        id: 0x100d,
+    },
+    InstructionKeyword {
+        name: "ENEMY_CAR_MOVETO ",
+        id: 0x100e,
+    },
+    InstructionKeyword {
+        name: "ENTITY_CAR_MOVETO ",
+        id: 0x100e,
+    },
+    InstructionKeyword {
+        name: "ENTITY_BLUESCREEN ",
+        id: 0x100f,
+    },
+    InstructionKeyword {
+        name: "ENTITY_TEXT ",
+        id: 0x1010,
+    },
+    InstructionKeyword {
+        name: "ENTITY_ACTION_MOVE ",
+        id: 0x1011,
+    },
+    InstructionKeyword {
+        name: "ENEMY_ACTION_FOLLOW ",
+        id: 0x1012,
+    },
+    InstructionKeyword {
+        name: "ENTITY_ACTION_FOLLOW ",
+        id: 0x1012,
+    },
+    InstructionKeyword {
+        name: "ENEMY_ENTER_DOOR ",
+        id: 0x1013,
+    },
+    InstructionKeyword {
+        name: "ENTITY_ENTER_DOOR ",
+        id: 0x1013,
+    },
+    InstructionKeyword {
+        name: "ENEMY_ACTION_FIRE ",
+        id: 0x1014,
+    },
+    InstructionKeyword {
+        name: "ENTITY_ACTION_FIRE ",
+        id: 0x1014,
+    },
+    InstructionKeyword {
+        name: "ENEMY_USE_RAILWAY ",
+        id: 0x1015,
+    },
+    InstructionKeyword {
+        name: "ENTITY_USE_RAILWAY ",
+        id: 0x1015,
+    },
+    InstructionKeyword {
+        name: "ENEMY_ACTION_RUNAWAY ",
+        id: 0x1016,
+    },
+    InstructionKeyword {
+        name: "ENTITY_ACTION_RUNAWAY ",
+        id: 0x1016,
+    },
+    InstructionKeyword {
+        name: "ENEMY_ACTION_SIDELOOK ",
+        id: 0x1017,
+    },
+    InstructionKeyword {
+        name: "ENTITY_ACTION_SIDELOOK ",
+        id: 0x1017,
+    },
+    InstructionKeyword {
+        name: "ENEMY_ACTION_BACKLOOK ",
+        id: 0x1018,
+    },
+    InstructionKeyword {
+        name: "ENTITY_ACTION_BACKLOOK ",
+        id: 0x1018,
+    },
+    InstructionKeyword {
+        name: "ENEMY_ACTION_RUNCLOSERTO ",
+        id: 0x1019,
+    },
+    InstructionKeyword {
+        name: "ENTITY_ACTION_RUNCLOSERTO ",
+        id: 0x1019,
+    },
+    InstructionKeyword {
+        name: "ENEMY_VIDIM ",
+        id: 0x101a,
+    },
+    InstructionKeyword {
+        name: "ENTITY_VIDIM ",
+        id: 0x101a,
+    },
+    InstructionKeyword {
+        name: "ENEMY_EXIT_RAILWAY ",
+        id: 0x101b,
+    },
+    InstructionKeyword {
+        name: "ENTITY_EXIT_RAILWAY ",
+        id: 0x101b,
+    },
+    InstructionKeyword {
+        name: "ENEMY_MOVE_TO_FRAME ",
+        id: 0x101c,
+    },
+    InstructionKeyword {
+        name: "ENTITY_MOVE_TO_FRAME ",
+        id: 0x101c,
+    },
+    InstructionKeyword {
+        name: "ENEMY_GETSTATE ",
+        id: 0x101d,
+    },
+    InstructionKeyword {
+        name: "ENTITY_GETSTATE ",
+        id: 0x101d,
+    },
+    InstructionKeyword {
+        name: "ENEMY_BOX_GOTO ",
+        id: 0x101e,
+    },
+    InstructionKeyword {
+        name: "ENTITY_BOX_GOTO ",
+        id: 0x101e,
+    },
+    InstructionKeyword {
+        name: "ENEMY_BOX_TAKE ",
+        id: 0x101f,
+    },
+    InstructionKeyword {
+        name: "ENTITY_BOX_TAKE ",
+        id: 0x101f,
+    },
+    InstructionKeyword {
+        name: "ENEMY_BOX_PUT ",
+        id: 0x1020,
+    },
+    InstructionKeyword {
+        name: "ENTITY_BOX_PUT ",
+        id: 0x1020,
+    },
+    InstructionKeyword {
+        name: "ENEMY_ACTION_STEPAWAY ",
+        id: 0x1021,
+    },
+    InstructionKeyword {
+        name: "ENTITY_ACTION_STEPAWAY ",
+        id: 0x1021,
+    },
+    InstructionKeyword {
+        name: "ENTITY_ACTION_STRAFE ",
+        id: 0x1022,
+    },
+    InstructionKeyword {
+        name: "ENEMY_ACTION_STRAFE ",
+        id: 0x1022,
+    },
+    InstructionKeyword {
+        name: "ENTITY_ACTION_JUMP ",
+        id: 0x1023,
+    },
+    InstructionKeyword {
+        name: "ENEMY_ACTION_JUMP ",
+        id: 0x1023,
+    },
+    InstructionKeyword {
+        name: "ENTITY_USE_DETECTOR ",
+        id: 0x1024,
+    },
+    InstructionKeyword {
+        name: "ENEMY_USE_DETECTOR ",
+        id: 0x1024,
+    },
+    InstructionKeyword {
+        name: "ENTITY_SETSTATE ",
+        id: 0x1025,
+    },
+    InstructionKeyword {
+        name: "ENEMY_SETSTATE ",
+        id: 0x1025,
+    },
+    InstructionKeyword {
+        name: "ENTITY_LOCKSTATE ",
+        id: 0x1026,
+    },
+    InstructionKeyword {
+        name: "ENEMY_LOCKSTATE ",
+        id: 0x1026,
+    },
+    InstructionKeyword {
+        name: "ENTITY_TURNBACK ",
+        id: 0x1027,
+    },
+    InstructionKeyword {
+        name: "ENEMY_TURNBACK ",
+        id: 0x1027,
+    },
+    InstructionKeyword {
+        name: "ENTITY_BRAINWASH ",
+        id: 0x1028,
+    },
+    InstructionKeyword {
+        name: "ENEMY_BRAINWASH ",
+        id: 0x1028,
+    },
+    InstructionKeyword {
+        name: "ENTITY_KICKDRIVER ",
+        id: 0x1029,
+    },
+    InstructionKeyword {
+        name: "ENEMY_KICKDRIVER ",
+        id: 0x1029,
+    },
+    InstructionKeyword {
+        name: "ENTITY_GROUP_NEW ",
+        id: 0x102a,
+    },
+    InstructionKeyword {
+        name: "ENEMY_GROUP_NEW ",
+        id: 0x102a,
+    },
+    InstructionKeyword {
+        name: "ENTITY_GROUP_ADD ",
+        id: 0x102b,
+    },
+    InstructionKeyword {
+        name: "ENEMY_GROUP_ADD ",
+        id: 0x102b,
+    },
+    InstructionKeyword {
+        name: "ENTITY_GROUP_DEL ",
+        id: 0x102c,
+    },
+    InstructionKeyword {
+        name: "ENEMY_GROUP_DEL ",
+        id: 0x102c,
+    },
+    InstructionKeyword {
+        name: "ENTITY_ARREST_PLAYER ",
+        id: 0x102d,
+    },
+    InstructionKeyword {
+        name: "ENEMY_ARREST_PLAYER ",
+        id: 0x102d,
+    },
+    InstructionKeyword {
+        name: "ENTITY_NASERSE ",
+        id: 0x102e,
+    },
+    InstructionKeyword {
+        name: "ENEMY_NASERSE ",
+        id: 0x102e,
+    },
+    InstructionKeyword {
+        name: "ENTITY_ACTIONSCLEAR ",
+        id: 0x102f,
+    },
+    InstructionKeyword {
+        name: "ENEMY_ACTIONSCLEAR ",
+        id: 0x102f,
+    },
+    InstructionKeyword {
+        name: "ENTITY_BLOCK_CHECKPOINT ",
+        id: 0x1030,
+    },
+    InstructionKeyword {
+        name: "ENEMY_BLOCK_CHECKPOINT ",
+        id: 0x1030,
+    },
+    InstructionKeyword {
+        name: "ENTITY_SHUT_UP ",
+        id: 0x1031,
+    },
+    InstructionKeyword {
+        name: "ENEMY_SHUT_UP ",
+        id: 0x1031,
+    },
+    InstructionKeyword {
+        name: "ENTITY_DEBUG_GRAPHS ",
+        id: 0x1032,
+    },
+    InstructionKeyword {
+        name: "ENTITY_ACTION_CARJUMP ",
+        id: 0x1033,
+    },
+    InstructionKeyword {
+        name: "ENEMY_PODVADIM_JAK ",
+        id: 0x1034,
+    },
+    InstructionKeyword {
+        name: "ENTITY_PODVADIM_JAK ",
+        id: 0x1034,
+    },
+    InstructionKeyword {
+        name: "ENEMY_WATCH ",
+        id: 0x1035,
+    },
+    InstructionKeyword {
+        name: "ENTITY_WATCH ",
+        id: 0x1035,
+    },
+    InstructionKeyword {
+        name: "ENEMY_GROUP_ADDCAR ",
+        id: 0x1036,
+    },
+    InstructionKeyword {
+        name: "ENTITY_GROUP_ADDCAR ",
+        id: 0x1036,
+    },
+    InstructionKeyword {
+        name: "ENTITY_GROUP_CHCIPNI_HAJZLE ",
+        id: 0x1037,
+    },
+    InstructionKeyword {
+        name: "ENEMY_GROUP_CHCIPNI_HAJZLE ",
+        id: 0x1037,
+    },
+    InstructionKeyword {
+        name: "ENEMY_NAROHYSEVYSER ",
+        id: 0x1038,
+    },
+    InstructionKeyword {
+        name: "ENTITY_NAROHYSEVYSER ",
+        id: 0x1038,
+    },
+    InstructionKeyword {
+        name: "ENTITY_ACTION_PHONECALL ",
+        id: 0x1039,
+    },
+    InstructionKeyword {
+        name: "ENEMY_ACTION_PHONECALL ",
+        id: 0x1039,
+    },
+    InstructionKeyword {
+        name: "ENTITY_NAPRDELIVAUTE ",
+        id: 0x103a,
+    },
+    InstructionKeyword {
+        name: "ENEMY_NAPRDELIVAUTE ",
+        id: 0x103a,
+    },
+    InstructionKeyword {
+        name: "ENTITY_FOLLOWPLAYER ",
+        id: 0x103b,
+    },
+    InstructionKeyword {
+        name: "ENEMY_FOLLOWPLAYER ",
+        id: 0x103b,
+    },
+    InstructionKeyword {
+        name: "ENTITY_AZ_PO_PANICE_HOVNO ",
+        id: 0x103c,
+    },
+    InstructionKeyword {
+        name: "ENEMY_AZ_PO_PANICE_HOVNO ",
+        id: 0x103c,
+    },
+    InstructionKeyword {
+        name: "ENEMY_NEVYHAZUJ ",
+        id: 0x103d,
+    },
+    InstructionKeyword {
+        name: "ENEMY_NEVYHAZUJ ",
+        id: 0x103d,
+    },
+    InstructionKeyword {
+        name: "ENEMY_IGNORE_CORPSE ",
+        id: 0x103e,
+    },
+    InstructionKeyword {
+        name: "ENTITY_IGNORE_CORPSE ",
+        id: 0x103e,
+    },
+    InstructionKeyword {
+        name: "ENEMY_BLASTFIRE ",
+        id: 0x103f,
+    },
+    InstructionKeyword {
+        name: "ENTITY_BLASTFIRE ",
+        id: 0x103f,
+    },
+];
+
 /// Original DecodeInstruction under explicit ASCII/C-locale admission.
 ///
 /// Inspect only the first NUL-terminated string. A bare keyword or a keyword
@@ -1619,6 +2126,43 @@ pub fn decode_instruction(
     compared_length: &mut usize,
     locale: ParserLocale,
 ) -> Result<i32, ProgramParserError> {
+    decode_table(source, compared_length, locale, &INSTRUCTION_KEYWORDS)
+}
+
+/// Original C_entity::DecodeInstruction recognition (GAME 0x51cdd0) under the
+/// same ASCII/C-locale admission as the base decoder.
+///
+/// The entity table is scanned first in table order; a miss falls back to the
+/// base table. The fallback is inferred, not directly evidenced: embedded
+/// entity programs mix base commands (LABEL/GOTO/WAIT/DIM_ACT/...) with entity
+/// commands, and entity DecodeParams explicitly delegates unknown IDs to base
+/// DecodeParams (GAME 0x461c70), so entity sources must resolve both. The two
+/// namespaces are disjoint (entity names start with ENEMY_/ENTITY_/
+/// COMPAREOWNERWITH; the shared COMPAREOWNERWITH/COMPAREOWNERWITHEX prefix
+/// pair provably diverges before either terminator), making the scan order
+/// unobservable on admitted inputs.
+pub fn decode_entity_instruction(
+    source: &[u8],
+    compared_length: &mut usize,
+    locale: ParserLocale,
+) -> Result<i32, ProgramParserError> {
+    match decode_table(
+        source,
+        compared_length,
+        locale,
+        &ENTITY_INSTRUCTION_KEYWORDS,
+    )? {
+        -1 => decode_table(source, compared_length, locale, &INSTRUCTION_KEYWORDS),
+        id => Ok(id),
+    }
+}
+
+fn decode_table(
+    source: &[u8],
+    compared_length: &mut usize,
+    locale: ParserLocale,
+    keywords: &[InstructionKeyword],
+) -> Result<i32, ProgramParserError> {
     let ParserLocale::AsciiC = locale;
     let length = c_length(source)?;
     if length == 0 {
@@ -1633,7 +2177,7 @@ pub fn decode_instruction(
     }
     let input = &source[..length];
     let bare_allowance = usize::from(input[length - 1] != b' ');
-    for keyword in INSTRUCTION_KEYWORDS {
+    for keyword in keywords {
         let name = keyword.name.as_bytes();
         if length < name.len() - bare_allowance {
             continue;
@@ -1765,6 +2309,130 @@ mod tests {
         assert_eq!(length, 1); // Both one-character punctuation rows are tried.
         assert_eq!(decode(b"not_an_instruction_at_all\0", &mut length), -1);
         assert_eq!(length, 15); // Last eligible row: VECT_ROTATE_2D plus space.
+    }
+
+    fn decode_entity(input: &[u8], length: &mut usize) -> i32 {
+        decode_entity_instruction(input, length, ParserLocale::AsciiC).unwrap()
+    }
+
+    #[test]
+    fn entity_registry_preserves_table_order_ids_and_spellings() {
+        assert_eq!(ENTITY_INSTRUCTION_KEYWORDS.len(), 121);
+        for keyword in ENTITY_INSTRUCTION_KEYWORDS {
+            assert!(keyword.name.is_ascii());
+            assert!(keyword.name.ends_with(' '));
+            assert!(!keyword.name[..keyword.name.len() - 1].contains(' '));
+            assert!((0x1000..=0x103f).contains(&keyword.id));
+        }
+        // Table head, singles, and tail pin the verified order.
+        assert_eq!(
+            ENTITY_INSTRUCTION_KEYWORDS[0],
+            InstructionKeyword {
+                name: "ENEMY_MOVE ",
+                id: 0x1000
+            }
+        );
+        assert_eq!(
+            ENTITY_INSTRUCTION_KEYWORDS[1],
+            InstructionKeyword {
+                name: "ENTITY_MOVE ",
+                id: 0x1000
+            }
+        );
+        assert_eq!(
+            ENTITY_INSTRUCTION_KEYWORDS[18],
+            InstructionKeyword {
+                name: "COMPAREOWNERWITH ",
+                id: 0x1009
+            }
+        );
+        assert_eq!(
+            ENTITY_INSTRUCTION_KEYWORDS[19],
+            InstructionKeyword {
+                name: "ENTITY_FINDCORNER ",
+                id: 0x100a
+            }
+        );
+        assert_eq!(
+            ENTITY_INSTRUCTION_KEYWORDS[95],
+            InstructionKeyword {
+                name: "ENTITY_DEBUG_GRAPHS ",
+                id: 0x1032
+            }
+        );
+        assert_eq!(
+            ENTITY_INSTRUCTION_KEYWORDS[115],
+            InstructionKeyword {
+                name: "ENEMY_NEVYHAZUJ ",
+                id: 0x103d
+            }
+        );
+        assert_eq!(
+            ENTITY_INSTRUCTION_KEYWORDS[116],
+            InstructionKeyword {
+                name: "ENEMY_NEVYHAZUJ ",
+                id: 0x103d
+            }
+        );
+        assert_eq!(
+            ENTITY_INSTRUCTION_KEYWORDS[120],
+            InstructionKeyword {
+                name: "ENTITY_BLASTFIRE ",
+                id: 0x103f
+            }
+        );
+    }
+
+    #[test]
+    fn entity_recognition_shares_pair_ids_and_falls_back_to_base() {
+        let mut length = 0;
+        // Both spellings of every sampled pair decode identically.
+        for (enemy, entity, id) in [
+            ("ENEMY_MOVE ", "ENTITY_MOVE ", 0x1000),
+            ("ENEMY_TALK ", "ENTITY_TALK ", 0x1006),
+            ("ENEMY_USECAR ", "ENTITY_USECAR ", 0x1008),
+            ("ENEMY_CAR_HUNT ", "ENTITY_CAR_HUNT ", 0x100c),
+            ("ENEMY_VIDIM ", "ENTITY_VIDIM ", 0x101a),
+            ("ENEMY_NASERSE ", "ENTITY_NASERSE ", 0x102e),
+            ("ENEMY_SHUT_UP ", "ENTITY_SHUT_UP ", 0x1031),
+            ("ENEMY_BLASTFIRE ", "ENTITY_BLASTFIRE ", 0x103f),
+        ] {
+            assert_eq!(
+                decode_entity(format!("{enemy}\0").as_bytes(), &mut length),
+                id
+            );
+            assert_eq!(
+                decode_entity(format!("{entity}\0").as_bytes(), &mut length),
+                id
+            );
+            // Recognition is case-insensitive like the base table.
+            assert_eq!(
+                decode_entity(
+                    format!("{}\0", enemy.to_ascii_lowercase()).as_bytes(),
+                    &mut length
+                ),
+                id
+            );
+        }
+        // Base commands resolve through the fallback in entity sources.
+        assert_eq!(decode_entity(b"LABEL \0", &mut length), 0);
+        assert_eq!(decode_entity(b"goto foo\0", &mut length), 1);
+        assert_eq!(decode_entity(b"WAIT \0", &mut length), 4);
+        // Unknown lines refuse in both tables.
+        assert_eq!(decode_entity(b"enemy_no_such_command\0", &mut length), -1);
+        // The shared COMPAREOWNERWITH/COMPAREOWNERWITHEX prefix diverges
+        // before either terminator: the entity entry must not shadow the
+        // base command, which still resolves through the fallback.
+        assert_eq!(
+            decode_entity(b"COMPAREOWNERWITH 1, 2, 3\0", &mut length),
+            0x1009
+        );
+        assert_eq!(
+            decode_entity(b"COMPAREOWNERWITHEX 1, 2\0", &mut length),
+            101
+        );
+        let mut base_length = 0;
+        assert_eq!(decode(b"COMPAREOWNERWITH \0", &mut base_length), -1);
     }
 
     #[test]

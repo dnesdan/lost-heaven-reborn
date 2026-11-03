@@ -29,14 +29,17 @@ human animation, recorded cutscenes and a playable first mission remain open.
 [Build and run](docs/RUNNING.md) · [current evidence](docs/implementation/2026-10-29-car-replay-programs.md) ·
 [coverage](COVERAGE.md) · [goals](docs/GOALS.md) · [dated history](docs/history/README.md).
 
-[Latest reviewed integration: bridge actor intake](docs/implementation/2026-11-03-bridge-intake.md)
-constructs the original C_bridge (kind 20, 0x194 bytes) with its ferry-table
-LoadData and linked flap Init. Together with the merged
+[Latest reviewed integration: entity command decode](docs/implementation/2026-11-03-entity-decode.md)
+recognizes all 121 C_entity spellings (64 command IDs 0x1000–0x103f,
+capstone-verified pairs/singles) with exact native word-count admission and
+base fallback, while execution stays refused. Together with the merged
+[bridge intake](docs/implementation/2026-11-03-bridge-intake.md),
 [VM control flow](docs/implementation/2026-11-03-vm-flow-execution.md) and
 [PR #69 pair decoding](docs/implementation/2026-11-03-vm-pair-parameters.md),
-the VM decodes 274 selector families and executes 15 opcodes. FRM_SETON and all
-effect commands still stop at `UnsupportedCommand`; the C_pumper actor
-is now the MISE01 kind-25 frontier and authored mission play remains open.
+the VM decodes 274 selector families plus 64 entity commands and executes 15
+opcodes. Entity Process and all effect commands remain unimplemented; the
+C_pumper actor is still the MISE01 kind-25 frontier and authored mission play
+remains open.
 
 <details>
 <summary>Static research and accepted scoped-port dashboard</summary>

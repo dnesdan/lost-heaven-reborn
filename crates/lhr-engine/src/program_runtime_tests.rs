@@ -377,30 +377,99 @@ fn initially_oversized_request_uses_callback_reloaded_allowed_parameter() {
 }
 #[test]
 fn derived_program_source_lifetime_survives_explicit_base_runtime_admission_rejection() {
-    for vtable in [ProgramVtable::Entity, ProgramVtable::Detector] {
-        let mut memory = Memory::default();
-        let mut p = program(b"dim_act 2", &mut memory);
-        match vtable {
-            ProgramVtable::Entity => p.set_entity_vtable(),
-            ProgramVtable::Detector => p.set_detector_vtable(),
-            ProgramVtable::Base => unreachable!(),
+    let mut memory = Memory::default();
+    let mut p = program(b"dim_act 2", &mut memory);
+    p.set_detector_vtable();
+    let before = p.source().unwrap().bytes.clone();
+    memory.events.clear();
+    assert_eq!(
+        p.init_fresh_runtime(&mut memory),
+        Err(RuntimeError::UnsupportedDerivedRuntime(
+            ProgramVtable::Detector
+        ))
+    );
+    assert!(p.runtime().is_none());
+    assert!(!p.runtime_started);
+    assert_eq!(p.vtable(), ProgramVtable::Detector);
+    assert_eq!(p.source().unwrap().bytes, before);
+    assert!(memory.events.is_empty());
+    p.set_source_code(Some(b"dim_frm 3"), &mut memory).unwrap();
+    assert_eq!(p.source().unwrap().c_bytes(), Some(b"dim_frm 3".as_slice()));
+    p.destruct(&mut memory).unwrap();
+    assert_eq!(p.phase(), ProgramPhase::Dead);
+}
+#[test]
+fn entity_source_compiles_mixed_tables_but_refuses_derived_execution() {
+    let mut memory = Memory::default();
+    let mut p = program(
+        b"enemy_wait\nenemy_vidim 0\nlabel start\ngoto start",
+        &mut memory,
+    );
+    p.set_entity_vtable();
+    let progress = p.init_fresh_runtime(&mut memory).unwrap();
+    assert_eq!(
+        progress,
+        CompileProgress {
+            errors: 0,
+            accepted: 4
         }
-        let before = p.source().unwrap().bytes.clone();
-        memory.events.clear();
-        assert_eq!(
-            p.init_fresh_runtime(&mut memory),
-            Err(RuntimeError::UnsupportedDerivedRuntime(vtable))
-        );
-        assert!(p.runtime().is_none());
-        assert!(!p.runtime_started);
-        assert_eq!(p.vtable(), vtable);
-        assert_eq!(p.source().unwrap().bytes, before);
-        assert!(memory.events.is_empty());
-        p.set_source_code(Some(b"dim_frm 3"), &mut memory).unwrap();
-        assert_eq!(p.source().unwrap().c_bytes(), Some(b"dim_frm 3".as_slice()));
-        p.destruct(&mut memory).unwrap();
-        assert_eq!(p.phase(), ProgramPhase::Dead);
-    }
+    );
+    let opcodes: Vec<u32> = p
+        .runtime()
+        .unwrap()
+        .instructions
+        .active()
+        .iter()
+        .map(|instruction| instruction.opcode)
+        .collect();
+    assert_eq!(opcodes, [0x1004, 0x101a, 0, 1]);
+    let payloads: Vec<Option<usize>> = p
+        .runtime()
+        .unwrap()
+        .instructions
+        .active()
+        .iter()
+        .map(|instruction| {
+            instruction
+                .parameter
+                .as_ref()
+                .and_then(|parameter| parameter.entity_parameter())
+                .map(|parameter| parameter.count())
+        })
+        .collect();
+    assert_eq!(payloads, [Some(0), Some(1), None, None]);
+    assert_eq!(
+        p.runtime().unwrap().instructions.active()[1]
+            .parameter
+            .as_ref()
+            .and_then(|parameter| parameter.entity_parameter())
+            .and_then(|parameter| parameter.word(0)),
+        Some(b"0".as_slice())
+    );
+    // Entity CallProcess is unimplemented: dispatch stops at the first
+    // entity opcode and the subroutine entry stays refused.
+    let error = p
+        .call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap_err();
+    assert!(
+        format!("{error:?}").contains("UnsupportedCommand(4100)"),
+        "{error:?}"
+    );
+    assert_eq!(
+        p.call_owned_subroutine(&mut DispatchBudget::new(8).unwrap(), &mut memory),
+        Err(RuntimeError::UnsupportedDerivedRuntime(
+            ProgramVtable::Entity
+        ))
+    );
+    p.discard_runtime_host().unwrap();
+}
+#[test]
+fn entity_source_rejects_nonconforming_word_counts_like_the_native_compiler() {
+    let mut memory = Memory::default();
+    let mut p = program(b"enemy_lookto 1, 2", &mut memory);
+    p.set_entity_vtable();
+    assert!(p.init_fresh_runtime(&mut memory).is_err());
+    assert_eq!(p.runtime().unwrap().stage, RuntimeStage::CompileInterrupted);
 }
 fn interrupted_process_release_blocks_done_and_execution(
     source: &[u8],

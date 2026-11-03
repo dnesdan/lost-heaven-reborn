@@ -2,13 +2,16 @@
 //!
 //! Reference: mafia-re dc867c3238488de27d094bb79b6550e392566e3c,
 //! game/mission/C_program.cpp, GAME 0x46c770 (entry RVA 0x6c770).
-//! This composes the existing 398-keyword recognizer with a caller's actual
-//! instruction owner and parameter decoder. No default decoder accepts unknown
+//! This composes the caller's actual instruction owner and parameter decoder
+//! with the 398-keyword base recognizer or, for entity sources, the 121-entry
+//! entity table plus base fallback. No default decoder accepts unknown
 //! parameters, and this module neither initializes nor executes mission scripts.
 //! Source comparison alone does not establish original-runtime equivalence.
 #![forbid(unsafe_code)]
 
-use crate::program_instructions::decode_instruction;
+use crate::program_instructions::{
+    decode_entity_instruction, decode_instruction, InstructionDecoder,
+};
 use crate::program_parser::{c_length, ParserLocale, ProgramParserError};
 
 /// The original writes this pair only on a native compile error, and only when
@@ -94,6 +97,7 @@ pub fn compile<B: CompileBackend>(
     stop_on_error: bool,
     mut diagnostic: Option<&mut CompileDiagnostic>,
     locale: ParserLocale,
+    decoder: InstructionDecoder,
     backend: &mut B,
 ) -> Result<CompileProgress, CompileError<B::Error>> {
     let mut progress = CompileProgress::default();
@@ -130,13 +134,17 @@ pub fn compile<B: CompileBackend>(
         }
         if !source[line..end].starts_with(b"//") {
             let mut compared = 0;
-            let opcode = decode_instruction(&source[line..=end], &mut compared, locale).map_err(
-                |error| CompileError::Parser {
+            let decode = match decoder {
+                InstructionDecoder::Base => decode_instruction,
+                InstructionDecoder::Entity => decode_entity_instruction,
+            };
+            let opcode = decode(&source[line..=end], &mut compared, locale).map_err(|error| {
+                CompileError::Parser {
                     offset: line,
                     error,
                     progress,
-                },
-            )?;
+                }
+            })?;
             let accepted = if opcode == -1 {
                 false
             } else {

@@ -63,6 +63,7 @@ fn run(bytes: &[u8], stop: bool) -> (CompileProgress, Vec<u8>, Sink, CompileDiag
         stop,
         Some(&mut diagnostic),
         ParserLocale::AsciiC,
+        crate::program_instructions::InstructionDecoder::Base,
         &mut sink,
     )
     .unwrap();
@@ -84,6 +85,7 @@ fn null_and_empty_source_clear_live_instructions_without_resetting_diagnostic() 
                 false,
                 Some(&mut diagnostic),
                 ParserLocale::AsciiC,
+                crate::program_instructions::InstructionDecoder::Base,
                 &mut sink,
             ),
             Ok(CompileProgress::default())
@@ -110,6 +112,7 @@ fn failed_clear_precedes_even_missing_terminator_admission() {
             false,
             None,
             ParserLocale::AsciiC,
+            crate::program_instructions::InstructionDecoder::Base,
             &mut sink
         ),
         Err(CompileError::Backend {
@@ -137,6 +140,7 @@ fn missing_terminator_preserves_bytes_after_the_reached_clear() {
             false,
             None,
             ParserLocale::AsciiC,
+            crate::program_instructions::InstructionDecoder::Base,
             &mut sink
         ),
         Err(CompileError::Parser {
@@ -302,6 +306,7 @@ fn unavailable_decoder_is_an_interruption_not_a_skipped_instruction() {
             false,
             Some(&mut diagnostic),
             ParserLocale::AsciiC,
+            crate::program_instructions::InstructionDecoder::Base,
             &mut sink
         ),
         Err(CompileError::Backend {
@@ -337,6 +342,7 @@ fn leading_empty_or_space_only_line_keeps_the_recognizers_admission_error() {
                 false,
                 Some(&mut diagnostic),
                 ParserLocale::AsciiC,
+                crate::program_instructions::InstructionDecoder::Base,
                 &mut sink
             ),
             Err(CompileError::Parser {
@@ -410,6 +416,7 @@ fn non_ascii_control_classification_stops_at_the_reached_byte() {
             false,
             None,
             ParserLocale::AsciiC,
+            crate::program_instructions::InstructionDecoder::Base,
             &mut sink
         ),
         Err(CompileError::Parser {
@@ -440,6 +447,7 @@ fn all_keywords_reach_the_existing_recognizer_without_invented_parameter_support
                 false,
                 None,
                 ParserLocale::AsciiC,
+                crate::program_instructions::InstructionDecoder::Base,
                 &mut sink
             ),
             Err(CompileError::Backend {
@@ -466,6 +474,7 @@ fn no_diagnostic_output_does_not_change_error_or_append_behavior() {
             false,
             None,
             ParserLocale::AsciiC,
+            crate::program_instructions::InstructionDecoder::Base,
             &mut sink
         ),
         Ok(CompileProgress {
