@@ -732,3 +732,206 @@ fn game_callback_redirects_the_same_scene_slot_before_mission_lookup() {
     game.finish(&mut f.effects);
     f.finish();
 }
+
+#[test]
+fn tick_entity_programs_steps_owned_live_state_through_context() {
+    use super::{MissionProgramWorldContext, ProgramWorldLocales};
+    use crate::actor_world::{
+        ActorAllocationBackend, ActorCollectionBackend, ActorSource, ActorStorageId, ActorWorld,
+        BaseActorSeed, SourceBacking,
+    };
+    use crate::entity_actor::{EntityProcessState, EntitySeed};
+    use crate::human_actor::{
+        HumanAnimationMachineSeed, HumanAuxiliarySeed, HumanProperties, HumanSeed,
+    };
+    use crate::model_loading::ModelArena;
+    use crate::original_program::{ProgramAllocation, ProgramBackend, ProgramBuffer, ProgramSeed};
+    use crate::script_scheduler::{ActorReferenceId, DispatchBudget, FrameReferenceId};
+
+    struct Heap {
+        next: u32,
+        program_next: u64,
+    }
+    impl ActorAllocationBackend for Heap {
+        fn allocate_actor(&mut self, _: u32) -> Result<Option<(u32, BaseActorSeed)>, String> {
+            Err("base allocation outside fixture".into())
+        }
+        fn allocate_entity(
+            &mut self,
+            bytes: u32,
+        ) -> Result<Option<(u32, BaseActorSeed, EntitySeed)>, String> {
+            assert_eq!(bytes, 0x128c);
+            self.next += 1;
+            Ok(Some((
+                self.next,
+                BaseActorSeed {
+                    word_0e: 0,
+                    actor_id: 0,
+                    state_1c: 0,
+                    bytes_21_5f: [0; 63],
+                    bytes_64_65: [0; 2],
+                    byte_67: 0,
+                    release_frame: 0,
+                    bytes_6d_6f: [0; 3],
+                },
+                EntitySeed {
+                    human: HumanSeed {
+                        allocator_tag: 0,
+                        animation_machine: HumanAnimationMachineSeed { untouched_word: 0 },
+                        previous_animation_code: 0,
+                        requested_animation_code: 0,
+                        human_type_mask: 0,
+                        current_properties: HumanProperties::from_record([0; 64]),
+                        target_e: None,
+                        target_n: None,
+                        base_frame: None,
+                        auxiliary: [
+                            HumanAuxiliarySeed {
+                                untouched_word: 0,
+                                padding: [0; 3],
+                                untouched_tail: [0; 16],
+                            },
+                            HumanAuxiliarySeed {
+                                untouched_word: 0,
+                                padding: [0; 3],
+                                untouched_tail: [0; 16],
+                            },
+                        ],
+                    },
+                    program: ProgramSeed {
+                        address_high_byte: 0,
+                        padding_0d: [0; 3],
+                        words_1c_2c: [0; 5],
+                        padding_31: [0; 3],
+                        word_40: 0,
+                        bytes_64: [0; 4],
+                    },
+                    allocator_tag_a: 0,
+                    allocator_tag_b: 0,
+                    untouched_word: 0,
+                    untouched_padding: [0; 3],
+                },
+            )))
+        }
+    }
+    impl ActorCollectionBackend for Heap {
+        fn allocate_collection(
+            &mut self,
+            _: &ActorWorld,
+            _: ActorSource,
+            _: u32,
+        ) -> Result<crate::actor_world::ActorStorageId, String> {
+            Ok(ActorStorageId(2))
+        }
+        fn free_collection(
+            &mut self,
+            _: &ActorWorld,
+            _: ActorSource,
+            _: Option<ActorStorageId>,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+    }
+    impl ProgramBackend for Heap {
+        fn allocate(
+            &mut self,
+            _: &crate::original_program::CProgram,
+            _: ProgramBuffer,
+            _: u32,
+        ) -> Result<ProgramAllocation, String> {
+            self.program_next += 1;
+            Ok(ProgramAllocation(self.program_next))
+        }
+        fn free(
+            &mut self,
+            _: &crate::original_program::CProgram,
+            _: ProgramBuffer,
+            _: Option<ProgramAllocation>,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    struct NoopDiagnostic;
+    impl super::MissionProgramDiagnostic for NoopDiagnostic {
+        fn message_beep(
+            &mut self,
+            _: &mut ActorWorld,
+            _: &mut ModelArena,
+            _: crate::original_program::RuntimeView<'_>,
+            _: &mut Option<ActorReferenceId>,
+            _: &mut FrameReferenceId,
+            _: i32,
+        ) -> Result<(), crate::script_lookup::LookupError> {
+            Ok(())
+        }
+    }
+
+    let backing = SourceBacking {
+        storage: Some(ActorStorageId(1)),
+        capacity: 16,
+    };
+    let mut world = ActorWorld::new(0, 0, backing, backing, backing).unwrap();
+    let mut heap = Heap {
+        next: 0,
+        program_next: 0,
+    };
+    let actor = world.create_actor(27, &mut heap).unwrap().unwrap();
+    let mut program = world.take_entity_program(actor).unwrap().unwrap();
+    program
+        .set_source_code(Some(b"enemy_vidim 1\nenemy_wait"), &mut heap)
+        .unwrap();
+    program.set_owner(Some(actor)).unwrap();
+    let mut effects = Effects::default();
+    program.init_fresh_runtime(&mut effects).unwrap();
+    world.return_entity_program(actor, Some(program)).unwrap();
+    world
+        .store_entity_process_state(
+            actor,
+            &EntityProcessState {
+                process_flags: 0,
+                visibility_bits: 3,
+                shut_up: 0,
+            },
+        )
+        .unwrap();
+    // Exercise the Ready gate through the public phase query.
+    assert_eq!(
+        world.phase(actor),
+        Ok(crate::actor_world::ActorPhase::Ready)
+    );
+    let mut arena = ModelArena::default();
+    let mut scene = FrameReferenceId::from_existing(1);
+    let mut diagnostic = NoopDiagnostic;
+    let mut context = MissionProgramWorldContext::new(
+        &mut arena,
+        &mut scene,
+        &mut effects,
+        &mut diagnostic,
+        ProgramWorldLocales {
+            game_default_c_locale: true,
+            ls3df_default_c_locale: true,
+        },
+    );
+    let mut budget = DispatchBudget::new(8).unwrap();
+    assert_eq!(
+        context.tick_entity_programs(&mut world, 1, &mut budget),
+        Ok(1)
+    );
+    // VIDIM "1" cleared the blind bit and advanced past the first line; the
+    // program is back inside its authoritative owner.
+    assert_eq!(
+        world.entity_process_state(actor).unwrap(),
+        EntityProcessState {
+            process_flags: 0,
+            visibility_bits: 1,
+            shut_up: 0,
+        }
+    );
+    assert!(world.entity(actor).unwrap().program().is_some());
+    // The second tick parks on the fresh WAIT without advancing.
+    assert_eq!(
+        context.tick_entity_programs(&mut world, 1, &mut budget),
+        Ok(1)
+    );
+}

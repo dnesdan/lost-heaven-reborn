@@ -30,22 +30,28 @@ human animation, recorded cutscenes and a playable first mission remain open.
 [Build and run](docs/RUNNING.md) · [current evidence](docs/implementation/2026-10-29-car-replay-programs.md) ·
 [coverage](COVERAGE.md) · [goals](docs/GOALS.md) · [dated history](docs/history/README.md).
 
-[Latest reviewed integration: entity Process dispatch](docs/implementation/2026-11-03-entity-process-dispatch.md)
-executes owner commands (WAIT/VIDIM/SHUT_UP/NAPRDELIVAUTE/FOLLOWPLAYER)
-against live actor state with base fallback, while all other entity opcodes
-refuse. Together with the merged [transcendental boundary admission](docs/implementation/2026-11-03-trig-boundary-admission.md),
+[Latest reviewed integration: entity AI tick transport](docs/implementation/2026-11-03-entity-tick-transport.md)
+steps owned entity programs against the live world (take/process/return with
+shared budget); Sam's lines 1–10 are now executable-or-implemented commands.
+Together with the merged [entity Process dispatch](docs/implementation/2026-11-03-entity-process-dispatch.md),
+[transcendental boundary admission](docs/implementation/2026-11-03-trig-boundary-admission.md),
 [box actor intake](docs/implementation/2026-11-03-box-new-intake.md),
 [entity command decode](docs/implementation/2026-11-03-entity-decode.md),
 [VM control flow](docs/implementation/2026-11-03-vm-flow-execution.md) and
 [PR #69 pair decoding](docs/implementation/2026-11-03-vm-pair-parameters.md),
 all 293 MISE01 actors construct, the mission scene captures headless and
-windowed (bit-identical), and entity programs run until dialogue/inventory
-systems. Entity behaviors beyond the five owner commands, Game tick wiring,
-GameInit and authored mission play remain open; macOS audio and interactive
-input are unverified.
+windowed (bit-identical), and entity programs tick until dialogue/inventory
+systems. Game tick wiring (clock/camera/input/objectives), the WAIT timer,
+dialogue/inventory/event systems and authored mission play remain open;
+macOS audio and interactive input are unverified.
 
 <details>
 <summary>Static research and accepted scoped-port dashboard</summary>
+
+The fragment below is the frozen 2026-10-25 evidence ledger: recounting it
+requires the recount plus independent-review pipeline, which is currently
+unavailable, so no new hashes or counts are recorded here. Current status is
+tracked in the pointers above and in [dated history](docs/history/README.md).
 
 <!-- generated-function-progress:start -->
 As of 2026-10-25 · snapshot `RUST-SCOPED-PORTS-20261025-47`.

@@ -2459,6 +2459,37 @@ impl ActorWorld {
             .store_process_state(state);
         Ok(())
     }
+    /// Take an entity actor's embedded program for one tick. The actor keeps
+    /// its identity and phase; only the program moves. The caller must return
+    /// it through [`Self::return_entity_program`] on every path, including
+    /// failed ticks: dropping a live program is host cleanup, never a
+    /// sanctioned native free. Callbacks during the tick must not retire the
+    /// ticking actor; no such callback exists yet.
+    pub fn take_entity_program(
+        &mut self,
+        actor: ActorReferenceId,
+    ) -> Result<Option<CProgram>, ActorWorldError> {
+        let i = self.ready(actor)?;
+        Ok(self.actors[i]
+            .entity
+            .as_mut()
+            .ok_or(ActorWorldError::NotEntity)?
+            .program
+            .take())
+    }
+    pub fn return_entity_program(
+        &mut self,
+        actor: ActorReferenceId,
+        program: Option<CProgram>,
+    ) -> Result<(), ActorWorldError> {
+        let i = self.index(actor)?;
+        self.actors[i]
+            .entity
+            .as_mut()
+            .ok_or(ActorWorldError::NotEntity)?
+            .program = program;
+        Ok(())
+    }
     pub fn inspect_human(&self, actor: ActorReferenceId) -> Option<&HumanState> {
         self.actors
             .iter()
