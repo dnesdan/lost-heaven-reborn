@@ -22,7 +22,7 @@ use crate::door_actor::{DoorLoadVersion, DoorSeed, DoorSoundNames, DoorState};
 use crate::entity_actor::{EntityProcessState, EntityResourceSlot, EntitySeed, EntityState};
 use crate::frame_lookup::{FrameLookupBackend, SceneRoots};
 use crate::human_actor::{
-    ActorDataReader, HumanDataError, HumanResourceSlot, HumanSeed, HumanState,
+    ActorDataReader, HumanDataError, HumanInventoryItem, HumanResourceSlot, HumanSeed, HumanState,
 };
 use crate::original_program::{
     CProgram, OwnerFrameName, ProgramBackend, ProgramContext, ProgramError, ProgramReader,
@@ -2488,6 +2488,46 @@ impl ActorWorld {
             .as_mut()
             .ok_or(ActorWorldError::NotEntity)?
             .program = program;
+        Ok(())
+    }
+    /// Original C_actor::SetActState: store the ACTSTATE_* word. The +0x1c
+    /// identity follows C_actor.h (act_state at 0x1c, 0 from Init, matching
+    /// the zeroed real seeds); only this writer treats the word as act state.
+    /// The game-side change notification has no Game owner yet and is not
+    /// recorded here.
+    pub fn set_actor_act_state(
+        &mut self,
+        actor: ActorReferenceId,
+        state: u32,
+    ) -> Result<(), ActorWorldError> {
+        let i = self.index(actor)?;
+        self.actors[i].state.state_1c = state;
+        Ok(())
+    }
+    /// Original C_program CMD_HUMAN_ADDWEAPON tail: resolve an ENTITY/PLAYER
+    /// human and push the weapon record. Slot-placement and capacity rules,
+    /// ChangeWeaponModel and WeaponChoose stay open; no shipped MISE01 line
+    /// reads these records back.
+    pub fn human_add_weapon(
+        &mut self,
+        actor: ActorReferenceId,
+        id: u32,
+        loaded: i32,
+        spare: i32,
+    ) -> Result<(), ActorWorldError> {
+        let i = self.index(actor)?;
+        if !matches!(
+            self.actors[i].state.vtable,
+            ActorVtable::Entity | ActorVtable::Player
+        ) {
+            return Err(ActorWorldError::NotHuman);
+        }
+        self.actors[i]
+            .human
+            .as_mut()
+            .ok_or(ActorWorldError::NotHuman)?
+            .inventory
+            .push_weapon(HumanInventoryItem::from_weapon_parts(id, loaded, spare));
         Ok(())
     }
     pub fn inspect_human(&self, actor: ActorReferenceId) -> Option<&HumanState> {
@@ -6739,6 +6779,29 @@ mod human_owner_tests {
             w.store_entity_process_state(player, &state),
             Err(ActorWorldError::NotEntity)
         );
+        assert_eq!(
+            w.entity_process_state(ActorReferenceId::from_existing(999)),
+            Err(ActorWorldError::StaleActor(
+                ActorReferenceId::from_existing(999)
+            ))
+        );
+    }
+    #[test]
+    fn act_state_and_weapon_write_through_authoritative_owners() {
+        let mut w = world();
+        let mut heap = Heap::default();
+        let entity = w.create_actor(27, &mut heap).unwrap().unwrap();
+        w.set_actor_act_state(entity, 1).unwrap();
+        assert_eq!(w.state(entity).unwrap().state_1c, 1);
+        w.human_add_weapon(entity, 9, 7, 100).unwrap();
+        let items = w.human(entity).unwrap().inventory().items();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].representation_bits(), &[9, 7, 100, 0]);
+        w.human_add_weapon(entity, 10, 1, 2).unwrap();
+        assert_eq!(w.human(entity).unwrap().inventory().items().len(), 2);
+        let player = w.create_actor(2, &mut heap).unwrap().unwrap();
+        w.human_add_weapon(player, 5, 0, 0).unwrap();
+        assert_eq!(w.human(player).unwrap().inventory().items().len(), 1);
         assert_eq!(
             w.entity_process_state(ActorReferenceId::from_existing(999)),
             Err(ActorWorldError::StaleActor(

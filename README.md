@@ -30,10 +30,10 @@ human animation, recorded cutscenes and a playable first mission remain open.
 [Build and run](docs/RUNNING.md) · [current evidence](docs/implementation/2026-10-29-car-replay-programs.md) ·
 [coverage](COVERAGE.md) · [goals](docs/GOALS.md) · [dated history](docs/history/README.md).
 
-[Latest reviewed integration: entity program init transport](docs/implementation/2026-11-03-entity-init-transport.md)
-compiles embedded entity programs through the execution context (take/init/
-return, idempotent); the [AI tick transport](docs/implementation/2026-11-03-entity-tick-transport.md)
-then steps them.
+[Latest reviewed integration: weapon/act-state batch](docs/implementation/2026-11-03-weapon-actstate-batch.md)
+decodes the four-integer family and ACT_SETSTATE and executes
+`human_addweapon`/`act_setstate` against live actors; Sam's lines 1–14
+resolve to implemented commands. Together with the [entity program init transport](docs/implementation/2026-11-03-entity-init-transport.md),
 Together with the merged [entity Process dispatch](docs/implementation/2026-11-03-entity-process-dispatch.md),
 [transcendental boundary admission](docs/implementation/2026-11-03-trig-boundary-admission.md),
 [box actor intake](docs/implementation/2026-11-03-box-new-intake.md),

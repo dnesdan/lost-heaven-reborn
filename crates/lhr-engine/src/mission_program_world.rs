@@ -296,6 +296,26 @@ impl<D> LookupWorldBackend for MissionLookupWorld<'_, D> {
             .store_entity_process_state(actor, state)
             .map_err(|error| LookupError::Backend(format!("{error:?}")))
     }
+    fn set_actor_act_state(
+        &mut self,
+        actor: ActorReferenceId,
+        state: u32,
+    ) -> Result<(), LookupError> {
+        self.world
+            .set_actor_act_state(actor, state)
+            .map_err(|error| LookupError::Backend(format!("{error:?}")))
+    }
+    fn human_add_weapon(
+        &mut self,
+        actor: ActorReferenceId,
+        id: u32,
+        loaded: i32,
+        spare: i32,
+    ) -> Result<(), LookupError> {
+        self.world
+            .human_add_weapon(actor, id, loaded, spare)
+            .map_err(|error| LookupError::Backend(format!("{error:?}")))
+    }
 }
 impl<D: MissionProgramDiagnostic> RuntimeLookupWorld for MissionLookupWorld<'_, D> {
     fn runtime_message_beep(

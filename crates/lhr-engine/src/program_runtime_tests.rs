@@ -13,6 +13,8 @@ struct Memory {
 #[derive(Default)]
 struct FakeEntityWorld {
     states: HashMap<ActorReferenceId, EntityProcessState>,
+    act_states: HashMap<ActorReferenceId, u32>,
+    weapons: HashMap<ActorReferenceId, Vec<(u32, i32, i32)>>,
 }
 impl LookupWorldBackend for FakeEntityWorld {
     fn diagnostic_default_c_locale(&self) -> bool {
@@ -61,6 +63,27 @@ impl LookupWorldBackend for FakeEntityWorld {
         let actor =
             owner.ok_or_else(|| LookupError::Backend("entity command without owner".into()))?;
         self.states.insert(actor, *state);
+        Ok(())
+    }
+    fn set_actor_act_state(
+        &mut self,
+        actor: ActorReferenceId,
+        state: u32,
+    ) -> Result<(), LookupError> {
+        self.act_states.insert(actor, state);
+        Ok(())
+    }
+    fn human_add_weapon(
+        &mut self,
+        actor: ActorReferenceId,
+        id: u32,
+        loaded: i32,
+        spare: i32,
+    ) -> Result<(), LookupError> {
+        self.weapons
+            .entry(actor)
+            .or_default()
+            .push((id, loaded, spare));
         Ok(())
     }
 }
@@ -741,6 +764,65 @@ fn interrupted_process_release_blocks_done_and_execution(
     assert_eq!((backend.calls, backend.observable_frees), (calls, 1));
     assert!(p.destruct(&mut memory).is_ok());
 }
+
+#[test]
+fn act_setstate_and_addweapon_resolve_owners_and_registers() {
+    use crate::original_program::RuntimeReferenceSlot;
+    let mut memory = Memory::default();
+    let mut p = program(
+        b"act_setstate -1,inactive\nhuman_addweapon 0,9,7,100",
+        &mut memory,
+    );
+    p.set_owner(Some(ActorReferenceId::from_existing(7)))
+        .unwrap();
+    let progress = p.init_fresh_runtime(&mut memory).unwrap();
+    assert_eq!((progress.accepted, progress.errors), (2, 0));
+    p.runtime.as_mut().unwrap().fields.actors = Some(
+        vec![RuntimeReferenceSlot::Reference(
+            ActorReferenceId::from_existing(11),
+        )]
+        .into_boxed_slice(),
+    );
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
+    // INACTIVE maps to ACTSTATE_1 on the owner.
+    assert_eq!(
+        memory
+            .entity_world
+            .act_states
+            .get(&ActorReferenceId::from_existing(7)),
+        Some(&1)
+    );
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 2);
+    assert_eq!(
+        memory
+            .entity_world
+            .weapons
+            .get(&ActorReferenceId::from_existing(11)),
+        Some(&vec![(9, 7, 100)])
+    );
+}
+#[test]
+fn act_setstate_and_addweapon_advance_silently_without_resolution() {
+    let mut memory = Memory::default();
+    let mut p = program(
+        b"act_setstate 5,active\nhuman_addweapon 5,9,7,100",
+        &mut memory,
+    );
+    p.init_fresh_runtime(&mut memory).unwrap();
+    // No registers and no owner: both advance without effect or error.
+    for expected in 1..=2 {
+        p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+            .unwrap();
+        assert_eq!(p.runtime().unwrap().fields.program_counter(), expected);
+    }
+    assert!(memory.entity_world.act_states.is_empty());
+    assert!(memory.entity_world.weapons.is_empty());
+}
+
 #[test]
 fn failed_process_actor_release_is_uncertain_and_never_retried_by_done() {
     interrupted_process_release_blocks_done_and_execution(

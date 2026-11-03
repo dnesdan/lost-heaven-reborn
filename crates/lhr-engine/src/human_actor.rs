@@ -54,6 +54,17 @@ impl HumanInventoryItem {
     fn construct() -> Self {
         Self { bits: [0; 4] }
     }
+
+    /// Provisional weapon record from an ADDWEAPON command: the evidenced
+    /// upstream assignment order (id, loaded spare, spare) in the first three
+    /// words, zeroed tail. The full S_GameItem layout, slot-placement rules,
+    /// ChangeWeaponModel and WeaponChoose stay open; no shipped MISE01 line
+    /// reads these records back.
+    pub(crate) fn from_weapon_parts(id: u32, loaded: i32, spare: i32) -> Self {
+        Self {
+            bits: [id, loaded as u32, spare as u32, 0],
+        }
+    }
     pub fn representation_bits(&self) -> &[u32; 4] {
         &self.bits
     }
@@ -116,6 +127,11 @@ impl HumanInventory {
     }
     pub fn items(&self) -> &[HumanInventoryItem] {
         &self.items
+    }
+    /// Push a weapon record without slot-placement rules: capacity checks,
+    /// slot assignment, ChangeWeaponModel and WeaponChoose stay open.
+    pub(crate) fn push_weapon(&mut self, item: HumanInventoryItem) {
+        self.items.push(item);
     }
     pub fn cycle_state(&self) -> u32 {
         self.cycle_state

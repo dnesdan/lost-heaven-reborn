@@ -85,6 +85,32 @@ pub trait LookupWorldBackend {
         let _ = state;
         Err(LookupError::UnsupportedWorldBackend)
     }
+    /// Original C_actor::SetActState word store for the resolved actor. The
+    /// default refuses; the mission world serves the live actor.
+    fn set_actor_act_state(
+        &mut self,
+        actor: ActorReferenceId,
+        state: u32,
+    ) -> Result<(), LookupError> {
+        let _ = actor;
+        let _ = state;
+        Err(LookupError::UnsupportedWorldBackend)
+    }
+    /// Original CMD_HUMAN_ADDWEAPON inventory push for a resolved human. The
+    /// default refuses; the mission world serves the live actor.
+    fn human_add_weapon(
+        &mut self,
+        actor: ActorReferenceId,
+        id: u32,
+        loaded: i32,
+        spare: i32,
+    ) -> Result<(), LookupError> {
+        let _ = actor;
+        let _ = id;
+        let _ = loaded;
+        let _ = spare;
+        Err(LookupError::UnsupportedWorldBackend)
+    }
 }
 pub struct LiveActor<'a> {
     pub lifetime: &'a ActorLifetime,

@@ -17,12 +17,16 @@ use super::*;
 #[path = "program_runtime_lookup.rs"]
 mod lookup;
 pub use lookup::{LookupRuntimeBackend, RuntimeLookupWorld};
+#[path = "program_act_state_parameters.rs"]
+mod act_state_parameters;
 #[path = "program_flow_parameters.rs"]
 mod flow_parameters;
 #[path = "program_name_parameters.rs"]
 mod name_parameters;
 #[path = "program_pair_parameters.rs"]
 mod pair_parameters;
+#[path = "program_quad_parameters.rs"]
+mod quad_parameters;
 use crate::named_script::ResetState;
 use crate::program_compiler::{self, CompileBackend, CompileDiagnostic, CompileProgress};
 use crate::program_entity_parameters::{
@@ -37,6 +41,10 @@ use crate::script_scheduler::{
     run_scheduler, ActorReferenceId, DispatchBudget, FrameReferenceId, InstructionView,
     SchedulerBackend,
 };
+pub use act_state_parameters::{
+    supports_act_state_opcode, ActState, ActStateDecodeError, ActStateParameter,
+    ActStateParameterBackend, ActStateParameterSlot, AsciiActStateParameterBackend,
+};
 pub use flow_parameters::{
     supports_flow_opcode, AsciiFlowParameterBackend, FlowDecodeError, FlowOperand, FlowParameter,
     FlowParameterBackend, FlowParameterSlot, GotoParameter, IfOp, IfParameter, LetOp, LetParameter,
@@ -47,6 +55,10 @@ pub use name_parameters::{
 pub use pair_parameters::{
     supports_pair_opcode, AsciiPairParameterBackend, PairDecodeError, PairParameter,
     PairParameterBackend, PairParameterSlot,
+};
+pub use quad_parameters::{
+    supports_quad_opcode, AsciiQuadParameterBackend, QuadDecodeError, QuadParameter,
+    QuadParameterBackend, QuadParameterSlot,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -166,37 +178,86 @@ pub enum InstructionParameter {
     Pair(PairParameterSlot),
     Flow(FlowParameterSlot),
     Entity(EntityParameterSlot),
+    Quad(QuadParameterSlot),
+    ActState(ActStateParameterSlot),
 }
 impl InstructionParameter {
     /// Scalar-only accessor retained for existing runtime diagnostics.
     pub fn parameter(&self) -> Option<&ScalarParameter> {
         match self {
             Self::Scalar(slot) => slot.parameter(),
-            Self::Name(_) | Self::Pair(_) | Self::Flow(_) | Self::Entity(_) => None,
+            Self::Name(_)
+            | Self::Pair(_)
+            | Self::Flow(_)
+            | Self::Entity(_)
+            | Self::Quad(_)
+            | Self::ActState(_) => None,
         }
     }
     pub fn name_parameter(&self) -> Option<&NameParameter> {
         match self {
-            Self::Scalar(_) | Self::Pair(_) | Self::Flow(_) | Self::Entity(_) => None,
+            Self::Scalar(_)
+            | Self::Pair(_)
+            | Self::Flow(_)
+            | Self::Entity(_)
+            | Self::Quad(_)
+            | Self::ActState(_) => None,
             Self::Name(slot) => slot.parameter(),
         }
     }
     pub fn pair_parameter(&self) -> Option<&PairParameter> {
         match self {
             Self::Pair(slot) => slot.parameter(),
-            Self::Scalar(_) | Self::Name(_) | Self::Flow(_) | Self::Entity(_) => None,
+            Self::Scalar(_)
+            | Self::Name(_)
+            | Self::Flow(_)
+            | Self::Entity(_)
+            | Self::Quad(_)
+            | Self::ActState(_) => None,
         }
     }
     pub fn flow_parameter(&self) -> Option<&FlowParameter> {
         match self {
             Self::Flow(slot) => slot.parameter(),
-            Self::Scalar(_) | Self::Name(_) | Self::Pair(_) | Self::Entity(_) => None,
+            Self::Scalar(_)
+            | Self::Name(_)
+            | Self::Pair(_)
+            | Self::Entity(_)
+            | Self::Quad(_)
+            | Self::ActState(_) => None,
         }
     }
     pub fn entity_parameter(&self) -> Option<&EntityParameter> {
         match self {
             Self::Entity(slot) => slot.parameter(),
-            Self::Scalar(_) | Self::Name(_) | Self::Pair(_) | Self::Flow(_) => None,
+            Self::Scalar(_)
+            | Self::Name(_)
+            | Self::Pair(_)
+            | Self::Flow(_)
+            | Self::Quad(_)
+            | Self::ActState(_) => None,
+        }
+    }
+    pub fn quad_parameter(&self) -> Option<&QuadParameter> {
+        match self {
+            Self::Quad(slot) => slot.parameter(),
+            Self::Scalar(_)
+            | Self::Name(_)
+            | Self::Pair(_)
+            | Self::Flow(_)
+            | Self::Entity(_)
+            | Self::ActState(_) => None,
+        }
+    }
+    pub fn act_state_parameter(&self) -> Option<&ActStateParameter> {
+        match self {
+            Self::ActState(slot) => slot.parameter(),
+            Self::Scalar(_)
+            | Self::Name(_)
+            | Self::Pair(_)
+            | Self::Flow(_)
+            | Self::Entity(_)
+            | Self::Quad(_) => None,
         }
     }
 }
@@ -241,6 +302,13 @@ pub enum RuntimeEffect {
     AllocatePair,
     ConvertPair(usize),
     ReleasePair(u32),
+    AllocateQuad,
+    ConvertQuad(usize),
+    ReleaseQuad(u32),
+    AllocateActState,
+    ConvertActStateActor,
+    ConvertActState,
+    ReleaseActState(u32),
     AllocateFlow,
     ConvertFlowOperand(usize),
     ReleaseFlow(u32),
@@ -337,6 +405,26 @@ pub trait RuntimeBackend {
         fields: RuntimeView<'_>,
         effect: RuntimeEffect,
         _published: Option<&PairParameter>,
+    ) -> Result<(), String> {
+        self.effect(fields, effect, None)
+    }
+    /// Four-integer parameters have their own actual instruction-owned payload.
+    /// A default backend still observes the required allocation/conversion/free.
+    fn quad_parameter_effect(
+        &mut self,
+        fields: RuntimeView<'_>,
+        effect: RuntimeEffect,
+        _published: Option<&QuadParameter>,
+    ) -> Result<(), String> {
+        self.effect(fields, effect, None)
+    }
+    /// Act-state parameters have their own actual instruction-owned payload.
+    /// A default backend still observes the required allocation/conversion/free.
+    fn act_state_parameter_effect(
+        &mut self,
+        fields: RuntimeView<'_>,
+        effect: RuntimeEffect,
+        _published: Option<&ActStateParameter>,
     ) -> Result<(), String> {
         self.effect(fields, effect, None)
     }
@@ -442,6 +530,81 @@ impl<B: RuntimeBackend> PairParameterBackend for PairBoundary<'_, B> {
         ascii_integer_prefix(token).map_err(|error| RuntimeError::Parameter(error.to_string()))
     }
 }
+struct QuadBoundary<'a, B> {
+    fields: &'a mut RuntimeFields,
+    backend: &'a mut B,
+}
+impl<B: RuntimeBackend> QuadParameterBackend for QuadBoundary<'_, B> {
+    type Error = RuntimeError;
+    fn allocate_quad(&mut self) -> Result<Option<Box<QuadParameter>>, RuntimeError> {
+        self.backend
+            .quad_parameter_effect(self.fields.view(), RuntimeEffect::AllocateQuad, None)
+            .map_err(RuntimeError::Effect)?;
+        Ok(Some(Box::new(QuadParameter::default())))
+    }
+    fn convert_integer(
+        &mut self,
+        index: usize,
+        token: &[u8],
+        published: &QuadParameter,
+    ) -> Result<i32, RuntimeError> {
+        self.backend
+            .quad_parameter_effect(
+                self.fields.view(),
+                RuntimeEffect::ConvertQuad(index),
+                Some(published),
+            )
+            .map_err(RuntimeError::Effect)?;
+        ascii_integer_prefix(token).map_err(|error| RuntimeError::Parameter(error.to_string()))
+    }
+}
+struct ActStateBoundary<'a, B> {
+    fields: &'a mut RuntimeFields,
+    backend: &'a mut B,
+}
+impl<B: RuntimeBackend> ActStateParameterBackend for ActStateBoundary<'_, B> {
+    type Error = RuntimeError;
+    fn allocate_act_state(&mut self) -> Result<Option<Box<ActStateParameter>>, RuntimeError> {
+        self.backend
+            .act_state_parameter_effect(self.fields.view(), RuntimeEffect::AllocateActState, None)
+            .map_err(RuntimeError::Effect)?;
+        Ok(Some(Box::new(ActStateParameter::default())))
+    }
+    fn convert_actor(
+        &mut self,
+        token: &[u8],
+        published: &ActStateParameter,
+    ) -> Result<i32, RuntimeError> {
+        self.backend
+            .act_state_parameter_effect(
+                self.fields.view(),
+                RuntimeEffect::ConvertActStateActor,
+                Some(published),
+            )
+            .map_err(RuntimeError::Effect)?;
+        ascii_integer_prefix(token).map_err(|error| RuntimeError::Parameter(error.to_string()))
+    }
+    fn convert_state(
+        &mut self,
+        token: &[u8],
+        published: &ActStateParameter,
+    ) -> Result<ActState, RuntimeError> {
+        self.backend
+            .act_state_parameter_effect(
+                self.fields.view(),
+                RuntimeEffect::ConvertActState,
+                Some(published),
+            )
+            .map_err(RuntimeError::Effect)?;
+        if token.eq_ignore_ascii_case(b"ACTIVE") {
+            Ok(ActState::Active)
+        } else if token.eq_ignore_ascii_case(b"INACTIVE") {
+            Ok(ActState::Inactive)
+        } else {
+            Ok(ActState::None)
+        }
+    }
+}
 struct FlowBoundary<'a, B> {
     fields: &'a mut RuntimeFields,
     backend: &'a mut B,
@@ -544,6 +707,12 @@ impl<B: RuntimeBackend> CompileBackend for Compiler<'_, B> {
                 Some(InstructionParameter::Pair(PairParameterSlot::default()))
             } else if supports_flow_opcode(opcode) {
                 Some(InstructionParameter::Flow(FlowParameterSlot::default()))
+            } else if supports_quad_opcode(opcode) {
+                Some(InstructionParameter::Quad(QuadParameterSlot::default()))
+            } else if supports_act_state_opcode(opcode) {
+                Some(InstructionParameter::ActState(
+                    ActStateParameterSlot::default(),
+                ))
             } else if supports_entity_opcode(opcode) {
                 Some(InstructionParameter::Entity(EntityParameterSlot::default()))
             } else {
@@ -603,6 +772,22 @@ impl<B: RuntimeBackend> CompileBackend for Compiler<'_, B> {
                             other => RuntimeError::Parameter(format!("{other:?}")),
                         })?;
                     true
+                }
+                InstructionParameter::Quad(slot) => {
+                    let mut boundary = QuadBoundary {
+                        fields: self.fields,
+                        backend: self.backend,
+                    };
+                    slot.decode(opcode, parameters, &mut boundary)
+                        .map_err(|error| RuntimeError::Parameter(format!("{error:?}")))?
+                }
+                InstructionParameter::ActState(slot) => {
+                    let mut boundary = ActStateBoundary {
+                        fields: self.fields,
+                        backend: self.backend,
+                    };
+                    slot.decode(opcode, parameters, &mut boundary)
+                        .map_err(|error| RuntimeError::Parameter(format!("{error:?}")))?
                 }
             };
             if !accepted {
@@ -965,6 +1150,16 @@ impl CProgram {
                         RuntimeEffect::ReleaseFlow(opcode),
                         slot.parameter(),
                     ),
+                    InstructionParameter::Quad(slot) => backend.quad_parameter_effect(
+                        runtime.fields.view(),
+                        RuntimeEffect::ReleaseQuad(opcode),
+                        slot.parameter(),
+                    ),
+                    InstructionParameter::ActState(slot) => backend.act_state_parameter_effect(
+                        runtime.fields.view(),
+                        RuntimeEffect::ReleaseActState(opcode),
+                        slot.parameter(),
+                    ),
                     // Entity payloads are pure host word copies: decode runs
                     // no backend allocation boundary, so disposal is host
                     // cleanup only, unlike the backend-allocated families.
@@ -1034,6 +1229,59 @@ struct Process<'a, B> {
     backend: &'a mut B,
 }
 impl<B: RuntimeBackend> Process<'_, B> {
+    /// Original actor-register read shared by register-addressed commands:
+    /// negative or out-of-range registers and empty slots resolve to no
+    /// actor, matching the native register-validity guards.
+    fn actor_register(&self, register: i32) -> Option<ActorReferenceId> {
+        if register < 0 {
+            return None;
+        }
+        match self.actors.as_deref()?.get(register as usize)? {
+            RuntimeReferenceSlot::Reference(actor) => Some(*actor),
+            _ => None,
+        }
+    }
+    /// Current ACT_SETSTATE payload: the actor register (negative selects the
+    /// script's own actor) and the decoded state keyword.
+    fn act_state_payload(&self, state: &ResetState) -> Result<(i32, ActState), RuntimeError> {
+        let parameter = self
+            .instructions
+            .active()
+            .get(state.program_counter as usize)
+            .and_then(|instruction| instruction.parameter.as_ref())
+            .and_then(|parameter| parameter.act_state_parameter())
+            .ok_or(RuntimeError::Domain(
+                "current act-state parameter unavailable",
+            ))?;
+        let actor = parameter
+            .actor()
+            .ok_or(RuntimeError::Domain("current act-state actor unavailable"))?;
+        let state = parameter
+            .state()
+            .ok_or(RuntimeError::Domain("current act-state value unavailable"))?;
+        Ok((actor, state))
+    }
+    /// Current four-integer payload (TIMERON/HUMAN_ADDWEAPON and group).
+    fn quad_payload(&self, state: &ResetState) -> Result<[i32; 4], RuntimeError> {
+        let parameter = self
+            .instructions
+            .active()
+            .get(state.program_counter as usize)
+            .and_then(|instruction| instruction.parameter.as_ref())
+            .and_then(|parameter| parameter.quad_parameter())
+            .ok_or(RuntimeError::Domain("current quad parameter unavailable"))?;
+        let values = parameter.values();
+        if values.iter().all(|value| value.is_some()) {
+            Ok([
+                values[0].unwrap(),
+                values[1].unwrap(),
+                values[2].unwrap(),
+                values[3].unwrap(),
+            ])
+        } else {
+            Err(RuntimeError::Domain("current quad values unavailable"))
+        }
+    }
     /// C_entity::Process owner-command dispatch (GAME 0x51fda0) for the
     /// commands whose effects are fully evidenced: WAIT parks on the flag
     /// protocol, VIDIM/SHUT_UP/NAPRDELIVAUTE/FOLLOWPLAYER apply their words.
@@ -1591,6 +1839,52 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                         .get_mut(reg as usize)
                         .ok_or(RuntimeError::Domain("rnd target outside admitted bank"))?;
                     *slot = sample;
+                }
+            }
+            26 => {
+                // Original CMD_ACT_SETSTATE: the script's actor without a
+                // register, else the register's actor. Unresolvable actors
+                // and world writes advance without effect, like the native
+                // no-op paths; nothing here fails a tick.
+                let (register, act) = self.act_state_payload(state)?;
+                let actor = if register >= 0 {
+                    self.actor_register(register)
+                } else {
+                    None
+                }
+                .or(*self.owner);
+                if let Some(actor) = actor {
+                    // ACT_STATE_* decodes to ACTSTATE_2/0/1, not identity.
+                    let native = match act {
+                        ActState::None => 2,
+                        ActState::Active => 0,
+                        ActState::Inactive => 1,
+                    };
+                    let _ = self
+                        .backend
+                        .lookup_world()
+                        .map_err(RuntimeError::Lookup)?
+                        .set_actor_act_state(actor, native)
+                        .map_err(RuntimeError::Lookup);
+                }
+            }
+            59 => {
+                // Original CMD_HUMAN_ADDWEAPON: the register's actor must
+                // resolve (no owner fallback); anything else advances without
+                // effect. Model attach and weapon choice stay open.
+                let values = self.quad_payload(state)?;
+                let actor = if values[0] >= 0 {
+                    self.actor_register(values[0])
+                } else {
+                    None
+                };
+                if let Some(actor) = actor {
+                    let _ = self
+                        .backend
+                        .lookup_world()
+                        .map_err(RuntimeError::Lookup)?
+                        .human_add_weapon(actor, values[1] as u32, values[2], values[3])
+                        .map_err(RuntimeError::Lookup);
                 }
             }
             0x1004 | 0x101a | 0x1031 | 0x103a | 0x103b => {
