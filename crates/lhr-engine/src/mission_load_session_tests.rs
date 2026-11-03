@@ -1270,6 +1270,38 @@ fn unsupported_named_actor_stops_at_kind_read_and_preserves_prior_program_and_ac
     assert_eq!(format!("{:?}", session.failure()), failure);
 }
 #[test]
+fn traffic_kind_loads_header_and_elements_and_advances_cursor() {
+    use crate::actor_world::{ActorSource, ActorVtable};
+    let mut payload = vec![5u8, 0, 0, 0];
+    payload.extend(184.0f32.to_le_bytes());
+    payload.extend(150.0f32.to_le_bytes());
+    payload.extend(170.0f32.to_le_bytes());
+    payload.extend(6u32.to_le_bytes());
+    payload.extend(1u32.to_le_bytes());
+    let mut record = vec![0u8; 0x20];
+    record[..9].copy_from_slice(b"fordttud\0");
+    payload.extend(record);
+    assert_eq!(payload.len(), 56);
+    let bytes = scene2(&[chunk(0xae20, &actor_record(b"traffic1", 12, &payload))].concat());
+    let fixture = Fixture::new(Some(&world(&[dummy(0, b"traffic1")])), Some(&bytes), None);
+    let mut session = fixture.session();
+    load(&mut session, &[]).unwrap();
+    let loader = session.loader().unwrap();
+    let world = &loader.content.actors.world;
+    assert_eq!(world.actor_count, 1);
+    let actors = world.source(ActorSource::Primary).to_vec();
+    assert_eq!(actors.len(), 1);
+    let actor = actors[0].unwrap();
+    assert_eq!(world.state(actor).unwrap().vtable, ActorVtable::TrafficCar);
+    assert_eq!(world.state(actor).unwrap().word_10, 12);
+    let car = world.traffic_car(actor).unwrap();
+    assert_eq!(car.count_word(), 1);
+    assert_eq!(&car.elements()[..9], b"fordttud\0");
+    assert_eq!(world.traffic_tuning().unit_floats, [0x3f800000; 3]);
+    assert_eq!(loader.cursor, bytes.len());
+    discard(&mut session);
+}
+#[test]
 fn door_kind_loads_versioned_fields_and_advances_cursor() {
     use crate::actor_world::{ActorSource, ActorVtable};
     let mut payload = vec![8u8, 0, 0, 0, 0x11, 0x22, 0x33];

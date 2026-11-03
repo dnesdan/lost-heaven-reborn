@@ -354,6 +354,12 @@ impl MissionActorLoader {
                     };
                     self.current_kind = Some(kind);
                     if let Some(actor) = self.current_actor {
+                        if kind == 12 {
+                            // Original C_traffic_car::Init global refresh
+                            // precedes the base init and persists even when
+                            // the base init refuses the frame.
+                            self.world.refresh_traffic_tuning();
+                        }
                         // The frames borrow ends before the linked bridge tail
                         // borrows the arena; both observe the same owners.
                         let mut admitted = {
@@ -413,6 +419,10 @@ impl MissionActorLoader {
                             } else if kind == 6 {
                                 self.world
                                     .release_door(actor, &mut frames, backend)
+                                    .map_err(|e| format!("{e:?}"))?;
+                            } else if kind == 12 {
+                                self.world
+                                    .release_traffic_car(actor, &mut frames, backend)
                                     .map_err(|e| format!("{e:?}"))?;
                             } else {
                                 self.world
@@ -502,6 +512,19 @@ impl MissionActorLoader {
                             return Ok(());
                         }
                         if self.current_kind != Some(5) {
+                            if self.current_kind == Some(12) {
+                                // Original C_traffic_car::LoadData version
+                                // dispatch over the record payload: versions 4
+                                // and 5 share the four-word header plus the
+                                // counted element array; other versions
+                                // consume only the version word.
+                                let mut reader = ActorDataReader::new(field.payload);
+                                let result = self.world.load_traffic_car_data(actor, &mut reader);
+                                self.cursor = field.offset + 6 + reader.position();
+                                result.map_err(|e| format!("{e:?}"))?;
+                                self.pending_load_data = None;
+                                return Ok(());
+                            }
                             if self.current_kind == Some(6) {
                                 // Original C_door::LoadData version dispatch
                                 // over the record payload: versions 5-8

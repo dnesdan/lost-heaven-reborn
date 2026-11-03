@@ -31,6 +31,9 @@ use crate::player_actor::{PlayerSeed, PlayerState};
 use crate::railway_actor::{RailwayAllocation, RailwaySeed, RailwayState, RailwayVectorSlot};
 use crate::script_lookup::{ActorLifetime, LookupError, LookupWorldBackend, MAX_ACTOR_SOURCES};
 use crate::script_scheduler::{ActorReferenceId, FrameReferenceId};
+use crate::traffic_car_actor::{
+    TrafficCarSeed, TrafficCarState, TrafficLoadVersion, TrafficTuning,
+};
 use crate::traffic_generator::{
     TrafficAllocationId, TrafficBackingKind, TrafficGeneratorSeed, TrafficGeneratorState,
 };
@@ -107,6 +110,7 @@ pub enum ActorVtable {
     Railway,
     Bridge,
     Door,
+    TrafficCar,
     Human,
     Player,
     Entity,
@@ -135,6 +139,7 @@ struct OwnedActor {
     railway: Option<RailwayState>,
     bridge: Option<BridgeState>,
     door: Option<DoorState>,
+    traffic_car: Option<TrafficCarState>,
     human: Option<HumanState>,
     player: Option<PlayerState>,
     entity: Option<EntityState>,
@@ -261,6 +266,7 @@ pub enum ActorWorldError {
     NotRailway,
     NotBridge,
     NotDoor,
+    NotTrafficCar,
     BridgeTableUnavailable,
     BridgeTableTruncated,
     NotHuman,
@@ -434,6 +440,13 @@ pub trait ActorAllocationBackend {
     ) -> Result<Option<(u32, BaseActorSeed, DoorSeed)>, String> {
         Err("door allocation unavailable".into())
     }
+    /// Kind12 requires actual 0x26c-byte storage and its untouched seed.
+    fn allocate_traffic_car(
+        &mut self,
+        _bytes: u32,
+    ) -> Result<Option<(u32, BaseActorSeed, TrafficCarSeed)>, String> {
+        Err("traffic car allocation unavailable".into())
+    }
 }
 /// Native backing/free dependencies. A failed scalar `free_actor` retains its
 /// backend lease after object destruction. Traffic's reached resource frees may
@@ -567,6 +580,7 @@ pub struct ActorWorld {
     bridge_table: Option<BridgeTable>,
     bridge_sectors: BridgeSectors,
     door_sounds: DoorSoundNames,
+    traffic_tuning: TrafficTuning,
 }
 impl ActorWorld {
     pub(crate) fn lookup_actor_frame(
@@ -608,6 +622,7 @@ impl ActorWorld {
             bridge_table: None,
             bridge_sectors: BridgeSectors::default(),
             door_sounds: DoorSoundNames::default(),
+            traffic_tuning: TrafficTuning::default(),
         })
     }
     fn collection(&self, source: ActorSource) -> &ActorCollection {
@@ -894,6 +909,7 @@ impl ActorWorld {
             railway,
             bridge: None,
             door: None,
+            traffic_car: None,
             human: None,
             player: None,
             entity: None,
@@ -1827,6 +1843,179 @@ impl ActorWorld {
         }
         Ok(())
     }
+    /// Genuine C_traffic_car construction: the caller's base owner plus the
+    /// exact derived constructor bytes for kind 12 (0x26c bytes, vtable
+    /// 0x624c98). The three unit floats go to shared world tuning storage,
+    /// matching the native static writes.
+    pub fn construct_traffic_car<B: ActorCollectionBackend + ?Sized>(
+        &mut self,
+        identity: u32,
+        base: BaseActorSeed,
+        seed: TrafficCarSeed,
+        backend: &mut B,
+    ) -> Result<ActorReferenceId, ActorCreationError> {
+        identity.checked_add(0x26b).ok_or(ActorCreationError {
+            actor: None,
+            source: ActorWorldError::InvalidBacking,
+        })?;
+        let actor = self.construct_base(identity, base, backend)?;
+        let i = self.index(actor).expect("constructed traffic car owner");
+        let mut state = TrafficCarState::allocation(seed);
+        state.complete_constructor();
+        self.actors[i].traffic_car = Some(state);
+        self.actors[i].state.vtable = ActorVtable::TrafficCar;
+        self.actors[i].state.word_10 = 12;
+        self.traffic_tuning = TrafficTuning::construction_defaults();
+        Ok(actor)
+    }
+    pub fn traffic_car(
+        &self,
+        actor: ActorReferenceId,
+    ) -> Result<&TrafficCarState, ActorWorldError> {
+        self.actors[self.index(actor)?]
+            .traffic_car
+            .as_ref()
+            .ok_or(ActorWorldError::NotTrafficCar)
+    }
+    pub fn inspect_traffic_car(&self, actor: ActorReferenceId) -> Option<&TrafficCarState> {
+        self.actors
+            .iter()
+            .find(|a| a.lifetime.reference() == actor)?
+            .traffic_car
+            .as_ref()
+    }
+    /// Shared traffic tuning written by construction and Init.
+    pub fn traffic_tuning(&self) -> &TrafficTuning {
+        &self.traffic_tuning
+    }
+    /// Original C_traffic_car::Init global refresh preceding the base init:
+    /// one shared word copy. It persists even when the base init refuses the
+    /// frame, so intake runs it before the base init call.
+    pub fn refresh_traffic_tuning(&mut self) {
+        self.traffic_tuning.init_copy();
+    }
+    /// Original C_traffic_car::LoadData version dispatch over the scene2
+    /// payload. Versions 4 and 5 share the four-word header plus the counted
+    /// 0x20-byte element array, retained opaquely; other versions consume
+    /// only the version word. Each field read is individually guarded.
+    /// Returns consumed payload bytes; every path reports native success.
+    pub fn load_traffic_car_data(
+        &mut self,
+        actor: ActorReferenceId,
+        reader: &mut ActorDataReader<'_>,
+    ) -> Result<usize, ActorWorldError> {
+        let i = self.ready(actor)?;
+        if self.actors[i].traffic_car.is_none()
+            || self.actors[i].state.vtable != ActorVtable::TrafficCar
+        {
+            return Err(ActorWorldError::NotTrafficCar);
+        }
+        let start = reader.position();
+        let mut version = [0u8; 4];
+        if !reader.read_bounded(&mut version) {
+            self.actors[i].phase = ActorPhase::Ready;
+            return Ok(0);
+        }
+        if matches!(
+            TrafficLoadVersion::decode(u32::from_le_bytes(version)),
+            TrafficLoadVersion::V4 | TrafficLoadVersion::V5
+        ) {
+            let car = self.actors[i]
+                .traffic_car
+                .as_mut()
+                .expect("admitted traffic car");
+            for offset in [0x224, 0x228, 0x22c, 0x21c] {
+                let mut word = [0u8; 4];
+                if reader.read_bounded(&mut word) {
+                    car.put_load_word(offset, u32::from_le_bytes(word));
+                }
+            }
+            car.replace_elements(Vec::new());
+            let mut count = [0u8; 4];
+            if reader.read_bounded(&mut count) {
+                let count = u32::from_le_bytes(count);
+                car.put_load_word(0x238, count);
+                let bytes = (count as usize)
+                    .checked_mul(0x20)
+                    .ok_or(ActorWorldError::HostAllocation)?;
+                let mut elements = Vec::new();
+                elements
+                    .try_reserve_exact(bytes)
+                    .map_err(|_| ActorWorldError::HostAllocation)?;
+                elements.resize(bytes, 0);
+                for element in elements.chunks_mut(0x20) {
+                    reader.read_bounded(element);
+                }
+                car.replace_elements(elements);
+            }
+        }
+        self.actors[i].phase = ActorPhase::Ready;
+        Ok(reader.position() - start)
+    }
+    pub fn release_traffic_car<
+        F: ActorFrameBackend + ?Sized,
+        B: ActorDeallocationBackend + ?Sized,
+    >(
+        &mut self,
+        actor: ActorReferenceId,
+        frames: &mut F,
+        backend: &mut B,
+    ) -> Result<u16, ActorWorldError> {
+        let i = self.ready(actor)?;
+        if self.actors[i].traffic_car.is_none()
+            || self.actors[i].state.vtable != ActorVtable::TrafficCar
+        {
+            return Err(ActorWorldError::NotTrafficCar);
+        }
+        let count = self.actors[i].state.references.wrapping_sub(1);
+        self.actors[i].state.references = count;
+        if count == 0 {
+            self.delete_traffic_car(actor, 1, frames, backend)?;
+        }
+        Ok(count)
+    }
+    pub fn destroy_traffic_car<F: ActorFrameBackend + ?Sized>(
+        &mut self,
+        actor: ActorReferenceId,
+        backend: &mut F,
+    ) -> Result<(), ActorWorldError> {
+        let i = self.index(actor)?;
+        if !matches!(
+            self.actors[i].phase,
+            ActorPhase::Ready
+                | ActorPhase::LoadingInterrupted
+                | ActorPhase::InitializationInterrupted
+        ) {
+            return Err(ActorWorldError::Busy(actor));
+        }
+        if self.actors[i].traffic_car.is_none() {
+            return Err(ActorWorldError::NotTrafficCar);
+        }
+        self.actors[i].phase = ActorPhase::Destroying;
+        self.actors[i].state.vtable = ActorVtable::TrafficCar;
+        self.destroy_base_inner(actor, backend)
+    }
+    pub fn delete_traffic_car<
+        F: ActorFrameBackend + ?Sized,
+        B: ActorDeallocationBackend + ?Sized,
+    >(
+        &mut self,
+        actor: ActorReferenceId,
+        argument: u32,
+        frames: &mut F,
+        backend: &mut B,
+    ) -> Result<(), ActorWorldError> {
+        self.destroy_traffic_car(actor, frames)?;
+        if argument & 1 != 0 {
+            backend
+                .free_actor(self, actor.identity())
+                .map_err(|detail| ActorWorldError::Effect {
+                    stage: "free_traffic_car",
+                    detail,
+                })?;
+        }
+        Ok(())
+    }
     /// Native LoadData returns AL1 even when bounded read guards skip fields.
     /// Returns consumed payload bytes for host inspection, not a native status.
     pub fn load_railway_data(
@@ -2511,6 +2700,23 @@ impl ActorWorld {
                 })?;
             return allocation
                 .map(|(identity, base, seed)| self.construct_door(identity, base, seed, backend))
+                .transpose();
+        }
+        if kind == 12 {
+            let allocation =
+                backend
+                    .allocate_traffic_car(0x26c)
+                    .map_err(|detail| ActorCreationError {
+                        actor: None,
+                        source: ActorWorldError::Effect {
+                            stage: "allocate_traffic_car",
+                            detail,
+                        },
+                    })?;
+            return allocation
+                .map(|(identity, base, seed)| {
+                    self.construct_traffic_car(identity, base, seed, backend)
+                })
                 .transpose();
         }
         if kind != 1 {
@@ -3817,7 +4023,7 @@ mod tests {
                 ] {
                     assert!(w.source(source).is_empty());
                 }
-            } else if ![1, 2, 4, 5, 6, 8, 18, 20, 27].contains(&kind) {
+            } else if ![1, 2, 4, 5, 6, 8, 12, 18, 20, 27].contains(&kind) {
                 assert_eq!(
                     result.unwrap_err().source,
                     ActorWorldError::UnsupportedKind(kind)
@@ -5020,6 +5226,215 @@ mod door_tests {
         assert_eq!(
             world
                 .release_door(
+                    actor,
+                    &mut ModelActorFrames::borrow(&mut arena, true),
+                    &mut heap
+                )
+                .unwrap(),
+            0
+        );
+        assert!(heap.actor_freed);
+        assert_eq!(world.inspect(actor).unwrap().0, ActorPhase::Dead);
+        assert_eq!(world.actor_count, 9);
+        assert_eq!(world.inspect(actor).unwrap().1.vtable, ActorVtable::Base);
+    }
+}
+
+#[cfg(test)]
+mod traffic_car_tests {
+    use super::*;
+    use crate::actor_frames::ModelActorFrames;
+    use crate::human_actor::ActorDataReader;
+    use crate::model_loading::ModelArena;
+    use crate::traffic_car_actor::TrafficCarSeed;
+    fn seed() -> BaseActorSeed {
+        BaseActorSeed {
+            word_0e: 0xaabb,
+            actor_id: 0x1234,
+            state_1c: 0x87654321,
+            bytes_21_5f: [0x21; 63],
+            bytes_64_65: [0x65; 2],
+            byte_67: 0x67,
+            release_frame: 1,
+            bytes_6d_6f: [0x6f; 3],
+        }
+    }
+    fn traffic_world(capacity: usize) -> ActorWorld {
+        let b = SourceBacking {
+            storage: (capacity != 0).then_some(ActorStorageId(1)),
+            capacity,
+        };
+        ActorWorld::new(9, 100, b, b, b).unwrap()
+    }
+    #[derive(Default)]
+    struct Heap {
+        identity: u32,
+        null: bool,
+        actor_freed: bool,
+    }
+    impl ActorAllocationBackend for Heap {
+        fn allocate_actor(&mut self, _: u32) -> Result<Option<(u32, BaseActorSeed)>, String> {
+            Err("base allocation outside fixture".into())
+        }
+        fn allocate_traffic_car(
+            &mut self,
+            bytes: u32,
+        ) -> Result<Option<(u32, BaseActorSeed, TrafficCarSeed)>, String> {
+            assert_eq!(bytes, 0x26c);
+            if self.null {
+                return Ok(None);
+            }
+            self.identity += 1;
+            Ok(Some((
+                self.identity,
+                seed(),
+                TrafficCarSeed {
+                    bytes_00_26b: [0xa5; 0x26c],
+                },
+            )))
+        }
+    }
+    impl ActorCollectionBackend for Heap {
+        fn allocate_collection(
+            &mut self,
+            _: &ActorWorld,
+            _: ActorSource,
+            _: u32,
+        ) -> Result<ActorStorageId, String> {
+            Ok(ActorStorageId(2))
+        }
+        fn free_collection(
+            &mut self,
+            _: &ActorWorld,
+            _: ActorSource,
+            _: Option<ActorStorageId>,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+    }
+    impl ActorDeallocationBackend for Heap {
+        fn free_actor(&mut self, _: &ActorWorld, identity: u32) -> Result<(), String> {
+            assert_eq!(identity, self.identity);
+            self.actor_freed = true;
+            Ok(())
+        }
+    }
+    fn actor(world: &mut ActorWorld, heap: &mut Heap) -> ActorReferenceId {
+        world.create_actor(12, heap).unwrap().unwrap()
+    }
+    fn element(name: &[u8]) -> Vec<u8> {
+        let mut record = vec![0u8; 0x20];
+        let length = name.len().min(0x1d);
+        record[..length].copy_from_slice(&name[..length]);
+        record[0x14..0x18].copy_from_slice(&0x11111111u32.to_le_bytes());
+        record[0x18..0x1c].copy_from_slice(&0x22222222u32.to_le_bytes());
+        record[0x1c] = 0x33;
+        record[0x1d] = 0x44;
+        record
+    }
+    #[test]
+    fn traffic_factory_constructs_exact_derived_bytes_and_kind() {
+        let mut world = traffic_world(8);
+        let mut heap = Heap {
+            identity: 0x81000000,
+            ..Heap::default()
+        };
+        let actor = actor(&mut world, &mut heap);
+        assert_eq!(world.state(actor).unwrap().word_10, 12);
+        assert_eq!(world.state(actor).unwrap().vtable, ActorVtable::TrafficCar);
+        let car = world.traffic_car(actor).unwrap();
+        assert_eq!(car.speed_word(), 0x43340000);
+        assert_eq!(car.count_word(), 0);
+        assert_eq!(car.element_count(), 0);
+        assert!(world.inspect_traffic_car(actor).is_some());
+        assert_eq!(world.traffic_tuning().unit_floats, [0x3f800000; 3]);
+        world.refresh_traffic_tuning();
+        assert_eq!(world.traffic_tuning().copy_target, 0);
+        let mut empty = traffic_world(8);
+        let mut null = Heap {
+            null: true,
+            ..Heap::default()
+        };
+        assert_eq!(empty.create_actor(12, &mut null).unwrap(), None);
+        assert_eq!(empty.actor_count, 9);
+    }
+    #[test]
+    fn traffic_load_data_reads_versioned_header_and_elements() {
+        let mut world = traffic_world(8);
+        let mut heap = Heap {
+            identity: 0x81000000,
+            ..Heap::default()
+        };
+        let actor = actor(&mut world, &mut heap);
+        let mut payload = vec![5u8, 0, 0, 0];
+        payload.extend(184.0f32.to_le_bytes());
+        payload.extend(150.0f32.to_le_bytes());
+        payload.extend(170.0f32.to_le_bytes());
+        payload.extend(6u32.to_le_bytes());
+        payload.extend(2u32.to_le_bytes());
+        payload.extend(element(b"fordttud"));
+        payload.extend(element(b"fordtru"));
+        assert_eq!(payload.len(), 4 + 16 + 4 + 64);
+        let mut reader = ActorDataReader::new(&payload);
+        assert_eq!(world.load_traffic_car_data(actor, &mut reader), Ok(88));
+        assert_eq!(reader.position(), 88);
+        let car = world.traffic_car(actor).unwrap();
+        assert_eq!(
+            f32::from_le_bytes(car.bytes()[0x224..0x228].try_into().unwrap()),
+            184.0
+        );
+        assert_eq!(car.count_word(), 2);
+        assert_eq!(car.element_count(), 2);
+        assert_eq!(&car.elements()[..9], b"fordttud\0");
+        assert_eq!(&car.elements()[0x20..0x28], b"fordtru\0");
+        assert_eq!(world.phase(actor), Ok(ActorPhase::Ready));
+        // Unknown versions consume only the version word.
+        let mut reader = ActorDataReader::new(&[6u8, 0, 0, 0, 1, 2]);
+        assert_eq!(world.load_traffic_car_data(actor, &mut reader), Ok(4));
+        // A missing version word consumes nothing and still succeeds.
+        let mut reader = ActorDataReader::new(&[5u8, 0]);
+        assert_eq!(world.load_traffic_car_data(actor, &mut reader), Ok(0));
+        // Truncated element tails stay fully zeroed: the native guard skips
+        // short whole elements without consuming them.
+        let mut reader = ActorDataReader::new(&payload[..40]);
+        assert_eq!(world.load_traffic_car_data(actor, &mut reader), Ok(24));
+        let car = world.traffic_car(actor).unwrap();
+        assert_eq!(car.count_word(), 2);
+        assert_eq!(car.element_count(), 2);
+        assert_eq!(car.elements(), &[0u8; 64]);
+        let i = world.index(actor).unwrap();
+        world.actors[i].traffic_car = None;
+        let mut reader = ActorDataReader::new(&payload);
+        assert_eq!(
+            world.load_traffic_car_data(actor, &mut reader),
+            Err(ActorWorldError::NotTrafficCar)
+        );
+    }
+    #[test]
+    fn traffic_release_decrements_and_deletes_at_zero() {
+        let mut world = traffic_world(8);
+        let mut heap = Heap {
+            identity: 0x81000000,
+            ..Heap::default()
+        };
+        let actor = actor(&mut world, &mut heap);
+        let i = world.index(actor).unwrap();
+        world.actors[i].state.references = 2;
+        let mut arena = ModelArena::default();
+        assert_eq!(
+            world
+                .release_traffic_car(
+                    actor,
+                    &mut ModelActorFrames::borrow(&mut arena, true),
+                    &mut heap
+                )
+                .unwrap(),
+            1
+        );
+        assert!(!heap.actor_freed);
+        assert_eq!(
+            world
+                .release_traffic_car(
                     actor,
                     &mut ModelActorFrames::borrow(&mut arena, true),
                     &mut heap
