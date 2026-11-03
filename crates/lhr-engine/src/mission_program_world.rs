@@ -98,6 +98,51 @@ impl<'a, B: RuntimeBackend, D: MissionProgramDiagnostic> MissionProgramWorldCont
             &mut LookupRuntimeBackend::new(effects, &mut live),
         )
     }
+    /// Compile every Ready entity actor's embedded program that has source
+    /// but no runtime yet, in ownership order. Each program is taken out of
+    /// its actor, initialized through this context's effects backend, and
+    /// returned on every path including failed inits. This mirrors the global
+    /// program init; like it, the caller must run under a Pc24PrecisionState
+    /// scope so transcendental boundary admissions can record responsibility.
+    /// Already-initialized programs are left untouched and uncounted.
+    pub fn init_entity_programs(
+        &mut self,
+        world: &mut ActorWorld,
+    ) -> Result<usize, EntityTickError> {
+        let actors: Vec<ActorReferenceId> = world.owned_actor_references().collect();
+        let mut initialized = 0usize;
+        for actor in actors {
+            if world.phase(actor) != Ok(ActorPhase::Ready) {
+                continue;
+            }
+            if world.entity(actor).is_err() {
+                continue;
+            }
+            let program = world
+                .take_entity_program(actor)
+                .map_err(|_| EntityTickError::Actor(actor))?;
+            let Some(mut program) = program else {
+                continue;
+            };
+            let freshly_initialized = program.runtime().is_none();
+            let result = if freshly_initialized {
+                program
+                    .init_fresh_runtime(&mut *self.effects)
+                    .map(|_| ())
+                    .map_err(EntityTickError::Runtime)
+            } else {
+                Ok(())
+            };
+            world
+                .return_entity_program(actor, Some(program))
+                .map_err(|_| EntityTickError::Actor(actor))?;
+            result?;
+            if freshly_initialized {
+                initialized += 1;
+            }
+        }
+        Ok(initialized)
+    }
     /// Step every Ready entity actor's embedded program once against the live
     /// world, in ownership order, sharing one budget. Each program is taken
     /// out of its actor, run through this context, and returned on every path
@@ -273,14 +318,9 @@ pub enum EntityTickError {
 }
 
 impl MissionContentOwner {
-    /// Step every Ready entity actor's embedded program once against the live
-    /// world, in ownership order, sharing one budget. Each program is taken
-    /// out of its actor, run through the caller's context, and returned on
-    /// every path including failed ticks. Actors without a program (consumed
-    /// or destructured) are skipped; non-Ready actors do not tick. Program
-    /// owners are assigned at actor Init; ownerless programs refuse inside
-    /// dispatch like any worldless execution. This is the AI tick transport,
-    /// not a Game tick: no game clock, camera, input or objectives run here.
+    /// Run one already-initialized source-owned program by index against the
+    /// live world through the caller's context. Program owners ride the
+    /// existing Init-time assignment; scheduling state stays with the caller.
     pub fn process_program_in_world<B: RuntimeBackend, D: MissionProgramDiagnostic>(
         &mut self,
         index: usize,

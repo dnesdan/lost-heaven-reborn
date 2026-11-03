@@ -883,7 +883,6 @@ fn tick_entity_programs_steps_owned_live_state_through_context() {
         .unwrap();
     program.set_owner(Some(actor)).unwrap();
     let mut effects = Effects::default();
-    program.init_fresh_runtime(&mut effects).unwrap();
     world.return_entity_program(actor, Some(program)).unwrap();
     world
         .store_entity_process_state(
@@ -913,6 +912,15 @@ fn tick_entity_programs_steps_owned_live_state_through_context() {
             ls3df_default_c_locale: true,
         },
     );
+    // The init pass compiles the sourceless-runtime program and leaves
+    // initialized programs untouched.
+    assert_eq!(context.init_entity_programs(&mut world), Ok(1));
+    assert!(world
+        .entity(actor)
+        .unwrap()
+        .program()
+        .is_some_and(|program| program.runtime().is_some()));
+    assert_eq!(context.init_entity_programs(&mut world), Ok(0));
     let mut budget = DispatchBudget::new(8).unwrap();
     assert_eq!(
         context.tick_entity_programs(&mut world, 1, &mut budget),

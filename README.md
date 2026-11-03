@@ -30,9 +30,10 @@ human animation, recorded cutscenes and a playable first mission remain open.
 [Build and run](docs/RUNNING.md) · [current evidence](docs/implementation/2026-10-29-car-replay-programs.md) ·
 [coverage](COVERAGE.md) · [goals](docs/GOALS.md) · [dated history](docs/history/README.md).
 
-[Latest reviewed integration: entity AI tick transport](docs/implementation/2026-11-03-entity-tick-transport.md)
-steps owned entity programs against the live world (take/process/return with
-shared budget); Sam's lines 1–10 are now executable-or-implemented commands.
+[Latest reviewed integration: entity program init transport](docs/implementation/2026-11-03-entity-init-transport.md)
+compiles embedded entity programs through the execution context (take/init/
+return, idempotent); the [AI tick transport](docs/implementation/2026-11-03-entity-tick-transport.md)
+then steps them.
 Together with the merged [entity Process dispatch](docs/implementation/2026-11-03-entity-process-dispatch.md),
 [transcendental boundary admission](docs/implementation/2026-11-03-trig-boundary-admission.md),
 [box actor intake](docs/implementation/2026-11-03-box-new-intake.md),
