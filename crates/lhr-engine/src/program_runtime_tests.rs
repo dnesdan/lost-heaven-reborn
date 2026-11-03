@@ -1035,6 +1035,23 @@ fn event_use_cb_toggles_top_flag_and_needs_stack() {
     assert!(p3.runtime().unwrap().fields.gosub_stack.is_empty());
 }
 #[test]
+fn dialogue_commands_advance_as_noop_and_count_in_discard() {
+    let mut memory = Memory::default();
+    let mut p = program(
+        b"human_talk 0,100\ndialog_begin 0,1\ndialog_end\nsubtitle_add 5",
+        &mut memory,
+    );
+    let progress = p.init_fresh_runtime(&mut memory).unwrap();
+    assert_eq!((progress.accepted, progress.errors), (4, 0));
+    for expected in 1..=4 {
+        p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+            .unwrap();
+        assert_eq!(p.runtime().unwrap().fields.program_counter(), expected);
+    }
+    let report = p.discard_runtime_host().unwrap();
+    assert_eq!(report.human_talk_allocations, 1);
+}
+#[test]
 fn try_set_event_on_program_jumps_and_pushes_event_stack() {
     let mut memory = Memory::default();
     // Program with two events, the last (index 1) should be found

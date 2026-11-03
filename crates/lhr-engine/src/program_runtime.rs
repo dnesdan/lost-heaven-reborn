@@ -23,6 +23,8 @@ mod act_state_parameters;
 mod event_parameters;
 #[path = "program_flow_parameters.rs"]
 mod flow_parameters;
+#[path = "program_human_talk_parameters.rs"]
+mod human_talk_parameters;
 #[path = "program_name_parameters.rs"]
 mod name_parameters;
 #[path = "program_pair_parameters.rs"]
@@ -56,6 +58,10 @@ pub use event_parameters::{
 pub use flow_parameters::{
     supports_flow_opcode, AsciiFlowParameterBackend, FlowDecodeError, FlowOperand, FlowParameter,
     FlowParameterBackend, FlowParameterSlot, GotoParameter, IfOp, IfParameter, LetOp, LetParameter,
+};
+pub use human_talk_parameters::{
+    supports_human_talk_opcode, AsciiHumanTalkParameterBackend, HumanTalkDecodeError,
+    HumanTalkParameter, HumanTalkParameterBackend, HumanTalkParameterSlot,
 };
 pub use name_parameters::{
     supports_name_opcode, NameDecodeError, NameParameter, NameParameterBackend, NameParameterSlot,
@@ -192,6 +198,7 @@ pub enum InstructionParameter {
     Entity(EntityParameterSlot),
     Event(EventParameterSlot),
     SetEvent(SetEventParameterSlot),
+    HumanTalk(HumanTalkParameterSlot),
     Quad(QuadParameterSlot),
     ActState(ActStateParameterSlot),
 }
@@ -206,6 +213,7 @@ impl InstructionParameter {
             | Self::Entity(_)
             | Self::Event(_)
             | Self::SetEvent(_)
+            | Self::HumanTalk(_)
             | Self::Quad(_)
             | Self::ActState(_) => None,
         }
@@ -218,6 +226,7 @@ impl InstructionParameter {
             | Self::Entity(_)
             | Self::Event(_)
             | Self::SetEvent(_)
+            | Self::HumanTalk(_)
             | Self::Quad(_)
             | Self::ActState(_) => None,
             Self::Name(slot) => slot.parameter(),
@@ -232,6 +241,7 @@ impl InstructionParameter {
             | Self::Entity(_)
             | Self::Event(_)
             | Self::SetEvent(_)
+            | Self::HumanTalk(_)
             | Self::Quad(_)
             | Self::ActState(_) => None,
         }
@@ -245,6 +255,7 @@ impl InstructionParameter {
             | Self::Entity(_)
             | Self::Event(_)
             | Self::SetEvent(_)
+            | Self::HumanTalk(_)
             | Self::Quad(_)
             | Self::ActState(_) => None,
         }
@@ -258,6 +269,7 @@ impl InstructionParameter {
             | Self::Flow(_)
             | Self::Event(_)
             | Self::SetEvent(_)
+            | Self::HumanTalk(_)
             | Self::Quad(_)
             | Self::ActState(_) => None,
         }
@@ -271,6 +283,7 @@ impl InstructionParameter {
             | Self::Flow(_)
             | Self::Entity(_)
             | Self::SetEvent(_)
+            | Self::HumanTalk(_)
             | Self::Quad(_)
             | Self::ActState(_) => None,
         }
@@ -284,6 +297,35 @@ impl InstructionParameter {
             | Self::Flow(_)
             | Self::Entity(_)
             | Self::Event(_)
+            | Self::HumanTalk(_)
+            | Self::Quad(_)
+            | Self::ActState(_) => None,
+        }
+    }
+    pub fn human_talk_parameter(&self) -> Option<&HumanTalkParameter> {
+        match self {
+            Self::HumanTalk(slot) => slot.parameter(),
+            Self::Scalar(_)
+            | Self::Name(_)
+            | Self::Pair(_)
+            | Self::Flow(_)
+            | Self::Entity(_)
+            | Self::Event(_)
+            | Self::SetEvent(_)
+            | Self::Quad(_)
+            | Self::ActState(_) => None,
+        }
+    }
+    pub fn human_talk_parameter_mut(&mut self) -> Option<&mut HumanTalkParameter> {
+        match self {
+            Self::HumanTalk(slot) => slot.parameter_mut(),
+            Self::Scalar(_)
+            | Self::Name(_)
+            | Self::Pair(_)
+            | Self::Flow(_)
+            | Self::Entity(_)
+            | Self::Event(_)
+            | Self::SetEvent(_)
             | Self::Quad(_)
             | Self::ActState(_) => None,
         }
@@ -298,6 +340,7 @@ impl InstructionParameter {
             | Self::Entity(_)
             | Self::Event(_)
             | Self::SetEvent(_)
+            | Self::HumanTalk(_)
             | Self::ActState(_) => None,
         }
     }
@@ -311,6 +354,7 @@ impl InstructionParameter {
             | Self::Entity(_)
             | Self::Event(_)
             | Self::SetEvent(_)
+            | Self::HumanTalk(_)
             | Self::Quad(_) => None,
         }
     }
@@ -371,6 +415,9 @@ pub enum RuntimeEffect {
     ConvertSetEventRegister,
     ConvertSetEventId,
     ReleaseSetEvent(u32),
+    AllocateHumanTalk,
+    ConvertHumanTalk(usize),
+    ReleaseHumanTalk(u32),
     AllocateFlow,
     ConvertFlowOperand(usize),
     ReleaseFlow(u32),
@@ -481,6 +528,16 @@ pub trait RuntimeBackend {
         fields: RuntimeView<'_>,
         effect: RuntimeEffect,
         _published: Option<&EventParameter>,
+    ) -> Result<(), String> {
+        self.effect(fields, effect, None)
+    }
+    /// HumanTalk parameters have their own actual instruction-owned payload.
+    /// A default backend still observes the required allocation/conversion/free.
+    fn human_talk_parameter_effect(
+        &mut self,
+        fields: RuntimeView<'_>,
+        effect: RuntimeEffect,
+        _published: Option<&HumanTalkParameter>,
     ) -> Result<(), String> {
         self.effect(fields, effect, None)
     }
@@ -726,6 +783,34 @@ impl<B: RuntimeBackend> SetEventParameterBackend for SetEventBoundary<'_, B> {
         ascii_integer_prefix(token).map_err(|e| RuntimeError::Parameter(e.to_string()))
     }
 }
+struct HumanTalkBoundary<'a, B> {
+    fields: &'a mut RuntimeFields,
+    backend: &'a mut B,
+}
+impl<B: RuntimeBackend> HumanTalkParameterBackend for HumanTalkBoundary<'_, B> {
+    type Error = RuntimeError;
+    fn allocate_human_talk(&mut self) -> Result<Option<Box<HumanTalkParameter>>, RuntimeError> {
+        self.backend
+            .human_talk_parameter_effect(self.fields.view(), RuntimeEffect::AllocateHumanTalk, None)
+            .map_err(RuntimeError::Effect)?;
+        Ok(Some(Box::new(HumanTalkParameter::default())))
+    }
+    fn convert_human_talk(
+        &mut self,
+        index: usize,
+        token: &[u8],
+        published: &HumanTalkParameter,
+    ) -> Result<i32, RuntimeError> {
+        self.backend
+            .human_talk_parameter_effect(
+                self.fields.view(),
+                RuntimeEffect::ConvertHumanTalk(index),
+                Some(published),
+            )
+            .map_err(RuntimeError::Effect)?;
+        ascii_integer_prefix(token).map_err(|e| RuntimeError::Parameter(e.to_string()))
+    }
+}
 struct ActStateBoundary<'a, B> {
     fields: &'a mut RuntimeFields,
     backend: &'a mut B,
@@ -881,6 +966,10 @@ impl<B: RuntimeBackend> CompileBackend for Compiler<'_, B> {
                 Some(InstructionParameter::SetEvent(
                     SetEventParameterSlot::default(),
                 ))
+            } else if supports_human_talk_opcode(opcode) {
+                Some(InstructionParameter::HumanTalk(
+                    HumanTalkParameterSlot::default(),
+                ))
             } else if supports_quad_opcode(opcode) {
                 Some(InstructionParameter::Quad(QuadParameterSlot::default()))
             } else if supports_act_state_opcode(opcode) {
@@ -963,6 +1052,14 @@ impl<B: RuntimeBackend> CompileBackend for Compiler<'_, B> {
                     slot.decode(opcode, parameters, &mut boundary)
                         .map_err(|error| RuntimeError::Parameter(format!("{error:?}")))?
                 }
+                InstructionParameter::HumanTalk(slot) => {
+                    let mut boundary = HumanTalkBoundary {
+                        fields: self.fields,
+                        backend: self.backend,
+                    };
+                    slot.decode(opcode, parameters, &mut boundary)
+                        .map_err(|error| RuntimeError::Parameter(format!("{error:?}")))?
+                }
                 InstructionParameter::Quad(slot) => {
                     let mut boundary = QuadBoundary {
                         fields: self.fields,
@@ -1028,6 +1125,7 @@ pub struct HostRuntimeDiscard {
     pub flow_allocations: usize,
     pub event_allocations: usize,
     pub set_event_allocations: usize,
+    pub human_talk_allocations: usize,
     pub quad_allocations: usize,
     pub act_state_allocations: usize,
     pub actor_slots: usize,
@@ -1377,6 +1475,18 @@ impl CProgram {
                         .is_some_and(|payload| payload.set_event_parameter().is_some())
                 })
                 .count(),
+            human_talk_allocations: runtime
+                .instructions
+                .records
+                .iter()
+                .chain(runtime.pending.iter())
+                .filter(|instruction| {
+                    instruction
+                        .parameter
+                        .as_ref()
+                        .is_some_and(|payload| payload.human_talk_parameter().is_some())
+                })
+                .count(),
             quad_allocations: runtime
                 .instructions
                 .records
@@ -1467,6 +1577,11 @@ impl CProgram {
                     InstructionParameter::SetEvent(slot) => backend.set_event_parameter_effect(
                         runtime.fields.view(),
                         RuntimeEffect::ReleaseSetEvent(opcode),
+                        slot.parameter(),
+                    ),
+                    InstructionParameter::HumanTalk(slot) => backend.human_talk_parameter_effect(
+                        runtime.fields.view(),
+                        RuntimeEffect::ReleaseHumanTalk(opcode),
                         slot.parameter(),
                     ),
                     InstructionParameter::Quad(slot) => backend.quad_parameter_effect(
@@ -1605,6 +1720,32 @@ impl<B: RuntimeBackend> Process<'_, B> {
             .to_vec()
             .into_boxed_slice();
         Ok((register, event, label))
+    }
+    #[allow(dead_code)]
+    /// Current HumanTalk payload: actor register, speech id, kind and channel.
+    fn human_talk_payload(&self, state: &ResetState) -> Result<[i32; 4], RuntimeError> {
+        let parameter = self
+            .instructions
+            .active()
+            .get(state.program_counter as usize)
+            .and_then(|instruction| instruction.parameter.as_ref())
+            .and_then(|parameter| parameter.human_talk_parameter())
+            .ok_or(RuntimeError::Domain(
+                "current human-talk parameter unavailable",
+            ))?;
+        let values = parameter.values();
+        if values.iter().all(|v| v.is_some()) {
+            Ok([
+                values[0].unwrap(),
+                values[1].unwrap(),
+                values[2].unwrap(),
+                values[3].unwrap(),
+            ])
+        } else {
+            Err(RuntimeError::Domain(
+                "current human-talk values unavailable",
+            ))
+        }
     }
     /// Current four-integer payload (TIMERON/HUMAN_ADDWEAPON and group).
     fn quad_payload(&self, state: &ResetState) -> Result<[i32; 4], RuntimeError> {
@@ -2341,6 +2482,14 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                         *top &= !0x4000;
                     }
                 }
+            }
+            78 | 79 | 80 | 132 | 239 | 240 => {
+                // Dialogue commands: DIALOG_BEGIN (78), DIALOG_END (79),
+                // DIALOG_CAMSWITCH (80), HUMAN_TALK (132), INTRO_SUBTITLE_ADD
+                // (239), SUBTITLE_ADD (240). Decode is admitted; execution
+                // is a no-op advance for now (camera/dabing are stubs). The
+                // talk channel persistence (v[3]) is preserved in the
+                // instruction's HumanTalkParameter but not yet consumed.
             }
             0x1004 | 0x101a | 0x1031 | 0x103a | 0x103b => {
                 advance = self.dispatch_entity(state, opcode)?;
