@@ -308,13 +308,16 @@ impl<D> LookupWorldBackend for MissionLookupWorld<'_, D> {
     fn human_add_weapon(
         &mut self,
         actor: ActorReferenceId,
-        id: u32,
+        id: u16,
         loaded: i32,
         spare: i32,
     ) -> Result<(), LookupError> {
-        self.world
-            .human_add_weapon(actor, id, loaded, spare)
-            .map_err(|error| LookupError::Backend(format!("{error:?}")))
+        match self.world.human_add_weapon(actor, id, loaded, spare) {
+            // The native type gate breaks silently; only real host defects
+            // (stale actors and below) propagate.
+            Err(crate::actor_world::ActorWorldError::NotHuman) => Ok(()),
+            result => result.map_err(|error| LookupError::Backend(format!("{error:?}"))),
+        }
     }
 }
 impl<D: MissionProgramDiagnostic> RuntimeLookupWorld for MissionLookupWorld<'_, D> {

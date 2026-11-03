@@ -120,9 +120,9 @@ impl QuadParameterSlot {
     }
 }
 
-/// All selectors in the same original DecodeParams four-atoi arm: TIMERON,
-/// HUMAN_ADDWEAPON, RACING_MISSION6_INIT, QUAT_SLERP. Sorted by the numeric
-/// IDs in pinned mafia-re C_program.h.
+/// The four discontiguous selectors sharing the original DecodeParams
+/// four-atoi arm: TIMERON, HUMAN_ADDWEAPON, RACING_MISSION6_INIT, QUAT_SLERP.
+/// Sorted by the numeric IDs in pinned mafia-re C_program.h.
 pub const QUAD_OPCODE_IDS: [u32; 4] = [50, 59, 167, 294];
 
 /// Parameter-layout admission only; these opcodes do not become executable by

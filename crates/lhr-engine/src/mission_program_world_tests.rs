@@ -943,3 +943,139 @@ fn tick_entity_programs_steps_owned_live_state_through_context() {
         Ok(1)
     );
 }
+
+#[test]
+fn lookup_world_maps_type_mismatch_silently_and_propagates_stale() {
+    use super::MissionLookupWorld;
+    use crate::actor_world::{
+        ActorAllocationBackend, ActorCollectionBackend, ActorSource, ActorStorageId, ActorWorld,
+        BaseActorSeed, DetectorSeed, SourceBacking,
+    };
+    use crate::entity_actor::EntityProcessState;
+    use crate::model_loading::ModelArena;
+    use crate::original_program::ProgramSeed;
+    use crate::script_lookup::LookupWorldBackend;
+
+    struct Heap {
+        next: u32,
+    }
+    impl ActorAllocationBackend for Heap {
+        fn allocate_actor(&mut self, _: u32) -> Result<Option<(u32, BaseActorSeed)>, String> {
+            Err("base allocation outside fixture".into())
+        }
+        fn allocate_detector(
+            &mut self,
+            bytes: u32,
+        ) -> Result<Option<(u32, BaseActorSeed, DetectorSeed)>, String> {
+            assert_eq!(bytes, 0x128);
+            self.next += 1;
+            Ok(Some((
+                self.next,
+                BaseActorSeed {
+                    word_0e: 0,
+                    actor_id: 0,
+                    state_1c: 0,
+                    bytes_21_5f: [0; 63],
+                    bytes_64_65: [0; 2],
+                    byte_67: 0,
+                    release_frame: 0,
+                    bytes_6d_6f: [0; 3],
+                },
+                DetectorSeed {
+                    program: ProgramSeed {
+                        address_high_byte: 0,
+                        padding_0d: [0; 3],
+                        words_1c_2c: [0; 5],
+                        padding_31: [0; 3],
+                        word_40: 0,
+                        bytes_64: [0; 4],
+                    },
+                    bytes_d8_ef: [0; 24],
+                    word_f4: 0,
+                    bytes_105_107: [0; 3],
+                    bytes_118_127: [0; 16],
+                },
+            )))
+        }
+    }
+    impl ActorCollectionBackend for Heap {
+        fn allocate_collection(
+            &mut self,
+            _: &ActorWorld,
+            _: ActorSource,
+            _: u32,
+        ) -> Result<ActorStorageId, String> {
+            Ok(ActorStorageId(2))
+        }
+        fn free_collection(
+            &mut self,
+            _: &ActorWorld,
+            _: ActorSource,
+            _: Option<ActorStorageId>,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    struct NoopDiagnostic;
+    impl super::MissionProgramDiagnostic for NoopDiagnostic {
+        fn message_beep(
+            &mut self,
+            _: &mut ActorWorld,
+            _: &mut ModelArena,
+            _: crate::original_program::RuntimeView<'_>,
+            _: &mut Option<crate::script_scheduler::ActorReferenceId>,
+            _: &mut crate::script_scheduler::FrameReferenceId,
+            _: i32,
+        ) -> Result<(), crate::script_lookup::LookupError> {
+            Ok(())
+        }
+    }
+
+    let backing = SourceBacking {
+        storage: Some(ActorStorageId(1)),
+        capacity: 16,
+    };
+    let mut world = ActorWorld::new(0, 0, backing, backing, backing).unwrap();
+    let mut heap = Heap { next: 0 };
+    let detector = world.create_actor(5, &mut heap).unwrap().unwrap();
+    let mut arena = ModelArena::default();
+    let mut scene = crate::script_scheduler::FrameReferenceId::from_existing(1);
+    let mut diagnostic = NoopDiagnostic;
+    let mut lookup = MissionLookupWorld {
+        world: &mut world,
+        arena: &mut arena,
+        scene: &mut scene,
+        diagnostic: &mut diagnostic,
+        locales: super::ProgramWorldLocales {
+            game_default_c_locale: true,
+            ls3df_default_c_locale: true,
+        },
+    };
+    // A detector is not human: the native type-break maps to a silent
+    // no-op success, while act-state writes land.
+    assert_eq!(lookup.human_add_weapon(detector, 9, 7, 100), Ok(()));
+    lookup.set_actor_act_state(detector, 1).unwrap();
+    assert_eq!(lookup.world.state(detector).unwrap().state_1c, 1);
+    // Entity state round-trips through the same live owner.
+    let stale = crate::script_scheduler::ActorReferenceId::from_existing(999);
+    assert!(lookup.load_entity_process_state(Some(detector)).is_err());
+    assert!(lookup
+        .store_entity_process_state(
+            Some(detector),
+            &EntityProcessState {
+                process_flags: 1,
+                visibility_bits: 2,
+                shut_up: 3,
+            },
+        )
+        .is_err());
+    assert!(matches!(
+        lookup.set_actor_act_state(stale, 0),
+        Err(crate::script_lookup::LookupError::Backend(_))
+    ));
+    assert!(matches!(
+        lookup.human_add_weapon(stale, 0, 0, 0),
+        Err(crate::script_lookup::LookupError::Backend(_))
+    ));
+}

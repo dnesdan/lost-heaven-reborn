@@ -101,7 +101,7 @@ pub trait LookupWorldBackend {
     fn human_add_weapon(
         &mut self,
         actor: ActorReferenceId,
-        id: u32,
+        id: u16,
         loaded: i32,
         spare: i32,
     ) -> Result<(), LookupError> {

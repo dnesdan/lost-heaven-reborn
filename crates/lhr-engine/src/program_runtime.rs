@@ -836,6 +836,8 @@ pub struct HostRuntimeDiscard {
     pub name_allocations: usize,
     pub pair_allocations: usize,
     pub flow_allocations: usize,
+    pub quad_allocations: usize,
+    pub act_state_allocations: usize,
     pub actor_slots: usize,
     pub frame_slots: usize,
     pub float_slots: usize,
@@ -1090,6 +1092,30 @@ impl CProgram {
                         .parameter
                         .as_ref()
                         .is_some_and(|payload| payload.flow_parameter().is_some())
+                })
+                .count(),
+            quad_allocations: runtime
+                .instructions
+                .records
+                .iter()
+                .chain(runtime.pending.iter())
+                .filter(|instruction| {
+                    instruction
+                        .parameter
+                        .as_ref()
+                        .is_some_and(|payload| payload.quad_parameter().is_some())
+                })
+                .count(),
+            act_state_allocations: runtime
+                .instructions
+                .records
+                .iter()
+                .chain(runtime.pending.iter())
+                .filter(|instruction| {
+                    instruction
+                        .parameter
+                        .as_ref()
+                        .is_some_and(|payload| payload.act_state_parameter().is_some())
                 })
                 .count(),
             actor_slots: runtime.fields.actors.as_ref().map_or(0, |a| a.len()),
@@ -1843,29 +1869,39 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
             }
             26 => {
                 // Original CMD_ACT_SETSTATE: the script's actor without a
-                // register, else the register's actor. Unresolvable actors
-                // and world writes advance without effect, like the native
-                // no-op paths; nothing here fails a tick.
+                // register, else the register's actor. Unresolved actors
+                // advance without effect; host defects propagate.
                 let (register, act) = self.act_state_payload(state)?;
-                let actor = if register >= 0 {
-                    self.actor_register(register)
+                // Out-of-range and negative registers keep the script's
+                // owner; an in-range empty slot resolves to no actor (the
+                // native overwrite with NULL), never back to the owner.
+                let actor = if register < 0 {
+                    *self.owner
+                } else if let Some(slots) = self.actors.as_deref() {
+                    if (register as usize) < slots.len() {
+                        match &slots[register as usize] {
+                            RuntimeReferenceSlot::Reference(actor) => Some(*actor),
+                            _ => None,
+                        }
+                    } else {
+                        *self.owner
+                    }
                 } else {
-                    None
-                }
-                .or(*self.owner);
+                    *self.owner
+                };
                 if let Some(actor) = actor {
-                    // ACT_STATE_* decodes to ACTSTATE_2/0/1, not identity.
+                    // Upstream-assigned ACT_STATE_* decodes to ACTSTATE_2/0/1,
+                    // not identity.
                     let native = match act {
                         ActState::None => 2,
                         ActState::Active => 0,
                         ActState::Inactive => 1,
                     };
-                    let _ = self
-                        .backend
+                    self.backend
                         .lookup_world()
                         .map_err(RuntimeError::Lookup)?
                         .set_actor_act_state(actor, native)
-                        .map_err(RuntimeError::Lookup);
+                        .map_err(RuntimeError::Lookup)?;
                 }
             }
             59 => {
@@ -1879,12 +1915,11 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                     None
                 };
                 if let Some(actor) = actor {
-                    let _ = self
-                        .backend
+                    self.backend
                         .lookup_world()
                         .map_err(RuntimeError::Lookup)?
-                        .human_add_weapon(actor, values[1] as u32, values[2], values[3])
-                        .map_err(RuntimeError::Lookup);
+                        .human_add_weapon(actor, values[1] as u16, values[2], values[3])
+                        .map_err(RuntimeError::Lookup)?;
                 }
             }
             0x1004 | 0x101a | 0x1031 | 0x103a | 0x103b => {

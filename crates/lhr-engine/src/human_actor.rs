@@ -55,14 +55,16 @@ impl HumanInventoryItem {
         Self { bits: [0; 4] }
     }
 
-    /// Provisional weapon record from an ADDWEAPON command: the evidenced
-    /// upstream assignment order (id, loaded spare, spare) in the first three
-    /// words, zeroed tail. The full S_GameItem layout, slot-placement rules,
-    /// ChangeWeaponModel and WeaponChoose stay open; no shipped MISE01 line
-    /// reads these records back.
-    pub(crate) fn from_weapon_parts(id: u32, loaded: i32, spare: i32) -> Self {
+    /// Provisional weapon record from an ADDWEAPON command, following the
+    /// evidenced upstream field order (id, loaded, spare) with a zeroed tail:
+    /// S_GameItem carries ushort id plus pad at +0x0, ints at +0x4/+0x8 and a
+    /// pointer at +0xc from a memset-0 constructor. The u16 id mirrors the
+    /// native `(ushort)` conversion at the command site (padding stays zero).
+    /// Slot-placement and capacity rules, ChangeWeaponModel and WeaponChoose
+    /// stay open; no shipped MISE01 line reads these records back.
+    pub(crate) fn from_weapon_parts(id: u16, loaded: i32, spare: i32) -> Self {
         Self {
-            bits: [id, loaded as u32, spare as u32, 0],
+            bits: [u32::from(id), loaded as u32, spare as u32, 0],
         }
     }
     pub fn representation_bits(&self) -> &[u32; 4] {

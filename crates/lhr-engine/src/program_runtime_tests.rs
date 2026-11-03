@@ -14,7 +14,8 @@ struct Memory {
 struct FakeEntityWorld {
     states: HashMap<ActorReferenceId, EntityProcessState>,
     act_states: HashMap<ActorReferenceId, u32>,
-    weapons: HashMap<ActorReferenceId, Vec<(u32, i32, i32)>>,
+    weapons: HashMap<ActorReferenceId, Vec<(u16, i32, i32)>>,
+    fail_writes: bool,
 }
 impl LookupWorldBackend for FakeEntityWorld {
     fn diagnostic_default_c_locale(&self) -> bool {
@@ -70,13 +71,16 @@ impl LookupWorldBackend for FakeEntityWorld {
         actor: ActorReferenceId,
         state: u32,
     ) -> Result<(), LookupError> {
+        if self.fail_writes {
+            return Err(LookupError::Backend("injected write failure".into()));
+        }
         self.act_states.insert(actor, state);
         Ok(())
     }
     fn human_add_weapon(
         &mut self,
         actor: ActorReferenceId,
-        id: u32,
+        id: u16,
         loaded: i32,
         spare: i32,
     ) -> Result<(), LookupError> {
@@ -804,6 +808,92 @@ fn act_setstate_and_addweapon_resolve_owners_and_registers() {
             .get(&ActorReferenceId::from_existing(11)),
         Some(&vec![(9, 7, 100)])
     );
+}
+#[test]
+fn act_setstate_in_range_empty_slot_resolves_to_no_actor() {
+    use crate::original_program::RuntimeReferenceSlot;
+    let mut memory = Memory::default();
+    let mut p = program(b"act_setstate 0,active", &mut memory);
+    p.set_owner(Some(ActorReferenceId::from_existing(7)))
+        .unwrap();
+    p.init_fresh_runtime(&mut memory).unwrap();
+    // Slot 0 exists but is empty: the native overwrite with NULL applies,
+    // so the owner must NOT be mutated.
+    p.runtime.as_mut().unwrap().fields.actors =
+        Some(vec![RuntimeReferenceSlot::Empty].into_boxed_slice());
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
+    assert!(memory.entity_world.act_states.is_empty());
+    // An out-of-range register keeps the owner instead.
+    let mut memory = Memory::default();
+    let mut p = program(b"act_setstate 9,active", &mut memory);
+    p.set_owner(Some(ActorReferenceId::from_existing(7)))
+        .unwrap();
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.runtime.as_mut().unwrap().fields.actors =
+        Some(vec![RuntimeReferenceSlot::Empty].into_boxed_slice());
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(
+        memory
+            .entity_world
+            .act_states
+            .get(&ActorReferenceId::from_existing(7)),
+        Some(&0)
+    );
+}
+#[test]
+fn weapon_id_truncates_to_u16_and_host_failures_propagate() {
+    use crate::original_program::RuntimeReferenceSlot;
+    let mut memory = Memory::default();
+    let mut p = program(b"human_addweapon 0,-1,7,100", &mut memory);
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.runtime.as_mut().unwrap().fields.actors = Some(
+        vec![RuntimeReferenceSlot::Reference(
+            ActorReferenceId::from_existing(11),
+        )]
+        .into_boxed_slice(),
+    );
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(
+        memory
+            .entity_world
+            .weapons
+            .get(&ActorReferenceId::from_existing(11)),
+        Some(&vec![(0xffff, 7, 100)])
+    );
+    // A failing world write propagates instead of advancing silently.
+    memory.entity_world.fail_writes = true;
+    let mut p = program(b"act_setstate -1,active", &mut memory);
+    p.set_owner(Some(ActorReferenceId::from_existing(7)))
+        .unwrap();
+    p.init_fresh_runtime(&mut memory).unwrap();
+    let error = p
+        .call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap_err();
+    assert!(
+        format!("{error:?}").contains("injected write failure"),
+        "{error:?}"
+    );
+}
+#[test]
+fn quad_family_refuses_execution_and_reports_disposal() {
+    let mut memory = Memory::default();
+    let mut p = program(b"timeron 1,2,3,4", &mut memory);
+    let progress = p.init_fresh_runtime(&mut memory).unwrap();
+    assert_eq!((progress.accepted, progress.errors), (1, 0));
+    let error = p
+        .call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap_err();
+    assert!(
+        format!("{error:?}").contains("UnsupportedCommand(50)"),
+        "{error:?}"
+    );
+    let report = p.discard_runtime_host().unwrap();
+    assert_eq!(report.quad_allocations, 1);
+    assert_eq!(report.act_state_allocations, 0);
 }
 #[test]
 fn act_setstate_and_addweapon_advance_silently_without_resolution() {

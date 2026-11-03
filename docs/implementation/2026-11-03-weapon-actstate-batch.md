@@ -19,20 +19,24 @@ ACTIVE/INACTIVE strings. Tested against the local Game.exe SHA-256
   case-insensitive) with its own slot and `InstructionParameter::ActState`.
 - Execution: CMD_HUMAN_ADDWEAPON resolves the register's actor (no owner
   fallback), requires ENTITY/PLAYER humanity, and pushes the weapon record;
-  CMD_ACT_SETSTATE resolves owner-or-register and stores the mapped
-  ACTSTATE_2/0/1 word. Unresolvable actors and world writes advance without
-  effect, like the native no-op paths; nothing here fails a tick.
+  CMD_ACT_SETSTATE resolves owner-or-register (an in-range empty slot
+  resolves to no actor, never back to the owner) and stores the mapped
+  ACTSTATE_2/0/1 word. Unresolvable actors advance without effect; mistyped
+  humans are silent no-ops at the mission boundary; stale and defective hosts
+  propagate.
 - `BaseActorState.state_1c` is the +0x1c act-state word (C_actor.h identity;
   real seeds carry the native Init zero). The game-side change notification
   has no Game owner yet and is not recorded.
 
 ## Hard limits and documented deviations
 
-- Weapon records store the evidenced upstream assignment order
-  (id/loaded/spare) in the first three words with a zeroed tail; the full
-  S_GameItem layout, slot-placement and capacity rules, ChangeWeaponModel and
-  WeaponChoose stay open. No shipped MISE01 line reads these records back
-  (verified by census), so the target mission is observably exact.
+- Weapon records store the evidenced upstream field order with an
+  evidenced shape: ushort id plus pad at +0x0 (the id arrives pre-truncated
+  by the `(ushort)` conversion at the command site), ints at +0x4/+0x8, null
+  pointer at +0xc from the memset-0 constructor. Slot-placement and capacity
+  rules, ChangeWeaponModel and WeaponChoose stay open. No shipped MISE01 line
+  reads these records back (verified by census), so the target mission is
+  observably exact.
 - TIMERON/RACING_MISSION6_INIT/QUAT_SLERP decode but refuse execution like
   other unexecuted base commands. Dialogue/inventory-depth/event systems stay
   open (Sam's lines 1–14 now resolve to implemented commands; line-26
@@ -48,9 +52,12 @@ cargo clippy --locked --all-targets --all-features -- -D warnings
 ```
 
 Family decode tests (four-integer group admission, keyword mapping, failure
-prefix retention), dispatch tests over a state-serving fake backend (owner
-and register resolution, ACTSTATE mapping, silent advance without
-resolution), and world tests (act-state write, weapon push content and
-count, NotHuman/stale refusal). Full suite: 1850 passed, 11 ignored, 1
+prefix retention), dispatch tests over a state-serving fake backend (owner,
+register and in-range-empty resolution, ACTSTATE mapping, u16 truncation,
+silent advance, injected failure propagation, quad refusal and disposal
+counts), world tests (act-state write, weapon push content and count,
+NotHuman/stale refusal), and a live-world delegation test (type-mismatch
+silence, stale propagation, entity-state round-trip refusal on detectors).
+Full suite: 1850 passed, 11 ignored, 1
 pre-existing ARM64-only `ph_thing_ai` failure. MISE01 load probe and capture
 unchanged (bit-identical rendering; decode/execution-only change).

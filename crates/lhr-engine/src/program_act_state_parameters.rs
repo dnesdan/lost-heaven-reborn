@@ -12,7 +12,8 @@
 use crate::program_parameters::ascii_integer_prefix;
 use crate::program_parser::{c_length, extrude_params, ProgramParserError};
 
-/// Decoded ACT_STATE_* selector in upstream C_program.h order.
+/// Decoded ACT_STATE_* selector in upstream-assigned C_program.h order
+/// (upstream marks these names as its own).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ActState {
     None = 0,
