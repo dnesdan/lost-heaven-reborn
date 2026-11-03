@@ -20,7 +20,8 @@ Targeted local verification before merge:
 
 ```sh
 cargo fmt --all -- --check
-cargo test --locked -p lhr-engine --all-features program_pair_parameters
-cargo test --locked -p lhr-engine --all-features program_runtime
+cargo test --locked -p lhr-engine --all-features pair_parameters
+cargo test --locked -p lhr-engine --all-features original_frame_visibility_parameters
+cargo test --locked -p lhr-engine --all-features interrupted_second_pair_conversion
 cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
 ```
