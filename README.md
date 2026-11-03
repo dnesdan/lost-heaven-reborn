@@ -7,11 +7,12 @@ playable; all six first-mission gates remain open.
 
 The mission ActorWorld now owns genuine Car/Vehicle actors alongside Human,
 Player and C_entity. Both original MISE01 cars complete Init and LoadData;
-source intake reaches 3,183 objects and 40 actors before unsupported kind 25
-(pumper), cursor 3,815,824. The two bridge actors (LLsklap01/sklapx01)
-complete construction, ferry-table LoadData and linked flap Init with the
-shared sector refresh. Explicit disposal closes every tracked owner, including the
-car resources and independent frame records. GameInit and mission play remain open.
+source intake constructs all 293 MISE01 actors — bridges, pumpers, traffic
+car, door and all 216 boxes — with version-dispatched LoadData and linked
+Init tails. Explicit disposal closes every tracked owner, including the
+car resources and independent frame records. Model skinning
+(`QuaternionFromMatrixUnavailable`) is the remaining load blocker; GameInit
+and mission play remain open.
 
 Replay intake reads the complete 107,352-byte record01a input into its real
 owners; bounded first-actor binding matches controlled original instructions.
@@ -29,16 +30,16 @@ human animation, recorded cutscenes and a playable first mission remain open.
 [Build and run](docs/RUNNING.md) · [current evidence](docs/implementation/2026-10-29-car-replay-programs.md) ·
 [coverage](COVERAGE.md) · [goals](docs/GOALS.md) · [dated history](docs/history/README.md).
 
-[Latest reviewed integration: entity command decode](docs/implementation/2026-11-03-entity-decode.md)
-recognizes all 121 C_entity spellings (64 command IDs 0x1000–0x103f,
-capstone-verified pairs/singles) with exact native word-count admission and
-base fallback, while execution stays refused. Together with the merged
-[bridge intake](docs/implementation/2026-11-03-bridge-intake.md),
+[Latest reviewed integration: box actor intake](docs/implementation/2026-11-03-box-new-intake.md)
+completes the MISE01 actor wave (door, traffic car, pumper, box_new) on top of
+the merged [bridge intake](docs/implementation/2026-11-03-bridge-intake.md):
+all 293 actors construct with version-dispatched LoadData and linked Init
+tails. Together with [entity command decode](docs/implementation/2026-11-03-entity-decode.md),
 [VM control flow](docs/implementation/2026-11-03-vm-flow-execution.md) and
 [PR #69 pair decoding](docs/implementation/2026-11-03-vm-pair-parameters.md),
 the VM decodes 274 selector families plus 64 entity commands and executes 15
-opcodes. Entity Process and all effect commands remain unimplemented; the
-C_pumper actor is still the MISE01 kind-25 frontier and authored mission play
+opcodes. Entity Process, actor effects and GameInit remain unimplemented; the
+model SkinPose path is the remaining load blocker and authored mission play
 remains open.
 
 <details>
