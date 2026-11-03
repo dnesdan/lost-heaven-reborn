@@ -1,7 +1,7 @@
-//! Owned two-integer C_program::DecodeParams branch for FRM_SETON/FRM_SETON1.
+//! Owned two-integer C_program::DecodeParams branch (124 original selectors).
 //!
 //! Reference: Marvisak/mafia-re d0fbd6d, game/mission/C_program.cpp,
-//! DecodeParams CMD_FRM_SETON / CMD_FRM_SETON1. These commands allocate
+//! DecodeParams CMD_RND..CMD_HUMAN_GETACTANIMID case group. These commands allocate
 //! two native int words and store atoi(first), then atoi(second).
 //! This module reconstructs source decoding only, not command execution,
 //! native allocation failure, or original-runtime equivalence.
@@ -120,10 +120,25 @@ impl PairParameterSlot {
     }
 }
 
-/// Exactly the two reached command selectors admitted in this milestone.
-/// Other two-int selectors remain explicit unsupported parameters.
+/// All selectors in the same original DecodeParams two-int/new int[2] arm.
+/// Sorted by the numeric IDs in pinned mafia-re C_program.h.
+pub const PAIR_OPCODE_IDS: [u32; 124] = [
+    10, 14, 15, 16, 17, 23, 25, 28, 31, 39, 40, 41,
+    58, 61, 63, 64, 65, 66, 78, 80, 99, 105, 107, 108,
+    109, 110, 112, 115, 117, 123, 140, 143, 145, 146, 147, 150,
+    156, 157, 158, 160, 161, 162, 163, 170, 174, 176, 177, 178,
+    179, 182, 188, 189, 190, 191, 192, 193, 194, 195, 196, 197,
+    198, 200, 203, 214, 223, 233, 238, 239, 247, 248, 249, 250,
+    251, 252, 253, 254, 255, 256, 257, 258, 259, 260, 262, 264,
+    265, 266, 267, 268, 269, 271, 278, 280, 281, 286, 287, 288,
+    290, 293, 299, 302, 303, 304, 314, 316, 321, 325, 327, 330,
+    331, 336, 337, 341, 343, 344, 348, 360, 361, 362, 372, 381,
+    382, 383, 384, 391,
+];
+
+/// Parameter-layout admission only; these opcodes do not become executable.
 pub fn supports_pair_opcode(opcode: u32) -> bool {
-    matches!(opcode, 14 | 15)
+    PAIR_OPCODE_IDS.binary_search(&opcode).is_ok()
 }
 
 #[cfg(test)]
@@ -156,6 +171,29 @@ mod tests {
                 return Err("second conversion unavailable");
             }
             ascii_integer_prefix(token).map_err(|_| "unsupported integer locale")
+        }
+    }
+
+    #[test]
+    fn entire_upstream_two_integer_family_accepts_only_two_parameters() {
+        assert_eq!(PAIR_OPCODE_IDS.len(), 124);
+        assert!(PAIR_OPCODE_IDS.windows(2).all(|pair| pair[0] < pair[1]));
+        for opcode in PAIR_OPCODE_IDS {
+            let mut source = b"-3suffix, +12tail\\0".to_vec();
+            let mut slot = PairParameterSlot::default();
+            assert_eq!(
+                slot.decode(opcode, &mut source, &mut AsciiPairParameterBackend),
+                Ok(true),
+                "opcode {opcode}"
+            );
+            assert_eq!(
+                slot.parameter().unwrap().values(),
+                [Some(-3), Some(12)],
+                "opcode {opcode}"
+            );
+        }
+        for opcode in [0, 7, 11, 12, 13, 18, 34, 43, 395] {
+            assert!(!supports_pair_opcode(opcode), "opcode {opcode}");
         }
     }
 
