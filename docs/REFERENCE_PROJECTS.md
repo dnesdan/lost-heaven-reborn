@@ -1,6 +1,31 @@
 # Reference-project audit
 
-## Latest pinned source comparison — 2026-10-29
+## Latest pinned source comparison — 2026-11-03
+
+The upstream reference moved to
+[`d0fbd6dba9ac5b31cabd6661c9bb2b855eab5496`](https://github.com/Marvisak/mafia-re/tree/d0fbd6dba9ac5b31cabd6661c9bb2b855eab5496),
+20 commits after the `6c9f71c9` pin used by the 2026-11-01 continuation plan
+(+16,639/−2,904 lines across 171 files; Game.exe `FUNCTION` markers 737 → 926).
+The delta supplies complete bodies that plan still lists as dependencies:
+`C_game::Tick` with its full per-frame order, nine called sub-ticks
+(`C_actor::Tick`, `TickElements`, `ai_groups/follow/fight`, police board,
+blood, console, effects, `ff_manager`), the whole `C_recorder` cutscene file,
+`C_sledovacka`/`C_shvestky` ticks, `C_traffic_generator::TryGoToAssHole`,
+`C_detector` AI/Update, `C_clock` AI, menu-run ticks, options/controls menus,
+`G_IndicatorsClass::DrawAll`, 19 vehicle functions (external contributor) and
+placeholder renames. Game.exe stands at 1,315 / 5,037 implemented (26.11 %,
+97.04 % accuracy); LS3DF at 1,351 / 1,361 (99.27 %).
+
+What stays unavailable upstream and still needs binary-backed reconstruction:
+`C_entity::DecodeInstruction`/`Process` (the 22 `ENEMY_*` + `COMPAREOWNERWITH`
+commands real missions use; PS2 oracles at `0x332ab0`/`0x3336b0`), `LoadNodes`,
+`Roads::LoadData`/`FindPath`, `LoadDiffData`, `C_bridge` construction,
+`C_human` behavior, vehicle `Move`/`Engine`, and the `Tick`-called stubs
+(`TickDriver`, `RecompilePath`, `TickShoot` callees, human talks/music/video).
+PR #69 (124 two-integer parameter selectors) is decoded against this pin;
+decoding is not execution. Earlier records below keep their original scope.
+
+## Pinned source comparison — 2026-10-29
 
 The existing private cache was fetched and its master reference pinned to
 [`dc867c3238488de27d094bb79b6550e392566e3c`](https://github.com/Marvisak/mafia-re/tree/dc867c3238488de27d094bb79b6550e392566e3c).

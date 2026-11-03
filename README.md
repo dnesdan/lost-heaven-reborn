@@ -27,10 +27,12 @@ human animation, recorded cutscenes and a playable first mission remain open.
 [Build and run](docs/RUNNING.md) · [current evidence](docs/implementation/2026-10-29-car-replay-programs.md) ·
 [coverage](COVERAGE.md) · [goals](docs/GOALS.md) · [dated history](docs/history/README.md).
 
-[Latest reviewed integration: PRs #51–57](docs/implementation/2026-10-29-pr-integration.md)
-adds world billboards, installed navigation intake and mission weather/sector
-preparation. Original MISE01 navigation loads 13,857 nodes and 67,260 links;
-pathfinding and authored mission execution remain open.
+[Latest reviewed integration: PRs #58–69](docs/implementation/2026-11-03-vm-pair-parameters.md)
+adds owned two-integer VM parameter decoding for all 124 original selectors
+(FRM_SETON/FRM_SETON1/RND/BRIDGE_SHUTDOWN), progressing the script-stack
+item of the nine parity follow-ups. Decoding is not execution: those commands
+still stop at `UnsupportedCommand`, the C_bridge actor remains the MISE01
+kind-20 frontier, and authored mission play remains open.
 
 <details>
 <summary>Static research and accepted scoped-port dashboard</summary>
