@@ -47,6 +47,7 @@ pub mod cutscene_owner;
 pub mod cutscene_records;
 pub mod cutscene_source;
 pub mod debris;
+pub mod door_actor;
 pub mod driver_scene;
 pub mod driver_state;
 pub mod driving_vehicle_tables;

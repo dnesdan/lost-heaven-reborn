@@ -410,6 +410,10 @@ impl MissionActorLoader {
                                 self.world
                                     .release_bridge(actor, &mut frames, backend)
                                     .map_err(|e| format!("{e:?}"))?;
+                            } else if kind == 6 {
+                                self.world
+                                    .release_door(actor, &mut frames, backend)
+                                    .map_err(|e| format!("{e:?}"))?;
                             } else {
                                 self.world
                                     .release(actor, &mut ReleaseFrames { frames, backend })
@@ -498,6 +502,20 @@ impl MissionActorLoader {
                             return Ok(());
                         }
                         if self.current_kind != Some(5) {
+                            if self.current_kind == Some(6) {
+                                // Original C_door::LoadData version dispatch
+                                // over the record payload: versions 5-8
+                                // populate ascending field prefixes, version 8
+                                // the full set; other versions consume only
+                                // the version word. Truncated tails keep
+                                // constructor values field by field.
+                                let mut reader = ActorDataReader::new(field.payload);
+                                let result = self.world.load_door_data(actor, &mut reader);
+                                self.cursor = field.offset + 6 + reader.position();
+                                result.map_err(|e| format!("{e:?}"))?;
+                                self.pending_load_data = None;
+                                return Ok(());
+                            }
                             return Err(format!(
                                 "unimplemented actor kind {:?} virtual LoadData+50; actor prefix retained",
                                 self.current_kind
@@ -1099,7 +1117,7 @@ mod tests {
         let bytes = input(
             &[
                 chunk(0xae23, b"actual\0"),
-                chunk(0xae22, &6u32.to_le_bytes()),
+                chunk(0xae22, &9u32.to_le_bytes()),
                 chunk(0xae22, &5u32.to_le_bytes()),
             ]
             .concat(),
@@ -1114,7 +1132,7 @@ mod tests {
                 &mut storage,
             )
             .unwrap_err();
-        assert!(error.detail.contains("UnsupportedKind(6)"));
+        assert!(error.detail.contains("UnsupportedKind(9)"));
         assert_eq!(storage.next, 0);
         assert!(loader.world.source(ActorSource::Primary).is_empty());
         assert!(loader.world.source(ActorSource::Static).is_empty());

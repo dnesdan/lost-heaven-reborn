@@ -272,6 +272,7 @@ impl MissionContentOwner {
                     world.delete_railway(actor, 1, &mut frames, &mut self.memory)
                 }
                 ActorVtable::Bridge => world.delete_bridge(actor, 1, &mut frames, &mut self.memory),
+                ActorVtable::Door => world.delete_door(actor, 1, &mut frames, &mut self.memory),
                 ActorVtable::TrafficGenerator => {
                     if world.phase(actor).map_err(|e| format!("{e:?}"))? == ActorPhase::Ready {
                         world.delete_traffic_generator(actor, 1, &mut frames, &mut self.memory)
@@ -513,6 +514,18 @@ impl ActorAllocationBackend for ContentMemory {
             base_seed(),
             crate::bridge_actor::BridgeSeed {
                 bytes_00_193: [0; 0x194],
+            },
+        )))
+    }
+    fn allocate_door(
+        &mut self,
+        bytes: u32,
+    ) -> Result<Option<(u32, BaseActorSeed, crate::door_actor::DoorSeed)>, String> {
+        Ok(Some((
+            self.actor(bytes, 0x1b8)?,
+            base_seed(),
+            crate::door_actor::DoorSeed {
+                bytes_00_1b7: [0; 0x1b8],
             },
         )))
     }

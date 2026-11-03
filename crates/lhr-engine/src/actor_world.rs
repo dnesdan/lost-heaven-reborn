@@ -17,6 +17,7 @@ use crate::car_actor::{CarActorServices, CarActorState, CarSeed};
 use crate::cutscene_records::{
     ActorUserData, CutsceneRecordArena, RecordedActorAssociation, RecordedActorId,
 };
+use crate::door_actor::{DoorLoadVersion, DoorSeed, DoorSoundNames, DoorState};
 use crate::entity_actor::{EntityResourceSlot, EntitySeed, EntityState};
 use crate::frame_lookup::{FrameLookupBackend, SceneRoots};
 use crate::human_actor::{
@@ -105,6 +106,7 @@ pub enum ActorVtable {
     Detector,
     Railway,
     Bridge,
+    Door,
     Human,
     Player,
     Entity,
@@ -132,6 +134,7 @@ struct OwnedActor {
     detector: Option<DetectorState>,
     railway: Option<RailwayState>,
     bridge: Option<BridgeState>,
+    door: Option<DoorState>,
     human: Option<HumanState>,
     player: Option<PlayerState>,
     entity: Option<EntityState>,
@@ -257,6 +260,7 @@ pub enum ActorWorldError {
     NotDetector,
     NotRailway,
     NotBridge,
+    NotDoor,
     BridgeTableUnavailable,
     BridgeTableTruncated,
     NotHuman,
@@ -423,6 +427,13 @@ pub trait ActorAllocationBackend {
     ) -> Result<Option<(u32, BaseActorSeed, BridgeSeed)>, String> {
         Err("bridge allocation unavailable".into())
     }
+    /// Kind6 requires actual 0x1b8-byte storage and its untouched seed.
+    fn allocate_door(
+        &mut self,
+        _bytes: u32,
+    ) -> Result<Option<(u32, BaseActorSeed, DoorSeed)>, String> {
+        Err("door allocation unavailable".into())
+    }
 }
 /// Native backing/free dependencies. A failed scalar `free_actor` retains its
 /// backend lease after object destruction. Traffic's reached resource frees may
@@ -555,6 +566,7 @@ pub struct ActorWorld {
     car_services: Option<CarActorServices>,
     bridge_table: Option<BridgeTable>,
     bridge_sectors: BridgeSectors,
+    door_sounds: DoorSoundNames,
 }
 impl ActorWorld {
     pub(crate) fn lookup_actor_frame(
@@ -595,6 +607,7 @@ impl ActorWorld {
             car_services: None,
             bridge_table: None,
             bridge_sectors: BridgeSectors::default(),
+            door_sounds: DoorSoundNames::default(),
         })
     }
     fn collection(&self, source: ActorSource) -> &ActorCollection {
@@ -880,6 +893,7 @@ impl ActorWorld {
             detector: None,
             railway,
             bridge: None,
+            door: None,
             human: None,
             player: None,
             entity: None,
@@ -1579,6 +1593,240 @@ impl ActorWorld {
         }
         Ok(())
     }
+    /// Genuine C_door construction: the caller's base owner plus the exact
+    /// derived constructor bytes for kind 6 (0x1b8 bytes, vtable 0x623b20).
+    /// The three sound names are written to shared world storage, matching
+    /// the native repeated strcpy into static buffers.
+    pub fn construct_door<B: ActorCollectionBackend + ?Sized>(
+        &mut self,
+        identity: u32,
+        base: BaseActorSeed,
+        seed: DoorSeed,
+        backend: &mut B,
+    ) -> Result<ActorReferenceId, ActorCreationError> {
+        identity.checked_add(0x1b7).ok_or(ActorCreationError {
+            actor: None,
+            source: ActorWorldError::InvalidBacking,
+        })?;
+        let actor = self.construct_base(identity, base, backend)?;
+        let i = self.index(actor).expect("constructed door owner");
+        let mut state = DoorState::allocation(seed);
+        state.complete_constructor();
+        self.actors[i].door = Some(state);
+        self.actors[i].state.vtable = ActorVtable::Door;
+        self.actors[i].state.word_10 = 6;
+        self.door_sounds = DoorSoundNames::construction_defaults();
+        Ok(actor)
+    }
+    pub fn door(&self, actor: ActorReferenceId) -> Result<&DoorState, ActorWorldError> {
+        self.actors[self.index(actor)?]
+            .door
+            .as_ref()
+            .ok_or(ActorWorldError::NotDoor)
+    }
+    pub fn inspect_door(&self, actor: ActorReferenceId) -> Option<&DoorState> {
+        self.actors
+            .iter()
+            .find(|a| a.lifetime.reference() == actor)?
+            .door
+            .as_ref()
+    }
+    /// Shared default sound names written by every door construction.
+    pub fn door_sounds(&self) -> &DoorSoundNames {
+        &self.door_sounds
+    }
+    /// Original C_door::LoadData version dispatch over the scene2 payload.
+    /// Each field read is individually guarded: a truncated tail keeps the
+    /// constructor values for the missing fields, and an absent version word
+    /// consumes nothing. Returns consumed payload bytes for host inspection,
+    /// not a native status; every path reports native success.
+    pub fn load_door_data(
+        &mut self,
+        actor: ActorReferenceId,
+        reader: &mut ActorDataReader<'_>,
+    ) -> Result<usize, ActorWorldError> {
+        let i = self.ready(actor)?;
+        if self.actors[i].door.is_none() || self.actors[i].state.vtable != ActorVtable::Door {
+            return Err(ActorWorldError::NotDoor);
+        }
+        let start = reader.position();
+        let mut version = [0u8; 4];
+        if !reader.read_bounded(&mut version) {
+            self.actors[i].phase = ActorPhase::Ready;
+            return Ok(0);
+        }
+        let door = self.actors[i].door.as_mut().expect("admitted door");
+        let mut byte = [0u8; 1];
+        let mut word = [0u8; 4];
+        let mut name = [0u8; 16];
+        match DoorLoadVersion::decode(u32::from_le_bytes(version)) {
+            DoorLoadVersion::V7 => {
+                if reader.read_bounded(&mut byte) {
+                    door.put_load_byte(0x11c, byte[0]);
+                }
+                if reader.read_bounded(&mut byte) {
+                    door.put_load_byte(0x11d, byte[0]);
+                }
+                Self::load_door_v5_fields(door, reader, &mut byte, &mut word, &mut name);
+                Self::load_door_tail_names(door, reader, &mut name);
+            }
+            DoorLoadVersion::V6 => {
+                if reader.read_bounded(&mut byte) {
+                    door.put_load_byte(0x11d, byte[0]);
+                }
+                Self::load_door_v5_fields(door, reader, &mut byte, &mut word, &mut name);
+                Self::load_door_tail_names(door, reader, &mut name);
+            }
+            DoorLoadVersion::V5 => {
+                Self::load_door_v5_fields(door, reader, &mut byte, &mut word, &mut name);
+                Self::load_door_tail_names(door, reader, &mut name);
+            }
+            DoorLoadVersion::V8 => {
+                if reader.read_bounded(&mut byte) {
+                    door.put_load_byte(0x11c, byte[0]);
+                }
+                if reader.read_bounded(&mut byte) {
+                    door.put_load_byte(0x11d, byte[0]);
+                }
+                if reader.read_bounded(&mut byte) {
+                    door.put_load_byte(0x11e, byte[0]);
+                }
+                if reader.read_bounded(&mut word) {
+                    door.put_load_word(0x120, u32::from_le_bytes(word));
+                }
+                if reader.read_bounded(&mut byte) {
+                    door.put_load_byte(0x124, byte[0]);
+                }
+                if reader.read_bounded(&mut byte) {
+                    door.put_load_byte(0x125, byte[0]);
+                }
+                if reader.read_bounded(&mut word) {
+                    door.put_load_word(0x128, u32::from_le_bytes(word));
+                }
+                if reader.read_bounded(&mut word) {
+                    door.put_load_word(0x12c, u32::from_le_bytes(word));
+                }
+                if reader.read_bounded(&mut name) {
+                    door.put_load_name(0x130, &name);
+                }
+                if reader.read_bounded(&mut name) {
+                    door.put_load_name(0x140, &name);
+                }
+                if reader.read_bounded(&mut name) {
+                    door.put_load_name(0x150, &name);
+                }
+                if reader.read_bounded(&mut byte) {
+                    door.put_load_byte(0x164, byte[0]);
+                }
+            }
+            DoorLoadVersion::Unknown => {}
+        }
+        self.actors[i].phase = ActorPhase::Ready;
+        Ok(reader.position() - start)
+    }
+    /// Version-5 field prefix shared by versions 5-7: one flag byte, one
+    /// timer word, two flag bytes, two timer words and the 16-byte open-sound
+    /// slot. The caller reads newer leading bytes first, matching the native
+    /// fallthrough from the newer case into this shared sequence.
+    fn load_door_v5_fields(
+        door: &mut DoorState,
+        reader: &mut ActorDataReader<'_>,
+        byte: &mut [u8; 1],
+        word: &mut [u8; 4],
+        name: &mut [u8; 16],
+    ) {
+        if reader.read_bounded(&mut *byte) {
+            door.put_load_byte(0x11e, byte[0]);
+        }
+        if reader.read_bounded(&mut *word) {
+            door.put_load_word(0x120, u32::from_le_bytes(*word));
+        }
+        if reader.read_bounded(&mut *byte) {
+            door.put_load_byte(0x124, byte[0]);
+        }
+        if reader.read_bounded(&mut *byte) {
+            door.put_load_byte(0x125, byte[0]);
+        }
+        if reader.read_bounded(&mut *word) {
+            door.put_load_word(0x128, u32::from_le_bytes(*word));
+        }
+        if reader.read_bounded(&mut *word) {
+            door.put_load_word(0x12c, u32::from_le_bytes(*word));
+        }
+        if reader.read_bounded(&mut *name) {
+            door.put_load_name(0x130, name);
+        }
+    }
+    /// Tail name slots shared by versions 5-7 after their `break`: the
+    /// close- and locked-sound buffers. Version 8 reads its own tail inline.
+    fn load_door_tail_names(
+        door: &mut DoorState,
+        reader: &mut ActorDataReader<'_>,
+        name: &mut [u8; 16],
+    ) {
+        if reader.read_bounded(&mut *name) {
+            door.put_load_name(0x140, name);
+        }
+        if reader.read_bounded(&mut *name) {
+            door.put_load_name(0x150, name);
+        }
+    }
+    pub fn release_door<F: ActorFrameBackend + ?Sized, B: ActorDeallocationBackend + ?Sized>(
+        &mut self,
+        actor: ActorReferenceId,
+        frames: &mut F,
+        backend: &mut B,
+    ) -> Result<u16, ActorWorldError> {
+        let i = self.ready(actor)?;
+        if self.actors[i].door.is_none() || self.actors[i].state.vtable != ActorVtable::Door {
+            return Err(ActorWorldError::NotDoor);
+        }
+        let count = self.actors[i].state.references.wrapping_sub(1);
+        self.actors[i].state.references = count;
+        if count == 0 {
+            self.delete_door(actor, 1, frames, backend)?;
+        }
+        Ok(count)
+    }
+    pub fn destroy_door<F: ActorFrameBackend + ?Sized>(
+        &mut self,
+        actor: ActorReferenceId,
+        backend: &mut F,
+    ) -> Result<(), ActorWorldError> {
+        let i = self.index(actor)?;
+        if !matches!(
+            self.actors[i].phase,
+            ActorPhase::Ready
+                | ActorPhase::LoadingInterrupted
+                | ActorPhase::InitializationInterrupted
+        ) {
+            return Err(ActorWorldError::Busy(actor));
+        }
+        if self.actors[i].door.is_none() {
+            return Err(ActorWorldError::NotDoor);
+        }
+        self.actors[i].phase = ActorPhase::Destroying;
+        self.actors[i].state.vtable = ActorVtable::Door;
+        self.destroy_base_inner(actor, backend)
+    }
+    pub fn delete_door<F: ActorFrameBackend + ?Sized, B: ActorDeallocationBackend + ?Sized>(
+        &mut self,
+        actor: ActorReferenceId,
+        argument: u32,
+        frames: &mut F,
+        backend: &mut B,
+    ) -> Result<(), ActorWorldError> {
+        self.destroy_door(actor, frames)?;
+        if argument & 1 != 0 {
+            backend
+                .free_actor(self, actor.identity())
+                .map_err(|detail| ActorWorldError::Effect {
+                    stage: "free_door",
+                    detail,
+                })?;
+        }
+        Ok(())
+    }
     /// Native LoadData returns AL1 even when bounded read guards skip fields.
     /// Returns consumed payload bytes for host inspection, not a native status.
     pub fn load_railway_data(
@@ -2249,6 +2497,20 @@ impl ActorWorld {
                     })?;
             return allocation
                 .map(|(identity, base, seed)| self.construct_bridge(identity, base, seed, backend))
+                .transpose();
+        }
+        if kind == 6 {
+            let allocation = backend
+                .allocate_door(0x1b8)
+                .map_err(|detail| ActorCreationError {
+                    actor: None,
+                    source: ActorWorldError::Effect {
+                        stage: "allocate_door",
+                        detail,
+                    },
+                })?;
+            return allocation
+                .map(|(identity, base, seed)| self.construct_door(identity, base, seed, backend))
                 .transpose();
         }
         if kind != 1 {
@@ -3508,8 +3770,8 @@ mod tests {
         let mut w = world();
         let mut e = Effects::default();
         assert_eq!(
-            w.create_actor(6, &mut e).unwrap_err().source,
-            ActorWorldError::UnsupportedKind(6)
+            w.create_actor(9, &mut e).unwrap_err().source,
+            ActorWorldError::UnsupportedKind(9)
         );
         assert!(e.events.is_empty());
         let a = w.create_actor(1, &mut e).unwrap().unwrap();
@@ -3555,7 +3817,7 @@ mod tests {
                 ] {
                     assert!(w.source(source).is_empty());
                 }
-            } else if ![1, 2, 4, 5, 8, 18, 20, 27].contains(&kind) {
+            } else if ![1, 2, 4, 5, 6, 8, 18, 20, 27].contains(&kind) {
                 assert_eq!(
                     result.unwrap_err().source,
                     ActorWorldError::UnsupportedKind(kind)
@@ -4500,6 +4762,264 @@ mod bridge_tests {
         assert_eq!(
             world
                 .release_bridge(
+                    actor,
+                    &mut ModelActorFrames::borrow(&mut arena, true),
+                    &mut heap
+                )
+                .unwrap(),
+            0
+        );
+        assert!(heap.actor_freed);
+        assert_eq!(world.inspect(actor).unwrap().0, ActorPhase::Dead);
+        assert_eq!(world.actor_count, 9);
+        assert_eq!(world.inspect(actor).unwrap().1.vtable, ActorVtable::Base);
+    }
+}
+
+#[cfg(test)]
+mod door_tests {
+    use super::*;
+    use crate::actor_frames::ModelActorFrames;
+    use crate::door_actor::DoorSeed;
+    use crate::human_actor::ActorDataReader;
+    use crate::model_loading::ModelArena;
+    fn seed() -> BaseActorSeed {
+        BaseActorSeed {
+            word_0e: 0xaabb,
+            actor_id: 0x1234,
+            state_1c: 0x87654321,
+            bytes_21_5f: [0x21; 63],
+            bytes_64_65: [0x65; 2],
+            byte_67: 0x67,
+            release_frame: 1,
+            bytes_6d_6f: [0x6f; 3],
+        }
+    }
+    fn door_world(capacity: usize) -> ActorWorld {
+        let b = SourceBacking {
+            storage: (capacity != 0).then_some(ActorStorageId(1)),
+            capacity,
+        };
+        ActorWorld::new(9, 100, b, b, b).unwrap()
+    }
+    #[derive(Default)]
+    struct Heap {
+        identity: u32,
+        null: bool,
+        actor_freed: bool,
+    }
+    impl ActorAllocationBackend for Heap {
+        fn allocate_actor(&mut self, _: u32) -> Result<Option<(u32, BaseActorSeed)>, String> {
+            Err("base allocation outside fixture".into())
+        }
+        fn allocate_door(
+            &mut self,
+            bytes: u32,
+        ) -> Result<Option<(u32, BaseActorSeed, DoorSeed)>, String> {
+            assert_eq!(bytes, 0x1b8);
+            if self.null {
+                return Ok(None);
+            }
+            self.identity += 1;
+            Ok(Some((
+                self.identity,
+                seed(),
+                DoorSeed {
+                    bytes_00_1b7: [0xa5; 0x1b8],
+                },
+            )))
+        }
+    }
+    impl ActorCollectionBackend for Heap {
+        fn allocate_collection(
+            &mut self,
+            _: &ActorWorld,
+            _: ActorSource,
+            _: u32,
+        ) -> Result<ActorStorageId, String> {
+            Ok(ActorStorageId(2))
+        }
+        fn free_collection(
+            &mut self,
+            _: &ActorWorld,
+            _: ActorSource,
+            _: Option<ActorStorageId>,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+    }
+    impl ActorDeallocationBackend for Heap {
+        fn free_actor(&mut self, _: &ActorWorld, identity: u32) -> Result<(), String> {
+            assert_eq!(identity, self.identity);
+            self.actor_freed = true;
+            Ok(())
+        }
+    }
+    fn actor(world: &mut ActorWorld, heap: &mut Heap) -> ActorReferenceId {
+        world.create_actor(6, heap).unwrap().unwrap()
+    }
+    fn v8_payload() -> Vec<u8> {
+        let mut payload = vec![8u8, 0, 0, 0];
+        payload.push(0x11); // 0x11c lock flag
+        payload.push(0x22); // 0x11d
+        payload.push(0x33); // 0x11e
+        payload.extend(0x12345678u32.to_le_bytes()); // 0x120
+        payload.push(0x44); // 0x124
+        payload.push(0x55); // 0x125
+        payload.extend(0x9abcdef0u32.to_le_bytes()); // 0x128
+        payload.extend(0x0fedcba9u32.to_le_bytes()); // 0x12c
+        let mut open = [0u8; 16];
+        open[..9].copy_from_slice(b"open.wav\0");
+        payload.extend(open);
+        let mut close = [0u8; 16];
+        close[..10].copy_from_slice(b"close.wav\0");
+        payload.extend(close);
+        let mut locked = [0u8; 16];
+        locked[..11].copy_from_slice(b"locked.wav\0");
+        payload.extend(locked);
+        payload.push(0x66); // 0x164
+        payload
+    }
+    #[test]
+    fn door_factory_constructs_exact_derived_bytes_and_kind() {
+        let mut world = door_world(8);
+        let mut heap = Heap {
+            identity: 0x81000000,
+            ..Heap::default()
+        };
+        let actor = actor(&mut world, &mut heap);
+        assert_eq!(world.state(actor).unwrap().word_10, 6);
+        assert_eq!(world.state(actor).unwrap().vtable, ActorVtable::Door);
+        let door = world.door(actor).unwrap();
+        assert_eq!(door.timer_word(), 0x3b83126f);
+        assert_eq!(door.bytes()[0x11d], 1);
+        assert_eq!(door.bytes()[0x120..0x124], [0xdb, 0x0f, 0xc9, 0x3f]);
+        assert!(world.inspect_door(actor).is_some());
+        assert_eq!(&world.door_sounds().open[..12], b"d_woodop.wav");
+        assert_eq!(&world.door_sounds().close[..12], b"d_woodcl.wav");
+        assert_eq!(&world.door_sounds().locked[..12], b"d_woodlo.wav");
+        let mut empty = door_world(8);
+        let mut null = Heap {
+            null: true,
+            ..Heap::default()
+        };
+        assert_eq!(empty.create_actor(6, &mut null).unwrap(), None);
+        assert_eq!(empty.actor_count, 9);
+    }
+    #[test]
+    fn door_load_data_dispatches_versions_and_counts_bytes() {
+        let mut world = door_world(8);
+        let mut heap = Heap {
+            identity: 0x81000000,
+            ..Heap::default()
+        };
+        let actor = actor(&mut world, &mut heap);
+        let payload = v8_payload();
+        assert_eq!(payload.len(), 70);
+        let mut reader = ActorDataReader::new(&payload);
+        assert_eq!(world.load_door_data(actor, &mut reader), Ok(70));
+        assert_eq!(reader.position(), 70);
+        let door = world.door(actor).unwrap();
+        assert_eq!(door.lock_flag(), 0x11);
+        assert_eq!(door.bytes()[0x11d], 0x22);
+        assert_eq!(door.bytes()[0x11e], 0x33);
+        assert_eq!(door.timer_word(), 0x9abcdef0);
+        assert_eq!(door.open_sound(), b"open.wav");
+        assert_eq!(door.close_sound(), b"close.wav");
+        assert_eq!(door.locked_sound(), b"locked.wav");
+        assert_eq!(door.bytes()[0x164], 0x66);
+        assert_eq!(world.phase(actor), Ok(ActorPhase::Ready));
+        // Unknown versions consume only the version word.
+        let mut reader = ActorDataReader::new(&[9u8, 0, 0, 0, 1, 2, 3]);
+        assert_eq!(world.load_door_data(actor, &mut reader), Ok(4));
+        assert_eq!(reader.position(), 4);
+        // A missing version word consumes nothing and still succeeds.
+        let mut reader = ActorDataReader::new(&[8u8, 0]);
+        assert_eq!(world.load_door_data(actor, &mut reader), Ok(0));
+        // Truncated version-8 tails keep prior values field by field: each
+        // guarded read stands alone, so later narrow reads still land after
+        // a skipped wide one, exactly like the native guard chain.
+        let mut reader = ActorDataReader::new(&payload[..10]);
+        assert_eq!(world.load_door_data(actor, &mut reader), Ok(10));
+        let door = world.door(actor).unwrap();
+        assert_eq!(door.bytes()[0x11c], 0x11);
+        assert_eq!(door.bytes()[0x120..0x124], [0x78, 0x56, 0x34, 0x12]);
+        assert_eq!(door.bytes()[0x124], 0x78);
+        assert_eq!(door.bytes()[0x125], 0x56);
+        assert_eq!(door.timer_word(), 0x9abcdef0);
+        assert_eq!(door.bytes()[0x164], 0x34);
+        let i = world.index(actor).unwrap();
+        world.actors[i].door = None;
+        let mut reader = ActorDataReader::new(&payload);
+        assert_eq!(
+            world.load_door_data(actor, &mut reader),
+            Err(ActorWorldError::NotDoor)
+        );
+    }
+    #[test]
+    fn door_older_versions_consume_their_prefixes() {
+        let mut world = door_world(8);
+        let mut heap = Heap {
+            identity: 0x81000000,
+            ..Heap::default()
+        };
+        let actor = actor(&mut world, &mut heap);
+        // Version 5: 4 + 1+4+1+1+4+4+16 + 16+16 tail names.
+        let mut payload = vec![5u8, 0, 0, 0, 0x31];
+        payload.extend(0x11111111u32.to_le_bytes());
+        payload.extend([0x32, 0x33]);
+        payload.extend(0x22222222u32.to_le_bytes());
+        payload.extend(0x33333333u32.to_le_bytes());
+        payload.extend([0x77u8; 16]);
+        payload.extend([0x88u8; 16]);
+        payload.extend([0x99u8; 16]);
+        assert_eq!(payload.len(), 67);
+        let mut reader = ActorDataReader::new(&payload);
+        assert_eq!(world.load_door_data(actor, &mut reader), Ok(67));
+        let door = world.door(actor).unwrap();
+        assert_eq!(door.bytes()[0x11d], 1);
+        assert_eq!(door.bytes()[0x11e], 0x31);
+        assert_eq!(door.close_sound(), &[0x88u8; 16][..]);
+        // Version 6 adds the 0x11d leading byte.
+        let mut payload = vec![6u8, 0, 0, 0, 0x41];
+        payload.extend([0u8; 63]);
+        let mut reader = ActorDataReader::new(&payload);
+        assert_eq!(world.load_door_data(actor, &mut reader), Ok(68));
+        assert_eq!(world.door(actor).unwrap().bytes()[0x11d], 0x41);
+        // Version 7 adds the 0x11c leading byte.
+        let mut payload = vec![7u8, 0, 0, 0, 0x51, 0x52];
+        payload.extend([0u8; 63]);
+        let mut reader = ActorDataReader::new(&payload);
+        assert_eq!(world.load_door_data(actor, &mut reader), Ok(69));
+        let door = world.door(actor).unwrap();
+        assert_eq!(door.lock_flag(), 0x51);
+        assert_eq!(door.bytes()[0x11d], 0x52);
+    }
+    #[test]
+    fn door_release_decrements_and_deletes_at_zero() {
+        let mut world = door_world(8);
+        let mut heap = Heap {
+            identity: 0x81000000,
+            ..Heap::default()
+        };
+        let actor = actor(&mut world, &mut heap);
+        let i = world.index(actor).unwrap();
+        world.actors[i].state.references = 2;
+        let mut arena = ModelArena::default();
+        assert_eq!(
+            world
+                .release_door(
+                    actor,
+                    &mut ModelActorFrames::borrow(&mut arena, true),
+                    &mut heap
+                )
+                .unwrap(),
+            1
+        );
+        assert!(!heap.actor_freed);
+        assert_eq!(
+            world
+                .release_door(
                     actor,
                     &mut ModelActorFrames::borrow(&mut arena, true),
                     &mut heap

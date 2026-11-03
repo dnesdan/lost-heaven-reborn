@@ -1231,7 +1231,7 @@ fn unsupported_named_actor_stops_at_kind_read_and_preserves_prior_program_and_ac
         &[
             chunk(0xae20, &actor_record(b"first", 1, b"")),
             chunk(0xae50, &program_record(b"retained", b"source")),
-            chunk(0xae20, &actor_record(b"second", 6, b"")),
+            chunk(0xae20, &actor_record(b"second", 9, b"")),
             chunk(0x4000, &object(9, b"unreached", &[])),
         ]
         .concat(),
@@ -1252,7 +1252,7 @@ fn unsupported_named_actor_stops_at_kind_read_and_preserves_prior_program_and_ac
     };
     assert_eq!(error.entry, 0x544a16);
     assert_eq!(error.cursor, kind.offset + 10);
-    assert!(error.detail.contains("UnsupportedKind(6)"));
+    assert!(error.detail.contains("UnsupportedKind(9)"));
     let loader = session.loader().unwrap();
     assert_eq!(
         loader
@@ -1268,6 +1268,35 @@ fn unsupported_named_actor_stops_at_kind_read_and_preserves_prior_program_and_ac
     let failure = format!("{:?}", session.failure());
     discard(&mut session);
     assert_eq!(format!("{:?}", session.failure()), failure);
+}
+#[test]
+fn door_kind_loads_versioned_fields_and_advances_cursor() {
+    use crate::actor_world::{ActorSource, ActorVtable};
+    let mut payload = vec![8u8, 0, 0, 0, 0x11, 0x22, 0x33];
+    payload.extend(0x12345678u32.to_le_bytes());
+    payload.extend([0x44, 0x55]);
+    payload.extend(0x9abcdef0u32.to_le_bytes());
+    payload.extend(0x0fedcba9u32.to_le_bytes());
+    payload.extend([0u8; 48]);
+    payload.push(0x66);
+    assert_eq!(payload.len(), 70);
+    let bytes = scene2(&[chunk(0xae20, &actor_record(b"door1", 6, &payload))].concat());
+    let fixture = Fixture::new(Some(&world(&[dummy(0, b"door1")])), Some(&bytes), None);
+    let mut session = fixture.session();
+    load(&mut session, &[]).unwrap();
+    let loader = session.loader().unwrap();
+    let world = &loader.content.actors.world;
+    assert_eq!(world.actor_count, 1);
+    let actors = world.source(ActorSource::Primary).to_vec();
+    assert_eq!(actors.len(), 1);
+    let actor = actors[0].unwrap();
+    assert_eq!(world.state(actor).unwrap().vtable, ActorVtable::Door);
+    assert_eq!(world.state(actor).unwrap().word_10, 6);
+    let door = world.door(actor).unwrap();
+    assert_eq!(door.lock_flag(), 0x11);
+    assert_eq!(door.timer_word(), 0x9abcdef0);
+    assert_eq!(loader.cursor, bytes.len());
+    discard(&mut session);
 }
 #[test]
 fn bridge_kind_loads_linked_flap_and_skips_unlinked_prefix() {
@@ -1328,7 +1357,7 @@ fn padded_kind_field_is_closed_before_factory_failure_and_preserves_registered_p
             chunk(0xae23, b"second\0"),
             chunk(
                 0xae22,
-                &[6u32.to_le_bytes().as_slice(), b"unread padding"].concat(),
+                &[9u32.to_le_bytes().as_slice(), b"unread padding"].concat(),
             ),
             chunk(0xae24, b"must not reach actor data"),
         ]
@@ -1359,7 +1388,7 @@ fn padded_kind_field_is_closed_before_factory_failure_and_preserves_registered_p
     };
     assert_eq!(error.entry, 0x544a16);
     assert_eq!(error.cursor, kind.offset + kind.raw.len());
-    assert!(error.detail.contains("UnsupportedKind(6)"));
+    assert!(error.detail.contains("UnsupportedKind(9)"));
     let loader = session.loader().unwrap();
     assert_eq!(loader.cursor, error.cursor);
     assert_eq!(loader.content.actors.cursor, error.cursor);
