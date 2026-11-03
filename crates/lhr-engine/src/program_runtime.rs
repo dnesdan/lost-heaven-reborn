@@ -145,6 +145,7 @@ pub struct RuntimeFields {
     pub command_time: u32,
     pub event_command_time: u32,
     pub event_time: u32,
+    pub game_time: u32,
     pub rand_state: u32,
 }
 impl RuntimeFields {
@@ -193,6 +194,7 @@ impl RuntimeFields {
             command_time: 0,
             event_command_time: 0,
             event_time: 0,
+            game_time: 0,
             // The C runtime seeds rand() from the host clock at GameInit;
             // that lifecycle is not implemented, so scripts observe the CRT
             // default sequence deterministically instead of host time.
@@ -559,6 +561,7 @@ pub struct RuntimeView<'a> {
     pub command_time: &'a mut u32,
     pub event_command_time: &'a mut u32,
     pub event_time: &'a mut u32,
+    pub game_time: &'a mut u32,
     pub rand_state: &'a mut u32,
 }
 impl RuntimeFields {
@@ -579,6 +582,7 @@ impl RuntimeFields {
             command_time: &mut self.command_time,
             event_command_time: &mut self.event_command_time,
             event_time: &mut self.event_time,
+            game_time: &mut self.game_time,
             rand_state: &mut self.rand_state,
         }
     }
@@ -1452,10 +1456,7 @@ impl CProgram {
         runtime.fields.gosub_stack.push(cur | 0x8000 | 0x4000);
         runtime.fields.scheduler.program_counter = found as u32;
         runtime.fields.event_command_time = runtime.fields.command_time;
-        // Global game time is not yet reconstructed; snapshot as 0. RETURN's
-        // time restoration will be provisional (event_command_time only) until
-        // the Game tick loop provides a global clock.
-        runtime.fields.event_time = 0;
+        runtime.fields.event_time = runtime.fields.game_time;
         runtime.fields.command_time = 0;
         // The native SetActState(ACTSTATE_0) on the program's actor is
         // handled by the world after this call (the program owns no actor
@@ -1616,6 +1617,7 @@ impl CProgram {
             command_time,
             event_command_time,
             event_time,
+            game_time,
             rand_state,
         } = &mut runtime.fields;
         let mut dispatch = Process {
@@ -1636,6 +1638,7 @@ impl CProgram {
             command_time,
             event_command_time,
             event_time,
+            game_time,
             rand_state,
             backend,
         };
@@ -1979,6 +1982,7 @@ struct Process<'a, B> {
     command_time: &'a mut u32,
     event_command_time: &'a mut u32,
     event_time: &'a mut u32,
+    game_time: &'a mut u32,
     rand_state: &'a mut u32,
     backend: &'a mut B,
 }
@@ -2201,6 +2205,7 @@ impl<B: RuntimeBackend> Process<'_, B> {
                 command_time: self.command_time,
                 event_command_time: self.event_command_time,
                 event_time: self.event_time,
+                game_time: self.game_time,
                 rand_state: self.rand_state,
             },
             effect,
@@ -2402,6 +2407,7 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
     fn dispatch(&mut self, state: &mut ResetState, delta: i32) -> Result<(), RuntimeError> {
         *self.elapsed = self.elapsed.wrapping_add(delta as u32);
         *self.command_time = self.command_time.wrapping_add(delta as u32);
+        *self.game_time = self.game_time.wrapping_add(delta as u32);
         let opcode = self.instructions.active()[state.program_counter as usize].opcode;
         let mut advance = Advance::Next;
         match opcode {
@@ -2546,8 +2552,9 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                     *self.command_time = 0;
                     state.program_counter = target;
                     if is_event && back_in_time && !self.leave_compact_block(state, false) {
-                        // Delta GetGameTime - event_time omitted until global clock
-                        *self.command_time = *self.event_command_time;
+                        *self.command_time = self
+                            .event_command_time
+                            .wrapping_add(self.game_time.wrapping_sub(*self.event_time));
                     }
                     if self.flags.stop_at_return {
                         self.flags.stop_at_return = false;
@@ -2824,6 +2831,28 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                 // policemanager_on/off (135/136), stream_create (181), stream_fadevol (187),
                 // iffltinrange (20), zatmyse (234). Decode admitted via RemainingParameter;
                 // execution is a no-op advance for now (detector signal, car, player etc remain stubs).
+            }
+            209 => {
+                // GETTICKTIME: float_regs[reg] = delta
+                let reg = self.value_at(state)?;
+                if reg >= 0 {
+                    if let Some(bank) = self.floats.as_mut() {
+                        if let Some(slot) = bank.get_mut(reg as usize) {
+                            *slot = delta as f32;
+                        }
+                    }
+                }
+            }
+            210 => {
+                // GETGAMETIME: float_regs[reg] = game_time
+                let reg = self.value_at(state)?;
+                if reg >= 0 {
+                    if let Some(bank) = self.floats.as_mut() {
+                        if let Some(slot) = bank.get_mut(reg as usize) {
+                            *slot = *self.game_time as f32;
+                        }
+                    }
+                }
             }
             0x1004 | 0x101a | 0x1031 | 0x103a | 0x103b => {
                 advance = self.dispatch_entity(state, opcode)?;

@@ -188,6 +188,7 @@ impl<B: RuntimeBackend> Process<'_, B> {
                             command_time: self.command_time,
                             event_command_time: self.event_command_time,
                             event_time: self.event_time,
+                            game_time: self.game_time,
                             rand_state: self.rand_state,
                         },
                         self.owner,

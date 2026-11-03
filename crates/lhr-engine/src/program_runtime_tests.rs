@@ -1067,6 +1067,29 @@ fn mission_flow_commands_advance_as_noop_and_count_in_discard() {
     assert_eq!(report.change_mission_allocations, 1);
 }
 #[test]
+fn get_tick_and_game_time_write_float_regs() {
+    let mut memory = Memory::default();
+    let mut p = program(b"dim_flt 2\ngetticktime 0\ngetgametime 1", &mut memory);
+    p.init_fresh_runtime(&mut memory).unwrap();
+    // First call with delta 7: game_time becomes 7, command_time 7
+    p.call_owned_process(7, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
+    p.call_owned_process(7, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    let floats = p.runtime().unwrap().fields.floats.as_ref().unwrap();
+    assert_eq!(floats[0], 7.0);
+    p.call_owned_process(7, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    let floats = p.runtime().unwrap().fields.floats.as_ref().unwrap();
+    assert_eq!(floats[1], 21.0);
+    let before = p.runtime().unwrap().fields.game_time;
+    p.call_owned_process(3, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    // At PC 3 (past end), run_scheduler returns immediately without dispatch, so game_time stays
+    assert_eq!(p.runtime().unwrap().fields.game_time, before);
+}
+#[test]
 fn try_set_event_on_program_jumps_and_pushes_event_stack() {
     let mut memory = Memory::default();
     // Program with two events, the last (index 1) should be found
@@ -1105,7 +1128,7 @@ fn try_set_event_on_program_jumps_and_pushes_event_stack() {
     p2.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
         .unwrap();
     assert_eq!(p2.runtime().unwrap().fields.program_counter(), 5);
-    assert_eq!(p2.runtime().unwrap().fields.command_time, 11);
+    assert_eq!(p2.runtime().unwrap().fields.command_time, 12);
 }
 #[test]
 fn return_handles_event_time_restoration_and_plain_pop() {
@@ -1123,7 +1146,8 @@ fn return_handles_event_time_restoration_and_plain_pop() {
     p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
         .unwrap();
     assert_eq!(p.runtime().unwrap().fields.program_counter(), 5);
-    assert_eq!(p.runtime().unwrap().fields.command_time, 42);
+    // With game_time, command_time = event_command_time + (game_time - event_time) = 42 + (1) = 43
+    assert_eq!(p.runtime().unwrap().fields.command_time, 43);
     assert!(p.runtime().unwrap().fields.gosub_stack.is_empty());
     // Plain gosub return just jumps without time restore
     let mut p2 = program(b"return", &mut memory);
