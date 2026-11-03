@@ -240,6 +240,6 @@ mod tests {
             second.decode(16, &mut input, &mut Boundary::default()),
             Err(PairDecodeError::UnsupportedOpcode(16))
         );
-        assert_eq!(input, b"2\03\0");
+        assert_eq!(input, [b'2', 0, b'3', 0]);
     }
 }
