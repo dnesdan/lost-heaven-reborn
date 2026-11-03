@@ -7,6 +7,15 @@
 //! corroborates the class name only, not the PC member layout. Offsets below
 //! are byte offsets into the derived object; the base C_actor occupies 0x70.
 //! Member names are descriptive PC projections; no PS2 member layout is assumed.
+//!
+//! PR3 parity (mafia-re `pr3`, commits 32b1b33..b0c02ef): constructor stores,
+//! `DecrementCount` 0x4b9560, `SaveGameSave` 0x4bc160 / `SaveGameLoad`
+//! 0x4bc190 (u16 tag 1), `SaveData` 0x4aabf0 (version 5 + three tuning
+//! words + field 0x21c + counted 0x20-byte names). `RemoveAllCars` 0x4bad80
+//! and `RemoveCar` 0x4bbe90 remain unimplemented stubs; the previous vulgar
+//! working names are retired. `LoadData` 0x4aad20 remains a stub. Static
+//! coefficients live in [`TrafficTuning`]; the static traffic count lives in
+//! [`TrafficCarCount`].
 
 /// Actual untouched allocation bytes of one 0x26c-byte traffic-car object.
 /// Pointer words overwritten by construction are not promoted into owners.
@@ -115,6 +124,183 @@ impl TrafficTuning {
     pub(crate) fn init_copy(&mut self) {
         self.copy_target = self.copy_source;
     }
+
+    /// Element coefficient at PC 0x63d7fc (`elems_coefff`, PS2 name).
+    pub fn elems_coeff_bits(&self) -> u32 {
+        self.unit_floats[0]
+    }
+
+    /// Mafia coefficient at PC 0x63d800 (`mafian_coefff`, PS2 name).
+    pub fn mafian_coeff_bits(&self) -> u32 {
+        self.unit_floats[1]
+    }
+
+    /// Police coefficient at PC 0x63d804 (`police_coefff`, PS2 name).
+    pub fn police_coeff_bits(&self) -> u32 {
+        self.unit_floats[2]
+    }
+}
+
+/// Static traffic count at PC 0x63d810 (`count`, descriptive name).
+/// `DecrementCount` 0x4b9560 decrements and clamps at zero.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TrafficCarCount(pub i32);
+
+impl TrafficCarCount {
+    pub const fn new(value: i32) -> Self {
+        Self(value)
+    }
+
+    pub const fn value(self) -> i32 {
+        self.0
+    }
+
+    /// Original `C_traffic_car::DecrementCount`: `--count; if (count < 0)
+    /// count = 0;`.
+    pub fn decrement(&mut self) {
+        self.0 = self.0.wrapping_sub(1);
+        if self.0 < 0 {
+            self.0 = 0;
+        }
+    }
+}
+
+/// Save-game tag for `C_traffic_car::SaveGameSave` 0x4bc160 /
+/// `SaveGameLoad` 0x4bc190: u16 value 1 after the base `C_actor` payload.
+pub const TRAFFIC_SAVEGAME_TAG: u16 = 1;
+
+/// Save-game tag mismatch, preserving the observed tag bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TrafficSaveGameError {
+    Truncated { expected: usize, observed: usize },
+    UnexpectedTag { expected: u16, observed: u16 },
+}
+
+pub fn encode_traffic_savegame_tag() -> [u8; 2] {
+    TRAFFIC_SAVEGAME_TAG.to_le_bytes()
+}
+
+pub fn decode_traffic_savegame_tag(bytes: &[u8]) -> Result<(), TrafficSaveGameError> {
+    if bytes.len() < 2 {
+        return Err(TrafficSaveGameError::Truncated {
+            expected: 2,
+            observed: bytes.len(),
+        });
+    }
+    let observed = u16::from_le_bytes([bytes[0], bytes[1]]);
+    if observed != TRAFFIC_SAVEGAME_TAG {
+        return Err(TrafficSaveGameError::UnexpectedTag {
+            expected: TRAFFIC_SAVEGAME_TAG,
+            observed,
+        });
+    }
+    Ok(())
+}
+
+/// Name record size for `SaveData` 0x4aabf0 (`TRAFFIC_NAME_SIZE`, mafia-re name).
+pub const TRAFFIC_NAME_SIZE: usize = 0x20;
+/// Version word written by `SaveData` 0x4aabf0.
+pub const TRAFFIC_SAVEDATA_VERSION: u32 = 5;
+
+/// Savegame payload of `C_traffic_car::SaveData`: version 5, the three
+/// tuning words (+0x224/+0x228/+0x22c), field +0x21c, the name count and the
+/// counted `TRAFFIC_NAME_SIZE` records. Offsets name PC derived fields;
+/// values stay opaque words except for the counted layout.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TrafficSaveData {
+    pub tuning_224: u32,
+    pub tuning_228: u32,
+    pub tuning_22c: u32,
+    pub field_21c: u32,
+    pub names: Vec<[u8; TRAFFIC_NAME_SIZE]>,
+}
+
+impl TrafficSaveData {
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(20 + self.names.len() * TRAFFIC_NAME_SIZE);
+        out.extend_from_slice(&TRAFFIC_SAVEDATA_VERSION.to_le_bytes());
+        out.extend_from_slice(&self.tuning_224.to_le_bytes());
+        out.extend_from_slice(&self.tuning_228.to_le_bytes());
+        out.extend_from_slice(&self.tuning_22c.to_le_bytes());
+        out.extend_from_slice(&self.field_21c.to_le_bytes());
+        let count = u32::try_from(self.names.len()).unwrap_or(u32::MAX);
+        out.extend_from_slice(&count.to_le_bytes());
+        for name in &self.names {
+            out.extend_from_slice(name);
+        }
+        out
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<(Self, usize), TrafficSaveGameError> {
+        if bytes.len() < 24 {
+            return Err(TrafficSaveGameError::Truncated {
+                expected: 24,
+                observed: bytes.len(),
+            });
+        }
+        let version = u32::from_le_bytes(bytes[0..4].try_into().unwrap());
+        if version != TRAFFIC_SAVEDATA_VERSION {
+            return Err(TrafficSaveGameError::UnexpectedTag {
+                expected: TRAFFIC_SAVEDATA_VERSION as u16,
+                observed: version as u16,
+            });
+        }
+        let tuning_224 = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
+        let tuning_228 = u32::from_le_bytes(bytes[8..12].try_into().unwrap());
+        let tuning_22c = u32::from_le_bytes(bytes[12..16].try_into().unwrap());
+        let field_21c = u32::from_le_bytes(bytes[16..20].try_into().unwrap());
+        let count = u32::from_le_bytes(bytes[20..24].try_into().unwrap()) as usize;
+        let needed = 24usize.saturating_add(count.saturating_mul(TRAFFIC_NAME_SIZE));
+        if bytes.len() < needed {
+            return Err(TrafficSaveGameError::Truncated {
+                expected: needed,
+                observed: bytes.len(),
+            });
+        }
+        let mut names = Vec::with_capacity(count);
+        for i in 0..count {
+            let start = 24 + i * TRAFFIC_NAME_SIZE;
+            let mut record = [0u8; TRAFFIC_NAME_SIZE];
+            record.copy_from_slice(&bytes[start..start + TRAFFIC_NAME_SIZE]);
+            names.push(record);
+        }
+        Ok((
+            Self {
+                tuning_224,
+                tuning_228,
+                tuning_22c,
+                field_21c,
+                names,
+            },
+            needed,
+        ))
+    }
+}
+
+/// Still-unimplemented traffic-list removals. The entries name the original
+/// PC addresses; the vulgar working names are retired.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TrafficRemovalError {
+    Unsupported { entry: u32 },
+}
+
+/// `C_traffic_car::RemoveAllCars` 0x4bad80: removes every active car.
+/// Unimplemented; preserved as an explicit boundary.
+pub const REMOVE_ALL_CARS_ENTRY: u32 = 0x4bad80;
+/// `C_traffic_car::RemoveCar` 0x4bbe90: removes one actor's traffic car.
+/// Unimplemented; preserved as an explicit boundary.
+pub const REMOVE_CAR_ENTRY: u32 = 0x4bbe90;
+
+pub fn remove_all_cars() -> Result<(), TrafficRemovalError> {
+    Err(TrafficRemovalError::Unsupported {
+        entry: REMOVE_ALL_CARS_ENTRY,
+    })
+}
+
+pub fn remove_car(_actor: u32) -> Result<(), TrafficRemovalError> {
+    Err(TrafficRemovalError::Unsupported {
+        entry: REMOVE_CAR_ENTRY,
+    })
 }
 
 /// Payload versions admitted by C_traffic_car::LoadData. Versions 4 and 5
@@ -204,5 +390,93 @@ mod tests {
         state.replace_elements(vec![0u8; 0x40]);
         assert_eq!(state.element_count(), 2);
         assert_eq!(state.elements().len(), 0x40);
+    }
+
+    #[test]
+    fn tuning_coefficients_map_to_pr3_static_order() {
+        let tuning = TrafficTuning::construction_defaults();
+        assert_eq!(tuning.elems_coeff_bits(), 0x3f800000);
+        assert_eq!(tuning.mafian_coeff_bits(), 0x3f800000);
+        assert_eq!(tuning.police_coeff_bits(), 0x3f800000);
+    }
+
+    #[test]
+    fn decrement_count_clamps_at_zero() {
+        let mut count = TrafficCarCount::new(2);
+        count.decrement();
+        assert_eq!(count.value(), 1);
+        count.decrement();
+        assert_eq!(count.value(), 0);
+        count.decrement();
+        assert_eq!(count.value(), 0);
+        let mut negative = TrafficCarCount::new(-5);
+        negative.decrement();
+        assert_eq!(negative.value(), 0);
+    }
+
+    #[test]
+    fn savegame_tag_round_trips_and_rejects_mismatch() {
+        assert_eq!(encode_traffic_savegame_tag(), [1, 0]);
+        assert_eq!(decode_traffic_savegame_tag(&[1, 0]), Ok(()));
+        assert_eq!(
+            decode_traffic_savegame_tag(&[2, 0]),
+            Err(TrafficSaveGameError::UnexpectedTag {
+                expected: 1,
+                observed: 2
+            })
+        );
+        assert_eq!(
+            decode_traffic_savegame_tag(&[1]),
+            Err(TrafficSaveGameError::Truncated {
+                expected: 2,
+                observed: 1
+            })
+        );
+    }
+
+    #[test]
+    fn savedata_round_trips_names_and_rejects_truncation() {
+        let mut first = [0u8; TRAFFIC_NAME_SIZE];
+        first[..4].copy_from_slice(b"taxi");
+        let payload = TrafficSaveData {
+            tuning_224: 0x43340000,
+            tuning_228: 0x43160000,
+            tuning_22c: 0x432a0000,
+            field_21c: 7,
+            names: vec![first, [0xabu8; TRAFFIC_NAME_SIZE]],
+        };
+        let bytes = payload.encode();
+        assert_eq!(bytes.len(), 24 + 2 * TRAFFIC_NAME_SIZE);
+        let (decoded, consumed) = TrafficSaveData::decode(&bytes).unwrap();
+        assert_eq!(decoded, payload);
+        assert_eq!(consumed, bytes.len());
+        assert_eq!(
+            TrafficSaveData::decode(&bytes[..23]),
+            Err(TrafficSaveGameError::Truncated {
+                expected: 24,
+                observed: 23
+            })
+        );
+        let mut bad_version = bytes.clone();
+        bad_version[0] = 6;
+        assert!(TrafficSaveData::decode(&bad_version).is_err());
+    }
+
+    #[test]
+    fn removals_stay_explicit_unsupported_boundaries() {
+        assert_eq!(
+            remove_all_cars(),
+            Err(TrafficRemovalError::Unsupported {
+                entry: REMOVE_ALL_CARS_ENTRY
+            })
+        );
+        assert_eq!(
+            remove_all_cars(),
+            Err(TrafficRemovalError::Unsupported { entry: 0x4bad80 })
+        );
+        assert_eq!(
+            remove_car(0x1234),
+            Err(TrafficRemovalError::Unsupported { entry: 0x4bbe90 })
+        );
     }
 }

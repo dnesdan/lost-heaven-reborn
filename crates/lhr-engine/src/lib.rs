@@ -23,6 +23,7 @@ pub mod canonical_city_cache;
 mod canonical_scene2_models;
 pub mod car_actor;
 pub(crate) mod car_actor_tables;
+pub mod car_ai_position;
 pub mod car_effects;
 pub mod car_inspection;
 pub mod car_runtime;
@@ -211,21 +212,21 @@ pub mod ls3df {
 /// Original game executable boundary; replay helper names remain descriptive.
 pub mod game {
     pub use crate::{
-        actor_world, car_effects, car_runtime, collision_dispatch, collision_line, collision_links,
-        collision_prepare, collision_query, collision_swept, collision_swept_aabox,
-        collision_swept_box, collision_swept_volumes, collision_swept_world, collision_volumes,
-        collision_world, collision_world_driving, collision_world_driving_contacts,
-        game_camera_projection, mission_actor_stream, mission_components, mission_lifecycle,
-        mission_resources, mission_scene_loading, mission_scene_stream, original_logo,
-        original_program, original_system, original_windows, program_entity_parameters,
-        program_instructions, program_parser, railway_actor, replay_state, script_lookup,
-        script_scheduler, vehicle_bodycol, vehicle_bodycol_records, vehicle_component_records,
-        vehicle_contacts, vehicle_controls, vehicle_drivetrain, vehicle_dynamics,
-        vehicle_dynamics_body, vehicle_dynamics_body_collision, vehicle_dynamics_body_response,
-        vehicle_dynamics_forces, vehicle_dynamics_move, vehicle_dynamics_prepare,
-        vehicle_dynamics_tail, vehicle_dynamics_tick, vehicle_dynamics_update,
-        vehicle_dynamics_wheel_forces, vehicle_frame_backend, vehicle_init, vehicle_owner,
-        vehicle_sound, vehicle_wheel_pose,
+        actor_world, car_ai_position, car_effects, car_runtime, collision_dispatch, collision_line,
+        collision_links, collision_prepare, collision_query, collision_swept,
+        collision_swept_aabox, collision_swept_box, collision_swept_volumes, collision_swept_world,
+        collision_volumes, collision_world, collision_world_driving,
+        collision_world_driving_contacts, game_camera_projection, mission_actor_stream,
+        mission_components, mission_lifecycle, mission_resources, mission_scene_loading,
+        mission_scene_stream, original_logo, original_program, original_system, original_windows,
+        police_state, program_entity_parameters, program_instructions, program_parser,
+        railway_actor, replay_state, script_lookup, script_scheduler, traffic_car_actor,
+        vehicle_bodycol, vehicle_bodycol_records, vehicle_component_records, vehicle_contacts,
+        vehicle_controls, vehicle_drivetrain, vehicle_dynamics, vehicle_dynamics_body,
+        vehicle_dynamics_body_collision, vehicle_dynamics_body_response, vehicle_dynamics_forces,
+        vehicle_dynamics_move, vehicle_dynamics_prepare, vehicle_dynamics_tail,
+        vehicle_dynamics_tick, vehicle_dynamics_update, vehicle_dynamics_wheel_forces,
+        vehicle_frame_backend, vehicle_init, vehicle_owner, vehicle_sound, vehicle_wheel_pose,
     };
 }
 

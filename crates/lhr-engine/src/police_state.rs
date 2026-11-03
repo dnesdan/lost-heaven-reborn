@@ -3,6 +3,13 @@
 //! Existing bytes and the constructor's opaque allocator marker are explicit
 //! inputs. Native pointer words remain opaque words, never Rust pointers. This
 //! module does not construct resources, own actors, or implement manager ON.
+//!
+//! PR3 parity (mafia-re `pr3` b0c02ef): `S_shvestky::RemoveAngryActor`
+//! 0x49f780, `C_shvestky::RemoveAngryActor` 0x49f540 and
+//! `ReleaseWantedHuman` 0x49f850. `SendPoliceBackup` 0x49eee0,
+//! `SendPoliceToHuman` 0x49f980 and `FreeMyTempActor` 0x49e7e0 remain
+//! unimplemented stubs; the previous vulgar working names are retired in
+//! favor of the English descriptive names above.
 
 /// Raw words of one retained native allocation; these are not host addresses.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -108,6 +115,175 @@ impl PoliceManagerRawState {
     }
 }
 
+/// Opaque actor identity for police-record lists. Native addresses are never
+/// dereferenced; equality selects list membership only.
+pub type PoliceActorId = u32;
+/// Opaque human identity for wanted-record lookup.
+pub type PoliceHumanId = u32;
+
+/// Cleared pursuit state written by `ReleaseWantedHuman` (`SHVSTATE_NONE`).
+pub const SHVSTATE_NONE: u32 = 0;
+
+/// Still-unimplemented police dispatch. Entries name the original PC
+/// addresses; the vulgar working names are retired.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PoliceDispatchError {
+    Unsupported { entry: u32 },
+}
+
+/// `C_shvestky::SendPoliceBackup` 0x49eee0 (`POLICE_SUPPORT`).
+pub const SEND_POLICE_BACKUP_ENTRY: u32 = 0x49eee0;
+/// `C_shvestky::SendPoliceToHuman` 0x49f980.
+pub const SEND_POLICE_TO_HUMAN_ENTRY: u32 = 0x49f980;
+/// `C_shvestky::FreeMyTempActor` 0x49e7e0.
+pub const FREE_TEMP_ACTOR_ENTRY: u32 = 0x49e7e0;
+
+pub fn send_police_backup(
+    _human: PoliceHumanId,
+    _unknown: u32,
+    _range: f32,
+) -> Result<(), PoliceDispatchError> {
+    Err(PoliceDispatchError::Unsupported {
+        entry: SEND_POLICE_BACKUP_ENTRY,
+    })
+}
+
+pub fn send_police_to_human(
+    _human: PoliceHumanId,
+    _pos: [f32; 3],
+    _range: f32,
+    _unknown: bool,
+    _unknown2: bool,
+) -> Result<(), PoliceDispatchError> {
+    Err(PoliceDispatchError::Unsupported {
+        entry: SEND_POLICE_TO_HUMAN_ENTRY,
+    })
+}
+
+/// Original `S_shvestky::RemoveAngryActor` 0x49f780: removes the actor from
+/// one record's angry list with swap-with-back + pop. Returns whether the
+/// actor was present.
+pub fn remove_angry_actor_from_record(list: &mut Vec<PoliceActorId>, actor: PoliceActorId) -> bool {
+    for i in (0..list.len()).rev() {
+        if list[i] == actor {
+            list[i] = *list.last().expect("indexed angry actor");
+            list.pop();
+            return true;
+        }
+    }
+    false
+}
+
+/// Original `C_shvestky::RemoveAngryActor` 0x49f540: removes the actor from
+/// every record's angry list. Iterates records from the back, matching the
+/// native `for (i = records.size(); i--;)` order.
+pub fn remove_angry_actor_everywhere(records: &mut [Vec<PoliceActorId>], actor: PoliceActorId) {
+    for record in records.iter_mut().rev() {
+        remove_angry_actor_from_record(record, actor);
+    }
+}
+
+/// Typed pursuit record cleared by `ReleaseWantedHuman` 0x49f850. Field
+/// order follows `C_shvestky.h`; unknown native words stay typed scalars
+/// without invented gameplay meanings.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PolicePursuitRecord {
+    pub human: PoliceHumanId,
+    pub flags: u32,
+    pub flags2: u32,
+    pub car_steal_time: u32,
+    pub fire_time: u32,
+    pub illegal_path_time: u32,
+    pub collision_time: u32,
+    pub crash_time: u32,
+    pub boxing_time: u32,
+    pub signal_time: u32,
+    pub block_way: bool,
+    pub offenses: u32,
+    pub state: u32,
+    pub new_state: u32,
+    pub wanted_time: i32,
+    pub hits_time: i32,
+    pub hits: u32,
+    pub run_over: u32,
+    pub alerted: bool,
+    pub nevi: bool,
+    pub support_level: u32,
+    pub rammed_car: u32,
+}
+
+impl PolicePursuitRecord {
+    pub fn new(human: PoliceHumanId) -> Self {
+        Self {
+            human,
+            flags: 0,
+            flags2: 0,
+            car_steal_time: 0,
+            fire_time: 0,
+            illegal_path_time: 0,
+            collision_time: 0,
+            crash_time: 0,
+            boxing_time: 0,
+            signal_time: 0,
+            block_way: false,
+            offenses: 0,
+            state: SHVSTATE_NONE,
+            new_state: SHVSTATE_NONE,
+            wanted_time: -1,
+            hits_time: -1,
+            hits: 0,
+            run_over: 0,
+            alerted: false,
+            nevi: false,
+            support_level: 0,
+            rammed_car: 0,
+        }
+    }
+}
+
+/// Original `C_shvestky::ReleaseWantedHuman` 0x49f850: clears the human's
+/// record and returns whether one was found. With `add_offense`, a human
+/// that is not the player (or while `unknown_38` is set) keeps one offense.
+/// Iterates from the back, matching the native loop.
+pub fn release_wanted_human(
+    records: &mut [PolicePursuitRecord],
+    human: PoliceHumanId,
+    player: PoliceHumanId,
+    unknown_38: bool,
+    add_offense: bool,
+) -> bool {
+    for i in (0..records.len()).rev() {
+        if records[i].human == human {
+            let record = &mut records[i];
+            record.flags = 0;
+            record.flags2 = 0;
+            record.car_steal_time = 0;
+            record.fire_time = 0;
+            record.illegal_path_time = 0;
+            record.collision_time = 0;
+            record.crash_time = 0;
+            record.boxing_time = 0;
+            record.signal_time = 0;
+            record.block_way = false;
+            if add_offense && (record.human != player || unknown_38) {
+                record.offenses = record.offenses.wrapping_add(1);
+            }
+            record.state = SHVSTATE_NONE;
+            record.new_state = SHVSTATE_NONE;
+            record.wanted_time = -1;
+            record.hits_time = -1;
+            record.hits = 0;
+            record.run_over = 0;
+            record.alerted = false;
+            record.nevi = false;
+            record.support_level = 0;
+            record.rammed_car = 0;
+            return true;
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -191,5 +367,87 @@ mod tests {
         let once = state.clone();
         state.reset_retaining_pools();
         assert_eq!(state, once);
+    }
+
+    #[test]
+    fn angry_list_removal_uses_swap_with_back() {
+        let mut list = vec![10u32, 20, 30, 40];
+        assert!(remove_angry_actor_from_record(&mut list, 20));
+        assert_eq!(list, vec![10, 40, 30]);
+        assert!(!remove_angry_actor_from_record(&mut list, 99));
+        assert_eq!(list, vec![10, 40, 30]);
+        assert!(remove_angry_actor_from_record(&mut list, 10));
+        assert_eq!(list, vec![30, 40]);
+    }
+
+    #[test]
+    fn angry_removal_everywhere_clears_all_records() {
+        let mut records = vec![vec![1u32, 2], vec![2u32, 3], vec![4u32]];
+        remove_angry_actor_everywhere(&mut records, 2);
+        assert_eq!(records, vec![vec![1], vec![3], vec![4]]);
+        remove_angry_actor_everywhere(&mut records, 9);
+        assert_eq!(records, vec![vec![1], vec![3], vec![4]]);
+    }
+
+    fn pursuit_record(human: u32, offenses: u32) -> PolicePursuitRecord {
+        let mut record = PolicePursuitRecord::new(human);
+        record.flags = 5;
+        record.flags2 = 6;
+        record.fire_time = 100;
+        record.state = 3;
+        record.new_state = 4;
+        record.wanted_time = 20000;
+        record.hits_time = 10;
+        record.hits = 2;
+        record.alerted = true;
+        record.nevi = true;
+        record.support_level = 2;
+        record.rammed_car = 0x1234;
+        record.offenses = offenses;
+        record
+    }
+
+    #[test]
+    fn release_clears_record_and_counts_offense_for_non_player() {
+        let mut records = vec![pursuit_record(7, 1), pursuit_record(9, 0)];
+        assert!(release_wanted_human(&mut records, 9, 7, false, true));
+        let cleared = &records[1];
+        assert_eq!(cleared.flags, 0);
+        assert_eq!(cleared.state, SHVSTATE_NONE);
+        assert_eq!(cleared.wanted_time, -1);
+        assert_eq!(cleared.hits_time, -1);
+        assert!(!cleared.alerted);
+        assert_eq!(cleared.offenses, 1);
+        assert_eq!(records[0].offenses, 1);
+    }
+
+    #[test]
+    fn release_skips_offense_for_player_without_unknown_38() {
+        let mut records = vec![pursuit_record(7, 1)];
+        assert!(release_wanted_human(&mut records, 7, 7, false, true));
+        assert_eq!(records[0].offenses, 1);
+        let mut records = vec![pursuit_record(7, 1)];
+        assert!(release_wanted_human(&mut records, 7, 7, true, true));
+        assert_eq!(records[0].offenses, 2);
+        let mut records = vec![pursuit_record(7, 1)];
+        assert!(release_wanted_human(&mut records, 7, 7, false, false));
+        assert_eq!(records[0].offenses, 1);
+        assert!(!release_wanted_human(&mut records, 99, 7, false, true));
+    }
+
+    #[test]
+    fn dispatch_stubs_stay_explicit_unsupported() {
+        assert_eq!(
+            send_police_backup(1, 4, 200.0),
+            Err(PoliceDispatchError::Unsupported {
+                entry: SEND_POLICE_BACKUP_ENTRY
+            })
+        );
+        assert_eq!(
+            send_police_to_human(1, [0.0; 3], 150.0, false, false),
+            Err(PoliceDispatchError::Unsupported {
+                entry: SEND_POLICE_TO_HUMAN_ENTRY
+            })
+        );
     }
 }

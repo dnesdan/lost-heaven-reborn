@@ -4,6 +4,12 @@
 //! constructor RVA0x865b0, Init0x868c0, LoadData0x86a20, destructor0x86760.
 //! The original PS2 kind8 factory calls __ct__9C_railwayFv. Member names below
 //! are descriptive PC projections; no PS2 member layout is assumed.
+//!
+//! PR3 parity (mafia-re `pr3` ba71d6e): `SaveData` 0x486920 writes the type
+//! byte plus six words (+0x1a8/+0x1b0/+0x1ac/+0x1b4/+0x1b8/+0x1bc);
+//! `LoadData` 0x486a20 reads them back. [`RailwayState::save_payload`] and
+//! [`RailwayState::load_payload`] implement that round-trip over caller-owned
+//! bytes.
 
 /// Actual untouched allocation bytes after the inherited0x70-byte C_actor.
 /// Pointer words overwritten by construction are not promoted into owners.
@@ -148,5 +154,64 @@ impl RailwayState {
             }
         }
         position
+    }
+
+    /// Original `C_railway::SaveData` 0x486920: type byte zero plus the six
+    /// words in `load_payload` order. Returns the 25-byte payload; the caller
+    /// owns the chunk framing.
+    pub fn save_payload(&self) -> [u8; 25] {
+        let mut out = [0u8; 25];
+        out[0] = 0;
+        for (i, offset) in [0x1a8, 0x1b0, 0x1ac, 0x1b4, 0x1b8, 0x1bc]
+            .into_iter()
+            .enumerate()
+        {
+            out[1 + i * 4..1 + (i + 1) * 4].copy_from_slice(&self.word(offset).to_le_bytes());
+        }
+        out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn state() -> RailwayState {
+        RailwayState::allocation(RailwaySeed {
+            bytes_70_36f: [0xaa; 0x300],
+        })
+    }
+
+    #[test]
+    fn save_payload_round_trips_six_words() {
+        let mut value = state();
+        let words = [
+            (0x1a8, 0x11111111u32),
+            (0x1b0, 0x22222222),
+            (0x1ac, 0x33333333),
+            (0x1b4, 0x44444444),
+            (0x1b8, 0x55555555),
+            (0x1bc, 0x66666666),
+        ];
+        for (offset, word) in words {
+            value.put_word(offset, word);
+        }
+        let saved = value.save_payload();
+        assert_eq!(saved[0], 0);
+        let mut restored = state();
+        let consumed = restored.load_payload(&saved);
+        assert_eq!(consumed, 25);
+        for (offset, word) in words {
+            assert_eq!(restored.word(offset), word, "{offset:#x}");
+        }
+    }
+
+    #[test]
+    fn load_payload_skips_missing_tail_without_advancing() {
+        let mut value = state();
+        let before = value.word(0x1bc);
+        let consumed = value.load_payload(&[0u8; 1 + 5 * 4]);
+        assert_eq!(consumed, 1 + 5 * 4);
+        assert_eq!(value.word(0x1bc), before);
     }
 }
