@@ -16,6 +16,8 @@ use super::*;
 #[path = "program_runtime_lookup.rs"]
 mod lookup;
 pub use lookup::{LookupRuntimeBackend, RuntimeLookupWorld};
+#[path = "program_flow_parameters.rs"]
+mod flow_parameters;
 #[path = "program_name_parameters.rs"]
 mod name_parameters;
 #[path = "program_pair_parameters.rs"]
@@ -31,11 +33,16 @@ use crate::script_scheduler::{
     run_scheduler, ActorReferenceId, DispatchBudget, FrameReferenceId, InstructionView,
     SchedulerBackend,
 };
+pub use flow_parameters::{
+    supports_flow_opcode, AsciiFlowParameterBackend, FlowDecodeError, FlowOperand, FlowParameter,
+    FlowParameterBackend, FlowParameterSlot, GotoParameter, IfOp, IfParameter, LetOp, LetParameter,
+};
 pub use name_parameters::{
     supports_name_opcode, NameDecodeError, NameParameter, NameParameterBackend, NameParameterSlot,
 };
 pub use pair_parameters::{
-    supports_pair_opcode, PairDecodeError, PairParameter, PairParameterBackend, PairParameterSlot,
+    supports_pair_opcode, AsciiPairParameterBackend, PairDecodeError, PairParameter,
+    PairParameterBackend, PairParameterSlot,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,6 +96,11 @@ pub struct RuntimeFields {
     pub frame_count: u32,
     pub actors: Option<Box<[RuntimeReferenceSlot<ActorReferenceId>]>>,
     pub frames: Option<Box<[RuntimeReferenceSlot<FrameReferenceId>]>>,
+    pub float_count: u32,
+    pub floats: Option<Box<[f32]>>,
+    pub gosub_stack: Vec<u32>,
+    pub command_time: u32,
+    pub rand_state: u32,
 }
 impl RuntimeFields {
     pub fn program_counter(&self) -> u32 {
@@ -130,6 +142,14 @@ impl RuntimeFields {
             frame_count: 0,
             actors: None,
             frames: None,
+            float_count: 0,
+            floats: None,
+            gosub_stack: Vec::new(),
+            command_time: 0,
+            // The C runtime seeds rand() from the host clock at GameInit;
+            // that lifecycle is not implemented, so scripts observe the CRT
+            // default sequence deterministically instead of host time.
+            rand_state: 1,
         }
     }
 }
@@ -140,25 +160,32 @@ pub enum InstructionParameter {
     Scalar(ScalarParameterSlot),
     Name(NameParameterSlot),
     Pair(PairParameterSlot),
+    Flow(FlowParameterSlot),
 }
 impl InstructionParameter {
     /// Scalar-only accessor retained for existing runtime diagnostics.
     pub fn parameter(&self) -> Option<&ScalarParameter> {
         match self {
             Self::Scalar(slot) => slot.parameter(),
-            Self::Name(_) | Self::Pair(_) => None,
+            Self::Name(_) | Self::Pair(_) | Self::Flow(_) => None,
         }
     }
     pub fn name_parameter(&self) -> Option<&NameParameter> {
         match self {
-            Self::Scalar(_) | Self::Pair(_) => None,
+            Self::Scalar(_) | Self::Pair(_) | Self::Flow(_) => None,
             Self::Name(slot) => slot.parameter(),
         }
     }
     pub fn pair_parameter(&self) -> Option<&PairParameter> {
         match self {
             Self::Pair(slot) => slot.parameter(),
-            Self::Scalar(_) | Self::Name(_) => None,
+            Self::Scalar(_) | Self::Name(_) | Self::Flow(_) => None,
+        }
+    }
+    pub fn flow_parameter(&self) -> Option<&FlowParameter> {
+        match self {
+            Self::Flow(slot) => slot.parameter(),
+            Self::Scalar(_) | Self::Name(_) | Self::Pair(_) => None,
         }
     }
 }
@@ -203,6 +230,9 @@ pub enum RuntimeEffect {
     AllocatePair,
     ConvertPair(usize),
     ReleasePair(u32),
+    AllocateFlow,
+    ConvertFlowOperand(usize),
+    ReleaseFlow(u32),
     AllocateRecords(usize),
     ReleaseOldRecordBacking,
     ReleaseScalar(u32),
@@ -210,6 +240,8 @@ pub enum RuntimeEffect {
     ReleaseFrames,
     AllocateActors(u32),
     AllocateFrames(u32),
+    AllocateFloats(u32),
+    ReleaseFloats,
 }
 /// Required external allocation boundary, borrowing actual fields at the call.
 /// The runtime itself owns actual Rust allocations and performs release only
@@ -225,6 +257,11 @@ pub struct RuntimeView<'a> {
     pub frame_count: &'a mut u32,
     pub actors: &'a mut Option<Box<[RuntimeReferenceSlot<ActorReferenceId>]>>,
     pub frames: &'a mut Option<Box<[RuntimeReferenceSlot<FrameReferenceId>]>>,
+    pub float_count: &'a mut u32,
+    pub floats: &'a mut Option<Box<[f32]>>,
+    pub gosub_stack: &'a mut Vec<u32>,
+    pub command_time: &'a mut u32,
+    pub rand_state: &'a mut u32,
 }
 impl RuntimeFields {
     fn view(&mut self) -> RuntimeView<'_> {
@@ -238,6 +275,11 @@ impl RuntimeFields {
             frame_count: &mut self.frame_count,
             actors: &mut self.actors,
             frames: &mut self.frames,
+            float_count: &mut self.float_count,
+            floats: &mut self.floats,
+            gosub_stack: &mut self.gosub_stack,
+            command_time: &mut self.command_time,
+            rand_state: &mut self.rand_state,
         }
     }
 }
@@ -284,6 +326,16 @@ pub trait RuntimeBackend {
         fields: RuntimeView<'_>,
         effect: RuntimeEffect,
         _published: Option<&PairParameter>,
+    ) -> Result<(), String> {
+        self.effect(fields, effect, None)
+    }
+    /// Control-flow parameters have their own actual instruction-owned payload.
+    /// A default backend still observes the required allocation/conversion/free.
+    fn flow_parameter_effect(
+        &mut self,
+        fields: RuntimeView<'_>,
+        effect: RuntimeEffect,
+        _published: Option<&FlowParameter>,
     ) -> Result<(), String> {
         self.effect(fields, effect, None)
     }
@@ -379,6 +431,35 @@ impl<B: RuntimeBackend> PairParameterBackend for PairBoundary<'_, B> {
         ascii_integer_prefix(token).map_err(|error| RuntimeError::Parameter(error.to_string()))
     }
 }
+struct FlowBoundary<'a, B> {
+    fields: &'a mut RuntimeFields,
+    backend: &'a mut B,
+}
+impl<B: RuntimeBackend> FlowParameterBackend for FlowBoundary<'_, B> {
+    type Error = RuntimeError;
+    fn allocate_flow(&mut self) -> Result<bool, RuntimeError> {
+        self.backend
+            .flow_parameter_effect(self.fields.view(), RuntimeEffect::AllocateFlow, None)
+            .map_err(RuntimeError::Effect)?;
+        Ok(true)
+    }
+    fn convert_operand(
+        &mut self,
+        index: usize,
+        token: &mut [u8],
+        published: &FlowParameter,
+    ) -> Result<Option<FlowOperand>, RuntimeError> {
+        self.backend
+            .flow_parameter_effect(
+                self.fields.view(),
+                RuntimeEffect::ConvertFlowOperand(index),
+                Some(published),
+            )
+            .map_err(RuntimeError::Effect)?;
+        flow_parameters::decode_flow_operand(token)
+            .map_err(|error| RuntimeError::Parameter(error.to_string()))
+    }
+}
 struct NameBoundary<'a, B> {
     fields: &'a mut RuntimeFields,
     backend: &'a mut B,
@@ -450,6 +531,8 @@ impl<B: RuntimeBackend> CompileBackend for Compiler<'_, B> {
                 Some(InstructionParameter::Name(NameParameterSlot::default()))
             } else if supports_pair_opcode(opcode) {
                 Some(InstructionParameter::Pair(PairParameterSlot::default()))
+            } else if supports_flow_opcode(opcode) {
+                Some(InstructionParameter::Flow(FlowParameterSlot::default()))
             } else {
                 Some(InstructionParameter::Scalar(ScalarParameterSlot::default()))
             },
@@ -484,6 +567,14 @@ impl<B: RuntimeBackend> CompileBackend for Compiler<'_, B> {
                 }
                 InstructionParameter::Pair(slot) => {
                     let mut boundary = PairBoundary {
+                        fields: self.fields,
+                        backend: self.backend,
+                    };
+                    slot.decode(opcode, parameters, &mut boundary)
+                        .map_err(|error| RuntimeError::Parameter(format!("{error:?}")))?
+                }
+                InstructionParameter::Flow(slot) => {
+                    let mut boundary = FlowBoundary {
                         fields: self.fields,
                         backend: self.backend,
                     };
@@ -536,8 +627,10 @@ pub struct HostRuntimeDiscard {
     pub scalar_allocations: usize,
     pub name_allocations: usize,
     pub pair_allocations: usize,
+    pub flow_allocations: usize,
     pub actor_slots: usize,
     pub frame_slots: usize,
+    pub float_slots: usize,
     pub working_source_bytes: usize,
 }
 impl CProgram {
@@ -648,6 +741,9 @@ impl CProgram {
         }
         runtime.fields.scheduler.program_counter = 0;
         runtime.fields.scheduler.short_stack_end = runtime.fields.scheduler.short_stack_begin;
+        // The native subroutine entry clears the return stack; the float bank,
+        // command clock and random sequence persist across the call.
+        runtime.fields.gosub_stack.clear();
         // CProgram's typed owner is authoritative. The legacy scheduler word
         // stays private/zero in this empty-return, no-saved-program boundary.
         self.owner = None;
@@ -680,6 +776,11 @@ impl CProgram {
             frame_count,
             actors,
             frames,
+            float_count,
+            floats,
+            gosub_stack,
+            command_time,
+            rand_state,
         } = &mut runtime.fields;
         let mut dispatch = Process {
             owner: &mut self.owner,
@@ -693,6 +794,11 @@ impl CProgram {
             frame_count,
             actors,
             frames,
+            float_count,
+            floats,
+            gosub_stack,
+            command_time,
+            rand_state,
             backend,
         };
         let result = run_scheduler(scheduler, &mut dispatch, delta, budget);
@@ -760,8 +866,21 @@ impl CProgram {
                         .is_some_and(|payload| payload.pair_parameter().is_some())
                 })
                 .count(),
+            flow_allocations: runtime
+                .instructions
+                .records
+                .iter()
+                .chain(runtime.pending.iter())
+                .filter(|instruction| {
+                    instruction
+                        .parameter
+                        .as_ref()
+                        .is_some_and(|payload| payload.flow_parameter().is_some())
+                })
+                .count(),
             actor_slots: runtime.fields.actors.as_ref().map_or(0, |a| a.len()),
             frame_slots: runtime.fields.frames.as_ref().map_or(0, |a| a.len()),
+            float_slots: runtime.fields.floats.as_ref().map_or(0, |f| f.len()),
             working_source_bytes: runtime.working_source.as_ref().map_or(0, |s| s.len()),
         };
         drop(runtime);
@@ -812,6 +931,11 @@ impl CProgram {
                         RuntimeEffect::ReleasePair(opcode),
                         slot.parameter(),
                     ),
+                    InstructionParameter::Flow(slot) => backend.flow_parameter_effect(
+                        runtime.fields.view(),
+                        RuntimeEffect::ReleaseFlow(opcode),
+                        slot.parameter(),
+                    ),
                 };
                 if let Err(error) = result {
                     runtime.stage = RuntimeStage::DisposalInterrupted;
@@ -823,6 +947,16 @@ impl CProgram {
         runtime.instructions.logical_end = 0;
         // Native Done register release order is float, frame, actor; no float owner
         // can be produced by the initially admitted command subset.
+        if runtime.fields.floats.is_some() {
+            if let Err(e) =
+                backend.effect(runtime.fields.view(), RuntimeEffect::ReleaseFloats, None)
+            {
+                runtime.stage = RuntimeStage::DisposalInterrupted;
+                return Err(RuntimeError::Effect(e));
+            }
+            runtime.fields.floats = None;
+        }
+        runtime.fields.float_count = 0;
         if runtime.fields.frames.is_some() {
             if let Err(e) =
                 backend.effect(runtime.fields.view(), RuntimeEffect::ReleaseFrames, None)
@@ -859,6 +993,11 @@ struct Process<'a, B> {
     frame_count: &'a mut u32,
     actors: &'a mut Option<Box<[RuntimeReferenceSlot<ActorReferenceId>]>>,
     frames: &'a mut Option<Box<[RuntimeReferenceSlot<FrameReferenceId>]>>,
+    float_count: &'a mut u32,
+    floats: &'a mut Option<Box<[f32]>>,
+    gosub_stack: &'a mut Vec<u32>,
+    command_time: &'a mut u32,
+    rand_state: &'a mut u32,
     backend: &'a mut B,
 }
 impl<B: RuntimeBackend> Process<'_, B> {
@@ -894,6 +1033,11 @@ impl<B: RuntimeBackend> Process<'_, B> {
                 frame_count: self.frame_count,
                 actors: self.actors,
                 frames: self.frames,
+                float_count: self.float_count,
+                floats: self.floats,
+                gosub_stack: self.gosub_stack,
+                command_time: self.command_time,
+                rand_state: self.rand_state,
             },
             effect,
             None,
@@ -909,7 +1053,93 @@ impl<B: RuntimeBackend> Process<'_, B> {
             }
         })
     }
+    fn flow_payload(&self, state: &ResetState) -> Result<FlowParameter, RuntimeError> {
+        self.instructions
+            .active()
+            .get(state.program_counter as usize)
+            .and_then(|i| i.parameter.as_ref())
+            .and_then(|p| p.flow_parameter())
+            .cloned()
+            .ok_or(RuntimeError::Domain("current flow parameter unavailable"))
+    }
+
+    /// Reverse label search from the last instruction, ASCII case-insensitive,
+    /// matching NextCommand. A missing label is not an error.
+    fn jump_to_label(&self, label: &[u8]) -> Option<u32> {
+        for (index, instruction) in self.instructions.active().iter().enumerate().rev() {
+            if instruction.opcode != 0 {
+                continue;
+            }
+            if let Some(FlowParameter::Label(name)) = instruction
+                .parameter
+                .as_ref()
+                .and_then(|p| p.flow_parameter())
+            {
+                if name.eq_ignore_ascii_case(label) {
+                    return Some(index as u32);
+                }
+            }
+        }
+        None
+    }
+
+    /// Operand resolution shared by WAIT/LET/IF/GOTO: -1 is the literal, a
+    /// valid index reads the live float bank. Any other index is a fail-closed
+    /// domain error; the original reads out of bounds there, which safe code
+    /// must not reproduce. Counts compare signed, matching the original ints.
+    fn resolve_float(&self, register: i32, literal: f32) -> Result<f32, RuntimeError> {
+        if register == -1 {
+            return Ok(literal);
+        }
+        let num = *self.float_count as i32;
+        if register >= 0 && register < num {
+            return self
+                .floats
+                .as_ref()
+                .and_then(|bank| bank.get(register as usize).copied())
+                .ok_or(RuntimeError::Domain(
+                    "float bank unavailable for admitted count",
+                ));
+        }
+        Err(RuntimeError::Domain("float register outside admitted bank"))
+    }
+
+    /// Original `(int)(value + .5f)` truncation for WAIT/GOTO-indirect words.
+    /// In-domain values truncate toward zero exactly like the C cast;
+    /// out-of-domain inputs saturate where the original is undefined.
+    fn wait_word(value: f32) -> u32 {
+        (value + 0.5) as i32 as u32
+    }
+
+    /// Original `sprintf(label, "%i", ...)` register-indirect jump name.
+    fn indirect_label(value: f32) -> String {
+        ((value + 0.5) as i32).to_string()
+    }
 }
+/// Post-dispatch program-counter movement. Mirrors NextCommand: every taken
+/// path resets the command clock; only staying on WAIT preserves it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Advance {
+    Next,
+    Jump(u32),
+    Stay,
+}
+
+/// Original MSVC rand() used by RND: linear congruential step 214013/2531011
+/// with the high 15 bits out. RAND_MAX is 0x7fff.
+fn msvc_rand_step(state: &mut u32) -> u32 {
+    *state = state.wrapping_mul(214013).wrapping_add(2531011);
+    (*state >> 16) & 0x7fff
+}
+
+/// Original `1.0f / RAND_MAX` multiplier, evaluated once as in the C
+/// translation unit.
+const RAND_MAX_RECIPROCAL: f32 = 1.0 / 32767.0;
+
+/// Original LET division guard (ls3df.h MRG_ZERO): magnitudes below this
+/// divide to zero instead of running the division.
+const MRG_ZERO: f32 = 1e-8;
+
 impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
     type Error = RuntimeError;
     fn instructions(&self) -> Result<Option<InstructionView>, RuntimeError> {
@@ -930,7 +1160,9 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
     }
     fn dispatch(&mut self, state: &mut ResetState, delta: i32) -> Result<(), RuntimeError> {
         *self.elapsed = self.elapsed.wrapping_add(delta as u32);
+        *self.command_time = self.command_time.wrapping_add(delta as u32);
         let opcode = self.instructions.active()[state.program_counter as usize].opcode;
+        let mut advance = Advance::Next;
         match opcode {
             13 | 18 => self.dispatch_lookup(state, opcode == 18)?,
             34 => {
@@ -1024,11 +1256,215 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                     }
                 }
             }
+            0 => {
+                // LABEL has no Process case; the common tail advances past it.
+            }
+            1 | 2 => {
+                if opcode == 2 {
+                    self.gosub_stack.push(state.program_counter.wrapping_add(1));
+                }
+                let goto = match self.flow_payload(state)? {
+                    FlowParameter::Goto(goto) => goto,
+                    _ => {
+                        return Err(RuntimeError::Domain("current goto parameter unavailable"));
+                    }
+                };
+                if !goto.label.is_empty() {
+                    if let Some(target) = self.jump_to_label(&goto.label) {
+                        advance = Advance::Jump(target);
+                    }
+                } else {
+                    // Register-indirect jumps always carry a register: the
+                    // label form never leaves the label empty. Anything else
+                    // would read out of bounds in the original.
+                    if goto.target.register < 0 {
+                        return Err(RuntimeError::Domain(
+                            "register-indirect jump without register",
+                        ));
+                    }
+                    let value = self.resolve_float(goto.target.register, goto.target.value)?;
+                    let name = Self::indirect_label(value);
+                    if let Some(target) = self.jump_to_label(name.as_bytes()) {
+                        advance = Advance::Jump(target);
+                    }
+                }
+            }
+            3 => {
+                if let Some(ret) = self.gosub_stack.pop() {
+                    // GOSUB_EVENT/GOSUB_EVENT_TIME entries need the event
+                    // machinery (SetEvent/CallBack/Game time), which does not
+                    // exist yet; only plain command returns are admittable.
+                    if ret & 0xC000 != 0 {
+                        return Err(RuntimeError::Domain("event return machinery unavailable"));
+                    }
+                    if self.flags.stop_at_return {
+                        self.flags.stop_at_return = false;
+                        state.continuation = 0;
+                    }
+                    advance = Advance::Jump(ret & 0x3FFF);
+                }
+            }
+            4 => {
+                let operand = match self.flow_payload(state)? {
+                    FlowParameter::Wait(operand) => operand,
+                    _ => {
+                        return Err(RuntimeError::Domain("current wait parameter unavailable"));
+                    }
+                };
+                let value = self.resolve_float(operand.register, operand.value)?;
+                if *self.command_time < Self::wait_word(value) {
+                    advance = Advance::Stay;
+                }
+            }
+            6 => {
+                // ClearAfterEnd needs the saved-code chain and actor owners,
+                // which do not exist yet; the scheduler already stopped the
+                // loop. Stay without advancing so a repeated call observes the
+                // same end instead of running past it.
+                advance = Advance::Stay;
+            }
+            7 => {
+                let value = self.value_at(state)?;
+                let requested = value as u32;
+                let current = *self.float_count;
+                if requested == 0 || (current as i32) < value {
+                    let allocated = self.floats.is_some();
+                    if allocated {
+                        self.effect(state, RuntimeEffect::ReleaseFloats)?;
+                        *self.floats = None;
+                    }
+                    // Original reloads current PC/instruction parameter after
+                    // the release callback.
+                    let requested = self.value_at(state)? as u32;
+                    *self.float_count = requested;
+                    if requested != 0 {
+                        // Host allocation admission is reached only after the
+                        // native free/count store, matching the bank arms.
+                        if requested > 65536 {
+                            return Err(RuntimeError::ReferenceCount(requested));
+                        }
+                        self.effect(state, RuntimeEffect::AllocateFloats(requested))?;
+                        *self.floats = Some(vec![0.0f32; requested as usize].into_boxed_slice());
+                    }
+                }
+            }
+            8 => {
+                let let_param = match self.flow_payload(state)? {
+                    FlowParameter::Let(let_param) => let_param,
+                    _ => {
+                        return Err(RuntimeError::Domain("current let parameter unavailable"));
+                    }
+                };
+                let num = *self.float_count as i32;
+                let a = self.resolve_float(let_param.a.register, let_param.a.value)?;
+                let b = self.resolve_float(let_param.b.register, let_param.b.value)?;
+                if num > let_param.dest
+                    && let_param.dest >= 0
+                    && num > let_param.a.register
+                    && num > let_param.b.register
+                {
+                    let result = match let_param.op {
+                        LetOp::None => a,
+                        LetOp::Add => a + b,
+                        LetOp::Sub => a - b,
+                        LetOp::Mul => a * b,
+                        LetOp::Div => {
+                            if b.abs() < MRG_ZERO {
+                                0.0
+                            } else {
+                                a / b
+                            }
+                        }
+                    };
+                    let bank = self
+                        .floats
+                        .as_mut()
+                        .ok_or(RuntimeError::Domain("float bank unavailable for store"))?;
+                    let slot =
+                        bank.get_mut(let_param.dest as usize)
+                            .ok_or(RuntimeError::Domain(
+                                "float destination outside admitted bank",
+                            ))?;
+                    *slot = result;
+                }
+            }
+            9 => {
+                let if_param = match self.flow_payload(state)? {
+                    FlowParameter::If(if_param) => if_param,
+                    _ => {
+                        return Err(RuntimeError::Domain("current if parameter unavailable"));
+                    }
+                };
+                let num = *self.float_count as i32;
+                let a = self.resolve_float(if_param.a.register, if_param.a.value)?;
+                let b = self.resolve_float(if_param.b.register, if_param.b.value)?;
+                if num > if_param.a.register && num > if_param.b.register {
+                    let result = match if_param.op {
+                        IfOp::Less => a < b,
+                        IfOp::Greater => a > b,
+                        IfOp::Equal => a == b,
+                        IfOp::NotEqual => a != b,
+                    };
+                    let label = if result {
+                        &if_param.label1
+                    } else {
+                        &if_param.label2
+                    };
+                    // NextCommand falls through to the next instruction when
+                    // the label is missing; only a found label jumps.
+                    if let Some(target) = self.jump_to_label(label) {
+                        advance = Advance::Jump(target);
+                    }
+                }
+            }
+            10 => {
+                let pair = self
+                    .instructions
+                    .active()
+                    .get(state.program_counter as usize)
+                    .and_then(|i| i.parameter.as_ref())
+                    .and_then(|p| p.pair_parameter())
+                    .and_then(|p| p.values().into_iter().collect::<Option<Vec<_>>>())
+                    .ok_or(RuntimeError::Domain("current rnd parameter unavailable"))?;
+                let (reg, range) = (pair[0], pair[1]);
+                if reg < 0 {
+                    return Err(RuntimeError::Domain("rnd target outside admitted bank"));
+                }
+                let num = *self.float_count as i32;
+                if num > reg {
+                    // The original calls rnd(range) for range > 1 and the
+                    // float rnd() otherwise; rnd(int) itself guards n < 1,
+                    // which the range check already excludes here.
+                    let sample = if range > 1 {
+                        (msvc_rand_step(&mut *self.rand_state) % (range as u32)) as f32
+                    } else {
+                        msvc_rand_step(&mut *self.rand_state) as f32 * RAND_MAX_RECIPROCAL
+                    };
+                    let bank = self
+                        .floats
+                        .as_mut()
+                        .ok_or(RuntimeError::Domain("float bank unavailable for store"))?;
+                    let slot = bank
+                        .get_mut(reg as usize)
+                        .ok_or(RuntimeError::Domain("rnd target outside admitted bank"))?;
+                    *slot = sample;
+                }
+            }
             opcode => return Err(RuntimeError::UnsupportedCommand(opcode)),
         }
         *self.last_pc = state.program_counter;
         *self.elapsed = 0;
-        state.program_counter = state.program_counter.wrapping_add(1);
+        match advance {
+            Advance::Next => {
+                *self.command_time = 0;
+                state.program_counter = state.program_counter.wrapping_add(1);
+            }
+            Advance::Jump(target) => {
+                *self.command_time = 0;
+                state.program_counter = target;
+            }
+            Advance::Stay => {}
+        }
         Ok(())
     }
 }

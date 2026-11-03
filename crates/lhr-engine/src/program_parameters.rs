@@ -82,6 +82,77 @@ pub fn ascii_integer_prefix(token: &[u8]) -> Result<i32, ProgramParserError> {
     } as i32)
 }
 
+/// CRT atof-prefix conversion for DecodeOperand float literals. The original
+/// helper name is not established; behavior follows the MSVC C locale: skip
+/// ASCII whitespace, consume an optional sign, decimal mantissa and exponent
+/// prefix, then convert exactly what was consumed with correct rounding. No
+/// consumed conversion means zero. Hexadecimal floats are outside VC6-era CRT
+/// admission and convert as their leading decimal prefix (`0x10` gives zero).
+/// `inf`/`nan` spellings convert; trailing text never fails the conversion.
+pub fn ascii_float_prefix(token: &[u8]) -> Result<f32, ProgramParserError> {
+    if let Some((offset, &byte)) = token.iter().enumerate().find(|(_, byte)| !byte.is_ascii()) {
+        return Err(ProgramParserError::UnsupportedCrtByte { offset, byte });
+    }
+    let mut position = 0;
+    while token
+        .get(position)
+        .is_some_and(|byte| matches!(byte, b' ' | b'\t' | b'\n' | b'\x0b' | b'\x0c' | b'\r'))
+    {
+        position += 1;
+    }
+    let start = position;
+    let negative = token.get(position) == Some(&b'-');
+    if negative || token.get(position) == Some(&b'+') {
+        position += 1;
+    }
+    let rest = &token[position..];
+    if rest.len() >= 3 && rest[..3].eq_ignore_ascii_case(b"inf") {
+        return Ok(if negative {
+            f32::NEG_INFINITY
+        } else {
+            f32::INFINITY
+        });
+    }
+    if rest.len() >= 3 && rest[..3].eq_ignore_ascii_case(b"nan") {
+        return Ok(if negative { -f32::NAN } else { f32::NAN });
+    }
+    let int_start = position;
+    while matches!(token.get(position), Some(b'0'..=b'9')) {
+        position += 1;
+    }
+    let int_digits = position - int_start;
+    let mut frac_digits = 0;
+    if token.get(position) == Some(&b'.') {
+        position += 1;
+        let frac_start = position;
+        while matches!(token.get(position), Some(b'0'..=b'9')) {
+            position += 1;
+        }
+        frac_digits = position - frac_start;
+    }
+    if int_digits == 0 && frac_digits == 0 {
+        return Ok(0.0);
+    }
+    if matches!(token.get(position), Some(b'e') | Some(b'E')) {
+        let save = position;
+        position += 1;
+        if matches!(token.get(position), Some(b'-') | Some(b'+')) {
+            position += 1;
+        }
+        let exp_start = position;
+        while matches!(token.get(position), Some(b'0'..=b'9')) {
+            position += 1;
+        }
+        if position == exp_start {
+            position = save;
+        }
+    }
+    let text = core::str::from_utf8(&token[start..position]).expect("grammar-scanned ASCII prefix");
+    Ok(text
+        .parse::<f64>()
+        .expect("grammar-scanned float prefix parses") as f32)
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum ScalarDecodeError<E> {
     OccupiedSlot,
@@ -389,5 +460,56 @@ mod tests {
         );
         assert_eq!(slot.parameter().unwrap().value(), None);
         assert_eq!(source, vec![b' ', 0xff, 0, 0]);
+    }
+    #[test]
+    fn real_float_conversion_matches_crt_atof_prefix_bits() {
+        for (token, expected) in [
+            ("", 0.0f32),
+            ("   ", 0.0),
+            ("12abc", 12.0),
+            ("  -12.5e2xyz", -1250.0),
+            ("+0.5", 0.5),
+            (".5", 0.5),
+            ("5.", 5.0),
+            ("1e3", 1000.0),
+            ("1E-3", 0.001),
+            ("2.5e-1", 0.25),
+            ("e5", 0.0),
+            (".", 0.0),
+            ("-", 0.0),
+            ("+", 0.0),
+            ("12e", 12.0),
+            ("12e+", 12.0),
+            ("12e-5x", 0.00012),
+            ("0x10", 0.0),
+            ("1.234567", 1.234567),
+            ("1e38", 1e38),
+        ] {
+            assert_eq!(
+                ascii_float_prefix(token.as_bytes()).unwrap().to_bits(),
+                expected.to_bits(),
+                "{token}"
+            );
+        }
+        assert_eq!(
+            ascii_float_prefix(b"1e39").unwrap().to_bits(),
+            f32::INFINITY.to_bits()
+        );
+        assert_eq!(
+            ascii_float_prefix(b"INF").unwrap().to_bits(),
+            f32::INFINITY.to_bits()
+        );
+        assert_eq!(
+            ascii_float_prefix(b"-Infinity!").unwrap().to_bits(),
+            f32::NEG_INFINITY.to_bits()
+        );
+        assert!(ascii_float_prefix(b"nan").unwrap().is_nan());
+        assert_eq!(
+            ascii_float_prefix(&[b' ', 0xff, b' ']),
+            Err(ProgramParserError::UnsupportedCrtByte {
+                offset: 1,
+                byte: 0xff
+            })
+        );
     }
 }

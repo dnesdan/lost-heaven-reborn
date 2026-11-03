@@ -105,21 +105,23 @@ fn actual_source_compile_init_and_process_use_one_owned_runtime() {
     ));
 }
 #[test]
-fn decoded_unsupported_dispatch_keeps_reached_elapsed_prefix() {
+fn dim_flt_allocates_zeroed_bank_and_advances() {
     let mut m = Memory::default();
     let mut p = program(b"commandblock 1\ndim_flt 2\ncommandblock 0", &mut m);
     p.init_fresh_runtime(&mut m).unwrap();
     let mut budget = DispatchBudget::new(10).unwrap();
-    assert!(p
-        .call_owned_process(9, &mut budget, &mut m)
-        .unwrap_err()
-        .to_debug()
-        .contains("UnsupportedCommand(7)"));
+    p.call_owned_process(9, &mut budget, &mut m).unwrap();
     let f = &p.runtime().unwrap().fields;
     assert_eq!(
         (f.scheduler.program_counter, f.last_pc, f.elapsed),
-        (1, 0, 9)
+        (3, 2, 0)
     );
+    assert_eq!(f.float_count, 2);
+    assert_eq!(f.floats.as_ref().unwrap().as_ref(), &[0.0f32, 0.0f32]);
+    assert!(m
+        .events
+        .iter()
+        .any(|event| event.0 == RuntimeEffect::AllocateFloats(2)));
 }
 #[test]
 fn incomplete_compile_retains_source_pending_and_prefix_but_is_not_executable() {
@@ -518,7 +520,7 @@ fn unwound_process_frame_release_is_uncertain_and_never_retried_by_done() {
 #[test]
 fn nondestructive_process_failure_still_allows_done_cleanup() {
     let mut memory = Memory::default();
-    let mut p = program(b"dim_act 2\ndim_flt 3", &mut memory);
+    let mut p = program(b"dim_act 2\nfrm_seton 0, 1", &mut memory);
     p.init_fresh_runtime(&mut memory).unwrap();
     p.call_owned_process(1, &mut DispatchBudget::new(4).unwrap(), &mut memory)
         .unwrap();
@@ -577,15 +579,19 @@ fn compiled_end_keeps_scheduler_preclear_but_never_fakes_end_execution() {
     let mut memory = Memory::default();
     let mut p = program(b"commandblock 1\nend", &mut memory);
     p.init_fresh_runtime(&mut memory).unwrap();
-    assert!(p
-        .call_owned_process(9, &mut DispatchBudget::new(5).unwrap(), &mut memory)
-        .unwrap_err()
-        .to_debug()
-        .contains("UnsupportedCommand(6)"));
+    // The scheduler stops the loop; END itself stays on its instruction
+    // without advancing and without saved-code/actor effects, so a repeated
+    // call observes the same end instead of running past it.
+    p.call_owned_process(9, &mut DispatchBudget::new(5).unwrap(), &mut memory)
+        .unwrap();
     let f = &p.runtime().unwrap().fields;
     assert_eq!(f.program_counter(), 1);
+    assert_eq!(f.last_pc, 1);
     assert!(!f.continuation());
-    assert_eq!(f.elapsed, 9);
+    assert_eq!(f.elapsed, 0);
+    p.call_owned_process(9, &mut DispatchBudget::new(5).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
     p.done_fresh_runtime(&mut memory).unwrap();
     p.discard_runtime_host().unwrap();
 }
@@ -740,4 +746,358 @@ fn interrupted_second_pair_conversion_keeps_the_first_word_owned_until_host_disc
     assert_eq!(report.pair_allocations, 1);
     assert_eq!(report.scalar_allocations, 0);
     assert_eq!(report.name_allocations, 0);
+}
+
+#[test]
+fn goto_label_jumps_forward_and_skips_unreached_bank() {
+    let mut memory = Memory::default();
+    let mut p = program(
+        b"commandblock 1\ngoto target\ndim_flt 99\nlabel target\ndim_flt 2\ncommandblock 0",
+        &mut memory,
+    );
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.call_owned_process(1, &mut DispatchBudget::new(10).unwrap(), &mut memory)
+        .unwrap();
+    let f = &p.runtime().unwrap().fields;
+    assert_eq!(f.program_counter(), 6);
+    assert_eq!(f.float_count, 2);
+    assert_eq!(f.floats.as_ref().unwrap().as_ref(), &[0.0f32, 0.0f32]);
+}
+
+#[test]
+fn goto_missing_label_falls_through_and_backward_jump_loops() {
+    let mut memory = Memory::default();
+    let mut p = program(
+        b"commandblock 1\ngoto nowhere\ndim_flt 5\ncommandblock 0",
+        &mut memory,
+    );
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.call_owned_process(1, &mut DispatchBudget::new(10).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.float_count, 5);
+
+    let mut memory = Memory::default();
+    let mut p = program(
+        b"commandblock 1\nlabel top\ngoto top\ncommandblock 0",
+        &mut memory,
+    );
+    p.init_fresh_runtime(&mut memory).unwrap();
+    let result = p.call_owned_process(1, &mut DispatchBudget::new(3).unwrap(), &mut memory);
+    assert!(result.is_err());
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
+}
+
+#[test]
+fn goto_register_indirect_uses_truncated_bank_value() {
+    let mut memory = Memory::default();
+    let mut p = program(
+        b"commandblock 1\ndim_flt 2\nlet flt[0] = 1\ngoto flt[0]\ndim_flt 7\nlabel 1\ndim_flt 3\ncommandblock 0",
+        &mut memory,
+    );
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.call_owned_process(1, &mut DispatchBudget::new(20).unwrap(), &mut memory)
+        .unwrap();
+    let f = &p.runtime().unwrap().fields;
+    assert_eq!(f.program_counter(), 8);
+    assert_eq!(f.float_count, 3);
+}
+
+#[test]
+fn label_search_prefers_last_match_case_insensitively() {
+    let mut memory = Memory::default();
+    let mut p = program(
+        b"commandblock 1\nlabel X\ngoto x\nlabel X\ndim_flt 8\ncommandblock 0",
+        &mut memory,
+    );
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.call_owned_process(1, &mut DispatchBudget::new(10).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.float_count, 8);
+}
+
+#[test]
+fn gosub_return_nests_and_empty_stack_advances() {
+    let mut memory = Memory::default();
+    let mut p = program(
+        b"commandblock 1\ngosub sub\ndim_flt 9\nlabel sub\ndim_flt 4\nreturn\ndim_flt 5\ncommandblock 0",
+        &mut memory,
+    );
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.call_owned_process(1, &mut DispatchBudget::new(20).unwrap(), &mut memory)
+        .unwrap();
+    let f = &p.runtime().unwrap().fields;
+    assert_eq!(f.program_counter(), 8);
+    // DIM only grows the bank (or frees it), so the later smaller sizes keep
+    // the first nine zeroed slots; the count proves the re-entry happened.
+    assert_eq!(f.float_count, 9);
+    assert!(f.gosub_stack.is_empty());
+    // The second bank allocation lands back on the gosub return target: the
+    // program-counter trail proves the backward jump instead of a fallthrough.
+    let allocations: Vec<u32> = memory
+        .events
+        .iter()
+        .filter(|event| matches!(event.0, RuntimeEffect::AllocateFloats(_)))
+        .map(|event| event.1)
+        .collect();
+    assert_eq!(allocations, vec![4, 2]);
+}
+
+#[test]
+fn return_with_stop_flag_clears_and_stops_loop() {
+    let mut memory = Memory::default();
+    let mut p = program(
+        b"commandblock 1\ngosub s\nlabel s\nreturn\ncommandblock 0",
+        &mut memory,
+    );
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.runtime.as_mut().unwrap().fields.flags.stop_at_return = true;
+    p.call_owned_process(1, &mut DispatchBudget::new(10).unwrap(), &mut memory)
+        .unwrap();
+    let f = &p.runtime().unwrap().fields;
+    assert_eq!(f.program_counter(), 2);
+    assert!(!f.continuation());
+    assert!(!f.flags.stop_at_return);
+}
+
+#[test]
+fn wait_holds_pc_across_calls_until_clock_reaches_threshold() {
+    let mut memory = Memory::default();
+    let mut p = program(b"wait 30", &mut memory);
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.call_owned_process(16, &mut DispatchBudget::new(10).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 0);
+    p.call_owned_process(16, &mut DispatchBudget::new(10).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
+}
+
+#[test]
+fn wait_register_operand_holds_then_releases() {
+    let mut memory = Memory::default();
+    let mut p = program(
+        b"commandblock 1\ndim_flt 1\nlet flt[0] = 50\nwait flt[0]\ncommandblock 0",
+        &mut memory,
+    );
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.call_owned_process(16, &mut DispatchBudget::new(10).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 5);
+}
+
+#[test]
+fn jump_resets_command_clock_while_stay_preserves_it() {
+    let mut memory = Memory::default();
+    let mut p = program(
+        b"commandblock 1\ngoto w\nlabel w\nwait 40\ndim_flt 3\ncommandblock 0",
+        &mut memory,
+    );
+    p.init_fresh_runtime(&mut memory).unwrap();
+    // goto, label, then three held WAIT dispatches, the DIM and the closing
+    // block: eight dispatches. A budget of four must exhaust instead. The
+    // exhausted first call leaves the runtime interrupted, so the full run
+    // uses a fresh program with the same source.
+    let result = p.call_owned_process(16, &mut DispatchBudget::new(4).unwrap(), &mut memory);
+    assert!(result.is_err());
+    let mut memory = Memory::default();
+    let mut p = program(
+        b"commandblock 1\ngoto w\nlabel w\nwait 40\ndim_flt 3\ncommandblock 0",
+        &mut memory,
+    );
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.call_owned_process(16, &mut DispatchBudget::new(10).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.float_count, 3);
+}
+
+#[test]
+fn let_executes_all_operators_over_live_bank() {
+    let mut memory = Memory::default();
+    let mut p = program(
+        b"commandblock 1\ndim_flt 5\nlet flt[0] = 6\nlet flt[1] = flt[0] + 4\nlet flt[2] = flt[1] - 20\nlet flt[3] = flt[1] * flt[2]\nlet flt[4] = flt[3] / flt[1]\ncommandblock 0",
+        &mut memory,
+    );
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.call_owned_process(1, &mut DispatchBudget::new(20).unwrap(), &mut memory)
+        .unwrap();
+    let bank = p.runtime().unwrap().fields.floats.as_ref().unwrap().clone();
+    assert_eq!(
+        bank.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+        [6.0f32, 10.0, -10.0, -100.0, -10.0]
+            .iter()
+            .map(|v| v.to_bits())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn let_division_guards_zero_and_mrg_zero_boundary() {
+    for (source, expected) in [
+        (
+            &b"commandblock 1\ndim_flt 1\nlet flt[0] = 1 / 0\ncommandblock 0"[..],
+            0.0f32,
+        ),
+        (
+            &b"commandblock 1\ndim_flt 1\nlet flt[0] = 1 / 0.000000001\ncommandblock 0"[..],
+            0.0f32,
+        ),
+        (
+            &b"commandblock 1\ndim_flt 1\nlet flt[0] = 1 / 0.0000001\ncommandblock 0"[..],
+            10000000.0f32,
+        ),
+    ] {
+        let mut memory = Memory::default();
+        let mut p = program(source, &mut memory);
+        p.init_fresh_runtime(&mut memory).unwrap();
+        p.call_owned_process(1, &mut DispatchBudget::new(10).unwrap(), &mut memory)
+            .unwrap();
+        assert_eq!(
+            p.runtime().unwrap().fields.floats.as_ref().unwrap()[0].to_bits(),
+            expected.to_bits()
+        );
+    }
+}
+
+#[test]
+fn let_guard_failure_and_bad_register_leave_bank_untouched() {
+    let mut memory = Memory::default();
+    let mut p = program(
+        b"commandblock 1\ndim_flt 2\nlet flt[9] = 1\ncommandblock 0",
+        &mut memory,
+    );
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.call_owned_process(1, &mut DispatchBudget::new(10).unwrap(), &mut memory)
+        .unwrap();
+    let f = &p.runtime().unwrap().fields;
+    assert_eq!(f.program_counter(), 4);
+    assert_eq!(f.floats.as_ref().unwrap().as_ref(), &[0.0f32, 0.0f32]);
+
+    let mut memory = Memory::default();
+    let mut p = program(
+        b"commandblock 1\ndim_flt 2\nlet flt[0] = flt[9] + 1\ncommandblock 0",
+        &mut memory,
+    );
+    p.init_fresh_runtime(&mut memory).unwrap();
+    assert!(p
+        .call_owned_process(1, &mut DispatchBudget::new(10).unwrap(), &mut memory)
+        .is_err());
+}
+
+#[test]
+fn if_branches_taken_not_taken_and_missing_labels() {
+    let taken = b"commandblock 1\ndim_flt 2\nlet flt[0] = 5\nlet flt[1] = 5\nif flt[0] = flt[1], yes, no\nlabel no\nlet flt[0] = 222\ngoto done\nlabel yes\nlet flt[0] = 111\nlabel done\ncommandblock 0";
+    let mut memory = Memory::default();
+    let mut p = program(taken, &mut memory);
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.call_owned_process(1, &mut DispatchBudget::new(20).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(
+        p.runtime().unwrap().fields.floats.as_ref().unwrap()[0].to_bits(),
+        111.0f32.to_bits()
+    );
+
+    let not_taken = b"commandblock 1\ndim_flt 2\nlet flt[0] = 5\nlet flt[1] = 5\nif flt[0] < flt[1], yes, no\nlabel no\nlet flt[0] = 222\ngoto done\nlabel yes\nlet flt[0] = 111\nlabel done\ncommandblock 0";
+    let mut memory = Memory::default();
+    let mut p = program(not_taken, &mut memory);
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.call_owned_process(1, &mut DispatchBudget::new(20).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(
+        p.runtime().unwrap().fields.floats.as_ref().unwrap()[0].to_bits(),
+        222.0f32.to_bits()
+    );
+
+    let mut memory = Memory::default();
+    let mut p = program(
+        b"commandblock 1\ndim_flt 1\nif flt[0] = 0, missing, also_missing\nlet flt[0] = 333\ncommandblock 0",
+        &mut memory,
+    );
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.call_owned_process(1, &mut DispatchBudget::new(10).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(
+        p.runtime().unwrap().fields.floats.as_ref().unwrap()[0].to_bits(),
+        333.0f32.to_bits()
+    );
+}
+
+#[test]
+fn rnd_follows_msvc_sequence_range_rule_and_guards() {
+    let mut memory = Memory::default();
+    let mut p = program(
+        b"commandblock 1\ndim_flt 3\nrnd 0, 100\nrnd 1, 1\nrnd 2, 0\ncommandblock 0",
+        &mut memory,
+    );
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.call_owned_process(1, &mut DispatchBudget::new(10).unwrap(), &mut memory)
+        .unwrap();
+    let bank = p.runtime().unwrap().fields.floats.as_ref().unwrap().clone();
+    // LCG from seed 1 draws 41, 18467, 6334; 41 % 100 is 41.
+    assert_eq!(bank[0].to_bits(), 0x42240000);
+    assert_eq!(bank[1].to_bits(), 0x3f104721);
+    assert_eq!(bank[2].to_bits(), 0x3e45f18c);
+    assert_eq!(p.runtime().unwrap().fields.rand_state, 415139642);
+
+    let mut memory = Memory::default();
+    let mut p = program(
+        b"commandblock 1\ndim_flt 1\nrnd 9, 100\ncommandblock 0",
+        &mut memory,
+    );
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.call_owned_process(1, &mut DispatchBudget::new(10).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(
+        p.runtime()
+            .unwrap()
+            .fields
+            .floats
+            .as_ref()
+            .unwrap()
+            .as_ref(),
+        &[0.0f32]
+    );
+
+    let mut memory = Memory::default();
+    let mut p = program(
+        b"commandblock 1\ndim_flt 1\nrnd -1, 5\ncommandblock 0",
+        &mut memory,
+    );
+    p.init_fresh_runtime(&mut memory).unwrap();
+    assert!(p
+        .call_owned_process(1, &mut DispatchBudget::new(10).unwrap(), &mut memory)
+        .is_err());
+}
+
+#[test]
+fn done_releases_float_bank_before_frames_and_actors() {
+    let mut memory = Memory::default();
+    let mut p = program(
+        b"commandblock 1\ndim_flt 2\ndim_frm 1\ndim_act 1\ncommandblock 0",
+        &mut memory,
+    );
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.call_owned_process(1, &mut DispatchBudget::new(10).unwrap(), &mut memory)
+        .unwrap();
+    p.done_fresh_runtime(&mut memory).unwrap();
+    let floats = memory
+        .events
+        .iter()
+        .position(|event| event.0 == RuntimeEffect::ReleaseFloats)
+        .unwrap();
+    let frames = memory
+        .events
+        .iter()
+        .position(|event| event.0 == RuntimeEffect::ReleaseFrames)
+        .unwrap();
+    let actors = memory
+        .events
+        .iter()
+        .position(|event| event.0 == RuntimeEffect::ReleaseActors)
+        .unwrap();
+    assert!(floats < frames && frames < actors);
+    let f = &p.runtime().unwrap().fields;
+    assert_eq!((f.float_count, f.frame_count, f.actor_count), (0, 0, 0));
+    let report = p.discard_runtime_host().unwrap();
+    assert_eq!(report.float_slots, 0);
+    assert_eq!(report.flow_allocations, 0);
 }
