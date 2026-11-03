@@ -12,6 +12,7 @@
 //! admission limits, not native actor limits. Unsupported native allocator
 //! exceptions, allocator callback reentry into collection mutation, other derived virtuals and
 //! nonzero manager cleanup flags have no implicit successful implementation.
+use crate::bridge_actor::{BridgeSectors, BridgeSeed, BridgeState, BridgeTable};
 use crate::car_actor::{CarActorServices, CarActorState, CarSeed};
 use crate::cutscene_records::{
     ActorUserData, CutsceneRecordArena, RecordedActorAssociation, RecordedActorId,
@@ -103,6 +104,7 @@ pub enum ActorVtable {
     Base,
     Detector,
     Railway,
+    Bridge,
     Human,
     Player,
     Entity,
@@ -129,6 +131,7 @@ struct OwnedActor {
     phase: ActorPhase,
     detector: Option<DetectorState>,
     railway: Option<RailwayState>,
+    bridge: Option<BridgeState>,
     human: Option<HumanState>,
     player: Option<PlayerState>,
     entity: Option<EntityState>,
@@ -253,6 +256,9 @@ pub enum ActorWorldError {
     UnsupportedVtable,
     NotDetector,
     NotRailway,
+    NotBridge,
+    BridgeTableUnavailable,
+    BridgeTableTruncated,
     NotHuman,
     NotPlayer,
     NotEntity,
@@ -410,6 +416,13 @@ pub trait ActorAllocationBackend {
     ) -> Result<Option<(u32, BaseActorSeed, DetectorSeed)>, String> {
         Err("detector allocation unavailable".into())
     }
+    /// Kind20 requires actual 0x194-byte storage and its untouched seed.
+    fn allocate_bridge(
+        &mut self,
+        _bytes: u32,
+    ) -> Result<Option<(u32, BaseActorSeed, BridgeSeed)>, String> {
+        Err("bridge allocation unavailable".into())
+    }
 }
 /// Native backing/free dependencies. A failed scalar `free_actor` retains its
 /// backend lease after object destruction. Traffic's reached resource frees may
@@ -540,6 +553,8 @@ pub struct ActorWorld {
     pub manager: ActorManager,
     railway_global_byte: Option<u8>,
     car_services: Option<CarActorServices>,
+    bridge_table: Option<BridgeTable>,
+    bridge_sectors: BridgeSectors,
 }
 impl ActorWorld {
     pub(crate) fn lookup_actor_frame(
@@ -578,6 +593,8 @@ impl ActorWorld {
             manager: ActorManager::default(),
             railway_global_byte: None,
             car_services: None,
+            bridge_table: None,
+            bridge_sectors: BridgeSectors::default(),
         })
     }
     fn collection(&self, source: ActorSource) -> &ActorCollection {
@@ -862,6 +879,7 @@ impl ActorWorld {
             phase: ActorPhase::Constructing,
             detector: None,
             railway,
+            bridge: None,
             human: None,
             player: None,
             entity: None,
@@ -1406,6 +1424,160 @@ impl ActorWorld {
             .find(|a| a.lifetime.reference() == actor)?
             .railway
             .as_ref()
+    }
+    /// Genuine C_bridge construction: the caller's base owner plus the exact
+    /// derived constructor bytes for kind 20 (0x194 bytes, vtable 0x625588).
+    pub fn construct_bridge<B: ActorCollectionBackend + ?Sized>(
+        &mut self,
+        identity: u32,
+        base: BaseActorSeed,
+        seed: BridgeSeed,
+        backend: &mut B,
+    ) -> Result<ActorReferenceId, ActorCreationError> {
+        identity.checked_add(0x193).ok_or(ActorCreationError {
+            actor: None,
+            source: ActorWorldError::InvalidBacking,
+        })?;
+        let actor = self.construct_base(identity, base, backend)?;
+        let i = self.index(actor).expect("constructed bridge owner");
+        let mut state = BridgeState::allocation(seed);
+        state.complete_constructor(identity);
+        self.actors[i].bridge = Some(state);
+        self.actors[i].state.vtable = ActorVtable::Bridge;
+        self.actors[i].state.word_10 = 20;
+        Ok(actor)
+    }
+    pub fn bridge(&self, actor: ActorReferenceId) -> Result<&BridgeState, ActorWorldError> {
+        self.actors[self.index(actor)?]
+            .bridge
+            .as_ref()
+            .ok_or(ActorWorldError::NotBridge)
+    }
+    pub fn inspect_bridge(&self, actor: ActorReferenceId) -> Option<&BridgeState> {
+        self.actors
+            .iter()
+            .find(|a| a.lifetime.reference() == actor)?
+            .bridge
+            .as_ref()
+    }
+    /// Shared ferry table retained from the session's tables\parnik.def read.
+    /// A missing file stays absent here; only an arriving bridge record turns
+    /// that absence into a LoadData error, matching the native per-call load.
+    pub fn configure_bridge_table(&mut self, bytes: Option<Vec<u8>>) {
+        self.bridge_table = bytes.map(BridgeTable::from_file);
+    }
+    pub fn bridge_table(&self) -> Option<&BridgeTable> {
+        self.bridge_table.as_ref()
+    }
+    pub fn bridge_sectors(&self) -> &BridgeSectors {
+        &self.bridge_sectors
+    }
+    /// Original C_bridge::LoadData reads no scene2 payload: it opens
+    /// tables\parnik.def and retains the header plus 0x2a0 bytes in shared
+    /// storage. The table must have been configured through
+    /// configure_bridge_table (the session reads it from the installation on
+    /// this path); an absent table fails closed here, matching the native
+    /// failed open. Zero payload bytes are consumed here; the enclosing chunk
+    /// reader skips the record by its declared extent, as for kind 1.
+    pub fn load_bridge_data(&mut self, actor: ActorReferenceId) -> Result<usize, ActorWorldError> {
+        let i = self.ready(actor)?;
+        if self.actors[i].bridge.is_none() || self.actors[i].state.vtable != ActorVtable::Bridge {
+            return Err(ActorWorldError::NotBridge);
+        }
+        let bytes = self
+            .bridge_table
+            .as_ref()
+            .map(|table| table.bytes().len())
+            .ok_or(ActorWorldError::BridgeTableUnavailable)?;
+        if bytes < 8 {
+            return Err(ActorWorldError::BridgeTableTruncated);
+        }
+        self.actors[i].phase = ActorPhase::Ready;
+        Ok(0)
+    }
+    /// Original C_bridge::Init tail after the base init: record the resolved
+    /// sibling flap frame, the model-name L-flag and, unless the flag skips
+    /// it, the shared sector refresh. A missing sibling fails closed like the
+    /// native null FindFrame result. The name derivation itself lives with
+    /// the bridge helpers; only resolved identities cross here.
+    pub fn init_bridge_linked(
+        &mut self,
+        actor: ActorReferenceId,
+        sibling: Option<FrameReferenceId>,
+        model_starts_with_l: bool,
+    ) -> Result<bool, ActorWorldError> {
+        let i = self.ready(actor)?;
+        if self.actors[i].bridge.is_none() || self.actors[i].state.vtable != ActorVtable::Bridge {
+            return Err(ActorWorldError::NotBridge);
+        }
+        let Some(sibling) = sibling else {
+            return Ok(false);
+        };
+        let bridge = self.actors[i].bridge.as_mut().expect("admitted bridge");
+        bridge.set_frame_handle(sibling.identity());
+        if model_starts_with_l {
+            bridge.set_model_l_flag(0);
+        } else {
+            bridge.set_model_l_flag(1);
+            self.bridge_sectors.refresh();
+        }
+        Ok(true)
+    }
+    pub fn release_bridge<F: ActorFrameBackend + ?Sized, B: ActorDeallocationBackend + ?Sized>(
+        &mut self,
+        actor: ActorReferenceId,
+        frames: &mut F,
+        backend: &mut B,
+    ) -> Result<u16, ActorWorldError> {
+        let i = self.ready(actor)?;
+        if self.actors[i].bridge.is_none() || self.actors[i].state.vtable != ActorVtable::Bridge {
+            return Err(ActorWorldError::NotBridge);
+        }
+        let count = self.actors[i].state.references.wrapping_sub(1);
+        self.actors[i].state.references = count;
+        if count == 0 {
+            self.delete_bridge(actor, 1, frames, backend)?;
+        }
+        Ok(count)
+    }
+    pub fn destroy_bridge<F: ActorFrameBackend + ?Sized>(
+        &mut self,
+        actor: ActorReferenceId,
+        backend: &mut F,
+    ) -> Result<(), ActorWorldError> {
+        let i = self.index(actor)?;
+        if !matches!(
+            self.actors[i].phase,
+            ActorPhase::Ready
+                | ActorPhase::LoadingInterrupted
+                | ActorPhase::InitializationInterrupted
+        ) {
+            return Err(ActorWorldError::Busy(actor));
+        }
+        if self.actors[i].bridge.is_none() {
+            return Err(ActorWorldError::NotBridge);
+        }
+        self.actors[i].phase = ActorPhase::Destroying;
+        self.actors[i].state.vtable = ActorVtable::Bridge;
+        self.destroy_base_inner(actor, backend)
+    }
+    pub fn delete_bridge<F: ActorFrameBackend + ?Sized, B: ActorDeallocationBackend + ?Sized>(
+        &mut self,
+        actor: ActorReferenceId,
+        argument: u32,
+        frames: &mut F,
+        backend: &mut B,
+    ) -> Result<(), ActorWorldError> {
+        self.destroy_bridge(actor, frames)?;
+        if argument & 1 != 0 {
+            backend
+                .free_actor(self, actor.identity())
+                .map_err(|detail| ActorWorldError::Effect {
+                    stage: "free_bridge",
+                    detail,
+                })?;
+        }
+        Ok(())
     }
     /// Native LoadData returns AL1 even when bounded read guards skip fields.
     /// Returns consumed payload bytes for host inspection, not a native status.
@@ -2062,6 +2234,21 @@ impl ActorWorld {
                 .map(|(identity, base, seed)| {
                     self.construct_detector(identity, base, seed, backend)
                 })
+                .transpose();
+        }
+        if kind == 20 {
+            let allocation =
+                backend
+                    .allocate_bridge(0x194)
+                    .map_err(|detail| ActorCreationError {
+                        actor: None,
+                        source: ActorWorldError::Effect {
+                            stage: "allocate_bridge",
+                            detail,
+                        },
+                    })?;
+            return allocation
+                .map(|(identity, base, seed)| self.construct_bridge(identity, base, seed, backend))
                 .transpose();
         }
         if kind != 1 {
@@ -3368,7 +3555,7 @@ mod tests {
                 ] {
                     assert!(w.source(source).is_empty());
                 }
-            } else if ![1, 2, 4, 5, 8, 18, 27].contains(&kind) {
+            } else if ![1, 2, 4, 5, 8, 18, 20, 27].contains(&kind) {
                 assert_eq!(
                     result.unwrap_err().source,
                     ActorWorldError::UnsupportedKind(kind)
@@ -4110,6 +4297,220 @@ mod railway_tests {
             )
             .is_err());
         assert_eq!(heap.frees.len(), 2);
+    }
+}
+
+#[cfg(test)]
+mod bridge_tests {
+    use super::*;
+    use crate::actor_frames::ModelActorFrames;
+    use crate::bridge_actor::BridgeSeed;
+    use crate::model_loading::ModelArena;
+    fn seed() -> BaseActorSeed {
+        BaseActorSeed {
+            word_0e: 0xaabb,
+            actor_id: 0x1234,
+            state_1c: 0x87654321,
+            bytes_21_5f: [0x21; 63],
+            bytes_64_65: [0x65; 2],
+            byte_67: 0x67,
+            release_frame: 1,
+            bytes_6d_6f: [0x6f; 3],
+        }
+    }
+    fn bridge_world(capacity: usize) -> ActorWorld {
+        let b = SourceBacking {
+            storage: (capacity != 0).then_some(ActorStorageId(1)),
+            capacity,
+        };
+        ActorWorld::new(9, 100, b, b, b).unwrap()
+    }
+    #[derive(Default)]
+    struct Heap {
+        identity: u32,
+        null: bool,
+        actor_freed: bool,
+    }
+    impl ActorAllocationBackend for Heap {
+        fn allocate_actor(&mut self, _: u32) -> Result<Option<(u32, BaseActorSeed)>, String> {
+            Err("base allocation outside fixture".into())
+        }
+        fn allocate_bridge(
+            &mut self,
+            bytes: u32,
+        ) -> Result<Option<(u32, BaseActorSeed, BridgeSeed)>, String> {
+            assert_eq!(bytes, 0x194);
+            if self.null {
+                return Ok(None);
+            }
+            self.identity += 1;
+            Ok(Some((
+                self.identity,
+                seed(),
+                BridgeSeed {
+                    bytes_00_193: [0xa5; 0x194],
+                },
+            )))
+        }
+    }
+    impl ActorCollectionBackend for Heap {
+        fn allocate_collection(
+            &mut self,
+            _: &ActorWorld,
+            _: ActorSource,
+            _: u32,
+        ) -> Result<ActorStorageId, String> {
+            Ok(ActorStorageId(2))
+        }
+        fn free_collection(
+            &mut self,
+            _: &ActorWorld,
+            _: ActorSource,
+            _: Option<ActorStorageId>,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+    }
+    impl ActorDeallocationBackend for Heap {
+        fn free_actor(&mut self, _: &ActorWorld, identity: u32) -> Result<(), String> {
+            assert_eq!(identity, self.identity);
+            self.actor_freed = true;
+            Ok(())
+        }
+    }
+    fn actor(world: &mut ActorWorld, heap: &mut Heap) -> ActorReferenceId {
+        world.create_actor(20, heap).unwrap().unwrap()
+    }
+    #[test]
+    fn bridge_factory_constructs_exact_derived_bytes_and_kind() {
+        let mut world = bridge_world(8);
+        let mut heap = Heap {
+            identity: 0x81000000,
+            ..Heap::default()
+        };
+        let actor = actor(&mut world, &mut heap);
+        assert_eq!(world.state(actor).unwrap().word_10, 20);
+        assert_eq!(world.state(actor).unwrap().vtable, ActorVtable::Bridge);
+        let bridge = world.bridge(actor).unwrap();
+        assert_eq!(bridge.bytes()[0x1c], 0x81);
+        assert_eq!(bridge.bytes()[0x20], 0x81);
+        assert_eq!(
+            u32::from_le_bytes(bridge.bytes()[0x178..0x17c].try_into().unwrap()),
+            0x3f5f66f3
+        );
+        assert_eq!(
+            u32::from_le_bytes(bridge.bytes()[0x160..0x164].try_into().unwrap()),
+            120000
+        );
+        assert_eq!(bridge.bytes()[0x5d], 0);
+        assert_eq!(bridge.bytes()[0x4f], 0);
+        assert_eq!(
+            u32::from_le_bytes(bridge.bytes()[0x138..0x13c].try_into().unwrap()),
+            7
+        );
+        assert!(world.inspect_bridge(actor).is_some());
+        let mut empty = bridge_world(8);
+        let mut null = Heap {
+            null: true,
+            ..Heap::default()
+        };
+        assert_eq!(empty.create_actor(20, &mut null).unwrap(), None);
+        assert_eq!(empty.actor_count, 9);
+    }
+    #[test]
+    fn bridge_load_data_requires_configured_table() {
+        let mut world = bridge_world(8);
+        let mut heap = Heap {
+            identity: 0x81000000,
+            ..Heap::default()
+        };
+        let actor = actor(&mut world, &mut heap);
+        assert_eq!(
+            world.load_bridge_data(actor),
+            Err(ActorWorldError::BridgeTableUnavailable)
+        );
+        world.configure_bridge_table(Some(vec![0; 4]));
+        assert_eq!(
+            world.load_bridge_data(actor),
+            Err(ActorWorldError::BridgeTableTruncated)
+        );
+        world.configure_bridge_table(Some(vec![0; 680]));
+        assert_eq!(world.load_bridge_data(actor), Ok(0));
+        assert_eq!(world.phase(actor), Ok(ActorPhase::Ready));
+        let i = world.index(actor).unwrap();
+        world.actors[i].bridge = None;
+        assert_eq!(
+            world.load_bridge_data(actor),
+            Err(ActorWorldError::NotBridge)
+        );
+    }
+    #[test]
+    fn bridge_linked_init_records_handle_flag_and_sectors() {
+        let mut world = bridge_world(8);
+        let mut heap = Heap {
+            identity: 0x81000000,
+            ..Heap::default()
+        };
+        let actor = actor(&mut world, &mut heap);
+        assert!(!world.init_bridge_linked(actor, None, false).unwrap());
+        let sibling = FrameReferenceId::from_existing(0x10203040);
+        assert!(world
+            .init_bridge_linked(actor, Some(sibling), true)
+            .unwrap());
+        let bridge = world.bridge(actor).unwrap();
+        assert_eq!(bridge.frame_handle(), 0x10203040);
+        assert_eq!(bridge.model_l_flag(), 0);
+        assert_eq!(world.bridge_sectors(), &BridgeSectors::default());
+        assert!(world
+            .init_bridge_linked(actor, Some(sibling), false)
+            .unwrap());
+        let bridge = world.bridge(actor).unwrap();
+        assert_eq!(bridge.model_l_flag(), 1);
+        assert_eq!(world.bridge_sectors().rows, [[0xffff; 9]; 2]);
+        assert_eq!(world.bridge_sectors().cleared, [0; 8]);
+        let i = world.index(actor).unwrap();
+        world.actors[i].bridge = None;
+        assert_eq!(
+            world.init_bridge_linked(actor, Some(sibling), true),
+            Err(ActorWorldError::NotBridge)
+        );
+    }
+    #[test]
+    fn bridge_release_decrements_and_deletes_at_zero() {
+        let mut world = bridge_world(8);
+        let mut heap = Heap {
+            identity: 0x81000000,
+            ..Heap::default()
+        };
+        let actor = actor(&mut world, &mut heap);
+        let i = world.index(actor).unwrap();
+        world.actors[i].state.references = 2;
+        let mut arena = ModelArena::default();
+        assert_eq!(
+            world
+                .release_bridge(
+                    actor,
+                    &mut ModelActorFrames::borrow(&mut arena, true),
+                    &mut heap
+                )
+                .unwrap(),
+            1
+        );
+        assert!(!heap.actor_freed);
+        assert_eq!(
+            world
+                .release_bridge(
+                    actor,
+                    &mut ModelActorFrames::borrow(&mut arena, true),
+                    &mut heap
+                )
+                .unwrap(),
+            0
+        );
+        assert!(heap.actor_freed);
+        assert_eq!(world.inspect(actor).unwrap().0, ActorPhase::Dead);
+        assert_eq!(world.actor_count, 9);
+        assert_eq!(world.inspect(actor).unwrap().1.vtable, ActorVtable::Base);
     }
 }
 

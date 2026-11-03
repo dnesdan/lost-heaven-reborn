@@ -7,8 +7,10 @@ playable; all six first-mission gates remain open.
 
 The mission ActorWorld now owns genuine Car/Vehicle actors alongside Human,
 Player and C_entity. Both original MISE01 cars complete Init and LoadData;
-source intake reaches 3,183 objects and 38 actors before unsupported kind 20,
-cursor 3,814,295. Explicit disposal closes every tracked owner, including the
+source intake reaches 3,183 objects and 40 actors before unsupported kind 25
+(pumper), cursor 3,815,824. The two bridge actors (LLsklap01/sklapx01)
+complete construction, ferry-table LoadData and linked flap Init with the
+shared sector refresh. Explicit disposal closes every tracked owner, including the
 car resources and independent frame records. GameInit and mission play remain open.
 
 Replay intake reads the complete 107,352-byte record01a input into its real
@@ -27,13 +29,14 @@ human animation, recorded cutscenes and a playable first mission remain open.
 [Build and run](docs/RUNNING.md) · [current evidence](docs/implementation/2026-10-29-car-replay-programs.md) ·
 [coverage](COVERAGE.md) · [goals](docs/GOALS.md) · [dated history](docs/history/README.md).
 
-[Latest reviewed integration: VM control flow](docs/implementation/2026-11-03-vm-flow-execution.md)
-executes original LABEL/GOTO/GOSUB/WAIT/END/DIM_FLT/LET/IF/RND over a live
-float bank, gosub stack, command clock and MSVC rand sequence. Together with
-the merged [PR #69 pair decoding](docs/implementation/2026-11-03-vm-pair-parameters.md),
-the VM now decodes 274 selector families and executes 15 opcodes. FRM_SETON and all
-effect commands still stop at `UnsupportedCommand`; the C_bridge actor
-remains the MISE01 kind-20 frontier and authored mission play remains open.
+[Latest reviewed integration: bridge actor intake](docs/implementation/2026-11-03-bridge-intake.md)
+constructs the original C_bridge (kind 20, 0x194 bytes) with its ferry-table
+LoadData and linked flap Init. Together with the merged
+[VM control flow](docs/implementation/2026-11-03-vm-flow-execution.md) and
+[PR #69 pair decoding](docs/implementation/2026-11-03-vm-pair-parameters.md),
+the VM decodes 274 selector families and executes 15 opcodes. FRM_SETON and all
+effect commands still stop at `UnsupportedCommand`; the C_pumper actor
+is now the MISE01 kind-25 frontier and authored mission play remains open.
 
 <details>
 <summary>Static research and accepted scoped-port dashboard</summary>

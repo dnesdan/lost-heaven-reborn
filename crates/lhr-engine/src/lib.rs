@@ -15,6 +15,7 @@ pub mod break_plain_glass;
 pub mod break_plain_glass_lifecycle;
 pub mod break_plain_glass_merge;
 pub mod break_plain_glass_update;
+pub mod bridge_actor;
 pub mod buffer_managers;
 pub mod c_str;
 pub mod canonical_city_cache;

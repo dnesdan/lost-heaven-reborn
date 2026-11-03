@@ -271,6 +271,7 @@ impl MissionContentOwner {
                 ActorVtable::Railway => {
                     world.delete_railway(actor, 1, &mut frames, &mut self.memory)
                 }
+                ActorVtable::Bridge => world.delete_bridge(actor, 1, &mut frames, &mut self.memory),
                 ActorVtable::TrafficGenerator => {
                     if world.phase(actor).map_err(|e| format!("{e:?}"))? == ActorPhase::Ready {
                         world.delete_traffic_generator(actor, 1, &mut frames, &mut self.memory)
@@ -500,6 +501,18 @@ impl ActorAllocationBackend for ContentMemory {
             base_seed(),
             RailwaySeed {
                 bytes_70_36f: [0; 0x300],
+            },
+        )))
+    }
+    fn allocate_bridge(
+        &mut self,
+        bytes: u32,
+    ) -> Result<Option<(u32, BaseActorSeed, crate::bridge_actor::BridgeSeed)>, String> {
+        Ok(Some((
+            self.actor(bytes, 0x194)?,
+            base_seed(),
+            crate::bridge_actor::BridgeSeed {
+                bytes_00_193: [0; 0x194],
             },
         )))
     }

@@ -1270,6 +1270,56 @@ fn unsupported_named_actor_stops_at_kind_read_and_preserves_prior_program_and_ac
     assert_eq!(format!("{:?}", session.failure()), failure);
 }
 #[test]
+fn bridge_kind_loads_linked_flap_and_skips_unlinked_prefix() {
+    use crate::actor_world::{ActorSource, ActorVtable};
+    let bytes = scene2(
+        &[chunk(
+            0xae20,
+            &[
+                actor_record(b"br01", 20, b""),
+                actor_record(b"lone", 20, b""),
+            ]
+            .concat(),
+        )]
+        .concat(),
+    );
+    let fixture = Fixture::new(
+        Some(&world(&[
+            dummy(0, b"br01"),
+            dummy(0, b"br02"),
+            dummy(0, b"lone"),
+        ])),
+        Some(&bytes),
+        None,
+    );
+    std::fs::create_dir_all(fixture.0.join("tables")).unwrap();
+    std::fs::write(
+        fixture.0.join("tables/parnik.def"),
+        [4u8, 0, 0, 0, 7, 0, 0, 0],
+    )
+    .unwrap();
+    let mut session = fixture.session();
+    load(&mut session, &[]).unwrap();
+    let loader = session.loader().unwrap();
+    let world = &loader.content.actors.world;
+    // br01 links against the published br02 sibling; lone has no lonf
+    // sibling and is released while its record still advances the cursor.
+    assert_eq!(world.actor_count, 1);
+    let actors = world.source(ActorSource::Primary).to_vec();
+    assert_eq!(actors.len(), 1);
+    let actor = actors[0].unwrap();
+    assert_eq!(world.state(actor).unwrap().vtable, ActorVtable::Bridge);
+    assert_eq!(world.state(actor).unwrap().word_10, 20);
+    let sibling = loader.load_map.map.slot(b"br02").flatten().unwrap();
+    let bridge = world.bridge(actor).unwrap();
+    assert_eq!(bridge.frame_handle(), sibling.identity());
+    assert_eq!(bridge.model_l_flag(), 1);
+    assert_eq!(world.bridge_sectors().rows, [[0xffff; 9]; 2]);
+    assert!(world.bridge_table().is_some());
+    assert_eq!(loader.cursor, bytes.len());
+    discard(&mut session);
+}
+#[test]
 fn padded_kind_field_is_closed_before_factory_failure_and_preserves_registered_prefix() {
     use crate::actor_world::ActorSource;
     let unavailable = chunk(

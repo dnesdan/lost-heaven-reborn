@@ -4,6 +4,7 @@
 //! It is not MissionOpen, GameInit, a scene constructor or a running mission.
 use crate::actor_frames::{FrameUserData, ModelActorFrames};
 use crate::actor_world::*;
+use crate::bridge_actor::{derive_sibling_name, model_name_starts_with_l};
 use crate::frame_lookup::ModelFrameLookup;
 use crate::frame_transform::FrameKey;
 use crate::human_actor::ActorDataReader;
@@ -119,6 +120,34 @@ impl MissionActorLoader {
     }
     pub fn load_map_slot(&self, name: &[u8]) -> Option<Option<FrameReferenceId>> {
         self.load_map.as_ref().and_then(|map| map.slot(name))
+    }
+    /// Original C_bridge::Init tail for kind 20 after the base init: derive
+    /// the sibling flap name from the actor frame's own name, resolve it
+    /// through the enclosing scene map, and record the handle, L-flag and
+    /// shared sector refresh. A missing sibling fails closed like the native
+    /// null FindFrame result. Arena names stand in for the native
+    /// model.frame composition; both spell the frame's own name here.
+    fn link_bridge_actor(
+        &mut self,
+        actor: ActorReferenceId,
+        frame: FrameReferenceId,
+        arena: &ModelArena,
+        map: &OriginalLoadMap,
+    ) -> Result<bool, String> {
+        let key = crate::frame_transform::FrameKey(frame.identity());
+        let name = arena
+            .frame(key)
+            .map_err(|e| format!("{e:?}"))?
+            .name_bytes
+            .clone();
+        let sibling = match derive_sibling_name(&name) {
+            Some(derived) => map.slot(&derived).flatten(),
+            None => None,
+        };
+        let starts_with_l = model_name_starts_with_l(&name);
+        self.world
+            .init_bridge_linked(actor, sibling, starts_with_l)
+            .map_err(|e| format!("{e:?}"))
     }
     /// Actual installation bytes feed the same ordered executor used by an
     /// enclosing scene loader. Non-actor phases must already have been loaded
@@ -325,13 +354,22 @@ impl MissionActorLoader {
                     };
                     self.current_kind = Some(kind);
                     if let Some(actor) = self.current_actor {
-                        let mut frames =
-                            ModelActorFrames::borrow(arena, true).with_car_resources(installation);
-                        if self
-                            .world
-                            .init(actor, Some(frame), &mut frames)
-                            .map_err(|e| format!("{e:?}"))?
-                        {
+                        // The frames borrow ends before the linked bridge tail
+                        // borrows the arena; both observe the same owners.
+                        let mut admitted = {
+                            let mut frames = ModelActorFrames::borrow(arena, true)
+                                .with_car_resources(installation);
+                            self.world
+                                .init(actor, Some(frame), &mut frames)
+                                .map_err(|e| format!("{e:?}"))?
+                        };
+                        if admitted && kind == 20 {
+                            // Original C_bridge::Init tail after the base
+                            // init: the sibling flap frame resolves through
+                            // the enclosing scene map for the +0x90 handle.
+                            admitted = self.link_bridge_actor(actor, frame, arena, map)?;
+                        }
+                        if admitted {
                             //547220, then53fea0(actor,false), before frame userdata publication.
                             self.world
                                 .mark_scene_loaded(actor)
@@ -342,6 +380,8 @@ impl MissionActorLoader {
                             let key = validate_frame(arena, frame)?;
                             publish_actor_data(arena, key, actor)?;
                         } else {
+                            let mut frames = ModelActorFrames::borrow(arena, true)
+                                .with_car_resources(installation);
                             if kind == 18 {
                                 self.world
                                     .release_traffic_generator(actor, &mut frames, backend)
@@ -366,6 +406,10 @@ impl MissionActorLoader {
                                 self.world
                                     .release_detector(actor, &mut frames, backend)
                                     .map_err(|e| format!("{e:?}"))?;
+                            } else if kind == 20 {
+                                self.world
+                                    .release_bridge(actor, &mut frames, backend)
+                                    .map_err(|e| format!("{e:?}"))?;
                             } else {
                                 self.world
                                     .release(actor, &mut ReleaseFrames { frames, backend })
@@ -378,7 +422,10 @@ impl MissionActorLoader {
             }
             0xae24 => {
                 if let Some(actor) = self.current_actor {
-                    if !field.payload.is_empty() || self.current_kind == Some(18) {
+                    if !field.payload.is_empty()
+                        || self.current_kind == Some(18)
+                        || self.current_kind == Some(20)
+                    {
                         self.pending_load_data = Some(field.payload.to_vec());
                         if self.current_kind == Some(18) {
                             let mut reader = TrafficChunkReader::new(field.payload);
@@ -429,6 +476,24 @@ impl MissionActorLoader {
                             self.world
                                 .load_railway_data(actor, field.payload)
                                 .map_err(|e| format!("{e:?}"))?;
+                            self.pending_load_data = None;
+                            return Ok(());
+                        }
+                        if self.current_kind == Some(20) {
+                            // Original C_bridge::LoadData reads no scene2
+                            // payload: it opens tables\parnik.def into shared
+                            // storage. The record is skipped by its declared
+                            // extent after this zero-consumption load, as for
+                            // kind 1.
+                            let installation =
+                                installation.ok_or("bridge table source unavailable")?;
+                            let bytes = installation
+                                .read("tables/parnik.def")
+                                .map_err(|e| format!("{e:?}"))?;
+                            self.world.configure_bridge_table(Some(bytes));
+                            let result = self.world.load_bridge_data(actor);
+                            self.cursor = field.offset + 6;
+                            result.map_err(|e| format!("{e:?}"))?;
                             self.pending_load_data = None;
                             return Ok(());
                         }
