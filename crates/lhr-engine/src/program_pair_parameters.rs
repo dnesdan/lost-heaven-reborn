@@ -207,7 +207,7 @@ mod tests {
             assert_eq!(slot.parameter().unwrap().values(), [Some(-17), Some(-1)]);
             assert_eq!(
                 backend.calls,
-                [
+                vec![
                     ("allocate", 0, [None, None]),
                     ("convert", 0, [None, None]),
                     ("convert", 1, [Some(-17), None]),
@@ -278,6 +278,6 @@ mod tests {
             second.decode(7, &mut input, &mut Boundary::default()),
             Err(PairDecodeError::UnsupportedOpcode(7))
         );
-        assert_eq!(input, [b'2', 0, b'3', 0]);
+        assert_eq!(input.as_slice(), &[b'2', 0, b'3', 0]);
     }
 }
