@@ -1058,7 +1058,8 @@ fn mission_flow_commands_advance_as_noop_and_count_in_discard() {
     let progress = p.init_fresh_runtime(&mut memory).unwrap();
     assert_eq!((progress.accepted, progress.errors), (4, 0));
     for expected in 1..=4 {
-        p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory).unwrap();
+        p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+            .unwrap();
         assert_eq!(p.runtime().unwrap().fields.program_counter(), expected);
     }
     let report = p.discard_runtime_host().unwrap();

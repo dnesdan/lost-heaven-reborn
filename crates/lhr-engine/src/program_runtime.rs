@@ -33,6 +33,8 @@ mod name_parameters;
 mod pair_parameters;
 #[path = "program_quad_parameters.rs"]
 mod quad_parameters;
+#[path = "program_remaining_parameters.rs"]
+mod remaining_parameters;
 use crate::named_script::ResetState;
 use crate::program_compiler::{self, CompileBackend, CompileDiagnostic, CompileProgress};
 use crate::program_entity_parameters::{
@@ -61,10 +63,14 @@ pub use flow_parameters::{
     supports_flow_opcode, AsciiFlowParameterBackend, FlowDecodeError, FlowOperand, FlowParameter,
     FlowParameterBackend, FlowParameterSlot, GotoParameter, IfOp, IfParameter, LetOp, LetParameter,
 };
-pub use mission_parameters::{supports_end_of_mission_opcode, supports_change_mission_opcode, AsciiMissionFlowBackend, MissionFlowDecodeError, EndOfMissionParameter, ChangeMissionParameter, EndOfMissionBackend, ChangeMissionBackend, EndOfMissionParameterSlot, ChangeMissionParameterSlot};
 pub use human_talk_parameters::{
     supports_human_talk_opcode, AsciiHumanTalkParameterBackend, HumanTalkDecodeError,
     HumanTalkParameter, HumanTalkParameterBackend, HumanTalkParameterSlot,
+};
+pub use mission_parameters::{
+    supports_change_mission_opcode, supports_end_of_mission_opcode, AsciiMissionFlowBackend,
+    ChangeMissionBackend, ChangeMissionParameter, ChangeMissionParameterSlot, EndOfMissionBackend,
+    EndOfMissionParameter, EndOfMissionParameterSlot, MissionFlowDecodeError,
 };
 pub use name_parameters::{
     supports_name_opcode, NameDecodeError, NameParameter, NameParameterBackend, NameParameterSlot,
@@ -76,6 +82,10 @@ pub use pair_parameters::{
 pub use quad_parameters::{
     supports_quad_opcode, AsciiQuadParameterBackend, QuadDecodeError, QuadParameter,
     QuadParameterBackend, QuadParameterSlot,
+};
+pub use remaining_parameters::{
+    supports_remaining_opcode, AsciiRemainingParameterBackend, RemainingDecodeError,
+    RemainingParameter, RemainingParameterBackend, RemainingParameterSlot, REMAINING_OPCODE_IDS,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -204,6 +214,7 @@ pub enum InstructionParameter {
     HumanTalk(HumanTalkParameterSlot),
     EndOfMission(EndOfMissionParameterSlot),
     ChangeMission(ChangeMissionParameterSlot),
+    Remaining(RemainingParameterSlot),
     Quad(QuadParameterSlot),
     ActState(ActStateParameterSlot),
 }
@@ -212,31 +223,33 @@ impl InstructionParameter {
     pub fn parameter(&self) -> Option<&ScalarParameter> {
         match self {
             Self::Scalar(slot) => slot.parameter(),
-            Self::Name(_) 
-            | Self::Pair(_) 
-            | Self::Flow(_) 
-            | Self::Entity(_) 
-            | Self::Event(_) 
-            | Self::SetEvent(_) 
-            | Self::HumanTalk(_) 
-            | Self::EndOfMission(_) 
-            | Self::ChangeMission(_) 
-            | Self::Quad(_) 
+            Self::Name(_)
+            | Self::Pair(_)
+            | Self::Flow(_)
+            | Self::Entity(_)
+            | Self::Event(_)
+            | Self::SetEvent(_)
+            | Self::HumanTalk(_)
+            | Self::EndOfMission(_)
+            | Self::ChangeMission(_)
+            | Self::Remaining(_)
+            | Self::Quad(_)
             | Self::ActState(_) => None,
         }
     }
     pub fn name_parameter(&self) -> Option<&NameParameter> {
         match self {
-            Self::Scalar(_) 
-            | Self::Pair(_) 
-            | Self::Flow(_) 
-            | Self::Entity(_) 
-            | Self::Event(_) 
-            | Self::SetEvent(_) 
-            | Self::HumanTalk(_) 
-            | Self::EndOfMission(_) 
-            | Self::ChangeMission(_) 
-            | Self::Quad(_) 
+            Self::Scalar(_)
+            | Self::Pair(_)
+            | Self::Flow(_)
+            | Self::Entity(_)
+            | Self::Event(_)
+            | Self::SetEvent(_)
+            | Self::HumanTalk(_)
+            | Self::EndOfMission(_)
+            | Self::ChangeMission(_)
+            | Self::Remaining(_)
+            | Self::Quad(_)
             | Self::ActState(_) => None,
             Self::Name(slot) => slot.parameter(),
         }
@@ -244,176 +257,204 @@ impl InstructionParameter {
     pub fn pair_parameter(&self) -> Option<&PairParameter> {
         match self {
             Self::Pair(slot) => slot.parameter(),
-            Self::Scalar(_) 
-            | Self::Name(_) 
-            | Self::Flow(_) 
-            | Self::Entity(_) 
-            | Self::Event(_) 
-            | Self::SetEvent(_) 
-            | Self::HumanTalk(_) 
-            | Self::EndOfMission(_) 
-            | Self::ChangeMission(_) 
-            | Self::Quad(_) 
+            Self::Scalar(_)
+            | Self::Name(_)
+            | Self::Flow(_)
+            | Self::Entity(_)
+            | Self::Event(_)
+            | Self::SetEvent(_)
+            | Self::HumanTalk(_)
+            | Self::EndOfMission(_)
+            | Self::ChangeMission(_)
+            | Self::Remaining(_)
+            | Self::Quad(_)
             | Self::ActState(_) => None,
         }
     }
     pub fn flow_parameter(&self) -> Option<&FlowParameter> {
         match self {
             Self::Flow(slot) => slot.parameter(),
-            Self::Scalar(_) 
-            | Self::Name(_) 
-            | Self::Pair(_) 
-            | Self::Entity(_) 
-            | Self::Event(_) 
-            | Self::SetEvent(_) 
-            | Self::HumanTalk(_) 
-            | Self::EndOfMission(_) 
-            | Self::ChangeMission(_) 
-            | Self::Quad(_) 
+            Self::Scalar(_)
+            | Self::Name(_)
+            | Self::Pair(_)
+            | Self::Entity(_)
+            | Self::Event(_)
+            | Self::SetEvent(_)
+            | Self::HumanTalk(_)
+            | Self::EndOfMission(_)
+            | Self::ChangeMission(_)
+            | Self::Remaining(_)
+            | Self::Quad(_)
             | Self::ActState(_) => None,
         }
     }
     pub fn entity_parameter(&self) -> Option<&EntityParameter> {
         match self {
             Self::Entity(slot) => slot.parameter(),
-            Self::Scalar(_) 
-            | Self::Name(_) 
-            | Self::Pair(_) 
-            | Self::Flow(_) 
-            | Self::Event(_) 
-            | Self::SetEvent(_) 
-            | Self::HumanTalk(_) 
-            | Self::EndOfMission(_) 
-            | Self::ChangeMission(_) 
-            | Self::Quad(_) 
+            Self::Scalar(_)
+            | Self::Name(_)
+            | Self::Pair(_)
+            | Self::Flow(_)
+            | Self::Event(_)
+            | Self::SetEvent(_)
+            | Self::HumanTalk(_)
+            | Self::EndOfMission(_)
+            | Self::ChangeMission(_)
+            | Self::Remaining(_)
+            | Self::Quad(_)
             | Self::ActState(_) => None,
         }
     }
     pub fn event_parameter(&self) -> Option<&EventParameter> {
         match self {
             Self::Event(slot) => slot.parameter(),
-            Self::Scalar(_) 
-            | Self::Name(_) 
-            | Self::Pair(_) 
-            | Self::Flow(_) 
-            | Self::Entity(_) 
-            | Self::SetEvent(_) 
-            | Self::HumanTalk(_) 
-            | Self::EndOfMission(_) 
-            | Self::ChangeMission(_) 
-            | Self::Quad(_) 
+            Self::Scalar(_)
+            | Self::Name(_)
+            | Self::Pair(_)
+            | Self::Flow(_)
+            | Self::Entity(_)
+            | Self::SetEvent(_)
+            | Self::HumanTalk(_)
+            | Self::EndOfMission(_)
+            | Self::ChangeMission(_)
+            | Self::Remaining(_)
+            | Self::Quad(_)
             | Self::ActState(_) => None,
         }
     }
     pub fn set_event_parameter(&self) -> Option<&SetEventParameter> {
         match self {
             Self::SetEvent(slot) => slot.parameter(),
-            Self::Scalar(_) 
-            | Self::Name(_) 
-            | Self::Pair(_) 
-            | Self::Flow(_) 
-            | Self::Entity(_) 
-            | Self::Event(_) 
-            | Self::HumanTalk(_) 
-            | Self::EndOfMission(_) 
-            | Self::ChangeMission(_) 
-            | Self::Quad(_) 
+            Self::Scalar(_)
+            | Self::Name(_)
+            | Self::Pair(_)
+            | Self::Flow(_)
+            | Self::Entity(_)
+            | Self::Event(_)
+            | Self::HumanTalk(_)
+            | Self::EndOfMission(_)
+            | Self::ChangeMission(_)
+            | Self::Remaining(_)
+            | Self::Quad(_)
             | Self::ActState(_) => None,
         }
     }
     pub fn human_talk_parameter(&self) -> Option<&HumanTalkParameter> {
         match self {
             Self::HumanTalk(slot) => slot.parameter(),
-            Self::Scalar(_) 
-            | Self::Name(_) 
-            | Self::Pair(_) 
-            | Self::Flow(_) 
-            | Self::Entity(_) 
-            | Self::Event(_) 
-            | Self::SetEvent(_) 
-            | Self::EndOfMission(_) 
-            | Self::ChangeMission(_) 
-            | Self::Quad(_) 
+            Self::Scalar(_)
+            | Self::Name(_)
+            | Self::Pair(_)
+            | Self::Flow(_)
+            | Self::Entity(_)
+            | Self::Event(_)
+            | Self::SetEvent(_)
+            | Self::EndOfMission(_)
+            | Self::ChangeMission(_)
+            | Self::Remaining(_)
+            | Self::Quad(_)
             | Self::ActState(_) => None,
         }
     }
     pub fn human_talk_parameter_mut(&mut self) -> Option<&mut HumanTalkParameter> {
         match self {
             Self::HumanTalk(slot) => slot.parameter_mut(),
-            Self::Scalar(_) 
-            | Self::Name(_) 
-            | Self::Pair(_) 
-            | Self::Flow(_) 
-            | Self::Entity(_) 
-            | Self::Event(_) 
-            | Self::SetEvent(_) 
-            | Self::EndOfMission(_) 
-            | Self::ChangeMission(_) 
-            | Self::Quad(_) 
+            Self::Scalar(_)
+            | Self::Name(_)
+            | Self::Pair(_)
+            | Self::Flow(_)
+            | Self::Entity(_)
+            | Self::Event(_)
+            | Self::SetEvent(_)
+            | Self::EndOfMission(_)
+            | Self::ChangeMission(_)
+            | Self::Remaining(_)
+            | Self::Quad(_)
             | Self::ActState(_) => None,
         }
     }
     pub fn end_of_mission_parameter(&self) -> Option<&EndOfMissionParameter> {
         match self {
             Self::EndOfMission(slot) => slot.parameter(),
-            Self::Scalar(_) 
-            | Self::Name(_) 
-            | Self::Pair(_) 
-            | Self::Flow(_) 
-            | Self::Entity(_) 
-            | Self::Event(_) 
-            | Self::SetEvent(_) 
-            | Self::HumanTalk(_) 
-            | Self::ChangeMission(_) 
-            | Self::Quad(_) 
+            Self::Scalar(_)
+            | Self::Name(_)
+            | Self::Pair(_)
+            | Self::Flow(_)
+            | Self::Entity(_)
+            | Self::Event(_)
+            | Self::SetEvent(_)
+            | Self::HumanTalk(_)
+            | Self::ChangeMission(_)
+            | Self::Remaining(_)
+            | Self::Quad(_)
             | Self::ActState(_) => None,
         }
     }
     pub fn change_mission_parameter(&self) -> Option<&ChangeMissionParameter> {
         match self {
             Self::ChangeMission(slot) => slot.parameter(),
-            Self::Scalar(_) 
-            | Self::Name(_) 
-            | Self::Pair(_) 
-            | Self::Flow(_) 
-            | Self::Entity(_) 
-            | Self::Event(_) 
-            | Self::SetEvent(_) 
-            | Self::HumanTalk(_) 
-            | Self::EndOfMission(_) 
-            | Self::Quad(_) 
+            Self::Scalar(_)
+            | Self::Name(_)
+            | Self::Pair(_)
+            | Self::Flow(_)
+            | Self::Entity(_)
+            | Self::Event(_)
+            | Self::SetEvent(_)
+            | Self::HumanTalk(_)
+            | Self::EndOfMission(_)
+            | Self::Remaining(_)
+            | Self::Quad(_)
+            | Self::ActState(_) => None,
+        }
+    }
+    pub fn remaining_parameter(&self) -> Option<&RemainingParameter> {
+        match self {
+            Self::Remaining(slot) => slot.parameter(),
+            Self::Scalar(_)
+            | Self::Name(_)
+            | Self::Pair(_)
+            | Self::Flow(_)
+            | Self::Entity(_)
+            | Self::Event(_)
+            | Self::SetEvent(_)
+            | Self::HumanTalk(_)
+            | Self::EndOfMission(_)
+            | Self::ChangeMission(_)
+            | Self::Quad(_)
             | Self::ActState(_) => None,
         }
     }
     pub fn quad_parameter(&self) -> Option<&QuadParameter> {
         match self {
             Self::Quad(slot) => slot.parameter(),
-            Self::Scalar(_) 
-            | Self::Name(_) 
-            | Self::Pair(_) 
-            | Self::Flow(_) 
-            | Self::Entity(_) 
-            | Self::Event(_) 
-            | Self::SetEvent(_) 
-            | Self::HumanTalk(_) 
-            | Self::EndOfMission(_) 
-            | Self::ChangeMission(_) 
+            Self::Scalar(_)
+            | Self::Name(_)
+            | Self::Pair(_)
+            | Self::Flow(_)
+            | Self::Entity(_)
+            | Self::Event(_)
+            | Self::SetEvent(_)
+            | Self::HumanTalk(_)
+            | Self::EndOfMission(_)
+            | Self::ChangeMission(_)
+            | Self::Remaining(_)
             | Self::ActState(_) => None,
         }
     }
     pub fn act_state_parameter(&self) -> Option<&ActStateParameter> {
         match self {
             Self::ActState(slot) => slot.parameter(),
-            Self::Scalar(_) 
-            | Self::Name(_) 
-            | Self::Pair(_) 
-            | Self::Flow(_) 
-            | Self::Entity(_) 
-            | Self::Event(_) 
-            | Self::SetEvent(_) 
-            | Self::HumanTalk(_) 
-            | Self::EndOfMission(_) 
-            | Self::ChangeMission(_) 
+            Self::Scalar(_)
+            | Self::Name(_)
+            | Self::Pair(_)
+            | Self::Flow(_)
+            | Self::Entity(_)
+            | Self::Event(_)
+            | Self::SetEvent(_)
+            | Self::HumanTalk(_)
+            | Self::EndOfMission(_)
+            | Self::ChangeMission(_)
+            | Self::Remaining(_)
             | Self::Quad(_) => None,
         }
     }
@@ -482,6 +523,9 @@ pub enum RuntimeEffect {
     ReleaseEndOfMission(u32),
     AllocateChangeMission,
     ReleaseChangeMission(u32),
+    AllocateRemaining(usize),
+    ConvertRemaining(usize),
+    ReleaseRemaining(u32),
     AllocateFlow,
     ConvertFlowOperand(usize),
     ReleaseFlow(u32),
@@ -602,6 +646,14 @@ pub trait RuntimeBackend {
         fields: RuntimeView<'_>,
         effect: RuntimeEffect,
         _published: Option<&EndOfMissionParameter>,
+    ) -> Result<(), String> {
+        self.effect(fields, effect, None)
+    }
+    fn remaining_parameter_effect(
+        &mut self,
+        fields: RuntimeView<'_>,
+        effect: RuntimeEffect,
+        _published: Option<&RemainingParameter>,
     ) -> Result<(), String> {
         self.effect(fields, effect, None)
     }
@@ -871,13 +923,71 @@ struct EndOfMissionBoundary<'a, B> {
 }
 impl<B: RuntimeBackend> EndOfMissionBackend for EndOfMissionBoundary<'_, B> {
     type Error = RuntimeError;
-    fn allocate_end_of_mission(&mut self) -> Result<Option<Box<EndOfMissionParameter>>, RuntimeError> {
-        self.backend.mission_end_of_mission_effect(self.fields.view(), RuntimeEffect::AllocateEndOfMission, None).map_err(RuntimeError::Effect)?;
+    fn allocate_end_of_mission(
+        &mut self,
+    ) -> Result<Option<Box<EndOfMissionParameter>>, RuntimeError> {
+        self.backend
+            .mission_end_of_mission_effect(
+                self.fields.view(),
+                RuntimeEffect::AllocateEndOfMission,
+                None,
+            )
+            .map_err(RuntimeError::Effect)?;
         Ok(Some(Box::new(EndOfMissionParameter::default())))
     }
-    fn convert_int(&mut self, index: usize, token: &[u8], published: &EndOfMissionParameter) -> Result<i32, RuntimeError> {
-        self.backend.mission_end_of_mission_effect(self.fields.view(), RuntimeEffect::ConvertEndOfMission(index), Some(published)).map_err(RuntimeError::Effect)?;
-        crate::program_parameters::ascii_integer_prefix(token).map_err(|e| RuntimeError::Parameter(e.to_string()))
+    fn convert_int(
+        &mut self,
+        index: usize,
+        token: &[u8],
+        published: &EndOfMissionParameter,
+    ) -> Result<i32, RuntimeError> {
+        self.backend
+            .mission_end_of_mission_effect(
+                self.fields.view(),
+                RuntimeEffect::ConvertEndOfMission(index),
+                Some(published),
+            )
+            .map_err(RuntimeError::Effect)?;
+        crate::program_parameters::ascii_integer_prefix(token)
+            .map_err(|e| RuntimeError::Parameter(e.to_string()))
+    }
+}
+struct RemainingBoundary<'a, B> {
+    fields: &'a mut RuntimeFields,
+    backend: &'a mut B,
+}
+impl<B: RuntimeBackend> RemainingParameterBackend for RemainingBoundary<'_, B> {
+    type Error = RuntimeError;
+    fn allocate_remaining(
+        &mut self,
+        count: usize,
+    ) -> Result<Option<Box<RemainingParameter>>, RuntimeError> {
+        self.backend
+            .remaining_parameter_effect(
+                self.fields.view(),
+                RuntimeEffect::AllocateRemaining(count),
+                None,
+            )
+            .map_err(RuntimeError::Effect)?;
+        Ok(Some(Box::new(RemainingParameter {
+            values: vec![None; count],
+        })))
+    }
+    fn convert_remaining(
+        &mut self,
+        index: usize,
+        token: &[u8],
+        published: &RemainingParameter,
+    ) -> Result<i32, RuntimeError> {
+        self.backend
+            .remaining_parameter_effect(
+                self.fields.view(),
+                RuntimeEffect::ConvertRemaining(index),
+                Some(published),
+            )
+            .map_err(RuntimeError::Effect)?;
+        crate::program_parameters::ascii_integer_prefix(token)
+            .map_err(|e| RuntimeError::Parameter(e.to_string()))
     }
 }
 struct ChangeMissionBoundary<'a, B> {
@@ -886,8 +996,16 @@ struct ChangeMissionBoundary<'a, B> {
 }
 impl<B: RuntimeBackend> ChangeMissionBackend for ChangeMissionBoundary<'_, B> {
     type Error = RuntimeError;
-    fn allocate_change_mission(&mut self) -> Result<Option<Box<ChangeMissionParameter>>, RuntimeError> {
-        self.backend.mission_change_mission_effect(self.fields.view(), RuntimeEffect::AllocateChangeMission, None).map_err(RuntimeError::Effect)?;
+    fn allocate_change_mission(
+        &mut self,
+    ) -> Result<Option<Box<ChangeMissionParameter>>, RuntimeError> {
+        self.backend
+            .mission_change_mission_effect(
+                self.fields.view(),
+                RuntimeEffect::AllocateChangeMission,
+                None,
+            )
+            .map_err(RuntimeError::Effect)?;
         Ok(Some(Box::new(ChangeMissionParameter::default())))
     }
 }
@@ -1079,9 +1197,17 @@ impl<B: RuntimeBackend> CompileBackend for Compiler<'_, B> {
                     HumanTalkParameterSlot::default(),
                 ))
             } else if supports_end_of_mission_opcode(opcode) {
-                Some(InstructionParameter::EndOfMission(EndOfMissionParameterSlot::default()))
+                Some(InstructionParameter::EndOfMission(
+                    EndOfMissionParameterSlot::default(),
+                ))
             } else if supports_change_mission_opcode(opcode) {
-                Some(InstructionParameter::ChangeMission(ChangeMissionParameterSlot::default()))
+                Some(InstructionParameter::ChangeMission(
+                    ChangeMissionParameterSlot::default(),
+                ))
+            } else if supports_remaining_opcode(opcode) {
+                Some(InstructionParameter::Remaining(
+                    RemainingParameterSlot::default(),
+                ))
             } else if supports_quad_opcode(opcode) {
                 Some(InstructionParameter::Quad(QuadParameterSlot::default()))
             } else if supports_act_state_opcode(opcode) {
@@ -1188,6 +1314,14 @@ impl<B: RuntimeBackend> CompileBackend for Compiler<'_, B> {
                     slot.decode(opcode, parameters, &mut boundary)
                         .map_err(|error| RuntimeError::Parameter(format!("{error:?}")))?
                 }
+                InstructionParameter::Remaining(slot) => {
+                    let mut boundary = RemainingBoundary {
+                        fields: self.fields,
+                        backend: self.backend,
+                    };
+                    slot.decode(opcode, parameters, &mut boundary)
+                        .map_err(|error| RuntimeError::Parameter(format!("{error:?}")))?
+                }
                 InstructionParameter::Quad(slot) => {
                     let mut boundary = QuadBoundary {
                         fields: self.fields,
@@ -1256,6 +1390,7 @@ pub struct HostRuntimeDiscard {
     pub human_talk_allocations: usize,
     pub end_of_mission_allocations: usize,
     pub change_mission_allocations: usize,
+    pub remaining_allocations: usize,
     pub quad_allocations: usize,
     pub act_state_allocations: usize,
     pub actor_slots: usize,
@@ -1641,6 +1776,18 @@ impl CProgram {
                         .is_some_and(|payload| payload.change_mission_parameter().is_some())
                 })
                 .count(),
+            remaining_allocations: runtime
+                .instructions
+                .records
+                .iter()
+                .chain(runtime.pending.iter())
+                .filter(|instruction| {
+                    instruction
+                        .parameter
+                        .as_ref()
+                        .is_some_and(|payload| payload.remaining_parameter().is_some())
+                })
+                .count(),
             quad_allocations: runtime
                 .instructions
                 .records
@@ -1738,14 +1885,21 @@ impl CProgram {
                         RuntimeEffect::ReleaseHumanTalk(opcode),
                         slot.parameter(),
                     ),
-                    InstructionParameter::EndOfMission(slot) => backend.mission_end_of_mission_effect(
+                    InstructionParameter::EndOfMission(slot) => backend
+                        .mission_end_of_mission_effect(
+                            runtime.fields.view(),
+                            RuntimeEffect::ReleaseEndOfMission(opcode),
+                            slot.parameter(),
+                        ),
+                    InstructionParameter::ChangeMission(slot) => backend
+                        .mission_change_mission_effect(
+                            runtime.fields.view(),
+                            RuntimeEffect::ReleaseChangeMission(opcode),
+                            slot.parameter(),
+                        ),
+                    InstructionParameter::Remaining(slot) => backend.remaining_parameter_effect(
                         runtime.fields.view(),
-                        RuntimeEffect::ReleaseEndOfMission(opcode),
-                        slot.parameter(),
-                    ),
-                    InstructionParameter::ChangeMission(slot) => backend.mission_change_mission_effect(
-                        runtime.fields.view(),
-                        RuntimeEffect::ReleaseChangeMission(opcode),
+                        RuntimeEffect::ReleaseRemaining(opcode),
                         slot.parameter(),
                     ),
                     InstructionParameter::Quad(slot) => backend.quad_parameter_effect(
@@ -2660,6 +2814,16 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                 // MISSION_OBJECTIVES (164), REMOVE (165), CLEAR (166). Decode
                 // admitted; execution is a no-op advance for now (fade/menu
                 // and objectives vector remain stubs).
+            }
+            20 | 27 | 29 | 36 | 45 | 57 | 68 | 101 | 102 | 103 | 106 | 122 | 129 | 135 | 136
+            | 181 | 187 | 234 => {
+                // Remaining MISE01 commands: detector_inrange (29), detector_issignal (27),
+                // soundfade (36), recloadfull (45), getactorsdist (57), loaddifferences (68),
+                // compareownerwithex (101), human_setproperty (102), human_getproperty (103),
+                // human_force_settocar (106), wingman_setindicator (122), autosavegame (129),
+                // policemanager_on/off (135/136), stream_create (181), stream_fadevol (187),
+                // iffltinrange (20), zatmyse (234). Decode admitted via RemainingParameter;
+                // execution is a no-op advance for now (detector signal, car, player etc remain stubs).
             }
             0x1004 | 0x101a | 0x1031 | 0x103a | 0x103b => {
                 advance = self.dispatch_entity(state, opcode)?;
