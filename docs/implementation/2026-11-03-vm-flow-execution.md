@@ -63,8 +63,9 @@ test with bit-exact vectors, and fifteen execution tests (DIM_FLT, all LET
 operators, MRG_ZERO boundary, LET/IF guards, all IF branches, GOTO forward/
 backward/missing/indirect/last-wins, gosub nesting, stop flag, WAIT hold/
 release/clock-reset, bit-exact RND vectors, END idempotence, Done ordering)
-plus two rewritten refusal tests. Bit-exact RND vectors (seed 1: draws 41,
-18467, 6334), LET operator-priority quirks, MRG_ZERO boundary, WAIT clock
-hold/release/reset, gosub nesting and Done ordering are covered by synthetic
-tests. Original-data probes must show an unchanged MISE01 load frontier
-(kind 20) after this change.
+plus two rewritten refusal tests. Original-data probes show an unchanged
+MISE01 load frontier (kind 20, cursor 3814295, complete disposal) after this
+change. No fresh GPU captures on macOS ARM64: headless Metal mission capture
+stalls without output (wgpu device init without a surface); Linux
+software-Vulkan captures stay current. Native macOS windowing is also
+unbuilt (winit carries the x11 feature).

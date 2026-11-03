@@ -27,12 +27,13 @@ human animation, recorded cutscenes and a playable first mission remain open.
 [Build and run](docs/RUNNING.md) · [current evidence](docs/implementation/2026-10-29-car-replay-programs.md) ·
 [coverage](COVERAGE.md) · [goals](docs/GOALS.md) · [dated history](docs/history/README.md).
 
-[Latest reviewed integration: PRs #58–69](docs/implementation/2026-11-03-vm-pair-parameters.md)
-adds owned two-integer VM parameter decoding for all 124 original selectors
-(FRM_SETON/FRM_SETON1/RND/BRIDGE_SHUTDOWN), progressing the script-stack
-item of the nine parity follow-ups. Decoding is not execution: those commands
-still stop at `UnsupportedCommand`, the C_bridge actor remains the MISE01
-kind-20 frontier, and authored mission play remains open.
+[Latest reviewed integration: VM control flow](docs/implementation/2026-11-03-vm-flow-execution.md)
+executes original LABEL/GOTO/GOSUB/WAIT/END/DIM_FLT/LET/IF/RND over a live
+float bank, gosub stack, command clock and MSVC rand sequence. Together with
+the merged [PR #69 pair decoding](docs/implementation/2026-11-03-vm-pair-parameters.md),
+the VM now decodes 274 selector families and executes 15 opcodes. FRM_SETON and all
+effect commands still stop at `UnsupportedCommand`; the C_bridge actor
+remains the MISE01 kind-20 frontier and authored mission play remains open.
 
 <details>
 <summary>Static research and accepted scoped-port dashboard</summary>
