@@ -30,17 +30,19 @@ human animation, recorded cutscenes and a playable first mission remain open.
 [Build and run](docs/RUNNING.md) · [current evidence](docs/implementation/2026-10-29-car-replay-programs.md) ·
 [coverage](COVERAGE.md) · [goals](docs/GOALS.md) · [dated history](docs/history/README.md).
 
-[Latest reviewed integration: transcendental boundary admission](docs/implementation/2026-11-03-trig-boundary-admission.md)
-unblocks MISE01 rendering on macOS ARM64 Metal: a genuine scene matrix that
-stranded the whole mission view now rounds under recorded host responsibility.
-Together with the merged [box actor intake](docs/implementation/2026-11-03-box-new-intake.md),
+[Latest reviewed integration: entity Process dispatch](docs/implementation/2026-11-03-entity-process-dispatch.md)
+executes owner commands (WAIT/VIDIM/SHUT_UP/NAPRDELIVAUTE/FOLLOWPLAYER)
+against live actor state with base fallback, while all other entity opcodes
+refuse. Together with the merged [transcendental boundary admission](docs/implementation/2026-11-03-trig-boundary-admission.md),
+[box actor intake](docs/implementation/2026-11-03-box-new-intake.md),
 [entity command decode](docs/implementation/2026-11-03-entity-decode.md),
 [VM control flow](docs/implementation/2026-11-03-vm-flow-execution.md) and
 [PR #69 pair decoding](docs/implementation/2026-11-03-vm-pair-parameters.md),
-all 293 MISE01 actors construct and the mission scene captures headless and
-windowed (bit-identical). Entity Process, actor effects and GameInit remain
-unimplemented; macOS audio and interactive input are unverified and authored
-mission play remains open.
+all 293 MISE01 actors construct, the mission scene captures headless and
+windowed (bit-identical), and entity programs run until dialogue/inventory
+systems. Entity behaviors beyond the five owner commands, Game tick wiring,
+GameInit and authored mission play remain open; macOS audio and interactive
+input are unverified.
 
 <details>
 <summary>Static research and accepted scoped-port dashboard</summary>

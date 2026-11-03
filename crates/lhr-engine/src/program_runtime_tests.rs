@@ -1,10 +1,68 @@
 use super::*;
+use crate::entity_actor::EntityProcessState;
+use crate::script_lookup::{LookupError, LookupWorldBackend};
+use std::collections::HashMap;
 #[derive(Default)]
 struct Memory {
     next: u64,
     events: Vec<(RuntimeEffect, u32, u32, u32, u32)>,
     fail: Option<RuntimeEffect>,
     redirect_release: bool,
+    entity_world: FakeEntityWorld,
+}
+#[derive(Default)]
+struct FakeEntityWorld {
+    states: HashMap<ActorReferenceId, EntityProcessState>,
+}
+impl LookupWorldBackend for FakeEntityWorld {
+    fn diagnostic_default_c_locale(&self) -> bool {
+        true
+    }
+    fn owner(&self) -> Result<Option<ActorReferenceId>, LookupError> {
+        Err(LookupError::UnsupportedWorldBackend)
+    }
+    fn actor_frame(
+        &self,
+        actor: ActorReferenceId,
+    ) -> Result<Option<FrameReferenceId>, LookupError> {
+        Err(LookupError::StaleActor(actor))
+    }
+    fn primary(&self) -> Result<&[Option<ActorReferenceId>], LookupError> {
+        Err(LookupError::UnsupportedWorldBackend)
+    }
+    fn players(&self) -> Result<[Option<ActorReferenceId>; 2], LookupError> {
+        Err(LookupError::UnsupportedWorldBackend)
+    }
+    fn secondary(&self) -> Result<&[Option<ActorReferenceId>], LookupError> {
+        Err(LookupError::UnsupportedWorldBackend)
+    }
+    fn frames(&self) -> Result<&dyn crate::frame_lookup::FrameLookupBackend, LookupError> {
+        Err(LookupError::UnsupportedWorldBackend)
+    }
+    fn scene(&self) -> Result<crate::frame_lookup::SceneRoots, LookupError> {
+        Err(LookupError::UnsupportedWorldBackend)
+    }
+    fn message_beep(&mut self, _: i32) -> Result<(), LookupError> {
+        Err(LookupError::UnsupportedWorldBackend)
+    }
+    fn load_entity_process_state(
+        &mut self,
+        owner: Option<ActorReferenceId>,
+    ) -> Result<EntityProcessState, LookupError> {
+        let actor =
+            owner.ok_or_else(|| LookupError::Backend("entity command without owner".into()))?;
+        Ok(self.states.get(&actor).copied().unwrap_or_default())
+    }
+    fn store_entity_process_state(
+        &mut self,
+        owner: Option<ActorReferenceId>,
+        state: &EntityProcessState,
+    ) -> Result<(), LookupError> {
+        let actor =
+            owner.ok_or_else(|| LookupError::Backend("entity command without owner".into()))?;
+        self.states.insert(actor, *state);
+        Ok(())
+    }
 }
 impl ProgramBackend for Memory {
     fn allocate(
@@ -51,6 +109,9 @@ impl RuntimeBackend for Memory {
             return Err("required boundary interrupted".into());
         }
         Ok(())
+    }
+    fn lookup_world(&mut self) -> Result<&mut dyn LookupWorldBackend, LookupError> {
+        Ok(&mut self.entity_world)
     }
 }
 fn program(source: &[u8], memory: &mut Memory) -> CProgram {
@@ -406,6 +467,8 @@ fn entity_source_compiles_mixed_tables_but_refuses_derived_execution() {
         &mut memory,
     );
     p.set_entity_vtable();
+    p.set_owner(Some(ActorReferenceId::from_existing(9)))
+        .unwrap();
     let progress = p.init_fresh_runtime(&mut memory).unwrap();
     assert_eq!(
         progress,
@@ -446,15 +509,38 @@ fn entity_source_compiles_mixed_tables_but_refuses_derived_execution() {
             .and_then(|parameter| parameter.word(0)),
         Some(b"0".as_slice())
     );
-    // Entity CallProcess is unimplemented: dispatch stops at the first
-    // entity opcode and the subroutine entry stays refused.
-    let error = p
-        .call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
-        .unwrap_err();
-    assert!(
-        format!("{error:?}").contains("UnsupportedCommand(4100)"),
-        "{error:?}"
+    // A fresh WAIT parks the program counter: the no-flag path stays.
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 0);
+    // Armed by the wait protocol flag, the same WAIT advances; VIDIM "0"
+    // decodes beside both blind branches and advances unchanged.
+    memory.entity_world.states.insert(
+        ActorReferenceId::from_existing(9),
+        EntityProcessState {
+            process_flags: 0x10,
+            visibility_bits: 3,
+            shut_up: 9,
+        },
     );
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 2);
+    assert_eq!(
+        memory
+            .entity_world
+            .states
+            .get(&ActorReferenceId::from_existing(9)),
+        Some(&EntityProcessState {
+            process_flags: 0x10,
+            visibility_bits: 3,
+            shut_up: 9,
+        })
+    );
+    // The subroutine entry stays refused for entity programs.
     assert_eq!(
         p.call_owned_subroutine(&mut DispatchBudget::new(8).unwrap(), &mut memory),
         Err(RuntimeError::UnsupportedDerivedRuntime(
@@ -470,6 +556,107 @@ fn entity_source_rejects_nonconforming_word_counts_like_the_native_compiler() {
     p.set_entity_vtable();
     assert!(p.init_fresh_runtime(&mut memory).is_err());
     assert_eq!(p.runtime().unwrap().stage, RuntimeStage::CompileInterrupted);
+}
+#[test]
+fn entity_owner_words_apply_state_and_advance() {
+    let mut memory = Memory::default();
+    let mut p = program(
+        b"enemy_vidim 1\nenemy_shut_up yes\nenemy_naprdelivaute no\nenemy_followplayer yes",
+        &mut memory,
+    );
+    p.set_entity_vtable();
+    p.set_owner(Some(ActorReferenceId::from_existing(7)))
+        .unwrap();
+    p.init_fresh_runtime(&mut memory).unwrap();
+    memory.entity_world.states.insert(
+        ActorReferenceId::from_existing(7),
+        EntityProcessState {
+            process_flags: 0,
+            visibility_bits: 3,
+            shut_up: 9,
+        },
+    );
+    for expected in 1..=4 {
+        p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+            .unwrap();
+        assert_eq!(
+            p.runtime().unwrap().fields.program_counter(),
+            expected,
+            "after dispatch {expected}"
+        );
+    }
+    // VIDIM "1" clears the blind bit, SHUT_UP "yes" clears the mute byte,
+    // NAPRDELIVAUTE "no" clears its flag, FOLLOWPLAYER "yes" sets its flag.
+    assert_eq!(
+        memory
+            .entity_world
+            .states
+            .get(&ActorReferenceId::from_existing(7)),
+        Some(&EntityProcessState {
+            process_flags: 0x10000,
+            visibility_bits: 1,
+            shut_up: 0,
+        })
+    );
+    // Past the end the scheduler stops without touching state.
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 4);
+}
+#[test]
+fn entity_wait_parks_until_armed_and_unimplemented_commands_refuse() {
+    let mut memory = Memory::default();
+    let mut p = program(b"enemy_wait\nenemy_move 5", &mut memory);
+    p.set_entity_vtable();
+    p.set_owner(Some(ActorReferenceId::from_existing(8)))
+        .unwrap();
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 0);
+    // The timer branch has no game-condition source yet: it parks like the
+    // native wait while its condition is unmet.
+    memory.entity_world.states.insert(
+        ActorReferenceId::from_existing(8),
+        EntityProcessState {
+            process_flags: 0x20,
+            visibility_bits: 0,
+            shut_up: 0,
+        },
+    );
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 0);
+    memory.entity_world.states.insert(
+        ActorReferenceId::from_existing(8),
+        EntityProcessState {
+            process_flags: 0x10,
+            visibility_bits: 0,
+            shut_up: 0,
+        },
+    );
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
+    let error = p
+        .call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap_err();
+    assert!(
+        format!("{error:?}").contains("UnsupportedCommand(4096)"),
+        "{error:?}"
+    );
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
+}
+#[test]
+fn entity_commands_without_owner_or_world_refuse_explicitly() {
+    let mut memory = Memory::default();
+    let mut p = program(b"enemy_vidim 1", &mut memory);
+    p.set_entity_vtable();
+    p.init_fresh_runtime(&mut memory).unwrap();
+    let error = p
+        .call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap_err();
+    assert!(format!("{error:?}").contains("without owner"), "{error:?}");
 }
 fn interrupted_process_release_blocks_done_and_execution(
     source: &[u8],

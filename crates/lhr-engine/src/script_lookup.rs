@@ -66,6 +66,25 @@ pub trait LookupWorldBackend {
     fn frames(&self) -> Result<&dyn FrameLookupBackend, LookupError>;
     fn scene(&self) -> Result<SceneRoots, LookupError>;
     fn message_beep(&mut self, argument: i32) -> Result<(), LookupError>;
+    /// Live C_entity Process scratch for the executing owner. The default
+    /// refuses; the mission world serves the owner's actual entity state.
+    fn load_entity_process_state(
+        &mut self,
+        owner: Option<ActorReferenceId>,
+    ) -> Result<crate::entity_actor::EntityProcessState, LookupError> {
+        let _ = owner;
+        Err(LookupError::UnsupportedWorldBackend)
+    }
+    /// Round-trip after each entity command. The default refuses.
+    fn store_entity_process_state(
+        &mut self,
+        owner: Option<ActorReferenceId>,
+        state: &crate::entity_actor::EntityProcessState,
+    ) -> Result<(), LookupError> {
+        let _ = owner;
+        let _ = state;
+        Err(LookupError::UnsupportedWorldBackend)
+    }
 }
 pub struct LiveActor<'a> {
     pub lifetime: &'a ActorLifetime,

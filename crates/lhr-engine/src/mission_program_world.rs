@@ -191,6 +191,27 @@ impl<D> LookupWorldBackend for MissionLookupWorld<'_, D> {
             "diagnostic requires live program state".into(),
         ))
     }
+    fn load_entity_process_state(
+        &mut self,
+        owner: Option<ActorReferenceId>,
+    ) -> Result<crate::entity_actor::EntityProcessState, LookupError> {
+        let actor =
+            owner.ok_or_else(|| LookupError::Backend("entity command without owner".into()))?;
+        self.world
+            .entity_process_state(actor)
+            .map_err(|error| LookupError::Backend(format!("{error:?}")))
+    }
+    fn store_entity_process_state(
+        &mut self,
+        owner: Option<ActorReferenceId>,
+        state: &crate::entity_actor::EntityProcessState,
+    ) -> Result<(), LookupError> {
+        let actor =
+            owner.ok_or_else(|| LookupError::Backend("entity command without owner".into()))?;
+        self.world
+            .store_entity_process_state(actor, state)
+            .map_err(|error| LookupError::Backend(format!("{error:?}")))
+    }
 }
 impl<D: MissionProgramDiagnostic> RuntimeLookupWorld for MissionLookupWorld<'_, D> {
     fn runtime_message_beep(

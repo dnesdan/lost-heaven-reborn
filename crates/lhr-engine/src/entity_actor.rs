@@ -37,6 +37,21 @@ pub struct EntityState {
     untouched_word: u32,
     constructor_byte: u8,
     untouched_padding: [u8; 3],
+    process: EntityProcessState,
+}
+/// Live C_entity Process scratch mirrored from the native per-actor words.
+/// The authoritative owner is the actor: programs only borrow this through
+/// the lookup backend, and every value round-trips back after each command.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct EntityProcessState {
+    /// C_entity +0x46c low protocol word: 0x10/0x20 wait protocol, 0x200/0x2000
+    /// advance protocol, 0x8000 naprdelivaute, 0x10000 followplayer, higher
+    /// event bits owned by future commands.
+    pub process_flags: u32,
+    /// C_entity +0x4b4 word: bit 1 is the VIDIM blind flag.
+    pub visibility_bits: u32,
+    /// C_entity +0x630 byte: SHUT_UP stores 1 for a decoded 0, else 0.
+    pub shut_up: u8,
 }
 impl EntityState {
     pub(crate) fn construct(seed: EntitySeed) -> Self {
@@ -57,7 +72,14 @@ impl EntityState {
             untouched_word: seed.untouched_word,
             constructor_byte: 0,
             untouched_padding: seed.untouched_padding,
+            process: EntityProcessState::default(),
         }
+    }
+    pub fn process_state(&self) -> EntityProcessState {
+        self.process
+    }
+    pub(crate) fn store_process_state(&mut self, state: &EntityProcessState) {
+        self.process = *state;
     }
     pub fn program(&self) -> Option<&CProgram> {
         self.program.as_ref()

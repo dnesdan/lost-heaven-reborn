@@ -19,7 +19,7 @@ use crate::cutscene_records::{
     ActorUserData, CutsceneRecordArena, RecordedActorAssociation, RecordedActorId,
 };
 use crate::door_actor::{DoorLoadVersion, DoorSeed, DoorSoundNames, DoorState};
-use crate::entity_actor::{EntityResourceSlot, EntitySeed, EntityState};
+use crate::entity_actor::{EntityProcessState, EntityResourceSlot, EntitySeed, EntityState};
 use crate::frame_lookup::{FrameLookupBackend, SceneRoots};
 use crate::human_actor::{
     ActorDataReader, HumanDataError, HumanResourceSlot, HumanSeed, HumanState,
@@ -2436,6 +2436,28 @@ impl ActorWorld {
             .entity
             .as_ref()
             .ok_or(ActorWorldError::NotEntity)
+    }
+    /// Live Process scratch of an entity actor for program dispatch. The
+    /// actor stays the authoritative owner; dispatch round-trips every value
+    /// back through [`Self::store_entity_process_state`].
+    pub fn entity_process_state(
+        &self,
+        actor: ActorReferenceId,
+    ) -> Result<EntityProcessState, ActorWorldError> {
+        Ok(self.entity(actor)?.process_state())
+    }
+    pub fn store_entity_process_state(
+        &mut self,
+        actor: ActorReferenceId,
+        state: &EntityProcessState,
+    ) -> Result<(), ActorWorldError> {
+        let i = self.index(actor)?;
+        self.actors[i]
+            .entity
+            .as_mut()
+            .ok_or(ActorWorldError::NotEntity)?
+            .store_process_state(state);
+        Ok(())
     }
     pub fn inspect_human(&self, actor: ActorReferenceId) -> Option<&HumanState> {
         self.actors
@@ -6658,6 +6680,39 @@ mod human_owner_tests {
                 "disable:18",
                 "find:13:base:ffff"
             ]
+        );
+    }
+    #[test]
+    fn entity_process_state_round_trips_through_the_authoritative_owner() {
+        let mut w = world();
+        let mut heap = Heap::default();
+        let entity = w.create_actor(27, &mut heap).unwrap().unwrap();
+        assert_eq!(
+            w.entity_process_state(entity).unwrap(),
+            EntityProcessState::default()
+        );
+        let state = EntityProcessState {
+            process_flags: 0x8100,
+            visibility_bits: 3,
+            shut_up: 7,
+        };
+        w.store_entity_process_state(entity, &state).unwrap();
+        assert_eq!(w.entity_process_state(entity).unwrap(), state);
+        assert_eq!(w.inspect_entity(entity).unwrap().process_state(), state);
+        let player = w.create_actor(2, &mut heap).unwrap().unwrap();
+        assert_eq!(
+            w.entity_process_state(player),
+            Err(ActorWorldError::NotEntity)
+        );
+        assert_eq!(
+            w.store_entity_process_state(player, &state),
+            Err(ActorWorldError::NotEntity)
+        );
+        assert_eq!(
+            w.entity_process_state(ActorReferenceId::from_existing(999)),
+            Err(ActorWorldError::StaleActor(
+                ActorReferenceId::from_existing(999)
+            ))
         );
     }
     #[test]

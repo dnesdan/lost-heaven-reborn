@@ -1034,6 +1034,83 @@ struct Process<'a, B> {
     backend: &'a mut B,
 }
 impl<B: RuntimeBackend> Process<'_, B> {
+    /// C_entity::Process owner-command dispatch (GAME 0x51fda0) for the
+    /// commands whose effects are fully evidenced: WAIT parks on the flag
+    /// protocol, VIDIM/SHUT_UP/NAPRDELIVAUTE/FOLLOWPLAYER apply their words.
+    /// The actor stays the authoritative state owner: every value is loaded
+    /// through the lookup backend and round-tripped back after the command.
+    /// WAIT's timer branch and the 0x2000/0x200 advance protocol have no
+    /// producer yet; parked waits stay, which matches the native wait while
+    /// its game condition is unmet.
+    fn dispatch_entity(
+        &mut self,
+        state: &mut ResetState,
+        opcode: u32,
+    ) -> Result<Advance, RuntimeError> {
+        let owner = *self.owner;
+        let world = self.backend.lookup_world().map_err(RuntimeError::Lookup)?;
+        let mut process = world
+            .load_entity_process_state(owner)
+            .map_err(RuntimeError::Lookup)?;
+        let advance = match opcode {
+            0x1004 => {
+                if process.process_flags & 0x20 == 0 {
+                    if process.process_flags & 0x10 == 0 {
+                        Advance::Stay
+                    } else {
+                        Advance::Next
+                    }
+                } else {
+                    Advance::Stay
+                }
+            }
+            0x101a | 0x1031 | 0x103a | 0x103b => {
+                let word = self
+                    .instructions
+                    .active()
+                    .get(state.program_counter as usize)
+                    .and_then(|instruction| instruction.parameter.as_ref())
+                    .and_then(|parameter| parameter.entity_parameter())
+                    .and_then(|parameter| parameter.word(0))
+                    .ok_or(RuntimeError::Domain("current entity parameter unavailable"))?;
+                match opcode {
+                    0x101a => {
+                        let bits = decode_entity_vidim_bits(word);
+                        if bits == 0 {
+                            process.visibility_bits &= !2;
+                        } else if bits == 1 {
+                            process.visibility_bits |= 2;
+                        }
+                    }
+                    0x1031 => {
+                        process.shut_up = u8::from(decode_entity_yes_no(word) == 0);
+                    }
+                    0x103a => {
+                        if decode_entity_yes_no_other(word) == 1 {
+                            process.process_flags |= 0x8000;
+                        } else {
+                            process.process_flags &= !0x8000;
+                        }
+                    }
+                    _ => {
+                        if decode_entity_yes_no_other(word) == 1 {
+                            process.process_flags |= 0x10000;
+                        } else {
+                            process.process_flags &= !0x10000;
+                        }
+                    }
+                }
+                Advance::Next
+            }
+            _ => return Err(RuntimeError::UnsupportedCommand(opcode)),
+        };
+        self.backend
+            .lookup_world()
+            .map_err(RuntimeError::Lookup)?
+            .store_entity_process_state(owner, &process)
+            .map_err(RuntimeError::Lookup)?;
+        Ok(advance)
+    }
     fn value_at(&self, state: &ResetState) -> Result<i32, RuntimeError> {
         self.instructions
             .active()
@@ -1172,6 +1249,39 @@ const RAND_MAX_RECIPROCAL: f32 = 1.0 / 32767.0;
 /// Original LET division guard (ls3df.h MRG_ZERO): magnitudes below this
 /// divide to zero instead of running the division.
 const MRG_ZERO: f32 = 1e-8;
+
+/// C_entity::DecodeParams yes/no word decoding shared by the SHUT_UP,
+/// NAPRDELIVAUTE and FOLLOWPLAYER arms. "yes" decodes to 1, "no" to 0; any
+/// other admitted word is fail-closed to 0 (the native fallthrough keeps an
+/// incidentally matching value there, which no shipped line exercises).
+fn decode_entity_yes_no(word: &[u8]) -> u32 {
+    u32::from(word.eq_ignore_ascii_case(b"yes"))
+}
+
+/// C_entity::DecodeParams NAPRDELIVAUTE/FOLLOWPLAYER word decoding, including
+/// the native fallthrough: "yes" stores 1, "no" stores 0, any other admitted
+/// word keeps the preseeded 1.
+fn decode_entity_yes_no_other(word: &[u8]) -> u32 {
+    if word.eq_ignore_ascii_case(b"yes") {
+        1
+    } else if word.eq_ignore_ascii_case(b"no") {
+        0
+    } else {
+        1
+    }
+}
+
+/// C_entity::DecodeParams VIDIM word decoding: the comparator maps "0" and
+/// "<|>" to 1.0 and everything else to 0.0, and the Process compares the
+/// float bits, so only 0.0 clears the blind bit while the 1 branch is dead
+/// by decode. Both stages are mirrored exactly.
+fn decode_entity_vidim_bits(word: &[u8]) -> u32 {
+    if word.eq_ignore_ascii_case(b"0") || word.eq_ignore_ascii_case(b"<|>") {
+        0x3f800000
+    } else {
+        0
+    }
+}
 
 impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
     type Error = RuntimeError;
@@ -1483,6 +1593,10 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                     *slot = sample;
                 }
             }
+            0x1004 | 0x101a | 0x1031 | 0x103a | 0x103b => {
+                advance = self.dispatch_entity(state, opcode)?;
+            }
+            0x1000..=0x103f => return Err(RuntimeError::UnsupportedCommand(opcode)),
             opcode => return Err(RuntimeError::UnsupportedCommand(opcode)),
         }
         *self.last_pc = state.program_counter;
