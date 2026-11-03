@@ -1043,7 +1043,7 @@ fn try_set_event_on_program_jumps_and_pushes_event_stack() {
     assert_eq!(p.runtime().unwrap().fields.program_counter(), 0);
     // First SetEvent should succeed and jump to last EVENT (index 1)
     let ok = p.try_set_event(60001).unwrap();
-    assert!(ok);
+    assert_eq!(ok, crate::original_program::SetEventOutcome::Started);
     assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
     assert_eq!(
         p.runtime().unwrap().fields.gosub_stack,
@@ -1053,10 +1053,10 @@ fn try_set_event_on_program_jumps_and_pushes_event_stack() {
     assert_eq!(p.runtime().unwrap().fields.command_time, 0);
     // Already inside event -> second call should return false (jump to label)
     let ok2 = p.try_set_event(60001).unwrap();
-    assert!(!ok2);
+    assert_eq!(ok2, crate::original_program::SetEventOutcome::Busy);
     // Missing event id -> true (no jump)
     let ok3 = p.try_set_event(99999).unwrap();
-    assert!(ok3);
+    assert_eq!(ok3, crate::original_program::SetEventOutcome::NoEvent);
     // Plain return should pop and restore
     p.runtime.as_mut().unwrap().fields.command_time = 7;
     p.runtime.as_mut().unwrap().fields.event_command_time = 42;

@@ -1035,18 +1035,23 @@ pub struct HostRuntimeDiscard {
     pub float_slots: usize,
     pub working_source_bytes: usize,
 }
+#[derive(Debug, PartialEq, Eq)]
+pub enum SetEventOutcome {
+    NoEvent,
+    Started,
+    Busy,
+}
 impl CProgram {
     /// Original C_program::SetEvent (GAME 0x46cd90): search from the last
     /// instruction for the last EVENT of that id, check the gosub stack for
     /// an existing event, then jump and set the event times and actor state.
-    /// Returns true if the caller should advance (no event or event started),
-    /// false if the caller should jump to its label (already inside an event).
-    /// This handles the program-owned stack and times only; the caller's
-    /// world handles the actor SetActState and any global game time snapshot.
-    pub fn try_set_event(&mut self, event_id: i32) -> Result<bool, String> {
+    /// Returns the outcome for the caller and world to act on. This handles
+    /// the program-owned stack and times only; the caller's world handles the
+    /// actor SetActState and any global game time snapshot.
+    pub fn try_set_event(&mut self, event_id: i32) -> Result<SetEventOutcome, String> {
         let runtime = match &mut self.runtime {
             Some(runtime) => runtime,
-            None => return Ok(true),
+            None => return Ok(SetEventOutcome::NoEvent),
         };
         // Search for the last EVENT with that id (reverse search, first hit
         // from the end wins, matching the native while(i--) scan).
@@ -1067,7 +1072,7 @@ impl CProgram {
         }
         let found = match found {
             Some(idx) => idx,
-            None => return Ok(true),
+            None => return Ok(SetEventOutcome::NoEvent),
         };
         // Already inside an event if any stack entry has GOSUB_EVENT (0x8000).
         if runtime
@@ -1076,7 +1081,7 @@ impl CProgram {
             .iter()
             .any(|entry| entry & 0x8000 != 0)
         {
-            return Ok(false);
+            return Ok(SetEventOutcome::Busy);
         }
         // CallBack(CB_EVENT_BEGIN) is a no-op in the current reconstruction
         // (detector base is empty, entity is a stub that just logs).
@@ -1092,7 +1097,7 @@ impl CProgram {
         // The native SetActState(ACTSTATE_0) on the program's actor is
         // handled by the world after this call (the program owns no actor
         // state directly).
-        Ok(true)
+        Ok(SetEventOutcome::Started)
     }
     pub fn runtime(&self) -> Option<&ProgramRuntime> {
         self.runtime.as_ref()
@@ -1782,6 +1787,50 @@ impl<B: RuntimeBackend> Process<'_, B> {
         }
         None
     }
+    fn leave_compact_block(&mut self, state: &mut ResetState, up: bool) -> bool {
+        if !self.flags.in_block {
+            return false;
+        }
+        let dir: i32 = match self.flags.block_mode {
+            1 => -1,
+            2 => 1,
+            _ => {
+                if up {
+                    1
+                } else {
+                    -1
+                }
+            }
+        };
+        while let Some(instr) = self
+            .instructions
+            .active()
+            .get(state.program_counter as usize)
+        {
+            let opcode = instr.opcode;
+            if opcode == 70 && dir == -1 {
+                break;
+            }
+            if opcode == 71 && dir == 1 {
+                break;
+            }
+            let next = state.program_counter as i32 + dir;
+            if next < 0 {
+                state.program_counter = 0;
+                break;
+            }
+            if next as usize >= self.instructions.active().len() {
+                let len = self.instructions.active().len();
+                if len == 0 {
+                    break;
+                }
+                state.program_counter = (len - 1) as u32;
+                break;
+            }
+            state.program_counter = next as u32;
+        }
+        true
+    }
 
     /// Operand resolution shared by WAIT/LET/IF/GOTO: -1 is the literal, a
     /// valid index reads the live float bank. Any other index is a fail-closed
@@ -1896,7 +1945,6 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
         *self.command_time = self.command_time.wrapping_add(delta as u32);
         let opcode = self.instructions.active()[state.program_counter as usize].opcode;
         let mut advance = Advance::Next;
-        let mut event_restore: Option<u32> = None;
         match opcode {
             13 | 18 => self.dispatch_lookup(state, opcode == 18)?,
             34 => {
@@ -2030,18 +2078,23 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                     // CallBack(CB_EVENT_END) is a no-op in the current
                     // reconstruction (detector base empty, entity stub).
                     let target = ret & 0x3FFF;
+                    // Native does NextCommand(NULL) (prev=cur, command_time=0, cur++)
+                    // then cur=ret, then optional time restore and stop_at_return.
+                    // We model the same: last_pc becomes RETURN's PC, command_time
+                    // cleared, cur set to target, then LeaveCompactBlock check.
+                    *self.last_pc = state.program_counter;
+                    *self.elapsed = 0;
+                    *self.command_time = 0;
+                    state.program_counter = target;
+                    if is_event && back_in_time && !self.leave_compact_block(state, false) {
+                        // Delta GetGameTime - event_time omitted until global clock
+                        *self.command_time = *self.event_command_time;
+                    }
                     if self.flags.stop_at_return {
                         self.flags.stop_at_return = false;
                         state.continuation = 0;
                     }
-                    advance = Advance::Jump(target);
-                    if is_event && back_in_time {
-                        // Provisional time restoration: without a global
-                        // Game clock, restore the snapshot. The delta term
-                        // (GetGameTime - event_time) is omitted until the
-                        // Game tick loop provides it.
-                        event_restore = Some(*self.event_command_time);
-                    }
+                    return Ok(());
                 }
             }
             4 => {
@@ -2307,9 +2360,6 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                 state.program_counter = target;
             }
             Advance::Stay => {}
-        }
-        if let Some(t) = event_restore {
-            *self.command_time = t;
         }
         Ok(())
     }
