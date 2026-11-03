@@ -648,7 +648,8 @@ impl RuntimeError {
 }
 
 #[test]
-fn original_frame_visibility_parameters_compile_on_the_owned_runtime_but_do_not_fake_game_effects() {
+fn original_frame_visibility_parameters_compile_on_the_owned_runtime_but_do_not_fake_game_effects()
+{
     let mut memory = Memory::default();
     let mut program = program(
         b"commandblock 1\nfrm_seton 0, 1\nfrm_seton1 2, 0\ncommandblock 0",
@@ -706,7 +707,10 @@ fn original_frame_visibility_parameters_compile_on_the_owned_runtime_but_do_not_
         .collect();
     assert_eq!(
         releases,
-        [RuntimeEffect::ReleasePair(15), RuntimeEffect::ReleasePair(14)]
+        [
+            RuntimeEffect::ReleasePair(15),
+            RuntimeEffect::ReleasePair(14)
+        ]
     );
     assert_eq!(program.runtime().unwrap().instructions.active().len(), 0);
 }
