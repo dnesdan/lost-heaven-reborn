@@ -132,6 +132,7 @@ pub mod program_parameters;
 pub mod program_parser;
 pub mod program_patch;
 pub mod program_zero_parameters;
+pub mod pumper_actor;
 pub mod railway_actor;
 pub mod replay_state;
 pub mod rotation_animation;

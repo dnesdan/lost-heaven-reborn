@@ -424,6 +424,10 @@ impl MissionActorLoader {
                                 self.world
                                     .release_traffic_car(actor, &mut frames, backend)
                                     .map_err(|e| format!("{e:?}"))?;
+                            } else if kind == 25 {
+                                self.world
+                                    .release_pumper(actor, &mut frames, backend)
+                                    .map_err(|e| format!("{e:?}"))?;
                             } else {
                                 self.world
                                     .release(actor, &mut ReleaseFrames { frames, backend })
@@ -512,6 +516,18 @@ impl MissionActorLoader {
                             return Ok(());
                         }
                         if self.current_kind != Some(5) {
+                            if self.current_kind == Some(25) {
+                                // Original C_pumper::LoadData over the record
+                                // payload: one ignored flag byte, the
+                                // counter/mode/price words and the indexed
+                                // slot block, each read individually guarded.
+                                let mut reader = ActorDataReader::new(field.payload);
+                                let result = self.world.load_pumper_data(actor, &mut reader);
+                                self.cursor = field.offset + 6 + reader.position();
+                                result.map_err(|e| format!("{e:?}"))?;
+                                self.pending_load_data = None;
+                                return Ok(());
+                            }
                             if self.current_kind == Some(12) {
                                 // Original C_traffic_car::LoadData version
                                 // dispatch over the record payload: versions 4

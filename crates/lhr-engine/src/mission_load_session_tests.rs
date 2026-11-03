@@ -1270,6 +1270,38 @@ fn unsupported_named_actor_stops_at_kind_read_and_preserves_prior_program_and_ac
     assert_eq!(format!("{:?}", session.failure()), failure);
 }
 #[test]
+fn pumper_kind_loads_fields_and_advances_cursor() {
+    use crate::actor_world::{ActorSource, ActorVtable};
+    let mut payload = vec![0x7fu8];
+    payload.extend(670u32.to_le_bytes());
+    payload.extend(669u32.to_le_bytes());
+    payload.extend(300748u32.to_le_bytes());
+    payload.extend(2u32.to_le_bytes());
+    payload.extend([0x1eu8, 0, 0, 0]);
+    payload.extend([0x79u8, 0, 0, 0, 0x7au8, 0, 0, 0]);
+    payload.extend([0x7bu8, 0, 0, 0, 0x7cu8, 0, 0, 0, 0x7du8, 0, 0, 0]);
+    assert_eq!(payload.len(), 41);
+    let bytes = scene2(&[chunk(0xae20, &actor_record(b"pump1", 25, &payload))].concat());
+    let fixture = Fixture::new(Some(&world(&[dummy(0, b"pump1")])), Some(&bytes), None);
+    let mut session = fixture.session();
+    load(&mut session, &[]).unwrap();
+    let loader = session.loader().unwrap();
+    let world = &loader.content.actors.world;
+    assert_eq!(world.actor_count, 1);
+    let actors = world.source(ActorSource::Primary).to_vec();
+    assert_eq!(actors.len(), 1);
+    let actor = actors[0].unwrap();
+    assert_eq!(world.state(actor).unwrap().vtable, ActorVtable::Pumper);
+    assert_eq!(world.state(actor).unwrap().word_10, 25);
+    let pumper = world.pumper(actor).unwrap();
+    assert_eq!(pumper.counter_a(), 670);
+    assert_eq!(pumper.counter_b(), 669);
+    assert_eq!(pumper.mode_word(), 2);
+    assert_eq!(pumper.price_word(), 300748);
+    assert_eq!(loader.cursor, bytes.len());
+    discard(&mut session);
+}
+#[test]
 fn traffic_kind_loads_header_and_elements_and_advances_cursor() {
     use crate::actor_world::{ActorSource, ActorVtable};
     let mut payload = vec![5u8, 0, 0, 0];

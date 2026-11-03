@@ -28,6 +28,7 @@ use crate::original_program::{
     ProgramReplacement, ProgramSeed,
 };
 use crate::player_actor::{PlayerSeed, PlayerState};
+use crate::pumper_actor::{PumperSeed, PumperState};
 use crate::railway_actor::{RailwayAllocation, RailwaySeed, RailwayState, RailwayVectorSlot};
 use crate::script_lookup::{ActorLifetime, LookupError, LookupWorldBackend, MAX_ACTOR_SOURCES};
 use crate::script_scheduler::{ActorReferenceId, FrameReferenceId};
@@ -111,6 +112,7 @@ pub enum ActorVtable {
     Bridge,
     Door,
     TrafficCar,
+    Pumper,
     Human,
     Player,
     Entity,
@@ -140,6 +142,7 @@ struct OwnedActor {
     bridge: Option<BridgeState>,
     door: Option<DoorState>,
     traffic_car: Option<TrafficCarState>,
+    pumper: Option<PumperState>,
     human: Option<HumanState>,
     player: Option<PlayerState>,
     entity: Option<EntityState>,
@@ -267,6 +270,7 @@ pub enum ActorWorldError {
     NotBridge,
     NotDoor,
     NotTrafficCar,
+    NotPumper,
     BridgeTableUnavailable,
     BridgeTableTruncated,
     NotHuman,
@@ -446,6 +450,13 @@ pub trait ActorAllocationBackend {
         _bytes: u32,
     ) -> Result<Option<(u32, BaseActorSeed, TrafficCarSeed)>, String> {
         Err("traffic car allocation unavailable".into())
+    }
+    /// Kind25 requires actual 0x2ac-byte storage and its untouched seed.
+    fn allocate_pumper(
+        &mut self,
+        _bytes: u32,
+    ) -> Result<Option<(u32, BaseActorSeed, PumperSeed)>, String> {
+        Err("pumper allocation unavailable".into())
     }
 }
 /// Native backing/free dependencies. A failed scalar `free_actor` retains its
@@ -910,6 +921,7 @@ impl ActorWorld {
             bridge: None,
             door: None,
             traffic_car: None,
+            pumper: None,
             human: None,
             player: None,
             entity: None,
@@ -2016,6 +2028,130 @@ impl ActorWorld {
         }
         Ok(())
     }
+    /// Genuine C_pumper construction: the caller's base owner plus the exact
+    /// derived constructor bytes for kind 25 (0x2ac bytes, vtable 0x624990).
+    /// The two lookup words stay opaque zeros until their effect owner
+    /// exists; no admitted reader exists yet.
+    pub fn construct_pumper<B: ActorCollectionBackend + ?Sized>(
+        &mut self,
+        identity: u32,
+        base: BaseActorSeed,
+        seed: PumperSeed,
+        backend: &mut B,
+    ) -> Result<ActorReferenceId, ActorCreationError> {
+        identity.checked_add(0x2ab).ok_or(ActorCreationError {
+            actor: None,
+            source: ActorWorldError::InvalidBacking,
+        })?;
+        let actor = self.construct_base(identity, base, backend)?;
+        let i = self.index(actor).expect("constructed pumper owner");
+        let mut state = PumperState::allocation(seed);
+        state.complete_constructor();
+        self.actors[i].pumper = Some(state);
+        self.actors[i].state.vtable = ActorVtable::Pumper;
+        self.actors[i].state.word_10 = 25;
+        Ok(actor)
+    }
+    pub fn pumper(&self, actor: ActorReferenceId) -> Result<&PumperState, ActorWorldError> {
+        self.actors[self.index(actor)?]
+            .pumper
+            .as_ref()
+            .ok_or(ActorWorldError::NotPumper)
+    }
+    pub fn inspect_pumper(&self, actor: ActorReferenceId) -> Option<&PumperState> {
+        self.actors
+            .iter()
+            .find(|a| a.lifetime.reference() == actor)?
+            .pumper
+            .as_ref()
+    }
+    /// Original C_pumper::LoadData over the scene2 payload: one consumed and
+    /// ignored flag byte, then the counter/mode/price words at +0x78/+0x7c/
+    /// +0x84/+0x80, then the 0x18-byte indexed-slot block. Each read is
+    /// individually guarded. Returns consumed payload bytes; every path
+    /// reports native success.
+    pub fn load_pumper_data(
+        &mut self,
+        actor: ActorReferenceId,
+        reader: &mut ActorDataReader<'_>,
+    ) -> Result<usize, ActorWorldError> {
+        let i = self.ready(actor)?;
+        if self.actors[i].pumper.is_none() || self.actors[i].state.vtable != ActorVtable::Pumper {
+            return Err(ActorWorldError::NotPumper);
+        }
+        let start = reader.position();
+        let mut flag = [0u8; 1];
+        reader.read_bounded(&mut flag);
+        let pumper = self.actors[i].pumper.as_mut().expect("admitted pumper");
+        let mut word = [0u8; 4];
+        for offset in [0x78, 0x7c, 0x84, 0x80] {
+            if reader.read_bounded(&mut word) {
+                pumper.put_load_word(offset, u32::from_le_bytes(word));
+            }
+        }
+        let mut slots = [0u8; 0x18];
+        if reader.read_bounded(&mut slots) {
+            pumper.put_load_slots(&slots);
+        }
+        self.actors[i].phase = ActorPhase::Ready;
+        Ok(reader.position() - start)
+    }
+    pub fn release_pumper<F: ActorFrameBackend + ?Sized, B: ActorDeallocationBackend + ?Sized>(
+        &mut self,
+        actor: ActorReferenceId,
+        frames: &mut F,
+        backend: &mut B,
+    ) -> Result<u16, ActorWorldError> {
+        let i = self.ready(actor)?;
+        if self.actors[i].pumper.is_none() || self.actors[i].state.vtable != ActorVtable::Pumper {
+            return Err(ActorWorldError::NotPumper);
+        }
+        let count = self.actors[i].state.references.wrapping_sub(1);
+        self.actors[i].state.references = count;
+        if count == 0 {
+            self.delete_pumper(actor, 1, frames, backend)?;
+        }
+        Ok(count)
+    }
+    pub fn destroy_pumper<F: ActorFrameBackend + ?Sized>(
+        &mut self,
+        actor: ActorReferenceId,
+        backend: &mut F,
+    ) -> Result<(), ActorWorldError> {
+        let i = self.index(actor)?;
+        if !matches!(
+            self.actors[i].phase,
+            ActorPhase::Ready
+                | ActorPhase::LoadingInterrupted
+                | ActorPhase::InitializationInterrupted
+        ) {
+            return Err(ActorWorldError::Busy(actor));
+        }
+        if self.actors[i].pumper.is_none() {
+            return Err(ActorWorldError::NotPumper);
+        }
+        self.actors[i].phase = ActorPhase::Destroying;
+        self.actors[i].state.vtable = ActorVtable::Pumper;
+        self.destroy_base_inner(actor, backend)
+    }
+    pub fn delete_pumper<F: ActorFrameBackend + ?Sized, B: ActorDeallocationBackend + ?Sized>(
+        &mut self,
+        actor: ActorReferenceId,
+        argument: u32,
+        frames: &mut F,
+        backend: &mut B,
+    ) -> Result<(), ActorWorldError> {
+        self.destroy_pumper(actor, frames)?;
+        if argument & 1 != 0 {
+            backend
+                .free_actor(self, actor.identity())
+                .map_err(|detail| ActorWorldError::Effect {
+                    stage: "free_pumper",
+                    detail,
+                })?;
+        }
+        Ok(())
+    }
     /// Native LoadData returns AL1 even when bounded read guards skip fields.
     /// Returns consumed payload bytes for host inspection, not a native status.
     pub fn load_railway_data(
@@ -2717,6 +2853,21 @@ impl ActorWorld {
                 .map(|(identity, base, seed)| {
                     self.construct_traffic_car(identity, base, seed, backend)
                 })
+                .transpose();
+        }
+        if kind == 25 {
+            let allocation =
+                backend
+                    .allocate_pumper(0x2ac)
+                    .map_err(|detail| ActorCreationError {
+                        actor: None,
+                        source: ActorWorldError::Effect {
+                            stage: "allocate_pumper",
+                            detail,
+                        },
+                    })?;
+            return allocation
+                .map(|(identity, base, seed)| self.construct_pumper(identity, base, seed, backend))
                 .transpose();
         }
         if kind != 1 {
@@ -4023,7 +4174,7 @@ mod tests {
                 ] {
                     assert!(w.source(source).is_empty());
                 }
-            } else if ![1, 2, 4, 5, 6, 8, 12, 18, 20, 27].contains(&kind) {
+            } else if ![1, 2, 4, 5, 6, 8, 12, 18, 20, 25, 27].contains(&kind) {
                 assert_eq!(
                     result.unwrap_err().source,
                     ActorWorldError::UnsupportedKind(kind)
@@ -5435,6 +5586,209 @@ mod traffic_car_tests {
         assert_eq!(
             world
                 .release_traffic_car(
+                    actor,
+                    &mut ModelActorFrames::borrow(&mut arena, true),
+                    &mut heap
+                )
+                .unwrap(),
+            0
+        );
+        assert!(heap.actor_freed);
+        assert_eq!(world.inspect(actor).unwrap().0, ActorPhase::Dead);
+        assert_eq!(world.actor_count, 9);
+        assert_eq!(world.inspect(actor).unwrap().1.vtable, ActorVtable::Base);
+    }
+}
+
+#[cfg(test)]
+mod pumper_tests {
+    use super::*;
+    use crate::actor_frames::ModelActorFrames;
+    use crate::human_actor::ActorDataReader;
+    use crate::model_loading::ModelArena;
+    use crate::pumper_actor::PumperSeed;
+    fn seed() -> BaseActorSeed {
+        BaseActorSeed {
+            word_0e: 0xaabb,
+            actor_id: 0x1234,
+            state_1c: 0x87654321,
+            bytes_21_5f: [0x21; 63],
+            bytes_64_65: [0x65; 2],
+            byte_67: 0x67,
+            release_frame: 1,
+            bytes_6d_6f: [0x6f; 3],
+        }
+    }
+    fn pumper_world(capacity: usize) -> ActorWorld {
+        let b = SourceBacking {
+            storage: (capacity != 0).then_some(ActorStorageId(1)),
+            capacity,
+        };
+        ActorWorld::new(9, 100, b, b, b).unwrap()
+    }
+    #[derive(Default)]
+    struct Heap {
+        identity: u32,
+        null: bool,
+        actor_freed: bool,
+    }
+    impl ActorAllocationBackend for Heap {
+        fn allocate_actor(&mut self, _: u32) -> Result<Option<(u32, BaseActorSeed)>, String> {
+            Err("base allocation outside fixture".into())
+        }
+        fn allocate_pumper(
+            &mut self,
+            bytes: u32,
+        ) -> Result<Option<(u32, BaseActorSeed, PumperSeed)>, String> {
+            assert_eq!(bytes, 0x2ac);
+            if self.null {
+                return Ok(None);
+            }
+            self.identity += 1;
+            Ok(Some((
+                self.identity,
+                seed(),
+                PumperSeed {
+                    bytes_00_2ab: [0xa5; 0x2ac],
+                },
+            )))
+        }
+    }
+    impl ActorCollectionBackend for Heap {
+        fn allocate_collection(
+            &mut self,
+            _: &ActorWorld,
+            _: ActorSource,
+            _: u32,
+        ) -> Result<ActorStorageId, String> {
+            Ok(ActorStorageId(2))
+        }
+        fn free_collection(
+            &mut self,
+            _: &ActorWorld,
+            _: ActorSource,
+            _: Option<ActorStorageId>,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+    }
+    impl ActorDeallocationBackend for Heap {
+        fn free_actor(&mut self, _: &ActorWorld, identity: u32) -> Result<(), String> {
+            assert_eq!(identity, self.identity);
+            self.actor_freed = true;
+            Ok(())
+        }
+    }
+    fn actor(world: &mut ActorWorld, heap: &mut Heap) -> ActorReferenceId {
+        world.create_actor(25, heap).unwrap().unwrap()
+    }
+    fn full_payload() -> Vec<u8> {
+        let mut payload = vec![0x7fu8];
+        payload.extend(0x11111111u32.to_le_bytes());
+        payload.extend(0x22222222u32.to_le_bytes());
+        payload.extend(0x33333333u32.to_le_bytes());
+        payload.extend(0x44444444u32.to_le_bytes());
+        payload.extend((0x10u8..0x28u8).collect::<Vec<_>>());
+        payload
+    }
+    #[test]
+    fn pumper_factory_constructs_exact_derived_bytes_and_kind() {
+        let mut world = pumper_world(8);
+        let mut heap = Heap {
+            identity: 0x81000000,
+            ..Heap::default()
+        };
+        let actor = actor(&mut world, &mut heap);
+        assert_eq!(world.state(actor).unwrap().word_10, 25);
+        assert_eq!(world.state(actor).unwrap().vtable, ActorVtable::Pumper);
+        let pumper = world.pumper(actor).unwrap();
+        assert_eq!(pumper.counter_a(), 0x29a);
+        assert_eq!(pumper.counter_b(), 0x29b);
+        assert_eq!(pumper.mode_word(), 0);
+        assert_eq!(pumper.price_word(), 0x497cc);
+        assert_eq!(pumper.bytes()[0x88..0x8c], [0x1e, 0, 0, 0]);
+        assert!(world.inspect_pumper(actor).is_some());
+        let mut empty = pumper_world(8);
+        let mut null = Heap {
+            null: true,
+            ..Heap::default()
+        };
+        assert_eq!(empty.create_actor(25, &mut null).unwrap(), None);
+        assert_eq!(empty.actor_count, 9);
+    }
+    #[test]
+    fn pumper_load_data_reads_guarded_fields_and_slot_block() {
+        let mut world = pumper_world(8);
+        let mut heap = Heap {
+            identity: 0x81000000,
+            ..Heap::default()
+        };
+        let actor = actor(&mut world, &mut heap);
+        let payload = full_payload();
+        assert_eq!(payload.len(), 41);
+        let mut reader = ActorDataReader::new(&payload);
+        assert_eq!(world.load_pumper_data(actor, &mut reader), Ok(41));
+        assert_eq!(reader.position(), 41);
+        let pumper = world.pumper(actor).unwrap();
+        assert_eq!(pumper.counter_a(), 0x11111111);
+        assert_eq!(pumper.counter_b(), 0x22222222);
+        assert_eq!(pumper.price_word(), 0x33333333);
+        assert_eq!(pumper.mode_word(), 0x44444444);
+        assert_eq!(
+            pumper.bytes()[0x88..0xa0],
+            (0x10u8..0x28u8).collect::<Vec<_>>()[..]
+        );
+        assert_eq!(world.phase(actor), Ok(ActorPhase::Ready));
+        // An empty payload consumes nothing and still succeeds.
+        let mut reader = ActorDataReader::new(&[]);
+        assert_eq!(world.load_pumper_data(actor, &mut reader), Ok(0));
+        // A flag-only payload keeps every constructor value.
+        let mut reader = ActorDataReader::new(&[0x7fu8]);
+        assert_eq!(world.load_pumper_data(actor, &mut reader), Ok(1));
+        let pumper = world.pumper(actor).unwrap();
+        assert_eq!(pumper.counter_a(), 0x11111111);
+        // A short slot block keeps the loaded slots.
+        let mut reader = ActorDataReader::new(&payload[..20]);
+        assert_eq!(world.load_pumper_data(actor, &mut reader), Ok(17));
+        let pumper = world.pumper(actor).unwrap();
+        assert_eq!(pumper.mode_word(), 0x44444444);
+        assert_eq!(
+            pumper.bytes()[0x88..0xa0],
+            (0x10u8..0x28u8).collect::<Vec<_>>()[..]
+        );
+        let i = world.index(actor).unwrap();
+        world.actors[i].pumper = None;
+        let mut reader = ActorDataReader::new(&payload);
+        assert_eq!(
+            world.load_pumper_data(actor, &mut reader),
+            Err(ActorWorldError::NotPumper)
+        );
+    }
+    #[test]
+    fn pumper_release_decrements_and_deletes_at_zero() {
+        let mut world = pumper_world(8);
+        let mut heap = Heap {
+            identity: 0x81000000,
+            ..Heap::default()
+        };
+        let actor = actor(&mut world, &mut heap);
+        let i = world.index(actor).unwrap();
+        world.actors[i].state.references = 2;
+        let mut arena = ModelArena::default();
+        assert_eq!(
+            world
+                .release_pumper(
+                    actor,
+                    &mut ModelActorFrames::borrow(&mut arena, true),
+                    &mut heap
+                )
+                .unwrap(),
+            1
+        );
+        assert!(!heap.actor_freed);
+        assert_eq!(
+            world
+                .release_pumper(
                     actor,
                     &mut ModelActorFrames::borrow(&mut arena, true),
                     &mut heap
