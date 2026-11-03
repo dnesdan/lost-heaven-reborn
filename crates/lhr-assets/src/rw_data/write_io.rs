@@ -893,9 +893,13 @@ mod tests {
         let state = failed.handles.state.lock().unwrap();
         assert!(state.records.is_empty());
         assert_eq!(state.effects.files.len(), 1);
+        // The product root is canonicalized at construction while the test
+        // directory is not, so compare canonical paths. On hosts where the
+        // temporary directory passes through a symlink (macOS /var), the
+        // uncanonicalized join names a different string for the same file.
         assert_eq!(
             state.effects.files.values().next().unwrap().logical_output,
-            dir.0.join("out")
+            std::fs::canonicalize(dir.0.join("out")).unwrap()
         );
     }
     #[test]

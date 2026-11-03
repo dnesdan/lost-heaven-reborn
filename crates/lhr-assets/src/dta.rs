@@ -608,19 +608,41 @@ mod container_tests {
     #[test]
     fn installation_rejects_duplicate_archives_and_loose_case() {
         let d = Directory::new();
-        d.archive("A2.dta", &["models/y"]);
-        d.archive("a2.DTA", &["models/y"]);
-        assert!(crate::Installation::open(&d.0).is_err());
-        std::fs::remove_file(d.0.join("a2.DTA")).unwrap();
+        let case_distinct = crate::host_filesystem_preserves_name_case(&d.0);
+        if case_distinct {
+            d.archive("A2.dta", &["models/y"]);
+            d.archive("a2.DTA", &["models/y"]);
+            assert!(crate::Installation::open(&d.0).is_err());
+            std::fs::remove_file(d.0.join("a2.DTA")).unwrap();
+        } else {
+            // Case variants collapse to one file on this host volume, so the
+            // duplicate-ordinal branch cannot be populated through the real
+            // filesystem here. A single archive must still open.
+            d.archive("A2.dta", &["models/y"]);
+            assert!(crate::Installation::open(&d.0).is_ok());
+        }
         std::fs::create_dir(d.0.join("models")).unwrap();
-        std::fs::write(d.0.join("models/X"), b"a").unwrap();
-        std::fs::write(d.0.join("models/x"), b"b").unwrap();
-        assert!(
-            crate::Installation::open(&d.0)
-                .unwrap()
-                .read("models/x")
-                .is_err()
-        );
+        if case_distinct {
+            std::fs::write(d.0.join("models/X"), b"a").unwrap();
+            std::fs::write(d.0.join("models/x"), b"b").unwrap();
+            assert!(
+                crate::Installation::open(&d.0)
+                    .unwrap()
+                    .read("models/x")
+                    .is_err()
+            );
+        } else {
+            // Loose reads stay ASCII case-insensitive, so the folded name
+            // still resolves to the one file the volume kept.
+            std::fs::write(d.0.join("models/X"), b"a").unwrap();
+            assert_eq!(
+                crate::Installation::open(&d.0)
+                    .unwrap()
+                    .read("models/x")
+                    .unwrap(),
+                b"a"
+            );
+        }
     }
     #[test]
     fn first_registered_patch_archive_overlays_base_resource() {

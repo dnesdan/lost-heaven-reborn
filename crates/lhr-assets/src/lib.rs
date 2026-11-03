@@ -1527,6 +1527,27 @@ fn decode_x1r5g5b5(word: u16) -> [u8; 4] {
 }
 #[cfg(test)]
 mod original_image_tests;
+/// Probe whether `dir` keeps file names that differ only by ASCII case as
+/// distinct entries. Native archive and loose-name matching is ASCII
+/// case-insensitive by design, so tests that need two case-variants to
+/// coexist on disk must skip that scenario where the host volume folds case
+/// (default macOS and Windows volumes). An inconclusive probe keeps the
+/// strict assertions.
+#[cfg(test)]
+pub(crate) fn host_filesystem_preserves_name_case(dir: &std::path::Path) -> bool {
+    let lower = dir.join("lhr-case-probe");
+    let upper = dir.join("LHR-CASE-PROBE");
+    if std::fs::write(&lower, b"lower").is_err() {
+        return true;
+    }
+    let distinct = !upper.exists()
+        || std::fs::read(&upper)
+            .map(|contents| contents != b"lower")
+            .unwrap_or(true);
+    let _ = std::fs::remove_file(&lower);
+    let _ = std::fs::remove_file(&upper);
+    distinct
+}
 /// Uncompressed Windows BMP, 8-bit indexed or 24-bit BGR. Output is top-down RGBA.
 pub fn decode_bmp(b: &[u8]) -> Result<Texture> {
     decode_bmp_impl(b, false)
@@ -3396,15 +3417,21 @@ mod animation_archive_tests {
         assert_eq!(read(), b"A1");
         fs::remove_file(directory.0.join("A1.dta")).unwrap();
         assert_eq!(read(), b"AC");
-        fs::copy(directory.0.join("aC.DtA"), directory.0.join("AC.dta")).unwrap();
-        assert!(
-            Installation::open(&directory.0)
-                .err()
-                .unwrap()
-                .0
-                .contains("duplicate archive")
-        );
-        fs::remove_file(directory.0.join("AC.dta")).unwrap();
+        if crate::host_filesystem_preserves_name_case(&directory.0) {
+            fs::copy(directory.0.join("aC.DtA"), directory.0.join("AC.dta")).unwrap();
+            assert!(
+                Installation::open(&directory.0)
+                    .err()
+                    .unwrap()
+                    .0
+                    .contains("duplicate archive")
+            );
+            fs::remove_file(directory.0.join("AC.dta")).unwrap();
+        } else {
+            // aC.DtA and AC.dta are one file on this host volume, so the
+            // duplicate-ordinal branch cannot be populated through the real
+            // filesystem here. Precedence below still exercises both spellings.
+        }
         fs::remove_file(directory.0.join("aC.DtA")).unwrap();
         assert_eq!(read(), b"A4");
         fs::remove_file(directory.0.join("a4.DtA")).unwrap();
@@ -3497,8 +3524,18 @@ mod animation_archive_tests {
             installation.asset_paths("models").unwrap(),
             ["models/box.4ds"]
         );
-        fs::write(directory.0.join("Models/BOX.4ds"), b"ambiguous").unwrap();
-        assert!(installation.asset_paths("models").is_err());
+        if crate::host_filesystem_preserves_name_case(&directory.0) {
+            fs::write(directory.0.join("Models/BOX.4ds"), b"ambiguous").unwrap();
+            assert!(installation.asset_paths("models").is_err());
+        } else {
+            // BOX.4ds folds onto box.4ds on this host volume, so the
+            // case-ambiguity branch cannot be populated through the real
+            // filesystem here. The single retained entry must still resolve.
+            assert_eq!(
+                installation.asset_paths("models").unwrap(),
+                ["models/box.4ds"]
+            );
+        }
     }
 
     #[test]
