@@ -647,7 +647,6 @@ impl RuntimeError {
     }
 }
 
-
 #[test]
 fn original_frame_visibility_parameters_compile_on_the_owned_runtime_but_do_not_fake_game_effects() {
     let mut memory = Memory::default();
@@ -703,23 +702,13 @@ fn original_frame_visibility_parameters_compile_on_the_owned_runtime_but_do_not_
     let releases: Vec<_> = memory
         .events
         .iter()
-        .filter_map(|event| {
-            matches!(event.0, RuntimeEffect::ReleasePair(_)).then_some(event.0)
-        })
+        .filter_map(|event| matches!(event.0, RuntimeEffect::ReleasePair(_)).then_some(event.0))
         .collect();
     assert_eq!(
         releases,
         [RuntimeEffect::ReleasePair(15), RuntimeEffect::ReleasePair(14)]
     );
-    assert_eq!(
-        program
-            .runtime()
-            .unwrap()
-            .instructions
-            .active()
-            .len(),
-        0
-    );
+    assert_eq!(program.runtime().unwrap().instructions.active().len(), 0);
 }
 
 #[test]
@@ -733,7 +722,13 @@ fn interrupted_second_pair_conversion_keeps_the_first_word_owned_until_host_disc
     let pending = runtime.pending.as_ref().unwrap();
     assert_eq!(pending.opcode, 14);
     assert_eq!(
-        pending.parameter.as_ref().unwrap().pair_parameter().unwrap().values(),
+        pending
+            .parameter
+            .as_ref()
+            .unwrap()
+            .pair_parameter()
+            .unwrap()
+            .values(),
         [Some(3), None]
     );
     assert!(runtime.working_source.is_some());
