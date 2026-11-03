@@ -1270,6 +1270,40 @@ fn unsupported_named_actor_stops_at_kind_read_and_preserves_prior_program_and_ac
     assert_eq!(format!("{:?}", session.failure()), failure);
 }
 #[test]
+fn box_kind_consumes_flag_payload_and_advances_cursor() {
+    let mut payload = vec![2u8, 0x11];
+    payload.extend(0x11111111u32.to_le_bytes());
+    payload.extend(0x22222222u32.to_le_bytes());
+    payload.extend(40.0f32.to_le_bytes());
+    payload.extend(0.5f32.to_le_bytes());
+    payload.extend(0x55555555u32.to_le_bytes());
+    payload.extend(0x66666666u32.to_le_bytes());
+    payload.push(0x77);
+    payload.extend(0x07777777u32.to_le_bytes());
+    assert_eq!(payload.len(), 31);
+    let bytes = scene2(&[chunk(0xae20, &actor_record(b"box1", 35, &payload))].concat());
+    let fixture = Fixture::new(Some(&world(&[dummy(0, b"box1")])), Some(&bytes), None);
+    let mut session = fixture.session();
+    load(&mut session, &[]).unwrap();
+    let loader = session.loader().unwrap();
+    assert_eq!(loader.cursor, bytes.len());
+    // Fixture dummy frames resolve hierarchy bounds, so the Init tail links
+    // and the box survives with volume-selected words.
+    use crate::actor_world::{ActorSource, ActorVtable};
+    let world = &loader.content.actors.world;
+    assert_eq!(world.actor_count, 1);
+    let actors = world.source(ActorSource::Primary).to_vec();
+    assert_eq!(actors.len(), 1);
+    let actor = actors[0].unwrap();
+    assert_eq!(world.state(actor).unwrap().vtable, ActorVtable::BoxNew);
+    assert_eq!(world.state(actor).unwrap().word_10, 35);
+    // LoadData overwrote the Init 0x38c byte with the payload value; the
+    // payload density survives the trailing clamp.
+    assert_eq!(world.box_new(actor).unwrap().bytes()[0x38c], 0x11);
+    assert_eq!(world.box_new(actor).unwrap().density_word(), 40.0);
+    discard(&mut session);
+}
+#[test]
 fn pumper_kind_loads_fields_and_advances_cursor() {
     use crate::actor_world::{ActorSource, ActorVtable};
     let mut payload = vec![0x7fu8];

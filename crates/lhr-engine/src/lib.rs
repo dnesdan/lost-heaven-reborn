@@ -11,6 +11,7 @@ pub mod animation_controller;
 pub mod animation_index;
 mod arena_frame_names;
 pub mod billboard_state;
+pub mod box_new_actor;
 pub mod break_plain_glass;
 pub mod break_plain_glass_lifecycle;
 pub mod break_plain_glass_merge;

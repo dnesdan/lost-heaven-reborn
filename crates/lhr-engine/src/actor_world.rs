@@ -12,6 +12,7 @@
 //! admission limits, not native actor limits. Unsupported native allocator
 //! exceptions, allocator callback reentry into collection mutation, other derived virtuals and
 //! nonzero manager cleanup flags have no implicit successful implementation.
+use crate::box_new_actor::{BoxLoadFlag, BoxNewSeed, BoxNewState};
 use crate::bridge_actor::{BridgeSectors, BridgeSeed, BridgeState, BridgeTable};
 use crate::car_actor::{CarActorServices, CarActorState, CarSeed};
 use crate::cutscene_records::{
@@ -113,6 +114,7 @@ pub enum ActorVtable {
     Door,
     TrafficCar,
     Pumper,
+    BoxNew,
     Human,
     Player,
     Entity,
@@ -143,6 +145,7 @@ struct OwnedActor {
     door: Option<DoorState>,
     traffic_car: Option<TrafficCarState>,
     pumper: Option<PumperState>,
+    box_new: Option<BoxNewState>,
     human: Option<HumanState>,
     player: Option<PlayerState>,
     entity: Option<EntityState>,
@@ -271,6 +274,7 @@ pub enum ActorWorldError {
     NotDoor,
     NotTrafficCar,
     NotPumper,
+    NotBoxNew,
     BridgeTableUnavailable,
     BridgeTableTruncated,
     NotHuman,
@@ -457,6 +461,13 @@ pub trait ActorAllocationBackend {
         _bytes: u32,
     ) -> Result<Option<(u32, BaseActorSeed, PumperSeed)>, String> {
         Err("pumper allocation unavailable".into())
+    }
+    /// Kind35 requires actual 0x3a8-byte storage and its untouched seed.
+    fn allocate_box_new(
+        &mut self,
+        _bytes: u32,
+    ) -> Result<Option<(u32, BaseActorSeed, BoxNewSeed)>, String> {
+        Err("box allocation unavailable".into())
     }
 }
 /// Native backing/free dependencies. A failed scalar `free_actor` retains its
@@ -922,6 +933,7 @@ impl ActorWorld {
             door: None,
             traffic_car: None,
             pumper: None,
+            box_new: None,
             human: None,
             player: None,
             entity: None,
@@ -2152,6 +2164,187 @@ impl ActorWorld {
         }
         Ok(())
     }
+    /// Genuine C_box_new construction: the caller's base owner plus the kind
+    /// marker for kind 35 (0x3a8 bytes, vtable 0x6254f0). The constructor
+    /// stores no other derived words; Init and LoadData populate the tail.
+    pub fn construct_box_new<B: ActorCollectionBackend + ?Sized>(
+        &mut self,
+        identity: u32,
+        base: BaseActorSeed,
+        seed: BoxNewSeed,
+        backend: &mut B,
+    ) -> Result<ActorReferenceId, ActorCreationError> {
+        identity.checked_add(0x3a7).ok_or(ActorCreationError {
+            actor: None,
+            source: ActorWorldError::InvalidBacking,
+        })?;
+        let actor = self.construct_base(identity, base, backend)?;
+        let i = self.index(actor).expect("constructed box owner");
+        let mut state = BoxNewState::allocation(seed);
+        state.complete_constructor();
+        self.actors[i].box_new = Some(state);
+        self.actors[i].state.vtable = ActorVtable::BoxNew;
+        self.actors[i].state.word_10 = 35;
+        Ok(actor)
+    }
+    pub fn box_new(&self, actor: ActorReferenceId) -> Result<&BoxNewState, ActorWorldError> {
+        self.actors[self.index(actor)?]
+            .box_new
+            .as_ref()
+            .ok_or(ActorWorldError::NotBoxNew)
+    }
+    pub fn inspect_box_new(&self, actor: ActorReferenceId) -> Option<&BoxNewState> {
+        self.actors
+            .iter()
+            .find(|a| a.lifetime.reference() == actor)?
+            .box_new
+            .as_ref()
+    }
+    /// Original C_box_new::Init tail after the base init: the six words from
+    /// the caller-supplied hierarchy volume (see [`BoxNewState::complete_init`]).
+    /// The caller refreshes bounds through the arena; only resolved volumes
+    /// cross here. Always admits once reached.
+    pub fn init_box_volume(
+        &mut self,
+        actor: ActorReferenceId,
+        volume: f32,
+    ) -> Result<bool, ActorWorldError> {
+        let i = self.ready(actor)?;
+        if self.actors[i].box_new.is_none() || self.actors[i].state.vtable != ActorVtable::BoxNew {
+            return Err(ActorWorldError::NotBoxNew);
+        }
+        self.actors[i]
+            .box_new
+            .as_mut()
+            .expect("admitted box")
+            .complete_init(volume);
+        Ok(true)
+    }
+    /// Original C_box_new::LoadData flag dispatch over the scene2 payload:
+    /// variant 0 reads the six words plus +0x3a0, variant 1 those plus +0x348,
+    /// variant 2 additionally +0x34c; other flags consume only the flag byte.
+    /// Every field read is individually guarded, and the trailing density
+    /// clamp runs on all paths. Returns consumed payload bytes; every path
+    /// reports native success.
+    pub fn load_box_new_data(
+        &mut self,
+        actor: ActorReferenceId,
+        reader: &mut ActorDataReader<'_>,
+    ) -> Result<usize, ActorWorldError> {
+        let i = self.ready(actor)?;
+        if self.actors[i].box_new.is_none() || self.actors[i].state.vtable != ActorVtable::BoxNew {
+            return Err(ActorWorldError::NotBoxNew);
+        }
+        let start = reader.position();
+        let mut flag = [0u8; 1];
+        if !reader.read_bounded(&mut flag) {
+            self.actors[i].phase = ActorPhase::Ready;
+            return Ok(0);
+        }
+        let bx = self.actors[i].box_new.as_mut().expect("admitted box");
+        let mut byte = [0u8; 1];
+        let mut word = [0u8; 4];
+        match BoxLoadFlag::decode(flag[0]) {
+            BoxLoadFlag::V2 => {
+                Self::load_box_flag10_fields(bx, reader, &mut byte, &mut word);
+                if reader.read_bounded(&mut word) {
+                    bx.put_load_word(0x348, u32::from_le_bytes(word));
+                }
+                if reader.read_bounded(&mut byte) {
+                    bx.put_load_byte(0x378, byte[0]);
+                }
+                if reader.read_bounded(&mut word) {
+                    bx.put_load_word(0x34c, u32::from_le_bytes(word));
+                }
+            }
+            BoxLoadFlag::V1 => {
+                Self::load_box_flag10_fields(bx, reader, &mut byte, &mut word);
+                if reader.read_bounded(&mut word) {
+                    bx.put_load_word(0x348, u32::from_le_bytes(word));
+                }
+            }
+            BoxLoadFlag::V0 => {
+                Self::load_box_flag10_fields(bx, reader, &mut byte, &mut word);
+            }
+            BoxLoadFlag::Other => {}
+        }
+        bx.clamp_density();
+        self.actors[i].phase = ActorPhase::Ready;
+        Ok(reader.position() - start)
+    }
+    /// Flag-1/2 shared prefix: the six words at +0x38c..+0x3a0, each read
+    /// individually guarded like the native skip-read chain.
+    fn load_box_flag10_fields(
+        bx: &mut BoxNewState,
+        reader: &mut ActorDataReader<'_>,
+        byte: &mut [u8; 1],
+        word: &mut [u8; 4],
+    ) {
+        if reader.read_bounded(&mut *byte) {
+            bx.put_load_byte(0x38c, byte[0]);
+        }
+        for offset in [0x390, 0x394, 0x398, 0x39c, 0x3a0] {
+            if reader.read_bounded(&mut *word) {
+                bx.put_load_word(offset, u32::from_le_bytes(*word));
+            }
+        }
+    }
+    pub fn release_box_new<F: ActorFrameBackend + ?Sized, B: ActorDeallocationBackend + ?Sized>(
+        &mut self,
+        actor: ActorReferenceId,
+        frames: &mut F,
+        backend: &mut B,
+    ) -> Result<u16, ActorWorldError> {
+        let i = self.ready(actor)?;
+        if self.actors[i].box_new.is_none() || self.actors[i].state.vtable != ActorVtable::BoxNew {
+            return Err(ActorWorldError::NotBoxNew);
+        }
+        let count = self.actors[i].state.references.wrapping_sub(1);
+        self.actors[i].state.references = count;
+        if count == 0 {
+            self.delete_box_new(actor, 1, frames, backend)?;
+        }
+        Ok(count)
+    }
+    pub fn destroy_box_new<F: ActorFrameBackend + ?Sized>(
+        &mut self,
+        actor: ActorReferenceId,
+        backend: &mut F,
+    ) -> Result<(), ActorWorldError> {
+        let i = self.index(actor)?;
+        if !matches!(
+            self.actors[i].phase,
+            ActorPhase::Ready
+                | ActorPhase::LoadingInterrupted
+                | ActorPhase::InitializationInterrupted
+        ) {
+            return Err(ActorWorldError::Busy(actor));
+        }
+        if self.actors[i].box_new.is_none() {
+            return Err(ActorWorldError::NotBoxNew);
+        }
+        self.actors[i].phase = ActorPhase::Destroying;
+        self.actors[i].state.vtable = ActorVtable::BoxNew;
+        self.destroy_base_inner(actor, backend)
+    }
+    pub fn delete_box_new<F: ActorFrameBackend + ?Sized, B: ActorDeallocationBackend + ?Sized>(
+        &mut self,
+        actor: ActorReferenceId,
+        argument: u32,
+        frames: &mut F,
+        backend: &mut B,
+    ) -> Result<(), ActorWorldError> {
+        self.destroy_box_new(actor, frames)?;
+        if argument & 1 != 0 {
+            backend
+                .free_actor(self, actor.identity())
+                .map_err(|detail| ActorWorldError::Effect {
+                    stage: "free_box_new",
+                    detail,
+                })?;
+        }
+        Ok(())
+    }
     /// Native LoadData returns AL1 even when bounded read guards skip fields.
     /// Returns consumed payload bytes for host inspection, not a native status.
     pub fn load_railway_data(
@@ -2868,6 +3061,21 @@ impl ActorWorld {
                     })?;
             return allocation
                 .map(|(identity, base, seed)| self.construct_pumper(identity, base, seed, backend))
+                .transpose();
+        }
+        if kind == 35 {
+            let allocation =
+                backend
+                    .allocate_box_new(0x3a8)
+                    .map_err(|detail| ActorCreationError {
+                        actor: None,
+                        source: ActorWorldError::Effect {
+                            stage: "allocate_box_new",
+                            detail,
+                        },
+                    })?;
+            return allocation
+                .map(|(identity, base, seed)| self.construct_box_new(identity, base, seed, backend))
                 .transpose();
         }
         if kind != 1 {
@@ -4174,7 +4382,7 @@ mod tests {
                 ] {
                     assert!(w.source(source).is_empty());
                 }
-            } else if ![1, 2, 4, 5, 6, 8, 12, 18, 20, 25, 27].contains(&kind) {
+            } else if ![1, 2, 4, 5, 6, 8, 12, 18, 20, 25, 27, 35].contains(&kind) {
                 assert_eq!(
                     result.unwrap_err().source,
                     ActorWorldError::UnsupportedKind(kind)
@@ -5789,6 +5997,257 @@ mod pumper_tests {
         assert_eq!(
             world
                 .release_pumper(
+                    actor,
+                    &mut ModelActorFrames::borrow(&mut arena, true),
+                    &mut heap
+                )
+                .unwrap(),
+            0
+        );
+        assert!(heap.actor_freed);
+        assert_eq!(world.inspect(actor).unwrap().0, ActorPhase::Dead);
+        assert_eq!(world.actor_count, 9);
+        assert_eq!(world.inspect(actor).unwrap().1.vtable, ActorVtable::Base);
+    }
+}
+
+#[cfg(test)]
+mod box_new_tests {
+    use super::*;
+    use crate::actor_frames::ModelActorFrames;
+    use crate::box_new_actor::BoxNewSeed;
+    use crate::human_actor::ActorDataReader;
+    use crate::model_loading::ModelArena;
+    fn seed() -> BaseActorSeed {
+        BaseActorSeed {
+            word_0e: 0xaabb,
+            actor_id: 0x1234,
+            state_1c: 0x87654321,
+            bytes_21_5f: [0x21; 63],
+            bytes_64_65: [0x65; 2],
+            byte_67: 0x67,
+            release_frame: 1,
+            bytes_6d_6f: [0x6f; 3],
+        }
+    }
+    fn box_world(capacity: usize) -> ActorWorld {
+        let b = SourceBacking {
+            storage: (capacity != 0).then_some(ActorStorageId(1)),
+            capacity,
+        };
+        ActorWorld::new(9, 100, b, b, b).unwrap()
+    }
+    #[derive(Default)]
+    struct Heap {
+        identity: u32,
+        null: bool,
+        actor_freed: bool,
+    }
+    impl ActorAllocationBackend for Heap {
+        fn allocate_actor(&mut self, _: u32) -> Result<Option<(u32, BaseActorSeed)>, String> {
+            Err("base allocation outside fixture".into())
+        }
+        fn allocate_box_new(
+            &mut self,
+            bytes: u32,
+        ) -> Result<Option<(u32, BaseActorSeed, BoxNewSeed)>, String> {
+            assert_eq!(bytes, 0x3a8);
+            if self.null {
+                return Ok(None);
+            }
+            self.identity += 1;
+            Ok(Some((
+                self.identity,
+                seed(),
+                BoxNewSeed {
+                    bytes_00_3a7: [0xa5; 0x3a8],
+                },
+            )))
+        }
+    }
+    impl ActorCollectionBackend for Heap {
+        fn allocate_collection(
+            &mut self,
+            _: &ActorWorld,
+            _: ActorSource,
+            _: u32,
+        ) -> Result<ActorStorageId, String> {
+            Ok(ActorStorageId(2))
+        }
+        fn free_collection(
+            &mut self,
+            _: &ActorWorld,
+            _: ActorSource,
+            _: Option<ActorStorageId>,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+    }
+    impl ActorDeallocationBackend for Heap {
+        fn free_actor(&mut self, _: &ActorWorld, identity: u32) -> Result<(), String> {
+            assert_eq!(identity, self.identity);
+            self.actor_freed = true;
+            Ok(())
+        }
+    }
+    fn actor(world: &mut ActorWorld, heap: &mut Heap) -> ActorReferenceId {
+        world.create_actor(35, heap).unwrap().unwrap()
+    }
+    fn flag2_payload() -> Vec<u8> {
+        let mut payload = vec![2u8, 0x11];
+        payload.extend(0x11111111u32.to_le_bytes());
+        payload.extend(0x22222222u32.to_le_bytes());
+        payload.extend(40.0f32.to_le_bytes());
+        payload.extend(0.5f32.to_le_bytes());
+        payload.extend(0x55555555u32.to_le_bytes());
+        payload.extend(0x66666666u32.to_le_bytes());
+        payload.push(0x77);
+        payload.extend(0x07777777u32.to_le_bytes());
+        payload
+    }
+    #[test]
+    fn box_factory_constructs_kind_marker_without_derived_writes() {
+        let mut world = box_world(8);
+        let mut heap = Heap {
+            identity: 0x81000000,
+            ..Heap::default()
+        };
+        let actor = actor(&mut world, &mut heap);
+        assert_eq!(world.state(actor).unwrap().word_10, 35);
+        assert_eq!(world.state(actor).unwrap().vtable, ActorVtable::BoxNew);
+        assert_eq!(world.box_new(actor).unwrap().bytes(), &[0xa5; 0x3a8]);
+        assert!(world.inspect_box_new(actor).is_some());
+        let mut empty = box_world(8);
+        let mut null = Heap {
+            null: true,
+            ..Heap::default()
+        };
+        assert_eq!(empty.create_actor(35, &mut null).unwrap(), None);
+        assert_eq!(empty.actor_count, 9);
+    }
+    #[test]
+    fn box_init_volume_selects_density() {
+        let mut world = box_world(8);
+        let mut heap = Heap {
+            identity: 0x81000000,
+            ..Heap::default()
+        };
+        let actor = actor(&mut world, &mut heap);
+        assert!(world.init_box_volume(actor, 40.0).unwrap());
+        assert_eq!(world.box_new(actor).unwrap().density_word(), 2000.0);
+        let i = world.index(actor).unwrap();
+        world.actors[i].box_new = None;
+        assert_eq!(
+            world.init_box_volume(actor, 40.0),
+            Err(ActorWorldError::NotBoxNew)
+        );
+    }
+    #[test]
+    fn box_load_data_dispatches_flags_and_clamps() {
+        let mut world = box_world(8);
+        let mut heap = Heap {
+            identity: 0x81000000,
+            ..Heap::default()
+        };
+        let actor = actor(&mut world, &mut heap);
+        assert!(world.init_box_volume(actor, 40.0).unwrap());
+        let payload = flag2_payload();
+        assert_eq!(payload.len(), 31);
+        let mut reader = ActorDataReader::new(&payload);
+        assert_eq!(world.load_box_new_data(actor, &mut reader), Ok(31));
+        assert_eq!(reader.position(), 31);
+        let bx = world.box_new(actor).unwrap();
+        assert_eq!(bx.bytes()[0x38c], 0x11);
+        assert_eq!(bx.bytes()[0x378], 0x77);
+        assert_eq!(
+            u32::from_le_bytes(bx.bytes()[0x34c..0x350].try_into().unwrap()),
+            0x07777777
+        );
+        assert_eq!(bx.density_word(), 40.0);
+        // Variant 0 reads the six words plus +0x3a0.
+        let mut payload = vec![0u8, 0x21];
+        payload.extend(1.0f32.to_le_bytes());
+        payload.extend(2.0f32.to_le_bytes());
+        payload.extend(3.0f32.to_le_bytes());
+        payload.extend(4.0f32.to_le_bytes());
+        payload.extend(5.0f32.to_le_bytes());
+        let mut reader = ActorDataReader::new(&payload);
+        assert_eq!(world.load_box_new_data(actor, &mut reader), Ok(22));
+        let bx = world.box_new(actor).unwrap();
+        assert_eq!(bx.bytes()[0x38c], 0x21);
+        assert_eq!(bx.density_word(), 3.0);
+        assert_eq!(bx.bytes()[0x3a0..0x3a4], 5.0f32.to_le_bytes());
+        // Variant 1 skips the six words and reads +0x348.
+        let mut payload = vec![1u8];
+        payload.extend([0x31u8; 21]);
+        payload.extend(0x09090909u32.to_le_bytes());
+        let mut reader = ActorDataReader::new(&payload);
+        assert_eq!(world.load_box_new_data(actor, &mut reader), Ok(26));
+        assert_eq!(
+            u32::from_le_bytes(
+                world.box_new(actor).unwrap().bytes()[0x348..0x34c]
+                    .try_into()
+                    .unwrap()
+            ),
+            0x09090909
+        );
+        // Other flags consume only the flag byte before the clamp.
+        let mut reader = ActorDataReader::new(&[9u8, 1, 2, 3]);
+        assert_eq!(world.load_box_new_data(actor, &mut reader), Ok(1));
+        // The clamp pins densities set by LoadData on both sides.
+        let mut payload = vec![0u8, 0x21];
+        payload.extend(1.0f32.to_le_bytes());
+        payload.extend(2.0f32.to_le_bytes());
+        payload.extend(200000.0f32.to_le_bytes());
+        payload.extend(4.0f32.to_le_bytes());
+        payload.extend(5.0f32.to_le_bytes());
+        let mut reader = ActorDataReader::new(&payload);
+        assert_eq!(world.load_box_new_data(actor, &mut reader), Ok(22));
+        let bx = world.box_new(actor).unwrap();
+        assert_eq!(bx.density_word(), 100000.0);
+        let mut payload = vec![0u8, 0x21];
+        payload.extend(1.0f32.to_le_bytes());
+        payload.extend(2.0f32.to_le_bytes());
+        payload.extend(0.001f32.to_le_bytes());
+        payload.extend(4.0f32.to_le_bytes());
+        payload.extend(5.0f32.to_le_bytes());
+        let mut reader = ActorDataReader::new(&payload);
+        assert_eq!(world.load_box_new_data(actor, &mut reader), Ok(22));
+        assert_eq!(world.box_new(actor).unwrap().density_word(), 0.01);
+        assert_eq!(world.phase(actor), Ok(ActorPhase::Ready));
+        let i = world.index(actor).unwrap();
+        world.actors[i].box_new = None;
+        let mut reader = ActorDataReader::new(&payload);
+        assert_eq!(
+            world.load_box_new_data(actor, &mut reader),
+            Err(ActorWorldError::NotBoxNew)
+        );
+    }
+    #[test]
+    fn box_release_decrements_and_deletes_at_zero() {
+        let mut world = box_world(8);
+        let mut heap = Heap {
+            identity: 0x81000000,
+            ..Heap::default()
+        };
+        let actor = actor(&mut world, &mut heap);
+        let i = world.index(actor).unwrap();
+        world.actors[i].state.references = 2;
+        let mut arena = ModelArena::default();
+        assert_eq!(
+            world
+                .release_box_new(
+                    actor,
+                    &mut ModelActorFrames::borrow(&mut arena, true),
+                    &mut heap
+                )
+                .unwrap(),
+            1
+        );
+        assert!(!heap.actor_freed);
+        assert_eq!(
+            world
+                .release_box_new(
                     actor,
                     &mut ModelActorFrames::borrow(&mut arena, true),
                     &mut heap

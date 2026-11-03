@@ -149,6 +149,29 @@ impl MissionActorLoader {
             .init_bridge_linked(actor, sibling, starts_with_l)
             .map_err(|e| format!("{e:?}"))
     }
+    /// Original C_box_new::Init tail for kind 35 after the base init: refresh
+    /// the frame hierarchy volume (the native 0x40-flag UpdateHRBoundVol plus
+    /// error propagation, mirrored by the shared helper) and record the six
+    /// volume-selected words. Unresolvable bounds fail closed like the native
+    /// refused init. The UpdateWMatrix/GetScale refreshes feed no stored word
+    /// and have no equivalent call here.
+    fn link_box_actor(
+        &mut self,
+        actor: ActorReferenceId,
+        frame: FrameReferenceId,
+        arena: &mut ModelArena,
+    ) -> Result<bool, String> {
+        let key = FrameKey(frame.identity());
+        let bounds = arena
+            .hr_bound_volume(key)
+            .map_err(|e| format!("{e:?}"))?
+            .bbox;
+        let extent = |axis: usize| bounds[1][axis] - bounds[0][axis];
+        let volume = (extent(0) * extent(1)) * extent(2);
+        self.world
+            .init_box_volume(actor, volume)
+            .map_err(|e| format!("{e:?}"))
+    }
     /// Actual installation bytes feed the same ordered executor used by an
     /// enclosing scene loader. Non-actor phases must already have been loaded
     /// by the caller; this method supplies no substitute implementation for them.
@@ -375,6 +398,13 @@ impl MissionActorLoader {
                             // the enclosing scene map for the +0x90 handle.
                             admitted = self.link_bridge_actor(actor, frame, arena, map)?;
                         }
+                        if admitted && kind == 35 {
+                            // Original C_box_new::Init tail after the base
+                            // init: the six words from the frame hierarchy
+                            // volume. Unresolvable bounds fail closed like a
+                            // refused base init.
+                            admitted = self.link_box_actor(actor, frame, arena)?;
+                        }
                         if admitted {
                             //547220, then53fea0(actor,false), before frame userdata publication.
                             self.world
@@ -427,6 +457,10 @@ impl MissionActorLoader {
                             } else if kind == 25 {
                                 self.world
                                     .release_pumper(actor, &mut frames, backend)
+                                    .map_err(|e| format!("{e:?}"))?;
+                            } else if kind == 35 {
+                                self.world
+                                    .release_box_new(actor, &mut frames, backend)
                                     .map_err(|e| format!("{e:?}"))?;
                             } else {
                                 self.world
@@ -516,6 +550,17 @@ impl MissionActorLoader {
                             return Ok(());
                         }
                         if self.current_kind != Some(5) {
+                            if self.current_kind == Some(35) {
+                                // Original C_box_new::LoadData flag dispatch
+                                // over the record payload, with the trailing
+                                // density clamp on every path.
+                                let mut reader = ActorDataReader::new(field.payload);
+                                let result = self.world.load_box_new_data(actor, &mut reader);
+                                self.cursor = field.offset + 6 + reader.position();
+                                result.map_err(|e| format!("{e:?}"))?;
+                                self.pending_load_data = None;
+                                return Ok(());
+                            }
                             if self.current_kind == Some(25) {
                                 // Original C_pumper::LoadData over the record
                                 // payload: one ignored flag byte, the
