@@ -179,7 +179,7 @@ mod tests {
         assert_eq!(PAIR_OPCODE_IDS.len(), 124);
         assert!(PAIR_OPCODE_IDS.windows(2).all(|pair| pair[0] < pair[1]));
         for opcode in PAIR_OPCODE_IDS {
-            let mut source = b"-3suffix, +12tail\\0".to_vec();
+            let mut source = b"-3suffix, +12tail\0".to_vec();
             let mut slot = PairParameterSlot::default();
             assert_eq!(
                 slot.decode(opcode, &mut source, &mut AsciiPairParameterBackend),
