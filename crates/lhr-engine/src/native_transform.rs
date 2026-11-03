@@ -604,6 +604,53 @@ impl SQuat {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn mise01_near_rotation_boundary_admits_under_owner() {
+        // Genuine MISE01 scene matrix (animated joint with f32 composition
+        // noise): one transcendental enclosure straddles a single f32
+        // boundary. Under an active precision owner the host rounds the best
+        // point estimate and records responsibility; ownerless callers still
+        // refuse. The exact bit is not pinned: no implementation owns it.
+        let matrix = SMatrix {
+            elements: [
+                0.99999976,
+                6.424726e-11,
+                -0.0006357619,
+                0.0,
+                4.210135e-5,
+                0.9978049,
+                0.06622197,
+                0.0,
+                0.0006343665,
+                -0.06622198,
+                0.99780476,
+                0.0,
+                -2.5054965e-9,
+                0.10806094,
+                0.01910636,
+                1.0,
+            ],
+        };
+        assert_eq!(
+            SQuat::try_make_from_matrix(&matrix),
+            Err(MakeUnavailable::RoundingUncertain)
+        );
+        let mut owner = crate::native_precision::Pc24PrecisionState::new(false);
+        let quaternion = owner.run(|| SQuat::try_make_from_matrix(&matrix));
+        let quaternion = quaternion.expect("boundary straddle admits under owner");
+        assert!(owner.precision_raised());
+        let norm = quaternion
+            .wxyz
+            .iter()
+            .map(|value| f64::from(*value) * f64::from(*value))
+            .sum::<f64>()
+            .sqrt();
+        assert!((norm - 1.).abs() < 1e-6, "norm={norm}");
+        assert!(quaternion
+            .wxyz
+            .into_iter()
+            .all(|value| value == 0. || value.is_normal()));
+    }
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     #[test]
     fn frame_roll_keeps_raw_angles_through_the_x87_argument_boundary() {

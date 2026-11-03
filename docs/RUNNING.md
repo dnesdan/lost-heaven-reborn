@@ -101,7 +101,7 @@ Windows build, GPU, audio or interactive result has been recorded. `cargo
 +1.99.1 test --workspace --locked` runs the Rust tests, but does not replace
 all checks in `scripts/test.sh`.
 
-## macOS — native build and run not yet tested
+## macOS — build and Metal rendering tested; audio and interaction not yet
 
 Install Xcode Command Line Tools, Python 3 and `curl`. `setup.sh` accepts
 Apple Silicon and Intel Macs. The selected graphics backend is Metal; audio
@@ -129,6 +129,24 @@ cross-check does not establish a native macOS result. `--graphics` is a
 Debian-only setup option. The full `scripts/test.sh` also exercises the Linux
 analysis wrapper, which requires `/proc`, CPU affinity and `prctl`; use the
 portable checks listed above on macOS.
+
+### macOS Metal runs (Apple Silicon, verified 2026-11-03)
+
+Native build and Metal rendering run on macOS; audio and interactive input are
+not yet verified. The winit AppKit backend compiles automatically (no manifest
+change), so windowed commands open native windows:
+
+```sh
+./scripts/run.sh --root /path/to/Mafia --model models/TommyTAXIDRIVER.4ds --animation anims/breath01a.5ds --skeletal-animation --headless --animation-steps 100 --capture /tmp/tommy.png
+./scripts/run.sh --root /path/to/Mafia --mission mise01 --headless --capture /tmp/mise01.png
+./scripts/run.sh --root /path/to/Mafia --mission mise01 --frames 120 --capture /tmp/mise01-win.png
+```
+
+The skeletal capture renders a textured animated model; the MISE01 capture
+renders the mission scene (bridge, construction site, city blocks; inspection
+view, no HUD). The bounded windowed run presents native frames and captures
+bit-identically to the headless run. Interactive driving, menu input and audio
+on macOS remain unverified.
 
 ## Engine Lab
 

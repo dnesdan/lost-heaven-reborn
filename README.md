@@ -9,10 +9,10 @@ The mission ActorWorld now owns genuine Car/Vehicle actors alongside Human,
 Player and C_entity. Both original MISE01 cars complete Init and LoadData;
 source intake constructs all 293 MISE01 actors — bridges, pumpers, traffic
 car, door and all 216 boxes — with version-dispatched LoadData and linked
-Init tails. Explicit disposal closes every tracked owner, including the
-car resources and independent frame records. Model skinning
-(`QuaternionFromMatrixUnavailable`) is the remaining load blocker; GameInit
-and mission play remain open.
+Init tails, and the mission scene renders on macOS ARM64 Metal (headless and
+windowed captures are bit-identical). Explicit disposal closes every tracked
+owner, including the car resources and independent frame records. GameInit
+and mission play remain open; macOS audio and interactive input are unverified.
 
 Replay intake reads the complete 107,352-byte record01a input into its real
 owners; bounded first-actor binding matches controlled original instructions.
@@ -30,17 +30,17 @@ human animation, recorded cutscenes and a playable first mission remain open.
 [Build and run](docs/RUNNING.md) · [current evidence](docs/implementation/2026-10-29-car-replay-programs.md) ·
 [coverage](COVERAGE.md) · [goals](docs/GOALS.md) · [dated history](docs/history/README.md).
 
-[Latest reviewed integration: box actor intake](docs/implementation/2026-11-03-box-new-intake.md)
-completes the MISE01 actor wave (door, traffic car, pumper, box_new) on top of
-the merged [bridge intake](docs/implementation/2026-11-03-bridge-intake.md):
-all 293 actors construct with version-dispatched LoadData and linked Init
-tails. Together with [entity command decode](docs/implementation/2026-11-03-entity-decode.md),
+[Latest reviewed integration: transcendental boundary admission](docs/implementation/2026-11-03-trig-boundary-admission.md)
+unblocks MISE01 rendering on macOS ARM64 Metal: a genuine scene matrix that
+stranded the whole mission view now rounds under recorded host responsibility.
+Together with the merged [box actor intake](docs/implementation/2026-11-03-box-new-intake.md),
+[entity command decode](docs/implementation/2026-11-03-entity-decode.md),
 [VM control flow](docs/implementation/2026-11-03-vm-flow-execution.md) and
 [PR #69 pair decoding](docs/implementation/2026-11-03-vm-pair-parameters.md),
-the VM decodes 274 selector families plus 64 entity commands and executes 15
-opcodes. Entity Process, actor effects and GameInit remain unimplemented; the
-model SkinPose path is the remaining load blocker and authored mission play
-remains open.
+all 293 MISE01 actors construct and the mission scene captures headless and
+windowed (bit-identical). Entity Process, actor effects and GameInit remain
+unimplemented; macOS audio and interactive input are unverified and authored
+mission play remains open.
 
 <details>
 <summary>Static research and accepted scoped-port dashboard</summary>

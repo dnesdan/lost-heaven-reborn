@@ -65,6 +65,27 @@ impl Interval {
                 }
             }
             Ok(a)
+        } else if a.is_finite()
+            && b.is_finite()
+            && (b.to_bits().wrapping_sub(a.to_bits()) == 1
+                || a.to_bits().wrapping_sub(b.to_bits()) == 1)
+            && crate::native_precision::current_precision().is_some()
+        {
+            // Single-boundary straddle under an active precision owner: the
+            // enclosure proves the true value up to one host ulp, and no
+            // implementation owns the bit on a genuine boundary hit (the x87
+            // original just stores whatever its extended arithmetic yields).
+            // Round the best point estimate under recorded host
+            // responsibility instead of refusing the whole operation. Wider
+            // spans, infinities and ownerless callers stay unavailable.
+            let middle = (self.lo + self.hi) / 2.;
+            let rounded = middle as f32;
+            if (rounded == a || rounded == b) && (rounded == 0. || rounded.is_normal()) {
+                crate::native_precision::record_precision(true);
+                Ok(rounded)
+            } else {
+                Err(MakeUnavailable::RoundingUncertain)
+            }
         } else {
             Err(MakeUnavailable::RoundingUncertain)
         }
