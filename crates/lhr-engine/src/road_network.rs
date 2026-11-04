@@ -1053,6 +1053,16 @@ pub struct RecompileReport {
 /// every node in reverse order (native `RecompileDistances` traversal
 /// order; lanes of different nodes share links, so the order is part of
 /// the behavior). Lane permutation is a separate pass and stays open.
+///
+/// NOTE (Phase C verdict): the angular permutation (signed-atan2 lane
+/// ordering via 0x408490, REA `ev_4613dcb1…`, plus gap writes to lane+0x08)
+/// is not ported, and provably cannot affect mission behavior on current
+/// data: lane order is consumed only by Dijkstra tie-breaks, and all 229
+/// nodes have pairwise-distinct lane weights (zero exact ties), so every
+/// shortest path is unique regardless of order; gap slots have no
+/// recovered reader. Re-verify ties per mission before trusting this for
+/// other road files. Full evidence: REA `ev_69eb9075…` + Rizin
+/// 0x55ab00–0x55ae70 reads; discriminator node 201 [d1, _, ca, _].
 pub fn recompute_lane_lengths(network: &mut RoadNetwork) -> Result<RecompileReport, RoadWalkError> {
     reset_link_backrefs(network);
     let mut report = RecompileReport::default();
