@@ -1,0 +1,219 @@
+{
+  "version": 1,
+  "scope_note": "Post-snapshot (after 2026-10-25) function ports by the agents, keyed by original binary SHA-256 and entry RVA like the frozen ledger. Tier differential means original-data or instruction-level round-trip proof on top of tests; tier contract means reviewed upstream source plus Rust tests. Inline code regions without entries (recompile walk body, S_timer Reset/Tick, C_chunk::Write), explicit unsupported boundaries, and game-global stores without function entries are not counted as functions. VM script commands are tracked separately below, not as functions.",
+  "gap_note": "Oct 26-Nov 3 intake batches (actor factories, VM execution families, vehicle owners) are not yet audited into this overlay and count at zero here; their evidence lives in git log until audited. Extend this file per port-commit, never the frozen docs/progress.json.",
+  "functions": [
+    {
+      "binary": "Game.exe",
+      "rva": "0x159e60",
+      "va": "0x559e60",
+      "name": "C_roads::LoadData",
+      "symbol": "lhr_engine::road_network::parse_road_network",
+      "tier": "differential",
+      "evidence": "REA ev_4ac5d63c + byte-exact file consumption"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x159d40",
+      "va": "0x559d40",
+      "name": "C_roads::SaveData",
+      "symbol": "lhr_engine::road_network::encode_road_network",
+      "tier": "differential",
+      "evidence": "Rizin ASM + byte-identical round-trip of shipped road.bin"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x15c4e0",
+      "va": "0x55c4e0",
+      "name": "C_roads::FindPath",
+      "symbol": "lhr_engine::road_network::find_path",
+      "tier": "differential",
+      "evidence": "REA ev_755c7588 + valid end-to-end paths on real graph"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x15cb90",
+      "va": "0x55cb90",
+      "name": "C_roads output clear",
+      "symbol": "lhr_engine::road_network::clear_path_output",
+      "tier": "contract",
+      "evidence": "REA ev_97ead2f7 + Rust tests"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x15be10",
+      "va": "0x55be10",
+      "name": "C_roads zone resolve",
+      "symbol": "lhr_engine::road_network::resolve_zone",
+      "tier": "contract",
+      "evidence": "REA ev_abb271eb + Rust tests"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x15bc10",
+      "va": "0x55bc10",
+      "name": "C_roads path emit",
+      "symbol": "lhr_engine::road_network::emit_chain",
+      "tier": "contract",
+      "evidence": "REA ev_6ceec1cd + Rust tests"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x15bcd0",
+      "va": "0x55bcd0",
+      "name": "C_roads chain fixup",
+      "symbol": "lhr_engine::road_network::fixup_distance",
+      "tier": "contract",
+      "evidence": "REA ev_77cb6fe3 + Rust tests"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x15bf60",
+      "va": "0x55bf60",
+      "name": "C_roads zone search",
+      "symbol": "lhr_engine::road_network::dijkstra_zones",
+      "tier": "differential",
+      "evidence": "REA ev_23ee93c7 + valid paths on real 229-node graph"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x15b5d0",
+      "va": "0x55b5d0",
+      "name": "C_roads edge lane",
+      "symbol": "lhr_engine::road_network::edge_lane",
+      "tier": "contract",
+      "evidence": "REA ev_b3e004ff + Rust tests"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x15c440",
+      "va": "0x55c440",
+      "name": "C_roads edge validate",
+      "symbol": "lhr_engine::road_network::edge_validate",
+      "tier": "contract",
+      "evidence": "REA ev_b1ea4914 + Rust tests"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x15c430",
+      "va": "0x55c430",
+      "name": "C_roads search element ctor",
+      "symbol": "lhr_engine::road_network::ROAD_UNREACHED_DIST_BITS",
+      "tier": "contract",
+      "evidence": "REA ev_bf43bc2b + Rust tests"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x15c890",
+      "va": "0x55c890",
+      "name": "C_roads::SortNodesByX",
+      "symbol": "lhr_engine::road_network::sort_nodes_by_x",
+      "tier": "differential",
+      "evidence": "Rizin ASM + zero-swap fixed point on shipped road.bin"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x099cd0",
+      "va": "0x499cd0",
+      "name": "C_shvestky::GameInit",
+      "symbol": "lhr_engine::police_state::PoliceGameInitState::apply_game_init",
+      "tier": "contract",
+      "evidence": "mafia-re byte-exact source + Rust tests"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x09f850",
+      "va": "0x49f850",
+      "name": "C_shvestky release-wanted-human",
+      "symbol": "lhr_engine::police_state::release_wanted_human",
+      "tier": "contract",
+      "evidence": "mafia-re byte-exact source + Rust tests"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x09f540",
+      "va": "0x49f540",
+      "name": "C_shvestky remove-angry-actor",
+      "symbol": "lhr_engine::police_state::remove_angry_actor_everywhere",
+      "tier": "contract",
+      "evidence": "mafia-re byte-exact source + Rust tests"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x09f780",
+      "va": "0x49f780",
+      "name": "S_shvestky remove-angry-actor",
+      "symbol": "lhr_engine::police_state::remove_angry_actor_from_record",
+      "tier": "contract",
+      "evidence": "mafia-re byte-exact source + Rust tests"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x0b9560",
+      "va": "0x4b9560",
+      "name": "C_traffic_car::DecrementCount",
+      "symbol": "lhr_engine::traffic_car_actor::TrafficCarCount::decrement",
+      "tier": "contract",
+      "evidence": "mafia-re byte-exact source + Rust tests"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x0bc160",
+      "va": "0x4bc160",
+      "name": "C_traffic_car::SaveGameSave",
+      "symbol": "lhr_engine::traffic_car_actor::encode_traffic_savegame_tag",
+      "tier": "contract",
+      "evidence": "mafia-re byte-exact source + Rust tests"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x0bc190",
+      "va": "0x4bc190",
+      "name": "C_traffic_car::SaveGameLoad",
+      "symbol": "lhr_engine::traffic_car_actor::decode_traffic_savegame_tag",
+      "tier": "contract",
+      "evidence": "mafia-re byte-exact source + Rust tests"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x0aabf0",
+      "va": "0x4aabf0",
+      "name": "C_traffic_car::SaveData",
+      "symbol": "lhr_engine::traffic_car_actor::TrafficSaveData",
+      "tier": "contract",
+      "evidence": "mafia-re byte-exact source + Rust tests"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x029510",
+      "va": "0x429510",
+      "name": "C_car::GetAIPos",
+      "symbol": "lhr_engine::car_ai_position::get_ai_pos",
+      "tier": "contract",
+      "evidence": "mafia-re byte-exact source + Rust tests"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x0299c0",
+      "va": "0x4299c0",
+      "name": "C_car::GetNavigationPoints",
+      "symbol": "lhr_engine::car_ai_position::navigation_points",
+      "tier": "contract",
+      "evidence": "mafia-re byte-exact source + Rust tests"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x086920",
+      "va": "0x486920",
+      "name": "C_railway::SaveData",
+      "symbol": "lhr_engine::railway_actor::RailwayState::save_payload",
+      "tier": "contract",
+      "evidence": "mafia-re byte-exact source + Rust tests"
+    }
+  ],
+  "vm": {
+    "decoded_base": 398,
+    "decoded_entity": 121,
+    "executing_frontier": "USE_LIGHTCACHE (180); GAME_NIGHTMISSION (81) executes"
+  }
+}
