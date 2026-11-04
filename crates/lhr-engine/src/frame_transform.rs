@@ -97,6 +97,16 @@ impl I3dFrameState {
             projector_cache_258: 0,
         }
     }
+    /// PC ctor flag word at RVA 0x1a7f0 (LS3DF.dll e211c850…):
+    /// UPDATE|WMAT_VALID|MAT_VALID|QUAT_VALID|ROT_VALID|ON = 0x4000003d.
+    /// Descriptive view of the observed flag store, not an original symbol.
+    /// Tier differential: Ghidra body FUN_1001a7f0 (397B/87 insn/1BB, Identity
+    /// callees, flag/Invalidate/renderNumber stores) + the pre-existing
+    /// model()/dummy()/joint()/target() projection re-affirmed by ctor-word
+    /// tests (no new constructor code).
+    pub fn ctor_flags() -> u32 {
+        0x4000003d
+    }
     /// Original standard Object/LitObject common constructor projection,
     /// RVAs0x367b0/0x21570. Mesh payload and visual subtype remain loader-owned.
     pub fn mesh() -> Self {
@@ -1216,6 +1226,121 @@ impl I3dFrameGraph {
         result
     }
 
+    /// Original SetDir (LS3DF RVA 0x1ab50): pitch/yaw decomposition of the
+    /// direction plus roll as three axis-angle quaternions, stored without a
+    /// further normalization (the engine's SetRot; the game's copy normalizes,
+    /// and SetDir inlines the former). The quaternion core (branch cutoffs,
+    /// asin/atan association, cross/dot product order) is
+    /// SQuat::try_make_frame_direction under checked PC24/RN arithmetic.
+    /// Ghidra body FUN_1001ab50 (1249B/32BB/341 insn, Make callees) -> tier
+    /// differential. Flag store is SetRot-style: MAT_VALID cleared,
+    /// QUAT_VALID set. No stores precede the construction, so an unavailable
+    /// dependency only poisons both caches.
+    pub fn set_direction(
+        &mut self,
+        key: FrameKey,
+        direction: [f32; 3],
+        roll: f32,
+    ) -> Result<(), FrameError> {
+        self.index(key)?;
+        let result = (|| {
+            let rotation = SQuat::try_make_frame_direction(direction, roll)
+                .map_err(|_| FrameError::NumericDomain("frame SetDir"))?;
+            let state = &mut self.node_mut(key)?.state;
+            state.rotation = rotation;
+            state.flags = (state.flags & 0xfffffecb) | 0x40000008;
+            Ok(())
+        })();
+        let node = self.node_mut(key)?;
+        node.local_error = result.as_ref().err().copied();
+        node.world_error = result.as_ref().err().copied();
+        result
+    }
+    /// Original SetWorldPos (LS3DF RVA 0x1b160). Parentless frames use SetPos
+    /// directly. Otherwise the parent world cache is requested before the
+    /// inverse/point arithmetic, a singular parent uses the original inverse
+    /// identity fallback, and the transformed point goes through SetPos
+    /// (position lock 0x80 honored, HR_BOUND_W/WMAT cleared, UPDATE set).
+    /// No Ghidra body in session -> tier contract per the 0x2b830 standard.
+    /// Failures retain preceding cache work and poison both child caches, so
+    /// a rejected world pose can never masquerade as a valid native cache.
+    pub fn set_world_position(
+        &mut self,
+        key: FrameKey,
+        position: [f32; 3],
+    ) -> Result<(), FrameError> {
+        let Some(parent) = self.links(key)?.parent else {
+            return self.assign_position(key, position);
+        };
+        let result = (|| {
+            let parent_world = self.world_matrix(parent)?;
+            let (inverse, _) = parent_world
+                .inverse()
+                .map_err(|_| FrameError::NumericDomain("SetWorldPos inverse"))?;
+            let local = inverse
+                .try_transform_point(position)
+                .map_err(|_| FrameError::NumericDomain("SetWorldPos transform"))?;
+            self.assign_position(key, local)?;
+            Ok(())
+        })();
+        let node = self.node_mut(key)?;
+        node.local_error = result.as_ref().err().copied();
+        node.world_error = result.as_ref().err().copied();
+        result
+    }
+    /// Original SetWorldPosDir (LS3DF RVA 0x1b230). Parentless frames run
+    /// SetDir then SetPos in native order; a failed direction skips the
+    /// position store (clean old state + poison) because the native
+    /// intermediate rotation is unrepresentable. With a parent this reuses the
+    /// SetWorldDir derivation (direction matrix, finite 1e-8 roll admission,
+    /// right-multiply by the parent inverse, SetDir3 of rows 2/1 with the
+    /// MAT_VALID flag store) and then applies SetPos to the transformed row
+    /// 3: the caller's position argument is unused, preserving the original
+    /// bug (mafia-re I3d_frame.cpp:219-220). No Ghidra body in session ->
+    /// tier contract per the 0x2b830 standard.
+    pub fn set_world_position_direction(
+        &mut self,
+        key: FrameKey,
+        position: [f32; 3],
+        direction: [f32; 3],
+        roll: f32,
+    ) -> Result<(), FrameError> {
+        let Some(parent) = self.links(key)?.parent else {
+            self.set_direction(key, direction, roll)?;
+            return self.assign_position(key, position);
+        };
+        let result = (|| {
+            let parent_world = self.world_matrix(parent)?;
+            let (inverse, _) = parent_world
+                .inverse()
+                .map_err(|_| FrameError::NumericDomain("SetWorldPosDir inverse"))?;
+            let direction_matrix = crate::target_direction::try_target_direction_matrix(direction)
+                .map_err(|_| FrameError::NumericDomain("SetWorldPosDir direction"))?;
+            if !roll.is_finite() || f64::from(roll.abs()) > f64::from(1e-8_f32) {
+                return Err(FrameError::TargetDirectionUnavailable(key));
+            }
+            let relative = direction_matrix
+                .try_mul_affine(&inverse)
+                .map_err(|_| FrameError::NumericDomain("SetWorldPosDir multiply"))?;
+            self.node_mut(key)?
+                .state
+                .local
+                .try_set_dir3(
+                    relative.elements[8..11].try_into().unwrap(),
+                    relative.elements[4..7].try_into().unwrap(),
+                )
+                .map_err(|_| FrameError::DirectionFromVectorsUnavailable)?;
+            let state = &mut self.node_mut(key)?.state;
+            state.flags = (state.flags & 0xfffffed3) | 0x40000010;
+            self.assign_position(key, relative.elements[12..15].try_into().unwrap())?;
+            Ok(())
+        })();
+        let node = self.node_mut(key)?;
+        node.local_error = result.as_ref().err().copied();
+        node.world_error = result.as_ref().err().copied();
+        result
+    }
+
     /// RemoveChild preserves the detached child's world cache, even if now stale.
     pub fn remove_child(&mut self, parent: FrameKey, child: FrameKey) -> Result<(), FrameError> {
         self.index(parent)?;
@@ -1243,6 +1368,158 @@ impl I3dFrameGraph {
         c.links.previous = None;
         c.links.next = None;
         self.node_mut(parent)?.state.flags &= 0xfffffebf;
+        Ok(())
+    }
+    /// Raw 0x1bea0 prepend (LS3DF.dll e211c850…). Upstream working name
+    /// I3D_frame::AddChild (mafia-re I3d_frame.cpp:559-577), not an
+    /// evidenced original symbol. Ghidra body FUN_1001bea0 (118B/21
+    /// insn/3BB, flags&=0xfffffebf first) -> tier differential. Clears
+    /// 0x140 on the parent first, then links (empty: 5 stores + count 1;
+    /// else prepend + count++). No cycle/HR-sector/keep-world work (see
+    /// link_to); returns the child key.
+    pub fn add_child(&mut self, parent: FrameKey, child: FrameKey) -> Result<FrameKey, FrameError> {
+        self.index(parent)?;
+        self.index(child)?;
+        self.node_mut(parent)?.state.flags &= 0xffff_febf;
+        let first = self.links(parent)?.child;
+        if let Some(first) = first {
+            self.node_mut(first)?.links.previous = Some(child);
+        }
+        let c = self.node_mut(child)?;
+        c.links.parent = Some(parent);
+        c.links.previous = None;
+        c.links.next = first;
+        let p = self.node_mut(parent)?;
+        p.links.child = Some(child);
+        // Native stores 1 on empty, wrapping_add(1) otherwise.
+        p.links.child_count = if first.is_none() {
+            1
+        } else {
+            p.links.child_count.wrapping_add(1)
+        };
+        Ok(child)
+    }
+    /// 0x1bfd0 projection (LS3DF.dll e211c850…). Upstream working name
+    /// I3D_frame::GetChild (mafia-re I3d_frame.cpp:610-620), not an
+    /// evidenced original symbol. No Ghidra body in session -> tier
+    /// contract per the 0x2b830 standard. Signed index; 0 = head
+    /// (most-recently-prepended). Negative and over-range yield None
+    /// (native unsigned compare + dbgPrintf/NULL path). Short lists yield
+    /// None (native fallthrough to NULL). Live-borrow view, no mutation.
+    pub fn child_at(&self, parent: FrameKey, index: i32) -> Result<Option<FrameKey>, FrameError> {
+        let count = self.links(parent)?.child_count;
+        // Native unsigned compare: (unsigned)index < count.
+        if (index as u32) >= count {
+            return Ok(None);
+        }
+        let mut at = self.links(parent)?.child;
+        let mut remaining = index;
+        while let Some(key) = at {
+            if remaining == 0 {
+                return Ok(Some(key));
+            }
+            remaining -= 1;
+            at = self.links(key)?.next;
+        }
+        // Short list (corrupt count): native falls through to NULL.
+        Ok(None)
+    }
+    /// 0x1c2a0 projection (LS3DF.dll e211c850…). Upstream working name
+    /// I3D_frame::EnumFrames (mafia-re I3d_frame.cpp:700-712), not an
+    /// evidenced original symbol. No Ghidra body in session -> tier
+    /// contract per the 0x2b830 standard. Child-subtree preorder over
+    /// hierarchy links with next-snapshot discipline (callback may
+    /// unlink/delete): the snapshot is taken before visiting, deleted
+    /// keys are skipped by liveness check. Self is never visited
+    /// (native returns OK on childless roots). First CANCELED
+    /// (0x8000000d) short-circuits and propagates; SKIPCHILDREN (1)
+    /// skips descendants but continues siblings. Returns 0 (I3D_OK) or
+    /// 0x8000000d (I3DERR_CANCELED).
+    pub fn enum_frames(
+        &mut self,
+        root: FrameKey,
+        mut visit: impl FnMut(FrameKey) -> Result<u32, FrameError>,
+    ) -> Result<u32, FrameError> {
+        const CANCELED: u32 = 0x8000_000d;
+        const SKIP: u32 = 1;
+        // Snapshot first: the callback may unlink or delete visited frames.
+        let mut children = Vec::new();
+        let mut at = self.links(root)?.child;
+        while let Some(key) = at {
+            children.push(key);
+            at = self.links(key)?.next;
+        }
+        for child in children {
+            // Deleted mid-enumeration: skip by liveness (native destroyed-guard).
+            if self.index(child).is_err() {
+                continue;
+            }
+            if self.enum_subtree(child, &mut visit, CANCELED, SKIP)? == CANCELED {
+                return Ok(CANCELED);
+            }
+        }
+        Ok(0)
+    }
+    /// EnumSubtree helper phase of 0x1c2a0 (no independent function credit):
+    /// visit self, then children preorder with the same snapshot discipline.
+    fn enum_subtree(
+        &mut self,
+        key: FrameKey,
+        visit: &mut impl FnMut(FrameKey) -> Result<u32, FrameError>,
+        canceled: u32,
+        skip: u32,
+    ) -> Result<u32, FrameError> {
+        let ret = visit(key)?;
+        if ret == canceled {
+            return Ok(canceled);
+        }
+        if ret == skip {
+            return Ok(0);
+        }
+        let mut children = Vec::new();
+        let mut at = self.links(key)?.child;
+        while let Some(child) = at {
+            children.push(child);
+            at = self.links(child)?.next;
+        }
+        for child in children {
+            if self.index(child).is_err() {
+                continue;
+            }
+            if self.enum_subtree(child, visit, canceled, skip)? == canceled {
+                return Ok(canceled);
+            }
+        }
+        Ok(0)
+    }
+    /// 0x1c5b0 common-word prefix (LS3DF.dll e211c850…). Ghidra body
+    /// FUN_1001c5b0 per re-probe; full entry lives on ModelArena::
+    /// duplicate_frame (tree/name/property effects). Copies local/scale/
+    /// rotation words, masked flags + UPDATE, update_count+1; clears cached
+    /// matrix errors. u32 widths from instructions.
+    pub(crate) fn duplicate_common_fields(
+        &mut self,
+        dst: FrameKey,
+        src: FrameKey,
+    ) -> Result<(), FrameError> {
+        self.index(dst)?;
+        self.index(src)?;
+        const DUP_MASK: u32 = 0x0fa7_3e9f;
+        const KEEP: u32 = 0x400000 | 0x8000 | 0x4000;
+        const UPDATE: u32 = 0x4000_0000;
+        let saved = self.state(dst)?.flags;
+        let (local, scale, rotation, src_flags) = {
+            let s = self.state(src)?;
+            (s.local, s.scale, s.rotation, s.flags)
+        };
+        let d = self.node_mut(dst)?;
+        d.state.local = local;
+        d.state.scale = scale;
+        d.state.rotation = rotation;
+        d.state.flags = (src_flags & DUP_MASK) | (saved & KEEP) | UPDATE;
+        d.state.update_count = d.state.update_count.wrapping_add(1);
+        d.local_error = None;
+        d.world_error = None;
         Ok(())
     }
     /// Native LinkTo flags0: prepend, preserve local pose, invalidate this world
@@ -3014,5 +3291,302 @@ mod tests {
         graph.update(root).unwrap();
         assert_eq!(graph.world_matrix(last).unwrap().elements[12], 512.);
         assert_eq!(graph.storage_bytes().unwrap(), bytes);
+    }
+    #[test]
+    fn ctor_word_matches_1a7f0() {
+        // RVA 0x1a7f0: UPDATE|WMAT|MAT|QUAT|ROT|ON + identity pose + count 0.
+        assert_eq!(I3dFrameState::ctor_flags(), 0x4000_003d);
+        for s in [
+            I3dFrameState::model(),
+            I3dFrameState::dummy(),
+            I3dFrameState::joint(),
+            I3dFrameState::target(),
+        ] {
+            assert_eq!(s.flags, 0x4000_003d);
+            assert_eq!(s.scale, [1.0, 1.0, 1.0]);
+            assert_eq!(s.world_scale, 1.0);
+            assert_eq!(s.update_count, 0);
+            assert_eq!(s.render_number, u32::MAX);
+            assert_eq!(s.local, SMatrix::identity());
+            assert_eq!(s.world, SMatrix::identity());
+        }
+    }
+    #[test]
+    fn ctor_residue_is_poison_free() {
+        let mut graph = I3dFrameGraph::default();
+        let key = graph.insert(I3dFrameState::model()).unwrap();
+        assert_eq!(graph.links(key).unwrap(), FrameLinks::default());
+        assert!(graph.local_matrix(key).is_ok());
+        assert!(graph.world_matrix(key).is_ok());
+    }
+    #[test]
+    fn add_child_prepends_and_clears_parent_valid_bits() {
+        // RVA 0x1bea0: 0x140 cleared first, empty stores 1, prepend + count++.
+        let mut graph = I3dFrameGraph::default();
+        let parent = graph.insert(I3dFrameState::model()).unwrap();
+        let first = graph.insert(I3dFrameState::dummy()).unwrap();
+        let second = graph.insert(I3dFrameState::dummy()).unwrap();
+        graph.node_mut(parent).unwrap().state.flags |= 0x140;
+        assert_eq!(graph.add_child(parent, first).unwrap(), first);
+        assert_eq!(graph.links(parent).unwrap().child, Some(first));
+        assert_eq!(graph.links(parent).unwrap().child_count, 1);
+        assert_eq!(graph.add_child(parent, second).unwrap(), second);
+        // Prepend: second is head, first follows.
+        assert_eq!(graph.links(parent).unwrap().child, Some(second));
+        assert_eq!(graph.links(second).unwrap().next, Some(first));
+        assert_eq!(graph.links(first).unwrap().previous, Some(second));
+        assert_eq!(graph.links(first).unwrap().next, None);
+        assert_eq!(graph.links(parent).unwrap().child_count, 2);
+        assert_eq!(graph.state(parent).unwrap().flags & 0x140, 0);
+        // Child flags untouched; return identity.
+        assert_eq!(graph.state(second).unwrap().flags, 0x4000_003d);
+        assert!(graph.add_child(parent, FrameKey(999)).is_err());
+        // Rejected intake leaves prior links intact.
+        assert_eq!(graph.links(parent).unwrap().child_count, 2);
+    }
+    #[test]
+    fn child_at_signed_bounds_and_head_order() {
+        // RVA 0x1bfd0: signed index, 0 = head; negative/over-range -> None.
+        let mut graph = I3dFrameGraph::default();
+        let parent = graph.insert(I3dFrameState::model()).unwrap();
+        let a = graph.insert(I3dFrameState::dummy()).unwrap();
+        let b = graph.insert(I3dFrameState::dummy()).unwrap();
+        let c = graph.insert(I3dFrameState::dummy()).unwrap();
+        graph.add_child(parent, a).unwrap();
+        graph.add_child(parent, b).unwrap();
+        graph.add_child(parent, c).unwrap();
+        assert_eq!(graph.child_at(parent, 0).unwrap(), Some(c));
+        assert_eq!(graph.child_at(parent, 1).unwrap(), Some(b));
+        assert_eq!(graph.child_at(parent, 2).unwrap(), Some(a));
+        assert_eq!(graph.child_at(parent, 3).unwrap(), None);
+        assert_eq!(graph.child_at(parent, -1).unwrap(), None);
+        assert_eq!(graph.child_at(parent, i32::MAX).unwrap(), None);
+    }
+    #[test]
+    fn enum_frames_preorder_cancel_skip_and_order() {
+        // RVA 0x1c2a0: child-subtree preorder, self never visited, CANCEL wins.
+        let mut graph = I3dFrameGraph::default();
+        let root = graph.insert(I3dFrameState::model()).unwrap();
+        // Empty root: OK with zero visits.
+        let mut visits = Vec::new();
+        assert_eq!(
+            graph
+                .enum_frames(root, |k| {
+                    visits.push(k);
+                    Ok(0)
+                })
+                .unwrap(),
+            0
+        );
+        assert!(visits.is_empty());
+        // Tree: root -> [c2(head), c1]; c1 -> [g0].
+        let c0 = graph.insert(I3dFrameState::dummy()).unwrap();
+        let c1 = graph.insert(I3dFrameState::dummy()).unwrap();
+        let c2 = graph.insert(I3dFrameState::dummy()).unwrap();
+        let g0 = graph.insert(I3dFrameState::dummy()).unwrap();
+        graph.add_child(root, c0).unwrap();
+        graph.add_child(root, c1).unwrap();
+        graph.add_child(root, c2).unwrap();
+        graph.add_child(c1, g0).unwrap();
+        let mut visits = Vec::new();
+        assert_eq!(
+            graph
+                .enum_frames(root, |k| {
+                    visits.push(k);
+                    Ok(0)
+                })
+                .unwrap(),
+            0
+        );
+        assert_eq!(visits, vec![c2, c1, g0, c0]);
+        // CANCEL at c1 stops the walk with the CANCELED word.
+        let mut visits = Vec::new();
+        assert_eq!(
+            graph
+                .enum_frames(root, |k| {
+                    visits.push(k);
+                    if k == c1 {
+                        return Ok(0x8000_000d);
+                    }
+                    Ok(0)
+                })
+                .unwrap(),
+            0x8000_000d
+        );
+        assert_eq!(visits, vec![c2, c1]);
+        // SKIPCHILDREN skips descendants but continues siblings.
+        let mut visits = Vec::new();
+        assert_eq!(
+            graph
+                .enum_frames(root, |k| {
+                    visits.push(k);
+                    if k == c1 {
+                        return Ok(1);
+                    }
+                    Ok(0)
+                })
+                .unwrap(),
+            0
+        );
+        assert_eq!(visits, vec![c2, c1, c0]);
+        // Delete-during-visit is structural, not exercised: the children Vec
+        // is collected before visiting and dead keys are skipped by liveness
+        // check, but the FnMut(FrameKey) visitor cannot mutate the graph, so
+        // the liveness skip is a defensive projection of the native
+        // destroyed-guard, not an executed path here.
+        let mut visits = Vec::new();
+        assert_eq!(
+            graph
+                .enum_frames(root, |k| {
+                    visits.push(k);
+                    Ok(0)
+                })
+                .unwrap(),
+            0
+        );
+        assert_eq!(visits.len(), 4);
+        // Traversal leaves caches usable.
+        assert!(graph.local_matrix(root).is_ok());
+    }
+    #[test]
+    fn set_direction_stores_bit_exact_product_with_set_rot_flags() {
+        // RVA 0x1ab50: engine-SetRot store, no second normalization.
+        let mut graph = I3dFrameGraph::default();
+        let key = graph.insert(I3dFrameState::dummy()).unwrap();
+        graph.set_direction(key, [1., 0., 0.], 0.).unwrap();
+        assert_eq!(
+            graph.state(key).unwrap().rotation.wxyz.map(f32::to_bits),
+            [0x3f3504f4, 0, 0xbf3504f4, 0]
+        );
+        assert_eq!(graph.state(key).unwrap().flags & 0x4000003c, 0x40000008);
+        // Unavailable construction retains old stores and poisons both caches.
+        let before = *graph.state(key).unwrap();
+        let error = FrameError::NumericDomain("frame SetDir");
+        assert_eq!(graph.set_direction(key, [f32::NAN, 0., 0.], 0.), Err(error));
+        assert_eq!(graph.state(key).unwrap().rotation, before.rotation);
+        assert_eq!(graph.state(key).unwrap().flags, before.flags);
+        // Errors persist on the node until a successful recompute heals them.
+        assert_eq!(graph.node(key).unwrap().local_error, Some(error));
+        assert_eq!(graph.node(key).unwrap().world_error, Some(error));
+    }
+    #[test]
+    fn set_world_position_splits_parent_inverse_and_honors_lock() {
+        // RVA 0x1b160: parentless direct, parented inverse-point, lock 0x80.
+        let mut graph = I3dFrameGraph::default();
+        let parent = graph.insert(I3dFrameState::model()).unwrap();
+        let child = graph.insert(I3dFrameState::dummy()).unwrap();
+        graph.assign_position(parent, [10., 0., 0.]).unwrap();
+        graph.link_to(child, Some(parent)).unwrap();
+        graph.set_world_position(child, [14., 1., 2.]).unwrap();
+        assert_eq!(
+            graph.state(child).unwrap().local.elements[12..15],
+            [4., 1., 2.]
+        );
+        assert_eq!(graph.state(child).unwrap().flags & 0x40000120, 0x40000000);
+        // Position lock suppresses the store but still succeeds.
+        graph.node_mut(child).unwrap().state.flags |= 0x80;
+        graph.set_world_position(child, [0., 0., 0.]).unwrap();
+        assert_eq!(
+            graph.state(child).unwrap().local.elements[12..15],
+            [4., 1., 2.]
+        );
+        // Parentless frames copy through SetPos, preserving signed zero.
+        let solo = graph.insert(I3dFrameState::dummy()).unwrap();
+        graph.set_world_position(solo, [-0., 1., 2.]).unwrap();
+        let t = &graph.state(solo).unwrap().local.elements[12..15];
+        assert_eq!(
+            [t[0].to_bits(), t[1].to_bits(), t[2].to_bits()],
+            [-0_f32, 1., 2.].map(f32::to_bits)
+        );
+        // A singular parent uses the identity fallback: local equals world.
+        let singular = graph.insert(I3dFrameState::model()).unwrap();
+        let leaf = graph.insert(I3dFrameState::dummy()).unwrap();
+        graph.assign_scale(singular, [0., 0., 0.]).unwrap();
+        graph.link_to(leaf, Some(singular)).unwrap();
+        graph.set_world_position(leaf, [5., 6., 7.]).unwrap();
+        assert_eq!(
+            graph.state(leaf).unwrap().local.elements[12..15],
+            [5., 6., 7.]
+        );
+        // A rejected transform retains stores and poisons both caches.
+        let error = FrameError::NumericDomain("SetWorldPos transform");
+        assert_eq!(
+            graph.set_world_position(leaf, [f32::NAN, 0., 0.]),
+            Err(error)
+        );
+        assert_eq!(
+            graph.state(leaf).unwrap().local.elements[12..15],
+            [5., 6., 7.]
+        );
+        assert_eq!(graph.node(leaf).unwrap().local_error, Some(error));
+        assert_eq!(graph.node(leaf).unwrap().world_error, Some(error));
+    }
+    #[test]
+    fn set_world_position_direction_ignores_caller_position_under_parent() {
+        // RVA 0x1b230: caller position dead under a parent (original bug).
+        let mut graph = I3dFrameGraph::default();
+        let parent = graph.insert(I3dFrameState::model()).unwrap();
+        let first = graph.insert(I3dFrameState::dummy()).unwrap();
+        let second = graph.insert(I3dFrameState::dummy()).unwrap();
+        graph.link_to(first, Some(parent)).unwrap();
+        graph.link_to(second, Some(parent)).unwrap();
+        graph.set_direction_world(first, [1., 0., 1.], 0.).unwrap();
+        graph
+            .set_world_position_direction(second, [9., 9., 9.], [1., 0., 1.], 0.)
+            .unwrap();
+        assert_eq!(
+            graph.state(second).unwrap().local.elements,
+            graph.state(first).unwrap().local.elements
+        );
+        assert_eq!(graph.state(second).unwrap().flags & 0x4000003c, 0x40000010);
+        // Translated parent: caller position stays dead.
+        graph.assign_position(parent, [10., 0., 0.]).unwrap();
+        let moved = graph.insert(I3dFrameState::dummy()).unwrap();
+        graph.link_to(moved, Some(parent)).unwrap();
+        graph
+            .set_world_position_direction(moved, [9., 9., 9.], [0., 0., 1.], 0.)
+            .unwrap();
+        assert_eq!(
+            graph.state(moved).unwrap().local.elements[12..15],
+            [-10., 0., 0.]
+        );
+        assert_eq!(graph.state(moved).unwrap().local.elements[10], 1.);
+        assert_eq!(graph.state(moved).unwrap().local.elements[5], 1.);
+        // Above-threshold roll is unavailable and poisons both caches.
+        let error = FrameError::TargetDirectionUnavailable(moved);
+        assert_eq!(
+            graph.set_world_position_direction(moved, [0., 0., 0.], [0., 0., 1.], 1.),
+            Err(error)
+        );
+        assert_eq!(graph.node(moved).unwrap().local_error, Some(error));
+        assert_eq!(graph.node(moved).unwrap().world_error, Some(error));
+        // Parentless order is SetDir then SetPos, both effective.
+        let solo = graph.insert(I3dFrameState::dummy()).unwrap();
+        graph
+            .set_world_position_direction(solo, [1., 2., 3.], [1., 0., 0.], 0.)
+            .unwrap();
+        assert_eq!(
+            graph.state(solo).unwrap().rotation.wxyz.map(f32::to_bits),
+            [0x3f3504f4, 0, 0xbf3504f4, 0]
+        );
+        assert_eq!(
+            graph.state(solo).unwrap().local.elements[12..15],
+            [1., 2., 3.]
+        );
+        assert_eq!(graph.state(solo).unwrap().flags & 0x4000003c, 0x40000008);
+        // Parentless direction failure skips SetPos and poisons both caches.
+        let bad = graph.insert(I3dFrameState::dummy()).unwrap();
+        graph.assign_position(bad, [7., 8., 9.]).unwrap();
+        let dir_error = FrameError::NumericDomain("frame SetDir");
+        assert_eq!(
+            graph.set_world_position_direction(bad, [1., 2., 3.], [f32::NAN, 0., 0.], 0.),
+            Err(dir_error)
+        );
+        assert_eq!(
+            graph.state(bad).unwrap().local.elements[12..15],
+            [7., 8., 9.]
+        );
+        assert_eq!(graph.node(bad).unwrap().local_error, Some(dir_error));
+        assert_eq!(graph.node(bad).unwrap().world_error, Some(dir_error));
     }
 }

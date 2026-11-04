@@ -973,7 +973,18 @@ mod tests {
         for key in arena.scene(scene).unwrap().sectors {
             arena.release(key.frame()).unwrap();
         }
+        // Destroy-tail slot hygiene on the scene-base path (the release_inner
+        // tail is covered by the refcount test in model_loading).
+        arena
+            .set_frame_callback(
+                scene.root(),
+                Some(crate::frame_callback::FrameCallbackToken(3)),
+                0x1e00,
+            )
+            .unwrap();
+        assert!(arena.callbacks.has_slot(scene.root()));
         arena.destroy_empty_scene_base(scene.root()).unwrap();
+        assert!(!arena.callbacks.has_slot(scene.root()));
         assert_eq!(arena.live_frame_count(), 0);
     }
     #[test]
@@ -1313,5 +1324,37 @@ mod tests {
                 assert_eq!(driver.capacity(), 0);
             }
         });
+    }
+    #[test]
+    fn set_bound_volume_rejects_unordered_x_and_preserves_center() {
+        // RVA 0x1ce80: ordered-X gate (NaN fails); invalid path restores
+        // sentinels, zeroes radius, preserves the old center.
+        use crate::mesh_bounds::MeshBoundVolume;
+        let mut arena = ModelArena::default();
+        let key = arena.create_sector_frame().unwrap();
+        arena
+            .set_frame_bound_volume(key.frame(), [[-1.; 3], [1.; 3]])
+            .unwrap();
+        let valid = arena.frame(key.frame()).unwrap().hr_bounds;
+        assert_eq!(valid.center, [0.; 3]);
+        assert!(valid.radius > 0.);
+        // A NaN minimum X fails the ordered-X validity gate.
+        arena
+            .set_frame_bound_volume(key.frame(), [[f32::NAN, -2., -3.], [1., 2., 3.]])
+            .unwrap();
+        let invalid = arena.frame(key.frame()).unwrap().hr_bounds;
+        assert_eq!(invalid.bbox, MeshBoundVolume::CONSTRUCTOR.bbox);
+        assert_eq!(invalid.radius, 0.);
+        assert_eq!(invalid.center, valid.center);
+        assert_ne!(arena.state(key.frame()).unwrap().flags & 0x40, 0);
+        // An unordered X extent takes the same path.
+        arena
+            .set_frame_bound_volume(key.frame(), [[2., -2., -3.], [1., 2., 3.]])
+            .unwrap();
+        let unordered = arena.frame(key.frame()).unwrap().hr_bounds;
+        assert_eq!(unordered.bbox, MeshBoundVolume::CONSTRUCTOR.bbox);
+        assert_eq!(unordered.radius, 0.);
+        assert_eq!(unordered.center, valid.center);
+        arena.release(key.frame()).unwrap();
     }
 }

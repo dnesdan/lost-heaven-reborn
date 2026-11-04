@@ -60,6 +60,7 @@ pub mod dynamic_collision_queries;
 pub mod effects_table;
 pub mod entity_actor;
 pub mod frame_area;
+pub mod frame_callback;
 pub mod frame_camera;
 pub mod frame_delta;
 pub mod frame_dispatch;

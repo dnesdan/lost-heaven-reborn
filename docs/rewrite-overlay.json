@@ -1237,6 +1237,204 @@
       "symbol": "lhr_engine::visual_resources::VisualResources::mesh_object_stats",
       "tier": "contract",
       "evidence": "REA ghidra listing walk to RET8, no procedure entry (walk-derived) + size-0x6c/num_lods-prefix/NumFaces-vcall/SHL5-times-6 shape + mafia-re I3d_mesh.cpp:541-555 + sum/scale/prefix-bound/wrap tests; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1a7f0",
+      "va": "0x1001a7f0",
+      "name": "I3D_frame::I3D_frame (upstream working name)",
+      "symbol": "lhr_engine::frame_transform::I3dFrameState::model",
+      "tier": "differential",
+      "evidence": "REA ghidra FUN_1001a7f0 ev_c439b359 (397B/87 insn/1BB, Identity x2 callees, flag 0x4000003d + Invalidate + renderNumber stores) + mafia-re I3d_frame.cpp:28-63 + ctor-word tests (behavior pre-exists, re-affirmed)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1ab00",
+      "va": "0x1001ab00",
+      "name": "I3D_frame::DeleteFromOwner (upstream working name)",
+      "symbol": "lhr_engine::model_loading::ModelArena::detach_from_owner",
+      "tier": "differential",
+      "evidence": "REA ghidra FUN_1001ab00 ev_941b74ac (79B/34 insn/9BB, dbgPrintf callee, invalid-owner-type string, MODEL/SCENE vtable branches) + mafia-re I3d_frame.cpp:108-123 + owner-detach order tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1bea0",
+      "va": "0x1001bea0",
+      "name": "I3D_frame::AddChild (upstream working name)",
+      "symbol": "lhr_engine::frame_transform::I3dFrameGraph::add_child",
+      "tier": "differential",
+      "evidence": "REA ghidra FUN_1001bea0 ev_feb43744 (118B/21 insn/3BB, flags 0xfffffebf first, empty-5-stores vs prepend+count) + mafia-re I3d_frame.cpp:559-577 + prepend/slot-rule tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1c5b0",
+      "va": "0x1001c5b0",
+      "name": "I3D_frame::Duplicate (upstream working name)",
+      "symbol": "lhr_engine::model_loading::ModelArena::duplicate_frame",
+      "tier": "differential",
+      "evidence": "REA ghidra FUN_1001c5b0 ev_c6f4826d (334B/104 insn/13BB, FFTree/dbgPrintf/ErrorHandler callees, OOM string, null-0x80000007 + memcpy + flag-mask + OOM-0x80000002 shape) + mafia-re I3d_frame.cpp:799-830 + equality/failure-prefix tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1ab50",
+      "va": "0x1001ab50",
+      "name": "I3D_frame::SetDir (upstream working name)",
+      "symbol": "lhr_engine::frame_transform::I3dFrameGraph::set_direction",
+      "tier": "differential",
+      "evidence": "REA ghidra FUN_1001ab50 ev_5835dd62 (1249B/32BB/341 insn, S_quat Make + asin-path callees) + mafia-re I3d_frame.cpp:125-165 (pitch/yaw branches, roll-pitch-yaw product, engine-SetRot store) + bit-exact/poison tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1b600",
+      "va": "0x1001b600",
+      "name": "I3D_frame::OFFD_CountFrames (upstream working name)",
+      "symbol": "lhr_engine::model_loading::ModelArena::offd_count_frames",
+      "tier": "differential",
+      "evidence": "REA ghidra FUN_1001b600 ev_4a35f80f (114B/11BB/32 insn, sole callee FUN_1001b680, DAT_100c002c accumulator) + mafia-re I3d_frame.cpp:318-326 + count-sum tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1b680",
+      "va": "0x1001b680",
+      "name": "I3D_frame::OFFD_CountFrames_ (upstream working name)",
+      "symbol": "lhr_engine::model_loading::ModelArena::offd_count_frames_step",
+      "tier": "differential",
+      "evidence": "REA ghidra FUN_1001b680 ev_2fab94b5 (40B/6BB/14 insn, self-call + INC + right-loop) + mafia-re I3d_frame.cpp:330-337 + count-sum tests (helper phase of 0x1b600)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1b6b0",
+      "va": "0x1001b6b0",
+      "name": "I3D_frame::AlphabeticalListOfFrames_ (upstream working name)",
+      "symbol": "lhr_engine::model_loading::ModelArena::offd_alphabetical_list",
+      "tier": "differential",
+      "evidence": "REA ghidra FUN_1001b6b0 ev_2b104792 (50B/5BB/15 insn, list-base/cursor data refs, self-call) + mafia-re I3d_frame.cpp:341-348 + ordering tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1aae0",
+      "va": "0x1001aae0",
+      "name": "I3D_frame::Release (upstream working name)",
+      "symbol": "lhr_engine::model_loading::ModelArena::release",
+      "tier": "contract",
+      "evidence": "REA not_in_procedure ev_6d8da45e (walk-derived: MOV ECX/MOV EAX/TEST anchors + RET4 tail + 32 vtable slots) + mafia-re I3d_frame.cpp:96-104 + refcount-transition tests over the pre-existing release; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1bfd0",
+      "va": "0x1001bfd0",
+      "name": "I3D_frame::GetChild (upstream working name)",
+      "symbol": "lhr_engine::frame_transform::I3dFrameGraph::child_at",
+      "tier": "contract",
+      "evidence": "REA not_in_procedure ev_797bc85b (walk-derived entry/mid/RET8 anchors + 32 vtable slots) + mafia-re I3d_frame.cpp:610-620 + signed-bounds tests; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1c310",
+      "va": "0x1001c310",
+      "name": "FindChildCallBack (upstream working name)",
+      "symbol": "lhr_engine::frame_lookup::find_child_callback_slot",
+      "tier": "contract",
+      "evidence": "REA not_in_procedure ev_456f91f8 (walk-derived 16B full stdcall body + RET8 + sole code-pointer xref from FindChildFrame) + mafia-re I3d_frame.cpp:717-721 + store-then-CANCEL(2) tests; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1c2a0",
+      "va": "0x1001c2a0",
+      "name": "I3D_frame::EnumFrames (upstream working name)",
+      "symbol": "lhr_engine::frame_transform::I3dFrameGraph::enum_frames",
+      "tier": "contract",
+      "evidence": "REA not_in_procedure ev_ade20651 (walk-derived entry + CANCELED-word tail + 31 vtable slots) + mafia-re I3d_frame.cpp:700-712 + order/CANCEL tests (snapshot collection is structural; liveness-skip defensive, see code comment); tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1b160",
+      "va": "0x1001b160",
+      "name": "I3D_frame::SetWorldPos (upstream working name)",
+      "symbol": "lhr_engine::frame_transform::I3dFrameGraph::set_world_position",
+      "tier": "contract",
+      "evidence": "REA not_in_procedure ev_97ab0b49 (walk-derived SUB ESP prologue + flag words + RET8 + 32 vtable slots) + mafia-re I3d_frame.cpp:187-198 + parent-split/lock/singular/poison tests; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1b230",
+      "va": "0x1001b230",
+      "name": "I3D_frame::SetWorldPosDir (upstream working name)",
+      "symbol": "lhr_engine::frame_transform::I3dFrameGraph::set_world_position_direction",
+      "tier": "contract",
+      "evidence": "REA not_in_procedure ev_0f0bd394 (walk-derived SUB ESP prologue + virtual-dispatch mid + RET 0x10 + 32 vtable slots) + mafia-re I3d_frame.cpp:200-221 (dead-position bug) + bug-compat/roll-gate tests; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1b3c0",
+      "va": "0x1001b3c0",
+      "name": "I3D_frame::SetCallback (upstream working name)",
+      "symbol": "lhr_engine::model_loading::ModelArena::set_frame_callback",
+      "tier": "contract",
+      "evidence": "REA not_in_procedure ev_099c086f (walk-derived AND-0x1e00 mask + both RET 0xc exits + 30 vtable slots) + mafia-re I3d_frame.cpp:223-234 + mask/order tests; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1c700",
+      "va": "0x1001c700",
+      "name": "I3D_frame::SetProperty (upstream working name)",
+      "symbol": "lhr_engine::model_loading::ModelArena::set_frame_property",
+      "tier": "contract",
+      "evidence": "REA not_in_procedure ev_a34d19a9 (walk-derived delete-call mid + strlen SCASB + both RET8 exits + 32 vtable slots) + mafia-re I3d_frame.cpp:834-851 + delete-first/residue tests; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1cc50",
+      "va": "0x1001cc50",
+      "name": "I3D_frame::UpdateHRBoundVol (upstream working name)",
+      "symbol": "lhr_engine::frame_hierarchy_bounds::ModelArena::update_hr_bound_vol",
+      "tier": "contract",
+      "evidence": "No new REA observation this batch (already-landed behavior port re-affirmed) + mafia-re I3d_frame.cpp:950-987 + pre-existing hierarchy/world/sector tests; tier contract (no Ghidra body cited)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1ce80",
+      "va": "0x1001ce80",
+      "name": "I3D_frame::SetBoundVolume (mafia-re guess-name; upstream working name)",
+      "symbol": "lhr_engine::frame_sector::ModelArena::set_frame_bound_volume",
+      "tier": "contract",
+      "evidence": "No new REA observation this batch (already-landed port re-affirmed) + mafia-re I3d_frame.cpp:990-1004 + new NaN/unordered-X center-preservation tests; tier contract (no Ghidra body cited)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1cf90",
+      "va": "0x1001cf90",
+      "name": "I3D_frame::UpdateHRBoundVolW (upstream working name)",
+      "symbol": "lhr_engine::frame_hierarchy_bounds::ModelArena::update_hr_bound_vol_w",
+      "tier": "contract",
+      "evidence": "No new REA observation this batch (already-landed behavior port re-affirmed) + mafia-re I3d_frame.cpp:1006-1028 + pre-existing world tests; tier contract (no Ghidra body cited)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1b800",
+      "va": "0x1001b800",
+      "name": "I3D_frame::SetModelName (upstream working name)",
+      "symbol": "lhr_engine::model_loading::ModelArena::set_frame_model_name",
+      "tier": "contract",
+      "evidence": "No new REA observation this batch (existing set/reset impl reused, never re-claimed) + mafia-re I3d_frame.cpp:381-401 + roundtrip/allocator-order tests; tier contract (no Ghidra body cited)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1b8f0",
+      "va": "0x1001b8f0",
+      "name": "I3D_frame::ResetModelName (upstream working name)",
+      "symbol": "lhr_engine::model_loading::ModelArena::reset_frame_model_name",
+      "tier": "contract",
+      "evidence": "No new REA observation this batch (existing impl reused) + mafia-re I3d_frame.cpp:405-430 + roundtrip tests; tier contract (no Ghidra body cited)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1c9a0",
+      "va": "0x1001c9a0",
+      "name": "I3D_frame::UpdateChildren (upstream working name, inline helper)",
+      "symbol": "lhr_engine::frame_transform::I3dFrameGraph::update",
+      "tier": "contract",
+      "evidence": "No new REA observation this batch (helper phase mapped to the existing update traversal per AGENTS.md, no new symbol) + mafia-re I3d_frame.cpp:885-903 + pre-existing `parent_changes_stay_cached_until_update_then_repeated_reads_are_clean` + `bound_invalidation_stops_at_first_clean_ancestor` (fan-out order tests); tier contract (no Ghidra body cited)"
     }
   ],
   "vm": {

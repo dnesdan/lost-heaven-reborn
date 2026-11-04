@@ -298,6 +298,7 @@ pub struct ModelArena {
     next_name_generation: u64,
     lookup_owner: crate::frame_lookup::FrameLookupOwner,
     pub(crate) fast_tree: crate::arena_frame_names::ArenaFastTree,
+    pub(crate) callbacks: crate::frame_callback::FrameCallbacks,
     actor_data_records: Vec<crate::actor_frames::ActorDataRecord>,
     filenames: Vec<Option<ModelFileName>>,
     static_load_profile: Option<StaticModelLoadProfile>,
@@ -865,6 +866,173 @@ impl ModelArena {
         if self.fast_tree.enabled {
             self.register_frame_name(key)?;
         }
+        Ok(())
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// RVA 0x1b3c0. Upstream working name I3D_frame::SetCallback
+    /// (mafia-re I3d_frame.cpp:223-234), not an evidenced original symbol.
+    /// No Ghidra body in session -> tier contract per the 0x2b830 standard.
+    /// Mask 0x1e00 applied before the branch; null clears masked bits only,
+    /// non-null stores the token first, then ORs. Token registry lives on
+    /// the arena (opaque caller identity, never a host pointer).
+    pub fn set_frame_callback(
+        &mut self,
+        key: FrameKey,
+        callback: Option<crate::frame_callback::FrameCallbackToken>,
+        flags: u32,
+    ) -> Result<(), ModelError> {
+        self.frame(key)?;
+        self.callbacks
+            .set_callback(&mut self.graph, key, callback, flags)
+            .map_err(ModelError::Frame)?;
+        Ok(())
+    }
+    /// Current callback token for a frame, if any.
+    pub fn frame_callback(
+        &self,
+        key: FrameKey,
+    ) -> Result<Option<crate::frame_callback::FrameCallbackToken>, ModelError> {
+        self.frame(key)?;
+        Ok(self.callbacks.get(key))
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// RVA 0x1b600. Upstream working name I3D_frame::OFFD_CountFrames
+    /// (mafia-re I3d_frame.cpp:318-326), not an evidenced original symbol.
+    /// Ghidra body FUN_1001b600 (114B/11BB/32 insn, sole callee FUN_1001b680,
+    /// DAT_100c002c accumulator store/INC/return) -> tier differential.
+    /// Seed 1 for root, both subtrees through the shared wrapping int
+    /// accumulator (native int wrap = wrapping_add). Traversal follows the
+    /// fast-find edges (ff_left/ff_right), not hierarchy links.
+    /// Allocation-failure and cycle branches are host-defensive: tree sizes
+    /// that could force them are not reachable with test-sized inputs.
+    pub fn offd_count_frames(&self, root: FrameKey) -> Result<u32, ModelError> {
+        self.frame(root)?;
+        let mut acc: u32 = 1;
+        if let Some(left) = self.frame(root)?.ff_left {
+            self.offd_count_frames_step(left, &mut acc)?;
+        }
+        if let Some(right) = self.frame(root)?.ff_right {
+            self.offd_count_frames_step(right, &mut acc)?;
+        }
+        Ok(acc)
+    }
+    /// RVA 0x1b680 OFFD_CountFrames_ step (mafia-re I3d_frame.cpp:330-337):
+    /// in-order increment between subtrees (left, self, right). Ghidra body
+    /// FUN_1001b680 (40B/6BB/14 insn, self-call + INC + right-loop) -> tier
+    /// differential. Helper phase of 0x1b600; iterative to avoid host
+    /// recursion limits, order-preserving. Cycle guard is a host
+    /// availability boundary (native has none).
+    pub(crate) fn offd_count_frames_step(
+        &self,
+        key: FrameKey,
+        acc: &mut u32,
+    ) -> Result<(), ModelError> {
+        let mut stack: Vec<(FrameKey, bool)> = Vec::new();
+        stack
+            .try_reserve(self.frames.len())
+            .map_err(|_| ModelError::AllocationOverflow)?;
+        let mut current = Some(key);
+        let mut guard = self
+            .frames
+            .len()
+            .checked_add(1)
+            .ok_or(ModelError::AllocationOverflow)?;
+        while current.is_some() || !stack.is_empty() {
+            while let Some(k) = current {
+                if guard == 0 {
+                    return Err(ModelError::FastFrame(
+                        crate::frame_fast_lookup::FastFrameError::Cycle,
+                    ));
+                }
+                guard -= 1;
+                self.frame(k)?;
+                stack.push((k, false));
+                current = self.frame(k)?.ff_left;
+            }
+            let (k, _) = stack.pop().ok_or(ModelError::AllocationOverflow)?;
+            *acc = acc.wrapping_add(1);
+            current = self.frame(k)?.ff_right;
+        }
+        Ok(())
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// RVA 0x1b6b0. Upstream working name I3D_frame::
+    /// AlphabeticalListOfFrames_ (mafia-re I3d_frame.cpp:341-348), not an
+    /// evidenced original symbol. Ghidra body FUN_1001b6b0 (50B/5BB/15 insn,
+    /// list-base/cursor data refs, self-call) -> tier differential. In-order
+    /// publish (left, self, right); duplicates chained on right edges by
+    /// AddToFFTree keep insertion order. Caller-sized buffer: cursor overflow
+    /// is an explicit host boundary (native has no check).
+    pub fn offd_alphabetical_list(
+        &self,
+        root: FrameKey,
+        out: &mut Vec<FrameKey>,
+    ) -> Result<(), ModelError> {
+        out.clear();
+        let n = self.offd_count_frames(root)? as usize;
+        out.try_reserve(n)
+            .map_err(|_| ModelError::AllocationOverflow)?;
+        let mut stack: Vec<FrameKey> = Vec::new();
+        stack
+            .try_reserve(self.frames.len())
+            .map_err(|_| ModelError::AllocationOverflow)?;
+        let mut current = Some(root);
+        let mut guard = self
+            .frames
+            .len()
+            .checked_add(1)
+            .ok_or(ModelError::AllocationOverflow)?;
+        while current.is_some() || !stack.is_empty() {
+            while let Some(k) = current {
+                if guard == 0 {
+                    return Err(ModelError::FastFrame(
+                        crate::frame_fast_lookup::FastFrameError::Cycle,
+                    ));
+                }
+                guard -= 1;
+                self.frame(k)?;
+                stack.push(k);
+                current = self.frame(k)?.ff_left;
+            }
+            let k = stack.pop().ok_or(ModelError::AllocationOverflow)?;
+            if out.len() >= n {
+                return Err(ModelError::AllocationOverflow);
+            }
+            out.push(k);
+            current = self.frame(k)?.ff_right;
+        }
+        Ok(())
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// RVA 0x1c700. Upstream working name I3D_frame::SetProperty
+    /// (mafia-re I3d_frame.cpp:834-851), not an evidenced original symbol.
+    /// No Ghidra body in session -> tier contract per the 0x2b830 standard.
+    /// Delete-first; null/empty publish empty (host NULL); else fallible
+    /// len+1 intake with exact-byte copy (strlen truncation at first NUL).
+    /// No tree/flag effects. OOM publishes empty + AllocationOverflow
+    /// (native NULL + 0x80000002 word path). The failure branch is
+    /// host-defensive: test-sized inputs cannot force try_reserve_exact
+    /// to fail on a 64-bit host.
+    pub fn set_frame_property(
+        &mut self,
+        key: FrameKey,
+        prop: Option<&[u8]>,
+    ) -> Result<(), ModelError> {
+        let fi = self.frame_index(key)?;
+        // delete[] first: always drop the old payload before any early return.
+        self.frames[fi].properties = Vec::new();
+        let Some(p) = prop else { return Ok(()) };
+        let len = p.iter().position(|&b| b == 0).unwrap_or(p.len());
+        if len == 0 {
+            return Ok(());
+        }
+        let size = len.checked_add(1).ok_or(ModelError::AllocationOverflow)?;
+        let mut owned = Vec::new();
+        owned
+            .try_reserve_exact(size)
+            .map_err(|_| ModelError::AllocationOverflow)?;
+        owned.extend_from_slice(&p[..len]);
+        self.frames[fi].properties = owned;
         Ok(())
     }
     /// Host-supplied LS3DF driver timeline. Publication is lazy: no material
@@ -2400,6 +2568,7 @@ impl ModelArena {
         frame.original_name_bytes = None;
         frame.source = None;
         frame.user_data = crate::actor_frames::FrameUserData::Null;
+        self.callbacks.remove_slot(key);
         self.last_destroyed_frame = Some(key);
         Ok(())
     }
@@ -2409,6 +2578,115 @@ impl ModelArena {
     pub fn release(&mut self, key: FrameKey) -> Result<(), ModelError> {
         self.check_scene_frame_available(key)?;
         self.release_inner(key)
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// RVA 0x1ab00. Upstream working name I3D_frame::DeleteFromOwner
+    /// (mafia-re I3d_frame.cpp:108-123), not an evidenced original symbol.
+    /// Ghidra body FUN_1001ab00 (79B/34 insn/9BB, dbgPrintf callee, invalid-
+    /// owner-type string) -> tier differential. Order-exact: owner-membership
+    /// removal only (MODEL/SCENE owners); hierarchy unlink and cache work
+    /// stay with release_inner. Unknown/absent owner kinds are explicit
+    /// errors (native dbgPrintf path); ownerless frames are a clean no-op.
+    pub fn detach_from_owner(&mut self, key: FrameKey) -> Result<(), ModelError> {
+        let i = self.frame_index(key)?;
+        let (owner, position) = match self.frames[i].owner {
+            None => return Ok(()),
+            Some(owner) => {
+                self.check_owner_available(owner)?;
+                let position = self
+                    .owner_frames(owner)?
+                    .iter()
+                    .position(|&k| k == key)
+                    .ok_or(ModelError::UnknownFrame(key))?;
+                (owner, position)
+            }
+        };
+        // MODEL and SCENE owners remove membership; any other owner byte is
+        // rejected without mutating (native default/dbgPrintf branch). The
+        // host enum cannot spell unknown bytes, so the guard stays explicit.
+        if !matches!(
+            owner,
+            crate::scene_ownership::FrameOwner::Model(_)
+                | crate::scene_ownership::FrameOwner::Scene(_)
+        ) {
+            return Err(ModelError::UnknownFrame(key));
+        }
+        self.owner_frames_mut(owner)?.swap_remove(position);
+        self.frames[i].owner = None;
+        Ok(())
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// RVA 0x1c5b0. Upstream working name I3D_frame::Duplicate
+    /// (mafia-re I3d_frame.cpp:799-830), not an evidenced original symbol.
+    /// Ghidra body FUN_1001c5b0 (334B/104 insn/13BB, RemoveFromFFTree/
+    /// AddToFFTree/dbgPrintf/ErrorHandler callees, OOM string) -> tier
+    /// differential. Order-exact: null source maps to UnknownFrame (host
+    /// projection of the 0x80000007 word); FFTree removal; common words via
+    /// duplicate_common_fields (local/scale/rotation, masked flags + UPDATE,
+    /// update_count+1); callback slot copy (no flag touch); property copy
+    /// with ignored status; name allocation with OOM failure prefix
+    /// (preceding stores retained, AllocationOverflow for the 0x80000002
+    /// word path — host-defensive, test-sized names cannot force it);
+    /// strcpy; orig-offset preserve; fast-find re-registration.
+    pub fn duplicate_frame(&mut self, dst: FrameKey, src: FrameKey) -> Result<(), ModelError> {
+        self.frame(src).map_err(|_| ModelError::UnknownFrame(src))?;
+        self.frame(dst).map_err(|_| ModelError::UnknownFrame(dst))?;
+        self.remove_frame_name_registration(dst)?;
+        // Orig offset comes from the admitted name-pointer word (host
+        // original_name_bytes is a separate Vec, so native interior-pointer
+        // arithmetic has no host equivalent).
+        let (src_name, src_orig_offset) = {
+            let s = self.frame(src)?;
+            let off = match s.name_pointer {
+                crate::frame_fast_lookup::OriginalFrameName::Offset(off) => Some(off),
+                _ => None,
+            };
+            (s.name_bytes.clone(), off)
+        };
+        self.graph
+            .duplicate_common_fields(dst, src)
+            .map_err(ModelError::Frame)?;
+        // Callback word copy through the arena registry (no flag touch).
+        self.callbacks.copy_slot(dst, src);
+        // Property copy; the native status is ignored like the original.
+        let src_prop = self.frames[self.frame_index(src)?].properties.clone();
+        let _ = self.set_frame_property(dst, Some(&src_prop));
+        if src_name.is_empty() {
+            let di = self.frame_index(dst)?;
+            let d = &mut self.frames[di];
+            d.name_bytes = Vec::new();
+            d.original_name_bytes = None;
+            // Null names skip fast-find registration (insertion_name rejects
+            // null; native AddToFFTree dereferences stored names).
+            d.name_is_null = true;
+            d.name_pointer = crate::frame_fast_lookup::OriginalFrameName::Null;
+        } else {
+            let mut owned = Vec::new();
+            owned
+                .try_reserve(src_name.len() + 1)
+                .map_err(|_| ModelError::AllocationOverflow)?;
+            owned.extend_from_slice(&src_name);
+            let generation = self.fresh_name_generation()?;
+            let di = self.frame_index(dst)?;
+            let d = &mut self.frames[di];
+            d.name_bytes = owned;
+            d.original_name_bytes = Some(match src_orig_offset {
+                // Admitted offsets stay in range (verbatim name copy);
+                // out-of-range falls back to the full name (host admission).
+                Some(off) if off <= d.name_bytes.len() => d.name_bytes[off..].to_vec(),
+                _ => d.name_bytes.clone(),
+            });
+            // Admit the duplicated name for registration (generation is fresh;
+            // offset mirrors the source pointer word).
+            d.name_is_null = false;
+            d.name_generation = generation;
+            d.name_pointer = match src_orig_offset {
+                Some(off) => crate::frame_fast_lookup::OriginalFrameName::Offset(off),
+                None => crate::frame_fast_lookup::OriginalFrameName::Offset(0),
+            };
+            self.register_frame_name(dst)?;
+        }
+        Ok(())
     }
     pub(crate) fn release_inner(&mut self, key: FrameKey) -> Result<(), ModelError> {
         let i = self.frame_index(key)?;
@@ -2534,6 +2812,7 @@ impl ModelArena {
         self.frames[i].dummy_bounds = None;
         self.frames[i].source = None;
         self.frames[i].user_data = crate::actor_frames::FrameUserData::Null;
+        self.callbacks.remove_slot(key);
         self.sectors.retain(|sector| sector.key.frame() != key);
         Ok(())
     }
@@ -4915,5 +5194,275 @@ pub(crate) mod tests {
             arena.scene(scene).unwrap().close_phase(),
             crate::scene_ownership::ClosePhase::Idle
         );
+    }
+    fn bare_frame(arena: &mut ModelArena) -> FrameKey {
+        arena
+            .insert(I3dFrameState::model(), None, Vec::new(), Vec::new(), None)
+            .unwrap()
+    }
+    #[test]
+    fn release_1aae0_refcount_transitions() {
+        // RVA 0x1aae0: pre-decrement; >0 returns it; else destroy + 0.
+        // Dummy kind: the refcount prefix is kind-independent and the dummy
+        // destroy tail needs no model record (Model-kind frames destroy
+        // through their owning LoadedModel instead).
+        let mut arena = ModelArena::default();
+        let key = arena
+            .insert(I3dFrameState::dummy(), None, Vec::new(), Vec::new(), None)
+            .unwrap();
+        let index = arena.frame_index(key).unwrap();
+        arena.frames[index].references = 2;
+        // Destroy-tail slot hygiene: the registry entry dies with the frame.
+        arena
+            .set_frame_callback(
+                key,
+                Some(crate::frame_callback::FrameCallbackToken(5)),
+                0x1e00,
+            )
+            .unwrap();
+        assert!(arena.callbacks.has_slot(key));
+        arena.release(key).unwrap();
+        assert!(arena.frame(key).is_ok());
+        assert_eq!(arena.frames[arena.frame_index(key).unwrap()].references, 1);
+        assert!(arena.callbacks.has_slot(key));
+        arena.release(key).unwrap();
+        assert!(arena.frame(key).is_err());
+        assert!(!arena.callbacks.has_slot(key));
+        assert_eq!(arena.last_destroyed_frame, Some(key));
+        // Dead stable keys never identify a later allocation.
+        assert!(arena.release(key).is_err());
+    }
+    #[test]
+    fn detach_from_owner_removes_membership_only() {
+        // RVA 0x1ab00: ownerless no-op; MODEL removal keeps hierarchy links.
+        let mut arena = ModelArena::default();
+        let lone = bare_frame(&mut arena);
+        assert_eq!(arena.detach_from_owner(lone), Ok(()));
+        let model = arena.create_model().unwrap();
+        let member = bare_frame(&mut arena);
+        // Native-faithful membership: retain + capacity growth + cycle check.
+        arena.add_frame(model, member).unwrap();
+        // Graph hierarchy links are untouched by owner-detach: link the
+        // member under a real parent, then prove the links survive.
+        let parent = bare_frame(&mut arena);
+        arena.graph.add_child(parent, member).unwrap();
+        assert_eq!(arena.detach_from_owner(member), Ok(()));
+        assert!(arena.frames[arena.frame_index(member).unwrap()]
+            .owner
+            .is_none());
+        assert_eq!(arena.graph.links(member).unwrap().parent, Some(parent));
+        assert_eq!(arena.graph.links(parent).unwrap().child, Some(member));
+        assert!(!arena.models[arena.model_index(model).unwrap()]
+            .frames
+            .contains(&member));
+        // Double-detach is a clean no-op; unknown frames error.
+        assert_eq!(arena.detach_from_owner(member), Ok(()));
+        assert_eq!(
+            arena.detach_from_owner(FrameKey(7777)),
+            Err(ModelError::UnknownFrame(FrameKey(7777)))
+        );
+    }
+    #[test]
+    fn duplicate_frame_copies_words_names_and_callback() {
+        // RVA 0x1c5b0: masked flags + UPDATE, count+1, property, names, callback.
+        let mut arena = ModelArena::default();
+        // Name with a model prefix, built entirely through admitted setters:
+        // insert admits orig "fixture" (Offset(0)), SetModelName derives
+        // name "taxi.fixture" with pointer Offset(5).
+        let src = arena
+            .insert(
+                I3dFrameState::model(),
+                Some(0),
+                b"fixture".to_vec(),
+                Vec::new(),
+                None,
+            )
+            .unwrap();
+        arena.set_frame_model_name(src, b"taxi").unwrap();
+        assert_eq!(
+            arena.frames[arena.frame_index(src).unwrap()].name_bytes,
+            b"taxi.fixture"
+        );
+        let dst = bare_frame(&mut arena);
+        let before = arena.graph.state(dst).unwrap().update_count;
+        arena.set_frame_property(src, Some(b"color=red")).unwrap();
+        arena
+            .set_frame_callback(
+                src,
+                Some(crate::frame_callback::FrameCallbackToken(11)),
+                0x1e00,
+            )
+            .unwrap();
+        arena.duplicate_frame(dst, src).unwrap();
+        // Common words: local/scale/rotation verbatim, masked flags + UPDATE.
+        assert_eq!(
+            arena.graph.state(dst).unwrap().local,
+            arena.graph.state(src).unwrap().local
+        );
+        assert_eq!(
+            arena.graph.state(dst).unwrap().flags & 0x4000_0000,
+            0x4000_0000
+        );
+        assert_eq!(
+            arena.graph.state(dst).unwrap().update_count,
+            before.wrapping_add(1)
+        );
+        // Property + callback + names copied.
+        assert_eq!(
+            arena.frames[arena.frame_index(dst).unwrap()].properties,
+            b"color=red"
+        );
+        assert_eq!(
+            arena.frame_callback(dst).unwrap(),
+            Some(crate::frame_callback::FrameCallbackToken(11))
+        );
+        assert_eq!(
+            arena.frames[arena.frame_index(dst).unwrap()].name_bytes,
+            b"taxi.fixture"
+        );
+        assert_eq!(
+            arena.frames[arena.frame_index(dst).unwrap()].original_name_bytes,
+            Some(b"fixture".to_vec())
+        );
+        // Admitted-offset path: pointer mirrors the source word.
+        assert_eq!(
+            arena.frames[arena.frame_index(dst).unwrap()].name_pointer,
+            crate::frame_fast_lookup::OriginalFrameName::Offset(5)
+        );
+        // copy_slot branches: pre-set dst token + token-less source evicts;
+        // dst token + src token overwrites with the source token.
+        let plain_src = bare_frame(&mut arena);
+        let plain_dst = bare_frame(&mut arena);
+        arena
+            .set_frame_callback(
+                plain_dst,
+                Some(crate::frame_callback::FrameCallbackToken(99)),
+                0x1e00,
+            )
+            .unwrap();
+        arena.duplicate_frame(plain_dst, plain_src).unwrap();
+        assert_eq!(arena.frame_callback(plain_dst).unwrap(), None);
+        arena
+            .set_frame_callback(
+                plain_dst,
+                Some(crate::frame_callback::FrameCallbackToken(98)),
+                0x1e00,
+            )
+            .unwrap();
+        arena.duplicate_frame(plain_dst, src).unwrap();
+        assert_eq!(
+            arena.frame_callback(plain_dst).unwrap(),
+            Some(crate::frame_callback::FrameCallbackToken(11))
+        );
+        // Unknown source maps the 0x80000007 word; source untouched.
+        assert_eq!(
+            arena.duplicate_frame(dst, FrameKey(7777)),
+            Err(ModelError::UnknownFrame(FrameKey(7777)))
+        );
+        // Empty-named source clears both names and skips registration.
+        let empty_src = bare_frame(&mut arena);
+        let empty_dst = bare_frame(&mut arena);
+        arena.duplicate_frame(empty_dst, empty_src).unwrap();
+        assert!(arena.frames[arena.frame_index(empty_dst).unwrap()]
+            .name_bytes
+            .is_empty());
+        assert!(arena.frames[arena.frame_index(empty_dst).unwrap()]
+            .original_name_bytes
+            .is_none());
+        // Empty names skip registration with Null admission fields.
+        assert!(arena.frames[arena.frame_index(empty_dst).unwrap()].name_is_null);
+        assert_eq!(
+            arena.frames[arena.frame_index(empty_dst).unwrap()].name_pointer,
+            crate::frame_fast_lookup::OriginalFrameName::Null
+        );
+        assert_eq!(
+            arena.graph.state(empty_dst).unwrap().flags
+                & crate::frame_fast_lookup::FAST_FRAME_TREE_FLAG,
+            0
+        );
+    }
+    #[test]
+    fn set_frame_callback_masks_flags_and_orders_store_before_or() {
+        // RVA 0x1b3c0: mask first; null clears only; non-null stores then ORs.
+        let mut arena = ModelArena::default();
+        let key = bare_frame(&mut arena);
+        arena
+            .set_frame_callback(
+                key,
+                Some(crate::frame_callback::FrameCallbackToken(7)),
+                0xFFFF,
+            )
+            .unwrap();
+        assert_eq!(arena.graph.state(key).unwrap().flags & 0x1e00, 0x1e00);
+        assert_eq!(
+            arena.frame_callback(key).unwrap(),
+            Some(crate::frame_callback::FrameCallbackToken(7))
+        );
+        // Unmasked high bits untouched: UPDATE bit from the ctor stays.
+        assert_ne!(arena.graph.state(key).unwrap().flags & 0x40000000, 0);
+        arena.set_frame_callback(key, None, 0x0e00).unwrap();
+        assert_eq!(arena.graph.state(key).unwrap().flags & 0x1e00, 0x1000);
+        arena
+            .set_frame_callback(key, None, crate::frame_callback::CALLBACK_MASK)
+            .unwrap();
+        assert_eq!(arena.graph.state(key).unwrap().flags & 0x1e00, 0);
+        assert_eq!(arena.frame_callback(key).unwrap(), None);
+        // Null never stores.
+        let other = bare_frame(&mut arena);
+        arena.set_frame_callback(other, None, 0x1e00).unwrap();
+        assert_eq!(arena.frame_callback(other).unwrap(), None);
+    }
+    #[test]
+    fn set_frame_property_delete_first_empty_is_null() {
+        // RVA 0x1c700: delete-first; null/empty publish empty; exact bytes.
+        let mut arena = ModelArena::default();
+        let key = bare_frame(&mut arena);
+        arena.set_frame_property(key, Some(b"ab")).unwrap();
+        assert_eq!(
+            arena.frames[arena.frame_index(key).unwrap()].properties,
+            b"ab"
+        );
+        arena.set_frame_property(key, None).unwrap();
+        assert!(arena.frames[arena.frame_index(key).unwrap()]
+            .properties
+            .is_empty());
+        arena.set_frame_property(key, Some(b"")).unwrap();
+        assert!(arena.frames[arena.frame_index(key).unwrap()]
+            .properties
+            .is_empty());
+        // strlen truncation at first NUL.
+        arena.set_frame_property(key, Some(b"x suffix")).unwrap();
+        assert_eq!(
+            arena.frames[arena.frame_index(key).unwrap()].properties,
+            b"x"
+        );
+        // Replacement leaves no tail residue.
+        arena.set_frame_property(key, Some(b"longpayload")).unwrap();
+        arena.set_frame_property(key, Some(b"a")).unwrap();
+        assert_eq!(
+            arena.frames[arena.frame_index(key).unwrap()].properties,
+            b"a"
+        );
+    }
+    #[test]
+    fn offd_counts_sum_and_alphabetical_orders_with_duplicates() {
+        // RVAs 0x1b600/0x1b680/0x1b6b0: seed-1 in-order count + publish.
+        let mut arena = ModelArena::default();
+        let root = bare_frame(&mut arena);
+        // Single node counts 1; empty publish lists just itself.
+        assert_eq!(arena.offd_count_frames(root).unwrap(), 1);
+        let mut out = Vec::new();
+        arena.offd_alphabetical_list(root, &mut out).unwrap();
+        assert_eq!(out, vec![root]);
+        // Chain via ff edges: root -> left a, right z (insertion order kept).
+        let a = bare_frame(&mut arena);
+        let z = bare_frame(&mut arena);
+        let ri = arena.frame_index(root).unwrap();
+        arena.frames[ri].ff_left = Some(a);
+        arena.frames[ri].ff_right = Some(z);
+        assert_eq!(arena.offd_count_frames(root).unwrap(), 3);
+        let mut out = Vec::new();
+        arena.offd_alphabetical_list(root, &mut out).unwrap();
+        assert_eq!(out, vec![a, root, z]);
     }
 }

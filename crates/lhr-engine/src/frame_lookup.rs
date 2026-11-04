@@ -10,6 +10,18 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 pub const SCRIPT_FIND_FLAGS: u32 = 0x4ffff;
 pub const MAX_LOOKUP_VISITS: usize = 65_536;
+/// 0x1c310 projection (LS3DF.dll e211c850…). Upstream working name
+/// FindChildCallBack (mafia-re I3d_frame.cpp:717-721), not an evidenced
+/// original symbol. No Ghidra body in session -> tier contract per the
+/// 0x2b830 standard. Store-then-CANCEL order preserved; the x86 stdcall
+/// callee-cleanup has no host equivalent, only the u32 CANCEL word (=2).
+pub fn find_child_callback_slot(
+    slot: &mut Option<crate::frame_transform::FrameKey>,
+    frame: crate::frame_transform::FrameKey,
+) -> u32 {
+    *slot = Some(frame);
+    2 // I3DENUMRET_CANCEL
+}
 static NEXT_INCARNATION: AtomicU64 = AtomicU64::new(1);
 pub(crate) fn incarnation() -> u64 {
     NEXT_INCARNATION
@@ -552,5 +564,17 @@ mod tests {
             find_frame(&tree, roots, b"absent", SCRIPT_FIND_FLAGS, 6),
             Err(FrameLookupError::MissingBackdropRoot)
         );
+    }
+    #[test]
+    fn find_child_callback_slot_stores_then_cancels() {
+        // RVA 0x1c310: unconditional store + CANCEL word (2). The x86
+        // stdcall callee-cleanup has no host equivalent.
+        use crate::frame_transform::FrameKey;
+        let mut slot = None;
+        assert_eq!(find_child_callback_slot(&mut slot, FrameKey(9)), 2);
+        assert_eq!(slot, Some(FrameKey(9)));
+        // Overwrites unconditionally (native stores before returning).
+        assert_eq!(find_child_callback_slot(&mut slot, FrameKey(3)), 2);
+        assert_eq!(slot, Some(FrameKey(3)));
     }
 }
