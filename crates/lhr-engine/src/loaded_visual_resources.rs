@@ -510,8 +510,13 @@ fn animated_frame_name(name: &str, frame: u8, count: u8) -> Result<Option<String
         .map(Some)
         .map_err(|_| LoadedVisualError::Backend("animated filename byte domain"))
 }
-/// Orchestrating phase of I3D_anim_material::LoadImage (LS3DF RVA 0x2c000):
-/// this function performs the 727-instruction native body's work (dtaRead
+/// Orchestrating phase of I3D_anim_material::LoadImage (LS3DF RVA 0x2c000,
+/// upstream working name, NOT original; same LS3DF SHA as the crate docs).
+/// REA provenance (provider ghidra): dossier ev_7b8e0f5a (Ghidra FUN_1002c000,
+/// body 0x1002c000-0x1002c898, 2201B/727 insn, dtaRead x11, %02i format at
+/// 0x100a7c94 with xrefs at 0x1002c348/687/69e, virtual SetCurrentFrame(-1)/
+/// SetEnvCurrentFrame(-1) tail slots 19/20).
+/// This function performs the 727-instruction native body's work (dtaRead
 /// x11 frame payloads, %02i per-frame naming, invalid-name handling, the
 /// virtual SetCurrentFrame(-1)/SetEnvCurrentFrame(-1) tail) rather than one
 /// sub-step of it, which is why the contract RVA is attributed here and not
@@ -758,6 +763,14 @@ impl MaterialLoadContext {
             | 0x80000
             | if self.word_bfcd4 != 0 { 0x100 } else { 0 }
     }
+    /// REA provenance (provider ghidra, same LS3DF SHA): dossier ev_68cb2696
+    /// (Ghidra FUN_1002bd50, body 0x1002bd50-0x1002bff9, 682B/209 insn:
+    /// GetTextureFlags bit walk, ambient dtaRead 0x28/0x2c split on
+    /// flags&0x80000, alpha-gated reads, indirect CreateITexture slot 1,
+    /// error words at 0x100a7b64/0x100a7ba0). This adjuster implements the
+    /// flag-derivation prefix; the surrounding dtaRead payload intake and
+    /// indirect creation live in the load pipeline, NOT here (see the 0x2bd50
+    /// overlay contract disclosure).
     pub fn loaded_material_flags(self, source: &lhr_assets::Material) -> u32 {
         let mut flags = source.flags;
         if self.texture_flags(flags) & 0x108 == 0x108 {
@@ -3060,6 +3073,130 @@ mod tests {
         assert!(indices
             .iter()
             .all(|id| interrupted.backend.graphics.contains_key(id)));
+    }
+    /// Real-DTA full animated admission (LS3DF 0x2c000, upstream working name
+    /// I3D_anim_material::LoadImage; Ghidra FUN_1002c000, %02i format
+    /// 0x100a7c94, (-1) tail slots 19/20).
+    /// Real record: models/vodapristavm.4ds mat0 (flags 0x042c1101,
+    /// 2VLNY00.BMP x20 + ENVROLL.BMP x1, delay 75). The model frame itself is
+    /// visual 5 (morph), so a synthetic visual-0 frame carries the REAL
+    /// material record + REAL maps/ payloads through the real pipeline
+    /// (prepare_animation -> configure/append/finish -> SetCurrentFrame(-1)
+    /// tail). Read-only harness: env-absent loud-SKIP + early return,
+    /// env-set-but-unreadable panics, per-payload residue asserts,
+    /// unpoisoned on the clean path. Native NULL-frame + dbgPrintf-and-
+    /// continue divergences are preserved (existing synthetic tests); here
+    /// all 21 real frames decode, so no null slots are expected.
+    #[test]
+    fn real_dta_animated_water_admission_covers_frame_naming_flags_and_tail() {
+        let Some(root) =
+            std::env::var_os("LHR_ORIGINAL_INSTALLATION").map(std::path::PathBuf::from)
+        else {
+            eprintln!("SKIP: LHR_ORIGINAL_INSTALLATION is not set; needs the original game data");
+            return;
+        };
+        let installation = lhr_assets::Installation::open(&root)
+            .expect("LHR_ORIGINAL_INSTALLATION must open as a game installation");
+        let bytes = installation
+            .read("models/vodapristavm.4ds")
+            .expect("LHR_ORIGINAL_INSTALLATION must contain models/vodapristavm.4ds");
+        let model = lhr_assets::parse_four_ds_scene_morphs(&bytes)
+            .expect("vodapristavm.4ds parses as a morph scene");
+        assert_eq!(model.model.materials.len(), 1);
+        let source = model.model.materials[0].clone();
+        assert_eq!(source.flags, 0x042c_1101);
+        assert_eq!(source.texture, "2VLNY00.BMP");
+        assert_eq!(source.environment_texture.as_deref(), Some("ENVROLL.BMP"));
+        let timing = source
+            .animation
+            .as_ref()
+            .expect("vodapristavm mat0 is animated");
+        assert_eq!((timing.num_frames, timing.env_num_frames), (20, 1));
+        assert_eq!((timing.loop_frame, timing.frame_delay), (0, 75));
+        let context = MaterialLoadContext::ORIGINAL_DRIVER_INIT_DEFAULTS;
+        // Shared GetTextureFlags walk (0x2bd50/0x2c000 common prefix) on real
+        // flags: single-env request carries ENV_TEXTURE_FLAGS shape (0x80000
+        // + mipmask), multi-frame color would use the ordinary flags.
+        let base_request = context.base_texture_request_flags(&source);
+        let env_request = context.environment_texture_flags(&source);
+        assert_eq!(env_request & 0x80000, 0x80000);
+        assert_eq!(base_request & 0x80000, 0);
+        assert_ne!(base_request, env_request);
+        // %02i per-frame naming over real basenames before any admission.
+        let prepared =
+            prepare_animation(&source, &installation, context, false).expect("real frames read");
+        assert_eq!(prepared.color.len(), 20);
+        assert_eq!(prepared.environment.len(), 1);
+        for (index, frame) in prepared.color.iter().enumerate() {
+            assert_eq!(frame.name, format!("2VLNY{index:02}.BMP"));
+            assert!(
+                frame.color.is_some(),
+                "real color frame {index} must decode"
+            );
+        }
+        assert_eq!(prepared.environment[0].name, "ENVROLL.BMP");
+        assert!(prepared.environment[0].color.is_some());
+        assert!(prepared.environment_error.is_none());
+        assert!(prepared.color_error.is_none());
+        // Corrupt-input error shape on real bytes: truncation must fail
+        // decode, and the base-path closure reports it as maps/-pathed Asset
+        // words (native dbgPrintf words live at 0x100a7b64/0x100a7ba0).
+        let first_bytes = installation
+            .read("maps/2vlny00.bmp")
+            .expect("real frame payload present");
+        assert!(lhr_assets::decode_bmp_original(&first_bytes[..first_bytes.len() / 2]).is_err());
+        // Full admission through the real pipeline.
+        eprintln!("driven animated model: models/vodapristavm.4ds mat0");
+        let mut owner = LoadedVisualResources::new().unwrap();
+        let mut frame = plain_frame_fixture();
+        for group in &mut frame.lods[0].groups {
+            group.material = 0;
+        }
+        let carrier = lhr_assets::Model {
+            materials: vec![source.clone()],
+            frames: vec![frame],
+        };
+        let table = ModelMaterialTableKey(0x2c000);
+        owner.begin_material_table(table).unwrap();
+        let object = owner
+            .load_plain_object(&carrier, 0, &installation)
+            .expect("real animated admission succeeds");
+        let key = owner.animated_materials[&(table.0, 0)].key;
+        let loaded = owner
+            .objects
+            .managed()
+            .resources()
+            .material(key)
+            .expect("admitted animated material");
+        assert_eq!(loaded.flags, context.loaded_material_flags(&source));
+        let animation = loaded.animation.as_ref().expect("animated owner");
+        assert_eq!(animation.textures.len(), 20);
+        assert_eq!(animation.env_textures.len(), 1);
+        assert!(animation.textures.iter().all(Option::is_some));
+        assert!(animation.env_textures.iter().all(Option::is_some));
+        // (-1) tail state: frame-0 aliases, clocks at driver time.
+        assert_eq!(loaded.texture, animation.textures[0]);
+        assert_eq!(loaded.env_texture, animation.env_textures[0]);
+        assert_eq!((animation.frame, animation.env_frame), (0, 0));
+        // Request flags equal the MaterialLoadContext projections per frame.
+        for texture in animation.textures.iter().flatten() {
+            assert_eq!(
+                owner.backend.textures[&texture.0].request_flags,
+                base_request
+            );
+        }
+        for texture in animation.env_textures.iter().flatten() {
+            assert_eq!(
+                owner.backend.textures[&texture.0].request_flags,
+                env_request
+            );
+        }
+        assert!(owner.take_interrupted_object().is_none());
+        owner.finish_material_table(table).unwrap();
+        owner.destroy_object(object).unwrap();
+        assert_eq!(owner.backend.live_textures(), 0);
+        assert_eq!(owner.backend.decoded_texture_bytes(), 0);
+        assert!(!owner.has_incomplete_admission());
     }
 }
 

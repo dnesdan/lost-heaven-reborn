@@ -2,9 +2,9 @@
 <rect width="640" height="148" rx="8" fill="#f6f8fa"/>
 <text x="24" y="34" font-family="sans-serif" font-size="20" font-weight="bold" fill="#1f2328">LS3DF.dll</text>
 <text x="24" y="56" font-family="sans-serif" font-size="13" fill="#59636e">3D, animation, audio and rendering engine</text>
-<text x="24" y="82" font-family="sans-serif" font-size="14" fill="#1f2328">Implemented 183/1714 · Verified 170</text>
+<text x="24" y="82" font-family="sans-serif" font-size="14" fill="#1f2328">Implemented 183/1714 · Verified 173</text>
 <rect x="24" y="94" width="560" height="18" rx="4" fill="#d1d9e0"/>
 <rect x="24" y="94" width="59.8" height="18" rx="4" fill="#9ecbff"/>
-<rect x="24" y="94" width="55.5" height="18" rx="4" fill="#0969da"/>
+<rect x="24" y="94" width="56.5" height="18" rx="4" fill="#0969da"/>
 <text x="24" y="132" font-family="sans-serif" font-size="11" fill="#59636e">own functions, no CRT · light = ported+covered · dark = differential evidence</text>
 </svg>

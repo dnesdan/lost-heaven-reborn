@@ -766,18 +766,18 @@
       "rva": "0x78190",
       "va": "0x10078190",
       "name": "ITexture::m_TryPresavedDXT (upstream working name, NOT original)",
-      "symbol": "lhr_engine::itexture::presaved_dxt_filename",
-      "tier": "contract",
-      "evidence": "REA FUN_10078190 (660B/20BB) + 5877 real a6.dta entry names + mafia-re ITexture.cpp:967-1039; name part differential-grade, payload loop contract-grade (decompiler truncation); FILETIME params proven dead"
+      "symbol": "lhr_engine::itexture::TextureResources::try_presaved_dxt",
+      "tier": "differential",
+      "evidence": "REA ghidra ev_b6a92418 (dossier 0x10078190-0x10078423 660B/20BB/222 insn; callees strncpy/strncat/itoa/dtaOpen/dtaRead/dtaClose, no CompareFileTime) + ev_a85415b5 (asm: DXT CMPs @0x100782ea/ff/04, version CMP 9 @0x1007831f, dims CMPs @0x10078344/52, dead 8B reads @0x1007835c + DXT3-only @0x10078373, ADD memsize @0x100783b7, GetSurfaceLevel/GetDesc/LockRect/dtaRead/UnlockRect/Release loop @0x1007839c-ee, unchecked lock, close+true/false tails) + ev_8fbef404 (decompiler truncates after version read) + mafia-re ITexture.cpp:967-1039 + real-DTA payload execution, LHR_ORIGINAL_INSTALLATION-gated (DXT v9 + alpha-infix DXT3 + DWORD-aligned 16-bit pitch finding: hit->true, wrapping memsize sum, exact per-level bytes, dead FILETIME reads consumed, miss paths close+false)"
     },
     {
       "binary": "LS3DF.dll",
       "rva": "0x78430",
       "va": "0x10078430",
       "name": "ITexture::m_TryPresaved_555_565 (upstream working name, NOT original)",
-      "symbol": "lhr_engine::itexture::presaved_555_filename",
-      "tier": "contract",
-      "evidence": "REA FUN_10078430 (562B/18BB) + real entries + mafia-re ITexture.cpp:1041-1104; payload loop contract-grade (decompiler truncation)"
+      "symbol": "lhr_engine::itexture::TextureResources::try_presaved_555_565",
+      "tier": "differential",
+      "evidence": "REA ghidra ev_bfb86613 (dossier 0x10078430-0x10078661 562B/18BB/195 insn; callees strncpy/itoa/dtaOpen/dtaRead/dtaClose, no CompareFileTime) + ev_b509057d (asm: TEX CMPs @0x10078541/4c/57, version CMP 1 @0x10078577, R5G6B5 select CMP 0x17 @0x100784fa, single dead 8B read @0x100785b4, same vtable loop @0x100785dc-2c, close tails @0x10078638/4d) + ev_335861ec (decompiler truncates after version read) + mafia-re ITexture.cpp:1041-1104 + real-DTA payload execution, LHR_ORIGINAL_INSTALLATION-gated (TEX v1 maps/02_9.565 128x256x9: hit->true, wrapping memsize sum, exact per-level bytes, dead FILETIME read consumed, miss paths close+false; archives also carry stale DXT v2/3/4/6/7/8 which the original itself refuses) DWORD-aligned 16-bit pitch (single-entry finding on maps/02_9.565, shared with the 0x78190 loop model)."
     },
     {
       "binary": "LS3DF.dll",
@@ -813,7 +813,7 @@
       "name": "ITexture::Fill",
       "symbol": "lhr_engine::itexture::TextureResources::fill_texture",
       "tier": "contract",
-      "evidence": "REA 512B/130 insns + jump-table + mafia-re ITexture.cpp:1206 + per-format surface tests"
+      "evidence": "REA 512B/130 insns + jump-table + mafia-re ITexture.cpp:1206 + per-format surface tests + boundary anchors (entry SUB ESP,0x28 @0x10078940, exit RET 0x10 @0x10078b2e, corrected code span 497B not ~512B, jump-table DATA block 0x10078b34-67; tier unchanged: contract per the unresolved-boundary rule)"
     },
     {
       "binary": "LS3DF.dll",
@@ -984,7 +984,7 @@
       "name": "I3D_anim_material::Duplicate (upstream working name)",
       "symbol": "lhr_engine::visual_resources::VisualResources::duplicate_animated_material",
       "tier": "contract",
-      "evidence": "REA linear decode walk 0x1002b830-0x1002bc49 (1050B, RET8 exits, ghidra; NO Ghidra function entry per ev_9a7ae51c — contract tier per the unresolved-boundary rule) + inlined base copy + TEST 0x4000000 branch + INC frame AddRefs + mafia-re I3d_material.cpp:329-396 + frame-identity/failure-prefix tests"
+      "evidence": "REA linear decode walk 0x1002b830-0x1002bc49 (1050B, RET8 exits, ghidra; NO Ghidra function entry per ev_9a7ae51c — contract tier per the unresolved-boundary rule) + inlined base copy + TEST 0x4000000 branch + INC frame AddRefs + mafia-re I3d_material.cpp:329-396 + frame-identity/failure-prefix tests + boundary anchors ev_9a7ae51c (resolve) / entry PUSH ECX / exit RET8 @0x1002bc47 / NOP-pad tiling both sides (tier unchanged: contract per the unresolved-boundary rule)"
     },
     {
       "binary": "LS3DF.dll",
@@ -1037,8 +1037,8 @@
       "va": "0x1002c000",
       "name": "I3D_anim_material::LoadImage (upstream working name)",
       "symbol": "lhr_engine::loaded_visual_resources::prepare_animation",
-      "tier": "contract",
-      "evidence": "REA ev_21bda9db entry + 727-insn walk: dtaRead x11, %02i sprintf sites, invalid-name words, virtual (-1) tail; real-DTA execution pending (env-gated); mafia-re I3d_material.cpp:526-639"
+      "tier": "differential",
+      "evidence": "REA ev_7b8e0f5a (Ghidra FUN_1002c000, 2201B/727 insn, dtaRead x11 incl num_frames/env_num_frames + 16-byte timing, %02i format 0x100a7c94 xrefs 0x1002c348/687/69e, strlen-6 invalid-name words, single-frame ENV_TEXTURE_FLAGS asymmetry, virtual SetCurrentFrame(-1)/SetEnvCurrentFrame(-1) tail slots 19/20) + mafia-re I3d_material.cpp:526-639 + real-DTA full admission test real_dta_animated_water_admission_covers_frame_naming_flags_and_tail on models/vodapristavm.4ds mat0 (20x 2VLNY00.BMP + ENVROLL.BMP, %02 names, request-flag projections, frame-0 tail aliases, residue-free) (synthetic visual-0 carrier frame; model frame itself is visual 5 morph)"
     }
   ],
   "vm": {

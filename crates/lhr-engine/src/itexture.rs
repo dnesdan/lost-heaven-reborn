@@ -417,6 +417,20 @@ fn string_result<T, E>(
         StringOperationError::Backend(e) => TextureOperationError::Backend(e),
     })
 }
+/// filename-builder error projection for the presaved probes. The builders
+/// only fail on <4B source names with `Unsupported("presaved filename")`
+/// (native `strlen - 4` underflow); the port refuses with `InvalidNameView`
+/// instead of faulting. Any other factory error is unreachable from these
+/// builders and maps the same way rather than forging a native word.
+fn presaved_name_error<E>(error: TextureFactoryError) -> TextureOperationError<E> {
+    match error {
+        TextureFactoryError::Unsupported(_) => {
+            TextureOperationError::State(TextureError::InvalidNameView)
+        }
+        TextureFactoryError::State(error) => TextureOperationError::State(error),
+        _ => TextureOperationError::State(TextureError::InvalidNameView),
+    }
+}
 struct Textures {
     identity: u64,
     slots: Vec<Option<ITexture>>,
@@ -542,6 +556,26 @@ impl Textures {
             self.poisoned = true;
             TextureOperationError::Backend(e)
         })
+    }
+    /// Best-effort presaved-stream close before a backend failure propagates.
+    /// Header-miss, levels-0, graphics-None and OOM paths all close first;
+    /// backend-error paths (host-only: native reads are unchecked) do the
+    /// same so no path leaks an open stream. A close failure is discarded —
+    /// the original error wins. Poisoning stays with the caller (via the
+    /// outer `call` or the method tail), exactly like the sibling ports.
+    fn close_presaved_on_error<T, E>(
+        &mut self,
+        fx: &mut dyn TexturePresavedEffects<Error = E>,
+        file: PresavedFile,
+        op: Result<T, TextureOperationError<E>>,
+    ) -> Result<T, TextureOperationError<E>> {
+        match op {
+            ok @ Ok(_) => ok,
+            Err(error) => {
+                let _ = self.call(fx.close_presaved(file));
+                Err(error)
+            }
+        }
     }
     fn unlock<B: TextureBackend + ?Sized>(
         &mut self,
@@ -1548,7 +1582,261 @@ impl TextureResources {
         }
         result
     }
-    /// Original `Lock`, PC RVA 0x787c0: null graphics rejects with zero
+    /// Original `m_TryPresavedDXT` payload loop, PC RVA 0x78190 (upstream
+    /// working name, NOT original). LS3DF.dll SHA-256
+    /// e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6.
+    /// REA provenance (provider ghidra, same SHA): dossier ev_b6a92418
+    /// (body 0x10078190-0x10078423, 660B/20BB/222 insn), assembly
+    /// ev_a85415b5, truncated decompiler ev_8fbef404.
+    /// Filename probe reuses [`presaved_dxt_filename`]; the payload order is
+    /// exact: open (None = `DTA_INVALID_HANDLE`, clean miss, no close) ->
+    /// magic `D,X,T` (4B read, first 3 compared; REA asm @0x100782ea/f9/04)
+    /// -> version u16le == 9 (@0x1007831f; mafia-re ITexture.cpp:78) ->
+    /// dims two i32le vs u16 width/height (@0x10078340-56) -> dead FILETIME
+    /// 8B read, plus a second dead 8B read iff `dxt == PRESAVED_DXT3`
+    /// (@0x1007835c/69-7b; values never compared: no `CompareFileTime`
+    /// edge) -> `m_MemSize = 0` -> per level 0..levels:
+    /// `presaved_level_size` (GetSurfaceLevel/GetDesc projection,
+    /// @0x1007839c/ab), `wrapping_add` into `memory_size` (native plain ADD
+    /// @0x100783b7, wraps by construction), exact-size `read_presaved`
+    /// (native unchecked `dtaRead` @0x100783d8; short data is a backend
+    /// error per the [`TexturePresavedEffects`] contract),
+    /// `write_presaved_level` (LockRect/`dtaRead`/UnlockRect triple as one
+    /// ordered effect; the original checks no lock status, @0x100783ca-d8,
+    /// so the trait offers no lock-failure path) -> close -> true. Any
+    /// header miss closes the stream and returns false (@0x1007840f);
+    /// backend errors poison like the sibling TGA/duplicate ports. Ghidra
+    /// pseudocode truncates after the version read, so assembly is primary.
+    pub fn try_presaved_dxt<B: TextureBackend + ?Sized>(
+        &mut self,
+        key: TextureKey,
+        name: &[u8],
+        alpha_name: Option<&[u8]>,
+        dxt: u8,
+        b: &mut B,
+    ) -> Result<bool, TextureOperationError<<B as BufferBackend>::Error>> {
+        self.available()?;
+        let t = self.textures.live(key)?;
+        // Pure scalar snapshot before effects. The DXT path never reads
+        // m_Format, so format stays out of the snapshot.
+        let (width, height, levels, flags, graphics) = (
+            Self::req_value(t.width)?,
+            Self::req_value(t.height)?,
+            Self::req_value(t.levels)?,
+            t.flags,
+            t.graphics,
+        );
+        let result = (|| {
+            let half = flags & ITC_HALF != 0;
+            let filename = presaved_dxt_filename(name, alpha_name, levels, half, dxt)
+                .map_err(presaved_name_error)?;
+            let fx = b.presaved_effects().ok_or(TextureError::HostAllocation)?;
+            let Some(file) = self.textures.call(fx.open_presaved(&filename))? else {
+                return Ok(false);
+            };
+            let mut magic = [0u8; 4];
+            let op = self.textures.call(fx.read_presaved(file, &mut magic));
+            self.textures.close_presaved_on_error(fx, file, op)?;
+            if magic[0] != b'D' || magic[1] != b'X' || magic[2] != b'T' {
+                self.textures.call(fx.close_presaved(file))?;
+                return Ok(false);
+            }
+            let mut version = [0xffu8; 2];
+            let op = self.textures.call(fx.read_presaved(file, &mut version));
+            self.textures.close_presaved_on_error(fx, file, op)?;
+            if u16::from_le_bytes(version) != PRESAVED_DXT_VERSION {
+                self.textures.call(fx.close_presaved(file))?;
+                return Ok(false);
+            }
+            let mut dims = [0u8; 8];
+            let op = self.textures.call(fx.read_presaved(file, &mut dims));
+            self.textures.close_presaved_on_error(fx, file, op)?;
+            // Exact-size arrays: infallible by construction (expect, not a
+            // fabricated allocation error).
+            let (sx, sy) = (
+                i32::from_le_bytes(
+                    dims[0..4]
+                        .try_into()
+                        .expect("presaved dims are exact-size arrays"),
+                ),
+                i32::from_le_bytes(
+                    dims[4..8]
+                        .try_into()
+                        .expect("presaved dims are exact-size arrays"),
+                ),
+            );
+            if sx != i32::from(width) || sy != i32::from(height) {
+                self.textures.call(fx.close_presaved(file))?;
+                return Ok(false);
+            }
+            // Dead FILETIME reads, preserved as effects: the payload is
+            // issued and discarded, never compared.
+            let mut file_time = [0u8; 8];
+            let op = self.textures.call(fx.read_presaved(file, &mut file_time));
+            self.textures.close_presaved_on_error(fx, file, op)?;
+            if dxt == PRESAVED_DXT3 {
+                let mut file_alpha_time = [0u8; 8];
+                let op = self
+                    .textures
+                    .call(fx.read_presaved(file, &mut file_alpha_time));
+                self.textures.close_presaved_on_error(fx, file, op)?;
+            }
+            self.textures.texture_mut(key).memory_size = 0;
+            // Deferred to loop entry, as in the original: zero levels never
+            // touch the device handle, so a missing one still returns true.
+            // A missing handle with levels to load closes the stream before
+            // the clean rejection (same close-then-error order as the OOM
+            // path below; native always has a surface here).
+            if levels == 0 {
+                self.textures.call(fx.close_presaved(file))?;
+                return Ok(true);
+            }
+            let Some(graphics) = graphics else {
+                self.textures.call(fx.close_presaved(file))?;
+                return Err(TextureError::InvalidState.into());
+            };
+            for level in 0..levels {
+                let op = self.textures.call(fx.presaved_level_size(graphics, level));
+                let size = self.textures.close_presaved_on_error(fx, file, op)?;
+                let t = self.textures.texture_mut(key);
+                t.memory_size = t.memory_size.wrapping_add(size);
+                let mut bytes = Vec::new();
+                if bytes.try_reserve_exact(size as usize).is_err() {
+                    self.textures.call(fx.close_presaved(file))?;
+                    return Err(TextureError::HostAllocation.into());
+                }
+                bytes.resize(size as usize, 0);
+                let op = self.textures.call(fx.read_presaved(file, &mut bytes));
+                self.textures.close_presaved_on_error(fx, file, op)?;
+                let op = self
+                    .textures
+                    .call(fx.write_presaved_level(graphics, level, &bytes));
+                self.textures.close_presaved_on_error(fx, file, op)?;
+            }
+            self.textures.call(fx.close_presaved(file))?;
+            Ok(true)
+        })();
+        if result.is_err() {
+            self.poisoned = true;
+            self.textures.poisoned = true;
+        }
+        result
+    }
+    /// Original `m_TryPresaved_555_565` payload loop, PC RVA 0x78430
+    /// (upstream working name, NOT original). Same shape as
+    /// REA provenance (provider ghidra, same SHA): dossier ev_bfb86613
+    /// (body 0x10078430-0x10078661, 562B/18BB/195 insn), assembly
+    /// ev_b509057d, truncated decompiler ev_335861ec.
+    /// [`TextureResources::try_presaved_dxt`] with the 16-bit header:
+    /// magic `T,E,X` (@0x10078541/4c/57), version u16le == 1 (@0x10078577;
+    /// mafia-re ITexture.cpp:82), one dead FILETIME 8B read (@0x100785b4;
+    /// no `CompareFileTime` edge), and the `.565`/`.555` probe from
+    /// [`presaved_555_filename`] (R5G6B5 select, `CMP EDX,0x17`
+    /// @0x100784fa). The surface format comes from the record (native
+    /// `m_Format`; there is no format parameter natively). Level loop and
+    /// tails mirror the DXT entry (@0x100785dc-2c, close tails
+    /// @0x10078638/4d).
+    pub fn try_presaved_555_565<B: TextureBackend + ?Sized>(
+        &mut self,
+        key: TextureKey,
+        name: &[u8],
+        b: &mut B,
+    ) -> Result<bool, TextureOperationError<<B as BufferBackend>::Error>> {
+        self.available()?;
+        let t = self.textures.live(key)?;
+        let (width, height, levels, flags, format, graphics) = (
+            Self::req_value(t.width)?,
+            Self::req_value(t.height)?,
+            Self::req_value(t.levels)?,
+            t.flags,
+            Self::req_value(t.format)?,
+            t.graphics,
+        );
+        let result = (|| {
+            let half = flags & ITC_HALF != 0;
+            let filename =
+                presaved_555_filename(name, levels, half, format).map_err(presaved_name_error)?;
+            let fx = b.presaved_effects().ok_or(TextureError::HostAllocation)?;
+            let Some(file) = self.textures.call(fx.open_presaved(&filename))? else {
+                return Ok(false);
+            };
+            let mut magic = [0u8; 4];
+            let op = self.textures.call(fx.read_presaved(file, &mut magic));
+            self.textures.close_presaved_on_error(fx, file, op)?;
+            if magic[0] != b'T' || magic[1] != b'E' || magic[2] != b'X' {
+                self.textures.call(fx.close_presaved(file))?;
+                return Ok(false);
+            }
+            let mut version = [0xffu8; 2];
+            let op = self.textures.call(fx.read_presaved(file, &mut version));
+            self.textures.close_presaved_on_error(fx, file, op)?;
+            if u16::from_le_bytes(version) != PRESAVED_TEX_VERSION {
+                self.textures.call(fx.close_presaved(file))?;
+                return Ok(false);
+            }
+            let mut dims = [0u8; 8];
+            let op = self.textures.call(fx.read_presaved(file, &mut dims));
+            self.textures.close_presaved_on_error(fx, file, op)?;
+            // Exact-size arrays: infallible by construction (expect, not a
+            // fabricated allocation error).
+            let (sx, sy) = (
+                i32::from_le_bytes(
+                    dims[0..4]
+                        .try_into()
+                        .expect("presaved dims are exact-size arrays"),
+                ),
+                i32::from_le_bytes(
+                    dims[4..8]
+                        .try_into()
+                        .expect("presaved dims are exact-size arrays"),
+                ),
+            );
+            if sx != i32::from(width) || sy != i32::from(height) {
+                self.textures.call(fx.close_presaved(file))?;
+                return Ok(false);
+            }
+            // Dead FILETIME read, preserved as an effect.
+            let mut file_time = [0u8; 8];
+            let op = self.textures.call(fx.read_presaved(file, &mut file_time));
+            self.textures.close_presaved_on_error(fx, file, op)?;
+            self.textures.texture_mut(key).memory_size = 0;
+            // Zero levels return true without touching the device handle
+            // (same deferred check as the DXT loop entry).
+            if levels == 0 {
+                self.textures.call(fx.close_presaved(file))?;
+                return Ok(true);
+            }
+            let Some(graphics) = graphics else {
+                self.textures.call(fx.close_presaved(file))?;
+                return Err(TextureError::InvalidState.into());
+            };
+            for level in 0..levels {
+                let op = self.textures.call(fx.presaved_level_size(graphics, level));
+                let size = self.textures.close_presaved_on_error(fx, file, op)?;
+                let t = self.textures.texture_mut(key);
+                t.memory_size = t.memory_size.wrapping_add(size);
+                let mut bytes = Vec::new();
+                if bytes.try_reserve_exact(size as usize).is_err() {
+                    self.textures.call(fx.close_presaved(file))?;
+                    return Err(TextureError::HostAllocation.into());
+                }
+                bytes.resize(size as usize, 0);
+                let op = self.textures.call(fx.read_presaved(file, &mut bytes));
+                self.textures.close_presaved_on_error(fx, file, op)?;
+                let op = self
+                    .textures
+                    .call(fx.write_presaved_level(graphics, level, &bytes));
+                self.textures.close_presaved_on_error(fx, file, op)?;
+            }
+            self.textures.call(fx.close_presaved(file))?;
+            Ok(true)
+        })();
+        if result.is_err() {
+            self.poisoned = true;
+            self.textures.poisoned = true;
+        }
+        result
+    }
     /// callbacks (host analog of the `m_pLockSurface` early-NULL); else
     /// GetSurfaceLevel then LockRect with `LOCK_FLAG_NO_DIRTY_UPDATE`,
     /// publishing pitch and bits. No dirty update here.
@@ -2571,11 +2859,27 @@ mod tests {
         tga_lock: Option<(Vec<u8>, u32)>,
         tga_lock_fail: bool,
         tga_unlocks: Vec<u64>,
+        presaved_enabled: bool,
+        presaved_blobs: BTreeMap<Vec<u8>, Vec<u8>>,
+        presaved_open: BTreeMap<u64, PresavedTestFile>,
+        presaved_next: u64,
+        presaved_opens: Vec<Vec<u8>>,
+        presaved_read_lens: Vec<usize>,
+        presaved_level_sizes: Vec<u32>,
+        presaved_expected_graphics: Option<TextureGraphics>,
+        presaved_writes: Vec<(u16, Vec<u8>)>,
     }
     #[derive(Default)]
     struct TgaTestFile {
         bytes: Vec<u8>,
         closed: bool,
+    }
+    #[derive(Default)]
+    struct PresavedTestFile {
+        bytes: Vec<u8>,
+        pos: usize,
+        closed: bool,
+        closes: u32,
     }
     impl Backend {
         fn next(&mut self) -> u64 {
@@ -2713,6 +3017,78 @@ mod tests {
         }
         fn unlock_level_zero(&mut self, graphics: TextureGraphics) -> Result<(), Self::Error> {
             self.tga_unlocks.push(graphics.0);
+            Ok(())
+        }
+    }
+    impl TexturePresavedEffects for Backend {
+        type Error = &'static str;
+        fn open_presaved(&mut self, name: &[u8]) -> Result<Option<PresavedFile>, Self::Error> {
+            self.presaved_opens.push(name.to_vec());
+            let Some(bytes) = self.presaved_blobs.get(name).cloned() else {
+                return Ok(None);
+            };
+            self.presaved_next += 1;
+            let id = self.presaved_next;
+            self.presaved_open.insert(
+                id,
+                PresavedTestFile {
+                    bytes,
+                    pos: 0,
+                    closed: false,
+                    closes: 0,
+                },
+            );
+            Ok(Some(PresavedFile(id)))
+        }
+        fn read_presaved(&mut self, file: PresavedFile, out: &mut [u8]) -> Result<(), Self::Error> {
+            let f = self
+                .presaved_open
+                .get_mut(&file.0)
+                .ok_or("unknown presaved file")?;
+            if f.closed {
+                return Err("read from closed presaved file");
+            }
+            let end = f
+                .pos
+                .checked_add(out.len())
+                .ok_or("presaved read overflow")?;
+            let src = f.bytes.get(f.pos..end).ok_or("short presaved read")?;
+            out.copy_from_slice(src);
+            f.pos = end;
+            self.presaved_read_lens.push(out.len());
+            Ok(())
+        }
+        fn close_presaved(&mut self, file: PresavedFile) -> Result<(), Self::Error> {
+            let f = self
+                .presaved_open
+                .get_mut(&file.0)
+                .ok_or("unknown presaved file")?;
+            if f.closed {
+                return Err("double presaved close");
+            }
+            f.closed = true;
+            f.closes += 1;
+            Ok(())
+        }
+        fn presaved_level_size(
+            &mut self,
+            graphics: TextureGraphics,
+            level: u16,
+        ) -> Result<u32, Self::Error> {
+            assert_eq!(Some(graphics), self.presaved_expected_graphics);
+            self.presaved_level_sizes
+                .get(level as usize)
+                .copied()
+                .ok_or("unknown presaved level")
+        }
+        fn write_presaved_level(
+            &mut self,
+            graphics: TextureGraphics,
+            level: u16,
+            bytes: &[u8],
+        ) -> Result<(), Self::Error> {
+            assert_eq!(Some(graphics), self.presaved_expected_graphics);
+            self.presaved_writes.push((level, bytes.to_vec()));
             Ok(())
         }
     }
@@ -3087,6 +3463,15 @@ mod tests {
                 None
             } else {
                 Some(self)
+            }
+        }
+        fn presaved_effects(
+            &mut self,
+        ) -> Option<&mut dyn TexturePresavedEffects<Error = &'static str>> {
+            if self.presaved_enabled {
+                Some(self)
+            } else {
+                None
             }
         }
 
@@ -5662,6 +6047,738 @@ mod tests {
         assert!(!b.worker_events.contains(&ManagedStage::Sleep));
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn presaved_texture(
+        r: &mut TextureResources,
+        b: &mut Backend,
+        width: u16,
+        height: u16,
+        levels: u16,
+        flags: u32,
+        format: u32,
+        graphics: Option<TextureGraphics>,
+    ) -> TextureKey {
+        let k = r.create_texture().unwrap();
+        // Backend-side live count for the record-level graphics handle
+        // (install_texture owns the record; the backend owns the count).
+        if let Some(graphics) = graphics {
+            b.textures.insert(graphics.0, 1);
+        }
+        r.install_texture(
+            k,
+            TextureIntake {
+                uid: 0x1234,
+                graphics,
+                lock_surface: None,
+                pixels: None,
+                initialized: false,
+                width,
+                height,
+                format,
+                flags,
+                creation_flags: flags,
+                color_key: 0,
+                levels,
+                memory_size: 0x1234_5678,
+                file_name: Some(b"maps\\probe.tga"),
+                name_offset: None,
+                alpha_file_name: AlphaName::Null,
+                alpha_name_offset: None,
+            },
+            b,
+        )
+        .unwrap();
+        k
+    }
+    fn presaved_file_id(b: &Backend) -> u64 {
+        assert_eq!(b.presaved_open.len(), 1);
+        *b.presaved_open.keys().next().unwrap()
+    }
+    fn dxt_file(levels_payload: &[u8], width: u16, height: u16, dxt3: bool) -> Vec<u8> {
+        let mut v = Vec::new();
+        v.extend_from_slice(b"DXT\0");
+        v.extend_from_slice(&PRESAVED_DXT_VERSION.to_le_bytes());
+        v.extend_from_slice(&(width as i32).to_le_bytes());
+        v.extend_from_slice(&(height as i32).to_le_bytes());
+        v.extend_from_slice(&[0x11u8; 8]); // dead FILETIME (nonzero proves no compare)
+        if dxt3 {
+            v.extend_from_slice(&[0x22u8; 8]); // dead alpha FILETIME
+        }
+        v.extend_from_slice(levels_payload);
+        v
+    }
+    fn tex_file(levels_payload: &[u8], width: u16, height: u16) -> Vec<u8> {
+        let mut v = Vec::new();
+        v.extend_from_slice(b"TEX\0");
+        v.extend_from_slice(&PRESAVED_TEX_VERSION.to_le_bytes());
+        v.extend_from_slice(&(width as i32).to_le_bytes());
+        v.extend_from_slice(&(height as i32).to_le_bytes());
+        v.extend_from_slice(&[0x33u8; 8]); // dead FILETIME
+        v.extend_from_slice(levels_payload);
+        v
+    }
+    #[test]
+    fn presaved_dxt_hit_records_exact_bytes_and_memsize() {
+        // RVA 0x78190: open->magic->version->dims->dead time->levels->close.
+        let mut r = TextureResources::new().unwrap();
+        let mut b = Backend {
+            presaved_enabled: true,
+            ..Backend::default()
+        };
+        let graphics = TextureGraphics(b.next());
+        let key = presaved_texture(&mut r, &mut b, 4, 4, 2, 0, D3DFMT_R5G6B5, Some(graphics));
+        b.presaved_expected_graphics = Some(graphics);
+        b.presaved_level_sizes = vec![8, 8];
+        let payload: Vec<u8> = (0u8..16).collect();
+        let name = presaved_dxt_filename(b"maps\\w_1.tga", None, 2, false, PRESAVED_DXT1).unwrap();
+        b.presaved_blobs
+            .insert(name.clone(), dxt_file(&payload, 4, 4, false));
+        assert!(r
+            .try_presaved_dxt(key, b"maps\\w_1.tga", None, PRESAVED_DXT1, &mut b)
+            .unwrap());
+        assert_eq!(r.texture(key).unwrap().memory_size, 16);
+        assert_eq!(
+            b.presaved_writes,
+            vec![(0, payload[..8].to_vec()), (1, payload[8..].to_vec())]
+        );
+        // Reads: magic4, version2, dims8, dead time8, then one exact read
+        // per level (levels=2 here).
+        assert_eq!(b.presaved_read_lens, vec![4, 2, 8, 8, 8, 8]);
+        let id = presaved_file_id(&b);
+        assert_eq!(
+            (
+                b.presaved_open[&id].pos,
+                b.presaved_open[&id].closed,
+                b.presaved_open[&id].closes
+            ),
+            (4 + 2 + 8 + 8 + 8 + 8, true, 1)
+        );
+        assert_eq!(b.presaved_opens, vec![name]);
+        assert!(!r.is_poisoned());
+        r.release_texture(key, &mut b).unwrap();
+    }
+    #[test]
+    fn presaved_dxt3_dead_alpha_time_does_not_affect_outcome() {
+        // The alpha FILETIME is consumed and discarded: two different values
+        // give the same hit (native never compares them).
+        for times in [[0xAAu8; 8], [0x00u8; 8]] {
+            let mut r = TextureResources::new().unwrap();
+            let mut b = Backend {
+                presaved_enabled: true,
+                ..Backend::default()
+            };
+            let graphics = TextureGraphics(b.next());
+            let key = presaved_texture(&mut r, &mut b, 4, 4, 1, 0, D3DFMT_R5G6B5, Some(graphics));
+            b.presaved_expected_graphics = Some(graphics);
+            b.presaved_level_sizes = vec![16];
+            let mut file = dxt_file(&[0x5Au8; 16], 4, 4, true);
+            file[14..22].copy_from_slice(&times);
+            let name = presaved_dxt_filename(
+                b"maps\\w_a.tga",
+                Some(b"maps\\w_b.tga"),
+                1,
+                false,
+                PRESAVED_DXT3,
+            )
+            .unwrap();
+            b.presaved_blobs.insert(name, file);
+            assert!(r
+                .try_presaved_dxt(
+                    key,
+                    b"maps\\w_a.tga",
+                    Some(b"maps\\w_b.tga"),
+                    PRESAVED_DXT3,
+                    &mut b
+                )
+                .unwrap());
+            assert_eq!(b.presaved_read_lens, vec![4, 2, 8, 8, 8, 16]);
+            assert_eq!(r.texture(key).unwrap().memory_size, 16);
+            r.release_texture(key, &mut b).unwrap();
+        }
+    }
+    #[test]
+    fn presaved_555_hit_and_miss_paths_close_stream() {
+        // Hit.
+        let mut r = TextureResources::new().unwrap();
+        let mut b = Backend {
+            presaved_enabled: true,
+            ..Backend::default()
+        };
+        let graphics = TextureGraphics(b.next());
+        let key = presaved_texture(&mut r, &mut b, 4, 2, 1, 0, D3DFMT_R5G6B5, Some(graphics));
+        b.presaved_expected_graphics = Some(graphics);
+        b.presaved_level_sizes = vec![16];
+        let payload = vec![0x77u8; 16];
+        let name = presaved_555_filename(b"maps\\w_9.tga", 1, false, D3DFMT_R5G6B5).unwrap();
+        b.presaved_blobs
+            .insert(name.clone(), tex_file(&payload, 4, 2));
+        assert!(r
+            .try_presaved_555_565(key, b"maps\\w_9.tga", &mut b)
+            .unwrap());
+        assert_eq!(b.presaved_writes, vec![(0, payload.clone())]);
+        // Effect order mirrors the DXT path with the single dead read.
+        assert_eq!(b.presaved_read_lens, vec![4, 2, 8, 8, 16]);
+        assert_eq!(r.texture(key).unwrap().memory_size, 16);
+        // Misses: bad magic / bad version / wrong dims. Each closes the
+        // stream, writes nothing, keeps memsize, stays unpoisoned.
+        let miss_cases: Vec<(Vec<u8>, Vec<u8>)> = vec![
+            {
+                let mut f = tex_file(&payload, 4, 2);
+                f[0] = b'X';
+                (f, b"maps\\w_b.tga".to_vec())
+            },
+            {
+                let mut f = tex_file(&payload, 4, 2);
+                f[4] ^= 0xff;
+                (f, b"maps\\w_c.tga".to_vec())
+            },
+            (tex_file(&payload, 5, 2), b"maps\\w_d.tga".to_vec()),
+        ];
+        for (file, probe_name) in miss_cases {
+            let mut r2 = TextureResources::new().unwrap();
+            let mut b2 = Backend {
+                presaved_enabled: true,
+                ..Backend::default()
+            };
+            let g2 = TextureGraphics(b2.next());
+            let k2 = presaved_texture(&mut r2, &mut b2, 4, 2, 1, 0, D3DFMT_R5G6B5, Some(g2));
+            b2.presaved_expected_graphics = Some(g2);
+            b2.presaved_level_sizes = vec![16];
+            let probe = presaved_555_filename(&probe_name, 1, false, D3DFMT_R5G6B5).unwrap();
+            b2.presaved_blobs.insert(probe, file);
+            assert_eq!(r2.texture(k2).unwrap().memory_size, 0x1234_5678);
+            assert!(!r2.try_presaved_555_565(k2, &probe_name, &mut b2).unwrap());
+            assert!(b2.presaved_writes.is_empty());
+            assert_eq!(r2.texture(k2).unwrap().memory_size, 0x1234_5678);
+            let id = presaved_file_id(&b2);
+            assert_eq!(
+                (b2.presaved_open[&id].closed, b2.presaved_open[&id].closes),
+                (true, 1)
+            );
+            assert!(!r2.is_poisoned());
+            r2.release_texture(k2, &mut b2).unwrap();
+        }
+        // Missing file: open None, no close, false.
+        let mut r3 = TextureResources::new().unwrap();
+        let mut b3 = Backend {
+            presaved_enabled: true,
+            ..Backend::default()
+        };
+        let g3 = TextureGraphics(b3.next());
+        let k3 = presaved_texture(&mut r3, &mut b3, 4, 2, 1, 0, D3DFMT_R5G6B5, Some(g3));
+        assert!(!r3
+            .try_presaved_555_565(k3, b"maps\\nope.tga", &mut b3)
+            .unwrap());
+        assert!(b3.presaved_open.is_empty() && b3.presaved_read_lens.is_empty());
+        assert!(!r3.is_poisoned());
+        r3.release_texture(k3, &mut b3).unwrap();
+        r.release_texture(key, &mut b).unwrap();
+    }
+    #[test]
+    fn presaved_zero_levels_skips_graphics_but_still_gates_header() {
+        // Zero levels never touch the device handle (deferred graphics
+        // check): header gates still run, memsize resets to 0, true.
+        let mut r = TextureResources::new().unwrap();
+        let mut b = Backend {
+            presaved_enabled: true,
+            ..Backend::default()
+        };
+        let key = presaved_texture(&mut r, &mut b, 8, 8, 0, 0, D3DFMT_R5G6B5, None);
+        let name = presaved_dxt_filename(b"maps\\w_0.tga", None, 0, false, PRESAVED_DXT1).unwrap();
+        b.presaved_blobs.insert(name, dxt_file(&[], 8, 8, false));
+        assert!(r
+            .try_presaved_dxt(key, b"maps\\w_0.tga", None, PRESAVED_DXT1, &mut b)
+            .unwrap());
+        assert_eq!(r.texture(key).unwrap().memory_size, 0);
+        assert_eq!(b.presaved_read_lens, vec![4, 2, 8, 8]);
+        r.release_texture(key, &mut b).unwrap();
+    }
+    #[test]
+    fn presaved_missing_graphics_closes_then_rejects_after_header() {
+        // Header gates pass (dead reads consumed), then the missing device
+        // handle closes the stream and reports InvalidState with poison.
+        let mut r = TextureResources::new().unwrap();
+        let mut b = Backend {
+            presaved_enabled: true,
+            ..Backend::default()
+        };
+        let key = presaved_texture(&mut r, &mut b, 4, 4, 1, 0, D3DFMT_R5G6B5, None);
+        let name = presaved_dxt_filename(b"maps\\w_g.tga", None, 1, false, PRESAVED_DXT1).unwrap();
+        b.presaved_blobs
+            .insert(name, dxt_file(&[0u8; 8], 4, 4, false));
+        assert_eq!(
+            r.try_presaved_dxt(key, b"maps\\w_g.tga", None, PRESAVED_DXT1, &mut b),
+            Err(TextureOperationError::State(TextureError::InvalidState))
+        );
+        assert_eq!(b.presaved_read_lens, vec![4, 2, 8, 8]);
+        let id = presaved_file_id(&b);
+        assert!(b.presaved_open[&id].closed);
+        assert!(r.is_poisoned());
+        // No release: poisoned arenas refuse release via available().
+    }
+    #[test]
+    fn presaved_short_read_is_backend_error_and_poisons() {
+        // Exact-size reads: a 1B-truncated level payload is a backend error.
+        let mut r = TextureResources::new().unwrap();
+        let mut b = Backend {
+            presaved_enabled: true,
+            ..Backend::default()
+        };
+        let graphics = TextureGraphics(b.next());
+        let key = presaved_texture(&mut r, &mut b, 4, 4, 1, 0, D3DFMT_R5G6B5, Some(graphics));
+        b.presaved_expected_graphics = Some(graphics);
+        b.presaved_level_sizes = vec![8];
+        let name = presaved_dxt_filename(b"maps\\w_s.tga", None, 1, false, PRESAVED_DXT1).unwrap();
+        let mut file = dxt_file(&[0u8; 8], 4, 4, false);
+        file.truncate(file.len() - 1); // exact-size read now short
+        b.presaved_blobs.insert(name, file);
+        assert_eq!(
+            r.try_presaved_dxt(key, b"maps\\w_s.tga", None, PRESAVED_DXT1, &mut b),
+            Err(TextureOperationError::Backend("short presaved read"))
+        );
+        assert!(r.is_poisoned());
+        // Same close discipline as the oversize path: the stream closes
+        // before the backend error propagates.
+        let id = presaved_file_id(&b);
+        assert!((b.presaved_open[&id].closed, b.presaved_open[&id].closes) == (true, 1));
+        // No release: poisoned arenas refuse release via available(), so the
+        // error-path tests assert poison instead of residue discipline.
+    }
+    #[test]
+    fn presaved_level_oversize_closes_and_reports_backend_error() {
+        // A level size far beyond the payload exercises the same
+        // close-before-error order as the OOM path (which needs a >RAM
+        // reservation and is not deterministically testable): exact-size
+        // read goes short -> Backend error + closed stream + poison.
+        let mut r = TextureResources::new().unwrap();
+        let mut b = Backend {
+            presaved_enabled: true,
+            ..Backend::default()
+        };
+        let graphics = TextureGraphics(b.next());
+        let key = presaved_texture(&mut r, &mut b, 4, 4, 1, 0, D3DFMT_R5G6B5, Some(graphics));
+        b.presaved_expected_graphics = Some(graphics);
+        b.presaved_level_sizes = vec![1 << 20];
+        let name = presaved_dxt_filename(b"maps\\w_o.tga", None, 1, false, PRESAVED_DXT1).unwrap();
+        b.presaved_blobs
+            .insert(name, dxt_file(&[0u8; 8], 4, 4, false));
+        assert_eq!(
+            r.try_presaved_dxt(key, b"maps\\w_o.tga", None, PRESAVED_DXT1, &mut b),
+            Err(TextureOperationError::Backend("short presaved read"))
+        );
+        assert!(r.is_poisoned());
+        let id = presaved_file_id(&b);
+        assert!(b.presaved_open[&id].closed);
+        // No release, and release-after-poison is refused: poisoned arenas
+        // gate release via available().
+        assert_eq!(
+            r.release_texture(key, &mut b),
+            Err(TextureOperationError::State(TextureError::Poisoned))
+        );
+    }
+    #[test]
+    fn presaved_effects_absent_rejects_as_host_allocation() {
+        // No presaved capability: clean HostAllocation before any effect.
+        let mut r = TextureResources::new().unwrap();
+        let mut b = Backend::default(); // presaved_enabled == false
+        let graphics = TextureGraphics(b.next());
+        let key = presaved_texture(&mut r, &mut b, 4, 4, 1, 0, D3DFMT_R5G6B5, Some(graphics));
+        assert_eq!(
+            r.try_presaved_dxt(key, b"maps\\w_x.tga", None, PRESAVED_DXT1, &mut b),
+            Err(TextureOperationError::State(TextureError::HostAllocation))
+        );
+        assert!(b.presaved_opens.is_empty());
+        assert!(r.is_poisoned());
+        // No release: poisoned arenas refuse release via available().
+    }
+    /// Independent level-size oracle for presaved payloads (same native
+    /// `desc.Size` reference as the port, separate transcription): 16-bit
+    /// levels use a DWORD-aligned D3D pitch (single-entry finding on
+    /// maps/02_9.565: the w=1 tail levels are 8B+4B, not tight 4B+2B —
+    /// assumed across 16-bit presaveds); DXT levels are block-rounded: type 2
+    /// (DXT1-alpha) shares the DXT1 8B-block arm (mafia-re ITexture.cpp:84-87
+    /// type digits, :1981-1994 shared CompressTexture arm), only DXT3 packs
+    /// 16B blocks. Widths halve per level with a 1 minimum.
+    fn presaved_level_sizes_oracle(
+        dxt: u8,
+        mut w: u32,
+        mut h: u32,
+        levels: u16,
+    ) -> Option<Vec<u32>> {
+        let mut out = Vec::new();
+        for _ in 0..levels {
+            let size: u64 = if dxt == 0 {
+                // D3D desc.Size uses a DWORD-aligned pitch (proven by real
+                // maps/02_9.565: the w=1 tail levels are 8B+4B, not 4B+2B).
+                let pitch = (u64::from(w) * 2).div_ceil(4) * 4;
+                pitch * u64::from(h)
+            } else {
+                let blocks = u64::from(w.div_ceil(4)) * u64::from(h.div_ceil(4));
+                // 16B blocks on == DXT3 only: type 2 shares the DXT1 8B arm.
+                blocks * if dxt == PRESAVED_DXT3 { 16 } else { 8 }
+            };
+            out.push(u32::try_from(size).ok()?);
+            w = (w >> 1).max(1);
+            h = (h >> 1).max(1);
+        }
+        Some(out)
+    }
+
+    #[test]
+    fn real_dta_presaved_payload_loop_matches_game_bytes() {
+        // RVAs 0x78190/0x78430: filename probe + payload loop (magic, version,
+        // dims, dead FILETIME reads, per-level exact bytes, wrapping memsize)
+        // executed on REAL presaved entries from the game DTAs. Read-only
+        // harness: env-absent loud-SKIP + early return, env-set-but-empty
+        // panic, per-entry residue asserts, unpoisoned on clean paths.
+        let root = match std::env::var_os("LHR_ORIGINAL_INSTALLATION") {
+            Some(root) => std::path::PathBuf::from(root),
+            None => {
+                eprintln!(
+                    "SKIP: LHR_ORIGINAL_INSTALLATION is not set; needs the original game data"
+                );
+                return;
+            }
+        };
+        let installation = lhr_assets::Installation::open(&root)
+            .expect("LHR_ORIGINAL_INSTALLATION must open as a game installation");
+        let paths = match installation.asset_paths("maps") {
+            Ok(paths) => paths,
+            Err(error) => {
+                eprintln!("SKIP real-DTA presaved tests: no maps catalog: {error:?}");
+                return;
+            }
+        };
+        let lower = |p: &String| p.to_ascii_lowercase();
+        // Version-gated pick: the native loop accepts DXT version 9 and TEX
+        // version 1 only (REA version CMPs); the archives also carry older
+        // DXT generations (v2/3/4/6/7/8, e.g. maps/w_1.dx1 is v3) which the
+        // original itself refuses. Candidates are version-checked by header.
+        let version_ok = |path: &str| -> bool {
+            let Ok(bytes) = installation.read(path) else {
+                return false;
+            };
+            if bytes.len() < 6 {
+                return false;
+            }
+            let ver = u16::from_le_bytes([bytes[4], bytes[5]]);
+            if path.to_ascii_lowercase().contains(".dx") {
+                ver == PRESAVED_DXT_VERSION
+            } else {
+                ver == PRESAVED_TEX_VERSION
+            }
+        };
+        let pick = |exts: &[&str], alpha: bool, preferred: &[&str]| -> Option<String> {
+            let mut candidates: Vec<String> = paths
+                .iter()
+                .filter(|p| exts.iter().any(|e| lower(p).ends_with(e)))
+                .cloned()
+                .collect();
+            candidates.sort();
+            for want in preferred {
+                if let Some(hit) = candidates.iter().find(|p| lower(p).ends_with(want)) {
+                    if version_ok(hit) {
+                        return Some(hit.clone());
+                    }
+                }
+            }
+            // DXT3-with-alpha-infix wants a stem with 2+ underscores.
+            candidates.into_iter().find(|p| {
+                if alpha && p.rsplit('/').next().unwrap_or(p).matches('_').count() < 2 {
+                    return false;
+                }
+                version_ok(p)
+            })
+        };
+        let dx1 = pick(&[".dx1", ".dx2"], false, &["maps/w_1.dx1"]);
+        let tex = pick(&[".555", ".565"], false, &["maps/02_9.565"]);
+        let dx3 = pick(&[".dx3"], true, &["maps/ug_kole2_6.dx3"]);
+        if dx1.is_none() || tex.is_none() || dx3.is_none() {
+            panic!(
+                "LHR_ORIGINAL_INSTALLATION is set but presaved kinds are missing under maps/ (dx1={dx1:?}, tex={tex:?}, dx3={dx3:?})"
+            );
+        }
+        for (path, with_alpha) in [
+            (dx1.unwrap(), false),
+            (tex.unwrap(), false),
+            (dx3.unwrap(), true),
+        ] {
+            // Logged so passing runs record which archive entries (and which
+            // DXT generation, re-parsed from the entry extension at drive
+            // time) actually executed.
+            eprintln!("driven presaved entry: {path}");
+            drive_real_presaved_entry(&installation, &path, with_alpha);
+        }
+    }
+
+    fn drive_real_presaved_entry(
+        installation: &lhr_assets::Installation,
+        path: &str,
+        with_alpha: bool,
+    ) {
+        let bytes = installation.read(path).unwrap();
+        let file_name = path.rsplit('/').next().unwrap_or(path);
+        // --- Independent header parse (widths from the instruction evidence:
+        // 4B magic, u16le version, two i32le dims, 8B dead times). ---
+        assert!(bytes.len() >= 22, "presaved entry too short: {path}");
+        let (magic, ver, sx, sy) = (
+            &bytes[0..4],
+            u16::from_le_bytes([bytes[4], bytes[5]]),
+            i32::from_le_bytes(bytes[6..10].try_into().unwrap()),
+            i32::from_le_bytes(bytes[10..14].try_into().unwrap()),
+        );
+        let is_dxt_entry = file_name.to_ascii_lowercase().contains(".dx");
+        let dxt: u8 = if is_dxt_entry {
+            assert_eq!(&magic[..3], b"DXT", "bad presaved magic: {path}");
+            assert_eq!(ver, PRESAVED_DXT_VERSION, "bad presaved version: {path}");
+            let ext = file_name.rsplit('.').next().unwrap_or("");
+            ext.to_ascii_uppercase()
+                .strip_prefix("DX")
+                .and_then(|n| n.parse().ok())
+                .unwrap_or(1)
+        } else {
+            assert_eq!(&magic[..3], b"TEX", "bad presaved magic: {path}");
+            assert_eq!(ver, PRESAVED_TEX_VERSION, "bad presaved version: {path}");
+            0
+        };
+        let header_len = 22 + if dxt == PRESAVED_DXT3 { 8 } else { 0 };
+        assert!(
+            bytes.len() >= header_len,
+            "presaved entry truncated in header: {path}"
+        );
+        // --- Filename tail: `<head>_<levels>[L].<ext>; DXT3 head may carry
+        // the alpha infix (`<name>_<alpha>`). ---
+        let stem = file_name
+            .rsplit_once('.')
+            .map(|(s, _)| s)
+            .unwrap_or(file_name);
+        let (head, tail) = stem.rsplit_once('_').unwrap_or((stem, ""));
+        let half = tail.ends_with(['L', 'l']);
+        let levels: u16 = tail
+            .trim_end_matches(['L', 'l'])
+            .parse()
+            .unwrap_or(u16::MAX);
+        assert!(
+            levels != u16::MAX && levels <= 16,
+            "unparsable presaved levels: {path}"
+        );
+        // --- Level split: the ONLY split consistent with the oracle must
+        // exactly consume the file AND match the filename level count. ---
+        let (w0, h0) = (u32::try_from(sx).unwrap(), u32::try_from(sy).unwrap());
+        let sizes = presaved_level_sizes_oracle(dxt, w0, h0, levels).unwrap();
+        let total: u64 = header_len as u64 + sizes.iter().map(|s| *s as u64).sum::<u64>();
+        assert_eq!(
+            total as usize,
+            bytes.len(),
+            "presaved payload does not split under the Size model: {path}"
+        );
+        // --- Probe-name check against the REAL entry name (basename,
+        // case-insensitive): exercises the alpha-infix branch for DXT3. ---
+        let (src, alpha) = if with_alpha {
+            let (n, a) = head.split_once('_').unwrap_or((head, ""));
+            (
+                format!("{n}.tga").into_bytes(),
+                Some(format!("{a}.tga").into_bytes()),
+            )
+        } else {
+            (format!("{head}.tga").into_bytes(), None)
+        };
+        let format = if dxt == 0 {
+            if file_name.to_ascii_lowercase().ends_with(".565") {
+                D3DFMT_R5G6B5
+            } else {
+                D3DFMT_X1R5G5B5
+            }
+        } else {
+            D3DFMT_R5G6B5 // DXT path never reads format; any evidence word will do
+        };
+        let probe = if dxt == 0 {
+            presaved_555_filename(&src, levels, half, format).unwrap()
+        } else {
+            presaved_dxt_filename(&src, alpha.as_deref(), levels, half, dxt).unwrap()
+        };
+        assert_eq!(
+            probe.to_ascii_lowercase(),
+            file_name.as_bytes().to_ascii_lowercase(),
+            "probe filename diverges from the real entry: {path}"
+        );
+        // --- Drive the loop with a synthetic-graphics backend. ---
+        let mut r = TextureResources::new().unwrap();
+        let mut b = Backend {
+            presaved_enabled: true,
+            ..Backend::default()
+        };
+        let graphics = TextureGraphics(b.next());
+        let key = presaved_texture(
+            &mut r,
+            &mut b,
+            u16::try_from(sx).unwrap(),
+            u16::try_from(sy).unwrap(),
+            levels,
+            if half { ITC_HALF } else { 0 },
+            format,
+            Some(graphics),
+        );
+        b.presaved_expected_graphics = Some(graphics);
+        b.presaved_level_sizes = sizes.clone();
+        b.presaved_blobs.insert(probe.clone(), bytes.clone());
+        let hit = if dxt == 0 {
+            r.try_presaved_555_565(key, &src, &mut b).unwrap()
+        } else {
+            r.try_presaved_dxt(key, &src, alpha.as_deref(), dxt, &mut b)
+                .unwrap()
+        };
+        assert!(hit, "real presaved entry missed: {path}");
+        let expected_mem: u32 = sizes.iter().fold(0u32, |a, s| a.wrapping_add(*s));
+        assert_eq!(r.texture(key).unwrap().memory_size, expected_mem);
+        // Per-level exact bytes + dead-read position math.
+        let mut pos = header_len;
+        let mut expected_reads = vec![4usize, 2, 8, 8];
+        if dxt == PRESAVED_DXT3 {
+            expected_reads.insert(4, 8);
+        }
+        for (level, size) in sizes.iter().enumerate() {
+            assert_eq!(
+                b.presaved_writes[level],
+                (level as u16, bytes[pos..pos + *size as usize].to_vec()),
+                "level {level} bytes diverge: {path}"
+            );
+            pos += *size as usize;
+            expected_reads.push(*size as usize);
+        }
+        assert_eq!(
+            b.presaved_read_lens, expected_reads,
+            "effect order diverged: {path}"
+        );
+        assert_eq!(pos, bytes.len());
+        let id = presaved_file_id(&b);
+        assert!((b.presaved_open[&id].closed, b.presaved_open[&id].closes) == (true, 1));
+        assert!(!r.is_poisoned());
+        // --- Miss paths on clones of the REAL bytes. ---
+        let mutators: Vec<fn(&mut Vec<u8>)> = vec![
+            |f: &mut Vec<u8>| f[0] ^= 0xff,
+            |f: &mut Vec<u8>| f[4] ^= 0xff,
+            |f: &mut Vec<u8>| f[6] ^= 0xff,
+        ];
+        for mutate in mutators {
+            let mut bad = bytes.clone();
+            mutate(&mut bad);
+            let mut r2 = TextureResources::new().unwrap();
+            let mut b2 = Backend {
+                presaved_enabled: true,
+                ..Backend::default()
+            };
+            let g2 = TextureGraphics(b2.next());
+            let k2 = presaved_texture(
+                &mut r2,
+                &mut b2,
+                u16::try_from(sx).unwrap(),
+                u16::try_from(sy).unwrap(),
+                levels,
+                if half { ITC_HALF } else { 0 },
+                format,
+                Some(g2),
+            );
+            b2.presaved_expected_graphics = Some(g2);
+            b2.presaved_level_sizes = sizes.clone();
+            b2.presaved_blobs.insert(probe.clone(), bad);
+            let miss = if dxt == 0 {
+                r2.try_presaved_555_565(k2, &src, &mut b2).unwrap()
+            } else {
+                r2.try_presaved_dxt(k2, &src, alpha.as_deref(), dxt, &mut b2)
+                    .unwrap()
+            };
+            assert!(!miss, "corrupt real entry accepted: {path}");
+            assert!(b2.presaved_writes.is_empty());
+            let id2 = presaved_file_id(&b2);
+            assert!(
+                (b2.presaved_open[&id2].closed, b2.presaved_open[&id2].closes) == (true, 1),
+                "miss leaked the stream: {path}"
+            );
+            assert!(!r2.is_poisoned());
+            r2.release_texture(k2, &mut b2).unwrap();
+        }
+        // Missing file -> false with no close.
+        let mut r3 = TextureResources::new().unwrap();
+        let mut b3 = Backend {
+            presaved_enabled: true,
+            ..Backend::default()
+        };
+        let g3 = TextureGraphics(b3.next());
+        let k3 = presaved_texture(
+            &mut r3,
+            &mut b3,
+            u16::try_from(sx).unwrap(),
+            u16::try_from(sy).unwrap(),
+            levels,
+            0,
+            format,
+            Some(g3),
+        );
+        let miss = if dxt == 0 {
+            r3.try_presaved_555_565(k3, b"maps\\no-such-file.tga", &mut b3)
+                .unwrap()
+        } else {
+            r3.try_presaved_dxt(k3, b"maps\\no-such-file.tga", None, dxt, &mut b3)
+                .unwrap()
+        };
+        assert!(!miss);
+        assert!(b3.presaved_open.is_empty());
+        r3.release_texture(k3, &mut b3).unwrap();
+        r.release_texture(key, &mut b).unwrap();
+    }
+    #[test]
+    fn real_dta_stale_presaved_generation_misses_and_closes() {
+        // Genuine stale archive entries (e.g. maps/w_1.dx1, DXT version 3)
+        // take the version-miss path with close+false — the same refusal the
+        // original itself performs (REA version CMP). This executes refusal
+        // on real stale bytes, not just synthetic mutations.
+        let root = match std::env::var_os("LHR_ORIGINAL_INSTALLATION") {
+            Some(root) => std::path::PathBuf::from(root),
+            None => {
+                eprintln!(
+                    "SKIP: LHR_ORIGINAL_INSTALLATION is not set; needs the original game data"
+                );
+                return;
+            }
+        };
+        let installation = lhr_assets::Installation::open(&root)
+            .expect("LHR_ORIGINAL_INSTALLATION must open as a game installation");
+        let bytes = installation
+            .read("maps/w_1.dx1")
+            .expect("stale entry present");
+        assert_eq!(u16::from_le_bytes([bytes[4], bytes[5]]), 3);
+        let sx = i32::from_le_bytes(bytes[6..10].try_into().unwrap());
+        let sy = i32::from_le_bytes(bytes[10..14].try_into().unwrap());
+        let mut r = TextureResources::new().unwrap();
+        let mut b = Backend {
+            presaved_enabled: true,
+            ..Backend::default()
+        };
+        let graphics = TextureGraphics(b.next());
+        let key = presaved_texture(
+            &mut r,
+            &mut b,
+            u16::try_from(sx).unwrap(),
+            u16::try_from(sy).unwrap(),
+            1,
+            0,
+            D3DFMT_R5G6B5,
+            Some(graphics),
+        );
+        b.presaved_expected_graphics = Some(graphics);
+        b.presaved_level_sizes = vec![8];
+        let name = presaved_dxt_filename(b"maps\\w_1.tga", None, 1, false, PRESAVED_DXT1).unwrap();
+        b.presaved_blobs.insert(name, bytes);
+        assert!(!r
+            .try_presaved_dxt(key, b"maps\\w_1.tga", None, PRESAVED_DXT1, &mut b)
+            .unwrap());
+        assert!(b.presaved_writes.is_empty());
+        let id = presaved_file_id(&b);
+        assert!((b.presaved_open[&id].closed, b.presaved_open[&id].closes) == (true, 1));
+        assert!(!r.is_poisoned());
+        r.release_texture(key, &mut b).unwrap();
+    }
     fn install_live_texture(
         r: &mut TextureResources,
         b: &mut Backend,
