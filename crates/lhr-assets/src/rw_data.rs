@@ -194,6 +194,11 @@ pub struct HandleRecord {
     pub temporary_name_bytes: Vec<u8>,
     pub block: u64,
     pub wav: u64,
+    /// Cached FILETIME bits (S_FILEHANDLE.timestamp, S_FILEHEADER bytes 8..16).
+    /// Archive opens set this from the decrypted file header; loose and write
+    /// opens use 0 (native leaves the slot value from whatever preceded it,
+    /// unobservable until a header-bearing open reuses the slot).
+    pub timestamp: u64,
 }
 #[derive(Debug, PartialEq, Eq)]
 pub enum OperationError<E> {
@@ -231,7 +236,8 @@ struct NativeState<B> {
     read_caches: Vec<Option<LooseReadCache>>,
     archive_caches: Vec<Option<ArchiveReadCache>>,
     /// Parallel cached FILETIME bits for dtaGetTime (RVA 0x4040), index-parallel
-    /// to the tables above. Admit pushes 0 (unknown); close leaves it stale.
+    /// to the tables above. Admit/store init from the record's header timestamp;
+    /// close leaves it stale like the native slot.
     cached_file_time: Vec<u64>,
     effects: B,
     interrupted: Option<EffectStage>,
@@ -303,20 +309,20 @@ impl<B: Effects> Handles<B> {
             .admitted_allocations
             .extend(allocations.into_iter().filter(|&v| v != 0));
         if let Some(index) = state.records.iter().position(|r| r.file == FAILURE) {
+            state.cached_file_time[index] = record.timestamp;
             state.records[index] = record;
             state.read_caches[index] = None;
             state.archive_caches[index] = None;
-            state.cached_file_time[index] = 0;
             return Ok(index as u32);
         }
         let index = u32::try_from(state.records.len())
             .ok()
             .filter(|&v| v != FAILURE)
             .ok_or(OperationError::HandleSpaceExhausted)?;
+        state.cached_file_time.push(record.timestamp);
         state.records.push(record);
         state.read_caches.push(None);
         state.archive_caches.push(None);
-        state.cached_file_time.push(0);
         Ok(index)
     }
     pub fn inspect(&self, handle: u32) -> Result<Option<HandleRecord>, OperationError<B::Error>> {
@@ -481,12 +487,17 @@ impl<B: Effects> Handles<B> {
     }
 
     /// Original dtaDelete, PC RVA 0x25a0 (REA ev_5fe847b3, 6 instr, callee
-    /// DeleteFileA). No lock, no state change. The NUL check is a host bound
-    /// (NUL would truncate the OS call); all other bytes pass through to
-    /// Effects::delete_file and its boolean is returned unchanged.
+    /// DeleteFileA). Native takes no lock (rw_data.cpp:636-640, bare
+    /// DeleteFileA passthrough); this port takes the table lock as explicit
+    /// host policy because Effects lives inside the guarded state, and latches
+    /// EffectStage::DeleteFile on transport error like every other backend
+    /// effect (native has no latch: after an unrelated interruption native
+    /// deletes still proceed, here they report Interrupted). The NUL check is
+    /// a host bound; all other bytes pass through and the boolean is returned
+    /// unchanged (DeleteFileA != 0).
     pub fn dta_delete(&self, name: &[u8]) -> Result<bool, OperationError<B::Error>> {
         if name.contains(&0) {
-            return Err(OperationError::InvalidRecord);
+            return Err(OperationError::UnsupportedOpen);
         }
         let mut state = self
             .state
@@ -509,9 +520,11 @@ impl<B: Effects> Handles<B> {
     /// Original dtaBin2Text, PC RVA 0x3900 (REA ev_55a39899, 83 instr, 13 BB).
     /// Removes every b'\r' below the last byte (last byte kept even if it is
     /// b'\r'), high index first via memmove, returns the new u32 length. Empty
-    /// input returns 0 without locking, like the (!buffer || !len) guard. The
-    /// positions vector is freed after the guard drops, mirroring
-    /// Leave-before-destroy. Overlong host slices (> u32::MAX) are rejected.
+    /// input returns 0 without locking, like the (!buffer || !len) guard. Unlike
+    /// native (positions.clear() before Unlock, rw_data.cpp:1296-1297), Rust drops
+    /// the guard before the positions vector to shorten the critical section;
+    /// heap-free order is unobservable (thread-local Vec). Overlong host slices
+    /// (> u32::MAX) are rejected.
     pub fn dta_bin2text(&self, buffer: &mut [u8]) -> Result<u32, OperationError<B::Error>> {
         let len32 = u32::try_from(buffer.len()).map_err(|_| OperationError::InvalidRecord)?;
         if buffer.is_empty() {
@@ -855,7 +868,8 @@ impl<B: ReadEffects> Handles<B> {
 
 impl<B: TimeEffects> Handles<B> {
     /// Original dtaGetTime, PC RVA 0x4040 (REA ev_78123751, 72 instr, 9 BB).
-    /// Unsigned handle check, closed-file check, then cached u64 copy unless
+    /// Signed-handle size guard mapped to u32 (native takes int; -1 becomes
+    /// u32::MAX and misses, matching native-false), closed-file check, then cached u64 copy unless
     /// (flags & DTA_FROM_FILESYSTEM != 0 || force), else live GetFileTime via
     /// TimeEffects::file_time. Returns Ok(None) for every native-false path
     /// (no out-write); Ok(Some(bits)) carries the 8 FILETIME bits on
@@ -907,7 +921,14 @@ impl<B: ReportEffects> Handles<B> {
     /// Shows the pending leak dialog built by LeakDetector, if any (RVA 0x4160
     /// report path). Effect order mirrors the binary: format-then-concatenate
     /// already happened in pending_dialog; this performs only the conditional
-    /// MessageBoxA. None performs no effect and returns Ok(false).
+    /// MessageBoxA. Native holds no C_m_p lock here (rw_data.cpp:1568-1594);
+    /// this port holds the table guard across the modal call as explicit host
+    /// policy, because Effects and the interruption latch live inside the
+    /// guarded state. Consequences: other Handles callers block for the modal
+    /// duration, and a re-entrant message_box backend would deadlock the
+    /// non-recursive Mutex where native (recursive CRITICAL_SECTION) would
+    /// proceed. Backends must therefore never re-enter Handles. None performs
+    /// no effect and returns Ok(false).
     pub fn report_leaks(
         &self,
         detector: &leak::LeakDetector,
@@ -1375,6 +1396,7 @@ mod tests {
             temporary_name_bytes: b"asset.tmp".to_vec(),
             block: 2,
             wav: 3,
+            timestamp: 0,
         }
     }
     #[test]
@@ -1535,7 +1557,7 @@ mod tests {
         assert_eq!(trace.lock().unwrap().deleted, vec![b"save.tmp".to_vec()]);
         assert_eq!(
             handles.dta_delete(b"a\0b"),
-            Err(OperationError::InvalidRecord)
+            Err(OperationError::UnsupportedOpen)
         );
         assert!(handles.inspect(0).unwrap().is_none());
     }
@@ -1558,19 +1580,20 @@ mod tests {
         assert_eq!(handles.dta_bin2text(&mut one).unwrap(), 1);
     }
     #[test]
-    fn bin2text_matches_naive_reference_on_exhaustive_small_inputs() {
-        fn naive(mut v: Vec<u8>) -> (Vec<u8>, u32) {
-            let mut len = v.len() as u32;
-            let positions: Vec<usize> = (0..v.len().saturating_sub(1))
-                .rev()
-                .filter(|&i| v[i] == b'\r')
+    fn bin2text_matches_independent_filter_oracle_on_exhaustive_small_inputs() {
+        // Independent oracle: keep every byte except inner b'\r' (all but the
+        // last position). No positions vector, no memmove loop, no length
+        // counter shared with the implementation under test.
+        fn oracle(v: &[u8]) -> (Vec<u8>, u32) {
+            let last = v.len().saturating_sub(1);
+            let out: Vec<u8> = v
+                .iter()
+                .enumerate()
+                .filter(|(i, b)| **b != b'\r' || *i == last)
+                .map(|(_, b)| *b)
                 .collect();
-            for pos in positions {
-                v.copy_within(pos + 1..len as usize, pos);
-                len -= 1;
-            }
-            v.truncate(len as usize);
-            (v, len)
+            let len = out.len() as u32;
+            (out, len)
         }
         let handles = Handles::new(Backend(Arc::new(Mutex::new(Trace::default()))));
         let alphabet = *b"a\r\n";
@@ -1583,7 +1606,7 @@ mod tests {
                     v.push(alphabet[m % 3]);
                     m /= 3;
                 }
-                let (expect_bytes, expect_len) = naive(v.clone());
+                let (expect_bytes, expect_len) = oracle(&v);
                 let mut got = v.clone();
                 let got_len = handles.dta_bin2text(&mut got).unwrap();
                 assert_eq!(got_len, expect_len, "len for {v:?}");
@@ -1609,11 +1632,11 @@ mod tests {
         fs.wav = 0;
         arch.file = 100;
         fs.file = 200;
+        // The header timestamp rides in the admitted record (archive_open
+        // path); the cached path reports it with no setter involved.
+        arch.timestamp = 0x1122_3344_5566_7788;
         assert_eq!(handles.admit(arch).unwrap(), 0);
         assert_eq!(handles.admit(fs).unwrap(), 1);
-        handles
-            .set_cached_file_time(0, 0x1122_3344_5566_7788)
-            .unwrap();
         handles
             .set_cached_file_time(1, 0xAABB_CCDD_EEFF_0011)
             .unwrap();

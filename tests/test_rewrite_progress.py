@@ -59,9 +59,13 @@ class RewriteProgressTests(unittest.TestCase):
         cards = script.aggregate(libraries, ports, overlay)
         rw = next(card for card in cards if card["name"] == "rw_data.dll")
         self.assertEqual(rw["total"], 62)
-        # 12 frozen ledger ports + 10 overlay ports (2 write, 8 read/leak lane).
-        self.assertEqual(rw["ported"], 22)
-        self.assertEqual(rw["verified"], 15)
+        # 12 frozen ledger ports + 12 overlay behavior ports (2 write, 8
+        # read/leak lane, DeCrypt, FirstForce) + 34 construction-covered
+        # (CRT/empty/synthetic/STL-no-op, contract tier only).
+        self.assertEqual(rw["ported"], 24)
+        self.assertEqual(rw.get("covered", 0), 34)
+        self.assertEqual(rw["ported"] + rw.get("covered", 0), 58)
+        self.assertEqual(rw["verified"], 17)
         self.assertLessEqual(rw["verified"], rw["ported"])
         self.assertLessEqual(rw["ported"], rw["total"])
 
@@ -97,6 +101,62 @@ class RewriteProgressTests(unittest.TestCase):
                 self.assertIn(
                     entry["rva"].lower(), script.RW_DATA_OWN_RVAS
                 )
+        # Construction-covered entries are all contract tier and exactly 34.
+        covered = [
+            entry for entry in overlay["functions"]
+            if entry.get("construction_covered")
+        ]
+        self.assertEqual(len(covered), 34)
+        for entry in covered:
+            self.assertEqual(entry["binary"], "rw_data.dll")
+            self.assertEqual(entry["tier"], "contract")
+
+    def test_overlay_rejects_bare_type_behavior_for_rw_data(self):
+        script = load_script()
+        libraries, ports = script.load_ledger()
+        overlay = script.load_overlay()
+        by_sha = script.ledger_ports_by_binary(ports)
+        # A bare-type behavior symbol for rw_data must fail validation.
+        # (Drop the live 0x1010 entry first so the duplicate tripwire, which
+        # runs before the symbol check, does not mask the bare-type verdict.)
+        bad = json.loads(json.dumps(overlay))
+        bad["functions"] = [
+            f for f in bad["functions"]
+            if not (f["binary"] == "rw_data.dll" and f["rva"] == "0x1010")
+        ]
+        bad["functions"].append({
+            "binary": "rw_data.dll",
+            "rva": "0x1010",
+            "va": "0x10001010",
+            "name": "test only",
+            "symbol": "lhr_assets::rw_data::Handles",
+            "tier": "contract",
+            "evidence": "test only",
+        })
+        with self.assertRaises(ValueError):
+            script.validate_overlay(bad, libraries, by_sha)
+        # ...unless flagged construction-covered (name presence suffices).
+        good = json.loads(json.dumps(overlay))
+        good["functions"] = [
+            f for f in good["functions"]
+            if not (f["binary"] == "rw_data.dll" and f["rva"] == "0x1010")
+        ]
+        good["functions"].append({
+            "binary": "rw_data.dll",
+            "rva": "0x1010",
+            "va": "0x10001010",
+            "name": "test only",
+            "symbol": "lhr_assets::rw_data::Handles",
+            "tier": "contract",
+            "evidence": "test only",
+            "construction_covered": True,
+        })
+        script.validate_overlay(good, libraries, by_sha)
+        # Construction-covered entries must never claim differential.
+        diff = json.loads(json.dumps(good))
+        diff["functions"][-1]["tier"] = "differential"
+        with self.assertRaises(ValueError):
+            script.validate_overlay(diff, libraries, by_sha)
 
     def test_overlay_rejects_rw_data_crt_and_accepts_lhr_assets(self):
         script = load_script()
@@ -116,10 +176,15 @@ class RewriteProgressTests(unittest.TestCase):
         })
         with self.assertRaises(ValueError):
             script.validate_overlay(bad, libraries, by_sha)
-        # rw_data Rust lives in lhr-assets: an own, unported RVA with a
-        # real symbol there validates (de_crypt exists in
-        # crates/lhr-assets/src/rw_data.rs).
+        # rw_data Rust lives in lhr-assets: an own RVA with a real symbol
+        # there validates (de_crypt exists in
+        # crates/lhr-assets/src/rw_data.rs). Re-add it on a copy with the
+        # live entry removed to avoid the duplicate tripwire.
         good = json.loads(json.dumps(overlay))
+        good["functions"] = [
+            f for f in good["functions"]
+            if not (f["binary"] == "rw_data.dll" and f["rva"] == "0x4690")
+        ]
         good["functions"].append({
             "binary": "rw_data.dll",
             "rva": "0x4690",

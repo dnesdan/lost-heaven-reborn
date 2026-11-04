@@ -14,9 +14,12 @@ pub const LEAK_CAPTION: &[u8] = b"Dta_read error message";
 /// Exact formats (double spaces) at 0x1000c784 / 0x1000c760.
 const REF_FORMAT: &[u8] = b"Not released:  %d  reference(s) of Dta_read.\n";
 const OBJ_FORMAT: &[u8] = b"Not released:  %d  Dta_read(s).\n";
-/// Native stack bounds: buffer[512], temp[128].
+/// Native stack bound buffer[512] (+NUL): the total body is capped at 511.
+/// The native temp[128] per-line staging needs no enforcement: a %d line of an
+/// i32 counter is at most ~56 bytes, so the per-line bound never triggers.
+/// The 511 total cap is defense-only for the same reason (two such lines fit
+/// in ~112 bytes); it is not a tested truncation path.
 const BUFFER_CAP: usize = 512;
-const LINE_CAP: usize = 128;
 
 /// Global leak detector state (RWDATA 0x1000ec60: int32 +0, int32 +4, bool +8).
 /// Default is zeroed, matching the 0x4150 init (u32 0, u32 0, u8 0).
@@ -99,7 +102,6 @@ fn push_line(body: &mut Vec<u8>, format: &[u8], value: i32) {
     let text = format_number(format, value);
     let room = BUFFER_CAP.saturating_sub(1).saturating_sub(body.len());
     body.extend_from_slice(&text[..text.len().min(room)]);
-    let _ = LINE_CAP;
 }
 
 fn format_number(format: &[u8], value: i32) -> Vec<u8> {

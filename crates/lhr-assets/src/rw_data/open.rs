@@ -278,15 +278,15 @@ pub(super) fn store<B: Effects>(
         return Err(OperationError::HandleSpaceExhausted);
     }
     if i == s.records.len() {
+        s.cached_file_time.push(record.timestamp);
         s.records.push(record);
         s.read_caches.push(loose);
         s.archive_caches.push(archive);
-        s.cached_file_time.push(0);
     } else {
+        s.cached_file_time[i] = record.timestamp;
         s.records[i] = record;
         s.read_caches[i] = loose;
         s.archive_caches[i] = archive;
-        s.cached_file_time[i] = 0;
     }
     Ok(i as u32)
 }
@@ -321,6 +321,7 @@ fn loose_open<B: OpenEffects>(
             temporary_name_bytes: Vec::new(),
             block,
             wav: 0,
+            timestamp: 0,
         },
         Some(LooseReadCache {
             bytes: vec![0; 32768],
@@ -479,6 +480,9 @@ fn archive_open<B: OpenEffects>(
                 return Ok(FAILURE);
             }
             let size = word(&header, 16);
+            // S_FILEHEADER.timestamp: u64 at bytes 8..16, read after DeCrypt,
+            // stored into the handle exactly like rw_data.cpp:341.
+            let timestamp = u64::from_le_bytes(header[8..16].try_into().unwrap());
             return store(
                 s,
                 HandleRecord {
@@ -490,6 +494,7 @@ fn archive_open<B: OpenEffects>(
                     temporary_name_bytes: Vec::new(),
                     block,
                     wav,
+                    timestamp,
                 },
                 None,
                 Some(ArchiveReadCache {
@@ -578,6 +583,11 @@ mod tests {
             })
         }
     }
+    impl TimeEffects for Backend {
+        fn file_time(&mut self, _file: u32) -> Result<Option<u64>, ()> {
+            Ok(None)
+        }
+    }
     impl OpenEffects for Backend {
         fn create_file(&mut self, n: &[u8], _: bool) -> Result<u32, ()> {
             let mut d = self.0.lock().unwrap();
@@ -622,6 +632,8 @@ mod tests {
         de_crypt(&mut index, key);
         bytes[20..48].copy_from_slice(&index);
         let mut file = [0; 32];
+        // S_FILEHEADER.timestamp: u64 at bytes 8..16 (decrypted with the header).
+        file[8..16].copy_from_slice(&0x0102030405060708u64.to_le_bytes());
         file[16..20].copy_from_slice(&3u32.to_le_bytes());
         file[20..24].copy_from_slice(&1u32.to_le_bytes());
         file[24..28].copy_from_slice(&1u32.to_le_bytes());
@@ -658,6 +670,12 @@ mod tests {
         assert!(handles.dta_close(loose).unwrap());
         let archived = handles.dta_open(b"a", true).unwrap();
         assert_eq!(archived, 0);
+        // S_FILEHEADER.timestamp flows from the decrypted header into the
+        // handle (rw_data.cpp:341), so the cached dtaGetTime path reports it.
+        assert_eq!(
+            handles.dta_get_time(archived, false).unwrap(),
+            Some(0x0102030405060708)
+        );
         assert_eq!(handles.dta_read(archived, Some(&mut out)).unwrap(), 2);
         assert_eq!(out, [7, 8]);
         assert_eq!(handles.dta_seek(archived, 1, 0).unwrap(), 1);

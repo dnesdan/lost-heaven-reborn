@@ -85,6 +85,8 @@ impl<B: OpenWriteEffects> Handles<B> {
         let path = if flags & DTA_FILE_BUFFER != 0 {
             temporary.extend(name);
             temporary.extend(b".tmp");
+            // Equality is equivalent to the native `disposition & OPEN_ALWAYS`
+            // test for the two produced values (CREATE_ALWAYS=2 has bit 2 clear).
             if disposition == NATIVE_OPEN_ALWAYS {
                 effect!(s, CopyFile, s.effects.copy_file(name, &temporary));
             } else {
@@ -149,6 +151,7 @@ impl<B: OpenWriteEffects> Handles<B> {
                 temporary_name_bytes: temporary,
                 block,
                 wav: 0,
+                timestamp: 0,
             },
             None,
             None,
@@ -405,6 +408,18 @@ mod tests {
             record.flags & (NATIVE_FH_FROM_FILESYSTEM | NATIVE_FH_WRITE | NATIVE_FH_BUFFER),
             NATIVE_FH_FROM_FILESYSTEM | NATIVE_FH_WRITE | NATIVE_FH_BUFFER
         );
+        assert_eq!(handles.dta_close(handle), Ok(true));
+    }
+    #[test]
+    fn temporary_flag_flows_hidden_attribute_to_backend() {
+        // Native passes HIDDEN=2 to CreateFileA for DTA_TEMPORARY (REA ev_27c70d9c
+        // attr formula); this host's write adapter rejects non-NORMAL attributes
+        // as Policy (write_io.rs), so the effect must still carry 2 here.
+        let trace = Arc::new(Mutex::new(Trace::default()));
+        let handles = Handles::new(Backend(trace.clone()));
+        let handle = handles.dta_open_write(b"t", DTA_TEMPORARY).unwrap();
+        assert_ne!(handle, FAILURE);
+        assert!(trace.lock().unwrap().calls.iter().any(|c| c == "open 4 2"));
         assert_eq!(handles.dta_close(handle), Ok(true));
     }
     #[test]

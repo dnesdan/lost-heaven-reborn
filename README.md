@@ -22,20 +22,20 @@ playable control remain open. See [coverage](COVERAGE.md),
 <img src="docs/rewrite/setup.svg" width="49%">
 </p>
 
-The cards count each binary's own functions, without the C runtime linked into it. *Implemented* is how many of them have reviewed Rust source with tests. *Verified* is how many of those carry original-data or instruction-level differential evidence on top. There is no reccmp score here: byte-exact C++ matching does not apply to behavioral Rust ports. The function counts are exact but for `Game.exe`'s, an estimate until its code has been worked through. Static pseudocode retention, scoped ports, tests and original-runtime comparisons are independent measures and are never combined into one percentage.
+The cards count each binary's own functions, without the C runtime linked into it. *Implemented* is how many of them have reviewed Rust source with tests. *Verified* is how many of those carry original-data or instruction-level differential evidence on top. There is no reccmp score here: byte-exact C++ matching does not apply to behavioral Rust ports. The function counts are exact but for `Game.exe`'s, an estimate until its code has been worked through. `rw_data.dll` additionally reports construction-covered CRT/startup/empty/synthetic helpers (no separate code; covering construction + transparent evidence, contract tier only) apart from behavior ports. Static pseudocode retention, scoped ports, tests and original-runtime comparisons are independent measures and are never combined into one percentage.
 
 | Binary | Implemented | Verified |
 | --- | ---: | ---: |
 | `Game.exe` | 172/4914* | 154 |
 | `LS3DF.dll` | 145/1714 | 145 |
-| `rw_data.dll` | 22/62 | 15 |
+| `rw_data.dll` | 24/62 + 34 covered | 17 |
 | `Setup.exe (supplied configuration)` | 5/172 | 5 |
 
 *Estimate: frozen inventory union. PS2 `SLUS_206.71` supplies linker naming evidence only, without function coverage. Installer/bootstrap helpers (`DrvMgt.dll`, `INet.dll`, `IJoy.dll`, codecs) are unmeasured boundaries, not zero ports.
 
 Script VM: 398 base + 121 entity opcodes decoded; executing frontier advances with the probe (USE_LIGHTCACHE (180); GAME_NIGHTMISSION (81) executes).
 
-Gap: Oct 26-Nov 3 intake batches (actor factories, VM execution families, vehicle owners) are not yet audited into this overlay and count at zero here; their evidence lives in git log until audited. Extend this file per port-commit, never the frozen docs/progress.json.
+Gap: All 58 address-evidenced own functions audited: 24 behavior ports with Rust code+tests plus 34 construction-covered (CRT startup/empty/synthetic/STL-no-op, no separate code; covering symbols + transparent evidence, tier contract only). 4 Binja-only fragments below 0x5cc0 have no retained pseudocode and no known address: untrackable, no credit can attach. Oct 26-Nov 3 non-rw_data intake batches (actor factories, VM families, vehicle owners) remain unaudited and count at zero.
 
 <!-- rewrite-progress:end -->
 

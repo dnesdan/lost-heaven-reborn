@@ -2195,6 +2195,7 @@ mod tests {
                     temporary_name_bytes: vec![],
                     block: 1,
                     wav: 0,
+                    timestamp: 0,
                 })
                 .unwrap();
             files

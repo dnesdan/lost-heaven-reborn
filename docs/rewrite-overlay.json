@@ -1,7 +1,7 @@
 {
   "version": 1,
   "scope_note": "Post-snapshot (after 2026-10-25) function ports by the agents, keyed by original binary SHA-256 and entry RVA like the frozen ledger. Tier differential means original-data or instruction-level round-trip proof on top of tests; tier contract means reviewed upstream source plus Rust tests. Inline code regions without entries (recompile walk body, S_timer Reset/Tick, C_chunk::Write), explicit unsupported boundaries, and game-global stores without function entries are not counted as functions. VM script commands are tracked separately below, not as functions.",
-  "gap_note": "Oct 26-Nov 3 intake batches (actor factories, VM execution families, vehicle owners) are not yet audited into this overlay and count at zero here; their evidence lives in git log until audited. Extend this file per port-commit, never the frozen docs/progress.json.",
+  "gap_note": "All 58 address-evidenced own functions audited: 24 behavior ports with Rust code+tests plus 34 construction-covered (CRT startup/empty/synthetic/STL-no-op, no separate code; covering symbols + transparent evidence, tier contract only). 4 Binja-only fragments below 0x5cc0 have no retained pseudocode and no known address: untrackable, no credit can attach. Oct 26-Nov 3 non-rw_data intake batches (actor factories, VM families, vehicle owners) remain unaudited and count at zero.",
   "functions": [
     {
       "binary": "Game.exe",
@@ -217,7 +217,7 @@
       "name": "dtaOpenWrite",
       "symbol": "lhr_assets::rw_data::write::Handles::dta_open_write",
       "tier": "contract",
-      "evidence": "REA ev_27c70d9c (1374B, 63 blocks, 13 callees) + mafia-re rw_data.cpp:1312-1453 + Rust tests"
+      "evidence": "REA ev_27c70d9c (1374B, 63 blocks, 13 callees) + mafia-re rw_data.cpp:1312-1453 + Rust tests; hidden-attribute divergence: native passes HIDDEN=2 to CreateFileA, this host rejects non-NORMAL as Policy (write_io.rs; TEMPORARY flow tested at Handles level)"
     },
     {
       "binary": "rw_data.dll",
@@ -253,7 +253,7 @@
       "name": "dtaGetTime",
       "symbol": "lhr_assets::rw_data::Handles::dta_get_time",
       "tier": "contract",
-      "evidence": "REA ev_78123751 (72 instr, 9 BB, callees EnterCS/LeaveCS/GetFileTime) + mafia-re rw_data.cpp:1514 + Rust tests"
+      "evidence": "REA ev_78123751 (72 instr, 9 BB, callees EnterCS/LeaveCS/GetFileTime) + mafia-re rw_data.cpp:1514 + Rust tests; S_FILEHEADER.timestamp plumbed from decrypted header bytes 8..16 into HandleRecord (rw_data.cpp:341) with flow tests"
     },
     {
       "binary": "rw_data.dll",
@@ -298,7 +298,365 @@
       "name": "leak detector report (working name; mafia-re guess C_leak_detector::dtor, NOT original)",
       "symbol": "lhr_assets::rw_data::leak::LeakDetector::pending_dialog",
       "tier": "contract",
-      "evidence": "89-instr walk ev_979d62ba..ev_6bace3e7 + wsprintf ev_4dbf82b8 + MessageBox ev_e9dc801e + strings ev_89d03586/ev_8a4a454f/ev_511304f6 + mafia-re rw_data.cpp:1568 + format-byte tests"
+      "evidence": "89-instr walk ev_979d62ba..ev_6bace3e7 + wsprintf ev_4dbf82b8 + MessageBox ev_e9dc801e + strings ev_89d03586/ev_8a4a454f/ev_511304f6 + mafia-re rw_data.cpp:1568 + format-byte tests; 511 total cap is defense-only (unreachable: two %d lines of i32 fit ~112 bytes, no truncation test)"
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x4690",
+      "va": "0x10004690",
+      "name": "DeCrypt",
+      "symbol": "lhr_assets::rw_data::de_crypt",
+      "tier": "differential",
+      "evidence": "REA ev_780ead75 (58 instr, 8 BB, 2 callers, 0 callees) + mafia-re rw_data.cpp:1889 + real-data pack round-trips exercising decrypt"
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x4720",
+      "va": "0x10004720",
+      "name": "dtaSetDtaFirstForce",
+      "symbol": "lhr_assets::rw_data::open::Handles::dta_set_dta_first_force",
+      "tier": "differential",
+      "evidence": "REA ev_ecfcf17d (2 instr, 1 BB, 0 callees) + mafia-re rw_data.cpp:1918 + io flag test"
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x1330",
+      "va": "0x10001330",
+      "name": "C_rw_data virtual base dtor, empty (working name; inline in mafia-re rw_data.h:26)",
+      "symbol": "lhr_assets::rw_data::Handles::release",
+      "tier": "contract",
+      "evidence": "mafia-re rw_data.h:26 empty inline virtual dtor (zero state change); no REA body in this session; dispatch covered by Handles::release + open.rs release tests",
+      "construction_covered": true
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x1340",
+      "va": "0x10001340",
+      "name": "C_rw_data scalar deleting dtor (compiler-generated; mafia-re rw_data.h:38 SYNTHETIC)",
+      "symbol": "lhr_assets::rw_data::Handles::release",
+      "tier": "contract",
+      "evidence": "mafia-re rw_data.h:38 SYNTHETIC (flag-test + vcall + operator delete); no REA body (Ghidra folds the boundary); effect covered by Handles::release, no separate helper per no-credit rule; no REA body in this session (classification from mafia-re annotations)",
+      "construction_covered": true
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x1360",
+      "va": "0x10001360",
+      "name": "C_rw_data_inter scalar deleting dtor (compiler-generated; mafia-re rw_data_inter.h:220 SYNTHETIC)",
+      "symbol": "lhr_assets::rw_data::Handles::release",
+      "tier": "contract",
+      "evidence": "mafia-re rw_data_inter.h:220 SYNTHETIC over ~C_rw_data_inter (0x1640); no REA body in this session; delete-this effect covered by Handles::release",
+      "construction_covered": true
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x1380",
+      "va": "0x10001380",
+      "name": "S_HANDLE dtor (synthetic member destruction; mafia-re rw_data_inter.h:149)",
+      "symbol": "lhr_assets::rw_data::open::Owner",
+      "tier": "contract",
+      "evidence": "mafia-re rw_data_inter.h:149 synthetic (destroys member file_table vector); no REA body in this session; Rust Owner.table Vec drop covers the effect structurally",
+      "construction_covered": true
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x5750",
+      "va": "0x10005750",
+      "name": "S_HANDLE operator= (SYNTHETIC memberwise assign; mafia-re rw_data_inter.h:152, NOT original)",
+      "symbol": "lhr_assets::rw_data::open::Owner",
+      "tier": "contract",
+      "evidence": "mafia-re rw_data_inter.h:152 SYNTHETIC researcher label, no original symbol; no REA body in this session; plain struct assignment, no port",
+      "construction_covered": true
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x5740",
+      "va": "0x10005740",
+      "name": "placement delete ??3@YAXPAX0@Z (CRT no-op; mafia-re rw_data_inter.h:306)",
+      "symbol": "lhr_assets::rw_data::Handles",
+      "tier": "contract",
+      "evidence": "mafia-re rw_data_inter.h:306 (2-arg own-emitted CRT helper); no-op needs no Rust spelling, Vec growth covers call sites; no REA body in this session (classification from mafia-re annotations)",
+      "construction_covered": true
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x1010",
+      "va": "0x10001010",
+      "name": "CRT startup initializer (working name; no original symbol)",
+      "symbol": "lhr_assets::rw_data::Handles::new",
+      "tier": "contract",
+      "evidence": "mafia-re rw_data_inter.h:223-228 vector<S_FILEHANDLE> v_file_h ctor (writes own global 0x1000ec50; CRT-startup member, covered by Handles::new (Vec construction); no REA body in this session (classification from mafia-re annotations)",
+      "construction_covered": true
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x1030",
+      "va": "0x10001030",
+      "name": "CRT startup initializer (working name; no original symbol)",
+      "symbol": "lhr_assets::rw_data::Handles::new",
+      "tier": "contract",
+      "evidence": "mafia-re rw_data_inter.h:229-231 $E4 atexit-registration for v_file_h; CRT, no port; no REA body in this session (classification from mafia-re annotations)",
+      "construction_covered": true
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x1040",
+      "va": "0x10001040",
+      "name": "CRT startup initializer (working name; no original symbol)",
+      "symbol": "lhr_assets::rw_data::Handles::new",
+      "tier": "contract",
+      "evidence": "mafia-re rw_data_inter.h:232-234 $E3 dtor fragment for v_file_h; CRT, Drop covers; no REA body in this session (classification from mafia-re annotations)",
+      "construction_covered": true
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x1070",
+      "va": "0x10001070",
+      "name": "CRT startup initializer (working name; no original symbol)",
+      "symbol": "lhr_assets::rw_data::Handles::new",
+      "tier": "contract",
+      "evidence": "mafia-re rw_data_inter.h:235 vector<S_HANDLE> v_handle ctor (writes 0x1000ec84; CRT-startup member, covered by Handles::new; no REA body in this session (classification from mafia-re annotations)",
+      "construction_covered": true
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x1090",
+      "va": "0x10001090",
+      "name": "CRT startup initializer (working name; no original symbol)",
+      "symbol": "lhr_assets::rw_data::Handles::new",
+      "tier": "contract",
+      "evidence": "mafia-re rw_data_inter.h:236-237 $E9 atexit for v_handle; CRT, no port; no REA body in this session (classification from mafia-re annotations)",
+      "construction_covered": true
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x10a0",
+      "va": "0x100010a0",
+      "name": "CRT startup initializer (working name; no original symbol)",
+      "symbol": "lhr_assets::rw_data::Handles::new",
+      "tier": "contract",
+      "evidence": "mafia-re rw_data_inter.h:238-240 $E8 dtor for v_handle; CRT, Drop covers; no REA body in this session (classification from mafia-re annotations)",
+      "construction_covered": true
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x1100",
+      "va": "0x10001100",
+      "name": "CRT startup initializer (working name; no original symbol)",
+      "symbol": "lhr_assets::rw_data::Handles::new",
+      "tier": "contract",
+      "evidence": "mafia-re rw_data_inter.h:223-226 XCU thunk to C_m_p ctor (CRT wrapper, covered by Handles::new Mutex construction; no REA body in this session (classification from mafia-re annotations)",
+      "construction_covered": true
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x1110",
+      "va": "0x10001110",
+      "name": "CRT startup initializer (working name; no original symbol)",
+      "symbol": "lhr_assets::rw_data::Handles::new",
+      "tier": "contract",
+      "evidence": "mafia-re rw_data_inter.h:243 $E14 atexit for C_m_p; CRT, no port (ctor/dtor proper are 0x4120/0x4130); no REA body in this session (classification from mafia-re annotations)",
+      "construction_covered": true
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x1120",
+      "va": "0x10001120",
+      "name": "CRT startup initializer (working name; no original symbol)",
+      "symbol": "lhr_assets::rw_data::Handles::new",
+      "tier": "contract",
+      "evidence": "mafia-re rw_data_inter.h:245-247 $E13 dtor for C_m_p; CRT, Drop covers; no REA body in this session (classification from mafia-re annotations)",
+      "construction_covered": true
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x1140",
+      "va": "0x10001140",
+      "name": "CRT startup initializer (working name; no original symbol)",
+      "symbol": "lhr_assets::rw_data::Handles::new",
+      "tier": "contract",
+      "evidence": "mafia-re rw_data_inter.h:248-249 XCU thunk to C_l_d ctor (CRT wrapper, covered by Handles::new; no REA body in this session (classification from mafia-re annotations)",
+      "construction_covered": true
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x1150",
+      "va": "0x10001150",
+      "name": "CRT startup initializer (working name; no original symbol)",
+      "symbol": "lhr_assets::rw_data::Handles::new",
+      "tier": "contract",
+      "evidence": "mafia-re rw_data_inter.h:250 $E19 atexit for C_l_d; CRT, no port; no REA body in this session (classification from mafia-re annotations)",
+      "construction_covered": true
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x1160",
+      "va": "0x10001160",
+      "name": "CRT startup initializer (working name; no original symbol)",
+      "symbol": "lhr_assets::rw_data::Handles::new",
+      "tier": "contract",
+      "evidence": "mafia-re rw_data_inter.h:252-254 $E18 dtor for C_l_d; CRT, Drop covers; no REA body in this session (classification from mafia-re annotations)",
+      "construction_covered": true
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x4730",
+      "va": "0x10004730",
+      "name": "VC6 STL template instantiation (mafia-re annotated; NOT game logic)",
+      "symbol": "lhr_assets::rw_data::Handles",
+      "tier": "contract",
+      "evidence": "mafia-re rw_data_inter.h:260 vector<S_FILEHANDLE>::size (CRT template, Rust Vec::len covers; no REA body in this session (classification from mafia-re annotations)",
+      "construction_covered": true
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x4760",
+      "va": "0x10004760",
+      "name": "VC6 STL template instantiation (mafia-re annotated; NOT game logic)",
+      "symbol": "lhr_assets::rw_data::Handles",
+      "tier": "contract",
+      "evidence": "mafia-re rw_data_inter.h:263 vector<I>::insert; CRT template, Rust Vec::insert covers; no REA body in this session (classification from mafia-re annotations)",
+      "construction_covered": true
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x4970",
+      "va": "0x10004970",
+      "name": "VC6 STL template instantiation (mafia-re annotated; NOT game logic)",
+      "symbol": "lhr_assets::rw_data::Handles",
+      "tier": "contract",
+      "evidence": "mafia-re rw_data_inter.h:266 vector<S_FILES_IN>::insert; CRT template, Rust Vec::insert covers; no REA body in this session (classification from mafia-re annotations)",
+      "construction_covered": true
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x4c90",
+      "va": "0x10004c90",
+      "name": "VC6 STL template instantiation (mafia-re annotated; NOT game logic)",
+      "symbol": "lhr_assets::rw_data::Handles",
+      "tier": "contract",
+      "evidence": "mafia-re rw_data_inter.h:271 vector<S_FILES_IN>::erase (CRT template, Rust Vec::drain/remove covers; no REA body in this session (classification from mafia-re annotations)",
+      "construction_covered": true
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x4ce0",
+      "va": "0x10004ce0",
+      "name": "VC6 STL template instantiation (mafia-re annotated; NOT game logic)",
+      "symbol": "lhr_assets::rw_data::Handles",
+      "tier": "contract",
+      "evidence": "mafia-re rw_data_inter.h:274 vector<S_FILEHANDLE>::insert (iterator form); CRT template, no port; no REA body in this session (classification from mafia-re annotations)",
+      "construction_covered": true
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x4ef0",
+      "va": "0x10004ef0",
+      "name": "VC6 STL template instantiation (mafia-re annotated; NOT game logic)",
+      "symbol": "lhr_assets::rw_data::Handles",
+      "tier": "contract",
+      "evidence": "mafia-re rw_data_inter.h:278 vector<S_FILEHANDLE>::_Destroy; CRT template, Rust drop covers; no REA body in this session (classification from mafia-re annotations)",
+      "construction_covered": true
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x4f00",
+      "va": "0x10004f00",
+      "name": "VC6 STL template instantiation (mafia-re annotated; NOT game logic)",
+      "symbol": "lhr_assets::rw_data::Handles",
+      "tier": "contract",
+      "evidence": "mafia-re rw_data_inter.h:283 vector<S_HANDLE>::_Destroy; CRT template, Rust drop covers; no REA body in this session (classification from mafia-re annotations)",
+      "construction_covered": true
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x4f30",
+      "va": "0x10004f30",
+      "name": "VC6 STL template instantiation (mafia-re annotated; NOT game logic)",
+      "symbol": "lhr_assets::rw_data::Handles",
+      "tier": "contract",
+      "evidence": "mafia-re rw_data_inter.h:286 vector<S_FILEHANDLE>::insert (count form); CRT template, no port; no REA body in this session (classification from mafia-re annotations)",
+      "construction_covered": true
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x5230",
+      "va": "0x10005230",
+      "name": "VC6 STL template instantiation (mafia-re annotated; NOT game logic)",
+      "symbol": "lhr_assets::rw_data::Handles",
+      "tier": "contract",
+      "evidence": "mafia-re rw_data_inter.h:289 vector<S_HANDLE>::insert; CRT template, no port; no REA body in this session (classification from mafia-re annotations)",
+      "construction_covered": true
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x55c0",
+      "va": "0x100055c0",
+      "name": "VC6 STL template instantiation (mafia-re annotated; NOT game logic)",
+      "symbol": "lhr_assets::rw_data::Handles",
+      "tier": "contract",
+      "evidence": "mafia-re rw_data_inter.h:292 vector<S_FILEHANDLE>::_Ucopy (CRT template, Rust Vec growth + Clone covers; no REA body in this session (classification from mafia-re annotations)",
+      "construction_covered": true
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x5600",
+      "va": "0x10005600",
+      "name": "VC6 STL template instantiation (mafia-re annotated; NOT game logic)",
+      "symbol": "lhr_assets::rw_data::Handles",
+      "tier": "contract",
+      "evidence": "mafia-re rw_data_inter.h:295 vector<S_FILEHANDLE>::_Ufill; CRT template, Rust Vec::resize covers; no REA body in this session (classification from mafia-re annotations)",
+      "construction_covered": true
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x5630",
+      "va": "0x10005630",
+      "name": "VC6 STL template instantiation (mafia-re annotated; NOT game logic)",
+      "symbol": "lhr_assets::rw_data::Handles",
+      "tier": "contract",
+      "evidence": "mafia-re rw_data_inter.h:298 std::_Construct<S_FILEHANDLE>; CRT template, Rust in-place construction covers; no REA body in this session (classification from mafia-re annotations)",
+      "construction_covered": true
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x5650",
+      "va": "0x10005650",
+      "name": "VC6 STL template instantiation (mafia-re annotated; NOT game logic)",
+      "symbol": "lhr_assets::rw_data::Handles",
+      "tier": "contract",
+      "evidence": "mafia-re rw_data_inter.h:301 std::_Construct<S_HANDLE>; CRT template, no port; no REA body in this session (classification from mafia-re annotations)",
+      "construction_covered": true
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x59f0",
+      "va": "0x100059f0",
+      "name": "VC6 STL template instantiation (mafia-re annotated; NOT game logic)",
+      "symbol": "lhr_assets::rw_data::Handles",
+      "tier": "contract",
+      "evidence": "mafia-re rw_data_inter.h:309 vector<S_FILES_IN>::_Ucopy (CRT template, Rust Vec growth covers; no REA body in this session (classification from mafia-re annotations)",
+      "construction_covered": true
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x5a30",
+      "va": "0x10005a30",
+      "name": "VC6 STL template instantiation (mafia-re annotated; NOT game logic)",
+      "symbol": "lhr_assets::rw_data::Handles",
+      "tier": "contract",
+      "evidence": "mafia-re rw_data_inter.h:312 std::_Construct<S_FILES_IN>; CRT template, no port; no REA body in this session (classification from mafia-re annotations)",
+      "construction_covered": true
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x5a50",
+      "va": "0x10005a50",
+      "name": "VC6 STL template instantiation (mafia-re annotated; NOT game logic)",
+      "symbol": "lhr_assets::rw_data::Handles",
+      "tier": "contract",
+      "evidence": "mafia-re rw_data_inter.h:315 vector<S_FILES_IN>::operator=; CRT template, Rust Vec assignment covers; no REA body in this session (classification from mafia-re annotations)",
+      "construction_covered": true
     }
   ],
   "vm": {

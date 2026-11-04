@@ -44,13 +44,14 @@ RVA_RE = re.compile(r"^0x[0-9a-f]+$")
 # "RWDATA", 62): functions from the start of .text up to the first import
 # thunk or CRT function; first CRT = RVA 0x5cc0 (operator delete
 # ??3@YAXPAX@Z, library_msvc.h:7). The 58 RVAs below carry retained
-# pseudocode and mafia-re source annotations: 26 named FUNCTION
-# (rw_data.cpp + rw_data.h:26), 12 SYNTHETIC $E/scalar-deleting dtors
-# (rw_data.h:38, rw_data_inter.h:149,152,220,229-253), 16 STL TEMPLATE
-# instantiations (rw_data_inter.h:260-315), plus init thunks/ctors. The
-# remaining 4 of Binary Ninja's 62 have no retained pseudocode and no known
-# address (suspected unretained .CRT$XCU thunks/fragments below 0x5cc0);
-# they are counted only as the documented gap below, never as addresses.
+# pseudocode and mafia-re source annotations: 12 init/XCU/$E startup
+# (0x1010-0x1160), 26 named FUNCTION (rw_data.cpp + rw_data.h:26), 4
+# scalar-deleting dtors / S_HANDLE assign (rw_data.h:38,
+# rw_data_inter.h:149,152,220), 16 STL TEMPLATE instantiations
+# (rw_data_inter.h:260-315). The remaining 4 of Binary Ninja's 62 have no
+# retained pseudocode and no known address (suspected unretained .CRT$XCU
+# thunks/fragments below 0x5cc0); they are counted only as the documented
+# gap below, never as addresses.
 RW_DATA_SHA256 = "67f72c30cc7fe941f5526b8602a0bd2785baa0f22617bbcfd4a71bacd79b8d49"
 RW_DATA_FIRST_CRT_RVA = 0x5CC0
 RW_DATA_OWN_RVAS = frozenset({
@@ -148,7 +149,31 @@ def validate_overlay(overlay, libraries, ledger_ports):
                 f"missing module file: {ROOT / 'crates' / crate_dir / 'src' / (parts[1] + '.rs')}"
             )
         body = found.read_text()
-        if not re.search(r"\b" + re.escape(parts[-1]) + r"\b", body):
+        if entry.get("construction_covered"):
+            # Covered-by-construction entries name a covering type/impl that
+            # provides the semantics (Vec growth, construction, drop); they
+            # must never claim differential tier (checked by test).
+            if entry["tier"] == "differential":
+                raise ValueError(f"construction-covered entry claims differential: {entry['symbol']}")
+            if not re.search(r"\b" + re.escape(parts[-1]) + r"\b", body):
+                raise ValueError(f"symbol not found: {entry['symbol']}")
+        elif sha_of[name] == RW_DATA_SHA256 and re.search(
+            r"(?:pub(?:\([^)]*\))?\s+)?(?:struct|enum|union|trait)\s+"
+            + re.escape(parts[-1])
+            + r"\b",
+            body,
+        ):
+            raise ValueError(
+                f"behavior symbol is a bare type, not behavior: {entry['symbol']}"
+            )
+        elif sha_of[name] == RW_DATA_SHA256 and not re.search(
+            r"(?:pub(?:\([^)]*\))?\s+)?(?:fn|const|static)\s+"
+            + re.escape(parts[-1])
+            + r"\b",
+            body,
+        ):
+            raise ValueError(f"behavior symbol is not defined code: {entry['symbol']}")
+        elif not re.search(r"\b" + re.escape(parts[-1]) + r"\b", body):
             raise ValueError(f"symbol not found: {entry['symbol']}")
 
 
@@ -167,21 +192,30 @@ def aggregate(libraries, ports, overlay):
             if e["binary"] == name
         ]
         ported = dict(base)
+        covered = set()
         for entry in extra:
-            ported[entry["rva"].lower()] = entry["tier"] == "differential"
+            rva = entry["rva"].lower()
+            ported[rva] = entry["tier"] == "differential"
+            if entry.get("construction_covered"):
+                covered.add(rva)
         if sha == RW_DATA_SHA256:
             # Never count CRT (or mistyped) entries toward an own-function card.
             ported = {
                 rva: differential for rva, differential in ported.items()
                 if rva in RW_DATA_OWN_RVAS
             }
+            covered = {rva for rva in covered if rva in RW_DATA_OWN_RVAS}
+        else:
+            covered = set()
+        behavior = {rva: diff for rva, diff in ported.items() if rva not in covered}
         inventoried = sum(1 for rva in ported if rva in inventory)
         cards.append({
             "name": name,
             "role": BINARY_ROLE[name],
             "total": OWN_TOTAL_BY_SHA.get(sha, lib.get("inventory_total", 0)),
-            "ported": len(ported),
-            "verified": sum(1 for differential in ported.values() if differential),
+            "ported": len(behavior),
+            "covered": len(covered),
+            "verified": sum(1 for differential in behavior.values() if differential),
             "inventoried": inventoried,
             "estimate": name == "Game.exe",
         })
@@ -190,18 +224,21 @@ def aggregate(libraries, ports, overlay):
 
 def render_svg(card):
     total = max(card["total"], 1)
+    covered = card.get("covered", 0)
     ported_w = 560.0 * card["ported"] / total
+    covered_w = 560.0 * covered / total
     verified_w = 560.0 * card["verified"] / total
     estimate = " (estimate*)" if card["estimate"] else ""
+    covered_text = f" + {covered} construction-covered" if covered else ""
     return f"""<svg xmlns="http://www.w3.org/2000/svg" width="640" height="148" role="img">
 <rect width="640" height="148" rx="8" fill="#f6f8fa"/>
 <text x="24" y="34" font-family="sans-serif" font-size="20" font-weight="bold" fill="#1f2328">{escape(card["name"])}</text>
 <text x="24" y="56" font-family="sans-serif" font-size="13" fill="#59636e">{escape(card["role"])}</text>
-<text x="24" y="82" font-family="sans-serif" font-size="14" fill="#1f2328">Implemented {card["ported"]}/{card["total"]}{estimate} · Verified {card["verified"]}</text>
+<text x="24" y="82" font-family="sans-serif" font-size="14" fill="#1f2328">Implemented {card["ported"]}/{card["total"]}{estimate}{covered_text} · Verified {card["verified"]}</text>
 <rect x="24" y="94" width="560" height="18" rx="4" fill="#d1d9e0"/>
-<rect x="24" y="94" width="{ported_w:.1f}" height="18" rx="4" fill="#9ecbff"/>
+<rect x="24" y="94" width="{ported_w + covered_w:.1f}" height="18" rx="4" fill="#9ecbff"/>
 <rect x="24" y="94" width="{verified_w:.1f}" height="18" rx="4" fill="#0969da"/>
-<text x="24" y="132" font-family="sans-serif" font-size="11" fill="#59636e">own functions, no CRT · light = ported · dark = differential evidence</text>
+<text x="24" y="132" font-family="sans-serif" font-size="11" fill="#59636e">own functions, no CRT · light = ported+covered · dark = differential evidence</text>
 </svg>
 """
 
@@ -231,7 +268,10 @@ def render_fragment(cards, overlay):
         "instruction-level differential evidence on top. There is no reccmp score "
         "here: byte-exact C++ matching does not apply to behavioral Rust ports. "
         "The function counts are exact but for `Game.exe`'s, an estimate until its "
-        "code has been worked through. Static pseudocode retention, scoped ports, "
+        "code has been worked through. `rw_data.dll` additionally reports "
+        "construction-covered CRT/startup/empty/synthetic helpers (no separate "
+        "code; covering construction + transparent evidence, contract tier only) "
+        "apart from behavior ports. Static pseudocode retention, scoped ports, "
         "tests and original-runtime comparisons are independent measures and are "
         "never combined into one percentage.",
         "",
@@ -240,8 +280,10 @@ def render_fragment(cards, overlay):
     ]
     for card in cards:
         estimate = "*" if card["estimate"] else ""
+        covered = card.get("covered", 0)
+        extra = f" + {covered} covered" if covered else ""
         lines.append(
-            f"| `{card['name']}` | {card['ported']}/{card['total']}{estimate} "
+            f"| `{card['name']}` | {card['ported']}/{card['total']}{estimate}{extra} "
             f"| {card['verified']} |"
         )
     lines += [
