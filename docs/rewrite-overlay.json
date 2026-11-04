@@ -1039,6 +1039,204 @@
       "symbol": "lhr_engine::loaded_visual_resources::prepare_animation",
       "tier": "differential",
       "evidence": "REA ev_7b8e0f5a (Ghidra FUN_1002c000, 2201B/727 insn, dtaRead x11 incl num_frames/env_num_frames + 16-byte timing, %02i format 0x100a7c94 xrefs 0x1002c348/687/69e, strlen-6 invalid-name words, single-frame ENV_TEXTURE_FLAGS asymmetry, virtual SetCurrentFrame(-1)/SetEnvCurrentFrame(-1) tail slots 19/20) + mafia-re I3d_material.cpp:526-639 + real-DTA full admission test real_dta_animated_water_admission_covers_frame_naming_flags_and_tail on models/vodapristavm.4ds mat0 (20x 2VLNY00.BMP + ENVROLL.BMP, %02 names, request-flag projections, frame-0 tail aliases, residue-free) (synthetic visual-0 carrier frame; model frame itself is visual 5 morph)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x305b0",
+      "va": "0x100305b0",
+      "name": "I3D_face_group::SetFaces (upstream working name)",
+      "symbol": "lhr_engine::visual_resources::VisualResources::set_faces",
+      "tier": "differential",
+      "evidence": "REA ghidra FUN_100305b0 (95B/41 insn/3BB) + vtable slot + null-clear/alloc+num*6-memcpy/count-store order + mafia-re I3d_mesh.cpp:39-50 + set/get/unlock/clear tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x30610",
+      "va": "0x10030610",
+      "name": "I3D_face_group::CreateFaces (upstream working name)",
+      "symbol": "lhr_engine::visual_resources::VisualResources::create_faces",
+      "tier": "contract",
+      "evidence": "REA ghidra linear walk 39 insns, no procedure entry (walk-derived, same standard as 0x2b830) + vtable slot + OOM/ErrorHandler(0x80000002) words + mafia-re I3d_mesh.cpp:54-66 + zero/count-guard/poison tests; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x30690",
+      "va": "0x10030690",
+      "name": "I3D_face_group::GetFaces (upstream working name)",
+      "symbol": "lhr_engine::visual_resources::VisualResources::get_faces",
+      "tier": "contract",
+      "evidence": "REA ghidra linear walk ~74 insns/3 exits, no procedure entry (walk-derived) + vtable slot + base*2 u16-pointer tail + mafia-re I3d_mesh.cpp:70-75 + null/lock-pairing tests; manager resolve interior stays backend-owned; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x30780",
+      "va": "0x10030780",
+      "name": "I3D_face_group::UnlockFaces (upstream working name)",
+      "symbol": "lhr_engine::visual_resources::VisualResources::unlock_faces",
+      "tier": "contract",
+      "evidence": "REA ghidra linear walk 41 insns, no procedure entry (walk-derived) + vtable slot + unconditional-Unlock shape + mafia-re I3d_mesh.cpp:79-82 + idempotent-clear tests with managed graphics-unlock half; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x30800",
+      "va": "0x10030800",
+      "name": "I3D_face_group::Duplicate (upstream working name)",
+      "symbol": "lhr_engine::visual_resources::VisualResources::duplicate_face_group",
+      "tier": "differential",
+      "evidence": "REA ghidra FUN_10030800 (88B/40 insn/1BB, caller 0x10031000) + CreateFaces/memcpy/num-restore/SetMaterial order + mafia-re I3d_mesh.cpp:86-93 + copy-equality/material-share/unknown-key tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x30860",
+      "va": "0x10030860",
+      "name": "I3D_face_group::DetachMaterial (upstream working name)",
+      "symbol": "lhr_engine::visual_resources::VisualResources::detach_face_group_material",
+      "tier": "differential",
+      "evidence": "REA ghidra FUN_10030860 (158B/61 insn/11BB, dbgPrintf/ErrorHandler callees, OOM+dup strings) + ref>=2/anim-select/create-duplicate-release order + mafia-re I3d_mesh.cpp:97-117 + fast-path/shared/animated/copy-failure tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x30a50",
+      "va": "0x10030a50",
+      "name": "I3D_mesh_level::UpdateBBox (upstream working name)",
+      "symbol": "lhr_engine::visual_resources::VisualResources::update_mesh_level_bbox_from_bytes",
+      "tier": "differential",
+      "evidence": "REA ghidra FUN_10030a50 (lock-null Invalidate bracket 0x5a0e1bca/0xda0e1bca, seed v0, 8-float-step min/max loop) + mafia-re I3d_mesh.cpp:165-178 + empty/seed/NaN-policy/admission tests with explicit ordered-compare precision policy"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x30b40",
+      "va": "0x10030b40",
+      "name": "I3D_mesh_level::SetVertexMesh (upstream working name)",
+      "symbol": "lhr_engine::visual_resources::VisualResources::set_mesh_level_vertices",
+      "tier": "differential",
+      "evidence": "REA ghidra FUN_10030b40 (m_Free+zero, null-verts Ok path, m_Alloc 0x112/0x10/0x20, num*8 dword copy, UpdateBBox tail, OOM word + ErrorHandler(0x80000002,3,0)) + mafia-re I3d_mesh.cpp:182-203 + null/bytes/bbox/mismatch tests (manager alloc stays a loader contract)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x30d00",
+      "va": "0x10030d00",
+      "name": "I3D_mesh_level::CreateVertexMesh (upstream working name)",
+      "symbol": "lhr_engine::visual_resources::VisualResources::create_mesh_level_vertices",
+      "tier": "contract",
+      "evidence": "REA ghidra linear walk ~100 insns 0x10030d00-0x10030e7d, no procedure entry (walk-derived) + same alloc/OOM words + mafia-re I3d_mesh.cpp:207-226 + zero/nonzero lock-projection tests; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x30e80",
+      "va": "0x10030e80",
+      "name": "I3D_mesh_level::LockVertices (upstream working name)",
+      "symbol": "lhr_engine::managed_visual_resources::ManagedVisualResources::lock_level_vertices",
+      "tier": "contract",
+      "evidence": "REA ghidra linear walk ~84 insns, no procedure entry (walk-derived) + stale-this-slot OR 0x10 readonly quirk + relock predicate + slot registry + mafia-re I3d_mesh.cpp:228-241 quirk comment + flags/relock event tests over the existing buffer boundary; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x30f90",
+      "va": "0x10030f90",
+      "name": "I3D_mesh_level::UnlockVertices (upstream working name)",
+      "symbol": "lhr_engine::managed_visual_resources::ManagedVisualResources::unlock_level_vertices",
+      "tier": "contract",
+      "evidence": "REA ghidra linear walk ~50 insns, no procedure entry (walk-derived) + null/Unlock-vcall/swap-remove shape + mafia-re I3d_mesh.cpp:253-262 + lock/unlock/double-unlock event tests over the existing buffer boundary (no code change); tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x31000",
+      "va": "0x10031000",
+      "name": "I3D_mesh_level::Duplicate (upstream working name)",
+      "symbol": "lhr_engine::visual_resources::VisualResources::duplicate_mesh_level",
+      "tier": "differential",
+      "evidence": "REA ghidra FUN_10031000 (379B: self/NULL paths, chain destroy+free+zero, scalars-first, SetVertexMesh-fail prefix, 0x1c group new+Duplicate+AddFGroup-last, 6-dword bbox copy) + mafia-re I3d_mesh.cpp:264-300 + self/null/deep-copy/failure-prefix tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x31180",
+      "va": "0x10031180",
+      "name": "I3D_mesh_level::GetFGroup (upstream working name)",
+      "symbol": "lhr_engine::visual_resources::VisualResources::face_group_at",
+      "tier": "contract",
+      "evidence": "REA ghidra linear walk ~30 insns, no procedure entry (walk-derived) + unsigned bounds check + invalid-index words (typo kept) + mafia-re I3d_mesh.cpp:304-314 + negative/huge/mid-chain tests; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x311c0",
+      "va": "0x100311c0",
+      "name": "I3D_mesh_level::NumFaces (upstream working name)",
+      "symbol": "lhr_engine::visual_resources::VisualResources::count_mesh_level_faces",
+      "tier": "contract",
+      "evidence": "REA ghidra 12-insn walk, no procedure entry (walk-derived) + [fg+8] accumulate over [fg+0xc] chain + mafia-re I3d_mesh.cpp:318-324 + wrap tests (wrapping_add, MAX+2->1, same policy as 0x311e0/0x317a0); tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x311e0",
+      "va": "0x100311e0",
+      "name": "I3D_mesh_level::GetStats (upstream working name)",
+      "symbol": "lhr_engine::visual_resources::VisualResources::mesh_level_stats",
+      "tier": "contract",
+      "evidence": "REA ghidra 19-insn walk, no procedure entry (walk-derived) + size 0x44/num<<5/NumFaces-vcall/faces*6 + mafia-re I3d_mesh.cpp:328-337 + sum/scale/wrap tests (wrapping_add/mul, same policy as 0x317a0); tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x31220",
+      "va": "0x10031220",
+      "name": "I3D_mesh_level::AddFGroup (upstream working name)",
+      "symbol": "lhr_engine::visual_resources::VisualResources::add_mesh_level_group",
+      "tier": "contract",
+      "evidence": "REA ghidra linear walk ~90 insns, no procedure entry (walk-derived) + MATF prologue/mode-bit trick/2*sqrt(2)/div scale/alpha FCOMP/append-last rule + mafia-re I3d_mesh.cpp:341-376 + append/prepend/NaN-alpha/scale tests; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x313f0",
+      "va": "0x100313f0",
+      "name": "I3D_mesh_object::GetLOD (upstream working name)",
+      "symbol": "lhr_engine::visual_resources::VisualResources::get_lod",
+      "tier": "contract",
+      "evidence": "REA ghidra 4-insn listing, no procedure entry (walk-derived) + vtable DATA xref + mafia-re I3d_mesh.cpp:413-416 + verbatim-slot/guard/poisoned-read tests; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x31400",
+      "va": "0x10031400",
+      "name": "I3D_mesh_object::UpdateBoundVolume (upstream working name)",
+      "symbol": "lhr_engine::visual_resources::VisualResources::update_mesh_bound_volume",
+      "tier": "contract",
+      "evidence": "REA ghidra listing walk to RET4, no procedure entry (walk-derived) + extremes/reverse-loop/strict-FCOMP/0.5f-FMUL-sphere shape + mafia-re I3d_mesh.cpp:420-443 + existing mesh_bounds PC24-RN policy tests (no new code; already landed); tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x315e0",
+      "va": "0x100315e0",
+      "name": "I3D_mesh_object::Duplicate (upstream working name)",
+      "symbol": "lhr_engine::visual_resources::VisualResources::duplicate_mesh_object",
+      "tier": "contract",
+      "evidence": "REA ghidra listing walk, no procedure entry (walk-derived) + vtable DATA xref + self-JZ/10-slot-clear/null-reset/per-slot-Create-Duplicate-SetLOD-Release/OOM-tail shape + mafia-re I3d_mesh.cpp:471-505 + self/null/full-content tests (per-level copy now complete via duplicate_mesh_level); tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x31700",
+      "va": "0x10031700",
+      "name": "I3D_mesh_object::DetachMaterials (upstream working name)",
+      "symbol": "lhr_engine::visual_resources::VisualResources::detach_mesh_materials",
+      "tier": "contract",
+      "evidence": "REA ghidra listing walk to RET4, no procedure entry (walk-derived) + 10-slot loop/+0x18-vcall/JL-exit shape, no failure words + mafia-re I3d_mesh.cpp:509-521 + order/sharing/animated/failure-prefix tests; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x31750",
+      "va": "0x10031750",
+      "name": "I3D_mesh_object::IsCompatible (upstream working name)",
+      "symbol": "lhr_engine::visual_resources::VisualResources::is_mesh_compatible",
+      "tier": "contract",
+      "evidence": "REA ghidra listing walk to RET8, no procedure entry (walk-derived) + num_lods-CMP/10-slot-loop/vertex-count-CMP, no float compare + mafia-re I3d_mesh.cpp:525-537 + true/false/NaN-robustness matrix tests; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x317a0",
+      "va": "0x100317a0",
+      "name": "I3D_mesh_object::GetStats (upstream working name)",
+      "symbol": "lhr_engine::visual_resources::VisualResources::mesh_object_stats",
+      "tier": "contract",
+      "evidence": "REA ghidra listing walk to RET8, no procedure entry (walk-derived) + size-0x6c/num_lods-prefix/NumFaces-vcall/SHL5-times-6 shape + mafia-re I3d_mesh.cpp:541-555 + sum/scale/prefix-bound/wrap tests; tier contract per the unresolved-boundary rule"
     }
   ],
   "vm": {

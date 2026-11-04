@@ -95,4 +95,36 @@ impl BufferManagers {
         }
         Ok(data)
     }
+    /// Per-buffer index unlock pairing the GetFaces lock above. Mirrors
+    /// `unlock_vertex_buffer` over the index lock list; unlocked buffers are a
+    /// clean no-op (same contract as the vertex half).
+    pub(crate) fn unlock_index_buffer<B: BufferBackend + ?Sized>(
+        &mut self,
+        buffer: IndexBufferKey,
+        backend: &mut B,
+    ) -> Result<(), OperationError<B::Error>> {
+        self.available()?;
+        let key = BufferKey::Index(buffer);
+        if self.buffer(key)?.data.is_none() {
+            return Ok(());
+        }
+        let graphics = self
+            .buffer(key)?
+            .graphics
+            .ok_or(BufferError::InvalidLockState)?;
+        self.call(backend.unlock(graphics))?;
+        self.buffer_mut(key)?.data = None;
+        let index = self
+            .buffer(key)?
+            .lock_index
+            .ok_or(BufferError::InvalidLockState)?;
+        let moved = *self
+            .index_locked
+            .last()
+            .ok_or(BufferError::InvalidLockState)?;
+        self.buffer_mut(moved)?.lock_index = Some(index);
+        self.index_locked.swap_remove(index);
+        self.buffer_mut(key)?.lock_index = None;
+        Ok(())
+    }
 }

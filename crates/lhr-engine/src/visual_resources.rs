@@ -444,13 +444,29 @@ impl I3dMaterial {
         self.external_references
     }
 }
-#[derive(Debug, PartialEq, Eq)]
+/// Upstream working name for the 3-index face record (`I3D_triface` in mafia-re
+/// I3d_mesh.cpp), not an evidenced original symbol. Three little-endian u16
+/// indices (6 bytes): evidenced by the native num*3 manager count (CreateFaces
+/// 0x30610 `LEA EDX,[ESI+ESI*2]`) with num*6 memcpy bytes (SetFaces 0x305b0,
+/// Duplicate 0x30800) and the base*2 byte offset in the GetFaces 0x30690 return
+/// (`LEA EAX,[EDX+EBX*2]`).
+pub type I3dTriface = [u16; 3];
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct I3dFaceGroup {
     pub material: Option<MaterialKey>,
     pub num_faces: u32,
     pub next: Option<FaceGroupKey>,
     pub index_buffer: CompleteIndexBuffer,
     pub owner: Option<FaceGroupOwner>,
+    /// CPU triface array owned by the SetFaces/CreateFaces/Duplicate family
+    /// (RVAs 0x305b0/0x30610/0x30800). Manager-intake storage
+    /// (`install_index_block`) carries no CPU bytes; mixing contracts is a
+    /// disclosed host boundary (see `get_faces`).
+    pub faces: Vec<I3dTriface>,
+    /// Host lock pairing for GetFaces/UnlockFaces (RVAs 0x30690/0x30780).
+    /// Native lock traffic lives in the manager's buffer Lock/Unlock; this
+    /// flag only records that the CPU array was served and awaits release.
+    pub faces_locked: bool,
 }
 #[derive(Debug, PartialEq)]
 pub struct I3dMeshLevel {
@@ -677,6 +693,8 @@ impl VisualResources {
                 next: None,
                 index_buffer: CompleteIndexBuffer::default(),
                 owner: None,
+                faces: Vec::new(),
+                faces_locked: false,
             },
         )?;
         Ok(FaceGroupKey {
@@ -743,6 +761,76 @@ impl VisualResources {
         self.available()?;
         self.mesh_level_mut(key)?.bbox = bbox;
         Ok(())
+    }
+    /// UpdateBBox30a50 Invalidate words: empty lock yields these exact bits.
+    /// Same words as the mesh-level constructor (single definition point for
+    /// the shared constant; both sites spell the identical words).
+    pub(crate) const INVALID_MESH_BOUNDS: [[f32; 3]; 2] = [
+        [f32::from_bits(0x5a0e1bca); 3],
+        [f32::from_bits(0xda0e1bca); 3],
+    ];
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// RVA 0x30a50. Upstream working name I3D_mesh_level::UpdateBBox
+    /// (mafia-re I3d_mesh.cpp:165-178), not an evidenced original symbol.
+    /// Precision policy: explicit ordered `<`/`>` per axis, never f32::min/max
+    /// (those prefer numbers over NaN; the original keeps a NaN seed and
+    /// ignores later NaNs because unordered comparisons are false). No FTZ,
+    /// no rounding-mode dependence: only moves and ordered compares.
+    /// Reads raw vertex bytes (position = first 3 LE f32 of each stride);
+    /// stride < 12 or ragged length is InvalidVertexStorage (host admission;
+    /// native strides are trusted). Empty input writes the Invalidate words
+    /// (native LockVertices-null path). Only the bbox store mutates.
+    pub fn update_mesh_level_bbox_from_bytes(
+        &mut self,
+        level: MeshLevelKey,
+        bytes: &[u8],
+        stride: u32,
+    ) -> Result<(), VisualResourceError> {
+        self.available()?;
+        if stride < 12 {
+            return Err(VisualResourceError::InvalidVertexStorage);
+        }
+        let stride = stride as usize;
+        if !bytes.len().is_multiple_of(stride) {
+            return Err(VisualResourceError::InvalidVertexStorage);
+        }
+        let count = bytes.len() / stride;
+        if count == 0 {
+            self.mesh_level_mut(level)?.bbox = Self::INVALID_MESH_BOUNDS;
+            return Ok(());
+        }
+        let pos = |i: usize| {
+            let word = |o: usize| f32::from_le_bytes(bytes[o..o + 4].try_into().unwrap());
+            let base = i * stride;
+            [word(base), word(base + 4), word(base + 8)]
+        };
+        let mut min = pos(0);
+        let mut max = min;
+        for i in 1..count {
+            let p = pos(i);
+            for a in 0..3 {
+                if p[a] < min[a] {
+                    min[a] = p[a];
+                }
+                if max[a] < p[a] {
+                    max[a] = p[a];
+                }
+            }
+        }
+        self.mesh_level_mut(level)?.bbox = [min, max];
+        Ok(())
+    }
+    /// LockVertices30e80 readonly quirk: the original ORs D3DLOCK_READONLY
+    /// into an uninitialised automatic that the compiler placed in the dead
+    /// `this` stack slot, so the effective flags are (stale_slot | 0x10).
+    /// The host models the stale slot with the level key slot bits —
+    /// deterministic, documented, tested.
+    pub(crate) fn mesh_level_lock_flags(level_slot: u32, requested: u32) -> u32 {
+        if requested & 1 != 0 {
+            level_slot | 0x10
+        } else {
+            0
+        }
     }
     fn increment(references: u32, key: ResourceKey) -> Result<u32, VisualResourceError> {
         references
@@ -868,6 +956,196 @@ impl VisualResources {
             self.material_mut(key)?.references += 1;
         }
         Ok(())
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6, RVA 0x305b0.
+    /// Upstream working name I3D_face_group::SetFaces (mafia-re I3d_mesh.cpp:39-50), not an
+    /// evidenced original symbol. Order-exact: null clears (free block, zero ib words,
+    /// num_faces = 0, no allocation); else CreateFaces(num), 6-bytes-per-face copy,
+    /// num_faces store. Material is untouched. Native counts are i32; larger inputs are
+    /// rejected before effects (existing arena admission, not a native branch).
+    pub fn set_faces<B: VisualResourceBackend + ?Sized>(
+        &mut self,
+        group: FaceGroupKey,
+        faces: Option<&[I3dTriface]>,
+        backend: &mut B,
+    ) -> Result<(), VisualResourceOperationError<B::Error>> {
+        self.available()?;
+        let Some(faces) = faces else {
+            let block = self.face_group(group)?.index_buffer;
+            self.backend(backend.free_index_block(group, block))?;
+            let current = self.face_group_mut(group)?;
+            current.index_buffer = CompleteIndexBuffer::default();
+            current.num_faces = 0;
+            current.faces.clear();
+            current.faces_locked = false;
+            return Ok(());
+        };
+        if faces.len() > i32::MAX as usize {
+            return Err(VisualResourceError::InvalidExternalIdentity.into());
+        }
+        let num = faces.len() as u32;
+        self.create_faces(group, num, backend)?;
+        // memcpy(dst, faces, num * 6) after allocation, then the counted store.
+        let current = self.face_group_mut(group)?;
+        debug_assert_eq!(current.faces.len(), faces.len());
+        current.faces.copy_from_slice(faces);
+        self.face_group_mut(group)?.num_faces = num;
+        Ok(())
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6, RVA 0x30610.
+    /// Upstream working name I3D_face_group::CreateFaces (mafia-re I3d_mesh.cpp:54-66), not an
+    /// evidenced original symbol. Order-exact: free old block, zero ib words, alloc num*3
+    /// indices (usage 0x10), fail word (num_faces = 0, OOM log, ErrorHandler FATAL with
+    /// 0x80000002, NULL), else num_faces store with the Lock-pointer tail. The host
+    /// allocation failure maps to the native FATAL OOM: effects retained, arena poisoned,
+    /// `Err` in place of the NULL return. Zero admits an empty store (native alloc-zero
+    /// behavior is not evidenced). The native tail returns the acquired Lock pointer;
+    /// this port stores and serves it on `get_faces` instead (same observable bytes;
+    /// no lock flag is set here).
+    pub fn create_faces<B: VisualResourceBackend + ?Sized>(
+        &mut self,
+        group: FaceGroupKey,
+        num: u32,
+        backend: &mut B,
+    ) -> Result<(), VisualResourceOperationError<B::Error>> {
+        self.available()?;
+        if num > i32::MAX as u32 {
+            return Err(VisualResourceError::InvalidExternalIdentity.into());
+        }
+        let block = self.face_group(group)?.index_buffer;
+        self.backend(backend.free_index_block(group, block))?;
+        let current = self.face_group_mut(group)?;
+        current.index_buffer = CompleteIndexBuffer::default();
+        current.num_faces = 0;
+        current.faces.clear();
+        current.faces_locked = false;
+        let count = num as usize;
+        if self
+            .face_group_mut(group)?
+            .faces
+            .try_reserve(count)
+            .is_err()
+        {
+            self.poisoned = true;
+            return Err(VisualResourceError::HostAllocation.into());
+        }
+        let current = self.face_group_mut(group)?;
+        current.faces.resize(count, [0; 3]);
+        current.num_faces = num;
+        Ok(())
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6, RVA 0x30690.
+    /// Upstream working name I3D_face_group::GetFaces (mafia-re I3d_mesh.cpp:70-75), not an
+    /// evidenced original symbol. Returns `None` exactly when num_faces == 0 (native NULL;
+    /// not an error), else borrows the live CPU array and records the lock. The native
+    /// Lock path's manager resolve/relocate interior (realloc, pointer-array compaction
+    /// over globals, virtual +0x30/+0x2c calls) is backend-owned and not modeled here;
+    /// the managed layer pairs this with the existing index-buffer lock.
+    pub fn get_faces(
+        &mut self,
+        group: FaceGroupKey,
+    ) -> Result<Option<&[I3dTriface]>, VisualResourceError> {
+        self.available()?;
+        let record = self.face_group_mut(group)?;
+        if record.num_faces == 0 {
+            return Ok(None);
+        }
+        record.faces_locked = true;
+        Ok(Some(&record.faces))
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6, RVA 0x30780.
+    /// Upstream working name I3D_face_group::UnlockFaces (mafia-re I3d_mesh.cpp:79-82), not an
+    /// evidenced original symbol. Clears the host lock flag. Idempotent like the native
+    /// unconditional Unlock call (no locked-check exists natively; none is invented).
+    /// The graphics unlock half lives in the managed layer.
+    pub fn unlock_faces(&mut self, group: FaceGroupKey) -> Result<(), VisualResourceError> {
+        self.available()?;
+        self.face_group_mut(group)?.faces_locked = false;
+        Ok(())
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6, RVA 0x30800.
+    /// Upstream working name I3D_face_group::Duplicate (mafia-re I3d_mesh.cpp:86-93), not an
+    /// evidenced original symbol. Order-exact: CreateFaces(src num), memcpy num*6 bytes,
+    /// num_faces re-store, SetMaterial(src material); always I3D_OK (0). Reuses
+    /// `create_faces` (free-first) and `set_material` (release-old/store/retain-new).
+    /// Follows the `copy_material` word-return + poison discipline.
+    /// Host policy: the source array is cloned before the free-first prefix, so a
+    /// self-duplicate copies from the snapshot instead of freed storage (native has
+    /// no self-check and would copy from freed memory — the snapshot is a host
+    /// safety disclosure, not native mirroring). Manager-intake groups (no CPU
+    /// bytes) project as num_faces with an empty array: the count is duplicated,
+    /// the bytes stay backend-owned.
+    pub fn duplicate_face_group<B: VisualResourceBackend + ?Sized>(
+        &mut self,
+        destination: FaceGroupKey,
+        source: FaceGroupKey,
+        backend: &mut B,
+    ) -> Result<i32, VisualResourceOperationError<B::Error>> {
+        self.available()?;
+        let num = self.face_group(source)?.num_faces;
+        self.face_group(destination)?;
+        let material = self.face_group(source)?.material;
+        // Source snapshot before the destination mutation prefix (backend contract
+        // forbids synchronous arena mutation, so the clone cannot go stale).
+        let source_faces = self.face_group(source)?.faces.clone();
+        self.create_faces(destination, num, backend)?;
+        // create_faces sized the array to exactly num; the snapshot is at most
+        // num long (equal for CPU groups, empty for manager-intake groups), so
+        // no further reservation can fail here — the create_faces OOM path
+        // already covers real allocation failure.
+        let destination_record = self.face_group_mut(destination)?;
+        destination_record.faces.clear();
+        destination_record.faces.extend_from_slice(&source_faces);
+        destination_record.num_faces = num;
+        self.set_material(destination, material, backend)?;
+        Ok(0)
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6, RVA 0x30860.
+    /// Upstream working name I3D_face_group::DetachMaterial (mafia-re I3d_mesh.cpp:97-117), not an
+    /// evidenced original symbol. Order-exact: null or ref < 2 returns I3D_OK with no effects;
+    /// else create plain/animated material (MATF_ANIMATED 0x0400_0000 selects), Duplicate into
+    /// it (fail: release new + propagate), else release old + raw store (transferred creator
+    /// reference, no AddRef — deliberately not `set_material`). Create failure maps to the
+    /// native FATAL OOM (poison + OUTOFMEM word); Duplicate failure is non-fatal like the
+    /// native `return r` (host backend errors have no LS3D word, so `Err` + convention
+    /// poison). Native ref compare is signed i32; the u32 `>= 2` is equivalent over the
+    /// admitted non-negative domain.
+    pub fn detach_face_group_material<B: VisualResourceBackend + ?Sized>(
+        &mut self,
+        group: FaceGroupKey,
+        backend: &mut B,
+    ) -> Result<i32, VisualResourceOperationError<B::Error>> {
+        self.available()?;
+        let Some(source) = self.face_group(group)?.material else {
+            return Ok(0);
+        };
+        if self.material(source)?.references < 2 {
+            return Ok(0);
+        }
+        let animated = self.material(source)?.flags & 0x0400_0000 != 0;
+        let fresh = if animated {
+            self.create_animated_material()
+        } else {
+            self.create_material()
+        };
+        let fresh = match fresh {
+            Ok(key) => key,
+            Err(_) => {
+                self.poisoned = true;
+                return Ok(0x80000002u32 as i32);
+            }
+        };
+        if let Err(error) = self.copy_material(fresh, Some(source), backend) {
+            // Native mat->Release(): drop the partial duplicate's texture refs + record.
+            // Cleanup traffic poisons through backend() on its own; the Duplicate word wins.
+            if self.release_material_reference(fresh, backend).is_err() {
+                // Original error wins, exactly like the presaved-close helpers.
+            }
+            return Err(error);
+        }
+        self.release_material_reference(source, backend)?;
+        self.face_group_mut(group)?.material = Some(fresh);
+        Ok(0)
     }
     pub fn set_texture<B: VisualResourceBackend + ?Sized>(
         &mut self,
@@ -1487,6 +1765,180 @@ impl VisualResources {
         }
         result
     }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6, RVA 0x313f0.
+    /// Upstream working name I3D_mesh_object::GetLOD (mafia-re I3d_mesh.cpp:413-416), not an
+    /// evidenced original symbol. Single indexed load levels[index] (Ghidra listing
+    /// MOV EAX,[EAX+ECX*4+0xc]; RET 8; procedure null, vtable DATA xref .rdata:0x1009c034).
+    /// No native bound/null branch exists. Host guards mirror set_lod; slots returned
+    /// verbatim incl. None and above-num_lods residue. Read-only: available on poisoned arenas.
+    pub fn get_lod(
+        &self,
+        key: MeshObjectKey,
+        index: u32,
+    ) -> Result<Option<MeshLevelKey>, VisualResourceError> {
+        if index > i32::MAX as u32 {
+            return Err(VisualResourceError::UnsupportedLodIndex(index));
+        }
+        if index >= 10 {
+            return Err(VisualResourceError::InvalidLodIndex(index));
+        }
+        Ok(self.mesh_object(key)?.levels[index as usize])
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6, RVA 0x31750.
+    /// Upstream working name I3D_mesh_object::IsCompatible (mafia-re I3d_mesh.cpp:525-537), not an
+    /// evidenced original symbol. FULL ten-slot predicate (not num_lods prefix):
+    /// num_lods equality, per-slot null symmetry, num_vertices u32 equality
+    /// (listing CMP early-false; per-slot loop with vertex-count CMP; RET 8 both exits).
+    /// Float policy: no float participates — bbox, lod_dist, mesh_flags,
+    /// env_scale, materials, face counts ignored; NaN/-0.0 cannot affect it.
+    /// Read-only: available on poisoned arenas.
+    pub fn is_mesh_compatible(
+        &self,
+        first: MeshObjectKey,
+        second: MeshObjectKey,
+    ) -> Result<bool, VisualResourceError> {
+        let a = self.mesh_object(first)?;
+        let b = self.mesh_object(second)?;
+        if a.num_lods != b.num_lods {
+            return Ok(false);
+        }
+        for slot in 0..10 {
+            match (a.levels[slot], b.levels[slot]) {
+                (None, None) => {}
+                (None, Some(_)) | (Some(_), None) => return Ok(false),
+                (Some(x), Some(y)) => {
+                    if self.mesh_level(x)?.num_vertices != self.mesh_level(y)?.num_vertices {
+                        return Ok(false);
+                    }
+                }
+            }
+        }
+        Ok(true)
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6, RVA 0x317a0.
+    /// Upstream working name I3D_mesh_object::GetStats (mafia-re I3d_mesh.cpp:541-555), not an
+    /// evidenced original symbol. size 0x6c (listing MOV [EAX],0x6c); num_lods
+    /// PREFIX accumulation (unlike IsCompatible/Detach); NumFaces +0x10 vcall;
+    /// vertex_bytes = verts<<5 (I3D_vertex 32B), face_bytes = (faces*3)<<1
+    /// (I3D_triface 6B). wrapping_* reproduces 32-bit wrap; native has no
+    /// failure path. None inside the prefix is skipped (host admission; native
+    /// would fault). Read-only: available on poisoned arenas.
+    pub fn mesh_object_stats(
+        &self,
+        key: MeshObjectKey,
+    ) -> Result<I3dMeshStats, VisualResourceError> {
+        let object = self.mesh_object(key)?;
+        let mut verts = 0u32;
+        let mut faces = 0u32;
+        for slot in object
+            .levels
+            .iter()
+            .take(object.num_lods as usize)
+            .flatten()
+        {
+            let level = self.mesh_level(*slot)?;
+            verts = verts.wrapping_add(level.num_vertices);
+            let mut count = 0u32;
+            if let Some(head) = level.fgroups {
+                for group in self.chain(head)? {
+                    count = count.wrapping_add(self.face_group(group)?.num_faces);
+                }
+            }
+            faces = faces.wrapping_add(count);
+        }
+        Ok(I3dMeshStats {
+            size: 0x6c,
+            num_vertices: verts,
+            vertex_bytes: verts.wrapping_mul(32),
+            num_faces: faces,
+            face_bytes: faces.wrapping_mul(6),
+        })
+    }
+    /// G1-join note: the per-group body is the ported `detach_face_group_material`
+    /// in this same module (RVA 0x30860); the call shape (per-group i32 result,
+    /// release-then-store order) is already final.
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6, RVA 0x31700.
+    /// Upstream working name I3D_mesh_object::DetachMaterials (mafia-re I3d_mesh.cpp:509-521).
+    /// Full ten-slot loop (EBX 0..10, Ghidra +0x31731-38), null-level skip, per
+    /// group head→tail DetachMaterial vcall +0x18 with JL error exit (+0x31728);
+    /// first negative aborts and is returned, prefix retained. No failure words
+    /// of its own. Success is I3D_OK (0).
+    pub fn detach_mesh_materials<B: VisualResourceBackend + ?Sized>(
+        &mut self,
+        key: MeshObjectKey,
+        backend: &mut B,
+    ) -> Result<i32, VisualResourceOperationError<B::Error>> {
+        self.available()?;
+        let slots = self.mesh_object(key)?.levels;
+        let result = (|| {
+            for slot in slots.into_iter().flatten() {
+                if let Some(head) = self.mesh_level(slot)?.fgroups {
+                    for group in self.chain(head)? {
+                        let r = self.detach_face_group_material(group, backend)?;
+                        if r < 0 {
+                            return Ok::<_, VisualResourceOperationError<B::Error>>(r);
+                        }
+                    }
+                }
+            }
+            Ok(0)
+        })();
+        if result.is_err() {
+            self.poisoned = true;
+        }
+        result
+    }
+    /// Per-level content copy inside mesh Duplicate315e0: full record
+    /// duplicate (scalars + vertex count/bbox + per-group deep copy) via
+    /// duplicate_mesh_level (RVA 0x31000). Manager block allocation stays a
+    /// loader contract (levels carry bufferless records here; the managed
+    /// allocate_level_vertices owns the block).
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6, RVA 0x315e0.
+    /// Upstream working name I3D_mesh_object::Duplicate (mafia-re I3d_mesh.cpp:471-505).
+    /// Order-exact: self-copy no-op (CMP/JZ +0x315ec); release ALL ten slots then
+    /// num_lods=0/null clear (clear_duplicate_mesh); null source resets bounds
+    /// plus u/v ofs (reset_empty_mesh_bounds; env ofs untouched per listing
+    /// writes at duplicate-offset 0x48-63); else ascending per-slot CreateMeshLevel (OOM words !!
+    /// Out of memory  I3D_mesh_object::Duplicate() + I3DERR_OUTOFMEM 0x80000002),
+    /// level Duplicate (backend failures propagate as Err with the installed
+    /// prefix retained; the created level is left unowned as natively leaked),
+    /// SetLOD (re-runs bound update per slot) + Release.
+    /// A set_lod failure after a successful level duplicate likewise strands
+    /// the fresh level live-but-unowned on the (possibly poisoned) arena, as
+    /// does a release failure after a successful install; all strandings are
+    /// host-visible for inspection, never replayed.
+    /// Host guards (create_mesh_level/available) have no native branch; the
+    /// per-level content copy is full (duplicate_mesh_level: scalars, vertex
+    /// count/bbox, per-group deep copy) with manager allocation as loader contract.
+    pub fn duplicate_mesh_object<B: VisualResourceBackend + ?Sized>(
+        &mut self,
+        destination: MeshObjectKey,
+        source: Option<MeshObjectKey>,
+        backend: &mut B,
+    ) -> Result<i32, VisualResourceOperationError<B::Error>> {
+        self.available()?;
+        self.mesh_object(destination)?;
+        if let Some(source) = source {
+            self.mesh_object(source)?;
+        }
+        if Some(destination) == source {
+            return Ok(0);
+        }
+        self.clear_duplicate_mesh(destination, backend)?;
+        let Some(source) = source else {
+            self.reset_empty_mesh_bounds(destination)?;
+            return Ok(0);
+        };
+        let slots = self.mesh_object(source)?.levels;
+        for (index, slot) in slots.into_iter().enumerate() {
+            let Some(level) = slot else { continue };
+            let fresh = self.create_mesh_level()?;
+            self.duplicate_mesh_level(fresh, Some(level), backend)?;
+            self.set_lod(destination, Some(fresh), index as u32, backend)?;
+            self.release_mesh_level(fresh, backend)?;
+        }
+        Ok(0)
+    }
 }
 
 impl VisualResources {
@@ -1773,6 +2225,18 @@ impl VisualResources {
     }
 }
 
+/// Upstream working name I3D_mesh_stats (mafia-re I3d_mesh.cpp:328,541),
+/// not an evidenced original symbol. All words are u32; accumulation and
+/// scaling wrap exactly as the native 32-bit ADD/SHL/LEA sequence
+/// (GetStats311e0 / GetStats317a0).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct I3dMeshStats {
+    pub size: u32,
+    pub num_vertices: u32,
+    pub vertex_bytes: u32,
+    pub num_faces: u32,
+    pub face_bytes: u32,
+}
 impl VisualResources {
     /// Reached AddFGroup31220 branch with the original append argument set.
     /// Material-derived flags/scale precede linking; a numeric exclusion keeps
@@ -1829,6 +2293,298 @@ impl VisualResources {
         }
         self.mesh_level_mut(level)?.num_fgroups = count;
         Ok(())
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// RVA 0x31180. Upstream working name I3D_mesh_level::GetFGroup
+    /// (mafia-re I3d_mesh.cpp:304-314), not an evidenced original symbol.
+    /// Signed index: negatives take the same invalid-index path as the
+    /// original's unsigned compare. The chain walk trusts num_fgroups.
+    /// Native logs `!! Invalid index:%d > FaceGroupCount:%d )` (note the
+    /// typo) and returns NULL; the host returns Ok(None). Read-only: no
+    /// poison gate (pure reads stay available, same rule as get_lod).
+    pub fn face_group_at(
+        &self,
+        level: MeshLevelKey,
+        index: i32,
+    ) -> Result<Option<FaceGroupKey>, VisualResourceError> {
+        let level_state = self.mesh_level(level)?;
+        if index < 0 || (index as u32) >= level_state.num_fgroups {
+            return Ok(None);
+        }
+        let mut at = level_state.fgroups;
+        for _ in 0..index {
+            at = self
+                .face_group(at.ok_or(VisualResourceError::InvalidFaceGroupChain)?)?
+                .next;
+        }
+        Ok(at)
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// RVA 0x311c0. Upstream working name I3D_mesh_level::NumFaces
+    /// (mafia-re I3d_mesh.cpp:318-324), not an evidenced original symbol.
+    /// Sums num_faces over the group chain with u32 wrapping_add, exactly as
+    /// the native 32-bit ADD sequence (same policy as mesh_object_stats and
+    /// mesh_level_stats: native wraps, so the host wraps).
+    pub fn count_mesh_level_faces(&self, level: MeshLevelKey) -> Result<u32, VisualResourceError> {
+        let mut total = 0u32;
+        if let Some(head) = self.mesh_level(level)?.fgroups {
+            for group in self.chain(head)? {
+                total = total.wrapping_add(self.face_group(group)?.num_faces);
+            }
+        }
+        Ok(total)
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// RVA 0x311e0. Upstream working name I3D_mesh_level::GetStats
+    /// (mafia-re I3d_mesh.cpp:328-337), not an evidenced original symbol.
+    /// Word map: size 0x44 (sizeof level), num_vertices, vertex_bytes =
+    /// num<<5 (sizeof I3D_vertex 32), num_faces via the group chain,
+    /// face_bytes = faces*6 (sizeof I3D_triface 6 = 3 u16 indices).
+    /// Accumulation and scaling use wrapping_add/wrapping_mul, exactly as
+    /// the native 32-bit sequence (same policy as mesh_object_stats).
+    pub fn mesh_level_stats(
+        &self,
+        level: MeshLevelKey,
+    ) -> Result<I3dMeshStats, VisualResourceError> {
+        let state = self.mesh_level(level)?;
+        let mut faces = 0u32;
+        if let Some(head) = state.fgroups {
+            for group in self.chain(head)? {
+                faces = faces.wrapping_add(self.face_group(group)?.num_faces);
+            }
+        }
+        let verts = state.num_vertices;
+        Ok(I3dMeshStats {
+            size: 0x44,
+            num_vertices: verts,
+            vertex_bytes: verts.wrapping_mul(32),
+            num_faces: faces,
+            face_bytes: faces.wrapping_mul(6),
+        })
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// RVA 0x31220. Upstream working name I3D_mesh_level::AddFGroup
+    /// (mafia-re I3d_mesh.cpp:341-376), not an evidenced original symbol.
+    /// Shares the material prologue (flags/scale stores) with
+    /// `append_duplicate_group` and adds the `last=false` prepend branch
+    /// plus the range/alpha gate: append iff the material is translucent
+    /// (flags > 0x1000_0000 or alpha < 1.0) or `last` is set, else prepend
+    /// (old head retagged to Next(new)). NaN policy: ordered comparisons
+    /// reproduce FCOMP — a NaN alpha is unordered, so it prepends unless
+    /// `last`. The existing NumericDomain guard on env_scale is host policy
+    /// (native stores the x87 result unchecked — 1-ulp/div-by-zero
+    /// divergence recorded OPEN). Like `append_duplicate_group`, a numeric
+    /// exclusion retains the completed prologue flag stores and leaves the
+    /// group unattached with the count unchanged.
+    pub fn add_mesh_level_group(
+        &mut self,
+        level: MeshLevelKey,
+        group: FaceGroupKey,
+        last: bool,
+    ) -> Result<(), VisualResourceError> {
+        self.available()?;
+        let new = self.face_group(group)?;
+        if new.owner.is_some() || new.next.is_some() {
+            return Err(VisualResourceError::FaceGroupOwned(group));
+        }
+        let flags = new
+            .material
+            .map(|key| self.material(key).map(|m| (m.flags, m.alpha)))
+            .transpose()?;
+        let count = self
+            .mesh_level(level)?
+            .num_fgroups
+            .checked_add(1)
+            .ok_or(VisualResourceError::IdentityOverflow)?;
+        if let Some((flags, _alpha)) = flags {
+            if flags & 0x40000 != 0 {
+                self.mesh_level_mut(level)?.mesh_flags |= 0x10;
+            }
+            if flags & 0x8000000 != 0 {
+                self.mesh_level_mut(level)?.mesh_flags |= 0x20;
+            }
+            if flags & 0x80000 != 0 {
+                let r = self.mesh_level_mut(level)?;
+                r.mesh_flags = ((r.mesh_flags | 8) & !7) | ((flags >> 12) & 7);
+                let scale = f32::from_bits(0x403504f3) / (flags & 255) as f32;
+                if !(scale == 0. || scale.is_normal()) {
+                    self.poisoned = true;
+                    return Err(VisualResourceError::MeshBounds(
+                        MeshBoundsError::NumericDomain("LOD environment scale"),
+                    ));
+                }
+                self.mesh_level_mut(level)?.env_scale = scale;
+            }
+        }
+        let append = flags.is_some_and(|(f, a)| f > 0x1000_0000 || a < 1.0) || last;
+        if let Some(head) = self.mesh_level(level)?.fgroups {
+            if append {
+                let tail = *self
+                    .chain(head)?
+                    .last()
+                    .ok_or(VisualResourceError::InvalidFaceGroupChain)?;
+                self.face_group_mut(tail)?.next = Some(group);
+                self.face_group_mut(group)?.owner = Some(FaceGroupOwner::Next(tail));
+            } else {
+                self.face_group_mut(group)?.next = Some(head);
+                self.face_group_mut(group)?.owner = Some(FaceGroupOwner::MeshLevel(level));
+                self.face_group_mut(head)?.owner = Some(FaceGroupOwner::Next(group));
+                self.mesh_level_mut(level)?.fgroups = Some(group);
+            }
+        } else {
+            self.mesh_level_mut(level)?.fgroups = Some(group);
+            self.face_group_mut(group)?.owner = Some(FaceGroupOwner::MeshLevel(level));
+        }
+        self.mesh_level_mut(level)?.num_fgroups = count;
+        Ok(())
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// RVA 0x30b40. Upstream working name I3D_mesh_level::SetVertexMesh
+    /// (mafia-re I3d_mesh.cpp:182-203), not an evidenced original symbol.
+    /// Order-exact record half: m_Free old block (backend free_vertex_block),
+    /// zero vb head, null verts -> num 0 + Invalidate + I3D_OK; else byte-count
+    /// check (num*32, host admission; native trusts the count), num store,
+    /// UpdateBBox tail, I3D_OK. The native m_Alloc(0x112/0x10/0x20) manager
+    /// allocation and rep-movs byte copy are loader contracts (managed
+    /// allocate_level_vertices owns the block; the bbox recompute consumes the
+    /// same caller bytes) — this method stores the count and bbox only.
+    /// OOM word (!! Out of memory    I3D_mesh_level::SetVertexMesh() +
+    /// ErrorHandler(0x80000002,3,NULL)) is evidenced in comments; the host maps
+    /// allocation failures to Err + poison via backend(). Always I3D_OK (0) here.
+    pub fn set_mesh_level_vertices<B: VisualResourceBackend + ?Sized>(
+        &mut self,
+        level: MeshLevelKey,
+        verts: Option<&[u8]>,
+        num: u32,
+        backend: &mut B,
+    ) -> Result<i32, VisualResourceOperationError<B::Error>> {
+        self.available()?;
+        if num > i32::MAX as u32 {
+            return Err(VisualResourceError::InvalidExternalIdentity.into());
+        }
+        if let Some(bytes) = verts {
+            let expected = (num as usize).checked_mul(32).ok_or_else(|| {
+                VisualResourceOperationError::<B::Error>::Resource(
+                    VisualResourceError::InvalidExternalIdentity,
+                )
+            })?;
+            if bytes.len() != expected {
+                return Err(VisualResourceError::InvalidVertexStorage.into());
+            }
+        }
+        let block = self.mesh_level(level)?.vertex_buffer;
+        self.backend(backend.free_vertex_block(level, block))?;
+        let current = self.mesh_level_mut(level)?;
+        current.vertex_buffer = CompleteVertexBuffer::default();
+        current.num_vertices = 0;
+        current.bbox = Self::INVALID_MESH_BOUNDS;
+        let Some(bytes) = verts else {
+            return Ok(0);
+        };
+        self.mesh_level_mut(level)?.num_vertices = num;
+        self.update_mesh_level_bbox_from_bytes(level, bytes, 32)
+            .map_err(VisualResourceOperationError::Resource)?;
+        Ok(0)
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// RVA 0x30d00. Upstream working name I3D_mesh_level::CreateVertexMesh
+    /// (mafia-re I3d_mesh.cpp:207-226), not an evidenced original symbol.
+    /// Same free+zero prologue as SetVertexMesh; num==0 stores num 0 plus
+    /// Invalidate and reports unlocked (false), else stores num and reports
+    /// locked (true). The native tail returns the acquired Lock pointer
+    /// (locked plus stride*base); the host projects the pointer to bool
+    /// (documented pointer-to-bool projection).
+    /// Native does NOT call UpdateBBox here, so bbox is untouched. Manager
+    /// allocation + old-lock release + slot registry are loader/manager
+    /// contracts (see allocate_level_vertices / lock_level_vertices).
+    pub fn create_mesh_level_vertices<B: VisualResourceBackend + ?Sized>(
+        &mut self,
+        level: MeshLevelKey,
+        num: u32,
+        backend: &mut B,
+    ) -> Result<bool, VisualResourceOperationError<B::Error>> {
+        self.available()?;
+        if num > i32::MAX as u32 {
+            return Err(VisualResourceError::InvalidExternalIdentity.into());
+        }
+        let block = self.mesh_level(level)?.vertex_buffer;
+        self.backend(backend.free_vertex_block(level, block))?;
+        let current = self.mesh_level_mut(level)?;
+        current.vertex_buffer = CompleteVertexBuffer::default();
+        current.num_vertices = 0;
+        if num == 0 {
+            current.bbox = Self::INVALID_MESH_BOUNDS;
+            return Ok(false);
+        }
+        self.mesh_level_mut(level)?.num_vertices = num;
+        Ok(true)
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// RVA 0x31000. Upstream working name I3D_mesh_level::Duplicate
+    /// (mafia-re I3d_mesh.cpp:264-300), not an evidenced original symbol.
+    /// Order-exact: self-assign -> 0; destroy old fgroups chain + m_Free +
+    /// zero vb; null src -> head NULL, num 0, ngroups 0, Invalidate,
+    /// lod_dist 0, return 0; else scalars-first (mesh_flags/env_scale/lod_dist),
+    /// vertex count + bbox verbatim (record equivalent of the
+    /// SetVertexMesh(Lock(src), num) + fail-prefix step; manager block copy is
+    /// a loader contract), per-group new + Duplicate + AddFGroup(last=true),
+    /// return 0. A group failure destroys the partial group (native frees it)
+    /// and propagates with the appended prefix retained; the destroy is
+    /// best-effort — a no-op when the failure already poisoned the arena
+    /// (destroy_face_group gates on available()), in which case the partial
+    /// group strands live-but-unowned, host-visible, never replayed. Follows
+    /// the copy_material word-return + poison discipline.
+    pub fn duplicate_mesh_level<B: VisualResourceBackend + ?Sized>(
+        &mut self,
+        destination: MeshLevelKey,
+        source: Option<MeshLevelKey>,
+        backend: &mut B,
+    ) -> Result<i32, VisualResourceOperationError<B::Error>> {
+        self.available()?;
+        self.mesh_level(destination)?;
+        if let Some(source) = source {
+            self.mesh_level(source)?;
+        }
+        if Some(destination) == source {
+            return Ok(0);
+        }
+        if let Some(head) = self.mesh_level(destination)?.fgroups {
+            let chain = self.chain(head)?;
+            self.destroy_chain(&chain, backend)?;
+        }
+        let block = self.mesh_level(destination)?.vertex_buffer;
+        self.backend(backend.free_vertex_block(destination, block))?;
+        let current = self.mesh_level_mut(destination)?;
+        current.vertex_buffer = CompleteVertexBuffer::default();
+        current.num_vertices = 0;
+        current.fgroups = None;
+        current.num_fgroups = 0;
+        current.bbox = Self::INVALID_MESH_BOUNDS;
+        current.lod_dist = 0.0;
+        let Some(source) = source else {
+            return Ok(0);
+        };
+        self.copy_mesh_level_scalar_fields(destination, source)?;
+        let (num, bbox) = {
+            let src = self.mesh_level(source)?;
+            (src.num_vertices, src.bbox)
+        };
+        self.mesh_level_mut(destination)?.num_vertices = num;
+        self.mesh_level_mut(destination)?.bbox = bbox;
+        let groups = if let Some(head) = self.mesh_level(source)?.fgroups {
+            self.chain(head)?
+        } else {
+            Vec::new()
+        };
+        for group in groups {
+            let fresh = self.create_face_group()?;
+            if let Err(error) = self.duplicate_face_group(fresh, group, backend) {
+                let _ = self.destroy_face_group(fresh, backend);
+                return Err(error);
+            }
+            self.add_mesh_level_group(destination, fresh, true)?;
+        }
+        Ok(0)
     }
 }
 
@@ -4032,5 +4788,943 @@ mod tests {
         assert_eq!(backend.events.len(), before);
         assert!(!resources.is_poisoned());
         assert!(resources.material(dst).unwrap().animation.is_some());
+    }
+    fn triface_vectors() -> Vec<I3dTriface> {
+        vec![[1, 2, 3], [4, 5, 0xFFFF], [0, 0, 7]]
+    }
+    #[test]
+    fn set_faces_copies_triface_bytes_with_lock_pairing() {
+        // RVA 0x305b0: null clears, else alloc + 6-bytes/face copy + counted
+        // store; GetFaces serves the live array with the lock flag.
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let group = resources.create_face_group().unwrap();
+        // GetFaces on an empty group is the native NULL (not an error).
+        assert_eq!(resources.get_faces(group).unwrap(), None);
+        resources
+            .set_faces(group, Some(&triface_vectors()), &mut backend)
+            .unwrap();
+        assert_eq!(resources.face_group(group).unwrap().num_faces, 3);
+        let locked = resources.get_faces(group).unwrap().unwrap().to_vec();
+        assert_eq!(locked, triface_vectors());
+        assert!(resources.face_group(group).unwrap().faces_locked);
+        resources.unlock_faces(group).unwrap();
+        assert!(!resources.face_group(group).unwrap().faces_locked);
+        // Unlock without a held lock is the native unconditional Unlock (no-op here).
+        resources.unlock_faces(group).unwrap();
+        // Byte stride: 3 faces x 3 u16 = 18 bytes total, 6 per face.
+        assert_eq!(resources.face_group(group).unwrap().faces.len(), 3);
+    }
+    #[test]
+    fn set_faces_none_clears_and_reports_free_effect() {
+        // RVA 0x305b0 null branch: free + zero + num 0, no allocation.
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let group = resources.create_face_group().unwrap();
+        resources
+            .set_faces(group, Some(&triface_vectors()), &mut backend)
+            .unwrap();
+        backend.events.clear();
+        resources.set_faces(group, None, &mut backend).unwrap();
+        assert_eq!(resources.face_group(group).unwrap().num_faces, 0);
+        assert_eq!(resources.get_faces(group).unwrap(), None);
+        assert!(resources.face_group(group).unwrap().faces.is_empty());
+        assert_eq!(
+            backend.events,
+            vec![Event::Index(group, CompleteIndexBuffer::default())]
+        );
+    }
+    #[test]
+    fn create_faces_zeroes_and_rejects_wrapped_counts() {
+        // RVA 0x30610: free-first, zeroed store, num store; wrapped counts
+        // rejected before effects (existing arena admission).
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let group = resources.create_face_group().unwrap();
+        resources.create_faces(group, 2, &mut backend).unwrap();
+        assert_eq!(
+            resources.get_faces(group).unwrap().unwrap(),
+            &[[0, 0, 0], [0, 0, 0]]
+        );
+        resources.unlock_faces(group).unwrap();
+        let before = resources.face_group(group).unwrap().clone();
+        assert_eq!(
+            resources.create_faces(group, i32::MAX as u32 + 1, &mut backend),
+            Err(VisualResourceOperationError::Resource(
+                VisualResourceError::InvalidExternalIdentity
+            ))
+        );
+        // Pre-count rejection: no effects, no poison.
+        assert!(!resources.is_poisoned());
+        assert_eq!(resources.face_group(group).unwrap(), &before);
+    }
+    #[test]
+    fn create_faces_backend_failure_poisons_with_residue() {
+        // Free-first ordering: the free failed, so the old array is intact.
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let group = resources.create_face_group().unwrap();
+        resources
+            .set_faces(group, Some(&triface_vectors()), &mut backend)
+            .unwrap();
+        backend.fail_before = Some(backend.events.len() + 1);
+        assert!(resources.create_faces(group, 5, &mut backend).is_err());
+        assert!(resources.is_poisoned());
+        assert_eq!(resources.face_group(group).unwrap().num_faces, 3);
+        assert_eq!(
+            resources.face_group(group).unwrap().faces,
+            triface_vectors()
+        );
+        // Read-only inspection of the interrupted prefix still works.
+        assert!(resources.face_group(group).is_ok());
+        assert_eq!(
+            resources.create_faces(group, 1, &mut backend),
+            Err(VisualResourceOperationError::Resource(
+                VisualResourceError::Poisoned
+            ))
+        );
+    }
+    #[test]
+    fn duplicate_copies_bytes_and_shares_material() {
+        // RVA 0x30800: CreateFaces(src num), memcpy num*6, num re-store,
+        // SetMaterial(src material); always I3D_OK.
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let material = resources.create_material().unwrap();
+        let source = resources.create_face_group().unwrap();
+        let destination = resources.create_face_group().unwrap();
+        resources
+            .set_material(source, Some(material), &mut backend)
+            .unwrap();
+        resources
+            .set_faces(source, Some(&triface_vectors()), &mut backend)
+            .unwrap();
+        resources.release_material(material, &mut backend).unwrap();
+        assert_eq!(
+            resources
+                .duplicate_face_group(destination, source, &mut backend)
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            resources.face_group(destination).unwrap().faces,
+            triface_vectors()
+        );
+        assert_eq!(resources.face_group(destination).unwrap().num_faces, 3);
+        assert_eq!(
+            resources.face_group(destination).unwrap().material,
+            Some(material)
+        );
+        assert_eq!(resources.material(material).unwrap().references, 2);
+        // Self-duplicate copies from the pre-prefix snapshot (host policy,
+        // not native mirroring): bytes, count and material all survive.
+        assert_eq!(
+            resources
+                .duplicate_face_group(source, source, &mut backend)
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            resources.face_group(source).unwrap().faces,
+            triface_vectors()
+        );
+        assert_eq!(resources.face_group(source).unwrap().num_faces, 3);
+    }
+    #[test]
+    fn duplicate_unknown_keys_have_no_effects() {
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let live = resources.create_face_group().unwrap();
+        resources
+            .set_faces(live, Some(&triface_vectors()), &mut backend)
+            .unwrap();
+        let foreign = FaceGroupKey {
+            arena: live.arena() + 1,
+            slot: live.slot(),
+        };
+        assert!(resources
+            .duplicate_face_group(live, foreign, &mut backend)
+            .is_err());
+        assert!(resources
+            .duplicate_face_group(foreign, live, &mut backend)
+            .is_err());
+        assert!(!resources.is_poisoned());
+        assert_eq!(resources.face_group(live).unwrap().faces, triface_vectors());
+    }
+    #[test]
+    fn duplicate_manager_intake_group_projects_count_with_empty_bytes() {
+        // RVA 0x30800 over manager-intake storage (install_index_block, no CPU
+        // bytes): the count is duplicated, the bytes stay backend-owned.
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let source = resources.create_face_group().unwrap();
+        let destination = resources.create_face_group().unwrap();
+        resources
+            .install_index_block(source, 4, CompleteIndexBuffer::default())
+            .unwrap();
+        assert_eq!(
+            resources
+                .duplicate_face_group(destination, source, &mut backend)
+                .unwrap(),
+            0
+        );
+        assert_eq!(resources.face_group(destination).unwrap().num_faces, 4);
+        assert!(resources.face_group(destination).unwrap().faces.is_empty());
+        assert_eq!(
+            resources.get_faces(destination).unwrap().unwrap(),
+            &[] as &[I3dTriface]
+        );
+        resources.unlock_faces(destination).unwrap();
+        assert!(!resources.is_poisoned());
+    }
+    #[test]
+    fn detach_material_fast_paths_share_words() {
+        // RVA 0x30860: null or ref < 2 returns I3D_OK with no effects.
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let bare = resources.create_face_group().unwrap();
+        assert_eq!(
+            resources
+                .detach_face_group_material(bare, &mut backend)
+                .unwrap(),
+            0
+        );
+        // Single owner (references == 1): no-op, same key.
+        let material = resources.create_material().unwrap();
+        let single = resources.create_face_group().unwrap();
+        resources
+            .set_material(single, Some(material), &mut backend)
+            .unwrap();
+        resources.release_material(material, &mut backend).unwrap();
+        assert_eq!(resources.material(material).unwrap().references, 1);
+        assert_eq!(
+            resources
+                .detach_face_group_material(single, &mut backend)
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            resources.face_group(single).unwrap().material,
+            Some(material)
+        );
+    }
+    #[test]
+    fn detach_shared_material_duplicates_scalars_with_release_order() {
+        // RVA 0x30860 shared path: create + Duplicate + release-old + raw store.
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let material = resources.create_material().unwrap();
+        resources
+            .set_material_ambient(material, [0.1, 0.2, 0.3])
+            .unwrap();
+        resources.set_material_alpha(material, 0.5).unwrap();
+        let first = resources.create_face_group().unwrap();
+        let second = resources.create_face_group().unwrap();
+        resources
+            .set_material(first, Some(material), &mut backend)
+            .unwrap();
+        resources
+            .set_material(second, Some(material), &mut backend)
+            .unwrap();
+        resources.release_material(material, &mut backend).unwrap();
+        assert_eq!(resources.material(material).unwrap().references, 2);
+        assert_eq!(
+            resources
+                .detach_face_group_material(first, &mut backend)
+                .unwrap(),
+            0
+        );
+        let fresh = resources.face_group(first).unwrap().material.unwrap();
+        assert_ne!(fresh, material);
+        assert_eq!(
+            resources.face_group(second).unwrap().material,
+            Some(material)
+        );
+        // Old shared reference released once; new record keeps its creator reference.
+        assert_eq!(resources.material(material).unwrap().references, 1);
+        assert_eq!(resources.material(fresh).unwrap().references, 1);
+        assert_eq!(resources.material(fresh).unwrap().ambient, [0.1, 0.2, 0.3]);
+        assert_eq!(resources.material(fresh).unwrap().alpha, 0.5);
+        assert!(!resources.is_poisoned());
+    }
+    #[test]
+    fn detach_shared_animated_material_derives_frames() {
+        // MATF_ANIMATED selects the animated constructor for the duplicate.
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let material = resources.create_animated_material().unwrap();
+        let first = resources.create_face_group().unwrap();
+        let second = resources.create_face_group().unwrap();
+        resources
+            .set_material(first, Some(material), &mut backend)
+            .unwrap();
+        resources
+            .set_material(second, Some(material), &mut backend)
+            .unwrap();
+        resources.release_material(material, &mut backend).unwrap();
+        assert_eq!(
+            resources
+                .detach_face_group_material(first, &mut backend)
+                .unwrap(),
+            0
+        );
+        let fresh = resources.face_group(first).unwrap().material.unwrap();
+        assert_ne!(fresh, material);
+        assert!(resources.material(fresh).unwrap().animation.is_some());
+        assert_eq!(
+            resources.material(fresh).unwrap().flags & 0x0400_0000,
+            0x0400_0000
+        );
+    }
+    #[test]
+    fn detach_copy_failure_releases_new_and_poisons_with_prefix() {
+        // Duplicate failure: release the partial duplicate, propagate the word.
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let texture = backend.texture(7, 0);
+        let material = resources.create_material().unwrap();
+        resources
+            .set_texture(material, Some(texture), &mut backend)
+            .unwrap();
+        let first = resources.create_face_group().unwrap();
+        let second = resources.create_face_group().unwrap();
+        resources
+            .set_material(first, Some(material), &mut backend)
+            .unwrap();
+        resources
+            .set_material(second, Some(material), &mut backend)
+            .unwrap();
+        resources.release_material(material, &mut backend).unwrap();
+        // Fail the retain inside the duplicate copy (next backend event).
+        backend.fail_before = Some(backend.events.len() + 1);
+        assert!(resources
+            .detach_face_group_material(first, &mut backend)
+            .is_err());
+        assert!(resources.is_poisoned());
+        // Old shared record intact; the partial duplicate record is gone.
+        assert_eq!(
+            resources.face_group(first).unwrap().material,
+            Some(material)
+        );
+        assert_eq!(resources.material(material).unwrap().references, 2);
+        assert_eq!(resources.material(material).unwrap().texture, Some(texture));
+        let live_materials: Vec<_> = resources.materials().map(|(key, _)| key).collect();
+        assert_eq!(live_materials, vec![material]);
+    }
+    fn mesh_with_levels(
+        resources: &mut VisualResources,
+        backend: &mut Backend,
+        boxes: &[[[f32; 3]; 2]],
+    ) -> (MeshObjectKey, Vec<MeshLevelKey>) {
+        let mesh = resources.create_mesh_object().unwrap();
+        let mut levels = Vec::new();
+        for (i, bbox) in boxes.iter().enumerate() {
+            let level = resources.create_mesh_level().unwrap();
+            resources.mesh_level_mut(level).unwrap().num_vertices = (i as u32 + 1) * 4;
+            resources.install_mesh_level_bbox(level, *bbox).unwrap();
+            resources
+                .set_lod(mesh, Some(level), i as u32, backend)
+                .unwrap();
+            resources.release_mesh_level(level, backend).unwrap();
+            levels.push(level);
+        }
+        (mesh, levels)
+    }
+    #[test]
+    fn get_lod_returns_verbatim_slots_and_guards_indices() {
+        // RVA 0x313f0: single indexed load, no clamp; host guards mirror set_lod.
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let (mesh, levels) =
+            mesh_with_levels(&mut resources, &mut backend, &[([[0.; 3], [1.; 3]])]);
+        assert_eq!(resources.get_lod(mesh, 0).unwrap(), Some(levels[0]));
+        assert_eq!(resources.get_lod(mesh, 1).unwrap(), None);
+        // Above-num_lods residue reads back verbatim (native has no clamp).
+        resources.mesh_object_mut(mesh).unwrap().levels[5] = Some(levels[0]);
+        assert_eq!(resources.get_lod(mesh, 5).unwrap(), Some(levels[0]));
+        assert_eq!(
+            resources.get_lod(mesh, 10).unwrap_err(),
+            VisualResourceError::InvalidLodIndex(10)
+        );
+        assert_eq!(
+            resources.get_lod(mesh, i32::MAX as u32 + 1).unwrap_err(),
+            VisualResourceError::UnsupportedLodIndex(i32::MAX as u32 + 1)
+        );
+        // Read-only on poisoned arenas (poisoned via backend failure, not field writes).
+        let scratch = resources.create_material().unwrap();
+        let tex = backend.texture(41, 0);
+        resources
+            .set_texture(scratch, Some(tex), &mut backend)
+            .unwrap();
+        backend.fail_after_release = true;
+        let _ = resources.release_material(scratch, &mut backend);
+        assert!(resources.is_poisoned());
+        assert_eq!(resources.get_lod(mesh, 0).unwrap(), Some(levels[0]));
+    }
+    #[test]
+    fn is_mesh_compatible_matrix_and_float_robustness() {
+        // RVA 0x31750: num_lods + full ten-slot null/vertex-count predicate.
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let (a, _) = mesh_with_levels(
+            &mut resources,
+            &mut backend,
+            &[([[0.; 3], [1.; 3]]), ([[0.; 3], [2.; 3]])],
+        );
+        let (b, bl) = mesh_with_levels(
+            &mut resources,
+            &mut backend,
+            &[([[9.; 3], [9.; 3]]), ([[9.; 3], [9.; 3]])],
+        );
+        // Same vertex counts (4, 8) despite different boxes → compatible.
+        assert!(resources.is_mesh_compatible(a, b).unwrap());
+        // NaN / signed-zero / lod_dist / flag differences never participate.
+        resources
+            .install_mesh_level_bbox(bl[0], [[f32::NAN; 3], [f32::NAN; 3]])
+            .unwrap();
+        resources.mesh_level_mut(bl[0]).unwrap().lod_dist = f32::NAN;
+        resources.mesh_level_mut(bl[1]).unwrap().mesh_flags = u32::MAX;
+        resources.mesh_level_mut(bl[1]).unwrap().env_scale = -0.0;
+        assert!(resources.is_mesh_compatible(a, b).unwrap());
+        assert!(resources.is_mesh_compatible(b, a).unwrap());
+        // Vertex-count divergence at slot 1.
+        resources.mesh_level_mut(bl[1]).unwrap().num_vertices = 7;
+        assert!(!resources.is_mesh_compatible(a, b).unwrap());
+        resources.mesh_level_mut(bl[1]).unwrap().num_vertices = 8;
+        // num_lods divergence via truncation.
+        resources.set_lod(b, None, 1, &mut backend).unwrap();
+        assert!(!resources.is_mesh_compatible(a, b).unwrap());
+        let (c, cl) = mesh_with_levels(&mut resources, &mut backend, &[([[0.; 3], [1.; 3]])]);
+        resources.set_lod(c, Some(cl[0]), 9, &mut backend).unwrap();
+        let (d, dl) = mesh_with_levels(&mut resources, &mut backend, &[([[0.; 3], [1.; 3]])]);
+        resources.set_lod(d, Some(dl[0]), 9, &mut backend).unwrap();
+        assert!(resources.is_mesh_compatible(c, d).unwrap());
+        // Synthetic null probe with num_lods held at 10: genuine slot-9 asymmetry.
+        resources.mesh_object_mut(d).unwrap().levels[9] = None;
+        assert_eq!(resources.mesh_object(d).unwrap().num_lods, 10);
+        assert!(!resources.is_mesh_compatible(c, d).unwrap());
+        assert!(!resources.is_mesh_compatible(d, c).unwrap());
+        // Empty pair compatible.
+        let e = resources.create_mesh_object().unwrap();
+        let f = resources.create_mesh_object().unwrap();
+        assert!(resources.is_mesh_compatible(e, f).unwrap());
+    }
+    #[test]
+    fn mesh_object_stats_prefix_sums_and_scaling() {
+        // RVA 0x317a0: size 0x6c, num_lods-prefix sums, verts<<5, faces*6.
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let empty = resources.create_mesh_object().unwrap();
+        assert_eq!(
+            resources.mesh_object_stats(empty).unwrap(),
+            I3dMeshStats {
+                size: 0x6c,
+                num_vertices: 0,
+                vertex_bytes: 0,
+                num_faces: 0,
+                face_bytes: 0,
+            }
+        );
+        let g0 = resources.create_face_group().unwrap();
+        let g1 = resources.create_face_group().unwrap();
+        resources.link_next(g0, g1).unwrap();
+        let level = resources.create_mesh_level().unwrap();
+        resources
+            .install_mesh_level_storage(level, 4, CompleteVertexBuffer::default(), Some(g0))
+            .unwrap();
+        resources.face_group_mut(g0).unwrap().num_faces = 2;
+        resources.face_group_mut(g1).unwrap().num_faces = 3;
+        resources
+            .install_mesh_level_bbox(level, [[0.; 3], [1.; 3]])
+            .unwrap();
+        let mesh = resources.create_mesh_object().unwrap();
+        resources
+            .set_lod(mesh, Some(level), 0, &mut backend)
+            .unwrap();
+        resources
+            .set_lod(mesh, Some(level), 2, &mut backend)
+            .unwrap();
+        resources.release_mesh_level(level, &mut backend).unwrap();
+        // Prefix covers slots 0..3 (slot 1 None skipped by host admission).
+        let stats = resources.mesh_object_stats(mesh).unwrap();
+        assert_eq!(stats.size, 0x6c);
+        assert_eq!((stats.num_vertices, stats.num_faces), (8, 10));
+        assert_eq!((stats.vertex_bytes, stats.face_bytes), (8 * 32, 10 * 6));
+        // Slot above num_lods is excluded (differs from IsCompatible/Detach).
+        // Hidden alias uses a separately owned level so release accounting stays
+        // exact (aliasing the same level would double-release one record).
+        let hidden = resources.create_mesh_level().unwrap();
+        resources.mesh_object_mut(mesh).unwrap().levels[7] = Some(hidden);
+        assert_eq!(resources.mesh_object_stats(mesh).unwrap(), stats);
+        resources.mesh_object_mut(mesh).unwrap().levels[7] = None;
+        resources.release_mesh_level(hidden, &mut backend).unwrap();
+        assert_eq!(resources.release_mesh_object(mesh, &mut backend), Ok(0));
+    }
+    #[test]
+    fn detach_mesh_materials_order_and_sharing_predicate() {
+        // RVA 0x31700: full ten-slot loop, head→tail per group, first negative aborts.
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let shared = resources.create_material().unwrap();
+        let lone = resources.create_material().unwrap();
+        let tex = backend.texture(7, 0);
+        resources
+            .set_texture(shared, Some(tex), &mut backend)
+            .unwrap();
+        let a = resources.create_face_group().unwrap();
+        let b = resources.create_face_group().unwrap();
+        resources.link_next(a, b).unwrap();
+        resources
+            .set_material(a, Some(shared), &mut backend)
+            .unwrap();
+        resources
+            .set_material(b, Some(shared), &mut backend)
+            .unwrap();
+        let c = resources.create_face_group().unwrap();
+        resources.set_material(c, Some(lone), &mut backend).unwrap();
+        // Group-held lone drops to refs 1 (external released after install) → skip.
+        resources.release_material(lone, &mut backend).unwrap();
+        let l0 = resources.create_mesh_level().unwrap();
+        resources
+            .install_mesh_level_storage(l0, 1, CompleteVertexBuffer::default(), Some(a))
+            .unwrap();
+        resources
+            .install_mesh_level_bbox(l0, [[0.; 3], [1.; 3]])
+            .unwrap();
+        let l1 = resources.create_mesh_level().unwrap();
+        resources
+            .install_mesh_level_storage(l1, 1, CompleteVertexBuffer::default(), Some(c))
+            .unwrap();
+        resources
+            .install_mesh_level_bbox(l1, [[0.; 3], [1.; 3]])
+            .unwrap();
+        let mesh = resources.create_mesh_object().unwrap();
+        resources.set_lod(mesh, Some(l0), 0, &mut backend).unwrap();
+        resources.set_lod(mesh, Some(l1), 1, &mut backend).unwrap();
+        for level in [l0, l1] {
+            resources.release_mesh_level(level, &mut backend).unwrap();
+        }
+        backend.events.clear();
+        assert_eq!(resources.detach_mesh_materials(mesh, &mut backend), Ok(0));
+        // Shared head and tail now name distinct deep copies; lone untouched.
+        let ma = resources.face_group(a).unwrap().material.unwrap();
+        let mb = resources.face_group(b).unwrap().material.unwrap();
+        assert_ne!(ma, mb);
+        assert_ne!(ma, shared);
+        assert_ne!(mb, shared);
+        assert_eq!(resources.face_group(c).unwrap().material, Some(lone));
+        assert_eq!(resources.material(ma).unwrap().texture, Some(tex));
+        assert_eq!(resources.material(mb).unwrap().texture, Some(tex));
+        // Both detached groups released the shared record (refs 3 -> 1);
+        // the creator external reference keeps it alive.
+        assert_eq!(resources.material(shared).unwrap().references, 1);
+        assert!(backend.events.contains(&Event::Retain(tex)));
+        // Residue: poisoned arena rejects further detaches, state stays inspectable.
+        // fail_after_release fires inside release_texture, so the scratch
+        // record needs a texture for the poison injection to take effect.
+        let scratch = resources.create_material().unwrap();
+        let scratch_tex = backend.texture(43, 0);
+        resources
+            .set_texture(scratch, Some(scratch_tex), &mut backend)
+            .unwrap();
+        backend.fail_after_release = true;
+        let _ = resources.release_material(scratch, &mut backend);
+        assert!(resources.is_poisoned());
+        assert_eq!(
+            resources.detach_mesh_materials(mesh, &mut backend),
+            Err(VisualResourceError::Poisoned.into())
+        );
+        assert!(resources.face_group(a).is_ok());
+    }
+    #[test]
+    fn duplicate_mesh_object_clear_self_null_and_full_content() {
+        // RVA 0x315e0: self no-op, 10-slot clear, null-source reset; non-null
+        // path duplicates every slot via duplicate_mesh_level (scalars, vertex
+        // count/bbox, per-group deep copy).
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let (src, slevels) =
+            mesh_with_levels(&mut resources, &mut backend, &[([[0.; 3], [1.; 3]])]);
+        // Self-copy is an exact no-op.
+        assert_eq!(
+            resources.duplicate_mesh_object(src, Some(src), &mut backend),
+            Ok(0)
+        );
+        assert_eq!(resources.mesh_object(src).unwrap().num_lods, 1);
+        // Null source clears all ten slots and resets bounds + u/v ofs.
+        let dst = resources.create_mesh_object().unwrap();
+        let filler = resources.create_mesh_level().unwrap();
+        resources
+            .set_lod(dst, Some(filler), 4, &mut backend)
+            .unwrap();
+        assert_eq!(
+            resources.duplicate_mesh_object(dst, None, &mut backend),
+            Ok(0)
+        );
+        let record = resources.mesh_object(dst).unwrap();
+        assert_eq!(record.num_lods, 0);
+        assert!(record.levels.iter().all(Option::is_none));
+        assert_eq!(record.bounds, MeshBoundVolume::CONSTRUCTOR);
+        assert_eq!((record.u_ofs, record.v_ofs), (0., 0.));
+        assert!(record.bound_volume().is_some());
+        // Non-null path: clear-phase effects retained, full content installed.
+        let dst2 = resources.create_mesh_object().unwrap();
+        let stale = resources.create_mesh_level().unwrap();
+        resources
+            .set_lod(dst2, Some(stale), 0, &mut backend)
+            .unwrap();
+        resources.release_mesh_level(stale, &mut backend).unwrap();
+        assert_eq!(
+            resources.duplicate_mesh_object(dst2, Some(src), &mut backend),
+            Ok(0)
+        );
+        assert!(!resources.is_poisoned());
+        let record = resources.mesh_object(dst2).unwrap();
+        assert_eq!(record.num_lods, 1);
+        let dup = record.levels[0].unwrap();
+        assert_ne!(dup, slevels[0]);
+        assert_eq!(
+            resources.mesh_level(dup).unwrap().num_vertices,
+            resources.mesh_level(slevels[0]).unwrap().num_vertices
+        );
+        assert_eq!(
+            resources.mesh_level(dup).unwrap().bbox,
+            resources.mesh_level(slevels[0]).unwrap().bbox
+        );
+        // Stale slot was released by the clear phase; source untouched.
+
+        assert!(resources.mesh_level(stale).is_err());
+        assert_eq!(resources.mesh_level(slevels[0]).unwrap().references, 1);
+        assert_eq!(resources.mesh_object(src).unwrap().num_lods, 1);
+    }
+    fn vertex_bytes(positions: &[[f32; 3]]) -> Vec<u8> {
+        let mut out = Vec::with_capacity(positions.len() * 32);
+        for p in positions {
+            for c in p.iter() {
+                out.extend_from_slice(&c.to_le_bytes());
+            }
+            out.extend_from_slice(&[0u8; 20]);
+        }
+        out
+    }
+    #[test]
+    fn update_bbox_from_bytes_covers_empty_seed_and_nan_policy() {
+        // RVA 0x30a50: empty -> Invalidate words; seed copies v0 (NaN
+        // propagates); later NaNs ignored while numbers still absorb.
+        let mut resources = VisualResources::new().unwrap();
+        let level = resources.create_mesh_level().unwrap();
+        resources
+            .update_mesh_level_bbox_from_bytes(level, &[], 32)
+            .unwrap();
+        assert_eq!(
+            resources.mesh_level(level).unwrap().bbox,
+            VisualResources::INVALID_MESH_BOUNDS
+        );
+        let bytes = vertex_bytes(&[[1.0, 2.0, 3.0]]);
+        resources
+            .update_mesh_level_bbox_from_bytes(level, &bytes, 32)
+            .unwrap();
+        assert_eq!(
+            resources.mesh_level(level).unwrap().bbox,
+            [[1.0, 2.0, 3.0], [1.0, 2.0, 3.0]]
+        );
+        // Admission guards: stride < 12 and ragged length reject.
+        assert_eq!(
+            resources.update_mesh_level_bbox_from_bytes(level, &[0u8; 32], 8),
+            Err(VisualResourceError::InvalidVertexStorage)
+        );
+        assert_eq!(
+            resources.update_mesh_level_bbox_from_bytes(level, &[0u8; 33], 32),
+            Err(VisualResourceError::InvalidVertexStorage)
+        );
+        // Only the bbox store mutates: num_vertices untouched.
+        assert_eq!(resources.mesh_level(level).unwrap().num_vertices, 0);
+    }
+    #[test]
+    fn update_bbox_nan_seed_propagates_and_later_nans_ignored() {
+        let mut resources = VisualResources::new().unwrap();
+        let level = resources.create_mesh_level().unwrap();
+        let bytes = vertex_bytes(&[[f32::NAN, 0.0, 0.0], [1.0, -1.0, 5.0]]);
+        resources
+            .update_mesh_level_bbox_from_bytes(level, &bytes, 32)
+            .unwrap();
+        let bbox = resources.mesh_level(level).unwrap().bbox;
+        assert!(bbox[0][0].is_nan() && bbox[1][0].is_nan());
+        assert_eq!((bbox[0][1], bbox[1][1]), (-1.0, 0.0));
+        assert_eq!((bbox[0][2], bbox[1][2]), (0.0, 5.0));
+    }
+    #[test]
+    fn set_vertex_mesh_null_clears_and_bytes_store_with_bbox() {
+        // RVA 0x30b40: null -> num 0 + Invalidate + Ok(0); bytes -> num +
+        // bbox tail + Ok(0); byte-count mismatch rejects before effects.
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let level = resources.create_mesh_level().unwrap();
+        assert_eq!(
+            resources
+                .set_mesh_level_vertices(level, None, 0, &mut backend)
+                .unwrap(),
+            0
+        );
+        assert_eq!(resources.mesh_level(level).unwrap().num_vertices, 0);
+        assert_eq!(
+            resources.mesh_level(level).unwrap().bbox,
+            VisualResources::INVALID_MESH_BOUNDS
+        );
+        let bytes = vertex_bytes(&[[0.0, 0.0, 0.0], [2.0, -1.0, 4.0]]);
+        assert_eq!(
+            resources
+                .set_mesh_level_vertices(level, Some(&bytes), 2, &mut backend)
+                .unwrap(),
+            0
+        );
+        assert_eq!(resources.mesh_level(level).unwrap().num_vertices, 2);
+        assert_eq!(
+            resources.mesh_level(level).unwrap().bbox,
+            [[0.0, -1.0, 0.0], [2.0, 0.0, 4.0]]
+        );
+        let before = (
+            resources.mesh_level(level).unwrap().num_vertices,
+            resources.mesh_level(level).unwrap().bbox,
+        );
+        assert_eq!(
+            resources.set_mesh_level_vertices(level, Some(&bytes), 3, &mut backend),
+            Err(VisualResourceOperationError::Resource(
+                VisualResourceError::InvalidVertexStorage
+            ))
+        );
+        assert!(!resources.is_poisoned());
+        assert_eq!(
+            (
+                resources.mesh_level(level).unwrap().num_vertices,
+                resources.mesh_level(level).unwrap().bbox
+            ),
+            before
+        );
+        assert!(resources
+            .set_mesh_level_vertices(level, Some(&bytes), i32::MAX as u32 + 1, &mut backend)
+            .is_err());
+    }
+    #[test]
+    fn create_vertex_mesh_zero_unlocks_and_nonzero_locks() {
+        // RVA 0x30d00: num==0 -> Invalidate + false; else num store + true
+        // (pointer-to-bool projection); bbox untouched (no UpdateBBox).
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let level = resources.create_mesh_level().unwrap();
+        resources
+            .update_mesh_level_bbox_from_bytes(level, &vertex_bytes(&[[9.0, 9.0, 9.0]]), 32)
+            .unwrap();
+        let bbox = resources.mesh_level(level).unwrap().bbox;
+        assert!(!resources
+            .create_mesh_level_vertices(level, 0, &mut backend)
+            .unwrap());
+        assert_eq!(
+            resources.mesh_level(level).unwrap().bbox,
+            VisualResources::INVALID_MESH_BOUNDS
+        );
+        assert!(resources
+            .create_mesh_level_vertices(level, 5, &mut backend)
+            .unwrap());
+        assert_eq!(resources.mesh_level(level).unwrap().num_vertices, 5);
+        // Num store does not touch the (invalidated) bbox.
+        assert_eq!(
+            resources.mesh_level(level).unwrap().bbox,
+            VisualResources::INVALID_MESH_BOUNDS
+        );
+        let _ = bbox;
+    }
+    #[test]
+    fn lock_flags_quirk_models_stale_slot_or_0x10() {
+        // RVA 0x30e80: flags&1 -> stale slot bits | 0x10, else 0.
+        assert_eq!(VisualResources::mesh_level_lock_flags(0x1234, 0), 0);
+        assert_eq!(
+            VisualResources::mesh_level_lock_flags(0x1234, 1),
+            0x1234 | 0x10
+        );
+        assert_eq!(VisualResources::mesh_level_lock_flags(7, 3), 7 | 0x10);
+    }
+    #[test]
+    fn face_group_at_negative_huge_and_mid_chain() {
+        // RVA 0x31180: negatives/huge -> None; mid-chain exact key.
+        let mut resources = VisualResources::new().unwrap();
+        let a = resources.create_face_group().unwrap();
+        let b = resources.create_face_group().unwrap();
+        let c = resources.create_face_group().unwrap();
+        resources.link_next(b, c).unwrap();
+        resources.link_next(a, b).unwrap();
+        let level = resources.create_mesh_level().unwrap();
+        resources
+            .install_mesh_level_storage(level, 0, CompleteVertexBuffer::default(), Some(a))
+            .unwrap();
+        resources.mesh_level_mut(level).unwrap().num_fgroups = 3;
+        assert_eq!(resources.face_group_at(level, -1).unwrap(), None);
+        assert_eq!(resources.face_group_at(level, 3).unwrap(), None);
+        assert_eq!(resources.face_group_at(level, 1).unwrap(), Some(b));
+        assert_eq!(resources.face_group_at(level, 0).unwrap(), Some(a));
+    }
+    #[test]
+    fn count_faces_sums_and_stats_scale() {
+        // RVAs 0x311c0/0x311e0: chain sums; size 0x44; verts<<5; faces*6.
+        let mut resources = VisualResources::new().unwrap();
+        let g0 = resources.create_face_group().unwrap();
+        let g1 = resources.create_face_group().unwrap();
+        resources.link_next(g0, g1).unwrap();
+        let level = resources.create_mesh_level().unwrap();
+        resources
+            .install_mesh_level_storage(level, 3, CompleteVertexBuffer::default(), Some(g0))
+            .unwrap();
+        resources.face_group_mut(g0).unwrap().num_faces = 4;
+        resources.face_group_mut(g1).unwrap().num_faces = 1;
+        assert_eq!(resources.count_mesh_level_faces(level).unwrap(), 5);
+        let stats = resources.mesh_level_stats(level).unwrap();
+        assert_eq!(
+            stats,
+            I3dMeshStats {
+                size: 0x44,
+                num_vertices: 3,
+                vertex_bytes: 3 * 32,
+                num_faces: 5,
+                face_bytes: 5 * 6,
+            }
+        );
+        let empty = resources.create_mesh_level().unwrap();
+        assert_eq!(resources.count_mesh_level_faces(empty).unwrap(), 0);
+        // Native 32-bit wrap policy: MAX + 2 wraps to 1 (same at both layers).
+        resources.face_group_mut(g0).unwrap().num_faces = u32::MAX;
+        resources.face_group_mut(g1).unwrap().num_faces = 2;
+        assert_eq!(resources.count_mesh_level_faces(level).unwrap(), 1);
+        let stats = resources.mesh_level_stats(level).unwrap();
+        assert_eq!(stats.num_faces, 1);
+        assert_eq!(stats.face_bytes, 6);
+    }
+    #[test]
+    fn add_group_append_prepend_and_nan_alpha_policy() {
+        // RVA 0x31220: last=true appends; opaque prepends; NaN alpha prepends
+        // unless last.
+        let mut resources = VisualResources::new().unwrap();
+        let level = resources.create_mesh_level().unwrap();
+        let g0 = resources.create_face_group().unwrap();
+        resources.add_mesh_level_group(level, g0, false).unwrap();
+        let g1 = resources.create_face_group().unwrap();
+        resources.add_mesh_level_group(level, g1, false).unwrap();
+        // Opaque prepend: g1 is now head.
+        assert_eq!(resources.face_group_at(level, 0).unwrap(), Some(g1));
+        assert_eq!(resources.face_group_at(level, 1).unwrap(), Some(g0));
+        let g2 = resources.create_face_group().unwrap();
+        resources.add_mesh_level_group(level, g2, true).unwrap();
+        assert_eq!(resources.face_group_at(level, 2).unwrap(), Some(g2));
+        // Translucent material appends even with last=false.
+        let m = resources.create_material().unwrap();
+        resources.set_material_alpha(m, 0.5).unwrap();
+        let g3 = resources.create_face_group().unwrap();
+        let mut backend = Backend::default();
+        resources.set_material(g3, Some(m), &mut backend).unwrap();
+        resources.add_mesh_level_group(level, g3, false).unwrap();
+        assert_eq!(resources.face_group_at(level, 3).unwrap(), Some(g3));
+        // NaN alpha is unordered: prepends unless last (FCOMP policy).
+        let mn = resources.create_material().unwrap();
+        resources.set_material_alpha(mn, f32::NAN).unwrap();
+        let g4 = resources.create_face_group().unwrap();
+        resources.set_material(g4, Some(mn), &mut backend).unwrap();
+        resources.add_mesh_level_group(level, g4, false).unwrap();
+        assert_eq!(resources.face_group_at(level, 0).unwrap(), Some(g4));
+        let g5 = resources.create_face_group().unwrap();
+        resources.set_material(g5, Some(mn), &mut backend).unwrap();
+        resources.add_mesh_level_group(level, g5, true).unwrap();
+        assert_eq!(resources.face_group_at(level, 5).unwrap(), Some(g5));
+        // Flags-translucent range gate appends even with last=false.
+        let mf = resources.create_material().unwrap();
+        resources.material_mut(mf).unwrap().flags = 0x1000_0001;
+        let g6 = resources.create_face_group().unwrap();
+        resources.set_material(g6, Some(mf), &mut backend).unwrap();
+        resources.add_mesh_level_group(level, g6, false).unwrap();
+        assert_eq!(resources.face_group_at(level, 6).unwrap(), Some(g6));
+        // MATF prologue stores: 0x40000/0x8000000 set mesh flag bits.
+        let mp = resources.create_material().unwrap();
+        resources.material_mut(mp).unwrap().flags = 0x40000 | 0x8000000;
+        let g7 = resources.create_face_group().unwrap();
+        resources.set_material(g7, Some(mp), &mut backend).unwrap();
+        resources.add_mesh_level_group(level, g7, true).unwrap();
+        assert_eq!(resources.mesh_level(level).unwrap().mesh_flags & 0x30, 0x30);
+        // 0x80000 prologue: mode trick + env_scale from low byte.
+        let ms = resources.create_material().unwrap();
+        resources.material_mut(ms).unwrap().flags = 0x80000 | 0x01;
+        let g8 = resources.create_face_group().unwrap();
+        resources.set_material(g8, Some(ms), &mut backend).unwrap();
+        resources.add_mesh_level_group(level, g8, true).unwrap();
+        assert_eq!(
+            resources.mesh_level(level).unwrap().env_scale.to_bits(),
+            f32::from_bits(0x403504f3).to_bits()
+        );
+        assert_eq!(resources.mesh_level(level).unwrap().mesh_flags & 8, 8);
+        // Low byte zero divides by zero: NumericDomain poison, group unattached.
+        // Prologue stores are retained (observable on a fresh level).
+        let level2 = resources.create_mesh_level().unwrap();
+        let mz = resources.create_material().unwrap();
+        resources.material_mut(mz).unwrap().flags = 0xC0000;
+        let gz = resources.create_face_group().unwrap();
+        resources.set_material(gz, Some(mz), &mut backend).unwrap();
+        assert!(resources.add_mesh_level_group(level2, gz, true).is_err());
+        assert!(resources.is_poisoned());
+        assert_eq!(resources.mesh_level(level2).unwrap().num_fgroups, 0);
+        assert!(resources.face_group(gz).unwrap().owner.is_none());
+        assert_eq!(
+            resources.mesh_level(level2).unwrap().mesh_flags & 0x18,
+            0x18
+        );
+    }
+    #[test]
+    fn duplicate_level_self_null_and_deep_group_copy() {
+        // RVA 0x31000: self no-op; null src resets; else scalars + num/bbox
+        // + per-group deep copy with AddFGroup-last append.
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let src = resources.create_mesh_level().unwrap();
+        let bytes = vertex_bytes(&[[1.0, 1.0, 1.0], [2.0, 2.0, 2.0]]);
+        resources
+            .set_mesh_level_vertices(src, Some(&bytes), 2, &mut backend)
+            .unwrap();
+        let g0 = resources.create_face_group().unwrap();
+        resources
+            .set_faces(g0, Some(&[[1, 2, 3]]), &mut backend)
+            .unwrap();
+        resources.add_mesh_level_group(src, g0, true).unwrap();
+        let dst = resources.create_mesh_level().unwrap();
+        assert_eq!(
+            resources
+                .duplicate_mesh_level(dst, Some(src), &mut backend)
+                .unwrap(),
+            0
+        );
+        assert_eq!(resources.mesh_level(dst).unwrap().num_vertices, 2);
+        assert_eq!(
+            resources.mesh_level(dst).unwrap().bbox,
+            resources.mesh_level(src).unwrap().bbox
+        );
+        assert_eq!(resources.mesh_level(dst).unwrap().num_fgroups, 1);
+        let head = resources.mesh_level(dst).unwrap().fgroups.unwrap();
+        assert_eq!(resources.face_group(head).unwrap().num_faces, 1);
+        assert_ne!(head, g0);
+        // Self-duplicate is a no-op; null source resets the record.
+        assert_eq!(
+            resources
+                .duplicate_mesh_level(src, Some(src), &mut backend)
+                .unwrap(),
+            0
+        );
+        let dst2 = resources.create_mesh_level().unwrap();
+        assert_eq!(
+            resources
+                .duplicate_mesh_level(dst2, None, &mut backend)
+                .unwrap(),
+            0
+        );
+        assert_eq!(resources.mesh_level(dst2).unwrap().num_vertices, 0);
+        assert_eq!(
+            resources.mesh_level(dst2).unwrap().bbox,
+            VisualResources::INVALID_MESH_BOUNDS
+        );
+        assert!(!resources.is_poisoned());
     }
 }

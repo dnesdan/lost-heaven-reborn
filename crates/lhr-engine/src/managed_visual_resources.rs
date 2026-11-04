@@ -828,6 +828,22 @@ impl ManagedVisualResources {
     ) -> Result<(), ManagedOperationError<B::Error>> {
         self.visual_operation(backend, |r, b| r.set_material(group, material, b))
     }
+    pub fn create_faces<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        group: FaceGroupKey,
+        num: u32,
+        backend: &mut B,
+    ) -> Result<(), ManagedOperationError<B::Error>> {
+        self.visual_operation(backend, |r, b| r.create_faces(group, num, b))
+    }
+    pub fn set_faces<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        group: FaceGroupKey,
+        faces: Option<&[vr::I3dTriface]>,
+        backend: &mut B,
+    ) -> Result<(), ManagedOperationError<B::Error>> {
+        self.visual_operation(backend, |r, b| r.set_faces(group, faces, b))
+    }
     pub fn set_texture<B: ManagedVisualBackend + ?Sized>(
         &mut self,
         key: MaterialKey,
@@ -938,6 +954,45 @@ impl ManagedVisualResources {
     ) -> Result<(), ManagedOperationError<B::Error>> {
         self.visual_operation(backend, |r, b| r.set_lod(key, level, index, b))
     }
+    pub fn get_lod(
+        &self,
+        key: MeshObjectKey,
+        index: u32,
+    ) -> Result<Option<MeshLevelKey>, ManagedError> {
+        self.available()?;
+        self.resources.get_lod(key, index).map_err(Into::into)
+    }
+    pub fn is_mesh_compatible(
+        &self,
+        first: MeshObjectKey,
+        second: MeshObjectKey,
+    ) -> Result<bool, ManagedError> {
+        self.available()?;
+        self.resources
+            .is_mesh_compatible(first, second)
+            .map_err(Into::into)
+    }
+    pub fn mesh_object_stats(&self, key: MeshObjectKey) -> Result<vr::I3dMeshStats, ManagedError> {
+        self.available()?;
+        self.resources.mesh_object_stats(key).map_err(Into::into)
+    }
+    pub fn detach_mesh_materials<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        key: MeshObjectKey,
+        backend: &mut B,
+    ) -> Result<i32, ManagedOperationError<B::Error>> {
+        self.visual_operation(backend, |r, b| r.detach_mesh_materials(key, b))
+    }
+    pub fn duplicate_mesh_object<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        destination: MeshObjectKey,
+        source: Option<MeshObjectKey>,
+        backend: &mut B,
+    ) -> Result<i32, ManagedOperationError<B::Error>> {
+        self.visual_operation(backend, |r, b| {
+            r.duplicate_mesh_object(destination, source, b)
+        })
+    }
     pub fn reclaim_unused_indices<B: ManagedVisualBackend + ?Sized>(
         &mut self,
         backend: &mut B,
@@ -1021,6 +1076,94 @@ impl ManagedVisualResources {
         backend: &mut B,
     ) -> Result<i32, ManagedOperationError<B::Error>> {
         self.visual_operation(backend, |r, b| r.copy_material(destination, source, b))
+    }
+    pub fn duplicate_face_group<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        destination: FaceGroupKey,
+        source: FaceGroupKey,
+        backend: &mut B,
+    ) -> Result<i32, ManagedOperationError<B::Error>> {
+        self.visual_operation(backend, |r, b| {
+            r.duplicate_face_group(destination, source, b)
+        })
+    }
+    pub fn detach_face_group_material<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        group: FaceGroupKey,
+        backend: &mut B,
+    ) -> Result<i32, ManagedOperationError<B::Error>> {
+        self.visual_operation(backend, |r, b| r.detach_face_group_material(group, b))
+    }
+    pub fn face_group_at(
+        &self,
+        level: MeshLevelKey,
+        index: i32,
+    ) -> Result<Option<FaceGroupKey>, ManagedError> {
+        self.available()?;
+        self.resources
+            .face_group_at(level, index)
+            .map_err(Into::into)
+    }
+    pub fn count_mesh_level_faces(&self, level: MeshLevelKey) -> Result<u32, ManagedError> {
+        self.available()?;
+        self.resources
+            .count_mesh_level_faces(level)
+            .map_err(Into::into)
+    }
+    pub fn mesh_level_stats(&self, level: MeshLevelKey) -> Result<vr::I3dMeshStats, ManagedError> {
+        self.available()?;
+        self.resources.mesh_level_stats(level).map_err(Into::into)
+    }
+    pub fn add_mesh_level_group(
+        &mut self,
+        level: MeshLevelKey,
+        group: FaceGroupKey,
+        last: bool,
+    ) -> Result<(), ManagedError> {
+        self.available()?;
+        self.resources
+            .add_mesh_level_group(level, group, last)
+            .map_err(Into::into)
+    }
+    pub fn update_mesh_level_bbox_from_bytes(
+        &mut self,
+        level: MeshLevelKey,
+        bytes: &[u8],
+        stride: u32,
+    ) -> Result<(), ManagedError> {
+        self.available()?;
+        self.resources
+            .update_mesh_level_bbox_from_bytes(level, bytes, stride)
+            .map_err(Into::into)
+    }
+    pub fn set_mesh_level_vertices<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        level: MeshLevelKey,
+        verts: Option<&[u8]>,
+        num: u32,
+        backend: &mut B,
+    ) -> Result<i32, ManagedOperationError<B::Error>> {
+        self.visual_operation(backend, |r, b| {
+            r.set_mesh_level_vertices(level, verts, num, b)
+        })
+    }
+    pub fn create_mesh_level_vertices<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        level: MeshLevelKey,
+        num: u32,
+        backend: &mut B,
+    ) -> Result<bool, ManagedOperationError<B::Error>> {
+        self.visual_operation(backend, |r, b| r.create_mesh_level_vertices(level, num, b))
+    }
+    pub fn duplicate_mesh_level<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        destination: MeshLevelKey,
+        source: Option<MeshLevelKey>,
+        backend: &mut B,
+    ) -> Result<i32, ManagedOperationError<B::Error>> {
+        self.visual_operation(backend, |r, b| {
+            r.duplicate_mesh_level(destination, source, b)
+        })
     }
 }
 
@@ -1681,5 +1824,85 @@ mod tests {
         r.release_mesh_level(level, &mut b).unwrap();
         assert!(b.events.is_empty());
         assert!(!r.is_poisoned());
+    }
+    #[test]
+    fn vertex_lock_unlock_pairs_with_stale_slot_flags_and_idempotent_release() {
+        // RVAs 0x30e80/0x30f90: flags quirk (stale slot | 0x10) on lock;
+        // unlock clears the manager lock; double-unlock and bufferless
+        // unlock are clean no-ops.
+        let mut r = ManagedVisualResources::new().unwrap();
+        let mut b = Backend::default();
+        // Bufferless level: lock reports false, unlock is a no-op.
+        let bare = r.create_mesh_level().unwrap();
+        assert!(!r.lock_level_vertices(bare, 0, &mut b).unwrap());
+        r.unlock_level_vertices(bare, &mut b).unwrap();
+        assert!(b.events.is_empty());
+        // Allocated level: lock/unlock event order with quirk flags.
+        // Allocation leaves the block locked; release that first so the
+        // subsequent lock/unlock pairing emits observable events.
+        let (level, _) = one_level(&mut r, &mut b);
+        b.events.clear();
+        r.unlock_level_vertices(level, &mut b).unwrap();
+        b.events.clear();
+        assert!(r.lock_level_vertices(level, 0, &mut b).unwrap());
+        assert!(b.events.iter().any(|e| matches!(e, Event::Lock(_, 0))));
+        r.unlock_level_vertices(level, &mut b).unwrap();
+        assert!(b.events.iter().any(|e| matches!(e, Event::Unlock(_))));
+        // Double-unlock is a no-op (no second Unlock event).
+        let unlocks = b
+            .events
+            .iter()
+            .filter(|e| matches!(e, Event::Unlock(_)))
+            .count();
+        r.unlock_level_vertices(level, &mut b).unwrap();
+        assert_eq!(
+            b.events
+                .iter()
+                .filter(|e| matches!(e, Event::Unlock(_)))
+                .count(),
+            unlocks
+        );
+        // flags&1 locks with the stale-slot quirk word.
+        assert!(r.lock_level_vertices(level, 1, &mut b).unwrap());
+        let expected = vr::VisualResources::mesh_level_lock_flags(level.slot(), 1);
+        assert!(b
+            .events
+            .iter()
+            .any(|e| matches!(e, Event::Lock(_, f) if *f == expected)));
+        r.unlock_level_vertices(level, &mut b).unwrap();
+        assert!(!r.is_poisoned());
+    }
+    #[test]
+    fn managed_faces_serve_cpu_bytes_without_graphics_traffic() {
+        // RVAs 0x30690/0x30780 pairing over a bufferless CPU-only group:
+        // graphics lock is a no-op, the live array is served, unlock clears.
+        let mut r = ManagedVisualResources::new().unwrap();
+        let mut b = Backend::default();
+        let group = r.create_face_group().unwrap();
+        let faces: Vec<vr::I3dTriface> = vec![[9, 8, 7], [1, 2, 3]];
+        r.set_faces(group, Some(&faces), &mut b).unwrap();
+        let before = b.events.len();
+        assert_eq!(r.get_faces(group, &mut b).unwrap().unwrap(), &faces);
+        r.unlock_faces(group, &mut b).unwrap();
+        assert_eq!(b.events.len(), before);
+        assert!(!r.resources().face_group(group).unwrap().faces_locked);
+    }
+    #[test]
+    fn managed_faces_pair_graphics_lock_on_installed_storage() {
+        // Manager-intake storage names the count but carries no CPU bytes
+        // (host contract): GetFaces serves the empty live array while the
+        // graphics lock/unlock pairing fires.
+        let mut r = ManagedVisualResources::new().unwrap();
+        let mut b = Backend::default();
+        let group = r.create_face_group().unwrap();
+        assert!(r.allocate_group_indices(group, 2, 0, &mut b).unwrap());
+        // Allocation leaves the block locked; release that first so the
+        // subsequent get/unlock pairing emits observable events.
+        r.unlock_faces(group, &mut b).unwrap();
+        b.events.clear();
+        assert!(r.get_faces(group, &mut b).unwrap().unwrap().is_empty());
+        assert!(b.events.iter().any(|e| matches!(e, Event::Lock(_, _))));
+        r.unlock_faces(group, &mut b).unwrap();
+        assert!(b.events.iter().any(|e| matches!(e, Event::Unlock(_))));
     }
 }

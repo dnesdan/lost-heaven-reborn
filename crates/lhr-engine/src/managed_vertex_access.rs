@@ -30,7 +30,7 @@ impl ManagedVisualResources {
         };
         manager_result(self.managers.lock_vertex_buffer(
             buffer,
-            if flags & 1 != 0 { 0x10 } else { 0 },
+            VisualResources::mesh_level_lock_flags(level.slot(), flags),
             backend,
         ))?;
         Ok(true)
@@ -66,5 +66,52 @@ impl ManagedVisualResources {
             .ok_or(ManagedError::BindingMismatch)?;
         manager_result(self.managers.lock_index_buffer(buffer, backend))?;
         Ok(true)
+    }
+    /// UnlockFaces graphics half: resolves the group's managed index token like
+    /// `lock_group_indices` and unlocks exactly that buffer. Bufferless CPU-only
+    /// groups are a clean no-op (no native Unlock target exists for them).
+    pub(crate) fn unlock_group_indices<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        group: FaceGroupKey,
+        backend: &mut B,
+    ) -> Result<(), ManagedOperationError<B::Error>> {
+        self.available()?;
+        let descriptor = self.resources.face_group(group)?.index_buffer;
+        let Some(token) = descriptor.buffer else {
+            return Ok(());
+        };
+        let buffer = self
+            .index_tokens
+            .iter()
+            .find(|entry| entry.visual == token)
+            .map(|entry| entry.manager)
+            .ok_or(ManagedError::BindingMismatch)?;
+        manager_result(self.managers.unlock_index_buffer(buffer, backend))
+    }
+    /// GetFaces pairing: null-check first (native returns NULL before any Lock),
+    /// then the existing graphics lock, then the live CPU array. A graphics-lock
+    /// failure propagates before the record flag is set (native Lock failed → no pointer).
+    pub fn get_faces<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        group: FaceGroupKey,
+        backend: &mut B,
+    ) -> Result<Option<&[vr::I3dTriface]>, ManagedOperationError<B::Error>> {
+        self.available()?;
+        if self.resources.face_group(group)?.num_faces == 0 {
+            return Ok(None);
+        }
+        self.lock_group_indices(group, backend)?;
+        self.resources.get_faces(group).map_err(Into::into)
+    }
+    /// UnlockFaces pairing: graphics unlock first so a failure leaves the CPU flag
+    /// set consistently with the still-held graphics lock.
+    pub fn unlock_faces<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        group: FaceGroupKey,
+        backend: &mut B,
+    ) -> Result<(), ManagedOperationError<B::Error>> {
+        self.available()?;
+        self.unlock_group_indices(group, backend)?;
+        self.resources.unlock_faces(group).map_err(Into::into)
     }
 }

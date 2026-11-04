@@ -2674,6 +2674,60 @@ impl TextureResources {
     ) -> Result<(), TextureOperationError<<B as BufferBackend>::Error>> {
         self.run_objects(backend, |o, b| o.set_material(group, material, b))
     }
+    pub fn create_faces<B: TextureBackend + ?Sized>(
+        &mut self,
+        group: FaceGroupKey,
+        num: u32,
+        backend: &mut B,
+    ) -> Result<(), TextureOperationError<<B as BufferBackend>::Error>> {
+        self.run_objects(backend, |o, b| o.create_faces(group, num, b))
+    }
+    pub fn set_faces<B: TextureBackend + ?Sized>(
+        &mut self,
+        group: FaceGroupKey,
+        faces: Option<&[vr::I3dTriface]>,
+        backend: &mut B,
+    ) -> Result<(), TextureOperationError<<B as BufferBackend>::Error>> {
+        self.run_objects(backend, |o, b| o.set_faces(group, faces, b))
+    }
+    /// Owned copy of the live locked array (copied while locked from borrowed
+    /// state; the pairing flag stays set until `unlock_faces`). The inner layers
+    /// keep the borrow; only this outermost façade copies.
+    pub fn get_faces<B: TextureBackend + ?Sized>(
+        &mut self,
+        group: FaceGroupKey,
+        backend: &mut B,
+    ) -> Result<Option<Vec<vr::I3dTriface>>, TextureOperationError<<B as BufferBackend>::Error>>
+    {
+        self.run_objects(backend, |o, b| {
+            o.get_faces(group, b)
+                .map(|faces| faces.map(|faces| faces.to_vec()))
+        })
+    }
+    pub fn unlock_faces<B: TextureBackend + ?Sized>(
+        &mut self,
+        group: FaceGroupKey,
+        backend: &mut B,
+    ) -> Result<(), TextureOperationError<<B as BufferBackend>::Error>> {
+        self.run_objects(backend, |o, b| o.unlock_faces(group, b))
+    }
+    pub fn duplicate_face_group<B: TextureBackend + ?Sized>(
+        &mut self,
+        destination: FaceGroupKey,
+        source: FaceGroupKey,
+        backend: &mut B,
+    ) -> Result<i32, TextureOperationError<<B as BufferBackend>::Error>> {
+        self.run_objects(backend, |o, b| {
+            o.duplicate_face_group(destination, source, b)
+        })
+    }
+    pub fn detach_face_group_material<B: TextureBackend + ?Sized>(
+        &mut self,
+        group: FaceGroupKey,
+        backend: &mut B,
+    ) -> Result<i32, TextureOperationError<<B as BufferBackend>::Error>> {
+        self.run_objects(backend, |o, b| o.detach_face_group_material(group, b))
+    }
     pub fn set_lod<B: TextureBackend + ?Sized>(
         &mut self,
         mesh: MeshObjectKey,
@@ -2682,6 +2736,77 @@ impl TextureResources {
         backend: &mut B,
     ) -> Result<(), TextureOperationError<<B as BufferBackend>::Error>> {
         self.run_objects(backend, |o, b| o.set_lod(mesh, level, index, b))
+    }
+    pub fn get_lod(
+        &mut self,
+        key: MeshObjectKey,
+        index: u32,
+    ) -> Result<Option<MeshLevelKey>, TextureError> {
+        self.available()?;
+        self.objects.get_lod(key, index).map_err(Into::into)
+    }
+    pub fn is_mesh_compatible(
+        &mut self,
+        first: MeshObjectKey,
+        second: MeshObjectKey,
+    ) -> Result<bool, TextureError> {
+        self.available()?;
+        self.objects
+            .is_mesh_compatible(first, second)
+            .map_err(Into::into)
+    }
+    pub fn mesh_object_stats(
+        &mut self,
+        key: MeshObjectKey,
+    ) -> Result<crate::visual_resources::I3dMeshStats, TextureError> {
+        self.available()?;
+        self.objects.mesh_object_stats(key).map_err(Into::into)
+    }
+    pub fn detach_mesh_materials<B: TextureBackend + ?Sized>(
+        &mut self,
+        key: MeshObjectKey,
+        backend: &mut B,
+    ) -> Result<i32, TextureOperationError<<B as BufferBackend>::Error>> {
+        self.run_objects(backend, |o, b| o.detach_mesh_materials(key, b))
+    }
+    pub fn duplicate_mesh_object<B: TextureBackend + ?Sized>(
+        &mut self,
+        destination: MeshObjectKey,
+        source: Option<MeshObjectKey>,
+        backend: &mut B,
+    ) -> Result<i32, TextureOperationError<<B as BufferBackend>::Error>> {
+        self.run_objects(backend, |o, b| {
+            o.duplicate_mesh_object(destination, source, b)
+        })
+    }
+    pub fn set_mesh_level_vertices<B: TextureBackend + ?Sized>(
+        &mut self,
+        level: MeshLevelKey,
+        verts: Option<&[u8]>,
+        num: u32,
+        backend: &mut B,
+    ) -> Result<i32, TextureOperationError<<B as BufferBackend>::Error>> {
+        self.run_objects(backend, |o, b| {
+            o.set_mesh_level_vertices(level, verts, num, b)
+        })
+    }
+    pub fn create_mesh_level_vertices<B: TextureBackend + ?Sized>(
+        &mut self,
+        level: MeshLevelKey,
+        num: u32,
+        backend: &mut B,
+    ) -> Result<bool, TextureOperationError<<B as BufferBackend>::Error>> {
+        self.run_objects(backend, |o, b| o.create_mesh_level_vertices(level, num, b))
+    }
+    pub fn duplicate_mesh_level<B: TextureBackend + ?Sized>(
+        &mut self,
+        destination: MeshLevelKey,
+        source: Option<MeshLevelKey>,
+        backend: &mut B,
+    ) -> Result<i32, TextureOperationError<<B as BufferBackend>::Error>> {
+        self.run_objects(backend, |o, b| {
+            o.duplicate_mesh_level(destination, source, b)
+        })
     }
     pub fn reclaim_unused_indices<B: TextureBackend + ?Sized>(
         &mut self,
@@ -7646,5 +7771,33 @@ mod tests {
             s.calls,
             ["level", "level", "lock:0x10", "lock:0x0", "unlock"]
         );
+    }
+    #[test]
+    fn texture_faces_roundtrip_with_detach_words() {
+        // RVAs 0x305b0/0x30690/0x30780/0x30860 through the texture facade:
+        // set -> owned get -> unlock -> shared detach duplicates.
+        let mut r = TextureResources::new().unwrap();
+        let mut b = Backend::default();
+        let material = r.create_material().unwrap();
+        let group = r.create_face_group().unwrap();
+        let other = r.create_face_group().unwrap();
+        r.set_material(group, Some(material), &mut b).unwrap();
+        r.set_material(other, Some(material), &mut b).unwrap();
+        let faces: Vec<vr::I3dTriface> = vec![[7, 7, 7]];
+        r.set_faces(group, Some(&faces), &mut b).unwrap();
+        assert_eq!(r.get_faces(group, &mut b).unwrap().unwrap(), faces);
+        r.unlock_faces(group, &mut b).unwrap();
+        // Creator reference still held: shared -> detach duplicates.
+        assert_eq!(r.detach_face_group_material(group, &mut b).unwrap(), 0);
+        let fresh = r
+            .objects()
+            .managed()
+            .resources()
+            .face_group(group)
+            .unwrap()
+            .material
+            .unwrap();
+        assert_ne!(fresh, material);
+        assert!(!r.is_poisoned());
     }
 }

@@ -31,7 +31,8 @@ use crate::managed_visual_resources::{
     BindingState, ManagedError, ManagedOperationError, ManagedVisualBackend, ManagedVisualResources,
 };
 use crate::visual_resources::{
-    CompleteVertexBuffer, FaceGroupKey, MaterialKey, MeshLevelKey, MeshObjectKey, TextureKey,
+    CompleteVertexBuffer, FaceGroupKey, I3dTriface, MaterialKey, MeshLevelKey, MeshObjectKey,
+    TextureKey,
 };
 pub use lit_lod_storage::{
     LitLodStorage, LitSourceBinding, LitStorageCounts, LitStoragePhase, RetiringLitArrays,
@@ -771,6 +772,40 @@ impl ObjectResources {
         self.available()?;
         managed_result(self.managed.set_material(group, material, backend))
     }
+    pub fn create_faces<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        group: FaceGroupKey,
+        num: u32,
+        backend: &mut B,
+    ) -> Result<(), ObjectOperationError<B::Error>> {
+        self.available()?;
+        managed_result(self.managed.create_faces(group, num, backend))
+    }
+    pub fn set_faces<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        group: FaceGroupKey,
+        faces: Option<&[I3dTriface]>,
+        backend: &mut B,
+    ) -> Result<(), ObjectOperationError<B::Error>> {
+        self.available()?;
+        managed_result(self.managed.set_faces(group, faces, backend))
+    }
+    pub fn get_faces<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        group: FaceGroupKey,
+        backend: &mut B,
+    ) -> Result<Option<&[I3dTriface]>, ObjectOperationError<B::Error>> {
+        self.available()?;
+        managed_result(self.managed.get_faces(group, backend))
+    }
+    pub fn unlock_faces<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        group: FaceGroupKey,
+        backend: &mut B,
+    ) -> Result<(), ObjectOperationError<B::Error>> {
+        self.available()?;
+        managed_result(self.managed.unlock_faces(group, backend))
+    }
     pub fn set_texture<B: ManagedVisualBackend + ?Sized>(
         &mut self,
         key: MaterialKey,
@@ -884,6 +919,51 @@ impl ObjectResources {
         self.available()?;
         managed_result(self.managed.set_lod(key, level, index, backend))
     }
+    pub fn get_lod(
+        &self,
+        key: MeshObjectKey,
+        index: u32,
+    ) -> Result<Option<MeshLevelKey>, ObjectError> {
+        self.available()?;
+        self.managed.get_lod(key, index).map_err(Into::into)
+    }
+    pub fn is_mesh_compatible(
+        &self,
+        first: MeshObjectKey,
+        second: MeshObjectKey,
+    ) -> Result<bool, ObjectError> {
+        self.available()?;
+        self.managed
+            .is_mesh_compatible(first, second)
+            .map_err(Into::into)
+    }
+    pub fn mesh_object_stats(
+        &self,
+        key: MeshObjectKey,
+    ) -> Result<crate::visual_resources::I3dMeshStats, ObjectError> {
+        self.available()?;
+        self.managed.mesh_object_stats(key).map_err(Into::into)
+    }
+    pub fn detach_mesh_materials<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        key: MeshObjectKey,
+        backend: &mut B,
+    ) -> Result<i32, ObjectOperationError<B::Error>> {
+        self.available()?;
+        managed_result(self.managed.detach_mesh_materials(key, backend))
+    }
+    pub fn duplicate_mesh_object<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        destination: MeshObjectKey,
+        source: Option<MeshObjectKey>,
+        backend: &mut B,
+    ) -> Result<i32, ObjectOperationError<B::Error>> {
+        self.available()?;
+        managed_result(
+            self.managed
+                .duplicate_mesh_object(destination, source, backend),
+        )
+    }
     pub fn reclaim_unused_indices<B: ManagedVisualBackend + ?Sized>(
         &mut self,
         backend: &mut B,
@@ -953,6 +1033,103 @@ impl ObjectResources {
     ) -> Result<i32, ObjectOperationError<B::Error>> {
         self.available()?;
         managed_result(self.managed.copy_material(destination, source, backend))
+    }
+    pub fn duplicate_face_group<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        destination: FaceGroupKey,
+        source: FaceGroupKey,
+        backend: &mut B,
+    ) -> Result<i32, ObjectOperationError<B::Error>> {
+        self.available()?;
+        managed_result(
+            self.managed
+                .duplicate_face_group(destination, source, backend),
+        )
+    }
+    pub fn detach_face_group_material<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        group: FaceGroupKey,
+        backend: &mut B,
+    ) -> Result<i32, ObjectOperationError<B::Error>> {
+        self.available()?;
+        managed_result(self.managed.detach_face_group_material(group, backend))
+    }
+    pub fn face_group_at(
+        &self,
+        level: MeshLevelKey,
+        index: i32,
+    ) -> Result<Option<FaceGroupKey>, ObjectError> {
+        self.available()?;
+        self.managed.face_group_at(level, index).map_err(Into::into)
+    }
+    pub fn count_mesh_level_faces(&self, level: MeshLevelKey) -> Result<u32, ObjectError> {
+        self.available()?;
+        self.managed
+            .count_mesh_level_faces(level)
+            .map_err(Into::into)
+    }
+    pub fn mesh_level_stats(
+        &self,
+        level: MeshLevelKey,
+    ) -> Result<crate::visual_resources::I3dMeshStats, ObjectError> {
+        self.available()?;
+        self.managed.mesh_level_stats(level).map_err(Into::into)
+    }
+    pub fn add_mesh_level_group(
+        &mut self,
+        level: MeshLevelKey,
+        group: FaceGroupKey,
+        last: bool,
+    ) -> Result<(), ObjectError> {
+        self.available()?;
+        self.managed
+            .add_mesh_level_group(level, group, last)
+            .map_err(Into::into)
+    }
+    pub fn update_mesh_level_bbox_from_bytes(
+        &mut self,
+        level: MeshLevelKey,
+        bytes: &[u8],
+        stride: u32,
+    ) -> Result<(), ObjectError> {
+        self.available()?;
+        self.managed
+            .update_mesh_level_bbox_from_bytes(level, bytes, stride)
+            .map_err(Into::into)
+    }
+    pub fn set_mesh_level_vertices<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        level: MeshLevelKey,
+        verts: Option<&[u8]>,
+        num: u32,
+        backend: &mut B,
+    ) -> Result<i32, ObjectOperationError<B::Error>> {
+        self.available()?;
+        managed_result(
+            self.managed
+                .set_mesh_level_vertices(level, verts, num, backend),
+        )
+    }
+    pub fn create_mesh_level_vertices<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        level: MeshLevelKey,
+        num: u32,
+        backend: &mut B,
+    ) -> Result<bool, ObjectOperationError<B::Error>> {
+        self.available()?;
+        managed_result(self.managed.create_mesh_level_vertices(level, num, backend))
+    }
+    pub fn duplicate_mesh_level<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        destination: MeshLevelKey,
+        source: Option<MeshLevelKey>,
+        backend: &mut B,
+    ) -> Result<i32, ObjectOperationError<B::Error>> {
+        self.available()?;
+        managed_result(
+            self.managed
+                .duplicate_mesh_level(destination, source, backend),
+        )
     }
 }
 
@@ -1769,6 +1946,37 @@ mod tests {
         r.destroy_plain_lod(lod, &mut b).unwrap();
         assert!(r.lod(lod).is_err());
         assert!(b.allocations.is_empty());
+    }
+    #[test]
+    fn object_faces_roundtrip_shares_material_on_duplicate() {
+        // RVAs 0x305b0/0x30690/0x30780/0x30800 through the object layer:
+        // set -> get (borrow) -> unlock -> duplicate shares bytes+material.
+        let mut r = ObjectResources::new().unwrap();
+        let mut b = Backend::default();
+        let material = r.create_material().unwrap();
+        let source = r.create_face_group().unwrap();
+        let destination = r.create_face_group().unwrap();
+        r.set_material(source, Some(material), &mut b).unwrap();
+        let faces: Vec<vr::I3dTriface> = vec![[1, 2, 3], [4, 5, 6]];
+        r.set_faces(source, Some(&faces), &mut b).unwrap();
+        assert_eq!(r.get_faces(source, &mut b).unwrap().unwrap(), &faces);
+        r.unlock_faces(source, &mut b).unwrap();
+        assert_eq!(
+            r.duplicate_face_group(destination, source, &mut b).unwrap(),
+            0
+        );
+        assert_eq!(r.get_faces(destination, &mut b).unwrap().unwrap(), &faces);
+        r.unlock_faces(destination, &mut b).unwrap();
+        // Detach path through the object layer duplicates shared materials.
+        let other = r.create_face_group().unwrap();
+        r.set_material(other, Some(material), &mut b).unwrap();
+        r.release_material(material, &mut b).unwrap();
+        assert_eq!(r.detach_face_group_material(source, &mut b).unwrap(), 0);
+        assert_ne!(
+            r.managed.resources().face_group(source).unwrap().material,
+            Some(material)
+        );
+        assert!(!r.is_poisoned());
     }
 }
 
