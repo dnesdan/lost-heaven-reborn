@@ -697,6 +697,159 @@
       "tier": "contract",
       "evidence": "Live .CRT$XCU slot 4 @0x1000c010 points at 0x10001130 (NULL terminator follows); raw body E8 0B000000 (CALL 0x1140 ctor-stub) + E9 16000000 (JMP 0x1150 $E19); CRT startup glue covered by Handles::new; no REA body (Ghidra folds the boundary); Independently confirmed by a second static derivation (PE parse + linear disassembly + _initterm bounds call at 0x69ca over 0x1000c000-0x1000c014 + full .rdata/.data dword-scan showing only these 4 unretained entries with data-xrefs)",
       "construction_covered": true
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x75f50",
+      "va": "0x10075f50",
+      "name": "ITexture::Create",
+      "symbol": "lhr_engine::itexture::TextureResources::create_texture_full",
+      "tier": "differential",
+      "evidence": "REA gap-XREF proof (8 string xrefs in gap, 6 RVA-exact callees) + byte immediates + CPU prefix executed on real DTA bytes (file/memory/empty, mips, format) with recording sink; real-DTA test env-gated (SKIPs without LHR_ORIGINAL_INSTALLATION)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x79150",
+      "va": "0x10079150",
+      "name": "LoadImage",
+      "symbol": "lhr_engine::itexture::texture_load_image::load_image",
+      "tier": "differential",
+      "evidence": "REA ev_43afedf1 (1895B, 602 asm, 89 BB, 10 callees, 5 strings) + mafia-re ITexture.cpp:1439-1629 + real-DTA TGA/BMP pitch/palette round-trip"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x798c0",
+      "va": "0x100798c0",
+      "name": "ITexture::m_Convert",
+      "symbol": "lhr_engine::itexture::TextureResources::convert_argb_level",
+      "tier": "differential",
+      "evidence": "REA ev_4a7eac23 (2682B, 863 asm, 89 BB, jump-table 0x1007a33c) + mafia-re ITexture.cpp:1640-1953 + pixel-exact plain vectors + dither seed stability"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x75d10",
+      "va": "0x10075d10",
+      "name": "ITexture::Duplicate",
+      "symbol": "lhr_engine::itexture::TextureResources::duplicate_texture",
+      "tier": "differential",
+      "evidence": "REA 175-insn walk + vtable slot1 ev_a210a6a4 + mafia-re ITexture.cpp:171-210 + synthetic and real-texture copy tests (OOM code 0x80000002)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x75f30",
+      "va": "0x10075f30",
+      "name": "ITexture::Reload",
+      "symbol": "lhr_engine::itexture::TextureResources::reload_texture",
+      "tier": "differential",
+      "evidence": "REA 5-insn stub + sole string xref + vtable slot5 + mafia-re ITexture.cpp:212-218 + stub tests (log + 0x8000000e)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x78670",
+      "va": "0x10078670",
+      "name": "ITexture::IsInit",
+      "symbol": "lhr_engine::itexture::TextureResources::is_texture_init",
+      "tier": "differential",
+      "evidence": "REA 3-insn body (m_Init +0x10) + vtable slot3 + mafia-re ITexture.cpp:1106-1111 + state tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x78e40",
+      "va": "0x10078e40",
+      "name": "ITexture::SaveToTGA",
+      "symbol": "lhr_engine::itexture::TextureResources::save_texture_to_tga",
+      "tier": "differential",
+      "evidence": "REA DXT CMP/JZ set + jump-table + conversions + vtable slot13 + mafia-re ITexture.cpp:1351-1432 + create-save-redecode round-trip incl DXT refusal"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x78190",
+      "va": "0x10078190",
+      "name": "ITexture::m_TryPresavedDXT (upstream working name, NOT original)",
+      "symbol": "lhr_engine::itexture::presaved_dxt_filename",
+      "tier": "contract",
+      "evidence": "REA FUN_10078190 (660B/20BB) + 5877 real a6.dta entry names + mafia-re ITexture.cpp:967-1039; name part differential-grade, payload loop contract-grade (decompiler truncation); FILETIME params proven dead"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x78430",
+      "va": "0x10078430",
+      "name": "ITexture::m_TryPresaved_555_565 (upstream working name, NOT original)",
+      "symbol": "lhr_engine::itexture::presaved_555_filename",
+      "tier": "contract",
+      "evidence": "REA FUN_10078430 (562B/18BB) + real entries + mafia-re ITexture.cpp:1041-1104; payload loop contract-grade (decompiler truncation)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x787c0",
+      "va": "0x100787c0",
+      "name": "ITexture::Lock",
+      "symbol": "lhr_engine::itexture::TextureResources::surface_lock",
+      "tier": "contract",
+      "evidence": "REA read_bytes + capstone (30 insns, flags 0x8000) + mafia-re ITexture.cpp:1146 + order tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x78850",
+      "va": "0x10078850",
+      "name": "ITexture::AddDirtyRect",
+      "symbol": "lhr_engine::itexture::TextureResources::surface_add_dirty",
+      "tier": "contract",
+      "evidence": "REA 5-insn tailcall + mafia-re ITexture.cpp:1170 + forward tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x78860",
+      "va": "0x10078860",
+      "name": "ITexture::Preload",
+      "symbol": "lhr_engine::itexture::TextureResources::preload_texture",
+      "tier": "contract",
+      "evidence": "REA ~40 insns + preload_vertex bytes + mafia-re ITexture.cpp:1178 + scene-branch order tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x78940",
+      "va": "0x10078940",
+      "name": "ITexture::Fill",
+      "symbol": "lhr_engine::itexture::TextureResources::fill_texture",
+      "tier": "contract",
+      "evidence": "REA 512B/130 insns + jump-table + mafia-re ITexture.cpp:1206 + per-format surface tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x78b70",
+      "va": "0x10078b70",
+      "name": "ITexture::Draw(x,y)",
+      "symbol": "lhr_engine::itexture::TextureResources::draw_texture_at",
+      "tier": "contract",
+      "evidence": "REA 400B/90 insns + draw_quad bytes + mafia-re ITexture.cpp:1284 + clamp/draw/wrap order tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x78cf0",
+      "va": "0x10078cf0",
+      "name": "ITexture::Draw(rect,colors)",
+      "symbol": "lhr_engine::itexture::TextureResources::draw_texture_rect",
+      "tier": "contract",
+      "evidence": "REA 480B/80 insns + mafia-re ITexture.cpp:1318 + tinted-blit order tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7a380",
+      "va": "0x1007a380",
+      "name": "CompressTexture",
+      "symbol": "lhr_engine::itexture::texture_surface::compress_texture",
+      "tier": "contract",
+      "evidence": "REA full procedure (486B/18BB, S3TCencode callee) + mafia-re ITexture.cpp:1956 + mask/encode/order tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7a9b0",
+      "va": "0x1007a9b0",
+      "name": "RenderThreadProc (queue policy)",
+      "symbol": "lhr_engine::itexture::TextureResources::run_managed_texture_worker",
+      "tier": "contract",
+      "evidence": "REA head bytes + Request neighbor + mafia-re ITexture.cpp:2156 + policy attribution to the pre-existing tested finite-schedule worker (queue-skip/growth covered by worker_* tests); no new loop per host-threading difference"
     }
   ],
   "vm": {

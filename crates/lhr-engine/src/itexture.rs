@@ -29,6 +29,15 @@ use crate::visual_resources::{
 #[path = "texture_factory.rs"]
 mod factory;
 pub use factory::*;
+#[path = "texture_load_image.rs"]
+pub mod texture_load_image;
+#[path = "texture_surface.rs"]
+pub mod texture_surface;
+use self::texture_surface::{
+    Rect, TextureDrawSink, TextureSurfaceSink, TlVertex, LOCK_FLAG_NO_DIRTY_UPDATE, PRELOAD_POINT,
+    PRIM_TRIANGLESTRIP, SAMPLER_CLAMP, SAMPLER_U, SAMPLER_V, SAMPLER_WRAP, TL_FVF,
+    VERTEX_FORMAT_TLVERTEX,
+};
 use std::sync::atomic::{AtomicU64, Ordering};
 static NEXT_TOKEN: AtomicU64 = AtomicU64::new(1);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -64,6 +73,25 @@ pub trait TextureBackend:
     ) -> Option<&mut dyn ManagedTextureEffects<Error = <Self as BufferBackend>::Error>> {
         None
     }
+    /// Infallible native diagnostic side effect (`dbgPrintf`). Required, not
+    /// defaulted: silently dropping the Reload/SaveToTGA log lines would
+    /// diverge from the evidenced stub and error blocks.
+    fn log_diagnostic(&mut self, message: TextureDiagnostic);
+    fn duplicate_effects(
+        &mut self,
+    ) -> Option<&mut dyn TextureDuplicateEffects<Error = <Self as BufferBackend>::Error>> {
+        None
+    }
+    fn tga_effects(
+        &mut self,
+    ) -> Option<&mut dyn TextureTgaEffects<Error = <Self as BufferBackend>::Error>> {
+        None
+    }
+    fn presaved_effects(
+        &mut self,
+    ) -> Option<&mut dyn TexturePresavedEffects<Error = <Self as BufferBackend>::Error>> {
+        None
+    }
     fn unlock_surface(
         &mut self,
         surface: TextureSurface,
@@ -85,6 +113,164 @@ pub trait TextureBackend:
         level: MeshLevelKey,
         bytes: RawVertexBytesKey,
     ) -> Result<(), <Self as BufferBackend>::Error>;
+    fn creation_sink(
+        &mut self,
+    ) -> Option<&mut dyn texture_surface::TextureCreationSink<Error = <Self as BufferBackend>::Error>>
+    {
+        None
+    }
+}
+/// LS3D_RESULT codes reached by the Duplicate/Reload/SaveToTGA ports
+/// (mafia-re ls3df.h:21-35). PC LS3DF.dll SHA-256
+/// e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6.
+pub const I3D_OK: u32 = 0;
+pub const I3DERR_OUTOFMEM: u32 = 0x80000002;
+pub const I3DERR_UNSUPPORTED: u32 = 0x8000000e;
+/// Evidenced D3D8 texture formats (SaveToTGA CMP immediates).
+pub const D3DFMT_R8G8B8: u32 = 20;
+pub const D3DFMT_A8R8G8B8: u32 = 21;
+pub const D3DFMT_X8R8G8B8: u32 = 22;
+pub const D3DFMT_R5G6B5: u32 = 23;
+pub const D3DFMT_X1R5G5B5: u32 = 24;
+pub const D3DFMT_A1R5G5B5: u32 = 25;
+pub const D3DFMT_A4R4G4B4: u32 = 26;
+pub const D3DFMT_L8: u32 = 50;
+pub const D3DFMT_DXT1: u32 = 0x31545844;
+pub const D3DFMT_DXT2: u32 = 0x32545844;
+pub const D3DFMT_DXT3: u32 = 0x33545844;
+pub const D3DFMT_DXT4: u32 = 0x34545844;
+pub const D3DFMT_DXT5: u32 = 0x35545844;
+/// Flag bit selecting the presaved `L` name suffix (mafia-re IGraph.h ITC_HALF).
+pub const ITC_HALF: u32 = 0x2000;
+/// Presaved DXT selectors (mafia-re ITexture.cpp:85-87).
+pub const PRESAVED_DXT1: u8 = 1;
+pub const PRESAVED_DXT1_ALPHA: u8 = 2;
+pub const PRESAVED_DXT3: u8 = 3;
+/// Presaved payload versions (static words at 0x1009d8d0/0x1009d8d2).
+pub const PRESAVED_DXT_VERSION: u16 = 9;
+pub const PRESAVED_TEX_VERSION: u16 = 1;
+/// Native presaved name scratch size (`char file[256]`).
+pub const PRESAVED_NAME_CAP: usize = 256;
+
+/// Byte-exact native diagnostic lines. The `Compresed` typo is original
+/// (LS3DF string at 0x100ab118).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TextureDiagnostic {
+    ReloadNotImplemented,
+    TgaCompressedPixelFormat(Vec<u8>),
+    TgaCannotCreateFile(Vec<u8>),
+    TgaCannotLockTexture,
+}
+/// Pure renderer for [`TextureDiagnostic`]; unit-tested byte-for-byte.
+pub fn render_diagnostic(line: &TextureDiagnostic) -> Vec<u8> {
+    match line {
+        TextureDiagnostic::ReloadNotImplemented => {
+            b"ITexture::Reload() - WAS NOT IMPLEMENTED !".to_vec()
+        }
+        TextureDiagnostic::TgaCompressedPixelFormat(name) => {
+            let mut out = b"!! ITexture::SaveToTGA() - Cannot create file ".to_vec();
+            out.extend_from_slice(name);
+            out.extend_from_slice(b"  Compresed pixel format isn't supported");
+            out
+        }
+        TextureDiagnostic::TgaCannotCreateFile(name) => {
+            let mut out = b"!! ITexture::SaveToTGA() - Cannot create file ".to_vec();
+            out.extend_from_slice(name);
+            out
+        }
+        TextureDiagnostic::TgaCannotLockTexture => {
+            b"!! ITexture::SaveToTGA() - Cannot lock texture".to_vec()
+        }
+    }
+}
+/// Opaque host handle for a `dtaOpenWrite` TGA stream. Byte buffers stay at
+/// this platform/file boundary per the compatibility policy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct TgaFile(pub u64);
+/// Level-0 lock snapshot for SaveToTGA. The original reads live surface rows
+/// while writing; no mutating callback runs between its Lock and per-row
+/// writes, so capturing bytes plus pitch at lock time preserves order and
+/// values.
+pub enum TgaLevelLock {
+    Locked {
+        data: Vec<u8>,
+        pitch: u32,
+    },
+    /// Native `Lock` null path: log `Cannot lock texture`, keep the file
+    /// open, return false. The leaked handle is preserved, not repaired.
+    Failed,
+}
+/// Opaque host handle for a `dtaOpen` presaved probe stream.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct PresavedFile(pub u64);
+/// GPU/file effects for `Duplicate` (RVA 0x75d10). `None` capability rejects
+/// before effects. `clone_pixels`/`duplicate_graphics` returning `None` are
+/// clean native allocation failures (OUTOFMEM / host allocation); only `Err`
+/// poisons.
+pub trait TextureDuplicateEffects {
+    type Error;
+    fn clone_pixels(
+        &mut self,
+        src: PixelAllocation,
+        bytes: u32,
+    ) -> Result<Option<PixelAllocation>, Self::Error>;
+    /// `CreateTexture` equivalent: managed pool (1), usage 0, then per-level
+    /// copies via [`TextureDuplicateEffects::copy_graphics_levels`].
+    fn duplicate_graphics(
+        &mut self,
+        src: TextureGraphics,
+        width: u16,
+        height: u16,
+        levels: u16,
+        format: u32,
+    ) -> Result<Option<TextureGraphics>, Self::Error>;
+    fn copy_graphics_levels(
+        &mut self,
+        src: TextureGraphics,
+        dst: TextureGraphics,
+        levels: u16,
+    ) -> Result<(), Self::Error>;
+    /// `Preload` equivalent (vtable +0x24): driver-upload draw, after the
+    /// uncached-list push and `m_Init = true`.
+    fn preload_texture(&mut self, graphics: TextureGraphics) -> Result<(), Self::Error>;
+}
+/// GPU/file effects for `SaveToTGA` (RVA 0x78e40). `open_tga_write` `None`
+/// is the clean create-failure path; `TgaLevelLock::Failed` is the clean
+/// lock-failure path with the file left open, as in the original.
+pub trait TextureTgaEffects {
+    type Error;
+    fn open_tga_write(&mut self, name: &[u8]) -> Result<Option<TgaFile>, Self::Error>;
+    fn write_tga(&mut self, file: TgaFile, bytes: &[u8]) -> Result<(), Self::Error>;
+    fn close_tga(&mut self, file: TgaFile) -> Result<(), Self::Error>;
+    fn lock_level_zero(&mut self, graphics: TextureGraphics) -> Result<TgaLevelLock, Self::Error>;
+    fn unlock_level_zero(&mut self, graphics: TextureGraphics) -> Result<(), Self::Error>;
+}
+/// File/surface effects for the presaved probes (RVAs 0x78190/0x78430).
+/// `open_presaved` `None` is `DTA_INVALID_HANDLE` (clean miss, no close).
+/// Reads are exact-size: short data is a backend error, since the original
+/// performs unchecked full `dtaRead`s. FILETIME payloads are read and
+/// discarded -- the original never compares them (no `CompareFileTime` edge
+/// in either body).
+pub trait TexturePresavedEffects {
+    type Error;
+    fn open_presaved(&mut self, name: &[u8]) -> Result<Option<PresavedFile>, Self::Error>;
+    fn read_presaved(&mut self, file: PresavedFile, out: &mut [u8]) -> Result<(), Self::Error>;
+    fn close_presaved(&mut self, file: PresavedFile) -> Result<(), Self::Error>;
+    /// `GetSurfaceLevel(i)->GetDesc().Size` per level; summed into `m_MemSize`
+    /// with 32-bit wrapping, as in the original accumulation.
+    fn presaved_level_size(
+        &mut self,
+        graphics: TextureGraphics,
+        level: u16,
+    ) -> Result<u32, Self::Error>;
+    /// `LockRect`/`dtaRead`/`UnlockRect` triple as one ordered effect. The
+    /// original checks no lock status here, so there is no failure path.
+    fn write_presaved_level(
+        &mut self,
+        graphics: TextureGraphics,
+        level: u16,
+        bytes: &[u8],
+    ) -> Result<(), Self::Error>;
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Observed<T> {
@@ -1111,6 +1297,563 @@ impl TextureResources {
         self.available()?;
         self.textures.close(k, &mut self.strings, b)
     }
+    fn req_value<T: Copy>(v: Observed<T>) -> Result<T, TextureError> {
+        match v {
+            Observed::Value(x) => Ok(x),
+            _ => Err(TextureError::InvalidState),
+        }
+    }
+    /// Original `Duplicate` projection, PC RVA 0x75d10 (vtable slot 1).
+    /// Order-exact: Close(dst); null/uninit src returns I3D_OK with no
+    /// further effects; flags/create-flags/C_str shares/dims/colorkey;
+    /// pixels clone (clean I3DERR_OUTOFMEM, effects retained); levels and
+    /// memsize; graphics duplicate + level copies (absent source graphics
+    /// is InvalidState; a refused device allocation is HostAllocation
+    /// instead of the native null-dereference; effects retained in both
+    /// cases); uncached push; init=true; Preload. Returns the LS3D_RESULT
+    /// code, never faults.
+    pub fn duplicate_texture<B: TextureBackend + ?Sized>(
+        &mut self,
+        dst: TextureKey,
+        src: Option<TextureKey>,
+        b: &mut B,
+    ) -> Result<u32, TextureOperationError<<B as BufferBackend>::Error>> {
+        self.available()?;
+        self.textures.close(dst, &mut self.strings, b)?;
+        let Some(src) = src else { return Ok(I3D_OK) };
+        self.textures.live(src)?;
+        if !self.textures.texture(src)?.initialized {
+            return Ok(I3D_OK);
+        }
+        // Scalar snapshot before any mutation; reads happen when the original
+        // reads them (flags/names first, dims/pixels next, levels last).
+        let snap = {
+            let t = self.textures.texture(src)?;
+            (
+                t.flags,
+                t.creation_flags,
+                t.file_name,
+                t.alpha_file_name,
+                t.name,
+                t.alpha_name,
+                t.width,
+                t.height,
+                t.color_key,
+                t.pixels,
+                t.levels,
+                t.memory_size,
+                t.graphics,
+                t.format,
+            )
+        };
+        let result = (|| {
+            let d = self.textures.texture_mut(dst);
+            d.flags = snap.0;
+            d.creation_flags = snap.1;
+            // C_str refcount-share: alias the source reps, copying the
+            // basename views onto the shared bytes.
+            let (dst_file, dst_alpha) = {
+                let d = self.textures.texture(dst)?;
+                (d.file_name, d.alpha_file_name)
+            };
+            let src_file_rep = self.strings.string(snap.2)?.rep;
+            if src_file_rep.is_some() {
+                string_result(self.strings.alias_into(dst_file, snap.2, b))?;
+            } else {
+                string_result(self.strings.assign(dst_file, None, b))?;
+            }
+            let src_alpha_rep = self.strings.string(snap.3)?.rep;
+            if src_alpha_rep.is_some() {
+                string_result(self.strings.alias_into(dst_alpha, snap.3, b))?;
+            } else {
+                string_result(self.strings.assign(dst_alpha, None, b))?;
+            }
+            let d = self.textures.texture_mut(dst);
+            d.name = snap.4;
+            d.alpha_name = snap.5;
+            d.width = snap.6;
+            d.height = snap.7;
+            d.color_key = snap.8;
+            let (w, h) = (Self::req_value(snap.6)?, Self::req_value(snap.7)?);
+            if let Some(src_pixels) = snap.9 {
+                let bytes = (w as u32).wrapping_mul(h as u32).wrapping_mul(4);
+                let fx = b.duplicate_effects().ok_or(TextureError::HostAllocation)?;
+                let cloned = self.textures.call(fx.clone_pixels(src_pixels, bytes))?;
+                let Some(cloned) = cloned else {
+                    return Ok(I3DERR_OUTOFMEM);
+                };
+                self.textures.texture_mut(dst).pixels = Some(cloned);
+            }
+            let d = self.textures.texture_mut(dst);
+            d.levels = snap.10;
+            d.memory_size = snap.11;
+            let format = Self::req_value(snap.13)?;
+            let src_graphics = snap.12.ok_or(TextureError::InvalidState)?;
+            let levels = Self::req_value(snap.10)?;
+            let fx = b.duplicate_effects().ok_or(TextureError::HostAllocation)?;
+            let dst_graphics =
+                self.textures
+                    .call(fx.duplicate_graphics(src_graphics, w, h, levels, format))?;
+            let Some(dst_graphics) = dst_graphics else {
+                return Err(TextureError::HostAllocation.into());
+            };
+            self.textures.texture_mut(dst).graphics = Some(dst_graphics);
+            if levels != 0 {
+                let fx = b.duplicate_effects().ok_or(TextureError::HostAllocation)?;
+                self.textures
+                    .call(fx.copy_graphics_levels(src_graphics, dst_graphics, levels))?;
+            }
+            self.register_cache(dst, CacheList::Uncached)?;
+            self.textures.texture_mut(dst).initialized = true;
+            let fx = b.duplicate_effects().ok_or(TextureError::HostAllocation)?;
+            self.textures.call(fx.preload_texture(dst_graphics))?;
+            Ok(I3D_OK)
+        })();
+        if result.is_err() {
+            self.poisoned = true;
+            self.textures.poisoned = true;
+        }
+        result
+    }
+    /// Original `Reload` stub, PC RVA 0x75f30 (vtable slot 5). The 5-insn
+    /// body never reads `this`: no key, no state access, single log side
+    /// effect, single `I3DERR_UNSUPPORTED` return. Infallible by construction.
+    pub fn reload_texture<B: TextureBackend + ?Sized>(&self, b: &mut B) -> u32 {
+        b.log_diagnostic(TextureDiagnostic::ReloadNotImplemented);
+        I3DERR_UNSUPPORTED
+    }
+    /// Original `IsInit`, PC RVA 0x78670 (vtable slot 3): direct `m_Init`
+    /// read (this+0x10, AL only; upper EAX preserved for callers).
+    pub fn is_texture_init(&self, k: TextureKey) -> Result<bool, TextureError> {
+        Ok(self.textures.texture(k)?.initialized)
+    }
+    /// Evidenced format to TGA-bits table (jump table at 0x1007911c with
+    /// index bytes at 0x1007912c): 20->24, 21/22/26->32, 23/24/25->16,
+    /// 50->24, else 0 (refuse).
+    fn tga_bits_per_pixel(format: u32) -> u8 {
+        match format {
+            D3DFMT_A8R8G8B8 | D3DFMT_X8R8G8B8 | D3DFMT_A4R4G4B4 => 32,
+            D3DFMT_R5G6B5 | D3DFMT_X1R5G5B5 | D3DFMT_A1R5G5B5 => 16,
+            D3DFMT_R8G8B8 | D3DFMT_L8 => 24,
+            _ => 0,
+        }
+    }
+    /// Original `SaveToTGA`, PC RVA 0x78e40 (vtable slot 13). Level-0
+    /// snapshot to uncompressed TGA: DXT1-5 refuse with the
+    /// (typo-preserving) log line; R5G6B5 and A4R4G4B4 convert bit-exact
+    /// (`(c>>1)&0x7fe0|(c&0x1f)`; nibble-spread `SHL 4` tail); rows run
+    /// bottom-up with pitch; `dtaClose` precedes `Unlock`; lock failure keeps
+    /// the file open. Zero dimensions write a header-only file and return
+    /// true (host extent guard replaces the original's out-of-bounds read).
+    pub fn save_texture_to_tga<B: TextureBackend + ?Sized>(
+        &mut self,
+        k: TextureKey,
+        name: &[u8],
+        b: &mut B,
+    ) -> Result<bool, TextureOperationError<<B as BufferBackend>::Error>> {
+        self.available()?;
+        let t = self.textures.live(k)?;
+        let (format, width, height, graphics) = (t.format, t.width, t.height, t.graphics);
+        let format = Self::req_value(format)?;
+        if matches!(
+            format,
+            D3DFMT_DXT1 | D3DFMT_DXT2 | D3DFMT_DXT3 | D3DFMT_DXT4 | D3DFMT_DXT5
+        ) {
+            b.log_diagnostic(TextureDiagnostic::TgaCompressedPixelFormat(name.to_vec()));
+            return Ok(false);
+        }
+        let (width, height) = (Self::req_value(width)?, Self::req_value(height)?);
+        let bpp = Self::tga_bits_per_pixel(format);
+        let mut header = [0u8; 18];
+        header[2] = 2;
+        header[12..14].copy_from_slice(&width.to_le_bytes());
+        header[14..16].copy_from_slice(&height.to_le_bytes());
+        header[16] = bpp;
+        let result = (|| {
+            let fx = b.tga_effects().ok_or(TextureError::HostAllocation)?;
+            let Some(file) = self.textures.call(fx.open_tga_write(name))? else {
+                b.log_diagnostic(TextureDiagnostic::TgaCannotCreateFile(name.to_vec()));
+                return Ok(false);
+            };
+            self.textures.call(fx.write_tga(file, &header))?;
+            let graphics = graphics.ok_or(TextureError::InvalidState)?;
+            let lock = self.textures.call(fx.lock_level_zero(graphics))?;
+            let TgaLevelLock::Locked { data, pitch } = lock else {
+                b.log_diagnostic(TextureDiagnostic::TgaCannotLockTexture);
+                return Ok(false);
+            };
+            // Host extent guard (no native equivalent; the original would
+            // read out of bounds). Unlock + close before the clean error.
+            // Converted formats read 2 input bytes per pixel; direct rows
+            // read the TGA row width.
+            let row_bytes = (u32::from(bpp) / 8) * u32::from(width);
+            let in_row = if format == D3DFMT_R5G6B5 || format == D3DFMT_A4R4G4B4 {
+                u32::from(width) * 2
+            } else {
+                row_bytes
+            };
+            let ok = u32::from(height)
+                .checked_sub(1)
+                .and_then(|h| h.checked_mul(pitch))
+                .and_then(|start| start.checked_add(in_row))
+                .is_some_and(|end| (end as usize) <= data.len())
+                || height == 0;
+            if !ok {
+                self.textures.call(fx.unlock_level_zero(graphics))?;
+                self.textures.call(fx.close_tga(file))?;
+                return Err(TextureError::InvalidState.into());
+            }
+            let mut row16 = vec![0u16; width as usize];
+            let mut row32 = vec![0u32; width as usize];
+            for y in 0..height as usize {
+                let o = (height as usize - 1 - y) * pitch as usize;
+                let row = &data[o..];
+                if format == D3DFMT_R5G6B5 {
+                    for (x, slot) in row16.iter_mut().enumerate() {
+                        let c = u16::from_le_bytes([row[x * 2], row[x * 2 + 1]]);
+                        *slot = ((c >> 1) & 0x7fe0) | (c & 0x1f);
+                    }
+                    let mut bytes = Vec::with_capacity(row16.len() * 2);
+                    for v in &row16 {
+                        bytes.extend_from_slice(&v.to_le_bytes());
+                    }
+                    self.textures.call(fx.write_tga(file, &bytes))?;
+                } else if format == D3DFMT_A4R4G4B4 {
+                    for (x, slot) in row32.iter_mut().enumerate() {
+                        let c = u16::from_le_bytes([row[x * 2], row[x * 2 + 1]]);
+                        *slot = (((c & 0xf000) as u32) << 16)
+                            | (((c & 0x0f00) as u32) << 12)
+                            | (((c & 0x00f0) as u32) << 8)
+                            | (((c & 0x000f) as u32) << 4);
+                    }
+                    let mut bytes = Vec::with_capacity(row32.len() * 4);
+                    for v in &row32 {
+                        bytes.extend_from_slice(&v.to_le_bytes());
+                    }
+                    self.textures.call(fx.write_tga(file, &bytes))?;
+                } else {
+                    let n = row_bytes as usize;
+                    self.textures.call(fx.write_tga(file, &row[..n]))?;
+                }
+            }
+            drop(row16);
+            drop(row32);
+            self.textures.call(fx.close_tga(file))?;
+            self.textures.call(fx.unlock_level_zero(graphics))?;
+            Ok(true)
+        })();
+        if result.is_err() {
+            self.poisoned = true;
+            self.textures.poisoned = true;
+        }
+        result
+    }
+    /// Original `Lock`, PC RVA 0x787c0: null graphics rejects with zero
+    /// callbacks (host analog of the `m_pLockSurface` early-NULL); else
+    /// GetSurfaceLevel then LockRect with `LOCK_FLAG_NO_DIRTY_UPDATE`,
+    /// publishing pitch and bits. No dirty update here.
+    pub fn surface_lock<S: TextureSurfaceSink>(
+        &mut self,
+        graphics: TextureGraphics,
+        rect: Option<Rect>,
+        level: u16,
+        sink: &mut S,
+    ) -> Result<Option<(u32, u64)>, TextureOperationError<S::Error>> {
+        self.available()?;
+        if graphics.0 == 0 {
+            return Ok(None);
+        }
+        let Some(surface) = self
+            .textures
+            .call(sink.get_surface_level(graphics, level))?
+        else {
+            return Ok(None);
+        };
+        let Some(mapping) =
+            self.textures
+                .call(sink.lock_surface(surface, rect, LOCK_FLAG_NO_DIRTY_UPDATE))?
+        else {
+            return Ok(None);
+        };
+        Ok(Some((mapping.pitch, mapping.mapping)))
+    }
+    /// Original `AddDirtyRect`, PC RVA 0x78850: pure tailcall forward; the
+    /// sink code returns verbatim and the rect pointer passes untouched.
+    pub fn surface_add_dirty<S: TextureSurfaceSink>(
+        &mut self,
+        graphics: TextureGraphics,
+        rect: Option<Rect>,
+        sink: &mut S,
+    ) -> Result<i32, TextureOperationError<S::Error>> {
+        self.available()?;
+        self.textures.call(sink.add_dirty_rect(graphics, rect))
+    }
+    /// Original `Preload`, PC RVA 0x78860: point-draw upload with the
+    /// scene-begun branch. Order-exact: begun path is
+    /// [maybe set VF][bind][draw-point]; otherwise
+    /// [begin][maybe set VF][bind][draw-point][end]; returns native 0.
+    pub fn preload_texture<S: TextureDrawSink>(
+        &mut self,
+        graphics: TextureGraphics,
+        sink: &mut S,
+    ) -> Result<(), TextureOperationError<S::Error>> {
+        self.available()?;
+        if self.textures.call(sink.scene_begun())? {
+            if self.textures.call(sink.tl_format())? != VERTEX_FORMAT_TLVERTEX {
+                self.textures.call(sink.set_tl_format(TL_FVF))?;
+            }
+            self.textures.call(sink.bind_raw_graphics(graphics))?;
+            self.textures.call(sink.draw_point_up(&[PRELOAD_POINT]))?;
+        } else {
+            self.textures.call(sink.begin_scene())?;
+            if self.textures.call(sink.tl_format())? != VERTEX_FORMAT_TLVERTEX {
+                self.textures.call(sink.set_tl_format(TL_FVF))?;
+            }
+            self.textures.call(sink.bind_raw_graphics(graphics))?;
+            self.textures.call(sink.draw_point_up(&[PRELOAD_POINT]))?;
+            self.textures.call(sink.end_scene())?;
+        }
+        Ok(())
+    }
+    /// Original `Fill`, PC RVA 0x78940: GetDesc, Lock, per-format synthetic
+    /// writes over the locked mapping, Unlock, AddDirtyRect, true. Extents
+    /// come from `rect` when given (`right-left`/`bottom-top`, ITexture.cpp
+    /// :1217-1218), else the desc extents. Stride is the locked pitch: each
+    /// row advances by pitch while pixel data advances tightly, so subrect
+    /// rows never touch neighboring bytes. L8 ignores pitch (three contiguous
+    /// planes). A lock reporting less than one row unlocks and returns
+    /// false (native would overrun; the host refuses instead of truncating).
+    /// The desc miss and the lock miss both return false (the lock
+    /// miss unlocks first, mirroring the fail-path Unlock); unsupported
+    /// formats unlock then return false with no dirty.
+    pub fn fill_texture<S: TextureSurfaceSink>(
+        &mut self,
+        graphics: TextureGraphics,
+        level: u16,
+        rect: Option<Rect>,
+        color: u32,
+        format: u32,
+        sink: &mut S,
+    ) -> Result<bool, TextureOperationError<S::Error>> {
+        self.available()?;
+        let Some(desc) = self.textures.call(sink.surface_desc(graphics, level))? else {
+            return Ok(false);
+        };
+        let Some(surface) = self
+            .textures
+            .call(sink.get_surface_level(graphics, level))?
+        else {
+            return Ok(false);
+        };
+        let Some(mapping) = self.textures.call(sink.lock_surface(surface, rect, 0))? else {
+            self.textures.call(sink.unlock_surface(surface))?;
+            return Ok(false);
+        };
+        let (sx, sy) = match rect {
+            Some(r) => (
+                (r.right - r.left).max(0) as u32,
+                (r.bottom - r.top).max(0) as u32,
+            ),
+            None => (desc.width, desc.height),
+        };
+        let pitch = mapping.pitch;
+        // Short-pitch guard: native would overrun the lock; the host unlocks
+        // and reports false instead of truncating row pixels silently.
+        // All size math is checked: hostile extents unlock and report
+        // instead of wrapping or panicking.
+        let total: usize = match format {
+            D3DFMT_A8R8G8B8 | D3DFMT_X8R8G8B8 | D3DFMT_R8G8B8 | D3DFMT_R5G6B5 | D3DFMT_X1R5G5B5
+            | D3DFMT_A1R5G5B5 | D3DFMT_A4R4G4B4 => {
+                let bpp = match format {
+                    D3DFMT_R8G8B8 => 3,
+                    D3DFMT_R5G6B5 | D3DFMT_X1R5G5B5 | D3DFMT_A1R5G5B5 | D3DFMT_A4R4G4B4 => 2,
+                    _ => 4,
+                };
+                let row = sx.checked_mul(bpp).ok_or(TextureError::HostAllocation)?;
+                if pitch < row {
+                    self.textures.call(sink.unlock_surface(surface))?;
+                    return Ok(false);
+                }
+                pitch.checked_mul(sy).ok_or(TextureError::HostAllocation)? as usize
+            }
+            D3DFMT_L8 => sx
+                .checked_mul(sy)
+                .and_then(|n| n.checked_mul(3))
+                .ok_or(TextureError::HostAllocation)? as usize,
+            _ => {
+                self.textures.call(sink.unlock_surface(surface))?;
+                return Ok(false);
+            }
+        };
+        let mut out = Vec::new();
+        if out.try_reserve_exact(total).is_err() {
+            self.textures.call(sink.unlock_surface(surface))?;
+            return Err(TextureError::HostAllocation.into());
+        }
+        // Per-row emission: pixel bytes advance tightly, the write cursor
+        // advances by pitch, so subrect rows stay inside their own rows.
+        // Capacity is reserved above, so no further allocation can trap.
+        let body: Option<Vec<u8>> = match format {
+            D3DFMT_A8R8G8B8 | D3DFMT_X8R8G8B8 => {
+                for _ in 0..sy as usize {
+                    let base = out.len();
+                    for _ in 0..sx as usize {
+                        out.extend_from_slice(&color.to_le_bytes());
+                    }
+                    out.resize(base + pitch as usize, 0);
+                }
+                Some(out)
+            }
+            D3DFMT_R8G8B8 => {
+                let [_, r, g, b] = color.to_be_bytes();
+                for _ in 0..sy as usize {
+                    let base = out.len();
+                    for _ in 0..sx as usize {
+                        out.extend_from_slice(&[r, g, b]);
+                    }
+                    out.resize(base + pitch as usize, 0);
+                }
+                Some(out)
+            }
+            D3DFMT_R5G6B5 | D3DFMT_X1R5G5B5 | D3DFMT_A1R5G5B5 | D3DFMT_A4R4G4B4 => {
+                for _ in 0..sy as usize {
+                    let base = out.len();
+                    for _ in 0..sx as usize {
+                        out.extend_from_slice(&(color as u16).to_le_bytes());
+                    }
+                    out.resize(base + pitch as usize, 0);
+                }
+                Some(out)
+            }
+            D3DFMT_L8 => {
+                let [_, r, g, b] = color.to_be_bytes();
+                for _ in 0..total / 3 {
+                    out.extend_from_slice(&[r, g, b]);
+                }
+                Some(out)
+            }
+            _ => None,
+        };
+        let Some(body) = body else {
+            self.textures.call(sink.unlock_surface(surface))?;
+            return Ok(false);
+        };
+        self.textures
+            .call(sink.write_locked(mapping.mapping, &body))?;
+        self.textures.call(sink.unlock_surface(surface))?;
+        self.textures.call(sink.add_dirty_rect(graphics, rect))?;
+        Ok(true)
+    }
+    /// Original `Draw(x,y)`, PC RVA 0x78b70: screen-clipped quad blit.
+    /// Order: scrn size, intersect (offscreen returns true with no draw),
+    /// set texture, clamp U/V, strip draw of 2, on success wrap U/V restore.
+    /// A negative draw returns false with no restore.
+    pub fn draw_texture_at<S: TextureDrawSink>(
+        &mut self,
+        key: TextureKey,
+        x: i32,
+        y: i32,
+        width: u32,
+        height: u32,
+        sink: &mut S,
+    ) -> Result<bool, TextureOperationError<S::Error>> {
+        self.available()?;
+        let rect = Rect {
+            left: x,
+            top: y,
+            right: x + width as i32,
+            bottom: y + height as i32,
+        };
+        self.draw_texture_rect_inner(key, rect, None, sink)
+    }
+    /// Original `Draw(rect,colors)`, PC RVA 0x78cf0: tinted stretched blit.
+    /// Colors publish before positions, both before set_texture; same
+    /// clamp/draw/wrap epilogue as `Draw(x,y)`.
+    pub fn draw_texture_rect<S: TextureDrawSink>(
+        &mut self,
+        key: TextureKey,
+        rect: Rect,
+        colors: [u32; 4],
+        sink: &mut S,
+    ) -> Result<bool, TextureOperationError<S::Error>> {
+        self.available()?;
+        self.draw_texture_rect_inner(key, rect, Some(colors), sink)
+    }
+    fn draw_texture_rect_inner<S: TextureDrawSink>(
+        &mut self,
+        key: TextureKey,
+        rect: Rect,
+        colors: Option<[u32; 4]>,
+        sink: &mut S,
+    ) -> Result<bool, TextureOperationError<S::Error>> {
+        let (sx, sy) = self.textures.call(sink.scrn_size())?;
+        let screen = Rect {
+            left: 0,
+            top: 0,
+            right: sx,
+            bottom: sy,
+        };
+        let mut vis = Rect {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+        };
+        if !self
+            .textures
+            .call(sink.intersect_rect(&mut vis, &rect, &screen))?
+        {
+            return Ok(true);
+        }
+        let diffuse = colors.unwrap_or([0xffff_ffff; 4]);
+        let quad = [
+            TlVertex {
+                x: rect.left as f32,
+                y: rect.top as f32,
+                diffuse: diffuse[0],
+                u: 0.0,
+                v: 0.0,
+            },
+            TlVertex {
+                x: rect.right as f32,
+                y: rect.top as f32,
+                diffuse: diffuse[1],
+                u: 1.0,
+                v: 0.0,
+            },
+            TlVertex {
+                x: rect.left as f32,
+                y: rect.bottom as f32,
+                diffuse: diffuse[2],
+                u: 0.0,
+                v: 1.0,
+            },
+            TlVertex {
+                x: rect.right as f32,
+                y: rect.bottom as f32,
+                diffuse: diffuse[3],
+                u: 1.0,
+                v: 1.0,
+            },
+        ];
+        self.textures.call(sink.set_texture(key))?;
+        self.textures
+            .call(sink.set_sampler(0, SAMPLER_U, SAMPLER_CLAMP))?;
+        self.textures
+            .call(sink.set_sampler(0, SAMPLER_V, SAMPLER_CLAMP))?;
+        if self
+            .textures
+            .call(sink.draw_strip(PRIM_TRIANGLESTRIP, 2, &quad))?
+            < 0
+        {
+            return Ok(false);
+        }
+        self.textures
+            .call(sink.set_sampler(0, SAMPLER_U, SAMPLER_WRAP))?;
+        self.textures
+            .call(sink.set_sampler(0, SAMPLER_V, SAMPLER_WRAP))?;
+        Ok(true)
+    }
     pub fn destruct_texture<B: TextureBackend + ?Sized>(
         &mut self,
         k: TextureKey,
@@ -1560,6 +2303,7 @@ impl TextureResources {
 
 #[cfg(test)]
 mod tests {
+    use super::texture_surface::{LockedMapping, S3tcEncodeSink, SurfaceDesc};
     use super::*;
     use crate::c_str::{CRepKey, StringAllocation};
     use crate::texture_manager::*;
@@ -1590,6 +2334,10 @@ mod tests {
         LowMemory,
         LastFrame(ManagedRecordKey, u32),
         DeletePool(Option<ManagedPoolAllocation>),
+        TextureDup(TextureGraphics, u16, u16, u16, u32),
+        TextureDupLevels(TextureGraphics, TextureGraphics, u16),
+        TexturePreload(TextureGraphics),
+        TgaOpen(Vec<u8>),
     }
     #[derive(Default)]
     struct WorkerFileBackend {
@@ -1691,6 +2439,23 @@ mod tests {
         fail_copy_array: bool,
         filename_bytes: BTreeMap<u64, Vec<u8>>,
         arrays: BTreeMap<u64, Vec<Option<ManagedRecordKey>>>,
+        diagnostics: Vec<Vec<u8>>,
+        dup_clone_log: Vec<(PixelAllocation, u32)>,
+        dup_fail_clone_oom: bool,
+        dup_fail_graphics_none: bool,
+        no_dup_effects: bool,
+        no_tga_effects: bool,
+        tga_files: BTreeMap<u64, TgaTestFile>,
+        tga_next: u64,
+        tga_fail_open: bool,
+        tga_lock: Option<(Vec<u8>, u32)>,
+        tga_lock_fail: bool,
+        tga_unlocks: Vec<u64>,
+    }
+    #[derive(Default)]
+    struct TgaTestFile {
+        bytes: Vec<u8>,
+        closed: bool,
     }
     impl Backend {
         fn next(&mut self) -> u64 {
@@ -1718,9 +2483,9 @@ mod tests {
                 color_key: 0x10203040,
                 levels: 3,
                 memory_size: 8192,
-                file_name: Some(b"maps/wall.tga"),
+                file_name: Some(b"maps\\wall.tga"),
                 name_offset: Some(5),
-                alpha_file_name: AlphaName::Bytes(b"maps/wall_a.tga"),
+                alpha_file_name: AlphaName::Bytes(b"maps\\wall_a.tga"),
                 alpha_name_offset: Some(5),
             }
         }
@@ -1729,6 +2494,106 @@ mod tests {
                 bm::GraphicsBuffer::Index(h) => h.0,
                 bm::GraphicsBuffer::Vertex(h) => h.0,
             }
+        }
+    }
+    impl TextureDuplicateEffects for Backend {
+        type Error = &'static str;
+        fn clone_pixels(
+            &mut self,
+            src: PixelAllocation,
+            bytes: u32,
+        ) -> Result<Option<PixelAllocation>, Self::Error> {
+            if self.dup_fail_clone_oom {
+                return Ok(None);
+            }
+            let data = self.pixels.get(&src.0).cloned().unwrap_or_default();
+            assert_eq!(
+                data.len() as u64,
+                u64::from(bytes),
+                "test pixels must match w*h*4"
+            );
+            let id = PixelAllocation(self.next());
+            self.dup_clone_log.push((src, bytes));
+            self.pixels.insert(id.0, data);
+            Ok(Some(id))
+        }
+        fn duplicate_graphics(
+            &mut self,
+            src: TextureGraphics,
+            width: u16,
+            height: u16,
+            levels: u16,
+            format: u32,
+        ) -> Result<Option<TextureGraphics>, Self::Error> {
+            if self.dup_fail_graphics_none {
+                return Ok(None);
+            }
+            let id = TextureGraphics(self.next());
+            self.textures.insert(id.0, 1);
+            self.events
+                .push(Event::TextureDup(src, width, height, levels, format));
+            Ok(Some(id))
+        }
+        fn copy_graphics_levels(
+            &mut self,
+            src: TextureGraphics,
+            dst: TextureGraphics,
+            levels: u16,
+        ) -> Result<(), Self::Error> {
+            self.events.push(Event::TextureDupLevels(src, dst, levels));
+            Ok(())
+        }
+        fn preload_texture(&mut self, graphics: TextureGraphics) -> Result<(), Self::Error> {
+            self.events.push(Event::TexturePreload(graphics));
+            Ok(())
+        }
+    }
+    impl TextureTgaEffects for Backend {
+        type Error = &'static str;
+        fn open_tga_write(&mut self, name: &[u8]) -> Result<Option<TgaFile>, Self::Error> {
+            if self.tga_fail_open {
+                return Ok(None);
+            }
+            self.tga_next += 1;
+            let id = self.tga_next;
+            self.tga_files.insert(
+                id,
+                TgaTestFile {
+                    bytes: Vec::new(),
+                    closed: false,
+                },
+            );
+            let _ = name;
+            self.events.push(Event::TgaOpen(name.to_vec()));
+            Ok(Some(TgaFile(id)))
+        }
+        fn write_tga(&mut self, file: TgaFile, bytes: &[u8]) -> Result<(), Self::Error> {
+            let f = self.tga_files.get_mut(&file.0).ok_or("unknown tga file")?;
+            if f.closed {
+                return Err("write to closed tga file");
+            }
+            f.bytes.extend_from_slice(bytes);
+            Ok(())
+        }
+        fn close_tga(&mut self, file: TgaFile) -> Result<(), Self::Error> {
+            let f = self.tga_files.get_mut(&file.0).ok_or("unknown tga file")?;
+            f.closed = true;
+            Ok(())
+        }
+        fn lock_level_zero(
+            &mut self,
+            graphics: TextureGraphics,
+        ) -> Result<TgaLevelLock, Self::Error> {
+            if self.tga_lock_fail {
+                return Ok(TgaLevelLock::Failed);
+            }
+            let (data, pitch) = self.tga_lock.clone().unwrap_or_default();
+            let _ = graphics;
+            Ok(TgaLevelLock::Locked { data, pitch })
+        }
+        fn unlock_level_zero(&mut self, graphics: TextureGraphics) -> Result<(), Self::Error> {
+            self.tga_unlocks.push(graphics.0);
+            Ok(())
         }
     }
     impl CStrBackend for Backend {
@@ -2083,6 +2948,25 @@ mod tests {
                 Some(self)
             } else {
                 None
+            }
+        }
+        fn log_diagnostic(&mut self, message: TextureDiagnostic) {
+            self.diagnostics.push(render_diagnostic(&message));
+        }
+        fn duplicate_effects(
+            &mut self,
+        ) -> Option<&mut dyn TextureDuplicateEffects<Error = &'static str>> {
+            if self.no_dup_effects {
+                None
+            } else {
+                Some(self)
+            }
+        }
+        fn tga_effects(&mut self) -> Option<&mut dyn TextureTgaEffects<Error = &'static str>> {
+            if self.no_tga_effects {
+                None
+            } else {
+                Some(self)
             }
         }
 
@@ -4656,5 +5540,874 @@ mod tests {
         assert_eq!(r.texture_manager().queue()[out as usize], Some(key));
         assert_eq!(r.texture(key).unwrap().flags & 0x40000000, 0);
         assert!(!b.worker_events.contains(&ManagedStage::Sleep));
+    }
+
+    fn install_live_texture(
+        r: &mut TextureResources,
+        b: &mut Backend,
+        width: u16,
+        height: u16,
+        format: u32,
+        levels: u16,
+    ) -> TextureKey {
+        let k = r.create_texture().unwrap();
+        let graphics = TextureGraphics(b.next());
+        b.textures.insert(graphics.0, 1);
+        let pixels = PixelAllocation(b.next());
+        b.pixels
+            .insert(pixels.0, vec![0x5a; width as usize * height as usize * 4]);
+        r.install_texture(
+            k,
+            TextureIntake {
+                uid: 7,
+                graphics: Some(graphics),
+                lock_surface: None,
+                pixels: Some(pixels),
+                initialized: true,
+                width,
+                height,
+                format,
+                flags: 1,
+                creation_flags: 1,
+                color_key: 0,
+                levels,
+                memory_size: width as u32 * height as u32 * 4,
+                file_name: Some(b"maps\\wall.tga"),
+                name_offset: Some(5),
+                alpha_file_name: AlphaName::Null,
+                alpha_name_offset: None,
+            },
+            b,
+        )
+        .unwrap();
+        k
+    }
+    #[test]
+    fn reload_stub_logs_once_and_returns_unsupported() {
+        let r = TextureResources::new().unwrap();
+        let mut b = Backend::default();
+        assert_eq!(
+            TextureResources::reload_texture(&r, &mut b),
+            I3DERR_UNSUPPORTED
+        );
+        assert_eq!(
+            b.diagnostics,
+            [b"ITexture::Reload() - WAS NOT IMPLEMENTED !".to_vec()]
+        );
+        assert!(!r.is_poisoned());
+    }
+    #[test]
+    fn is_init_reads_flag() {
+        let mut r = TextureResources::new().unwrap();
+        let mut b = Backend::default();
+        let k = install_live_texture(&mut r, &mut b, 4, 4, 21, 1);
+        assert!(r.is_texture_init(k).unwrap());
+        r.close_texture(k, &mut b).unwrap();
+        // Close preserves the record with initialized=false.
+        assert!(!r.is_texture_init(k).unwrap());
+    }
+    #[test]
+    fn render_diagnostic_is_byte_exact() {
+        assert_eq!(
+            render_diagnostic(&TextureDiagnostic::ReloadNotImplemented),
+            b"ITexture::Reload() - WAS NOT IMPLEMENTED !"
+        );
+        assert_eq!(
+            render_diagnostic(&TextureDiagnostic::TgaCompressedPixelFormat(b"wall.tga".to_vec())),
+            b"!! ITexture::SaveToTGA() - Cannot create file wall.tga  Compresed pixel format isn't supported".to_vec()
+        );
+        assert_eq!(
+            render_diagnostic(&TextureDiagnostic::TgaCannotCreateFile(
+                b"wall.tga".to_vec()
+            )),
+            b"!! ITexture::SaveToTGA() - Cannot create file wall.tga".to_vec()
+        );
+        assert_eq!(
+            render_diagnostic(&TextureDiagnostic::TgaCannotLockTexture),
+            b"!! ITexture::SaveToTGA() - Cannot lock texture".to_vec()
+        );
+    }
+    #[test]
+    fn duplicate_copies_live_texture() {
+        let mut r = TextureResources::new().unwrap();
+        let mut b = Backend::default();
+        let src = install_live_texture(&mut r, &mut b, 4, 2, 21, 1);
+        // Exact-size pixels for the 4x2x4 clone (native trusts dims).
+        let dst = r.create_texture().unwrap();
+        r.close_texture(dst, &mut b).unwrap();
+        b.events.clear();
+        assert_eq!(r.duplicate_texture(dst, Some(src), &mut b).unwrap(), I3D_OK);
+        let (s, d) = (r.texture(src).unwrap(), r.texture(dst).unwrap());
+        assert_eq!(
+            (
+                d.flags,
+                d.creation_flags,
+                d.width,
+                d.height,
+                d.levels,
+                d.memory_size
+            ),
+            (
+                s.flags,
+                s.creation_flags,
+                s.width,
+                s.height,
+                s.levels,
+                s.memory_size
+            )
+        );
+        assert_eq!(d.color_key, s.color_key);
+        assert_eq!(d.name, s.name);
+        assert_ne!(d.pixels, s.pixels);
+        assert_eq!(
+            b.pixels[&d.pixels.unwrap().0],
+            b.pixels[&s.pixels.unwrap().0]
+        );
+        assert!(d.initialized);
+        assert!(r.uncached().contains(&dst));
+        assert_eq!(b.dup_clone_log, [(s.pixels.unwrap(), 32)]);
+        assert!(b
+            .events
+            .iter()
+            .any(|e| matches!(e, Event::TexturePreload(_))));
+    }
+    #[test]
+    fn duplicate_null_and_uninit_are_clean_noops() {
+        let mut r = TextureResources::new().unwrap();
+        let mut b = Backend::default();
+        let dst = r.create_texture().unwrap();
+        r.close_texture(dst, &mut b).unwrap();
+        b.events.clear();
+        assert_eq!(r.duplicate_texture(dst, None, &mut b).unwrap(), I3D_OK);
+        assert!(b.dup_clone_log.is_empty());
+        let src = install_live_texture(&mut r, &mut b, 2, 2, 21, 1);
+        r.textures.texture_mut(src).initialized = false;
+        assert_eq!(r.duplicate_texture(dst, Some(src), &mut b).unwrap(), I3D_OK);
+        assert!(b.dup_clone_log.is_empty());
+    }
+    #[test]
+    fn duplicate_oom_keeps_effects_and_returns_code() {
+        let mut r = TextureResources::new().unwrap();
+        let mut b = Backend::default();
+        let src = install_live_texture(&mut r, &mut b, 2, 2, 21, 1);
+        let dst = r.create_texture().unwrap();
+        r.close_texture(dst, &mut b).unwrap();
+        b.dup_fail_clone_oom = true;
+        assert_eq!(
+            r.duplicate_texture(dst, Some(src), &mut b).unwrap(),
+            I3DERR_OUTOFMEM
+        );
+        // Flags/names copied before the failed clone (effects retained).
+        assert_eq!(r.texture(dst).unwrap().flags, r.texture(src).unwrap().flags);
+        assert!(!r.is_poisoned());
+    }
+    #[test]
+    fn duplicate_missing_graphics_is_clean() {
+        let mut r = TextureResources::new().unwrap();
+        let mut b = Backend::default();
+        let src = install_live_texture(&mut r, &mut b, 2, 2, 21, 1);
+        let dst = r.create_texture().unwrap();
+        r.close_texture(dst, &mut b).unwrap();
+        b.dup_fail_graphics_none = true;
+        assert!(r.duplicate_texture(dst, Some(src), &mut b).is_err());
+    }
+    #[test]
+    fn save_tga_refuses_all_dxt_with_exact_log() {
+        let mut r = TextureResources::new().unwrap();
+        let mut b = Backend::default();
+        for format in [
+            D3DFMT_DXT1,
+            D3DFMT_DXT2,
+            D3DFMT_DXT3,
+            D3DFMT_DXT4,
+            D3DFMT_DXT5,
+        ] {
+            let k = install_live_texture(&mut r, &mut b, 2, 2, format, 1);
+            b.diagnostics.clear();
+            assert!(!r.save_texture_to_tga(k, b"wall.tga", &mut b).unwrap());
+            assert_eq!(
+                b.diagnostics,
+                [b"!! ITexture::SaveToTGA() - Cannot create file wall.tga  Compresed pixel format isn't supported".to_vec()]
+            );
+            assert!(b.tga_files.is_empty());
+        }
+    }
+    #[test]
+    fn save_tga_create_and_lock_failures() {
+        let mut r = TextureResources::new().unwrap();
+        let mut b = Backend::default();
+        let k = install_live_texture(&mut r, &mut b, 2, 2, 21, 1);
+        b.tga_fail_open = true;
+        assert!(!r.save_texture_to_tga(k, b"out.tga", &mut b).unwrap());
+        assert_eq!(
+            b.diagnostics,
+            [b"!! ITexture::SaveToTGA() - Cannot create file out.tga".to_vec()]
+        );
+        b.tga_fail_open = false;
+        b.tga_lock_fail = true;
+        assert!(!r.save_texture_to_tga(k, b"out.tga", &mut b).unwrap());
+        assert_eq!(
+            b.diagnostics[1],
+            b"!! ITexture::SaveToTGA() - Cannot lock texture".to_vec()
+        );
+        // Lock failure keeps the file open (native leak preserved).
+        assert!(!b.tga_files.values().next().unwrap().closed);
+    }
+    #[test]
+    fn save_tga_round_trip_decodes_via_tga_decoder() {
+        let mut r = TextureResources::new().unwrap();
+        let mut b = Backend::default();
+        let k = install_live_texture(&mut r, &mut b, 2, 2, 21, 1);
+        // Bottom-up rows with pitch 8: [3,2,1,17, 6,5,4,34] then [9,8,7,51, 12,11,10,68].
+        b.tga_lock = Some((
+            vec![3, 2, 1, 17, 6, 5, 4, 34, 9, 8, 7, 51, 12, 11, 10, 68],
+            8,
+        ));
+        assert!(r.save_texture_to_tga(k, b"out.tga", &mut b).unwrap());
+        let file = b.tga_files.values().next().unwrap();
+        assert!(file.closed);
+        assert_eq!(
+            &file.bytes[..18],
+            &[0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 2, 0, 32, 0]
+        );
+        // File holds the top row first (bottom-origin TGA): the decoder
+        // reverses rows and swaps BGR to RGB, recovering bottom-up RGBA.
+        assert_eq!(
+            &file.bytes[18..],
+            &[9, 8, 7, 51, 12, 11, 10, 68, 3, 2, 1, 17, 6, 5, 4, 34]
+        );
+        let decoded = lhr_assets::texture_source::decode_texture_image(&file.bytes).unwrap();
+        assert_eq!((decoded.texture.width, decoded.texture.height), (2, 2));
+        assert_eq!(
+            decoded.texture.rgba,
+            [1, 2, 3, 17, 4, 5, 6, 34, 7, 8, 9, 51, 10, 11, 12, 68]
+        );
+        assert_eq!(b.tga_unlocks, [r.texture(k).unwrap().graphics.unwrap().0]);
+    }
+    #[test]
+    fn save_tga_conversions_are_bit_exact() {
+        let mut r = TextureResources::new().unwrap();
+        let mut b = Backend::default();
+        // R5G6B5: (0xFFFF>>1)&0x7fe0|(0xFFFF&0x1f) = 0x3FFF; 0 -> 0.
+        let k = install_live_texture(&mut r, &mut b, 2, 1, 23, 1);
+        b.tga_lock = Some((vec![0xff, 0xff, 0x00, 0x00], 4));
+        assert!(r.save_texture_to_tga(k, b"a.tga", &mut b).unwrap());
+        assert_eq!(
+            &b.tga_files.values().next().unwrap().bytes[18..],
+            &[0xff, 0x7f, 0x00, 0x00]
+        );
+        // A4R4G4B4 0xABCD -> 0xA0B0C0D0.
+        let k2 = install_live_texture(&mut r, &mut b, 1, 1, 26, 1);
+        b.tga_lock = Some((vec![0xcd, 0xab], 2));
+        assert!(r.save_texture_to_tga(k2, b"b.tga", &mut b).unwrap());
+        let second = b.tga_files.values().nth(1).unwrap();
+        assert_eq!(&second.bytes[18..], &[0xd0, 0xc0, 0xb0, 0xa0]);
+        // Zero dimensions write a header-only file and return true.
+        let k3 = install_live_texture(&mut r, &mut b, 2, 2, 21, 1);
+        r.textures.texture_mut(k3).width = Observed::Value(0);
+        r.textures.texture_mut(k3).height = Observed::Value(0);
+        b.tga_lock = Some((vec![], 0));
+        assert!(r.save_texture_to_tga(k3, b"c.tga", &mut b).unwrap());
+        assert_eq!(b.tga_files.values().nth(2).unwrap().bytes.len(), 18);
+    }
+    #[test]
+    fn duplicate_effects_absent_rejects_cleanly() {
+        let mut r = TextureResources::new().unwrap();
+        let mut b = Backend::default();
+        let src = install_live_texture(&mut r, &mut b, 2, 2, 21, 1);
+        let dst = r.create_texture().unwrap();
+        r.close_texture(dst, &mut b).unwrap();
+        b.no_dup_effects = true;
+        assert!(r.duplicate_texture(dst, Some(src), &mut b).is_err());
+        // Close + copies done before the capability gate (effects retained).
+        assert_eq!(r.texture(dst).unwrap().flags, r.texture(src).unwrap().flags);
+        assert!(r.is_poisoned());
+    }
+
+    struct FakeSurface {
+        calls: Vec<String>,
+        surfaces: BTreeMap<u64, (Vec<u8>, u32)>,
+        level_pitch: u32,
+        next: u64,
+        desc: Option<SurfaceDesc>,
+        lock_fail: bool,
+        level_fail: bool,
+    }
+    impl FakeSurface {
+        fn id(&mut self) -> u64 {
+            self.next += 1;
+            self.next
+        }
+    }
+    impl TextureSurfaceSink for FakeSurface {
+        type Error = &'static str;
+        fn get_surface_level(
+            &mut self,
+            graphics: TextureGraphics,
+            level: u16,
+        ) -> Result<Option<u64>, Self::Error> {
+            self.calls.push(format!("level:{level}"));
+            if self.level_fail {
+                return Ok(None);
+            }
+            let id = self.id();
+            self.surfaces.insert(id, (Vec::new(), self.level_pitch));
+            let _ = graphics;
+            Ok(Some(id))
+        }
+        fn lock_surface(
+            &mut self,
+            surface: u64,
+            rect: Option<Rect>,
+            flags: u32,
+        ) -> Result<Option<LockedMapping>, Self::Error> {
+            self.calls.push(format!("lock:{flags}"));
+            let Some((data, pitch)) = self.surfaces.get(&surface).cloned() else {
+                return Ok(None);
+            };
+            if self.lock_fail {
+                return Ok(None);
+            }
+            let _ = rect;
+            Ok(Some(LockedMapping {
+                mapping: surface,
+                pitch,
+                writable_bytes: data.len() as u32,
+            }))
+        }
+        fn write_locked(&mut self, mapping: u64, bytes: &[u8]) -> Result<(), Self::Error> {
+            self.calls.push(format!("write:{}", bytes.len()));
+            let (data, _) = self.surfaces.get_mut(&mapping).ok_or("unknown mapping")?;
+            data.clear();
+            data.extend_from_slice(bytes);
+            Ok(())
+        }
+        fn unlock_surface(&mut self, surface: u64) -> Result<(), Self::Error> {
+            self.calls.push("unlock".into());
+            if !self.surfaces.contains_key(&surface) {
+                return Err("unknown surface");
+            }
+            Ok(())
+        }
+        fn release_surface(&mut self, surface: u64) -> Result<(), Self::Error> {
+            self.calls.push("release".into());
+            self.surfaces.remove(&surface);
+            Ok(())
+        }
+        fn add_dirty_rect(
+            &mut self,
+            _graphics: TextureGraphics,
+            rect: Option<Rect>,
+        ) -> Result<i32, Self::Error> {
+            self.calls.push(format!("dirty:{}", rect.is_some()));
+            Ok(-5)
+        }
+        fn surface_desc(
+            &mut self,
+            _graphics: TextureGraphics,
+            _level: u16,
+        ) -> Result<Option<SurfaceDesc>, Self::Error> {
+            self.calls.push("desc".into());
+            Ok(self.desc)
+        }
+    }
+    struct FakeDraw {
+        calls: Vec<String>,
+        begun: bool,
+        format: u32,
+        quads: Vec<[TlVertex; 4]>,
+        strip_fail: bool,
+        intersect: bool,
+    }
+    impl TextureDrawSink for FakeDraw {
+        type Error = &'static str;
+        fn scrn_size(&mut self) -> Result<(i32, i32), Self::Error> {
+            self.calls.push("size".into());
+            Ok((800, 600))
+        }
+        fn intersect_rect(
+            &mut self,
+            dst: &mut Rect,
+            _a: &Rect,
+            _b: &Rect,
+        ) -> Result<bool, Self::Error> {
+            self.calls.push("intersect".into());
+            *dst = Rect {
+                left: 0,
+                top: 0,
+                right: 1,
+                bottom: 1,
+            };
+            Ok(self.intersect)
+        }
+        fn set_texture(&mut self, _key: TextureKey) -> Result<(), Self::Error> {
+            self.calls.push("tex".into());
+            Ok(())
+        }
+        fn set_sampler(&mut self, _stage: u32, kind: u32, value: u32) -> Result<(), Self::Error> {
+            self.calls.push(format!("samp:{kind}:{value}"));
+            Ok(())
+        }
+        fn draw_strip(
+            &mut self,
+            prim: u32,
+            nprim: u32,
+            verts: &[TlVertex],
+        ) -> Result<i32, Self::Error> {
+            self.calls
+                .push(format!("strip:{prim}:{nprim}:{}", verts.len()));
+            if self.strip_fail {
+                return Ok(-1);
+            }
+            self.quads.push(verts.try_into().map_err(|_| "quad")?);
+            Ok(0)
+        }
+        fn scene_begun(&mut self) -> Result<bool, Self::Error> {
+            self.calls.push("begun".into());
+            Ok(self.begun)
+        }
+        fn set_tl_format(&mut self, fvf: u32) -> Result<(), Self::Error> {
+            self.calls.push(format!("setf:{fvf:#x}"));
+            self.format = fvf;
+            Ok(())
+        }
+        fn tl_format(&mut self) -> Result<u32, Self::Error> {
+            self.calls.push("format".into());
+            Ok(self.format)
+        }
+        fn bind_raw_graphics(&mut self, _graphics: TextureGraphics) -> Result<(), Self::Error> {
+            self.calls.push("bind".into());
+            Ok(())
+        }
+        fn draw_point_up(&mut self, buf: &[TlVertex]) -> Result<(), Self::Error> {
+            self.calls.push(format!("point:{}", buf.len()));
+            Ok(())
+        }
+        fn begin_scene(&mut self) -> Result<(), Self::Error> {
+            self.calls.push("begin".into());
+            Ok(())
+        }
+        fn end_scene(&mut self) -> Result<(), Self::Error> {
+            self.calls.push("end".into());
+            Ok(())
+        }
+    }
+    fn surface_world() -> (TextureResources, Backend, FakeSurface, TextureGraphics) {
+        let mut r = TextureResources::new().unwrap();
+        let mut b = Backend::default();
+        let k = install_live_texture(&mut r, &mut b, 4, 4, 21, 1);
+        let g = r.texture(k).unwrap().graphics.unwrap();
+        let mut s = FakeSurface {
+            calls: Vec::new(),
+            surfaces: BTreeMap::new(),
+            level_pitch: 16,
+            next: 1000,
+            desc: Some(SurfaceDesc {
+                width: 4,
+                height: 4,
+                size_bytes: 64,
+            }),
+            lock_fail: false,
+            level_fail: false,
+        };
+        s.surfaces.insert(4242, (vec![0x77; 64], 16));
+        (r, b, s, g)
+    }
+    #[test]
+    fn surface_lock_rejects_null_and_orders_callbacks() {
+        let (mut r, _b, mut s, g) = surface_world();
+        assert_eq!(
+            r.surface_lock(TextureGraphics(0), None, 0, &mut s).unwrap(),
+            None
+        );
+        assert!(s.calls.is_empty());
+        s.surfaces.insert(7, (vec![1, 2, 3], 9));
+        // Drive through get_surface_level (id 1001), then lock that surface.
+        // Pre-seed the level surface id by consuming one id first.
+        let got = r.surface_lock(g, None, 2, &mut s).unwrap().unwrap();
+        assert_eq!(s.calls[0], "level:2");
+        assert_eq!(s.calls[1], "lock:32768");
+        assert_eq!(got.1, 1001);
+    }
+    #[test]
+    fn surface_dirty_forwards_code_verbatim() {
+        let (mut r, _b, mut s, g) = surface_world();
+        assert_eq!(r.surface_add_dirty(g, None, &mut s).unwrap(), -5);
+        assert_eq!(s.calls, ["dirty:false"]);
+        assert_eq!(
+            r.surface_add_dirty(
+                g,
+                Some(Rect {
+                    left: 1,
+                    top: 2,
+                    right: 3,
+                    bottom: 4
+                }),
+                &mut s
+            )
+            .unwrap(),
+            -5
+        );
+        assert_eq!(s.calls[1], "dirty:true");
+    }
+    #[test]
+    fn preload_orders_begun_and_unbegun_paths() {
+        let (mut r, _b, _s, g) = surface_world();
+        let mut d = FakeDraw {
+            calls: Vec::new(),
+            begun: true,
+            format: 4,
+            quads: Vec::new(),
+            strip_fail: false,
+            intersect: true,
+        };
+        r.preload_texture(g, &mut d).unwrap();
+        assert_eq!(d.calls, ["begun", "format", "bind", "point:1"]);
+        let mut d = FakeDraw {
+            calls: Vec::new(),
+            begun: true,
+            format: 0,
+            quads: Vec::new(),
+            strip_fail: false,
+            intersect: true,
+        };
+        r.preload_texture(g, &mut d).unwrap();
+        assert_eq!(
+            d.calls,
+            ["begun", "format", "setf:0x1c4", "bind", "point:1"]
+        );
+        let mut d = FakeDraw {
+            calls: Vec::new(),
+            begun: false,
+            format: 4,
+            quads: Vec::new(),
+            strip_fail: false,
+            intersect: true,
+        };
+        r.preload_texture(g, &mut d).unwrap();
+        assert_eq!(
+            d.calls,
+            ["begun", "begin", "format", "bind", "point:1", "end"]
+        );
+    }
+    #[test]
+    fn fill_writes_rows_then_unlocks_and_dirties() {
+        let (mut r, _b, mut s, g) = surface_world();
+        assert!(r.fill_texture(g, 0, None, 0x11223344, 21, &mut s).unwrap());
+        assert_eq!(s.calls[0], "desc");
+        assert_eq!(s.calls[1], "level:0");
+        assert!(s.calls.iter().any(|c| c == "write:64"));
+        assert!(s.calls.iter().any(|c| c == "dirty:false"));
+        let pos = s.calls.iter().position(|c| c == "write:64").unwrap();
+        assert!(s.calls[pos + 1..].contains(&"unlock".to_string()));
+        // Subrect fill sizes from the rect and strides rows by pitch:
+        // 2x2 of 0x11223344 over pitch 16 leaves row padding untouched.
+        s.calls.clear();
+        let sub = Rect {
+            left: 1,
+            top: 1,
+            right: 3,
+            bottom: 3,
+        };
+        assert!(r
+            .fill_texture(g, 0, Some(sub), 0x11223344, 21, &mut s)
+            .unwrap());
+        let sub_id = *s.surfaces.keys().filter(|k| **k < 4242).max().unwrap();
+        let written = s.surfaces.get(&sub_id).unwrap().0.clone();
+        assert_eq!(written.len(), 32);
+        assert_eq!(
+            &written[..8],
+            &[0x44, 0x33, 0x22, 0x11, 0x44, 0x33, 0x22, 0x11]
+        );
+        assert_eq!(&written[8..16], &[0; 8]);
+        assert_eq!(
+            &written[16..24],
+            &[0x44, 0x33, 0x22, 0x11, 0x44, 0x33, 0x22, 0x11]
+        );
+        assert_eq!(&written[24..32], &[0; 8]);
+        // Unsupported format unlocks and returns false with no dirty.
+        s.calls.clear();
+        assert!(!r.fill_texture(g, 0, None, 0, 99, &mut s).unwrap());
+        assert!(s.calls.contains(&"unlock".to_string()));
+        assert!(!s.calls.iter().any(|c| c.starts_with("dirty")));
+        // Missing desc returns false with desc as the only callback.
+        s.calls.clear();
+        s.desc = None;
+        assert!(!r.fill_texture(g, 0, None, 0, 21, &mut s).unwrap());
+        assert_eq!(s.calls, ["desc"]);
+        // Short-pitch lock unlocks and reports false with no write and no
+        // dirty (native would overrun; the host refuses instead of
+        // truncating row pixels).
+        s.desc = Some(SurfaceDesc {
+            width: 4,
+            height: 4,
+            size_bytes: 64,
+        });
+        s.level_pitch = 8;
+        s.calls.clear();
+        assert!(!r.fill_texture(g, 0, None, 0, 21, &mut s).unwrap());
+        assert!(s.calls.contains(&"unlock".to_string()));
+        assert!(!s.calls.iter().any(|c| c.starts_with("write")));
+        assert!(!s.calls.iter().any(|c| c.starts_with("dirty")));
+    }
+    #[test]
+    fn d3dfmt_fourcc_words_are_exact() {
+        // DXT fourccs as little-endian ASCII ("DXT1".."DXT5"); a wrong word
+        // (e.g. DXT1+2) would select the wrong compressor and quantizer.
+        assert_eq!(D3DFMT_DXT1, 0x31545844);
+        assert_eq!(D3DFMT_DXT2, 0x32545844);
+        assert_eq!(D3DFMT_DXT3, 0x33545844);
+        assert_eq!(D3DFMT_DXT4, 0x34545844);
+        assert_eq!(D3DFMT_DXT5, 0x35545844);
+        assert_eq!(&D3DFMT_DXT3.to_le_bytes(), b"DXT3");
+        assert_eq!(&D3DFMT_DXT1.to_le_bytes(), b"DXT1");
+    }
+    #[test]
+    fn draw_orders_quad_clamp_strip_wrap() {
+        let (mut r, _b, _s, _g) = surface_world();
+        let k = r.create_texture().unwrap();
+        r.close_texture(k, &mut Backend::default()).unwrap();
+        let mut d = FakeDraw {
+            calls: Vec::new(),
+            begun: true,
+            format: 4,
+            quads: Vec::new(),
+            strip_fail: false,
+            intersect: true,
+        };
+        assert!(r.draw_texture_at(k, 10, 20, 4, 4, &mut d).unwrap());
+        assert_eq!(
+            d.quads[0][0],
+            TlVertex {
+                x: 10.0,
+                y: 20.0,
+                diffuse: 0xffff_ffff,
+                u: 0.0,
+                v: 0.0
+            }
+        );
+        assert_eq!(
+            d.quads[0][3],
+            TlVertex {
+                x: 14.0,
+                y: 24.0,
+                diffuse: 0xffff_ffff,
+                u: 1.0,
+                v: 1.0
+            }
+        );
+        assert_eq!(
+            d.calls,
+            [
+                "size",
+                "intersect",
+                "tex",
+                "samp:13:3",
+                "samp:14:3",
+                "strip:5:2:4",
+                "samp:13:1",
+                "samp:14:1"
+            ]
+        );
+        // Offscreen short-circuits true with no draw.
+        let mut d = FakeDraw {
+            calls: Vec::new(),
+            begun: true,
+            format: 4,
+            quads: Vec::new(),
+            strip_fail: false,
+            intersect: false,
+        };
+        assert!(r.draw_texture_at(k, 10, 20, 4, 4, &mut d).unwrap());
+        assert_eq!(d.calls, ["size", "intersect"]);
+        assert!(d.quads.is_empty());
+        // Negative strip skips the wrap restore and returns false.
+        let mut d = FakeDraw {
+            calls: Vec::new(),
+            begun: true,
+            format: 4,
+            quads: Vec::new(),
+            strip_fail: true,
+            intersect: true,
+        };
+        assert!(!r.draw_texture_at(k, 10, 20, 4, 4, &mut d).unwrap());
+        assert!(!d.calls.iter().any(|c| c == "samp:13:1"));
+        // Tinted rect publishes diffuse colors in order.
+        let mut d = FakeDraw {
+            calls: Vec::new(),
+            begun: true,
+            format: 4,
+            quads: Vec::new(),
+            strip_fail: false,
+            intersect: true,
+        };
+        assert!(r
+            .draw_texture_rect(
+                k,
+                Rect {
+                    left: 0,
+                    top: 0,
+                    right: 8,
+                    bottom: 8
+                },
+                [1, 2, 3, 4],
+                &mut d
+            )
+            .unwrap());
+        assert_eq!(d.quads[0].map(|v| v.diffuse), [1, 2, 3, 4]);
+    }
+    struct FakeS3tc {
+        calls: Vec<String>,
+        locks_done: u32,
+        fail_src_lock: bool,
+        fail_dst_lock: bool,
+    }
+    impl TextureSurfaceSink for FakeS3tc {
+        type Error = &'static str;
+        fn get_surface_level(
+            &mut self,
+            _g: TextureGraphics,
+            _l: u16,
+        ) -> Result<Option<u64>, Self::Error> {
+            self.calls.push("level".into());
+            Ok(Some(11))
+        }
+        fn lock_surface(
+            &mut self,
+            _s: u64,
+            _r: Option<Rect>,
+            f: u32,
+        ) -> Result<Option<LockedMapping>, Self::Error> {
+            let n = self.locks_done;
+            self.locks_done += 1;
+            self.calls.push(format!("lock:{f:#x}"));
+            if (n == 0 && self.fail_src_lock) || (n == 1 && self.fail_dst_lock) {
+                return Ok(None);
+            }
+            Ok(Some(LockedMapping {
+                mapping: 11,
+                pitch: 16,
+                writable_bytes: 64,
+            }))
+        }
+        fn write_locked(&mut self, _m: u64, _b: &[u8]) -> Result<(), Self::Error> {
+            Ok(())
+        }
+        fn unlock_surface(&mut self, _s: u64) -> Result<(), Self::Error> {
+            self.calls.push("unlock".into());
+            Ok(())
+        }
+        fn release_surface(&mut self, _s: u64) -> Result<(), Self::Error> {
+            Ok(())
+        }
+        fn add_dirty_rect(
+            &mut self,
+            _g: TextureGraphics,
+            _r: Option<Rect>,
+        ) -> Result<i32, Self::Error> {
+            Ok(0)
+        }
+        fn surface_desc(
+            &mut self,
+            _g: TextureGraphics,
+            _l: u16,
+        ) -> Result<Option<SurfaceDesc>, Self::Error> {
+            Ok(Some(SurfaceDesc {
+                width: 4,
+                height: 4,
+                size_bytes: 64,
+            }))
+        }
+    }
+    impl S3tcEncodeSink for FakeS3tc {
+        type Error = &'static str;
+        fn s3tc_encode(
+            &mut self,
+            _sb: u64,
+            _sp: u32,
+            _w: u32,
+            _h: u32,
+            masks: [u32; 4],
+            _db: u64,
+            encode: u32,
+            weights: [f32; 3],
+        ) -> Result<(), Self::Error> {
+            self.calls
+                .push(format!("encode:{encode}:{masks:?}:{weights:?}"));
+            Ok(())
+        }
+        fn debug_name(&mut self, text: Option<&str>) -> Result<(), Self::Error> {
+            self.calls.push(format!("debug:{text:?}"));
+            Ok(())
+        }
+        fn log_enabled(&mut self) -> Result<bool, Self::Error> {
+            Ok(true)
+        }
+    }
+    #[test]
+    fn compress_selects_masks_and_orders_unlocks() {
+        use texture_surface::compress_texture;
+        let mut s = FakeS3tc {
+            calls: Vec::new(),
+            locks_done: 0,
+            fail_src_lock: false,
+            fail_dst_lock: false,
+        };
+        let g = TextureGraphics(9);
+        let desc = SurfaceDesc {
+            width: 4,
+            height: 4,
+            size_bytes: 64,
+        };
+        assert!(compress_texture(&mut s, g, Some(desc), 1, 16, 101, 202, Some("wall")).unwrap());
+        // Full native order: 2x GetSurfaceLevel, lock src READONLY 0x10,
+        // lock dst, debug-name, encode, debug-clear, unlock src, unlock dst.
+        assert!(s.calls[0] == "level");
+        assert!(s.calls[1] == "level");
+        assert!(s.calls[2] == "lock:0x10");
+        assert!(s.calls[3] == "lock:0x0");
+        assert!(s.calls[4] == "debug:Some(\"wall\")");
+        assert!(s.calls[5].starts_with("encode:0:[31744, 992, 31, 32768]"));
+        assert!(s.calls[6] == "debug:None");
+        assert_eq!(&s.calls[7..], ["unlock", "unlock"]);
+        let mut s = FakeS3tc {
+            calls: Vec::new(),
+            locks_done: 0,
+            fail_src_lock: false,
+            fail_dst_lock: false,
+        };
+        assert!(compress_texture(&mut s, g, Some(desc), 2, 16, 101, 202, None).unwrap());
+        assert!(s.calls[5].starts_with("encode:2:"));
+        let mut s = FakeS3tc {
+            calls: Vec::new(),
+            locks_done: 0,
+            fail_src_lock: false,
+            fail_dst_lock: false,
+        };
+        assert!(compress_texture(&mut s, g, Some(desc), 3, 16, 101, 202, None).unwrap());
+        assert!(s.calls[5].starts_with("encode:256:[3840, 240, 15, 61440]"));
+        assert!(!compress_texture(&mut s, g, None, 1, 16, 101, 202, None).unwrap());
+        // Lock-fail discipline: src miss unlocks nothing, dst miss unlocks
+        // only the acquired src (native order: GetDesc, lock src READONLY,
+        // lock dst, encode, unlock src, unlock dst).
+        let mut s = FakeS3tc {
+            calls: Vec::new(),
+            locks_done: 0,
+            fail_src_lock: true,
+            fail_dst_lock: false,
+        };
+        assert!(!compress_texture(&mut s, g, Some(desc), 1, 16, 101, 202, None).unwrap());
+        assert_eq!(s.calls, ["level", "level", "lock:0x10"]);
+        let mut s = FakeS3tc {
+            calls: Vec::new(),
+            locks_done: 0,
+            fail_src_lock: false,
+            fail_dst_lock: true,
+        };
+        assert!(!compress_texture(&mut s, g, Some(desc), 1, 16, 101, 202, None).unwrap());
+        assert_eq!(
+            s.calls,
+            ["level", "level", "lock:0x10", "lock:0x0", "unlock"]
+        );
     }
 }

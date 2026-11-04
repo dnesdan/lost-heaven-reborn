@@ -146,17 +146,84 @@ def validate_overlay(overlay, libraries, ledger_ports):
         crate_dir = crate_dirs[parts[0]]
         # Method symbols carry type segments (e.g. Handles::dta_open_write);
         # resolve to the deepest existing module file under the leading path.
+        # #[path]-aware fallback: when the direct module file exists but does
+        # not define the trailing name, only consult files referenced by its
+        # #[path = "..."] attributes (sibling submodules such as
+        # texture_factory.rs / texture_surface.rs / texture_load_image.rs
+        # behind itexture.rs). Whole-crate substring search is forbidden: it
+        # would mask wrong-module symbol paths.
+        try:
+            lib_body = (ROOT / "crates" / crate_dir / "src" / "lib.rs").read_text()
+        except OSError:
+            lib_body = ""
         found = None
         for i in range(len(parts) - 1, 1, -1):
             candidate = ROOT / "crates" / crate_dir / "src" / ("/".join(parts[1:i]) + ".rs")
             if candidate.exists():
+                # Module membership: an on-disk file is not a module unless
+                # the crate root declares it (texture_factory.rs etc. live
+                # behind itexture.rs via #[path], never as crate modules).
+                if not re.search(r"\bmod\s+" + re.escape(parts[1]) + r"\b", lib_body):
+                    continue
                 found = candidate
                 break
+        body = found.read_text() if found is not None else ""
+        if found is None or not re.search(r"\b" + re.escape(parts[-1]) + r"\b", body):
+            path_targets = []
+            if found is not None:
+                try:
+                    for m in re.finditer(r'#\[path\s*=\s*"([^"]+)"\]', body):
+                        target = (found.parent / m.group(1)).resolve()
+                        try:
+                            target.relative_to((ROOT / "crates" / crate_dir / "src").resolve())
+                        except ValueError:
+                            continue
+                        if target.is_file():
+                            path_targets.append(target)
+                except OSError:
+                    path_targets = []
+            for candidate in sorted(path_targets):
+                try:
+                    text = candidate.read_text()
+                except OSError:
+                    continue
+                if re.search(r"\b" + re.escape(parts[-1]) + r"\b", text):
+                    # Penultimate-segment gate: the name before the symbol
+                    # must be the defining file's stem (a real submodule
+                    # like texture_surface), the re-exporting module itself
+                    # (itexture, via `pub use factory::*`), or a type/trait
+                    # defined in that module (TextureResources::method living
+                    # in a #[path] sibling). Without this,
+                    # itexture::bogus_mid::load_image would pass via
+                    # texture_load_image.rs.
+                    found_body = ""
+                    if found is not None:
+                        try:
+                            found_body = found.read_text()
+                        except OSError:
+                            found_body = ""
+                    is_type_in_found = bool(
+                        re.search(
+                            r"(?:pub(?:\([^)]*\))?\s+)?(?:struct|enum|trait|union)\s+"
+                            + re.escape(parts[-2])
+                            + r"\b",
+                            found_body,
+                        )
+                    )
+                    if parts[-2] != candidate.stem and (
+                        found is None
+                        or (parts[-2] != found.stem and not is_type_in_found)
+                    ):
+                        continue
+                    found = candidate
+                    body = text
+                    break
+            else:
+                found = None
         if found is None:
             raise ValueError(
                 f"missing module file: {ROOT / 'crates' / crate_dir / 'src' / (parts[1] + '.rs')}"
             )
-        body = found.read_text()
         if entry.get("construction_covered"):
             # Covered-by-construction entries name a covering type/impl that
             # provides the semantics (Vec growth, construction, drop); they

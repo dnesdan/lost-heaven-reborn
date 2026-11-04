@@ -33,6 +33,11 @@ class RewriteProgressTests(unittest.TestCase):
         self.assertEqual(game["verified"], 149 + 5)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
+        ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")
+        self.assertEqual(ls3df["total"], 1714)
+        # 145 ledger differential + 17 overlay (7 differential + 10 contract).
+        self.assertEqual(ls3df["ported"], 145 + 17)
+        self.assertEqual(ls3df["verified"], 145 + 7)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()
@@ -201,6 +206,75 @@ class RewriteProgressTests(unittest.TestCase):
             "evidence": "test only",
         })
         script.validate_overlay(good, libraries, by_sha)
+
+    def test_path_submodule_symbols_resolve_through_path_attr_only(self):
+        # itexture.rs items living in #[path] siblings (texture_factory.rs /
+        # texture_surface.rs / texture_load_image.rs) validate via the
+        # #[path]-scoped fallback; wrong-module paths must fail even when a
+        # same-named file exists on disk.
+        script = load_script()
+        libraries, ports = script.load_ledger()
+        overlay = script.load_overlay()
+        by_sha = script.ledger_ports_by_binary(ports)
+        good = json.loads(json.dumps(overlay))
+        # 0x7a380 already overlayed -> expect duplicate, so drop it first.
+        good["functions"] = [
+            f for f in good["functions"]
+            if not (f["binary"] == "LS3DF.dll" and f["rva"] == "0x7a380")
+        ]
+        good["functions"].append({
+            "binary": "LS3DF.dll",
+            "rva": "0x7a380",
+            "va": "0x1007a380",
+            "name": "CompressTexture test",
+            "symbol": "lhr_engine::itexture::texture_surface::compress_texture",
+            "tier": "contract",
+            "evidence": "test only",
+        })
+        script.validate_overlay(good, libraries, by_sha)
+        # #[path] sibling behind itexture validates under its real path.
+        path_ok = json.loads(json.dumps(overlay))
+        path_ok["functions"] = [
+            f for f in path_ok["functions"]
+            if not (f["binary"] == "LS3DF.dll" and f["rva"] == "0x78190")
+        ]
+        path_ok["functions"].append({
+            "binary": "LS3DF.dll",
+            "rva": "0x78190",
+            "va": "0x10078190",
+            "name": "presaved test",
+            "symbol": "lhr_engine::itexture::presaved_dxt_filename",
+            "tier": "contract",
+            "evidence": "test only",
+        })
+        script.validate_overlay(path_ok, libraries, by_sha)
+        # Wrong-module path must fail: texture_factory.rs exists on disk but
+        # is not a crate module (it lives behind itexture.rs via #[path]).
+        bad = json.loads(json.dumps(overlay))
+        bad["functions"] = [
+            f for f in bad["functions"]
+            if not (f["binary"] == "LS3DF.dll" and f["rva"] == "0x78190")
+        ]
+        bad["functions"].append({
+            "binary": "LS3DF.dll",
+            "rva": "0x78190",
+            "va": "0x10078190",
+            "name": "presaved test",
+            "symbol": "lhr_engine::texture_factory::presaved_dxt_filename",
+            "tier": "contract",
+            "evidence": "test only",
+        })
+        with self.assertRaises(ValueError):
+            script.validate_overlay(bad, libraries, by_sha)
+        # Nonexistent module must fail too.
+        bad["functions"][-1]["symbol"] = "lhr_engine::nonexistent_mod::some_fn"
+        with self.assertRaises(ValueError):
+            script.validate_overlay(bad, libraries, by_sha)
+        # Bogus intermediate segment must fail: load_image lives in
+        # texture_load_image.rs, not in bogus_mid.
+        bad["functions"][-1]["symbol"] = "lhr_engine::itexture::bogus_mid::load_image"
+        with self.assertRaises(ValueError):
+            script.validate_overlay(bad, libraries, by_sha)
 
     def test_svg_render_is_deterministic(self):
         script = load_script()
