@@ -201,7 +201,7 @@ fn append_world_completeness_report(
             writeln!(
                 report,
                 "World completeness: installation reopen failed: {}",
-                error.to_string()
+                error
             )
             .unwrap();
             return;
@@ -238,7 +238,7 @@ fn append_world_completeness_report(
             Err(error) => writeln!(report, "Road network parse stopped: {error:?}").unwrap(),
         },
         Ok(None) => writeln!(report, "Road network: absent").unwrap(),
-        Err(error) => writeln!(report, "Road network read stopped: {}", error.to_string()).unwrap(),
+        Err(error) => writeln!(report, "Road network read stopped: {}", error).unwrap(),
     }
     writeln!(
         report,
@@ -260,7 +260,7 @@ fn append_world_completeness_report(
             Err(error) => writeln!(report, "City cache parse stopped: {}", error.detail).unwrap(),
         },
         Ok(None) => writeln!(report, "City cache: absent").unwrap(),
-        Err(error) => writeln!(report, "City cache read stopped: {}", error.to_string()).unwrap(),
+        Err(error) => writeln!(report, "City cache read stopped: {}", error).unwrap(),
     }
     let scene2_path = format!("missions/{mission}/scene2.bin");
     match installation.read_optional(&scene2_path) {
@@ -281,20 +281,12 @@ fn append_world_completeness_report(
                 )
                 .unwrap();
             }
-            Err(error) => writeln!(
-                report,
-                "Mission actor metadata parse stopped: {}",
-                error.to_string()
-            )
-            .unwrap(),
+            Err(error) => {
+                writeln!(report, "Mission actor metadata parse stopped: {}", error).unwrap()
+            }
         },
         Ok(None) => writeln!(report, "Mission actor metadata: scene2 absent").unwrap(),
-        Err(error) => writeln!(
-            report,
-            "Mission actor metadata read stopped: {}",
-            error.to_string()
-        )
-        .unwrap(),
+        Err(error) => writeln!(report, "Mission actor metadata read stopped: {}", error).unwrap(),
     }
 }
 

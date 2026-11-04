@@ -64,14 +64,14 @@ pub fn load(installation: &Installation, textures: &str) -> Result<LoadedScene, 
         // case-insensitive compare; mirror the substitution so the placement
         // loads instead of stopping the inspection.
         let substituted;
-        let model_ref = match crate::city_base_cache::rewrite_unsupported_cache_model(&object.model)
-        {
-            Some(replacement) => {
-                substituted = replacement.to_owned();
-                &substituted
-            }
-            None => &object.model,
-        };
+        let model_ref =
+            match lhr_engine::city_base_cache::rewrite_unsupported_cache_model(&object.model) {
+                Some(replacement) => {
+                    substituted = replacement.to_owned();
+                    &substituted
+                }
+                None => &object.model,
+            };
         let name = model_path(model_ref)?;
         if unsupported.contains_key(&name) {
             billboards += 1;

@@ -5,55 +5,19 @@ An independent Rust reimplementation of *Mafia: The City of Lost Heaven*
 first mission from the original menu through completion. The campaign is not
 playable; all six first-mission gates remain open.
 
-The mission ActorWorld now owns genuine Car/Vehicle actors alongside Human,
-Player and C_entity. Both original MISE01 cars complete Init and LoadData;
-source intake constructs all 293 MISE01 actors — bridges, pumpers, traffic
-car, door and all 216 boxes — with version-dispatched LoadData and linked
-Init tails, and the mission scene renders on macOS ARM64 Metal (headless and
-windowed captures are bit-identical). Explicit disposal closes every tracked
-owner, including the car resources and independent frame records. GameInit
-and mission play remain open; macOS audio and interactive input are unverified.
-
-Replay intake reads the complete 107,352-byte record01a input into its real
-owners; bounded first-actor binding matches controlled original instructions.
-Actual mission playback still needs LoadDifferences and the later track pipeline.
-Owned global Init/Done and CallSubroutine now use the actual CProgram.
-Its 102 scalar and 39 no-payload parameter selectors are separate from execution
-of DIM_ACT, DIM_FRM and COMMANDBLOCK. INTRO GlobalInit stops at FINDFRAME parameters.
-The [new milestone](docs/implementation/2026-10-29-car-replay-programs.md)
-records exact comparisons, source results and remaining dependencies.
-
-The application also inspects original scenes, drives a car in standalone mode
-and animates original models through their owned controller. Mission-controlled
-human animation, recorded cutscenes and a playable first mission remain open.
-
-[Build and run](docs/RUNNING.md) · [current evidence](docs/implementation/2026-10-29-car-replay-programs.md) ·
-[coverage](COVERAGE.md) · [goals](docs/GOALS.md) · [dated history](docs/history/README.md).
-
-[Latest reviewed integration: weapon/act-state batch](docs/implementation/2026-11-03-weapon-actstate-batch.md)
-decodes the four-integer family and ACT_SETSTATE and executes
-`human_addweapon`/`act_setstate` against live actors; Sam's lines 1–14
-resolve to implemented commands. Together with the [entity program init transport](docs/implementation/2026-11-03-entity-init-transport.md),
-Together with the merged [entity Process dispatch](docs/implementation/2026-11-03-entity-process-dispatch.md),
-[transcendental boundary admission](docs/implementation/2026-11-03-trig-boundary-admission.md),
-[box actor intake](docs/implementation/2026-11-03-box-new-intake.md),
-[entity command decode](docs/implementation/2026-11-03-entity-decode.md),
-[VM control flow](docs/implementation/2026-11-03-vm-flow-execution.md) and
-[PR #69 pair decoding](docs/implementation/2026-11-03-vm-pair-parameters.md),
-all 293 MISE01 actors construct, the mission scene captures headless and
-windowed (bit-identical), and entity programs tick until dialogue/inventory
-systems. Game tick wiring (clock/camera/input/objectives), the WAIT timer,
-dialogue/inventory/event systems and authored mission play remain open;
-macOS audio and interactive input are unverified.
+Current state: MISE01 intake loads 3,183 scene objects, 293 actors, 39
+scripts, the 13,857-node navigation graph and the 229-node road network
+with zero retained owners after disposal. Mission execution, GameInit and
+playable control remain open. See [coverage](COVERAGE.md),
+[goals](docs/GOALS.md) and [progress](docs/PROGRESS.md); history lives in
+`git log` on `rust-engine`.
 
 <details>
 <summary>Static research and accepted scoped-port dashboard</summary>
 
-The fragment below is the frozen 2026-10-25 evidence ledger: recounting it
-requires the recount plus independent-review pipeline, which is currently
-unavailable, so no new hashes or counts are recorded here. Current status is
-tracked in the pointers above and in [dated history](docs/history/README.md).
-
+The fragment below is the frozen 2026-10-25 evidence ledger; recounting it
+requires the recount plus independent-review pipeline. Current status is
+tracked in coverage, goals and progress above.
 <!-- generated-function-progress:start -->
 As of 2026-10-25 · snapshot `RUST-SCOPED-PORTS-20261025-47`.
 
@@ -104,14 +68,12 @@ Supplied binary catalog (file identities; independent measures):
 
 N/A means no measured static procedure ratio. PS2 linker symbol research supplies naming evidence, not static procedure coverage. Scoped entries are absolute reviewed counts joined by binary SHA-256; zero is not 0% coverage. Whole-function and differential runtime coverage remain unmeasured (N/A).
 <!-- generated-function-progress:end -->
-
 </details>
 
 ## Build and run
 
-Rust 1.99.1 and locked dependencies are required. Linux/Vulkan has been
-exercised; native Windows/Vulkan and macOS/Metal have not been run. Use your
-own legally obtained original PC installation as the asset root.
+Rust 1.99.1 and locked dependencies are required. Use your own legally
+obtained original PC installation as the asset root.
 
 ```sh
 ./scripts/setup.sh
@@ -124,76 +86,18 @@ own legally obtained original PC installation as the asset root.
 Driving: W/S accelerate/brake, A/D steer, Space handbrake, R reload.
 Inspection: arrows and W/S move the camera. Menu New Game and `--mission mise01`
 remain inspection entry points; authored first-mission gameplay is incomplete.
-[Linux, Windows and macOS setup and run commands](docs/RUNNING.md) include native
-prerequisites, captures and platform validation status.
-[Historical commands and validation](docs/history/2026-10-25-readme-narrative.md) remain available.
+[Setup and run commands](docs/RUNNING.md).
 
 ## Engine Lab
 
-The optional native Lab has a scene/model browser, four public procedural scenes,
-lighting and weather previews, orbit/pan cameras and bookmarks, model transforms,
-draw isolation, vehicle inputs and portable presets. Materials and Diagnostics
-inspect actual material clocks, mission owners, load frontiers and retained
-cleanup without advancing their state. Start without game files:
+Optional native scene/model browser with procedural scenes and presets.
+Start without game files:
 
 ```sh
 source scripts/common.sh
 cargo run --locked -p lhr-engine --features engine-lab -- --synthetic --lab
 ```
 
-Add `--root /path/to/Mafia` to browse your installation. Lighting, fog and
-precipitation are optional host previews; they do not implement original weather
-or mission gameplay. [Controls, presets and captures](docs/RUNNING.md#engine-lab).
-[Native Lab preview](docs/screenshots/2026-10-28/engine-lab.png) ·
-[actual mission owners](docs/screenshots/2026-10-27-engine-lab-mission-owners.webp).
-
-## Actual Rust captures
-
-Latest car/replay/program checkpoint: [MISE01 source view](docs/screenshots/2026-10-29-car-replay/mise01-source.webp)
-and [source/image evidence](docs/screenshots/2026-10-29-car-replay/evidence.json).
-Fresh Linux/software-Vulkan capture exits 0 with clean canonical disposal.
-The static camera view does not show the new car actors or authored gameplay.
-Validation passes 1,966 all-feature Rust tests and 106 Python tests.
-[Implementation and exact limits](docs/implementation/2026-10-29-car-replay-programs.md).
-Earlier captures below retain their own scope.
-
-![Current static MISE01 source view; mission gameplay remains incomplete](docs/screenshots/2026-10-29-car-replay/mise01-source.webp)
-
-![Tommy breathing through the actual model-owned controller](docs/screenshots/2026-10-29-animation/tommy-breath.webp)
-
-24 actual GPU samples at 100 ms intervals, source times 0–2,300 ms, 512 × 512,
-102 KiB. The preview repeats this sampled segment; it is an explicitly selected
-original animation, without mission scheduling or image interpolation.
-
-| Original bind pose | Actual model-owned animation at 1,746 ms |
-| --- | --- |
-| ![Tommy before animation](docs/screenshots/2026-10-29-animation/tommy-bind.webp) | ![Tommy after owned animation](docs/screenshots/2026-10-29-animation/tommy-animated.webp) |
-
-Fresh original-resource animation checks cover Tommy, Paulie and Sam, with
-actual changed vertices and GPU pixels. [Implementation and validation](docs/implementation/2026-10-29-animation-runtime.md)
-record 1,863 all-feature Rust tests, the exact supported animation domain and
-remaining actor/replay/script dependencies. These are model diagnostics;
-the original first-mission startup is not running yet.
-
-![Original-data standalone taxi after actual keyboard input](docs/screenshots/2026-10-29/driving.webp)
-
-Fresh 2026-10-29 captures: [MISE01 inspection](docs/screenshots/2026-10-29/mise01.webp),
-[menu inspection](docs/screenshots/2026-10-29/menu.webp) and
-[image hashes](docs/screenshots/2026-10-29/evidence.json).
-[Executed checks and exact limits](docs/implementation/2026-10-29-pr-integration.md)
-include 1,833 all-feature Rust tests, actual driving controls and zero-owner
-taxi cleanup. MISE01 still stops at actor kind 27; New Game stops during INTRO
-and retains interrupted cache cleanup. These are inspection and standalone
-driving results; authored mission completion remains open.
-[MRPH evidence](docs/implementation/parity-continuation.md) and earlier media
-retain their dated scope in [capture history](docs/screenshots/README.md).
-
-## Research and assets
-
-REA/Ghidra and actual PS2 symbols guide reconstruction; scoped contracts,
-static pseudocode and complete-system validation are separate measures.
-Original data, executables and private research stay outside Git; public tests
-use synthetic fixtures. [Reference audit](docs/REFERENCE_PROJECTS.md) ·
-[optional enhanced assets](docs/ASSET_ENHANCEMENT.md) · [third-party notices](THIRD_PARTY_NOTICES.md).
+[Controls, presets and captures](docs/RUNNING.md#engine-lab).
 
 Code is MIT licensed. Game assets and trademarks belong to their owners.

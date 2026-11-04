@@ -17,46 +17,12 @@ ledger and system gates. The campaign is not playable.
 
 ## Current foundation and next work
 
-At the 2026-11-01 audit baseline, the MISE01 diagnostic loads all 3,183 objects and 38 genuine actors,
-including both Car/Vehicle owners. Original Init and LoadData complete for both
-cars, preserving unknown parameter padding and actual frame-record ownership.
-It stops at `UnsupportedKind(20)`, cursor 3,814,295, entry `0x544a16`.
-Terminal disposal completes with all tracked lifetime counters zero. This remains
-source inspection, not completed MissionOpen or authored play.
-
-Actual global Init/Done and reset/start now use the source-owned CProgram.
-PRs #58–60 add the named 13/18/43 parameter family and execute
-FINDFRAME/FINDACTOR through live frame/actor lookup into the actual VM banks.
-PR #64 composes those operations with the actual retained mission content,
-ActorWorld and caller's live Scene/ModelArena. The loaded-session execution
-interface in PR #67 now uses those same owners and one validated Scene selection.
-Actual constructed Game/lifecycle integration and further command effects remain
-separate work; the earlier INTRO stop is not a fresh result at the current revision.
-PR #65 adds actual
-TrafficGenerator source intake and teardown: the Morello probe advances through
-four such actors to kind 6, with all tracked owners released after that stop.
-This does not implement Traffic GameInit, Tick or spawning.
-PR #66 loads the actual menu/Salieri companion animations and preserves shared
-controller resources. Both original-data probes reach the mission animated-model
-list dependency and then dispose all tracked owners; actual scheduling and
-rendered original menu animation remain open.
-Recorded intake consumes record01a; actual mission actor binding first needs
-LoadDifferences(dif01a.chg), followed by the remaining recording pipeline.
-[Reviewed implementation and validation](implementation/2026-10-29-car-replay-programs.md).
-
-Lazy animated materials now consume the live driver timeline through their
-actual owners. A public fixture proves changing GPU material resources and
-rendered pixels. The original MISE01 material owner advances its frame index
-and texture alias under controlled steps, but the unchanged-camera captures
-have zero changed pixels; visible original-content animation remains unproven.
-Engine Lab exposes live resources and supports controlled inspection,
-pause and stepping; it does not close a gameplay gate.
-
-Track the [nine current follow-ups](implementation/2026-11-01-parity-continuation.md)
-and LS3D/library parity separately from these six first-mission acceptance
-gates. Matching the pinned mafia-re reference does not establish Game.exe
-mission compatibility. The older seven-stage roadmap retains its historical
-source and execution scope.
+The MISE01 probe loads 3,183 scene objects, 293 actors, 39 scripts, the
+13,857-node navigation graph and the 229-node road network, and disposes
+all tracked owners to zero. This remains source inspection, not completed
+MissionOpen or authored play. Global programs, VM dispatch, player/taxi
+coupling, GameInit and mission scheduling remain separate work; recorded
+playback still needs its difference pipeline.
 
 1. Reconstruct actual MissionOpen and active Close in native order, including
    navigation from `check.bin`, road loading, cache and sound dependencies.
@@ -78,6 +44,4 @@ source and execution scope.
 
 PC REA instruction receipts and PS2 symbols supply bounded evidence for names,
 scalar behavior and control flow. They do not prove the full native call graph.
-[Current evidence](implementation/parity-continuation.md) ·
-[coverage](../COVERAGE.md) · [progress](PROGRESS.md) ·
-[preceding goals, verbatim](history/2026-10-26-pre-final-documentation.md#docsgoalsmd).
+[coverage](../COVERAGE.md) · [progress](PROGRESS.md).
