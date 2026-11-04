@@ -855,7 +855,7 @@ def main(argv=None):
         elif snapshot['schema_version'] == 3:
             raise ValueError('Missing binary catalog')
         changes = []
-        for filename in ['README.md', 'docs/PROGRESS.md']:
+        for filename in ['docs/PROGRESS.md']:
             path = ROOT / filename
             old = path.read_text()
             fragment = render(snapshot, include_history=filename == 'docs/PROGRESS.md', catalog=catalog)
