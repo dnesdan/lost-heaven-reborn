@@ -450,6 +450,20 @@ impl RoadNode {
             .copy_from_slice(&value.to_le_bytes());
     }
 
+    /// Recompiled lane weight slot (+0x20).
+    pub fn set_lane_weight(&mut self, lane: usize, weight: f32) {
+        self.bytes[ROAD_LANE_WEIGHT_OFFSET + lane * ROAD_LANE_STRIDE
+            ..ROAD_LANE_WEIGHT_OFFSET + lane * ROAD_LANE_STRIDE + 4]
+            .copy_from_slice(&weight.to_le_bytes());
+    }
+
+    /// Recompiled lane terminal slot (+0x1C, overwrites the neighbor).
+    pub fn set_lane_terminal(&mut self, lane: usize, terminal: u16) {
+        self.bytes[ROAD_LANE_NEIGHBOR_OFFSET + lane * ROAD_LANE_STRIDE
+            ..ROAD_LANE_NEIGHBOR_OFFSET + lane * ROAD_LANE_STRIDE + 2]
+            .copy_from_slice(&terminal.to_le_bytes());
+    }
+
     /// Neighbor index of one Dijkstra lane (`0xFFFF` means no lane).
     pub fn lane_neighbor(&self, lane: usize) -> u16 {
         debug_assert!(lane < ROAD_LANES);
@@ -485,6 +499,19 @@ impl RoadLink {
             read_u16(&self.bytes, ROAD_LINK_ENDPOINT_OFFSET),
             read_u16(&self.bytes, ROAD_LINK_ENDPOINT_OFFSET + 2),
         )
+    }
+
+    /// Back-reference slots rewritten by recompilation (+0x14/+0x16).
+    pub fn backrefs(&self) -> (u16, u16) {
+        (
+            read_u16(&self.bytes, ROAD_LINK_BACKREF_OFFSET),
+            read_u16(&self.bytes, ROAD_LINK_BACKREF_OFFSET + 2),
+        )
+    }
+
+    fn set_backref(&mut self, slot: usize, value: u16) {
+        self.bytes[ROAD_LINK_BACKREF_OFFSET + slot * 2..ROAD_LINK_BACKREF_OFFSET + slot * 2 + 2]
+            .copy_from_slice(&value.to_le_bytes());
     }
 }
 
@@ -896,6 +923,150 @@ fn remap_zone_refs(network: &mut RoadNetwork, i: usize, j: usize) {
             node.set_lane_flag(lane, flag);
         }
     }
+}
+
+/// Lane-length walk outcome for one recompiled lane.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum LaneWalkOutcome {
+    /// Gate refused the lane (flag or neighbor `0xFFFF`); slots untouched.
+    Skipped,
+    /// Walk completed with the terminal id and accumulated true length.
+    Done {
+        terminal: u16,
+        weight: f32,
+        visited: usize,
+    },
+}
+
+/// Per-lane length walk, logical rewrite of the `RecompileDistances`
+/// 0x55a620 lane body (Rizin 0x55a6dc–0x55aa0a plus REA `ev_69eb9075…`
+/// pages): gate on flag (+0x14+2·lane) and neighbor (+0x1C+0x34·lane),
+/// first segment |node − link[flag]| through `road_vector_length`, then
+/// the endpoint chain with per-step link+0x14 backpatch (origin forward
+/// node index) and visited pushes, ending in a plain-node final segment
+/// or a loop-back/absent terminal. Writes the lane weight (+0x20) and
+/// terminal (+0x1C) and backpatches every visited link's +0x16 slot. The
+/// previous seed for endpoint selection is the forward node index
+/// (Rizin 0x55a7c7 `mov ebx, [esp+0x54]` after `[esp+0x54]` takes the
+/// `[esp+0x1c]` forward index — not the byte offset also present in the
+/// gate block); the walk terminates on plain/absent/looping endpoints.
+/// Host caps steps at links + nodes + 1 and reports `Cycle` where the
+/// native body would not return.
+pub fn recompile_lane_walk(
+    network: &mut RoadNetwork,
+    node_idx: usize,
+    lane: usize,
+    origin: u16,
+) -> Result<LaneWalkOutcome, RoadWalkError> {
+    let node_count = network.nodes.len();
+    if node_idx >= node_count {
+        return Err(RoadWalkError::NodeOutOfRange {
+            id: node_idx as u16,
+        });
+    }
+    if lane >= ROAD_LANES {
+        return Err(RoadWalkError::NodeOutOfRange { id: lane as u16 });
+    }
+    let (flag, neighbor, node_pos) = {
+        let node = &network.nodes[node_idx];
+        (
+            node.lane_flag(lane),
+            node.lane_neighbor(lane),
+            node.position(),
+        )
+    };
+    if flag == ROAD_INVALID_NODE || neighbor == ROAD_INVALID_NODE {
+        return Ok(LaneWalkOutcome::Skipped);
+    }
+    let link0 = (flag & !ROAD_ZONE_BIT) as usize;
+    if link0 >= network.links.len() {
+        return Err(RoadWalkError::LinkOutOfRange { id: flag });
+    }
+    let mut total = road_vector_length(squared_distance(node_pos, network.links[link0].position()));
+    let mut terminal = ROAD_INVALID_NODE;
+    let mut visited: Vec<usize> = Vec::new();
+    if flag & ROAD_ZONE_BIT != 0 {
+        network.links[link0].set_backref(0, origin);
+        visited.push(link0);
+    }
+    let mut cur = flag;
+    let mut prev: u16 = node_idx as u16;
+    let cap = network.links.len() + node_count + 1;
+    let mut finished = false;
+    for _ in 0..cap {
+        let (endpoint0, endpoint1) = network.link(cur)?.endpoints();
+        let mut next = endpoint0;
+        if endpoint0 == prev || endpoint0 == ROAD_INVALID_NODE {
+            next = endpoint1;
+        }
+        if next == prev || next == ROAD_INVALID_NODE {
+            terminal = next;
+            finished = true;
+            break;
+        }
+        if next & ROAD_ZONE_BIT == 0 {
+            let node_pos = network.node(next)?.position();
+            let link_pos = network.link(cur)?.position();
+            total += road_vector_length(squared_distance(link_pos, node_pos));
+            terminal = next;
+            finished = true;
+            break;
+        }
+        let next_pos = network.link(next)?.position();
+        let cur_pos = network.link(cur)?.position();
+        total += road_vector_length(squared_distance(cur_pos, next_pos));
+        prev = cur;
+        cur = next;
+        let step = (cur & !ROAD_ZONE_BIT) as usize;
+        if step >= network.links.len() {
+            return Err(RoadWalkError::LinkOutOfRange { id: cur });
+        }
+        network.links[step].set_backref(0, origin);
+        visited.push(step);
+    }
+    if !finished {
+        return Err(RoadWalkError::Cycle);
+    }
+    {
+        let node = &mut network.nodes[node_idx];
+        node.set_lane_weight(lane, total);
+        node.set_lane_terminal(lane, terminal);
+    }
+    for step in &visited {
+        network.links[*step].set_backref(1, terminal);
+    }
+    Ok(LaneWalkOutcome::Done {
+        terminal,
+        weight: total,
+        visited: visited.len(),
+    })
+}
+
+/// Recompilation pass report.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RecompileReport {
+    pub lanes_walked: usize,
+    pub lanes_skipped: usize,
+}
+
+/// Lane-length recompilation driver: backref reset, then every lane of
+/// every node in reverse order (native `RecompileDistances` traversal
+/// order; lanes of different nodes share links, so the order is part of
+/// the behavior). Lane permutation is a separate pass and stays open.
+pub fn recompute_lane_lengths(network: &mut RoadNetwork) -> Result<RecompileReport, RoadWalkError> {
+    reset_link_backrefs(network);
+    let mut report = RecompileReport::default();
+    let node_count = network.nodes.len();
+    for node_idx in (0..node_count).rev() {
+        let origin = node_idx as u16;
+        for lane in (0..ROAD_LANES).rev() {
+            match recompile_lane_walk(network, node_idx, lane, origin)? {
+                LaneWalkOutcome::Skipped => report.lanes_skipped += 1,
+                LaneWalkOutcome::Done { .. } => report.lanes_walked += 1,
+            }
+        }
+    }
+    Ok(report)
 }
 
 #[cfg(test)]
@@ -1419,5 +1590,78 @@ mod tests {
         assert_eq!(report.swaps, 0);
         assert_eq!(graph.links[0].endpoints(), (0, 1));
         assert!(f32::from_le_bytes(graph.links[1].bytes[0..4].try_into().unwrap()).is_nan());
+    }
+
+    fn walk_network() -> RoadNetwork {
+        // Node 0 at the origin with lane 0 flagged at link 0; node 1 at
+        // [3,4,0]; link 0 at the origin with endpoints (1, 0xFFFF).
+        let mut first = placed_node(
+            0.0,
+            [
+                (1, 0.0),
+                (ROAD_INVALID_NODE, 0.0),
+                (ROAD_INVALID_NODE, 0.0),
+                (ROAD_INVALID_NODE, 0.0),
+            ],
+        );
+        first.set_lane_flag(0, 0x8000);
+        let mut second = placed_node(
+            0.0,
+            [
+                (ROAD_INVALID_NODE, 0.0),
+                (ROAD_INVALID_NODE, 0.0),
+                (ROAD_INVALID_NODE, 0.0),
+                (ROAD_INVALID_NODE, 0.0),
+            ],
+        );
+        second.bytes[0..12].copy_from_slice(&[3.0f32, 4.0, 0.0].map(f32::to_le_bytes).concat());
+        let mut link_bytes = [0u8; ROAD_LINK_SIZE];
+        link_bytes[ROAD_LINK_ENDPOINT_OFFSET..ROAD_LINK_ENDPOINT_OFFSET + 2]
+            .copy_from_slice(&1u16.to_le_bytes());
+        link_bytes[ROAD_LINK_ENDPOINT_OFFSET + 2..ROAD_LINK_ENDPOINT_OFFSET + 4]
+            .copy_from_slice(&ROAD_INVALID_NODE.to_le_bytes());
+        RoadNetwork {
+            nodes: vec![first, second],
+            links: vec![RoadLink { bytes: link_bytes }],
+        }
+    }
+
+    #[test]
+    fn walk_gate_skips_absent_lanes() {
+        let mut graph = line_graph();
+        // line_graph lanes carry no flags (zeroed +0x14 words read as 0).
+        // Flag 0 is a plain link index; link 0 does not exist: host error,
+        // never wild memory.
+        assert_eq!(
+            recompile_lane_walk(&mut graph, 0, 1, 7),
+            Ok(LaneWalkOutcome::Skipped)
+        );
+        // Lane 0 of node 0 has a neighbor but flag 0 with no links at all.
+        assert!(matches!(
+            recompile_lane_walk(&mut graph, 0, 0, 7),
+            Err(RoadWalkError::LinkOutOfRange { .. })
+        ));
+        assert_eq!(
+            recompile_lane_walk(&mut graph, 9, 0, 7),
+            Err(RoadWalkError::NodeOutOfRange { id: 9 })
+        );
+    }
+
+    #[test]
+    fn walk_accumulates_true_lengths_and_backpatches() {
+        let mut graph = walk_network();
+        let outcome = recompile_lane_walk(&mut graph, 0, 0, 41).unwrap();
+        // |node0 − link0| = 0, then link0 → node1 = 5.
+        assert_eq!(
+            outcome,
+            LaneWalkOutcome::Done {
+                terminal: 1,
+                weight: 5.0,
+                visited: 1,
+            }
+        );
+        assert_eq!(graph.nodes[0].lane_weight(0), 5.0);
+        assert_eq!(graph.nodes[0].lane_neighbor(0), 1);
+        assert_eq!(graph.links[0].backrefs(), (41, 1));
     }
 }
