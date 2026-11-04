@@ -44,3 +44,18 @@ NaN/equal stability. Shipped data: **0 swaps, byte-identical**.
 Full lib 1924 passed / 1 pre-existing `ph_thing_ai` failure; clippy
 clean; `encode(parse(file))` and `sort(file)` both byte-identical on the
 shipped 81,032 bytes.
+
+## Walk write-back mechanics (Rizin 0x55a949–0x55aa0a decoded)
+
+Terminal handling for a finished chain: the final segment length
+accumulates into the lane total, then the visited-link list (pushed per
+step via 0x4824c0) drains backpatching `link+0x16 = terminal` for every
+visited index, and the lane slots take the total (`nodebase + laneoff +
+0x20`) and the terminal (`nodebase + laneoff + 0x1C`). The lane offset
+arrives via `[esp+0x60]`/`[esp+0x10]` slots that resolve to the plain lane
+offset (the double-addition reading would need a nonzero base the
+surrounding code never stores). The visited list is freed via 0x60fcf6
+with its words zeroed before the next lane. Per-step backpatch value
+origin (`dx` from `[esp+0x1c]`) and visited-list dedup stay the last open
+details before the walk port.
+
