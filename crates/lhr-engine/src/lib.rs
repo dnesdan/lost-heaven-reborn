@@ -28,6 +28,7 @@ pub mod car_effects;
 pub mod car_inspection;
 pub mod car_runtime;
 pub mod car_state_source;
+pub mod city_base_cache;
 pub mod clock;
 pub mod collision_dispatch;
 pub mod collision_line;
@@ -217,10 +218,10 @@ pub mod ls3df {
 /// Original game executable boundary; replay helper names remain descriptive.
 pub mod game {
     pub use crate::{
-        actor_world, car_ai_position, car_effects, car_runtime, collision_dispatch, collision_line,
-        collision_links, collision_prepare, collision_query, collision_swept,
-        collision_swept_aabox, collision_swept_box, collision_swept_volumes, collision_swept_world,
-        collision_volumes, collision_world, collision_world_driving,
+        actor_world, car_ai_position, car_effects, car_runtime, city_base_cache,
+        collision_dispatch, collision_line, collision_links, collision_prepare, collision_query,
+        collision_swept, collision_swept_aabox, collision_swept_box, collision_swept_volumes,
+        collision_swept_world, collision_volumes, collision_world, collision_world_driving,
         collision_world_driving_contacts, game_camera_projection, game_init_order,
         mission_actor_stream, mission_components, mission_lifecycle, mission_resources,
         mission_scene_loading, mission_scene_stream, mission_session_navigation,

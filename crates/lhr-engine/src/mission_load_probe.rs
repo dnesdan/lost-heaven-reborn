@@ -240,6 +240,14 @@ fn append_world_completeness_report(
         Ok(None) => writeln!(report, "Road network: absent").unwrap(),
         Err(error) => writeln!(report, "Road network read stopped: {}", error.to_string()).unwrap(),
     }
+    writeln!(
+        report,
+        "Base cache: open={} blocks={} model_sets={} (`Open` 0x4013f0 pending)",
+        session.base_cache().is_open(),
+        session.base_cache().blocks().len(),
+        session.base_cache().model_sets().len()
+    )
+    .unwrap();
     let cache_path = files.cache.clone();
     match installation.read_optional(&cache_path) {
         Ok(Some(bytes)) => match mission_world_completeness::summarize_city_cache(&bytes) {

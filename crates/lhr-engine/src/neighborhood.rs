@@ -60,13 +60,19 @@ pub fn load(installation: &Installation, textures: &str) -> Result<LoadedScene, 
     let mut secondary_overrides = 0usize;
     let mut billboards = 0usize;
     for object in &selected {
-        if object.model.eq_ignore_ascii_case("0rek23.i3d") {
-            return Err(
-                "Native cache filename substitution is unsupported in this inspection subset"
-                    .into(),
-            );
-        }
-        let name = model_path(&object.model)?;
+        // Native `Open` rewrites 0rek23.i3d to 0rek17.i3d in place through a
+        // case-insensitive compare; mirror the substitution so the placement
+        // loads instead of stopping the inspection.
+        let substituted;
+        let model_ref = match crate::city_base_cache::rewrite_unsupported_cache_model(&object.model)
+        {
+            Some(replacement) => {
+                substituted = replacement.to_owned();
+                &substituted
+            }
+            None => &object.model,
+        };
+        let name = model_path(model_ref)?;
         if unsupported.contains_key(&name) {
             billboards += 1;
             continue;

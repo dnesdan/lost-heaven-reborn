@@ -558,6 +558,7 @@ impl CanonicalSceneState {
                     o.loader.as_ref(),
                     None,
                     None,
+                    None,
                 )
                 .map_err(|e| format!("Canonical owner diagnostics: {e:?}"))?;
                 if remaining != Default::default() {

@@ -5,6 +5,7 @@
 //! playable mission. All scene, frame, texture and cache effects use the same
 //! actual owners; a stopped load retains its first error and executed prefix.
 use crate::c_str::StringError;
+use crate::city_base_cache::CityBaseCache;
 use crate::driver_scene::{
     DriverSceneContext, DriverSceneCreatePhase, DriverSceneError, DriverSceneOwner,
     DriverSceneScreen, NativeSceneSoundDriver,
@@ -205,6 +206,9 @@ pub struct MissionOwnedCounts {
     /// Session-owned road network: parsed node/link arrays.
     pub road_nodes: usize,
     pub road_links: usize,
+    /// Session-owned base cache: open blocks and model sets.
+    pub base_blocks: usize,
+    pub base_model_sets: usize,
 }
 
 #[derive(Debug)]
@@ -260,6 +264,7 @@ impl MissionOwnedCounts {
         loader: Option<&MissionSceneLoader>,
         navigation: Option<&SessionNavigation>,
         roads: Option<&SessionRoads>,
+        base_cache: Option<&CityBaseCache>,
     ) -> Result<Self, MissionOwnerDiagnosticsError> {
         let visual = arena.loaded_visual_resources();
         let visual_backend = visual.map(|owner| owner.backend());
@@ -334,6 +339,8 @@ impl MissionOwnedCounts {
             navigation_bytes: navigation.map_or(0, |nav| nav.live_bytes()),
             road_nodes: roads.map_or(0, |roads| roads.node_count()),
             road_links: roads.map_or(0, |roads| roads.link_count()),
+            base_blocks: base_cache.map_or(0, |cache| cache.blocks().len()),
+            base_model_sets: base_cache.map_or(0, |cache| cache.model_sets().len()),
         })
     }
 }
@@ -370,6 +377,7 @@ pub struct MissionLoadSession {
     cache_memory: CpuMissionCacheMemory,
     navigation: SessionNavigation,
     roads: SessionRoads,
+    base_cache: CityBaseCache,
     precision: Pc24PrecisionState,
     phase: MissionLoadPhase,
     entered: bool,
@@ -404,6 +412,10 @@ impl MissionLoadSession {
             cache_memory: CpuMissionCacheMemory::default(),
             navigation: SessionNavigation::new(),
             roads: SessionRoads::new(),
+            // Native `base_cache` lives in zero-initialized `.bss`
+            // (mafia-re: `C_cache_base_block base_cache` at 0x63d268), so the
+            // constructor-retained `unknown_20` starts as zero at boot.
+            base_cache: CityBaseCache::new(0),
             precision,
             phase: MissionLoadPhase::NotStarted,
             entered: false,
@@ -654,6 +666,10 @@ impl MissionLoadSession {
     pub fn roads(&self) -> &SessionRoads {
         &self.roads
     }
+    /// Session-owned base-block cache (`Open` pending its REA analysis).
+    pub fn base_cache(&self) -> &CityBaseCache {
+        &self.base_cache
+    }
     /// Persistent arithmetic status seeded explicitly by the host caller.
     pub fn precision_state(&self) -> Pc24PrecisionState {
         self.precision
@@ -693,6 +709,7 @@ impl MissionLoadSession {
             self.loader.as_ref(),
             Some(&self.navigation),
             Some(&self.roads),
+            Some(&self.base_cache),
         )
     }
 
@@ -948,6 +965,9 @@ impl MissionLoadSession {
             .map_err(MissionDiscardCause::Navigation)?;
         self.discard.phase = MissionDiscardPhase::Roads;
         self.roads.destroy().map_err(MissionDiscardCause::Roads)?;
+        // Native base-cache `Close` runs inside mission teardown; the report
+        // counts what the scene owner must still unlink and release.
+        let _base_cache_close = self.base_cache.close();
         self.discard.phase = MissionDiscardPhase::Scene;
         if let Some(scene) = self.scene().map_err(MissionDiscardCause::SceneOwner)? {
             let registered = self.driver.scenes().contains(&scene);
