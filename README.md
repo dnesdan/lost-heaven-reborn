@@ -28,7 +28,7 @@ The cards count each binary's own functions, without the C runtime linked into i
 | --- | ---: | ---: |
 | `Game.exe` | 172/4914* | 154 |
 | `LS3DF.dll` | 145/1714 | 145 |
-| `rw_data.dll` | 12/234 | 12 |
+| `rw_data.dll` | 22/62 | 15 |
 | `Setup.exe (supplied configuration)` | 5/172 | 5 |
 
 *Estimate: frozen inventory union. PS2 `SLUS_206.71` supplies linker naming evidence only, without function coverage. Installer/bootstrap helpers (`DrvMgt.dll`, `INet.dll`, `IJoy.dll`, codecs) are unmeasured boundaries, not zero ports.

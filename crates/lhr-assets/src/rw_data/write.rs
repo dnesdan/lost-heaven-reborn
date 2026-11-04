@@ -7,6 +7,20 @@ pub const DTA_FILE_BUFFER: u32 = 0x100;
 pub const DTA_CREATE_FILE: u32 = 0x10000;
 pub const DTA_CHANGE_ATTRIBUTES: u32 = 0x100000;
 
+/// Native CreateFileA words selected by dtaOpenWrite (rw_data.dll RVA 0x39f0,
+/// REA ev_27c70d9c). Values are the exact binary immediates; names follow
+/// Win32, not original symbols (original names unknown).
+pub const NATIVE_CREATE_ALWAYS: u32 = 2;
+pub const NATIVE_OPEN_ALWAYS: u32 = 4;
+pub const NATIVE_FILE_ATTRIBUTE_HIDDEN: u32 = 2;
+pub const NATIVE_FILE_ATTRIBUTE_NORMAL: u32 = 0x80;
+/// Native handle flag bits observed at RVA 0x3f50 (REA ev_9aa51e71,
+/// TEST CL,3 gate; OR CL,0x80 discard mark).
+pub const NATIVE_FH_FROM_FILESYSTEM: u32 = 1;
+pub const NATIVE_FH_WRITE: u32 = 2;
+pub const NATIVE_FH_BUFFER: u32 = 4;
+pub const NATIVE_FH_FAILED_WRITING_TO_BUFFER: u32 = 0x80;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WriteFileResult {
     pub success: bool,
@@ -40,8 +54,12 @@ macro_rules! effect {
     };
 }
 impl<B: OpenWriteEffects> Handles<B> {
-    /// Original dtaOpenWrite. Native failures preserve completed filesystem and
-    /// allocation effects; they are not rolled back into an invented transaction.
+    /// Original dtaOpenWrite (rw_data.dll RVA 0x39f0). Native failures preserve
+    /// completed filesystem and allocation effects; they are not rolled back
+    /// into an invented transaction. Native effect order: copy/delete tmp →
+    /// CreateFile → [GetFileAttributes → SetFileAttributes → CreateFile retry]
+    /// → tmp-name alloc → 32768B block alloc → first-free slot reuse else push.
+    /// Allocation failure retains the OS handle without a record (native leak).
     pub fn dta_open_write(&self, name: &[u8], flags: u32) -> Result<u32, OperationError<B::Error>> {
         if name.len() >= 260 || !name.is_ascii() || name.contains(&0) {
             return Err(OperationError::UnsupportedOpen);
@@ -53,13 +71,21 @@ impl<B: OpenWriteEffects> Handles<B> {
         if let Some(stage) = s.interrupted {
             return Err(OperationError::Interrupted(stage));
         }
-        let attributes = if flags & DTA_TEMPORARY != 0 { 2 } else { 0x80 };
-        let disposition = if flags & DTA_CREATE_FILE != 0 { 2 } else { 4 };
+        let attributes = if flags & DTA_TEMPORARY != 0 {
+            NATIVE_FILE_ATTRIBUTE_HIDDEN
+        } else {
+            NATIVE_FILE_ATTRIBUTE_NORMAL
+        };
+        let disposition = if flags & DTA_CREATE_FILE != 0 {
+            NATIVE_CREATE_ALWAYS
+        } else {
+            NATIVE_OPEN_ALWAYS
+        };
         let mut temporary = Vec::new();
         let path = if flags & DTA_FILE_BUFFER != 0 {
             temporary.extend(name);
             temporary.extend(b".tmp");
-            if disposition == 4 {
+            if disposition == NATIVE_OPEN_ALWAYS {
                 effect!(s, CopyFile, s.effects.copy_file(name, &temporary));
             } else {
                 effect!(s, DeleteFile, s.effects.delete_file(&temporary));
@@ -112,7 +138,11 @@ impl<B: OpenWriteEffects> Handles<B> {
             &mut s,
             HandleRecord {
                 file,
-                flags: if temporary_name != 0 { 7 } else { 3 },
+                flags: if temporary_name != 0 {
+                    NATIVE_FH_FROM_FILESYSTEM | NATIVE_FH_WRITE | NATIVE_FH_BUFFER
+                } else {
+                    NATIVE_FH_FROM_FILESYSTEM | NATIVE_FH_WRITE
+                },
                 cursor: ReadCursor::new(0),
                 cache_valid: false,
                 temporary_name,
@@ -126,9 +156,10 @@ impl<B: OpenWriteEffects> Handles<B> {
     }
 }
 impl<B: WriteEffects> Handles<B> {
-    /// Original dtaWrite. A successful write advances the OS file position only;
-    /// it does not update the record's logical file_pointer or size. A failed or
-    /// short buffered write sets the discard flag consumed by dtaClose.
+    /// Original dtaWrite (rw_data.dll RVA 0x3f50). A successful write advances
+    /// the OS file position only; it does not update the record's logical
+    /// file_pointer or size. A failed or short buffered write sets the discard
+    /// flag consumed by dtaClose.
     pub fn dta_write(
         &self,
         handle: u32,
@@ -145,12 +176,14 @@ impl<B: WriteEffects> Handles<B> {
             return Ok(FAILURE);
         };
         // The source tests either filesystem/write bit, not that both are set.
-        if record.file == FAILURE || record.flags & 3 == 0 {
+        if record.file == FAILURE
+            || record.flags & (NATIVE_FH_FROM_FILESYSTEM | NATIVE_FH_WRITE) == 0
+        {
             return Ok(FAILURE);
         }
         let Some(bytes) = bytes else {
-            if record.flags & 4 != 0 {
-                record.flags |= 0x80;
+            if record.flags & NATIVE_FH_BUFFER != 0 {
+                record.flags |= NATIVE_FH_FAILED_WRITING_TO_BUFFER;
             }
             return Ok(FAILURE);
         };
@@ -159,8 +192,8 @@ impl<B: WriteEffects> Handles<B> {
         let written = effect!(s, Write, s.effects.write_file(file, bytes));
         if !written.success || written.bytes_written != len {
             let record = &mut s.records[handle as usize];
-            if record.flags & 4 != 0 {
-                record.flags |= 0x80;
+            if record.flags & NATIVE_FH_BUFFER != 0 {
+                record.flags |= NATIVE_FH_FAILED_WRITING_TO_BUFFER;
             }
             return Ok(FAILURE);
         }
@@ -351,6 +384,47 @@ mod tests {
         assert_eq!(record.block, 0);
         // Native leaves the freed temporary-name pointer stale behind invalid file.
         assert_ne!(record.temporary_name, 0);
+    }
+    #[test]
+    fn open_write_create_always_deletes_tmp_and_marks_buffered() {
+        // Disposition CREATE_ALWAYS (REA ev_27c70d9c: TEST BL,4 false branch):
+        // DeleteFile on the tmp name, result ignored, then open with 2/HIDDEN-or-NORMAL.
+        let trace = Arc::new(Mutex::new(Trace::default()));
+        let handles = Handles::new(Backend(trace.clone()));
+        let handle = handles
+            .dta_open_write(b"out", DTA_FILE_BUFFER | DTA_CREATE_FILE)
+            .unwrap();
+        assert_ne!(handle, FAILURE);
+        assert_eq!(
+            &trace.lock().unwrap().calls[..3],
+            ["delete out.tmp", "open 2 128", "name"]
+        );
+        let record = handles.inspect(handle).unwrap().unwrap();
+        assert_eq!(record.temporary_name_bytes, b"out.tmp");
+        assert_eq!(
+            record.flags & (NATIVE_FH_FROM_FILESYSTEM | NATIVE_FH_WRITE | NATIVE_FH_BUFFER),
+            NATIVE_FH_FROM_FILESYSTEM | NATIVE_FH_WRITE | NATIVE_FH_BUFFER
+        );
+        assert_eq!(handles.dta_close(handle), Ok(true));
+    }
+    #[test]
+    fn null_write_marks_discard_only_on_buffered_handles() {
+        let trace = Arc::new(Mutex::new(Trace::default()));
+        let handles = Handles::new(Backend(trace.clone()));
+        // Buffered handle: null sets the discard mark (OR 0x80).
+        let buffered = handles.dta_open_write(b"b", DTA_FILE_BUFFER).unwrap();
+        assert_eq!(handles.dta_write(buffered, None), Ok(FAILURE));
+        assert_ne!(
+            handles.inspect(buffered).unwrap().unwrap().flags & NATIVE_FH_FAILED_WRITING_TO_BUFFER,
+            0
+        );
+        // Direct handle: null fails without the discard mark.
+        let direct = handles.dta_open_write(b"d", DTA_CREATE_FILE).unwrap();
+        assert_eq!(handles.dta_write(direct, None), Ok(FAILURE));
+        assert_eq!(
+            handles.inspect(direct).unwrap().unwrap().flags & NATIVE_FH_FAILED_WRITING_TO_BUFFER,
+            0
+        );
     }
     #[test]
     fn interrupted_write_keeps_actual_output_prefix_and_forbids_replay() {

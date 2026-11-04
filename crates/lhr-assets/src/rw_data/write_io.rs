@@ -343,7 +343,11 @@ impl OpenWriteEffects for FilesystemWriteEffects {
         disposition: u32,
         attributes: u32,
     ) -> Result<u32, Self::Error> {
-        if attributes != 0x80 || !matches!(disposition, 2 | 4) {
+        // Hidden attributes are a host exclusion (native RVA 0x39f0 passes
+        // HIDDEN=2 to CreateFileA); never silently map them to NORMAL.
+        if attributes != NATIVE_FILE_ATTRIBUTE_NORMAL
+            || !matches!(disposition, NATIVE_CREATE_ALWAYS | NATIVE_OPEN_ALWAYS)
+        {
             return Err(HostWriteError::Policy);
         }
         let Some(path) = self.resolve(name, true) else {
@@ -360,7 +364,7 @@ impl OpenWriteEffects for FilesystemWriteEffects {
         let Ok(file) = OpenOptions::new()
             .write(true)
             .create(true)
-            .truncate(disposition == 2)
+            .truncate(disposition == NATIVE_CREATE_ALWAYS)
             .open(&path)
         else {
             return Ok(FAILURE);

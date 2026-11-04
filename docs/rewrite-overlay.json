@@ -209,6 +209,96 @@
       "symbol": "lhr_engine::railway_actor::RailwayState::save_payload",
       "tier": "contract",
       "evidence": "mafia-re byte-exact source + Rust tests"
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x39f0",
+      "va": "0x100039f0",
+      "name": "dtaOpenWrite",
+      "symbol": "lhr_assets::rw_data::write::Handles::dta_open_write",
+      "tier": "contract",
+      "evidence": "REA ev_27c70d9c (1374B, 63 blocks, 13 callees) + mafia-re rw_data.cpp:1312-1453 + Rust tests"
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x3f50",
+      "va": "0x10003f50",
+      "name": "dtaWrite",
+      "symbol": "lhr_assets::rw_data::write::Handles::dta_write",
+      "tier": "contract",
+      "evidence": "REA ev_9aa51e71 (226B, 13 blocks, 3 callees) + mafia-re rw_data.cpp:1455-1512 + Rust tests"
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x25a0",
+      "va": "0x100025a0",
+      "name": "dtaDelete",
+      "symbol": "lhr_assets::rw_data::Handles::dta_delete",
+      "tier": "differential",
+      "evidence": "REA ev_5fe847b3 (6 instr, 1 BB, callee DeleteFileA) + mafia-re rw_data.cpp:636 + Rust tests"
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x3900",
+      "va": "0x10003900",
+      "name": "dtaBin2Text",
+      "symbol": "lhr_assets::rw_data::Handles::dta_bin2text",
+      "tier": "differential",
+      "evidence": "REA ev_55a39899 (83 instr, 13 BB) + helpers ev_ecc18eb2f/ev_48a06a992c/ev_8b639a742e + mafia-re rw_data.cpp:1267 + exhaustive small-input differential tests"
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x4040",
+      "va": "0x10004040",
+      "name": "dtaGetTime",
+      "symbol": "lhr_assets::rw_data::Handles::dta_get_time",
+      "tier": "contract",
+      "evidence": "REA ev_78123751 (72 instr, 9 BB, callees EnterCS/LeaveCS/GetFileTime) + mafia-re rw_data.cpp:1514 + Rust tests"
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x4120",
+      "va": "0x10004120",
+      "name": "C_multithrerad_protection ctor (evidenced typo spelling)",
+      "symbol": "lhr_assets::rw_data::Handles::new",
+      "tier": "contract",
+      "evidence": "REA ev_afcc805d (7 instr, 1 BB, caller 0x10001100, callee InitializeCriticalSection) + mafia-re rw_data.cpp:1545; Mutex construction covers serialization"
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x4130",
+      "va": "0x10004130",
+      "name": "C_multithrerad_protection dtor (evidenced typo spelling)",
+      "symbol": "lhr_assets::rw_data::Handles::new",
+      "tier": "contract",
+      "evidence": "bytes ev_ebc2a58a + instr ev_b10cb094/ev_7585d757/ev_69bf651f (PUSH ECX/CALL DeleteCriticalSection/RET) + JMP-thunk ev_5d6eacd2 + mafia-re rw_data.cpp:1551; Drop covers it, no Ghidra proc"
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x4140",
+      "va": "0x10004140",
+      "name": "dtaDumpMemoryLeaks",
+      "symbol": "lhr_assets::rw_data::leak::LeakDetector::set_dump_memory_leaks",
+      "tier": "differential",
+      "evidence": "REA ev_5613ea83 (3 instr, 1 BB, byte store to 0x1000ec68) + mafia-re rw_data.cpp:1557 + Rust tests"
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x4150",
+      "va": "0x10004150",
+      "name": "leak detector init (working name; mafia-re guess C_leak_detector::ctor, NOT original)",
+      "symbol": "lhr_assets::rw_data::leak::LeakDetector::new",
+      "tier": "contract",
+      "evidence": "REA ev_f16f84b0 (6 instr, 1 BB, caller 0x10001140) + mafia-re rw_data.cpp:1563 + Rust tests"
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x4160",
+      "va": "0x10004160",
+      "name": "leak detector report (working name; mafia-re guess C_leak_detector::dtor, NOT original)",
+      "symbol": "lhr_assets::rw_data::leak::LeakDetector::pending_dialog",
+      "tier": "contract",
+      "evidence": "89-instr walk ev_979d62ba..ev_6bace3e7 + wsprintf ev_4dbf82b8 + MessageBox ev_e9dc801e + strings ev_89d03586/ev_8a4a454f/ev_511304f6 + mafia-re rw_data.cpp:1568 + format-byte tests"
     }
   ],
   "vm": {

@@ -281,10 +281,12 @@ pub(super) fn store<B: Effects>(
         s.records.push(record);
         s.read_caches.push(loose);
         s.archive_caches.push(archive);
+        s.cached_file_time.push(0);
     } else {
         s.records[i] = record;
         s.read_caches[i] = loose;
         s.archive_caches[i] = archive;
+        s.cached_file_time[i] = 0;
     }
     Ok(i as u32)
 }

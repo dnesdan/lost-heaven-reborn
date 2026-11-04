@@ -39,6 +39,46 @@ BINARY_ROLE = {
 }
 RVA_RE = re.compile(r"^0x[0-9a-f]+$")
 
+# rw_data.dll own-function evidence (CRT excluded).
+# Denominator source: mafia-re tools/progress.py Target("rw_data.dll",
+# "RWDATA", 62): functions from the start of .text up to the first import
+# thunk or CRT function; first CRT = RVA 0x5cc0 (operator delete
+# ??3@YAXPAX@Z, library_msvc.h:7). The 58 RVAs below carry retained
+# pseudocode and mafia-re source annotations: 26 named FUNCTION
+# (rw_data.cpp + rw_data.h:26), 12 SYNTHETIC $E/scalar-deleting dtors
+# (rw_data.h:38, rw_data_inter.h:149,152,220,229-253), 16 STL TEMPLATE
+# instantiations (rw_data_inter.h:260-315), plus init thunks/ctors. The
+# remaining 4 of Binary Ninja's 62 have no retained pseudocode and no known
+# address (suspected unretained .CRT$XCU thunks/fragments below 0x5cc0);
+# they are counted only as the documented gap below, never as addresses.
+RW_DATA_SHA256 = "67f72c30cc7fe941f5526b8602a0bd2785baa0f22617bbcfd4a71bacd79b8d49"
+RW_DATA_FIRST_CRT_RVA = 0x5CC0
+RW_DATA_OWN_RVAS = frozenset({
+    # init/synthetic (12)
+    "0x1010", "0x1030", "0x1040", "0x1070", "0x1090", "0x10a0",
+    "0x1100", "0x1110", "0x1120", "0x1140", "0x1150", "0x1160",
+    # named own functions (26)
+    "0x1170", "0x11e0", "0x1330", "0x13b0", "0x1640", "0x1820",
+    "0x1850", "0x18a0", "0x1b90", "0x23e0", "0x25a0", "0x25c0",
+    "0x3730", "0x3900", "0x39f0", "0x3f50", "0x4040", "0x4120",
+    "0x4130", "0x4140", "0x4150", "0x4160", "0x4250", "0x4690",
+    "0x4720", "0x5740",
+    # scalar-deleting dtors / S_HANDLE assignment (4)
+    "0x1340", "0x1360", "0x1380", "0x5750",
+    # STL templates (16)
+    "0x4730", "0x4760", "0x4970", "0x4c90", "0x4ce0", "0x4ef0",
+    "0x4f00", "0x4f30", "0x5230", "0x55c0", "0x5600", "0x5630",
+    "0x5650", "0x59f0", "0x5a30", "0x5a50",
+})
+RW_DATA_BINJA_ONLY_GAP = 4
+RW_DATA_OWN_TOTAL = len(RW_DATA_OWN_RVAS) + RW_DATA_BINJA_ONLY_GAP  # 62
+# Per-binary own-function denominators (without CRT). Only rw_data is
+# evidenced; every other binary keeps its frozen inventory_total.
+OWN_TOTAL_BY_SHA = {RW_DATA_SHA256: RW_DATA_OWN_TOTAL}
+# Rust crate root per symbol prefix: rw_data ports live in lhr-assets, not
+# lhr-engine.
+CRATE_OF_SYMBOL_ROOT = {"lhr_engine": "lhr-engine", "lhr_assets": "lhr-assets"}
+
 
 def load_ledger():
     document = json.loads(LEDGER.read_text())
@@ -85,14 +125,29 @@ def validate_overlay(overlay, libraries, ledger_ports):
         seen.add(key)
         if rva in ledger_ports.get(sha_of[name], {}):
             raise ValueError(f"overlay duplicates ledger port: {name} {rva}")
+        if sha_of[name] == RW_DATA_SHA256 and rva not in RW_DATA_OWN_RVAS:
+            raise ValueError(f"rw_data overlay entry outside own set: {rva}")
         # Rust symbol must exist in the tree (last path component in its module).
+        # Crates map to their kebab-case directories; nested modules resolve to
+        # subpaths (e.g. lhr_assets::rw_data::write::X -> lhr-assets/src/rw_data/write.rs).
         parts = entry["symbol"].split("::")
-        if parts[0] != "lhr_engine" or len(parts) < 3:
+        crate_dirs = CRATE_OF_SYMBOL_ROOT
+        if parts[0] not in crate_dirs or len(parts) < 3:
             raise ValueError(f"bad symbol path: {entry['symbol']}")
-        module_file = ROOT / "crates" / "lhr-engine" / "src" / (parts[1] + ".rs")
-        if not module_file.exists():
-            raise ValueError(f"missing module file: {module_file}")
-        body = module_file.read_text()
+        crate_dir = crate_dirs[parts[0]]
+        # Method symbols carry type segments (e.g. Handles::dta_open_write);
+        # resolve to the deepest existing module file under the leading path.
+        found = None
+        for i in range(len(parts) - 1, 1, -1):
+            candidate = ROOT / "crates" / crate_dir / "src" / ("/".join(parts[1:i]) + ".rs")
+            if candidate.exists():
+                found = candidate
+                break
+        if found is None:
+            raise ValueError(
+                f"missing module file: {ROOT / 'crates' / crate_dir / 'src' / (parts[1] + '.rs')}"
+            )
+        body = found.read_text()
         if not re.search(r"\b" + re.escape(parts[-1]) + r"\b", body):
             raise ValueError(f"symbol not found: {entry['symbol']}")
 
@@ -114,11 +169,17 @@ def aggregate(libraries, ports, overlay):
         ported = dict(base)
         for entry in extra:
             ported[entry["rva"].lower()] = entry["tier"] == "differential"
+        if sha == RW_DATA_SHA256:
+            # Never count CRT (or mistyped) entries toward an own-function card.
+            ported = {
+                rva: differential for rva, differential in ported.items()
+                if rva in RW_DATA_OWN_RVAS
+            }
         inventoried = sum(1 for rva in ported if rva in inventory)
         cards.append({
             "name": name,
             "role": BINARY_ROLE[name],
-            "total": lib.get("inventory_total", 0),
+            "total": OWN_TOTAL_BY_SHA.get(sha, lib.get("inventory_total", 0)),
             "ported": len(ported),
             "verified": sum(1 for differential in ported.values() if differential),
             "inventoried": inventoried,

@@ -223,11 +223,16 @@ pub enum EffectStage {
     Open,
     Allocate,
     FreeOwner,
+    FileTime,
+    ReportDialog,
 }
 struct NativeState<B> {
     records: Vec<HandleRecord>,
     read_caches: Vec<Option<LooseReadCache>>,
     archive_caches: Vec<Option<ArchiveReadCache>>,
+    /// Parallel cached FILETIME bits for dtaGetTime (RVA 0x4040), index-parallel
+    /// to the tables above. Admit pushes 0 (unknown); close leaves it stale.
+    cached_file_time: Vec<u64>,
     effects: B,
     interrupted: Option<EffectStage>,
     admitted_allocations: BTreeSet<u64>,
@@ -240,12 +245,19 @@ pub struct Handles<B> {
     state: Mutex<NativeState<B>>,
 }
 impl<B: Effects> Handles<B> {
+    /// Serialization lane (RWDATA 0x10004120 init / 0x10004130 uninit:
+    /// InitializeCriticalSection/DeleteCriticalSection on C_m_p.section
+    /// 0x1000ec6c) has no separate Rust symbol; this Mutex construction and
+    /// its Drop establish and release the same serialized-call contract.
+    /// Unlike Win32 critical sections the Mutex is non-recursive; reentrant
+    /// native call shapes remain open.
     pub fn new(effects: B) -> Self {
         Self {
             state: Mutex::new(NativeState {
                 records: Vec::new(),
                 read_caches: Vec::new(),
                 archive_caches: Vec::new(),
+                cached_file_time: Vec::new(),
                 effects,
                 interrupted: None,
                 admitted_allocations: BTreeSet::new(),
@@ -294,6 +306,7 @@ impl<B: Effects> Handles<B> {
             state.records[index] = record;
             state.read_caches[index] = None;
             state.archive_caches[index] = None;
+            state.cached_file_time[index] = 0;
             return Ok(index as u32);
         }
         let index = u32::try_from(state.records.len())
@@ -303,6 +316,7 @@ impl<B: Effects> Handles<B> {
         state.records.push(record);
         state.read_caches.push(None);
         state.archive_caches.push(None);
+        state.cached_file_time.push(0);
         Ok(index)
     }
     pub fn inspect(&self, handle: u32) -> Result<Option<HandleRecord>, OperationError<B::Error>> {
@@ -465,6 +479,101 @@ impl<B: Effects> Handles<B> {
         }
         result
     }
+
+    /// Original dtaDelete, PC RVA 0x25a0 (REA ev_5fe847b3, 6 instr, callee
+    /// DeleteFileA). No lock, no state change. The NUL check is a host bound
+    /// (NUL would truncate the OS call); all other bytes pass through to
+    /// Effects::delete_file and its boolean is returned unchanged.
+    pub fn dta_delete(&self, name: &[u8]) -> Result<bool, OperationError<B::Error>> {
+        if name.contains(&0) {
+            return Err(OperationError::InvalidRecord);
+        }
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| OperationError::LockPoisoned)?;
+        if let Some(stage) = state.interrupted {
+            return Err(OperationError::Interrupted(stage));
+        }
+        let mut failed_stage = None;
+        let result = state.effects.delete_file(name).map_err(|error| {
+            failed_stage = Some(EffectStage::DeleteFile);
+            OperationError::Backend(error)
+        });
+        if result.is_err() {
+            state.interrupted = failed_stage;
+        }
+        result
+    }
+
+    /// Original dtaBin2Text, PC RVA 0x3900 (REA ev_55a39899, 83 instr, 13 BB).
+    /// Removes every b'\r' below the last byte (last byte kept even if it is
+    /// b'\r'), high index first via memmove, returns the new u32 length. Empty
+    /// input returns 0 without locking, like the (!buffer || !len) guard. The
+    /// positions vector is freed after the guard drops, mirroring
+    /// Leave-before-destroy. Overlong host slices (> u32::MAX) are rejected.
+    pub fn dta_bin2text(&self, buffer: &mut [u8]) -> Result<u32, OperationError<B::Error>> {
+        let len32 = u32::try_from(buffer.len()).map_err(|_| OperationError::InvalidRecord)?;
+        if buffer.is_empty() {
+            return Ok(0);
+        }
+        let mut positions: Vec<u32> = Vec::new();
+        let new_len: u32;
+        {
+            let state = self
+                .state
+                .lock()
+                .map_err(|_| OperationError::LockPoisoned)?;
+            if let Some(stage) = state.interrupted {
+                return Err(OperationError::Interrupted(stage));
+            }
+            for i in (0..buffer.len().saturating_sub(1)).rev() {
+                if buffer[i] == b'\r' {
+                    positions.push(i as u32);
+                }
+            }
+            // Forward over the descending positions = high-to-low removal.
+            // copy_within is memmove (overlap-safe), matching FUN_100061e0.
+            let mut len = len32;
+            for &pos in &positions {
+                let next = pos + 1;
+                buffer.copy_within(next as usize..len as usize, pos as usize);
+                len -= 1;
+            }
+            new_len = len;
+            drop(state);
+        }
+        drop(positions);
+        Ok(new_len)
+    }
+
+    /// Host setter for the cached FILETIME bits read by dtaGetTime. Not a
+    /// native export; future open paths set this when they admit
+    /// archive/filesystem records. Rejects stale/closed handles.
+    pub fn set_cached_file_time(
+        &self,
+        handle: u32,
+        timestamp: u64,
+    ) -> Result<(), OperationError<B::Error>> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| OperationError::LockPoisoned)?;
+        if let Some(stage) = state.interrupted {
+            return Err(OperationError::Interrupted(stage));
+        }
+        let slot = state
+            .records
+            .get(handle as usize)
+            .filter(|r| r.file != FAILURE)
+            .ok_or(OperationError::InvalidRecord)?;
+        let _ = slot;
+        *state
+            .cached_file_time
+            .get_mut(handle as usize)
+            .ok_or(OperationError::InvalidRecord)? = timestamp;
+        Ok(())
+    }
 }
 
 /// Native ReadFile return and out-count are independent, including on failure.
@@ -477,6 +586,19 @@ pub struct ReadFileResult {
 pub trait ReadEffects: Effects {
     fn seek_read_file(&mut self, file: u32, position: u32) -> Result<(u32, u32), Self::Error>;
     fn read_file(&mut self, file: u32, output: &mut [u8]) -> Result<ReadFileResult, Self::Error>;
+}
+/// Narrow native boundary for dtaGetTime (rw_data.dll RVA 0x4040, REA ev_78123751).
+/// File identities are the admitted backend's live u32 values; time is FILETIME
+/// bits (low | high << 32). None is an OS-level GetFileTime failure, not a host
+/// interruption.
+pub trait TimeEffects: ReadEffects {
+    fn file_time(&mut self, file: u32) -> Result<Option<u64>, Self::Error>;
+}
+/// Narrow native boundary for the leak-report dialog (RVA 0x4160). Caption and
+/// body are exact ANSI bytes the host shows modally; the decision to show
+/// (non-empty body) already happened in LeakDetector::pending_dialog.
+pub trait ReportEffects: Effects {
+    fn message_box(&mut self, caption: &[u8], text: &[u8]) -> Result<(), Self::Error>;
 }
 /// Host admission of a loose file's live 32 KiB allocation and numeric cache state.
 /// Bytes include the entire allocation, even when only block_size bytes are valid.
@@ -728,6 +850,86 @@ impl<B: ReadEffects> Handles<B> {
             .read_caches
             .get(handle as usize)
             .and_then(Clone::clone))
+    }
+}
+
+impl<B: TimeEffects> Handles<B> {
+    /// Original dtaGetTime, PC RVA 0x4040 (REA ev_78123751, 72 instr, 9 BB).
+    /// Unsigned handle check, closed-file check, then cached u64 copy unless
+    /// (flags & DTA_FROM_FILESYSTEM != 0 || force), else live GetFileTime via
+    /// TimeEffects::file_time. Returns Ok(None) for every native-false path
+    /// (no out-write); Ok(Some(bits)) carries the 8 FILETIME bits on
+    /// native-true. The table lock is held across the effect, like C_m_p.
+    pub fn dta_get_time(
+        &self,
+        handle: u32,
+        force_check_from_file: bool,
+    ) -> Result<Option<u64>, OperationError<B::Error>> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| OperationError::LockPoisoned)?;
+        if let Some(stage) = state.interrupted {
+            return Err(OperationError::Interrupted(stage));
+        }
+        let mut failed_stage = None;
+        let result = (|| {
+            let NativeState {
+                records,
+                cached_file_time,
+                effects,
+                ..
+            } = &mut *state;
+            let record = records.get(handle as usize).filter(|r| r.file != FAILURE);
+            let Some(record) = record else {
+                return Ok(None);
+            };
+            if record.flags & 1 == 0 && !force_check_from_file {
+                let bits = *cached_file_time
+                    .get(handle as usize)
+                    .ok_or(OperationError::InvalidRecord)?;
+                return Ok(Some(bits));
+            }
+            let bits = effects.file_time(record.file).map_err(|error| {
+                failed_stage = Some(EffectStage::FileTime);
+                OperationError::Backend(error)
+            })?;
+            Ok(bits)
+        })();
+        if result.is_err() {
+            state.interrupted = failed_stage;
+        }
+        result
+    }
+}
+
+impl<B: ReportEffects> Handles<B> {
+    /// Shows the pending leak dialog built by LeakDetector, if any (RVA 0x4160
+    /// report path). Effect order mirrors the binary: format-then-concatenate
+    /// already happened in pending_dialog; this performs only the conditional
+    /// MessageBoxA. None performs no effect and returns Ok(false).
+    pub fn report_leaks(
+        &self,
+        detector: &leak::LeakDetector,
+    ) -> Result<bool, OperationError<B::Error>> {
+        let Some((caption, body)) = detector.pending_dialog() else {
+            return Ok(false);
+        };
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| OperationError::LockPoisoned)?;
+        if let Some(stage) = state.interrupted {
+            return Err(OperationError::Interrupted(stage));
+        }
+        state
+            .effects
+            .message_box(&caption, &body)
+            .map_err(|error| {
+                state.interrupted = Some(EffectStage::ReportDialog);
+                OperationError::Backend(error)
+            })?;
+        Ok(true)
     }
 }
 
@@ -1088,6 +1290,9 @@ mod tests {
         fail_read_at: Option<usize>,
         reads: usize,
         read_failure: bool,
+        deleted: Vec<Vec<u8>>,
+        file_times: std::collections::BTreeMap<u32, Option<u64>>,
+        dialogs: Vec<(Vec<u8>, Vec<u8>)>,
     }
     struct Backend(Arc<Mutex<Trace>>);
     impl Effects for Backend {
@@ -1108,11 +1313,10 @@ mod tests {
             Ok(!t.close_failure)
         }
         fn delete_file(&mut self, name: &[u8]) -> Result<bool, Self::Error> {
-            self.0
-                .lock()
-                .unwrap()
-                .calls
+            let mut t = self.0.lock().unwrap();
+            t.calls
                 .push(format!("delete {}", String::from_utf8_lossy(name)));
+            t.deleted.push(name.to_vec());
             Ok(false)
         }
         fn file_attributes(&mut self, _: &[u8]) -> Result<u32, Self::Error> {
@@ -1322,6 +1526,142 @@ mod tests {
         assert!(handles.release_snapshot(0).unwrap());
         assert_eq!(handles.insert_snapshot(vec![]).unwrap(), 0);
     }
+    #[test]
+    fn delete_forwards_bytes_and_rejects_nul() {
+        let trace = Arc::new(Mutex::new(Trace::default()));
+        let handles = Handles::new(Backend(trace.clone()));
+        // The mock returns false (like a missing file); the boolean passes through.
+        assert!(!handles.dta_delete(b"save.tmp").unwrap());
+        assert_eq!(trace.lock().unwrap().deleted, vec![b"save.tmp".to_vec()]);
+        assert_eq!(
+            handles.dta_delete(b"a\0b"),
+            Err(OperationError::InvalidRecord)
+        );
+        assert!(handles.inspect(0).unwrap().is_none());
+    }
+    #[test]
+    fn bin2text_strips_inner_cr_and_keeps_last_byte() {
+        let handles = Handles::new(Backend(Arc::new(Mutex::new(Trace::default()))));
+        let mut buf = b"a\rb\r\nc\rd".to_vec();
+        let len = handles.dta_bin2text(&mut buf).unwrap();
+        assert_eq!(len, 5);
+        assert_eq!(&buf[..5], b"ab\ncd");
+        let mut tail = b"ab\r".to_vec();
+        assert_eq!(handles.dta_bin2text(&mut tail).unwrap(), 3);
+        assert_eq!(tail, b"ab\r");
+        let mut empty: Vec<u8> = Vec::new();
+        assert_eq!(handles.dta_bin2text(&mut empty).unwrap(), 0);
+        let mut plain = b"hello\nworld".to_vec();
+        assert_eq!(handles.dta_bin2text(&mut plain).unwrap(), 11);
+        assert_eq!(plain, b"hello\nworld");
+        let mut one = b"\r".to_vec();
+        assert_eq!(handles.dta_bin2text(&mut one).unwrap(), 1);
+    }
+    #[test]
+    fn bin2text_matches_naive_reference_on_exhaustive_small_inputs() {
+        fn naive(mut v: Vec<u8>) -> (Vec<u8>, u32) {
+            let mut len = v.len() as u32;
+            let positions: Vec<usize> = (0..v.len().saturating_sub(1))
+                .rev()
+                .filter(|&i| v[i] == b'\r')
+                .collect();
+            for pos in positions {
+                v.copy_within(pos + 1..len as usize, pos);
+                len -= 1;
+            }
+            v.truncate(len as usize);
+            (v, len)
+        }
+        let handles = Handles::new(Backend(Arc::new(Mutex::new(Trace::default()))));
+        let alphabet = *b"a\r\n";
+        for len in 0..=5 {
+            let total = 3usize.pow(len as u32);
+            for n in 0..total {
+                let mut v = Vec::with_capacity(len as usize);
+                let mut m = n;
+                for _ in 0..len {
+                    v.push(alphabet[m % 3]);
+                    m /= 3;
+                }
+                let (expect_bytes, expect_len) = naive(v.clone());
+                let mut got = v.clone();
+                let got_len = handles.dta_bin2text(&mut got).unwrap();
+                assert_eq!(got_len, expect_len, "len for {v:?}");
+                assert_eq!(
+                    &got[..got_len as usize],
+                    &expect_bytes[..],
+                    "bytes for {v:?}"
+                );
+            }
+        }
+    }
+    #[test]
+    fn get_time_cached_vs_live_and_invalid_handles() {
+        let trace = Arc::new(Mutex::new(Trace::default()));
+        let handles = Handles::new(Backend(trace.clone()));
+        let mut arch = record(0);
+        arch.temporary_name = 11;
+        arch.block = 12;
+        arch.wav = 0;
+        let mut fs = record(1);
+        fs.temporary_name = 21;
+        fs.block = 22;
+        fs.wav = 0;
+        arch.file = 100;
+        fs.file = 200;
+        assert_eq!(handles.admit(arch).unwrap(), 0);
+        assert_eq!(handles.admit(fs).unwrap(), 1);
+        handles
+            .set_cached_file_time(0, 0x1122_3344_5566_7788)
+            .unwrap();
+        handles
+            .set_cached_file_time(1, 0xAABB_CCDD_EEFF_0011)
+            .unwrap();
+        assert_eq!(
+            handles.dta_get_time(0, false).unwrap(),
+            Some(0x1122_3344_5566_7788)
+        );
+        trace
+            .lock()
+            .unwrap()
+            .file_times
+            .insert(200, Some(0xDEAD_BEEF_CAFE_1234));
+        assert_eq!(
+            handles.dta_get_time(1, false).unwrap(),
+            Some(0xDEAD_BEEF_CAFE_1234)
+        );
+        trace
+            .lock()
+            .unwrap()
+            .file_times
+            .insert(100, Some(0x0102_0304_0506_0708));
+        assert_eq!(
+            handles.dta_get_time(0, true).unwrap(),
+            Some(0x0102_0304_0506_0708)
+        );
+        trace.lock().unwrap().file_times.insert(100, None);
+        assert_eq!(handles.dta_get_time(0, true).unwrap(), None);
+        assert_eq!(handles.dta_get_time(99, false).unwrap(), None);
+        assert_eq!(handles.dta_get_time(u32::MAX, true).unwrap(), None);
+    }
+    #[test]
+    fn report_leaks_shows_pending_dialog_only() {
+        let trace = Arc::new(Mutex::new(Trace::default()));
+        let handles = Handles::new(Backend(trace.clone()));
+        let detector = crate::rw_data::leak::LeakDetector::new();
+        assert!(!handles.report_leaks(&detector).unwrap());
+        assert!(trace.lock().unwrap().dialogs.is_empty());
+        detector.set_dump_memory_leaks(true);
+        detector.add_ref();
+        assert!(handles.report_leaks(&detector).unwrap());
+        let dialogs = trace.lock().unwrap().dialogs.clone();
+        assert_eq!(dialogs.len(), 1);
+        assert_eq!(dialogs[0].0, b"Dta_read error message");
+        assert_eq!(
+            dialogs[0].1,
+            b"Not released:  1  reference(s) of Dta_read.\n".to_vec()
+        );
+    }
     impl ReadEffects for Backend {
         fn seek_read_file(&mut self, _: u32, position: u32) -> Result<(u32, u32), Self::Error> {
             let mut t = self.0.lock().unwrap();
@@ -1352,6 +1692,21 @@ mod tests {
                 success: !failure,
                 bytes_read: count as u32,
             })
+        }
+    }
+    impl TimeEffects for Backend {
+        fn file_time(&mut self, file: u32) -> Result<Option<u64>, Self::Error> {
+            let t = self.0.lock().unwrap();
+            Ok(*t.file_times.get(&file).unwrap_or(&None))
+        }
+    }
+    impl ReportEffects for Backend {
+        fn message_box(&mut self, caption: &[u8], text: &[u8]) -> Result<(), Self::Error> {
+            let mut t = self.0.lock().unwrap();
+            t.calls
+                .push(format!("dialog {}", String::from_utf8_lossy(text)));
+            t.dialogs.push((caption.to_vec(), text.to_vec()));
+            Ok(())
         }
     }
     fn loose(trace: Arc<Mutex<Trace>>, size: u32) -> Handles<Backend> {
@@ -1654,13 +2009,18 @@ mod wav;
 mod wav_table;
 pub use open::{OpenAllocation, OpenEffects};
 
+/// Leak-flag lane (dtaDumpMemoryLeaks/init/report); adds no CRT credit.
+pub mod leak;
+
 /// Read-only filesystem host adapter; adds no native function credit.
 pub mod io;
 
 mod write;
 pub use write::{
-    DTA_CHANGE_ATTRIBUTES, DTA_CREATE_FILE, DTA_FILE_BUFFER, DTA_TEMPORARY, OpenWriteEffects,
-    WriteEffects, WriteFileResult,
+    DTA_CHANGE_ATTRIBUTES, DTA_CREATE_FILE, DTA_FILE_BUFFER, DTA_TEMPORARY, NATIVE_CREATE_ALWAYS,
+    NATIVE_FH_BUFFER, NATIVE_FH_FAILED_WRITING_TO_BUFFER, NATIVE_FH_FROM_FILESYSTEM,
+    NATIVE_FH_WRITE, NATIVE_FILE_ATTRIBUTE_HIDDEN, NATIVE_FILE_ATTRIBUTE_NORMAL,
+    NATIVE_OPEN_ALWAYS, OpenWriteEffects, WriteEffects, WriteFileResult,
 };
 /// Opt-in host output adapter; does not change Installation's read-only policy.
 pub mod write_io;

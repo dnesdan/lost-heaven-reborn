@@ -52,6 +52,85 @@ class RewriteProgressTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             script.validate_overlay(bad, libraries, by_sha)
 
+    def test_rw_data_card_counts_own_functions_without_crt(self):
+        script = load_script()
+        libraries, ports = script.load_ledger()
+        overlay = script.load_overlay()
+        cards = script.aggregate(libraries, ports, overlay)
+        rw = next(card for card in cards if card["name"] == "rw_data.dll")
+        self.assertEqual(rw["total"], 62)
+        # 12 frozen ledger ports + 10 overlay ports (2 write, 8 read/leak lane).
+        self.assertEqual(rw["ported"], 22)
+        self.assertEqual(rw["verified"], 15)
+        self.assertLessEqual(rw["verified"], rw["ported"])
+        self.assertLessEqual(rw["ported"], rw["total"])
+
+    def test_rw_data_own_set_is_retained_below_first_crt(self):
+        # Evidence list pinned to the frozen ledger and the mafia-re total:
+        # own = retained entries below the first CRT address, 58 of them;
+        # 62 - 58 = 4 Binja-only fragments without retained pseudocode.
+        script = load_script()
+        libraries, _ = script.load_ledger()
+        lib = libraries["rw_data.dll"]
+        retained = {entry.lower() for entry in lib["retained_entries"]}
+        self.assertEqual(len(retained), 176)
+        below = {
+            rva for rva in retained
+            if int(rva, 16) < script.RW_DATA_FIRST_CRT_RVA
+        }
+        self.assertEqual(set(script.RW_DATA_OWN_RVAS), below)
+        self.assertEqual(len(script.RW_DATA_OWN_RVAS), 58)
+        self.assertEqual(script.RW_DATA_BINJA_ONLY_GAP, 4)
+        self.assertEqual(script.RW_DATA_OWN_TOTAL, 62)
+
+    def test_rw_data_ledger_and_overlay_ports_are_all_own(self):
+        script = load_script()
+        libraries, ports = script.load_ledger()
+        overlay = script.load_overlay()
+        sha = libraries["rw_data.dll"]["binary_sha256"]
+        ledger = script.ledger_ports_by_binary(ports).get(sha, {})
+        self.assertEqual(len(ledger), 12)
+        for rva in ledger:
+            self.assertIn(rva, script.RW_DATA_OWN_RVAS)
+        for entry in overlay["functions"]:
+            if entry["binary"] == "rw_data.dll":
+                self.assertIn(
+                    entry["rva"].lower(), script.RW_DATA_OWN_RVAS
+                )
+
+    def test_overlay_rejects_rw_data_crt_and_accepts_lhr_assets(self):
+        script = load_script()
+        libraries, ports = script.load_ledger()
+        overlay = script.load_overlay()
+        by_sha = script.ledger_ports_by_binary(ports)
+        # CRT entries must never count: _strcmp is retained but not own.
+        bad = json.loads(json.dumps(overlay))
+        bad["functions"].append({
+            "binary": "rw_data.dll",
+            "rva": "0x9510",
+            "va": "0x10009510",
+            "name": "strcmp",
+            "symbol": "lhr_assets::rw_data::Handles",
+            "tier": "contract",
+            "evidence": "test only",
+        })
+        with self.assertRaises(ValueError):
+            script.validate_overlay(bad, libraries, by_sha)
+        # rw_data Rust lives in lhr-assets: an own, unported RVA with a
+        # real symbol there validates (de_crypt exists in
+        # crates/lhr-assets/src/rw_data.rs).
+        good = json.loads(json.dumps(overlay))
+        good["functions"].append({
+            "binary": "rw_data.dll",
+            "rva": "0x4690",
+            "va": "0x10004690",
+            "name": "DeCrypt",
+            "symbol": "lhr_assets::rw_data::de_crypt",
+            "tier": "contract",
+            "evidence": "test only",
+        })
+        script.validate_overlay(good, libraries, by_sha)
+
     def test_svg_render_is_deterministic(self):
         script = load_script()
         libraries, ports = script.load_ledger()
