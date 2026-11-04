@@ -2,17 +2,153 @@
 //! This command never starts a menu, actor scheduler, or mission-completion gate.
 
 use lhr_engine::{
+    actor_world::ActorWorld,
     game_camera_projection::GameCameraProjection,
     host_scene_adapters::InspectionScreen,
+    mission_content_loading::{
+        GameGlobalProgramWorldRunner, MissionContentOwner, MissionProgramDiagnostic,
+        MissionProgramWorldContext, NamedGlobalProgramOutcome, ProgramWorldLocales,
+    },
     mission_load_session::{MissionLoadCause, MissionLoadRequest, MissionLoadSession},
     mission_world_completeness,
+    model_loading::ModelArena,
     native_precision::Pc24PrecisionState,
+    original_program::{RuntimeBackend, RuntimeEffect, RuntimeView},
+    program_parameters::ScalarParameter,
+    script_lookup::LookupError,
+    script_scheduler::{ActorReferenceId, DispatchBudget, FrameReferenceId},
 };
 use std::{fmt::Write as _, path::Path};
 
 /// Deliberate diagnostic inputs, not recovered GameInit globals. A caller that
 /// needs a different original prestate should use MissionLoadSession directly.
 const PROBE_SIZE: [i32; 2] = [800, 600];
+/// Bounded dispatch budget for the single `GameInitStart` run. The VM loop
+/// always terminates within it or reports budget exhaustion; nothing here
+/// depends on the exact count, only on its finiteness.
+const PROBE_DISPATCH_BUDGET: usize = 100_000;
+
+/// Counting accept-all script backend for the probe. Every reached effect
+/// boundary succeeds and is counted; the runtime owns all allocations.
+/// This instruments scheduling, it does not implement gameplay effects.
+#[derive(Default)]
+struct ProbeEffects {
+    calls: usize,
+}
+
+impl RuntimeBackend for ProbeEffects {
+    fn effect(
+        &mut self,
+        _: RuntimeView<'_>,
+        _: RuntimeEffect,
+        _: Option<&ScalarParameter>,
+    ) -> Result<(), String> {
+        self.calls += 1;
+        Ok(())
+    }
+}
+
+/// Headless diagnostic: counts message beeps without a listener to beep
+/// through. A nonzero count stays visible in the report instead of masking
+/// a gameplay event.
+#[derive(Default)]
+struct ProbeDiagnostic {
+    beeps: usize,
+}
+
+impl MissionProgramDiagnostic for ProbeDiagnostic {
+    fn message_beep(
+        &mut self,
+        _: &mut ActorWorld,
+        _: &mut ModelArena,
+        _: RuntimeView<'_>,
+        _: &mut Option<ActorReferenceId>,
+        _: &mut FrameReferenceId,
+        _: i32,
+    ) -> Result<(), LookupError> {
+        self.beeps += 1;
+        Ok(())
+    }
+}
+
+/// Empty game-global runner: the probe ships no game programs, so the
+/// mission fallback always decides. Returning `false` is the absence
+/// branch, never a handled claim.
+struct ProbeGame;
+
+impl<B: RuntimeBackend, D: MissionProgramDiagnostic> GameGlobalProgramWorldRunner<B, D>
+    for ProbeGame
+{
+    fn run_game_global(
+        &mut self,
+        _: &mut MissionContentOwner,
+        _: &[u8],
+        _: &mut DispatchBudget,
+        _: &mut MissionProgramWorldContext<'_, B, D>,
+    ) -> Result<bool, String> {
+        Ok(false)
+    }
+}
+
+struct ScriptRunReport {
+    outcome: NamedGlobalProgramOutcome,
+    effect_calls: usize,
+    beeps: usize,
+    budget_remaining: usize,
+}
+
+/// Owned program init plus the single `GameInitStart` run over the live
+/// session owners, in `C_game::Init` order after the scalar prefix. Runtimes
+/// are discarded host-side afterwards so terminal disposal sees no retained
+/// program state; this is Init, not Done.
+fn run_game_init_scripts(session: &mut MissionLoadSession) -> Result<ScriptRunReport, String> {
+    let mut effects = ProbeEffects::default();
+    let mut diagnostic = ProbeDiagnostic::default();
+    let mut game = ProbeGame;
+    let mut budget =
+        DispatchBudget::new(PROBE_DISPATCH_BUDGET).map_err(|error| format!("{error:?}"))?;
+    // Program runtimes must be discarded before reporting no matter how the
+    // run below ends; otherwise terminal disposal refuses the retained state
+    // and masks the real outcome.
+    let init = session
+        .global_program_game_init(&mut effects)
+        .map_err(|error| format!("{error:?}"));
+    let outcome = match &init {
+        Ok(()) => Some(
+            session
+                .global_program_run_in_world(
+                    b"GameInitStart",
+                    &mut game,
+                    &mut budget,
+                    &mut effects,
+                    &mut diagnostic,
+                    ProgramWorldLocales {
+                        game_default_c_locale: true,
+                        ls3df_default_c_locale: true,
+                    },
+                )
+                .map_err(|error| format!("{error:?}")),
+        ),
+        Err(_) => None,
+    };
+    let discard = session
+        .discard_global_program_runtimes_host()
+        .map_err(|error| format!("{error:?}"));
+    let outcome = match (init, outcome, discard) {
+        (Ok(()), Some(Ok(outcome)), Ok(_)) => Ok(outcome),
+        (Err(error), _, Ok(_)) => Err(error),
+        (Ok(()), Some(Err(error)), Ok(_)) => Err(error),
+        (Ok(()), _, Err(error)) => Err(format!("runtimes discard: {error}")),
+        (Err(init), _, Err(discard)) => Err(format!("{init}; runtimes discard: {discard}")),
+        (Ok(()), None, _) => Err("unreachable GameInitStart admission".into()),
+    }?;
+    Ok(ScriptRunReport {
+        outcome,
+        effect_calls: effects.calls,
+        beeps: diagnostic.beeps,
+        budget_remaining: budget.remaining(),
+    })
+}
 
 pub(super) fn validate_mission_name(mission: &str) -> Result<(), String> {
     if mission.is_empty()
@@ -101,6 +237,14 @@ pub fn run(root: &Path, mission: &str, model_directories: &[String]) -> Result<(
     } else {
         Err("skipped after stopped load".into())
     };
+    // Owned program init plus the single GameInitStart run, in Init order
+    // after the scalar prefix. Runtimes are discarded before reporting so
+    // terminal disposal starts clean.
+    let scripts = if matches!(game_init, Ok(())) {
+        run_game_init_scripts(&mut session)
+    } else {
+        Err("skipped after stopped GameInit prefix".into())
+    };
     match &game_init {
         Ok(()) => {
             let police = session.police_init();
@@ -122,6 +266,19 @@ pub fn run(root: &Path, mission: &str, model_directories: &[String]) -> Result<(
         }
         Err(detail) => {
             writeln!(report, "GameInit prefix stopped: {detail}").unwrap();
+        }
+    }
+    match &scripts {
+        Ok(script) => {
+            writeln!(
+                report,
+                "GameInitStart: {:?} effect_calls={} beeps={} budget_remaining={}",
+                script.outcome, script.effect_calls, script.beeps, script.budget_remaining
+            )
+            .unwrap();
+        }
+        Err(detail) => {
+            writeln!(report, "GameInitStart stopped: {detail}").unwrap();
         }
     }
     writeln!(
@@ -164,12 +321,13 @@ pub fn run(root: &Path, mission: &str, model_directories: &[String]) -> Result<(
             .write_all(report.as_bytes())
             .map_err(|error| format!("Could not write mission probe report: {error}"))?;
     }
-    match (load, game_init, discard) {
-        (Ok(()), Ok(()), Ok(())) => Ok(()),
-        (Err(_), _, Ok(())) => Err("Mission load probe stopped at the reported load boundary; terminal disposal completed".into()),
-        (Ok(()), _, Err(_)) => Err("Mission prefix completed, but terminal disposal stopped at the reported ownership boundary".into()),
-        (Err(_), _, Err(_)) => Err("Mission load and terminal disposal both stopped; their first failures are reported separately".into()),
-        (Ok(()), Err(_), Ok(())) => Err("Mission prefix completed, but the GameInit prefix stopped at the reported boundary; terminal disposal completed".into()),
+    match (load, game_init, scripts, discard) {
+        (Ok(()), Ok(()), Ok(_), Ok(())) => Ok(()),
+        (Err(_), _, _, Ok(())) => Err("Mission load probe stopped at the reported load boundary; terminal disposal completed".into()),
+        (Ok(()), _, _, Err(_)) => Err("Mission prefix completed, but terminal disposal stopped at the reported ownership boundary".into()),
+        (Err(_), _, _, Err(_)) => Err("Mission load and terminal disposal both stopped; their first failures are reported separately".into()),
+        (Ok(()), Err(_), _, Ok(())) => Err("Mission prefix completed, but the GameInit prefix stopped at the reported boundary; terminal disposal completed".into()),
+        (Ok(()), Ok(()), Err(_), Ok(())) => Err("Mission prefix and GameInit scalars completed, but GameInitStart stopped at the reported boundary; terminal disposal completed".into()),
     }
 }
 

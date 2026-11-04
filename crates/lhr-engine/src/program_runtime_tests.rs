@@ -1798,3 +1798,24 @@ fn done_releases_float_bank_before_frames_and_actors() {
     assert_eq!(report.float_slots, 0);
     assert_eq!(report.flow_allocations, 0);
 }
+
+#[test]
+fn game_nightmission_reports_nonzero_test_through_backend() {
+    for (argument, expected) in [(1, true), (0, false), (-5, true)] {
+        let mut memory = Memory::default();
+        let source = format!("game_nightmission {argument}");
+        let mut p = program(source.as_bytes(), &mut memory);
+        let progress = p.init_fresh_runtime(&mut memory).unwrap();
+        assert_eq!((progress.accepted, progress.errors), (1, 0));
+        p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+            .unwrap();
+        assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
+        assert!(
+            memory
+                .events
+                .iter()
+                .any(|event| event.0 == RuntimeEffect::SetNightMission(expected)),
+            "missing SetNightMission({expected}) for argument {argument}"
+        );
+    }
+}

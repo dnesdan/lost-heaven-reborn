@@ -540,6 +540,12 @@ pub enum RuntimeEffect {
     AllocateFrames(u32),
     AllocateFloats(u32),
     ReleaseFloats,
+    /// Game night-mission latch (`GAME_NIGHTMISSION` 81): true when the
+    /// command's integer operand is nonzero, matching
+    /// `SetNightMission(*(int *)params != 0)`. Unlike the allocation
+    /// lifecycle variants above, this carries game state to the backend;
+    /// a backend without game ownership records it without applying.
+    SetNightMission(bool),
 }
 /// Required external allocation boundary, borrowing actual fields at the call.
 /// The runtime itself owns actual Rust allocations and performs release only
@@ -2853,6 +2859,11 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                         }
                     }
                 }
+            }
+            81 => {
+                // GAME_NIGHTMISSION: SetNightMission(int_param != 0)
+                let value = self.value_at(state)?;
+                self.effect(state, RuntimeEffect::SetNightMission(value != 0))?;
             }
             0x1004 | 0x101a | 0x1031 | 0x103a | 0x103b => {
                 advance = self.dispatch_entity(state, opcode)?;
