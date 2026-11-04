@@ -488,8 +488,8 @@ impl ModelMaterialTableKey {
     }
 }
 /// Native animated LoadImage overwrites the two digits before the extension.
-/// Counts above 100 reach a longer sprintf representation and need a separate
-/// byte-accurate admission; the actual source uses 20 frames.
+/// Frame values of 100 or more reach a longer sprintf representation and need
+/// a separate byte-accurate admission; the actual source uses 20 frames.
 fn animated_frame_name(name: &str, frame: u8, count: u8) -> Result<Option<String>> {
     if count < 2 {
         return Ok(Some(name.to_owned()));
@@ -510,6 +510,13 @@ fn animated_frame_name(name: &str, frame: u8, count: u8) -> Result<Option<String
         .map(Some)
         .map_err(|_| LoadedVisualError::Backend("animated filename byte domain"))
 }
+/// Orchestrating phase of I3D_anim_material::LoadImage (LS3DF RVA 0x2c000):
+/// this function performs the 727-instruction native body's work (dtaRead
+/// x11 frame payloads, %02i per-frame naming, invalid-name handling, the
+/// virtual SetCurrentFrame(-1)/SetEnvCurrentFrame(-1) tail) rather than one
+/// sub-step of it, which is why the contract RVA is attributed here and not
+/// to a smaller helper. Module-private: full admission reaches it through
+/// the animated load pipeline in this module.
 fn prepare_animation(
     material: &lhr_assets::Material,
     installation: &lhr_assets::Installation,
@@ -3389,6 +3396,29 @@ mod unconstructed_lit_admission_tests {
         assert_eq!(owner.backend.live_allocations(), 0);
         assert!(!owner.incomplete);
         std::fs::remove_dir_all(path).unwrap();
+    }
+    #[test]
+    fn animated_frame_name_edge_vectors_follow_native_numbering() {
+        // LS3DF 0x2c000: counts<2 reuse the basename; else strlen-6 selects the
+        // two digits and num[2] becomes '.'. REA "%02i" format word.
+        assert_eq!(
+            animated_frame_name("stone00.tga", 0, 1).unwrap(),
+            Some("stone00.tga".to_owned())
+        );
+        assert_eq!(
+            animated_frame_name("stone00.tga", 3, 4).unwrap(),
+            Some("stone03.tga".to_owned())
+        );
+        assert_eq!(
+            animated_frame_name("env00.tga", 11, 12).unwrap(),
+            Some("env11.tga".to_owned())
+        );
+        // Native n<0 (name shorter than 6) records one null slot: None.
+        assert_eq!(animated_frame_name("a.tg", 0, 3).unwrap(), None);
+        assert_eq!(animated_frame_name("", 0, 2).unwrap(), None);
+        // Native sprintf overflows past two digits at frame>=100; the port
+        // rejects instead of overwriting the extension (host guard).
+        assert!(animated_frame_name("stone00.tga", 100, 101).is_err());
     }
 }
 

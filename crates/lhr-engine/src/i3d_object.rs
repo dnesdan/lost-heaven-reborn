@@ -789,6 +789,91 @@ impl ObjectResources {
         self.available()?;
         managed_result(self.managed.set_env_texture(key, texture, backend))
     }
+    pub fn set_env_texture_ex<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        key: MaterialKey,
+        texture: Option<TextureKey>,
+        blend: u32,
+        mode: u32,
+        alpha: f32,
+        backend: &mut B,
+    ) -> Result<(), ObjectOperationError<B::Error>> {
+        self.available()?;
+        managed_result(
+            self.managed
+                .set_env_texture_ex(key, texture, blend, mode, alpha, backend),
+        )
+    }
+    pub fn set_material_ambient(
+        &mut self,
+        key: MaterialKey,
+        color: [f32; 3],
+    ) -> Result<(), ObjectError> {
+        self.available()?;
+        self.managed
+            .set_material_ambient(key, color)
+            .map_err(Into::into)
+    }
+    pub fn set_material_diffuse(
+        &mut self,
+        key: MaterialKey,
+        color: [f32; 3],
+    ) -> Result<(), ObjectError> {
+        self.available()?;
+        self.managed
+            .set_material_diffuse(key, color)
+            .map_err(Into::into)
+    }
+    pub fn set_material_emissive(
+        &mut self,
+        key: MaterialKey,
+        color: [f32; 3],
+    ) -> Result<(), ObjectError> {
+        self.available()?;
+        self.managed
+            .set_material_emissive(key, color)
+            .map_err(Into::into)
+    }
+    pub fn set_material_alpha(&mut self, key: MaterialKey, alpha: f32) -> Result<(), ObjectError> {
+        self.available()?;
+        self.managed
+            .set_material_alpha(key, alpha)
+            .map_err(Into::into)
+    }
+    pub fn set_material_two_sided(&mut self, key: MaterialKey) -> Result<(), ObjectError> {
+        self.available()?;
+        self.managed.set_material_two_sided(key).map_err(Into::into)
+    }
+    pub fn set_material_env_type(
+        &mut self,
+        key: MaterialKey,
+        blend: u32,
+    ) -> Result<(), ObjectError> {
+        self.available()?;
+        self.managed
+            .set_material_env_type(key, blend)
+            .map_err(Into::into)
+    }
+    pub fn set_material_env_mode(
+        &mut self,
+        key: MaterialKey,
+        mode: u32,
+    ) -> Result<(), ObjectError> {
+        self.available()?;
+        self.managed
+            .set_material_env_mode(key, mode)
+            .map_err(Into::into)
+    }
+    pub fn set_material_env_scale(
+        &mut self,
+        key: MaterialKey,
+        scale: u32,
+    ) -> Result<(), ObjectError> {
+        self.available()?;
+        self.managed
+            .set_material_env_scale(key, scale)
+            .map_err(Into::into)
+    }
     pub fn set_lod<B: ManagedVisualBackend + ?Sized>(
         &mut self,
         key: MeshObjectKey,

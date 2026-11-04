@@ -236,6 +236,11 @@ fn update_material_channel(
     if textures.is_empty() {
         return Err(Unsupported("empty frame array access"));
     }
+    // Symmetry with set_material_current_frame: len as i32 casts below need
+    // the bound (2-billion-texture vectors are unreachable in practice).
+    if textures.len() > i32::MAX as usize {
+        return Err(Unsupported("frame selection array length"));
+    }
     if textures.len() < 2 || delay == 0 {
         *texture = textures[0];
         return Ok(());
@@ -933,6 +938,160 @@ impl VisualResources {
         }
         Ok(())
     }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6, RVA 0x2af20.
+    /// Upstream working name I3D_material::SetAmbient (mafia-re I3d_material.cpp:63-69), not an
+    /// evidenced original symbol. Copies the 3-word color into ambient (member +0x14) with plain
+    /// 32-bit stores and returns I3D_OK. No backend effects.
+    pub fn set_material_ambient(
+        &mut self,
+        key: MaterialKey,
+        color: [f32; 3],
+    ) -> Result<(), VisualResourceError> {
+        self.available()?;
+        self.material_mut(key)?.ambient = color;
+        Ok(())
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6, RVA 0x2af40.
+    /// Upstream working name I3D_material::SetDiffuse (mafia-re I3d_material.cpp:71-77), not an
+    /// evidenced original symbol. Copies the 3-word color into diffuse (member +0x20) with plain
+    /// 32-bit stores and returns I3D_OK. No backend effects.
+    pub fn set_material_diffuse(
+        &mut self,
+        key: MaterialKey,
+        color: [f32; 3],
+    ) -> Result<(), VisualResourceError> {
+        self.available()?;
+        self.material_mut(key)?.diffuse = color;
+        Ok(())
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6, RVA 0x2af60.
+    /// Upstream working name I3D_material::SetEmissive (mafia-re I3d_material.cpp:79-85), not an
+    /// evidenced original symbol. Copies the 3-word color into emissive (member +0x2c) with plain
+    /// 32-bit stores and returns I3D_OK. No backend effects.
+    pub fn set_material_emissive(
+        &mut self,
+        key: MaterialKey,
+        color: [f32; 3],
+    ) -> Result<(), VisualResourceError> {
+        self.available()?;
+        self.material_mut(key)?.emissive = color;
+        Ok(())
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6, RVA 0x2af80.
+    /// Upstream working name I3D_material::SetAlpha (mafia-re I3d_material.cpp:87-93), not an
+    /// evidenced original symbol. The native x87 FLD/FSTP pair is an exact 32-bit store, so a
+    /// plain f32 assignment preserves bits with no rounding policy involved. Returns I3D_OK.
+    /// No backend effects.
+    pub fn set_material_alpha(
+        &mut self,
+        key: MaterialKey,
+        alpha: f32,
+    ) -> Result<(), VisualResourceError> {
+        self.available()?;
+        self.material_mut(key)?.alpha = alpha;
+        Ok(())
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6, RVA 0x2b120.
+    /// Upstream working name I3D_material::Set2Sided (mafia-re I3d_material.cpp:175-181), not an
+    /// evidenced original symbol. ORs MATF_TWO_SIDED (0x10000000) into flags (+0x8), preserving
+    /// every other bit, and returns I3D_OK. No backend effects.
+    pub fn set_material_two_sided(&mut self, key: MaterialKey) -> Result<(), VisualResourceError> {
+        self.available()?;
+        self.material_mut(key)?.flags |= 0x10000000;
+        Ok(())
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6, RVA 0x2b130.
+    /// Upstream working name I3D_material::SetEnvType (mafia-re I3d_material.cpp:183-189), not an
+    /// evidenced original symbol. `(flags & !MATF_ENVMAP_BLEND) | (blend << MATF_ENVMAP_BLEND_SHIFT)`
+    /// in 32-bit arithmetic: the input is shifted but never masked, so high bits survive into
+    /// flags exactly as the native SHL/OR pair leaves them. Returns I3D_OK. No backend effects.
+    pub fn set_material_env_type(
+        &mut self,
+        key: MaterialKey,
+        blend: u32,
+    ) -> Result<(), VisualResourceError> {
+        self.available()?;
+        let material = self.material_mut(key)?;
+        material.flags = (material.flags & !0x700) | (blend << 8);
+        Ok(())
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6, RVA 0x2b150.
+    /// Upstream working name I3D_material::SetEnvMode (mafia-re I3d_material.cpp:191-197), not an
+    /// evidenced original symbol. `(flags & !MATF_ENVMAP_MODE) | (mode << MATF_ENVMAP_MODE_SHIFT)`
+    /// in 32-bit arithmetic; the input is never masked. Returns I3D_OK. No backend effects.
+    pub fn set_material_env_mode(
+        &mut self,
+        key: MaterialKey,
+        mode: u32,
+    ) -> Result<(), VisualResourceError> {
+        self.available()?;
+        let material = self.material_mut(key)?;
+        material.flags = (material.flags & !0x7000) | (mode << 12);
+        Ok(())
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6, RVA 0x2b170.
+    /// Upstream working name I3D_material::SetEnvScale (mafia-re I3d_material.cpp:199-205), not an
+    /// evidenced original symbol. `(flags & !MATF_ENVMAP_SCALE) | scale`: full-word OR with no
+    /// shift and no input mask. Returns I3D_OK. No backend effects.
+    pub fn set_material_env_scale(
+        &mut self,
+        key: MaterialKey,
+        scale: u32,
+    ) -> Result<(), VisualResourceError> {
+        self.available()?;
+        let material = self.material_mut(key)?;
+        material.flags = (material.flags & !0xff) | scale;
+        Ok(())
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// RVA 0x2b040. Upstream working name I3D_material::SetEnvTextureEx
+    /// (mafia-re I3d_material.cpp:138-156; blend/mode/alpha are upstream
+    /// working names), not an evidenced original symbol. Order-exact:
+    /// inequality swap (release old, store new, retain new), unconditional
+    /// env_alpha store, then flag merge `((mode|0x80)<<4|blend)<<8` over
+    /// cleared 0x7700 blend/mode bits, or ENVMAP clear for null. Unlike
+    /// set_env_texture, a same-texture call still stores env_alpha and
+    /// recomputes blend/mode; only refcount traffic is skipped. Shifts are
+    /// full-width u32 (spill preserved); f32 alpha stored bit-exact.
+    /// Always I3D_OK; backend errors retain effects and poison.
+    /// Host guard: animated records are rejected (alias invariant — the frame
+    /// arrays own the current aliases); native has no such branch and would
+    /// write the fields through.
+    pub fn set_env_texture_ex<B: VisualResourceBackend + ?Sized>(
+        &mut self,
+        key: MaterialKey,
+        texture: Option<TextureKey>,
+        blend: u32,
+        mode: u32,
+        alpha: f32,
+        backend: &mut B,
+    ) -> Result<(), VisualResourceOperationError<B::Error>> {
+        self.available()?;
+        let old = self.material(key)?.env_texture;
+        if self.material(key)?.animation.is_some() {
+            return Err(VisualResourceError::AnimatedMaterialRequiresDerivedCopy.into());
+        }
+        if texture.is_some_and(|t| t.0 == 0) {
+            return Err(VisualResourceError::InvalidExternalIdentity.into());
+        }
+        if old != texture {
+            if let Some(old) = old {
+                self.backend(backend.release_texture(old))?;
+            }
+            self.material_mut(key)?.env_texture = texture;
+            if let Some(texture) = texture {
+                self.backend(backend.retain_texture(texture))?;
+            }
+        }
+        self.material_mut(key)?.env_alpha = alpha;
+        if texture.is_some() {
+            let material = self.material_mut(key)?;
+            material.flags = material.flags & 0xffff_88ff | ((mode | 0x80) << 4 | blend) << 8;
+        } else {
+            self.material_mut(key)?.flags &= !0x80000;
+        }
+        Ok(())
+    }
     /// Host ownership intake. The chain's head must be unattached; a tail has
     /// exactly one incoming owner and cannot be independently destroyed.
     pub fn link_next(
@@ -1393,6 +1552,9 @@ impl VisualResources {
     /// I3D_anim_material::Duplicate releases old frame arrays in reverse,
     /// calls the base scalar/texture copy, then retains each source frame in
     /// forward order. The destination's current texture fields alias frame0.
+    /// crate-visible (not public): external callers reach it through
+    /// copy_material's animated-destination dispatch, mirroring the native
+    /// virtual Duplicate call; direct callers can only live in-crate.
     pub(crate) fn duplicate_animated_material<B: VisualResourceBackend + ?Sized>(
         &mut self,
         destination: MaterialKey,
@@ -1403,6 +1565,11 @@ impl VisualResources {
         if destination == source || self.material(destination)?.animation.is_none() {
             return Err(VisualResourceError::AnimatedMaterialRequiresDerivedCopy.into());
         }
+        // Source snapshot before mutating callbacks: destination and source
+        // are distinct records here (self-copy is rejected above), and the
+        // backend contract forbids synchronous arena mutation, so the cloned
+        // scalars/aliases cannot go stale mid-call. Plain Duplicate instead
+        // re-reads live per setter; both shapes preserve effect order.
         let source_material = self.material(source)?;
         let source_flags = source_material.flags;
         let source_alpha = source_material.alpha;
@@ -3305,5 +3472,565 @@ mod tests {
                 ResourceKey::MeshObject(mesh)
             ))
         );
+    }
+
+    fn material_bits(material: &I3dMaterial) -> ([u32; 3], [u32; 3], [u32; 3]) {
+        (
+            material.ambient.map(f32::to_bits),
+            material.diffuse.map(f32::to_bits),
+            material.emissive.map(f32::to_bits),
+        )
+    }
+    #[test]
+    fn material_color_setters_copy_exact_words_and_leave_remaining_state() {
+        // RVAs 0x2af20/0x2af40/0x2af60: three 32-bit MOV stores each, bit-exact like the native
+        // sequence (NaN payloads and signed zeros survive); flags, references and textures kept.
+        let mut resources = VisualResources::new().unwrap();
+        let key = resources.create_material().unwrap();
+        resources
+            .set_material_ambient(key, [2.0, f32::NAN, -0.0])
+            .unwrap();
+        resources
+            .set_material_diffuse(key, [3.0, 0.5, -1.5])
+            .unwrap();
+        resources
+            .set_material_emissive(key, [0.25, f32::NAN, 4.0])
+            .unwrap();
+        let material = resources.material(key).unwrap();
+        assert_eq!(
+            material_bits(material),
+            (
+                [2.0f32.to_bits(), f32::NAN.to_bits(), (-0.0f32).to_bits()],
+                [3.0f32.to_bits(), 0.5f32.to_bits(), (-1.5f32).to_bits()],
+                [0.25f32.to_bits(), f32::NAN.to_bits(), 4.0f32.to_bits()],
+            )
+        );
+        assert_eq!(
+            (
+                material.flags,
+                material.references,
+                material.texture,
+                material.env_texture
+            ),
+            (1, 1, None, None)
+        );
+        assert_eq!(material.env_alpha.to_bits(), 1.0f32.to_bits());
+    }
+    #[test]
+    fn material_alpha_setter_stores_exact_f32_bits() {
+        // RVA 0x2af80: native FLD/FSTP is an exact 32-bit store, so a host f32 assignment
+        // preserves the payload; nothing else on the record moves.
+        let mut resources = VisualResources::new().unwrap();
+        let key = resources.create_material().unwrap();
+        resources.set_material_alpha(key, 0.75).unwrap();
+        assert_eq!(
+            resources.material(key).unwrap().alpha.to_bits(),
+            0.75f32.to_bits()
+        );
+        resources.set_material_alpha(key, f32::NAN).unwrap();
+        let material = resources.material(key).unwrap();
+        assert_eq!(material.alpha.to_bits(), f32::NAN.to_bits());
+        assert_eq!(material.flags, 1);
+        assert_eq!(material.ambient, [1.; 3]);
+    }
+    #[test]
+    fn material_scalar_setters_reject_unknown_records() {
+        // The originals have no failure path; the host adapter guards identity only.
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let key = resources.create_material().unwrap();
+        resources.release_material(key, &mut backend).unwrap();
+        assert_eq!(
+            resources.set_material_ambient(key, [0.; 3]),
+            Err(VisualResourceError::UnknownMaterial(key))
+        );
+        assert_eq!(
+            resources.set_material_diffuse(key, [0.; 3]),
+            Err(VisualResourceError::UnknownMaterial(key))
+        );
+        assert_eq!(
+            resources.set_material_emissive(key, [0.; 3]),
+            Err(VisualResourceError::UnknownMaterial(key))
+        );
+        assert_eq!(
+            resources.set_material_alpha(key, 0.5),
+            Err(VisualResourceError::UnknownMaterial(key))
+        );
+        assert_eq!(
+            resources.set_material_two_sided(key),
+            Err(VisualResourceError::UnknownMaterial(key))
+        );
+        assert_eq!(
+            resources.set_material_env_type(key, 1),
+            Err(VisualResourceError::UnknownMaterial(key))
+        );
+        assert_eq!(
+            resources.set_material_env_mode(key, 1),
+            Err(VisualResourceError::UnknownMaterial(key))
+        );
+        assert_eq!(
+            resources.set_material_env_scale(key, 1),
+            Err(VisualResourceError::UnknownMaterial(key))
+        );
+    }
+    #[test]
+    fn material_two_sided_sets_bit_28_and_preserves_remaining_flags() {
+        // RVA 0x2b120: OR dword ptr [flags],0x10000000 — idempotent, other bits untouched.
+        let mut resources = VisualResources::new().unwrap();
+        let key = resources.create_material().unwrap();
+        resources.set_material_two_sided(key).unwrap();
+        assert_eq!(resources.material(key).unwrap().flags, 0x10000001);
+        resources.set_material_two_sided(key).unwrap();
+        assert_eq!(resources.material(key).unwrap().flags, 0x10000001);
+        resources.material_mut(key).unwrap().flags = 0x00080001;
+        resources.set_material_two_sided(key).unwrap();
+        assert_eq!(resources.material(key).unwrap().flags, 0x10080001);
+    }
+    #[test]
+    fn material_env_field_setters_match_native_mask_shift_and_unmasked_input() {
+        // RVAs 0x2b130/0x2b150/0x2b170: (flags & !MASK) | (arg << SHIFT) with no input mask;
+        // SetEnvScale ORs the full word with no shift. High input bits survive, as natively.
+        let mut resources = VisualResources::new().unwrap();
+        let key = resources.create_material().unwrap();
+        resources.set_material_env_type(key, 5).unwrap();
+        // Fresh records carry flags=1, preserved through the merge.
+        assert_eq!(resources.material(key).unwrap().flags, 0x501);
+        resources.material_mut(key).unwrap().flags = 0xffff_ffff;
+        resources.set_material_env_type(key, 0).unwrap();
+        assert_eq!(resources.material(key).unwrap().flags, 0xffff_f8ff);
+        resources.material_mut(key).unwrap().flags = 0;
+        resources.set_material_env_type(key, 0x1ff).unwrap();
+        assert_eq!(resources.material(key).unwrap().flags, 0x1_ff00);
+        resources.material_mut(key).unwrap().flags = 0;
+        resources.set_material_env_mode(key, 3).unwrap();
+        assert_eq!(resources.material(key).unwrap().flags, 0x3000);
+        resources.material_mut(key).unwrap().flags = 0xffff_ffff;
+        resources.set_material_env_mode(key, 0).unwrap();
+        assert_eq!(resources.material(key).unwrap().flags, 0xffff_8fff);
+        resources.material_mut(key).unwrap().flags = 0;
+        resources.set_material_env_mode(key, 0x1f).unwrap();
+        assert_eq!(resources.material(key).unwrap().flags, 0x1_f000);
+        resources.material_mut(key).unwrap().flags = 0x1234_5600;
+        resources.set_material_env_scale(key, 0xab).unwrap();
+        assert_eq!(resources.material(key).unwrap().flags, 0x1234_56ab);
+        resources.material_mut(key).unwrap().flags = 0;
+        resources.set_material_env_scale(key, 0x1234_5678).unwrap();
+        assert_eq!(resources.material(key).unwrap().flags, 0x1234_5678);
+    }
+    #[test]
+    fn material_destructor_releases_texture_before_env_texture() {
+        // RVA 0x2aec0: vtable store (no host counterpart), then texture Release, then env
+        // Release. Effect order is observed on the backend event log.
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let key = resources.create_material().unwrap();
+        let color = backend.texture(7, 0);
+        let env = backend.texture(9, 0);
+        resources
+            .set_texture(key, Some(color), &mut backend)
+            .unwrap();
+        resources
+            .set_env_texture(key, Some(env), &mut backend)
+            .unwrap();
+        backend.events.clear();
+        assert_eq!(resources.release_material(key, &mut backend).unwrap(), 0);
+        assert_eq!(backend.events, [Event::Release(color), Event::Release(env)]);
+        assert!(resources.material(key).is_err());
+    }
+    #[test]
+    fn material_release_returns_native_refcount_words() {
+        // RVA 0x2aef0: --ref; nonzero returns ref, zero destroys and returns 0. A live
+        // reference produces no backend effects; destruction with no textures needs none.
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let key = resources.create_material().unwrap();
+        resources.retain_material(key).unwrap();
+        assert_eq!(resources.release_material(key, &mut backend).unwrap(), 1);
+        assert!(resources.material(key).is_ok());
+        assert!(backend.events.is_empty());
+        assert_eq!(resources.release_material(key, &mut backend).unwrap(), 0);
+        assert!(resources.material(key).is_err());
+        assert!(backend.events.is_empty());
+    }
+    #[test]
+    fn set_env_texture_ex_merges_blend_mode_and_stores_alpha() {
+        // RVA 0x2b040: inequality swap, unconditional env_alpha, merged flags.
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let key = resources.create_material().unwrap();
+        let first = backend.texture(11, 0);
+        resources
+            .set_env_texture_ex(key, Some(first), 1, 0, 0.5, &mut backend)
+            .unwrap();
+        let material = resources.material(key).unwrap();
+        assert_eq!(material.env_texture, Some(first));
+        assert_eq!(material.env_alpha, 0.5);
+        assert_eq!(material.flags, 0x80101);
+        // Same texture with new blend/mode: no retain/release, flags recomputed.
+        let events = backend.events.len();
+        resources
+            .set_env_texture_ex(key, Some(first), 2, 1, 0.25, &mut backend)
+            .unwrap();
+        assert_eq!(backend.events.len(), events);
+        let material = resources.material(key).unwrap();
+        assert_eq!(material.flags, 0x81201);
+        assert_eq!(material.env_alpha, 0.25);
+        // Null clears ENVMAP but still stores alpha; old released exactly once.
+        resources
+            .set_env_texture_ex(key, None, 0, 0, 1.0, &mut backend)
+            .unwrap();
+        let material = resources.material(key).unwrap();
+        assert_eq!(material.env_texture, None);
+        assert_eq!(material.flags & 0x80000, 0);
+        assert_eq!(material.env_alpha, 1.0);
+        assert_eq!(backend.events[events..], [Event::Release(first)]);
+    }
+    #[test]
+    fn set_env_texture_ex_keeps_unmasked_shift_spill() {
+        // blend bit 3 spills into bit 11 (the unmasked gap between the BLEND
+        // and MODE fields): ((0x80)<<4|8)<<8 = 0x80800.
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let key = resources.create_material().unwrap();
+        let tex = backend.texture(12, 0);
+        resources
+            .set_env_texture_ex(key, Some(tex), 8, 0, 1.0, &mut backend)
+            .unwrap();
+        assert_eq!(resources.material(key).unwrap().flags, 0x80801);
+    }
+    #[test]
+    fn set_env_texture_ex_release_failure_retains_effects_and_poisons() {
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let key = resources.create_material().unwrap();
+        let old = backend.texture(13, 0);
+        resources
+            .set_env_texture(key, Some(old), &mut backend)
+            .unwrap();
+        let next = backend.texture(14, 0);
+        backend.fail_before = Some(backend.events.len() + 1);
+        let result = resources.set_env_texture_ex(key, Some(next), 1, 0, 0.5, &mut backend);
+        assert!(result.is_err());
+        assert!(resources.is_poisoned());
+        // Release ran (effect retained); swap never happened; alpha never stored.
+        assert!(backend.events.contains(&Event::Release(old)));
+        assert_eq!(resources.material(key).unwrap().env_texture, Some(old));
+        assert_eq!(resources.material(key).unwrap().env_alpha, 1.0);
+    }
+    #[test]
+    fn set_env_texture_ex_retain_failure_stores_alias_without_count_and_poisons() {
+        // Mirror of the release-failure prefix: release + store applied, then
+        // the retain fails. The alias is stored but unretained, alpha/flags
+        // withheld, poison set.
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let key = resources.create_material().unwrap();
+        let old = backend.texture(15, 0);
+        resources
+            .set_env_texture(key, Some(old), &mut backend)
+            .unwrap();
+        let next = backend.texture(16, 0);
+        backend.events.clear();
+        // Backend event() pushes first, then fails: Release lands at len 1,
+        // so the retain fails at len 2 with both effects recorded.
+        backend.fail_before = Some(2); // fail the retain of next
+        let result = resources.set_env_texture_ex(key, Some(next), 1, 0, 0.5, &mut backend);
+        assert!(result.is_err());
+        assert!(resources.is_poisoned());
+        assert_eq!(backend.events, [Event::Release(old), Event::Retain(next)]);
+        assert_eq!(resources.material(key).unwrap().env_texture, Some(next));
+        assert_eq!(resources.material(key).unwrap().env_alpha, 1.0);
+    }
+    #[test]
+    fn duplicate_plain_copies_scalars_and_shares_handles_in_order() {
+        // RVA 0x2b0b0: flags masked of ANIMATED, scalars copied bit-exact,
+        // handles shared with Release(old)->Retain(new) per channel.
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let src = resources.create_material().unwrap();
+        let dst = resources.create_material().unwrap();
+        let tex = backend.texture(21, 0x6);
+        let env = backend.texture(22, 0);
+        resources.set_texture(src, Some(tex), &mut backend).unwrap();
+        resources
+            .set_env_texture(src, Some(env), &mut backend)
+            .unwrap();
+        {
+            let material = resources.material_mut(src).unwrap();
+            material.flags |= 0x1000_0000 | 0x0400_0000; // ANIMATED must be masked out
+            material.alpha = f32::from_bits(0x7fc0_0001); // quiet NaN with nonzero payload
+            material.ambient = [2.0, 0.5, -0.0];
+            material.env_alpha = f32::from_bits(0x8000_0000); // negative zero
+        }
+        let old_tex = backend.texture(23, 0);
+        let old_env = backend.texture(24, 0);
+        resources
+            .set_texture(dst, Some(old_tex), &mut backend)
+            .unwrap();
+        resources
+            .set_env_texture(dst, Some(old_env), &mut backend)
+            .unwrap();
+        backend.events.clear();
+        let result = resources
+            .copy_material(dst, Some(src), &mut backend)
+            .unwrap();
+        assert_eq!(result, 0);
+        let (s, d) = (
+            resources.material(src).unwrap(),
+            resources.material(dst).unwrap(),
+        );
+        assert_eq!(d.flags, s.flags & 0xfbff_ffff);
+        assert_eq!(d.flags & 0x0400_0000, 0);
+        assert_eq!(d.alpha.to_bits(), s.alpha.to_bits());
+        assert_eq!(d.ambient, s.ambient);
+        assert_eq!(d.diffuse, s.diffuse);
+        assert_eq!(d.emissive, s.emissive);
+        assert_eq!(d.env_alpha.to_bits(), s.env_alpha.to_bits());
+        // Share, not clone: identical handles on both records.
+        assert_eq!(d.texture, Some(tex));
+        assert_eq!(d.env_texture, Some(env));
+        assert_eq!(s.texture, Some(tex));
+        // Native setter order per channel: release old, retain new (color
+        // before env); the texture-flags read follows the color retain.
+        assert_eq!(
+            backend.events,
+            [
+                Event::Release(old_tex),
+                Event::Retain(tex),
+                Event::Flags(tex),
+                Event::Release(old_env),
+                Event::Retain(env),
+            ]
+        );
+    }
+    #[test]
+    fn duplicate_plain_null_source_returns_invalidparams_without_effects() {
+        // RVA 0x2b0b0 null path: 0x80000007, no stores, no poison.
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let dst = resources.create_material().unwrap();
+        let before = backend.events.len();
+        let result = resources.copy_material(dst, None, &mut backend).unwrap();
+        assert_eq!(result, 0x80000007u32 as i32);
+        assert_eq!(backend.events.len(), before);
+        assert!(!resources.is_poisoned());
+        let material = resources.material(dst).unwrap();
+        assert_eq!(
+            (material.flags, material.texture, material.env_texture),
+            (1, None, None)
+        );
+    }
+    #[test]
+    fn animated_constructor_matches_native_initial_state() {
+        // RVA 0x2b190: base fields inline, two single-null frame arrays,
+        // ANIMATED bit, clocks from driver time.
+        let mut resources = VisualResources::new().unwrap();
+        resources.set_material_driver_time(777).unwrap();
+        let key = resources.create_animated_material().unwrap();
+        let material = resources.material(key).unwrap();
+        assert_eq!(material.flags, 1 | 0x0400_0000);
+        assert_eq!((material.texture, material.env_texture), (None, None));
+        let frames = material.animation.as_ref().unwrap();
+        assert_eq!(frames.textures, vec![None]);
+        assert_eq!(frames.env_textures, vec![None]);
+        assert_eq!(
+            (
+                frames.frame,
+                frames.env_frame,
+                frames.elapsed,
+                frames.env_elapsed
+            ),
+            (0, 0, 0, 0)
+        );
+        assert_eq!(
+            (
+                frames.loop_frame,
+                frames.frame_delay,
+                frames.env_loop_frame,
+                frames.env_frame_delay
+            ),
+            (0, 0, 0, 0)
+        );
+        assert_eq!((frames.last_time, frames.env_last_time), (777, 777));
+    }
+    #[test]
+    fn animated_destructor_releases_both_arrays_back_to_front() {
+        // RVA 0x2b450: reverse release per channel, color before env.
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let key = playback_fixture(&mut resources, &mut backend, 100, 10, 0, 15, 0);
+        backend.events.clear();
+        resources.release_material(key, &mut backend).unwrap();
+        assert_eq!(
+            backend.events,
+            [
+                Event::Release(TextureKey(102)),
+                Event::Release(TextureKey(101)),
+                Event::Release(TextureKey(100)),
+                Event::Release(TextureKey(202)),
+                Event::Release(TextureKey(201)),
+                Event::Release(TextureKey(200)),
+            ]
+        );
+        assert!(resources.material(key).is_err());
+    }
+    #[test]
+    fn animated_destructor_skips_null_frames_without_effects() {
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        resources.set_material_driver_time(50).unwrap();
+        let key = resources.create_animated_material().unwrap(); // [None]/[None]
+        backend.events.clear();
+        resources.release_material(key, &mut backend).unwrap();
+        assert!(backend.events.is_empty());
+    }
+    #[test]
+    fn duplicate_animated_copies_frames_with_handle_identity() {
+        // RVA 0x2b830: frame arrays copied per-slot, clocks/frames reset,
+        // current aliases point at frame 0.
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let src = playback_fixture(&mut resources, &mut backend, 100, 60, 1, 30, 2);
+        let dst = resources.create_animated_material().unwrap();
+        // Advance src playback so the copy must still reset clocks/frames.
+        let mut random = crate::frame_light::LightCrtRandom::default();
+        resources.set_material_driver_time(500).unwrap();
+        resources.get_material_texture(src, &mut random).unwrap();
+        backend.events.clear();
+        let result = resources
+            .duplicate_animated_material(dst, src, &mut backend)
+            .unwrap();
+        assert_eq!(result, 0);
+        let (s, d) = (
+            resources.material(src).unwrap(),
+            resources.material(dst).unwrap(),
+        );
+        let (sf, df) = (s.animation.as_ref().unwrap(), d.animation.as_ref().unwrap());
+        assert_eq!(df.textures, sf.textures); // per-slot handle identity
+        assert_eq!(df.env_textures, sf.env_textures);
+        assert_eq!(
+            (
+                df.loop_frame,
+                df.frame_delay,
+                df.env_loop_frame,
+                df.env_frame_delay
+            ),
+            (1, 60, 2, 30)
+        );
+        assert_eq!(
+            (df.frame, df.env_frame, df.elapsed, df.env_elapsed),
+            (0, 0, 0, 0)
+        );
+        assert_eq!((df.last_time, df.env_last_time), (500, 500));
+        assert_eq!(d.texture, df.textures[0]);
+        assert_eq!(d.env_texture, df.env_textures[0]);
+        assert_eq!(d.env_alpha.to_bits(), s.env_alpha.to_bits());
+        // Old dst null frames: no releases. Base-copy temps (current-frame
+        // refs) are retained then released, then 3+3 forward retains follow
+        // in array order — matching the native reset/copy/release sequence.
+        assert_eq!(
+            backend.events,
+            [
+                Event::Retain(TextureKey(102)),
+                Event::Flags(TextureKey(102)),
+                Event::Retain(TextureKey(200)),
+                Event::Release(TextureKey(102)),
+                Event::Release(TextureKey(200)),
+                Event::Retain(TextureKey(100)),
+                Event::Retain(TextureKey(101)),
+                Event::Retain(TextureKey(102)),
+                Event::Retain(TextureKey(200)),
+                Event::Retain(TextureKey(201)),
+                Event::Retain(TextureKey(202)),
+            ]
+        );
+    }
+    #[test]
+    fn duplicate_animated_from_plain_source_makes_single_frames() {
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let src = resources.create_material().unwrap();
+        let tex = backend.texture(31, 0);
+        resources.set_texture(src, Some(tex), &mut backend).unwrap();
+        resources.set_material_driver_time(900).unwrap();
+        let dst = resources.create_animated_material().unwrap();
+        backend.events.clear();
+        resources
+            .duplicate_animated_material(dst, src, &mut backend)
+            .unwrap();
+        let frames = resources.material(dst).unwrap().animation.as_ref().unwrap();
+        assert_eq!(frames.textures, vec![Some(tex)]);
+        assert_eq!(frames.env_textures, vec![None]);
+        assert_eq!(
+            (
+                frames.loop_frame,
+                frames.frame_delay,
+                frames.env_loop_frame,
+                frames.env_frame_delay
+            ),
+            (0, 0, 0, 0)
+        );
+        assert!(resources.material(dst).unwrap().flags & 0x0400_0000 == 0);
+    }
+    #[test]
+    fn duplicate_animated_retain_failure_poisons_with_prefix_retained() {
+        // Fail the second frame retain (event 7): base-copy temps (Retain 100,
+        // Flags 100, Retain 200) plus their releases already ran, then frame
+        // retain 100 publishes and 101 is refused (logged but neither counted
+        // nor pushed, per the harness's push-then-fail semantics); 102 is
+        // never attempted. Prefix retained, rest withheld, poison set, record inspectable.
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let src = playback_fixture(&mut resources, &mut backend, 100, 10, 0, 15, 0);
+        let dst = resources.create_animated_material().unwrap();
+        backend.events.clear();
+        backend.fail_before = Some(7); // fail Retain(102), the 3rd frame retain
+        let result = resources.duplicate_animated_material(dst, src, &mut backend);
+        assert!(result.is_err());
+        assert!(resources.is_poisoned());
+        assert_eq!(
+            backend.events,
+            [
+                Event::Retain(TextureKey(100)),
+                Event::Flags(TextureKey(100)),
+                Event::Retain(TextureKey(200)),
+                Event::Release(TextureKey(100)),
+                Event::Release(TextureKey(200)),
+                Event::Retain(TextureKey(100)),
+                Event::Retain(TextureKey(101)),
+            ]
+        );
+        assert!(resources.material(dst).is_ok()); // read-only inspection survives
+    }
+    #[test]
+    fn duplicate_material_self_copy_is_rejected_without_effects_or_poison() {
+        // Native Duplicate(this, this) releases the destination arrays before
+        // reading the aliased source arrays (use-after-release); the host
+        // rejects self-duplication cleanly instead.
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let key = playback_fixture(&mut resources, &mut backend, 100, 10, 0, 15, 0);
+        backend.events.clear();
+        let result = resources.duplicate_animated_material(key, key, &mut backend);
+        assert!(result.is_err());
+        assert!(!resources.is_poisoned());
+        assert!(backend.events.is_empty());
+        let frames = resources.material(key).unwrap().animation.as_ref().unwrap();
+        assert_eq!(frames.textures.len(), 3);
+        assert_eq!(frames.env_textures.len(), 3);
+    }
+    #[test]
+    fn duplicate_animated_null_source_returns_word_without_effects() {
+        // Animated destination with a null source takes the same 0x80000007
+        // early return as the plain path (native would fault on mat->flags).
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let dst = resources.create_animated_material().unwrap();
+        let before = backend.events.len();
+        let result = resources.copy_material(dst, None, &mut backend).unwrap();
+        assert_eq!(result, 0x80000007u32 as i32);
+        assert_eq!(backend.events.len(), before);
+        assert!(!resources.is_poisoned());
+        assert!(resources.material(dst).unwrap().animation.is_some());
     }
 }

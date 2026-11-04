@@ -850,6 +850,195 @@
       "symbol": "lhr_engine::itexture::TextureResources::run_managed_texture_worker",
       "tier": "contract",
       "evidence": "REA head bytes + Request neighbor + mafia-re ITexture.cpp:2156 + policy attribution to the pre-existing tested finite-schedule worker (queue-skip/growth covered by worker_* tests); no new loop per host-threading difference"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2aec0",
+      "va": "0x1002aec0",
+      "name": "I3D_material::~I3D_material (upstream working name)",
+      "symbol": "lhr_engine::visual_resources::VisualResources::release_material",
+      "tier": "differential",
+      "evidence": "REA ev_99acfe7e (Ghidra FUN_1002aec0, 17 insn, 5 BB, 35B, vtable-store 0x1009bea0, texture +0xc Release then env +0x10 Release) + mafia-re I3d_material.cpp:38-46 + texture-before-env release-order state test"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2aef0",
+      "va": "0x1002aef0",
+      "name": "I3D_material::Release (upstream working name)",
+      "symbol": "lhr_engine::visual_resources::VisualResources::release_material",
+      "tier": "differential",
+      "evidence": "REA ev_4af2e6e4 18-insn walk (48B span to 0x1002af20, ref +0x4 DEC/JNS, deleting-dtor slot 18, vtable slot0 xrefs) + mafia-re I3d_material.cpp:48-61 + refcount return-word state tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2af20",
+      "va": "0x1002af20",
+      "name": "I3D_material::SetAmbient (upstream working name)",
+      "symbol": "lhr_engine::visual_resources::VisualResources::set_material_ambient",
+      "tier": "differential",
+      "evidence": "REA ev_78f2d203 11-insn walk (32B, ADD EAX 0x14, 3xMOV, RET 8, vtable slot1) + mafia-re I3d_material.cpp:63-69 + exact-word incl NaN state tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2af40",
+      "va": "0x1002af40",
+      "name": "I3D_material::SetDiffuse (upstream working name)",
+      "symbol": "lhr_engine::visual_resources::VisualResources::set_material_diffuse",
+      "tier": "differential",
+      "evidence": "REA ev_f9e41eb2 11-insn walk (32B, ADD EAX 0x20, 3xMOV, RET 8, vtable slot2) + mafia-re I3d_material.cpp:71-77 + exact-word state tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2af60",
+      "va": "0x1002af60",
+      "name": "I3D_material::SetEmissive (upstream working name)",
+      "symbol": "lhr_engine::visual_resources::VisualResources::set_material_emissive",
+      "tier": "differential",
+      "evidence": "REA ev_197dda53 11-insn walk (32B, ADD EAX 0x2c, 3xMOV, RET 8, vtable slot3) + mafia-re I3d_material.cpp:79-85 + exact-word incl NaN state tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2af80",
+      "va": "0x1002af80",
+      "name": "I3D_material::SetAlpha (upstream working name)",
+      "symbol": "lhr_engine::visual_resources::VisualResources::set_material_alpha",
+      "tier": "differential",
+      "evidence": "REA ev_804e8d7e 5-insn walk (16B, FLD/FSTP f32 store +0x38 exact bits, RET 8, vtable slot4) + mafia-re I3d_material.cpp:87-93 + f32 bit-exactness state tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2b120",
+      "va": "0x1002b120",
+      "name": "I3D_material::Set2Sided (upstream working name)",
+      "symbol": "lhr_engine::visual_resources::VisualResources::set_material_two_sided",
+      "tier": "differential",
+      "evidence": "REA ev_ca1ac1d2 4-insn walk (16B, OR [EAX+0x8] 0x10000000, RET 4, vtable slot7) + mafia-re I3d_material.cpp:175-181 + idempotence/flag-preservation state tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2b130",
+      "va": "0x1002b130",
+      "name": "I3D_material::SetEnvType (upstream working name)",
+      "symbol": "lhr_engine::visual_resources::VisualResources::set_material_env_type",
+      "tier": "differential",
+      "evidence": "REA ev_be3fc90e 9-insn walk (30B, AND 0xfffff8ff, SHL 8, unmasked input, RET 8, vtable slot14) + mafia-re I3d_material.cpp:183-189 + mask/shift/unmasked-input state tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2b150",
+      "va": "0x1002b150",
+      "name": "I3D_material::SetEnvMode (upstream working name)",
+      "symbol": "lhr_engine::visual_resources::VisualResources::set_material_env_mode",
+      "tier": "differential",
+      "evidence": "REA ev_f771ec63 9-insn walk (30B, AND 0xffff8fff, SHL 12, unmasked input, RET 8, vtable slot15) + mafia-re I3d_material.cpp:191-197 + mask/shift/unmasked-input state tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2b170",
+      "va": "0x1002b170",
+      "name": "I3D_material::SetEnvScale (upstream working name)",
+      "symbol": "lhr_engine::visual_resources::VisualResources::set_material_env_scale",
+      "tier": "differential",
+      "evidence": "REA ev_abc3e465 8-insn walk (27B, AND 0xffffff00, full-word OR no shift, RET 8, vtable slot16) + mafia-re I3d_material.cpp:199-205 + low-byte-replace/full-OR state tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2b040",
+      "va": "0x1002b040",
+      "name": "I3D_material::SetEnvTextureEx (upstream working name)",
+      "symbol": "lhr_engine::visual_resources::VisualResources::set_env_texture_ex",
+      "tier": "differential",
+      "evidence": "REA ev_00347227 (103B, 39 insn, 8 BB, ghidra) + control ev_8f40fe7c (SetEnvTexture 64B/26/7) + mafia-re I3d_material.cpp:138-156 + order tests (same-tex flag update, spill, OOM-prefix)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2b0b0",
+      "va": "0x1002b0b0",
+      "name": "I3D_material::Duplicate (upstream working name)",
+      "symbol": "lhr_engine::visual_resources::VisualResources::copy_material",
+      "tier": "differential",
+      "evidence": "REA ev_9ebddb43 (107B, 48 insn, 3 BB, 6 indirect vtable calls, null->0x80000007, ghidra) + mafia-re I3d_material.cpp:158-173 + copy-equality/handle-identity/failure-word tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2b190",
+      "va": "0x1002b190",
+      "name": "I3D_anim_material::I3D_anim_material (upstream working name)",
+      "symbol": "lhr_engine::visual_resources::VisualResources::create_animated_material",
+      "tier": "differential",
+      "evidence": "REA ev_299c504e (657B, 217 insn, 18 BB, 7 callees incl operator_new, ghidra) + mafia-re I3d_material.cpp:214-231 + ctor-state tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2b450",
+      "va": "0x1002b450",
+      "name": "I3D_anim_material::~I3D_anim_material (upstream working name)",
+      "symbol": "lhr_engine::visual_resources::VisualResources::release_material",
+      "tier": "differential",
+      "evidence": "REA ev_8174bde2 (297B, 115 insn, 17 BB, 3 callees + 4 unresolved vtable Releases, ghidra) + mafia-re I3d_material.cpp:233-250 + reverse-order release tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2b830",
+      "va": "0x1002b830",
+      "name": "I3D_anim_material::Duplicate (upstream working name)",
+      "symbol": "lhr_engine::visual_resources::VisualResources::duplicate_animated_material",
+      "tier": "contract",
+      "evidence": "REA linear decode walk 0x1002b830-0x1002bc49 (1050B, RET8 exits, ghidra; NO Ghidra function entry per ev_9a7ae51c — contract tier per the unresolved-boundary rule) + inlined base copy + TEST 0x4000000 branch + INC frame AddRefs + mafia-re I3d_material.cpp:329-396 + frame-identity/failure-prefix tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2b580",
+      "va": "0x1002b580",
+      "name": "I3D_anim_material::UpdateTexture (upstream working name)",
+      "symbol": "lhr_engine::visual_resources::VisualResources::get_material_texture",
+      "tier": "differential",
+      "evidence": "REA ev_7d4b7124 entry + walk 0x1002b580-0x1002b6cc (332B, walk-derived, no Ghidra body) incl _rand CALL, wrap DIV, tails; vtable slot 8 + mafia-re I3d_material.cpp:256-287 + existing channel-arithmetic state tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2b6d0",
+      "va": "0x1002b6d0",
+      "name": "I3D_anim_material::UpdateEnvTexture (upstream working name)",
+      "symbol": "lhr_engine::visual_resources::VisualResources::get_material_env_texture",
+      "tier": "differential",
+      "evidence": "REA ev_f47ae9de entry + walk 0x1002b6d0-0x1002b821 (337B incl tails, walk-derived, no Ghidra body) env offsets; vtable slot 9 + mafia-re I3d_material.cpp:291-322 + existing channel-arithmetic state tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2bc50",
+      "va": "0x1002bc50",
+      "name": "I3D_anim_material::SetCurrentFrame (upstream working name)",
+      "symbol": "lhr_engine::visual_resources::VisualResources::set_material_current_frame",
+      "tier": "differential",
+      "evidence": "REA ev_339bf974 entry + vtable DATA xref + walk 0x1002bc50-0x1002bcc7 (119B, walk-derived, no Ghidra body) incl unsigned DIV modulo, tick/frame stores; vtable slot 19 + mafia-re I3d_material.cpp:400-413 + existing frame-selection state tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2bcd0",
+      "va": "0x1002bcd0",
+      "name": "I3D_anim_material::SetEnvCurrentFrame (upstream working name)",
+      "symbol": "lhr_engine::visual_resources::VisualResources::set_material_current_frame",
+      "tier": "differential",
+      "evidence": "REA ev_16832d4b entry + walk 0x1002bcd0-0x1002bd47 (119B, walk-derived, no Ghidra body) incl f>size||empty false path, f==len accepted-then-OOB; vtable slot 20 + shared symbol with 0x2bc50 (environment=true channel) + mafia-re I3d_material.cpp:417-430 + existing env-frame state tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2bd50",
+      "va": "0x1002bd50",
+      "name": "I3D_material::LoadImage (upstream working name)",
+      "symbol": "lhr_engine::loaded_visual_resources::MaterialLoadContext::loaded_material_flags",
+      "tier": "contract",
+      "evidence": "REA ev_dafac00e entry + GetTextureFlags-derived bit walk as implemented by the credited flag adjuster (ambient 0x2c/0x28 reads, ITC flag derivation); the surrounding LoadImage body (dtaRead x8 payload intake, indirect CreateITexture, error words) is pending real-DTA execution (env-gated) and NOT covered by this symbol; mafia-re I3d_material.cpp:475-519"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2c000",
+      "va": "0x1002c000",
+      "name": "I3D_anim_material::LoadImage (upstream working name)",
+      "symbol": "lhr_engine::loaded_visual_resources::prepare_animation",
+      "tier": "contract",
+      "evidence": "REA ev_21bda9db entry + 727-insn walk: dtaRead x11, %02i sprintf sites, invalid-name words, virtual (-1) tail; real-DTA execution pending (env-gated); mafia-re I3d_material.cpp:526-639"
     }
   ],
   "vm": {

@@ -1957,6 +1957,126 @@ impl TextureResources {
     ) -> Result<(), TextureOperationError<<B as BufferBackend>::Error>> {
         self.set_material_texture(material, new, true, b)
     }
+    pub fn set_env_texture_ex<B: TextureBackend + ?Sized>(
+        &mut self,
+        material: MaterialKey,
+        new: Option<TextureKey>,
+        blend: u32,
+        mode: u32,
+        alpha: f32,
+        b: &mut B,
+    ) -> Result<(), TextureOperationError<<B as BufferBackend>::Error>> {
+        self.available()?;
+        // Live existence read, mirroring the native this-dereference; the
+        // Ex path recomputes flags unconditionally (no token comparison).
+        let current_env = self
+            .objects
+            .managed()
+            .resources()
+            .material(material)
+            .map_err(crate::managed_visual_resources::ManagedError::from)
+            .map_err(ObjectError::from)?
+            .env_texture;
+        let token = new
+            .map(|k| {
+                self.textures.domain(k)?;
+                self.textures.live(k).map(|t| t.token)
+            })
+            .transpose()?;
+        // Same overflow preflight as the non-Ex path: a saturated texture
+        // reports a clean TextureError (no poison, no effects) instead of
+        // surfacing as a backend failure with partial effects below.
+        // Skipped for same-token calls exactly like the non-Ex path, since
+        // those perform no refcount traffic (flags/alpha still recompute).
+        if token != current_env {
+            if let Some(k) = new {
+                self.textures.can_retain(k)?;
+            }
+            if let Some(old) = current_env {
+                let key = self.textures.token(old)?;
+                self.textures.domain(key)?;
+            }
+        }
+        self.run_objects(b, |o, a| {
+            o.set_env_texture_ex(material, token, blend, mode, alpha, a)
+        })
+    }
+    pub fn set_material_ambient(
+        &mut self,
+        material: MaterialKey,
+        color: [f32; 3],
+    ) -> Result<(), TextureError> {
+        self.available()?;
+        self.objects
+            .set_material_ambient(material, color)
+            .map_err(Into::into)
+    }
+    pub fn set_material_diffuse(
+        &mut self,
+        material: MaterialKey,
+        color: [f32; 3],
+    ) -> Result<(), TextureError> {
+        self.available()?;
+        self.objects
+            .set_material_diffuse(material, color)
+            .map_err(Into::into)
+    }
+    pub fn set_material_emissive(
+        &mut self,
+        material: MaterialKey,
+        color: [f32; 3],
+    ) -> Result<(), TextureError> {
+        self.available()?;
+        self.objects
+            .set_material_emissive(material, color)
+            .map_err(Into::into)
+    }
+    pub fn set_material_alpha(
+        &mut self,
+        material: MaterialKey,
+        alpha: f32,
+    ) -> Result<(), TextureError> {
+        self.available()?;
+        self.objects
+            .set_material_alpha(material, alpha)
+            .map_err(Into::into)
+    }
+    pub fn set_material_two_sided(&mut self, material: MaterialKey) -> Result<(), TextureError> {
+        self.available()?;
+        self.objects
+            .set_material_two_sided(material)
+            .map_err(Into::into)
+    }
+    pub fn set_material_env_type(
+        &mut self,
+        material: MaterialKey,
+        blend: u32,
+    ) -> Result<(), TextureError> {
+        self.available()?;
+        self.objects
+            .set_material_env_type(material, blend)
+            .map_err(Into::into)
+    }
+    pub fn set_material_env_mode(
+        &mut self,
+        material: MaterialKey,
+        mode: u32,
+    ) -> Result<(), TextureError> {
+        self.available()?;
+        self.objects
+            .set_material_env_mode(material, mode)
+            .map_err(Into::into)
+    }
+    pub fn set_material_env_scale(
+        &mut self,
+        material: MaterialKey,
+        scale: u32,
+    ) -> Result<(), TextureError> {
+        self.available()?;
+        self.objects
+            .set_material_env_scale(material, scale)
+            .map_err(Into::into)
+    }
     fn set_material_texture<B: TextureBackend + ?Sized>(
         &mut self,
         material: MaterialKey,
