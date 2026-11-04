@@ -587,6 +587,33 @@ mod tests {
         assert_eq!(audio.live_sound_count().unwrap(), 0);
         arena.release(area.frame()).unwrap();
     }
+    #[test]
+    fn sector_sound_add_delete_roundtrip_holds_reciprocals_without_residue() {
+        let mut arena = ModelArena::default();
+        let audio = RuntimeAudio::default();
+        arena
+            .bind_host_sound_backend(HostSoundBackend::new(1, &audio))
+            .unwrap();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let sector = arena.scene(scene).unwrap().sectors[0];
+        let sound = arena.create_owned_sound_frame().unwrap();
+        arena.set_frame_on(sound.frame(), 1).unwrap();
+        // Duplicate add is a no-op (native find-first return).
+        arena.add_sound_to_sector(sector, sound).unwrap();
+        arena.add_sound_to_sector(sector, sound).unwrap();
+        assert_eq!(arena.sector(sector).unwrap().sounds, [sound.frame()]);
+        assert_eq!(arena.sound(sound).unwrap().sectors(), &[sector]);
+        // Reciprocal-first delete clears both sides; second delete misses.
+        arena.delete_sound_from_sector(sector, sound).unwrap();
+        assert!(arena.sector(sector).unwrap().sounds.is_empty());
+        assert!(arena.sound(sound).unwrap().sectors().is_empty());
+        assert!(matches!(
+            arena.delete_sound_from_sector(sector, sound),
+            Err(ModelError::Sound(SoundError::UnknownSound(_)))
+        ));
+        arena.release(sound.frame()).unwrap();
+        assert_eq!(audio.live_sound_count().unwrap(), 0);
+    }
 }
 
 #[cfg(test)]

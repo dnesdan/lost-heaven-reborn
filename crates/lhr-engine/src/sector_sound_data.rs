@@ -407,7 +407,9 @@ mod tests {
 /// truncations with post-clamps; struct size 0x70 via the indirect
 /// vtable+0x24 call; prev then current 0x800 clear with the 0xfffff7ff mask).
 /// The indirect SetEAX3Property target and FUN_1004ea50 internals stay
-/// backend contracts (no function credit beyond this ordered procedure).
+/// backend contracts (partial relationship coverage disclosed: the indirect
+/// setter stays a contract; FUN_1004ea50 is bound by SectorSoundBlender /
+/// make_sector_sound_blend, PC RVA 0x4ea50).
 /// mafia-re I3d_scene.cpp:721-855. Upstream working name, not an evidenced
 /// original symbol.
 pub const EAX30_FLAG: u32 = 0x20_0000;
@@ -433,9 +435,68 @@ pub trait EaxListenerBackend {
     fn eax30_enabled(&self) -> bool;
     fn set_eax_listener(&mut self, props: &SectorEaxProperties);
 }
-/// FUN_1004ea50 (726 B, not in group): blend contract, no credit claimed.
+/// FUN_1004ea50 (PC RVA 0x4ea50): bound by make_sector_sound_blend below
+/// (differential body); this trait stays the injection seam for the 0x4aaa0
+/// caller and its tests.
 pub trait SoundPropertyBlender {
     fn blend(&self, out: &mut [u32; 26], from: &[u32; 26], to: &[u32; 26], blend: f32);
+}
+
+/// Original S_sector_sound_properties::MakeBlend, PC RVA 0x4ea50
+/// (differential: REA ghidra body 726B/236insn/3BB: t1 = 1-t via FSUB,
+/// TEST AL all-gate, floats out = b*t + a*t1, int words 2/5/7/12/14 via
+/// FILD/FMUL/FADD/__ftol in a*t1 + b*t order, pans at words 20-22/23-25 via
+/// stack-temp vb = b*t, va = a*t1 sums, blend_time word 9 stored
+/// unconditionally, RET 0x10; mafia-re I3d_sector.cpp:61-97). `from` is a,
+/// `to` is b, matching the blender call order (prev-or-initial, current).
+/// x87 double-rounding is approximated by the crate f32 pipeline (disclosed,
+/// same standard as eax_properties_of); int words truncate toward zero like
+/// __ftol (FILD is exact; the host `as f32` rounds only past 2^24, outside
+/// the small time ranges in play).
+pub fn make_sector_sound_blend(
+    out: &mut [u32; 26],
+    from: &[u32; 26],
+    to: &[u32; 26],
+    blend: f32,
+    all: bool,
+) {
+    use crate::native_precision::{add, mul, sub};
+    let t1 = sub(1.0, blend);
+    if all {
+        for index in [0usize, 1, 3, 4, 6, 8, 10, 11, 13, 15, 16, 17, 18, 19] {
+            out[index] = add(
+                mul(blend, f32::from_bits(to[index])),
+                mul(t1, f32::from_bits(from[index])),
+            )
+            .to_bits();
+        }
+        for index in [2usize, 5, 7, 12, 14] {
+            out[index] = trunc_toward_zero(add(
+                mul(from[index] as f32, t1),
+                mul(to[index] as f32, blend),
+            )) as u32;
+        }
+        for base in [20usize, 23] {
+            for lane in 0..3 {
+                out[base + lane] = add(
+                    mul(t1, f32::from_bits(from[base + lane])),
+                    mul(blend, f32::from_bits(to[base + lane])),
+                )
+                .to_bits();
+            }
+        }
+    }
+    out[9] = trunc_toward_zero(add(mul(from[9] as f32, t1), mul(to[9] as f32, blend))) as u32;
+}
+
+/// Production blender for update_sector_sound_properties (PC RVA 0x4aaa0
+/// InitialSoundProp/prev arms): the all=true arm plus the unconditional
+/// blend_time word, exactly the native call shape.
+pub struct SectorSoundBlender;
+impl SoundPropertyBlender for SectorSoundBlender {
+    fn blend(&self, out: &mut [u32; 26], from: &[u32; 26], to: &[u32; 26], blend: f32) {
+        make_sector_sound_blend(out, from, to, blend, true);
+    }
 }
 
 fn trunc_toward_zero(value: f32) -> i32 {
@@ -627,12 +688,6 @@ mod sound_update_tests {
             self.words.push(props.words);
         }
     }
-    struct CopyBlend;
-    impl SoundPropertyBlender for CopyBlend {
-        fn blend(&self, out: &mut [u32; 26], _: &[u32; 26], to: &[u32; 26], _: f32) {
-            *out = *to;
-        }
-    }
 
     fn two_sectors(arena: &mut ModelArena) -> (SectorKey, SectorKey) {
         let scene = arena.construct_scene_owner_prefix().unwrap();
@@ -659,7 +714,7 @@ mod sound_update_tests {
                     Some(prev),
                     1.0,
                     &FixedClock(0),
-                    &CopyBlend,
+                    &SectorSoundBlender,
                     &mut backend,
                     &[0; 26],
                 )
@@ -688,7 +743,7 @@ mod sound_update_tests {
                     Some(prev),
                     0.5,
                     &FixedClock(0),
-                    &CopyBlend,
+                    &SectorSoundBlender,
                     &mut backend,
                     &initial,
                 )
@@ -701,7 +756,7 @@ mod sound_update_tests {
                     Some(prev),
                     0.5,
                     &FixedClock(50),
-                    &CopyBlend,
+                    &SectorSoundBlender,
                     &mut backend,
                     &initial,
                 )
@@ -714,7 +769,7 @@ mod sound_update_tests {
                     Some(prev),
                     0.5,
                     &FixedClock(101),
-                    &CopyBlend,
+                    &SectorSoundBlender,
                     &mut backend,
                     &initial,
                 )
@@ -727,7 +782,7 @@ mod sound_update_tests {
                     Some(prev),
                     1.0,
                     &FixedClock(110),
-                    &CopyBlend,
+                    &SectorSoundBlender,
                     &mut backend,
                     &initial,
                 )
@@ -744,13 +799,30 @@ mod sound_update_tests {
                     Some(prev),
                     1.0,
                     &FixedClock(500),
-                    &CopyBlend,
+                    &SectorSoundBlender,
                     &mut backend,
                     &initial,
                 )
                 .unwrap();
             assert_eq!(arena.sector(sector).unwrap().sector_flags & 0x800, 0);
             assert_eq!(arena.sector(prev).unwrap().sector_flags & 0x800, 0);
+            // End-to-end conversion through the production blender: decay
+            // word 1000.0 reaches the pushed properties as 1.0.
+            let si = arena.sector_index(sector).unwrap();
+            arena.sectors[si].sound_properties[2] = 1000f32.to_bits();
+            arena
+                .update_sector_sound_properties(
+                    sector,
+                    Some(prev),
+                    1.0,
+                    &FixedClock(600),
+                    &SectorSoundBlender,
+                    &mut backend,
+                    &initial,
+                )
+                .unwrap();
+            assert_eq!(backend.pushes, 4);
+            assert_eq!(backend.words.last().unwrap()[2], 1f32.to_bits());
             // EAX3.0 disabled: never pushes.
             backend.eax30 = false;
             arena
@@ -759,12 +831,12 @@ mod sound_update_tests {
                     Some(prev),
                     1.0,
                     &FixedClock(10_000),
-                    &CopyBlend,
+                    &SectorSoundBlender,
                     &mut backend,
                     &initial,
                 )
                 .unwrap();
-            assert_eq!(backend.pushes, 3);
+            assert_eq!(backend.pushes, 4);
         });
     }
 
@@ -785,5 +857,74 @@ mod sound_update_tests {
             assert_eq!(out.words[3], 2f32.to_bits());
             assert_eq!(out.words[18], 5f32.to_bits());
         });
+    }
+
+    #[test]
+    fn make_blend_endpoints_copy_midpoint_truncates_and_keeps_residue() {
+        Pc24PrecisionState::default().run(|| {
+            let mut from = [0u32; 26];
+            let mut to = [0u32; 26];
+            from[0] = 0.25f32.to_bits();
+            to[0] = 0.75f32.to_bits();
+            from[2] = 101;
+            to[2] = 100;
+            from[9] = 1000;
+            to[9] = 2000;
+            from[20..23].copy_from_slice(&[2f32.to_bits(), 0, 0]);
+            let mut out = [0xdead_beefu32; 26];
+            make_sector_sound_blend(&mut out, &from, &to, 0.0, true);
+            assert_eq!(out, from);
+            make_sector_sound_blend(&mut out, &from, &to, 1.0, true);
+            assert_eq!(out, to);
+            make_sector_sound_blend(&mut out, &from, &to, 0.5, true);
+            assert_eq!(f32::from_bits(out[0]), 0.5f32);
+            // (int)(101*0.5 + 100*0.5) = (int)100.5 = 100: x87 truncation arm.
+            assert_eq!(out[2], 100);
+            assert_eq!(out[9], 1500);
+            assert_eq!(&out[20..23], &[1f32.to_bits(), 0, 0]);
+            // Every word written: no residue of the sentinel fill.
+            assert_ne!(out[25], 0xdead_beef);
+        });
+    }
+
+    #[test]
+    fn make_blend_time_only_arm_writes_word_9_alone() {
+        Pc24PrecisionState::default().run(|| {
+            let from = [100u32; 26];
+            let to = [200u32; 26];
+            let mut out = [0u32; 26];
+            make_sector_sound_blend(&mut out, &from, &to, 0.5, false);
+            // (int)(100*0.5 + 200*0.5) = 150; all other words untouched.
+            assert_eq!(out[9], 150);
+            for (index, word) in out.iter().enumerate() {
+                if index != 9 {
+                    assert_eq!(*word, 0);
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn pan_paths_set_flag_and_skip_scalar_slot_with_residue() {
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let sector = arena.scene(scene).unwrap().sectors[0];
+        let before = arena.sector(sector).unwrap().sound_properties;
+        arena
+            .set_sector_sound_data(sector, 20, SectorSoundInput::Pan([2f32.to_bits(), 0, 0]))
+            .unwrap();
+        arena
+            .set_sector_sound_data(sector, 21, SectorSoundInput::Pan([0, 0, 0]))
+            .unwrap();
+        let row = arena.sector(sector).unwrap();
+        assert_eq!(&row.sound_properties[20..23], &[1f32.to_bits(), 0, 0]);
+        assert_eq!(&row.sound_properties[23..26], &[0, 0, 0]);
+        assert_ne!(row.sector_flags & SOUND_CHANGED, 0);
+        // Early pan return performs no scalar store: other words intact.
+        for (word, before_word) in before.iter().enumerate() {
+            if !(20..26).contains(&word) {
+                assert_eq!(row.sound_properties[word], *before_word);
+            }
+        }
     }
 }

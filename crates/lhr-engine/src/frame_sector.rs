@@ -891,6 +891,132 @@ impl ModelArena {
         }
         Ok(self.scenes[si].sectors[0])
     }
+    /// Original SetName, PC RVA 0x4f230 (contract: Ghidra formed no body,
+    /// LAB_1004f230/not_in_procedure; entry/mid probes + _strncpy and
+    /// FUN_1001b6f0 callees + "sector " static bytes; mafia-re
+    /// I3d_sector.cpp:166-176). Upstream working name, not an evidenced
+    /// original symbol. Order-exact: null forwards to the base setter; else
+    /// "sector " + first 54 NUL-truncated bytes through the base setter
+    /// (strncpy tail-JMP order).
+    pub fn sector_set_name(
+        &mut self,
+        key: SectorKey,
+        name: Option<&[u8]>,
+    ) -> Result<(), ModelError> {
+        self.sector(key)?;
+        let Some(raw) = name else {
+            return self.set_frame_name(key.frame(), None);
+        };
+        let len = raw
+            .iter()
+            .position(|&b| b == 0)
+            .unwrap_or(raw.len())
+            .min(54);
+        let mut full = Vec::with_capacity(7 + len);
+        full.extend_from_slice(b"sector ");
+        full.extend_from_slice(&raw[..len]);
+        self.set_frame_name(key.frame(), Some(&full))
+    }
+    /// Original Duplicate, PC RVA 0x50430 (differential: Ghidra body 399 B,
+    /// 120 insn/17 BB; mafia-re I3d_sector.cpp:511-561). Upstream working
+    /// name, not an evidenced original symbol. Order-exact: base
+    /// duplicate_frame first; prepared source keeps the hull (message has no
+    /// host log analog); else free dst hull, copy counts, verts new (n*12,
+    /// 0x80000002 word on null with num_verts=0), 3-word copy, faces new
+    /// (n*6, 0x80000002 with num_faces=0, verts retained), halfword copy;
+    /// flags=(src&0x140)|0x800, group copy. PC copies no portals and touches
+    /// no planes: both stay as admitted (disclosed). Null-frame limb has no
+    /// projection (typed keys cannot spell null). Further edges (disclosed
+    /// here): self-duplicate frees the hull before rereading it
+    /// (surfaces Buffer, never a use-after-free — storage is freed first);
+    /// a 0-vert/nonzero-face source skips the faces copy (unreachable via
+    /// the loader, which keeps counts consistent). Word form mirrors
+    /// load_sector_record: None=I3D_OK.
+    pub fn duplicate_sector_hull(
+        &mut self,
+        dst: SectorKey,
+        src: SectorKey,
+    ) -> Result<Option<u32>, ModelError> {
+        self.sector(src)?;
+        self.sector(dst)?;
+        self.duplicate_frame(dst.frame(), src.frame())?;
+        let si = self.sector_index(src)?;
+        let (src_flags, src_group, src_nv, src_nf, src_verts, src_faces) = {
+            let s = &self.sectors[si];
+            (
+                s.sector_flags,
+                s.geometry.group_bits,
+                s.geometry.vertex_count,
+                s.geometry.face_count,
+                s.geometry.vertices,
+                s.geometry.faces,
+            )
+        };
+        if src_flags & 4 != 0 {
+            let di = self.sector_index(dst)?;
+            self.sectors[di].sector_flags = (src_flags & 0x140) | 0x800;
+            self.sectors[di].geometry.group_bits = src_group;
+            return Ok(None);
+        }
+        let di = self.sector_index(dst)?;
+        self.sector_storage
+            .free(self.sectors[di].geometry.vertices)?;
+        self.sector_storage.free(self.sectors[di].geometry.faces)?;
+        self.sectors[di].geometry.vertices = None;
+        self.sectors[di].geometry.faces = None;
+        self.sectors[di].geometry.vertex_count = 0;
+        self.sectors[di].geometry.face_count = 0;
+        self.sectors[di].geometry.vertex_count = src_nv;
+        if src_nv != 0 {
+            let bytes = (src_nv as usize)
+                .checked_mul(12)
+                .ok_or(SectorError::Extent)?;
+            let alloc = self
+                .sector_storage
+                .allocate(SectorAllocationKind::Vertices, bytes)?;
+            self.sectors[di].geometry.vertices = alloc;
+            let Some(buffer) = alloc else {
+                self.sectors[di].geometry.vertex_count = 0;
+                let dj = self.sector_index(dst)?;
+                self.sectors[dj].sector_flags = (src_flags & 0x140) | 0x800;
+                self.sectors[dj].geometry.group_bits = src_group;
+                return Ok(Some(0x80000002));
+            };
+            let src_key = src_verts.ok_or(SectorError::Buffer)?;
+            let data = self.sector_storage.bytes(src_key)?.to_vec();
+            if data.len() != bytes {
+                return Err(SectorError::Buffer.into());
+            }
+            self.sector_storage.write(buffer, 0, &data)?;
+            self.sectors[di].geometry.face_count = src_nf;
+            if src_nf != 0 {
+                let fbytes = (src_nf as usize)
+                    .checked_mul(6)
+                    .ok_or(SectorError::Extent)?;
+                let falloc = self
+                    .sector_storage
+                    .allocate(SectorAllocationKind::Faces, fbytes)?;
+                self.sectors[di].geometry.faces = falloc;
+                let Some(fbuffer) = falloc else {
+                    self.sectors[di].geometry.face_count = 0;
+                    let dj = self.sector_index(dst)?;
+                    self.sectors[dj].sector_flags = (src_flags & 0x140) | 0x800;
+                    self.sectors[dj].geometry.group_bits = src_group;
+                    return Ok(Some(0x80000002));
+                };
+                let src_fkey = src_faces.ok_or(SectorError::Buffer)?;
+                let fdata = self.sector_storage.bytes(src_fkey)?.to_vec();
+                if fdata.len() != fbytes {
+                    return Err(SectorError::Buffer.into());
+                }
+                self.sector_storage.write(fbuffer, 0, &fdata)?;
+            }
+        }
+        let dj = self.sector_index(dst)?;
+        self.sectors[dj].sector_flags = (src_flags & 0x140) | 0x800;
+        self.sectors[dj].geometry.group_bits = src_group;
+        Ok(None)
+    }
 }
 
 #[cfg(test)]
@@ -1356,5 +1482,224 @@ mod tests {
         assert_eq!(unordered.radius, 0.);
         assert_eq!(unordered.center, valid.center);
         arena.release(key.frame()).unwrap();
+    }
+    #[test]
+    fn sector_set_name_prefix_and_truncation() {
+        let mut arena = ModelArena::default();
+        let key = arena.create_sector_frame().unwrap();
+        arena.sector_set_name(key, None).unwrap();
+        assert!(arena.frame(key.frame()).unwrap().name_is_null);
+        arena.sector_set_name(key, Some(b"abc")).unwrap();
+        assert_eq!(arena.frame(key.frame()).unwrap().name_bytes, b"sector abc");
+        let long = [b'x'; 60];
+        arena.sector_set_name(key, Some(&long)).unwrap();
+        let name = arena.frame(key.frame()).unwrap().name_bytes.clone();
+        assert_eq!(name.len(), 7 + 54);
+        assert!(name.starts_with(b"sector "));
+        arena.sector_set_name(key, Some(b"ab\x00cd")).unwrap();
+        assert_eq!(arena.frame(key.frame()).unwrap().name_bytes, b"sector ab");
+        arena.release(key.frame()).unwrap();
+        assert_eq!(arena.live_frame_count(), 0);
+    }
+    #[test]
+    fn sector_ring_add_remove_roundtrip() {
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let v0 = arena.global_sector_version();
+        let a = arena.create_sector_frame().unwrap();
+        let b = arena.create_sector_frame().unwrap();
+        arena.sector_add_to_scene_ring(a, Some(scene)).unwrap();
+        arena.sector_add_to_scene_ring(b, Some(scene)).unwrap();
+        assert_eq!(arena.scene_loaded_sector_count(scene).unwrap(), 2);
+        assert_eq!(arena.scene(scene).unwrap().sector_head, Some(a));
+        assert_eq!(arena.sector(a).unwrap().geometry.next, Some(b));
+        assert_eq!(arena.sector(b).unwrap().geometry.next, Some(a));
+        // Same-scene re-add is a no-op (no version bump, no count change).
+        let v1 = arena.global_sector_version();
+        arena.sector_add_to_scene_ring(a, Some(scene)).unwrap();
+        assert_eq!(arena.global_sector_version(), v1);
+        assert_eq!(arena.scene_loaded_sector_count(scene).unwrap(), 2);
+        // Remove head: count--, head advances, ring re-spliced.
+        arena.sector_add_to_scene_ring(a, None).unwrap();
+        assert_eq!(arena.scene_loaded_sector_count(scene).unwrap(), 1);
+        assert_eq!(arena.scene(scene).unwrap().sector_head, Some(b));
+        assert_eq!(arena.sector(b).unwrap().geometry.previous, Some(b));
+        assert_eq!(arena.sector(b).unwrap().geometry.next, Some(b));
+        // Re-add lands at the tail.
+        arena.sector_add_to_scene_ring(a, Some(scene)).unwrap();
+        assert_eq!(arena.scene(scene).unwrap().sector_head, Some(b));
+        assert_eq!(arena.sector(b).unwrap().geometry.next, Some(a));
+        assert!(arena.global_sector_version() > v0);
+        arena.sector_add_to_scene_ring(a, None).unwrap();
+        arena.sector_add_to_scene_ring(b, None).unwrap();
+        assert_eq!(arena.scene(scene).unwrap().sector_head, None);
+        assert_eq!(arena.scene_loaded_sector_count(scene).unwrap(), 0);
+        arena.release(a.frame()).unwrap();
+        arena.release(b.frame()).unwrap();
+        assert_eq!(arena.live_frame_count(), 5); // scene root + 4 retained sectors
+    }
+    #[test]
+    fn sector_dtor_clears_ring_and_buffers() {
+        crate::native_precision::Pc24PrecisionState::default().run(|| {
+            let mut arena = ModelArena::default();
+            let scene = arena.construct_scene_owner_prefix().unwrap();
+            let key = arena.create_sector_frame().unwrap();
+            assert_eq!(arena.load_sector_record(key, &image()).unwrap(), None);
+            arena.sector_add_to_scene_ring(key, Some(scene)).unwrap();
+            assert_eq!(arena.scene_loaded_sector_count(scene).unwrap(), 1);
+            assert!(arena.sector_storage().live_allocations() >= 2);
+            arena.sector_add_to_scene_ring(key, None).unwrap();
+            arena.release(key.frame()).unwrap();
+            assert_eq!(arena.sector_storage().live_allocations(), 0);
+            assert_eq!(arena.sector_storage().live_bytes(), 0);
+            assert_eq!(arena.scene(scene).unwrap().sector_head, None);
+        });
+    }
+    #[test]
+    fn sector_duplicate_hull_field_equality() {
+        crate::native_precision::Pc24PrecisionState::default().run(|| {
+            let mut arena = ModelArena::default();
+            let src = arena.create_sector_frame().unwrap();
+            assert_eq!(arena.load_sector_record(src, &image()).unwrap(), None);
+            let dst = arena.create_sector_frame().unwrap();
+            assert_eq!(arena.duplicate_sector_hull(dst, src).unwrap(), None);
+            let (s, d) = (arena.sector(src).unwrap(), arena.sector(dst).unwrap());
+            assert_eq!(d.geometry.vertex_count, s.geometry.vertex_count);
+            assert_eq!(d.geometry.face_count, s.geometry.face_count);
+            assert_eq!(d.sector_flags, (s.sector_flags & 0x140) | 0x800);
+            assert_eq!(d.geometry.group_bits, s.geometry.group_bits);
+            let sb = arena
+                .sector_storage()
+                .bytes(s.geometry.vertices.unwrap())
+                .unwrap()
+                .to_vec();
+            let db = arena
+                .sector_storage()
+                .bytes(d.geometry.vertices.unwrap())
+                .unwrap()
+                .to_vec();
+            assert_eq!(sb, db);
+            let sf = arena
+                .sector_storage()
+                .bytes(s.geometry.faces.unwrap())
+                .unwrap()
+                .to_vec();
+            let df = arena
+                .sector_storage()
+                .bytes(d.geometry.faces.unwrap())
+                .unwrap()
+                .to_vec();
+            assert_eq!(sf, df);
+            // Prepared source keeps the destination hull, still copies flags/group.
+            let si = arena.sector_index(src).unwrap();
+            arena.sectors[si].sector_flags |= 4;
+            let dst2 = arena.create_sector_frame().unwrap();
+            assert_eq!(arena.duplicate_sector_hull(dst2, src).unwrap(), None);
+            let d2 = arena.sector(dst2).unwrap();
+            assert!(d2.geometry.vertices.is_none() && d2.geometry.faces.is_none());
+            assert_eq!(
+                d2.sector_flags,
+                (arena.sector(src).unwrap().sector_flags & 0x140) | 0x800
+            );
+            // OOM on verts: word + zeroed counts + no live residue.
+            let src2 = arena.create_sector_frame().unwrap();
+            assert_eq!(arena.load_sector_record(src2, &image()).unwrap(), None);
+            let dst3 = arena.create_sector_frame().unwrap();
+            let next = arena.sector_storage().allocation_calls() + 1;
+            arena.sector_storage_mut().fail_on_allocation(Some(next));
+            assert_eq!(
+                arena.duplicate_sector_hull(dst3, src2).unwrap(),
+                Some(0x80000002)
+            );
+            let d3 = arena.sector(dst3).unwrap();
+            assert_eq!(d3.geometry.vertex_count, 0);
+            assert!(d3.geometry.vertices.is_none() && d3.geometry.faces.is_none());
+            arena.sector_storage_mut().fail_on_allocation(None);
+            // OOM on faces: word + verts retained + faces zeroed.
+            let dst4 = arena.create_sector_frame().unwrap();
+            let calls = arena.sector_storage().allocation_calls();
+            arena
+                .sector_storage_mut()
+                .fail_on_allocation(Some(calls + 2));
+            assert_eq!(
+                arena.duplicate_sector_hull(dst4, src2).unwrap(),
+                Some(0x80000002)
+            );
+            let d4 = arena.sector(dst4).unwrap();
+            assert!(d4.geometry.vertices.is_some());
+            assert_eq!(d4.geometry.face_count, 0);
+            assert!(d4.geometry.faces.is_none());
+            arena.sector_storage_mut().fail_on_allocation(None);
+            for k in [src, dst, dst2, src2, dst3, dst4] {
+                arena.release(k.frame()).unwrap();
+            }
+            assert_eq!(arena.sector_storage().live_allocations(), 0);
+        });
+    }
+    #[test]
+    fn sector_load_failure_prefix_allows_retry() {
+        let mut arena = ModelArena::default();
+        let key = arena.create_sector_frame().unwrap();
+        arena.sector_storage_mut().fail_on_allocation(Some(1));
+        assert_eq!(
+            arena.load_sector_record(key, &image()).unwrap(),
+            Some(0x80000002)
+        );
+        assert!(arena.sector(key).unwrap().bounds.is_none());
+        assert!(arena.sector(key).unwrap().geometry.portals.is_empty());
+        arena.sector_storage_mut().fail_on_allocation(None);
+        assert_eq!(arena.load_sector_record(key, &image()).unwrap(), None);
+        arena.release(key.frame()).unwrap();
+        assert_eq!(arena.sector_storage().live_allocations(), 0);
+    }
+    #[test]
+    fn check_point_strict_plane_threshold_rejects_just_below_minus_eps() {
+        let mut arena = ModelArena::default();
+        let key = arena.create_sector_frame().unwrap();
+        arena
+            .set_frame_bound_volume(key.frame(), [[-1.; 3], [1.; 3]])
+            .unwrap();
+        let planes = arena
+            .sector_storage
+            .allocate(SectorAllocationKind::Planes, 16)
+            .unwrap()
+            .unwrap();
+        let raw: Vec<u8> = [1f32, 0., 0., 0.]
+            .into_iter()
+            .flat_map(|v| v.to_bits().to_le_bytes())
+            .collect();
+        arena.sector_storage.write(planes, 0, &raw).unwrap();
+        let si = arena.sector_index(key).unwrap();
+        arena.sectors[si].geometry.planes = Some(planes);
+        arena.sectors[si].geometry.plane_count = 1;
+        // distance == -1e-08 is inside (strict `<` fails only below).
+        let eps = f32::from_bits(0xb22bcc77);
+        assert!(arena.sector_check_point(key, [eps, 0., 0.]).unwrap());
+        // Negative floats grow more negative with larger bits.
+        let below = f32::from_bits(eps.to_bits() + 1);
+        assert!(below < eps);
+        assert!(!arena.sector_check_point(key, [below, 0., 0.]).unwrap());
+        arena.release(key.frame()).unwrap();
+        assert_eq!(arena.sector_storage.live_allocations(), 0);
+    }
+    #[test]
+    fn make_ready_empty_hull_sets_prepared_bit_with_no_allocations() {
+        crate::native_precision::Pc24PrecisionState::default().run(|| {
+            let mut arena = ModelArena::default();
+            let key = arena.create_sector_frame().unwrap();
+            assert_eq!(arena.sector_storage().allocation_calls(), 0);
+            arena.sector_make_ready(key).unwrap();
+            let s = arena.sector(key).unwrap();
+            assert_ne!(s.sector_flags & 4, 0);
+            assert_eq!(s.geometry.plane_count, 0);
+            assert!(s.geometry.planes.is_none());
+            assert!(!s.geometry.update_interrupted);
+            assert_eq!(arena.sector_storage().allocation_calls(), 0);
+            let calls = arena.sector_storage().allocation_calls();
+            arena.sector_make_ready(key).unwrap(); // idempotent early-out
+            assert_eq!(arena.sector_storage().allocation_calls(), calls);
+            arena.release(key.frame()).unwrap();
+            assert_eq!(arena.live_frame_count(), 0);
+        });
     }
 }

@@ -1,7 +1,7 @@
 //! CPU Light constructor, local setters and unregistered light UpdateV.
 //! Actual PS2 I3D_light symbols corroborate SetLightType, SetDiffuse,
 //! SetDiffusePower, SetRange, SetCone, UpdateV and SetMode; PC layouts govern.
-//! Original PC entries:201f0,20760,20800,20930,20a90,20b20,20c30,20d10,21440.
+//! Original PC entries:201f0,20760,20800,20930,209e0,20a90,20b20,20c30,20d10,21400,21440,21490,21530.
 //! Sector registration shares the ModelArena's sector lists and the graph's
 //! reciprocal light lists. Rendering and fog-derived light types remain separate.
 use crate::{
@@ -92,6 +92,11 @@ impl LightCrtRandom {
         self.state = self.state.wrapping_mul(214013).wrapping_add(2531011);
         (self.state >> 16) & 0x7fff
     }
+}
+/// Fog-kind set shared by the sector owner (AddLight/DeleteLight/UpdateV
+/// fog arms, PC RVAs 0x4f3d0/0x4f550/0x20d10): FOG/POINTAMBIENT/POINTFOG.
+pub(crate) fn light_is_fog_kind(kind: u32) -> bool {
+    matches!(kind, 5..=7)
 }
 fn numeric(_: crate::native_matrix::MatrixArithmeticUnavailable) -> FrameError {
     FrameError::NumericDomain("Light")
@@ -236,13 +241,20 @@ impl I3dFrameGraph {
         if old == kind {
             return Ok(());
         }
+        // Original linked fog<->fog transition runs the sector Delete/Add
+        // path (0x20800 body): counts and selection are the sector owner's
+        // effects, untouched by this graph-only store, as is the second
+        // lights_changed bump (native Delete+Add bumps twice; this store
+        // keeps the single dirty bump — disclosed). With >=2 fog lights
+        // native ends with the re-added light selected while this store keeps
+        // the prior selection (disclosed edge); single-fog states coincide.
+        // Only fog<->non-fog needs the sector owner to reorder first.
+        // Callers of this graph-only setter have no sector owner to perform
+        // that effect. Scene2 unlinks before SetLightType.
         if !(1..=7).contains(&kind)
             || (!self.light_state(key)?.sectors.is_empty()
-                && ((5..=7).contains(&old) || (5..=7).contains(&kind)))
+                && (light_is_fog_kind(old) != light_is_fog_kind(kind)))
         {
-            // A linked fog-type transition must reorder the sector's fog
-            // membership; callers of this graph-only setter have no sector
-            // owner to perform that effect. Scene2 unlinks before SetLightType.
             return Err(FrameError::UnsupportedFrameUpdate(key));
         }
         self.projected_state_mut(key)?.update_count = self.state(key)?.update_count.wrapping_add(1);
@@ -399,6 +411,22 @@ impl I3dFrameGraph {
         light.cone = record.cone;
         Ok(())
     }
+    /// LoadImage intake guard, PC RVA 0x21530: the frame intake runs before
+    /// the 0x28 dtaRead. An intake failure records the Light LoadImage fault
+    /// marker and returns the inner error prefix (reached error, never a
+    /// bare frame error); caches stay untouched (no pollution residue).
+    pub(crate) fn apply_light_load_image_checked(
+        &mut self,
+        key: FrameKey,
+        record: &lhr_assets::LightRecord,
+        intake: Result<(), FrameError>,
+    ) -> Result<(), FrameError> {
+        if let Err(error) = intake {
+            self.light_state_mut(key)?.fault = Some(FrameError::NumericDomain("Light LoadImage"));
+            return Err(error);
+        }
+        self.apply_light_load_image_fields(key, record)
+    }
 }
 impl ModelArena {
     pub fn light(&self, key: FrameKey) -> Result<&I3dLightState, ModelError> {
@@ -419,6 +447,56 @@ impl ModelArena {
         state.kind = FrameKind::Light;
         let key = self.insert(state, None, Vec::new(), Vec::new(), None)?;
         self.finish_light_constructor(key)
+    }
+    /// Original SetOn, PC RVA 0x21400 (contract: entry MOV AL/MOV ECX + JZ
+    /// mid, no Ghidra body; mafia-re I3d_light.cpp:241-253). Upstream working
+    /// name, not an evidenced original symbol. Idempotent FRMFLAGS_ON test
+    /// first (no count bump when unchanged); on change the UpdateV tail owns
+    /// caches, then the sector fog reselect runs for fog kinds (native
+    /// UpdateV inline order, split across the graph/sector owners here).
+    pub fn set_light_on(&mut self, key: FrameKey, on: bool) -> Result<(), ModelError> {
+        let is_on = self.state(key)?.flags & 1 != 0;
+        if on == is_on {
+            return Ok(());
+        }
+        if on {
+            self.graph.change_flags(key, 0, 1)?;
+        } else {
+            self.graph.change_flags(key, 1, 0)?;
+        }
+        self.graph.update_light_v_inner(key)?;
+        if light_is_fog_kind(self.graph.light_state(key)?.light_type) {
+            self.light_update_fog_selection(key, on)?;
+        }
+        Ok(())
+    }
+    /// Original Duplicate, PC RVA 0x21490 (contract: entry PUSH ESI/EDI +
+    /// TEST null-check shape, no Ghidra body; mafia-re I3d_light.cpp:269-286).
+    /// Upstream working name, not an evidenced original symbol. Effect order:
+    /// base duplicate_frame first, cross-type early OK (base only), field
+    /// copy (diffuse/type/power/near/far/cone_in/cone_out — never caches,
+    /// sectors or mode), UpdateV tail rebuilds cosines/scaled ranges only
+    /// (cone/sphere radii and scaled_color stay dst-construction values: no
+    /// UpdateV arm recomputes them — native-stale, disclosed). Self-duplicate
+    /// flows through the same path as a benign no-op (documented; no invented
+    /// aliasing error).
+    pub fn duplicate_light(&mut self, dst: FrameKey, src: FrameKey) -> Result<(), ModelError> {
+        self.duplicate_frame(dst, src)?;
+        if self.state(dst)?.kind != FrameKind::Light || self.state(src)?.kind != FrameKind::Light {
+            return Ok(());
+        }
+        let (color, light_type, intensity, range, cone) = {
+            let s = self.graph.light_state(src)?;
+            (s.color, s.light_type, s.intensity, s.range, s.cone)
+        };
+        let d = self.graph.light_state_mut(dst)?;
+        d.color = color;
+        d.light_type = light_type;
+        d.intensity = intensity;
+        d.range = range;
+        d.cone = cone;
+        self.graph.update_light_v_inner(dst)?;
+        Ok(())
     }
     pub(crate) fn finish_light_constructor(
         &mut self,
@@ -561,5 +639,183 @@ mod tests {
         assert_eq!(arena.frame(light).unwrap().references, 1);
         arena.release(light).unwrap();
         assert!(arena.light(light).is_err());
+    }
+    #[test]
+    fn set_light_type_linked_fog_to_fog_stays_supported() {
+        let mut arena = ModelArena::default();
+        let light = arena.create_light().unwrap();
+        let sector = arena.create_sector_frame().unwrap();
+        // Fog before linking, then fog<->fog linked runs Delete/Add natively.
+        arena.graph.set_light_type(light, 5).unwrap();
+        arena.sector_add_light(sector, light).unwrap();
+        arena.graph.set_light_type(light, 6).unwrap();
+        assert_eq!(arena.graph.light_state(light).unwrap().light_type, 6);
+        // Counts and selection are untouched by the graph-only type store
+        // (the sector Delete/Add effect is the caller's); native would end
+        // with the re-added light selected — with a single fog light the
+        // kept selection coincides (multi-fog edge disclosed in-port).
+        assert_eq!(arena.sector(sector).unwrap().num_fog_lights, 1);
+        assert_eq!(arena.sector(sector).unwrap().fog_light, Some(light));
+        // fog<->non-fog linked still requires sector-owner reorder.
+        assert!(arena.graph.set_light_type(light, 3).is_err());
+        assert_eq!(arena.graph.light_state(light).unwrap().light_type, 6);
+        assert_eq!(arena.sector(sector).unwrap().num_fog_lights, 1);
+        arena.release(light).unwrap();
+    }
+    #[test]
+    fn diffuse_cache_trigger_order_scales_then_dirties() {
+        let mut arena = ModelArena::default();
+        let light = arena.create_light().unwrap();
+        let sector = arena.create_sector_frame().unwrap();
+        let c0 = arena.state(light).unwrap().update_count;
+        arena
+            .graph
+            .set_light_diffuse(light, [0.5, 0.25, 1.0])
+            .unwrap();
+        arena.graph.set_light_diffuse_power(light, 2.0).unwrap();
+        let state = arena.graph.light_state(light).unwrap();
+        assert_eq!(state.scaled_color, [1.0, 0.5, 2.0]);
+        assert_eq!(arena.state(light).unwrap().update_count, c0.wrapping_add(2));
+        assert_eq!(arena.sector_lights_changed(sector).unwrap_or(0), 0);
+        arena.release(light).unwrap();
+    }
+    #[test]
+    fn update_v_spot_caches_match_cone_and_range_math() {
+        crate::native_precision::Pc24PrecisionState::default().run(|| {
+            let mut arena = ModelArena::default();
+            let light = arena.create_light().unwrap();
+            arena.graph.set_light_type(light, 2).unwrap();
+            arena.graph.set_light_range(light, 10.0, 50.0).unwrap();
+            arena
+                .graph
+                .set_light_cone(light, 0.349066, 0.698132)
+                .unwrap();
+            arena.graph.assign_position(light, [4., 0., 0.]).unwrap();
+            arena.graph.update(light).unwrap();
+            let state = arena.light(light).unwrap();
+            assert_eq!(state.range_difference, 40.0);
+            assert_eq!(state.far_squared, 2500.0);
+            assert!(state.outer_cos < state.inner_cos && state.cone_reciprocal > 0.0);
+            assert!(state.cone_radius > 0.0 && state.sphere_radius > 0.0);
+            arena.release(light).unwrap();
+        });
+    }
+    #[test]
+    fn duplicate_light_copies_fields_and_rebuilds_caches() {
+        crate::native_precision::Pc24PrecisionState::default().run(|| {
+            let mut arena = ModelArena::default();
+            let src = arena.create_light().unwrap();
+            arena.graph.set_light_type(src, 2).unwrap();
+            arena
+                .graph
+                .set_light_diffuse(src, [0.75, 0.5, 0.25])
+                .unwrap();
+            arena.graph.set_light_diffuse_power(src, 2.0).unwrap();
+            arena.graph.set_light_range(src, 5.0, 60.0).unwrap();
+            arena.graph.set_light_cone(src, 0.2, 0.8).unwrap();
+            arena.graph.update(src).unwrap();
+            let dst = arena.create_light().unwrap();
+            let fresh_radius = arena.graph.light_state(dst).unwrap().cone_radius;
+            let fresh_sphere = arena.graph.light_state(dst).unwrap().sphere_radius;
+            arena.duplicate_light(dst, src).unwrap();
+            let (s, d) = (
+                arena.graph.light_state(src).unwrap().clone(),
+                arena.graph.light_state(dst).unwrap().clone(),
+            );
+            assert_eq!(d.color, s.color);
+            assert_eq!(d.light_type, s.light_type);
+            assert_eq!(d.intensity, s.intensity);
+            assert_eq!(d.range, s.range);
+            assert_eq!(d.cone, s.cone);
+            // UpdateV tail rebuilds cosines and scaled ranges...
+            assert_eq!(d.outer_cos, s.outer_cos);
+            assert_eq!(d.far_squared, s.far_squared);
+            assert_eq!(d.range_difference, s.range_difference);
+            // ...but cone/sphere radii stay dst-construction values: no
+            // UpdateV arm recomputes cone_radius (native-stale, disclosed).
+            assert_eq!(d.cone_radius, fresh_radius);
+            assert_eq!(d.sphere_radius, fresh_sphere);
+            // ...and scaled_color stays constructor-default: no UpdateV arm
+            // recomputes diffuse*power (native-stale, disclosed).
+            assert_eq!(d.scaled_color, [1., 1., 1.]);
+            assert!(d.sectors.is_empty()); // sectors never copied
+            arena.release(src).unwrap();
+            arena.release(dst).unwrap();
+        });
+    }
+    #[test]
+    fn load_image_failure_carries_light_prefix_and_no_cache_pollution() {
+        let mut arena = ModelArena::default();
+        let key = arena.create_light().unwrap();
+        let before = arena.light(key).unwrap().scaled_color;
+        let error = arena
+            .graph
+            .apply_light_load_image_checked(
+                key,
+                &lhr_assets::LightRecord {
+                    mode: 0,
+                    light_type: 3,
+                    power: 1.0,
+                    diffuse: [1., 1., 1.],
+                    range: [1., 100.],
+                    cone: [0.2, 0.8],
+                },
+                Err(FrameError::NumericDomain("Frame intake")),
+            )
+            .unwrap_err();
+        assert!(format!("{error:?}").contains("Frame intake"));
+        assert!(arena.graph.light_state(key).unwrap().fault.is_some());
+        assert_eq!(arena.graph.light_state(key).unwrap().scaled_color, before);
+        arena.release(key).unwrap();
+    }
+    #[test]
+    fn set_light_on_is_idempotent_and_fog_reselects() {
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let sector = arena.scene(scene).unwrap().sectors[0];
+        let fog = arena.create_light().unwrap();
+        arena.graph.set_light_type(fog, 5).unwrap();
+        arena.sector_add_light(sector, fog).unwrap();
+        assert_eq!(arena.sector(sector).unwrap().fog_light, Some(fog));
+        let count = arena.state(fog).unwrap().update_count;
+        arena.set_light_on(fog, false).unwrap();
+        assert_eq!(
+            arena.state(fog).unwrap().update_count,
+            count.wrapping_add(1)
+        );
+        arena.set_light_on(fog, false).unwrap(); // idempotent: no bump
+        assert_eq!(
+            arena.state(fog).unwrap().update_count,
+            count.wrapping_add(1)
+        );
+        assert_ne!(arena.sector(sector).unwrap().fog_light, Some(fog));
+        arena.set_light_on(fog, true).unwrap();
+        assert_eq!(arena.sector(sector).unwrap().fog_light, Some(fog));
+        arena.release(fog).unwrap();
+    }
+    #[test]
+    fn fog_off_reselects_first_on_fog_in_sector_order() {
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let sector = arena.scene(scene).unwrap().sectors[0];
+        let first = arena.create_light().unwrap();
+        let second = arena.create_light().unwrap();
+        arena.graph.set_light_type(first, 5).unwrap();
+        arena.graph.set_light_type(second, 6).unwrap();
+        arena.sector_add_light(sector, first).unwrap();
+        arena.sector_add_light(sector, second).unwrap();
+        assert_eq!(arena.sector(sector).unwrap().fog_light, Some(second));
+        // Non-fog kind guard: no-op, selection untouched.
+        let plain = arena.create_light().unwrap();
+        arena.light_update_fog_selection(plain, true).unwrap();
+        assert_eq!(arena.sector(sector).unwrap().fog_light, Some(second));
+        // Turning off the selected fog reselects first ON fog in order.
+        arena.set_light_on(second, false).unwrap();
+        assert_eq!(arena.sector(sector).unwrap().fog_light, Some(first));
+        arena.set_light_on(second, true).unwrap();
+        assert_eq!(arena.sector(sector).unwrap().fog_light, Some(second));
+        arena.release(first).unwrap();
+        arena.release(second).unwrap();
+        arena.release(plain).unwrap();
     }
 }

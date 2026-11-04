@@ -715,7 +715,7 @@ impl ModelArena {
         if parent.is_some() {
             self.link_frame(key, parent, 0)?;
         }
-        self.graph.apply_common_load_image_fields(
+        let intake = self.graph.apply_common_load_image_fields(
             key,
             source.position,
             source.scale,
@@ -723,10 +723,15 @@ impl ModelArena {
                 wxyz: source.rotation_wxyz,
             },
             source.culling,
-        )?;
+        );
         if source.kind == 2 {
+            // PC RVA 0x21530 order: frame intake before the 0x28 dtaRead;
+            // intake failure carries the Light LoadImage fault marker.
             self.graph
-                .apply_light_load_image_fields(key, source.light.as_ref().unwrap())?;
+                .apply_light_load_image_checked(key, source.light.as_ref().unwrap(), intake)
+                .map_err(ModelError::from)?;
+        } else {
+            intake.map_err(ModelError::from)?;
         }
         if source.kind == 10 {
             let joint = source.joint.as_ref().unwrap();

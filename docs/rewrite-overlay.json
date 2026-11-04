@@ -2038,6 +2038,393 @@
       "symbol": "lhr_engine::scene_weather::render_weather_system",
       "tier": "contract",
       "evidence": "REA ghidra body 409insn/50BB (count/ON early-out, fog select, fixed states, DrawPrimitive TRIANGLELIST count*4) + mafia-re I3d_scene.cpp:1582-1622 + early-out/draw tests; ordered backend command, no live device"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x4ed30",
+      "va": "0x1004ed30",
+      "name": "I3D_sector::I3D_sector (upstream working name)",
+      "symbol": "lhr_engine::frame_sector::ModelArena::finish_sector_constructor",
+      "tier": "differential",
+      "evidence": "REA ghidra body 298B/55insn/1BB (base ctor, inline word stores, m_Type=5, sct_flags 0x801, flag ORs, SetupDefaults, sectorVersion++) + mafia-re I3d_sector.cpp:99-126 + ctor-default tests; reuses existing port"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x4ee80",
+      "va": "0x1004ee80",
+      "name": "I3D_sector::~I3D_sector (upstream working name)",
+      "symbol": "lhr_engine::frame_sector::ModelArena::destroy_sector_derived",
+      "tier": "differential",
+      "evidence": "REA ghidra body 931B/255insn/45BB (vtable reset, ring unlink, occluder null, lights/sounds/planes/portals/verts frees, base dtor) + mafia-re I3d_sector.cpp:128-164 + dtor-residue tests; reuses existing port"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x4f230",
+      "va": "0x1004f230",
+      "name": "I3D_sector::SetName (upstream working name)",
+      "symbol": "lhr_engine::frame_sector::ModelArena::sector_set_name",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (LAB_1004f230/not_in_procedure); entry/mid probes + _strncpy/FUN_1001b6f0 callees + sector-static bytes + mafia-re I3d_sector.cpp:166-176 + prefix/truncation tests; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x4f260",
+      "va": "0x1004f260",
+      "name": "I3D_sector::AddToRemoveFromSceneRing (upstream working name)",
+      "symbol": "lhr_engine::frame_sector::ModelArena::sector_add_to_scene_ring",
+      "tier": "differential",
+      "evidence": "REA ghidra body 363B/86insn/19BB (same-scene return, old-removal splice, insert, occluder arm, version++, portal loop) + mafia-re I3d_sector.cpp:178-218 + ring roundtrip tests; occluder-LinkTo stays GeneratedOccluderUnavailable (disclosed)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x50430",
+      "va": "0x10050430",
+      "name": "I3D_sector::Duplicate (upstream working name)",
+      "symbol": "lhr_engine::frame_sector::ModelArena::duplicate_sector_hull",
+      "tier": "differential",
+      "evidence": "REA ghidra body 399B/120insn/17BB (null->0x80000007, base duplicate first, prepared-keeps-hull, verts/faces new with 0x80000002 words, flags/group copy) + mafia-re I3d_sector.cpp:511-561 + field-equality/OOM tests; planes/portals untouched (disclosed)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x505c0",
+      "va": "0x100505c0",
+      "name": "I3D_sector::LoadImage (upstream working name)",
+      "symbol": "lhr_engine::frame_sector::ModelArena::load_sector_record",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (LAB_100505c0/not_in_procedure; SEH prologue + hull-region probes) + mafia-re I3d_sector.cpp:563-605 + OOM/retry tests; reuses existing port; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x4f6d0",
+      "va": "0x1004f6d0",
+      "name": "I3D_sector::UpdateV (upstream working name)",
+      "symbol": "lhr_engine::frame_sector::ModelArena::sector_update_with_graph",
+      "tier": "differential",
+      "evidence": "REA ghidra body 55B/22insn/4BB (planes-first then per-portal loop, empty skip) + mafia-re I3d_sector.cpp:275-281 + portal-order tests; confirms existing port, no change"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x4f710",
+      "va": "0x1004f710",
+      "name": "I3D_sector::UpdateCHPlanesW (upstream working name)",
+      "symbol": "lhr_engine::frame_sector::ModelArena::sector_update_planes_with_graph",
+      "tier": "differential",
+      "evidence": "REA ghidra body 1062B/313insn/45BB (prepared guard, free-then-conditional-WMatrix, 1e-08 normalize + x,z,y fallback, d,x,y,z 0.001 dedup, +8 growth, final-null discipline) + mafia-re I3d_sector.cpp + normalize/dedup/growth tests; confirms existing port, no change"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x4fb40",
+      "va": "0x1004fb40",
+      "name": "I3D_sector::MakeReady (upstream working name)",
+      "symbol": "lhr_engine::frame_sector::ModelArena::sector_make_ready",
+      "tier": "differential",
+      "evidence": "REA ghidra body 125insn/21BB (early-out if prepared, bit set before num_verts check, occluder arm, single UpdateV tail) + mafia-re I3d_sector.cpp; confirms existing port + empty-hull test, no change"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x4fcc0",
+      "va": "0x1004fcc0",
+      "name": "I3D_sector::CheckPoint (upstream working name)",
+      "symbol": "lhr_engine::frame_sector::ModelArena::sector_check_point",
+      "tier": "differential",
+      "evidence": "REA ghidra body 226B/73insn/14BB (HR refresh on 0x100 miss, X-gate + inclusive box, z,y,x dot order, strict <-1e-08f fail 0xb22bcc77) + mafia-re I3d_sector.cpp; confirms existing port + threshold tests, no change"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x4ea50",
+      "va": "0x1004ea50",
+      "name": "S_sector_sound_properties::MakeBlend (upstream working name)",
+      "symbol": "lhr_engine::sector_sound_data::make_sector_sound_blend",
+      "tier": "differential",
+      "evidence": "REA ghidra body 726B/236insn/3BB (t1=1-t, TEST AL all-gate, floats b*t+a*t1, int words 2/5/7/12/14 a*t1+b*t with __ftol, pans via temps, word 9 unconditional, RET 0x10) + mafia-re I3d_sector.cpp:61-97 + endpoint/truncation tests; binds the 0x4aaa0 blender via SectorSoundBlender"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x4f3d0",
+      "va": "0x1004f3d0",
+      "name": "I3D_sector::AddLight (upstream working name)",
+      "symbol": "lhr_engine::scene_ownership::ModelArena::sector_add_light",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (gap between FUN_1004f260 end and UpdateV); entry+mid probes (find-prologue, JG-guarded fog arm INC +0x154, ON TEST +0xAC.b0, fog store +0x1F0) + mafia-re I3d_sector.cpp:223-240 + fog/reservation tests; reuses existing port; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x4f550",
+      "va": "0x1004f550",
+      "name": "I3D_sector::DeleteLight (upstream working name)",
+      "symbol": "lhr_engine::scene_ownership::ModelArena::sector_delete_light",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (same gap); probes (find-prologue with JZ miss arm, CMP 7 guard, DEC +0x154, fog NULL +0x1F0, per-value CMP 5/6/7 rescan) + mafia-re I3d_sector.cpp:245-270 + miss/reselect tests; reuses existing port; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x4fdb0",
+      "va": "0x1004fdb0",
+      "name": "I3D_sector::SetSoundData (upstream working name)",
+      "symbol": "lhr_engine::sector_sound_data::ModelArena::set_sector_sound_data",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (gap); probes (CMP index,0x16/JL + MOV EAX,7, FNSTSW/1.0f clamp, indexed store +0x168, 0x800 flag, XOR EAX return) + mafia-re I3d_sector.cpp:399-468 + clamp/pan/flag tests; reuses existing port; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x50140",
+      "va": "0x10050140",
+      "name": "I3D_sector::GetSoundData (upstream working name)",
+      "symbol": "lhr_engine::sector_sound_data::ModelArena::get_sector_sound_data",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (same gap); entry hand-decode (SUB/DEC+JZ dispatch on 20/21 to pan addresses, raw [this+index*4+0x168], RET 8, NOP-pad extent) + mafia-re I3d_sector.cpp:473-482 + pan-identity tests; reuses existing port; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x50180",
+      "va": "0x10050180",
+      "name": "I3D_sector::AddSound (upstream working name)",
+      "symbol": "lhr_engine::frame_sound::ModelArena::add_sound_to_sector",
+      "tier": "differential",
+      "evidence": "REA ghidra body 360B/102insn/21BB (sector find at +0x158/+0x160, cap+growth grow, append, reciprocal +0x1CC/+0x1D4, ON-gated vtable+0x24 arg 1, RET 8) + mafia-re I3d_sector.cpp:487-496 + roundtrip/residue tests; confirms existing port (host try_reserve analog disclosed)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x502f0",
+      "va": "0x100502f0",
+      "name": "I3D_sector::DeleteSound (upstream working name)",
+      "symbol": "lhr_engine::frame_sound::ModelArena::delete_sound_from_sector",
+      "tier": "differential",
+      "evidence": "REA ghidra body 305B/109insn/33BB (0x80000006 miss, reciprocal swap-remove first, scene/camera/nonempty-gated SetOn(false), primary swap-remove, RET 8) + mafia-re I3d_sector.cpp:500-509 + roundtrip/miss tests; host miss surfaces UnknownSound (word-vs-error convention, disclosed)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0xb0c0",
+      "va": "0x100b0c0",
+      "name": "I3D_camera::I3D_camera (upstream working name)",
+      "symbol": "lhr_engine::frame_camera::ModelArena::create_camera",
+      "tier": "differential",
+      "evidence": "REA ghidra body 399B/92insn/1BB (base ctor, word table, FILD/FSTP32 aspect, flags, UpdateProjMatrix call, identities+copies) + mafia-re I3d_camera.cpp:9-37 + word-table tests; reuses existing port (interleave order effect-equivalent, disclosed)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0xb270",
+      "va": "0x100b270",
+      "name": "I3D_camera::~I3D_camera (upstream working name)",
+      "symbol": "lhr_engine::frame_camera::ModelArena::destroy_camera_derived",
+      "tier": "differential",
+      "evidence": "REA ghidra body 31B/6insn/3BB (vtable reset first, scene->current_camera null, base tailcall) + mafia-re I3d_camera.cpp:42-46 + detach tests; vtable/base-tailcall have no host analog (disclosed)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0xb290",
+      "va": "0x100b290",
+      "name": "I3D_camera::Duplicate (upstream working name)",
+      "symbol": "lhr_engine::frame_camera::ModelArena::duplicate_camera",
+      "tier": "differential",
+      "evidence": "REA ghidra body 364B/83insn/5BB (base Duplicate first, non-camera success-without-touch, fov/range/aspect block, null links, ortho words, ncp_x/y, NO_CULL OR, identities+copies) + mafia-re I3d_camera.cpp:50-84 + copy/independence tests; base-internals beyond duplicate_frame unevidenced (disclosed)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0xb400",
+      "va": "0x100b400",
+      "name": "I3D_camera::UpdateProjMatrix (upstream working name)",
+      "symbol": "lhr_engine::frame_camera::CameraFrame::update_projection",
+      "tier": "differential",
+      "evidence": "REA ghidra body 647B/154insn/9BB (zero main, ortho/perspective arms, cotangent FCOS/FSIN/FDIVP, chained FMULs, backdrop q1/t, near zeroing, UpdateCount bump) + mafia-re I3d_camera.cpp:94-154 + element-order tests; reuses existing port"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0xb9d0",
+      "va": "0x100b9d0",
+      "name": "I3D_camera::UpdateSector (upstream working name)",
+      "symbol": "lhr_engine::frame_camera::update_camera_v",
+      "tier": "differential",
+      "evidence": "REA ghidra body 84B/26insn/7BB (null/scene arms, 0x20-conditional refresh, null-store-before-refresh, old-sector hint GetSector) + mafia-re I3d_camera.cpp:247-256 + hint/residue tests; sector-prefix lines of existing port"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0xba30",
+      "va": "0x100ba30",
+      "name": "I3D_camera::UpdateV (upstream working name)",
+      "symbol": "lhr_engine::frame_camera::update_camera_v",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (not_in_procedure; no procedure in range) + mafia-re I3d_camera.cpp:279-395 + view/frustum tests; reuses existing port; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0xb690",
+      "va": "0x100b690",
+      "name": "I3D_camera::SetFOV (upstream working name)",
+      "symbol": "lhr_engine::frame_camera::ModelArena::camera_set_fov",
+      "tier": "differential",
+      "evidence": "REA complete walk 40insns (clamp{0.01,PI 0x40490fdb}->store with native warn disregarded (host log has no analog), MOV [0x140], reproj iff ortho==0, RET 8; NaN valid bit-exact) + mafia-re I3d_camera.cpp:161-170 + clamp/NaN/deferred tests; confirms existing port, no divergence"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0xb720",
+      "va": "0x100b720",
+      "name": "I3D_camera::SetNearFOV (upstream working name)",
+      "symbol": "lhr_engine::frame_camera::ModelArena::camera_set_near_fov",
+      "tier": "differential",
+      "evidence": "REA complete walk 40insns (byte-identical shape, store [0x14c]; native warn disregarded) + mafia-re I3d_camera.cpp:174-183 + twin-offset tests; confirms existing port, no divergence"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0xb7b0",
+      "va": "0x100b7b0",
+      "name": "I3D_camera::SetRange (upstream working name)",
+      "symbol": "lhr_engine::frame_camera::ModelArena::camera_set_range",
+      "tier": "differential",
+      "evidence": "REA complete walk 24+16insns (reject {|d|<0.01, near/far<0.001}->warn no-store (warn disregarded), FSTP [0x144]+MOV [0x148], always reproj, RET 0xc) + mafia-re I3d_camera.cpp:187-197 + validation/split-store tests; confirms existing port, no divergence"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0xb840",
+      "va": "0x100b840",
+      "name": "I3D_camera::SetNearRange (upstream working name)",
+      "symbol": "lhr_engine::frame_camera::ModelArena::camera_set_near_range",
+      "tier": "differential",
+      "evidence": "REA complete walk 24+16insns (same shape, FSTP [0x150]+MOV [0x154]; warn disregarded) + mafia-re I3d_camera.cpp:201-211 + twin tests; confirms existing port, no divergence"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0xb8d0",
+      "va": "0x100b8d0",
+      "name": "I3D_camera::SetOrthoScale (upstream working name)",
+      "symbol": "lhr_engine::frame_camera::ModelArena::camera_set_ortho_scale",
+      "tier": "differential",
+      "evidence": "REA complete walk 28insns (warn iff scale<1e-6 ordered (disregarded), unconditional MOV [0x160], reproj iff ortho!=0, RET 8) + mafia-re I3d_camera.cpp:215-222 + store/gating tests; confirms existing port, no divergence"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0xb930",
+      "va": "0x100b930",
+      "name": "I3D_camera::SetOrthogonal (upstream working name)",
+      "symbol": "lhr_engine::frame_camera::ModelArena::camera_set_orthographic_byte",
+      "tier": "differential",
+      "evidence": "REA complete walk 5insns (byte MOV [0x15c], always reproj, RET 8) + mafia-re I3d_camera.cpp:226-230 + byte/reproj tests; confirms existing port, no divergence"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0xb950",
+      "va": "0x100b950",
+      "name": "I3D_camera::SetAspectRatio (upstream working name)",
+      "symbol": "lhr_engine::frame_camera::ModelArena::camera_set_aspect_ratio",
+      "tier": "differential",
+      "evidence": "REA complete walk 18+14insns (reject {<0.01 dbl, >100.0 flt}->warn no-store (disregarded), FSTP [0x158], reproj iff ortho==0, RET 8) + mafia-re I3d_camera.cpp:234-243 + boundary/quieting tests; confirms existing port, no divergence"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x201f0",
+      "va": "0x100201f0",
+      "name": "I3D_light::I3D_light (upstream working name)",
+      "symbol": "lhr_engine::model_loading::ModelArena::create_light",
+      "tier": "differential",
+      "evidence": "REA ghidra body 1352B/340asm/~40BB (base ctor, kind/type/power/range/mode/cone words, SetDir(1,-1,1), dual normalize, cone caches, rand, radius/sphere, WMatrix guards) + mafia-re I3d_light.cpp:19-51 + ctor tests; reuses existing port"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x20760",
+      "va": "0x10020760",
+      "name": "I3D_light::~I3D_light (upstream working name)",
+      "symbol": "lhr_engine::model_loading::ModelArena::release",
+      "tier": "differential",
+      "evidence": "REA ghidra body 157B/43asm/4BB (per-light DeleteLight loop, vec free+zero, base dtor) + mafia-re I3d_light.cpp:55-60 + release tests; reuses existing release path"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x20800",
+      "va": "0x10020800",
+      "name": "I3D_light::SetLightType (upstream working name)",
+      "symbol": "lhr_engine::frame_light::I3dFrameGraph::set_light_type",
+      "tier": "differential",
+      "evidence": "REA ghidra body 291B/92asm/19BB (early-out, update_count first, old/new fog arms with Delete/Add loops, spot recompute nesting) + mafia-re I3d_light.cpp:66-90 + fog-transition tests; fog<->fog linked narrowed to supported (native Delete/Add path)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x20930",
+      "va": "0x10020930",
+      "name": "I3D_light::SetDiffuse vec (upstream working name)",
+      "symbol": "lhr_engine::frame_light::I3dFrameGraph::set_light_diffuse",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (entry SUB ESP,0xc + stack-vec MOV probe) + mafia-re I3d_light.cpp:94-101 + cache-order tests; reuses existing port; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x209e0",
+      "va": "0x100209e0",
+      "name": "I3D_light::SetDiffuse rgb (upstream working name)",
+      "symbol": "lhr_engine::frame_light::I3dFrameGraph::set_light_diffuse",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (same entry shape, three-float params) + mafia-re I3d_light.cpp:105-114 + cache-order tests; reuses existing port; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x20a90",
+      "va": "0x10020a90",
+      "name": "I3D_light::SetDiffusePower (upstream working name)",
+      "symbol": "lhr_engine::frame_light::I3dFrameGraph::set_light_diffuse_power",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (same entry shape) + mafia-re I3d_light.cpp:118-125 + power-cache tests; reuses existing port; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x20b20",
+      "va": "0x10020b20",
+      "name": "I3D_light::SetRange (upstream working name)",
+      "symbol": "lhr_engine::frame_light::I3dFrameGraph::set_light_range",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (FLD float + this MOV probes) + mafia-re I3d_light.cpp:130-148 + clamp/fog-branch tests; reuses existing port; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x20c30",
+      "va": "0x10020c30",
+      "name": "I3D_light::SetCone (upstream working name)",
+      "symbol": "lhr_engine::frame_light::I3dFrameGraph::set_light_cone",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (MOV this + FLD probes) + mafia-re I3d_light.cpp:152-168 + cosine tests; reuses existing port; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x20d10",
+      "va": "0x10020d10",
+      "name": "I3D_light::UpdateV (upstream working name)",
+      "symbol": "lhr_engine::frame_light::I3dFrameGraph::update_light_v",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (SUB ESP,0x1c + PUSH EBX probes) + mafia-re I3d_light.cpp:176-237 + spot/fog tests; reuses existing port (fog-select via light_update_fog_selection); tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x21400",
+      "va": "0x10021400",
+      "name": "I3D_light::SetOn (upstream working name)",
+      "symbol": "lhr_engine::frame_light::ModelArena::set_light_on",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (MOV AL + MOV ECX + JZ mid probes) + mafia-re I3d_light.cpp:241-253 + idempotence/reselect tests; new wrapper (flag test + UpdateV tail + fog reselect); tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x21440",
+      "va": "0x10021440",
+      "name": "I3D_light::SetMode (upstream working name)",
+      "symbol": "lhr_engine::frame_light::I3dFrameGraph::set_light_mode",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (MOV this/mode + [EDX+0x150] store probes) + mafia-re I3d_light.cpp:257-265 + mode tests; reuses existing port; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x21490",
+      "va": "0x10021490",
+      "name": "I3D_light::Duplicate (upstream working name)",
+      "symbol": "lhr_engine::frame_light::ModelArena::duplicate_light",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (PUSH ESI/EDI + TEST null-check probes) + mafia-re I3d_light.cpp:269-286 + copy/stale-cache tests; new impl (base duplicate + field copy + UpdateV tail; cone/sphere/scaled stay dst-construction = native-stale, disclosed); tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x21530",
+      "va": "0x10021530",
+      "name": "I3D_light::LoadImage (upstream working name)",
+      "symbol": "lhr_engine::frame_light::I3dFrameGraph::apply_light_load_image_fields",
+      "tier": "differential",
+      "evidence": "REA ghidra body 30B/11asm/1BB (frame intake + dtaRead 0x28 words mode..cone_out, no cache/counter touch) + mafia-re I3d_light.cpp:290-295 + raw-write tests; intake-failure prefix via apply_light_load_image_checked (wired into model intake)"
     }
   ],
   "vm": {

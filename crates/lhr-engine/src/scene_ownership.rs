@@ -1276,6 +1276,62 @@ impl ModelArena {
         self.sectors[si].lights.swap_remove(index);
         Ok(0)
     }
+    /// Fog-select arm of light UpdateV/SetOn (PC RVAs 0x20d10/0x21400,
+    /// mafia-re I3d_light.cpp:224-231): ON selects this light as the sector
+    /// fog light; turning off unlinks and reselects the first ON fog-kind
+    /// light in sector order. Runs after the graph caches (native UpdateV
+    /// inline order, split across owners here); rereads the live sector
+    /// list. Non-fog lights are a guarded no-op (host admission — native only
+    /// reaches this arm for fog kinds).
+    pub fn light_update_fog_selection(
+        &mut self,
+        light: FrameKey,
+        on: bool,
+    ) -> Result<(), ModelError> {
+        if !crate::frame_light::light_is_fog_kind(
+            self.graph
+                .light_state(light)
+                .map_err(ModelError::from)?
+                .light_type,
+        ) {
+            return Ok(());
+        }
+        let sectors: Vec<SectorKey> = self
+            .graph
+            .light_state(light)
+            .map_err(ModelError::from)?
+            .sectors
+            .iter()
+            .map(|&frame| SectorKey(frame))
+            .collect();
+        for sector in sectors {
+            let si = self
+                .sectors
+                .iter()
+                .position(|entry| entry.key == sector)
+                .ok_or(SceneOwnerError::UnknownSector(sector))?;
+            if on {
+                self.sectors[si].fog_light = Some(light);
+            } else if self.sectors[si].fog_light == Some(light) {
+                self.sectors[si].fog_light = None;
+                let order = self.sectors[si].lights.clone();
+                for candidate in order {
+                    if self.state(candidate)?.flags & 1 != 0
+                        && crate::frame_light::light_is_fog_kind(
+                            self.graph
+                                .light_state(candidate)
+                                .map_err(ModelError::from)?
+                                .light_type,
+                        )
+                    {
+                        self.sectors[si].fog_light = Some(candidate);
+                        break;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
     pub(crate) fn release_light_sectors(&mut self, light: FrameKey) -> Result<(), ModelError> {
         if self.state(light)?.kind != FrameKind::Light {
             return Ok(());
@@ -2384,5 +2440,39 @@ mod tests {
                 primary
             );
         });
+    }
+    #[test]
+    fn delete_nonfog_light_keeps_fog_selection_and_miss_word_is_residueless() {
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let primary = arena.scene(scene).unwrap().sectors[0];
+        let fog = arena.create_light().unwrap();
+        let plain = arena.create_light().unwrap();
+        arena.graph.set_light_type(fog, 5).unwrap();
+        arena.graph.set_light_type(plain, 4).unwrap();
+        arena.sector_add_light(primary, fog).unwrap();
+        arena.sector_add_light(primary, plain).unwrap();
+        // Miss word with no state touched (native I3DERR_OBJECTNOTFOUND).
+        let ghost = arena.create_light().unwrap();
+        let before = arena.sector(primary).unwrap().clone();
+        let changed_before = arena.sector_lights_changed(primary).unwrap();
+        assert_eq!(arena.sector_delete_light(primary, ghost), Ok(0x80000006));
+        assert_eq!(arena.sector(primary).unwrap().lights, before.lights);
+        assert_eq!(arena.sector(primary).unwrap().fog_light, before.fog_light);
+        assert_eq!(
+            arena.sector(primary).unwrap().num_fog_lights,
+            before.num_fog_lights
+        );
+        assert_eq!(arena.sector_lights_changed(primary), Ok(changed_before));
+        // Non-fog delete: fog selection and count survive, changed bumps once.
+        assert_eq!(arena.sector_delete_light(primary, plain), Ok(0));
+        let sector = arena.sector(primary).unwrap();
+        assert_eq!(sector.lights, [fog]);
+        assert_eq!(sector.num_fog_lights, 1);
+        assert_eq!(sector.fog_light, Some(fog));
+        assert_eq!(arena.sector_lights_changed(primary), Ok(changed_before + 1));
+        arena.release(fog).unwrap();
+        arena.release(plain).unwrap();
+        arena.release(ghost).unwrap();
     }
 }

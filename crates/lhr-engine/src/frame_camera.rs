@@ -346,6 +346,70 @@ impl ModelArena {
             error,
         })
     }
+    /// Original camera Duplicate, PC RVA 0xb290 (differential: Ghidra body
+    /// 364 B, 83 insn/5 BB). Upstream working name, not an evidenced
+    /// original symbol. Effect order: base duplicate_frame first (its error
+    /// returns with only a fresh unowned frame as residue, releasable by the
+    /// caller); non-camera source returns success with camera words untouched
+    /// (native order: base copy runs, then the kind guard exits 0 — same
+    /// choice as duplicate_light); else the fov/range/aspect block, scene/sector nulls, orthogonal byte +
+    /// ortho scale, zeroed update counts, ncp_x/y, NO_CULL OR, then
+    /// identities and projection copies. Residuals (not evidenced in this
+    /// body): base-Duplicate internals beyond the duplicate_frame projection
+    /// and the frame-name copy it performs.
+    pub fn duplicate_camera(&mut self, source: CameraKey) -> Result<CameraKey, ModelError> {
+        let src = self.camera(source)?.key;
+        let mut state = I3dFrameState::model();
+        state.kind = FrameKind::Camera;
+        let frame = self.insert(state, None, Vec::new(), Vec::new(), None)?;
+        self.duplicate_frame(frame, src.frame())?;
+        let key = CameraKey {
+            frame,
+            reference: self.lookup_reference(frame),
+        };
+        self.cameras.push(CameraFrame::new(key));
+        if self.state(src.frame())?.kind != FrameKind::Camera {
+            return Ok(key);
+        }
+        let snapshot = self.camera(source)?.words;
+        let ortho = self.camera(source)?.orthographic;
+        let projection_complete = self.camera(source)?.projection_complete;
+        self.graph.change_flags(key.frame(), 0, 0x08000000)?;
+        let target = self.camera_mut(key)?;
+        // Verbatim word carry (None slots preserved) already places the
+        // fov/range/aspect block, ortho scale and ncp_x/y; the null links,
+        // zeroed counts, identities and projection copies below follow
+        // native store order.
+        target.words = snapshot;
+        target.scene = None;
+        target.sector = None;
+        target.put_word(0x3f4, 0);
+        target.put_word(0x3f8, 0);
+        target.orthographic = ortho;
+        target.words[0x160 / 4] = snapshot[0x160 / 4];
+        target.put_word(0x3fc, 0);
+        target.put_word(0x400, 0);
+        for offset in [0x164, 0x224, 0x264, 0x2a4] {
+            target.put_matrix(offset, SMatrix::identity());
+        }
+        // Native interleave order (Identity,copy,Identity,copy,...) has
+        // disjoint destinations; block form reaches the same final state:
+        // view copies proj, bd copies bd-proj, near copies near-proj.
+        for (dst, src_off) in [
+            (0x1a4, 0x1a4),
+            (0x1e4, 0x1a4),
+            (0x2e4, 0x2e4),
+            (0x324, 0x2e4),
+            (0x364, 0x364),
+        ] {
+            for i in 0..16 {
+                target.words[dst / 4 + i] = snapshot[src_off / 4 + i];
+            }
+        }
+        target.projection_complete = projection_complete;
+        target.constructor_complete = true;
+        Ok(key)
+    }
     fn require_camera_ready(&self, key: CameraKey) -> Result<(), ModelError> {
         if !self.camera(key)?.constructor_complete {
             return Err(CameraError::IncompleteConstruction(key).into());
@@ -1573,5 +1637,141 @@ mod tests {
             ((953_505_280f64 / 1_907_010_219f64) as f32).to_bits(),
             0x3f00_0002
         );
+    }
+    #[test]
+    fn ctor_word_table_and_copy_triples_match_b0c0() {
+        Pc24PrecisionState::default().run(|| {
+            let mut world = World::new();
+            let camera = world.camera();
+            let frame = world.arena.camera(camera).unwrap();
+            for (offset, bits) in [
+                (0x140, 0x3f490fdbu32),
+                (0x14c, 0x3f490fdb),
+                (0x144, 0x3f800000),
+                (0x148, 0x447a0000),
+                (0x150, 0x3c23d70a),
+                (0x154, 0x41a00000),
+            ] {
+                assert_eq!(frame.word(offset), Some(bits), "offset {offset:#x}");
+            }
+            // Orthogonal byte is typed state, not a word slot.
+            assert_eq!(frame.word(0x15c), None);
+            assert_eq!(frame.orthographic_byte(), 0);
+            assert_eq!(frame.scalar(0x158), Some(800f32 / 600.));
+            for (dst, src) in [(0x1e4, 0x1a4), (0x324, 0x2e4), (0x3a4, 0x364)] {
+                assert_eq!(frame.matrix(dst), frame.matrix(src));
+            }
+            assert_eq!(world.arena.state(camera.frame()).unwrap().update_count, 1);
+            world.arena.release(camera.frame()).unwrap();
+            world.destroy_scene();
+        });
+    }
+    #[test]
+    fn duplicate_copies_fields_nulls_links_and_keeps_source_b290() {
+        Pc24PrecisionState::default().run(|| {
+            let mut world = World::new();
+            let a = world.camera();
+            world
+                .arena
+                .scene_set_active_camera(world.scene, Some(a))
+                .unwrap();
+            world.arena.camera_set_range(a, 0.05, 250.).unwrap();
+            world.arena.camera_set_fov(a, 1.).unwrap();
+            let before = world.arena.camera(a).unwrap().matrix(0x1a4).unwrap();
+            let b = world.arena.duplicate_camera(a).unwrap();
+            let (fa, fb) = (
+                world.arena.camera(a).unwrap(),
+                world.arena.camera(b).unwrap(),
+            );
+            for offset in [
+                0x140, 0x144, 0x148, 0x14c, 0x150, 0x154, 0x158, 0x160, 0x3e4, 0x3e8,
+            ] {
+                assert_eq!(fb.word(offset), fa.word(offset), "offset {offset:#x}");
+            }
+            assert_eq!((fb.scene, fb.sector), (None, None));
+            assert_eq!((fb.word(0x3f4), fb.word(0x3f8)), (Some(0), Some(0)));
+            assert_eq!((fb.word(0x3fc), fb.word(0x400)), (Some(0), Some(0)));
+            assert_eq!(fb.matrix(0x1a4).unwrap(), before);
+            assert_eq!(fb.matrix(0x1e4).unwrap(), before);
+            assert_eq!(fb.matrix(0x164).unwrap(), SMatrix::identity());
+            assert!(fb.constructor_complete());
+            // Residue: source untouched, target independent.
+            world.arena.camera_set_fov(b, 0.5).unwrap();
+            assert_eq!(world.arena.camera(a).unwrap().scalar(0x140), Some(1.));
+            world.arena.release(a.frame()).unwrap();
+            world.arena.release(b.frame()).unwrap();
+            world.destroy_scene();
+            assert_eq!(world.arena.live_frame_count(), 0);
+        });
+    }
+    #[test]
+    fn projection_element_order_matches_b400() {
+        use crate::native_precision::{div, mul, sub};
+        Pc24PrecisionState::default().run(|| {
+            let mut world = World::new();
+            let camera = world.camera();
+            world.arena.camera_set_range(camera, 1., 1000.).unwrap();
+            // No-scene perspective backdrop chain: q=f*1000/(f*1000-n*10),
+            // t=q*n*-10, same helper expressions as the implementation.
+            let bd = world.arena.camera(camera).unwrap().matrix(0x2e4).unwrap();
+            let (f, n) = (1000f32, 1f32);
+            let q = div(mul(f, 1000.), sub(mul(f, 1000.), mul(n, 10.)));
+            assert_eq!(bd.elements[10], q);
+            assert_eq!(bd.elements[14], mul(mul(q, n), -10.));
+            // Ortho arm element order with the no-scene backdrop r1 chain.
+            world.arena.camera_set_orthographic(camera, true).unwrap();
+            let m = world.arena.camera(camera).unwrap().matrix(0x1a4).unwrap();
+            let r = div(1., sub(f, n));
+            assert_eq!(
+                (
+                    m.elements[0],
+                    m.elements[10],
+                    m.elements[14],
+                    m.elements[15]
+                ),
+                (1., r, -mul(r, n), 1.)
+            );
+            let near = world.arena.camera(camera).unwrap().matrix(0x364).unwrap();
+            let r1 = div(1., sub(mul(f, 1000.), mul(n, 10.)));
+            assert_eq!(near.elements[14], -mul(r1, 0.01));
+            world.arena.release(camera.frame()).unwrap();
+            world.destroy_scene();
+        });
+    }
+    #[test]
+    fn sector_hint_and_frustum_residue_match_b9d0_ba30() {
+        Pc24PrecisionState::default().run(|| {
+            let mut world = World::new();
+            let camera = world.camera();
+            world
+                .arena
+                .scene_set_active_camera(world.scene, Some(camera))
+                .unwrap();
+            world.arena.camera_update(camera).unwrap();
+            let pos: [f32; 3] = world.arena.world_matrix(camera.frame()).unwrap().elements[12..15]
+                .try_into()
+                .unwrap();
+            let st = world.arena.camera(camera).unwrap();
+            // Region bases are 0x404+region*80: direction row at base+0,
+            // frustum d at base+60 (0 for the backdrop region).
+            let dir = [
+                st.word(0x404).unwrap(),
+                st.word(0x408).unwrap(),
+                st.word(0x40c).unwrap(),
+            ]
+            .map(f32::from_bits);
+            let dot = dir[0] * pos[0] + dir[1] * pos[1] + dir[2] * pos[2];
+            assert_eq!(f32::from_bits(st.word(0x440).unwrap()), -dot);
+            assert_eq!(st.word(0x490), Some(0u32));
+            // Sceneless residue: sector cleared, word zero (b9d0 null arm).
+            world
+                .arena
+                .scene_set_active_camera(world.scene, None)
+                .unwrap();
+            world.arena.camera_update(camera).unwrap();
+            assert_eq!(world.arena.camera(camera).unwrap().sector, None);
+            world.arena.release(camera.frame()).unwrap();
+            world.destroy_scene();
+        });
     }
 }
