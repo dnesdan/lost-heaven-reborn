@@ -48,10 +48,13 @@ RVA_RE = re.compile(r"^0x[0-9a-f]+$")
 # (0x1010-0x1160), 26 named FUNCTION (rw_data.cpp + rw_data.h:26), 4
 # scalar-deleting dtors / S_HANDLE assign (rw_data.h:38,
 # rw_data_inter.h:149,152,220), 16 STL TEMPLATE instantiations
-# (rw_data_inter.h:260-315). The remaining 4 of Binary Ninja's 62 have no
-# retained pseudocode and no known address (suspected unretained .CRT$XCU
-# thunks/fragments below 0x5cc0); they are counted only as the documented
-# gap below, never as addresses.
+# (rw_data_inter.h:260-315), plus 4 XCU startup thunks (0x1000, 0x1060,
+# 0x10f0, 0x1130) proven by the live .CRT$XCU table at 0x1000c000 (slots
+# [0x10001000, 0x10001060, 0x100010f0, 0x10001130] + NULL terminator) and
+# raw-body decode (each: CALL ctor + JMP $E-register; e.g. 0x1000 calls
+# 0x1010, jumps 0x1030). Those 4 carry no retained pseudocode (Ghidra folds
+# the boundaries) but are address-evidenced from the shipped bytes, so the
+# Binja-only gap is zero and the own set is fully closed at 62.
 RW_DATA_SHA256 = "67f72c30cc7fe941f5526b8602a0bd2785baa0f22617bbcfd4a71bacd79b8d49"
 RW_DATA_FIRST_CRT_RVA = 0x5CC0
 RW_DATA_OWN_RVAS = frozenset({
@@ -66,12 +69,15 @@ RW_DATA_OWN_RVAS = frozenset({
     "0x4720", "0x5740",
     # scalar-deleting dtors / S_HANDLE assignment (4)
     "0x1340", "0x1360", "0x1380", "0x5750",
+    # XCU startup thunks (4): CALL ctor + JMP $E, pointed to by the live
+    # .CRT$XCU table; raw-byte evidenced, no retained pseudocode.
+    "0x1000", "0x1060", "0x10f0", "0x1130",
     # STL templates (16)
     "0x4730", "0x4760", "0x4970", "0x4c90", "0x4ce0", "0x4ef0",
     "0x4f00", "0x4f30", "0x5230", "0x55c0", "0x5600", "0x5630",
     "0x5650", "0x59f0", "0x5a30", "0x5a50",
 })
-RW_DATA_BINJA_ONLY_GAP = 4
+RW_DATA_BINJA_ONLY_GAP = 0
 RW_DATA_OWN_TOTAL = len(RW_DATA_OWN_RVAS) + RW_DATA_BINJA_ONLY_GAP  # 62
 # Per-binary own-function denominators (without CRT). Only rw_data is
 # evidenced; every other binary keeps its frozen inventory_total.

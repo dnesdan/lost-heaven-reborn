@@ -63,16 +63,18 @@ class RewriteProgressTests(unittest.TestCase):
         # read/leak lane, DeCrypt, FirstForce) + 34 construction-covered
         # (CRT/empty/synthetic/STL-no-op, contract tier only).
         self.assertEqual(rw["ported"], 24)
-        self.assertEqual(rw.get("covered", 0), 34)
-        self.assertEqual(rw["ported"] + rw.get("covered", 0), 58)
+        self.assertEqual(rw.get("covered", 0), 38)
+        self.assertEqual(rw["ported"] + rw.get("covered", 0), 62)
         self.assertEqual(rw["verified"], 17)
         self.assertLessEqual(rw["verified"], rw["ported"])
         self.assertLessEqual(rw["ported"], rw["total"])
 
-    def test_rw_data_own_set_is_retained_below_first_crt(self):
+    def test_rw_data_own_set_is_retained_below_first_crt_plus_xcu(self):
         # Evidence list pinned to the frozen ledger and the mafia-re total:
-        # own = retained entries below the first CRT address, 58 of them;
-        # 62 - 58 = 4 Binja-only fragments without retained pseudocode.
+        # own = 58 retained entries below the first CRT address plus the 4
+        # XCU startup thunks (0x1000/0x1060/0x10f0/0x1130) proven by the live
+        # .CRT$XCU table at 0x1000c000 and raw CALL/JMP decode; they carry no
+        # retained pseudocode (Ghidra folds the boundaries).
         script = load_script()
         libraries, _ = script.load_ledger()
         lib = libraries["rw_data.dll"]
@@ -82,9 +84,12 @@ class RewriteProgressTests(unittest.TestCase):
             rva for rva in retained
             if int(rva, 16) < script.RW_DATA_FIRST_CRT_RVA
         }
-        self.assertEqual(set(script.RW_DATA_OWN_RVAS), below)
-        self.assertEqual(len(script.RW_DATA_OWN_RVAS), 58)
-        self.assertEqual(script.RW_DATA_BINJA_ONLY_GAP, 4)
+        self.assertEqual(len(below), 58)
+        xcu = {"0x1000", "0x1060", "0x10f0", "0x1130"}
+        self.assertTrue(xcu.isdisjoint(below))
+        self.assertEqual(set(script.RW_DATA_OWN_RVAS), below | xcu)
+        self.assertEqual(len(script.RW_DATA_OWN_RVAS), 62)
+        self.assertEqual(script.RW_DATA_BINJA_ONLY_GAP, 0)
         self.assertEqual(script.RW_DATA_OWN_TOTAL, 62)
 
     def test_rw_data_ledger_and_overlay_ports_are_all_own(self):
@@ -106,7 +111,7 @@ class RewriteProgressTests(unittest.TestCase):
             entry for entry in overlay["functions"]
             if entry.get("construction_covered")
         ]
-        self.assertEqual(len(covered), 34)
+        self.assertEqual(len(covered), 38)
         for entry in covered:
             self.assertEqual(entry["binary"], "rw_data.dll")
             self.assertEqual(entry["tier"], "contract")

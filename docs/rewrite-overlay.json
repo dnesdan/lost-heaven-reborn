@@ -1,7 +1,7 @@
 {
   "version": 1,
   "scope_note": "Post-snapshot (after 2026-10-25) function ports by the agents, keyed by original binary SHA-256 and entry RVA like the frozen ledger. Tier differential means original-data or instruction-level round-trip proof on top of tests; tier contract means reviewed upstream source plus Rust tests. Inline code regions without entries (recompile walk body, S_timer Reset/Tick, C_chunk::Write), explicit unsupported boundaries, and game-global stores without function entries are not counted as functions. VM script commands are tracked separately below, not as functions.",
-  "gap_note": "All 58 address-evidenced own functions audited: 24 behavior ports with Rust code+tests plus 34 construction-covered (CRT startup/empty/synthetic/STL-no-op, no separate code; covering symbols + transparent evidence, tier contract only). 4 Binja-only fragments below 0x5cc0 have no retained pseudocode and no known address: untrackable, no credit can attach. Oct 26-Nov 3 non-rw_data intake batches (actor factories, VM families, vehicle owners) remain unaudited and count at zero.",
+  "gap_note": "All 62 own functions address-evidenced and audited: 24 behavior ports with Rust code+tests plus 38 construction-covered (4 XCU thunks proven by the live .CRT$XCU table + raw CALL/JMP decode, 12 further CRT startup, empty/synthetic dtors, placement-delete no-op, 16 STL templates; covering symbols + transparent evidence, contract tier only). Region 0x1000-0x1170 fully mapped contiguous, no gaps; Binja-only gap is zero. Oct 26-Nov 3 non-rw_data intake batches (actor factories, VM families, vehicle owners) remain unaudited and count at zero.",
   "functions": [
     {
       "binary": "Game.exe",
@@ -442,10 +442,10 @@
       "binary": "rw_data.dll",
       "rva": "0x1100",
       "va": "0x10001100",
-      "name": "CRT startup initializer (working name; no original symbol)",
+      "name": "C_m_p constructor this-stub (MOV ECX + JMP 0x4120; working name, no original symbol)",
       "symbol": "lhr_assets::rw_data::Handles::new",
       "tier": "contract",
-      "evidence": "mafia-re rw_data_inter.h:223-226 XCU thunk to C_m_p ctor (CRT wrapper, covered by Handles::new Mutex construction; no REA body in this session (classification from mafia-re annotations)",
+      "evidence": "Raw body B9 6CEC0010 (MOV ECX,0x1000ec6c C_m_p) + E9 16300000 (JMP 0x4120 real ctor); called by XCU thunk 0x10f0; covered by Handles::new Mutex construction; no REA body in this session (classification from bytes + mafia-re rw_data.cpp:1545)",
       "construction_covered": true
     },
     {
@@ -472,10 +472,10 @@
       "binary": "rw_data.dll",
       "rva": "0x1140",
       "va": "0x10001140",
-      "name": "CRT startup initializer (working name; no original symbol)",
+      "name": "C_l_d constructor this-stub (MOV ECX + JMP 0x4150; working name, no original symbol)",
       "symbol": "lhr_assets::rw_data::Handles::new",
       "tier": "contract",
-      "evidence": "mafia-re rw_data_inter.h:248-249 XCU thunk to C_l_d ctor (CRT wrapper, covered by Handles::new; no REA body in this session (classification from mafia-re annotations)",
+      "evidence": "Raw body B9 60EC0010 (MOV ECX,0x1000ec60 C_l_d) + E9 06300000 (JMP 0x4150 real ctor); called by XCU thunk 0x1130; covered by Handles::new; no REA body in this session (classification from bytes + mafia-re rw_data.cpp:1563)",
       "construction_covered": true
     },
     {
@@ -656,6 +656,46 @@
       "symbol": "lhr_assets::rw_data::Handles",
       "tier": "contract",
       "evidence": "mafia-re rw_data_inter.h:315 vector<S_FILES_IN>::operator=; CRT template, Rust Vec assignment covers; no REA body in this session (classification from mafia-re annotations)",
+      "construction_covered": true
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x1000",
+      "va": "0x10001000",
+      "name": "v_file_h XCU startup thunk (CALL 0x1010 + JMP 0x1030; working name, no original symbol)",
+      "symbol": "lhr_assets::rw_data::Handles::new",
+      "tier": "contract",
+      "evidence": "Live .CRT$XCU slot 1 @0x1000c004 points at 0x10001000; raw body E8 0B000000 (CALL 0x1010 vector ctor) + E9 26000000 (JMP 0x1030 $E4); VC6 XCU shape per rw_data_inter.h:223-226; CRT startup glue covered by Handles::new; no REA body (Ghidra folds the boundary)",
+      "construction_covered": true
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x1060",
+      "va": "0x10001060",
+      "name": "v_handle XCU startup thunk (CALL 0x1070 + JMP 0x1090; working name, no original symbol)",
+      "symbol": "lhr_assets::rw_data::Handles::new",
+      "tier": "contract",
+      "evidence": "Live .CRT$XCU slot 2 @0x1000c008 points at 0x10001060; raw body identical CALL+JMP shape to 0x1000 (CALL 0x1070 vector ctor, JMP 0x1090 $E9); CRT startup glue covered by Handles::new; no REA body (Ghidra folds the boundary)",
+      "construction_covered": true
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x10f0",
+      "va": "0x100010f0",
+      "name": "C_m_p XCU startup thunk (CALL 0x1100 + JMP 0x1110; working name, no original symbol)",
+      "symbol": "lhr_assets::rw_data::Handles::new",
+      "tier": "contract",
+      "evidence": "Live .CRT$XCU slot 3 @0x1000c00c points at 0x100010f0; raw body E8 0B000000 (CALL 0x1100 ctor-stub) + E9 16000000 (JMP 0x1110 $E14); CRT startup glue covered by Handles::new Mutex construction; no REA body (Ghidra folds the boundary)",
+      "construction_covered": true
+    },
+    {
+      "binary": "rw_data.dll",
+      "rva": "0x1130",
+      "va": "0x10001130",
+      "name": "C_l_d XCU startup thunk (CALL 0x1140 + JMP 0x1150; working name, no original symbol)",
+      "symbol": "lhr_assets::rw_data::Handles::new",
+      "tier": "contract",
+      "evidence": "Live .CRT$XCU slot 4 @0x1000c010 points at 0x10001130 (NULL terminator follows); raw body CALL 0x1140 ctor-stub + JMP 0x1150 $E19; CRT startup glue covered by Handles::new; no REA body (Ghidra folds the boundary)",
       "construction_covered": true
     }
   ],
