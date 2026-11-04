@@ -1254,11 +1254,14 @@ fn no_payload_instructions_compile_without_scalar_allocation_and_stop_at_dispatc
             .count(),
         1
     );
+    // Opcode 180 executes through the backend boundary; inject its failure
+    // to keep the dispatch-dependency stop this test pins.
+    memory.fail = Some(RuntimeEffect::UseLightCache);
     assert!(p
         .call_owned_process(7, &mut DispatchBudget::new(5).unwrap(), &mut memory)
         .unwrap_err()
         .to_debug()
-        .contains("UnsupportedCommand(180)"));
+        .contains("required boundary interrupted"));
     assert_eq!(p.runtime().unwrap().fields.elapsed, 7);
     p.done_fresh_runtime(&mut memory).unwrap();
     assert_eq!(
@@ -1332,6 +1335,9 @@ fn owned_subroutine_required_effect_failure_keeps_reset_prefix_and_delta_one_ela
         .unwrap();
     p.init_fresh_runtime(&mut memory).unwrap();
     p.runtime.as_mut().unwrap().fields.scheduler.program_counter = 12;
+    // Opcode 180 executes now; fail its backend effect to keep the failure
+    // path (reset prefix, delta-one elapsed, cleared owner) this test pins.
+    memory.fail = Some(RuntimeEffect::UseLightCache);
     assert!(p
         .call_owned_subroutine(&mut DispatchBudget::new(8).unwrap(), &mut memory)
         .is_err());
@@ -1818,4 +1824,22 @@ fn game_nightmission_reports_nonzero_test_through_backend() {
             "missing SetNightMission({expected}) for argument {argument}"
         );
     }
+}
+
+#[test]
+fn use_lightcache_reports_operandless_request_through_backend() {
+    let mut memory = Memory::default();
+    let mut p = program(b"use_lightcache", &mut memory);
+    let progress = p.init_fresh_runtime(&mut memory).unwrap();
+    assert_eq!((progress.accepted, progress.errors), (1, 0));
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
+    assert!(
+        memory
+            .events
+            .iter()
+            .any(|event| event.0 == RuntimeEffect::UseLightCache),
+        "missing UseLightCache effect"
+    );
 }

@@ -546,6 +546,14 @@ pub enum RuntimeEffect {
     /// lifecycle variants above, this carries game state to the backend;
     /// a backend without game ownership records it without applying.
     SetNightMission(bool),
+    /// Light-cache system switch (`USE_LIGHTCACHE` 180): matches
+    /// `C_game::UseLightCacheSystem()` with no operands. REA Ghidra
+    /// `ev_1dd1161a…` (24 instructions, 0 params, 1 callee) recovers the
+    /// body: copy the game word at +0x16C to +0x170, store -1 at +0x178,
+    /// then call `RecomputeLightCache` 0x5b5d40. The backend records the
+    /// request; the game words plus recomputation belong to a future game
+    /// owner and stay open.
+    UseLightCache,
 }
 /// Required external allocation boundary, borrowing actual fields at the call.
 /// The runtime itself owns actual Rust allocations and performs release only
@@ -2864,6 +2872,10 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                 // GAME_NIGHTMISSION: SetNightMission(int_param != 0)
                 let value = self.value_at(state)?;
                 self.effect(state, RuntimeEffect::SetNightMission(value != 0))?;
+            }
+            180 => {
+                // USE_LIGHTCACHE: C_game::UseLightCacheSystem(), no operands
+                self.effect(state, RuntimeEffect::UseLightCache)?;
             }
             0x1004 | 0x101a | 0x1031 | 0x103a | 0x103b => {
                 advance = self.dispatch_entity(state, opcode)?;
