@@ -21,8 +21,6 @@ pub(crate) mod billboard;
 mod cache_duplicate;
 #[path = "model_crash_duplicate.rs"]
 mod crash_duplicate;
-#[path = "frame_dummy.rs"]
-mod frame_dummy;
 #[path = "model_glass.rs"]
 mod glass;
 #[path = "model_morph.rs"]
@@ -3051,6 +3049,28 @@ impl ModelArena {
             self.register_frame_name(dst)?;
         }
         Ok(())
+    }
+    /// Original joint Duplicate derived half, PC RVA 0x1eeb0 (contract:
+    /// entry/mid/byte probes incl. CMP [EAX+0x110],0x0a, no Ghidra body;
+    /// mafia-re I3d_joint.cpp:56-69). Upstream working name, not an evidenced
+    /// original symbol. Order-exact: null limb (UnknownFrame analogue) ->
+    /// type-gated bone/flags/index stores (JOINTF_LOADED mask, I3D.h:2033)
+    /// -> common duplicate_frame tail.
+    pub fn duplicate_joint_derived(
+        &mut self,
+        dst: FrameKey,
+        src: FrameKey,
+    ) -> Result<(), ModelError> {
+        self.frame(src).map_err(|_| ModelError::UnknownFrame(src))?;
+        self.frame(dst).map_err(|_| ModelError::UnknownFrame(dst))?;
+        if self.state(src)?.kind == FrameKind::Joint && self.state(dst)?.kind == FrameKind::Joint {
+            let source = *self.graph.joint_state(src)?;
+            self.graph.joint_state_mut(dst)?.bone_matrix = source.bone_matrix;
+            self.graph.joint_state_mut(dst)?.flags =
+                source.flags & crate::joint_state::JOINTF_LOADED;
+            self.graph.joint_state_mut(dst)?.index = source.index;
+        }
+        self.duplicate_frame(dst, src)
     }
     pub(crate) fn release_inner(&mut self, key: FrameKey) -> Result<(), ModelError> {
         let i = self.frame_index(key)?;

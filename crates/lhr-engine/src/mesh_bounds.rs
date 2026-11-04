@@ -90,6 +90,115 @@ pub fn update_mesh_bounds(
     Ok(())
 }
 
+/// Original SetBoundVolume, PC RVA 0x5a730 (differential: Ghidra body 47 B,
+/// 15 insn/3 BB; mafia-re I3d_visual.cpp:138-143). Order-exact: 10-dword
+/// copy (bbox + bsphere) first, then clear WBOUND_VALID iff the saved flags
+/// lack WORLD_SPACE (0x40). Pure copies, no arithmetic.
+pub fn set_visual_bound_volume(
+    target: &mut MeshBoundVolume,
+    source: &MeshBoundVolume,
+    flags: &mut u32,
+) {
+    target.bbox = source.bbox;
+    target.center = source.center;
+    target.radius = source.radius;
+    if *flags & 0x40 == 0 {
+        *flags &= !0x40000;
+    }
+}
+
+/// Per-vertex world transform backend for UpdateWBoundProc (PC RVA 0x5a510):
+/// S_vector::operator* plus the UpdateWMatrixProc freshness gate stay with
+/// the caller (backend contracts, same discipline as BBoxVertices).
+pub trait VisualWorldTransform {
+    type Error;
+    fn transform_vertex(&mut self, vertex: [f32; 3]) -> Result<[f32; 3], Self::Error>;
+}
+
+/// Original UpdateWBoundProc world-box kernel, PC RVA 0x5a510 (differential:
+/// Ghidra body 532 B, 171 insn/23 BB; mafia-re I3d_visual.cpp:114-134). The
+/// caller performs the WBOUND set + world Invalidate first, then the lazy
+/// ensure (virtual UpdateBoundProc slot) iff the local box is invalid
+/// (local_valid=false), then the X-validity check. This kernel: ensure-first
+/// ordering, X-validity (ordered Less|Equal, unordered NaN → invalid arm),
+/// 8-corner transform + strict </> absorb, half/center/radius via the same
+/// checked PC24 tail as update_mesh_bounds (bit-equal for identical inputs;
+/// the final sqrt is host f32::sqrt, not x87 FSQRT — internal-consistency
+/// claim only, not binary parity; disclosed). The &local view is the caller's post-ensure state by contract (a refresh
+/// inside ensure lands on the caller's side; re-invoke to re-read). The
+/// invalid arm zero-writes center+radius and keeps the invalidated bbox,
+/// returning Ok (native continues). Numeric failure retains preceding stores
+/// (same policy as update_mesh_bounds); BBoxVertices corner order is
+/// backend-irrelevant (order-independent absorb).
+pub fn update_visual_world_bound<T, E>(
+    local: &MeshBoundVolume,
+    local_valid: bool,
+    world: &mut MeshBoundVolume,
+    ensure_local: impl FnOnce() -> Result<(), E>,
+    transform: &mut T,
+) -> Result<(), MeshBoundsError>
+where
+    T: VisualWorldTransform<Error = E>,
+    MeshBoundsError: From<E>,
+{
+    if !local_valid {
+        ensure_local().map_err(MeshBoundsError::from)?;
+    }
+    if !matches!(
+        local.bbox[0][0].partial_cmp(&local.bbox[1][0]),
+        Some(std::cmp::Ordering::Less | std::cmp::Ordering::Equal)
+    ) {
+        world.center = [0.; 3];
+        world.radius = 0.;
+        return Ok(());
+    }
+    let mut box_min = [f32::INFINITY; 3];
+    let mut box_max = [f32::NEG_INFINITY; 3];
+    for corner in 0..8 {
+        let source = [
+            local.bbox[corner & 1][0],
+            local.bbox[(corner >> 1) & 1][1],
+            local.bbox[(corner >> 2) & 1][2],
+        ];
+        let moved = transform
+            .transform_vertex(source)
+            .map_err(MeshBoundsError::from)?;
+        for axis in 0..3 {
+            if moved[axis] < box_min[axis] {
+                box_min[axis] = moved[axis];
+            }
+            if moved[axis] > box_max[axis] {
+                box_max[axis] = moved[axis];
+            }
+        }
+    }
+    world.bbox = [box_min, box_max];
+    let mut half = [0.; 3];
+    let mut center = [0.; 3];
+    for (axis, value) in half.iter_mut().enumerate() {
+        *value = checked_f32_add(world.bbox[1][axis], -world.bbox[0][axis])
+            .and_then(|difference| checked_f32_mul(difference, 0.5))
+            .map_err(|_| MeshBoundsError::NumericDomain("half extent"))?;
+    }
+    for (axis, value) in center.iter_mut().enumerate() {
+        *value = checked_f32_add(world.bbox[0][axis], half[axis])
+            .map_err(|_| MeshBoundsError::NumericDomain("center"))?;
+    }
+    world.center = center;
+    let squared = (|| {
+        checked_f32_add(
+            checked_f32_add(
+                checked_f32_mul(half[2], half[2])?,
+                checked_f32_mul(half[1], half[1])?,
+            )?,
+            checked_f32_mul(half[0], half[0])?,
+        )
+    })()
+    .map_err(|_| MeshBoundsError::NumericDomain("radius"))?;
+    world.radius = squared.sqrt();
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -160,5 +269,102 @@ mod tests {
             [0x4175eee0, 0x41ad0c08, 0x42009bb8]
         );
         assert_eq!(volume.radius.to_bits(), 0x42b177d8);
+    }
+
+    struct IdentityTransform;
+    impl VisualWorldTransform for IdentityTransform {
+        type Error = MeshBoundsError;
+        fn transform_vertex(&mut self, vertex: [f32; 3]) -> Result<[f32; 3], Self::Error> {
+            Ok(vertex)
+        }
+    }
+    struct OrderLog {
+        calls: Vec<&'static str>,
+    }
+    impl VisualWorldTransform for OrderLog {
+        type Error = MeshBoundsError;
+        fn transform_vertex(&mut self, vertex: [f32; 3]) -> Result<[f32; 3], Self::Error> {
+            self.calls.push("transform");
+            Ok(vertex)
+        }
+    }
+    #[test]
+    fn world_bound_identity_matches_mesh_reference() {
+        let local = MeshBoundVolume {
+            bbox: [[-1., -2., -3.], [4., 5., 6.]],
+            center: [0.; 3],
+            radius: 0.,
+        };
+        let mut ensured = false;
+        let mut world = MeshBoundVolume::CONSTRUCTOR;
+        let mut backend = IdentityTransform;
+        update_visual_world_bound(
+            &local,
+            true,
+            &mut world,
+            || {
+                ensured = true;
+                Ok(())
+            },
+            &mut backend,
+        )
+        .unwrap();
+        assert!(!ensured);
+        let mut reference = MeshBoundVolume::CONSTRUCTOR;
+        update_mesh_bounds(&mut reference, &[Some(local.bbox)]).unwrap();
+        assert_eq!(world.bbox, reference.bbox);
+        assert_eq!(world.center, reference.center);
+        assert_eq!(world.radius.to_bits(), reference.radius.to_bits());
+    }
+    #[test]
+    fn world_bound_invalid_x_zeroes_sphere_and_ensures_first() {
+        let local = MeshBoundVolume {
+            bbox: [[f32::NAN, -2., -3.], [4., 5., 6.]],
+            center: [9.; 3],
+            radius: 9.,
+        };
+        let ensured = std::cell::Cell::new(false);
+        let mut log = OrderLog { calls: Vec::new() };
+        let mut world = MeshBoundVolume {
+            bbox: [[7.; 3], [8.; 3]],
+            center: [7.; 3],
+            radius: 7.,
+        };
+        update_visual_world_bound(
+            &local,
+            false,
+            &mut world,
+            || {
+                ensured.set(true);
+                Ok::<_, MeshBoundsError>(())
+            },
+            &mut log,
+        )
+        .unwrap();
+        // ensure runs before the invalid arm (native order); the arm keeps
+        // the caller-invalidated bbox, zeroes the sphere, and never runs
+        // the transform backend.
+        assert!(ensured.get());
+        assert!(log.calls.is_empty());
+        assert_eq!(world.bbox, [[7.; 3], [8.; 3]]);
+        assert_eq!(world.center, [0.; 3]);
+        assert_eq!(world.radius, 0.);
+    }
+    #[test]
+    fn set_bound_volume_store_order() {
+        let source = MeshBoundVolume {
+            bbox: [[-1., -2., -3.], [4., 5., 6.]],
+            center: [1.5, 1.5, 1.5],
+            radius: 6.25f32.sqrt(),
+        };
+        let mut target = MeshBoundVolume::CONSTRUCTOR;
+        let mut flags = 0x40u32; // world space: WBOUND preserved
+        set_visual_bound_volume(&mut target, &source, &mut flags);
+        assert_eq!(target, source);
+        let mut target = MeshBoundVolume::CONSTRUCTOR;
+        let mut flags = 0u32; // local space: WBOUND cleared
+        set_visual_bound_volume(&mut target, &source, &mut flags);
+        assert_eq!(target, source);
+        assert_eq!(flags & 0x40000, 0);
     }
 }

@@ -203,7 +203,9 @@ impl ObjectResources {
         Ok(())
     }
     /// Duplicate copies construction settings, never the constructed arrays or
-    /// active lighting. Plain objects additionally inherit source fade.
+    /// active lighting. Ordinary visual scalars go through the single owner
+    /// duplicate_object_render_state (all destinations, lit or plain);
+    /// lighting-level settings copy here.
     pub(crate) fn copy_object_duplicate_state(
         &mut self,
         destination: ObjectResourceKey,
@@ -211,7 +213,6 @@ impl ObjectResources {
     ) -> Result<(), ObjectError> {
         self.available()?;
         let src = self.object(source)?;
-        let fade = src.fade;
         let settings = src.lit_object.as_ref().map(|lit| {
             std::array::from_fn::<_, 6, _>(|i| {
                 let l = &lit.levels[i];
@@ -219,6 +220,9 @@ impl ObjectResources {
             })
         });
         self.object(destination)?;
+        // Scalar block has a single owner (duplicate_object_render_state);
+        // lighting settings stay here.
+        self.duplicate_object_render_state(destination, source)?;
         let dst = self.objects[(destination.slot - 1) as usize]
             .as_mut()
             .unwrap();
@@ -230,8 +234,6 @@ impl ObjectResources {
                     level.angle = angle;
                 }
             }
-        } else {
-            dst.fade = fade;
         }
         Ok(())
     }

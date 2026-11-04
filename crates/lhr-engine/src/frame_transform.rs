@@ -232,6 +232,49 @@ pub enum FrameError {
     UnsupportedTargetFlags(FrameKey, u32),
     TargetDirectionUnavailable(FrameKey),
 }
+/// Upstream working names for SHADOW_MODE_0/1/2 (mafia-re
+/// I3d_visual.cpp:55-103), adapted to snake_case. Shared by the shadow and
+/// projector mode words (PC RVAs 0x5a410/0x5a480).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShadowMode {
+    Mode0 = 0,
+    Mode1 = 1,
+    Mode2 = 2,
+}
+impl ShadowMode {
+    pub fn from_i32(value: i32) -> Option<Self> {
+        match value {
+            0 => Some(Self::Mode0),
+            1 => Some(Self::Mode1),
+            2 => Some(Self::Mode2),
+            _ => None,
+        }
+    }
+}
+/// Device calls behind visual SetSpace (PC RVA 0x5a3c0) stay backend
+/// contracts: VisualType2String + dbgPrintf. Getters run in native order
+/// (type, then name) before the print.
+pub trait VisualSpaceBackend {
+    type Error;
+    fn visual_type_label(&mut self, visual_type: u32) -> Result<String, Self::Error>;
+    fn frame_name(&mut self) -> Result<Option<String>, Self::Error>;
+    fn debug_print_unsupported_set_space(
+        &mut self,
+        type_label: &str,
+        frame_name: Option<&str>,
+    ) -> Result<(), Self::Error>;
+}
+/// Original I3D_void_interface setters, PC RVAs 0x5a760/0x5a770 (contract:
+/// 2-insn walks, no Ghidra body; mafia-re I3d_visual.cpp:157-167). Params
+/// unused; observed RET cleanups 0x10/0xc retained as evidence. SetWeight
+/// returns I3DERR_GENERIC 0x80000005; GetWeight returns +0.0
+/// (byte-verified const).
+pub fn visual_void_set_weight(_region: i32, _level: i32, _weight: f32) -> i32 {
+    0x8000_0005u32 as i32
+}
+pub fn visual_void_get_weight(_region: i32, _level: i32) -> f32 {
+    0.0
+}
 impl I3dFrameGraph {
     pub fn insert(&mut self, state: I3dFrameState) -> Result<FrameKey, FrameError> {
         let id = u32::try_from(self.nodes.len())
@@ -504,6 +547,18 @@ impl I3dFrameGraph {
         node.state.flags = (node.state.flags & !clear) | set;
         Ok(())
     }
+    /// Dummy-flag word stores for the Normalize limbs (PC RVA 0x1a350).
+    /// Mirrors change_flags on the separate dummy_flags word.
+    pub fn change_dummy_flags(
+        &mut self,
+        key: FrameKey,
+        clear: u32,
+        set: u32,
+    ) -> Result<(), FrameError> {
+        let node = self.node_mut(key)?;
+        node.state.dummy_flags = (node.state.dummy_flags & !clear) | set;
+        Ok(())
+    }
     pub fn state(&self, key: FrameKey) -> Result<&I3dFrameState, FrameError> {
         Ok(&self.node(key)?.state)
     }
@@ -661,6 +716,14 @@ impl I3dFrameGraph {
             .as_ref()
             .ok_or(FrameError::NotJoint(key))
     }
+    /// Mutable joint projection for the Duplicate derived half (PC RVA
+    /// 0x1eeb0). Mirrors joint_state.
+    pub fn joint_state_mut(&mut self, key: FrameKey) -> Result<&mut I3dJointState, FrameError> {
+        self.node_mut(key)?
+            .joint
+            .as_mut()
+            .ok_or(FrameError::NotJoint(key))
+    }
     /// Import a known PC joint projection, including an available native cache.
     /// This host intake does not execute the original constructor or loader.
     pub fn insert_joint_state(
@@ -807,6 +870,114 @@ impl I3dFrameGraph {
         if state.visual_flags & 0x40 == 0 {
             state.visual_flags &= !0x40000;
         }
+        Ok(true)
+    }
+    /// Original visual base state, PC RVA 0x5a200 (differential: Ghidra body
+    /// 324 B, 63 insn/1 BB; mafia-re I3d_visual.cpp:8-19). Upstream working
+    /// names, not original symbols. Base word only: frame ctor, invalidated
+    /// bboxes, zeroed spheres, vis_flags 0x2200 (VISF_SHADOW|VISF_PROJECTOR).
+    /// Derived object words (e.g. VISF_OBJECT 0x800 in mesh()) stay with
+    /// their loader-owned constructors.
+    pub fn visual_base_state() -> I3dFrameState {
+        let mut state = I3dFrameState::model();
+        state.visual_flags = 0x2200;
+        state
+    }
+    /// Upstream working names for SHADOW_MODE_0/1/2 (mafia-re
+    /// I3d_visual.cpp:55-103), adapted to snake_case. Contract tier per the
+    /// unresolved-boundary rule: no Ghidra body (not_found; vtable-referenced
+    /// bytes, procedure:null); behavior from entry/mid/RET probes.
+    pub fn set_visual_shadow_mode(&mut self, key: FrameKey, mode: i32) -> Result<bool, FrameError> {
+        let Some(mode) = ShadowMode::from_i32(mode) else {
+            self.state(key)?;
+            return Ok(false);
+        };
+        let flags = &mut self.node_mut(key)?.state.visual_flags;
+        match mode {
+            ShadowMode::Mode0 => *flags &= !0x600,
+            ShadowMode::Mode1 => *flags = (*flags & !0x400) | 0x200,
+            ShadowMode::Mode2 => *flags |= 0x600,
+        }
+        Ok(true)
+    }
+    /// PC RVA 0x5a460: TEST AH,4 (bit10 0x400) then (flags>>9)&1.
+    pub fn visual_shadow_mode(&self, key: FrameKey) -> Result<ShadowMode, FrameError> {
+        let flags = self.state(key)?.visual_flags;
+        if flags & 0x400 != 0 {
+            return Ok(ShadowMode::Mode2);
+        }
+        Ok(if flags & 0x200 != 0 {
+            ShadowMode::Mode1
+        } else {
+            ShadowMode::Mode0
+        })
+    }
+    /// PC RVA 0x5a480: same switch shape with 0x6000/0x2000/0x9fff masks.
+    pub fn set_visual_projector_mode(
+        &mut self,
+        key: FrameKey,
+        mode: i32,
+    ) -> Result<bool, FrameError> {
+        let Some(mode) = ShadowMode::from_i32(mode) else {
+            self.state(key)?;
+            return Ok(false);
+        };
+        let flags = &mut self.node_mut(key)?.state.visual_flags;
+        match mode {
+            ShadowMode::Mode0 => *flags &= !0x6000,
+            ShadowMode::Mode1 => *flags = (*flags & !0x4000) | 0x2000,
+            ShadowMode::Mode2 => *flags |= 0x6000,
+        }
+        Ok(true)
+    }
+    /// PC RVA 0x5a4d0: TEST AH,0x40 (bit14 0x4000) then (flags>>13)&1.
+    pub fn visual_projector_mode(&self, key: FrameKey) -> Result<ShadowMode, FrameError> {
+        let flags = self.state(key)?.visual_flags;
+        if flags & 0x4000 != 0 {
+            return Ok(ShadowMode::Mode2);
+        }
+        Ok(if flags & 0x2000 != 0 {
+            ShadowMode::Mode1
+        } else {
+            ShadowMode::Mode0
+        })
+    }
+    /// PC RVA 0x5a4f0: OR 0x20000, exact 3-insn body.
+    pub fn mark_visual_bound_valid(&mut self, key: FrameKey) -> Result<(), FrameError> {
+        self.node_mut(key)?.state.visual_flags |= 0x20000;
+        Ok(())
+    }
+    /// Original SetSpace, PC RVA 0x5a3c0 (contract: no Ghidra body;
+    /// entry/mid/RET probes + format bytes; mafia-re I3d_visual.cpp:40-51).
+    /// Ok(false) = early return, zero backend effects (both no-change arms
+    /// evidenced). Else backend effects in native order (type, then name,
+    /// then print); no flag is ever mutated (native SetSpace stores
+    /// nothing). The visual_type word (+0x1d4) has no arena field yet, so the
+    /// caller supplies it (narrow adapter — adding the field is a layout
+    /// claim needing its own evidence). Device calls (VisualType2String +
+    /// dbgPrintf) stay backend contracts.
+    pub fn set_visual_space<B: VisualSpaceBackend>(
+        &mut self,
+        key: FrameKey,
+        world: bool,
+        visual_type: u32,
+        backend: &mut B,
+    ) -> Result<bool, FrameError>
+    where
+        FrameError: From<B::Error>,
+    {
+        self.state(key)?;
+        let world_space = self.state(key)?.visual_flags & 0x40 != 0;
+        if world_space == world {
+            return Ok(false);
+        }
+        let label = backend
+            .visual_type_label(visual_type)
+            .map_err(FrameError::from)?;
+        let name = backend.frame_name().map_err(FrameError::from)?;
+        backend
+            .debug_print_unsupported_set_space(&label, name.as_deref())
+            .map_err(FrameError::from)?;
         Ok(true)
     }
     /// Populated-definition UpdateBVolumeProc path (PC RVA0x54810), after a
@@ -1961,6 +2132,18 @@ impl I3dFrameGraph {
             } else if s.kind == FrameKind::Dummy {
                 s.dummy_flags &= !0x10;
             }
+        }
+        Ok(())
+    }
+    /// Original dummy UpdateV, PC RVA 0x1a330 (contract: TEST
+    /// [ECX+0xac],0x40002000 walk, no Ghidra body; mafia-re
+    /// I3d_dummy.cpp:38-44). Clears DUMMYF_INV_MAT_VALID (0x10, I3D.h:1815)
+    /// iff UPDATE|CHANGED set. Complements the generic update flag
+    /// bookkeeping (which clears the same bit in its DIRTY arm) with the
+    /// exact native gate.
+    pub fn dummy_update_v(&mut self, key: FrameKey) -> Result<(), FrameError> {
+        if self.state(key)?.flags & 0x4000_2000 != 0 {
+            self.node_mut(key)?.state.dummy_flags &= !0x10;
         }
         Ok(())
     }
@@ -3588,5 +3771,104 @@ mod tests {
         );
         assert_eq!(graph.node(bad).unwrap().local_error, Some(dir_error));
         assert_eq!(graph.node(bad).unwrap().world_error, Some(dir_error));
+    }
+
+    #[test]
+    fn visual_base_word_is_2200_not_2a00() {
+        assert_eq!(I3dFrameGraph::visual_base_state().visual_flags, 0x2200);
+        assert_eq!(I3dFrameState::mesh().visual_flags, 0x2a00);
+        assert_eq!(I3dFrameState::lensflare().visual_flags, 0x2a00);
+    }
+    #[test]
+    fn shadow_projector_mode_roundtrips() {
+        let mut graph = I3dFrameGraph::default();
+        let key = graph.insert(I3dFrameState::model()).unwrap();
+        for mode in [0, 1, 2] {
+            assert!(graph.set_visual_shadow_mode(key, mode).unwrap());
+            assert_eq!(
+                graph.visual_shadow_mode(key).unwrap(),
+                ShadowMode::from_i32(mode).unwrap()
+            );
+            assert!(graph.set_visual_projector_mode(key, mode).unwrap());
+            assert_eq!(
+                graph.visual_projector_mode(key).unwrap(),
+                ShadowMode::from_i32(mode).unwrap()
+            );
+        }
+        // Out-of-range modes are ignored with no flag effects (residue).
+        let before = graph.state(key).unwrap().visual_flags;
+        for mode in [3, -1, i32::MAX, i32::MIN] {
+            assert!(!graph.set_visual_shadow_mode(key, mode).unwrap());
+            assert!(!graph.set_visual_projector_mode(key, mode).unwrap());
+        }
+        assert_eq!(graph.state(key).unwrap().visual_flags, before);
+        // Mask isolation: shadow writes never touch projector bits and back.
+        graph.set_visual_shadow_mode(key, 2).unwrap();
+        graph.set_visual_projector_mode(key, 0).unwrap();
+        assert_eq!(graph.state(key).unwrap().visual_flags & 0x600, 0x600);
+        assert_eq!(graph.state(key).unwrap().visual_flags & 0x6000, 0);
+    }
+    struct SpaceLog {
+        calls: Vec<String>,
+    }
+    impl VisualSpaceBackend for SpaceLog {
+        type Error = FrameError;
+        fn visual_type_label(&mut self, visual_type: u32) -> Result<String, Self::Error> {
+            self.calls.push(format!("type:{visual_type:#x}"));
+            Ok(format!("vt{visual_type:#x}"))
+        }
+        fn frame_name(&mut self) -> Result<Option<String>, Self::Error> {
+            self.calls.push("name".to_string());
+            Ok(Some("frame".to_string()))
+        }
+        fn debug_print_unsupported_set_space(
+            &mut self,
+            type_label: &str,
+            frame_name: Option<&str>,
+        ) -> Result<(), Self::Error> {
+            self.calls
+                .push(format!("print:{type_label}:{}", frame_name.unwrap_or("?")));
+            Ok(())
+        }
+    }
+    #[test]
+    fn set_visual_space_no_change_has_no_backend_effects() {
+        let mut graph = I3dFrameGraph::default();
+        let key = graph.insert(I3dFrameState::model()).unwrap();
+        let mut log = SpaceLog { calls: Vec::new() };
+        // Local space already: both no-change arms are backend-silent.
+        assert!(!graph
+            .set_visual_space(key, false, 0x5f4a424f, &mut log)
+            .unwrap());
+        assert!(log.calls.is_empty());
+        graph.node_mut(key).unwrap().state.visual_flags |= 0x40;
+        assert!(!graph
+            .set_visual_space(key, true, 0x5f4a424f, &mut log)
+            .unwrap());
+        assert!(log.calls.is_empty());
+        // Change arm calls type -> name -> print in order, flags untouched.
+        let before = graph.state(key).unwrap().visual_flags;
+        assert!(graph
+            .set_visual_space(key, false, 0x5f4a424f, &mut log)
+            .unwrap());
+        assert_eq!(
+            log.calls,
+            ["type:0x5f4a424f", "name", "print:vt0x5f4a424f:frame"]
+        );
+        assert_eq!(graph.state(key).unwrap().visual_flags, before);
+    }
+    #[test]
+    fn void_weight_words() {
+        for (region, level) in [(0, 0), (1, 2), (-1, -1), (i32::MAX, i32::MIN)] {
+            assert_eq!(
+                visual_void_set_weight(region, level, 0.5),
+                0x8000_0005u32 as i32
+            );
+            assert_eq!(
+                visual_void_set_weight(region, level, f32::NAN),
+                0x8000_0005u32 as i32
+            );
+            assert_eq!(visual_void_get_weight(region, level).to_bits(), 0x0000_0000);
+        }
     }
 }

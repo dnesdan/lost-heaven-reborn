@@ -6,6 +6,9 @@
 //! provides the matrix cache and singlemesh binding operations.
 use crate::{frame_transform::FrameKey, native_transform::SMatrix};
 
+/// JOINTF_LOADED 0x1 (I3D.h:2033): bone_matrix and index came from the file.
+pub const JOINTF_LOADED: u32 = 0x1;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct I3dJointState {
     /// PC +0x140: the matrix read verbatim from the joint image.

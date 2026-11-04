@@ -112,6 +112,39 @@ pub enum LodState {
     Constructed,
     Destructed,
 }
+/// VISF_DUPLICATE_MASK per mafia-re I3d_object.cpp:141-143 (PC RVA 0x36b10).
+pub const DUPLICATE_VIS_MASK: u32 = 0x2_ffd0;
+/// Object-field snapshot copied by Duplicate (PC RVA 0x36b10): bitwise
+/// floats, masked visual flags, plain bound volume.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DuplicateObjectFields {
+    pub lightness: f32,
+    pub transparency: f32,
+    pub fade: f32,
+    pub visual_flags_masked: u32,
+    pub bounds: crate::mesh_bounds::MeshBoundVolume,
+    pub world_space: bool,
+}
+/// CPU tail parameters for lod::Create (PC RVA 0x37030): masked format,
+/// vertex stride in floats, and whether the VB alloc arm is needed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LodCreateParams {
+    pub format: u32,
+    pub stride_floats: u32,
+    pub needs_alloc: bool,
+}
+/// Boundary marker for m_AddFGroups (PC RVA 0x38020, contract only).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ObjectFaceGroupContract;
+/// lod::SetUV per-vertex offset add (PC RVA 0x36d00): host f32 adds with the
+/// crate checked-add domain (x87 differences quarantined to the backend).
+pub fn lod_uv_pair(uv: [f32; 2], ofs: [f32; 2]) -> Result<[f32; 2], ObjectLodError> {
+    use crate::native_matrix::checked_f32_add as add;
+    Ok([
+        add(uv[0], ofs[0]).map_err(|_| ObjectLodError::NumericDomain)?,
+        add(uv[1], ofs[1]).map_err(|_| ObjectLodError::NumericDomain)?,
+    ])
+}
 /// Represented fields written by the plain PC lod constructor. Padding byte
 /// 0x2f and the machine vtable pointer are deliberately not fabricated fields.
 #[derive(Debug, PartialEq)]
@@ -145,6 +178,24 @@ pub struct I3dObjectResources {
     /// Ordinary render state on this same owner; constructor values from source.
     pub cur_lod: u32,
     pub fade: f32,
+    /// PC +0x210 (I3d_object.cpp:18, ctor 1.0). Bitwise copies, no arithmetic.
+    pub lightness: f32,
+    /// PC +0x214 (I3d_object.cpp:19, ctor 1.0). Bitwise copies, no arithmetic.
+    pub transparency: f32,
+    /// VISF_WORLD_SPACE 0x40 at +0x1d8 (I3D.h:2672). Host-owned bool; the
+    /// native word shares vis_flags with other bits (see visual_flags).
+    pub world_space: bool,
+    /// Observed 0x100000 word at +0x1d8 in the SetSpace world arm
+    /// (I3D.h:2688 names it VISF_INV_MAT_VALID; the reference spells
+    /// WBOUND_VALID there — the port records the observed word).
+    pub inv_matrix_valid: bool,
+    /// Object-level visual flag word (base 0x2200 per I3D_visual ctor;
+    /// VISF_OBJECT 0x800 etc. set by derived loaders). The frame-level
+    /// visual_flags stay with the frame; this word travels with Duplicate.
+    pub visual_flags: u32,
+    /// Object bound volume (bbox + bsphere = native 10 dwords). Invalidated
+    /// constructor box; bound-volume APIs recompute it.
+    pub bounds: crate::mesh_bounds::MeshBoundVolume,
     /// All ten slots are cleared together only after all LOD deletes succeed.
     pub lods: [Option<PlainLodKey>; 10],
     pub phase: ObjectCleanupPhase,
@@ -276,6 +327,12 @@ impl ObjectResources {
             mesh,
             cur_lod: 0,
             fade: 1.,
+            lightness: 1.,
+            transparency: 1.,
+            world_space: false,
+            inv_matrix_valid: false,
+            visual_flags: 0x2200,
+            bounds: crate::mesh_bounds::MeshBoundVolume::CONSTRUCTOR,
             lods: [None; 10],
             phase: ObjectCleanupPhase::Alive,
             lit_object: None,
@@ -1321,6 +1378,276 @@ impl ObjectResources {
         }
         Ok(())
     }
+    /// Original SetMesh keep_lods arm, PC RVA 0x368e0 (differential: Ghidra
+    /// body 307 B, 101 insn/25 BB; mafia-re I3d_object.cpp:39-67). Closes the
+    /// preserve_lods gap in set_object_mesh with the evidenced IsCompatible
+    /// gate: same-pointer returns Ok(false) with no effects; keep holds only
+    /// for (Some(old), Some(new)) compatible pairs, else the 10-lod delete
+    /// runs. Returns whether the LOD array was cleared. Slot indexing uses
+    /// the validating self.index() (slot 0 can never underflow here — the
+    /// object was just read). Poison mirrors set_object_mesh on any closure
+    /// error including backend failures (the binary has no sticky-fault word
+    /// — host admission, same precedent). Plain/Billboard gate mirrors
+    /// set_object_mesh.
+    pub fn set_object_mesh_keep_compatible<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        object: ObjectResourceKey,
+        mesh: Option<MeshObjectKey>,
+        preserve_lods: bool,
+        backend: &mut B,
+    ) -> Result<bool, ObjectOperationError<B::Error>> {
+        self.available()?;
+        if !matches!(
+            self.object(object)?.visual_type(),
+            ObjectVisualType::Plain | ObjectVisualType::Billboard
+        ) {
+            return Err(ObjectError::UnsupportedVisualSubtype.into());
+        }
+        let old = self.object(object)?.mesh;
+        if old == mesh {
+            return Ok(false);
+        }
+        if let Some(mesh) = mesh {
+            self.managed
+                .resources()
+                .mesh_object(mesh)
+                .map_err(ManagedError::from)?;
+        }
+        let keep = if preserve_lods {
+            match (old, mesh) {
+                (Some(previous), Some(next)) => self.is_mesh_compatible(next, previous)?,
+                _ => false,
+            }
+        } else {
+            false
+        };
+        let index = self.index(object.arena, object.slot)?;
+        let result = (|| {
+            if !keep {
+                for slot in 0..10 {
+                    if let Some(lod) = self.objects[index].as_ref().unwrap().lods[slot] {
+                        self.cleanup_lod(lod, backend)?;
+                        self.lods[(lod.slot - 1) as usize] = None;
+                    }
+                }
+                self.objects[index].as_mut().unwrap().lods = [None; 10];
+            }
+            if let Some(old) = old {
+                managed_result(self.managed.release_mesh_object(old, backend))?;
+            }
+            self.objects[index].as_mut().unwrap().mesh = mesh;
+            if let Some(mesh) = mesh {
+                self.managed.retain_mesh_object(mesh)?;
+            }
+            Ok(())
+        })();
+        if result.is_err() {
+            self.poisoned = true;
+        }
+        result.map(|()| !keep)
+    }
+    /// Original UpdateVertices(), PC RVA 0x36a20 (differential: Ghidra body
+    /// 35 B, 12 insn/5 BB; mafia-re I3d_object.cpp:71-77). Marks all 10
+    /// present slots dirty (+0x2c). No mesh read, no failure word. Returns
+    /// the marked count.
+    pub fn mark_all_object_lods_dirty(
+        &mut self,
+        object: ObjectResourceKey,
+    ) -> Result<u32, ObjectError> {
+        self.available()?;
+        let mut marked = 0u32;
+        for slot in 0..10 {
+            if let Some(lod) = self.object(object)?.lods[slot] {
+                let index = self.index(lod.arena, lod.slot)?;
+                self.lods[index]
+                    .as_mut()
+                    .ok_or(ObjectError::UnknownLod(lod))?
+                    .dirty = true;
+                marked += 1;
+            }
+        }
+        Ok(marked)
+    }
+    /// Original DetachMesh(), PC RVA 0x36a70 (differential: Ghidra body 150 B,
+    /// 57 insn/8 BB; mafia-re I3d_object.cpp:89-108). Effect order: shared
+    /// mesh (refs>=2) else Ok(false); driver CreateMesh + Duplicate are
+    /// backend contracts (no live D3D8 device); the fatal OOM word
+    /// 0x80000002 surfaces HostAllocation, other negative duplicate codes
+    /// surface MeshCompatibilityUnavailable (no closer host error exists —
+    /// disclosed); else release old, store new.
+    /// Native words: 0 ok, 0x80000002 fatal OOM, negative passthrough.
+    pub fn detach_object_mesh_to_unique<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        object: ObjectResourceKey,
+        backend: &mut B,
+    ) -> Result<bool, ObjectOperationError<B::Error>> {
+        self.available()?;
+        let mesh = self.object(object)?.mesh;
+        let Some(mesh) = mesh else {
+            return Ok(false);
+        };
+        let references = self
+            .managed
+            .resources()
+            .mesh_object(mesh)
+            .map_err(ManagedError::from)?
+            .references;
+        if references < 2 {
+            return Ok(false);
+        }
+        let fresh = self.managed.create_mesh_object()?;
+        let code = managed_result(
+            self.managed
+                .duplicate_mesh_object(fresh, Some(mesh), backend),
+        )?;
+        if code == 0x8000_0002u32 as i32 {
+            // Fatal native OOM word: distinct from a backend passthrough
+            // failure below (duplicate_mesh_object surfaces it verbatim).
+            managed_result(self.managed.release_mesh_object(fresh, backend))?;
+            return Err(ObjectError::HostAllocation.into());
+        }
+        if code < 0 {
+            managed_result(self.managed.release_mesh_object(fresh, backend))?;
+            return Err(ObjectError::MeshCompatibilityUnavailable.into());
+        }
+        // A failed old-mesh release keeps the old mesh stored; the fresh mesh
+        // is released so neither leaks (backend may still have effects —
+        // disclosed, same class as the interruption prefix rule).
+        managed_result(self.managed.release_mesh_object(mesh, backend)).inspect_err(|_| {
+            let _ = self.managed.release_mesh_object(fresh, backend);
+        })?;
+        self.objects[(object.slot - 1) as usize]
+            .as_mut()
+            .unwrap()
+            .mesh = Some(fresh);
+        Ok(true)
+    }
+    /// Original Duplicate object-field prefix, PC RVA 0x36b10 (differential:
+    /// Ghidra body 346 B, 100 insn/27 BB; mafia-re I3d_object.cpp:112-153).
+    /// Copies lightness/transparency/fade bitwise, visual flags masked with
+    /// VISF_DUPLICATE_MASK 0x2ffd0, the bound volume, world_space, and clears
+    /// inv_matrix_valid. SOLE owner of the Duplicate scalar block: lit callers
+    /// use this for scalars plus their lighting-settings copy (never a split
+    /// word set). The frame-base Duplicate and SetMesh run before/around this
+    /// (owned by callers); the emitor branch resolves through
+    /// set_object_mesh(keep=true). Accepted visual types are the six fourccs
+    /// mapped by source_fourcc (other native fourccs have no arena variant —
+    /// the closed enum keeps this total and explicit). World-bound recompute
+    /// travels with the bound-volume APIs; the snapshot carries the plain
+    /// bound (disclosed).
+    pub fn duplicate_object_render_state(
+        &mut self,
+        destination: ObjectResourceKey,
+        source: ObjectResourceKey,
+    ) -> Result<DuplicateObjectFields, ObjectError> {
+        self.available()?;
+        self.object(destination)?;
+        let src = self.object(source)?;
+        const ALLOW: [u32; 6] = [
+            0x5f4a424f, 0x50414d4c, 0x4d474e53, 0x4850524d, 0x524d4d53, 0x44524242,
+        ];
+        if !ALLOW.contains(&src.visual_type().source_fourcc()) {
+            return Err(ObjectError::UnsupportedVisualSubtype);
+        }
+        let snapshot = DuplicateObjectFields {
+            lightness: src.lightness,
+            transparency: src.transparency,
+            fade: src.fade,
+            visual_flags_masked: src.visual_flags & DUPLICATE_VIS_MASK,
+            bounds: src.bounds,
+            world_space: src.world_space,
+        };
+        let di = (destination.slot - 1) as usize;
+        let dst = self.objects[di]
+            .as_mut()
+            .ok_or(ObjectError::UnknownObject(destination))?;
+        dst.lightness = snapshot.lightness;
+        dst.transparency = snapshot.transparency;
+        dst.fade = snapshot.fade;
+        dst.visual_flags = snapshot.visual_flags_masked;
+        dst.bounds = snapshot.bounds;
+        dst.world_space = snapshot.world_space;
+        dst.inv_matrix_valid = false;
+        Ok(snapshot)
+    }
+    /// Original lod::SetUV CPU policy, PC RVA 0x36d00 (differential: Ghidra
+    /// body 806 B, 270 insn/54 BB; mafia-re I3d_object.cpp:181-241). Stores
+    /// u_ofs/v_ofs FIRST (native order), masks format&=3, and returns the
+    /// vertex stride in floats for the (format, hwtl) pair. The VB Lock/copy
+    /// upload is a backend contract (no live device); offsets store
+    /// unconditionally like the binary (no domain gate). hwtl is caller
+    /// state (no arena hwtl flag exists — documented parameter).
+    pub fn store_lod_uv_offsets(
+        &mut self,
+        lod: PlainLodKey,
+        format: u32,
+        uo: f32,
+        vo: f32,
+        hwtl: bool,
+    ) -> Result<(u32, u32), ObjectError> {
+        self.available()?;
+        let i = self.index(lod.arena, lod.slot)?;
+        let record = self.lods[i].as_mut().ok_or(ObjectError::UnknownLod(lod))?;
+        record.u_ofs = uo;
+        record.v_ofs = vo;
+        Ok((
+            format & 3,
+            match (format & 3, hwtl) {
+                (1, true) => 6,
+                (2, true) => 8,
+                (1, false) => 8,
+                _ => 10,
+            },
+        ))
+    }
+    /// Original lod::Create CPU tail, PC RVA 0x37030 (differential: Ghidra
+    /// body 2165 B, 709 insn/137 BB; mafia-re I3d_object.cpp:247-451). The
+    /// VB alloc + vertex fill are backend contracts (alloc words and FVF
+    /// selectors need a second pass against D3D8 constants — disclosed).
+    /// This tail records the format mask + stride selection and the terminal
+    /// dirty=false store on the live record. hwtl is caller state (see
+    /// store_lod_uv_offsets).
+    pub fn prepare_plain_lod_create(
+        &mut self,
+        lod: PlainLodKey,
+        format: u32,
+        hwtl: bool,
+    ) -> Result<LodCreateParams, ObjectError> {
+        self.available()?;
+        let i = self.index(lod.arena, lod.slot)?;
+        let needs_alloc = self.lods[i]
+            .as_ref()
+            .ok_or(ObjectError::UnknownLod(lod))?
+            .vertex_buffer
+            .buffer
+            .is_none();
+        let format = format & 7;
+        let stride_floats = match (format, hwtl) {
+            (1, true) => 6,
+            (2, true) => 8,
+            (1, false) => 8,
+            _ => 10,
+        };
+        self.lods[i].as_mut().unwrap().dirty = false;
+        Ok(LodCreateParams {
+            format,
+            stride_floats,
+            needs_alloc,
+        })
+    }
+    /// Original m_AddFGroups, PC RVA 0x38020 (contract: Ghidra formed no
+    /// body — unformed gap 0x100378a5-0x10037dcf; mafia-re I3d_object.cpp:
+    /// 594-852 reference only). Boundary marker: proxy-sector walk, W-bound
+    /// distance, LOD-create gate, lighting/env/vertex processing and the
+    /// sort-value queue are unevidenced here; every D3D8 call stays a backend
+    /// contract. Always reports the boundary (no parity credit).
+    pub fn queue_object_face_groups_contract(
+        &self,
+        _object: ObjectResourceKey,
+    ) -> Result<ObjectFaceGroupContract, ObjectError> {
+        self.available()?;
+        Err(ObjectError::UnsupportedVisualSubtype)
+    }
 }
 
 impl ObjectResources {
@@ -1978,9 +2305,554 @@ mod tests {
         );
         assert!(!r.is_poisoned());
     }
+    #[test]
+    fn setmesh_same_ptr_is_noop_then_null_clears() {
+        let mut r = ObjectResources::new().unwrap();
+        let mut b = Backend::default();
+        let object = r.create_object_resources(None).unwrap();
+        assert!(!r
+            .set_object_mesh_keep_compatible(object, None, true, &mut b)
+            .unwrap());
+        let (mesh, _, _) = shared_mesh(&mut r, &mut b);
+        assert!(r
+            .set_object_mesh_keep_compatible(object, Some(mesh), false, &mut b)
+            .unwrap());
+        assert_eq!(r.object(object).unwrap().mesh, Some(mesh));
+        assert!(!r
+            .set_object_mesh_keep_compatible(object, Some(mesh), true, &mut b)
+            .unwrap());
+        assert!(r
+            .set_object_mesh_keep_compatible(object, None, false, &mut b)
+            .unwrap());
+        assert_eq!(r.object(object).unwrap().mesh, None);
+        assert!(r
+            .object(object)
+            .unwrap()
+            .lods
+            .iter()
+            .all(|slot| slot.is_none()));
+    }
+    #[test]
+    fn setmesh_keep_compatible_skips_lod_delete() {
+        let mut r = ObjectResources::new().unwrap();
+        let mut b = Backend::default();
+        let (mesh_a, _, _) = shared_mesh(&mut r, &mut b);
+        let (mesh_b, _, _) = shared_mesh(&mut r, &mut b);
+        assert!(r.is_mesh_compatible(mesh_b, mesh_a).unwrap());
+        let bare = r.create_mesh_object().unwrap();
+        assert!(!r.is_mesh_compatible(mesh_a, bare).unwrap());
+        let object = r.create_object_resources(Some(mesh_a)).unwrap();
+        let lod = r.create_plain_lod().unwrap();
+        r.adopt_plain_lod(object, 0, lod).unwrap();
+        // Compatible keep: LOD survives, mesh swaps, returns not-cleared.
+        assert!(!r
+            .set_object_mesh_keep_compatible(object, Some(mesh_b), true, &mut b)
+            .unwrap());
+        assert_eq!(r.object(object).unwrap().mesh, Some(mesh_b));
+        assert_eq!(r.object(object).unwrap().lods[0], Some(lod));
+        // Incompatible keep: full clear, returns cleared.
+        assert!(r
+            .set_object_mesh_keep_compatible(object, Some(bare), true, &mut b)
+            .unwrap());
+        assert_eq!(r.object(object).unwrap().mesh, Some(bare));
+        assert!(r
+            .object(object)
+            .unwrap()
+            .lods
+            .iter()
+            .all(|slot| slot.is_none()));
+        assert!(!r.is_poisoned());
+    }
+    #[test]
+    fn update_all_marks_only_present_slots() {
+        let mut r = ObjectResources::new().unwrap();
+        let object = r.create_object_resources(None).unwrap();
+        let mut keys = Vec::new();
+        for slot in [0u32, 3, 9] {
+            let lod = r.create_plain_lod().unwrap();
+            r.adopt_plain_lod(object, slot, lod).unwrap();
+            keys.push(lod);
+        }
+        assert_eq!(r.mark_all_object_lods_dirty(object).unwrap(), 3);
+        for lod in keys {
+            assert!(r.lod(lod).unwrap().dirty);
+        }
+    }
+    #[test]
+    fn update_indexed_bounds_rejects_oob() {
+        let mut r = ObjectResources::new().unwrap();
+        let object = r.create_object_resources(None).unwrap();
+        assert_eq!(
+            r.update_object_vertices(object, 10),
+            Err(ObjectError::InvalidIndex(10))
+        );
+        // Empty slot is a silent no-op.
+        r.update_object_vertices(object, 2).unwrap();
+        let lod = r.create_plain_lod().unwrap();
+        r.adopt_plain_lod(object, 2, lod).unwrap();
+        r.update_object_vertices(object, 2).unwrap();
+        assert!(r.lod(lod).unwrap().dirty);
+    }
+    #[test]
+    fn detach_single_ref_is_noop_shared_duplicates() {
+        let mut r = ObjectResources::new().unwrap();
+        let mut b = Backend::default();
+        // No mesh at all: no-op.
+        let bare = r.create_object_resources(None).unwrap();
+        assert!(!r.detach_object_mesh_to_unique(bare, &mut b).unwrap());
+        let (mesh, _, _) = shared_mesh(&mut r, &mut b);
+        let object = r.create_object_resources(Some(mesh)).unwrap();
+        // Owned meshes carry test + object references: shared, duplicates.
+        assert!(r.detach_object_mesh_to_unique(object, &mut b).unwrap());
+        let fresh = r.object(object).unwrap().mesh.unwrap();
+        assert_ne!(fresh, mesh);
+        // The fresh mesh is uniquely owned now: second detach is a no-op.
+        assert!(!r.detach_object_mesh_to_unique(object, &mut b).unwrap());
+        assert_eq!(r.object(object).unwrap().mesh, Some(fresh));
+        assert!(!r.is_poisoned());
+    }
+    #[test]
+    fn duplicate_field_copy_masks_and_copies_bounds() {
+        use super::object_lod::{
+            render_stage_reset_flags, render_total_alpha, ObjectSpaceTransition,
+        };
+        let mut r = ObjectResources::new().unwrap();
+        let mut b = Backend::default();
+        let (mesh, _, _) = shared_mesh(&mut r, &mut b);
+        let src = r.create_object_resources(Some(mesh)).unwrap();
+        let dst = r.create_object_resources(Some(mesh)).unwrap();
+        {
+            let record = r.objects[(src.slot - 1) as usize].as_mut().unwrap();
+            record.lightness = 0.5;
+            record.transparency = 0.25;
+            record.fade = 0.75;
+            record.world_space = true;
+            record.inv_matrix_valid = true;
+            record.visual_flags = 0xffff_ffff;
+            record.bounds = crate::mesh_bounds::MeshBoundVolume {
+                bbox: [[-1., -2., -3.], [4., 5., 6.]],
+                center: [1.5, 1.5, 1.5],
+                radius: 5.,
+            };
+        }
+        let snapshot = r.duplicate_object_render_state(dst, src).unwrap();
+        assert_eq!(
+            (snapshot.lightness, snapshot.transparency, snapshot.fade),
+            (0.5, 0.25, 0.75)
+        );
+        assert_eq!(snapshot.visual_flags_masked, 0x2_ffd0);
+        let record = r.object(dst).unwrap();
+        assert_eq!(record.lightness, 0.5);
+        assert_eq!(record.visual_flags, 0x2_ffd0);
+        assert_eq!(record.bounds.bbox, [[-1., -2., -3.], [4., 5., 6.]]);
+        // Billboard is in the fourcc allowlist; transitions stay usable.
+        let board = r.create_billboard_resources(Some(mesh)).unwrap();
+        r.duplicate_object_render_state(board, src).unwrap();
+        // Lit destination: the single scalar owner copies scalars too (the
+        // lighting-settings copy in copy_object_duplicate_state adds lit
+        // levels on top, never a split word set).
+        let lit = r
+            .create_unconstructed_lit_object_resources(Some(mesh))
+            .unwrap();
+        r.duplicate_object_render_state(lit, src).unwrap();
+        let lit_record = r.object(lit).unwrap();
+        assert_eq!(
+            (
+                lit_record.lightness,
+                lit_record.transparency,
+                lit_record.fade,
+                lit_record.world_space,
+                lit_record.inv_matrix_valid
+            ),
+            (0.5, 0.25, 0.75, true, false)
+        );
+        let _ = (
+            ObjectSpaceTransition::AlreadyWorld,
+            render_stage_reset_flags(false, false, false),
+            render_total_alpha(1., 1., 1.).unwrap(),
+        );
+    }
+    #[test]
+    fn lod_uv_store_masks_and_adds_offsets() {
+        let mut r = ObjectResources::new().unwrap();
+        let lod = r.create_plain_lod().unwrap();
+        assert_eq!(
+            r.store_lod_uv_offsets(lod, 7, 0.5, -0.25, false).unwrap(),
+            (3, 10)
+        );
+        let record = r.lod(lod).unwrap();
+        assert_eq!((record.u_ofs, record.v_ofs), (0.5, -0.25));
+        assert_eq!(
+            super::lod_uv_pair([1., 2.], [0.5, -0.25]).unwrap(),
+            [1.5, 1.75]
+        );
+    }
+    #[test]
+    fn prepare_create_records_format_and_clears_dirty() {
+        let mut r = ObjectResources::new().unwrap();
+        let lod = r.create_plain_lod().unwrap();
+        r.lods[(lod.slot - 1) as usize].as_mut().unwrap().dirty = true;
+        let params = r.prepare_plain_lod_create(lod, 9, true).unwrap();
+        assert_eq!(
+            (params.format, params.stride_floats, params.needs_alloc),
+            (1, 6, true)
+        );
+        assert!(!r.lod(lod).unwrap().dirty);
+    }
+    #[test]
+    fn queue_face_groups_reports_contract_boundary() {
+        let mut r = ObjectResources::new().unwrap();
+        let object = r.create_object_resources(None).unwrap();
+        assert_eq!(
+            r.queue_object_face_groups_contract(object),
+            Err(ObjectError::UnsupportedVisualSubtype)
+        );
+    }
+    #[test]
+    fn object_space_flag_machine_and_null_mesh_arms() {
+        let mut r = ObjectResources::new().unwrap();
+        let mut b = Backend::default();
+        let bare = r.create_object_resources(None).unwrap();
+        assert_eq!(
+            r.set_object_space(bare, true).unwrap(),
+            super::object_lod::ObjectSpaceTransition::BakeToWorld
+        );
+        assert!(r.object(bare).unwrap().world_space);
+        assert_eq!(
+            r.set_object_space(bare, true).unwrap(),
+            super::object_lod::ObjectSpaceTransition::AlreadyWorld
+        );
+        // Null-mesh world arm still clears the flag (binary clear-then-check).
+        assert_eq!(
+            r.set_object_space(bare, false).unwrap(),
+            super::object_lod::ObjectSpaceTransition::BakeToLocal
+        );
+        let cleared = r.object(bare).unwrap();
+        assert!(!cleared.world_space && !cleared.inv_matrix_valid);
+        assert_eq!(
+            r.set_object_space(bare, false).unwrap(),
+            super::object_lod::ObjectSpaceTransition::AlreadyLocal
+        );
+        // Mesh-backed world arm sets the 0x100000 word.
+        let (mesh, _, _) = shared_mesh(&mut r, &mut b);
+        let object = r.create_object_resources(Some(mesh)).unwrap();
+        let base = b.events.len();
+        r.set_object_space(object, true).unwrap();
+        r.set_object_space(object, false).unwrap();
+        let record = r.object(object).unwrap();
+        assert!(!record.world_space && record.inv_matrix_valid);
+        // Backend traffic from the shared_mesh fixture predates the state
+        // machine: only count new effects (the machine performs none).
+        assert_eq!(b.events.len(), base);
+    }
+    #[test]
+    fn object_lightness_epsilon_skips_store_and_marks_on_change() {
+        let mut r = ObjectResources::new().unwrap();
+        let mut b = Backend::default();
+        let null = r.create_object_resources(None).unwrap();
+        r.set_object_lightness(null, 0.).unwrap(); // mesh-null skip
+        assert_eq!(r.object(null).unwrap().lightness, 1.);
+        let (mesh, _, _) = shared_mesh(&mut r, &mut b);
+        let object = r.create_object_resources(Some(mesh)).unwrap();
+        let first = r.create_plain_lod().unwrap();
+        r.adopt_plain_lod(object, 0, first).unwrap();
+        r.lods[(first.slot - 1) as usize]
+            .as_mut()
+            .unwrap()
+            .lights_changed = 0;
+        r.set_object_lightness(object, 1.).unwrap(); // equal: skip
+        assert_eq!(
+            r.lods[(first.slot - 1) as usize]
+                .as_ref()
+                .unwrap()
+                .lights_changed,
+            0
+        );
+        r.set_object_lightness(object, 0.).unwrap(); // |0-1| = 1: store
+        assert_eq!(
+            r.object(object).unwrap().lightness.to_bits(),
+            0f32.to_bits()
+        );
+        r.lods[(first.slot - 1) as usize]
+            .as_mut()
+            .unwrap()
+            .lights_changed = 0;
+        r.set_object_lightness(object, 5e-9).unwrap(); // sub-epsilon: skip
+        assert_eq!(
+            r.object(object).unwrap().lightness.to_bits(),
+            0f32.to_bits()
+        );
+        assert_eq!(
+            r.lods[(first.slot - 1) as usize]
+                .as_ref()
+                .unwrap()
+                .lights_changed,
+            0
+        );
+        r.set_object_lightness(object, 5e-8).unwrap(); // above: store + marks
+        assert_eq!(
+            r.object(object).unwrap().lightness.to_bits(),
+            5e-8f32.to_bits()
+        );
+        let lod = r.lod(first).unwrap();
+        assert_eq!((lod.lights_changed, lod.light_key), (u32::MAX, u32::MAX));
+        // Canonical NaN bits are positive-huge: SIGNED compare stores it.
+        r.set_object_lightness(object, f32::NAN).unwrap();
+        assert!(r.object(object).unwrap().lightness.is_nan());
+        // No clamp: out-of-range values store exactly.
+        r.set_object_lightness(object, 2.).unwrap();
+        assert_eq!(
+            r.object(object).unwrap().lightness.to_bits(),
+            2f32.to_bits()
+        );
+    }
+    #[test]
+    fn object_transparency_quantized_compare_stores_without_clamp() {
+        let mut r = ObjectResources::new().unwrap();
+        let mut b = Backend::default();
+        let null = r.create_object_resources(None).unwrap();
+        r.set_object_transparency(null, 0.).unwrap();
+        assert_eq!(r.object(null).unwrap().transparency, 1.);
+        let (mesh, _, _) = shared_mesh(&mut r, &mut b);
+        let object = r.create_object_resources(Some(mesh)).unwrap();
+        let first = r.create_plain_lod().unwrap();
+        r.adopt_plain_lod(object, 0, first).unwrap();
+        r.set_object_transparency(object, 0.).unwrap();
+        assert!(r.lod(first).unwrap().alpha_dirty);
+        r.lods[(first.slot - 1) as usize]
+            .as_mut()
+            .unwrap()
+            .alpha_dirty = false;
+        // 0.5 -> byte 128; 0.50001 stays in byte 128: stored, no dirty.
+        r.set_object_transparency(object, 0.5).unwrap();
+        assert_eq!(
+            r.object(object).unwrap().transparency.to_bits(),
+            0.5f32.to_bits()
+        );
+        assert!(r.lod(first).unwrap().alpha_dirty);
+        r.lods[(first.slot - 1) as usize]
+            .as_mut()
+            .unwrap()
+            .alpha_dirty = false;
+        r.set_object_transparency(object, 0.50001).unwrap();
+        assert!(!r.lod(first).unwrap().alpha_dirty);
+        // Indefinite-word equality: NaN vs NaN has equal bytes (no dirty).
+        r.set_object_transparency(object, f32::NAN).unwrap();
+        assert!(r.object(object).unwrap().transparency.is_nan());
+        assert!(r.lod(first).unwrap().alpha_dirty);
+        r.lods[(first.slot - 1) as usize]
+            .as_mut()
+            .unwrap()
+            .alpha_dirty = false;
+        r.set_object_transparency(object, f32::NAN).unwrap();
+        assert!(!r.lod(first).unwrap().alpha_dirty);
+        // No clamp: 1.5 stores exactly (byte 382).
+        r.set_object_transparency(object, 1.5).unwrap();
+        assert_eq!(
+            r.object(object).unwrap().transparency.to_bits(),
+            1.5f32.to_bits()
+        );
+        assert!(r.lod(first).unwrap().alpha_dirty);
+    }
+    #[test]
+    fn object_reset_light_info_marks_adopted_slots_only() {
+        let mut r = ObjectResources::new().unwrap();
+        let mut b = Backend::default();
+        let null = r.create_object_resources(None).unwrap();
+        r.reset_object_light_info(null).unwrap();
+        let (mesh, _, _) = shared_mesh(&mut r, &mut b);
+        let object = r.create_object_resources(Some(mesh)).unwrap();
+        let first = r.create_plain_lod().unwrap();
+        let hidden = r.create_plain_lod().unwrap();
+        r.adopt_plain_lod(object, 0, first).unwrap();
+        r.adopt_plain_lod(object, 1, hidden).unwrap(); // beyond num_lods=1
+        for key in [first, hidden] {
+            let lod = r.lods[(key.slot - 1) as usize].as_mut().unwrap();
+            lod.lights_changed = 3;
+            lod.light_key = 7;
+            lod.update_count = 0;
+        }
+        r.reset_object_light_info(object).unwrap();
+        let kept = r.lod(first).unwrap();
+        assert_eq!(
+            (kept.lights_changed, kept.light_key, kept.update_count),
+            (u32::MAX, u32::MAX, 0)
+        );
+        let skipped = r.lod(hidden).unwrap();
+        assert_eq!((skipped.lights_changed, skipped.light_key), (3, 7));
+    }
+    #[test]
+    fn object_vertex_lock_guards_and_residue() {
+        let mut r = ObjectResources::new().unwrap();
+        let mut b = Backend::default();
+        let (mesh, _, _) = shared_mesh(&mut r, &mut b);
+        let object = r.create_object_resources(Some(mesh)).unwrap();
+        assert_eq!(
+            r.resolve_object_vertex_lock(object, 10),
+            Err(ObjectError::InvalidIndex(10))
+        );
+        assert_eq!(r.resolve_object_vertex_lock(object, 0).unwrap(), None);
+        let first = r.create_plain_lod().unwrap();
+        r.adopt_plain_lod(object, 0, first).unwrap();
+        assert_eq!(r.resolve_object_vertex_lock(object, 0).unwrap(), None);
+        r.lods[(first.slot - 1) as usize]
+            .as_mut()
+            .unwrap()
+            .vertex_buffer = crate::visual_resources::CompleteVertexBuffer {
+            buffer: Some(crate::visual_resources::VertexBufferPointer::RawBytes(
+                crate::visual_resources::RawVertexBytesKey(7),
+            )),
+            base: 3,
+            graphics: None,
+        };
+        let target = r.resolve_object_vertex_lock(object, 0).unwrap().unwrap();
+        assert_eq!(target.base, 3);
+        // Guard path performs no lock calls: only fixture-prior locks exist.
+        let locked = r.managed.managers().vertex_locked().len();
+        let events = b.events.len();
+        assert_eq!(
+            r.resolve_object_vertex_lock(object, 0)
+                .unwrap()
+                .unwrap()
+                .base,
+            3
+        );
+        assert_eq!(r.resolve_object_vertex_lock(object, 9).unwrap(), None);
+        assert_eq!(r.managed.managers().vertex_locked().len(), locked);
+        assert_eq!(b.events.len(), events);
+    }
+    #[test]
+    fn render_lod_select_total_alpha_and_reset_order() {
+        let mut r = ObjectResources::new().unwrap();
+        let mut b = Backend::default();
+        let (mesh, _, _) = shared_mesh(&mut r, &mut b);
+        let object = r.create_object_resources(Some(mesh)).unwrap();
+        // MATF_LOD0 forces slot 0 regardless of cur_lod.
+        r.objects[(object.slot - 1) as usize]
+            .as_mut()
+            .unwrap()
+            .cur_lod = 7;
+        assert_eq!(r.select_render_lod_index(object, true).unwrap(), 0);
+        // cur_lod beyond count is an error; the cull sentinel
+        // (cur_lod == count == num_lods == 1 here) resolves to Ok(count)
+        // without indexing any slot.
+        assert!(r.select_render_lod_index(object, false).is_err());
+        r.objects[(object.slot - 1) as usize]
+            .as_mut()
+            .unwrap()
+            .cur_lod = 1;
+        assert_eq!(r.select_render_lod_index(object, false).unwrap(), 1);
+        // Sentinel (cur_lod == count == num_lods) resolves without indexing.
+        r.objects[(object.slot - 1) as usize]
+            .as_mut()
+            .unwrap()
+            .cur_lod = 0;
+        // Total-alpha boundary: exactly 1.0 is opaque.
+        assert_eq!(
+            super::object_lod::render_total_alpha(1., 1., 1.)
+                .unwrap()
+                .to_bits(),
+            1f32.to_bits()
+        );
+        assert!(super::object_lod::render_total_alpha(0.9999999, 1., 1.).unwrap() < 1.);
+        assert_eq!(
+            super::object_lod::render_total_alpha(0.5, 0.5, 0.5)
+                .unwrap()
+                .to_bits(),
+            0.125f32.to_bits()
+        );
+        assert_eq!(
+            super::object_lod::render_total_alpha(f32::NAN, 1., 1.),
+            Err(super::object_lod::ObjectLodError::NumericDomain)
+        );
+        // Reset-bit protocol words.
+        assert_eq!(
+            super::object_lod::render_stage_reset_flags(false, false, false),
+            0
+        );
+        assert_eq!(
+            super::object_lod::render_stage_reset_flags(true, false, false),
+            2
+        );
+        assert_eq!(
+            super::object_lod::render_stage_reset_flags(false, true, false),
+            4
+        );
+        assert_eq!(
+            super::object_lod::render_stage_reset_flags(false, false, true),
+            1
+        );
+        assert_eq!(
+            super::object_lod::render_stage_reset_flags(true, true, true),
+            7
+        );
+        // Render-command order the backend submitter must follow.
+        let selected = r.select_render_lod_index(object, false).unwrap();
+        assert_eq!(selected, 0);
+        let total = super::object_lod::render_total_alpha(1., 1., 1.).unwrap();
+        assert_eq!(total.to_bits(), 1f32.to_bits());
+        let reset = super::object_lod::render_stage_reset_flags(true, false, true);
+        assert_eq!(reset, 3);
+    }
+    #[test]
+    fn object_load_image_checked_prefix_and_residue() {
+        let mut r = ObjectResources::new().unwrap();
+        let mut b = Backend::default();
+        let (mesh, _, _) = shared_mesh(&mut r, &mut b);
+        let object = r.create_object_resources(Some(mesh)).unwrap();
+        let intake: Result<(), ObjectOperationError<&'static str>> =
+            Err(ObjectOperationError::State(ObjectError::InvalidIndex(77)));
+        assert_eq!(
+            r.apply_object_load_image_checked(object, None, intake, &mut b),
+            Err(ObjectOperationError::State(ObjectError::InvalidIndex(77)))
+        );
+        assert_eq!(r.object(object).unwrap().mesh, Some(mesh)); // no pollution
+                                                                // Null attach clears the mesh (native Release-skip: no extra release).
+        r.apply_object_load_image_checked(object, None, Ok(()), &mut b)
+            .unwrap();
+        assert_eq!(r.object(object).unwrap().mesh, None);
+        assert!(r
+            .object(object)
+            .unwrap()
+            .lods
+            .iter()
+            .all(|slot| slot.is_none()));
+        // Null-to-null attach is a silent no-op.
+        let bare = r.create_object_resources(None).unwrap();
+        let events = b.events.len();
+        r.apply_object_load_image_checked(bare, None, Ok(()), &mut b)
+            .unwrap();
+        assert_eq!(b.events.len(), events);
+    }
+    #[test]
+    fn set_fade_binary_words_through_existing_port() {
+        let mut r = ObjectResources::new().unwrap();
+        let mut b = Backend::default();
+        let (mesh, _, _) = shared_mesh(&mut r, &mut b);
+        let object = r.create_object_resources(Some(mesh)).unwrap();
+        let first = r.create_plain_lod().unwrap();
+        r.adopt_plain_lod(object, 0, first).unwrap();
+        r.set_render_fade(object, 0.5).unwrap();
+        assert!(r.lod(first).unwrap().alpha_dirty);
+        r.lods[(first.slot - 1) as usize]
+            .as_mut()
+            .unwrap()
+            .alpha_dirty = false;
+        r.set_render_fade(object, 0.5001).unwrap();
+        assert_eq!(r.object(object).unwrap().fade, 0.5001);
+        assert!(!r.lod(first).unwrap().alpha_dirty);
+        // Admitted divergence: the binary stores unvalidated floats, while the
+        // committed port gates the presentation domain (NumericDomain). Pinned
+        // as policy, not as binary parity.
+        assert_eq!(
+            r.set_render_fade(object, f32::NAN),
+            Err(super::object_lod::ObjectLodError::NumericDomain)
+        );
+        assert_eq!(r.object(object).unwrap().fade, 0.5001); // untouched residue
+    }
 }
 
 #[path = "object_lod.rs"]
-mod object_lod;
+pub mod object_lod;
 pub use object_lod::ObjectLodError;
 pub(crate) use object_lod::{render_derived_visual_fade, render_fade};

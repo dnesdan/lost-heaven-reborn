@@ -98,7 +98,77 @@ impl Default for I3dTargetState {
     }
 }
 
+/// Duplicate guard words observed at PC RVA 0x59680: null-or-self
+/// 0x80000007, success 0.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TargetDuplicateError {
+    /// Null source or source-is-destination (0x80000007).
+    InvalidParams,
+}
+
 impl I3dTargetState {
+    /// Original ctor derived fields, PC RVA 0x59490 (differential: Ghidra
+    /// body 243 B, 6 BB; mafia-re I3d_target.cpp:17-22). Upstream working
+    /// name, not an evidenced original symbol. Base ctor runs first, then
+    /// zeroed link words, growth 0x20, vtable store, kind word 7, global-list
+    /// append, flag word 1. Global registration itself has a separate owner;
+    /// this returns only the derived fields. Reuses the existing Default
+    /// projection byte-for-byte.
+    pub fn new_target() -> Self {
+        Self::default()
+    }
+    /// Original Duplicate derived arm, PC RVA 0x59680 (differential: Ghidra
+    /// body 70 B, 6 BB, 27 insn; mafia-re I3d_target.cpp:36-45). Upstream
+    /// working name, not an evidenced original symbol. The caller owns the
+    /// preceding base-frame duplicate. When source_is_target (native
+    /// [src+0x110]==7, u32) is false the flags are left untouched and Ok(())
+    /// (native 0) is returned. When true the live source flag word is stored
+    /// via copy_duplicate_flags. Null/self sources are rejected before any
+    /// read, preserving the native order.
+    pub fn duplicate_from_source(
+        &mut self,
+        source: Option<u32>,
+        destination_is_source: bool,
+        source_is_target: bool,
+    ) -> Result<(), TargetDuplicateError> {
+        match source {
+            None => Err(TargetDuplicateError::InvalidParams),
+            Some(_) if destination_is_source => Err(TargetDuplicateError::InvalidParams),
+            Some(flags) => {
+                if source_is_target {
+                    self.copy_duplicate_flags(flags);
+                }
+                Ok(())
+            }
+        }
+    }
+    /// Original LoadImage byte-cursor projection, PC RVA 0x59f10 (contract:
+    /// no Ghidra body, not_in_procedure; linear walk 0x10059f10-0x1005a113;
+    /// mafia-re I3d_target.cpp:172-188). Upstream working name, not an
+    /// evidenced original symbol. Parse order: u16-LE flags, u8 count, then
+    /// exactly count u16-LE indices. Widths come from the walk's PUSH 2/1/2
+    /// immediates. Delegates validation and intake to from_parsed_fields
+    /// (1-based, zero-skip, duplicates kept, capacity = raw length,
+    /// reject-before-mutate).
+    pub fn parse_load_image_fields(bytes: &[u8]) -> Result<(u16, Vec<u16>), TargetError> {
+        if bytes.len() < 3 {
+            return Err(TargetError::TooManyFileReferences);
+        }
+        let flags = u16::from_le_bytes([bytes[0], bytes[1]]);
+        let count = bytes[2] as usize;
+        if bytes.len() != 3 + count * 2 {
+            return Err(TargetError::TooManyFileReferences);
+        }
+        let mut raw = Vec::new();
+        if raw.try_reserve_exact(count).is_err() {
+            return Err(TargetError::HostAllocation);
+        }
+        for i in 0..count {
+            let off = 3 + i * 2;
+            raw.push(u16::from_le_bytes([bytes[off], bytes[off + 1]]));
+        }
+        Ok((flags, raw))
+    }
     /// Import successfully parsed fields into a fresh Target. LoadImage writes
     /// only the low two bytes of constructor flags, reserves raw u8 count slots,
     /// and appends only nonzero u16 references. The enclosing model loader maps
@@ -312,6 +382,8 @@ impl TargetRegistry {
     }
     /// GetTarget returns the first live registration containing this frame.
     /// DuplicateHierarchy queries it once per source frame with TARGET set.
+    /// LS3DF RVA 0x59880 (Ghidra body 71 B, 7 BB, 33 insn, 0 callees; miss
+    /// returns None/NULL with no flag check and no mutation).
     pub(crate) fn first_owner(&self, frame: FrameKey) -> Option<FrameKey> {
         self.entries
             .iter()
@@ -349,6 +421,8 @@ impl TargetRegistry {
     /// Original removal searches the first matching link, replaces it with the
     /// last link, and clears the frame's membership bit even if a duplicate
     /// remains. `false` corresponds to native 0x80000006 (not found).
+    /// LS3DF RVA 0x597f0 (Ghidra body 138 B, 14 BB, 51 insn, 0 callees;
+    /// count-- stored, swap-last fill, null-guarded bit clear).
     pub fn remove_from_target(
         &mut self,
         owner: FrameKey,
@@ -754,5 +828,101 @@ mod tests {
             [0x80000000, 0x3f800000, 0x80000000]
         );
         assert_eq!(target_normalized([1e30, 0., 0.]), None);
+    }
+
+    #[test]
+    fn ctor_projects_flag_word_and_empty_links() {
+        let state = I3dTargetState::new_target();
+        assert_eq!(state.flags(), 1); // native [+0x150]=1, TARGETF_LOOKAT
+        assert!(state.frames().is_empty());
+        assert_eq!(state.frame_capacity(), 0);
+        assert_eq!(state, I3dTargetState::default());
+    }
+
+    #[test]
+    fn duplicate_guard_order_and_flag_copy() {
+        let mut state = I3dTargetState::default();
+        assert_eq!(
+            state.duplicate_from_source(None, false, true),
+            Err(TargetDuplicateError::InvalidParams)
+        );
+        assert_eq!(
+            state.duplicate_from_source(Some(9), true, true),
+            Err(TargetDuplicateError::InvalidParams)
+        );
+        assert_eq!(state.flags(), 1);
+        // Non-target source: base duplicate ran, flags untouched (native 0).
+        state.duplicate_from_source(Some(9), false, false).unwrap();
+        assert_eq!(state.flags(), 1);
+        // Target source: live flag word copied, residue-free.
+        state
+            .duplicate_from_source(Some(0x0a), false, true)
+            .unwrap();
+        assert_eq!(state.flags(), 0x0a);
+        let mut again = I3dTargetState::default();
+        again
+            .duplicate_from_source(Some(0x0a), false, true)
+            .unwrap();
+        assert_eq!(state, again);
+    }
+
+    #[test]
+    fn delete_get_roundtrip_miss_policy_and_residue() {
+        let mut registry = TargetRegistry::default();
+        let (t1, t2) = (FrameKey(1), FrameKey(2));
+        let (a, b) = (FrameKey(9), FrameKey(10));
+        registry
+            .insert(
+                t1,
+                I3dTargetState::from_parsed_fields(3, &[1, 2], &[a, b]).unwrap(),
+            )
+            .unwrap();
+        registry.insert(t2, I3dTargetState::default()).unwrap();
+        // GetTarget: first live owner, miss → None, no flag effect.
+        assert_eq!(registry.first_owner(a), Some(t1));
+        assert_eq!(registry.first_owner(FrameKey(99)), None);
+        // Add moves first owner (reuses AddToTarget machinery), Get follows.
+        let mut flags = 0x4000;
+        registry.add_to_target(t2, a, &mut flags).unwrap();
+        assert_eq!(registry.first_owner(a), Some(t2));
+        // Delete hit clears bit; miss leaves flags untouched (0x80000006 side).
+        assert!(registry.remove_from_target(t2, a, &mut flags).unwrap());
+        assert_eq!(flags, 0);
+        assert!(!registry.remove_from_target(t2, a, &mut flags).unwrap());
+        assert_eq!(flags, 0);
+        // Duplicate residue: first remove clears bit even with a duplicate left.
+        let mut dup = TargetRegistry::default();
+        dup.insert(
+            t1,
+            I3dTargetState::from_parsed_fields(0, &[1, 1], &[a]).unwrap(),
+        )
+        .unwrap();
+        let mut f = 0x4000;
+        assert!(dup.remove_from_target(t1, a, &mut f).unwrap());
+        assert_eq!(f, 0);
+        assert_eq!(dup.state(t1).unwrap().frames(), &[a]);
+    }
+
+    #[test]
+    fn load_image_parse_order_and_rejections() {
+        // flags 0x0003 LE, count 4: [0, 2, 1, 2] → skip zero, keep duplicate.
+        let bytes = [
+            0x03u8, 0x00, 0x04, 0x00, 0x00, 0x02, 0x00, 0x01, 0x00, 0x02, 0x00,
+        ];
+        let (flags, raw) = I3dTargetState::parse_load_image_fields(&bytes).unwrap();
+        assert_eq!((flags, raw.as_slice()), (3, &[0, 2, 1, 2][..]));
+        let keys = [FrameKey(9), FrameKey(10)];
+        let state = I3dTargetState::from_parsed_fields(flags, &raw, &keys).unwrap();
+        assert_eq!(state.flags(), 3);
+        assert_eq!(state.frame_capacity(), 4); // raw len incl. zero
+        assert_eq!(state.frames(), &[keys[1], keys[0], keys[1]]);
+        // Residue / truncation / overlong / invalid-index all reject.
+        assert!(I3dTargetState::parse_load_image_fields(&[1, 0]).is_err());
+        assert!(I3dTargetState::parse_load_image_fields(&[3, 0, 1, 5]).is_err());
+        assert!(I3dTargetState::parse_load_image_fields(&[3, 0, 1, 1, 0, 9]).is_err());
+        assert_eq!(
+            I3dTargetState::from_parsed_fields(0, &[3], &keys),
+            Err(TargetError::InvalidFileReference(3))
+        );
     }
 }
