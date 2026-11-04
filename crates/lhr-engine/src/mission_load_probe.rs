@@ -5,6 +5,7 @@ use lhr_engine::{
     game_camera_projection::GameCameraProjection,
     host_scene_adapters::InspectionScreen,
     mission_load_session::{MissionLoadCause, MissionLoadRequest, MissionLoadSession},
+    mission_world_completeness,
     native_precision::Pc24PrecisionState,
 };
 use std::{fmt::Write as _, path::Path};
@@ -89,6 +90,7 @@ pub fn run(root: &Path, mission: &str, model_directories: &[String]) -> Result<(
     )
     .unwrap();
     append_load_report(&mut report, &session);
+    append_world_completeness_report(&mut report, root, mission);
     writeln!(
         report,
         "Owners before terminal disposal: {:?}",
@@ -134,6 +136,98 @@ pub fn run(root: &Path, mission: &str, model_directories: &[String]) -> Result<(
         (Err(_), Ok(())) => Err("Mission load probe stopped at the reported load boundary; terminal disposal completed".into()),
         (Ok(()), Err(_)) => Err("Mission prefix completed, but terminal disposal stopped at the reported ownership boundary".into()),
         (Err(_), Err(_)) => Err("Mission load and terminal disposal both stopped; their first failures are reported separately".into()),
+    }
+}
+
+fn append_world_completeness_report(report: &mut String, root: &Path, mission: &str) {
+    let files = match mission_world_completeness::mission_world_files(mission) {
+        Ok(files) => files,
+        Err(error) => {
+            writeln!(
+                report,
+                "World completeness: mission name rejected: {error:?}"
+            )
+            .unwrap();
+            return;
+        }
+    };
+    // Diagnostics use their own installation handle; live session owners stay
+    // untouched. A resolver failure is reported, not promoted into load state.
+    let installation = match lhr_assets::Installation::open(root) {
+        Ok(installation) => installation,
+        Err(error) => {
+            writeln!(
+                report,
+                "World completeness: installation reopen failed: {}",
+                error.to_string()
+            )
+            .unwrap();
+            return;
+        }
+    };
+    match mission_world_completeness::read_world_file_sizes(&installation, &files) {
+        Ok(states) => {
+            for state in &states {
+                writeln!(
+                    report,
+                    "World file: {} present={} bytes={}",
+                    state.path, state.present, state.bytes
+                )
+                .unwrap();
+            }
+        }
+        Err(error) => {
+            writeln!(report, "World file intake stopped: {error:?}").unwrap();
+            return;
+        }
+    }
+    let cache_path = files.cache.clone();
+    match installation.read_optional(&cache_path) {
+        Ok(Some(bytes)) => match mission_world_completeness::summarize_city_cache(&bytes) {
+            Ok(summary) => writeln!(
+                report,
+                "City cache: parts={} objects={} unknown_chunks={}",
+                summary.parts, summary.objects, summary.unknown_chunks
+            )
+            .unwrap(),
+            Err(error) => writeln!(report, "City cache parse stopped: {}", error.detail).unwrap(),
+        },
+        Ok(None) => writeln!(report, "City cache: absent").unwrap(),
+        Err(error) => writeln!(report, "City cache read stopped: {}", error.to_string()).unwrap(),
+    }
+    let scene2_path = format!("missions/{mission}/scene2.bin");
+    match installation.read_optional(&scene2_path) {
+        Ok(Some(bytes)) => match lhr_assets::parse_scene2(&bytes) {
+            Ok(scene) => {
+                let actors = mission_world_completeness::resolve_mission_actors(&scene);
+                writeln!(
+                    report,
+                    "Mission actors: player_found={} taxi_found={} player_pos={:?} taxi_pos={:?}; scene objects={} actors={} scripts={} unknown_chunks={}",
+                    actors.player_found,
+                    actors.taxi_found,
+                    actors.player_world_position,
+                    actors.taxi_world_position,
+                    scene.objects.len(),
+                    scene.actors.len(),
+                    scene.scripts.len(),
+                    scene.unknown_chunks
+                )
+                .unwrap();
+            }
+            Err(error) => writeln!(
+                report,
+                "Mission actor metadata parse stopped: {}",
+                error.to_string()
+            )
+            .unwrap(),
+        },
+        Ok(None) => writeln!(report, "Mission actor metadata: scene2 absent").unwrap(),
+        Err(error) => writeln!(
+            report,
+            "Mission actor metadata read stopped: {}",
+            error.to_string()
+        )
+        .unwrap(),
     }
 }
 
