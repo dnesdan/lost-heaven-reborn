@@ -665,7 +665,7 @@
       "name": "v_file_h XCU startup thunk (CALL 0x1010 + JMP 0x1030; working name, no original symbol)",
       "symbol": "lhr_assets::rw_data::Handles::new",
       "tier": "contract",
-      "evidence": "Live .CRT$XCU slot 1 @0x1000c004 points at 0x10001000; raw body E8 0B000000 (CALL 0x1010 vector ctor) + E9 26000000 (JMP 0x1030 $E4); VC6 XCU shape per rw_data_inter.h:223-226; CRT startup glue covered by Handles::new; no REA body (Ghidra folds the boundary)",
+      "evidence": "Live .CRT$XCU slot 1 @0x1000c004 points at 0x10001000; raw body E8 0B000000 (CALL 0x1010 vector ctor) + E9 26000000 (JMP 0x1030 $E4); VC6 XCU shape per rw_data_inter.h:223-226; CRT startup glue covered by Handles::new; no REA body (Ghidra folds the boundary); Independently confirmed by a second static derivation (PE parse + linear disassembly + _initterm bounds call at 0x69ca over 0x1000c000-0x1000c014 + full .rdata/.data dword-scan showing only these 4 unretained entries with data-xrefs)",
       "construction_covered": true
     },
     {
@@ -675,7 +675,7 @@
       "name": "v_handle XCU startup thunk (CALL 0x1070 + JMP 0x1090; working name, no original symbol)",
       "symbol": "lhr_assets::rw_data::Handles::new",
       "tier": "contract",
-      "evidence": "Live .CRT$XCU slot 2 @0x1000c008 points at 0x10001060; raw body identical CALL+JMP shape to 0x1000 (CALL 0x1070 vector ctor, JMP 0x1090 $E9); CRT startup glue covered by Handles::new; no REA body (Ghidra folds the boundary)",
+      "evidence": "Live .CRT$XCU slot 2 @0x1000c008 points at 0x10001060; raw body E8 0B000000 (CALL 0x1070 vector ctor) + E9 26000000 (JMP 0x1090 $E9); CRT startup glue covered by Handles::new; no REA body (Ghidra folds the boundary); Independently confirmed by a second static derivation (PE parse + linear disassembly + _initterm bounds call at 0x69ca over 0x1000c000-0x1000c014 + full .rdata/.data dword-scan showing only these 4 unretained entries with data-xrefs)",
       "construction_covered": true
     },
     {
@@ -685,7 +685,7 @@
       "name": "C_m_p XCU startup thunk (CALL 0x1100 + JMP 0x1110; working name, no original symbol)",
       "symbol": "lhr_assets::rw_data::Handles::new",
       "tier": "contract",
-      "evidence": "Live .CRT$XCU slot 3 @0x1000c00c points at 0x100010f0; raw body E8 0B000000 (CALL 0x1100 ctor-stub) + E9 16000000 (JMP 0x1110 $E14); CRT startup glue covered by Handles::new Mutex construction; no REA body (Ghidra folds the boundary)",
+      "evidence": "Live .CRT$XCU slot 3 @0x1000c00c points at 0x100010f0; raw body E8 0B000000 (CALL 0x1100 ctor-stub) + E9 16000000 (JMP 0x1110 $E14); CRT startup glue covered by Handles::new Mutex construction; no REA body (Ghidra folds the boundary); Independently confirmed by a second static derivation (PE parse + linear disassembly + _initterm bounds call at 0x69ca over 0x1000c000-0x1000c014 + full .rdata/.data dword-scan showing only these 4 unretained entries with data-xrefs)",
       "construction_covered": true
     },
     {
@@ -695,7 +695,7 @@
       "name": "C_l_d XCU startup thunk (CALL 0x1140 + JMP 0x1150; working name, no original symbol)",
       "symbol": "lhr_assets::rw_data::Handles::new",
       "tier": "contract",
-      "evidence": "Live .CRT$XCU slot 4 @0x1000c010 points at 0x10001130 (NULL terminator follows); raw body CALL 0x1140 ctor-stub + JMP 0x1150 $E19; CRT startup glue covered by Handles::new; no REA body (Ghidra folds the boundary)",
+      "evidence": "Live .CRT$XCU slot 4 @0x1000c010 points at 0x10001130 (NULL terminator follows); raw body E8 0B000000 (CALL 0x1140 ctor-stub) + E9 16000000 (JMP 0x1150 $E19); CRT startup glue covered by Handles::new; no REA body (Ghidra folds the boundary); Independently confirmed by a second static derivation (PE parse + linear disassembly + _initterm bounds call at 0x69ca over 0x1000c000-0x1000c014 + full .rdata/.data dword-scan showing only these 4 unretained entries with data-xrefs)",
       "construction_covered": true
     }
   ],

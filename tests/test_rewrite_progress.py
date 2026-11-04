@@ -60,8 +60,9 @@ class RewriteProgressTests(unittest.TestCase):
         rw = next(card for card in cards if card["name"] == "rw_data.dll")
         self.assertEqual(rw["total"], 62)
         # 12 frozen ledger ports + 12 overlay behavior ports (2 write, 8
-        # read/leak lane, DeCrypt, FirstForce) + 34 construction-covered
-        # (CRT/empty/synthetic/STL-no-op, contract tier only).
+        # read/leak lane, DeCrypt, FirstForce) + 38 construction-covered
+        # (4 XCU thunks, 12 further CRT startup, empty/synthetic dtors,
+        # placement-delete no-op, 16 STL templates; contract tier only).
         self.assertEqual(rw["ported"], 24)
         self.assertEqual(rw.get("covered", 0), 38)
         self.assertEqual(rw["ported"] + rw.get("covered", 0), 62)
@@ -106,7 +107,7 @@ class RewriteProgressTests(unittest.TestCase):
                 self.assertIn(
                     entry["rva"].lower(), script.RW_DATA_OWN_RVAS
                 )
-        # Construction-covered entries are all contract tier and exactly 34.
+        # Construction-covered entries are all contract tier and exactly 38.
         covered = [
             entry for entry in overlay["functions"]
             if entry.get("construction_covered")

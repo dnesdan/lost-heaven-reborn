@@ -43,14 +43,16 @@ RVA_RE = re.compile(r"^0x[0-9a-f]+$")
 # Denominator source: mafia-re tools/progress.py Target("rw_data.dll",
 # "RWDATA", 62): functions from the start of .text up to the first import
 # thunk or CRT function; first CRT = RVA 0x5cc0 (operator delete
-# ??3@YAXPAX@Z, library_msvc.h:7). The 58 RVAs below carry retained
-# pseudocode and mafia-re source annotations: 12 init/XCU/$E startup
-# (0x1010-0x1160), 26 named FUNCTION (rw_data.cpp + rw_data.h:26), 4
+# ??3@YAXPAX@Z, library_msvc.h:7). The own set is 58 retained-pseudocode
+# RVAs plus 4 XCU thunks: 12 retained init/synthetic (0x1010-0x1160),
+# 26 named FUNCTION (rw_data.cpp + rw_data.h:26), 4
 # scalar-deleting dtors / S_HANDLE assign (rw_data.h:38,
 # rw_data_inter.h:149,152,220), 16 STL TEMPLATE instantiations
 # (rw_data_inter.h:260-315), plus 4 XCU startup thunks (0x1000, 0x1060,
-# 0x10f0, 0x1130) proven by the live .CRT$XCU table at 0x1000c000 (slots
-# [0x10001000, 0x10001060, 0x100010f0, 0x10001130] + NULL terminator) and
+# 0x10f0, 0x1130) proven by the live .CRT$XCU slots at 0x1000c004-0x1000c010
+# (NULL __xc_a at 0x1000c000, NULL terminator at 0x1000c014; bounds call passes
+# 0x1000c000-0x1000c014) holding [0x10001000, 0x10001060, 0x100010f0,
+# 0x10001130], and
 # raw-body decode (each: CALL ctor + JMP $E-register; e.g. 0x1000 calls
 # 0x1010, jumps 0x1030). Those 4 carry no retained pseudocode (Ghidra folds
 # the boundaries) but are address-evidenced from the shipped bytes, so the
