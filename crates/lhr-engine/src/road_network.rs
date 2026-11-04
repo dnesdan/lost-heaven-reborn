@@ -408,6 +408,13 @@ pub const ROAD_LANE_WEIGHT_OFFSET: usize = 0x20;
 pub const ROAD_POSITION_OFFSET: usize = 0x00;
 /// Link endpoint pair read by zone resolution 0x55be10 at +0x10/+0x12.
 pub const ROAD_LINK_ENDPOINT_OFFSET: usize = 0x10;
+/// Back-reference slots reset by recompilation: +0x14/+0x16 per link.
+pub const ROAD_LINK_BACKREF_OFFSET: usize = 0x14;
+/// Per-lane flag array base: u16 flag for lane `k` at +0x14 + 2 bytes × `k`
+/// (Rizin gate ASM at 0x55a6dc: nodebase+0x1A walking down by 2 across
+/// lanes 3,2,1,0 alongside the 0x34 lane stride). Zone-marked link indices;
+/// `0xFFFF` lanes are skipped by both the gate and the search.
+pub const ROAD_LANE_FLAG_OFFSET: usize = 0x14;
 /// Unreached distance written by the Dijkstra element constructor 0x55c430
 /// (REA `ev_bf43bc2b…`, 4 instructions: `pred = 0xFFFF`,
 /// `dist_bits = 0x501502f9`). Unreached nodes keep this value; the native
@@ -430,6 +437,17 @@ impl RoadNode {
             read_f32(&self.bytes, ROAD_POSITION_OFFSET + 4),
             read_f32(&self.bytes, ROAD_POSITION_OFFSET + 8),
         ]
+    }
+
+    /// Per-lane flag from the compact +0x14 array (one u16 per lane).
+    pub fn lane_flag(&self, lane: usize) -> u16 {
+        debug_assert!(lane < ROAD_LANES);
+        read_u16(&self.bytes, ROAD_LANE_FLAG_OFFSET + lane * 2)
+    }
+
+    fn set_lane_flag(&mut self, lane: usize, value: u16) {
+        self.bytes[ROAD_LANE_FLAG_OFFSET + lane * 2..ROAD_LANE_FLAG_OFFSET + lane * 2 + 2]
+            .copy_from_slice(&value.to_le_bytes());
     }
 
     /// Neighbor index of one Dijkstra lane (`0xFFFF` means no lane).
@@ -780,6 +798,104 @@ pub fn encode_road_network(network: &RoadNetwork) -> Vec<u8> {
         out.extend_from_slice(&link.bytes);
     }
     out
+}
+
+/// Native vector-length helper shared by recompilation (inline at
+/// 0x55a781: compare against `0x322bcc77`, subtract 1.0 at data `0x623238`,
+/// absolute value, compare against 1e-8 at `0x6232e8`, `test ah,5`),
+/// identical to the vehicle-body helper: tiny squared lengths read as
+/// zero, near-unit reads as one, otherwise the square root.
+pub fn road_vector_length(squared: f32) -> f32 {
+    if (squared.to_bits() as i32) < 0x322b_cc77 {
+        return 0.0;
+    }
+    if (squared - 1.0).abs() < 1e-8 {
+        return 1.0;
+    }
+    squared.sqrt()
+}
+
+/// Recompilation reset from `RecompileDistances` 0x55a620: every link's
+/// +0x14/+0x16 back-reference slots return to `0xFFFF` before the walks
+/// refill them.
+pub fn reset_link_backrefs(network: &mut RoadNetwork) {
+    for link in &mut network.links {
+        link.bytes[ROAD_LINK_BACKREF_OFFSET..ROAD_LINK_BACKREF_OFFSET + 2]
+            .copy_from_slice(&ROAD_INVALID_NODE.to_le_bytes());
+        link.bytes[ROAD_LINK_BACKREF_OFFSET + 2..ROAD_LINK_BACKREF_OFFSET + 4]
+            .copy_from_slice(&ROAD_INVALID_NODE.to_le_bytes());
+    }
+}
+
+/// Link-swap accounting for `sort_nodes_by_x`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SortReport {
+    pub swaps: usize,
+}
+
+/// Link sort, logical rewrite of `SortNodesByX` 0x55c890 (Rizin ASM from
+/// 0x55c890 to `ret` at 0x55ca94): selection sort of the link array by the
+/// position-X float at +0x00 with the exact strict-less update rule
+/// (provable from the `fld`/`fcomp`/`fnstsw`/`test ah,5`/`jp` sequence:
+/// unordered/NaN keeps the incumbent, equal keeps the first). Each swap
+/// exchanges the 24-byte records through a temp buffer and remaps
+/// zone-marked references `i|0x8000` ↔ `j|0x8000` in every link endpoint
+/// slot (+0x10/+0x12, the first remap loop over 2 u16s per link) and every
+/// node lane-flag slot (+0x14 + 2 bytes × lane, the second loop over 4
+/// u16s per node). The `0x55caa0` entry guard is skipped: on empty input
+/// the sort is a no-op either way. Returns the swap count; shipped
+/// mise01 links sort with zero swaps.
+pub fn sort_nodes_by_x(network: &mut RoadNetwork) -> SortReport {
+    let mut report = SortReport::default();
+    let count = network.links.len();
+    for i in 0..count {
+        let mut best = i;
+        let mut best_x = f32::from_le_bytes(network.links[i].bytes[0..4].try_into().unwrap());
+        for j in (i + 1)..count {
+            let candidate = f32::from_le_bytes(network.links[j].bytes[0..4].try_into().unwrap());
+            if candidate.partial_cmp(&best_x) == Some(std::cmp::Ordering::Less) {
+                best = j;
+                best_x = candidate;
+            }
+        }
+        if best != i {
+            network.links.swap(i, best);
+            remap_zone_refs(network, i, best);
+            report.swaps += 1;
+        }
+    }
+    report
+}
+
+/// Zone-reference remap after a link swap of positions `i` and `j`
+/// (0-based): every u16 equal to `i|0x8000` becomes `j|0x8000` and vice
+/// versa, over link endpoint slots and node lane-flag slots.
+fn remap_zone_refs(network: &mut RoadNetwork, i: usize, j: usize) {
+    let marked_i = (i as u16) | ROAD_ZONE_BIT;
+    let marked_j = (j as u16) | ROAD_ZONE_BIT;
+    let swap_value = |value: &mut u16| {
+        if *value == marked_i {
+            *value = marked_j;
+        } else if *value == marked_j {
+            *value = marked_i;
+        }
+    };
+    for link in &mut network.links {
+        let (mut first, mut second) = link.endpoints();
+        swap_value(&mut first);
+        swap_value(&mut second);
+        link.bytes[ROAD_LINK_ENDPOINT_OFFSET..ROAD_LINK_ENDPOINT_OFFSET + 2]
+            .copy_from_slice(&first.to_le_bytes());
+        link.bytes[ROAD_LINK_ENDPOINT_OFFSET + 2..ROAD_LINK_ENDPOINT_OFFSET + 4]
+            .copy_from_slice(&second.to_le_bytes());
+    }
+    for node in &mut network.nodes {
+        for lane in 0..ROAD_LANES {
+            let mut flag = node.lane_flag(lane);
+            swap_value(&mut flag);
+            node.set_lane_flag(lane, flag);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1216,5 +1332,92 @@ mod tests {
             encode_road_network(&empty),
             [2u32.to_le_bytes(), 0u32.to_le_bytes(), 0u32.to_le_bytes()].concat()
         );
+    }
+
+    #[test]
+    fn length_helper_follows_native_thresholds() {
+        assert_eq!(road_vector_length(0.0), 0.0);
+        assert_eq!(road_vector_length(f32::from_bits(0x322b_cc76)), 0.0);
+        assert_eq!(road_vector_length(1.0), 1.0);
+        assert_eq!(road_vector_length(1.0 + 5e-9), 1.0);
+        assert_eq!(road_vector_length(4.0), 2.0);
+        assert_eq!(road_vector_length(2.0), 2.0f32.sqrt());
+    }
+
+    #[test]
+    fn backref_reset_clears_both_slots() {
+        let mut graph = two_node_network();
+        // Poison the slots first: reset must clear regardless of content.
+        graph.links[0].bytes[ROAD_LINK_BACKREF_OFFSET..ROAD_LINK_BACKREF_OFFSET + 4]
+            .copy_from_slice(&[0x11, 0x22, 0x33, 0x44]);
+        reset_link_backrefs(&mut graph);
+        assert_eq!(
+            &graph.links[0].bytes[ROAD_LINK_BACKREF_OFFSET..ROAD_LINK_BACKREF_OFFSET + 4],
+            &[0xFF, 0xFF, 0xFF, 0xFF]
+        );
+        // Endpoints survive the reset untouched.
+        assert_eq!(graph.links[0].endpoints(), (0, 1));
+    }
+
+    fn x_link(x: f32, endpoints: (u16, u16)) -> RoadLink {
+        let mut bytes = [0u8; ROAD_LINK_SIZE];
+        bytes[0..4].copy_from_slice(&x.to_le_bytes());
+        bytes[ROAD_LINK_ENDPOINT_OFFSET..ROAD_LINK_ENDPOINT_OFFSET + 2]
+            .copy_from_slice(&endpoints.0.to_le_bytes());
+        bytes[ROAD_LINK_ENDPOINT_OFFSET + 2..ROAD_LINK_ENDPOINT_OFFSET + 4]
+            .copy_from_slice(&endpoints.1.to_le_bytes());
+        RoadLink { bytes }
+    }
+
+    #[test]
+    fn sort_orders_by_x_and_remaps_zone_refs() {
+        let mut graph = RoadNetwork {
+            nodes: vec![placed_node(
+                0.0,
+                [
+                    (ROAD_INVALID_NODE, 0.0),
+                    (ROAD_INVALID_NODE, 0.0),
+                    (ROAD_INVALID_NODE, 0.0),
+                    (ROAD_INVALID_NODE, 0.0),
+                ],
+            )],
+            links: vec![
+                x_link(30.0, (0x8000, 0x8001)),
+                x_link(10.0, (0x8001, 0x8002)),
+                x_link(20.0, (5, 0x8000)),
+            ],
+        };
+        // Node flag referencing the middle link follows it through the sort.
+        graph.nodes[0].set_lane_flag(0, 0x8001);
+        let report = sort_nodes_by_x(&mut graph);
+        assert_eq!(report.swaps, 2);
+        let xs: Vec<f32> = graph
+            .links
+            .iter()
+            .map(|link| f32::from_le_bytes(link.bytes[0..4].try_into().unwrap()))
+            .collect();
+        assert_eq!(xs, vec![10.0, 20.0, 30.0]);
+        // Endpoints and flags tracked the records through both swaps.
+        assert_eq!(graph.links[0].endpoints(), (0x8000, 0x8001));
+        assert_eq!(graph.links[1].endpoints(), (5, 0x8002));
+        assert_eq!(graph.links[2].endpoints(), (0x8002, 0x8000));
+        assert_eq!(graph.nodes[0].lane_flag(0), 0x8000);
+    }
+
+    #[test]
+    fn sort_keeps_incumbent_on_nan_and_equal() {
+        let mut graph = RoadNetwork {
+            nodes: Vec::new(),
+            links: vec![
+                x_link(1.0, (0, 1)),
+                x_link(f32::NAN, (2, 3)),
+                x_link(1.0, (4, 5)),
+            ],
+        };
+        let report = sort_nodes_by_x(&mut graph);
+        // NaN never wins: first record stays first, equal keeps order.
+        assert_eq!(report.swaps, 0);
+        assert_eq!(graph.links[0].endpoints(), (0, 1));
+        assert!(f32::from_le_bytes(graph.links[1].bytes[0..4].try_into().unwrap()).is_nan());
     }
 }
