@@ -124,6 +124,88 @@ impl ModelTickState {
         )
         .map(|_| ())
     }
+
+    /// Per-slot times backend for the 0x34040 wrapper (LS3DF.dll
+    /// e211c850…). Upstream working name I3D_model::Tick(times), not an
+    /// evidenced original symbol. The interpolator consumes one i32 per
+    /// slot instead of a broadcast delta. Update stays model-wide.
+    pub fn tick_with_times<B: ModelTimesBackend + ?Sized>(
+        &mut self,
+        backend: &mut B,
+        times: [i32; 8],
+    ) -> Result<(), B::Error> {
+        let entry_interpolator = self.interpolator;
+        tick_live_model_with_times(
+            &mut StateTimesOwner {
+                model: self,
+                backend,
+                entry_interpolator,
+            },
+            times,
+        )
+        .map(|_| ())
+    }
+}
+
+/// Per-slot times backend for the 0x34040 wrapper: the interpolator consumes
+/// one i32 per slot instead of a broadcast delta. Update stays model-wide.
+pub trait ModelTimesBackend {
+    type Error;
+    fn tick_interpolator_with_times(
+        &mut self,
+        model: &mut ModelTickState,
+        interpolator: InterpolatorId,
+        times: [i32; 8],
+    ) -> Result<(), Self::Error>;
+    fn update_model(
+        &mut self,
+        model: &mut ModelTickState,
+        vtable: ModelVTableId,
+    ) -> Result<(), Self::Error>;
+}
+
+/// Typed live owners for the 0x34040 ordering: presence-only admission (no
+/// evaluator-count skip — the evidenced difference from tick_live_model),
+/// then per-slot controller tick and the final update.
+pub(crate) trait LiveModelTimesOwner {
+    type Error;
+    fn active_controller_present(&self) -> Result<bool, Self::Error>;
+    fn tick_current_controller_with_times(&mut self, times: [i32; 8]) -> Result<(), Self::Error>;
+    fn update_current_model(&mut self) -> Result<(), Self::Error>;
+}
+pub(crate) fn tick_live_model_with_times<O: LiveModelTimesOwner + ?Sized>(
+    owner: &mut O,
+    times: [i32; 8],
+) -> Result<bool, O::Error> {
+    if !owner.active_controller_present()? {
+        return Ok(false);
+    }
+    owner.tick_current_controller_with_times(times)?;
+    owner.update_current_model()?;
+    Ok(true)
+}
+
+struct StateTimesOwner<'a, B: ?Sized> {
+    model: &'a mut ModelTickState,
+    backend: &'a mut B,
+    entry_interpolator: Option<InterpolatorId>,
+}
+impl<B: ModelTimesBackend + ?Sized> LiveModelTimesOwner for StateTimesOwner<'_, B> {
+    type Error = B::Error;
+    fn active_controller_present(&self) -> Result<bool, Self::Error> {
+        Ok(self.entry_interpolator.is_some())
+    }
+    fn tick_current_controller_with_times(&mut self, times: [i32; 8]) -> Result<(), Self::Error> {
+        self.backend.tick_interpolator_with_times(
+            self.model,
+            self.entry_interpolator.expect("presence guard admitted"),
+            times,
+        )
+    }
+    fn update_current_model(&mut self) -> Result<(), Self::Error> {
+        let vtable = self.model.vtable;
+        self.backend.update_model(self.model, vtable)
+    }
 }
 
 #[cfg(test)]
@@ -322,5 +404,60 @@ mod tests {
             ..Backend::default()
         };
         assert_eq!(bound().tick(&mut backend, 7), Err("update unavailable"));
+    }
+    #[derive(Debug, Eq, PartialEq)]
+    enum TimesCall {
+        Tick(InterpolatorId, [i32; 8]),
+        Update(ModelVTableId),
+    }
+    #[derive(Default)]
+    struct TimesBackend {
+        calls: Vec<TimesCall>,
+    }
+    impl ModelTimesBackend for TimesBackend {
+        type Error = &'static str;
+        fn tick_interpolator_with_times(
+            &mut self,
+            _model: &mut ModelTickState,
+            interpolator: InterpolatorId,
+            times: [i32; 8],
+        ) -> Result<(), Self::Error> {
+            self.calls.push(TimesCall::Tick(interpolator, times));
+            Ok(())
+        }
+        fn update_model(
+            &mut self,
+            _model: &mut ModelTickState,
+            vtable: ModelVTableId,
+        ) -> Result<(), Self::Error> {
+            self.calls.push(TimesCall::Update(vtable));
+            Ok(())
+        }
+    }
+    #[test]
+    fn times_null_skips_both_calls() {
+        // RVA 0x34040: null interpolator admits nothing (no count read).
+        let mut state = ModelTickState::new(ModelVTableId(1));
+        let mut backend = TimesBackend::default();
+        assert_eq!(state.tick_with_times(&mut backend, [5; 8]), Ok(()));
+        assert!(backend.calls.is_empty());
+    }
+    #[test]
+    fn times_zero_count_still_ticks_then_updates() {
+        // The evidenced difference from tick(): no evaluator-count skip.
+        let mut state = ModelTickState {
+            vtable: ModelVTableId(3),
+            interpolator: Some(InterpolatorId(9)),
+        };
+        let mut backend = TimesBackend::default();
+        let times = [7, -2, 0, 0, 0, 0, 0, 0];
+        assert_eq!(state.tick_with_times(&mut backend, times), Ok(()));
+        assert_eq!(
+            backend.calls,
+            vec![
+                TimesCall::Tick(InterpolatorId(9), times),
+                TimesCall::Update(ModelVTableId(3)),
+            ]
+        );
     }
 }

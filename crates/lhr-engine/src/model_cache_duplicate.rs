@@ -1236,4 +1236,203 @@ mod tests {
         assert_eq!(memory.live_allocations(), 0);
         std::fs::remove_dir_all(directory).unwrap();
     }
+    fn hierarchy_fixture() -> (ModelArena, ModelKey, ModelKey) {
+        let mut joint = super::super::tests::frame(10, None, [0.; 3]);
+        joint.joint = Some(lhr_assets::JointRecord {
+            bone_matrix: SMatrix::identity().elements,
+            index: 0,
+        });
+        joint.name = "joint".into();
+        joint.name_bytes = b"joint".to_vec();
+        let mut target = super::super::tests::frame(7, None, [1., 0., 0.]);
+        target.name = "targetA".into();
+        target.name_bytes = b"targetA".to_vec();
+        target.target = Some(lhr_assets::TargetRecord {
+            flags: 0,
+            frame_indices: vec![1],
+        });
+        let source = std::sync::Arc::new(lhr_assets::Model {
+            materials: vec![],
+            frames: vec![joint, target],
+        });
+        let mut arena = ModelArena::default();
+        let src = arena.create_model().unwrap();
+        let dst = arena.create_model().unwrap();
+        arena.load_parsed_into_model(src, source).unwrap();
+        arena.set_frame_name(src.root(), Some(b"source")).unwrap();
+        arena.propagate_model_name(src).unwrap();
+        arena
+            .set_frame_name(dst.root(), Some(b"destination"))
+            .unwrap();
+        arena
+            .allocate_model_filename(src, b"Models/src.i3d")
+            .unwrap();
+        arena
+            .allocate_model_filename(dst, b"Models/old.i3d")
+            .unwrap();
+        // Fast-find starts enabled so the save/off/restore prefix is real.
+        arena.set_fast_find_enabled(true);
+        assert!(arena.fast_tree.enabled);
+        (arena, src, dst)
+    }
+    #[test]
+    fn live_hierarchy_close_first_filename_share_prefix_target_relink_update_and_slot0() {
+        // RVA 0x33e10: Close dst; filename share; fast-find off/on; children;
+        // saved SetName status returned; target relink; shadow skip; Update;
+        // slot-0 suffix. Fast-find starts enabled (restored at the end).
+        let (mut arena, src, dst) = hierarchy_fixture();
+        assert!(arena.fast_tree.enabled);
+        // Stale dst member proves the close-first prefix.
+        let stale = arena
+            .insert(
+                crate::frame_transform::I3dFrameState::dummy(),
+                None,
+                Vec::new(),
+                Vec::new(),
+                None,
+            )
+            .unwrap();
+        arena.add_frame(dst, stale).unwrap();
+        // Drop the creator external ref so Close destroys the stale member
+        // (add_frame retained it to refs 2).
+        arena.release(stale).unwrap();
+        // Slot-0 suffix source: bind an (unmatched-track) controller.
+        let parsed = std::sync::Arc::new(lhr_assets::animation::AnimationSet {
+            timestamp: [0; 8],
+            end_frame: 10,
+            tracks: vec![lhr_assets::animation::AnimationTrack {
+                name: b"zzz".to_vec(),
+                flags: 2,
+                reserved: 0,
+                rotation: None,
+                position: None,
+                scale: None,
+            }],
+        });
+        let resource = crate::animation_controller::LiveAnimationResource::new(parsed, 2).unwrap();
+        arena
+            .bind_loaded_model_animation(src, Some(&resource))
+            .unwrap();
+        let updates = arena.state(dst.root()).unwrap().update_count;
+        arena.duplicate_live_hierarchy(dst, src).unwrap();
+        // Stale member gone (close-first), src members replaced 1:1.
+        let members = arena.model(dst).unwrap().frames.clone();
+        assert_eq!(members.len(), 2);
+        assert!(arena.frame(stale).is_err());
+        // Filename shared (references 2), old descriptor released.
+        let key = arena.model_filename(dst).unwrap().unwrap();
+        assert_eq!(arena.filename(key).unwrap().references(), 2);
+        // Saved SetName status: destination-prefixed member names.
+        let mut names: Vec<_> = members
+            .iter()
+            .map(|&k| arena.frame(k).unwrap().name_bytes.clone())
+            .collect();
+        names.sort();
+        assert_eq!(
+            names,
+            vec![
+                b"destination.joint".to_vec(),
+                b"destination.targetA".to_vec()
+            ]
+        );
+        // Target relinked to the copied joint (by original name).
+        let joint = members
+            .iter()
+            .copied()
+            .find(|&k| {
+                arena.frame(k).unwrap().original_name_bytes.as_deref() == Some(b"joint".as_slice())
+            })
+            .unwrap();
+        let target = members
+            .iter()
+            .copied()
+            .find(|&k| {
+                arena.frame(k).unwrap().original_name_bytes.as_deref()
+                    == Some(b"targetA".as_slice())
+            })
+            .unwrap();
+        assert_eq!(arena.graph.target_state(target).unwrap().frames(), &[joint]);
+        // Update root bumped; fast-find restored; slot-0 suffix copied.
+        assert_eq!(
+            arena.state(dst.root()).unwrap().update_count,
+            updates.wrapping_add(1)
+        );
+        assert!(arena.fast_tree.enabled);
+        assert!(arena.original_model_controller(dst).unwrap().is_some());
+        for model in [src, dst] {
+            arena.close(model).unwrap();
+            arena.release(model.root()).unwrap();
+        }
+        assert_eq!(arena.live_frame_count(), 0);
+    }
+    #[test]
+    fn live_hierarchy_failure_prefix_restores_fast_find_and_skips_suffix() {
+        // Flip the joint kind: the walk commits the target first (walk
+        // order is prepend-based, target heads), then fails on the joint.
+        // Prefix retained, committed sibling kept (no rollback), suffix
+        // skipped, fast-find restored.
+        let (mut arena, src, dst) = hierarchy_fixture();
+        let victim = arena.model(src).unwrap().frames.clone()[0];
+        // members[0] is the joint (load order, source-prefixed); the
+        // prepend walk reaches the target first, so exactly one sibling
+        // commits before failing.
+        assert_eq!(arena.frame(victim).unwrap().name_bytes, b"source.joint");
+        arena.graph.projected_state_mut(victim).unwrap().kind =
+            crate::frame_transform::FrameKind::Camera;
+        let before = arena.live_frame_count();
+        assert!(arena.duplicate_live_hierarchy(dst, src).is_err());
+        // Prefix retained: dst closed + filename shared + one committed dup.
+        // The dup keeps its duplicated source name: SetName runs only in
+        // the suffix, which the failure skips (proves suffix skipping).
+        let members = arena.model(dst).unwrap().frames.clone();
+        assert_eq!(members.len(), 1);
+        assert_eq!(
+            arena.frame(members[0]).unwrap().name_bytes,
+            b"source.targetA"
+        );
+        assert_eq!(arena.live_frame_count(), before + 1);
+        let key = arena.model_filename(dst).unwrap().unwrap();
+        assert_eq!(arena.filename(key).unwrap().references(), 2);
+        // Suffix skipped: no SetName and no target relink on the prefix.
+        assert!(arena.fast_tree.enabled);
+        // Restore the flipped kind: close() would run camera teardown.
+        arena.graph.projected_state_mut(victim).unwrap().kind =
+            crate::frame_transform::FrameKind::Joint;
+        for model in [src, dst] {
+            arena.close(model).unwrap();
+            arena.release(model.root()).unwrap();
+        }
+        assert_eq!(arena.live_frame_count(), 0);
+    }
+    #[test]
+    fn live_hierarchy_self_and_stray_roots_are_rejected() {
+        let (mut arena, src, dst) = hierarchy_fixture();
+        assert!(matches!(
+            arena.duplicate_live_hierarchy(dst, dst),
+            Err(ModelError::OriginalModelOpenUnavailable(_))
+        ));
+        // Unowned model-kind root: common copy runs, dispatch misses.
+        let stray = arena
+            .insert(
+                crate::frame_transform::I3dFrameState::model(),
+                None,
+                Vec::new(),
+                Vec::new(),
+                None,
+            )
+            .unwrap();
+        assert!(matches!(
+            arena.duplicate_model_frame(dst, stray),
+            Err(ModelError::OriginalModelOpenUnavailable(_))
+        ));
+        // Untouched by the rejections.
+        assert_eq!(arena.model(dst).unwrap().frames.len(), 0);
+        for model in [src, dst] {
+            arena.close(model).unwrap();
+            arena.release(model.root()).unwrap();
+        }
+        // The stray model-kind root has no owning model to release through;
+        // it stays resident (arena drops at test end).
+        assert_eq!(arena.live_frame_count(), 1);
+    }
 }

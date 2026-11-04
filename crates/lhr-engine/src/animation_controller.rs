@@ -283,6 +283,20 @@ impl ControllerEvaluationView<'_> {
     }
 }
 
+/// Opaque pose handle. `I3d_pose` has no covered entries: identity only.
+/// Upstream working name `I3D_pose` (mafia-re), not an evidenced original.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct PoseId(pub u32);
+
+/// One `I3D_pose_set` entry: owned frame-name bytes + opaque pose.
+/// Native entry array lives at `set+8`, count at `set+0x10`; each entry's
+/// name pointer at `*entry+8` (null = empty string).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PoseSetEntry {
+    pub frame_name: Vec<u8>,
+    pub pose: PoseId,
+}
+
 impl IPolSet {
     pub(crate) fn validate_live_view(
         &self,
@@ -773,6 +787,203 @@ impl IPolSet {
         self.state.slots.get(slot).map_or(0, |s| s.mode)
     }
 
+    /// RVA 0x34090 NumInterpolators (LS3DF.dll e211c850…): null set -> 0
+    /// Upstream working name, not an evidenced original symbol.
+    /// else evaluator count (u32 word at ipol+0xf0). No Ghidra body in
+    /// session -> tier contract per the 0x2b830 standard. Saturates at
+    /// u32::MAX on hostile views (width admission, not a native branch).
+    /// Closed views read 0 (null-set analog; native has no close state).
+    pub fn num_interpolators(&self) -> u32 {
+        if self.closed {
+            return 0;
+        }
+        u32::try_from(self.state.evaluators.count).unwrap_or(u32::MAX)
+    }
+    /// RVA 0x340b0 GetInterpolators: None = no set (native NULL);
+    /// Upstream working name, not an evidenced original symbol.
+    /// Some(view) = base at +0xe8. Empty set yields Some(&[]). Borrowed
+    /// live view; never a detached copy. No Ghidra body -> contract.
+    pub fn interpolator_storage(&self) -> Option<&[EvaluatorId]> {
+        if self.closed {
+            return None;
+        }
+        Some(self.active_evaluators())
+    }
+    fn pose_common_guard<E>(&self) -> Result<(), ControllerError<E>> {
+        if self.closed {
+            return Err(ControllerError::Closed);
+        }
+        if self.poisoned {
+            return Err(ControllerError::Poisoned);
+        }
+        if !self.owns_view() {
+            return Err(ControllerError::InvalidView);
+        }
+        Ok(())
+    }
+    /// Helper-phase worker for the SetPose entry loops (no function credit).
+    /// Resolves each entry name in order against live membership (native
+    /// byte-compare-then-owner-search order); prefix effects are kept on
+    /// miss (no rollback), mirroring the native loops.
+    fn resolve_pose_entries<B: LiveControllerResourceBackend>(
+        &mut self,
+        backend: &mut B,
+        entries: &[PoseSetEntry],
+    ) -> Result<Vec<EvaluatorId>, ControllerError<B::Error>> {
+        let mut out = Vec::new();
+        // Host-defensive: test-sized entry lists cannot force this
+        // reservation to fail on a 64-bit host (native new[] OOM analog).
+        out.try_reserve(entries.len())
+            .map_err(|_| ControllerError::HostAllocation)?;
+        for entry in entries {
+            if entry.frame_name.contains(&0) {
+                return Err(ControllerError::EmbeddedNameTerminator);
+            }
+            // Case-sensitive resolve first (native strcmp loop), then the
+            // owner's search on miss. The flag-domain difference (native
+            // 0x2ffff vs scene 0x4ffff) is recorded, not emulated, here:
+            // the host resolver is the same first_frame_named seam
+            // SetAnimation uses.
+            let Some((_, key)) = backend
+                .first_frame_named(&entry.frame_name)
+                .map_err(ControllerError::Resource)?
+            else {
+                return Err(ControllerError::InvalidResourceIdentity);
+            };
+            out.push(self.get_frame_interpolator(backend, key)?);
+        }
+        Ok(out)
+    }
+    /// RVA 0x340d0 helper (SetPose(set) application): apply pose ids in
+    /// Upstream working name, not an evidenced original symbol.
+    /// entry order, dirty only on full success. Miss -> OBJECTNOTFOUND with
+    /// dirty untouched. Body-backed entry (0x340d0 differential); this
+    /// worker is a helper phase (no independent credit).
+    pub fn set_pose_set<B: LiveControllerResourceBackend>(
+        &mut self,
+        backend: &mut B,
+        entries: &[PoseSetEntry],
+    ) -> Result<(), ControllerError<B::Error>> {
+        self.pose_common_guard()?;
+        let ids = self.resolve_pose_entries(backend, entries)?;
+        // Pose application itself is virtual slot +4 on the interpolator
+        // (unrecovered I3d_interpolator body): record reachability only.
+        // Host pose deformation stays in singlemesh_pose.rs; no synthetic
+        // pose state is invented here.
+        let _ = ids;
+        self.state.dirty = true;
+        Ok(())
+    }
+    /// RVA 0x34170 helper (SetPose(frame) application): exact-identity
+    /// Upstream working name, not an evidenced original symbol.
+    /// destination targeting. Body-backed entry; helper phase, no credit.
+    pub fn set_pose_frame<B: ControllerResourceBackend>(
+        &mut self,
+        backend: &mut B,
+        destination: FrameKey,
+        _pose: PoseId,
+    ) -> Result<(), ControllerError<B::Error>> {
+        self.pose_common_guard()?;
+        self.get_frame_interpolator(backend, destination)?;
+        self.state.dirty = true;
+        Ok(())
+    }
+    /// RVA 0x34210 helper (SetPose(name) application): name-resolved
+    /// Upstream working name, not an evidenced original symbol.
+    /// targeting. Body-backed entry; helper phase, no credit.
+    pub fn set_pose_named<B: LiveControllerResourceBackend>(
+        &mut self,
+        backend: &mut B,
+        frame_name: &[u8],
+        _pose: PoseId,
+    ) -> Result<(), ControllerError<B::Error>> {
+        self.pose_common_guard()?;
+        if frame_name.contains(&0) {
+            return Err(ControllerError::EmbeddedNameTerminator);
+        }
+        let Some((_, key)) = backend
+            .first_frame_named(frame_name)
+            .map_err(ControllerError::Resource)?
+        else {
+            return Err(ControllerError::InvalidResourceIdentity);
+        };
+        self.get_frame_interpolator(backend, key)?;
+        self.state.dirty = true;
+        Ok(())
+    }
+    /// RVA 0x342b0 application (via the native per-interpolator loop):
+    /// Upstream working name, not an evidenced original symbol.
+    /// bit-exact store to every interpolator's +8, then changed=1. Null set
+    /// is the caller's OBJECTNOTFOUND (no effect). Explicit precision
+    /// policy: raw f32 bits preserved exactly — NO [0,1] clamp (unlike
+    /// set_anim_blend's ordered x87 clamp) and no NaN quieting evidenced
+    /// on this path. Closed/poisoned/detached views are rejected (host-only
+    /// guards; native has no such branches, so they surface as Err, never
+    /// as words — same rule as all fallible pose paths).
+    pub fn set_pose_blend_all(
+        &mut self,
+        blend_bits: u32,
+    ) -> Result<(), ControllerError<std::convert::Infallible>> {
+        self.pose_common_guard()?;
+        let blend = f32::from_bits(blend_bits);
+        for e in &mut self.owned {
+            e.pose_blend = blend;
+        }
+        self.state.dirty = true;
+        Ok(())
+    }
+    /// RVA 0x342e0 application: changed=1 FIRST, then per-entry +8 stores
+    /// Upstream working name, not an evidenced original symbol.
+    /// in set order; miss keeps dirty+prefix (no rollback). No Ghidra body
+    /// for the entry -> contract.
+    pub fn set_pose_blend_set<B: LiveControllerResourceBackend>(
+        &mut self,
+        backend: &mut B,
+        blend_bits: u32,
+        entries: &[PoseSetEntry],
+    ) -> Result<(), ControllerError<B::Error>> {
+        self.pose_common_guard()?;
+        self.state.dirty = true;
+        let ids = self.resolve_pose_entries(backend, entries)?;
+        let blend = f32::from_bits(blend_bits);
+        for id in ids {
+            if let Some(e) = self.owned.iter_mut().find(|e| e.id == id) {
+                e.pose_blend = blend;
+            }
+        }
+        Ok(())
+    }
+    /// RVA 0x34310 application: first interpolator with any nonzero binding
+    /// Upstream working name, not an evidenced original symbol.
+    /// flag (host analog of the native +4!=0 eligibility word); else +0.0.
+    /// Bit-exact read-back; null/empty/closed -> 0x00000000. No Ghidra body for
+    /// the entry -> contract.
+    pub fn pose_blend(&self) -> u32 {
+        if self.closed {
+            return 0x0000_0000;
+        }
+        for id in self.active_evaluators() {
+            if let Some(e) = self.evaluator(*id) {
+                if e.bindings.iter().any(|b| b.flags != 0) {
+                    return e.pose_blend.to_bits();
+                }
+            }
+        }
+        0x0000_0000
+    }
+    /// IPolSet::ResetAllPoses callee projection (helper phase, no function
+    /// credit: the 0x34070 delegate target was not formed in session).
+    /// Native pose words are not ported; the only pose-adjacent state in
+    /// this owner is the per-evaluator pose_blend (constructor default 1.0).
+    /// Unconditional like the native call: slot clocks, weights, modes,
+    /// enabled flags, dirty and resource bindings are untouched (exact
+    /// native pose-field set OPEN).
+    pub fn reset_all_poses(&mut self) {
+        for evaluator in &mut self.owned {
+            evaluator.pose_blend = 1.0;
+        }
+    }
+
     pub fn storage_bytes(&self) -> Option<usize> {
         self.storage
             .capacity()
@@ -1195,6 +1406,164 @@ mod tests {
             .unwrap();
         assert_eq!(controller.animation_id(0), Some(independent.id()));
         assert_eq!(controller.anim_options(0), 99);
+        controller.close(&mut backend);
+    }
+    #[test]
+    fn pose_count_storage_blend_bit_exactness_and_targeting_matrix() {
+        // RVAs 0x34090/0x340b0/0x342b0/0x34310: count/storage words,
+        // bit-exact blend (no clamp, no quieting), empty read-back.
+        let mut controller = IPolSet::new(FrameKey(1), false);
+        let mut backend = Resources::default();
+        assert_eq!(controller.num_interpolators(), 0);
+        assert!(controller.interpolator_storage().unwrap().is_empty());
+        assert_eq!(controller.pose_blend(), 0x0000_0000);
+        assert!(!controller.state().dirty);
+        // Bit-exactness incl. values SetAnimBlend would clamp/quiet.
+        for bits in [
+            0x7fc1_2345u32,
+            0x7f81_2345,
+            0xffc1_2345,
+            0x7f80_0000,
+            0xff80_0000,
+            0x8000_0000,
+            0x0000_0000,
+            0x3f80_0000,
+            0xc000_0000,
+        ] {
+            controller
+                .get_frame_interpolator(&mut backend, FrameKey(11))
+                .unwrap();
+            // Eligibility analog for the native +4!=0 word: a nonzero
+            // binding flag (fresh bindings carry none; a bound animation
+            // would set them via the slot path).
+            controller.owned[0].bindings[0].flags = 1;
+            controller.set_pose_blend_all(bits).unwrap();
+            assert_eq!(controller.pose_blend(), bits, "bits {bits:#x}");
+            assert!(controller.state().dirty);
+            controller.clear(&mut backend);
+        }
+        // Width admission: hostile views saturate, never wrap the word.
+        controller.state_mut().evaluators.count = usize::MAX;
+        assert_eq!(controller.num_interpolators(), u32::MAX);
+        controller.state_mut().evaluators.count = 0;
+        // Closed views read as absent (native NULL analog).
+        controller.close(&mut backend);
+        assert_eq!(controller.interpolator_storage(), None);
+        assert_eq!(controller.num_interpolators(), 0);
+        assert_eq!(controller.pose_blend(), 0x0000_0000);
+    }
+    #[test]
+    fn pose_entry_loops_resolve_in_order_with_prefix_kept_on_miss() {
+        // RVAs 0x340d0/0x34170/0x34210/0x342e0: resolve order, miss words,
+        // dirty-first rule for blend-set.
+        struct Named(Resources);
+        impl ControllerResourceBackend for Named {
+            type Error = ();
+            fn allocate_evaluator(&mut self) -> Result<EvaluatorId, ()> {
+                self.0.allocate_evaluator()
+            }
+            fn free_evaluator(&mut self, id: EvaluatorId) {
+                self.0.free_evaluator(id)
+            }
+            fn allocate_storage(&mut self, capacity: usize) -> Result<AllocationId, ()> {
+                self.0.allocate_storage(capacity)
+            }
+            fn free_storage(&mut self, id: AllocationId) {
+                self.0.free_storage(id)
+            }
+            fn retain_animation(&mut self, id: AnimSetId) {
+                self.0.retain_animation(id)
+            }
+            fn release_animation(&mut self, id: AnimSetId) {
+                self.0.release_animation(id)
+            }
+            fn mark_animated(&mut self, destination: FrameKey) {
+                self.0.mark_animated(destination)
+            }
+        }
+        impl LiveControllerResourceBackend for Named {
+            fn first_frame_named(&mut self, name: &[u8]) -> Result<Option<(usize, FrameKey)>, ()> {
+                Ok((name == b"A").then_some((0, FrameKey(11))))
+            }
+        }
+        let mut controller = IPolSet::new(FrameKey(1), false);
+        let mut backend = Named(Resources::default());
+        // Hit via set/frame/named paths alike.
+        controller
+            .set_pose_named(&mut backend, b"A", PoseId(1))
+            .unwrap();
+        assert_eq!(controller.num_interpolators(), 1);
+        assert_eq!(controller.interpolator_storage().unwrap().len(), 1);
+        // Miss -> InvalidResourceIdentity (0x80000006 word); prefix kept.
+        assert_eq!(
+            controller.set_pose_named(&mut backend, b"missing", PoseId(1)),
+            Err(ControllerError::InvalidResourceIdentity)
+        );
+        assert_eq!(controller.num_interpolators(), 1);
+        controller
+            .set_pose_frame(&mut backend, FrameKey(12), PoseId(2))
+            .unwrap();
+        assert_eq!(controller.num_interpolators(), 2);
+        controller
+            .set_pose_set(
+                &mut backend,
+                &[PoseSetEntry {
+                    frame_name: b"A".to_vec(),
+                    pose: PoseId(3),
+                }],
+            )
+            .unwrap();
+        assert!(controller.state().dirty);
+        // Dirty-first order for blend-set: a miss keeps dirty set.
+        controller.state_mut().dirty = false;
+        assert_eq!(
+            controller.set_pose_blend_set(
+                &mut backend,
+                0x3f80_0000,
+                &[PoseSetEntry {
+                    frame_name: b"missing".to_vec(),
+                    pose: PoseId(9),
+                }],
+            ),
+            Err(ControllerError::InvalidResourceIdentity)
+        );
+        assert!(controller.state().dirty);
+        // Failure prefix: embedded NUL rejected before any effect.
+        let before = (controller.num_interpolators(), controller.state().dirty);
+        assert_eq!(
+            controller.set_pose_named(&mut backend, b"A ", PoseId(1)),
+            Err(ControllerError::EmbeddedNameTerminator)
+        );
+        assert_eq!(
+            (controller.num_interpolators(), controller.state().dirty),
+            before
+        );
+        controller.close(&mut backend);
+    }
+    #[test]
+    fn reset_all_poses_restores_blends_without_touching_slots() {
+        // 0x34070 callee projection: unconditional blend restore; slot
+        // clocks, weights, modes, enabled flags and dirty untouched.
+        let mut controller = IPolSet::new(FrameKey(1), false);
+        let mut backend = Resources::default();
+        controller
+            .get_frame_interpolator(&mut backend, FrameKey(11))
+            .unwrap();
+        controller.owned[0].pose_blend = 0.25;
+        controller.state_mut().slots[0].current = 42;
+        controller.state_mut().dirty = true;
+        controller.set_pose_blend_all(0x4000_0000).unwrap();
+        controller.reset_all_poses();
+        assert_eq!(
+            controller
+                .owned
+                .iter()
+                .map(|e| e.pose_blend)
+                .collect::<Vec<_>>(),
+            vec![1.0; controller.owned.len()]
+        );
+        assert_eq!(controller.state().slots[0].current, 42);
+        assert!(controller.state().dirty);
         controller.close(&mut backend);
     }
 }

@@ -109,6 +109,45 @@ impl InterpolatorSet {
         if !self.dirty {
             return Ok(());
         }
+        self.run_evaluation(backend)
+    }
+    /// IPolSet::Tick(times) per-slot clock application (LS3DF 0x34040
+    /// callee projection). Upstream working name, not an evidenced
+    /// original symbol. The callee at the 0x34040 site was not formed in
+    /// session, so the per-slot clock rule is contract-assisted (helper
+    /// phase, no function credit): each slot with a nonzero times[slot] marks dirty and advances its own current/
+    /// last_delta with the same wrapping_add shape as the broadcast step;
+    /// disabled slots are skipped. The evaluation/boundary tail is shared
+    /// verbatim with tick().
+    pub fn tick_with_times<B: InterpolatorBackend + ?Sized>(
+        &mut self,
+        backend: &mut B,
+        times: [i32; 8],
+    ) -> Result<(), TickError> {
+        let mut advanced = false;
+        for (slot, delta) in self.slots.iter_mut().zip(times) {
+            if delta != 0 {
+                advanced = true;
+                if slot.enabled {
+                    slot.current = slot.current.wrapping_add(delta);
+                    slot.last_delta = delta;
+                }
+            }
+        }
+        if advanced {
+            self.dirty = true;
+        }
+        if !self.dirty {
+            return Ok(());
+        }
+        self.run_evaluation(backend)
+    }
+    /// Shared evaluation/boundary tail of tick() and tick_with_times()
+    /// (moved verbatim from the former tick() body after its dirty check).
+    fn run_evaluation<B: InterpolatorBackend + ?Sized>(
+        &mut self,
+        backend: &mut B,
+    ) -> Result<(), TickError> {
         let cached = self.evaluators;
         self.dirty = false;
         for index in 0..cached.count {

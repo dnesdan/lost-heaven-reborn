@@ -403,6 +403,17 @@ impl<'a> SharedAnimationModel<'a> {
 // No actor values, host pointers or additional record registry are stored here.
 static NEXT_ACTOR_RECORD_VEHICLE_OFFSET: std::sync::atomic::AtomicU32 =
     std::sync::atomic::AtomicU32::new(0);
+/// Live child-hierarchy copy queue from one `duplicate_live_children`
+/// run. Entries are `(live target owner, duplicate)` in native
+/// `DuplTargetList` (source depth-first) order for post-`SetName`
+/// relinking. The native shadow queue has no projection: `FrameKind`
+/// admits no `FRAME_SHADOW`, so the re-aim loop is empty by
+/// construction.
+#[derive(Debug, Default)]
+pub struct LiveDuplicateQueues {
+    pub targets: Vec<(FrameKey, FrameKey)>,
+}
+
 impl ModelArena {
     pub(crate) fn mark_loaded_model_root(&mut self, key: FrameKey) -> Result<(), ModelError> {
         self.graph.mark_loaded_root_fields(key)?;
@@ -1004,6 +1015,296 @@ impl ModelArena {
         Ok(())
     }
     /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// RVA 0x33bf0. Upstream working name duplicateChildren
+    /// (mafia-re I3d_model.cpp:306-350), not an evidenced original symbol.
+    /// Ghidra body FUN_10033bf0 (534B, 161 insn, 30 BB, dst/src walk,
+    /// AddChild/DBuild/GetTarget/new[] callees) -> tier differential.
+    /// Order-exact: first-child/sibling snapshot walk; FRAME_MODEL(9)
+    /// whole-subtree silent skip; driver CreateVisual(t=1)/CreateFrame
+    /// otherwise with the 0x80000002 word on null (host
+    /// AllocationOverflow); per-frame Duplicate (0x1c5b0 reuse) with
+    /// failure prefix and no rollback (a failed fresh dup keeps its single
+    /// creation reference ownerless, as the native leak); TARGET-flag
+    /// (0x4000) live-owner queue; AddChild(=link)->AddFrame->Release via
+    /// link_frame+add_frame+release; recursion, then single-mesh derived
+    /// rebuild for dups with admitted visuals (bufferless dups skip — see
+    /// above), and only then the recursion error check (a failed subtree
+    /// still runs DBuild when admitted, as observed). Host recursion mirrors the native
+    /// unbounded recursion (no artificial depth bound). Kind coverage is a
+    /// host availability boundary (see create_live_duplicate_frame).
+    pub fn duplicate_live_children(
+        &mut self,
+        model: ModelKey,
+        dst: FrameKey,
+        src: FrameKey,
+    ) -> Result<LiveDuplicateQueues, ModelError> {
+        self.model(model)?;
+        self.frame(dst)?;
+        self.frame(src)?;
+        // Host boundary: copying a hierarchy onto itself would walk live
+        // links into its own dups (native hangs/OOMs on the live re-read).
+        if dst == src {
+            return Err(ModelError::OriginalModelOpenUnavailable(
+                "live children self-duplication",
+            ));
+        }
+        let mut children = Vec::new();
+        let mut next = self.links(src)?.child;
+        while let Some(key) = next {
+            children
+                // Host-defensive: untestable at test sizes (native OOM analog).
+                .try_reserve(1)
+                .map_err(|_| ModelError::AllocationOverflow)?;
+            children.push(key);
+            next = self.links(key)?.next;
+        }
+        let mut queues = LiveDuplicateQueues::default();
+        for child in children {
+            if self.state(child)?.kind == FrameKind::Model {
+                continue;
+            }
+            let dup = self.create_live_duplicate_frame(child)?;
+            self.duplicate_frame(dup, child)?;
+            self.copy_live_duplicate_derived(dup, child)?;
+            if self.state(child)?.kind == FrameKind::Target {
+                self.graph
+                    .register_target(dup, crate::target_state::I3dTargetState::default())?;
+            }
+            if self.state(child)?.flags & 0x4000 != 0 {
+                // Native queues GetTarget(frm) unconditionally and relinks by
+                // original name (silent skip only on genuine absence). A
+                // memberless flagged child therefore queues against its own
+                // dup: the relink loop resolves the dup by its copied orig
+                // name, mirroring the native by-name outcome.
+                let owner = self.graph.first_target_owner(child)?.unwrap_or(dup);
+                queues
+                    // Host-defensive: untestable at test sizes (native OOM analog).
+                    .targets
+                    .try_reserve(1)
+                    .map_err(|_| ModelError::AllocationOverflow)?;
+                queues.targets.push((owner, dup));
+            }
+            self.link_frame(dup, Some(dst), 0)?;
+            self.add_frame(model, dup)?;
+            self.release(dup)?;
+            let nested = self.duplicate_live_children(model, dup, child);
+            if self.state(child)?.kind == FrameKind::Singlemesh
+                && self.frames[self.frame_index(dup)?]
+                    .object_resources
+                    .is_some()
+            {
+                // Native DBuild for single-mesh/singlemorph visuals; runs
+                // before the recursion error check, even on failure.
+                // Bufferless dups (no admitted object_resources) skip: manager
+                // blocks are a loader contract, not record state — the exact
+                // native pose-field set for the refresh path stays OPEN.
+                self.refresh_owned_singlemesh_pose(dup)?;
+            }
+            let nested_queues = nested?;
+            queues
+                .targets
+                // Host-defensive: untestable at test sizes (native OOM analog).
+                .try_reserve(nested_queues.targets.len())
+                .map_err(|_| ModelError::AllocationOverflow)?;
+            queues.targets.extend(nested_queues.targets);
+        }
+        Ok(queues)
+    }
+    /// Driver-create projection for one live duplicate. Kinds without live
+    /// constructors report OriginalModelOpenUnavailable (native would
+    /// duplicate them via the driver) — a host availability boundary.
+    pub(crate) fn create_live_duplicate_frame(
+        &mut self,
+        src: FrameKey,
+    ) -> Result<FrameKey, ModelError> {
+        let kind = self.state(src)?.kind;
+        let state = match kind {
+            FrameKind::Mesh => I3dFrameState::mesh(),
+            FrameKind::Singlemesh => {
+                let mut state = I3dFrameState::mesh();
+                state.kind = FrameKind::Singlemesh;
+                state
+            }
+            FrameKind::Lensflare => I3dFrameState::lensflare(),
+            FrameKind::Dummy => I3dFrameState::dummy(),
+            FrameKind::Joint => I3dFrameState::joint(),
+            FrameKind::Target => I3dFrameState::target(),
+            FrameKind::Sound => I3dFrameState::sound(),
+            FrameKind::Model => {
+                return Err(ModelError::OriginalModelOpenUnavailable(
+                    "live duplicate must skip model children before creation",
+                ));
+            }
+            FrameKind::Camera
+            | FrameKind::Occluder
+            | FrameKind::Scene
+            | FrameKind::Sector
+            | FrameKind::Projector
+            | FrameKind::Light
+            | FrameKind::Area => {
+                return Err(ModelError::OriginalModelOpenUnavailable(
+                    "live duplicate of frame kind without live constructor",
+                ));
+            }
+        };
+        self.insert(state, None, Vec::new(), Vec::new(), None)
+    }
+    /// Derived (non-common) duplicate projection for one live copy: the
+    /// visual half of `dup->Duplicate(frm)` that `duplicate_frame` (0x1c5b0,
+    /// common words only) does not cover. Billboard orientation and morph
+    /// records are cloned; object instances share storage through the owner
+    /// (as duplicate_pristine_cache_model). Lensflare glow materials stay
+    /// pending: a present material list is an explicit boundary error
+    /// rather than a cloned refcount.
+    pub(crate) fn copy_live_duplicate_derived(
+        &mut self,
+        dup: FrameKey,
+        src: FrameKey,
+    ) -> Result<(), ModelError> {
+        let si = self.frame_index(src)?;
+        let di = self.frame_index(dup)?;
+        self.frames[di].billboard = self.frames[si].billboard;
+        self.frames[di].morph = self.frames[si]
+            .morph
+            .as_ref()
+            .map(|m| m.duplicate())
+            .transpose()?;
+        if self.frames[si].lensflare_materials.is_some() {
+            return Err(ModelError::OriginalModelOpenUnavailable(
+                "live duplicate of lensflare glow materials",
+            ));
+        }
+        if let Some(original) = self.frames[si].object_resources {
+            let object = if self.frames[si].billboard.is_some() {
+                self.visual_resource_owner_mut()?
+                    .load_billboard_instance(original)
+            } else if self.frames[si].morph.is_some() {
+                self.visual_resource_owner_mut()?
+                    .load_morph_instance(original)
+            } else if self.state(src)?.kind == FrameKind::Singlemesh {
+                self.visual_resource_owner_mut()?
+                    .load_singlemesh_instance(original)
+            } else {
+                self.visual_resource_owner_mut()?
+                    .load_plain_instance(original)
+            }
+            .map_err(ModelError::LoadedVisual)?;
+            self.frames[di].object_resources = Some(object);
+            self.frames[di].visual_bounds = self.frames[si].visual_bounds;
+            self.graph.discard_hr_bound_vol(dup)?;
+        }
+        Ok(())
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// RVA 0x33fd0. Upstream working name I3D_model::Duplicate
+    /// (mafia-re I3d_model.cpp:412-422), not an evidenced original symbol.
+    /// Ghidra body FUN_10033fd0 (59B, 24 insn, 6 BB, sole callee 0x1c5b0,
+    /// 0x80000007 null limb, [this+0xb4] dispatch) -> tier differential.
+    /// Order-exact: I3D_frame::Duplicate first via duplicate_frame (its
+    /// error returns verbatim); model dispatch reads the SOURCE kind
+    /// (FrameKind::Model, native 9) and tails to DuplicateHierarchy
+    /// (contract 0x33e10 reuse); otherwise the common-copy status returns
+    /// unchanged. The null-frame limb has no projection (typed keys cannot
+    /// spell null — documented, not silently dropped).
+    pub fn duplicate_model_frame(
+        &mut self,
+        dst_model: ModelKey,
+        src: FrameKey,
+    ) -> Result<(), ModelError> {
+        self.model(dst_model)?;
+        let dst = self.model(dst_model)?.key.root();
+        self.duplicate_frame(dst, src)?;
+        if self.state(src)?.kind != FrameKind::Model {
+            return Ok(());
+        }
+        let src_model = self.model_by_root(src)?;
+        self.duplicate_live_hierarchy(dst_model, src_model)
+    }
+    /// Host model lookup for a hierarchy root. Native casts the model frame
+    /// pointer; the arena keeps models separately, so scan membership. A
+    /// model root without an owning model is an explicit boundary.
+    pub(crate) fn model_by_root(&self, root: FrameKey) -> Result<ModelKey, ModelError> {
+        self.models
+            .iter()
+            .find(|model| model.key.root() == root)
+            .map(|model| model.key)
+            .ok_or(ModelError::OriginalModelOpenUnavailable(
+                "duplicate source model root without owning model",
+            ))
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// RVA 0x33e10. Upstream working name I3D_model::DuplicateHierarchy
+    /// (mafia-re I3d_model.cpp:356-408), not an evidenced original symbol.
+    /// No Ghidra body in session (LAB_10033e10 only) -> tier contract per
+    /// the 0x2b830 standard. Order-exact: Close destination; share the
+    /// filename reference; fast-find save/off/restore even on failure;
+    /// duplicate_live_children (differential 0x33bf0 reuse) with the failure
+    /// prefix (SetName/target/Update/animation skipped, fast-find still
+    /// restored); the saved SetName status (propagate_model_name reuse) is
+    /// returned at the end, NOT the later calls' statuses; target relink by
+    /// original name with silent skip when missing; shadow re-aim is an
+    /// empty projection (no Shadow kind); Update root; slot-0 animation
+    /// suffix (no-op when the source controller is absent). Self-duplication
+    /// is a host boundary error (native would empty the model while Close
+    /// retains externally held members with live links that must not be
+    /// re-walked).
+    pub fn duplicate_live_hierarchy(
+        &mut self,
+        destination: ModelKey,
+        source: ModelKey,
+    ) -> Result<(), ModelError> {
+        self.model(destination)?;
+        self.model(source)?;
+        if destination == source {
+            return Err(ModelError::OriginalModelOpenUnavailable(
+                "live hierarchy self-duplication",
+            ));
+        }
+        let (dst_root, src_root) = (
+            self.model(destination)?.key.root(),
+            self.model(source)?.key.root(),
+        );
+        self.close(destination)?;
+        self.copy_model_filename_reference(destination, source)?;
+        let fast_find = self.fast_tree.enabled;
+        self.fast_tree.enabled = false;
+        let children = self.duplicate_live_children(destination, dst_root, src_root);
+        self.fast_tree.enabled = fast_find;
+        let queues = children?;
+        let saved = self.propagate_model_name(destination);
+        for (owner, member) in queues.targets {
+            let original = self
+                .frame(owner)?
+                .original_name_bytes
+                .as_ref()
+                .cloned()
+                .ok_or(ModelError::UnavailableOriginalName(owner))?;
+            let mut target = None;
+            for &candidate in &self.model(destination)?.frames {
+                if self.frame(candidate)?.original_name_bytes.as_deref()
+                    == Some(original.as_slice())
+                {
+                    target = Some(candidate);
+                    break;
+                }
+            }
+            if let Some(target) = target {
+                // Host strictness: relinking needs registered target state,
+                // which only Target-kind dups carry (register_target runs on
+                // Target copies). Non-target queue entries (synthetic
+                // flag-only inputs) skip instead of failing the hierarchy;
+                // real flagged targets always carry state (proven by the
+                // close-first test below).
+                if self.graph.target_state(target).is_ok() {
+                    self.graph.add_duplicate_target_member(target, member)?;
+                }
+            }
+        }
+        self.update_frame(dst_root)?;
+        self.duplicate_cache_animation(destination, source)?;
+        saved
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
     /// RVA 0x1c700. Upstream working name I3D_frame::SetProperty
     /// (mafia-re I3d_frame.cpp:834-851), not an evidenced original symbol.
     /// No Ghidra body in session -> tier contract per the 0x2b830 standard.
@@ -1034,6 +1335,58 @@ impl ModelArena {
         owned.extend_from_slice(&p[..len]);
         self.frames[fi].properties = owned;
         Ok(())
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// RVA 0x335a0 Open filename tail (mafia-re I3d_model.cpp:54-78).
+    /// Ghidra body FUN_100335a0 (211B/75 insn, Close/LoadHierarchy/OOM/
+    /// SetName callees) -> tier differential. This tail covers only the
+    /// post-load filename publish (native strlen+1+4 alloc with the
+    /// 0x80000002 word path, refcount-1 descriptor, byte copy) and the
+    /// conditional SetName() (empty GetName -> I3D_OK, else propagate).
+    /// Close/load/fast-find save-restore live in the caller
+    /// (open_original_static_profile); never re-claimed here. The caller
+    /// gates fast-find/SetName on its pre-load `named` flag while this tail
+    /// re-reads GetName post-load: equivalent in practice because the load
+    /// preserves the root name (Close-then-load never renames the root).
+    /// AllocationOverflow maps to NativeModelOpenResult(0x80000002);
+    /// a pre-owned filename stays FilenameAlreadyOwned (host ordering —
+    /// native always Closes first, so no word exists for it).
+    pub fn finish_original_model_open(
+        &mut self,
+        model: ModelKey,
+        name: &[u8],
+    ) -> Result<u32, ModelError> {
+        self.allocate_model_filename(model, name)
+            .map_err(|error| match error {
+                ModelError::AllocationOverflow => ModelError::NativeModelOpenResult(0x80000002),
+                other => other,
+            })?;
+        if self.frame(model.root())?.name_bytes.is_empty() {
+            return Ok(0);
+        }
+        self.propagate_model_name(model)
+            .map_err(|error| match error {
+                ModelError::AllocationOverflow => ModelError::NativeModelOpenResult(0x80000002),
+                other => other,
+            })?;
+        Ok(0)
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// RVA 0x33b30 SetName(name) (mafia-re I3d_model.cpp:273-279).
+    /// Upstream working name, not an evidenced original symbol. No Ghidra
+    /// body in session -> tier contract per the 0x2b830 standard.
+    /// Order-exact: frame rename first (allocator/registration inside
+    /// SetName), propagate second; a negative frame word returns
+    /// immediately with the root rename retained (prefix kept).
+    pub fn rename_original_model(
+        &mut self,
+        model: ModelKey,
+        name: Option<&[u8]>,
+    ) -> Result<(), ModelError> {
+        self.model(model)?;
+        let root = model.root();
+        self.set_frame_name(root, name)?;
+        self.propagate_model_name(model)
     }
     /// Host-supplied LS3DF driver timeline. Publication is lazy: no material
     /// clocks or CRT random values are consumed until a channel is accessed.
@@ -5445,6 +5798,94 @@ pub(crate) mod tests {
         );
     }
     #[test]
+    fn open_tail_publishes_filename_and_propagates_conditionally() {
+        // RVA 0x335a0 tail: fresh descriptor (ref 1) + conditional SetName().
+        let mut arena = ModelArena::default();
+        let model = arena.create_model().unwrap();
+        // Empty root name: filename published, no propagate, word 0.
+        assert_eq!(
+            arena.finish_original_model_open(model, b"car.4ds").unwrap(),
+            0
+        );
+        let key = arena.model_filename(model).unwrap().unwrap();
+        assert_eq!(arena.filename(key).unwrap().bytes(), b"car.4ds");
+        // Second publish without close: host ordering error (native always
+        // Closes first, so no HRESULT exists for this path).
+        assert_eq!(
+            arena.finish_original_model_open(model, b"x"),
+            Err(ModelError::FilenameAlreadyOwned(model))
+        );
+        arena.close(model).unwrap();
+        arena.release(model.root()).unwrap();
+        // Named root propagates the prefix to owned members.
+        let model = arena.create_model().unwrap();
+        arena.set_frame_name(model.root(), Some(b"car")).unwrap();
+        let member = arena
+            .insert(
+                I3dFrameState::dummy(),
+                Some(0),
+                b"w".to_vec(),
+                Vec::new(),
+                None,
+            )
+            .unwrap();
+        arena.add_frame(model, member).unwrap();
+        assert_eq!(
+            arena.finish_original_model_open(model, b"car.4ds").unwrap(),
+            0
+        );
+        assert_eq!(arena.frame(member).unwrap().name_bytes, b"car.w");
+        arena.close(model).unwrap();
+        arena.release(model.root()).unwrap();
+        // add_frame retained the member (+1): release the held reference too.
+        arena.release(member).unwrap();
+        assert_eq!(arena.live_frame_count(), 0);
+    }
+    #[test]
+    fn rename_frame_first_propagate_second_and_residue() {
+        // RVA 0x33b30: frame rename first, propagate second; the root rename
+        // is retained when propagation runs (and on its failure paths).
+        let mut arena = ModelArena::default();
+        let model = arena.create_model().unwrap();
+        let member = arena
+            .insert(
+                I3dFrameState::dummy(),
+                Some(0),
+                b"w".to_vec(),
+                Vec::new(),
+                None,
+            )
+            .unwrap();
+        arena.add_frame(model, member).unwrap();
+        arena.rename_original_model(model, Some(b"car")).unwrap();
+        assert_eq!(arena.frame(model.root()).unwrap().name_bytes, b"car");
+        assert_eq!(arena.frame(member).unwrap().name_bytes, b"car.w");
+        // Empty rename takes the ResetModelName path on members.
+        arena.rename_original_model(model, None).unwrap();
+        assert_eq!(arena.frame(member).unwrap().name_bytes, b"w");
+        // Null root + member keeps local names, no error (B-4 pin).
+        let model2 = arena.create_model().unwrap();
+        let member2 = arena
+            .insert(
+                I3dFrameState::dummy(),
+                Some(0),
+                b"local".to_vec(),
+                Vec::new(),
+                None,
+            )
+            .unwrap();
+        arena.add_frame(model2, member2).unwrap();
+        arena.rename_original_model(model2, None).unwrap();
+        assert_eq!(arena.frame(member2).unwrap().name_bytes, b"local");
+        arena.close(model2).unwrap();
+        arena.release(model2.root()).unwrap();
+        arena.release(member2).unwrap();
+        arena.close(model).unwrap();
+        arena.release(model.root()).unwrap();
+        arena.release(member).unwrap();
+        assert_eq!(arena.live_frame_count(), 0);
+    }
+    #[test]
     fn offd_counts_sum_and_alphabetical_orders_with_duplicates() {
         // RVAs 0x1b600/0x1b680/0x1b6b0: seed-1 in-order count + publish.
         let mut arena = ModelArena::default();
@@ -5464,5 +5905,352 @@ pub(crate) mod tests {
         let mut out = Vec::new();
         arena.offd_alphabetical_list(root, &mut out).unwrap();
         assert_eq!(out, vec![a, root, z]);
+    }
+    fn parsed_model(frames: Vec<lhr_assets::Frame>) -> std::sync::Arc<lhr_assets::Model> {
+        std::sync::Arc::new(lhr_assets::Model {
+            frames,
+            materials: vec![],
+        })
+    }
+    #[test]
+    fn duplicate_frame_field_copy_masks_and_keeps() {
+        // RVA 0x1c5b0 field step in isolation (no link/HR/registration
+        // steps): masked source bits + KEEP from the destination record +
+        // UPDATE. Ctor word 0x4000003d masked by 0x0fa73e9f keeps 0x1d
+        // (bit 22 is masked out); staged KEEP bits 0x408000 survive; plus
+        // UPDATE gives exactly 0x4040801d.
+        let mut arena = ModelArena::default();
+        let src = bare_frame(&mut arena);
+        let dst = bare_frame(&mut arena);
+        arena.graph.projected_state_mut(src).unwrap().flags |= 0x8000;
+        arena.graph.projected_state_mut(dst).unwrap().flags |= 0x400000 | 0x8000;
+        arena.duplicate_frame(dst, src).unwrap();
+        assert_eq!(arena.graph.state(dst).unwrap().flags, 0x4040_801d);
+        assert_eq!(
+            arena.graph.state(dst).unwrap().update_count,
+            arena.graph.state(src).unwrap().update_count.wrapping_add(1)
+        );
+    }
+    #[test]
+    fn live_children_memberless_flagged_child_queues_against_own_dup() {
+        // B-3: native queues GetTarget(frm) unconditionally; with no live
+        // owner the relink resolves the dup by its copied orig name
+        // (self-target), instead of erroring. Dummy kind keeps the frame
+        // releasable at test tail (model-kind ownerless frames are not).
+        let mut arena = ModelArena::default();
+        let src = arena.create_model().unwrap();
+        let dst = arena.create_model().unwrap();
+        let lone = arena
+            .insert(I3dFrameState::dummy(), None, Vec::new(), Vec::new(), None)
+            .unwrap();
+        arena.graph.projected_state_mut(lone).unwrap().flags |= 0x4000;
+        arena.graph.add_child(src.root(), lone).unwrap();
+        let queues = arena
+            .duplicate_live_children(dst, dst.root(), src.root())
+            .unwrap();
+        assert_eq!(queues.targets.len(), 1);
+        let members = arena.model(dst).unwrap().frames.clone();
+        assert_eq!(members.len(), 1);
+        let dup = members[0];
+        assert_eq!(queues.targets[0], (dup, dup));
+        for model in [src, dst] {
+            arena.close(model).unwrap();
+            arena.release(model.root()).unwrap();
+        }
+        // The dup died with dst members; lone was never a model member.
+        arena.release(lone).unwrap();
+        assert_eq!(arena.live_frame_count(), 0);
+    }
+    #[test]
+    fn live_hierarchy_skips_relink_for_non_target_queue_entries() {
+        // B-follow-up: a memberless flagged dummy queues (dup, dup), but the
+        // hierarchy relink skips it (no registered target state) instead of
+        // failing. Real Target-kind entries still relink (close-first test).
+        let mut arena = ModelArena::default();
+        let src = arena.create_model().unwrap();
+        let dst = arena.create_model().unwrap();
+        let lone = arena
+            .insert(
+                I3dFrameState::dummy(),
+                Some(0),
+                b"flagged".to_vec(),
+                Vec::new(),
+                None,
+            )
+            .unwrap();
+        arena.graph.projected_state_mut(lone).unwrap().flags |= 0x4000;
+        arena.add_frame(src, lone).unwrap();
+        arena.graph.add_child(src.root(), lone).unwrap();
+        arena.duplicate_live_hierarchy(dst, src).unwrap();
+        let members = arena.model(dst).unwrap().frames.clone();
+        assert_eq!(members.len(), 1);
+        // Relink skipped (no target state) but the dup is fully admitted.
+        assert_eq!(arena.frame(members[0]).unwrap().name_bytes, b"flagged");
+        for model in [src, dst] {
+            arena.close(model).unwrap();
+            arena.release(model.root()).unwrap();
+        }
+        arena.release(lone).unwrap();
+        assert_eq!(arena.live_frame_count(), 0);
+    }
+    #[test]
+    fn live_children_self_copy_is_rejected() {
+        // B-2: copying a hierarchy onto itself would walk live links into
+        // its own dups (native hangs/OOMs on the live re-read).
+        let mut arena = ModelArena::default();
+        let src = arena.create_model().unwrap();
+        assert!(matches!(
+            arena.duplicate_live_children(src, src.root(), src.root()),
+            Err(ModelError::OriginalModelOpenUnavailable(_))
+        ));
+        arena.close(src).unwrap();
+        arena.release(src.root()).unwrap();
+        assert_eq!(arena.live_frame_count(), 0);
+    }
+    #[test]
+    fn live_children_singlemesh_without_visuals_skips_dbuild() {
+        let mut single = frame(1, None, [0.; 3]);
+        single.visual = Some(2);
+        single.lods = vec![lhr_assets::Lod {
+            distance: 0.,
+            uv_only: None,
+            vertices: [[0., 0., 0.], [1., 0., 0.], [0., 1., 0.]]
+                .map(|position| lhr_assets::Vertex {
+                    position,
+                    normal: [0., 0., 1.],
+                    uv: [0.; 2],
+                })
+                .to_vec(),
+            groups: vec![lhr_assets::FaceGroup {
+                material: lhr_assets::UNASSIGNED_MATERIAL,
+                indices: vec![0, 1, 2],
+            }],
+        }];
+        single.skin = Some(lhr_assets::SkinRecord {
+            lods: vec![lhr_assets::SkinLodRecord { definition: None }],
+        });
+        single.name = "single".into();
+        single.name_bytes = b"single".to_vec();
+        let mut arena = ModelArena::default();
+        let src = arena.create_model().unwrap();
+        arena
+            .load_parsed_into_model(src, parsed_model(vec![single]))
+            .unwrap();
+        let dst = arena.create_model().unwrap();
+        let queues = arena
+            .duplicate_live_children(dst, dst.root(), src.root())
+            .unwrap();
+        assert!(queues.targets.is_empty());
+        let members = arena.model(dst).unwrap().frames.clone();
+        assert_eq!(members.len(), 1);
+        assert_eq!(
+            arena.state(members[0]).unwrap().kind,
+            crate::frame_transform::FrameKind::Singlemesh
+        );
+        assert_eq!(arena.frame(members[0]).unwrap().name_bytes, b"single");
+        // No close/release tail: bufferless singlemesh frames carry the
+        // UnsupportedDestruction guard (visual teardown needs admitted
+        // object_resources); the test-local arena drops instead. The
+        // duplication itself is fully asserted above.
+        assert_eq!(arena.live_frame_count(), 4);
+    }
+    #[test]
+    fn live_children_copy_names_transforms_properties_in_sibling_order() {
+        // RVA 0x33bf0: snapshot walk, per-frame Duplicate, AddChild/AddFrame/
+        // Release order, recursion; MODEL subtrees skipped (separate test).
+        let mut one = frame(6, None, [1., 2., 3.]);
+        one.name = "one".into();
+        one.name_bytes = b"one".to_vec();
+        let mut nested = frame(6, Some(0), [4., 5., 6.]);
+        nested.name = "nested".into();
+        nested.name_bytes = b"nested".to_vec();
+        let mut two = frame(6, None, [7., 8., 9.]);
+        two.name = "two".into();
+        two.name_bytes = b"two".to_vec();
+        let mut joint = frame(10, Some(2), [0.; 3]);
+        joint.name = "joint".into();
+        joint.name_bytes = b"joint".to_vec();
+        joint.joint = Some(lhr_assets::JointRecord {
+            bone_matrix: SMatrix::identity().elements,
+            index: 0,
+        });
+        let mut arena = ModelArena::default();
+        let src = arena.create_model().unwrap();
+        arena
+            .load_parsed_into_model(src, parsed_model(vec![one, nested, two, joint]))
+            .unwrap();
+        let dst = arena.create_model().unwrap();
+        let queues = arena
+            .duplicate_live_children(dst, dst.root(), src.root())
+            .unwrap();
+        assert!(queues.targets.is_empty());
+        let members = arena.model(dst).unwrap().frames.clone();
+        assert_eq!(members.len(), 4);
+        // DFS pre-order with sibling order. Child links prepend (native
+        // AddChild shape), so the chain under the root reads [two, one]
+        // with nested under one and joint under two.
+        let names: Vec<_> = members
+            .iter()
+            .map(|&k| arena.frame(k).unwrap().name_bytes.clone())
+            .collect();
+        assert_eq!(
+            names,
+            vec![
+                b"two".to_vec(),
+                b"joint".to_vec(),
+                b"one".to_vec(),
+                b"nested".to_vec()
+            ]
+        );
+        // Per-name field equality (member order follows links, not load).
+        let by_name =
+            |model: ModelKey, name: &[u8]| {
+                arena.model(model).unwrap().frames.iter().find_map(|&k| {
+                    (arena.frame(k).unwrap().name_bytes.as_slice() == name).then_some(k)
+                })
+            };
+        for name in [
+            b"one".as_slice(),
+            b"nested".as_slice(),
+            b"two".as_slice(),
+            b"joint".as_slice(),
+        ] {
+            let (from, to) = (by_name(src, name).unwrap(), by_name(dst, name).unwrap());
+            let (s, d) = (arena.state(from).unwrap(), arena.state(to).unwrap());
+            assert_eq!(d.kind, s.kind);
+            assert_eq!(d.local.elements, s.local.elements);
+            // Flag discipline: UPDATE set by the copy; masked source bits
+            // preserved. (KEEP/registration bits belong to later hierarchy
+            // steps — link HR walks own 0x400000 — and are pinned by the
+            // direct field-copy test below.)
+            assert_ne!(d.flags & 0x4000_0000, 0);
+            assert_eq!(d.flags & 0x0fa7_3e9f, s.flags & 0x0fa7_3e9f);
+            assert_eq!(
+                arena.frame(to).unwrap().original_name_bytes,
+                arena.frame(from).unwrap().original_name_bytes
+            );
+            assert_eq!(arena.frame(to).unwrap().references, 1);
+            assert_eq!(
+                arena.frame(to).unwrap().owner,
+                Some(crate::scene_ownership::FrameOwner::Model(dst))
+            );
+        }
+        // Hierarchy links mirror the source under the destination root.
+        let (two, joint, one, nested) = (
+            by_name(dst, b"two").unwrap(),
+            by_name(dst, b"joint").unwrap(),
+            by_name(dst, b"one").unwrap(),
+            by_name(dst, b"nested").unwrap(),
+        );
+        // Links prepend per child (native AddChild shape), so the last
+        // duplicated top-level child heads the chain.
+        assert_eq!(arena.links(two).unwrap().parent, Some(dst.root()));
+        assert_eq!(arena.links(joint).unwrap().parent, Some(two));
+        assert_eq!(arena.links(nested).unwrap().parent, Some(one));
+        assert_eq!(arena.links(dst.root()).unwrap().child, Some(one));
+        assert_eq!(arena.links(one).unwrap().next, Some(two));
+        assert_eq!(arena.links(two).unwrap().next, None);
+        for model in [src, dst] {
+            arena.close(model).unwrap();
+            arena.release(model.root()).unwrap();
+        }
+        assert_eq!(arena.live_frame_count(), 0);
+    }
+    #[test]
+    fn live_children_model_subtree_skip_and_exotic_kind_prefix() {
+        // MODEL children: whole-subtree silent skip. Exotic kinds: failure
+        // prefix with committed siblings retained (no rollback).
+        let mut keep = frame(6, None, [0.; 3]);
+        keep.name = "keep".into();
+        keep.name_bytes = b"keep".to_vec();
+        let mut arena = ModelArena::default();
+        let src = arena.create_model().unwrap();
+        arena
+            .load_parsed_into_model(src, parsed_model(vec![keep]))
+            .unwrap();
+        // A MODEL-kind child is skipped with its whole subtree (native
+        // continue): flip the member kind through the admitted projection.
+        // (link_frame rejects model roots, so the flip is the honest path.)
+        let dst = arena.create_model().unwrap();
+        let snapshot = arena.model(src).unwrap().frames.clone();
+        arena.graph.projected_state_mut(snapshot[0]).unwrap().kind =
+            crate::frame_transform::FrameKind::Model;
+        let queues = arena
+            .duplicate_live_children(dst, dst.root(), src.root())
+            .unwrap();
+        assert!(queues.targets.is_empty());
+        assert!(arena.model(dst).unwrap().frames.is_empty());
+        arena.graph.projected_state_mut(snapshot[0]).unwrap().kind =
+            crate::frame_transform::FrameKind::Dummy;
+        // Flip the member kind to one without a live constructor: the
+        // failure prefix keeps already-committed siblings (here none yet —
+        // the exotic child is first, so nothing committed and the fresh
+        // frame was never created for it).
+        let src_members = arena.model(src).unwrap().frames.clone();
+        arena
+            .graph
+            .projected_state_mut(src_members[0])
+            .unwrap()
+            .kind = crate::frame_transform::FrameKind::Camera;
+        let dst2 = arena.create_model().unwrap();
+        assert!(matches!(
+            arena.duplicate_live_children(dst2, dst2.root(), src.root()),
+            Err(ModelError::OriginalModelOpenUnavailable(_))
+        ));
+        assert!(arena.model(dst2).unwrap().frames.is_empty());
+        // Restore the flipped kind: close() would run camera teardown.
+        arena
+            .graph
+            .projected_state_mut(src_members[0])
+            .unwrap()
+            .kind = crate::frame_transform::FrameKind::Dummy;
+        for model in [src, dst, dst2] {
+            arena.close(model).unwrap();
+            arena.release(model.root()).unwrap();
+        }
+        assert_eq!(arena.live_frame_count(), 0);
+    }
+    #[test]
+    fn model_frame_duplicate_copies_common_then_dispatches_by_source_kind() {
+        // RVA 0x33fd0: frame Duplicate first; Model-kind tails to hierarchy.
+        let mut arena = ModelArena::default();
+        let dst_model = arena.create_model().unwrap();
+        // Non-model source: common copy only, no hierarchy walk.
+        // Dummy kind: releasable without a model record at test tail.
+        let plain = arena
+            .insert(I3dFrameState::dummy(), None, Vec::new(), Vec::new(), None)
+            .unwrap();
+        arena.set_frame_property(plain, Some(b"tag")).unwrap();
+        arena.duplicate_model_frame(dst_model, plain).unwrap();
+        // Model source: members replaced with the source hierarchy.
+        let src_model = arena.create_model().unwrap();
+        let mut named = frame(6, None, [0.; 3]);
+        named.name = "m".into();
+        named.name_bytes = b"m".to_vec();
+        arena
+            .load_parsed_into_model(src_model, parsed_model(vec![named]))
+            .unwrap();
+        arena
+            .duplicate_model_frame(dst_model, src_model.root())
+            .unwrap();
+        let members = arena.model(dst_model).unwrap().frames.clone();
+        assert_eq!(members.len(), 1);
+        assert_eq!(arena.frame(members[0]).unwrap().name_bytes, b"m");
+        // Unowned model-kind root: dispatch misses the model lookup.
+        let stray = arena
+            .insert(I3dFrameState::model(), None, Vec::new(), Vec::new(), None)
+            .unwrap();
+        assert!(matches!(
+            arena.duplicate_model_frame(dst_model, stray),
+            Err(ModelError::OriginalModelOpenUnavailable(_))
+        ));
+        for model in [src_model, dst_model] {
+            arena.close(model).unwrap();
+            arena.release(model.root()).unwrap();
+        }
+        arena.release(plain).unwrap();
+        // The stray model-kind root has no owning model to release through;
+        // it stays resident (arena drops at test end).
+        assert_eq!(arena.live_frame_count(), 1);
     }
 }

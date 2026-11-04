@@ -17,7 +17,9 @@ use crate::{
         AllocationId, AnimSetId, EvaluatorId, InterpolatorBackend, InterpolatorSet, TickError,
     },
     model_loading::{LoadedFrame, ModelArena, ModelError, ModelKey},
-    model_tick::{tick_live_model, LiveModelTickOwner},
+    model_tick::{
+        tick_live_model, tick_live_model_with_times, LiveModelTickOwner, LiveModelTimesOwner,
+    },
     rotation_animation::sample_rotation_channel,
     scene_tick::FrameId,
     scene_tick::InterpolatorId,
@@ -419,6 +421,323 @@ impl ModelArena {
             )) => Ok(ANIMATION_OUT_OF_MEMORY),
             Err(error) => Err(ModelAnimationCallError::Controller(error)),
         }
+    }
+
+    /// Lazy-allocate the pose/animation owner (shared SetPose/SetAnimation
+    /// prologue). Ok(true) = published owner present; Ok(false) = factory
+    /// declined (None) with the OOM word already reported (caller returns
+    /// ANIMATION_OUT_OF_MEMORY). Mirrors the set_original_model_animation
+    /// publish-before-handler order, including its closing + External
+    /// rejections (host boundaries; native has no such flags — unlike the
+    /// tick/reset paths the SetPose wrappers deliberately do NOT add a
+    /// separate closing check because the shared prologue already carries
+    /// it, exactly like SetAnimation).
+    fn ensure_pose_owner<F: ModelControllerFactory>(
+        &mut self,
+        model: ModelKey,
+        factory: &mut F,
+    ) -> Result<bool, ModelAnimationCallError<F::Error>> {
+        let mi = self.model_index(model)?;
+        if self.models[mi].closing {
+            return Err(ModelError::CloseIncomplete(model).into());
+        }
+        if matches!(
+            self.models[mi].original_ipol_set,
+            Some(OriginalModelController::External(_))
+        ) {
+            return Err(ModelError::UnsupportedActiveModelController(model).into());
+        }
+        if self.models[mi].original_ipol_set.is_none() {
+            let destination = ModelAnimationDestination {
+                model,
+                reference: self.lookup_reference(model.root()),
+            };
+            let allocation = factory
+                .allocate(destination)
+                .map_err(ModelAnimationCallError::Factory)?;
+            if allocation
+                .as_ref()
+                .is_some_and(|allocation| allocation.destination != destination)
+            {
+                return Err(ModelAnimationCallError::ForeignControllerAllocation);
+            }
+            // Publish before handler/delegate. None remains genuinely absent;
+            // delegate failure preserves a newly published actual owner.
+            self.models[mi].original_ipol_set = allocation.map(OriginalModelController::Owned);
+            if self.models[mi].original_ipol_set.is_none() {
+                factory
+                    .allocation_failed(ModelControllerAllocationFailure {
+                        hresult: ANIMATION_OUT_OF_MEMORY,
+                        severity: 3,
+                        context: None,
+                    })
+                    .map_err(ModelAnimationCallError::Factory)?;
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
+    /// RVA 0x33a90 AnimIsOn (LS3DF.dll e211c850…): unsigned index>=8 ->
+    /// Upstream working name, not an evidenced original symbol.
+    /// false, null controller -> false, else the live slot `on` byte
+    /// (typed projection: slot enabled). No Ghidra body in session -> tier
+    /// contract per the 0x2b830 standard. Reads the actual owner; no
+    /// snapshot cached across callbacks.
+    pub fn original_model_animation_is_on(
+        &self,
+        model: ModelKey,
+        index: u32,
+    ) -> Result<bool, ModelError> {
+        self.model_index(model)?;
+        if index >= 8 {
+            return Ok(false);
+        }
+        Ok(self.original_model_controller(model)?.is_some_and(|c| {
+            c.state()
+                .slots
+                .get(index as usize)
+                .is_some_and(|s| s.enabled)
+        }))
+    }
+
+    /// RVA 0x34090 NumInterpolators read-only projection (None -> 0).
+    /// Upstream working name, not an evidenced original symbol.
+    /// No Ghidra body for the entry -> contract.
+    pub fn original_model_num_interpolators(&self, model: ModelKey) -> Result<u32, ModelError> {
+        Ok(self
+            .original_model_controller(model)?
+            .map_or(0, |c| c.num_interpolators()))
+    }
+
+    /// RVA 0x340d0 SetPose(set) (LS3DF.dll e211c850…). Ghidra body
+    /// Upstream working name, not an evidenced original symbol.
+    /// FUN_100340d0 (40 insns, lazy 0xf8 alloc + OOM 0x80000002 + delegate)
+    /// -> tier differential. Lazy owner, entry-order application with
+    /// dirty-only-on-success; resolve miss -> OBJECTNOTFOUND (0x80000006)
+    /// with prefix kept. Words match the native HRESULTs.
+    pub fn set_original_model_pose<F: ModelControllerFactory>(
+        &mut self,
+        model: ModelKey,
+        entries: &[crate::animation_controller::PoseSetEntry],
+        factory: &mut F,
+    ) -> Result<u32, ModelAnimationCallError<F::Error>> {
+        if !self.ensure_pose_owner(model, factory)? {
+            return Ok(ANIMATION_OUT_OF_MEMORY);
+        }
+        let mi = self.model_index(model)?;
+        let loaded = &mut self.models[mi];
+        let Some(OriginalModelController::Owned(allocation)) = &mut loaded.original_ipol_set else {
+            unreachable!("published actual owner")
+        };
+        let result = allocation.controller.set_pose_set(
+            &mut LiveResources {
+                graph: &mut self.graph,
+                frames: &mut self.frames,
+                members: &mut loaded.frames,
+                next_identity: &mut allocation.next_identity,
+                #[cfg(test)]
+                fail_evaluator_after: &mut allocation.fail_evaluator_after,
+                #[cfg(test)]
+                test_callback: &mut allocation.test_callback,
+            },
+            entries,
+        );
+        match result {
+            Ok(()) => Ok(0),
+            Err(crate::animation_controller::ControllerError::InvalidResourceIdentity) => {
+                Ok(0x8000_0006)
+            }
+            #[cfg(test)]
+            Err(crate::animation_controller::ControllerError::Resource(
+                ModelAnimationResourceError::NativeEvaluatorAllocation,
+            )) => Ok(ANIMATION_OUT_OF_MEMORY),
+            Err(error) => Err(ModelAnimationCallError::Controller(error)),
+        }
+    }
+
+    /// RVA 0x34170 SetPose(frame,pose): exact-identity destination
+    /// Upstream working name, not an evidenced original symbol.
+    /// targeting. Ghidra body (42 insn + delegate) -> differential.
+    /// Miss -> 0x80000006; OOM -> 0x80000002 via the shared prologue.
+    pub fn set_original_model_pose_frame<F: ModelControllerFactory>(
+        &mut self,
+        model: ModelKey,
+        destination: FrameKey,
+        pose: crate::animation_controller::PoseId,
+        factory: &mut F,
+    ) -> Result<u32, ModelAnimationCallError<F::Error>> {
+        if !self.ensure_pose_owner(model, factory)? {
+            return Ok(ANIMATION_OUT_OF_MEMORY);
+        }
+        let mi = self.model_index(model)?;
+        let loaded = &mut self.models[mi];
+        let Some(OriginalModelController::Owned(allocation)) = &mut loaded.original_ipol_set else {
+            unreachable!("published actual owner")
+        };
+        let result = allocation.controller.set_pose_frame(
+            &mut LiveResources {
+                graph: &mut self.graph,
+                frames: &mut self.frames,
+                members: &mut loaded.frames,
+                next_identity: &mut allocation.next_identity,
+                #[cfg(test)]
+                fail_evaluator_after: &mut allocation.fail_evaluator_after,
+                #[cfg(test)]
+                test_callback: &mut allocation.test_callback,
+            },
+            destination,
+            pose,
+        );
+        match result {
+            Ok(()) => Ok(0),
+            Err(crate::animation_controller::ControllerError::InvalidResourceIdentity) => {
+                Ok(0x8000_0006)
+            }
+            #[cfg(test)]
+            Err(crate::animation_controller::ControllerError::Resource(
+                ModelAnimationResourceError::NativeEvaluatorAllocation,
+            )) => Ok(ANIMATION_OUT_OF_MEMORY),
+            Err(error) => Err(ModelAnimationCallError::Controller(error)),
+        }
+    }
+
+    /// RVA 0x34210 SetPose(name,pose): name-resolved targeting
+    /// Upstream working name, not an evidenced original symbol.
+    /// (case-sensitive resolve, distinct 0x2ffff owner-search domain
+    /// recorded on the helper). Ghidra body (42 insn + delegate) ->
+    /// differential. Miss -> 0x80000006; OOM -> 0x80000002.
+    pub fn set_original_model_pose_named<F: ModelControllerFactory>(
+        &mut self,
+        model: ModelKey,
+        frame_name: &[u8],
+        pose: crate::animation_controller::PoseId,
+        factory: &mut F,
+    ) -> Result<u32, ModelAnimationCallError<F::Error>> {
+        if !self.ensure_pose_owner(model, factory)? {
+            return Ok(ANIMATION_OUT_OF_MEMORY);
+        }
+        let mi = self.model_index(model)?;
+        let loaded = &mut self.models[mi];
+        let Some(OriginalModelController::Owned(allocation)) = &mut loaded.original_ipol_set else {
+            unreachable!("published actual owner")
+        };
+        let result = allocation.controller.set_pose_named(
+            &mut LiveResources {
+                graph: &mut self.graph,
+                frames: &mut self.frames,
+                members: &mut loaded.frames,
+                next_identity: &mut allocation.next_identity,
+                #[cfg(test)]
+                fail_evaluator_after: &mut allocation.fail_evaluator_after,
+                #[cfg(test)]
+                test_callback: &mut allocation.test_callback,
+            },
+            frame_name,
+            pose,
+        );
+        match result {
+            Ok(()) => Ok(0),
+            Err(crate::animation_controller::ControllerError::InvalidResourceIdentity) => {
+                Ok(0x8000_0006)
+            }
+            #[cfg(test)]
+            Err(crate::animation_controller::ControllerError::Resource(
+                ModelAnimationResourceError::NativeEvaluatorAllocation,
+            )) => Ok(ANIMATION_OUT_OF_MEMORY),
+            Err(error) => Err(ModelAnimationCallError::Controller(error)),
+        }
+    }
+
+    /// RVA 0x342b0 SetPoseBlend(blend): bit-exact store to every
+    /// Upstream working name, not an evidenced original symbol.
+    /// interpolator, then changed=1. Absent controller -> 0x80000006 with
+    /// no allocation and no effect (never allocates). NO [0,1] clamp.
+    /// No Ghidra body for the entry -> contract.
+    pub fn set_original_model_pose_blend<F: ModelControllerFactory>(
+        &mut self,
+        model: ModelKey,
+        blend_bits: u32,
+        _factory: &mut F,
+    ) -> Result<u32, ModelAnimationCallError<F::Error>> {
+        let mi = self.model_index(model)?;
+        let loaded = &mut self.models[mi];
+        let Some(OriginalModelController::Owned(allocation)) = &mut loaded.original_ipol_set else {
+            return Ok(0x8000_0006);
+        };
+        allocation
+            .controller
+            .set_pose_blend_all(blend_bits)
+            .map_err(|guard| {
+                ModelAnimationCallError::Controller(match guard {
+                    // Guard-only fallible surface: Closed/Poisoned/InvalidView
+                    // carry no payload, so the mapping is total. Any other
+                    // variant is unreachable by construction (blend stores
+                    // cannot fail).
+                    ControllerError::Closed => ControllerError::Closed,
+                    ControllerError::Poisoned => ControllerError::Poisoned,
+                    ControllerError::InvalidView => ControllerError::InvalidView,
+                    _ => unreachable!("pose blend guard-only"),
+                })
+            })?;
+        Ok(0)
+    }
+
+    /// RVA 0x342e0 SetPoseBlend(blend,set): changed=1 FIRST, then per-entry
+    /// Upstream working name, not an evidenced original symbol.
+    /// stores; miss keeps dirty+prefix (0x80000006). Absent controller ->
+    /// 0x80000006 (never allocates). No Ghidra body -> contract.
+    pub fn set_original_model_pose_blend_set<F: ModelControllerFactory>(
+        &mut self,
+        model: ModelKey,
+        blend_bits: u32,
+        entries: &[crate::animation_controller::PoseSetEntry],
+        _factory: &mut F,
+    ) -> Result<u32, ModelAnimationCallError<F::Error>> {
+        // Absent (or foreign) controller: OBJECTNOTFOUND with no allocation
+        // and no effect — native never allocates on this path (unlike the
+        // SetPose entry points, which lazily publish an owner). The factory
+        // is deliberately untouched here.
+        let mi = self.model_index(model)?;
+        let loaded = &mut self.models[mi];
+        let Some(OriginalModelController::Owned(allocation)) = &mut loaded.original_ipol_set else {
+            return Ok(0x8000_0006);
+        };
+        let result = allocation.controller.set_pose_blend_set(
+            &mut LiveResources {
+                graph: &mut self.graph,
+                frames: &mut self.frames,
+                members: &mut loaded.frames,
+                next_identity: &mut allocation.next_identity,
+                #[cfg(test)]
+                fail_evaluator_after: &mut allocation.fail_evaluator_after,
+                #[cfg(test)]
+                test_callback: &mut allocation.test_callback,
+            },
+            blend_bits,
+            entries,
+        );
+        match result {
+            Ok(()) => Ok(0),
+            Err(crate::animation_controller::ControllerError::InvalidResourceIdentity) => {
+                Ok(0x8000_0006)
+            }
+            #[cfg(test)]
+            Err(crate::animation_controller::ControllerError::Resource(
+                ModelAnimationResourceError::NativeEvaluatorAllocation,
+            )) => Ok(ANIMATION_OUT_OF_MEMORY),
+            Err(error) => Err(ModelAnimationCallError::Controller(error)),
+        }
+    }
+
+    /// RVA 0x34310 GetPoseBlend read-back: absent/empty -> +0.0 bits,
+    /// Upstream working name, not an evidenced original symbol.
+    /// else first eligible interpolator's +8 bits exactly. No effect.
+    /// No Ghidra body for the entry -> contract.
+    pub fn original_model_pose_blend(&self, model: ModelKey) -> Result<u32, ModelError> {
+        Ok(self
+            .original_model_controller(model)?
+            .map_or(0x0000_0000, |c| c.pose_blend()))
     }
 
     pub fn original_model_controller(
@@ -912,6 +1231,99 @@ impl ModelArena {
             }
         }
         result
+    }
+}
+
+impl LiveModelTimesOwner for OwnedModelTick<'_> {
+    type Error = ModelAnimationTickError;
+    fn active_controller_present(&self) -> Result<bool, Self::Error> {
+        Ok(self.arena.original_model_controller(self.model)?.is_some())
+    }
+    fn tick_current_controller_with_times(&mut self, times: [i32; 8]) -> Result<(), Self::Error> {
+        // Same borrowed-state shape as the broadcast path; only the clock
+        // application differs (contract-assisted InterpolatorSet helper).
+        let mi = self.arena.model_index(self.model)?;
+        let Some(OriginalModelController::Owned(allocation)) =
+            &mut self.arena.models[mi].original_ipol_set
+        else {
+            return Err(ModelError::UnsupportedActiveModelController(self.model).into());
+        };
+        if allocation.tick_interrupted {
+            return Err(ModelAnimationTickError::Interrupted);
+        }
+        let (state, view) = allocation
+            .controller
+            .borrow_tick_parts()
+            .map_err(ModelAnimationTickError::Controller)?;
+        let mut backend = OwnedInterpolatorTick {
+            view,
+            graph: &mut self.arena.graph,
+            failure: None,
+            pose_written: false,
+        };
+        let result = state.tick_with_times(&mut backend, times);
+        self.pose_written |= backend.pose_written;
+        if let Some(error) = backend.failure {
+            return Err(error);
+        }
+        result.map_err(ModelAnimationTickError::Interpolator)
+    }
+    fn update_current_model(&mut self) -> Result<(), Self::Error> {
+        self.arena
+            .update_frame(self.model.root())
+            .map_err(Into::into)
+    }
+}
+
+impl ModelArena {
+    /// Explicit native model Tick(times) ordering on its actual owned
+    /// controller (LS3DF RVA 0x34040, differential wrapper). Returns whether
+    /// the null-only entry guard admitted the body. Interrupted-state and
+    /// pose handling mirror tick_original_model_animation.
+    pub fn tick_original_model_animation_with_times(
+        &mut self,
+        model: ModelKey,
+        times: [i32; 8],
+    ) -> Result<bool, ModelAnimationTickError> {
+        let mi = self.model_index(model)?;
+        if self.models[mi].closing {
+            return Err(ModelError::CloseIncomplete(model).into());
+        }
+        let mut owner = OwnedModelTick {
+            arena: self,
+            model,
+            pose_written: false,
+        };
+        let result = tick_live_model_with_times(&mut owner, times);
+        if result.is_err() {
+            if let Some(OriginalModelController::Owned(allocation)) =
+                &mut owner.arena.models[mi].original_ipol_set
+            {
+                allocation.tick_interrupted = true;
+            }
+            if owner.pose_written {
+                owner.arena.interrupt_owned_model_animation_pose(model)?;
+            }
+        }
+        result
+    }
+
+    /// ResetAllPoses, LS3DF RVA 0x34070 (contract: no Ghidra body,
+    /// LAB_10034070 + 32 guard/call bytes only; reference
+    /// I3d_model.cpp:446-450). Null-only guard: no controller -> Ok(false)
+    /// with no effects. Otherwise clears the controller pose projection and
+    /// reports admission. Closing models are rejected like the other
+    /// original-controller entries (host boundary; native has no such flag).
+    pub fn reset_all_model_poses(&mut self, model: ModelKey) -> Result<bool, ModelError> {
+        let mi = self.model_index(model)?;
+        if self.models[mi].closing {
+            return Err(ModelError::CloseIncomplete(model));
+        }
+        let Some(controller) = self.original_model_controller_mut(model)? else {
+            return Ok(false);
+        };
+        controller.reset_all_poses();
+        Ok(true)
     }
 }
 
@@ -1934,5 +2346,228 @@ mod tests {
         arena.publish_runtime_buffers().unwrap();
         arena.close(model).unwrap();
         std::fs::remove_dir_all(directory).unwrap();
+    }
+    #[test]
+    fn anim_is_on_slot_bounds_and_null_and_stop_start() {
+        // RVA 0x33a90: index>=8 false; null controller false; live on-byte.
+        let mut arena = ModelArena::default();
+        let model = arena.create_model().unwrap();
+        assert!(!arena.original_model_animation_is_on(model, 0).unwrap());
+        assert!(!arena.original_model_animation_is_on(model, 8).unwrap());
+        assert!(!arena
+            .original_model_animation_is_on(model, u32::MAX)
+            .unwrap());
+        let mut factory = Factory::default();
+        let anim = resource(&[b"m"], 2);
+        arena
+            .set_original_model_animation(model, Some(&anim), 0, 1., 0, &mut factory)
+            .unwrap();
+        // SetAnimation enables slot 0.
+        assert!(arena.original_model_animation_is_on(model, 0).unwrap());
+        arena.stop_original_model_animation(model, 0).unwrap();
+        assert!(!arena.original_model_animation_is_on(model, 0).unwrap());
+        arena.start_original_model_animation(model, 0).unwrap();
+        assert!(arena.original_model_animation_is_on(model, 0).unwrap());
+        // Out-of-range stop/start are no-ops; is_on still false there.
+        arena.stop_original_model_animation(model, 8).unwrap();
+        assert!(!arena.original_model_animation_is_on(model, 8).unwrap());
+        arena.close(model).unwrap();
+        arena.release(model.root()).unwrap();
+        assert_eq!(arena.live_frame_count(), 0);
+    }
+    #[test]
+    fn pose_lazy_owner_failure_words_and_no_alloc_on_blend_read() {
+        // RVAs 0x340d0/0x34170/0x34210/0x342b0/0x342e0/0x34310 + 0x34090.
+        use crate::animation_controller::{PoseId, PoseSetEntry};
+        let mut arena = ModelArena::default();
+        let (model, _) = load(&mut arena, parsed(&[b"A"]));
+        let mut factory = Factory::default();
+        // Absent owner: counts 0, blend writes refused without allocation,
+        // read-back is +0.0.
+        assert_eq!(arena.original_model_num_interpolators(model).unwrap(), 0);
+        assert_eq!(
+            arena
+                .set_original_model_pose_blend(model, 0x3f80_0000, &mut factory)
+                .unwrap(),
+            0x8000_0006
+        );
+        assert_eq!(arena.original_model_pose_blend(model).unwrap(), 0x0000_0000);
+        // Lazy allocation publishes before the delegate; a declining factory
+        // reports OOM (0x80000002) with the owner still absent.
+        factory.null = true;
+        assert_eq!(
+            arena
+                .set_original_model_pose(
+                    model,
+                    &[PoseSetEntry {
+                        frame_name: b"A".to_vec(),
+                        pose: PoseId(1),
+                    }],
+                    &mut factory
+                )
+                .unwrap(),
+            ANIMATION_OUT_OF_MEMORY
+        );
+        assert!(arena.original_model_controller(model).unwrap().is_none());
+        factory.null = false;
+        // First success publishes the owner; miss words keep the prefix.
+        assert_eq!(
+            arena
+                .set_original_model_pose(
+                    model,
+                    &[PoseSetEntry {
+                        frame_name: b"missing".to_vec(),
+                        pose: PoseId(1),
+                    }],
+                    &mut factory
+                )
+                .unwrap(),
+            0x8000_0006
+        );
+        assert!(arena.original_model_controller(model).unwrap().is_some());
+        assert_eq!(arena.original_model_num_interpolators(model).unwrap(), 0);
+        // Bit-exact blend through the published owner (no clamp). With no
+        // eligible interpolators the read-back is +0.0 by the empty-set
+        // rule (bit-exactness itself is proven by the controller-level
+        // vectors, not by this write).
+        assert_eq!(
+            arena
+                .set_original_model_pose_blend(model, 0xc000_0000, &mut factory)
+                .unwrap(),
+            0
+        );
+        assert_eq!(arena.original_model_pose_blend(model).unwrap(), 0x0000_0000);
+        // Dirty-first blend-set keeps dirty on miss.
+        assert_eq!(
+            arena
+                .set_original_model_pose_blend_set(
+                    model,
+                    0x3f80_0000,
+                    &[PoseSetEntry {
+                        frame_name: b"missing".to_vec(),
+                        pose: PoseId(9),
+                    }],
+                    &mut factory
+                )
+                .unwrap(),
+            0x8000_0006
+        );
+        assert!(
+            arena
+                .original_model_controller(model)
+                .unwrap()
+                .unwrap()
+                .state()
+                .dirty
+        );
+        // Absent controller + declining factory: OBJECTNOTFOUND with no
+        // allocation and no OOM report (native never allocates here).
+        let (fresh, _) = load(&mut arena, parsed(&[b"B"]));
+        let mut declining = Factory {
+            null: true,
+            ..Default::default()
+        };
+        let calls_before = declining.calls;
+        let failures_before = declining.failures.len();
+        assert_eq!(
+            arena
+                .set_original_model_pose_blend_set(
+                    fresh,
+                    0x3f80_0000,
+                    &[PoseSetEntry {
+                        frame_name: b"B".to_vec(),
+                        pose: PoseId(1),
+                    }],
+                    &mut declining
+                )
+                .unwrap(),
+            0x8000_0006
+        );
+        assert!(arena.original_model_controller(fresh).unwrap().is_none());
+        assert_eq!(declining.calls, calls_before);
+        assert_eq!(declining.failures.len(), failures_before);
+        arena.close(fresh).unwrap();
+        arena.release(fresh.root()).unwrap();
+        // Frame-identity targeting on a member frame.
+        let members = arena.model(model).unwrap().frames.clone();
+        assert_eq!(
+            arena
+                .set_original_model_pose_frame(model, members[0], PoseId(2), &mut factory)
+                .unwrap(),
+            0
+        );
+        assert_eq!(arena.original_model_num_interpolators(model).unwrap(), 1);
+        // Name targeting hits and misses.
+        assert_eq!(
+            arena
+                .set_original_model_pose_named(model, b"A", PoseId(3), &mut factory)
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            arena
+                .set_original_model_pose_named(model, b"missing", PoseId(3), &mut factory)
+                .unwrap(),
+            0x8000_0006
+        );
+        arena.close(model).unwrap();
+        arena.release(model.root()).unwrap();
+        assert_eq!(arena.live_frame_count(), 0);
+    }
+    #[test]
+    fn times_tick_applies_per_slot_clocks_without_count_skip_and_updates_root() {
+        // RVA 0x34040: null-only guard (no +0xf0 count read), per-slot tick,
+        // then the live update. Returns admission, like the broadcast tick.
+        let mut arena = ModelArena::default();
+        let (model, _) = load(&mut arena, parsed(&[b"A"]));
+        let updates = arena.state(model.root()).unwrap().update_count;
+        // Null controller: no admission, no update, no effect.
+        assert!(!arena
+            .tick_original_model_animation_with_times(model, [5; 8])
+            .unwrap());
+        assert_eq!(arena.state(model.root()).unwrap().update_count, updates);
+        let mut factory = Factory::default();
+        // Unmatched track name: controller binds with zero evaluators, so
+        // the per-slot tick runs without hitting pose-channel support.
+        let anim = resource(&[b"zzz"], 2);
+        arena
+            .set_original_model_animation(model, Some(&anim), 0, 1., 0, &mut factory)
+            .unwrap();
+        // Bound controller with zero evaluators still admits (the evidenced
+        // difference from the broadcast tick's count guard). The live
+        // update runs (model_tick proves the call order); with nothing
+        // dirty the frame counter is untouched.
+        assert!(arena
+            .tick_original_model_animation_with_times(model, [7, -2, 0, 0, 0, 0, 0, 0])
+            .unwrap());
+        assert_eq!(arena.state(model.root()).unwrap().update_count, updates);
+        arena.close(model).unwrap();
+        arena.release(model.root()).unwrap();
+        assert_eq!(arena.live_frame_count(), 0);
+    }
+    #[test]
+    fn reset_all_poses_null_is_noop_and_bound_resets_blends_keeping_clocks() {
+        // RVA 0x34070: null-only guard; bound path resets blends only.
+        let mut arena = ModelArena::default();
+        let (model, _) = load(&mut arena, parsed(&[b"A"]));
+        assert!(!arena.reset_all_model_poses(model).unwrap());
+        let mut factory = Factory::default();
+        let anim = resource(&[b"zzz"], 2);
+        arena
+            .set_original_model_animation(model, Some(&anim), 0, 1., 0, &mut factory)
+            .unwrap();
+        // Dirty the controller through the pose path, then reset.
+        arena
+            .set_original_model_pose_blend(model, 0x4000_0000, &mut factory)
+            .unwrap();
+        assert!(arena.reset_all_model_poses(model).unwrap());
+        let controller = arena.original_model_controller(model).unwrap().unwrap();
+        // Slot clocks/flags/dirty untouched by the reset (dirty still set
+        // by the preceding blend, as native leaves non-pose words alone).
+        assert!(controller.state().dirty);
+        assert_eq!(controller.state().slots[0].current, 0);
+        arena.close(model).unwrap();
+        arena.release(model.root()).unwrap();
+        assert_eq!(arena.live_frame_count(), 0);
     }
 }
