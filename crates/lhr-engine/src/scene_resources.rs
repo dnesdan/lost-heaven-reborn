@@ -7,7 +7,9 @@ use crate::itexture::{
     CpuTextureStorage, TextureFactoryError, TextureImageSource, TextureKey, TextureResources,
 };
 use crate::model_loading::{ModelArena, ModelError};
+use crate::native_transform::SMatrix;
 use crate::scene_ownership::SceneKey;
+use crate::scene_projection::SceneProjectionError;
 use crate::scene_weather::{self, SCENE_WORDS, SECTOR_SOUND_PROPERTIES_WORDS};
 
 #[path = "scene_weather_runtime.rs"]
@@ -193,6 +195,118 @@ impl SceneResources {
         }
         Ok(0)
     }
+    fn construction_for_view_proj(
+        &mut self,
+        arena: &ModelArena,
+        scene: SceneKey,
+    ) -> Result<&mut SceneConstruction, SceneResourceError> {
+        let entry = self
+            .constructions
+            .iter_mut()
+            .find(|entry| entry.scene == scene)
+            .ok_or(SceneResourceError::UnknownConstruction(scene))?;
+        if entry.arena_identity != arena.lookup_reference(scene.root()) {
+            return Err(SceneResourceError::UnsupportedDomain("foreign arena"));
+        }
+        arena.scene(scene)?;
+        if entry.destroyed {
+            return Err(SceneResourceError::AlreadyDestroyed(scene));
+        }
+        if entry.phase != SceneConstructionPhase::Complete {
+            return Err(SceneResourceError::IncompleteConstruction(scene));
+        }
+        Ok(entry)
+    }
+    /// I3D_scene::SetViewProjMatrix, PC RVA 0x4aa50 (differential: Ghidra
+    /// body 24 insn/2 BBs: REP MOVSD x16 verbatim copy to words +0x188,
+    /// then per-row col0 x half0 (+0x208) / col1 x half1 (+0x20c); only
+    /// columns 0-1 scaled, columns 2-3 verbatim). Halves require a prior
+    /// SetViewport; otherwise an explicit domain error (no invented halves).
+    pub fn set_view_proj_matrix(
+        &mut self,
+        arena: &ModelArena,
+        scene: SceneKey,
+        matrix: SMatrix,
+    ) -> Result<(), SceneResourceError> {
+        let entry = self.construction_for_view_proj(arena, scene)?;
+        let halves = entry
+            .viewport_projection
+            .as_ref()
+            .map(|viewport| viewport.half_extent)
+            .ok_or(SceneResourceError::UnsupportedDomain(
+                "scene viewport projection unavailable",
+            ))?;
+        for (index, value) in matrix.elements.into_iter().enumerate() {
+            entry.words[0x188 / 4 + index] = value.to_bits();
+        }
+        for row in 0..4 {
+            let x = crate::native_precision::mul(matrix.elements[row * 4], halves[0]);
+            let y = crate::native_precision::mul(matrix.elements[row * 4 + 1], halves[1]);
+            entry.words[(0x188 + row * 0x10) / 4] = x.to_bits();
+            entry.words[(0x188 + row * 0x10 + 4) / 4] = y.to_bits();
+        }
+        Ok(())
+    }
+    /// I3D_scene::TransformPoints, PC RVA 0x49e60 (differential: Ghidra body
+    /// 94 insns/~7 BBs, 2 RETs). Camera first (absent -> NoActiveCamera, the
+    /// 0x80000009 word via NOT_INITIALIZED), then screen halves in native
+    /// order (sx via +0x70, sy via +0x74; FILD int x FMUL double 0.5 rounded
+    /// once), then the empty-count early-out (I3D_OK, no writes), then per
+    /// point: w from the stored view-proj-screen row (words +0x194/+0x1a4/
+    /// +0x1b4/+0x1c4, i.e. elements 3/7/11/15) with the 1e-8f -> 1e16-bits
+    /// fallback else 1.0-double/w, xyz via S_vector::operator* with camera
+    /// m_view_proj (+0x1e4), pixels (x*w+1)*hx / (1-y*w)*hy. Writes caller
+    /// buffers only: no allocation; a length mismatch is an explicit error
+    /// (native would overrun — never replicated).
+    pub fn scene_transform_points<S: SceneScreen>(
+        &self,
+        arena: &mut ModelArena,
+        scene: SceneKey,
+        screen: &mut S,
+        inputs: &[[f32; 3]],
+        outputs: &mut [[f32; 4]],
+    ) -> Result<u32, SceneProjectionError<S::Error>> {
+        use SceneProjectionError as Error;
+        if inputs.len() != outputs.len() {
+            return Err(Error::LengthMismatch {
+                inputs: inputs.len(),
+                outputs: outputs.len(),
+            });
+        }
+        let camera = arena
+            .scene_active_camera(scene)
+            .map_err(Error::Model)?
+            .ok_or(Error::NoActiveCamera(scene))?;
+        let sx = screen.screen_sx().map_err(Error::Screen)?;
+        let half_x = super::scene_projection::round_pc24(f64::from(sx) * 0.5);
+        let sy = screen.screen_sy().map_err(Error::Screen)?;
+        let half_y = super::scene_projection::round_pc24(f64::from(sy) * 0.5);
+        if inputs.is_empty() {
+            return Ok(0);
+        }
+        let entry = self
+            .construction(scene)
+            .ok_or(Error::Model(ModelError::Scene(
+                crate::scene_ownership::SceneOwnerError::UnknownScene(scene),
+            )))?;
+        if entry.arena_identity != arena.lookup_reference(scene.root()) {
+            return Err(Error::Model(ModelError::ForeignArena));
+        }
+        arena.scene(scene).map_err(Error::Model)?;
+        let word = |offset: usize| f32::from_bits(entry.words[offset / 4]);
+        let w_row = [word(0x194), word(0x1a4), word(0x1b4), word(0x1c4)];
+        let vp = arena
+            .camera(camera)
+            .map_err(Error::Model)?
+            .matrix(0x1e4)
+            .ok_or(Error::Camera(
+                crate::frame_camera::CameraError::IncompleteProjection(camera),
+            ))?;
+        for (input, output) in inputs.iter().zip(outputs.iter_mut()) {
+            *output = project_point(vp, w_row, [half_x, half_y], *input);
+        }
+        Ok(0)
+    }
     pub(crate) fn bind_driver_domain(&mut self, driver: u64) -> Result<(), SceneResourceError> {
         if self.driver_domain.is_some_and(|owner| owner != driver) {
             return Err(SceneResourceError::UnsupportedDomain(
@@ -311,6 +425,36 @@ impl SceneResources {
         entry.phase = SceneConstructionPhase::Complete;
         Ok(())
     }
+}
+
+/// Loop-body helper of scene_transform_points (PC RVA 0x49e60), helper phase
+/// (no function credit). Evidenced FADDP order ((m13*y + m23*z) + m03*x) +
+/// m33; |w|<1e-8f (0x322bcc77, ordered: NaN takes the division path) yields
+/// the 1e16-bits word (0x5a0e1bca), else the 1.0-double/w narrowed once.
+fn project_point(vp: SMatrix, w_row: [f32; 4], half: [f32; 2], input: [f32; 3]) -> [f32; 4] {
+    use crate::native_precision::{add, mul, sub};
+    let w = add(
+        add(
+            add(mul(w_row[1], input[1]), mul(w_row[2], input[2])),
+            mul(w_row[0], input[0]),
+        ),
+        w_row[3],
+    );
+    let inv_w = if (w.abs().to_bits() as i32) < 0x322bcc77 {
+        f32::from_bits(0x5a0e1bca)
+    } else {
+        let wide = 1.0f64 / f64::from(w);
+        let single = wide as f32;
+        crate::native_precision::record_precision(f64::from(single) != wide);
+        single
+    };
+    let xyz = vp.transform_point(input);
+    [
+        mul(add(mul(xyz[0], inv_w), 1.0), half[0]),
+        mul(sub(1.0, mul(xyz[1], inv_w)), half[1]),
+        xyz[2],
+        inv_w,
+    ]
 }
 
 /// Sealed proof minted only after both actual CPU resource domains have
@@ -1327,6 +1471,106 @@ mod tests {
                 arena.scene(scene).unwrap().close_phase(),
                 crate::scene_ownership::ClosePhase::Idle
             );
+            shared
+                .release_scene(&mut arena, scene, &mut textures, &mut storage)
+                .unwrap();
+        });
+    }
+    #[test]
+    fn view_proj_matrix_copies_then_scales_columns_and_transform_projects() {
+        use crate::native_transform::SMatrix;
+        use crate::scene_projection::SceneProjectionError;
+        let mut precision = crate::native_precision::Pc24PrecisionState::default();
+        precision.run(|| {
+            let mut arena = ModelArena::default();
+            let mut shared = SceneResources::default();
+            let mut textures = TextureResources::new().unwrap();
+            let mut storage = CpuTextureStorage::default();
+            let scene = arena.construct_scene_owner_prefix().unwrap();
+            shared
+                .continue_constructor(
+                    &arena,
+                    scene,
+                    &mut Screen(Vec::new()),
+                    &mut textures,
+                    &mut Images {
+                        reads: 0,
+                        missing: true,
+                    },
+                    &mut storage,
+                )
+                .unwrap();
+            // Halves require a prior SetViewport (no invented halves).
+            assert!(matches!(
+                shared.set_view_proj_matrix(&arena, scene, SMatrix::identity()),
+                Err(SceneResourceError::UnsupportedDomain(_))
+            ));
+            shared
+                .set_viewport(&arena, scene, [0, 0, 800, 600])
+                .unwrap();
+            shared
+                .set_view_proj_matrix(&arena, scene, SMatrix::identity())
+                .unwrap();
+            let words = &shared.construction(scene).unwrap().words;
+            assert_eq!(words[0x188 / 4], 400f32.to_bits());
+            assert_eq!(words[(0x188 + 0x10) / 4 + 1], (-300f32).to_bits());
+            assert_eq!(words[0x1b0 / 4], 1f32.to_bits());
+            assert_eq!(words[0x1c4 / 4], 1f32.to_bits());
+            // Pure helper spots (helper phase, no function credit).
+            let out = super::project_point(
+                SMatrix::identity(),
+                [0., 0., 0., 1.],
+                [400., 300.],
+                [1., -1., 5.],
+            );
+            assert_eq!(out, [800., 600., 5., 1.]);
+            let out = super::project_point(
+                SMatrix::identity(),
+                [0., 0., 0., 0.],
+                [400., 300.],
+                [0., 0., 5.],
+            );
+            assert_eq!(out[..3], [400., 300., 5.]);
+            assert_eq!(out[3].to_bits(), 0x5a0e1bca);
+            // Length mismatch is explicit; empty input returns I3D_OK.
+            let mut screen = Screen(Vec::new());
+            let camera = arena.create_camera(&mut screen).unwrap();
+            arena.scene_set_active_camera(scene, Some(camera)).unwrap();
+            arena.camera_update(camera).unwrap();
+            let inputs = [[0., 0., 5.], [1., 1., 1.]];
+            let mut outputs = [[0.; 4]];
+            assert!(matches!(
+                shared.scene_transform_points(
+                    &mut arena,
+                    scene,
+                    &mut screen,
+                    &inputs,
+                    &mut outputs
+                ),
+                Err(SceneProjectionError::LengthMismatch { .. })
+            ));
+            let mut outputs = [[0.; 4]; 0];
+            assert_eq!(
+                shared
+                    .scene_transform_points(&mut arena, scene, &mut screen, &[], &mut outputs)
+                    .unwrap(),
+                0
+            );
+            // Integration through the stored zero view-proj row: every w
+            // falls back to the 1e16-bits word.
+            shared
+                .set_view_proj_matrix(&arena, scene, SMatrix { elements: [0.; 16] })
+                .unwrap();
+            let inputs = [[0., 0., 5.]];
+            let mut outputs = [[0.; 4]];
+            assert_eq!(
+                shared
+                    .scene_transform_points(&mut arena, scene, &mut screen, &inputs, &mut outputs)
+                    .unwrap(),
+                0
+            );
+            assert_eq!(outputs[0][3].to_bits(), 0x5a0e1bca);
+            arena.release(camera.frame()).unwrap();
             shared
                 .release_scene(&mut arena, scene, &mut textures, &mut storage)
                 .unwrap();

@@ -80,10 +80,44 @@ pub(crate) struct PendingLightAdd {
     light_type: u32,
     on: bool,
 }
+/// Opaque native SCN_CALLBACK* token (PC RVA 0x49120). The engine never calls
+/// through it here; the integer preserves the stored address at the boundary.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SceneCallback(pub u32);
+
+/// Frustum-tick flag word, I3D.h FRMFLAGS_TICK = 0x400000, evidenced by the
+/// TEST EAX,0x400000 probe in RVA 0x49400 bytes and the OR/AND pair in the
+/// RVAs 0x49f90/0x4a050 Ghidra bodies.
+pub const SCENE_TICK_FLAG: u32 = 0x0040_0000;
+/// sceneSS skip mask, TARGET|INTERPOLATOR, evidenced by the
+/// TEST [ESI+0xAC],0x10004000 probe in the RVA 0x4a950 Ghidra body.
+pub const SCENE_SS_SKIP_FLAGS: u32 = 0x1000_4000;
+pub const SCENE_OK: u32 = 0;
+/// ls3df.h I3DERR_OBJECTNOTFOUND, evidenced by the DeleteTickFrame/DeleteShadow
+/// Ghidra bodies and the DeleteFrame byte walk.
+pub const SCENE_OBJECT_NOT_FOUND: u32 = 0x8000_0006;
+/// I3D.h visual discriminants used by the sceneSS SetSpace predicate.
+pub const SCENE_VISUAL_OBJECT: u32 = 0x5f4a_424f;
+pub const SCENE_VISUAL_LIT_OBJECT: u32 = 0x5041_4d4c;
+
 #[derive(Debug)]
 pub struct SceneFrameOwner {
     pub key: SceneKey,
     pub(crate) current_camera: Option<crate::frame_camera::CameraKey>,
+    /// Native callback at this+0x140 with flags at +0x144 (PC RVA 0x49120).
+    /// Constructor-zeroed; a null store forces the flags word to zero.
+    pub(crate) callback: Option<SceneCallback>,
+    pub(crate) callback_flags: u32,
+    /// Tick C_list triple at this+0x148/0x14C/0x150/0x154 (PC RVAs
+    /// 0x49f90/0x4a050). Count is tick_frames.len(); capacity/growth mirror
+    /// the native words (ctor: capacity 0, growth 32).
+    pub(crate) tick_frames: Vec<FrameKey>,
+    pub(crate) tick_capacity: usize,
+    pub(crate) tick_growth: usize,
+    /// Last SetSpace world value applied (PC RVA 0x4a8d0). The native
+    /// SetSpaceParam is a file-static u8; the host keeps it per-scene so two
+    /// live scenes cannot clobber each other (documented deviation).
+    pub(crate) world_space: bool,
     pub(crate) area_head: Option<crate::frame_area::AreaKey>,
     pub(crate) area_count: u32,
     pub(crate) areas_changed: bool,
@@ -105,6 +139,20 @@ pub struct SceneFrameOwner {
     pub(crate) frames: Vec<FrameKey>,
     pub(crate) native_capacity: usize,
     pub(crate) growth: usize,
+    /// Native shadow list (PC RVAs 0x4a5a0/0x4a640). Membership is the host
+    /// analog of the element back-pointer at +0x188: the native same-scene
+    /// guard and the delete swap-remove order are preserved on it.
+    pub(crate) shadows: Vec<FrameKey>,
+    /// Native mirror list (PC RVAs 0x4a6f0/0x4a790), same discipline with the
+    /// element back-pointer at +0x1e0.
+    pub(crate) mirrors: Vec<FrameKey>,
+    /// Weather dummy registry (native ws_dummies, PC RVAs 0x4bbc0/0x4bc30).
+    /// Typed entries; raw C_list words stay in the scene_weather word view.
+    pub(crate) weather_dummies: Vec<crate::scene_weather_dummy::WeatherDummyEntry>,
+    /// Scene-owned IPolSet (native ipol_set at scene+0x178, PC RVAs
+    /// 0x4b0f0..0x4b390). Separate owner from every model controller; a scene
+    /// allocation never aliases a model allocation and vice versa.
+    pub(crate) scene_animation: Option<crate::scene_animation_runtime::OriginalSceneController>,
     phase: ClosePhase,
     close_cursor: usize,
     effect_cursor: usize,
@@ -187,18 +235,77 @@ pub enum SceneOwnerError {
     UnknownScene(SceneKey),
     UnknownSector(SectorKey),
     CloseIncomplete(SceneKey),
-    FrameNotOwned { scene: SceneKey, frame: FrameKey },
+    FrameNotOwned {
+        scene: SceneKey,
+        frame: FrameKey,
+    },
     BackendUnavailable(SceneCloseEffect),
     AllocationIncomplete(SceneKey),
-    LinkRejected { scene: SceneKey, result: u32 },
+    LinkRejected {
+        scene: SceneKey,
+        result: u32,
+    },
     SectorGeometryUnavailable(SceneKey),
     LightnessUnavailable(SectorKey),
-    LightAddIncomplete { sector: SectorKey, light: FrameKey },
+    LightAddIncomplete {
+        sector: SectorKey,
+        light: FrameKey,
+    },
+    /// A compatibility-imported scene controller without its resource owner.
+    UnsupportedActiveSceneController(SceneKey),
+    /// Sector EnumFrames mask filtering lives in the unported sector-enum
+    /// layer (PC RVA 0x49180); an explicit mask is rejected, never filtered.
+    EnumMaskUnavailable,
 }
 impl From<SceneOwnerError> for ModelError {
     fn from(error: SceneOwnerError) -> Self {
         Self::Scene(error)
     }
+}
+
+/// Native sceneSS visit decision inputs (PC RVA 0x4a950). The classifier
+/// backend reads live visual state; the traversal owns order, the
+/// TARGET|INTERPOLATOR skip, and child/next linkage. Required predicate
+/// (I3d_scene.cpp:683-690): skip subtree for native types MODEL/VOLUME;
+/// SetSpace iff (is_visual_frame && vt==OBJ_) or vt==LMAP, with
+/// SCENE_VISUAL_OBJECT/LIT_OBJECT above.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SceneSpaceVisit {
+    SkipSubtree,
+    Recurse,
+    SetSpaceAndRecurse,
+}
+/// Unported per-visual/per-portal effect boundary for SetSpace (PC RVA
+/// 0x4a8d0), sceneSS (0x4a950) and MakeReadySectors (0x4a880). The native
+/// I3D_visual::SetSpace virtual and I3D_portal::UpdatePortal stay here.
+pub trait SceneSpaceBackend {
+    fn visit(&self, kind: crate::frame_transform::FrameKind, frame: FrameKey) -> SceneSpaceVisit;
+    fn set_space(&mut self, frame: FrameKey, world: bool);
+    fn update_portal(
+        &mut self,
+        arena: &ModelArena,
+        scene: SceneKey,
+        portal: crate::frame_portal::PortalKey,
+    ) -> Result<(), ModelError>;
+}
+/// Ordered SceneOpen phases (PC RVA 0x4a300). CloseScene runs even for a null
+/// filename; LoadHierarchy's word propagates verbatim; MakeReadySectors runs
+/// through the real make_ready_sectors, not through this backend.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SceneOpenEffect {
+    CloseScene,
+    LoadHierarchy,
+    UpdateCamera,
+}
+/// LoadHierarchy file wiring, camera Update virtual and Close effects stay
+/// backend-owned; only their order and words are reconstructed here.
+pub trait SceneOpenBackend {
+    fn open_effect(
+        &mut self,
+        arena: &ModelArena,
+        scene: SceneKey,
+        effect: SceneOpenEffect,
+    ) -> Result<u32, ModelError>;
 }
 
 impl ModelArena {
@@ -263,6 +370,12 @@ impl ModelArena {
         self.scenes.push(SceneFrameOwner {
             key,
             current_camera: None,
+            callback: None,
+            callback_flags: 0,
+            tick_frames: Vec::new(),
+            tick_capacity: 0,
+            tick_growth: 32,
+            world_space: false,
             area_head: None,
             area_count: 0,
             areas_changed: false,
@@ -282,6 +395,10 @@ impl ModelArena {
             frames: Vec::new(),
             native_capacity: 0,
             growth: 32,
+            shadows: Vec::new(),
+            mirrors: Vec::new(),
+            weather_dummies: Vec::new(),
+            scene_animation: None,
             phase: ClosePhase::Idle,
             close_cursor: 0,
             effect_cursor: 0,
@@ -443,6 +560,438 @@ impl ModelArena {
         }
         Ok(())
     }
+    /// Original SetCallback, PC RVA 0x49120 (contract: Ghidra formed no body,
+    /// LAB_10049120/not_in_procedure; 256 B byte decode + mafia-re
+    /// I3d_scene.cpp:185-194). Null stores force the flags word to zero; the
+    /// previous callback is returned on both paths (observed RETN 12 pair).
+    pub fn scene_set_callback(
+        &mut self,
+        scene: SceneKey,
+        callback: Option<SceneCallback>,
+        flags: u32,
+    ) -> Result<Option<SceneCallback>, ModelError> {
+        let si = self.scene_index(scene)?;
+        // Effect order per the byte decode: flags store, old read, callback
+        // store. No validation, no callback invocation at this boundary.
+        self.scenes[si].callback_flags = if callback.is_none() { 0 } else { flags };
+        let old = self.scenes[si].callback;
+        self.scenes[si].callback = callback;
+        Ok(old)
+    }
+    /// Helper-phase read of the callback words (no function credit).
+    pub fn scene_callback(
+        &self,
+        scene: SceneKey,
+    ) -> Result<(Option<SceneCallback>, u32), ModelError> {
+        let owner = self.scene(scene)?;
+        Ok((owner.callback, owner.callback_flags))
+    }
+    /// Original AddTickFrame, PC RVA 0x49f90 (differential: Ghidra body 188 B,
+    /// 56 insn/10 BB). push_back_unique then an unconditional TICK OR. The
+    /// search precedes the reserve, so host OOM leaves no flag residue.
+    /// check_owner_available is reused host admission without native evidence.
+    pub fn scene_add_tick_frame(
+        &mut self,
+        scene: SceneKey,
+        key: FrameKey,
+    ) -> Result<(), ModelError> {
+        self.scene_add_tick_frame_with_reserve(scene, key, |list| {
+            list.try_reserve(1)
+                .map_err(|_| ModelError::AllocationOverflow)
+        })
+    }
+    pub fn scene_add_tick_frame_with_reserve(
+        &mut self,
+        scene: SceneKey,
+        key: FrameKey,
+        mut reserve: impl FnMut(&mut Vec<FrameKey>) -> Result<(), ModelError>,
+    ) -> Result<(), ModelError> {
+        let si = self.scene_index(scene)?;
+        self.frame(key)?;
+        self.check_owner_available(scene.into())?;
+        if self.scenes[si].tick_frames.contains(&key) {
+            self.graph.change_flags(key, 0, SCENE_TICK_FLAG)?;
+            return Ok(());
+        }
+        if self.scenes[si].tick_frames.len() >= self.scenes[si].tick_capacity {
+            self.scenes[si].tick_capacity = self.scenes[si]
+                .tick_capacity
+                .checked_add(self.scenes[si].tick_growth)
+                .ok_or(ModelError::AllocationOverflow)?;
+            reserve(&mut self.scenes[si].tick_frames)?;
+        }
+        self.scenes[si].tick_frames.push(key);
+        self.graph.change_flags(key, 0, SCENE_TICK_FLAG)?;
+        Ok(())
+    }
+    /// Original DeleteTickFrame, PC RVA 0x4a050 (differential: Ghidra body 141 B,
+    /// 51 insn/12 BB). Swap-with-last removal with the count update and slot
+    /// fill preceding the TICK clear; absent members return the
+    /// OBJECTNOTFOUND word with no state touched.
+    pub fn scene_delete_tick_frame(
+        &mut self,
+        scene: SceneKey,
+        key: FrameKey,
+    ) -> Result<u32, ModelError> {
+        let si = self.scene_index(scene)?;
+        self.frame(key)?;
+        self.check_owner_available(scene.into())?;
+        let Some(pos) = self.scenes[si].tick_frames.iter().position(|&f| f == key) else {
+            return Ok(SCENE_OBJECT_NOT_FOUND);
+        };
+        self.scenes[si].tick_frames.swap_remove(pos);
+        self.graph.change_flags(key, SCENE_TICK_FLAG, 0)?;
+        Ok(SCENE_OK)
+    }
+    /// Original DeleteFrame, PC RVA 0x49400 (contract: Ghidra formed no body,
+    /// LAB_10049400/not_in_procedure; entry bytes read this+0x234 and test
+    /// FRMFLAGS_TICK, I3D_OK RETN-8 path in-window; mafia-re
+    /// I3d_scene.cpp:275-288). Word-return form of scene_delete_frame: owned
+    /// removal, owner NULL, TICK untrack, conditional release. Membership
+    /// precedes frame liveness, as in the original: a non-member yields the
+    /// miss word even for a destroyed key (host admission — native would be
+    /// a dangling-pointer call). The TICK live-read runs after owned removal,
+    /// as in the original; removal runs no callbacks so the read is stable.
+    /// The miss word matches the evidenced DeleteTickFrame/DeleteShadow
+    /// 0x80000006 (ls3df.h:27).
+    pub fn scene_delete_frame_word(
+        &mut self,
+        scene: SceneKey,
+        key: FrameKey,
+    ) -> Result<u32, ModelError> {
+        let si = self.scene_index(scene)?;
+        self.check_owner_available(scene.into())?;
+        let Some(pos) = self.scenes[si].frames.iter().position(|&f| f == key) else {
+            return Ok(SCENE_OBJECT_NOT_FOUND);
+        };
+        // Member frames are live by construction (admission rejects dead
+        // keys); a failure here is host-state corruption, never a word.
+        let fi = self.frame_index(key)?;
+        self.scenes[si].frames.swap_remove(pos);
+        self.frames[fi].owner = None;
+        if self.state(key)?.flags & SCENE_TICK_FLAG != 0 {
+            self.graph.change_flags(key, SCENE_TICK_FLAG, 0)?;
+            if let Some(tp) = self.scenes[si].tick_frames.iter().position(|&f| f == key) {
+                self.scenes[si].tick_frames.swap_remove(tp);
+            }
+        }
+        if (self.frames[fi].references as i32) > 0 {
+            self.release(key)?;
+        }
+        Ok(SCENE_OK)
+    }
+    /// Destructor camera step of PC RVA 0x48ed0 (differential evidence for the
+    /// ordered prefix: vtable reset + Close precede this; the listener/VB and
+    /// shared-snow teardown stay backend-owned, see OPEN below). The camera's
+    /// sector link clears through the existing producer, then the scene's
+    /// reference releases and the slot nulls. The native scene-link null at
+    /// camera+0x3F4 has no typed accessor yet; clear_sector covers the sector
+    /// word and clear_scene is deliberately not invoked (the scene row dies).
+    pub fn scene_destructor_detach_camera(&mut self, scene: SceneKey) -> Result<(), ModelError> {
+        let si = self.scene_index(scene)?;
+        if let Some(camera) = self.scenes[si].current_camera {
+            self.camera_mut(camera)?.clear_sector();
+            self.release(camera.frame())?;
+            self.scenes[si].current_camera = None;
+        }
+        Ok(())
+    }
+    /// Destructor registry step of PC RVA 0x48ed0 (contract: Ghidra body
+    /// 588B/165insn/28BB evidences the ordered prefix — vtable reset, Close,
+    /// camera detach, 4 sector releases, listener delete, WSRefCnt/snow/VB
+    /// block, driver-list removal, 7 list buffers — of which only the
+    /// camera-detach, controller-close and registry-removal steps are
+    /// reconstructed here; sector releases, listener/VB/shared-snow teardown
+    /// and driver-list internals stay backend-owned, disclosed). Allowed only
+    /// after Close completed (phase Idle) with no owned frames and no pending
+    /// allocation; otherwise the destructor order is violated. Runs the
+    /// scene-controller close first (native `delete ipol_set` after Close);
+    /// an unsupported compat-imported controller blocks forgetting. Sector
+    /// records would otherwise keep a stale scene link (native sector dtors
+    /// null the ring links); the host nulls the scene side here without
+    /// running sector destructors (disclosed partial).
+    pub fn scene_forget_after_close(&mut self, scene: SceneKey) -> Result<(), ModelError> {
+        let si = self.scene_index(scene)?;
+        let owner = &self.scenes[si];
+        if owner.phase != ClosePhase::Idle
+            || !owner.frames.is_empty()
+            || owner.allocation_incomplete
+        {
+            return Err(SceneOwnerError::CloseIncomplete(scene).into());
+        }
+        self.close_original_scene_controller(scene)?;
+        for sector in self.sectors.iter_mut() {
+            if sector.scene == Some(scene) {
+                sector.scene = None;
+            }
+        }
+        let si = self.scene_index(scene)?;
+        self.scenes.swap_remove(si);
+        Ok(())
+    }
+    /// Original AddShadow, PC RVA 0x4a5a0 (differential: Ghidra body 44
+    /// insn/7 BB). The element back-pointer guard (+0x188) precedes growth;
+    /// membership is its host analog. Host Vec discipline follows the
+    /// sector_add_light_with_reserve precedent: fallible try_reserve(1)
+    /// first, so AllocationOverflow mutates nothing (disclosed divergence
+    /// from the native capacity-bump-before-new order, which shows no
+    /// recovery branch in the 44-insn body).
+    pub fn scene_add_shadow(
+        &mut self,
+        scene: SceneKey,
+        shadow: FrameKey,
+    ) -> Result<(), ModelError> {
+        let si = self.scene_index(scene)?;
+        self.frame(shadow)?;
+        self.check_owner_available(scene.into())?;
+        if self.scenes[si].shadows.contains(&shadow) {
+            return Ok(());
+        }
+        self.scenes[si]
+            .shadows
+            .try_reserve(1)
+            .map_err(|_| ModelError::AllocationOverflow)?;
+        self.scenes[si].shadows.push(shadow);
+        Ok(())
+    }
+    /// Original DeleteShadow, PC RVA 0x4a640 (differential: Ghidra body 58
+    /// insn/11 BB). Linear search; size-1 fast path and size>1
+    /// swap-with-last share the back-pointer clear; a miss keeps state and
+    /// returns 0x80000006 (the dbgPrintf miss string has no host log analog).
+    pub fn scene_delete_shadow(
+        &mut self,
+        scene: SceneKey,
+        shadow: FrameKey,
+    ) -> Result<u32, ModelError> {
+        let si = self.scene_index(scene)?;
+        self.frame(shadow)?;
+        self.check_owner_available(scene.into())?;
+        let Some(pos) = self.scenes[si].shadows.iter().position(|&f| f == shadow) else {
+            return Ok(SCENE_OBJECT_NOT_FOUND);
+        };
+        self.scenes[si].shadows.swap_remove(pos);
+        Ok(SCENE_OK)
+    }
+    /// Original AddMirror, PC RVA 0x4a6f0 (differential: Ghidra body 44
+    /// insn/7 BB, byte-identical shape to AddShadow at the mirror offsets
+    /// with the back-pointer at +0x1e0). Same order and OOM discipline.
+    pub fn scene_add_mirror(
+        &mut self,
+        scene: SceneKey,
+        mirror: FrameKey,
+    ) -> Result<(), ModelError> {
+        let si = self.scene_index(scene)?;
+        self.frame(mirror)?;
+        self.check_owner_available(scene.into())?;
+        if self.scenes[si].mirrors.contains(&mirror) {
+            return Ok(());
+        }
+        self.scenes[si]
+            .mirrors
+            .try_reserve(1)
+            .map_err(|_| ModelError::AllocationOverflow)?;
+        self.scenes[si].mirrors.push(mirror);
+        Ok(())
+    }
+    /// Original DeleteMirror, PC RVA 0x4a790 (differential: Ghidra body 58
+    /// insn/11 BB, mirror-offset twin of DeleteShadow). Same words.
+    pub fn scene_delete_mirror(
+        &mut self,
+        scene: SceneKey,
+        mirror: FrameKey,
+    ) -> Result<u32, ModelError> {
+        let si = self.scene_index(scene)?;
+        self.frame(mirror)?;
+        self.check_owner_available(scene.into())?;
+        let Some(pos) = self.scenes[si].mirrors.iter().position(|&f| f == mirror) else {
+            return Ok(SCENE_OBJECT_NOT_FOUND);
+        };
+        self.scenes[si].mirrors.swap_remove(pos);
+        Ok(SCENE_OK)
+    }
+    /// Original SetGlobalColor, PC RVA 0x49520 (contract: Ghidra formed no
+    /// body, LAB_10049520/not_in_procedure; entry bytes fetch this+0x210,
+    /// corroborating the primary-sector access; mafia-re
+    /// I3d_scene.cpp:290-298). In-order diffuse store over the primary
+    /// sector's light list; no validation, no return, no fog/sector-flag
+    /// effects. An empty list is a no-op. The diffuse setter and any device
+    /// call stay backend contracts. No float math (bitwise color copy).
+    /// Host numeric-unavailable errors from the light cache surface only
+    /// after every member was stored: the loop never aborts early, so the
+    /// native hit-every-light order holds and the first error reports.
+    pub fn scene_set_global_color(
+        &mut self,
+        scene: SceneKey,
+        color: [f32; 3],
+    ) -> Result<(), ModelError> {
+        let primary = self.scene(scene)?.sectors[0];
+        // Live re-read per member: the setter may mutate sector state.
+        let lights = self.sector(primary)?.lights.clone();
+        let mut first_error = None;
+        for light in lights {
+            if let Err(error) = self
+                .graph
+                .set_light_diffuse(light, color)
+                .map_err(ModelError::from)
+            {
+                first_error = first_error.or(Some(error));
+            }
+        }
+        if let Some(error) = first_error {
+            return Err(error);
+        }
+        Ok(())
+    }
+    /// Original CreateSector, PC RVA 0x4a140 (differential: Ghidra body 38
+    /// insn/6 BB: operator_new(0x234), null-checked, ctor, ring link via
+    /// FUN_1004f260). The host reuses create_sector_frame (alloc+ctor
+    /// defaults) plus sector_add_to_scene_ring (borrowed scene ring). A fresh
+    /// sector carries scene None and no occluder, so the ring link cannot hit
+    /// the old-ring-removal or occluder rejections; scene_index above covers
+    /// the unknown-scene arm. Either OOM precedes any arena push.
+    pub fn create_scene_sector(&mut self, scene: SceneKey) -> Result<SectorKey, ModelError> {
+        self.scene_index(scene)?;
+        self.check_owner_available(scene.into())?;
+        let key = self.create_sector_frame()?;
+        self.sector_add_to_scene_ring(key, Some(scene))?;
+        Ok(key)
+    }
+    /// Original GetSector list overload, PC RVA 0x4a240 (contract: Ghidra
+    /// formed no body, procedure:null; 24-insn probe walk with RET 0x10 and
+    /// the reverse scale-4 index MOV EAX,[EDI+ESI*4-4]; mafia-re
+    /// I3d_scene.cpp:505-512). Reverse list order with primary fallback; an
+    /// empty list returns primary. Precision policy reuses sector_check_point
+    /// (PC24); no new float arithmetic here.
+    pub fn scene_get_sector_from_list(
+        &mut self,
+        scene: SceneKey,
+        position: [f32; 3],
+        list: &[SectorKey],
+    ) -> Result<SectorKey, ModelError> {
+        let si = self.scene_index(scene)?;
+        for &key in list.iter().rev() {
+            self.sector(key)?;
+            if self.sector_check_point(key, position)? {
+                return Ok(key);
+            }
+        }
+        Ok(self.scenes[si].sectors[0])
+    }
+    /// Original MakeReadySectors, PC RVA 0x4a880 (differential: Ghidra body 23
+    /// insn/5 BB: EnumFrames SECTOR with the 0x4a8c0 helper, then the portal
+    /// loop over count [ESI+0x254]/head [ESI+0x258]). Order: sector-ring
+    /// MakeReady via the existing producer, then portals in scene order via
+    /// the backend (UpdatePortal 0x419e0 is unported). The host walks the
+    /// scene ring where native enumerates primary/backdrop/omni/near (see
+    /// the scene_set_space disclosure). The EnumProc helper gets no function
+    /// credit. Void native: the first host error aborts; completed MakeReady
+    /// flags are never rolled back.
+    pub fn make_ready_sectors(
+        &mut self,
+        scene: SceneKey,
+        backend: &mut impl SceneSpaceBackend,
+    ) -> Result<(), ModelError> {
+        let si = self.scene_index(scene)?;
+        let mut current = self.scenes[si].sector_head;
+        for _ in 0..self.scenes[si].sector_count {
+            let key = current.ok_or(crate::frame_sector::SectorError::InvalidRing)?;
+            self.sector_make_ready(key)?;
+            current = self.sector(key)?.geometry.next;
+        }
+        let mut portal = self.scenes[si].portal_head;
+        for _ in 0..self.scenes[si].portal_count {
+            let key = portal.ok_or(crate::frame_sector::SectorError::InvalidRing)?;
+            backend.update_portal(self, scene, key)?;
+            portal = self.portal(key)?.next;
+        }
+        Ok(())
+    }
+    /// Original SetSpace + sceneSS, PC RVAs 0x4a8d0 (contract: Ghidra formed
+    /// no body, procedure:null; 33-insn walk with the file-static byte store
+    /// MOV [0x101b4e5c],CL, the primary fetch at +0x210, the
+    /// TEST [ESI+0xac],0x10004000 skip and the CMP EAX,0xb VOLUME skip) and
+    /// 0x4a950 (differential: Ghidra body 31 insn/10 BB, preorder with live
+    /// next-reads and the (is_visual && vt==OBJ_)|vt==LMAP predicate). One
+    /// Rust implementation covers both RVAs: the entry path (param store +
+    /// recurse from primary) and the sceneSS traversal share it, so both
+    /// overlay entries point here with their respective tiers. The param
+    /// stores before traversal (native order). The traversal is iterative
+    /// pre-order over the same visit order with a bounded host stack; host
+    /// Vec growth may fail mid-traversal after partial backend effects with
+    /// no rollback (native is infallible — disclosed). Likewise MakeReady
+    /// below walks the scene ring where native runs EnumFrames(ENUMF_SECTOR)
+    /// over primary/backdrop/omni/near: order/coverage equivalence is
+    /// asserted for the registered loaded sectors, not body-evidenced
+    /// (disclosed). Native-owned: TARGET|INTERPOLATOR skip, child/next
+    /// linkage. Backend-owned: per-type skip (MODEL/VOLUME; the arena has no
+    /// volume kind) and the visual-type classification (visual_type has no
+    /// arena home yet).
+    pub fn scene_set_space(
+        &mut self,
+        scene: SceneKey,
+        world: bool,
+        backend: &mut impl SceneSpaceBackend,
+    ) -> Result<(), ModelError> {
+        let si = self.scene_index(scene)?;
+        self.check_owner_available(scene.into())?;
+        self.scenes[si].world_space = world;
+        let root = self.scenes[si].sectors[0].frame();
+        // Iterative pre-order mirroring the recursive native visit order.
+        let mut stack = Vec::new();
+        stack
+            .try_reserve(1)
+            .map_err(|_| ModelError::AllocationOverflow)?;
+        stack.push(root);
+        while let Some(frame) = stack.pop() {
+            if self.state(frame)?.flags & SCENE_SS_SKIP_FLAGS != 0 {
+                continue;
+            }
+            match backend.visit(self.state(frame)?.kind, frame) {
+                SceneSpaceVisit::SkipSubtree => continue,
+                SceneSpaceVisit::Recurse => {}
+                SceneSpaceVisit::SetSpaceAndRecurse => backend.set_space(frame, world),
+            }
+            let mut child = self.links(frame)?.child;
+            let mut siblings = Vec::new();
+            while let Some(next) = child {
+                siblings.push(next);
+                child = self.links(next)?.next;
+            }
+            stack
+                .try_reserve(siblings.len())
+                .map_err(|_| ModelError::AllocationOverflow)?;
+            for sibling in siblings.into_iter().rev() {
+                stack.push(sibling);
+            }
+        }
+        Ok(())
+    }
+    /// Original Open, PC RVA 0x4a300 (differential: Ghidra body 51 insn/9 BB).
+    /// Effect order, phased like close_scene_with_backend with no replay:
+    /// Begin closes via the backend (native vtable+0xc4 Close runs first,
+    /// even before the null-filename check); Load runs the hierarchy intake
+    /// as a backend effect with its word preserved verbatim (failures
+    /// propagate); Finish updates the camera via the backend, then runs the
+    /// real make_ready_sectors. Null filename returns I3D_OK (0) after Close
+    /// ran. LoadHierarchy wiring, portal UpdatePortal and the camera Update
+    /// virtual stay backend effects.
+    pub fn open_scene_with_backend(
+        &mut self,
+        scene: SceneKey,
+        file_name: Option<&[u8]>,
+        backend: &mut impl SceneOpenBackend,
+        space: &mut impl SceneSpaceBackend,
+    ) -> Result<u32, ModelError> {
+        self.scene_index(scene)?;
+        backend.open_effect(self, scene, SceneOpenEffect::CloseScene)?;
+        let Some(_) = file_name else {
+            return Ok(SCENE_OK);
+        };
+        let ret = backend.open_effect(self, scene, SceneOpenEffect::LoadHierarchy)?;
+        backend.open_effect(self, scene, SceneOpenEffect::UpdateCamera)?;
+        self.make_ready_sectors(scene, space)?;
+        Ok(ret)
+    }
     pub fn close_scene_with_backend(
         &mut self,
         scene: SceneKey,
@@ -473,6 +1022,13 @@ impl ModelArena {
             }
             self.scenes[si].effect_cursor = 0;
             self.scenes[si].phase = ClosePhase::Frames;
+        }
+        // ClearTickList (one of the BeforeFrames effects above) releases the
+        // native tick C_list; the arena mirror drops membership and capacity
+        // here, before the ordered frame walk. Idempotent under effect retry.
+        if self.scenes[si].phase == ClosePhase::Frames {
+            self.scenes[si].tick_frames.clear();
+            self.scenes[si].tick_capacity = 0;
         }
         while self.scenes[si].phase == ClosePhase::Frames
             && self.scenes[si].close_cursor < self.scenes[si].frames.len()
@@ -1473,5 +2029,360 @@ mod tests {
         assert!(arena.frame(key).unwrap().name_bytes.is_empty());
         arena.set_frame_name(key, Some(b"new")).unwrap();
         assert_eq!(arena.find_frame_fast(scene, b"new").unwrap(), Some(key));
+    }
+    #[test]
+    fn tick_add_is_unique_ordered_and_sets_flag_after_store() {
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        assert_eq!(
+            (
+                arena.scene(scene).unwrap().tick_capacity,
+                arena.scene(scene).unwrap().tick_growth
+            ),
+            (0, 32)
+        );
+        let a = dummy(&mut arena, b"tick-a");
+        let b = dummy(&mut arena, b"tick-b");
+        arena.scene_add_tick_frame(scene, a).unwrap();
+        arena.scene_add_tick_frame(scene, b).unwrap();
+        arena.scene_add_tick_frame(scene, a).unwrap();
+        assert_eq!(arena.scene(scene).unwrap().tick_frames, [a, b]);
+        assert_eq!(arena.scene(scene).unwrap().tick_capacity, 32);
+        for key in [a, b] {
+            assert_ne!(arena.state(key).unwrap().flags & SCENE_TICK_FLAG, 0);
+        }
+        assert_eq!(arena.scene_delete_tick_frame(scene, a), Ok(0));
+        assert_eq!(arena.scene(scene).unwrap().tick_frames, [b]);
+        assert_eq!(arena.state(a).unwrap().flags & SCENE_TICK_FLAG, 0);
+        assert_ne!(arena.state(b).unwrap().flags & SCENE_TICK_FLAG, 0);
+        assert_eq!(
+            arena.scene_delete_tick_frame(scene, a),
+            Ok(SCENE_OBJECT_NOT_FOUND)
+        );
+    }
+    #[test]
+    fn tick_reserve_failure_leaves_no_flag_or_membership_residue() {
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let a = dummy(&mut arena, b"tick-oom");
+        assert!(arena
+            .scene_add_tick_frame_with_reserve(scene, a, |_| Err(ModelError::AllocationOverflow))
+            .is_err());
+        assert!(arena.scene(scene).unwrap().tick_frames.is_empty());
+        assert_eq!(arena.state(a).unwrap().flags & SCENE_TICK_FLAG, 0);
+        // Capacity was charged before the failing reserve (native unchecked
+        // growth); retry with a working allocator still succeeds, and the
+        // duplicate add after success is a no-op re-OR.
+        arena.scene_add_tick_frame(scene, a).unwrap();
+        arena.scene_add_tick_frame(scene, a).unwrap();
+        assert_eq!(arena.scene(scene).unwrap().tick_frames, [a]);
+    }
+    #[test]
+    fn delete_frame_word_clears_tick_untracks_and_returns_words() {
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let member = dummy(&mut arena, b"owned-tick");
+        arena.scene_add_frame(scene, member).unwrap();
+        arena.scene_add_tick_frame(scene, member).unwrap();
+        assert_eq!(arena.scene_delete_frame_word(scene, member), Ok(SCENE_OK));
+        assert!(arena.scene(scene).unwrap().frames().is_empty());
+        assert!(arena.scene(scene).unwrap().tick_frames.is_empty());
+        assert_eq!(arena.state(member).unwrap().flags & SCENE_TICK_FLAG, 0);
+        assert_eq!(
+            arena.scene_delete_frame_word(scene, member),
+            Ok(SCENE_OBJECT_NOT_FOUND)
+        );
+        // Membership precedes liveness: a destroyed non-member yields the
+        // miss word, never Err.
+        let dead = dummy(&mut arena, b"dead");
+        arena.release(dead).unwrap();
+        assert_eq!(
+            arena.scene_delete_frame_word(scene, dead),
+            Ok(SCENE_OBJECT_NOT_FOUND)
+        );
+    }
+    #[test]
+    fn callback_store_null_forces_flags_and_returns_old() {
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        assert_eq!(arena.scene_callback(scene).unwrap(), (None, 0));
+        assert_eq!(
+            arena
+                .scene_set_callback(scene, Some(SceneCallback(0x1234)), 7)
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            arena.scene_callback(scene).unwrap(),
+            (Some(SceneCallback(0x1234)), 7)
+        );
+        assert_eq!(
+            arena.scene_set_callback(scene, None, 99).unwrap(),
+            Some(SceneCallback(0x1234))
+        );
+        assert_eq!(arena.scene_callback(scene).unwrap(), (None, 0));
+    }
+    #[test]
+    fn lifecycle_construct_tick_close_forget_transitions() {
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let owner = arena.scene(scene).unwrap();
+        assert_eq!(
+            (
+                owner.tick_capacity,
+                owner.tick_growth,
+                owner.callback_flags,
+                owner.world_space
+            ),
+            (0, 32, 0, false)
+        );
+        let member = dummy(&mut arena, b"life");
+        arena.scene_add_frame(scene, member).unwrap();
+        arena.scene_add_tick_frame(scene, member).unwrap();
+        // Forget before Close is rejected (dtor runs after Close).
+        assert!(arena.scene_forget_after_close(scene).is_err());
+        // Camera detach with no camera is a no-op step.
+        arena.scene_destructor_detach_camera(scene).unwrap();
+        // Close clears the arena tick mirror with the frame walk.
+        let mut effects = Effects::default();
+        arena.close_scene_with_backend(scene, &mut effects).unwrap();
+        assert!(arena.scene(scene).unwrap().tick_frames.is_empty());
+        let sectors = arena.scene(scene).unwrap().sectors;
+        arena.scene_forget_after_close(scene).unwrap();
+        assert!(arena.scene(scene).is_err());
+        // Sector records keep no dangling scene link after forgetting.
+        for sector in sectors {
+            assert_eq!(arena.sector(sector).unwrap().scene, None);
+        }
+    }
+    #[test]
+    fn shadow_and_mirror_roundtrips_are_idempotent_with_failure_words() {
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let (a, b, c) = (
+            dummy(&mut arena, b"shadow-a"),
+            dummy(&mut arena, b"shadow-b"),
+            dummy(&mut arena, b"shadow-c"),
+        );
+        arena.scene_add_shadow(scene, a).unwrap();
+        arena.scene_add_shadow(scene, a).unwrap();
+        assert_eq!(arena.scene(scene).unwrap().shadows, [a]);
+        assert_eq!(arena.scene_delete_shadow(scene, a), Ok(0));
+        assert!(arena.scene(scene).unwrap().shadows.is_empty());
+        assert_eq!(
+            arena.scene_delete_shadow(scene, a),
+            Ok(SCENE_OBJECT_NOT_FOUND)
+        );
+        for mirror in [a, b, c] {
+            arena.scene_add_mirror(scene, mirror).unwrap();
+        }
+        assert_eq!(arena.scene_delete_mirror(scene, b), Ok(0));
+        assert_eq!(arena.scene(scene).unwrap().mirrors, [a, c]);
+        arena.scene_add_mirror(scene, b).unwrap();
+        let absent = dummy(&mut arena, b"absent");
+        assert_eq!(
+            arena.scene_delete_mirror(scene, absent),
+            Ok(SCENE_OBJECT_NOT_FOUND)
+        );
+    }
+    struct SpaceMap {
+        skip: Vec<FrameKey>,
+        set: Vec<FrameKey>,
+        calls: Vec<(FrameKey, bool)>,
+        portals: Vec<crate::frame_portal::PortalKey>,
+    }
+    impl SceneSpaceBackend for SpaceMap {
+        fn visit(
+            &self,
+            kind: crate::frame_transform::FrameKind,
+            frame: FrameKey,
+        ) -> SceneSpaceVisit {
+            if self.skip.contains(&frame) {
+                SceneSpaceVisit::SkipSubtree
+            } else if self.set.contains(&frame) {
+                SceneSpaceVisit::SetSpaceAndRecurse
+            } else if kind == crate::frame_transform::FrameKind::Model {
+                SceneSpaceVisit::SkipSubtree
+            } else {
+                SceneSpaceVisit::Recurse
+            }
+        }
+        fn set_space(&mut self, frame: FrameKey, world: bool) {
+            self.calls.push((frame, world));
+        }
+        fn update_portal(
+            &mut self,
+            _: &ModelArena,
+            _: SceneKey,
+            portal: crate::frame_portal::PortalKey,
+        ) -> Result<(), ModelError> {
+            self.portals.push(portal);
+            Ok(())
+        }
+    }
+    fn space_map() -> SpaceMap {
+        SpaceMap {
+            skip: Vec::new(),
+            set: Vec::new(),
+            calls: Vec::new(),
+            portals: Vec::new(),
+        }
+    }
+    #[test]
+    fn set_space_skips_flagged_subtrees_and_applies_world_in_child_order() {
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let root = arena.scene(scene).unwrap().sectors[0].frame();
+        let c1 = dummy(&mut arena, b"ss-c1");
+        let c2 = dummy(&mut arena, b"ss-c2");
+        arena.link_frame(c1, Some(root), 0).unwrap();
+        arena.link_frame(c2, Some(root), 0).unwrap();
+        // Native TARGET|INTERPOLATOR skip is traversal-owned: flag c1.
+        arena
+            .graph
+            .change_flags(c1, 0, SCENE_SS_SKIP_FLAGS)
+            .unwrap();
+        let mut backend = space_map();
+        backend.set = vec![c2];
+        backend.skip = vec![c1];
+        arena.scene_set_space(scene, true, &mut backend).unwrap();
+        assert_eq!(backend.calls, [(c2, true)]);
+        assert!(arena.scene(scene).unwrap().world_space);
+        arena.scene_set_space(scene, false, &mut backend).unwrap();
+        assert_eq!(backend.calls, [(c2, true), (c2, false)]);
+        assert!(!arena.scene(scene).unwrap().world_space);
+    }
+    #[test]
+    fn global_color_contract_hits_every_primary_light_without_validation() {
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        arena
+            .scene_set_global_color(scene, [0.25, 0.5, 1.0])
+            .unwrap();
+        let primary = arena.scene(scene).unwrap().sectors[0];
+        let first = arena.create_light().unwrap();
+        let second = arena.create_light().unwrap();
+        arena.sector_add_light(primary, first).unwrap();
+        arena.sector_add_light(primary, second).unwrap();
+        arena
+            .scene_set_global_color(scene, [0.25, 0.5, 1.0])
+            .unwrap();
+        for light in [first, second] {
+            assert_eq!(
+                arena.graph.light_state(light).unwrap().color,
+                [0.25, 0.5, 1.0]
+            );
+        }
+        // No validation per the source: NaN/negative pass through the store;
+        // the host light-cache numeric error surfaces only after every
+        // member was stored.
+        assert!(arena
+            .scene_set_global_color(scene, [f32::NAN, -1.0, 2.0])
+            .is_err());
+        for light in [first, second] {
+            assert_eq!(
+                arena
+                    .graph
+                    .light_state(light)
+                    .unwrap()
+                    .color
+                    .map(f32::to_bits),
+                [f32::NAN, -1.0, 2.0].map(f32::to_bits)
+            );
+        }
+        arena.release(first).unwrap();
+        arena.release(second).unwrap();
+    }
+    struct OpenSeq {
+        calls: Vec<SceneOpenEffect>,
+        load_word: u32,
+    }
+    impl SceneOpenBackend for OpenSeq {
+        fn open_effect(
+            &mut self,
+            _: &ModelArena,
+            _: SceneKey,
+            effect: SceneOpenEffect,
+        ) -> Result<u32, ModelError> {
+            self.calls.push(effect);
+            Ok(match effect {
+                SceneOpenEffect::LoadHierarchy => self.load_word,
+                _ => 0,
+            })
+        }
+    }
+    #[test]
+    fn open_null_file_returns_ok_word_after_close_prefix() {
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let created = arena.create_scene_sector(scene).unwrap();
+        assert_eq!(arena.sector(created).unwrap().scene, Some(scene));
+        assert_eq!(arena.scene_loaded_sector_count(scene).unwrap(), 1);
+        let mut seq = OpenSeq {
+            calls: Vec::new(),
+            load_word: 0x4000_0001,
+        };
+        assert_eq!(
+            arena
+                .open_scene_with_backend(scene, None, &mut seq, &mut space_map())
+                .unwrap(),
+            0
+        );
+        assert_eq!(seq.calls, [SceneOpenEffect::CloseScene]);
+        let mut seq = OpenSeq {
+            calls: Vec::new(),
+            load_word: 0x4000_0001,
+        };
+        assert_eq!(
+            arena
+                .open_scene_with_backend(scene, Some(b"maps\\m1.i3d"), &mut seq, &mut space_map())
+                .unwrap(),
+            0x4000_0001
+        );
+        assert_eq!(
+            seq.calls,
+            [
+                SceneOpenEffect::CloseScene,
+                SceneOpenEffect::LoadHierarchy,
+                SceneOpenEffect::UpdateCamera
+            ]
+        );
+        // MakeReady marks ring sectors (flag 4) with no portals.
+        arena.make_ready_sectors(scene, &mut space_map()).unwrap();
+        assert_ne!(arena.sector(created).unwrap().sector_flags & 4, 0);
+    }
+    #[test]
+    fn get_sector_list_overload_prefers_reverse_order_then_primary() {
+        crate::native_precision::Pc24PrecisionState::default().run(|| {
+            let mut arena = ModelArena::default();
+            let scene = arena.construct_scene_owner_prefix().unwrap();
+            let a = crate::scene_lightness::loaded_sector_fixture(&mut arena, scene, [0.; 3]);
+            let b = crate::scene_lightness::loaded_sector_fixture(&mut arena, scene, [10., 0., 0.]);
+            let primary = arena.scene(scene).unwrap().sectors[0];
+            assert_eq!(
+                arena
+                    .scene_get_sector_from_list(scene, [10., 0., 0.], &[a, b])
+                    .unwrap(),
+                b
+            );
+            assert_eq!(
+                arena
+                    .scene_get_sector_from_list(scene, [10., 0., 0.], &[b, a])
+                    .unwrap(),
+                b
+            );
+            assert_eq!(
+                arena
+                    .scene_get_sector_from_list(scene, [30., 0., 0.], &[a, b])
+                    .unwrap(),
+                primary
+            );
+            assert_eq!(
+                arena
+                    .scene_get_sector_from_list(scene, [0.; 3], &[])
+                    .unwrap(),
+                primary
+            );
+        });
     }
 }

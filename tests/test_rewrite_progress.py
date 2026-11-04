@@ -35,14 +35,16 @@ class RewriteProgressTests(unittest.TestCase):
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")
         self.assertEqual(ls3df["total"], 1714)
-        # 145 ledger differential + 100 overlay (17 texture: 9 differential +
+        # 145 ledger differential + 149 overlay (17 texture: 9 differential +
         # 8 contract; 21 material: 19 differential + 2 contract; 22 mesh:
         # 6 differential + 16 contract; 22 frame: 8 differential +
-        # 14 contract; 18 model: 9 differential + 9 contract — no-body
-        # entries stay contract per the unresolved-boundary rule, same
-        # standard as 0x2b830).
-        self.assertEqual(ls3df["ported"], 145 + 100)
-        self.assertEqual(ls3df["verified"], 145 + 51)
+        # 14 contract; 18 model: 9 differential + 9 contract; 49 scene:
+        # 19 differential + 30 contract — no-body entries stay contract per
+        # the unresolved-boundary rule, same standard as 0x2b830; the partial
+        # dtor (0x48ed0) and sound-update packing (0x4aaa0) stay contract per
+        # partial-coverage disclosure.
+        self.assertEqual(ls3df["ported"], 145 + 149)
+        self.assertEqual(ls3df["verified"], 145 + 70)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()

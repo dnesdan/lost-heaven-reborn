@@ -147,13 +147,16 @@ pub mod road_network;
 pub mod rotation_animation;
 pub mod runtime;
 pub mod runtime_audio;
+pub mod scene_animation_runtime;
 pub mod scene_lightness;
 pub mod scene_ownership;
+pub mod scene_projection;
 pub mod scene_render;
 pub mod scene_resources;
 pub mod scene_tick;
 pub mod scene_visibility;
 pub mod scene_weather;
+pub mod scene_weather_dummy;
 pub mod script_lookup;
 pub mod script_scheduler;
 pub mod sector_sound_data;
@@ -211,8 +214,9 @@ pub mod ls3df {
     pub use crate::{
         c_str, driver_scene, frame_camera, frame_fast_lookup, frame_hierarchy_bounds, frame_light,
         frame_lookup, frame_occluder, frame_portal, frame_projector, frame_sector, i3d_object,
-        itexture, loaded_visual_resources, scene_ownership, scene_resources, scene_weather,
-        sector_sound_data, texture_manager,
+        itexture, loaded_visual_resources, scene_animation_runtime, scene_ownership,
+        scene_projection, scene_resources, scene_weather, scene_weather_dummy, sector_sound_data,
+        texture_manager,
     };
 }
 

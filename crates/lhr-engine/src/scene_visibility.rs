@@ -269,6 +269,59 @@ impl CameraView {
     }
 }
 
+/// PC RVA 0x4e550 predicate core (contract: LAB_1004e550, no Ghidra body;
+/// mafia-re I3d_scene.cpp:1629-1658 + byte-decoded null/type/flag probes +
+/// x87 frustum math). Inputs are caller-resolved: sphere = visual world
+/// bound for FRAME_VISUAL else HR bound W (after UpdateHRBoundVolW when
+/// HR_BOUND_W_VALID is clear); frustum = camera frustums[0] with ncp/fcp.
+/// Null frame/cam map to Ok(false) at the caller. Arithmetic order is native
+/// (X,Y,Z then +d); rounding follows this module's PC24 policy, not host
+/// f64. Non-finite/subnormal inputs are Unsupported, never visibility.
+#[derive(Clone, Copy, Debug)]
+pub struct SceneTestFrustum {
+    pub normals: [[f32; 3]; 5],
+    pub d: [f32; 5],
+    pub ncp: f32,
+    pub fcp: f32,
+}
+pub fn test_visibility_sphere(
+    center: [f32; 3],
+    radius: f32,
+    frustum: &SceneTestFrustum,
+) -> Result<bool> {
+    let radius = number(radius)?;
+    let mut p = [0f32; 3];
+    for (slot, value) in p.iter_mut().zip(center) {
+        *slot = number(value)?;
+    }
+    let plane = |index: usize| -> Result<f32> {
+        Ok(math::add(
+            math::add(
+                math::add(
+                    math::mul(number(frustum.normals[index][0])?, p[0])?,
+                    math::mul(number(frustum.normals[index][1])?, p[1])?,
+                )?,
+                math::mul(number(frustum.normals[index][2])?, p[2])?,
+            )?,
+            number(frustum.d[index])?,
+        )?)
+    };
+    let d = plane(0)?;
+    if math::add(d, radius)? < number(frustum.ncp)? {
+        return Ok(false);
+    }
+    if math::sub(d, radius)? > number(frustum.fcp)? {
+        return Ok(false);
+    }
+    let neg_r = number(-radius)?;
+    for index in 1..5 {
+        if plane(index)? < neg_r {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
 /// Source sphere rejection followed by the eight-corner AABB refinement for
 /// spheres crossing side planes. Side sphere equality rejects; box equality
 /// survives, including both signed zero representations.
@@ -934,6 +987,35 @@ mod tests {
             assert!(both.portals_passed >= 2);
             std::fs::remove_dir_all(dir).unwrap();
         });
+    }
+    #[test]
+    fn test_visibility_true_false_matrix_and_null_policy() {
+        // Inward-facing box [-10,10]^3: plane i is n_i.p + 10.
+        let axis = SceneTestFrustum {
+            normals: [
+                [1., 0., 0.],
+                [-1., 0., 0.],
+                [0., 1., 0.],
+                [0., -1., 0.],
+                [0., 0., 1.],
+            ],
+            d: [10., 10., 10., 10., 10.],
+            ncp: 0.5,
+            fcp: 100.0,
+        };
+        assert!(test_visibility_sphere([0., 0., 5.], 1., &axis).unwrap());
+        // Near-plane reject: d + r < ncp (d = x + 10).
+        assert!(!test_visibility_sphere([-9.95, 0., 0.], 0.4, &axis).unwrap());
+        // Far-plane reject: d - r > fcp.
+        let far = SceneTestFrustum { fcp: 2.0, ..axis };
+        assert!(!test_visibility_sphere([0., 0., 0.], 0.5, &far).unwrap());
+        // Side-plane reject with negated radius: plane1: -x + 10 < -r.
+        assert!(!test_visibility_sphere([10.5, 0., 0.], 0.4, &axis).unwrap());
+        // Touching side boundary is visible (strict inequality).
+        assert!(test_visibility_sphere([10.5, 0., 0.], 0.5, &axis).unwrap());
+        // Non-finite input is Unsupported, never a visibility answer.
+        assert!(test_visibility_sphere([f32::NAN, 0., 0.], 1., &axis).is_err());
+        assert!(test_visibility_sphere([0., 0., 0.], f32::INFINITY, &axis).is_err());
     }
     #[test]
     fn side_plane_ties_refine_real_box_and_numeric_failure_is_not_invisibility() {

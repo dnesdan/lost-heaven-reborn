@@ -291,6 +291,12 @@ pub struct ModelArena {
     pub(crate) occluders: Vec<crate::frame_occluder::OccluderFrame>,
     pub(crate) occluder_storage: crate::frame_occluder::OccluderStorage,
     pub(crate) sector_version: u32,
+    /// m_UpdateSoundProperties throttle statics (PC RVA 0x4aaa0): the native
+    /// function-static armed flag (DAT_101b4e74 bit0) and last_time
+    /// (DAT_101b4e70) via timeGetTime. Per-arena so two scenes cannot share
+    /// throttle state (documented deviation from the process-shared native).
+    pub(crate) eax_armed: bool,
+    pub(crate) eax_last_ms: u32,
     destruction_depth: usize,
     pub(crate) light_random: crate::frame_light::LightCrtRandom,
     material_driver_time: i32,

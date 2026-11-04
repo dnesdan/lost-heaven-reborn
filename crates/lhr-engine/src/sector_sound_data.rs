@@ -397,3 +397,393 @@ mod tests {
         );
     }
 }
+
+/// Original I3D_scene::m_UpdateSoundProperties, PC RVA 0x4aaa0 (contract:
+/// Ghidra body 380 insn/93 BB: null-listener early return with flags
+/// untouched; 1-blend via x87 FSUBR with the IsAbsMrgZero gate
+/// (ABS < 0x322bcc77); FUN_1004ea50 blend from InitialSoundProp when prev is
+/// null else from prev; EAX3.0 push throttled by the function-static armed
+/// flag + last_time via timeGetTime, pushed iff done||now-last>100; __ftol
+/// truncations with post-clamps; struct size 0x70 via the indirect
+/// vtable+0x24 call; prev then current 0x800 clear with the 0xfffff7ff mask).
+/// The indirect SetEAX3Property target and FUN_1004ea50 internals stay
+/// backend contracts (no function credit beyond this ordered procedure).
+/// mafia-re I3d_scene.cpp:721-855. Upstream working name, not an evidenced
+/// original symbol.
+pub const EAX30_FLAG: u32 = 0x20_0000;
+pub const SOUND_CHANGED_MASK_CLEAR: u32 = 0xffff_f7ff;
+
+/// Conversion outputs in native evaluation order (mafia-re I3d_scene.cpp
+/// order cross-checked with the decompile __ftol/float sequence). The audio
+/// backend owns the EAXLISTENERPROPERTIES packing; indices here are NOT
+/// claimed to be EAX field offsets (explicit OPEN boundary).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SectorEaxProperties {
+    pub words: [u32; 28],
+}
+/// timeGetTime analog (native WINMM.DLL import).
+pub trait SoundClock {
+    fn now_ms(&self) -> u32;
+}
+/// EAX listener presence (native this+0x284 null guard), EAX3.0 enablement
+/// (native create_flags & 0x200000 via DAT_101c529c+0x30) and the indirect
+/// vtable+0x24 SetEAX3Property call.
+pub trait EaxListenerBackend {
+    fn has_listener(&self) -> bool;
+    fn eax30_enabled(&self) -> bool;
+    fn set_eax_listener(&mut self, props: &SectorEaxProperties);
+}
+/// FUN_1004ea50 (726 B, not in group): blend contract, no credit claimed.
+pub trait SoundPropertyBlender {
+    fn blend(&self, out: &mut [u32; 26], from: &[u32; 26], to: &[u32; 26], blend: f32);
+}
+
+fn trunc_toward_zero(value: f32) -> i32 {
+    // Native __ftol truncation. Inputs are pre-clamped floats, so out-of-range
+    // `as` saturation is unreachable.
+    debug_assert!(value.is_finite());
+    value as i32
+}
+fn clamp_i(value: i32, lo: i32, hi: i32) -> i32 {
+    value.clamp(lo, hi)
+}
+fn clamp_f(value: f32, lo: f32, hi: f32) -> f32 {
+    if value < lo {
+        lo
+    } else if value > hi {
+        hi
+    } else {
+        value
+    }
+}
+
+/// Native conversion/clamp table in evaluation order. All float ops run the
+/// PC24/RN pipeline under an enclosing Pc24PrecisionState; doubles (e.g.
+/// *19000.0) compute in f32 then record — disclosed approximation of x87
+/// double temporaries, same standard as the committed weather code.
+fn eax_properties_of(props: &[u32; 26]) -> SectorEaxProperties {
+    use crate::native_precision::{add, mul, sub};
+    let f = |index: usize| f32::from_bits(props[index]);
+    let room_lf = clamp_i(
+        trunc_toward_zero(add(mul(f(0), 10000.0), -10000.0)),
+        -10000,
+        0,
+    );
+    let room_hf = clamp_i(
+        trunc_toward_zero(add(mul(f(1), 10000.0), -10000.0)),
+        -10000,
+        0,
+    );
+    let decay_time = clamp_f(mul(f(2), 0.001), 0.1, 20.0);
+    let decay_hf = clamp_f(add(mul(f(3), 1.9), 0.1), 0.1, 2.0);
+    let reflections = clamp_i(
+        trunc_toward_zero(sub(mul(f(5), 11000.0), 10000.0)),
+        -10000,
+        1000,
+    );
+    let refl_delay = clamp_f(mul(f(6), 0.001), 0.0, 0.3);
+    let reverb = clamp_i(
+        trunc_toward_zero(sub(mul(f(8), 12000.0), 10000.0)),
+        -10000,
+        2000,
+    );
+    let reverb_delay = clamp_f(mul(f(9), 0.001), 0.0, 0.1);
+    let env_diff = clamp_f(f(10), 0.0, 1.0);
+    let decay_lf = clamp_f(add(mul(f(11), 1.9), 0.1), 0.1, 2.0);
+    let room = clamp_i(
+        trunc_toward_zero(sub(mul(f(12), 10000.0), 10000.0)),
+        -10000,
+        0,
+    );
+    let echo_time = clamp_f(mul(f(14), 0.001), 0.075, 0.25);
+    let echo_depth = clamp_f(f(15), 0.0, 1.0);
+    let mod_time = clamp_f(mul(f(16), 0.001), 0.04, 4.0);
+    let mod_depth = clamp_f(f(17), 0.0, 1.0);
+    let rolloff = clamp_f(mul(f(18), 10.0), 0.0, 10.0);
+    let air_abs = clamp_f(sub(mul(f(19), 100.0), 100.0), -100.0, 0.0);
+    let hf_ref = clamp_f(add(mul(f(20), 19000.0), 1000.0), 1000.0, 20000.0);
+    let lf_ref = clamp_f(add(mul(f(21), 980.0), 20.0), 20.0, 1000.0);
+    let mut words = [0u32; 28];
+    words[0] = room_lf as u32;
+    words[1] = room_hf as u32;
+    words[2] = decay_time.to_bits();
+    words[3] = decay_hf.to_bits();
+    words[5] = reflections as u32;
+    words[6] = refl_delay.to_bits();
+    words[8] = reverb as u32;
+    words[9] = reverb_delay.to_bits();
+    words[10] = env_diff.to_bits();
+    words[11] = decay_lf.to_bits();
+    words[12] = room as u32;
+    words[14] = echo_time.to_bits();
+    words[15] = echo_depth.to_bits();
+    words[16] = mod_time.to_bits();
+    words[17] = mod_depth.to_bits();
+    words[18] = rolloff.to_bits();
+    words[19] = air_abs.to_bits();
+    words[20] = hf_ref.to_bits();
+    words[21] = lf_ref.to_bits();
+    // Remaining property words pass through raw; their backend packing is
+    // part of the same OPEN boundary as the index map above.
+    for index in [4usize, 7, 13, 22, 23, 24, 25] {
+        words[index] = props[index];
+    }
+    SectorEaxProperties { words }
+}
+
+impl ModelArena {
+    /// m_UpdateSoundProperties over (sector, prev-or-None, blend). Order:
+    /// listener-null early return (flags untouched) -> blend select (direct
+    /// copy when 1-blend is merge-zero, InitialSoundProp arm when prev is
+    /// null, prev arm otherwise) -> throttled EAX push (first call arms,
+    /// push iff done||>100ms) -> clear prev then current 0x800.
+    /// `initial_sound` is the caller's InitialSoundProp global mirror
+    /// (scene_resources initial_sound_properties).
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_sector_sound_properties(
+        &mut self,
+        sector: SectorKey,
+        prev: Option<SectorKey>,
+        blend: f32,
+        clock: &impl SoundClock,
+        blender: &impl SoundPropertyBlender,
+        backend: &mut impl EaxListenerBackend,
+        initial_sound: &[u32; 26],
+    ) -> Result<(), ModelError> {
+        if !backend.has_listener() {
+            return Ok(());
+        }
+        self.sector(sector)?;
+        if let Some(previous) = prev {
+            self.sector(previous)?;
+        }
+        let current = self.sector(sector)?.sound_properties;
+        let one_minus = crate::native_precision::sub(1.0, blend);
+        let done = one_minus.abs() < f32::from_bits(0x322bcc77);
+        let mut props = [0u32; 26];
+        if done {
+            props = current;
+        } else if let Some(previous) = prev {
+            let from = self.sector(previous)?.sound_properties;
+            blender.blend(&mut props, &from, &current, blend);
+        } else {
+            blender.blend(&mut props, initial_sound, &current, blend);
+        }
+        if backend.eax30_enabled() {
+            let now = clock.now_ms();
+            if !self.eax_armed {
+                self.eax_armed = true;
+                self.eax_last_ms = now;
+            }
+            if done || now.wrapping_sub(self.eax_last_ms) > 100 {
+                backend.set_eax_listener(&eax_properties_of(&props));
+                self.eax_last_ms = now;
+            }
+        }
+        if let Some(previous) = prev {
+            let index = self
+                .sectors
+                .iter()
+                .position(|entry| entry.key == previous)
+                .expect("validated sector owner");
+            self.sectors[index].sector_flags &= SOUND_CHANGED_MASK_CLEAR;
+        }
+        let index = self
+            .sectors
+            .iter()
+            .position(|entry| entry.key == sector)
+            .expect("validated sector owner");
+        self.sectors[index].sector_flags &= SOUND_CHANGED_MASK_CLEAR;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod sound_update_tests {
+    use super::*;
+    use crate::native_precision::Pc24PrecisionState;
+
+    struct FixedClock(u32);
+    impl SoundClock for FixedClock {
+        fn now_ms(&self) -> u32 {
+            self.0
+        }
+    }
+    struct Rec {
+        pushes: u32,
+        words: Vec<[u32; 28]>,
+        eax30: bool,
+        listener: bool,
+    }
+    impl EaxListenerBackend for Rec {
+        fn has_listener(&self) -> bool {
+            self.listener
+        }
+        fn eax30_enabled(&self) -> bool {
+            self.eax30
+        }
+        fn set_eax_listener(&mut self, props: &SectorEaxProperties) {
+            self.pushes += 1;
+            self.words.push(props.words);
+        }
+    }
+    struct CopyBlend;
+    impl SoundPropertyBlender for CopyBlend {
+        fn blend(&self, out: &mut [u32; 26], _: &[u32; 26], to: &[u32; 26], _: f32) {
+            *out = *to;
+        }
+    }
+
+    fn two_sectors(arena: &mut ModelArena) -> (SectorKey, SectorKey) {
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let sectors = arena.scene(scene).unwrap().sectors;
+        (sectors[0], sectors[1])
+    }
+
+    #[test]
+    fn null_listener_returns_before_touching_flags() {
+        Pc24PrecisionState::default().run(|| {
+            let mut arena = ModelArena::default();
+            let (sector, prev) = two_sectors(&mut arena);
+            let si = arena.sector_index(sector).unwrap();
+            arena.sectors[si].sector_flags |= 0x800;
+            let mut backend = Rec {
+                pushes: 0,
+                words: Vec::new(),
+                eax30: true,
+                listener: false,
+            };
+            arena
+                .update_sector_sound_properties(
+                    sector,
+                    Some(prev),
+                    1.0,
+                    &FixedClock(0),
+                    &CopyBlend,
+                    &mut backend,
+                    &[0; 26],
+                )
+                .unwrap();
+            assert_eq!(backend.pushes, 0);
+            assert_ne!(arena.sector(sector).unwrap().sector_flags & 0x800, 0);
+        });
+    }
+
+    #[test]
+    fn throttle_arms_first_then_pushes_after_100ms_and_done_forces_push() {
+        Pc24PrecisionState::default().run(|| {
+            let mut arena = ModelArena::default();
+            let (sector, prev) = two_sectors(&mut arena);
+            let mut backend = Rec {
+                pushes: 0,
+                words: Vec::new(),
+                eax30: true,
+                listener: true,
+            };
+            let initial = [0u32; 26];
+            // In-progress blend at t=0: arms, no push.
+            arena
+                .update_sector_sound_properties(
+                    sector,
+                    Some(prev),
+                    0.5,
+                    &FixedClock(0),
+                    &CopyBlend,
+                    &mut backend,
+                    &initial,
+                )
+                .unwrap();
+            assert_eq!(backend.pushes, 0);
+            // Same tick: still suppressed.
+            arena
+                .update_sector_sound_properties(
+                    sector,
+                    Some(prev),
+                    0.5,
+                    &FixedClock(50),
+                    &CopyBlend,
+                    &mut backend,
+                    &initial,
+                )
+                .unwrap();
+            assert_eq!(backend.pushes, 0);
+            // Past 100ms: push.
+            arena
+                .update_sector_sound_properties(
+                    sector,
+                    Some(prev),
+                    0.5,
+                    &FixedClock(101),
+                    &CopyBlend,
+                    &mut backend,
+                    &initial,
+                )
+                .unwrap();
+            assert_eq!(backend.pushes, 1);
+            // done forces a push even within the window.
+            arena
+                .update_sector_sound_properties(
+                    sector,
+                    Some(prev),
+                    1.0,
+                    &FixedClock(110),
+                    &CopyBlend,
+                    &mut backend,
+                    &initial,
+                )
+                .unwrap();
+            assert_eq!(backend.pushes, 2);
+            // prev then current 0x800 cleared (both set first).
+            let si = arena.sector_index(sector).unwrap();
+            arena.sectors[si].sector_flags |= 0x800;
+            let pi = arena.sector_index(prev).unwrap();
+            arena.sectors[pi].sector_flags |= 0x800;
+            arena
+                .update_sector_sound_properties(
+                    sector,
+                    Some(prev),
+                    1.0,
+                    &FixedClock(500),
+                    &CopyBlend,
+                    &mut backend,
+                    &initial,
+                )
+                .unwrap();
+            assert_eq!(arena.sector(sector).unwrap().sector_flags & 0x800, 0);
+            assert_eq!(arena.sector(prev).unwrap().sector_flags & 0x800, 0);
+            // EAX3.0 disabled: never pushes.
+            backend.eax30 = false;
+            arena
+                .update_sector_sound_properties(
+                    sector,
+                    Some(prev),
+                    1.0,
+                    &FixedClock(10_000),
+                    &CopyBlend,
+                    &mut backend,
+                    &initial,
+                )
+                .unwrap();
+            assert_eq!(backend.pushes, 3);
+        });
+    }
+
+    #[test]
+    fn conversion_clamp_spots_match_native_table() {
+        Pc24PrecisionState::default().run(|| {
+            // decay_time word 1000.0 -> 1.0; echo_time 0 -> 0.075 floor.
+            let mut props = [0u32; 26];
+            props[2] = 1000f32.to_bits();
+            props[3] = 1f32.to_bits();
+            props[14] = 0u32;
+            props[18] = 0.5f32.to_bits();
+            let out = eax_properties_of(&props);
+            assert_eq!(out.words[2], 1f32.to_bits());
+            assert_eq!(out.words[14], 0.075f32.to_bits());
+            // room_lf 0.0 -> -10000; decay_hf 1.0 -> 2.0 ceiling.
+            assert_eq!(out.words[0], (-10000i32) as u32);
+            assert_eq!(out.words[3], 2f32.to_bits());
+            assert_eq!(out.words[18], 5f32.to_bits());
+        });
+    }
+}

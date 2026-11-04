@@ -568,7 +568,7 @@ impl ModelArena {
         self.cameras.retain(|camera| camera.key != key);
         Ok(())
     }
-    /// Original Scene SetBackdropRange, PC4a840: stores only; it does not
+    /// Original Scene SetBackdropRange, PC 0x4a840: stores only; it does not
     /// refresh an active camera's existing projection matrices.
     pub fn scene_set_backdrop_range(
         &mut self,
@@ -1252,6 +1252,67 @@ mod tests {
             world.destroy_scene();
             assert_eq!(world.arena.live_frame_count(), 0);
             assert_eq!(world.arena.sector_storage().live_allocations(), 0);
+        });
+    }
+    #[test]
+    fn activation_evaluates_dirtied_camera_matrix_before_sector_selection() {
+        // PC RVA 0x499a0 (differential): the native conditional matrix refresh
+        // (TEST [cam+0xac],0x20 -> update_w_matrix_proc) runs inside
+        // SetActiveCamera before GetSector. Moving the camera and reactivating
+        // without an explicit camera_update must still select by the fresh
+        // matrix, through the same world_matrix producer activation uses.
+        Pc24PrecisionState::default().run(|| {
+            let mut world = World::new();
+            let sector = world
+                .driver
+                .create_sector_frame(&mut world.arena, &world.resources, world.scene)
+                .unwrap();
+            let record = lhr_assets::SectorRecord {
+                flags: 0x801,
+                group: 0,
+                vertices: vec![[0., 0., 0.], [1., 0., 0.], [0., 1., 0.]],
+                faces: vec![[0, 1, 2]],
+                bounds: [[0.; 3], [1., 1., 0.]],
+                portals: Vec::new(),
+            };
+            assert_eq!(
+                world.arena.load_sector_record(sector, &record).unwrap(),
+                None
+            );
+            world
+                .arena
+                .scene_add_frame(world.scene, sector.frame())
+                .unwrap();
+            world.arena.release(sector.frame()).unwrap();
+            let primary = world.arena.scene(world.scene).unwrap().sectors[0];
+            world
+                .arena
+                .link_frame(sector.frame(), Some(primary.frame()), 0)
+                .unwrap();
+            world.arena.sector_make_ready(sector).unwrap();
+            let camera = world.camera();
+            world
+                .arena
+                .scene_set_active_camera(world.scene, Some(camera))
+                .unwrap();
+            assert_eq!(world.arena.camera(camera).unwrap().sector, Some(sector));
+            // Dirtied by the move; no camera_update runs before reactivation.
+            world
+                .arena
+                .camera_set_position(camera, [10., 5., 10.])
+                .unwrap();
+            world
+                .arena
+                .scene_set_active_camera(world.scene, None)
+                .unwrap();
+            world
+                .arena
+                .scene_set_active_camera(world.scene, Some(camera))
+                .unwrap();
+            assert_eq!(world.arena.camera(camera).unwrap().sector, Some(primary));
+            world.arena.release(camera.frame()).unwrap();
+            world.destroy_scene();
+            assert_eq!(world.arena.live_frame_count(), 0);
         });
     }
     #[test]
