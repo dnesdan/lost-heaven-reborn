@@ -556,6 +556,7 @@ impl CanonicalSceneState {
                     &o.cache_memory,
                     &o.audio,
                     o.loader.as_ref(),
+                    None,
                 )
                 .map_err(|e| format!("Canonical owner diagnostics: {e:?}"))?;
                 if remaining != Default::default() {

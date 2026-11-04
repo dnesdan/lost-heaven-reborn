@@ -23,6 +23,7 @@ use crate::mission_resources::{
     CacheMemoryError, CpuMissionCacheMemory, MissionCacheError, MissionCacheKind, MissionCaches,
 };
 use crate::mission_scene_loading::{MissionSceneLoadError, MissionSceneLoader, SceneLoadMapPrefix};
+use crate::mission_session_navigation::{SessionNavigation, SessionNavigationCause};
 use crate::model_loading::ModelError;
 use crate::model_loading::{CpuSceneWorldError, CpuSceneWorldProgress, ModelArena};
 use crate::native_precision::Pc24PrecisionState;
@@ -58,6 +59,8 @@ pub enum MissionLoadPhase {
     SceneCreation,
     /// World intake followed by mission weather and primary-sector setup.
     World,
+    /// Owned `check.bin` navigation intake in `Open` order (absent files skip).
+    Navigation,
     LoadMap,
     Scene2Input,
     Scene2Prefix,
@@ -88,6 +91,7 @@ pub enum MissionLoadCause {
         detail: String,
     },
     World(CpuSceneWorldError),
+    Navigation(SessionNavigationCause),
     LoadMap(String),
     Scene2Input {
         path: String,
@@ -116,6 +120,7 @@ pub enum MissionDiscardPhase {
     NotStarted,
     PendingVisual,
     WorldStaging,
+    Navigation,
     Cache(MissionCacheKind),
     Listener,
     Scene,
@@ -189,6 +194,9 @@ pub struct MissionOwnedCounts {
     pub portal_allocations: usize,
     pub occluder_allocations: usize,
     pub weather_references: i32,
+    /// Session-owned navigation domain: component plus node/connection arrays.
+    pub navigation_allocations: usize,
+    pub navigation_bytes: usize,
 }
 
 #[derive(Debug)]
@@ -204,6 +212,7 @@ pub enum MissionDiscardCause {
     UnregisteredListener(DriverSceneError<Infallible>),
     Audio(AudioError),
     Diagnostics(MissionOwnerDiagnosticsError),
+    Navigation(SessionNavigationCause),
     SceneOwner(MissionSceneSelectionError),
     RegisteredScene(DriverSceneError<Infallible>),
     UnregisteredScene(SceneResourceError),
@@ -240,6 +249,7 @@ impl MissionOwnedCounts {
         cache_memory: &CpuMissionCacheMemory,
         audio: &RuntimeAudio,
         loader: Option<&MissionSceneLoader>,
+        navigation: Option<&SessionNavigation>,
     ) -> Result<Self, MissionOwnerDiagnosticsError> {
         let visual = arena.loaded_visual_resources();
         let visual_backend = visual.map(|owner| owner.backend());
@@ -310,6 +320,8 @@ impl MissionOwnedCounts {
             portal_allocations: arena.live_portal_allocations(),
             occluder_allocations: arena.occluder_storage().live_allocations(),
             weather_references: resources.ws_ref_count(),
+            navigation_allocations: navigation.map_or(0, |nav| nav.live_allocations()),
+            navigation_bytes: navigation.map_or(0, |nav| nav.live_bytes()),
         })
     }
 }
@@ -344,6 +356,7 @@ pub struct MissionLoadSession {
     texture_storage: CpuTextureStorage,
     caches: MissionCaches,
     cache_memory: CpuMissionCacheMemory,
+    navigation: SessionNavigation,
     precision: Pc24PrecisionState,
     phase: MissionLoadPhase,
     entered: bool,
@@ -376,6 +389,7 @@ impl MissionLoadSession {
             texture_storage: CpuTextureStorage::default(),
             caches: MissionCaches::empty().map_err(MissionLoadInitError::CacheStrings)?,
             cache_memory: CpuMissionCacheMemory::default(),
+            navigation: SessionNavigation::new(),
             precision,
             phase: MissionLoadPhase::NotStarted,
             entered: false,
@@ -618,6 +632,10 @@ impl MissionLoadSession {
     pub fn cache_memory(&self) -> &CpuMissionCacheMemory {
         &self.cache_memory
     }
+    /// Session-owned navigation intake in `Open` order.
+    pub fn navigation(&self) -> &SessionNavigation {
+        &self.navigation
+    }
     /// Persistent arithmetic status seeded explicitly by the host caller.
     pub fn precision_state(&self) -> Pc24PrecisionState {
         self.precision
@@ -655,6 +673,7 @@ impl MissionLoadSession {
             &self.cache_memory,
             &self.audio,
             self.loader.as_ref(),
+            Some(&self.navigation),
         )
     }
 
@@ -781,6 +800,17 @@ impl MissionLoadSession {
         sector_groups::fill_primary_sector_groups(&mut self.arena, scene)
             .map_err(|error| MissionLoadCause::World(CpuSceneWorldError::Model(error)))?;
 
+        // `C_mission::Open` loads `check.bin` after sector-group fill and
+        // before roads/`OpenBin`. Absent files skip like `ROpen`-failed.
+        self.phase = MissionLoadPhase::Navigation;
+        let check_path = match request.scene2_path.rsplit_once('/') {
+            Some((dir, _)) => format!("{dir}/check.bin"),
+            None => "check.bin".into(),
+        };
+        self.navigation
+            .load(&self.installation, &check_path)
+            .map_err(MissionLoadCause::Navigation)?;
+
         self.phase = MissionLoadPhase::LoadMap;
         match MissionSceneLoader::new(&self.arena, scene) {
             Ok(mut loader) => {
@@ -881,6 +911,10 @@ impl MissionLoadSession {
                 .discard_scene_world_staging_cpu(&mut self.arena, &self.resources, progress)
                 .map_err(MissionDiscardCause::WorldStaging)?;
         }
+        self.discard.phase = MissionDiscardPhase::Navigation;
+        self.navigation
+            .destroy()
+            .map_err(MissionDiscardCause::Navigation)?;
         self.discard.phase = MissionDiscardPhase::Scene;
         if let Some(scene) = self.scene().map_err(MissionDiscardCause::SceneOwner)? {
             let registered = self.driver.scenes().contains(&scene);

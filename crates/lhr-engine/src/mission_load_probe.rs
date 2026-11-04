@@ -91,6 +91,7 @@ pub fn run(root: &Path, mission: &str, model_directories: &[String]) -> Result<(
     .unwrap();
     append_load_report(&mut report, &session);
     append_world_completeness_report(&mut report, root, mission);
+    append_navigation_report(&mut report, &session);
     writeln!(
         report,
         "Owners before terminal disposal: {:?}",
@@ -139,6 +140,42 @@ pub fn run(root: &Path, mission: &str, model_directories: &[String]) -> Result<(
     }
 }
 
+fn append_navigation_report(report: &mut String, session: &MissionLoadSession) {
+    use lhr_engine::mission_session_navigation::SessionNavigationOutcome;
+    match session.navigation().outcome() {
+        SessionNavigationOutcome::NotAttempted => {
+            writeln!(report, "Navigation graph: not attempted").unwrap();
+        }
+        SessionNavigationOutcome::Absent { path } => {
+            writeln!(report, "Navigation graph: absent ({path})").unwrap();
+        }
+        SessionNavigationOutcome::Loaded {
+            path,
+            source_bytes,
+            nodes,
+            links,
+            read_calls,
+            short_reads,
+        } => {
+            writeln!(
+                report,
+                "Navigation graph: {path} nodes={nodes} links={links} source_bytes={source_bytes} reads={read_calls} short_reads={short_reads}"
+            )
+            .unwrap();
+        }
+        SessionNavigationOutcome::SourceUnavailable { path, detail } => {
+            writeln!(
+                report,
+                "Navigation graph: source unavailable ({path}): {detail}"
+            )
+            .unwrap();
+        }
+        SessionNavigationOutcome::Failed { path, detail } => {
+            writeln!(report, "Navigation graph: failed ({path}): {detail}").unwrap();
+        }
+    }
+}
+
 fn append_world_completeness_report(report: &mut String, root: &Path, mission: &str) {
     let files = match mission_world_completeness::mission_world_files(mission) {
         Ok(files) => files,
@@ -180,6 +217,21 @@ fn append_world_completeness_report(report: &mut String, root: &Path, mission: &
             writeln!(report, "World file intake stopped: {error:?}").unwrap();
             return;
         }
+    }
+    let road_path = files.road.clone();
+    match installation.read_optional(&road_path) {
+        Ok(Some(bytes)) => match lhr_engine::road_network::parse_road_network(&bytes) {
+            Ok(network) => writeln!(
+                report,
+                "Road network: nodes={} links={}",
+                network.nodes.len(),
+                network.links.len()
+            )
+            .unwrap(),
+            Err(error) => writeln!(report, "Road network parse stopped: {error:?}").unwrap(),
+        },
+        Ok(None) => writeln!(report, "Road network: absent").unwrap(),
+        Err(error) => writeln!(report, "Road network read stopped: {}", error.to_string()).unwrap(),
     }
     let cache_path = files.cache.clone();
     match installation.read_optional(&cache_path) {
