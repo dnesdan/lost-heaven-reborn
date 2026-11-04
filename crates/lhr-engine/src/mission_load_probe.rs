@@ -92,6 +92,38 @@ pub fn run(root: &Path, mission: &str, model_directories: &[String]) -> Result<(
     append_load_report(&mut report, &session);
     append_world_completeness_report(&mut report, root, mission, &session);
     append_navigation_report(&mut report, &session);
+    // GameInit follows Open in native order; run the owned prefix only over
+    // a completed load, never over a partial prefix.
+    let game_init = if load.is_ok() {
+        session
+            .run_game_init_prefix()
+            .map_err(|error| format!("{error:?}"))
+    } else {
+        Err("skipped after stopped load".into())
+    };
+    match &game_init {
+        Ok(()) => {
+            let police = session.police_init();
+            let traffic = session.traffic_flags();
+            writeln!(
+                report,
+                "GameInit prefix: police active={} speeds={}/{} throttle_lists={}/{}/{}; traffic taxi_driver={} in_taxi={} scream={}",
+                police.active(),
+                police.speed_limit(),
+                police.speed_limit_arrest(),
+                police.record_count(),
+                police.road_block_car_count() + police.road_block_iris_count(),
+                police.do_rici_actor_count(),
+                traffic.taxi_driver_enabled(),
+                traffic.player_in_taxi(),
+                traffic.valid_scream()
+            )
+            .unwrap();
+        }
+        Err(detail) => {
+            writeln!(report, "GameInit prefix stopped: {detail}").unwrap();
+        }
+    }
     writeln!(
         report,
         "Owners before terminal disposal: {:?}",
@@ -132,11 +164,12 @@ pub fn run(root: &Path, mission: &str, model_directories: &[String]) -> Result<(
             .write_all(report.as_bytes())
             .map_err(|error| format!("Could not write mission probe report: {error}"))?;
     }
-    match (load, discard) {
-        (Ok(()), Ok(())) => Ok(()),
-        (Err(_), Ok(())) => Err("Mission load probe stopped at the reported load boundary; terminal disposal completed".into()),
-        (Ok(()), Err(_)) => Err("Mission prefix completed, but terminal disposal stopped at the reported ownership boundary".into()),
-        (Err(_), Err(_)) => Err("Mission load and terminal disposal both stopped; their first failures are reported separately".into()),
+    match (load, game_init, discard) {
+        (Ok(()), Ok(()), Ok(())) => Ok(()),
+        (Err(_), _, Ok(())) => Err("Mission load probe stopped at the reported load boundary; terminal disposal completed".into()),
+        (Ok(()), _, Err(_)) => Err("Mission prefix completed, but terminal disposal stopped at the reported ownership boundary".into()),
+        (Err(_), _, Err(_)) => Err("Mission load and terminal disposal both stopped; their first failures are reported separately".into()),
+        (Ok(()), Err(_), Ok(())) => Err("Mission prefix completed, but the GameInit prefix stopped at the reported boundary; terminal disposal completed".into()),
     }
 }
 

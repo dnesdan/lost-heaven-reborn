@@ -345,3 +345,104 @@ impl TrafficDataReader for TrafficChunkReader<'_> {
         Ok(available == destination.len())
     }
 }
+
+/// Game-global traffic flags written by `C_game::Init` (mafia-re
+/// game/ai/C_person_traffic.h: `enable_taxi_driver`, `player_in_taxi`,
+/// `global_valid_scream`). Native statics start cleared; `Init` stores
+/// false/false/true with two conditional edges: disabling an enabled taxi
+/// driver first clears all wavers (`ZrusVsechnyMavajici` 0x44fd10,
+/// unported), and a non-null car is model-checked before it counts.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TrafficGameFlags {
+    taxi_driver_enabled: bool,
+    player_in_taxi: bool,
+    valid_scream: bool,
+}
+
+/// Waver-clear boundary for disabling an enabled taxi driver.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TrafficFlagsError {
+    WaverClearUnsupported,
+}
+
+impl TrafficGameFlags {
+    pub fn taxi_driver_enabled(self) -> bool {
+        self.taxi_driver_enabled
+    }
+
+    pub fn player_in_taxi(self) -> bool {
+        self.player_in_taxi
+    }
+
+    pub fn valid_scream(self) -> bool {
+        self.valid_scream
+    }
+
+    /// Original `C_game::Init` stores: taxi driver off, no player taxi,
+    /// screams valid. With the boot-cleared state the disable edge never
+    /// fires; an enabled driver reports its waver-clear boundary instead
+    /// of silently dropping it.
+    pub fn apply_game_init(&mut self) -> Result<(), TrafficFlagsError> {
+        self.set_taxi_driver_enabled(false)?;
+        self.player_in_taxi = false;
+        self.valid_scream = true;
+        Ok(())
+    }
+
+    fn set_taxi_driver_enabled(&mut self, enabled: bool) -> Result<(), TrafficFlagsError> {
+        if !enabled && self.taxi_driver_enabled {
+            return Err(TrafficFlagsError::WaverClearUnsupported);
+        }
+        self.taxi_driver_enabled = enabled;
+        Ok(())
+    }
+
+    /// Original `PlayerInTaxi(NULL)` call from `Init`: clears without any
+    /// model check. A non-null car needs the taxi-model check first and
+    /// stays an explicit boundary at the call site.
+    pub fn clear_player_in_taxi(&mut self) {
+        self.player_in_taxi = false;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn game_init_stores_false_false_true() {
+        let mut flags = TrafficGameFlags::default();
+        flags.apply_game_init().unwrap();
+        assert!(!flags.taxi_driver_enabled());
+        assert!(!flags.player_in_taxi());
+        assert!(flags.valid_scream());
+        // Repeating init over boot state stays a pure no-op success.
+        flags.apply_game_init().unwrap();
+    }
+
+    #[test]
+    fn disabling_enabled_driver_reports_waver_boundary() {
+        let mut flags = TrafficGameFlags {
+            taxi_driver_enabled: true,
+            player_in_taxi: false,
+            valid_scream: false,
+        };
+        assert_eq!(
+            flags.apply_game_init(),
+            Err(TrafficFlagsError::WaverClearUnsupported)
+        );
+        // The refused transition leaves prior state untouched.
+        assert!(flags.taxi_driver_enabled());
+    }
+
+    #[test]
+    fn clearing_taxi_needs_no_model_check() {
+        let mut flags = TrafficGameFlags {
+            taxi_driver_enabled: false,
+            player_in_taxi: true,
+            valid_scream: true,
+        };
+        flags.clear_player_in_taxi();
+        assert!(!flags.player_in_taxi());
+    }
+}

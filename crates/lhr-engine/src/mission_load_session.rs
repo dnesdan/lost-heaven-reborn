@@ -29,11 +29,13 @@ use crate::mission_session_roads::{SessionRoads, SessionRoadsCause};
 use crate::model_loading::ModelError;
 use crate::model_loading::{CpuSceneWorldError, CpuSceneWorldProgress, ModelArena};
 use crate::native_precision::Pc24PrecisionState;
+use crate::police_state::PoliceGameInitState;
 use crate::program_patch::{ProgramPatchStartup, ProgramPatchStartupError};
 use crate::runtime_audio::{AudioError, RuntimeAudio};
 use crate::scene_ownership::SceneKey;
 use crate::scene_resources::{SceneCpuCloseReport, SceneResourceError, SceneResources};
 use crate::script_scheduler::{DispatchBudget, FrameReferenceId};
+use crate::traffic_generator::TrafficGameFlags;
 use std::convert::Infallible;
 
 #[path = "mission_sector_groups.rs"]
@@ -378,6 +380,8 @@ pub struct MissionLoadSession {
     navigation: SessionNavigation,
     roads: SessionRoads,
     base_cache: CityBaseCache,
+    police_init: PoliceGameInitState,
+    traffic_flags: TrafficGameFlags,
     precision: Pc24PrecisionState,
     phase: MissionLoadPhase,
     entered: bool,
@@ -416,6 +420,10 @@ impl MissionLoadSession {
             // (mafia-re: `C_cache_base_block base_cache` at 0x63d268), so the
             // constructor-retained `unknown_20` starts as zero at boot.
             base_cache: CityBaseCache::new(0),
+            // Native police/traffic statics start cleared; `Init` stores
+            // into them after `Open`. No teardown: pure scalar state.
+            police_init: PoliceGameInitState::default(),
+            traffic_flags: TrafficGameFlags::default(),
             precision,
             phase: MissionLoadPhase::NotStarted,
             entered: false,
@@ -669,6 +677,25 @@ impl MissionLoadSession {
     /// Session-owned base-block cache (`Open` pending its REA analysis).
     pub fn base_cache(&self) -> &CityBaseCache {
         &self.base_cache
+    }
+    /// Session-owned police init state (`GameInit` order position).
+    pub fn police_init(&self) -> &PoliceGameInitState {
+        &self.police_init
+    }
+    /// Session-owned traffic game flags (`Init` order position).
+    pub fn traffic_flags(&self) -> &TrafficGameFlags {
+        &self.traffic_flags
+    }
+
+    /// Owned `C_shvestky::GameInit` + traffic-flag stores in `Init` order,
+    /// after `Open`. Police init is infallible; traffic reports its
+    /// waver-clear boundary when leaving an enabled driver.
+    pub fn run_game_init_prefix(
+        &mut self,
+    ) -> Result<(), crate::traffic_generator::TrafficFlagsError> {
+        self.police_init.apply_game_init();
+        self.traffic_flags.apply_game_init()?;
+        Ok(())
     }
     /// Persistent arithmetic status seeded explicitly by the host caller.
     pub fn precision_state(&self) -> Pc24PrecisionState {

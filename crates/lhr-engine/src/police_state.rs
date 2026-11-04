@@ -118,6 +118,151 @@ impl PoliceManagerRawState {
 /// Opaque actor identity for police-record lists. Native addresses are never
 /// dereferenced; equality selects list membership only.
 pub type PoliceActorId = u32;
+
+/// Period timer shared by the police manager, ported from `S_timer`
+/// (mafia-re game/tools.h: `{time, period}` u32 pair, default 200 ms).
+/// `Reset` restarts with a new period; `Tick` accumulates game time and
+/// fires past the period, subtracting it — all exact u32 arithmetic.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PoliceTimer {
+    time_ms: u32,
+    period_ms: u32,
+}
+
+impl PoliceTimer {
+    pub const fn new() -> Self {
+        Self {
+            time_ms: 0,
+            period_ms: 200,
+        }
+    }
+
+    pub const fn period_ms(self) -> u32 {
+        self.period_ms
+    }
+
+    pub const fn time_ms(self) -> u32 {
+        self.time_ms
+    }
+
+    /// Original `Reset`: time back to zero with the new period.
+    pub fn reset(&mut self, period_ms: u32) {
+        self.time_ms = 0;
+        self.period_ms = period_ms;
+    }
+
+    /// Original `Tick`: adds game time; once past the period, subtracts
+    /// the period and reports the firing.
+    pub fn tick(&mut self, elapsed_ms: u32) -> bool {
+        self.time_ms = self.time_ms.wrapping_add(elapsed_ms);
+        if self.time_ms <= self.period_ms {
+            return false;
+        }
+        self.time_ms = self.time_ms.wrapping_sub(self.period_ms);
+        true
+    }
+}
+
+impl Default for PoliceTimer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Road-block car entry (`S_road_block_car`, 8 bytes: actor + free flag).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PoliceRoadBlockCar {
+    pub car: PoliceActorId,
+    pub free: bool,
+}
+
+/// Road-block policeman entry (`S_road_block_iris`, same shape).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PoliceRoadBlockIris {
+    pub actor: PoliceActorId,
+    pub free: bool,
+}
+
+/// Owned subset of `C_shvestky` state written by `GameInit` 0x49cd0.
+/// Fields the native body does not touch (enemies, temporary cars, arrest
+/// text, `unknown_38`) are outside this owner by construction.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PoliceGameInitState {
+    active: bool,
+    records_timer: PoliceTimer,
+    speed_limit: u32,
+    speed_limit_arrest: u32,
+    do_rici_timer: PoliceTimer,
+    red_light_timer: PoliceTimer,
+    unknown_24: PoliceTimer,
+    unknown_2c: u32,
+    unknown_30: u32,
+    records: Vec<PolicePursuitRecord>,
+    road_block_cars: Vec<PoliceRoadBlockCar>,
+    road_block_irises: Vec<PoliceRoadBlockIris>,
+    do_rici_actors: Vec<PoliceActorId>,
+}
+
+impl PoliceGameInitState {
+    pub fn active(&self) -> bool {
+        self.active
+    }
+
+    pub fn records_timer(&self) -> PoliceTimer {
+        self.records_timer
+    }
+
+    pub fn speed_limit_bits(&self) -> u32 {
+        self.speed_limit
+    }
+
+    pub fn speed_limit_arrest_bits(&self) -> u32 {
+        self.speed_limit_arrest
+    }
+
+    pub fn speed_limit(&self) -> f32 {
+        f32::from_bits(self.speed_limit)
+    }
+
+    pub fn speed_limit_arrest(&self) -> f32 {
+        f32::from_bits(self.speed_limit_arrest)
+    }
+
+    pub fn record_count(&self) -> usize {
+        self.records.len()
+    }
+
+    pub fn road_block_car_count(&self) -> usize {
+        self.road_block_cars.len()
+    }
+
+    pub fn road_block_iris_count(&self) -> usize {
+        self.road_block_irises.len()
+    }
+
+    pub fn do_rici_actor_count(&self) -> usize {
+        self.do_rici_actors.len()
+    }
+
+    /// Original `C_shvestky::GameInit` 0x499cd0 in native order: inactive,
+    /// timer resets (330/913/217/4013 ms), 17.0/28.0 speed limits, zeroed
+    /// words, and cleared lists. Untouched fields stay out of this owner.
+    pub fn apply_game_init(&mut self) {
+        self.active = false;
+        self.records_timer.reset(330);
+        self.speed_limit = 17.0f32.to_bits();
+        self.speed_limit_arrest = 28.0f32.to_bits();
+        self.records.clear();
+        self.red_light_timer.reset(217);
+        self.unknown_24.reset(4013);
+        self.unknown_2c = 0;
+        self.unknown_30 = 0;
+        self.road_block_cars.clear();
+        self.road_block_irises.clear();
+        self.do_rici_timer.reset(913);
+        self.do_rici_actors.clear();
+    }
+}
 /// Opaque human identity for wanted-record lookup.
 pub type PoliceHumanId = u32;
 
@@ -449,5 +594,49 @@ mod tests {
                 entry: SEND_POLICE_TO_HUMAN_ENTRY
             })
         );
+    }
+
+    #[test]
+    fn timer_resets_and_ticks_with_exact_u32_arithmetic() {
+        let mut timer = PoliceTimer::new();
+        assert_eq!((timer.time_ms(), timer.period_ms()), (0, 200));
+        assert!(!timer.tick(200));
+        assert!(timer.tick(1));
+        assert_eq!(timer.time_ms(), 1);
+        timer.reset(330);
+        assert_eq!((timer.time_ms(), timer.period_ms()), (0, 330));
+        assert!(!timer.tick(330));
+        assert!(timer.tick(1));
+        // Wrapping arithmetic never panics at the u32 boundary.
+        timer.reset(u32::MAX);
+        assert!(!timer.tick(u32::MAX));
+    }
+
+    #[test]
+    fn game_init_stores_exact_scalars_and_clears_lists() {
+        let mut state = PoliceGameInitState::default();
+        state.records.push(PolicePursuitRecord::new(3));
+        state.road_block_cars.push(PoliceRoadBlockCar {
+            car: 11,
+            free: true,
+        });
+        state.road_block_irises.push(PoliceRoadBlockIris {
+            actor: 13,
+            free: false,
+        });
+        state.do_rici_actors.push(17);
+        state.apply_game_init();
+        assert!(!state.active());
+        assert_eq!(state.records_timer().period_ms(), 330);
+        assert_eq!(state.speed_limit(), 17.0);
+        assert_eq!(state.speed_limit_bits(), 17.0f32.to_bits());
+        assert_eq!(state.speed_limit_arrest(), 28.0);
+        assert_eq!(state.record_count(), 0);
+        assert_eq!(state.road_block_car_count(), 0);
+        assert_eq!(state.road_block_iris_count(), 0);
+        assert_eq!(state.do_rici_actor_count(), 0);
+        // Second application is idempotent over cleared lists.
+        state.apply_game_init();
+        assert_eq!(state.record_count(), 0);
     }
 }
