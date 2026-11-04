@@ -37,6 +37,50 @@ pub const ROAD_NODE_SNAP_OFFSET: usize = 0x10;
 /// Link float slot normalized by the post pass.
 pub const ROAD_LINK_SNAP_OFFSET: usize = 0x0C;
 
+/// `C_roads::FindPath` contract (PC 0x55c4e0; REA evidence
+/// `ev_755c7588c0525a37ac254ba5a0a05fcc4a9db1c9cbca999fc09f99de8ef8ac40`,
+/// 292 instructions / 47 blocks / 3 params / 9 callees, pseudocode retained
+/// in 4,857 code units). Node IDs are u16; `0xFFFF` on either side returns
+/// false without touching the output. Bit `0x8000` marks zone-resolved IDs
+/// (via 0x55be10); the zone search is 0x55bf60 with per-edge validation
+/// 0x55b5d0/0x55c440 and fixups 0x55bcd0. The search cluster is unimplemented;
+/// only the sentinel/zone-bit rules below are ported.
+/// Invalid node sentinel: either `FindPath` side equal to this returns false.
+pub const ROAD_INVALID_NODE: u16 = 0xFFFF;
+/// Zone-resolution bit: set IDs resolve through 0x55be10 before the search.
+pub const ROAD_ZONE_BIT: u16 = 0x8000;
+/// `C_roads::FindPath` entry for the explicit unsupported boundary.
+pub const FIND_PATH_ENTRY: u32 = 0x55c4e0;
+
+/// Sentinel rule: any side equal to `ROAD_INVALID_NODE` rejects the query.
+pub fn road_node_valid(id: u16) -> bool {
+    id != ROAD_INVALID_NODE
+}
+
+/// Zone-bit rule: set bit resolves through 0x55be10 before the search.
+pub fn road_node_has_zone(id: u16) -> bool {
+    id & ROAD_ZONE_BIT != 0
+}
+
+/// Base ID with the zone bit cleared.
+pub fn road_node_base(id: u16) -> u16 {
+    id & !ROAD_ZONE_BIT
+}
+
+/// Still-unimplemented `FindPath` search cluster.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FindPathError {
+    Unsupported { entry: u32 },
+}
+
+/// `C_roads::FindPath` 0x55c4e0: unimplemented search; the sentinel rule
+/// above is enforced by callers before reaching this boundary.
+pub fn find_path(_from: u16, _to: u16) -> Result<Vec<u16>, FindPathError> {
+    Err(FindPathError::Unsupported {
+        entry: FIND_PATH_ENTRY,
+    })
+}
+
 /// Host quotas; shipped `mise01/road.bin` (229 nodes, 1124 links) is far below.
 const MAX_NODES: usize = 1_000_000;
 const MAX_LINKS: usize = 8_000_000;
@@ -249,5 +293,26 @@ mod tests {
             parse_road_network(&bytes),
             Err(RoadParseError::QuotaExceeded { what: "nodes" })
         );
+    }
+
+    #[test]
+    fn find_path_sentinel_and_zone_rules_match_recovered_contract() {
+        assert!(!road_node_valid(ROAD_INVALID_NODE));
+        assert_eq!(ROAD_INVALID_NODE, 0xFFFF);
+        assert!(road_node_valid(0));
+        assert!(road_node_valid(0x7FFF));
+        assert!(!road_node_has_zone(0x1234));
+        assert!(road_node_has_zone(0x8000));
+        assert!(road_node_has_zone(0xFFFF));
+        assert_eq!(road_node_base(0x8000), 0);
+        assert_eq!(road_node_base(0x8123), 0x0123);
+        assert_eq!(road_node_base(0x0123), 0x0123);
+        assert_eq!(
+            find_path(0, 1),
+            Err(FindPathError::Unsupported {
+                entry: FIND_PATH_ENTRY
+            })
+        );
+        assert_eq!(FIND_PATH_ENTRY, 0x55c4e0);
     }
 }

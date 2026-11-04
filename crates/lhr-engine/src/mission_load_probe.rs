@@ -90,7 +90,7 @@ pub fn run(root: &Path, mission: &str, model_directories: &[String]) -> Result<(
     )
     .unwrap();
     append_load_report(&mut report, &session);
-    append_world_completeness_report(&mut report, root, mission);
+    append_world_completeness_report(&mut report, root, mission, &session);
     append_navigation_report(&mut report, &session);
     writeln!(
         report,
@@ -176,7 +176,12 @@ fn append_navigation_report(report: &mut String, session: &MissionLoadSession) {
     }
 }
 
-fn append_world_completeness_report(report: &mut String, root: &Path, mission: &str) {
+fn append_world_completeness_report(
+    report: &mut String,
+    root: &Path,
+    mission: &str,
+    session: &MissionLoadSession,
+) {
     let files = match mission_world_completeness::mission_world_files(mission) {
         Ok(files) => files,
         Err(error) => {
@@ -223,9 +228,11 @@ fn append_world_completeness_report(report: &mut String, root: &Path, mission: &
         Ok(Some(bytes)) => match lhr_engine::road_network::parse_road_network(&bytes) {
             Ok(network) => writeln!(
                 report,
-                "Road network: nodes={} links={}",
+                "Road network: nodes={} links={} (session-owned nodes={} links={})",
                 network.nodes.len(),
-                network.links.len()
+                network.links.len(),
+                session.roads().node_count(),
+                session.roads().link_count()
             )
             .unwrap(),
             Err(error) => writeln!(report, "Road network parse stopped: {error:?}").unwrap(),

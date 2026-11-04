@@ -24,6 +24,7 @@ use crate::mission_resources::{
 };
 use crate::mission_scene_loading::{MissionSceneLoadError, MissionSceneLoader, SceneLoadMapPrefix};
 use crate::mission_session_navigation::{SessionNavigation, SessionNavigationCause};
+use crate::mission_session_roads::{SessionRoads, SessionRoadsCause};
 use crate::model_loading::ModelError;
 use crate::model_loading::{CpuSceneWorldError, CpuSceneWorldProgress, ModelArena};
 use crate::native_precision::Pc24PrecisionState;
@@ -61,6 +62,8 @@ pub enum MissionLoadPhase {
     World,
     /// Owned `check.bin` navigation intake in `Open` order (absent files skip).
     Navigation,
+    /// Owned `road.bin` network intake in `Open` order (absent files skip).
+    Roads,
     LoadMap,
     Scene2Input,
     Scene2Prefix,
@@ -92,6 +95,7 @@ pub enum MissionLoadCause {
     },
     World(CpuSceneWorldError),
     Navigation(SessionNavigationCause),
+    Roads(SessionRoadsCause),
     LoadMap(String),
     Scene2Input {
         path: String,
@@ -121,6 +125,7 @@ pub enum MissionDiscardPhase {
     PendingVisual,
     WorldStaging,
     Navigation,
+    Roads,
     Cache(MissionCacheKind),
     Listener,
     Scene,
@@ -197,6 +202,9 @@ pub struct MissionOwnedCounts {
     /// Session-owned navigation domain: component plus node/connection arrays.
     pub navigation_allocations: usize,
     pub navigation_bytes: usize,
+    /// Session-owned road network: parsed node/link arrays.
+    pub road_nodes: usize,
+    pub road_links: usize,
 }
 
 #[derive(Debug)]
@@ -213,6 +221,7 @@ pub enum MissionDiscardCause {
     Audio(AudioError),
     Diagnostics(MissionOwnerDiagnosticsError),
     Navigation(SessionNavigationCause),
+    Roads(SessionRoadsCause),
     SceneOwner(MissionSceneSelectionError),
     RegisteredScene(DriverSceneError<Infallible>),
     UnregisteredScene(SceneResourceError),
@@ -250,6 +259,7 @@ impl MissionOwnedCounts {
         audio: &RuntimeAudio,
         loader: Option<&MissionSceneLoader>,
         navigation: Option<&SessionNavigation>,
+        roads: Option<&SessionRoads>,
     ) -> Result<Self, MissionOwnerDiagnosticsError> {
         let visual = arena.loaded_visual_resources();
         let visual_backend = visual.map(|owner| owner.backend());
@@ -322,6 +332,8 @@ impl MissionOwnedCounts {
             weather_references: resources.ws_ref_count(),
             navigation_allocations: navigation.map_or(0, |nav| nav.live_allocations()),
             navigation_bytes: navigation.map_or(0, |nav| nav.live_bytes()),
+            road_nodes: roads.map_or(0, |roads| roads.node_count()),
+            road_links: roads.map_or(0, |roads| roads.link_count()),
         })
     }
 }
@@ -357,6 +369,7 @@ pub struct MissionLoadSession {
     caches: MissionCaches,
     cache_memory: CpuMissionCacheMemory,
     navigation: SessionNavigation,
+    roads: SessionRoads,
     precision: Pc24PrecisionState,
     phase: MissionLoadPhase,
     entered: bool,
@@ -390,6 +403,7 @@ impl MissionLoadSession {
             caches: MissionCaches::empty().map_err(MissionLoadInitError::CacheStrings)?,
             cache_memory: CpuMissionCacheMemory::default(),
             navigation: SessionNavigation::new(),
+            roads: SessionRoads::new(),
             precision,
             phase: MissionLoadPhase::NotStarted,
             entered: false,
@@ -636,6 +650,10 @@ impl MissionLoadSession {
     pub fn navigation(&self) -> &SessionNavigation {
         &self.navigation
     }
+    /// Session-owned road network intake in `Open` order.
+    pub fn roads(&self) -> &SessionRoads {
+        &self.roads
+    }
     /// Persistent arithmetic status seeded explicitly by the host caller.
     pub fn precision_state(&self) -> Pc24PrecisionState {
         self.precision
@@ -674,6 +692,7 @@ impl MissionLoadSession {
             &self.audio,
             self.loader.as_ref(),
             Some(&self.navigation),
+            Some(&self.roads),
         )
     }
 
@@ -811,6 +830,18 @@ impl MissionLoadSession {
             .load(&self.installation, &check_path)
             .map_err(MissionLoadCause::Navigation)?;
 
+        // `C_mission::Open` loads `road.bin` after `check.bin`. Same
+        // absence rule; the network format is established by REA (see
+        // `road_network.rs`).
+        self.phase = MissionLoadPhase::Roads;
+        let road_path = match request.scene2_path.rsplit_once('/') {
+            Some((dir, _)) => format!("{dir}/road.bin"),
+            None => "road.bin".into(),
+        };
+        self.roads
+            .load(&self.installation, &road_path)
+            .map_err(MissionLoadCause::Roads)?;
+
         self.phase = MissionLoadPhase::LoadMap;
         match MissionSceneLoader::new(&self.arena, scene) {
             Ok(mut loader) => {
@@ -915,6 +946,8 @@ impl MissionLoadSession {
         self.navigation
             .destroy()
             .map_err(MissionDiscardCause::Navigation)?;
+        self.discard.phase = MissionDiscardPhase::Roads;
+        self.roads.destroy().map_err(MissionDiscardCause::Roads)?;
         self.discard.phase = MissionDiscardPhase::Scene;
         if let Some(scene) = self.scene().map_err(MissionDiscardCause::SceneOwner)? {
             let registered = self.driver.scenes().contains(&scene);

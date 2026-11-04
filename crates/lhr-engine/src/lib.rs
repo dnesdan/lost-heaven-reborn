@@ -104,6 +104,7 @@ pub mod mission_resources;
 pub mod mission_scene_loading;
 pub mod mission_scene_stream;
 pub mod mission_session_navigation;
+pub mod mission_session_roads;
 pub mod mission_world_completeness;
 pub mod model_animation_runtime;
 pub mod model_loading;
@@ -223,16 +224,16 @@ pub mod game {
         collision_world_driving_contacts, game_camera_projection, game_init_order,
         mission_actor_stream, mission_components, mission_lifecycle, mission_resources,
         mission_scene_loading, mission_scene_stream, mission_session_navigation,
-        mission_world_completeness, original_logo, original_program, original_system,
-        original_windows, police_state, program_entity_parameters, program_instructions,
-        program_parser, railway_actor, replay_state, road_network, script_lookup, script_scheduler,
-        traffic_car_actor, vehicle_bodycol, vehicle_bodycol_records, vehicle_component_records,
-        vehicle_contacts, vehicle_controls, vehicle_drivetrain, vehicle_dynamics,
-        vehicle_dynamics_body, vehicle_dynamics_body_collision, vehicle_dynamics_body_response,
-        vehicle_dynamics_forces, vehicle_dynamics_move, vehicle_dynamics_prepare,
-        vehicle_dynamics_tail, vehicle_dynamics_tick, vehicle_dynamics_update,
-        vehicle_dynamics_wheel_forces, vehicle_frame_backend, vehicle_init, vehicle_owner,
-        vehicle_sound, vehicle_wheel_pose,
+        mission_session_roads, mission_world_completeness, original_logo, original_program,
+        original_system, original_windows, police_state, program_entity_parameters,
+        program_instructions, program_parser, railway_actor, replay_state, road_network,
+        script_lookup, script_scheduler, traffic_car_actor, vehicle_bodycol,
+        vehicle_bodycol_records, vehicle_component_records, vehicle_contacts, vehicle_controls,
+        vehicle_drivetrain, vehicle_dynamics, vehicle_dynamics_body,
+        vehicle_dynamics_body_collision, vehicle_dynamics_body_response, vehicle_dynamics_forces,
+        vehicle_dynamics_move, vehicle_dynamics_prepare, vehicle_dynamics_tail,
+        vehicle_dynamics_tick, vehicle_dynamics_update, vehicle_dynamics_wheel_forces,
+        vehicle_frame_backend, vehicle_init, vehicle_owner, vehicle_sound, vehicle_wheel_pose,
     };
 }
 
