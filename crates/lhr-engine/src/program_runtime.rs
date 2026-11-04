@@ -550,9 +550,14 @@ pub enum RuntimeEffect {
     /// `C_game::UseLightCacheSystem()` with no operands. REA Ghidra
     /// `ev_1dd1161a…` (24 instructions, 0 params, 1 callee) recovers the
     /// body: copy the game word at +0x16C to +0x170, store -1 at +0x178,
-    /// then call `RecomputeLightCache` 0x5b5d40. The backend records the
-    /// request; the game words plus recomputation belong to a future game
-    /// owner and stay open.
+    /// then call `RecomputeLightCache` 0x5b5d40. That callee (REA
+    /// `ev_a85d8749…`, 99 instructions) treats +0x16C/+0x170 as begin/end
+    /// of a frame-pointer array: with a nonempty array it sets +0x178 to
+    /// 0x7E7, refreshes stale world matrices (flag 0x20 at +0xAC), and
+    /// switches each frame on/off by camera distance against its +0x16C
+    /// range plus the camera +0x148 range plus 15.0, then stores -1 back.
+    /// The backend records the request; the frame array, state words and
+    /// culling pass belong to a future game owner and stay open.
     UseLightCache,
 }
 /// Required external allocation boundary, borrowing actual fields at the call.
