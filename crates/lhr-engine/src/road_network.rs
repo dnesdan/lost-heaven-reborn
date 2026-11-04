@@ -67,18 +67,152 @@ pub fn road_node_base(id: u16) -> u16 {
     id & !ROAD_ZONE_BIT
 }
 
-/// Still-unimplemented `FindPath` search cluster.
+/// Assembled `FindPath` search and its failures. `Unreachable` resolutions
+/// become `Ok(false)` like the native early-outs; host-only out-of-range
+/// and cycle errors propagate instead of reading wild memory.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FindPathError {
-    Unsupported { entry: u32 },
+    Walk(RoadWalkError),
+    Zone(ZoneResolveError),
 }
 
-/// `C_roads::FindPath` 0x55c4e0: unimplemented search; the sentinel rule
-/// above is enforced by callers before reaching this boundary.
-pub fn find_path(_from: u16, _to: u16) -> Result<Vec<u16>, FindPathError> {
-    Err(FindPathError::Unsupported {
-        entry: FIND_PATH_ENTRY,
-    })
+fn resolve_side(
+    network: &RoadNetwork,
+    id: u16,
+    reverse: bool,
+) -> Result<Option<(u16, u8)>, FindPathError> {
+    if id & ROAD_ZONE_BIT == 0 {
+        return Ok(None);
+    }
+    match resolve_zone(network, id, reverse) {
+        Ok(side) => Ok(Some(side)),
+        Err(ZoneResolveError::Walk(RoadWalkError::Unreachable)) => Ok(None),
+        Err(other) => Err(FindPathError::Zone(other)),
+    }
+}
+
+/// Full `C_roads::FindPath`, logical rewrite of PC 0x55c4e0 (REA
+/// `ev_755c7588…`, 292 instructions / 47 blocks / 3 params / 9 callees),
+/// assembled from the ported pieces: output clear 0x55cb90, zone
+/// resolution 0x55be10, chain emit 0x55bc10, zone Dijkstra 0x55bf60, lane
+/// search 0x55b5d0 and chain validation 0x55c440. Order: sentinel guard,
+/// output clear, zone resolution of zoned sides (`Unreachable` ends the
+/// query), plain-`from` push or chain emit, cross-side fixup unification,
+/// Dijkstra plus per-pair lane/validate walk, non-empty tail check ending
+/// in `to`, and the `to`-zoned reversed-segment tail. Returns `true` when
+/// the query resolves (native 1) and `false` for sentinel, resolution, or
+/// search failures (native 0). Equal zone sides skip the search exactly
+/// like the native guard.
+#[allow(clippy::too_many_lines)]
+pub fn find_path(
+    network: &RoadNetwork,
+    from: u16,
+    to: u16,
+    out: &mut Vec<u16>,
+) -> Result<bool, FindPathError> {
+    if !road_node_valid(from) || !road_node_valid(to) {
+        return Ok(false);
+    }
+    clear_path_output(out);
+    let (from_zone, from_side) = match resolve_side(network, from, false)? {
+        Some(side) => side,
+        None if from & ROAD_ZONE_BIT != 0 => return Ok(false),
+        None => (from, 0),
+    };
+    let (mut to_zone, mut to_side) = match resolve_side(network, to, true)? {
+        Some(side) => side,
+        None if to & ROAD_ZONE_BIT != 0 => return Ok(false),
+        None => (to, 0),
+    };
+    if from & ROAD_ZONE_BIT == 0 {
+        out.push(from);
+    } else {
+        let start = network.link(from).map_err(FindPathError::Walk)?.endpoints();
+        let start = if from_side == 0 { start.0 } else { start.1 };
+        emit_chain(network, from, start, out, ROAD_INVALID_NODE, to)
+            .map_err(FindPathError::Walk)?;
+    }
+    if from_zone != to_zone {
+        // Cross-side fixup unification, in native order: each side's fixup
+        // through its selected link endpoint; when they reach each other's
+        // zone the query collapses to one zone (and `to_side` becomes whether
+        // the old `to_side` was 0). Both masked link indices must be live;
+        // otherwise there is nothing to unify through and the search decides.
+        let unify = (usize::from(from) & 0x7FFF) < network.links.len()
+            && (usize::from(to) & 0x7FFF) < network.links.len();
+        if unify {
+            let from_endpoints = network.link(from).map_err(FindPathError::Walk)?.endpoints();
+            let from_ep = if from_side == 0 {
+                from_endpoints.0
+            } else {
+                from_endpoints.1
+            };
+            let to_endpoints = network.link(to).map_err(FindPathError::Walk)?.endpoints();
+            let to_ep = if to_side == 0 {
+                to_endpoints.0
+            } else {
+                to_endpoints.1
+            };
+            let seen_from = fixup_distance(network, from, from_ep).map_err(FindPathError::Walk)?;
+            let seen_to = fixup_distance(network, to, to_ep).map_err(FindPathError::Walk)?;
+            if seen_from.0 == to_zone && seen_to.0 == from_zone {
+                to_zone = from_zone;
+                to_side = u8::from(to_side == 0);
+            }
+        }
+        if from_zone != to_zone {
+            let zones = match dijkstra_zones(network, from_zone as usize, to_zone as usize) {
+                Ok(zones) => zones,
+                Err(RoadWalkError::Unreachable) => return Ok(false),
+                Err(other) => return Err(FindPathError::Walk(other)),
+            };
+            let mut index = 1usize;
+            while index < zones.len() {
+                let previous = zones[index - 1];
+                let current = zones[index];
+                let lane =
+                    edge_lane(network, previous, current, false).map_err(FindPathError::Walk)?;
+                if lane.is_none() {
+                    return Ok(false);
+                }
+                let reached =
+                    edge_validate(network, current, out, from, to).map_err(FindPathError::Walk)?;
+                if !reached {
+                    break;
+                }
+                index += 1;
+            }
+        }
+    }
+    if !out.is_empty() && *out.last().unwrap() == to {
+        return Ok(true);
+    }
+    if to & ROAD_ZONE_BIT != 0 {
+        let endpoints = network.link(to).map_err(FindPathError::Walk)?.endpoints();
+        let start = if to_side == 0 {
+            endpoints.0
+        } else {
+            endpoints.1
+        };
+        let mut segment = Vec::new();
+        emit_chain(
+            network,
+            to,
+            start,
+            &mut segment,
+            ROAD_INVALID_NODE,
+            ROAD_INVALID_NODE,
+        )
+        .map_err(FindPathError::Walk)?;
+        let count = segment.len();
+        for step in (1..count).rev() {
+            if segment[step] == from {
+                out.clear();
+            }
+            out.push(segment[step - 1]);
+        }
+    }
+    Ok(true)
 }
 
 /// Output-vector clear used by `FindPath` (PC 0x55cb90; REA evidence
@@ -765,13 +899,56 @@ mod tests {
         assert_eq!(road_node_base(0x8000), 0);
         assert_eq!(road_node_base(0x8123), 0x0123);
         assert_eq!(road_node_base(0x0123), 0x0123);
-        assert_eq!(
-            find_path(0, 1),
-            Err(FindPathError::Unsupported {
-                entry: FIND_PATH_ENTRY
-            })
-        );
         assert_eq!(FIND_PATH_ENTRY, 0x55c4e0);
+        // Sentinel sides end the query before the output clear, so the
+        // caller's prefix is retained like the native early-out.
+        let graph = line_graph();
+        let mut out = vec![9u16];
+        assert_eq!(find_path(&graph, ROAD_INVALID_NODE, 1, &mut out), Ok(false));
+        assert_eq!(out, vec![9u16]);
+        let mut out = vec![9u16];
+        assert_eq!(find_path(&graph, 0, ROAD_INVALID_NODE, &mut out), Ok(false));
+        assert_eq!(out, vec![9u16]);
+    }
+
+    #[test]
+    fn find_path_assembles_plain_queries_end_to_end() {
+        let graph = two_node_network();
+        let mut out = Vec::new();
+        assert_eq!(find_path(&graph, 0, 1, &mut out), Ok(true));
+        assert_eq!(out, vec![0, 1]);
+        // Same-zone query resolves without the search.
+        let mut out = Vec::new();
+        assert_eq!(find_path(&graph, 1, 1, &mut out), Ok(true));
+        assert_eq!(out, vec![1]);
+        // No lanes between the pair: the search fails, retaining the pushed
+        // prefix exactly like the native Dijkstra-failure return.
+        let graph = RoadNetwork {
+            nodes: vec![
+                placed_node(
+                    0.0,
+                    [
+                        (ROAD_INVALID_NODE, 0.0),
+                        (ROAD_INVALID_NODE, 0.0),
+                        (ROAD_INVALID_NODE, 0.0),
+                        (ROAD_INVALID_NODE, 0.0),
+                    ],
+                ),
+                placed_node(
+                    10.0,
+                    [
+                        (ROAD_INVALID_NODE, 0.0),
+                        (ROAD_INVALID_NODE, 0.0),
+                        (ROAD_INVALID_NODE, 0.0),
+                        (ROAD_INVALID_NODE, 0.0),
+                    ],
+                ),
+            ],
+            links: vec![plain_link(0, 1)],
+        };
+        let mut out = Vec::new();
+        assert_eq!(find_path(&graph, 0, 1, &mut out), Ok(false));
+        assert_eq!(out, vec![0]);
     }
 
     #[test]
@@ -781,6 +958,15 @@ mod tests {
         assert!(path.is_empty());
         assert_eq!(CLEAR_OUTPUT_ENTRY, 0x55cb90);
         assert_eq!(ZONE_RESOLVE_ENTRY, 0x55be10);
+    }
+
+    fn plain_link(first: u16, second: u16) -> RoadLink {
+        let mut link_bytes = [0u8; ROAD_LINK_SIZE];
+        link_bytes[ROAD_LINK_ENDPOINT_OFFSET..ROAD_LINK_ENDPOINT_OFFSET + 2]
+            .copy_from_slice(&first.to_le_bytes());
+        link_bytes[ROAD_LINK_ENDPOINT_OFFSET + 2..ROAD_LINK_ENDPOINT_OFFSET + 4]
+            .copy_from_slice(&second.to_le_bytes());
+        RoadLink { bytes: link_bytes }
     }
 
     fn two_node_network() -> RoadNetwork {
@@ -796,11 +982,6 @@ mod tests {
             ],
         );
         second.bytes[4..8].copy_from_slice(&4.0f32.to_le_bytes());
-        let mut link_bytes = [0u8; ROAD_LINK_SIZE];
-        link_bytes[ROAD_LINK_ENDPOINT_OFFSET..ROAD_LINK_ENDPOINT_OFFSET + 2]
-            .copy_from_slice(&0u16.to_le_bytes());
-        link_bytes[ROAD_LINK_ENDPOINT_OFFSET + 2..ROAD_LINK_ENDPOINT_OFFSET + 4]
-            .copy_from_slice(&1u16.to_le_bytes());
         RoadNetwork {
             nodes: vec![
                 placed_node(
@@ -814,7 +995,7 @@ mod tests {
                 ),
                 second,
             ],
-            links: vec![RoadLink { bytes: link_bytes }],
+            links: vec![plain_link(0, 1)],
         }
     }
 
