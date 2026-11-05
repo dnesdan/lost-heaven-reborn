@@ -890,7 +890,7 @@ pub const SHADOW_SW_FILL_BYTE: u8 = 0xFF;
 
 /// Prefilled spans for one triangle (`lea edi, shadow_spans` + `mov ecx, 0x80`
 /// + `mov eax, 0x00ff00ff` + `rep stosd`): each row starts as left `0xFF`,
-/// right `0x00` (empty, since left > right).
+///   right `0x00` (empty, since left > right).
 pub fn shadow_span_prefill() -> [[u8; 2]; SHADOW_SPAN_ROWS] {
     [[0xFF, 0x00]; SHADOW_SPAN_ROWS]
 }
@@ -966,10 +966,9 @@ fn shadow_triangle_y_range(y0: i32, y1: i32, y2: i32) -> (i32, i32) {
     (y_min, y_max)
 }
 
-fn shadow_face_verts(
-    verts: &[i32],
-    indx: &[u16],
-) -> Result<([i32; 2], [i32; 2], [i32; 2]), ShadowPassError> {
+type ShadowFaceVerts = ([i32; 2], [i32; 2], [i32; 2]);
+
+fn shadow_face_verts(verts: &[i32], indx: &[u16]) -> Result<ShadowFaceVerts, ShadowPassError> {
     let fetch = |slot: u16| -> Result<[i32; 2], ShadowPassError> {
         let base = usize::from(slot)
             .checked_mul(2)
@@ -1217,7 +1216,7 @@ pub fn project_shadow_texels(
     points
         .try_reserve(verts.len())
         .map_err(|_| ShadowPassError::OutOfMemory)?;
-    for pair in verts.chunks_exact(2) {
+    for pair in verts.as_chunks::<2>().0 {
         points.push(shadow_fistp((pair[0] - bbox[0]) * scale_x)?);
         points.push(shadow_fistp((pair[1] - bbox[1]) * scale_y)?);
     }

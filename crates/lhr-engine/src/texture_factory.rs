@@ -4431,10 +4431,8 @@ pub fn find_map_file(
     name: &[u8],
     probe: &mut impl MapFileProbe,
 ) -> Option<Vec<u8>> {
-    if name.iter().any(|b| *b == b'\\') {
-        if probe.exists(name) {
-            return Some(name.to_vec());
-        }
+    if name.contains(&b'\\') && probe.exists(name) {
+        return Some(name.to_vec());
     }
     if cache.ok && !cache.last_dir.is_empty() {
         if let Some(path) = join_map_path(&cache.last_dir, name) {
