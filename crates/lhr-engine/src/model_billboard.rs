@@ -401,7 +401,7 @@ mod tests {
                 rot_axis: 1,
                 axis_mode: 3,
             },
-            0x50414D4c,
+            0x50414D4C,
         );
         assert_eq!(f2, DUPLICATE_VIS_MASK);
         assert_eq!(o2, BillboardOrientation::default());

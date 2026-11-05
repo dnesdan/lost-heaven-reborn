@@ -1228,7 +1228,7 @@ impl I3dFrameGraph {
         if slot >= binding.joints.len() {
             return Err(FrameError::SinglemeshBindingUnavailable(target));
         }
-        Ok(std::mem::replace(&mut binding.joints[slot], None))
+        Ok(binding.joints[slot].take())
     }
     pub fn links(&self, key: FrameKey) -> Result<FrameLinks, FrameError> {
         Ok(self.node(key)?.links)

@@ -266,7 +266,7 @@ pub fn next_fframe_proc(
                             let inner = dists[index].sqrt();
                             let d = inner.sqrt();
                             let half = (d + prev) * 0.5f32;
-                            state.cam_pos[2] = state.cam_pos[2] + half;
+                            state.cam_pos[2] += half;
                             backend.add_fgroups();
                             prev = d;
                         }

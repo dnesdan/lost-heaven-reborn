@@ -758,9 +758,9 @@ pub fn free_clip_arrays(state: &mut ClipState) {
     state.vert_count = 0;
     state.vert_end = 0;
     // Native leak, kept: the opaque/transparent face block is not freed.
-    let leaked = core::mem::replace(&mut state.faces, Vec::new());
+    let leaked = core::mem::take(&mut state.faces);
     core::mem::forget(leaked);
-    let leaked_t = core::mem::replace(&mut state.faces_t, Vec::new());
+    let leaked_t = core::mem::take(&mut state.faces_t);
     core::mem::forget(leaked_t);
     state.num_faces = 0;
     state.num_faces_t = 0;

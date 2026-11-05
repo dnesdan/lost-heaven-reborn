@@ -1223,7 +1223,7 @@ pub fn engine_version() -> i32 {
 /// projects that static: known results return static bytes and ignore it,
 /// unknown results fill it and return the filled prefix (fits: at most 25
 /// bytes). Pure; no log or window access.
-pub fn result_message_for<'a>(result: i32, scratch: &'a mut [u8; 64]) -> &'a [u8] {
+pub fn result_message_for(result: i32, scratch: &mut [u8; 64]) -> &[u8] {
     match result as u32 {
         0 => b"OK".as_slice(),
         0x80000001 => b"File not found".as_slice(),

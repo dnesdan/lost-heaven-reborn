@@ -658,7 +658,8 @@ pub fn particle_fgroup_plan(sorted_desc: &[ParticleSortEntry]) -> ParticleFgroup
                 num,
                 sector_from_entry: top.has_sector,
                 texture_uid: top.texture_uid,
-                sort_value: (trunc_u32(dist) / num as u32 & PRIM_SORT_DIST_MASK) | PRIM_SORT_ALPHA,
+                sort_value: ((trunc_u32(dist) / num as u32) & PRIM_SORT_DIST_MASK)
+                    | PRIM_SORT_ALPHA,
                 opaque: false,
             });
             plan.num_transparent += 1;

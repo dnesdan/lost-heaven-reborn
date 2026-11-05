@@ -84,7 +84,7 @@ impl Default for DriverStringScratch {
 /// other word formats `Unknown type:0x{:x}` (lowercase, no padding) into the
 /// shared frame bank. The trampoline fold is exact: the method adds no
 /// behavior of its own.
-pub fn frame_type_string<'a>(scratch: &'a mut DriverStringScratch, type_word: u32) -> &'a str {
+pub fn frame_type_string(scratch: &mut DriverStringScratch, type_word: u32) -> &str {
     match type_word {
         FRAME_VISUAL => "FRAME_VISUAL",
         FRAME_LIGHT => "FRAME_LIGHT",
@@ -124,7 +124,7 @@ pub fn frame_type_string<'a>(scratch: &'a mut DriverStringScratch, type_word: u3
 /// the fourcc is the little-endian type bytes cut at the first zero. High
 /// (non-UTF8) bytes map via lossy conversion (disclosed: native emits the
 /// raw bytes; outside the ASCII contract domain).
-pub fn visual_type_string<'a>(scratch: &'a mut DriverStringScratch, type_word: u32) -> &'a str {
+pub fn visual_type_string(scratch: &mut DriverStringScratch, type_word: u32) -> &str {
     match type_word {
         VISUAL_OBJECT => "I3D_VISUAL_OBJECT",
         VISUAL_LIT_OBJECT => "I3D_VISUAL_LIT_OBJECT",

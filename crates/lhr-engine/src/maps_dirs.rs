@@ -191,7 +191,7 @@ mod tests {
     fn entry(name: &[u8], is_dir: bool) -> DirEntry {
         DirEntry {
             name: name.to_vec(),
-            is_dir: is_dir,
+            is_dir,
         }
     }
     #[test]
