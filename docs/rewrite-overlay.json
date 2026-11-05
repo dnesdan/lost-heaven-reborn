@@ -7906,6 +7906,24 @@
       "symbol": "lhr_engine::arena_frame_names::ModelArena::original_name_pointer",
       "tier": "contract",
       "evidence": "REA formed Ghidra FUN_10027570 (probe-verified pure-REA copy, verified) pointer-projection only (Null-vs-Offset identity, no dereference; native empty-for-null string semantics stay caller-owned, unpinned) + pointer-identity test; tier contract (partial coverage) (mafia-re ls3df/I3D/visuals/I3d_lit_object.cpp:11 note)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x3c2e0",
+      "va": "0x1003c2e0",
+      "name": "CullOcclsEachOther",
+      "symbol": "lhr_engine::occluder_visibility::cull_occluders_each_other",
+      "tier": "differential",
+      "evidence": "REA formed Ghidra body FUN_1003c2e0 25BB/411B + mafia-re 113b5b6 ls3df/I3D/frames/I3d_occluder.cpp:460 + I3D.h:2417 FUNCTION marker (PDB procedure name, no public symbol) + hand-derived mutual-cull nearest-first/tie/OCCLF_ACTIVE-bit vectors, executed green (occluder_visibility 4 passed, lib suite 2670 passed + 1 pre-existing ph_thing_ai)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x3c480",
+      "va": "0x1003c480",
+      "name": "POIS_EnumProc",
+      "symbol": "lhr_engine::occluder_visibility::pois_enum_proc",
+      "tier": "differential",
+      "evidence": "REA formed Ghidra body FUN_1003c480 25BB/386B + mafia-re 113b5b6 ls3df/I3D/frames/I3d_occluder.cpp:518 + I3D.h:2421 FUNCTION marker (PDB procedure name, no public symbol) + hand-derived render-number rollback/PORTAL-participation vectors, executed green (occluder_visibility 4 passed, lib suite 2670 passed + 1 pre-existing ph_thing_ai)"
     }
   ],
   "vm": {

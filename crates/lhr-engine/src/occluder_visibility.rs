@@ -1,5 +1,16 @@
 //! Original camera shadow volumes and ProcessOccluders, PC entries
-//! 0x3b130/0x3c610/0x3c070 (and inlined TestVertListW/POIS_EnumProc).
+//! 0x3b130/0x3c610/0x3c070 (TestVertListW stays inlined via hides_sphere/hides_vertices).
+//! LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6:
+//! RVA 0x3c2e0 CullOcclsEachOther and RVA 0x3c480 POIS_EnumProc are free functions below.
+//! Pinned mafia-re 113b5b6 ls3df/I3D/frames/I3d_occluder.cpp:460 and :518; I3D.h:2417 and :2421
+//! FUNCTION markers. Both names are PDB procedure names (I3D.h:2414-2416 records no public
+//! symbol); evidenced procedure names, not public symbols. Tier this wave: differential
+//! (orchestrator REA-verified formed Ghidra bodies FUN_1003c2e0 25BB/411B and FUN_1003c480 25BB/386B).
+//! Float policy: f32 exact through Volume::hides_sphere (distance_zyx Z,Y,X order via
+//! frame_sector::math add/mul with native_precision single rounding, no fused multiply-add,
+//! no f64 substitution); strict f32 comparisons as spelled; non-finite inputs error through the
+//! number/math guards and never cull. Accepted deviation: the source spells victim sums as
+//! d+X+Y+Z while the shared helper sums Z+Y+X+d (1-ulp edge risk, shared predates this wave).
 //! Volumes are per-render derived data keyed by the live canonical OccluderKey.
 //! Vertices, faces, planes and adjacency come from the existing owned buffers.
 use crate::frame_occluder::OccluderKey;
@@ -90,31 +101,7 @@ impl SectorOcclusion {
                 }
             }
         }
-        // The source's nearest-first mutual culling, preserving strict ties.
-        let mut last = 0.;
-        loop {
-            let mut best = 1e12;
-            let mut nearest = None;
-            for (i, v) in self.volumes.iter().enumerate() {
-                if v.active && v.dist > last && v.dist < best {
-                    best = v.dist;
-                    nearest = Some(i);
-                }
-            }
-            last = best;
-            let Some(i) = nearest else {
-                break;
-            };
-            for j in 0..self.volumes.len() {
-                if self.volumes[j].active && self.volumes[j].dist > best {
-                    let v = &self.volumes[j];
-                    if self.volumes[i].hides_sphere(v.center, v.radius)? {
-                        self.volumes[j].active = false;
-                        put_flags(arena, self.volumes[j].key, 2, 0)?;
-                    }
-                }
-            }
-        }
+        cull_occluders_each_other(&mut *self, arena)?;
         let mut at = 0;
         while at < visuals.len() {
             let frame = visuals[at];
@@ -122,15 +109,32 @@ impl SectorOcclusion {
                 at += 1;
                 continue;
             }
-            let bounds = arena.hr_bound_volume_w(frame)?;
-            let mut hidden = false;
-            for v in &self.volumes {
-                if v.active && v.hides_sphere(bounds.center, bounds.radius)? {
-                    hidden = true;
-                    break;
-                }
+            // Restored evidenced guard: the original skips visuals whose render
+            // number is not the current one before touching bound data. The prior
+            // Rust walk assumed every listed visual was current.
+            let current = arena.state(frame)?.render_number;
+            if current != render_number {
+                at += 1;
+                continue;
             }
-            if hidden {
+            // Bound data is read only on the current path (source reads
+            // GetHRBoundVolumeW inside the ACTIVE branch); all-inactive
+            // volumes hide nothing, so the read is skipped with them.
+            if !self.volumes.iter().any(|v| v.active) {
+                at += 1;
+                continue;
+            }
+            let bounds = arena.hr_bound_volume_w(frame)?;
+            // The arena adapter walks the visual chain in order and delegates each
+            // visual's occluder walk to pois_enum_proc. Per-visual delegation keeps
+            // the live bound-volume read timing and the partial-prefix error behavior
+            // of the previous loop while leaving the hide/rollback decision in one owner.
+            let mut chain = [PoisVisual {
+                render_number: current,
+                center: bounds.center,
+                radius: bounds.radius,
+            }];
+            if pois_enum_proc(&*self, &mut chain[..], render_number)? == 1 {
                 arena.graph.projected_state_mut(frame)?.render_number =
                     render_number.wrapping_sub(1);
                 visuals.remove(at);
@@ -141,6 +145,107 @@ impl SectorOcclusion {
         }
         Ok(())
     }
+}
+/// Typed visual-chain entry for pois_enum_proc: the live render number plus the
+/// world-space bound sphere the caller read (original m_RenderNumber and
+/// GetHRBoundVolumeW). The caller owns sector filtering and live arena reads and
+/// writes; this walk owns the hide and rollback decision.
+pub(crate) struct PoisVisual {
+    pub render_number: u32,
+    pub center: [f32; 3],
+    pub radius: f32,
+}
+
+/// LS3DF RVA 0x3c2e0 CullOcclsEachOther (I3D.h:2417 FUNCTION marker; mafia-re 113b5b6
+/// ls3df/I3D/frames/I3d_occluder.cpp:460, nearest-depth mutual culling loop). The name is a
+/// PDB procedure name (I3D.h:2414-2416 records no public symbol); evidenced procedure name,
+/// not a public symbol. Tier this wave: differential (orchestrator REA-verified
+/// formed Ghidra body FUN_1003c2e0 25BB/411B). This function owns 0x3c2e0 only; POIS_EnumProc
+/// lives in pois_enum_proc below.
+/// Order-exact contract: last starts at 0, best at 1e12, strict dist greater than last and
+/// less than best selects the nearest, last becomes best, then every still-active volume with
+/// dist greater than best is tested against the nearest through Volume::hides_sphere; hidden
+/// volumes clear active and OCCLF_ACTIVE bit 2. Strict ties never hide each other. Float
+/// policy: f32 exact, single rounding, no fused multiply-add, no f64 substitution; non-finite
+/// inputs error through hides_sphere and abort with the reached prefix retained, never treated
+/// as visible.
+pub(crate) fn cull_occluders_each_other(
+    occlusion: &mut SectorOcclusion,
+    arena: &mut ModelArena,
+) -> Result<()> {
+    let mut last = 0.0f32;
+    loop {
+        let mut best = 1e12f32;
+        let mut nearest = None;
+        for (i, v) in occlusion.volumes.iter().enumerate() {
+            if v.active && v.dist > last && v.dist < best {
+                best = v.dist;
+                nearest = Some(i);
+            }
+        }
+        last = best;
+        let Some(i) = nearest else {
+            break;
+        };
+        for j in 0..occlusion.volumes.len() {
+            if occlusion.volumes[j].active && occlusion.volumes[j].dist > best {
+                let center = occlusion.volumes[j].center;
+                let radius = occlusion.volumes[j].radius;
+                if occlusion.volumes[i].hides_sphere(center, radius)? {
+                    occlusion.volumes[j].active = false;
+                    let key = occlusion.volumes[j].key;
+                    put_flags(arena, key, 2, 0)?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// LS3DF RVA 0x3c480 POIS_EnumProc (I3D.h:2421 FUNCTION marker; mafia-re 113b5b6
+/// ls3df/I3D/frames/I3d_occluder.cpp:518, visual-chain occlusion walk with RenderNumber
+/// rollback). The name is a PDB procedure name (I3D.h:2414-2416 records no public symbol);
+/// evidenced procedure name, not a public symbol. Tier this wave: differential
+/// (orchestrator REA-verified formed Ghidra body FUN_1003c480 25BB/386B).
+/// Order-exact contract: derived-list early exit when the sector holds no
+/// volumes (observable-equivalent to the original null-occluder return:
+/// an all-inactive list hides nothing and the chain carries no writes on
+/// the visible path); per visual in chain order, rollback is read before the
+/// equality guard exactly as the original keeps rn in a register, visuals whose render number
+/// differs are skipped without touching sphere data, otherwise each ACTIVE volume is tested
+/// through Volume::hides_sphere with an early break once hidden, mirroring the original vis
+/// flag and its break; PORTAL is ignored because the source tests ACTIVE only. Hidden visuals
+/// store rollback and count once. Float policy: f32 exact as above; numeric errors abort with
+/// the reached rollback prefix retained.
+pub(crate) fn pois_enum_proc(
+    occlusion: &SectorOcclusion,
+    chain: &mut [PoisVisual],
+    render_number: u32,
+) -> Result<usize> {
+    if occlusion.volumes.is_empty() {
+        return Ok(0);
+    }
+    let mut hidden = 0;
+    for entry in chain.iter_mut() {
+        let rollback = render_number.wrapping_sub(1);
+        if entry.render_number != render_number {
+            continue;
+        }
+        let mut visible = true;
+        for volume in &occlusion.volumes {
+            if !visible {
+                break;
+            }
+            if volume.active && volume.hides_sphere(entry.center, entry.radius)? {
+                visible = false;
+            }
+        }
+        if !visible {
+            entry.render_number = rollback;
+            hidden += 1;
+        }
+    }
+    Ok(hidden)
 }
 pub(crate) fn descendants(
     arena: &ModelArena,
@@ -509,5 +614,224 @@ mod tests {
             0x3f42c6f3
         );
         assert!(shadow_direction([0.; 3]).is_err());
+    }
+    #[test]
+    fn cull_occluders_each_other_takes_nearest_first_and_preserves_strict_ties() {
+        // Hand-derived vectors; executed green (lib suite).
+        let mut arena = ModelArena::default();
+        let near_key = arena.create_occluder().unwrap();
+        let mid_key = arena.create_occluder().unwrap();
+        let far_key = arena.create_occluder().unwrap();
+        // Seed the OCCLF_ACTIVE bit (I3D.h:2350, bit 2) so the victim clear
+        // below pins a real 1 -> 0 transition, not a 0 -> 0 no-op.
+        for key in [near_key, mid_key, far_key] {
+            put_flags(&mut arena, key, 0, 2).unwrap();
+        }
+        let mut occlusion = SectorOcclusion {
+            sector: SectorKey(FrameKey(u32::MAX)),
+            volumes: vec![
+                Volume {
+                    key: near_key,
+                    hull: None,
+                    sides: vec![[1.0f32, 0.0, 0.0, 10.0]],
+                    faces: vec![],
+                    depth: [0f32, 0.0, 1.0, -10.0],
+                    center: [0.; 3],
+                    radius: 0.5,
+                    dist: 1.0,
+                    active: true,
+                    portal: false,
+                },
+                Volume {
+                    key: mid_key,
+                    hull: None,
+                    sides: vec![],
+                    faces: vec![],
+                    depth: [0f32, 0.0, 1.0, 0.0],
+                    center: [0.0, 0.0, 5.0],
+                    radius: 1.0,
+                    dist: 2.0,
+                    active: true,
+                    portal: false,
+                },
+                Volume {
+                    key: far_key,
+                    hull: None,
+                    sides: vec![],
+                    faces: vec![],
+                    depth: [0f32, 0.0, 1.0, 0.0],
+                    center: [0.0, 0.0, 6.0],
+                    radius: 1.0,
+                    dist: 3.0,
+                    active: true,
+                    portal: false,
+                },
+            ],
+        };
+        cull_occluders_each_other(&mut occlusion, &mut arena).unwrap();
+        assert!(occlusion.volumes[0].active);
+        assert!(!occlusion.volumes[1].active);
+        assert!(!occlusion.volumes[2].active);
+        // The survivor keeps OCCLF_ACTIVE; victims lose it in the arena word.
+        assert_ne!(
+            arena.occluder(near_key).unwrap().word(0x5c4).unwrap() & 2,
+            0
+        );
+        assert_eq!(arena.occluder(mid_key).unwrap().word(0x5c4).unwrap() & 2, 0);
+        assert_eq!(arena.occluder(far_key).unwrap().word(0x5c4).unwrap() & 2, 0);
+        // Strict ties: equal depths never hide each other because both the
+        // nearest select (dist less than best) and the victim scan (dist greater
+        // than best) are strict. Each volume below would hide the other if compared.
+        let tie_a = arena.create_occluder().unwrap();
+        let tie_b = arena.create_occluder().unwrap();
+        let mut ties = SectorOcclusion {
+            sector: SectorKey(FrameKey(u32::MAX)),
+            volumes: vec![
+                Volume {
+                    key: tie_a,
+                    hull: None,
+                    sides: vec![[1.0f32, 0.0, 0.0, 10.0]],
+                    faces: vec![],
+                    depth: [0f32, 0.0, 1.0, 0.0],
+                    center: [0.; 3],
+                    radius: 1.0,
+                    dist: 5.0,
+                    active: true,
+                    portal: false,
+                },
+                Volume {
+                    key: tie_b,
+                    hull: None,
+                    sides: vec![[1.0f32, 0.0, 0.0, 10.0]],
+                    faces: vec![],
+                    depth: [0f32, 0.0, 1.0, 0.0],
+                    center: [0.; 3],
+                    radius: 1.0,
+                    dist: 5.0,
+                    active: true,
+                    portal: false,
+                },
+            ],
+        };
+        cull_occluders_each_other(&mut ties, &mut arena).unwrap();
+        assert!(ties.volumes[0].active);
+        assert!(ties.volumes[1].active);
+        // Ties hide nothing, so both keep the seeded bit.
+        for key in [tie_a, tie_b] {
+            put_flags(&mut arena, key, 0, 2).unwrap();
+        }
+        cull_occluders_each_other(&mut ties, &mut arena).unwrap();
+        assert_ne!(arena.occluder(tie_a).unwrap().word(0x5c4).unwrap() & 2, 0);
+        assert_ne!(arena.occluder(tie_b).unwrap().word(0x5c4).unwrap() & 2, 0);
+    }
+    #[test]
+    fn pois_enum_proc_rolls_back_current_hidden_visuals_only() {
+        // Hand-derived vectors; executed green (lib suite).
+        // Render number 0 exercises the wrapping rollback to u32::MAX.
+        let mut arena = ModelArena::default();
+        let hiding = arena.create_occluder().unwrap();
+        let idle = arena.create_occluder().unwrap();
+        let portal_key = arena.create_occluder().unwrap();
+        let occlusion = SectorOcclusion {
+            sector: SectorKey(FrameKey(u32::MAX)),
+            volumes: vec![
+                Volume {
+                    key: hiding,
+                    hull: None,
+                    sides: vec![[1.0f32, 0.0, 0.0, 1.0]],
+                    faces: vec![],
+                    depth: [0f32, 0.0, 1.0, 0.0],
+                    center: [0.; 3],
+                    radius: 1.0,
+                    dist: 1.0,
+                    active: true,
+                    portal: false,
+                },
+                Volume {
+                    key: idle,
+                    hull: None,
+                    sides: vec![[1.0f32, 0.0, 0.0, 10.0]],
+                    faces: vec![],
+                    depth: [0f32, 0.0, 1.0, 0.0],
+                    center: [0.; 3],
+                    radius: 1.0,
+                    dist: 2.0,
+                    active: false,
+                    portal: false,
+                },
+                // PORTAL is not tested (source tests ACTIVE only): an active
+                // portal volume hides like any active one. Its planes hide
+                // the last chain entry alone, so it must roll back too.
+                // Side offset 1.4 threads the gap: x=-1 entries escape
+                // (0.4 < 0.5) while x=-0.75 is hidden (0.65 >= 0.5); the
+                // `hiding` volume (offset 1.0) leaves x=-0.75 alone (0.25).
+                Volume {
+                    key: portal_key,
+                    hull: None,
+                    sides: vec![[1.0f32, 0.0, 0.0, 1.4]],
+                    faces: vec![],
+                    depth: [0f32, 0.0, 1.0, 0.0],
+                    center: [0.; 3],
+                    radius: 1.0,
+                    dist: 3.0,
+                    active: true,
+                    portal: true,
+                },
+            ],
+        };
+        let render_number = 0u32;
+        let mut chain = vec![
+            PoisVisual {
+                render_number,
+                center: [0.0, 0.0, 0.0],
+                radius: 0.5,
+            },
+            PoisVisual {
+                render_number,
+                center: [-1.0, 0.0, 0.0],
+                radius: 0.5,
+            },
+            PoisVisual {
+                render_number: 5,
+                center: [0.0, 0.0, 0.0],
+                radius: 0.5,
+            },
+            PoisVisual {
+                render_number,
+                center: [-1.0, 0.0, 0.0],
+                radius: 0.5,
+            },
+            // Hidden by the portal volume alone (see above); the untested
+            // PORTAL flag means it hides like any active volume.
+            PoisVisual {
+                render_number,
+                center: [-0.75, 0.0, 0.0],
+                radius: 0.5,
+            },
+        ];
+        let hidden = pois_enum_proc(&occlusion, &mut chain, render_number).unwrap();
+        assert_eq!(hidden, 2);
+        assert_eq!(chain[0].render_number, u32::MAX);
+        assert_eq!(chain[1].render_number, render_number);
+        assert_eq!(chain[2].render_number, 5);
+        // The index-3 entry would be hidden by the idle volume's planes
+        // absent the ACTIVE-only guard (offset 10.0 passes at distance 9.0),
+        // so the guard leaves it visible; without the guard it would roll back too.
+        assert_eq!(chain[3].render_number, render_number);
+        // The portal-hidden entry rolls back: the untested PORTAL flag never
+        // excludes an active volume.
+        assert_eq!(chain[4].render_number, u32::MAX);
+        // Empty sectors return early with no rollback, mirroring the null-list guard.
+        let empty = SectorOcclusion {
+            sector: SectorKey(FrameKey(u32::MAX)),
+            volumes: vec![],
+        };
+        let mut solo = vec![PoisVisual {
+            render_number,
+            center: [0.0, 0.0, 0.0],
+            radius: 0.5,
+        }];
+        assert_eq!(pois_enum_proc(&empty, &mut solo, render_number).unwrap(), 0);
+        assert_eq!(solo[0].render_number, render_number);
     }
 }
