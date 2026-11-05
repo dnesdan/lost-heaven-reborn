@@ -338,6 +338,206 @@ pub fn build_all_vbuffers(
     backend.clear_fg();
 }
 
+/// `I3DERR_GENERIC` (ls3df.h:26).
+pub const I3DERR_GENERIC: i32 = 0x8000_0005u32 as i32;
+/// `I3DERR_NOTINITIALIZED` (ls3df.h:30).
+pub const I3DERR_NOTINITIALIZED: i32 = 0x8000_0009u32 as i32;
+
+/// FPU status-word error-summary bit tested on `Render` entry
+/// (render.cpp:228-232, `fpu & 0x80`).
+pub const FPU_EXCEPTION_SUMMARY: u16 = 0x80;
+/// FPU control-word mask applied on `Render` entry (render.cpp:233-235,
+/// `fpu &= 0xf0ff`): single precision, round to nearest.
+pub const FPU_ENTRY_CONTROL_MASK: u16 = 0xf0ff;
+
+/// Mirrors `fpu & 0x80 != 0` on the `fnstsw` word.
+pub fn fpu_has_exception(status: u16) -> bool {
+    status & FPU_EXCEPTION_SUMMARY != 0
+}
+
+/// Mirrors `fpu &= 0xf0ff` on the `fnstcw` word.
+pub fn fpu_entry_control(control: u16) -> u16 {
+    control & FPU_ENTRY_CONTROL_MASK
+}
+
+/// Scene viewport in absolute bounds (`I3D_scene::viewport`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SceneViewport {
+    pub left: i32,
+    pub top: i32,
+    pub right: i32,
+    pub bottom: i32,
+}
+
+/// Cached device viewport in desired form (`m_D3DViewPort8` after `CopyRect`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RenderRect {
+    pub left: i32,
+    pub top: i32,
+    pub right: i32,
+    pub bottom: i32,
+}
+
+/// Typed live view of the scene words read and written by `Render`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RenderSceneInput {
+    /// Absolute viewport bounds.
+    pub viewport: SceneViewport,
+    /// `scene->current_camera != null`.
+    pub has_camera: bool,
+    /// `scene->m_RenderNumber`, incremented with wrapping on entry.
+    pub render_number: u32,
+}
+
+/// Driver words read and written by `Render` (`I3DIsInit`, `rendering`,
+/// `renderCB`, `m_D3DViewPort8`, `RenderNumber`/`RenderNumberMinus1`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RenderDriverState {
+    /// `I3DIsInit`.
+    pub is_init: bool,
+    /// `rendering`.
+    pub rendering: bool,
+    /// `renderCB`.
+    pub render_cb: bool,
+    /// `m_D3DViewPort8` cache in desired form.
+    pub viewport: RenderRect,
+    /// `RenderNumber`.
+    pub render_number: u32,
+    /// `RenderNumberMinus1`.
+    pub render_number_minus1: u32,
+}
+
+/// Builds the `RECT rc` of render.cpp:270-272: left and top pass through,
+/// right and bottom carry width and height with wrapping subtraction.
+pub fn scene_desired_rect(viewport: &SceneViewport) -> RenderRect {
+    RenderRect {
+        left: viewport.left,
+        top: viewport.top,
+        right: viewport.right.wrapping_sub(viewport.left),
+        bottom: viewport.bottom.wrapping_sub(viewport.top),
+    }
+}
+
+/// Mirrors `EqualRect(&rc, &m_D3DViewPort8)`.
+pub fn render_rect_equal(a: &RenderRect, b: &RenderRect) -> bool {
+    a == b
+}
+
+/// Device-adjacent full-scene effects behind a backend trait.
+pub trait RenderBackend {
+    /// `fnstsw` word on entry.
+    fn fpu_status(&mut self) -> u16;
+    /// `fnstcw` word on entry.
+    fn fpu_control(&mut self) -> u16;
+    /// `dbgPrintf` when the exception summary bit is set.
+    fn report_fpu_exception(&mut self, status: u16);
+    /// `fldcw` of the masked control word.
+    fn apply_fpu_control(&mut self, masked: u16);
+    /// `SetViewport(&m_D3DViewPort8)`; `false` is `FAILED`.
+    fn set_viewport(&mut self, rect: &RenderRect) -> bool;
+    /// `ResetRenderProps` plus `Clear` on the no-camera path.
+    fn clear_no_camera(&mut self);
+    /// `timeGetTime()` for the entry timestamp (render.cpp:322, read only
+    /// when `!renderCB`); the value is kept out of pure state.
+    fn now(&mut self) -> u32;
+    /// Per-flare `timeGetTime()` collapsed to one hook (render.cpp:770 reads
+    /// it per newly registered flare inside the visual walk; the host
+    /// backend fans it out as needed). Runs regardless of `renderCB` like
+    /// the native flare loop.
+    fn lensflare_now(&mut self) -> u32;
+    /// `I3D_frame::UpdateWMatrixProc`.
+    fn update_wmatrix_proc(&mut self);
+    /// `I3D_visual::UpdateWBoundProc`.
+    fn update_wbound_proc(&mut self);
+    /// `RadixSort32` queue sort.
+    fn radix_sort(&mut self);
+    /// `VisualProc` queue walk.
+    fn visual_proc(&mut self);
+    /// `NextFFrameProc` queue walk.
+    fn next_fframe_proc(&mut self);
+    /// `I3D_driver::BuildAllVBuffers` queue walk.
+    fn build_all_vbuffers(&mut self);
+}
+
+/// LS3DF RVA 0x62030 `I3D_driver::Render` (mafia-re
+/// `ls3df/I3D/render/render.cpp:220`).
+/// Contract tier, partial coverage (0x2b830 standard): device-adjacent
+/// scene pass, no original-data round-trip. The evidenced-head claim covers
+/// only the entry prefix — null scene, uninit, FPU status/control,
+/// reentrancy guard, render-number increment, no-camera clear, and the
+/// `EqualRect`/`CopyRect` viewport path with `SetViewport` failure. The six
+/// backend stages are host-grouped collapse points in a host-chosen order,
+/// NOT the native call sequence (native interleaves its own sector passes;
+/// `NextFFrameProc` belongs to `BuildAllVBuffers`, which `Render` never
+/// calls directly). The entry timestamp reads only when `!renderCB`
+/// (render.cpp:322); the flare timestamp hook covers the per-flare reads.
+/// Omitted tail (all backend-owned, disclosed): `Clear` color (`bg_color`
+/// words have no host carrier), `BeginScene`/`EndScene`, PRE/POST scene and
+/// render callbacks, FOV/listener work, camera `UpdateSector`, area/sector/
+/// sound passes, shadow/portal/occluder passes, backdrop/mirror/landscape/
+/// weather/particle/flare device passes, `pCurrentScene` nulling, and the
+/// reentrancy `dbgPrintf` (no diagnostic hook). `rendering` clears only when
+/// not inside the scene callback, matching `if (!renderCB) rendering = false`.
+pub fn render_scene(
+    scene: Option<&mut RenderSceneInput>,
+    state: &mut RenderDriverState,
+    backend: &mut impl RenderBackend,
+) -> i32 {
+    let scene = match scene {
+        Some(scene) => scene,
+        None => return I3DERR_GENERIC,
+    };
+    if !state.is_init {
+        return I3DERR_NOTINITIALIZED;
+    }
+    let status = backend.fpu_status();
+    if fpu_has_exception(status) {
+        backend.report_fpu_exception(status);
+    }
+    let control = backend.fpu_control();
+    backend.apply_fpu_control(fpu_entry_control(control));
+    if state.rendering && !state.render_cb {
+        return I3DERR_GENERIC;
+    }
+    state.rendering = true;
+    let prev = scene.render_number;
+    scene.render_number = scene.render_number.wrapping_add(1);
+    state.render_number_minus1 = prev;
+    state.render_number = scene.render_number;
+    if !scene.has_camera {
+        backend.clear_no_camera();
+        if !state.render_cb {
+            state.rendering = false;
+        }
+        return I3DERR_GENERIC;
+    }
+    let desired = scene_desired_rect(&scene.viewport);
+    if !render_rect_equal(&desired, &state.viewport) {
+        state.viewport = desired;
+        if !backend.set_viewport(&state.viewport) {
+            if !state.render_cb {
+                state.rendering = false;
+            }
+            return I3DERR_NOTINITIALIZED;
+        }
+    }
+    // Entry timestamp only outside the scene callback (render.cpp:322).
+    // Both timestamps are intentionally discarded: they feed device-side
+    // area/flare passes with no host carrier (disclosed, see the trait).
+    let _frame_time = if state.render_cb { 0 } else { backend.now() };
+    backend.update_wmatrix_proc();
+    backend.update_wbound_proc();
+    backend.radix_sort();
+    let _flare_time = backend.lensflare_now();
+    backend.visual_proc();
+    backend.next_fframe_proc();
+    backend.build_all_vbuffers();
+    if !state.render_cb {
+        state.rendering = false;
+    }
+    I3D_OK
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -816,5 +1016,373 @@ mod display_mode_tests {
                 },
             ]
         );
+    }
+}
+
+#[cfg(test)]
+mod render_scene_tests {
+    use super::*;
+
+    struct RenderLog {
+        events: Vec<&'static str>,
+        status: u16,
+        control: u16,
+        reported: Vec<u16>,
+        applied: Vec<u16>,
+        viewport_result: bool,
+        viewports: Vec<RenderRect>,
+        clears: usize,
+        nows: usize,
+        flare_nows: usize,
+        now_value: u32,
+    }
+
+    impl RenderBackend for RenderLog {
+        fn fpu_status(&mut self) -> u16 {
+            self.events.push("fpu_status");
+            self.status
+        }
+        fn fpu_control(&mut self) -> u16 {
+            self.events.push("fpu_control");
+            self.control
+        }
+        fn report_fpu_exception(&mut self, status: u16) {
+            self.events.push("report_fpu");
+            self.reported.push(status);
+        }
+        fn apply_fpu_control(&mut self, masked: u16) {
+            self.events.push("apply_fpu");
+            self.applied.push(masked);
+        }
+        fn set_viewport(&mut self, rect: &RenderRect) -> bool {
+            self.events.push("set_viewport");
+            self.viewports.push(*rect);
+            self.viewport_result
+        }
+        fn clear_no_camera(&mut self) {
+            self.events.push("clear_no_camera");
+            self.clears += 1;
+        }
+        fn now(&mut self) -> u32 {
+            self.events.push("now");
+            self.nows += 1;
+            self.now_value
+        }
+        fn lensflare_now(&mut self) -> u32 {
+            self.events.push("lensflare_now");
+            self.flare_nows += 1;
+            self.now_value
+        }
+        fn update_wmatrix_proc(&mut self) {
+            self.events.push("update_wmatrix_proc");
+        }
+        fn update_wbound_proc(&mut self) {
+            self.events.push("update_wbound_proc");
+        }
+        fn radix_sort(&mut self) {
+            self.events.push("radix_sort");
+        }
+        fn visual_proc(&mut self) {
+            self.events.push("visual_proc");
+        }
+        fn next_fframe_proc(&mut self) {
+            self.events.push("next_fframe_proc");
+        }
+        fn build_all_vbuffers(&mut self) {
+            self.events.push("build_all_vbuffers");
+        }
+    }
+
+    fn log() -> RenderLog {
+        RenderLog {
+            events: Vec::new(),
+            status: 0,
+            control: 0x1234,
+            reported: Vec::new(),
+            applied: Vec::new(),
+            viewport_result: true,
+            viewports: Vec::new(),
+            clears: 0,
+            nows: 0,
+            flare_nows: 0,
+            now_value: 777,
+        }
+    }
+
+    fn ready_state() -> RenderDriverState {
+        RenderDriverState {
+            is_init: true,
+            rendering: false,
+            render_cb: false,
+            viewport: RenderRect {
+                left: 0,
+                top: 0,
+                right: 0,
+                bottom: 0,
+            },
+            render_number: 41,
+            render_number_minus1: 40,
+        }
+    }
+
+    fn scene_hit() -> RenderSceneInput {
+        RenderSceneInput {
+            viewport: SceneViewport {
+                left: 0,
+                top: 0,
+                right: 0,
+                bottom: 0,
+            },
+            has_camera: true,
+            render_number: 41,
+        }
+    }
+
+    #[test]
+    fn success_runs_stages_in_order_with_single_time_read() {
+        let mut scene = scene_hit();
+        let mut state = ready_state();
+        let mut backend = log();
+        let result = render_scene(Some(&mut scene), &mut state, &mut backend);
+        assert_eq!(result, I3D_OK);
+        assert_eq!(
+            backend.events,
+            vec![
+                "fpu_status",
+                "fpu_control",
+                "apply_fpu",
+                "now",
+                "update_wmatrix_proc",
+                "update_wbound_proc",
+                "radix_sort",
+                "lensflare_now",
+                "visual_proc",
+                "next_fframe_proc",
+                "build_all_vbuffers",
+            ]
+        );
+        assert_eq!(backend.nows, 1);
+        assert_eq!(backend.flare_nows, 1);
+        assert_eq!(backend.now_value, 777);
+        assert_eq!(scene.render_number, 42);
+        assert_eq!(state.render_number, 42);
+        assert_eq!(state.render_number_minus1, 41);
+        assert!(!state.rendering);
+        // 0x1234 & 0xf0ff = 0x1034.
+        assert_eq!(backend.applied, vec![0x1034]);
+    }
+
+    #[test]
+    fn null_scene_returns_generic_without_backend_calls() {
+        let mut state = ready_state();
+        let mut backend = log();
+        let result = render_scene(None, &mut state, &mut backend);
+        assert_eq!(result, I3DERR_GENERIC);
+        assert!(backend.events.is_empty());
+        assert!(!state.rendering);
+    }
+
+    #[test]
+    fn uninit_returns_not_initialized_without_backend_calls() {
+        let mut scene = scene_hit();
+        let mut state = RenderDriverState {
+            is_init: false,
+            ..ready_state()
+        };
+        let mut backend = log();
+        let result = render_scene(Some(&mut scene), &mut state, &mut backend);
+        assert_eq!(result, I3DERR_NOTINITIALIZED);
+        assert!(backend.events.is_empty());
+        assert_eq!(scene.render_number, 41);
+    }
+
+    #[test]
+    fn reentrant_returns_generic_after_fpu_only() {
+        let mut scene = scene_hit();
+        let mut state = RenderDriverState {
+            rendering: true,
+            ..ready_state()
+        };
+        let mut backend = log();
+        let result = render_scene(Some(&mut scene), &mut state, &mut backend);
+        assert_eq!(result, I3DERR_GENERIC);
+        assert_eq!(
+            backend.events,
+            vec!["fpu_status", "fpu_control", "apply_fpu"]
+        );
+        assert_eq!(backend.nows, 0);
+        assert_eq!(scene.render_number, 41);
+        assert!(state.rendering);
+    }
+
+    #[test]
+    fn callback_reentry_runs_stages_and_keeps_rendering() {
+        let mut scene = scene_hit();
+        let mut state = RenderDriverState {
+            rendering: true,
+            render_cb: true,
+            ..ready_state()
+        };
+        let mut backend = log();
+        let result = render_scene(Some(&mut scene), &mut state, &mut backend);
+        assert_eq!(result, I3D_OK);
+        assert!(backend.events.contains(&"build_all_vbuffers"));
+        // Entry timestamp is callback-gated (render.cpp:322); the flare loop
+        // runs regardless, so its hook still fires once.
+        assert_eq!(backend.nows, 0);
+        assert_eq!(backend.flare_nows, 1);
+        assert!(state.rendering);
+    }
+
+    #[test]
+    fn missing_camera_clears_and_returns_generic() {
+        let mut scene = RenderSceneInput {
+            has_camera: false,
+            ..scene_hit()
+        };
+        let mut state = ready_state();
+        let mut backend = log();
+        let result = render_scene(Some(&mut scene), &mut state, &mut backend);
+        assert_eq!(result, I3DERR_GENERIC);
+        assert_eq!(
+            backend.events,
+            vec!["fpu_status", "fpu_control", "apply_fpu", "clear_no_camera"]
+        );
+        assert_eq!(backend.clears, 1);
+        assert_eq!(backend.nows, 0);
+        assert_eq!(scene.render_number, 42);
+        assert!(!state.rendering);
+    }
+
+    #[test]
+    fn rect_miss_copies_then_sets_viewport() {
+        let mut scene = RenderSceneInput {
+            viewport: SceneViewport {
+                left: 10,
+                top: 20,
+                right: 110,
+                bottom: 70,
+            },
+            has_camera: true,
+            render_number: 7,
+        };
+        let mut state = ready_state();
+        let mut backend = log();
+        let result = render_scene(Some(&mut scene), &mut state, &mut backend);
+        assert_eq!(result, I3D_OK);
+        // right = 110 - 10 = 100, bottom = 70 - 20 = 50.
+        let desired = RenderRect {
+            left: 10,
+            top: 20,
+            right: 100,
+            bottom: 50,
+        };
+        assert_eq!(scene_desired_rect(&scene.viewport), desired);
+        assert_eq!(state.viewport, desired);
+        assert_eq!(backend.viewports, vec![desired]);
+        assert_eq!(
+            backend.events,
+            vec![
+                "fpu_status",
+                "fpu_control",
+                "apply_fpu",
+                "set_viewport",
+                "now",
+                "update_wmatrix_proc",
+                "update_wbound_proc",
+                "radix_sort",
+                "lensflare_now",
+                "visual_proc",
+                "next_fframe_proc",
+                "build_all_vbuffers",
+            ]
+        );
+    }
+
+    #[test]
+    fn rect_hit_skips_device_set() {
+        let mut scene = scene_hit();
+        let mut state = ready_state();
+        let mut backend = log();
+        let result = render_scene(Some(&mut scene), &mut state, &mut backend);
+        assert_eq!(result, I3D_OK);
+        assert!(!backend.events.contains(&"set_viewport"));
+        assert!(backend.viewports.is_empty());
+    }
+
+    #[test]
+    fn rect_miss_failure_returns_not_initialized_with_cache_copied() {
+        let mut scene = RenderSceneInput {
+            viewport: SceneViewport {
+                left: 10,
+                top: 20,
+                right: 110,
+                bottom: 70,
+            },
+            has_camera: true,
+            render_number: 7,
+        };
+        let mut state = ready_state();
+        let mut backend = log();
+        backend.viewport_result = false;
+        let result = render_scene(Some(&mut scene), &mut state, &mut backend);
+        assert_eq!(result, I3DERR_NOTINITIALIZED);
+        // CopyRect runs before the failing SetViewport.
+        assert_eq!(
+            state.viewport,
+            RenderRect {
+                left: 10,
+                top: 20,
+                right: 100,
+                bottom: 50,
+            }
+        );
+        assert_eq!(
+            backend.events,
+            vec!["fpu_status", "fpu_control", "apply_fpu", "set_viewport"]
+        );
+        assert_eq!(backend.nows, 0);
+        assert!(!state.rendering);
+    }
+
+    #[test]
+    fn fpu_exception_reported_and_control_masked() {
+        let mut scene = scene_hit();
+        let mut state = ready_state();
+        let mut backend = log();
+        backend.status = 0x81;
+        backend.control = 0x1234;
+        let result = render_scene(Some(&mut scene), &mut state, &mut backend);
+        assert_eq!(result, I3D_OK);
+        assert_eq!(backend.reported, vec![0x81]);
+        assert_eq!(backend.applied, vec![0x1034]);
+        assert_eq!(
+            backend.events[0..4].to_vec(),
+            vec!["fpu_status", "report_fpu", "fpu_control", "apply_fpu"]
+        );
+        assert!(fpu_has_exception(0x80));
+        assert!(!fpu_has_exception(0x7f));
+        assert_eq!(fpu_entry_control(0x1234), 0x1034);
+    }
+
+    #[test]
+    fn render_number_wraps() {
+        let mut scene = RenderSceneInput {
+            viewport: SceneViewport {
+                left: 0,
+                top: 0,
+                right: 0,
+                bottom: 0,
+            },
+            has_camera: true,
+            render_number: u32::MAX,
+        };
+        let mut state = ready_state();
+        let mut backend = log();
+        let result = render_scene(Some(&mut scene), &mut state, &mut backend);
+        assert_eq!(result, I3D_OK);
+        assert_eq!(scene.render_number, 0);
+        assert_eq!(state.render_number, 0);
+        assert_eq!(state.render_number_minus1, u32::MAX);
     }
 }

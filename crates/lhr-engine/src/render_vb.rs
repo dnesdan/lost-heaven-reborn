@@ -4,9 +4,10 @@
 //! LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6.
 //! RVAs 0x688b0 (`C_VBuffer::C_VBuffer`), 0x692b0 (`C_VBManager::C_VBManager`),
 //! 0x694e0 (`C_VBManager::~C_VBManager`), 0x69950
-//! (`C_VBManager::m_FreeAllVRAMVBuffers`). Pinned mafia-re ab67b13
+//! (`C_VBManager::m_FreeAllVRAMVBuffers`), 0xaf80 (`C_VBuffer::Lock`),
+//! 0xb060 (`C_VBuffer::Unlock`). Pinned mafia-re ab67b13
 //! `ls3df/I3D/render/VBManager.cpp:21-40,225-243,352-366` and
-//! `ls3df/I3D/render/VBManager.h:42-58`.
+//! `ls3df/I3D/render/VBManager.h:42-58,114-152`.
 //!
 //! Contract tier this wave: reviewed upstream source plus Rust tests, no
 //! Ghidra body claimed. This extends the ledger-ported block semantics in
@@ -136,6 +137,109 @@ pub fn free_all_vram_vbuffers(manager: &mut VbManager, backend: &mut impl VbMana
     }
 }
 
+/// `D3DLOCK_READONLY` bit tested by `C_VBuffer::Lock`.
+pub const D3DLOCK_READONLY: u32 = 0x10;
+
+/// Typed projection of the lock-relevant `C_VBuffer` words. `locked` holds
+/// buffer ids in `locked_buffers` order; each id indexes `states`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VbufferState {
+    /// `data != null`.
+    pub has_data: bool,
+    /// `flags` (the `D3DLOCK_*` flags it is locked with).
+    pub flags: u32,
+    /// `stride` (the size of a vertex).
+    pub stride: u32,
+    /// `lock_index` (its place in the locked list, -1 if unlocked).
+    pub lock_index: i32,
+}
+
+impl VbufferState {
+    /// Unlocked buffer with this stride.
+    pub fn unlocked(stride: u32) -> Self {
+        Self {
+            has_data: false,
+            flags: 0,
+            stride,
+            lock_index: -1,
+        }
+    }
+}
+
+/// Device lock/unlock behind a backend trait.
+pub trait VbufferLockBackend {
+    /// `vb->Lock(0, 0, &data, flags)`.
+    fn lock_vbuffer(&mut self, flags: u32);
+    /// `vb->Unlock()`.
+    fn unlock_vbuffer(&mut self);
+}
+
+/// LS3DF RVA 0xaf80 `C_VBuffer::Lock` (mafia-re
+/// `ls3df/I3D/render/VBManager.h:114`; `ENGINE_VERSION >= 395` branch —
+/// the shipped binary's version gate is unevidenced here, so the >=395
+/// shape is a disclosed assumption; method name is PS2-evidenced, the `Lock` working-name note in the
+/// header marks the guessed free-function spelling, NOT the method).
+/// Returns the byte offset `stride * vertex_index` for `data + stride *
+/// index`. A locked buffer whose stored flags are writable, or any locked
+/// buffer re-locked read-only, returns without a device call. A read-only
+/// buffer re-locked for writing device-unlocks then re-locks. Otherwise the
+/// flags store, the device locks, and an unlocked buffer appends to the
+/// locked list. Device lock failure is outside the admitted domain (the
+/// original ignores the `HRESULT`); the port assumes success and marks
+/// `has_data`. No floating-point work.
+pub fn vbuffer_lock(
+    states: &mut [VbufferState],
+    locked: &mut Vec<usize>,
+    buffer: usize,
+    vertex_index: u32,
+    lock_flags: u32,
+    backend: &mut impl VbufferLockBackend,
+) -> u32 {
+    if states[buffer].has_data {
+        if states[buffer].flags & D3DLOCK_READONLY == 0 || lock_flags & D3DLOCK_READONLY != 0 {
+            return states[buffer].stride.wrapping_mul(vertex_index);
+        }
+        backend.unlock_vbuffer();
+    }
+    states[buffer].flags = lock_flags;
+    backend.lock_vbuffer(lock_flags);
+    states[buffer].has_data = true;
+    if states[buffer].lock_index < 0 {
+        states[buffer].lock_index = locked.len() as i32;
+        locked.push(buffer);
+    }
+    states[buffer].stride.wrapping_mul(vertex_index)
+}
+
+/// LS3DF RVA 0xb060 `C_VBuffer::Unlock` (mafia-re
+/// `ls3df/I3D/render/VBManager.h:142`; method name is PS2-evidenced, the
+/// free-function spelling is a working name). No-op when unlocked.
+/// Otherwise the device unlocks, `has_data` clears, the locked list erases
+/// at `lock_index` with the last entry moved into its place (the native
+/// `C_list::erase` swap), the moved buffer inherits the erased index, and
+/// the erased `lock_index` resets to -1. No floating-point work.
+pub fn vbuffer_unlock(
+    states: &mut [VbufferState],
+    locked: &mut Vec<usize>,
+    buffer: usize,
+    backend: &mut impl VbufferLockBackend,
+) {
+    if !states[buffer].has_data {
+        return;
+    }
+    backend.unlock_vbuffer();
+    states[buffer].has_data = false;
+    // Native moves the last locked buffer into the erased slot. The host
+    // locates the slot by value, so a stale index still restores the list
+    // invariant instead of panicking (native UB) or stranding a duplicate.
+    if let Some(pos) = locked.iter().position(|&b| b == buffer) {
+        let last = locked[locked.len() - 1];
+        states[last].lock_index = pos as i32;
+        locked.swap_remove(pos);
+    }
+    states[buffer].lock_index = -1;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -220,5 +324,113 @@ mod tests {
         backend.destroyed.clear();
         free_all_vram_vbuffers(&mut manager, &mut backend);
         assert!(backend.destroyed.is_empty());
+    }
+
+    struct LockLog {
+        events: Vec<String>,
+    }
+    impl VbufferLockBackend for LockLog {
+        fn lock_vbuffer(&mut self, flags: u32) {
+            self.events.push(format!("lock:{flags}"));
+        }
+        fn unlock_vbuffer(&mut self) {
+            self.events.push("unlock".to_string());
+        }
+    }
+
+    #[test]
+    fn lock_caches_writable_and_readonly_paths() {
+        let mut states = vec![VbufferState::unlocked(12), VbufferState::unlocked(20)];
+        let mut locked = Vec::new();
+        let mut backend = LockLog { events: Vec::new() };
+        assert_eq!(
+            vbuffer_lock(&mut states, &mut locked, 0, 3, 0, &mut backend),
+            36
+        );
+        assert!(states[0].has_data);
+        assert_eq!(states[0].lock_index, 0);
+        assert_eq!(locked, vec![0]);
+        assert_eq!(backend.events, vec!["lock:0"]);
+        backend.events.clear();
+        assert_eq!(
+            vbuffer_lock(&mut states, &mut locked, 0, 4, 0, &mut backend),
+            48
+        );
+        assert!(backend.events.is_empty(), "writable relock is cached");
+        assert_eq!(locked, vec![0]);
+        backend.events.clear();
+        assert_eq!(
+            vbuffer_lock(
+                &mut states,
+                &mut locked,
+                0,
+                1,
+                D3DLOCK_READONLY,
+                &mut backend
+            ),
+            12
+        );
+        assert!(backend.events.is_empty(), "read-only relock is cached");
+        assert_eq!(
+            vbuffer_lock(
+                &mut states,
+                &mut locked,
+                1,
+                2,
+                D3DLOCK_READONLY,
+                &mut backend
+            ),
+            40
+        );
+        assert_eq!(locked, vec![0, 1]);
+        backend.events.clear();
+        assert_eq!(
+            vbuffer_lock(&mut states, &mut locked, 1, 0, 0, &mut backend),
+            0
+        );
+        assert_eq!(backend.events, vec!["unlock", "lock:0"]);
+        assert_eq!(locked, vec![0, 1], "re-lock keeps the list place");
+    }
+
+    #[test]
+    fn unlock_erases_with_last_moved_into_place() {
+        let mut states = vec![VbufferState::unlocked(8), VbufferState::unlocked(8)];
+        let mut locked = Vec::new();
+        let mut backend = LockLog { events: Vec::new() };
+        vbuffer_lock(&mut states, &mut locked, 0, 0, 0, &mut backend);
+        vbuffer_lock(&mut states, &mut locked, 1, 0, 0, &mut backend);
+        assert_eq!(locked, vec![0, 1]);
+        backend.events.clear();
+        vbuffer_unlock(&mut states, &mut locked, 0, &mut backend);
+        assert_eq!(backend.events, vec!["unlock"]);
+        assert!(!states[0].has_data);
+        assert_eq!(states[0].lock_index, -1);
+        assert_eq!(locked, vec![1]);
+        assert_eq!(states[1].lock_index, 0, "moved last inherits the index");
+        backend.events.clear();
+        vbuffer_unlock(&mut states, &mut locked, 0, &mut backend);
+        assert!(backend.events.is_empty(), "unlocked unlock is quiet");
+        vbuffer_unlock(&mut states, &mut locked, 1, &mut backend);
+        assert!(locked.is_empty());
+        assert_eq!(states[1].lock_index, -1);
+    }
+
+    #[test]
+    fn unlock_with_stale_index_repairs_list_by_value() {
+        // Hardened vs native UB: a corrupt lock word still restores the
+        // list invariant (entry removed, survivor indexes fixed).
+        let mut states = vec![VbufferState::unlocked(8)];
+        let mut locked = Vec::new();
+        let mut backend = LockLog { events: Vec::new() };
+        vbuffer_lock(&mut states, &mut locked, 0, 0, 0, &mut backend);
+        states[0].lock_index = 7;
+        backend.events.clear();
+        vbuffer_unlock(&mut states, &mut locked, 0, &mut backend);
+        assert_eq!(backend.events, vec!["unlock"]);
+        assert_eq!(states[0].lock_index, -1);
+        assert!(locked.is_empty());
+        // Relock after repair pushes exactly once (no stranded duplicate).
+        vbuffer_lock(&mut states, &mut locked, 0, 0, 0, &mut backend);
+        assert_eq!(locked, vec![0]);
     }
 }

@@ -4,12 +4,21 @@
 //! These PC method names follow the pinned mafia-re reconstruction, corroborated
 //! by actual PS2 linker names. New PC debug symbols, complete PC/PS2 body
 //! correspondence, layouts and full-function parity are not claimed.
-use crate::script_scheduler::FrameReferenceId;
+use crate::{
+    frame_transform::{FrameKey, FrameKind},
+    model_loading::ModelArena,
+    script_scheduler::FrameReferenceId,
+};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 pub const SCRIPT_FIND_FLAGS: u32 = 0x4ffff;
 pub const MAX_LOOKUP_VISITS: usize = 65_536;
+/// I3D_frame::EnumSubtree result words (OK and CANCELED).
+pub const ENUM_OK: u32 = 0;
+pub const ENUM_SKIPCHILDREN: u32 = 1;
+pub const ENUM_CANCEL: u32 = 2;
+pub const ENUM_CANCELED: u32 = 0x8000_000d;
 /// 0x1c310 projection (LS3DF.dll e211c850…). Upstream working name
 /// FindChildCallBack (mafia-re I3d_frame.cpp:717-721), not an evidenced
 /// original symbol. No Ghidra body in session -> tier contract per the
@@ -331,6 +340,230 @@ pub fn find_frame<B: FrameLookupBackend + ?Sized>(
     Ok(None)
 }
 
+fn subtree_c_str(bytes: &[u8]) -> &[u8] {
+    // Native strlen truncation; the mask pattern is truncated silently while
+    // a stored name with an embedded NUL is an explicit host error (see the
+    // call site): asymmetric by design, both disclosed.
+    &bytes[..bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len())]
+}
+
+fn subtree_kind_mask(kind: FrameKind) -> u32 {
+    match kind {
+        FrameKind::Mesh | FrameKind::Singlemesh | FrameKind::Projector | FrameKind::Lensflare => {
+            0x1
+        }
+        FrameKind::Light => 0x2,
+        FrameKind::Camera => 0x4,
+        FrameKind::Sound => 0x8,
+        FrameKind::Sector => 0x10,
+        FrameKind::Dummy => 0x20,
+        FrameKind::Target => 0x40,
+        FrameKind::Model => 0x80,
+        FrameKind::Joint => 0x400,
+        FrameKind::Area => 0x1000,
+        FrameKind::Occluder | FrameKind::Scene => 0,
+    }
+}
+
+fn subtree_mask_matches(pattern: &[u8], stored: &[u8], flags: u32) -> bool {
+    let pat = subtree_c_str(pattern);
+    let name = subtree_c_str(stored);
+    if flags & 0x10000 == 0 {
+        if flags & 0x20000 != 0 {
+            pat == name
+        } else {
+            pat.eq_ignore_ascii_case(name)
+        }
+    } else {
+        let len = pat.len().min(name.len()) + 1;
+        for i in 0..len {
+            let a = pat.get(i).copied().unwrap_or(0);
+            let b = name.get(i).copied().unwrap_or(0);
+            if a == b'*' {
+                break;
+            }
+            if a != b'?' {
+                let same = if flags & 0x20000 != 0 {
+                    a == b
+                } else {
+                    a.to_ascii_uppercase() == b.to_ascii_uppercase()
+                };
+                if !same {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+}
+
+/// Original I3D_frame::EnumSubtree, PC RVA 0x1c020 (already ledger-credited,
+/// frozen port `LS3DF bounded actor frame effects over owned ModelArena`: NO overlay
+/// entry here; probe-verified formed Ghidra body, confirm-only; mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:629-697). Self-inclusive preorder over
+/// hierarchy links with saved-next discipline and the shared
+/// lastDestroyedFrame child guard. Type filter uses the low word with an
+/// all-types bypass; Occluder/Scene never match partial masks. Unrepresented
+/// native kinds (User 0x100, Volume 0x200, Shadow 0x2000 have no FrameKind
+/// variant yet) need mask bits when those frame types are introduced.
+/// Mask compares
+/// original names with exact or wild/card case arms. Callback words are
+/// OK(0), SKIPCHILDREN(1) and CANCEL(2); CANCEL maps to CANCELED
+/// (0x8000000d). Deleted-mid-enumeration keys are skipped defensively;
+/// ancestor cycles, visit exhaustion and non-ASCII eligible names are
+/// explicit errors. No separate credit for the 0x1a050 fast-tree helper.
+pub fn enum_subtree(
+    arena: &ModelArena,
+    root: FrameKey,
+    proc: &mut impl FnMut(FrameKey) -> u32,
+    flags: u32,
+    mask: Option<&[u8]>,
+    visits: usize,
+) -> Result<u32, FrameLookupError> {
+    if visits == 0 || visits > MAX_LOOKUP_VISITS {
+        return Err(FrameLookupError::InvalidBudget);
+    }
+    if let Some(pattern) = mask {
+        if !subtree_c_str(pattern).is_ascii() {
+            return Err(FrameLookupError::UnsupportedName);
+        }
+    }
+    arena
+        .frame(root)
+        .map_err(|_| FrameLookupError::StaleFrame(FrameReferenceId::from_existing(root.0)))?;
+    let mut active = Vec::new();
+    active
+        .try_reserve(visits)
+        .map_err(|_| FrameLookupError::Allocation)?;
+    let mut remaining = visits;
+    enum_recurse(arena, root, proc, flags, mask, &mut active, &mut remaining)
+}
+
+fn subtree_stale(key: FrameKey) -> FrameLookupError {
+    FrameLookupError::StaleFrame(FrameReferenceId::from_existing(key.0))
+}
+
+fn enum_recurse(
+    arena: &ModelArena,
+    key: FrameKey,
+    proc: &mut impl FnMut(FrameKey) -> u32,
+    flags: u32,
+    mask: Option<&[u8]>,
+    active: &mut Vec<FrameKey>,
+    remaining: &mut usize,
+) -> Result<u32, FrameLookupError> {
+    if *remaining == 0 {
+        return Err(FrameLookupError::VisitLimit);
+    }
+    *remaining -= 1;
+    if active.contains(&key) {
+        return Err(FrameLookupError::Cycle(FrameReferenceId::from_existing(
+            key.0,
+        )));
+    }
+    active.push(key);
+    let outcome = enum_visit(arena, key, proc, flags, mask, active, remaining);
+    active.pop();
+    outcome
+}
+
+fn enum_visit(
+    arena: &ModelArena,
+    key: FrameKey,
+    proc: &mut impl FnMut(FrameKey) -> u32,
+    flags: u32,
+    mask: Option<&[u8]>,
+    active: &mut Vec<FrameKey>,
+    remaining: &mut usize,
+) -> Result<u32, FrameLookupError> {
+    let type_pass = if flags & 0xffff == 0xffff {
+        true
+    } else {
+        let kind = arena.state(key).map_err(|_| subtree_stale(key))?.kind;
+        let bit = subtree_kind_mask(kind);
+        bit != 0 && (flags & bit) != 0
+    };
+    let call_proc = type_pass;
+    if call_proc {
+        if let Some(pattern) = mask {
+            let stored = arena.frame(key).map_err(|_| subtree_stale(key))?;
+            match stored.original_name_bytes.as_deref() {
+                None => {
+                    return enum_children(arena, key, proc, flags, mask, active, remaining);
+                }
+                Some(orig) => {
+                    // Native compares truncated C strings (strlen semantics);
+                    // embedded NUL is an explicit host error, non-ASCII likewise.
+                    if !orig.is_ascii() || orig.contains(&0) {
+                        return Err(FrameLookupError::UnsupportedName);
+                    }
+                    if !subtree_mask_matches(pattern, orig, flags) {
+                        return enum_children(arena, key, proc, flags, mask, active, remaining);
+                    }
+                }
+            }
+        }
+    } else if mask.is_some() {
+        return enum_children(arena, key, proc, flags, mask, active, remaining);
+    }
+    if call_proc {
+        let ret = proc(key);
+        if ret == ENUM_CANCEL {
+            return Ok(ENUM_CANCELED);
+        }
+        if ret == ENUM_SKIPCHILDREN {
+            return Ok(ENUM_OK);
+        }
+    }
+    enum_children(arena, key, proc, flags, mask, active, remaining)
+}
+
+fn enum_children(
+    arena: &ModelArena,
+    key: FrameKey,
+    proc: &mut impl FnMut(FrameKey) -> u32,
+    flags: u32,
+    mask: Option<&[u8]>,
+    active: &mut Vec<FrameKey>,
+    remaining: &mut usize,
+) -> Result<u32, FrameLookupError> {
+    if arena.last_destroyed_frame == Some(key) {
+        return Ok(ENUM_OK);
+    }
+    let links = arena.links(key).map_err(|_| subtree_stale(key))?;
+    let count = links.child_count as usize;
+    let mut snapshot = Vec::new();
+    snapshot
+        .try_reserve(count)
+        .map_err(|_| FrameLookupError::Allocation)?;
+    let mut seen = HashSet::new();
+    seen.try_reserve(count)
+        .map_err(|_| FrameLookupError::Allocation)?;
+    let mut at = links.child;
+    while let Some(cur) = at {
+        if !seen.insert(cur.0) {
+            return Err(FrameLookupError::Cycle(FrameReferenceId::from_existing(
+                cur.0,
+            )));
+        }
+        if snapshot.len() >= MAX_LOOKUP_VISITS {
+            return Err(FrameLookupError::VisitLimit);
+        }
+        arena.frame(cur).map_err(|_| subtree_stale(cur))?;
+        snapshot.push(cur);
+        at = arena.links(cur).map_err(|_| subtree_stale(cur))?.next;
+    }
+    for child in snapshot {
+        if arena.frame(child).is_err() {
+            continue;
+        }
+        if enum_recurse(arena, child, proc, flags, mask, active, remaining)? == ENUM_CANCELED {
+            return Ok(ENUM_CANCELED);
+        }
+    }
+    Ok(ENUM_OK)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -576,5 +809,106 @@ mod tests {
         // Overwrites unconditionally (native stores before returning).
         assert_eq!(find_child_callback_slot(&mut slot, FrameKey(3)), 2);
         assert_eq!(slot, Some(FrameKey(3)));
+    }
+    #[test]
+    fn enum_subtree_self_first_type_mask_and_cancel() {
+        // RVA 0x1c020 (mafia-re I3d_frame.cpp:629): self-first preorder.
+        use crate::frame_transform::{FrameKey, I3dFrameState};
+        use crate::model_loading::ModelArena;
+        let mut arena = ModelArena::default();
+        let root = arena.create_model().unwrap().root();
+        arena.set_frame_name(root, Some(b"root")).unwrap();
+        let dummy = arena.create_dummy_frame().unwrap();
+        arena.set_frame_name(dummy, Some(b"HIT")).unwrap();
+        let target = arena
+            .insert(I3dFrameState::target(), None, Vec::new(), Vec::new(), None)
+            .unwrap();
+        arena.set_frame_name(target, Some(b"hit")).unwrap();
+        arena.link_frame(dummy, Some(root), 0).unwrap();
+        arena.link_frame(target, Some(root), 0).unwrap();
+        let mut seen = Vec::new();
+        let mut collect = |key: FrameKey| {
+            seen.push(key);
+            ENUM_OK
+        };
+        assert_eq!(
+            enum_subtree(&arena, root, &mut collect, 0x40, Some(b"hit"), 16),
+            Ok(ENUM_OK)
+        );
+        assert_eq!(seen, vec![target]);
+        let mut calls = 0;
+        let mut cancel = |_: FrameKey| {
+            calls += 1;
+            ENUM_CANCEL
+        };
+        assert_eq!(
+            enum_subtree(&arena, root, &mut cancel, 0xffff, None, 16),
+            Ok(ENUM_CANCELED)
+        );
+        assert_eq!(calls, 1);
+    }
+    #[test]
+    fn enum_subtree_wild_skip_null_and_budget() {
+        use crate::frame_transform::I3dFrameState;
+        use crate::model_loading::ModelArena;
+        let mut arena = ModelArena::default();
+        let root = arena.create_model().unwrap().root();
+        arena.set_frame_name(root, Some(b"root")).unwrap();
+        let child = arena.create_dummy_frame().unwrap();
+        arena.set_frame_name(child, Some(b"abc")).unwrap();
+        let grand = arena
+            .insert(I3dFrameState::target(), None, Vec::new(), Vec::new(), None)
+            .unwrap();
+        arena.set_frame_name(grand, Some(b"abd")).unwrap();
+        arena.link_frame(child, Some(root), 0).unwrap();
+        arena.link_frame(grand, Some(child), 0).unwrap();
+        // Wildcard prefix with SKIPCHILDREN skips the grandchild.
+        let mut seen = Vec::new();
+        let mut skip = |key: crate::frame_transform::FrameKey| {
+            seen.push(key);
+            if key == child {
+                ENUM_SKIPCHILDREN
+            } else {
+                ENUM_OK
+            }
+        };
+        assert_eq!(
+            enum_subtree(&arena, root, &mut skip, 0x1ffff, Some(b"ab*"), 16),
+            Ok(ENUM_OK)
+        );
+        assert_eq!(seen, vec![child]);
+        // Null original names never match a present mask but still descend.
+        let bare = arena.create_dummy_frame().unwrap();
+        arena.link_frame(bare, Some(root), 0).unwrap();
+        let count = std::cell::Cell::new(0u32);
+        let mut all = |_: crate::frame_transform::FrameKey| {
+            count.set(count.get() + 1);
+            ENUM_OK
+        };
+        assert_eq!(
+            enum_subtree(&arena, root, &mut all, 0x1ffff, Some(b"ab*"), 16),
+            Ok(ENUM_OK)
+        );
+        // Child and (unskipped) grandchild fire; root mismatches, the
+        // null-named bare frame never matches though it still descends.
+        assert_eq!(count.get(), 2);
+        // Exhausted budget and stale roots are explicit.
+        assert_eq!(
+            enum_subtree(&arena, root, &mut all, 0xffff, None, 0),
+            Err(FrameLookupError::InvalidBudget)
+        );
+        assert_eq!(
+            enum_subtree(
+                &arena,
+                crate::frame_transform::FrameKey(u32::MAX),
+                &mut all,
+                0xffff,
+                None,
+                16
+            ),
+            Err(FrameLookupError::StaleFrame(
+                FrameReferenceId::from_existing(u32::MAX)
+            ))
+        );
     }
 }

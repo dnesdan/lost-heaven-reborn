@@ -1,10 +1,14 @@
-//! Owned projection of PC I3D_joint fields used by constructor, LoadImage and
-//! UpdateV and GetJointMatrix (LS3DF RVAs 0x1ed30, 0x1ef10, 0x1ee30 and
-//! 0x56ba0). The class/method names
+//! Owned projection of PC I3D_joint fields used by constructor, destructor,
+//! LoadImage and UpdateV and GetJointMatrix (LS3DF RVAs 0x1ed30, 0x1ede0,
+//! 0x1ef10, 0x1ee30 and 0x56ba0). The class/method names
 //! have PS2 symbol provenance; the PC member labels are descriptive. This is
 //! neither the PS2 layout nor a deformation backend. The owned frame graph
 //! provides the matrix cache and singlemesh binding operations.
-use crate::{frame_transform::FrameKey, native_transform::SMatrix};
+use crate::{
+    frame_transform::{FrameError, FrameKey, FrameKind},
+    model_loading::{ModelArena, ModelError},
+    native_transform::SMatrix,
+};
 
 /// JOINTF_LOADED 0x1 (I3D.h:2033): bone_matrix and index came from the file.
 pub const JOINTF_LOADED: u32 = 0x1;
@@ -65,6 +69,41 @@ impl I3dJointState {
     }
 }
 
+impl ModelArena {
+    /// Original I3D_joint::~I3D_joint, PC RVA 0x1ede0 (already ledger-credited,
+    /// frozen port `LS3DF bounded base, dummy and unbound Joint destruction`:
+    /// NO overlay entry here; probe-verified formed Ghidra body, confirm-only;
+    /// mafia-re ls3df/I3D/frames/I3d_joint.cpp:24). Derived-only unlink: the index is
+    /// read once before the stores; when a singlemesh is linked, the indexed
+    /// slot is cleared and a live occupant's backlink is cleared with it. A
+    /// vacant slot clears idempotently; an unlinked joint is a no-op. Missing
+    /// bindings and out-of-range indices are explicit unavailability (native
+    /// dereferences); hierarchy and base retirement remain caller-owned.
+    pub fn destroy_joint(&mut self, key: FrameKey) -> Result<(), ModelError> {
+        if self.state(key)?.kind != FrameKind::Joint {
+            return Err(ModelError::Frame(FrameError::NotJoint(key)));
+        }
+        let (singlemesh, index) = {
+            let joint = self.graph.joint_state(key)?;
+            (joint.singlemesh, joint.index)
+        };
+        let Some(target) = singlemesh else {
+            return Ok(());
+        };
+        let previous = self.graph.clear_singlemesh_joint_slot(target, index)?;
+        if let Some(occupant) = previous {
+            if occupant != key {
+                self.graph.assign_joint_singlemesh_target(occupant, None)?;
+            }
+        }
+        // Host idempotency: the retiring storage is discarded by the base
+        // tail, but a later derived re-entry (release_inner) must observe an
+        // unlinked joint rather than a dangling slot. Native needs no store.
+        self.graph.assign_joint_singlemesh_target(key, None)?;
+        Ok(())
+    }
+}
+
 /// Only the counter consumed by Joint::UpdateV; common frame and visual flags
 /// live in the frame graph. This projection supplies no singlemesh callbacks.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -75,6 +114,7 @@ pub struct SinglemeshInvalidationState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::frame_transform::I3dFrameState;
 
     #[test]
     fn constructor_leaves_joint_cache_unavailable_and_load_preserves_other_fields() {
@@ -116,5 +156,88 @@ mod tests {
             assert_eq!(state.invalidate_for_update(frame_flags), target);
             assert_eq!(state.flags, flags);
         }
+    }
+
+    #[test]
+    fn destructor_clears_indexed_slot_and_evicts_occupant_backlink() {
+        // PC RVA 0x1ede0 (mafia-re I3d_joint.cpp:24): index read once.
+        let mut arena = ModelArena::default();
+        let mesh = arena
+            .insert(I3dFrameState::mesh(), None, Vec::new(), Vec::new(), None)
+            .unwrap();
+        let joint = arena
+            .insert(I3dFrameState::joint(), None, Vec::new(), Vec::new(), None)
+            .unwrap();
+        let other = arena
+            .insert(I3dFrameState::joint(), None, Vec::new(), Vec::new(), None)
+            .unwrap();
+        // Unlinked joint is a no-op that preserves liveness.
+        arena.destroy_joint(joint).unwrap();
+        assert!(arena.frame(joint).is_ok());
+        // Non-joint frames are rejected before any store.
+        assert!(matches!(
+            arena.destroy_joint(mesh),
+            Err(ModelError::Frame(FrameError::NotJoint(_)))
+        ));
+        // Linked pair via DBuild: each slot holds its own joint.
+        let mut single_state = I3dFrameState::mesh();
+        single_state.kind = FrameKind::Singlemesh;
+        let single = arena
+            .insert(single_state, None, Vec::new(), Vec::new(), None)
+            .unwrap();
+        arena
+            .graph
+            .apply_joint_load_image_fields(joint, SMatrix::identity(), 0)
+            .unwrap();
+        arena
+            .graph
+            .apply_joint_load_image_fields(other, SMatrix::identity(), 1)
+            .unwrap();
+        arena.link_frame(joint, Some(single), 0).unwrap();
+        arena.link_frame(other, Some(single), 0).unwrap();
+        arena.graph.d_build_binding(single).unwrap();
+        assert_eq!(
+            arena.graph.singlemesh_binding(single).unwrap().joints(),
+            &[Some(joint), Some(other)]
+        );
+        // Retiring the first joint clears its own slot only.
+        arena.destroy_joint(joint).unwrap();
+        assert_eq!(
+            arena.graph.singlemesh_binding(single).unwrap().joints(),
+            &[None, Some(other)]
+        );
+        assert_eq!(
+            arena.graph.joint_state(other).unwrap().singlemesh,
+            Some(single)
+        );
+        // Mismatched index evicts the occupant: point joint at slot 1.
+        arena
+            .graph
+            .apply_joint_load_image_fields(joint, SMatrix::identity(), 1)
+            .unwrap();
+        arena
+            .graph
+            .assign_joint_singlemesh_target(joint, Some(single))
+            .unwrap();
+        arena.destroy_joint(joint).unwrap();
+        assert_eq!(
+            arena.graph.singlemesh_binding(single).unwrap().joints(),
+            &[None, None]
+        );
+        assert_eq!(arena.graph.joint_state(other).unwrap().singlemesh, None);
+        // Vacant slot clears idempotently.
+        arena.destroy_joint(joint).unwrap();
+        assert_eq!(
+            arena.graph.singlemesh_binding(single).unwrap().joints(),
+            &[None, None]
+        );
+        // Bare visual frames have no visual-teardown path in this projection:
+        // plain release rejects their last reference (UnsupportedDestruction,
+        // same guard as model_loading.rs:5375), so only the joints retire and
+        // the visuals keep their creator holds.
+        arena.release(joint).unwrap();
+        arena.release(other).unwrap();
+        assert_eq!(arena.frame(mesh).unwrap().references, 1);
+        assert_eq!(arena.frame(single).unwrap().references, 1);
     }
 }

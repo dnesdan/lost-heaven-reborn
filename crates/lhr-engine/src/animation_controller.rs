@@ -8,8 +8,12 @@
 //! live allocations; `close` additionally reclaims those through host ownership.
 
 use crate::{
+    animation_pose::{POSEF_POS, POSEF_ROT, POSEF_ROT_ADD, POSEF_SCALE},
+    animation_set_keys::{ANIMF_POS, ANIMF_ROT, ANIMF_SCALE},
     frame_transform::FrameKey,
     interpolator::{AllocationId, AnimSetId, EvaluatorId, InterpolatorSet, Slot},
+    native_precision::{add as fadd, mul as fmul, sub as fsub},
+    native_transform::SQuat,
 };
 use lhr_assets::{animation::AnimationSet, Model};
 use std::sync::{
@@ -362,6 +366,263 @@ impl ControllerEvaluator {
             backend.retain_pose(new);
         }
         true
+    }
+
+    /// LS3DF RVA 0x1d320 `I3D_interpolator::Update`
+    /// (mafia-re ls3df/I3D/anim/I3d_interpolator.cpp:79-228).
+    /// Evidenced original name (PS2 build; header notes names are the PS2
+    /// build unless noted). Probe verified a formed Ghidra body
+    /// (FUN_1001d320); already ledger-credited (frozen port `5DS isolated
+    /// position-channel intake and sampling`): NO overlay entry here.
+    /// Confirm-only full evaluator.
+    /// Channel sampling itself reuses the existing rot/pos/scale branch
+    /// samplers (`rotation_animation::sample_rotation_channel`,
+    /// `lhr_assets` position/scale channels); this method is the missing
+    /// channel-major blending plus pose plus outcome ordering. Per-slot
+    /// `samples` are the already-interpolated values for this evaluator at
+    /// the slots current times (None = no sampled value on the admitted
+    /// domain, skipped without effect). Frame stores (`SetPos`, `m_Rot`
+    /// plus flag word, `SetScale`), the null-frame early-out and note
+    /// dispatch stay caller backend work (disclosed): `destination` is
+    /// always a live owner here, detached views are skipped by the caller,
+    /// and notes keep the existing unsupported contract in
+    /// `model_animation_runtime`. Ordered weight comparisons preserve NaN
+    /// (`!(w <= 0)` admits NaN to sampling, `!(w >= 1)` blends NaN);
+    /// `pose_blend` uses the native ordered `> 0` / `>= 1` (NaN skips).
+    /// Position/scale blends use the native `*v * b + acc * (1 - b)` order
+    /// under the crate PC24 pipeline; rotation blends use the native
+    /// spherical `Slerp(_, _, blend, false)` (spherical arm via
+    /// `rotation_animation::try_slerp`, availability-bound).
+    pub fn update_interpolator(
+        &self,
+        slots: &[Slot; 8],
+        samples: &[UpdateChannelSample; 8],
+        pose: Option<UpdatePoseSample>,
+    ) -> Result<UpdateOutcome, UpdateInterpolatorError> {
+        let mut pos = [0.0f32; 3];
+        let mut num_pos: usize = 0;
+        for i in 0..8 {
+            if u32::from(self.bindings[i].flags) & ANIMF_POS == 0 {
+                continue;
+            }
+            let slot = &slots[i];
+            if !slot.enabled {
+                continue;
+            }
+            let weight = slot.weight;
+            if !(weight <= 0.0) {
+            } else {
+                continue;
+            }
+            let Some(value) = samples[i].position else {
+                continue;
+            };
+            if num_pos != 0 && !(weight >= 1.0) {
+                let complement = fsub(1.0, weight);
+                pos = [
+                    fadd(fmul(value[0], weight), fmul(pos[0], complement)),
+                    fadd(fmul(value[1], weight), fmul(pos[1], complement)),
+                    fadd(fmul(value[2], weight), fmul(pos[2], complement)),
+                ];
+            } else {
+                pos = value;
+            }
+            num_pos += 1;
+        }
+        let mut rot = [1.0f32, 0.0, 0.0, 0.0];
+        let mut num_rot: usize = 0;
+        for i in 0..8 {
+            if u32::from(self.bindings[i].flags) & ANIMF_ROT == 0 {
+                continue;
+            }
+            let slot = &slots[i];
+            if !slot.enabled {
+                continue;
+            }
+            let weight = slot.weight;
+            if !(weight <= 0.0) {
+            } else {
+                continue;
+            }
+            let Some(value) = samples[i].rotation else {
+                continue;
+            };
+            if num_rot != 0 && !(weight >= 1.0) {
+                let blended = crate::rotation_animation::try_slerp(
+                    SQuat { wxyz: rot },
+                    SQuat { wxyz: value },
+                    weight,
+                )?;
+                rot = blended.wxyz;
+                num_rot += 1;
+            } else {
+                rot = value;
+                num_rot = 1;
+            }
+        }
+        let mut scale = [0.0f32; 3];
+        let mut num_scale: usize = 0;
+        for i in 0..8 {
+            if u32::from(self.bindings[i].flags) & ANIMF_SCALE == 0 {
+                continue;
+            }
+            let slot = &slots[i];
+            if !slot.enabled {
+                continue;
+            }
+            let weight = slot.weight;
+            if !(weight <= 0.0) {
+            } else {
+                continue;
+            }
+            let Some(value) = samples[i].scale else {
+                continue;
+            };
+            if num_scale != 0 && !(weight >= 1.0) {
+                let complement = fsub(1.0, weight);
+                scale = [
+                    fadd(fmul(value[0], weight), fmul(scale[0], complement)),
+                    fadd(fmul(value[1], weight), fmul(scale[1], complement)),
+                    fadd(fmul(value[2], weight), fmul(scale[2], complement)),
+                ];
+            } else {
+                scale = value;
+            }
+            num_scale += 1;
+        }
+        if let Some(pose) = pose {
+            let blend = self.pose_blend;
+            if blend > 0.0 {
+                if blend >= 1.0 {
+                    if pose.flags & POSEF_POS != 0 {
+                        pos = pose.pos;
+                    }
+                    if pose.flags & POSEF_SCALE != 0 {
+                        scale = pose.scale;
+                    }
+                    if pose.flags & POSEF_ROT_ADD != 0 {
+                        if num_rot != 0 {
+                            num_rot += 1;
+                            rot = SQuat { wxyz: pose.rot }.compose(SQuat { wxyz: rot }).wxyz;
+                        } else {
+                            rot = pose.rot;
+                            num_rot = 1;
+                        }
+                    } else if pose.flags & POSEF_ROT != 0 {
+                        rot = pose.rot;
+                        num_rot = 1;
+                    }
+                } else {
+                    if pose.flags & POSEF_POS != 0 {
+                        if num_pos == 0 {
+                            pos = pose.pos;
+                        } else {
+                            let complement = fsub(1.0, blend);
+                            pos = [
+                                fadd(fmul(pose.pos[0], blend), fmul(pos[0], complement)),
+                                fadd(fmul(pose.pos[1], blend), fmul(pos[1], complement)),
+                                fadd(fmul(pose.pos[2], blend), fmul(pos[2], complement)),
+                            ];
+                        }
+                        num_pos += 1;
+                    }
+                    if pose.flags & POSEF_SCALE != 0 {
+                        if num_scale == 0 {
+                            scale = pose.scale;
+                        } else {
+                            let complement = fsub(1.0, blend);
+                            scale = [
+                                fadd(fmul(pose.scale[0], blend), fmul(scale[0], complement)),
+                                fadd(fmul(pose.scale[1], blend), fmul(scale[1], complement)),
+                                fadd(fmul(pose.scale[2], blend), fmul(scale[2], complement)),
+                            ];
+                        }
+                        num_scale += 1;
+                    }
+                    if pose.flags & POSEF_ROT_ADD != 0 {
+                        if num_rot == 0 {
+                            rot = pose.rot;
+                            num_rot = 1;
+                        } else {
+                            num_rot += 1;
+                            let mut scaled = SQuat { wxyz: pose.rot };
+                            scaled.wxyz[0] = fmul(scaled.wxyz[0], blend);
+                            rot = scaled.compose(SQuat { wxyz: rot }).wxyz;
+                        }
+                    } else if pose.flags & POSEF_ROT != 0 {
+                        if num_rot == 0 {
+                            rot = pose.rot;
+                        } else {
+                            rot = crate::rotation_animation::try_slerp(
+                                SQuat { wxyz: rot },
+                                SQuat { wxyz: pose.rot },
+                                blend,
+                            )?
+                            .wxyz;
+                        }
+                        num_rot += 1;
+                    }
+                }
+            }
+        }
+        Ok(UpdateOutcome {
+            position: (num_pos != 0).then_some(pos),
+            rotation: (num_rot != 0).then_some(rot),
+            scale: (num_scale != 0).then_some(scale),
+            num_pos,
+            num_rot,
+            num_scale,
+        })
+    }
+}
+
+/// Per-slot already-sampled channel values for
+/// `ControllerEvaluator::update_interpolator` (RVA 0x1d320). Sampling reuses
+/// the existing rot/pos/scale branch samplers; None means the admitted
+/// domain had no value (skipped, never a zero substitute).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct UpdateChannelSample {
+    pub position: Option<[f32; 3]>,
+    pub rotation: Option<[f32; 4]>,
+    pub scale: Option<[f32; 3]>,
+}
+
+/// Pose fields for `update_interpolator`. Flags are `POSEF_*`
+/// (`animation_pose`); `pos`/`scale`/`rot` are the `GetPos1`/`GetScale1`/
+/// `GetRot1` words. Presence is the `pose` word (`Some` = nonnull).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct UpdatePoseSample {
+    pub flags: u32,
+    pub pos: [f32; 3],
+    pub scale: [f32; 3],
+    pub rot: [f32; 4],
+}
+
+/// Stored outcome of `update_interpolator`: values are `Some` exactly when
+/// the corresponding native `num_*` counter admits the frame store
+/// (`num_pos`/`num_rot`/`num_scale` nonzero, including pose-driven counts).
+/// Normalization and flag words stay caller work.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct UpdateOutcome {
+    pub position: Option<[f32; 3]>,
+    pub rotation: Option<[f32; 4]>,
+    pub scale: Option<[f32; 3]>,
+    pub num_pos: usize,
+    pub num_rot: usize,
+    pub num_scale: usize,
+}
+
+/// Availability boundary of `update_interpolator`: rotation blending goes
+/// through the bounded spherical `Slerp` (angles past 1.5 rad and
+/// non-ordinary intermediates are unavailable, never substituted).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UpdateInterpolatorError {
+    Rotation(crate::rotation_animation::RotationUnavailable),
+}
+
+impl From<crate::rotation_animation::RotationUnavailable> for UpdateInterpolatorError {
+    fn from(source: crate::rotation_animation::RotationUnavailable) -> Self {
+        Self::Rotation(source)
     }
 }
 
@@ -2018,5 +2279,138 @@ mod tests {
         assert!(pb.ops.is_empty());
         assert_eq!(controller.num_interpolators(), 1);
         controller.close(&mut backend);
+    }
+}
+
+#[cfg(test)]
+mod update_interpolator_tests {
+    use super::*;
+    use crate::interpolator::Slot;
+
+    fn evaluator_with(flags: [u16; 8], pose_blend: f32) -> ControllerEvaluator {
+        let mut bindings = [ControllerBinding::default(); 8];
+        for (binding, flag) in bindings.iter_mut().zip(flags) {
+            binding.flags = flag;
+        }
+        ControllerEvaluator {
+            id: EvaluatorId(1),
+            destination: FrameKey(11),
+            bindings,
+            pose_blend,
+            pose: None,
+        }
+    }
+
+    fn slots_with(weights: [f32; 8], enabled: [bool; 8]) -> [Slot; 8] {
+        let mut slots = [Slot::default(); 8];
+        for (index, slot) in slots.iter_mut().enumerate() {
+            slot.weight = weights[index];
+            slot.enabled = enabled[index];
+        }
+        slots
+    }
+
+    fn empty_samples() -> [UpdateChannelSample; 8] {
+        [UpdateChannelSample {
+            position: None,
+            rotation: None,
+            scale: None,
+        }; 8]
+    }
+
+    #[test]
+    fn update_blends_positions_in_native_order_and_skips_guards() {
+        // LS3DF RVA 0x1d320 pos loop (mafia-re I3d_interpolator.cpp:79):
+        // flags first, then ordered blend/on, then `*v * b + acc * (1 - b)`.
+        let evaluator = evaluator_with([2, 2, 2, 0, 0, 0, 0, 0], 1.0);
+        let slots = slots_with(
+            [1.0, 0.25, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+            [true, true, true, true, true, true, true, true],
+        );
+        let mut samples = empty_samples();
+        samples[0].position = Some([8.0, 0.0, 0.0]);
+        samples[1].position = Some([0.0, 4.0, 0.0]);
+        samples[2].position = Some([99.0, 99.0, 99.0]);
+        let outcome = evaluator
+            .update_interpolator(&slots, &samples, None)
+            .unwrap();
+        assert_eq!(outcome.num_pos, 2);
+        assert_eq!(outcome.position, Some([6.0, 1.0, 0.0]));
+        assert_eq!(outcome.rotation, None);
+        assert_eq!(outcome.scale, None);
+    }
+
+    #[test]
+    fn update_replaces_rotation_on_unit_blend_and_slerps_otherwise() {
+        // Rot loop (I3d_interpolator.cpp:122): first sets, second Slerps.
+        // Identical inputs stay bit-exact through the linear Slerp arm.
+        let evaluator = evaluator_with([4, 4, 0, 0, 0, 0, 0, 0], 1.0);
+        let slots = slots_with(
+            [1.0, 0.5, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+            [true, true, true, true, true, true, true, true],
+        );
+        let mut samples = empty_samples();
+        samples[0].rotation = Some([1.0, 0.0, 0.0, 0.0]);
+        samples[1].rotation = Some([1.0, 0.0, 0.0, 0.0]);
+        let outcome = evaluator
+            .update_interpolator(&slots, &samples, None)
+            .unwrap();
+        assert_eq!(outcome.num_rot, 2);
+        assert_eq!(outcome.rotation, Some([1.0, 0.0, 0.0, 0.0]));
+    }
+
+    #[test]
+    fn update_pose_full_replaces_while_blended_pose_adds() {
+        // Pose arms (I3d_interpolator.cpp:200-260): full POS replaces the
+        // local without touching the count (no store when count is zero);
+        // blended POS blends and bumps the count.
+        let mut evaluator = evaluator_with([0, 0, 0, 0, 0, 0, 0, 0], 1.0);
+        evaluator.pose = Some(PoseId(9));
+        let slots = slots_with(
+            [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+            [false, false, false, false, false, false, false, false],
+        );
+        let pose = UpdatePoseSample {
+            flags: crate::animation_pose::POSEF_POS,
+            pos: [5.0, 6.0, 7.0],
+            scale: [0.0, 0.0, 0.0],
+            rot: [1.0, 0.0, 0.0, 0.0],
+        };
+        let outcome = evaluator
+            .update_interpolator(&slots, &empty_samples(), Some(pose))
+            .unwrap();
+        assert_eq!(outcome.num_pos, 0);
+        assert_eq!(outcome.position, None);
+        let blended = evaluator_with([2, 0, 0, 0, 0, 0, 0, 0], 0.5);
+        let mut slots = slots_with(
+            [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+            [true, false, false, false, false, false, false, false],
+        );
+        slots[0].weight = 1.0;
+        let mut samples = empty_samples();
+        samples[0].position = Some([8.0, 0.0, 0.0]);
+        let outcome = blended
+            .update_interpolator(&slots, &samples, Some(pose))
+            .unwrap();
+        assert_eq!(outcome.num_pos, 2);
+        assert_eq!(outcome.position, Some([6.5, 3.0, 3.5]));
+    }
+
+    #[test]
+    fn update_nan_weight_is_admitted_by_ordered_comparison() {
+        // `!(w <= 0)` admits NaN where `w > 0` would skip it.
+        let evaluator = evaluator_with([2, 0, 0, 0, 0, 0, 0, 0], 1.0);
+        let mut slots = slots_with(
+            [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+            [true, true, true, true, true, true, true, true],
+        );
+        slots[0].weight = f32::NAN;
+        let mut samples = empty_samples();
+        samples[0].position = Some([1.0, 2.0, 3.0]);
+        let outcome = evaluator
+            .update_interpolator(&slots, &samples, None)
+            .unwrap();
+        assert_eq!(outcome.num_pos, 1);
+        assert_eq!(outcome.position, Some([1.0, 2.0, 3.0]));
     }
 }

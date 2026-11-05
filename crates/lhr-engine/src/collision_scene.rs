@@ -530,6 +530,56 @@ pub fn sphere_to_sphere_fraction(
     Ok(-1.0)
 }
 
+/// LS3DF RVA 0x152a0, VA 0x100152a0. `SphereIntersect` (mafia-re
+/// `ls3df/I3D/i3d_collision.cpp:1037-1047` via `ls3df/I3D/I3D.h:1685`;
+/// working name, mafia-re guess, NOT an original symbol; PS2 inlines it;
+/// LS3DF11 RVA 0x14dc0). The sphere moving from `line_base` against the
+/// line through a bound sphere: `r = radius_a + sphere_radius`,
+/// `d = line_dir.Dot(sphere_pos - line_base)`, the dead far-gate
+/// `d < -r && d > line_size + r` preserved verbatim (it tests too little:
+/// only a sphere both behind the start and beyond the end would fail it,
+/// so it never fires), then `p = line_base + line_dir * d` and
+/// `(p - sphere_pos).Square() < r * r` (touching counts as miss). Distinct
+/// from `line_intersects_sphere` (different near/far gates and the `<`
+/// versus `>=` miss spelling with its own NaN flow). Exact f32 with the
+/// native association and no fused operations; NaN keeps the direct
+/// comparison flow. Tier contract (wave policy: no Ghidra body observed).
+// The dead `&&` gate must stay verbatim; do not "fix" it to `||`.
+#[allow(clippy::neg_cmp_op_on_partial_ord)]
+pub fn sphere_intersect_capsule(
+    line_base: [f32; 3],
+    line_dir: [f32; 3],
+    line_size: f32,
+    radius_a: f32,
+    sphere_pos: [f32; 3],
+    sphere_radius: f32,
+) -> bool {
+    let r = radius_a + sphere_radius;
+    let d = dot(
+        [
+            sphere_pos[0] - line_base[0],
+            sphere_pos[1] - line_base[1],
+            sphere_pos[2] - line_base[2],
+        ],
+        line_dir,
+    );
+    if d < -r && d > line_size + r {
+        return false;
+    }
+    let p = [
+        line_base[0] + line_dir[0] * d,
+        line_base[1] + line_dir[1] * d,
+        line_base[2] + line_dir[2] * d,
+    ];
+    let diff = [
+        p[0] - sphere_pos[0],
+        p[1] - sphere_pos[1],
+        p[2] - sphere_pos[2],
+    ];
+    let square = (diff[0] * diff[0] + diff[1] * diff[1]) + diff[2] * diff[2];
+    square < r * r
+}
+
 #[cfg(test)]
 mod collision_scene_tests {
     use super::*;
@@ -881,5 +931,54 @@ mod collision_scene_tests {
             [f32::NAN, 0.0, 0.0]
         )
         .is_err());
+    }
+    #[test]
+    fn capsule_keeps_dead_gate_and_strict_touch() {
+        // Direct hit on the line.
+        assert!(sphere_intersect_capsule(
+            [0.0, 0.0, -10.0],
+            [0.0, 0.0, 1.0],
+            10.0,
+            0.5,
+            [0.0, 0.0, 0.0],
+            1.0
+        ));
+        // Lateral offset 1.5 with r 1.5: square == r*r counts as miss.
+        assert!(!sphere_intersect_capsule(
+            [0.0, 1.5, -10.0],
+            [0.0, 0.0, 1.0],
+            10.0,
+            0.5,
+            [0.0, 0.0, 0.0],
+            1.0
+        ));
+        // Dead far-gate: a sphere far beyond line_size but on the line
+        // still hits (the `&&` gate never fires). The finite-ray
+        // line_intersects_sphere with infinite=false would miss here.
+        assert!(sphere_intersect_capsule(
+            [0.0, 0.0, -10.0],
+            [0.0, 0.0, 1.0],
+            10.0,
+            0.5,
+            [0.0, 0.0, 50.0],
+            1.0
+        ));
+        assert!(!line_intersects_sphere(
+            [0.0, 0.0, -10.0],
+            [0.0, 0.0, 1.0],
+            [0.0, 0.0, 50.0],
+            1.5,
+            false,
+            10.0
+        ));
+        // NaN flows through direct comparisons to false (no hit).
+        assert!(!sphere_intersect_capsule(
+            [f32::NAN, 0.0, -10.0],
+            [0.0, 0.0, 1.0],
+            10.0,
+            0.5,
+            [0.0, 0.0, 0.0],
+            1.0
+        ));
     }
 }

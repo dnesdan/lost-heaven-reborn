@@ -304,6 +304,50 @@ pub fn part_tick_step(time: i32) -> Out<i32> {
     Ok(time.min(10))
 }
 
+/// Opaque 8-byte `S_particle_item` slot for the particle render queue
+/// (mafia-re ls3df/I3D/I3D.h:4714-4718; PC-only guessed names, 2 words:
+/// visual pointer + sort value). Member names are not ported; size only
+/// pins the `C_list` element width.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ParticleHlpEntry(pub [u32; 2]);
+/// Host projection of `PARTICLE_HLP_STRUCT` queue state for LS3DF RVA
+/// 0x659d0 (mafia-re ls3df/I3D/I3D.h:4721-4736). Upstream working name
+/// `PARTICLE_HLP_STRUCT`, not an evidenced original symbol. Probe verified
+/// a formed Ghidra body (FUN_100659d0, `visuals(0x2000)`); contract tier
+/// (partial coverage: the evidenced store is pinned, the host-zero rest is
+/// disclosed admission). Probe-pinned new ctor (not a corroboration: this
+/// is the first host owner of these stores). Only the evidenced ctor store is owned
+/// here: the `visuals` `C_list` with grow `0x2000` (array NULL, sizes
+/// zero). The `sort` list starts empty (`base NULL, res_num 0, count 0`);
+/// `unknown_1c` is left unwritten natively and starts at host zero
+/// (disclosed, cleared by the separate `Clear`).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ParticleHlpQueue {
+    pub visuals_grow: u32,
+    pub visuals: Vec<ParticleHlpEntry>,
+    pub sort: Vec<u32>,
+    pub unknown_1c: u32,
+}
+impl ParticleHlpQueue {
+    /// LS3DF RVA 0x659d0 `PARTICLE_HLP_STRUCT::ctor` (mafia-re
+    /// ls3df/I3D/I3D.h:4728). Upstream working name, not original.
+    pub fn new() -> Self {
+        Self {
+            visuals_grow: 0x2000,
+            visuals: Vec::new(),
+            sort: Vec::new(),
+            unknown_1c: 0,
+        }
+    }
+    /// Empties the queue (mafia-re I3D.h:4730-4734, working name `Clear`).
+    /// Helper phase, no function credit.
+    pub fn clear_queue(&mut self) {
+        self.visuals.clear();
+        self.sort.clear();
+        self.unknown_1c = 0;
+    }
+}
+
 // ---- Contract boundaries (no parity credit) ----
 pub fn emitor_duplicate_contract() -> Out<()> {
     Err(ParticleError::ContractBoundary { rva: 0x3f6b0 })
@@ -448,5 +492,22 @@ mod particle_y2_tests {
         }
         assert_eq!(part_tick_step(25).unwrap(), 10);
         assert_eq!(part_tick_step(7).unwrap(), 7);
+    }
+    #[test]
+    fn particle_hlp_ctor_pins_grow_and_empty_queues() {
+        // LS3DF RVA 0x659d0 `PARTICLE_HLP_STRUCT::ctor`
+        // (mafia-re ls3df/I3D/I3D.h:4728, working name).
+        let queue = ParticleHlpQueue::new();
+        assert_eq!(queue.visuals_grow, 0x2000);
+        assert!(queue.visuals.is_empty());
+        assert!(queue.sort.is_empty());
+        assert_eq!(queue.unknown_1c, 0);
+        assert_eq!(std::mem::size_of::<ParticleHlpEntry>(), 8);
+        let mut queued = ParticleHlpQueue::new();
+        queued.visuals.push(ParticleHlpEntry([3, 9]));
+        queued.sort.push(1);
+        queued.clear_queue();
+        assert!(queued.visuals.is_empty() && queued.sort.is_empty());
+        assert_eq!(queued.visuals_grow, 0x2000);
     }
 }

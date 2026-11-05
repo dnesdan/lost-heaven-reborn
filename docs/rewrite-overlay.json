@@ -7690,6 +7690,222 @@
       "symbol": "lhr_engine::model_loading::ModelArena::release",
       "tier": "contract",
       "evidence": "REA 3BB/30B body (verified); shares the 0x5a840 callee symbol; tier contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0xaa30",
+      "va": "0x1000aa30",
+      "name": "SetAlphaState (working name; mafia-re guess, NOT original)",
+      "symbol": "lhr_engine::render_state::set_alpha_state",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3D.h:4464 + authored Rust tests (not executed here); working name disclosed; tier contract (wave policy: no Ghidra body observed) (LS3DF11 0xa6c0 cross-ref, I3D.h marker)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0xac30",
+      "va": "0x1000ac30",
+      "name": "SetColorOp (working name; mafia-re guess, NOT original)",
+      "symbol": "lhr_engine::render_state::set_color_op",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3D.h:4495 + authored Rust tests (not executed here); working name disclosed; tier contract (wave policy: no Ghidra body observed) (LS3DF11 0xa8c0 cross-ref, I3D.h marker)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0xac60",
+      "va": "0x1000ac60",
+      "name": "SetAlphaOp (working name; mafia-re guess, NOT original)",
+      "symbol": "lhr_engine::render_state::set_alpha_op",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3D.h:4506 (LS3DF11 0xa8f0) + authored Rust tests (not executed here); working name disclosed; tier contract (wave policy: no Ghidra body observed)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0xaf80",
+      "va": "0x1000af80",
+      "name": "C_VBuffer::Lock",
+      "symbol": "lhr_engine::render_vb::vbuffer_lock",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/render/VBManager.h:114 (ENGINE_VERSION>=395 branch) + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0xb060",
+      "va": "0x1000b060",
+      "name": "C_VBuffer::Unlock",
+      "symbol": "lhr_engine::render_vb::vbuffer_unlock",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/render/VBManager.h:142 + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0xdd60",
+      "va": "0x1000dd60",
+      "name": "S_vector::S_vector",
+      "symbol": "lhr_engine::native_transform::vector_from_components",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_math.h:64 (PS2 __ct__) + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0xdd80",
+      "va": "0x1000dd80",
+      "name": "S_vector::operator-",
+      "symbol": "lhr_engine::native_transform::vector_sub",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_math.h:201 + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0xddb0",
+      "va": "0x1000ddb0",
+      "name": "S_vector::Dot",
+      "symbol": "lhr_engine::native_transform::vector_dot",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_math.h:69 (PS2 Dot__) + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0xddd0",
+      "va": "0x1000ddd0",
+      "name": "S_vector::GetNormal",
+      "symbol": "lhr_engine::native_transform::vector_get_normal",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_math.h:276 (PS2 GetNormal__) + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x112a0",
+      "va": "0x100112a0",
+      "name": "S_vector::operator*",
+      "symbol": "lhr_engine::native_transform::vector_scale",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_math.h:176 (PS2 __ml__, factor by ref) + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x112d0",
+      "va": "0x100112d0",
+      "name": "S_vector::operator+",
+      "symbol": "lhr_engine::native_transform::vector_add",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_math.h:184 (PS2 __pl__) + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x12500",
+      "va": "0x10012500",
+      "name": "S_vector::Square",
+      "symbol": "lhr_engine::native_transform::vector_square",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_math.h:123 + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x14970",
+      "va": "0x10014970",
+      "name": "S_vector::SetNormalized (working name; mafia-re guess, NOT original)",
+      "symbol": "lhr_engine::native_transform::vector_set_normalized",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_math.h:80 + authored Rust tests (not executed here); working name disclosed; tier contract (wave policy: no Ghidra body observed)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x14dd0",
+      "va": "0x10014dd0",
+      "name": "I3D_bbox::Absorb",
+      "symbol": "lhr_engine::mesh_bounds::absorb_point_into_bbox",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_math.h:473 (PS2 Absorb__) + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x152a0",
+      "va": "0x100152a0",
+      "name": "SphereIntersect (working name; mafia-re guess, NOT original)",
+      "symbol": "lhr_engine::collision_scene::sphere_intersect_capsule",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3D.h:1685 via ls3df/I3D/i3d_collision.cpp:1037-1047 (PS2 inline; dead far-gate kept verbatim) + authored Rust tests (not executed here); working name disclosed; tier contract (wave policy: no Ghidra body observed)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x15620",
+      "va": "0x10015620",
+      "name": "I3D_driver::I3D_driver",
+      "symbol": "lhr_engine::driver_lifecycle::driver_create",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_driver.cpp:153 (next_emitor_id=0) + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x15670",
+      "va": "0x10015670",
+      "name": "I3D_driver::~I3D_driver",
+      "symbol": "lhr_engine::driver_lifecycle::driver_destroy",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_driver.cpp:160 + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x268b0",
+      "va": "0x100268b0",
+      "name": "I3DFloatAsInt out-of-line copy",
+      "symbol": "lhr_engine::native_transform::float_bits_copy",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3D.h:243-249 via ls3df/I3D/visuals/I3d_lit_object.cpp:10 note (pure-REA out-of-line copy) + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed) (I3DFloatAsInt: working name, Insanity3D spelling, not original)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x268c0",
+      "va": "0x100268c0",
+      "name": "S_vector2::Magnitude",
+      "symbol": "lhr_engine::native_matrix::vector2_magnitude",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_math.h:527 + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x268e0",
+      "va": "0x100268e0",
+      "name": "S_vector2::Dot",
+      "symbol": "lhr_engine::native_matrix::vector2_dot",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_math.h:26 + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x62030",
+      "va": "0x10062030",
+      "name": "I3D_driver::Render",
+      "symbol": "lhr_engine::render_core::render_scene",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/render.cpp:220 + REA FUN_10062030 probe (formed body, contract per wave policy (device-adjacent full-scene pass, no original-data round-trip); tier contract (partial coverage: evidenced entry prefix + host-grouped stages, omitted tail disclosed in code)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x659a0",
+      "va": "0x100659a0",
+      "name": "ADD_FG_HELP_STRUCT::ctor (upstream working name)",
+      "symbol": "lhr_engine::i3d_object::FaceGroupQueue::new",
+      "tier": "contract",
+      "evidence": "Probe verified formed Ghidra body FUN_100659a0 + mafia-re ls3df/I3D/I3D.h:4681-4700 (upstream working name ADD_FG_HELP_STRUCT::ctor, PC-only guess, not original) + RENDER slot 0x20 width (I3D.h:4586-4601) + NEW host FaceGroupQueue::new; tier contract (partial coverage: evidenced ctor stores pinned, host-zero rest disclosed) + authored Rust tests (not executed here)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x659d0",
+      "va": "0x100659d0",
+      "name": "PARTICLE_HLP_STRUCT::ctor (upstream working name)",
+      "symbol": "lhr_engine::particle_emitor_elements::ParticleHlpQueue::new",
+      "tier": "contract",
+      "evidence": "Probe verified formed Ghidra body FUN_100659d0 + mafia-re ls3df/I3D/I3D.h:4721-4736 (upstream working name PARTICLE_HLP_STRUCT::ctor, PC-only guess, not original) + 8B item width (I3D.h:4714-4718) + NEW host ParticleHlpQueue::new; tier contract (partial coverage) + authored Rust tests (not executed here)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x27570",
+      "va": "0x10027570",
+      "name": "I3D_frame::GetName",
+      "symbol": "lhr_engine::arena_frame_names::ModelArena::original_name_pointer",
+      "tier": "contract",
+      "evidence": "REA formed Ghidra FUN_10027570 (probe-verified pure-REA copy, verified) pointer-projection only (Null-vs-Offset identity, no dereference; native empty-for-null string semantics stay caller-owned, unpinned) + pointer-identity test; tier contract (partial coverage) (mafia-re ls3df/I3D/visuals/I3d_lit_object.cpp:11 note)"
     }
   ],
   "vm": {

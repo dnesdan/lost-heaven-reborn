@@ -533,6 +533,20 @@ impl I3dFrameGraph {
         self.destroy_derived(key)?;
         self.destroy_base(key)
     }
+    /// Original I3D_frame::~I3D_frame, PC RVA 0x1a9a0 (already ledger-credited,
+    /// frozen port `LS3DF bounded base, dummy and unbound Joint destruction`:
+    /// NO overlay entry here; probe-verified formed Ghidra body, confirm-only;
+    /// mafia-re ls3df/I3D/frames/I3d_frame.cpp:67). Represented base tail: preflight
+    /// the model/dummy/joint/Target subset, run derived unlink, then detach
+    /// parent/children and retire the node. Fast-tree removal, owner
+    /// membership, Target/Shadow/Tick deregistration, property/name frees
+    /// and lastDestroyedFrame remain arena-owned boundaries and stay
+    /// rejected here via the registration preflight.
+    pub fn destroy_frame(&mut self, key: FrameKey) -> Result<(), FrameError> {
+        self.check_destruction_excluding(key, 0, false, false)?;
+        self.destroy_derived(key)?;
+        self.destroy_base(key)
+    }
     pub(crate) fn camera_projection_changed(&mut self, key: FrameKey) -> Result<(), FrameError> {
         if self.state(key)?.kind != FrameKind::Camera {
             return Err(FrameError::UnsupportedFrameUpdate(key));
@@ -601,8 +615,10 @@ impl I3dFrameGraph {
     ) -> Result<&mut I3dFrameState, FrameError> {
         Ok(&mut self.node_mut(key)?.state)
     }
-    /// Common SetOn store, PC RVA0x1b400: only the low argument byte controls
-    /// flag bit0. Matrix/volume cache flags and descendants are untouched.
+    /// Common SetOn store, PC RVA 0x1b400 (mafia-re
+    /// ls3df/I3D/frames/I3d_frame.cpp:238): only the low argument byte
+    /// controls flag bit0. Matrix/volume cache flags and descendants are
+    /// untouched.
     pub(crate) fn set_on(&mut self, key: FrameKey, on: u32) -> Result<(), FrameError> {
         let flags = &mut self.node_mut(key)?.state.flags;
         *flags = (*flags & !1) | u32::from(on as u8 != 0);
@@ -1194,6 +1210,25 @@ impl I3dFrameGraph {
         }
         self.node_mut(key)?.joint.as_mut().unwrap().singlemesh = target;
         Ok(())
+    }
+    /// Clear one singlemesh joint slot for the joint destructor. Host helper,
+    /// no function credit. Out-of-range indices and missing bindings are
+    /// explicit unavailability; a vacant slot clears idempotently.
+    pub(crate) fn clear_singlemesh_joint_slot(
+        &mut self,
+        target: FrameKey,
+        index: u32,
+    ) -> Result<Option<FrameKey>, FrameError> {
+        let slot = index as usize;
+        let node = self.node_mut(target)?;
+        let binding = node
+            .binding
+            .as_mut()
+            .ok_or(FrameError::SinglemeshBindingUnavailable(target))?;
+        if slot >= binding.joints.len() {
+            return Err(FrameError::SinglemeshBindingUnavailable(target));
+        }
+        Ok(std::mem::replace(&mut binding.joints[slot], None))
     }
     pub fn links(&self, key: FrameKey) -> Result<FrameLinks, FrameError> {
         Ok(self.node(key)?.links)
@@ -3893,5 +3928,71 @@ mod tests {
             );
             assert_eq!(visual_void_get_weight(region, level).to_bits(), 0x0000_0000);
         }
+    }
+    #[test]
+    fn base_set_on_uses_only_low_byte_and_preserves_caches() {
+        // PC RVA 0x1b400 (mafia-re I3d_frame.cpp:238): low byte gates bit0.
+        let mut graph = I3dFrameGraph::default();
+        let key = graph.insert(I3dFrameState::dummy()).unwrap();
+        let before = *graph.state(key).unwrap();
+        for on in [0u32, 0x100, 0x101, 0xffff_ff00, 0x80] {
+            graph.set_on(key, on).unwrap();
+            let mut expected = before;
+            expected.flags = (expected.flags & !1) | u32::from(on as u8 != 0);
+            assert_eq!(*graph.state(key).unwrap(), expected);
+        }
+        // Unknown frames fail without side effects on survivors.
+        assert_eq!(
+            graph.set_on(FrameKey(u32::MAX), 1),
+            Err(FrameError::UnknownFrame(FrameKey(u32::MAX)))
+        );
+        assert_eq!(*graph.state(key).unwrap(), before);
+    }
+    #[test]
+    fn base_destructor_retires_clean_frames_and_rejects_registrations() {
+        // PC RVA 0x1a9a0 (mafia-re I3d_frame.cpp:67): represented tail.
+        let mut graph = I3dFrameGraph::default();
+        let parent = graph.insert(I3dFrameState::model()).unwrap();
+        let child = graph.insert(I3dFrameState::dummy()).unwrap();
+        graph.link_to(child, Some(parent)).unwrap();
+        graph.destroy_frame(child).unwrap();
+        assert_eq!(graph.state(child), Err(FrameError::UnknownFrame(child)));
+        assert_eq!(graph.links(parent).unwrap().child, None);
+        // Weather registration stays rejected until the derived step clears it.
+        let weather = graph.insert(I3dFrameState::dummy()).unwrap();
+        graph.change_flags(weather, 0, 0x8000_0000).unwrap();
+        assert_eq!(
+            graph.destroy_frame(weather),
+            Err(FrameError::UnsupportedDestructionRegistrations(
+                weather,
+                0x8000_0000
+            ))
+        );
+        graph.change_flags(weather, 0x8000_0000, 0).unwrap();
+        graph.destroy_frame(weather).unwrap();
+        assert_eq!(graph.state(weather), Err(FrameError::UnknownFrame(weather)));
+        // Joint slot clears with the retiring joint.
+        let mesh = graph
+            .insert_singlemesh_binding(
+                I3dFrameState::mesh(),
+                SinglemeshInvalidationState { joints_changed: 0 },
+                true,
+            )
+            .unwrap();
+        let joint = graph.insert(I3dFrameState::joint()).unwrap();
+        graph
+            .assign_joint_singlemesh_target(joint, Some(mesh))
+            .unwrap();
+        graph
+            .node_mut(mesh)
+            .unwrap()
+            .binding
+            .as_mut()
+            .unwrap()
+            .joints = vec![Some(joint)];
+        graph.destroy_frame(joint).unwrap();
+        assert_eq!(graph.state(joint), Err(FrameError::UnknownFrame(joint)));
+        assert_eq!(graph.singlemesh_binding(mesh).unwrap().joints(), &[None]);
+        graph.destroy_frame(mesh).unwrap_err();
     }
 }

@@ -1083,6 +1083,128 @@ pub fn scale_vector_assign(vector: &mut [f32; 3], factor: f32) {
     vector[2] *= factor;
 }
 
+/// LS3DF RVA 0xdd60, VA 0x1000dd60. `S_vector(float, float, float)` ctor
+/// (mafia-re ab67b13 `ls3df/I3D/I3d_math.h:64`; the out-of-line copy the
+/// linker kept lives in camera code; `S_vector` itself is PS2-evidenced).
+/// Pure lane copy, no arithmetic. Tier contract (wave policy: no Ghidra
+/// body observed).
+pub fn vector_from_components(x: f32, y: f32, z: f32) -> [f32; 3] {
+    [x, y, z]
+}
+
+/// LS3DF RVA 0xdd80, VA 0x1000dd80. `S_vector::operator-` (mafia-re
+/// ab67b13 `ls3df/I3D/I3d_math.h:201`; out-of-line copy in camera code).
+/// Exact f32 lane subtraction, no domain guard: NaN, infinities and
+/// subnormals flow through as the native x87 `FSUB` stores do. Tier
+/// contract (wave policy: no Ghidra body observed).
+pub fn vector_sub(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+}
+
+/// LS3DF RVA 0xddb0, VA 0x1000ddb0. `S_vector::Dot` (mafia-re ab67b13
+/// `ls3df/I3D/I3d_math.h:69`; PS2 `Dot__8S_vectorCFRC8S_vector`; the
+/// out-of-line copy the linker kept lives in camera code). Exact f32
+/// `(x*v.x + y*v.y) + z*v.z` left-associated multiplies then adds, no
+/// domain guard and no fused operations. Extended-exponent x87
+/// intermediates, NaN ordering and non-default control words are not
+/// established as equivalent to portable Rust arithmetic. Tier contract
+/// (wave policy: no Ghidra body observed).
+pub fn vector_dot(a: [f32; 3], b: [f32; 3]) -> f32 {
+    (a[0] * b[0] + a[1] * b[1]) + a[2] * b[2]
+}
+
+/// LS3DF RVA 0xddd0, VA 0x1000ddd0. `S_vector::GetNormal` (mafia-re
+/// ab67b13 `ls3df/I3D/I3d_math.h:276`; PS2
+/// `GetNormal__8S_vectorFRC8S_vectorRC8S_vectorRC8S_vector`). Unnormalized
+/// triangle normal `(w1 - v1) x (u1 - v1)` via two `vector_sub` differences
+/// then the component cross, all exact f32 with the native association and
+/// no domain guard. Tier contract (wave policy: no Ghidra body observed).
+pub fn vector_get_normal(u1: [f32; 3], v1: [f32; 3], w1: [f32; 3]) -> [f32; 3] {
+    let u = vector_sub(w1, v1);
+    let v = vector_sub(u1, v1);
+    [
+        u[1] * v[2] - u[2] * v[1],
+        u[2] * v[0] - u[0] * v[2],
+        u[0] * v[1] - u[1] * v[0],
+    ]
+}
+
+/// LS3DF RVA 0x112a0, VA 0x100112a0. `S_vector::operator*(const float &)`
+/// (mafia-re ab67b13 `ls3df/I3D/I3d_math.h:176`; PS2
+/// `__ml__8S_vectorCFRCf`; the factor is by reference, so the native reads
+/// it again for each lane; the host takes it by value, which is
+/// indistinguishable without aliasing mutation). Exact f32 lane multiply,
+/// no domain guard. Tier contract (wave policy: no Ghidra body observed).
+pub fn vector_scale(vector: [f32; 3], factor: f32) -> [f32; 3] {
+    [vector[0] * factor, vector[1] * factor, vector[2] * factor]
+}
+
+/// LS3DF RVA 0x112d0, VA 0x100112d0. `S_vector::operator+` (mafia-re
+/// ab67b13 `ls3df/I3D/I3d_math.h:184`; PS2 `__pl__8S_vectorCFRC8S_vector`).
+/// Exact f32 lane addition, no domain guard. Tier contract (wave policy: no
+/// Ghidra body observed).
+pub fn vector_add(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
+}
+
+/// LS3DF RVA 0x12500, VA 0x10012500. `S_vector::Square` (mafia-re ab67b13
+/// `ls3df/I3D/I3d_math.h:123`; out-of-line copy in collision code). Exact
+/// f32 `(x*x + y*y) + z*z` written out (not via `Dot`, matching the
+/// native inline-budget spelling), no domain guard. Tier contract (wave
+/// policy: no Ghidra body observed).
+pub fn vector_square(vector: [f32; 3]) -> f32 {
+    (vector[0] * vector[0] + vector[1] * vector[1]) + vector[2] * vector[2]
+}
+
+/// LS3DF RVA 0x14970, VA 0x10014970. `S_vector::SetNormalized` (mafia-re
+/// ab67b13 `ls3df/I3D/I3d_math.h:80`; working name, mafia-re guess, NOT an
+/// original symbol; out-of-line copy in collision code). Copies `v`, then
+/// the `|sq - 1| < MRG_ZERO` (1e-8) fast path, the `sq < MRG_ZERO`
+/// axis-fallback (`x`, then `z`, then `y`, preserving the other lanes),
+/// else the `1/sqrt(sq)` scale. Direct `<` keeps the native NaN flow
+/// (NaN takes the scale path). The square sum is written out, not via
+/// `Dot`. Host `sqrt` is the f64-mediated `sqrt` narrowed to f32 (matching
+/// the native `(float)sqrt` promotion) followed by an f32 divide; x87
+/// `FSQRT` bit parity and extended-exponent intermediates are not
+/// established (disclosed). Tier contract (wave policy: no Ghidra body
+/// observed).
+pub fn vector_set_normalized(v: [f32; 3]) -> [f32; 3] {
+    // Local copy of MRG_ZERO (ls3df.h:48, 1e-8f) to avoid cross-module
+    // coupling with render_clip; same value, same branches.
+    const MRG_ZERO: f32 = 1e-8;
+    let sq = (v[0] * v[0] + v[1] * v[1]) + v[2] * v[2];
+    if (sq - 1.0).abs() < MRG_ZERO {
+        return v;
+    }
+    if sq < MRG_ZERO {
+        let mut out = v;
+        if v[0] != 0.0 {
+            out[0] = if v[0] < 0.0 { -1.0 } else { 1.0 };
+        } else if v[2] != 0.0 {
+            out[2] = if v[2] < 0.0 { -1.0 } else { 1.0 };
+        } else {
+            out[1] = if v[1] < 0.0 { -1.0 } else { 1.0 };
+        }
+        return out;
+    }
+    let root = f64::from(sq).sqrt() as f32;
+    let reciprocal = 1.0 / root;
+    [v[0] * reciprocal, v[1] * reciprocal, v[2] * reciprocal]
+}
+
+/// LS3DF RVA 0x268b0, VA 0x100268b0. `I3DFloatAsInt` out-of-line copy
+/// (mafia-re `ls3df/I3D/I3D.h:243-249` via
+/// `ls3df/I3D/visuals/I3d_lit_object.cpp:10`; working name (Insanity3D's
+/// spelling for the float-bits helper, NOT an evidenced original symbol);
+/// the copy the linker kept lives in the lit-object
+/// file for `Construct`). Copies the float to a local then reinterprets
+/// the bits as `int`, with no arithmetic. Tier contract (pure-REA wave
+/// policy: no Ghidra body observed).
+pub fn float_bits_copy(value: f32) -> i32 {
+    let local = value;
+    local.to_bits() as i32
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1887,5 +2009,42 @@ mod tests {
         assert_eq!(vector[0], f32::INFINITY);
         assert!(vector[1].is_nan());
         assert_eq!(vector[2].to_bits(), 2.0f32.to_bits());
+    }
+
+    #[test]
+    fn early_vector_ctor_sub_add_scale_match_exact_lanes() {
+        assert_eq!(
+            vector_from_components(1.5, -2.0, 0.25).map(f32::to_bits),
+            [1.5f32.to_bits(), (-2.0f32).to_bits(), 0.25f32.to_bits()]
+        );
+        assert_eq!(
+            vector_sub([1.5, -2.0, 4.0], [0.5, 1.0, -1.0]),
+            [1.0, -3.0, 5.0]
+        );
+        assert_eq!(
+            vector_add([1.5, -2.0, 0.25], [0.5, 3.0, 0.75]),
+            [2.0, 1.0, 1.0]
+        );
+        assert_eq!(
+            vector_scale([1.5, -2.0, 0.5], 2.0).map(f32::to_bits),
+            [3.0f32.to_bits(), (-4.0f32).to_bits(), 1.0f32.to_bits()]
+        );
+        assert_eq!(vector_square([1.0, 2.0, 2.0]), 9.0);
+        assert_eq!(vector_dot([1.0, 2.0, 3.0], [4.0, -1.0, 0.5]), 3.5);
+        assert_eq!(
+            vector_get_normal([0.0, 1.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 1.0]),
+            [-1.0, 0.0, 0.0]
+        );
+    }
+
+    #[test]
+    fn early_vector_set_normalized_keeps_native_branches() {
+        assert_eq!(vector_set_normalized([1.0, 0.0, 0.0]), [1.0, 0.0, 0.0]);
+        assert_eq!(vector_set_normalized([2.0, 0.0, 0.0]), [1.0, 0.0, 0.0]);
+        assert_eq!(vector_set_normalized([0.0, -5.0, 0.0]), [0.0, -1.0, 0.0]);
+        assert_eq!(vector_set_normalized([0.0, 0.0, 0.0]), [0.0, 1.0, 0.0]);
+        assert_eq!(vector_set_normalized([0.0, 0.0, -2.0]), [0.0, 0.0, -1.0]);
+        assert_eq!(float_bits_copy(1.0), 0x3f80_0000);
+        assert_eq!(float_bits_copy(-0.0), i32::MIN);
     }
 }

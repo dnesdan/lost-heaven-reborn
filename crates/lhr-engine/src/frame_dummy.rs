@@ -5,6 +5,8 @@
 use crate::{
     frame_transform::{FrameKey, FrameKind, I3dFrameState},
     model_loading::{ModelArena, ModelError},
+    native_transform::SQuat,
+    scene_weather_dummy::WEATHER_FLAG,
 };
 
 impl ModelArena {
@@ -110,6 +112,65 @@ impl ModelArena {
         }
         Ok(())
     }
+    /// Original I3D_dummy::~I3D_dummy, PC RVA 0x1a260 (already ledger-credited,
+    /// frozen port `LS3DF bounded base, dummy and unbound Joint destruction`:
+    /// NO overlay entry here; probe-verified formed Ghidra body, confirm-only;
+    /// mafia-re ls3df/I3D/frames/I3d_dummy.cpp:19). Derived-only weather
+    /// deregistration: when FRMFLAGS_WEATHER (I3D.h:288, 0x80000000) is set,
+    /// the last registry entry per scene is removed in reverse-scan order
+    /// and the flag is cleared, matching `WeatherSystemDelDummy`
+    /// (I3d_scene.cpp:1072: reverse scan, erase, break). A clear flag is a
+    /// no-op. Kind-guarded;
+    /// hierarchy, names and the base frame destructor remain caller-owned.
+    pub fn destroy_dummy_frame(&mut self, key: FrameKey) -> Result<(), ModelError> {
+        if self.state(key)?.kind != FrameKind::Dummy {
+            return Err(ModelError::DummyFrameRequired(key));
+        }
+        if self.state(key)?.flags & WEATHER_FLAG == 0 {
+            return Ok(());
+        }
+        for scene in &mut self.scenes {
+            if let Some(index) = scene
+                .weather_dummies
+                .iter()
+                .rposition(|entry| entry.dummy == key)
+            {
+                scene.weather_dummies.remove(index);
+            }
+        }
+        self.graph.change_flags(key, WEATHER_FLAG, 0)?;
+        Ok(())
+    }
+    /// Original I3D_dummy::LoadImage, PC RVA 0x1a6a0 (already ledger-credited,
+    /// frozen port `LS3DF parsed model ownership and frame materialization`:
+    /// NO overlay entry here; probe-verified formed Ghidra body, confirm-only;
+    /// mafia-re ls3df/I3D/frames/I3d_dummy.cpp:75). Order-exact: common
+    /// I3D_frame::LoadImage field stores first, then the 24-byte bbox read
+    /// into the derived dummy bounds. Raw float bits are preserved; name,
+    /// property and allocation effects remain loader-owned.
+    pub fn apply_dummy_load_image_fields(
+        &mut self,
+        key: FrameKey,
+        position: [f32; 3],
+        scale: [f32; 3],
+        rotation: SQuat,
+        raw_logic_flags: u8,
+        bbox: [[f32; 3]; 2],
+    ) -> Result<(), ModelError> {
+        if self.state(key)?.kind != FrameKind::Dummy {
+            return Err(ModelError::DummyFrameRequired(key));
+        }
+        self.graph.apply_common_load_image_fields(
+            key,
+            position,
+            scale,
+            rotation,
+            raw_logic_flags,
+        )?;
+        let index = self.frame_index(key)?;
+        self.frames[index].dummy_bounds = Some(bbox);
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -203,6 +264,78 @@ mod tests {
         assert_eq!(arena.state(key).unwrap().dummy_flags & 0x13, 0x1);
         arena.normalize_dummy_bounds(key, 99).unwrap();
         assert_eq!(arena.state(key).unwrap().dummy_flags & 0x13, 0x1);
+        arena.release(key).unwrap();
+        assert_eq!(arena.live_frame_count(), 0);
+    }
+    #[test]
+    fn dummy_destructor_clears_weather_registry_and_flag_only_when_set() {
+        // PC RVA 0x1a260 (mafia-re I3d_dummy.cpp:19): derived weather loop.
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let key = arena.create_dummy_frame().unwrap();
+        arena
+            .set_dummy_bound_box(key, [[-1., -1., -1.], [1., 1., 1.]])
+            .unwrap();
+        // Flag clear is a no-op that preserves a live frame (scene prefix
+        // holds 5 frames, plus the dummy).
+        arena.destroy_dummy_frame(key).unwrap();
+        assert_eq!(arena.live_frame_count(), 6);
+        // Non-dummy frames are rejected without touching the registry.
+        let model = arena.create_model().unwrap();
+        assert!(matches!(
+            arena.destroy_dummy_frame(model.root()),
+            Err(ModelError::DummyFrameRequired(_))
+        ));
+        assert_eq!(arena.weather_dummy_count(scene).unwrap(), 0);
+        // Registered dummy: derived teardown removes every scene entry and
+        // clears WEATHER while keeping the frame alive for the base tail.
+        crate::native_precision::Pc24PrecisionState::default().run(|| {
+            assert!(arena.weather_add_dummy(scene, key).unwrap());
+        });
+        assert_ne!(arena.state(key).unwrap().flags & 0x8000_0000, 0);
+        arena.destroy_dummy_frame(key).unwrap();
+        assert_eq!(arena.state(key).unwrap().flags & 0x8000_0000, 0);
+        assert_eq!(arena.weather_dummy_count(scene).unwrap(), 0);
+        assert!(arena.frame(key).is_ok());
+        arena.release(model.root()).unwrap();
+        arena.release(key).unwrap();
+        // The scene-owner prefix (5 frames) outlives the model and dummy.
+        assert_eq!(arena.live_frame_count(), 5);
+    }
+    #[test]
+    fn dummy_load_image_stores_common_fields_then_bbox_bits() {
+        // PC RVA 0x1a6a0 (mafia-re I3d_dummy.cpp:75): common tail + bbox.
+        let mut arena = ModelArena::default();
+        let key = arena.create_dummy_frame().unwrap();
+        let rotation = crate::native_transform::SQuat {
+            wxyz: [1., 0., 0., 0.],
+        };
+        let bbox = [[f32::from_bits(0x7fc01234), -0., 1.], [4., 5., 6.]];
+        arena
+            .apply_dummy_load_image_fields(key, [7., 8., 9.], [2., 3., 4.], rotation, 0x05, bbox)
+            .unwrap();
+        let state = *arena.state(key).unwrap();
+        assert_eq!(state.local.elements[12..15], [7., 8., 9.]);
+        assert_eq!(state.scale, [2., 3., 4.]);
+        assert_eq!(
+            state.rotation.wxyz.map(f32::to_bits),
+            rotation.wxyz.map(f32::to_bits)
+        );
+        assert_eq!(state.flags, 0x40000009);
+        assert_eq!(
+            arena
+                .dummy_bound_box(key)
+                .unwrap()
+                .map(|r| r.map(f32::to_bits)),
+            bbox.map(|r| r.map(f32::to_bits))
+        );
+        // Non-dummy frames are rejected before any store.
+        let model = arena.create_model().unwrap();
+        assert!(matches!(
+            arena.apply_dummy_load_image_fields(model.root(), [0.; 3], [1.; 3], rotation, 0, bbox),
+            Err(ModelError::DummyFrameRequired(_))
+        ));
+        arena.release(model.root()).unwrap();
         arena.release(key).unwrap();
         assert_eq!(arena.live_frame_count(), 0);
     }

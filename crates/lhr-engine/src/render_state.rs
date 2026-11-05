@@ -7,8 +7,11 @@
 //! (`SetCullState`, working name; mafia-re guess, NOT original), 0x333d0
 //! (`SetClipping`, working name; mafia-re guess, NOT original), 0x659f0
 //! (`SetZBias`, working name; mafia-re guess, NOT original), 0x4e390
-//! (`SetFog`, working name; mafia-re guess, NOT original). Pinned mafia-re
-//! ab67b13 `ls3df/I3D/render/render.h:13-209`.
+//! (`SetFog`, working name; mafia-re guess, NOT original), 0xaa30
+//! (`SetAlphaState`, working name; mafia-re guess, NOT original), 0xac30
+//! (`SetColorOp`, working name; mafia-re guess, NOT original), 0xac60
+//! (`SetAlphaOp`, working name; mafia-re guess, NOT original). Pinned mafia-re
+//! ab67b13 `ls3df/I3D/render/render.h:13-209` and `ls3df/I3D/I3D.h:4464-4514`.
 //!
 //! Contract tier this wave: reviewed upstream source plus Rust tests, no
 //! Ghidra body claimed. Every setter follows the same shape: cache guard,
@@ -29,6 +32,15 @@ pub const BLENDSTATE_ADD: u32 = 2;
 pub const BLENDSTATE_MODULATE: u32 = 3;
 /// Blend selectors (ls3df.h:370-374).
 pub const BLENDSTATE_MODULATE2X: u32 = 4;
+
+/// Alpha selectors (original names, ls3df.h:363-366).
+pub const ALPHASTATE_NONE: u32 = 0;
+/// Alpha selectors (original names, ls3df.h:363-366).
+pub const ALPHASTATE_BLEND: u32 = 1;
+/// Alpha selectors (original names, ls3df.h:363-366).
+pub const ALPHASTATE_BLEND_ALL: u32 = 2;
+/// Alpha selectors (original names, ls3df.h:363-366).
+pub const ALPHASTATE_TEST: u32 = 3;
 
 /// `D3DBLEND` factors used by the blend mapping.
 pub const D3DBLEND_ZERO: u32 = 1;
@@ -85,6 +97,14 @@ pub const MRG_ZERO_BITS: u32 = 0x322bcc77;
 pub struct RenderState {
     /// `m_CurrBlendState`.
     pub curr_blend: u32,
+    /// `m_CurrAlphaState` (working-name cache, NOT an original symbol).
+    pub curr_alpha_state: u32,
+    /// `m_CurrColorOp` (working-name cache, NOT an original symbol).
+    pub curr_color_op: u32,
+    /// `m_CurrAlphaOp` (working-name cache, NOT an original symbol).
+    pub curr_alpha_op: u32,
+    /// `m_AlphaRef` live value read by the TEST arm.
+    pub alpha_ref: u32,
     /// `m_CurrVertexFormat`.
     pub curr_vertex_format: u32,
     /// `m_CurrColorOp1` (working-name cache, NOT an original symbol).
@@ -115,6 +135,12 @@ impl Default for RenderState {
     fn default() -> Self {
         Self {
             curr_blend: 0,
+            curr_alpha_state: 0,
+            curr_color_op: 0,
+            curr_alpha_op: 0,
+            // LS3DF render-state default, borrowed from the IGraph global:
+            // `uint m_AlphaRef = 0x20` (IGraph.cpp:403; reset at :534).
+            alpha_ref: 0x20,
             curr_vertex_format: 0,
             curr_color_op1: 0,
             curr_cull: 0,
@@ -137,6 +163,28 @@ pub trait BlendBackend {
     fn set_src_blend(&mut self, mode: u32);
     /// `SetRenderState(D3DRS_DESTBLEND, mode)`.
     fn set_dest_blend(&mut self, mode: u32);
+}
+
+/// Device effects for `SetAlphaState` behind a backend trait.
+pub trait AlphaStateBackend {
+    /// `SetRenderState(D3DRS_ALPHABLENDENABLE, enable)`.
+    fn set_alpha_blend_enable(&mut self, enable: bool);
+    /// `SetRenderState(D3DRS_ALPHATESTENABLE, enable)`.
+    fn set_alpha_test_enable(&mut self, enable: bool);
+    /// `SetRenderState(D3DRS_ALPHAREF, value)`.
+    fn set_alpha_ref(&mut self, value: u32);
+}
+
+/// Device effects for `SetColorOp` behind a backend trait.
+pub trait ColorOpBackend {
+    /// `SetTextureStageState(0, D3DTSS_COLOROP, op)`.
+    fn set_color_op(&mut self, op: u32);
+}
+
+/// Device effects for `SetAlphaOp` behind a backend trait.
+pub trait AlphaOpBackend {
+    /// `SetTextureStageState(0, D3DTSS_ALPHAOP, op)`.
+    fn set_alpha_op(&mut self, op: u32);
 }
 
 /// Typed vertex-shader selection for `SetVertexFormat`.
@@ -235,6 +283,65 @@ pub fn set_blend_state(state: &mut RenderState, value: u32, backend: &mut impl B
         }
         _ => {}
     }
+}
+
+/// LS3DF RVA 0xaa30 `SetAlphaState` (mafia-re `ls3df/I3D/I3D.h:4464`;
+/// working name, mafia-re guess, NOT an original symbol; LS3DF11 RVA
+/// 0xa6c0). Cache guard, store-before-switch, then the 4-arm blend/test/ref
+/// switch. Unknown selectors store with no device call (the missing
+/// `default` arm). The TEST arm rereads the live `alpha_ref` at effect
+/// time, matching the native `m_AlphaRef` read. No floating-point work.
+pub fn set_alpha_state(state: &mut RenderState, value: u32, backend: &mut impl AlphaStateBackend) {
+    if state.curr_alpha_state == value {
+        return;
+    }
+    state.curr_alpha_state = value;
+    match value {
+        ALPHASTATE_NONE => {
+            backend.set_alpha_blend_enable(false);
+            backend.set_alpha_test_enable(false);
+        }
+        ALPHASTATE_BLEND => {
+            backend.set_alpha_blend_enable(true);
+            backend.set_alpha_test_enable(true);
+            backend.set_alpha_ref(1);
+        }
+        ALPHASTATE_TEST => {
+            backend.set_alpha_blend_enable(false);
+            backend.set_alpha_test_enable(true);
+            backend.set_alpha_ref(state.alpha_ref);
+        }
+        ALPHASTATE_BLEND_ALL => {
+            backend.set_alpha_blend_enable(true);
+            backend.set_alpha_test_enable(true);
+            backend.set_alpha_ref(0);
+        }
+        _ => {}
+    }
+}
+
+/// LS3DF RVA 0xac30 `SetColorOp` (mafia-re `ls3df/I3D/I3D.h:4495`;
+/// working name, mafia-re guess, NOT an original symbol; LS3DF11 RVA
+/// 0xa8c0). Cache guard, store, then the stage-0 color op. Distinct from
+/// stage-1 `set_color_op1` at 0x29f30. No floating-point work.
+pub fn set_color_op(state: &mut RenderState, op: u32, backend: &mut impl ColorOpBackend) {
+    if state.curr_color_op == op {
+        return;
+    }
+    state.curr_color_op = op;
+    backend.set_color_op(op);
+}
+
+/// LS3DF RVA 0xac60 `SetAlphaOp` (mafia-re `ls3df/I3D/I3D.h:4506`;
+/// working name, mafia-re guess, NOT an original symbol; LS3DF11 RVA
+/// 0xa8f0). Cache guard, store, then the stage-0 alpha op. No
+/// floating-point work.
+pub fn set_alpha_op(state: &mut RenderState, op: u32, backend: &mut impl AlphaOpBackend) {
+    if state.curr_alpha_op == op {
+        return;
+    }
+    state.curr_alpha_op = op;
+    backend.set_alpha_op(op);
 }
 
 /// LS3DF RVA 0xae50 `SetVertexFormat` (mafia-re
@@ -700,5 +807,99 @@ mod tests {
         let mut backend = FogLog { events: Vec::new() };
         set_fog(&mut state, 1, FOGTYPE_LINEAR, 1.0, 9.0, 0x0, &mut backend);
         assert!(backend.events.contains(&"mode:false:3".to_string()));
+    }
+
+    struct AlphaLog {
+        events: Vec<String>,
+    }
+    impl AlphaStateBackend for AlphaLog {
+        fn set_alpha_blend_enable(&mut self, enable: bool) {
+            self.events.push(format!("blend:{enable}"));
+        }
+        fn set_alpha_test_enable(&mut self, enable: bool) {
+            self.events.push(format!("test:{enable}"));
+        }
+        fn set_alpha_ref(&mut self, value: u32) {
+            self.events.push(format!("ref:{value}"));
+        }
+    }
+
+    #[test]
+    fn alpha_caches_and_maps_all_modes_with_store_before_switch() {
+        let mut state = RenderState::default();
+        let mut backend = AlphaLog { events: Vec::new() };
+        state.curr_alpha_state = ALPHASTATE_NONE;
+        set_alpha_state(&mut state, ALPHASTATE_NONE, &mut backend);
+        assert!(backend.events.is_empty());
+        state.curr_alpha_state = 99;
+        backend.events.clear();
+        set_alpha_state(&mut state, ALPHASTATE_NONE, &mut backend);
+        assert_eq!(state.curr_alpha_state, ALPHASTATE_NONE);
+        assert_eq!(backend.events, vec!["blend:false", "test:false"]);
+        state.curr_alpha_state = 99;
+        backend.events.clear();
+        set_alpha_state(&mut state, ALPHASTATE_BLEND, &mut backend);
+        assert_eq!(backend.events, vec!["blend:true", "test:true", "ref:1"]);
+        state.curr_alpha_state = 99;
+        state.alpha_ref = 0x20;
+        backend.events.clear();
+        set_alpha_state(&mut state, ALPHASTATE_TEST, &mut backend);
+        assert_eq!(backend.events, vec!["blend:false", "test:true", "ref:32"]);
+        state.curr_alpha_state = 99;
+        backend.events.clear();
+        set_alpha_state(&mut state, ALPHASTATE_BLEND_ALL, &mut backend);
+        assert_eq!(backend.events, vec!["blend:true", "test:true", "ref:0"]);
+        state.curr_alpha_state = 0;
+        backend.events.clear();
+        set_alpha_state(&mut state, 91, &mut backend);
+        assert_eq!(state.curr_alpha_state, 91);
+        assert!(backend.events.is_empty());
+    }
+
+    struct Stage0Log {
+        ops: Vec<u32>,
+    }
+    impl ColorOpBackend for Stage0Log {
+        fn set_color_op(&mut self, op: u32) {
+            self.ops.push(op);
+        }
+    }
+    impl AlphaOpBackend for Stage0Log {
+        fn set_alpha_op(&mut self, op: u32) {
+            self.ops.push(op);
+        }
+    }
+    impl ColorOp1Backend for Stage0Log {
+        fn set_color_op1(&mut self, op: u32) {
+            self.ops.push(op);
+        }
+    }
+
+    #[test]
+    fn stage0_color_op_caches_then_forwards_every_op() {
+        let mut state = RenderState::default();
+        state.curr_color_op = 4;
+        let mut backend = Stage0Log { ops: Vec::new() };
+        set_color_op(&mut state, 4, &mut backend);
+        assert!(backend.ops.is_empty());
+        set_color_op(&mut state, 7, &mut backend);
+        assert_eq!(state.curr_color_op, 7);
+        assert_eq!(backend.ops, vec![7]);
+        // Stage caches are independent: stage 1 holds its own word.
+        set_color_op1(&mut state, 7, &mut backend);
+        assert_eq!(state.curr_color_op1, 7);
+        assert_eq!(state.curr_color_op, 7);
+    }
+
+    #[test]
+    fn stage0_alpha_op_caches_then_forwards_every_op() {
+        let mut state = RenderState::default();
+        state.curr_alpha_op = 4;
+        let mut backend = Stage0Log { ops: Vec::new() };
+        set_alpha_op(&mut state, 4, &mut backend);
+        assert!(backend.ops.is_empty());
+        set_alpha_op(&mut state, 9, &mut backend);
+        assert_eq!(state.curr_alpha_op, 9);
+        assert_eq!(backend.ops, vec![9]);
     }
 }

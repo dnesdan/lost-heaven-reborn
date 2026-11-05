@@ -187,6 +187,54 @@ pub struct TexblStruct {
 pub fn texbl_struct_teardown(entry: &mut TexblStruct) {
     entry.offsets = Vec::new();
 }
+/// Opaque 0x20-byte `RENDER_FG_HELP_STRUCT` slot for the render queue
+/// (mafia-re ls3df/I3D/I3D.h:4586-4601; PC-only working struct, 8 words).
+/// Member names are not ported; size only pins the `C_list` element width.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FaceGroupQueueEntry(pub [u32; 8]);
+/// Host projection of `ADD_FG_HELP_STRUCT` queue state for LS3DF RVA 0x659a0
+/// (mafia-re ls3df/I3D/I3D.h:4681-4700). Upstream working name
+/// `ADD_FG_HELP_STRUCT`, not an evidenced original symbol. Probe verified a
+/// formed Ghidra body (FUN_100659a0, `fgroups(0x400)` + `unknown_0c = 0`);
+/// contract tier (partial coverage: the evidenced stores are pinned, the
+/// host-zero rest is disclosed admission). Probe-pinned new ctor (not a
+/// corroboration: this is the first host owner of these stores). Partial queue projection: only
+/// the evidenced ctor stores are owned here: `unknown_0c = 0` and the `fgroups` `C_list` with grow
+/// `0x400` (array NULL, sizes zero). The `sort` list starts empty
+/// (`base NULL, res_num 0, count 0`); camera/sector/scene/`cam_pos` and the
+/// `num_opaque`/`num_transparent` counts are left unwritten natively and
+/// start at host zero/empty (disclosed, cleared by the separate `Clear`).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FaceGroupQueue {
+    pub unknown_0c: u32,
+    pub fgroup_grow: u32,
+    pub fgroups: Vec<FaceGroupQueueEntry>,
+    pub sort: Vec<u32>,
+    pub num_opaque: i32,
+    pub num_transparent: i32,
+}
+impl FaceGroupQueue {
+    /// LS3DF RVA 0x659a0 `ADD_FG_HELP_STRUCT::ctor` (mafia-re
+    /// ls3df/I3D/I3D.h:4694-4698). Upstream working name, not original.
+    pub fn new() -> Self {
+        Self {
+            unknown_0c: 0,
+            fgroup_grow: 0x400,
+            fgroups: Vec::new(),
+            sort: Vec::new(),
+            num_opaque: 0,
+            num_transparent: 0,
+        }
+    }
+    /// Empties the queue (mafia-re I3D.h:4701-4707, working name `Clear`).
+    /// Helper phase, no function credit.
+    pub fn clear_queue(&mut self) {
+        self.num_opaque = 0;
+        self.num_transparent = 0;
+        self.fgroups.clear();
+        self.sort.clear();
+    }
+}
 /// lod::SetUV per-vertex offset add (PC RVA 0x36d00): host f32 adds with the
 /// crate checked-add domain (x87 differences quarantined to the backend).
 pub fn lod_uv_pair(uv: [f32; 2], ofs: [f32; 2]) -> Result<[f32; 2], ObjectLodError> {
@@ -3788,3 +3836,33 @@ mod tests {
 pub mod object_lod;
 pub use object_lod::ObjectLodError;
 pub(crate) use object_lod::{render_derived_visual_fade, render_fade};
+
+#[cfg(test)]
+mod face_group_queue_tests {
+    use super::*;
+
+    #[test]
+    fn add_fg_help_ctor_pins_grow_and_zero_word() {
+        // LS3DF RVA 0x659a0 `ADD_FG_HELP_STRUCT::ctor`
+        // (mafia-re ls3df/I3D/I3D.h:4694-4698, working name).
+        let queue = FaceGroupQueue::new();
+        assert_eq!(queue.unknown_0c, 0);
+        assert_eq!(queue.fgroup_grow, 0x400);
+        assert!(queue.fgroups.is_empty());
+        assert!(queue.sort.is_empty());
+        assert_eq!((queue.num_opaque, queue.num_transparent), (0, 0));
+        assert_eq!(
+            std::mem::size_of::<FaceGroupQueueEntry>(),
+            0x20,
+            "RENDER_FG_HELP_STRUCT width"
+        );
+        let mut queued = FaceGroupQueue::new();
+        queued.fgroups.push(FaceGroupQueueEntry([1; 8]));
+        queued.sort.push(7);
+        queued.num_opaque = 1;
+        queued.clear_queue();
+        assert!(queued.fgroups.is_empty() && queued.sort.is_empty());
+        assert_eq!((queued.num_opaque, queued.num_transparent), (0, 0));
+        assert_eq!(queued.fgroup_grow, 0x400);
+    }
+}

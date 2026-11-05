@@ -3379,6 +3379,25 @@ impl ModelArena {
         self.graph.discard_hr_bound_vol(model.root())?;
         Ok(())
     }
+    /// LS3DF RVA 0x33480 `I3D_model::~I3D_model`
+    /// (mafia-re ls3df/I3D/frames/I3d_model.cpp:25-30). Evidenced original
+    /// name (PS2 build; file notes names are the PS2 build unless noted).
+    /// Probe verified a formed Ghidra body (FUN_10033480, Close call);
+    /// already ledger-credited (frozen port `LS3DF bounded model Close and
+    /// destruction`): NO overlay entry here. Confirm-only destructor. The body is exactly
+    /// `Close()`; native operator delete is host tombstone policy (stable
+    /// keys are never reused, dead roots fail `model_index` via the alive
+    /// frame guard). This releases the Model-kind root through the normal
+    /// `release` path, which runs `Close` exactly once at the final release:
+    /// a destroy call on a live-referenced root only drops one reference and
+    /// defers `Close` to the last release (no double epoch). A root with outstanding external references only
+    /// drops one reference and stays live (disclosed host safety; native
+    /// `delete` would free regardless).
+    pub fn destroy_model(&mut self, model: ModelKey) -> Result<(), ModelError> {
+        self.model_index(model)?;
+        self.release(model.root())?;
+        Ok(())
+    }
     pub fn lifecycle_epoch(&self, model: ModelKey) -> Result<u64, ModelError> {
         Ok(self.models[self.model_index(model)?].lifecycle_epoch)
     }
@@ -6311,5 +6330,55 @@ pub(crate) mod tests {
         // The stray model-kind root has no owning model to release through;
         // it stays resident (arena drops at test end).
         assert_eq!(arena.live_frame_count(), 1);
+    }
+}
+
+#[cfg(test)]
+mod destroy_model_tests {
+    use super::*;
+
+    #[test]
+    fn destroy_model_runs_close_once_and_retires_the_root() {
+        // LS3DF RVA 0x33480 `I3D_model::~I3D_model`
+        // (mafia-re ls3df/I3D/frames/I3d_model.cpp:25-30): body is Close.
+        let mut arena = ModelArena::default();
+        let model = arena.create_model().unwrap();
+        let root = model.root();
+        arena.destroy_model(model).unwrap();
+        assert!(matches!(
+            arena.model(model),
+            Err(ModelError::UnknownModel(_))
+        ));
+        assert!(matches!(
+            arena.frame(root),
+            Err(ModelError::UnknownFrame(_))
+        ));
+        assert!(matches!(
+            arena.destroy_model(model),
+            Err(ModelError::UnknownModel(_))
+        ));
+    }
+
+    #[test]
+    fn destroy_model_releases_members_but_keeps_external_survivors() {
+        let mut arena = ModelArena::default();
+        let model = arena.create_model().unwrap();
+        let member = arena
+            .insert(
+                I3dFrameState::dummy(),
+                None,
+                b"m".to_vec(),
+                Vec::new(),
+                Some([[0.0; 3]; 2]),
+            )
+            .unwrap();
+        arena.add_frame(model, member).unwrap();
+        arena.retain(member).unwrap();
+        arena.destroy_model(model).unwrap();
+        assert!(arena.frame(member).is_ok());
+        // Three holds (creator insert + model membership + external retain)
+        // minus the model's hold released by Close: creator + external remain.
+        assert_eq!(arena.frame(member).unwrap().references, 2);
+        arena.release(member).unwrap();
     }
 }

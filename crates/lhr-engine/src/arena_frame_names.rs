@@ -31,6 +31,12 @@ impl ModelArena {
     pub fn fast_tree_add_counter(&self) -> u32 {
         self.fast_tree.add_counter
     }
+    /// Original I3D_frame::GetName pointer projection, PC RVA 0x27570
+    /// (mafia-re ls3df/I3D/visuals/I3d_lit_object.cpp:11 note, pure-REA
+    /// out-of-line copy). Partial coverage: exposes the live original-name
+    /// pointer identity (Null vs Offset) without dereferencing; the native
+    /// `m_pName ? m_pName : ""` empty-for-null string semantics stay
+    /// caller-owned and are unpinned here. Tier contract.
     pub fn original_name_pointer(&self, key: FrameKey) -> Result<OriginalFrameName, ModelError> {
         Ok(self.frame(key)?.name_pointer)
     }
@@ -277,5 +283,37 @@ impl ModelArena {
             self.add_frame_name_registration(key)?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn get_name_pointer_tracks_null_and_allocation() {
+        // PC RVA 0x27570 (mafia-re I3d_lit_object.cpp:11 note): GetName
+        // exposes the live name pointer with empty-for-null semantics. The
+        // pointer projection pins Null vs Offset across SetName (Offset(0)
+        // is the fresh-arena first allocation; later arenas use whatever
+        // offset the allocator hands out).
+        let mut arena = ModelArena::default();
+        let key = arena.create_dummy_frame().unwrap();
+        assert_eq!(
+            arena.original_name_pointer(key).unwrap(),
+            OriginalFrameName::Null
+        );
+        arena.set_frame_name(key, Some(b"name")).unwrap();
+        assert_eq!(
+            arena.original_name_pointer(key).unwrap(),
+            OriginalFrameName::Offset(0)
+        );
+        arena.set_frame_name(key, None).unwrap();
+        assert_eq!(
+            arena.original_name_pointer(key).unwrap(),
+            OriginalFrameName::Null
+        );
+        assert!(arena.original_name_pointer(FrameKey(u32::MAX)).is_err());
+        arena.release(key).unwrap();
+        assert_eq!(arena.live_frame_count(), 0);
     }
 }

@@ -81,6 +81,10 @@ class RewriteProgressTests(unittest.TestCase):
         # 49 wave-6 visual/C-str/remap/getters: 7 differential + 42 contract
         # (29 visual STL+helpers, 5 C-str, 7 remap confirm-only, 2 getters,
         # 6 scalar-dtor shared symbols; 11 math/material + 3 C-str already
+        # ledger-credited, no entries).
+        # 24 wave-7 early/render/queues/GetName: all contract (20 early
+        # math/state, 1 Render scene pass, 2 helper-struct ctors, 1 GetName
+        # pointer projection; 21 anim + 24 frames reuse/new RVAs already
         # ledger-credited, no entries).", Tier rules applied: differential needs
         # a Ghidra body (or complete instruction walk) plus pinning tests —
         # this includes confirm-only bodies that corroborate a pre-existing
@@ -88,7 +92,7 @@ class RewriteProgressTests(unittest.TestCase):
         # ABI-only teardown bodies (vtable re-store + base tailjump, no
         # portable state effect), and partial-coverage ports. Same standard
         # as 0x2b830 throughout.
-        self.assertEqual(ls3df["ported"], 145 + 777)
+        self.assertEqual(ls3df["ported"], 145 + 801)
         self.assertEqual(ls3df["verified"], 145 + 253)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):

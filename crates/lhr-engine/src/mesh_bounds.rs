@@ -227,6 +227,34 @@ where
     Ok(())
 }
 
+/// LS3DF RVA 0x14dd0, VA 0x10014dd0. `I3D_bbox::Absorb` (mafia-re ab67b13
+/// `ls3df/I3D/I3d_math.h:473`; PS2 `Absorb__8I3D_bboxFRC8S_vector`; the
+/// out-of-line copy the linker kept lives in collision code). Grows the box
+/// to hold the point with six strict `>`/`<` compares in min.x, max.x,
+/// min.y, max.y, min.z, max.z order. Direct comparisons keep the native
+/// NaN flow (NaN absorbs nothing). Pure copies, no arithmetic. Tier
+/// contract (wave policy: no Ghidra body observed).
+pub fn absorb_point_into_bbox(bbox: &mut [[f32; 3]; 2], point: [f32; 3]) {
+    if bbox[0][0] > point[0] {
+        bbox[0][0] = point[0];
+    }
+    if bbox[1][0] < point[0] {
+        bbox[1][0] = point[0];
+    }
+    if bbox[0][1] > point[1] {
+        bbox[0][1] = point[1];
+    }
+    if bbox[1][1] < point[1] {
+        bbox[1][1] = point[1];
+    }
+    if bbox[0][2] > point[2] {
+        bbox[0][2] = point[2];
+    }
+    if bbox[1][2] < point[2] {
+        bbox[1][2] = point[2];
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -418,5 +446,17 @@ mod tests {
         assert_eq!(corners[4][0].to_bits(), (-0_f32).to_bits());
         assert_eq!(corners[0][1].to_bits(), 0_f32.to_bits());
         assert_eq!(corners[2][1].to_bits(), (-0_f32).to_bits());
+    }
+
+    #[test]
+    fn absorb_grows_each_axis_in_native_order() {
+        let mut bbox = [[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]];
+        absorb_point_into_bbox(&mut bbox, [-1.0, 2.0, 0.5]);
+        assert_eq!(bbox, [[-1.0, 0.0, 0.0], [1.0, 2.0, 1.0]]);
+        absorb_point_into_bbox(&mut bbox, [0.5, 0.5, 0.5]);
+        assert_eq!(bbox, [[-1.0, 0.0, 0.0], [1.0, 2.0, 1.0]]);
+        let mut bbox = [[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]];
+        absorb_point_into_bbox(&mut bbox, [f32::NAN, f32::NAN, f32::NAN]);
+        assert_eq!(bbox, [[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]]);
     }
 }

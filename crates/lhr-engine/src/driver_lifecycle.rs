@@ -151,6 +151,9 @@ pub struct DriverLifecycle {
     pub icon_materials: Vec<Option<DriverMaterialId>>,
     pub font_material: Option<DriverMaterialId>,
     pub volume_stats: [u32; 8],
+    /// `next_emitor_id` (the name is ours, per the driver header note; the
+    /// original keeps the next emitter id here, each emitter taking it).
+    pub next_emitor_id: u16,
 }
 
 impl Default for DriverLifecycle {
@@ -170,8 +173,39 @@ impl Default for DriverLifecycle {
             icon_materials: Vec::new(),
             font_material: None,
             volume_stats: [0; 8],
+            next_emitor_id: 0,
         }
     }
+}
+
+/// Clip-array release behind a backend trait.
+pub trait DriverDestroyBackend {
+    /// `FreeClipArrays()` (clipper.cpp).
+    fn free_clip_arrays(&mut self);
+    /// `dbgPrintf("!! I3D_driver was initialised, but not closed")`.
+    fn warn_initialized_without_close(&mut self);
+}
+
+/// LS3DF RVA 0x15620, VA 0x10015620. Evidenced name `I3D_driver::I3D_driver`
+/// from mafia-re `ls3df/I3D/I3d_driver.cpp:153`. Stores
+/// `next_emitor_id = 0`; every other word keeps its zeroed-bank value
+/// (matching `Default`). No device call.
+pub fn driver_create() -> DriverLifecycle {
+    DriverLifecycle {
+        next_emitor_id: 0,
+        ..Default::default()
+    }
+}
+
+/// LS3DF RVA 0x15670, VA 0x10015670. Evidenced name `I3D_driver::~I3D_driver`
+/// from mafia-re `ls3df/I3D/I3d_driver.cpp:160`. Warns when `is_init` is
+/// still set (the native `I3DIsInit` diagnostic), then releases the clip
+/// arrays through the backend. No state is cleared: the object is gone.
+pub fn driver_destroy(state: &DriverLifecycle, backend: &mut impl DriverDestroyBackend) {
+    if state.is_init {
+        backend.warn_initialized_without_close();
+    }
+    backend.free_clip_arrays();
 }
 
 /// LS3DF RVA 0x15730. Evidenced name I3D_driver::Tick from mafia-re
@@ -528,5 +562,36 @@ mod tests {
             assert_eq!(guard, [1u32; 8]);
         }
         assert_eq!(diag.invalid, vec![7, 8, 0x7fff_ffff, u32::MAX]);
+    }
+
+    struct DestroyLog {
+        events: Vec<String>,
+    }
+    impl DriverDestroyBackend for DestroyLog {
+        fn free_clip_arrays(&mut self) {
+            self.events.push("free_clip".to_string());
+        }
+        fn warn_initialized_without_close(&mut self) {
+            self.events.push("warn_init".to_string());
+        }
+    }
+
+    #[test]
+    fn create_zeroes_emitter_and_destroy_frees_clip() {
+        let created = driver_create();
+        assert_eq!(created.next_emitor_id, 0);
+        assert_eq!(created, DriverLifecycle::default());
+        let mut clean = DriverLifecycle::default();
+        clean.is_init = false;
+        let mut backend = DestroyLog { events: Vec::new() };
+        driver_destroy(&clean, &mut backend);
+        assert_eq!(backend.events, vec!["free_clip"]);
+        let mut dirty = DriverLifecycle::default();
+        dirty.is_init = true;
+        dirty.next_emitor_id = 7;
+        let mut backend = DestroyLog { events: Vec::new() };
+        driver_destroy(&dirty, &mut backend);
+        assert_eq!(backend.events, vec!["warn_init", "free_clip"]);
+        assert!(dirty.is_init, "destroy leaves the gone object alone");
     }
 }
