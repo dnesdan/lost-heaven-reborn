@@ -488,6 +488,59 @@ impl ModelArena {
             12,
         )
     }
+    /// LS3DF RVA 0x3ac00 (VA 0x1003ac00). Researcher name
+    /// `I3D_occluder::Duplicate` geometry half from mafia-re
+    /// `ls3df/I3D/frames/I3d_occluder.cpp:232-245` (never an original
+    /// symbol: Ghidra forms no body — LAB_1003ac00, `not_in_procedure`).
+    /// Contract tier: entry bytes show the NULL check and base-Duplicate
+    /// call; the base `I3D_frame::Duplicate` result is a backend contract
+    /// and is NOT credited here — this ports only the
+    /// `Build(verts, num_verts, faces, num_faces, 12)` tail, which copies
+    /// the written vertex/face words (0x148, 0x150) including nonfinite
+    /// vertices and unchecked indices (bounded only at a later UpdateV, as
+    /// the existing strided Build; the 0x14c mirror buffer is allocated but
+    /// never written by either, so it is not copied).
+    /// The NULL-input branch has no typed counterpart: dangling/foreign
+    /// keys yield `UnknownOccluder`/`ForeignArena` instead of
+    /// `I3DERR_INVALIDPARAMS` (disclosed). All stored frames are occluders,
+    /// so the non-occluder early-return arm has no typed counterpart either
+    /// (disclosed). Returns 0 (`I3D_OK`).
+    /// Effect order: donor snapshot (counts, then vertex words, then face
+    /// words) completes before any target write. Source
+    /// I3d_occluder.cpp:235-245 discards Build's return (`Build(...);
+    /// return result;`): a Build OOM still returns the base-Duplicate
+    /// result, mirrored here as best-effort Build + always Ok(0). Target
+    /// residue follows Build's free-first order (partial teardown on OOM),
+    /// never atomicity.
+    pub fn occluder_duplicate_geometry(
+        &mut self,
+        key: OccluderKey,
+        donor: OccluderKey,
+    ) -> Result<u32, ModelError> {
+        self.occluder_index(key)?;
+        let (nv, nf, vbytes, fbytes) = {
+            let d = self.occluder(donor)?;
+            let nv = d.word(0x140).ok_or(OccluderError::GeometryUnavailable)?;
+            let nf = d.word(0x144).ok_or(OccluderError::GeometryUnavailable)?;
+            // Only the written buffers are copied (0x148 verts, 0x150
+            // faces); the 0x14c mirror is allocated-but-unwritten.
+            let vbuf = d.buffer(0x148).ok_or(OccluderError::BufferUnavailable)?;
+            let fbuf = d.buffer(0x150).ok_or(OccluderError::BufferUnavailable)?;
+            let v = self
+                .occluder_storage
+                .bytes(vbuf)
+                .map_err(|_| OccluderError::BufferUnavailable)?
+                .to_vec();
+            let f = self
+                .occluder_storage
+                .bytes(fbuf)
+                .map_err(|_| OccluderError::BufferUnavailable)?
+                .to_vec();
+            (nv, nf, v, f)
+        };
+        let _ = self.occluder_build_strided(key, &vbytes, nv, &fbytes, nf, 12);
+        Ok(0)
+    }
     /// Native Build(v,n,f,n,stride), RVA0x3ac60. Copies raw words, including
     /// nonfinite vertices and unchecked indices; unsafe dereference is bounded
     /// only when a later UpdateV actually uses the face indices.
@@ -1586,5 +1639,121 @@ mod tests {
         assert_eq!(arena.occluder(key).unwrap().word(0x140), Some(0));
         assert_eq!(arena.occluder_storage().live_allocations(), 0);
         arena.release(key.frame()).unwrap();
+    }
+
+    #[test]
+    fn occluder_duplicate_geometry_round_trips_raw_words() {
+        // LS3DF 0x3ac00 geometry half: raw-word copy incl. nonfinite
+        // vertices (NaN payload preserved, never normalized) and unchecked
+        // indices.
+        let mut arena = ModelArena::default();
+        let donor = arena.create_occluder().unwrap();
+        const NV: [[f32; 3]; 3] = [
+            [0., 0., 0.],
+            [f32::from_bits(0x7fc00000), 1., 0.],
+            [0., 1., 0.],
+        ];
+        const NF: [[u16; 3]; 1] = [[0, 1, 2]];
+        assert_eq!(arena.occluder_build(donor, &NV, &NF).unwrap(), 0);
+        let target = arena.create_occluder().unwrap();
+        assert_eq!(arena.occluder_duplicate_geometry(target, donor).unwrap(), 0);
+        for offset in [0x148u32, 0x150u32] {
+            let (d, tt) = (
+                arena
+                    .occluder(donor)
+                    .unwrap()
+                    .buffer(offset as usize)
+                    .unwrap(),
+                arena
+                    .occluder(target)
+                    .unwrap()
+                    .buffer(offset as usize)
+                    .unwrap(),
+            );
+            assert_ne!(d, tt); // independent buffers, no aliasing
+            assert_eq!(
+                arena.occluder_storage().bytes(d).unwrap(),
+                arena.occluder_storage().bytes(tt).unwrap()
+            );
+        }
+        // NaN guard payload bit-exact through the copy.
+        let tbuf = arena.occluder(target).unwrap().buffer(0x148).unwrap();
+        let bytes = arena.occluder_storage().bytes(tbuf).unwrap();
+        assert_eq!(
+            u32::from_le_bytes(bytes[12..16].try_into().unwrap()),
+            0x7fc00000
+        );
+        // Residue: donor intact (counts + live bytes doubled, not moved).
+        assert_eq!(arena.occluder(donor).unwrap().word(0x140), Some(3));
+        // Order + failure words: foreign donor fails BEFORE any target write.
+        let mut foreign = ModelArena::default();
+        let ghost = foreign.create_occluder().unwrap();
+        let before = arena.occluder_storage().live_allocations();
+        let err = arena
+            .occluder_duplicate_geometry(target, ghost)
+            .unwrap_err();
+        assert_eq!(err, ModelError::Occluder(OccluderError::ForeignArena));
+        assert_eq!(arena.occluder_storage().live_allocations(), before);
+    }
+    #[test]
+    fn build_adjacency_single_triangle_self_neighbor_ring() {
+        // Ghidra FUN_1003ad90 (39 BB/913 B/269 insn): lone triangle edges
+        // ring to themselves; flags zeroed; radius preset to 1.0.
+        let mut arena = ModelArena::default();
+        let key = arena.create_occluder().unwrap();
+        assert_eq!(arena.occluder_build(key, &V, &F).unwrap(), 0);
+        // Lone triangle: single flag word zeroed; neighbor-ring buffer
+        // present; radius preset to 1.0. All three edge_faces are 0
+        // (self-neighbors) with the identity side permutation [0,1,2].
+        assert_eq!(words(&arena, key, 0x15c), vec![0]);
+        assert_eq!(
+            arena
+                .occluder_storage()
+                .bytes(arena.occluder(key).unwrap().buffer(0x15c).unwrap())
+                .unwrap(),
+            [0, 0, 0, 0, 0, 0]
+        );
+        assert_eq!(
+            arena
+                .occluder_storage()
+                .bytes(arena.occluder(key).unwrap().buffer(0x160).unwrap())
+                .unwrap(),
+            [0, 1, 2]
+        );
+        assert!(arena.occluder(key).unwrap().buffer(0x168).is_some());
+        assert_eq!(
+            arena.occluder(key).unwrap().word(0x5d8),
+            Some(1.0f32.to_bits())
+        );
+    }
+    #[test]
+    fn update_lists_links_sector_order_and_second_call_is_noop() {
+        // LS3DF 0x3bec0 (UOL walk via descendants) + 0x3bf30 (changed-gate):
+        // Ghidra FUN_1003bec0 12 BB/106 B/30 insn; FUN_1003bf30 28 BB/276 B/77 insn.
+        let mut world = World::new();
+        let key = world.occluder();
+        let primary = world.arena.scene(world.scene).unwrap().sectors[0].frame();
+        world.arena.occluder_build(key, &V, &F).unwrap();
+        world
+            .arena
+            .link_frame(key.frame(), Some(primary), 0)
+            .unwrap();
+        let rings = world.arena.visibility_sector_ring(world.scene).unwrap();
+        let mut log = Vec::new();
+        log.push(world.arena.scene_occluder_ring(world.scene).unwrap());
+        crate::occluder_visibility::update_lists(&mut world.arena, world.scene, &rings).unwrap();
+        log.push(world.arena.scene_occluder_ring(world.scene).unwrap());
+        assert_eq!(log[0].1, 1);
+        assert_eq!(log[1], (log[0].0, 1, true, false));
+        let sct = world.arena.scene(world.scene).unwrap().sectors[0];
+        assert_eq!(world.arena.sector_occluder_links(sct).unwrap().0, Some(key));
+        crate::occluder_visibility::update_lists(&mut world.arena, world.scene, &rings).unwrap();
+        assert_eq!(
+            world.arena.scene_occluder_ring(world.scene).unwrap(),
+            log[1]
+        );
+        assert_eq!(world.arena.sector_occluder_links(sct).unwrap().0, Some(key));
+        world.arena.release(key.frame()).unwrap();
+        world.destroy();
     }
 }

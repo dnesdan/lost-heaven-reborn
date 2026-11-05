@@ -27,7 +27,7 @@ The cards count each binary's own functions, without the C runtime linked into i
 | Binary | Implemented | Verified |
 | --- | ---: | ---: |
 | `Game.exe` | 172/4914* | 154 |
-| `LS3DF.dll` | 608/1714 | 368 |
+| `LS3DF.dll` | 706/1714 | 388 |
 | `rw_data.dll` | 24/62 + 38 covered | 17 |
 | `Setup.exe (supplied configuration)` | 5/172 | 5 |
 

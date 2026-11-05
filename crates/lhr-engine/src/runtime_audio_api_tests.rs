@@ -309,3 +309,105 @@ fn immediate_update_failure_preserves_the_reached_enable_prefix() {
         state_words(&legacy.sound(7).unwrap())
     );
 }
+
+#[test]
+fn pin_setter_guards_flags_and_caps() {
+    // RVAs 0x57d30/0x57dd0/0x57eb0/0x57f90/0x57fd0/0x580e0/0x58120.
+    let (audio, id) = loaded();
+    let flag = |h| audio.read_sound_word(h, 0x140).unwrap();
+    let before = flag(7);
+    audio.set_sound_volume(&id, 1.0).unwrap();
+    assert_eq!(flag(7), before);
+    audio.set_sound_volume(&id, 0.5).unwrap();
+    assert_ne!(flag(7) & 0x8, 0);
+    audio.set_sound_range(&id, [1.0, 10.0, 1.0, 0.0]).unwrap();
+    audio.set_sound_range(&id, [2.0, 20.0, 0.5, 0.25]).unwrap();
+    assert_ne!(flag(7) & 0x4, 0);
+    assert_eq!(audio.read_sound_word(7, 0x168).unwrap(), 2f32.to_bits());
+    audio.set_sound_cone(&id, [0.5, 7.0]).unwrap();
+    let cone = audio.sound(7).unwrap().cone;
+    assert_eq!(cone[1].to_bits(), std::f32::consts::PI.to_bits());
+    assert_eq!(cone[0].to_bits(), 0.5f32.to_bits());
+    assert_ne!(flag(7) & 0x40, 0);
+    audio.set_sound_outside_volume(&id, 0.25).unwrap();
+    assert_ne!(flag(7) & 0x10, 0);
+    audio.set_sound_frequency(&id, 2.0).unwrap();
+    assert_ne!(flag(7) & 0x20, 0);
+    assert!(audio.set_sound_frequency(&id, 0.0).is_err());
+    assert!(audio.set_sound_frequency(&id, f32::NAN).is_err());
+    assert_eq!(audio.sound(7).unwrap().frequency.to_bits(), 2f32.to_bits());
+    audio.set_velocity(7, [1.0, 2.0, 3.0]).unwrap();
+    assert_ne!(flag(7) & 0x2000, 0);
+    assert_eq!(audio.sound(7).unwrap().velocity, [1.0, 2.0, 3.0]);
+    audio.set_sound_kind(&id, SoundKind::Point).unwrap();
+    assert_ne!(flag(7) & 0x100, 0);
+    let words_before = state_words(&audio.sound(7).unwrap());
+    assert!(audio.set_sound_volume(&id, f32::NAN).is_err());
+    assert_eq!(state_words(&audio.sound(7).unwrap()), words_before);
+}
+#[test]
+fn pin_getters_with_synthetic_vectors() {
+    // RVAs 0x581d0/0x58210/0x58230/0x58250 (+0x58060 seek interplay).
+    let (audio, id) = loaded();
+    audio.set_sound_range(&id, [2.0, 20.0, 0.5, 0.25]).unwrap();
+    audio.set_sound_cone(&id, [0.6, 1.2]).unwrap();
+    assert_eq!(audio.read_sound_word(7, 0x168).unwrap(), 2f32.to_bits());
+    assert_eq!(audio.read_sound_word(7, 0x170).unwrap(), 20f32.to_bits());
+    assert_eq!(audio.read_sound_word(7, 0x17c).unwrap(), 0.5f32.to_bits());
+    assert_eq!(audio.read_sound_word(7, 0x184).unwrap(), 0.25f32.to_bits());
+    assert_eq!(audio.read_sound_word(7, 0x1a0).unwrap(), 0.6f32.to_bits());
+    assert_eq!(audio.read_sound_word(7, 0x1a8).unwrap(), 1.2f32.to_bits());
+    let dur = audio.sound_duration_ms(&id).unwrap();
+    assert!(dur > 0);
+    audio.set_sound_frequency(&id, 2.0).unwrap();
+    assert_eq!(audio.sound_duration_ms(&id).unwrap(), dur);
+    audio.seek_sound_ms(&id, 0).unwrap();
+    assert_eq!(audio.sound_position_ms(&id).unwrap(), 0);
+    audio.create_sound_at(9).unwrap();
+    let empty = audio.sound_id_from_handle(9).unwrap();
+    assert_eq!(audio.sound_position_ms(&empty).unwrap(), 0);
+    assert_eq!(audio.sound_duration_ms(&empty).unwrap(), 0);
+    audio.release_sound(&empty).unwrap();
+    assert_eq!(audio.live_sound_count().unwrap(), 1);
+}
+#[test]
+fn pin_is_playing_logical_boundary_vectors() {
+    // RVA 0x57c40 boundary vectors incl. wrap + real/logical split.
+    let (audio, id) = loaded();
+    audio.set_sound_kind(&id, SoundKind::Ambient).unwrap();
+    audio.set_sound_enabled(&id, true).unwrap();
+    assert!(audio.sound_is_playing(&id, PlaybackQuery::Logical).unwrap());
+    assert!(!audio.sound_is_playing(&id, PlaybackQuery::Voice).unwrap());
+    audio.update_sound(&id).unwrap();
+    assert!(audio.sound_is_playing(&id, PlaybackQuery::Voice).unwrap());
+    assert_eq!(audio.sound_virtual(7, 0x54, &[0]).unwrap(), 1);
+    assert_eq!(audio.sound_virtual(7, 0x54, &[1]).unwrap(), 1);
+    audio.seek_sound_ms(&id, u32::MAX / 2).unwrap();
+    audio.update_sound(&id).unwrap();
+    assert_eq!(
+        audio.sound(7).unwrap().state,
+        crate::runtime_audio::PlaybackState::Stop
+    );
+}
+#[test]
+fn pin_seton_update_parity_and_range_clamp() {
+    // RVAs 0x58280/0x58530/0x58540: ForceUpdate==Update parity, SetOn
+    // order, scaled-range clamp edge, out-of-range pause keeps cursor.
+    let (audio, id) = loaded();
+    audio.set_sound_kind(&id, SoundKind::Point).unwrap();
+    audio.set_sound_playback(&id, true, false).unwrap();
+    assert!(!audio.sound_is_playing(&id, PlaybackQuery::Voice).unwrap());
+    audio.sound_virtual(7, 0x90, &[]).unwrap();
+    assert!(audio.sound_is_playing(&id, PlaybackQuery::Voice).unwrap());
+    audio.set_sound_range(&id, [10.0, 10.0, 0.0, 0.5]).unwrap();
+    audio.set_world_scale(7, 1.0).unwrap();
+    audio.update_sound(&id).unwrap();
+    let s = audio.sound(7).unwrap();
+    assert_eq!((s.range[0], s.range[1], s.range[2]), (10.0, 10.0, 0.0));
+    audio
+        .set_position(7, [1000.0, 0.0, 0.0], [0.0, 0.0, 1.0])
+        .unwrap();
+    audio.update_sound(&id).unwrap();
+    assert!(!audio.sound_is_playing(&id, PlaybackQuery::Voice).unwrap());
+    assert_eq!(audio.live_sound_count().unwrap(), 1);
+}

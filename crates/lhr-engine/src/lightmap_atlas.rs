@@ -313,7 +313,218 @@ fn try_page(
     }
     Some((free, offsets))
 }
+
+/// 0x5d090 admission step (lightmap.cpp:72-154, LM_SINGLE_COLOR_SIZE=3).
+/// 3x3 → Ok(None) (keep single color, native `return true`). No
+/// minimum-dimension refusal exists natively — 1x1/2x2 convert through the
+/// format switch like any other size. The RGB copy below is the 24/32-bit
+/// true-color path; 16-bit/dither/compress stay device backends (separate
+/// boundary, never silently substituted). Length mismatch reports
+/// InvalidRectangle (disclosed hardening — native memcpys `sx*sy*3` bytes
+/// unchecked). Contract tier this wave.
+pub fn convert_lightmap_texels(w: u16, h: u16, rgb: &[u8]) -> Result<Option<Vec<u8>>, AtlasError> {
+    if w == 3 && h == 3 {
+        return Ok(None);
+    }
+    if rgb.len() != usize::from(w) * usize::from(h) * 3 {
+        return Err(AtlasError::InvalidRectangle);
+    }
+    Ok(Some(rgb.to_vec()))
+}
+
+/// 0x5e330 RGB→BGR line, pitch bytes apart. Widths u8 from byte loads/stores.
+/// Short slices panic (disclosed hardening — native memcpys out of bounds).
+/// Panic contract: callers pass `num*3 <= src.len()` and
+/// `(num-1)*pitch+3 <= dst.len()`. Contract tier this wave.
+pub fn fill_line_rgb_swap(src: &[u8], dst: &mut [u8], num: usize, pitch: usize) {
+    for i in 0..num {
+        let (r, g, b) = (src[i * 3], src[i * 3 + 1], src[i * 3 + 2]);
+        let o = i * pitch;
+        dst[o] = b;
+        dst[o + 1] = g;
+        dst[o + 2] = r;
+    }
+}
+
+/// Portable free-list rows [x,y,w,h] so overlay symbols stay on pub items
+/// (the pack-internal FreeRect path is separate and untouched).
+/// 0x5da90: `<3` on either axis → lost (`true`), else area-sorted insert.
+/// The native lost_area/free_area accounting stays with the pack-internal
+/// path (pool selection there uses the dynamic free_area() sum); this
+/// portable row list only orders. Contract tier this wave.
+pub fn insert_sorted_free_rect(free: &mut Vec<[u16; 4]>, rect: [u16; 4]) -> bool {
+    let [_, _, w, h] = rect;
+    if w < 3 || h < 3 {
+        return true;
+    }
+    let area = u32::from(w) * u32::from(h);
+    let at = free
+        .iter()
+        .position(|r| u32::from(r[2]) * u32::from(r[3]) >= area)
+        .unwrap_or(free.len());
+    free.insert(at, rect);
+    true
+}
+
+/// 0x5dbb0: unlink done by the caller (Vec::remove); this re-sorts or drops
+/// sub-3 leftovers exactly like the native replace arm. Contract tier this wave.
+pub fn reinsert_shrunk_free_rect(free: &mut Vec<[u16; 4]>, rect: [u16; 4]) -> bool {
+    insert_sorted_free_rect(free, rect)
+}
+
+/// 0x5dca0: append copies preserving order. Contract tier this wave.
+pub fn duplicate_free_list(src: &[[u16; 4]]) -> Vec<[u16; 4]> {
+    src.to_vec()
+}
+
+/// 0x5dd40 m_AddTexture, ported arm-for-arm from the reference: first fit in
+/// list order; mode 1 = as-is, mode 3 = rotated, mode 2 = as-is unless the
+/// max-leftover comparison picks the rotated split (offsets then report
+/// rotated). Exact-fit removes the rect; strip fits shrink + re-sort; split
+/// fits shrink + re-sort + add (sub-3 leftovers dropped via the insert).
+/// Returns [x, y, rotated]. Areas in i32 like the native int arithmetic
+/// (and the pack-internal path), with wrapping ops: native 32-bit products
+/// wrap identically, and `as u16` packs truncate exactly like the native
+/// ushort stores. Branch guards make every subtraction non-negative, so no
+/// wrap is reachable on either side at atlas sizes. Contract tier this wave.
+pub fn place_lightmap_rect(free: &mut Vec<[u16; 4]>, sx: u16, sy: u16) -> Option<[u16; 3]> {
+    let (idx, mode) = free.iter().enumerate().find_map(|(i, r)| {
+        let (w, h) = (u32::from(r[2]), u32::from(r[3]));
+        let (sx, sy) = (u32::from(sx), u32::from(sy));
+        if w >= sx && h >= sy {
+            if (h >= sx && w == sy) || (h == sx && w >= sy) {
+                Some((i, 3))
+            } else if h >= sx && w >= sy {
+                Some((i, 2))
+            } else {
+                Some((i, 1))
+            }
+        } else if h >= sx && w >= sy {
+            Some((i, 3))
+        } else {
+            None
+        }
+    })?;
+    let r = free.remove(idx);
+    let (x, y, w, h) = (
+        u32::from(r[0]),
+        u32::from(r[1]),
+        u32::from(r[2]),
+        u32::from(r[3]),
+    );
+    let (sx, sy) = (u32::from(sx), u32::from(sy));
+    let pack = |v: u32| v as u16;
+    let pack4 = |r: [u32; 4]| [r[0] as u16, r[1] as u16, r[2] as u16, r[3] as u16];
+    if mode == 3 {
+        if w == sy && h == sx {
+            return Some([pack(x), pack(y), 1]);
+        }
+        if w == sy {
+            // Remaining bottom strip: full width, height h-sx.
+            insert_sorted_free_rect(free, [pack(x), pack(y + sx), pack(w), pack(h - sx)]);
+            return Some([pack(x), pack(y), 1]);
+        }
+        if h == sx {
+            // Remaining right strip.
+            insert_sorted_free_rect(free, [pack(x + sy), pack(y), pack(w - sy), pack(h)]);
+            return Some([pack(x), pack(y), 1]);
+        }
+        let b1 = (h as i32).wrapping_sub(sx as i32).wrapping_mul(w as i32);
+        let b2 = (w as i32).wrapping_sub(sy as i32).wrapping_mul(h as i32);
+        let (mut kept, mut nr) = ([x, y, w, h], [x, y, w, h]);
+        nr[1] += sx;
+        kept[0] += sy;
+        if b1 >= b2 {
+            nr[2] = sy;
+            nr[3] -= sx;
+            kept[2] -= sy;
+        } else {
+            nr[3] -= sx;
+            kept[3] = sx;
+            kept[2] -= sy;
+        }
+        insert_sorted_free_rect(free, pack4(kept));
+        insert_sorted_free_rect(free, pack4(nr));
+        return Some([pack(x), pack(y), 1]);
+    }
+    // Modes 1/2 place as-is; mode 2 may still rotate on max-leftover wins.
+    if w == sx && h == sy {
+        return Some([pack(x), pack(y), 0]);
+    }
+    if w == sx {
+        insert_sorted_free_rect(free, [pack(x), pack(y + sy), pack(w), pack(h - sy)]);
+        return Some([pack(x), pack(y), 0]);
+    }
+    if h == sy {
+        insert_sorted_free_rect(free, [pack(x + sx), pack(y), pack(w - sx), pack(h)]);
+        return Some([pack(x), pack(y), 0]);
+    }
+    let a1 = (w as i32).wrapping_sub(sx as i32).wrapping_mul(h as i32);
+    let a2 = (h as i32).wrapping_sub(sy as i32).wrapping_mul(w as i32);
+    let a3 = (h as i32).wrapping_sub(sx as i32).wrapping_mul(w as i32);
+    let a4 = (w as i32).wrapping_sub(sy as i32).wrapping_mul(h as i32);
+    let m = a1.max(a2).max(a3).max(a4);
+    let (mut kept, mut nr) = ([x, y, w, h], [x, y, w, h]);
+    if mode == 1 || m == a1 || m == a2 {
+        nr[1] += sy;
+        kept[0] += sx;
+        if m == a1 {
+            nr[2] = sx;
+            nr[3] -= sy;
+            kept[2] -= sx;
+        } else {
+            nr[3] -= sy;
+            kept[3] = sy;
+            kept[2] -= sx;
+        }
+        insert_sorted_free_rect(free, pack4(kept));
+        insert_sorted_free_rect(free, pack4(nr));
+        Some([pack(x), pack(y), 0])
+    } else {
+        // Mode 2 rotated split: offsets report rotated (native pop/push).
+        nr[1] += sx;
+        kept[0] += sy;
+        if m == a3 {
+            nr[2] = sy;
+            nr[3] -= sx;
+            kept[2] -= sy;
+        } else {
+            nr[3] -= sx;
+            kept[3] = sx;
+            kept[2] -= sy;
+        }
+        insert_sorted_free_rect(free, pack4(kept));
+        insert_sorted_free_rect(free, pack4(nr));
+        Some([pack(x), pack(y), 1])
+    }
+}
+
+/// 0x5e3a0 frontend: IGraph::ResizeImage is a backend contract; this
+/// validates dims and filters ORIGINAL pixels (never cumulative), like pack.
+/// Contract tier this wave.
+pub fn resize_lightmap_rgb(
+    src_size: [u16; 2],
+    rgb: &[u8],
+    dst_size: [u16; 2],
+) -> Result<Box<[u8]>, AtlasError> {
+    resize::resize_rgb_source(src_size, rgb, dst_size).map_err(AtlasError::Resize)
+}
 impl LightmapAtlasPool {
+    /// 0x5d520 ctor: empty texture + sized offset/order lists (host: empty
+    /// pages, zero allocations). Contract tier this wave.
+    pub fn new() -> Self {
+        Self::default()
+    }
+    /// 0x5d550 destructor remainder: drop dead textures (Release≤0 path),
+    /// keep live pages sorted (refill-white + resort path). D3D Release /
+    /// Fill / texture-list ops are backend contracts; ownership/order modeled.
+    /// Contract tier this wave.
+    pub fn retain_live_pages(&mut self) {
+        if let Ok(mut s) = self.state.lock() {
+            s.pages.retain(|p| p.texture.strong_count() != 0);
+            s.pages.sort_by_key(|p| p.free_area());
+        }
+    }
     /// Counts actual live pages and distinct allocation leases. Weak stale
     /// page slots do not count as owned atlas textures.
     pub fn statistics(&self) -> AtlasStatistics {
@@ -660,5 +871,76 @@ mod tests {
         assert_eq!([placements[0].width, placements[0].height], [3, 127]);
         drop((atlas, lease));
         assert!(pool.state.lock().unwrap().pages.is_empty());
+    }
+
+    #[test]
+    fn pin_lightmap_rect_order_and_swap() {
+        // RVAs 0x5da90/0x5dbb0/0x5dca0/0x5e330/0x5d090/0x5e3a0: sorted
+        // insert, lost-area rule, order-preserving duplicate, BGR swap,
+        // 3x3 admission, identity resize.
+        let mut free = vec![[0u16, 0, 128, 128]];
+        assert!(insert_sorted_free_rect(&mut vec![], [0, 0, 2, 4]));
+        insert_sorted_free_rect(&mut free, [10, 10, 4, 4]);
+        assert_eq!(free[0], [10, 10, 4, 4]);
+        assert_eq!(duplicate_free_list(&free), free);
+        let src = vec![1u8, 2, 3, 4, 5, 6];
+        let mut dst = vec![0u8; 6];
+        fill_line_rgb_swap(&src, &mut dst, 2, 3);
+        assert_eq!(dst, vec![3, 2, 1, 6, 5, 4]);
+        assert!(convert_lightmap_texels(3, 3, &[0; 27]).unwrap().is_none());
+        // No minimum-dimension refusal natively: 1x1/2x2 convert like the rest.
+        assert_eq!(
+            convert_lightmap_texels(2, 2, &[9; 12]).unwrap(),
+            Some(vec![9; 12])
+        );
+        assert_eq!(
+            convert_lightmap_texels(1, 1, &[7; 3]).unwrap(),
+            Some(vec![7; 3])
+        );
+        assert!(convert_lightmap_texels(2, 2, &[9; 11]).is_err());
+        let r = resize_lightmap_rgb([4, 4], &[7; 48], [4, 4]).unwrap();
+        assert_eq!(&*r, &[7; 48]);
+    }
+    #[test]
+    fn pin_place_modes_and_splits() {
+        // RVA 0x5dd40: exact-fit removal, strip shrink + re-sort, max-split
+        // choice, rotated reporting.
+        let mut free = vec![[0u16, 0, 128, 128]];
+        // Exact fit picks the rotated arm (mode 3: w==sy && h==sx).
+        assert_eq!(place_lightmap_rect(&mut free, 128, 128), Some([0, 0, 1]));
+        assert!(free.is_empty());
+        let mut free = vec![[0u16, 0, 128, 128]];
+        // 64x128 in 128x128: rotated exact-width strip, bottom remainder.
+        assert_eq!(place_lightmap_rect(&mut free, 64, 128), Some([0, 0, 1]));
+        assert_eq!(free, vec![[0, 64, 128, 64]]);
+        let mut free = vec![[0u16, 0, 64, 128]];
+        // 128x64 in 64x128: rotated exact whole-rect consumption.
+        assert_eq!(place_lightmap_rect(&mut free, 128, 64), Some([0, 0, 1]));
+        assert!(free.is_empty());
+        // As-is split (mode 2, max-leftover a2 arm): bottom strip + right piece.
+        let mut free = vec![[0u16, 0, 100, 100]];
+        assert_eq!(place_lightmap_rect(&mut free, 60, 40), Some([0, 0, 0]));
+        assert_eq!(free, vec![[60, 0, 40, 40], [0, 40, 100, 60]]);
+        assert_eq!(
+            place_lightmap_rect(&mut vec![[0u16, 0, 8, 8]], 16, 16),
+            None
+        );
+    }
+    #[test]
+    fn pin_pool_ctor_and_retain_order() {
+        // RVAs 0x5d520/0x5d550/0x5e3f0(confirm-only): ctor empty, pack
+        // tightest page, retain keeps live sorted.
+        let mut pool = LightmapAtlasPool::new();
+        assert_eq!(pool.statistics().live_pages, 0);
+        let rects = [LightmapRectangle {
+            width: 4,
+            height: 4,
+            texels: LightmapTexels::Rgb(vec![9; 48]),
+        }];
+        let (_owner, pl, _lease) = pool.pack(&rects).unwrap();
+        assert_eq!((pl[0].x, pl[0].y, pl[0].rotated), (0, 0, false));
+        pool.retain_live_pages();
+        // Owner + lease keep the texture alive: exactly one live page.
+        assert_eq!(pool.statistics().live_pages, 1);
     }
 }

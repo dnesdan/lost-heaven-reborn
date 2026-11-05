@@ -4864,6 +4864,888 @@
       "symbol": "lhr_engine::frame_area::ModelArena::area_save_image",
       "tier": "contract",
       "evidence": "mafia-re I3d_area.cpp:222-228 (unsupported-type diagnostic, no save) + no Ghidra body (LAB/not_in_procedure) + emission test; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x41800",
+      "va": "0x10041800",
+      "name": "I3D_portal::I3D_portal",
+      "symbol": "lhr_engine::frame_portal::ModelArena::create_portal",
+      "tier": "differential",
+      "evidence": "REA Ghidra FUN_10041800 1BB/72B (verified) + mafia-re I3d_portal.cpp:25-40 + test ghidra_pins_ctor_ring_update_load_shapes"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x41850",
+      "va": "0x10041850",
+      "name": "I3D_portal::~I3D_portal",
+      "symbol": "lhr_engine::frame_portal::ModelArena::delete_portal",
+      "tier": "differential",
+      "evidence": "REA Ghidra FUN_10041850 3BB/53B (verified) + mafia-re I3d_portal.cpp:43-52 + delete_portal ring/twin tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x41890",
+      "va": "0x10041890",
+      "name": "I3D_portal::AddToSceneRing",
+      "symbol": "lhr_engine::frame_portal::ModelArena::portal_add_to_scene_ring",
+      "tier": "differential",
+      "evidence": "REA Ghidra FUN_10041890 13BB/229B (verified) + mafia-re I3d_portal.cpp:56-86 + test ghidra_pins_ctor_ring_update_load_shapes"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x419e0",
+      "va": "0x100419e0",
+      "name": "I3D_portal::UpdatePortal",
+      "symbol": "lhr_engine::frame_portal::ModelArena::update_portal",
+      "tier": "differential",
+      "evidence": "REA Ghidra FUN_100419e0 39BB/1019B (verified) + mafia-re I3d_portal.cpp:114-208 + test ghidra_pins_ctor_ring_update_load_shapes"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x44600",
+      "va": "0x10044600",
+      "name": "ParsePortal",
+      "symbol": "lhr_engine::portal_visibility::parse_portal",
+      "tier": "differential",
+      "evidence": "REA Ghidra FUN_10044600 104BB/1947B/546insn (verified) + mafia-re I3d_portal.cpp:1391+ + PortalWalk walk-through tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x450a0",
+      "va": "0x100450a0",
+      "name": "UpdatePortalInterconnection",
+      "symbol": "lhr_engine::portal_visibility::ModelArena::update_portal_interconnection",
+      "tier": "differential",
+      "evidence": "REA Ghidra FUN_100450a0 85BB/1620B (verified) + mafia-re I3d_portal.cpp:1656+ + test incoming_portal_allocation_failure_retains_stores"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x458f0",
+      "va": "0x100458f0",
+      "name": "I3D_portal::LoadImage",
+      "symbol": "lhr_engine::frame_portal::ModelArena::portal_load_image",
+      "tier": "differential",
+      "evidence": "REA Ghidra FUN_100458f0 1BB/58B (verified) + mafia-re I3d_portal.cpp:1831+ + test ghidra_pins_ctor_ring_update_load_shapes"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x3a430",
+      "va": "0x1003a430",
+      "name": "I3D_occluder::I3D_occluder",
+      "symbol": "lhr_engine::frame_occluder::ModelArena::create_occluder",
+      "tier": "differential",
+      "evidence": "REA Ghidra FUN_1003a430 1BB/200B (verified) + mafia-re I3d_occluder.cpp:55-82 + create_occluder word tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x3a650",
+      "va": "0x1003a650",
+      "name": "I3D_occluder::AddToRemoveFromSceneRing",
+      "symbol": "lhr_engine::frame_occluder::ModelArena::occluder_set_scene_ring",
+      "tier": "differential",
+      "evidence": "REA Ghidra FUN_1003a650 14BB/282B (verified) + mafia-re I3d_occluder.cpp:113-147 + scene-ring tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x3ac60",
+      "va": "0x1003ac60",
+      "name": "I3D_occluder::Build",
+      "symbol": "lhr_engine::frame_occluder::ModelArena::occluder_build_strided",
+      "tier": "differential",
+      "evidence": "REA Ghidra FUN_1003ac60 15BB/297B (verified) + mafia-re I3d_occluder.cpp:249-278 + build word tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x3ad90",
+      "va": "0x1003ad90",
+      "name": "I3D_occluder::Build",
+      "symbol": "lhr_engine::frame_occluder::ModelArena::occluder_build_adjacency",
+      "tier": "differential",
+      "evidence": "REA Ghidra FUN_1003ad90 39BB/913B (verified) + mafia-re I3d_occluder.cpp:281-340 + test build_adjacency_single_triangle_self_neighbor_ring"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x3bec0",
+      "va": "0x1003bec0",
+      "name": "UOL_EnumProc",
+      "symbol": "lhr_engine::occluder_visibility::descendants",
+      "tier": "differential",
+      "evidence": "REA Ghidra FUN_1003bec0 12BB/106B (verified) + mafia-re I3d_occluder.cpp:580-596 + test update_lists_links_sector_order_and_second_call_is_noop"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x3bf30",
+      "va": "0x1003bf30",
+      "name": "OCCL_UpdateOcclLists",
+      "symbol": "lhr_engine::occluder_visibility::update_lists",
+      "tier": "differential",
+      "evidence": "REA Ghidra FUN_1003bf30 28BB/276B (verified) + mafia-re I3d_occluder.cpp:599-616 + test update_lists_links_sector_order_and_second_call_is_noop"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x3c9b0",
+      "va": "0x1003c9b0",
+      "name": "I3D_occluder::LoadImage",
+      "symbol": "lhr_engine::frame_occluder::ModelArena::occluder_load_geometry",
+      "tier": "differential",
+      "evidence": "REA Ghidra FUN_1003c9b0 9BB/299B (verified) + mafia-re I3d_occluder.cpp:701+ + load geometry tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x41980",
+      "va": "0x10041980",
+      "name": "I3D_portal::SetOn",
+      "symbol": "lhr_engine::frame_portal::ModelArena::portal_set_on",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_portal.cpp:89-101 (researcher name, never an original symbol) + no Ghidra procedure (LAB_, entry-decode only) + test set_on_off_mirrors_twin_with_order_and_residue; tier contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x419d0",
+      "va": "0x100419d0",
+      "name": "I3D_portal::IsOn",
+      "symbol": "lhr_engine::frame_portal::ModelArena::portal_is_on",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_portal.cpp:105-110 (researcher name) + no Ghidra procedure at all + test is_on_bit_matrix; tier contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x3a770",
+      "va": "0x1003a770",
+      "name": "I3D_occluder::LinkTo",
+      "symbol": "lhr_engine::frame_occluder::ModelArena::link_occluder_frame_derived",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_occluder.cpp:150-189 + no Ghidra procedure at 0x1003a770 + link tests; tier contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x3a800",
+      "va": "0x1003a800",
+      "name": "I3D_occluder::UpdateV",
+      "symbol": "lhr_engine::frame_occluder::ModelArena::occluder_update_v",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_occluder.cpp:192-232 + no Ghidra procedure at 0x1003a800 + update_v tests; tier contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x3ac00",
+      "va": "0x1003ac00",
+      "name": "I3D_occluder::Duplicate",
+      "symbol": "lhr_engine::frame_occluder::ModelArena::occluder_duplicate_geometry",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_occluder.cpp:235-245 (researcher name; Build return discarded) + no Ghidra procedure (base-tailjump shape) + test occluder_duplicate_geometry_round_trips_raw_words; tier contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x57650",
+      "va": "0x10057650",
+      "name": "I3D_sound::I3D_sound",
+      "symbol": "lhr_engine::runtime_audio::RuntimeAudio::create_sound_at",
+      "tier": "differential",
+      "evidence": "REA Ghidra FUN_10057650 1BB/356B (verified) + mafia-re I3d_sound.cpp:34-70 + test pin_ctor_default_words_match_native_immediates"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x577e0",
+      "va": "0x100577e0",
+      "name": "I3D_sound::~I3D_sound",
+      "symbol": "lhr_engine::runtime_audio::RuntimeAudio::release_sound",
+      "tier": "differential",
+      "evidence": "REA Ghidra FUN_100577e0 22BB/339B (verified) + mafia-re I3d_sound.cpp:74-92 + test pin_dtor_stop_before_unlink_with_residue"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x58280",
+      "va": "0x10058280",
+      "name": "I3D_sound::SetOn",
+      "symbol": "lhr_engine::runtime_audio::RuntimeAudio::set_sound_enabled",
+      "tier": "differential",
+      "evidence": "REA Ghidra FUN_10058280 42BB/688B (verified) + mafia-re I3d_sound.cpp:349+ + test pin_seton_update_parity_and_range_clamp"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x59250",
+      "va": "0x10059250",
+      "name": "I3D_sound::Duplicate",
+      "symbol": "lhr_engine::runtime_audio::RuntimeAudio::duplicate_sound_derived",
+      "tier": "differential",
+      "evidence": "REA Ghidra FUN_10059250 8BB/259B (verified) + mafia-re I3d_sound.cpp:614+ + duplicate state tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x59360",
+      "va": "0x10059360",
+      "name": "I3D_sound::m_SetState",
+      "symbol": "lhr_engine::runtime_audio::RuntimeAudio::set_native_state_byte",
+      "tier": "differential",
+      "evidence": "REA Ghidra FUN_10059360 1BB/13B (verified) + mafia-re I3d_sound.cpp:641+ + state byte tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x57940",
+      "va": "0x10057940",
+      "name": "I3D_sound::Open",
+      "symbol": "lhr_engine::runtime_audio::RuntimeAudio::load_sound_with",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_sound.cpp:95-159 + no Ghidra procedure + test pin_open_tail_flags_and_loop_word; tier contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x57c40",
+      "va": "0x10057c40",
+      "name": "I3D_sound::IsPlaying",
+      "symbol": "lhr_engine::runtime_audio::RuntimeAudio::sound_is_playing",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_sound.cpp:162-186 + no Ghidra procedure + test pin_is_playing_logical_boundary_vectors; tier contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x57d30",
+      "va": "0x10057d30",
+      "name": "I3D_sound::SetSoundType",
+      "symbol": "lhr_engine::runtime_audio::RuntimeAudio::set_sound_kind",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_sound.cpp:189-207 + no Ghidra procedure + test pin_setter_guards_flags_and_caps; tier contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x57dd0",
+      "va": "0x10057dd0",
+      "name": "I3D_sound::SetRange",
+      "symbol": "lhr_engine::runtime_audio::RuntimeAudio::set_sound_range",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_sound.cpp:210-222 + no Ghidra procedure + tests pin_setter_guards_flags_and_caps/pin_getters_with_synthetic_vectors; tier contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x57eb0",
+      "va": "0x10057eb0",
+      "name": "I3D_sound::SetCone",
+      "symbol": "lhr_engine::runtime_audio::RuntimeAudio::set_sound_cone",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_sound.cpp:225-239 + no Ghidra procedure + tests pin_setter_guards_flags_and_caps/pin_getters_with_synthetic_vectors; tier contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x57f90",
+      "va": "0x10057f90",
+      "name": "I3D_sound::SetOutVol",
+      "symbol": "lhr_engine::runtime_audio::RuntimeAudio::set_sound_outside_volume",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_sound.cpp:242-249 + no Ghidra procedure + test pin_setter_guards_flags_and_caps; tier contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x57fd0",
+      "va": "0x10057fd0",
+      "name": "I3D_sound::SetVolume",
+      "symbol": "lhr_engine::runtime_audio::RuntimeAudio::set_sound_volume",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_sound.cpp:254-259 + no Ghidra procedure + test pin_setter_guards_flags_and_caps; tier contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x58010",
+      "va": "0x10058010",
+      "name": "I3D_sound::SetLoop",
+      "symbol": "lhr_engine::runtime_audio::RuntimeAudio::set_sound_looping",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_sound.cpp:262-272 + no Ghidra procedure + test pin_open_tail_flags_and_loop_word; tier contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x58060",
+      "va": "0x10058060",
+      "name": "I3D_sound::SetCurrTime",
+      "symbol": "lhr_engine::runtime_audio::RuntimeAudio::seek_sound_ms",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_sound.cpp:275-288 + no Ghidra procedure + test pin_getters_with_synthetic_vectors; tier contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x580e0",
+      "va": "0x100580e0",
+      "name": "I3D_sound::SetFrequency",
+      "symbol": "lhr_engine::runtime_audio::RuntimeAudio::set_sound_frequency",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_sound.cpp:291-298 + no Ghidra procedure + test pin_setter_guards_flags_and_caps; tier contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x58120",
+      "va": "0x10058120",
+      "name": "I3D_sound::SetVelocity",
+      "symbol": "lhr_engine::runtime_audio::RuntimeAudio::set_velocity",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_sound.cpp:301-308 + no Ghidra procedure + test pin_setter_guards_flags_and_caps; tier contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x58230",
+      "va": "0x10058230",
+      "name": "I3D_sound::GetCurrTime",
+      "symbol": "lhr_engine::runtime_audio::RuntimeAudio::sound_position_ms",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_sound.cpp:329-335 + no Ghidra procedure + test pin_getters_with_synthetic_vectors; tier contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x58250",
+      "va": "0x10058250",
+      "name": "I3D_sound::GetPlayTime",
+      "symbol": "lhr_engine::runtime_audio::RuntimeAudio::sound_duration_ms",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_sound.cpp:338-346 + no Ghidra procedure + test pin_getters_with_synthetic_vectors; tier contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x58530",
+      "va": "0x10058530",
+      "name": "I3D_sound::ForceUpdate",
+      "symbol": "lhr_engine::runtime_audio::RuntimeAudio::update_sound",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_sound.cpp:436-449 (single m_UpdateSound call, tailjump shape; m_UpdateSound covered through this entry) + no Ghidra procedure + test pin_seton_update_parity_and_range_clamp; tier contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1ef70",
+      "va": "0x1001ef70",
+      "name": "I3D_landpatch::I3D_landpatch",
+      "symbol": "lhr_engine::landscape_roam::LandPatch::new",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_landscape.cpp:70-76 (tag LNDP) + ctor tag test; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1efc0",
+      "va": "0x1001efc0",
+      "name": "I3D_landpatch::~I3D_landpatch",
+      "symbol": "lhr_engine::landscape_roam::LandPatch::release",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_landscape.cpp:78-82 (no owned release) + drop checker test; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1efe0",
+      "va": "0x1001efe0",
+      "name": "I3D_landpatch::Split",
+      "symbol": "lhr_engine::landscape_roam::LandPatch::split",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_landscape.cpp:84-122 + split order/exhaustion/aliasing tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1f140",
+      "va": "0x1001f140",
+      "name": "I3D_landpatch::RecursTessellate",
+      "symbol": "lhr_engine::landscape_roam::LandPatch::recurs_tessellate",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_landscape.cpp:127-137 + tessellate formula tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1f1e0",
+      "va": "0x1001f1e0",
+      "name": "I3D_landpatch::RecursRender",
+      "symbol": "lhr_engine::landscape_roam::LandPatch::recurs_render",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_landscape.cpp:142-184 + leaf emission/count tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1f570",
+      "va": "0x1001f570",
+      "name": "I3D_landpatch::RecursComputeVariance",
+      "symbol": "lhr_engine::landscape_roam::LandPatch::recurs_variance",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_landscape.cpp:190-209 + flat/spike variance tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1f690",
+      "va": "0x1001f690",
+      "name": "I3D_landpatch::Init",
+      "symbol": "lhr_engine::landscape_roam::LandPatch::init",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_landscape.cpp:217-257 + bound/sphere test; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1f8e0",
+      "va": "0x1001f8e0",
+      "name": "I3D_landpatch::Reset",
+      "symbol": "lhr_engine::landscape_roam::LandPatch::reset_patch",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_landscape.cpp:261-267 (doubled-assignment normalized, disclosed) + reset_frame tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1f920",
+      "va": "0x1001f920",
+      "name": "I3D_landpatch::ComputeVariance",
+      "symbol": "lhr_engine::landscape_roam::LandPatch::compute_variance",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_landscape.cpp:271-280 + variance tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1f9b0",
+      "va": "0x1001f9b0",
+      "name": "I3D_landpatch::Tessellate",
+      "symbol": "lhr_engine::landscape_roam::LandPatch::tessellate",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_landscape.cpp:285-303 (own world sphere) + clamp/formula/exhaustion tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1fbb0",
+      "va": "0x1001fbb0",
+      "name": "I3D_landscape::I3D_landscape",
+      "symbol": "lhr_engine::landscape_roam::Landscape::new",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_landscape.cpp:347-367 + ctor/dtor log test; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1fcc0",
+      "va": "0x1001fcc0",
+      "name": "I3D_landscape::~I3D_landscape",
+      "symbol": "lhr_engine::landscape_roam::Landscape::disband",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_landscape.cpp:369+ + disband log test; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1fd90",
+      "va": "0x1001fd90",
+      "name": "I3D_landscape::Init",
+      "symbol": "lhr_engine::landscape_roam::Landscape::init_map",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_landscape.cpp:369-407 + init_map backend test; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1ff30",
+      "va": "0x1001ff30",
+      "name": "I3D_landscape::Reset",
+      "symbol": "lhr_engine::landscape_roam::Landscape::reset_frame",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_landscape.cpp:415-445 (stitch in tessellate_visible, disclosed placement) + reset/stitch tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x20010",
+      "va": "0x10020010",
+      "name": "I3D_landscape::Tessellate",
+      "symbol": "lhr_engine::landscape_roam::Landscape::tessellate_visible",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_landscape.cpp:447-456 + two-pass/aliasing/stitch tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x20040",
+      "va": "0x10020040",
+      "name": "I3D_landscape::Render",
+      "symbol": "lhr_engine::landscape_roam::Landscape::render_visible",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_landscape.cpp:460+ (GPU calls backend; CPU leaf fill) + render-after-tessellate tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0xe370",
+      "va": "0x1000e370",
+      "name": "testSubtree",
+      "symbol": "lhr_engine::collision_scene::test_subtree",
+      "tier": "contract",
+      "evidence": "mafia-re i3d_collision.cpp:761-798 (researcher working name) + subtree skip/stop tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x11300",
+      "va": "0x10011300",
+      "name": "DefaultTexelCallback",
+      "symbol": "lhr_engine::collision_scene::default_texel_callback",
+      "tier": "contract",
+      "evidence": "mafia-re i3d_collision.cpp:808-833 (researcher working name) + texel boundary/wrap tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x11430",
+      "va": "0x10011430",
+      "name": "I3D_scene::TestColGeo1",
+      "symbol": "lhr_engine::collision_scene::test_collision_geo_point",
+      "tier": "contract",
+      "evidence": "mafia-re i3d_collision.cpp:898-943 + walker-core note tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x118e0",
+      "va": "0x100118e0",
+      "name": "I3D_scene::TestColHierarchy",
+      "symbol": "lhr_engine::collision_scene::test_collision_hierarchy_note",
+      "tier": "contract",
+      "evidence": "mafia-re i3d_collision.cpp:954-1007 + walker-core note tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x12140",
+      "va": "0x10012140",
+      "name": "sphTestSubtree",
+      "symbol": "lhr_engine::collision_scene::sph_test_subtree",
+      "tier": "contract",
+      "evidence": "mafia-re i3d_collision.cpp:1375-1414 (researcher working name) + sphere/skip gate tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x14aa0",
+      "va": "0x10014aa0",
+      "name": "I3D_scene::TestColSphereHierarchy",
+      "symbol": "lhr_engine::collision_scene::test_collision_sphere_hierarchy_note",
+      "tier": "contract",
+      "evidence": "mafia-re i3d_collision.cpp:1460-1489 + walker-core note tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x14e50",
+      "va": "0x10014e50",
+      "name": "I3D_scene::TestColSphereVisual",
+      "symbol": "lhr_engine::collision_scene::test_collision_sphere_visual_note",
+      "tier": "contract",
+      "evidence": "mafia-re i3d_collision.cpp:1496-1537 + walker-core note tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x153b0",
+      "va": "0x100153b0",
+      "name": "SphereToSphereD",
+      "symbol": "lhr_engine::collision_scene::sphere_to_sphere_fraction",
+      "tier": "contract",
+      "evidence": "mafia-re i3d_collision.cpp:1543-1570 (researcher working name) + quadratic/guard tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x60390",
+      "va": "0x10060390",
+      "name": "LoadProgress",
+      "symbol": "lhr_engine::scene_file_load::report_load_progress",
+      "tier": "contract",
+      "evidence": "mafia-re Load.cpp:63-84 + gate/NaN/Inf tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x60840",
+      "va": "0x10060840",
+      "name": "LoadAnimation",
+      "symbol": "lhr_engine::scene_file_load::load_animation",
+      "tier": "contract",
+      "evidence": "mafia-re Load.cpp:213-270 + happy-path/guard tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x60a50",
+      "va": "0x10060a50",
+      "name": "LoadShadow",
+      "symbol": "lhr_engine::scene_file_load::load_shadow",
+      "tier": "contract",
+      "evidence": "mafia-re Load.cpp:272+ + happy-path/guard tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x61800",
+      "va": "0x10061800",
+      "name": "LoadAnimation5ds",
+      "symbol": "lhr_engine::scene_file_load::load_animation_5ds",
+      "tier": "contract",
+      "evidence": "mafia-re Load5ds.cpp:13-52 + guards/residue tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x60cb0",
+      "va": "0x10060cb0",
+      "name": "LoadImage validators",
+      "symbol": "lhr_engine::scene_file_load::validate_frame_type",
+      "tier": "contract",
+      "evidence": "mafia-re load4ds.cpp:130-155 partial coverage: frame-type/parent gates only, LoadImage remainder unported (validate_parent shares this RVA as uncredited helper) + bounds tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x61120",
+      "va": "0x10061120",
+      "name": "LoadMeshImage classifier",
+      "symbol": "lhr_engine::scene_file_load::classify_mesh_prefix",
+      "tier": "contract",
+      "evidence": "mafia-re load4ds.cpp LoadMeshImage prefix classifier only (u16 share/lods/empty arms); lod_dist/faces/material tails stay backend, remainder unported + prefix tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x61450",
+      "va": "0x10061450",
+      "name": "LoadShadowImage",
+      "symbol": "lhr_engine::scene_file_load::load_shadow_image",
+      "tier": "contract",
+      "evidence": "mafia-re Load6ds path + parts/guard tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2cda0",
+      "va": "0x1002cda0",
+      "name": "RandFloat",
+      "symbol": "lhr_engine::native_transform::rand_float_sample",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_math.cpp:23-26 (f32 reciprocal*sample) + bit-pinned range test; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2cdc0",
+      "va": "0x1002cdc0",
+      "name": "RotateXMatrix",
+      "symbol": "lhr_engine::native_transform::SMatrix::rotation_x",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_math.cpp:30+ + identity/NaN pins; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2ce10",
+      "va": "0x1002ce10",
+      "name": "RotateYMatrix",
+      "symbol": "lhr_engine::native_transform::SMatrix::rotation_y",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_math.cpp:RotateY + identity pins; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2ce60",
+      "va": "0x1002ce60",
+      "name": "RotateZMatrix",
+      "symbol": "lhr_engine::native_transform::SMatrix::rotation_z",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_math.cpp:RotateZ + identity pins; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2ceb0",
+      "va": "0x1002ceb0",
+      "name": "vector2 AngleTo",
+      "symbol": "lhr_engine::native_transform::try_vector2_angle_to",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_math.cpp:AngleTo lane cutoffs mirrored on 2 lanes + angle tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2cf40",
+      "va": "0x1002cf40",
+      "name": "rotation-only product",
+      "symbol": "lhr_engine::native_transform::SMatrix::rotate_by_matrix",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_math.cpp:RotateByMatrix + product tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2d520",
+      "va": "0x1002d520",
+      "name": "S_matrix::Mult4X4",
+      "symbol": "lhr_engine::native_transform::SMatrix::mul_full",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_math.cpp:402-407 ((t0+t1)+(t2+t3) cascade, x87 gap disclosed) + affine-agreement tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2d780",
+      "va": "0x1002d780",
+      "name": "S_matrix::Make4X4",
+      "symbol": "lhr_engine::native_transform::SMatrix::make_full",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_math.cpp:411+ (same cascade) + mutating-helper tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2e030",
+      "va": "0x1002e030",
+      "name": "S_matrix::SetDir",
+      "symbol": "lhr_engine::native_transform::SMatrix::set_dir",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_math.cpp:673-690 (SetDir3 + fixup) + dir tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2e510",
+      "va": "0x1002e510",
+      "name": "S_matrix::GetScale2",
+      "symbol": "lhr_engine::native_transform::SMatrix::try_get_scale2",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_math.cpp:GetScale2 + scale tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2e580",
+      "va": "0x1002e580",
+      "name": "S_matrix::GetUScale",
+      "symbol": "lhr_engine::native_transform::SMatrix::try_get_uscale",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_math.cpp:785-791 + uscale tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2e710",
+      "va": "0x1002e710",
+      "name": "S_vector::CosAngleTo",
+      "symbol": "lhr_engine::native_transform::try_vector_cos_half_angle",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_math.cpp:796-800 (single-sqrt order; zero/range hardening disclosed, host acos) + half-angle tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2eab0",
+      "va": "0x1002eab0",
+      "name": "RotateByNormMatrix",
+      "symbol": "lhr_engine::native_transform::SMatrix::rotate_by_norm_matrix",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_math.cpp:RotateByNormMatrix + renorm tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2ed60",
+      "va": "0x1002ed60",
+      "name": "S_quat direction",
+      "symbol": "lhr_engine::native_transform::SQuat::direction",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_math.cpp:RotationMatrix third row + dir tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2fb50",
+      "va": "0x1002fb50",
+      "name": "S_quat::SetDir",
+      "symbol": "lhr_engine::native_transform::SQuat::try_make_dir_roll",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_math.cpp:1163-1172 (single-arg SetDir + roll gate) + dir/roll pins; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2fd70",
+      "va": "0x1002fd70",
+      "name": "S_quat::Inverse",
+      "symbol": "lhr_engine::native_transform::SQuat::inverse_axis_angle",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_math.cpp:1175+ (host acos disclosed) + inverse tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x30040",
+      "va": "0x10030040",
+      "name": "S_quat rotate-by-matrix",
+      "symbol": "lhr_engine::native_transform::SQuat::rotate_by_matrix",
+      "tier": "contract",
+      "evidence": "mafia-re I3d_math.cpp:Make+compose + rotation tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x30290",
+      "va": "0x10030290",
+      "name": "plane-plane line",
+      "symbol": "lhr_engine::native_transform::try_plane_intersection_line",
+      "tier": "contract",
+      "evidence": "mafia-re Graphics-Gems plane line + branch tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x30440",
+      "va": "0x10030440",
+      "name": "line-line intersect",
+      "symbol": "lhr_engine::native_transform::try_line_line_intersect",
+      "tier": "contract",
+      "evidence": "mafia-re line-line intersect + denom tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x5d090",
+      "va": "0x1005d090",
+      "name": "LightMap::m_ConvertRGB",
+      "symbol": "lhr_engine::i3d_object::convert_lightmap_texels",
+      "tier": "contract",
+      "evidence": "mafia-re lightmap.cpp:72-154 (no min-size refusal; 3x3 keep-color) + admission tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x5e330",
+      "va": "0x1005e330",
+      "name": "lightmap RGB line",
+      "symbol": "lhr_engine::i3d_object::fill_line_rgb_swap",
+      "tier": "contract",
+      "evidence": "mafia-re lightmap.cpp:531-542 + BGR swap test; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x5da90",
+      "va": "0x1005da90",
+      "name": "lightmap rect insert",
+      "symbol": "lhr_engine::i3d_object::insert_sorted_free_rect",
+      "tier": "contract",
+      "evidence": "mafia-re lightmap.cpp:227-260 (sub-3 lost; area order) + order tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x5dbb0",
+      "va": "0x1005dbb0",
+      "name": "lightmap rect reinsert",
+      "symbol": "lhr_engine::i3d_object::reinsert_shrunk_free_rect",
+      "tier": "contract",
+      "evidence": "mafia-re lightmap.cpp:re-sort-or-drop arm + order tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x5dca0",
+      "va": "0x1005dca0",
+      "name": "lightmap list duplicate",
+      "symbol": "lhr_engine::i3d_object::duplicate_free_list",
+      "tier": "contract",
+      "evidence": "mafia-re lightmap.cpp:append copies + order test; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x5dd40",
+      "va": "0x1005dd40",
+      "name": "LightMap::m_AddTexture",
+      "symbol": "lhr_engine::i3d_object::place_lightmap_rect",
+      "tier": "contract",
+      "evidence": "mafia-re lightmap.cpp:m_AddTexture arm-for-arm (i32 areas) + mode/split tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x5e3a0",
+      "va": "0x1005e3a0",
+      "name": "lightmap RGB resize",
+      "symbol": "lhr_engine::i3d_object::resize_lightmap_rgb",
+      "tier": "contract",
+      "evidence": "mafia-re lightmap.cpp:resize frontend (IGraph backend) + identity test; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x5d520",
+      "va": "0x1005d520",
+      "name": "LightMap::LightMap",
+      "symbol": "lhr_engine::i3d_object::LightmapAtlasPool::new",
+      "tier": "contract",
+      "evidence": "mafia-re lightmap.cpp:ctor (empty texture + sized lists) + ctor/retain test; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x5d550",
+      "va": "0x1005d550",
+      "name": "LightMap destructor remainder",
+      "symbol": "lhr_engine::i3d_object::LightmapAtlasPool::retain_live_pages",
+      "tier": "contract",
+      "evidence": "mafia-re lightmap.cpp:dtor Release<=0 path + retain test; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x5e3f0",
+      "va": "0x1005e3f0",
+      "name": "lightmap pack",
+      "symbol": "lhr_engine::i3d_object::LightmapAtlasPool::pack",
+      "tier": "differential",
+      "evidence": "REA Ghidra FUN_1005e3f0 200BB/4021B (verified) confirm-only on the pre-existing pack port + test pin_pool_ctor_and_retain_order"
     }
   ],
   "vm": {

@@ -77,7 +77,10 @@ pub fn morph_ctor_fields() -> MorphCtorFields {
 /// Free-function entry point so the overlay symbol resolves literally;
 /// `MorphFrame::morph_teardown_order` delegates here. Takes the weight state
 /// directly (keeps `MorphFrame` crate-private).
-pub fn morph_teardown_order(weights: &mut SinglemorphState, order: &mut Vec<&'static str>) -> usize {
+pub fn morph_teardown_order(
+    weights: &mut SinglemorphState,
+    order: &mut Vec<&'static str>,
+) -> usize {
     order.push("morph-clear");
     weights.clear_morph()
 }
@@ -914,4 +917,10 @@ mod tests {
         assert_eq!(weights.flags() & 0x2, 0x2); // LOADED set (OR 2)
         assert_eq!(weights.weights(), [1.0, 0.0]); // 0x3F800000 level-0 init
     }
+
+    // NOTE (0x34810/0x35000): no literal-only order-shape tests here — they
+    // would assert string constants against themselves and pin nothing. The
+    // strided-update gate and the set-weight effect order (update-count inc,
+    // weight store, dirty set, wbound clear) are pinned end-to-end by
+    // mrph_live_weights_selected_lod_and_cache_copy_own_real_meshes above.
 }

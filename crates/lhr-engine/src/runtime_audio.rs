@@ -1921,6 +1921,98 @@ mod tests {
         audio.set_position(0x1000, [0.0; 3], [f32::MAX; 3]).unwrap();
         assert!(audio.sound_virtual(0x1000, 0x90, &[]).is_err());
     }
+    #[test]
+    fn pin_ctor_default_words_match_native_immediates() {
+        // RVA 0x57650 ctor defaults (mafia-re I3d_sound.cpp:34-70).
+        let audio = RuntimeAudio::default();
+        audio.create_sound_at(0x1000).unwrap();
+        let s = audio.sound(0x1000).unwrap();
+        assert_eq!(audio.read_sound_word(0x1000, 0x140).unwrap(), 0x208f);
+        assert_eq!(audio.read_sound_word(0x1000, 0x144).unwrap(), 1);
+        assert_eq!(audio.read_sound_word(0x1000, 0x164).unwrap(), 0);
+        assert_eq!(
+            audio.read_sound_word(0x1000, 0x168).unwrap(),
+            1f32.to_bits()
+        );
+        assert_eq!(
+            audio.read_sound_word(0x1000, 0x170).unwrap(),
+            10f32.to_bits()
+        );
+        assert_eq!(
+            audio.read_sound_word(0x1000, 0x178).unwrap(),
+            100f32.to_bits()
+        );
+        assert_eq!(
+            audio.read_sound_word(0x1000, 0x17c).unwrap(),
+            1f32.to_bits()
+        );
+        assert_eq!(
+            audio.read_sound_word(0x1000, 0x184).unwrap(),
+            0f32.to_bits()
+        );
+        assert_eq!(
+            audio.read_sound_word(0x1000, 0x188).unwrap(),
+            0f32.to_bits()
+        );
+        assert_eq!(
+            audio.read_sound_word(0x1000, 0x18c).unwrap(),
+            1f32.to_bits()
+        );
+        assert_eq!(
+            audio.read_sound_word(0x1000, 0x194).unwrap(),
+            1f32.to_bits()
+        );
+        assert_eq!(audio.read_sound_word(0x1000, 0x19c).unwrap(), 0);
+        assert_eq!(
+            audio.read_sound_word(0x1000, 0x1a0).unwrap(),
+            std::f32::consts::FRAC_PI_3.to_bits()
+        );
+        assert_eq!(
+            audio.read_sound_word(0x1000, 0x1a8).unwrap(),
+            std::f32::consts::FRAC_PI_2.to_bits()
+        );
+        assert_eq!(
+            audio.read_sound_word(0x1000, 0x1b4).unwrap(),
+            (-1f32).to_bits()
+        );
+        assert!(!s.on && !s.looping && s.source.is_none() && !s.voice_playing);
+        assert_eq!(s.state, PlaybackState::Stop);
+    }
+    #[test]
+    fn pin_dtor_stop_before_unlink_with_residue() {
+        // RVA 0x577e0 order: stop effect precedes unlink/release; a stale
+        // teardown cannot touch a replacement incarnation.
+        let audio = RuntimeAudio::default();
+        audio.create_sound_at(0x1000).unwrap();
+        let id = audio.sound_id_from_handle(0x1000).unwrap();
+        audio.sound_virtual(0x1000, 0x58, &[3]).unwrap();
+        audio.sound_virtual(0x1000, 0x24, &[1]).unwrap();
+        audio.sound_virtual(0x1000, 0, &[]).unwrap();
+        audio.create_sound_at(0x1000).unwrap();
+        assert!(audio.set_sound_volume(&id, 0.25).is_err());
+        assert_eq!(audio.live_sound_count().unwrap(), 1);
+        let cur = audio.sound_id_from_handle(0x1000).unwrap();
+        audio.release_sound(&cur).unwrap();
+        assert_eq!(audio.live_sound_count().unwrap(), 0);
+        assert_eq!(audio.live_voice_count().unwrap(), 0);
+        assert_eq!(audio.live_source_count().unwrap(), 0);
+    }
+    #[test]
+    fn pin_open_tail_flags_and_loop_word() {
+        // RVA 0x57940 Open tail + RVA 0x58010 loop-word mirror.
+        let audio = RuntimeAudio::default();
+        audio.create_sound_at(0x1000).unwrap();
+        audio
+            .load_sound_with(0x1000, "s.wav", || Ok(wav(&[0, 8192, 16384, -8192], 1, 4)))
+            .unwrap();
+        assert_eq!(audio.read_sound_word(0x1000, 0x140).unwrap(), 0x21ff);
+        assert_eq!(audio.read_sound_word(0x1000, 0x198).unwrap() & 0x200, 0x200);
+        audio.sound_virtual(0x1000, 0x6c, &[1]).unwrap();
+        assert_eq!(audio.read_sound_word(0x1000, 0x164).unwrap(), 1);
+        assert_eq!(audio.read_sound_word(0x1000, 0x198).unwrap() & 0x100, 0x100);
+        audio.sound_virtual(0x1000, 0x6c, &[0]).unwrap();
+        assert_eq!(audio.read_sound_word(0x1000, 0x198).unwrap() & 0x100, 0);
+    }
 }
 
 #[cfg(test)]

@@ -601,6 +601,472 @@ impl SQuat {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Wave-3 math ports (LS3DF RVAs 0x2cda0-0x30440; Ghidra bodies formed for all;
+// tiers per item below). Precision: checked-f32 domain (finite normal-or-zero
+// operands and intermediates; subnormal/Inf/NaN or widened-exponent results
+// are explicit Err, never substituted). Separate f32 mul/add (native_precision
+//::{mul,add,sub,div,sqrt}), no FMA. Transcendentals (acos/cos-half) use host
+// libm on guarded domains — disclosed per item, tier capped accordingly.
+
+/// LS3DF 0x2cda0 RandFloat mapping. The CRT `rand()` call itself is a backend
+/// contract; this pure step is `sample * (1.0f/RAND_MAX)` in f32 — reciprocal
+/// then multiply, no wider intermediate (a binary64-mediated product differs
+/// up to 1 ulp). Out-of-range samples are refused (native `rand()` never
+/// exceeds RAND_MAX=0x7fff on the CRT path — disclosed domain guard).
+pub fn rand_float_sample(rand_result: u32) -> Result<f32, MakeUnavailable> {
+    if rand_result > 0x7fff {
+        return Err(MakeUnavailable::InputOutsideVerifiedDomain);
+    }
+    let v = mul(rand_result as f32, div(1.0, 32767.0));
+    if !v.is_finite() || (v != 0.0 && !v.is_normal()) {
+        return Err(MakeUnavailable::InputOutsideVerifiedDomain);
+    }
+    Ok(v)
+}
+
+impl SMatrix {
+    fn basis_rotation(cos: f32, sin: f32, a: usize, b: usize, c: usize, d: usize) -> Self {
+        let mut m = Self::identity();
+        m.elements[a] = cos;
+        m.elements[b] = sin;
+        m.elements[c] = -sin;
+        m.elements[d] = cos;
+        m
+    }
+    /// LS3DF 0x2cdc0 RotateXMatrix. cos/sin via try_rounded_sin_cos (x87
+    /// enclosure on x86_64, admitted reduced-angle domain |angle|<=1 —
+    /// outside refuses, disclosed). Zero angle is exact without the
+    /// enclosure (sin keeps the input's own zero sign, cos is 1).
+    pub fn rotation_x(angle: f32) -> Result<Self, MakeUnavailable> {
+        let (s, c) = Self::axis_angle_sin_cos(angle)?;
+        Ok(Self::basis_rotation(c, s, 5, 6, 9, 10))
+    }
+    /// LS3DF 0x2ce10 RotateYMatrix. Same domain policy as rotation_x.
+    pub fn rotation_y(angle: f32) -> Result<Self, MakeUnavailable> {
+        let (s, c) = Self::axis_angle_sin_cos(angle)?;
+        let mut m = Self::identity();
+        m.elements[0] = c;
+        m.elements[2] = s;
+        m.elements[8] = -s;
+        m.elements[10] = c;
+        Ok(m)
+    }
+    /// LS3DF 0x2ce60 RotateZMatrix. Same domain policy as rotation_x.
+    pub fn rotation_z(angle: f32) -> Result<Self, MakeUnavailable> {
+        let (s, c) = Self::axis_angle_sin_cos(angle)?;
+        Ok(Self::basis_rotation(c, s, 0, 1, 4, 5))
+    }
+    fn axis_angle_sin_cos(angle: f32) -> Result<(f32, f32), MakeUnavailable> {
+        if angle == 0.0 {
+            return Ok((angle, 1.0));
+        }
+        try_rounded_sin_cos(angle)
+    }
+    /// LS3DF 0x2cf40 rotation-only product. Row3 is rotated (not translated);
+    /// col3 forced [0,0,0,1]. Association per cell: (a0*b0 + a1*b4) + a2*b8
+    /// via separate f32 mul/add (native FMUL/FADDP chain), each step rounded
+    /// in f32 where native rounds once at the store (disclosed x87 gap,
+    /// contract-capped).
+    pub fn rotate_by_matrix(&self, mat: &Self) -> Result<Self, MakeUnavailable> {
+        for v in self.elements.iter().chain(mat.elements.iter()) {
+            if !is_verified_scalar(*v) {
+                return Err(MakeUnavailable::InputOutsideVerifiedDomain);
+            }
+        }
+        let (ae, be) = (&self.elements, &mat.elements);
+        let mut o = Self::identity();
+        for row in 0..4 {
+            for col in 0..3 {
+                o.elements[row * 4 + col] = add(
+                    add(mul(ae[row * 4], be[col]), mul(ae[row * 4 + 1], be[4 + col])),
+                    mul(ae[row * 4 + 2], be[8 + col]),
+                );
+            }
+        }
+        o.elements[3] = 0.0;
+        o.elements[7] = 0.0;
+        o.elements[11] = 0.0;
+        o.elements[15] = 1.0;
+        Ok(o)
+    }
+    /// LS3DF 0x2d520 full 4x4 product (homogeneous column included).
+    /// Native cascade is (t0+t1)+(t2+t3) in 80-bit with a single final
+    /// rounding (fld/fmul x4, faddp, fxch st(2), faddp, faddp, fstp); the
+    /// port rounds each f32 step (disclosed x87 gap, contract-capped).
+    pub fn mul_full(&self, m2: &Self) -> Result<Self, MakeUnavailable> {
+        for v in self.elements.iter().chain(m2.elements.iter()) {
+            if !is_verified_scalar(*v) {
+                return Err(MakeUnavailable::InputOutsideVerifiedDomain);
+            }
+        }
+        let mut o = Self::identity();
+        for row in 0..4 {
+            for col in 0..4 {
+                let t0 = mul(self.elements[row * 4], m2.elements[col]);
+                let t1 = mul(self.elements[row * 4 + 1], m2.elements[4 + col]);
+                let t2 = mul(self.elements[row * 4 + 2], m2.elements[8 + col]);
+                let t3 = mul(self.elements[row * 4 + 3], m2.elements[12 + col]);
+                o.elements[row * 4 + col] = add(add(t0, t1), add(t2, t3));
+            }
+        }
+        Ok(o)
+    }
+    /// LS3DF 0x2d780 mutating full 4x4 helper (Make4X4 working name).
+    pub fn make_full(&mut self, m1: &Self, m2: &Self) -> Result<(), MakeUnavailable> {
+        *self = m1.mul_full(m2)?;
+        Ok(())
+    }
+    /// LS3DF 0x2e030 SetDir(dir,up): SetDir3 then col3/row3 fixup. Partial
+    /// native writes on DegenerateUp are preserved (basis prefix stays),
+    /// matching native order. SetDir3's own domain error maps here.
+    pub fn set_dir(&mut self, dir: [f32; 3], up: [f32; 3]) -> Result<(), MakeUnavailable> {
+        self.try_set_dir3(dir, up)
+            .map_err(|_| MakeUnavailable::InputOutsideVerifiedDomain)?;
+        for i in [3, 7, 11] {
+            self.elements[i] = 0.0;
+        }
+        self.elements[12] = 0.0;
+        self.elements[13] = 0.0;
+        self.elements[14] = 0.0;
+        self.elements[15] = 1.0;
+        Ok(())
+    }
+    /// LS3DF 0x2d9d0 single-arg SetDir (helper, no function credit): the
+    /// rotation turning the z axis into `dir`. Exact port of the three limbs
+    /// (mirror of frame_mirror::set_dir_rows for the matrix type): Identity;
+    /// row2 = SetNormalized(dir) with the |sq-1| fast path and the
+    /// dominant-axis fallback; the sq = dir.z^2+dir.x^2 fast arms writing
+    /// row0 lanes 0/2; row0 = SetNormalized(dir.z,0,-dir.x) when
+    /// |dir.z|+|dir.x| > MRG_ZERO (1e-8); row1 = -(row0 x dir). Host f32 ops
+    /// in source order, no fused ops. Err on refused input.
+    pub fn set_dir_single(dir: [f32; 3]) -> Result<SMatrix, MakeUnavailable> {
+        const MRG_ZERO: f32 = 1e-8;
+        for v in dir {
+            if !is_verified_scalar(v) {
+                return Err(MakeUnavailable::InputOutsideVerifiedDomain);
+            }
+        }
+        fn normalized(v: [f32; 3]) -> Option<[f32; 3]> {
+            const MRG_ZERO: f32 = 1e-8;
+            let sq = add(add(mul(v[0], v[0]), mul(v[1], v[1])), mul(v[2], v[2]));
+            if !sq.is_finite() {
+                return None;
+            }
+            if (sq - 1.0).abs() < MRG_ZERO {
+                return Some(v);
+            }
+            if sq < MRG_ZERO {
+                if v[0] != 0.0 {
+                    return Some([if v[0] < 0.0 { -1.0 } else { 1.0 }, v[1], v[2]]);
+                } else if v[2] != 0.0 {
+                    return Some([v[0], v[1], if v[2] < 0.0 { -1.0 } else { 1.0 }]);
+                } else {
+                    return Some([v[0], if v[1] < 0.0 { -1.0 } else { 1.0 }, v[2]]);
+                }
+            }
+            let inv = div(1.0, sqrt(sq));
+            if !inv.is_finite() {
+                return None;
+            }
+            Some([mul(v[0], inv), mul(v[1], inv), mul(v[2], inv)])
+        }
+        let row2 = normalized(dir).ok_or(MakeUnavailable::InputOutsideVerifiedDomain)?;
+        let mut row0 = [1.0, 0.0, 0.0];
+        let sq = add(mul(dir[2], dir[2]), mul(dir[0], dir[0]));
+        if sq > MRG_ZERO {
+            if (sq - 1.0).abs() < MRG_ZERO {
+                row0[0] = dir[2];
+                row0[2] = -dir[0];
+            } else {
+                let f = div(1.0, sqrt(sq));
+                if !f.is_finite() {
+                    return Err(MakeUnavailable::InputOutsideVerifiedDomain);
+                }
+                row0[0] = mul(dir[2], f);
+                row0[2] = -mul(dir[0], f);
+            }
+        }
+        if dir[2].abs() + dir[0].abs() > MRG_ZERO {
+            row0 = normalized([dir[2], 0.0, -dir[0]])
+                .ok_or(MakeUnavailable::InputOutsideVerifiedDomain)?;
+        }
+        let cross = [
+            sub(mul(row0[1], dir[2]), mul(row0[2], dir[1])),
+            sub(mul(row0[2], dir[0]), mul(row0[0], dir[2])),
+            sub(mul(row0[0], dir[1]), mul(row0[1], dir[0])),
+        ];
+        let row1 = [-cross[0], -cross[1], -cross[2]];
+        let mut m = SMatrix::identity();
+        m.elements[0] = row0[0];
+        m.elements[1] = row0[1];
+        m.elements[2] = row0[2];
+        m.elements[4] = row1[0];
+        m.elements[5] = row1[1];
+        m.elements[6] = row1[2];
+        m.elements[8] = row2[0];
+        m.elements[9] = row2[1];
+        m.elements[10] = row2[2];
+        Ok(m)
+    }
+    /// LS3DF 0x2e510 GetScale2: squares of row lengths, rows Z,Y,X computed
+    /// then stored in XYZ order.
+    pub fn try_get_scale2(&self) -> Result<[f32; 3], MakeUnavailable> {
+        let mut o = [0.0; 3];
+        for row in [2usize, 1, 0] {
+            let v = [
+                self.elements[row * 4],
+                self.elements[row * 4 + 1],
+                self.elements[row * 4 + 2],
+            ];
+            for x in v {
+                if !is_verified_scalar(x) {
+                    return Err(MakeUnavailable::InputOutsideVerifiedDomain);
+                }
+            }
+            o[row] = add(add(mul(v[0], v[0]), mul(v[1], v[1])), mul(v[2], v[2]));
+        }
+        Ok(o)
+    }
+    /// LS3DF 0x2e580 GetUScale: mean of the three row lengths (native
+    /// Magnitude each, then *(1/3)).
+    pub fn try_get_uscale(&self) -> Result<f32, MakeUnavailable> {
+        for v in self.elements {
+            if !is_verified_scalar(v) {
+                return Err(MakeUnavailable::InputOutsideVerifiedDomain);
+            }
+        }
+        let lens = [
+            vector_length([self.elements[0], self.elements[1], self.elements[2]]),
+            vector_length([self.elements[4], self.elements[5], self.elements[6]]),
+            vector_length([self.elements[8], self.elements[9], self.elements[10]]),
+        ];
+        Ok(mul(add(add(lens[0], lens[1]), lens[2]), 1.0 / 3.0))
+    }
+    /// LS3DF 0x2eab0 asm rotate then per-column renormalization
+    /// (|col|² vs 1 gate, divide on miss).
+    pub fn rotate_by_norm_matrix(
+        &self,
+        v: [f32; 3],
+        mat: &Self,
+    ) -> Result<[f32; 3], MakeUnavailable> {
+        for x in v {
+            if !is_verified_scalar(x) {
+                return Err(MakeUnavailable::InputOutsideVerifiedDomain);
+            }
+        }
+        let mut r = mat.rotate_rows_only(v)?;
+        for (col, slot) in r.iter_mut().enumerate() {
+            let c = [
+                mat.elements[col],
+                mat.elements[4 + col],
+                mat.elements[8 + col],
+            ];
+            let sq = add(add(mul(c[0], c[0]), mul(c[1], c[1])), mul(c[2], c[2]));
+            if (sq - 1.0).abs() > 1e-8 {
+                *slot = div(*slot, sqrt(sq));
+            }
+        }
+        Ok(r)
+    }
+    fn rotate_rows_only(&self, v: [f32; 3]) -> Result<[f32; 3], MakeUnavailable> {
+        let mut o = [0.0; 3];
+        for (col, slot) in o.iter_mut().enumerate() {
+            *slot = add(
+                add(
+                    mul(v[0], self.elements[col]),
+                    mul(v[1], self.elements[4 + col]),
+                ),
+                mul(v[2], self.elements[8 + col]),
+            );
+        }
+        Ok(o)
+    }
+}
+
+/// LS3DF 0x2ceb0 2D angle. Delegates to the 3D AngleTo lane; cutoff-route
+/// parity with the native 2D single-sqrt path is unpinned (contract tier).
+pub fn try_vector2_angle_to(a: [f32; 2], b: [f32; 2]) -> Result<f32, MakeUnavailable> {
+    try_vector_angle_to([a[0], a[1], 0.0], [b[0], b[1], 0.0])
+}
+
+/// LS3DF 0x2e710 cos(half-angle): acos path, then sqrt((c+1)/2). The acos
+/// itself is host libm on the guarded [-1,1] domain — disclosed
+/// transcendental rounding (contract-capped, never bit-exactness).
+pub fn try_vector_cos_half_angle(a: [f32; 3], b: [f32; 3]) -> Result<f32, MakeUnavailable> {
+    for x in a.into_iter().chain(b) {
+        if !is_verified_scalar(x) {
+            return Err(MakeUnavailable::InputOutsideVerifiedDomain);
+        }
+    }
+    let dot = add(add(mul(a[0], b[0]), mul(a[1], b[1])), mul(a[2], b[2]));
+    let sq_a = add(add(mul(a[0], a[0]), mul(a[1], a[1])), mul(a[2], a[2]));
+    let sq_b = add(add(mul(b[0], b[0]), mul(b[1], b[1])), mul(b[2], b[2]));
+    // Native `Dot/sqrt(Square*v.Square())`: one product, one root — kept
+    // verbatim (two sqrts + multiply would differ in rounding and overflow
+    // domain). Disclosed hardening: native yields NaN through 0/0 and
+    // out-of-range c; the port refuses both (contract tier).
+    let l = sqrt(mul(sq_a, sq_b));
+    // Negated form keeps the x87 NaN flow (NaN fails `>`); partial_cmp would
+    // need the same negation to stay faithful, so the direct form stays.
+    #[allow(clippy::neg_cmp_op_on_partial_ord)]
+    if !(l > 0.0) {
+        return Err(MakeUnavailable::InputOutsideVerifiedDomain);
+    }
+    let c = div(dot, l);
+    if !(-1.0..=1.0).contains(&c) {
+        return Err(MakeUnavailable::InputOutsideVerifiedDomain);
+    }
+    Ok(sqrt(div(add(c, 1.0), 2.0)))
+}
+
+impl SQuat {
+    /// LS3DF 0x2ed60 third row of RotationMatrix; |s|>=1 -> (0,0,1).
+    pub fn direction(self) -> Result<[f32; 3], MakeUnavailable> {
+        let [w, x, y, z] = self.wxyz;
+        for v in [w, x, y, z] {
+            if !is_verified_scalar(v) {
+                return Err(MakeUnavailable::InputOutsideVerifiedDomain);
+            }
+        }
+        if w.abs() >= 1.0 {
+            return Ok([0.0, 0.0, 1.0]);
+        }
+        let x2 = add(x, x);
+        let y2 = add(y, y);
+        Ok([
+            sub(mul(x2, z), mul(y2, w)),
+            add(mul(y2, z), mul(x2, w)),
+            sub(1.0, add(mul(y2, y), mul(x2, x))),
+        ])
+    }
+    /// LS3DF 0x2fb50 SetDir(dir) + roll-gated RotateZ premultiply +
+    /// Make(matrix): single-arg SetDir first (NOT the two-arg Y-up SetDir3 —
+    /// they differ, e.g. dir=[0,1,0] keeps X=[1,0,0], Y=[0,0,-1] here), then
+    /// `m = RotateZ(roll) * m` iff |roll| > MRG_ZERO (affine operator*).
+    pub fn try_make_dir_roll(dir: [f32; 3], roll: f32) -> Result<Self, MakeUnavailable> {
+        let mut m = SMatrix::set_dir_single(dir)?;
+        if roll.abs() > 1e-8 {
+            let rz = SMatrix::rotation_z(roll)?;
+            m = rz.mul_affine(&m);
+        }
+        Self::try_make_from_matrix(&m)
+    }
+    /// LS3DF 0x2fd70 axis-angle inverse. Normalizes axis first; `>=1→0`,
+    /// `<=-1→2π`, else `2*acos`. acos is host libm on the guarded domain —
+    /// disclosed (contract-capped).
+    pub fn inverse_axis_angle(self) -> Result<([f32; 3], f32), MakeUnavailable> {
+        let [s, x, y, z] = [self.wxyz[0], self.wxyz[1], self.wxyz[2], self.wxyz[3]];
+        for v in [s, x, y, z] {
+            if !v.is_finite() {
+                return Err(MakeUnavailable::InputOutsideVerifiedDomain);
+            }
+        }
+        let len_sq = add(add(mul(x, x), mul(y, y)), mul(z, z));
+        let len = sqrt(len_sq);
+        // Same negated-form requirement as try_vector_cos_half_angle above.
+        #[allow(clippy::neg_cmp_op_on_partial_ord)]
+        if !(len > 0.0) {
+            return Err(MakeUnavailable::InputOutsideVerifiedDomain);
+        }
+        let axis = [div(x, len), div(y, len), div(z, len)];
+        let angle = if s >= 1.0 {
+            0.0
+        } else if s <= -1.0 {
+            std::f32::consts::PI * 2.0
+        } else {
+            s.acos() * 2.0
+        };
+        Ok((axis, angle))
+    }
+    /// LS3DF 0x30040 Make(matrix) then self*q. Distinct from compose():
+    /// validates m first (composition order identical).
+    pub fn rotate_by_matrix(self, m: &SMatrix) -> Result<Self, MakeUnavailable> {
+        let q = Self::try_make_from_matrix(m)?;
+        Ok(self.compose(q))
+    }
+}
+
+/// LS3DF 0x30290 Graphics-Gems plane-plane line. Returns (point, unit dir).
+/// Branch order z-dominant, then y, then x; else Err (parallel).
+pub fn try_plane_intersection_line(
+    n1: [f32; 3],
+    d1: f32,
+    n2: [f32; 3],
+    d2: f32,
+) -> Result<([f32; 3], [f32; 3]), MakeUnavailable> {
+    for v in n1.into_iter().chain(n2).chain([d1, d2]) {
+        if !is_verified_scalar(v) {
+            return Err(MakeUnavailable::InputOutsideVerifiedDomain);
+        }
+    }
+    let dir = [
+        sub(mul(n1[1], n2[2]), mul(n1[2], n2[1])),
+        sub(mul(n1[2], n2[0]), mul(n1[0], n2[2])),
+        sub(mul(n1[0], n2[1]), mul(n1[1], n2[0])),
+    ];
+    let sq = [
+        mul(dir[0], dir[0]),
+        mul(dir[1], dir[1]),
+        mul(dir[2], dir[2]),
+    ];
+    let mut p = [0.0; 3];
+    let inv: f32;
+    if sq[2] > sq[1] && sq[2] > sq[0] && sq[2] > 1e-8 {
+        inv = div(1.0, dir[2]);
+        p[0] = sub(mul(n1[1], d2), mul(n2[1], d1));
+        p[1] = sub(mul(n2[0], d1), mul(n1[0], d2));
+        p[2] = 0.0;
+    } else if sq[1] > sq[0] && sq[1] > 1e-8 {
+        inv = div(1.0, dir[1]);
+        p[0] = sub(mul(n2[2], d1), mul(n1[2], d2));
+        p[1] = 0.0;
+        p[2] = sub(mul(n1[0], d2), mul(n2[0], d1));
+    } else if sq[0] > 1e-8 {
+        inv = div(1.0, dir[0]);
+        p[0] = 0.0;
+        p[1] = sub(mul(n1[2], d2), mul(n2[2], d1));
+        p[2] = sub(mul(n2[1], d1), mul(n1[1], d2));
+    } else {
+        return Err(MakeUnavailable::InputOutsideVerifiedDomain);
+    }
+    p[0] = mul(p[0], inv);
+    p[1] = mul(p[1], inv);
+    p[2] = mul(p[2], inv);
+    let l = sqrt(add(
+        add(mul(dir[0], dir[0]), mul(dir[1], dir[1])),
+        mul(dir[2], dir[2]),
+    ));
+    Ok((p, [div(dir[0], l), div(dir[1], l), div(dir[2], l)]))
+}
+
+/// LS3DF 0x30440 closest parameters of p1+u1*d1, p2+u2*d2. denom guard first.
+pub fn try_line_line_intersect(
+    p1: [f32; 3],
+    d1: [f32; 3],
+    p2: [f32; 3],
+    d2: [f32; 3],
+) -> Result<(f32, f32), MakeUnavailable> {
+    let dot =
+        |a: [f32; 3], b: [f32; 3]| add(add(mul(a[0], b[0]), mul(a[1], b[1])), mul(a[2], b[2]));
+    for v in p1.into_iter().chain(d1).chain(p2).chain(d2) {
+        if !is_verified_scalar(v) {
+            return Err(MakeUnavailable::InputOutsideVerifiedDomain);
+        }
+    }
+    let sub_v = [sub(p1[0], p2[0]), sub(p1[1], p2[1]), sub(p1[2], p2[2])];
+    let d22 = dot(d2, d2);
+    let d12 = dot(d1, d2);
+    let denom = sub(mul(dot(d1, d1), d22), mul(d12, d12));
+    if denom.abs() < 1e-8 {
+        return Err(MakeUnavailable::InputOutsideVerifiedDomain);
+    }
+    let d23 = dot(sub_v, d2);
+    let d13 = dot(sub_v, d1);
+    let u1 = div(sub(mul(d12, d23), mul(d13, d22)), denom);
+    Ok((u1, div(add(mul(u1, d12), d23), d22)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1237,5 +1703,148 @@ mod tests {
                 .map(f32::to_bits),
             [1220482865, 1203938210, 1220524765]
         );
+    }
+
+    #[test]
+    fn pin_rand_float_maps_crt_range() {
+        // RVA 0x2cda0: sample * (1.0f/32767.0f) in f32, bit-pinned:
+        // step = 0x38000100; 16383*step = 0x3EFFFE00 (0.49998474);
+        // 32767*step is exactly 1.0. Out-of-range refused.
+        assert_eq!(rand_float_sample(0).unwrap().to_bits(), 0x0);
+        assert_eq!(rand_float_sample(1).unwrap().to_bits(), 0x3800_0100);
+        assert_eq!(rand_float_sample(16383).unwrap().to_bits(), 0x3EFF_FE00);
+        assert_eq!(rand_float_sample(32767).unwrap().to_bits(), 0x3F80_0000);
+        assert!(rand_float_sample(0x8000).is_err());
+    }
+    #[test]
+    fn pin_rotate_xyz_identity_and_nan_guard() {
+        // RVAs 0x2cdc0/0x2ce10/0x2ce60: basis placement per axis.
+        let x = SMatrix::rotation_x(0.0).unwrap();
+        assert_eq!(
+            [x.elements[5], x.elements[6], x.elements[9], x.elements[10]],
+            [1.0, 0.0, 0.0, 1.0]
+        );
+        let y = SMatrix::rotation_y(0.0).unwrap();
+        assert_eq!(
+            [y.elements[0], y.elements[2], y.elements[8], y.elements[10]],
+            [1.0, 0.0, 0.0, 1.0]
+        );
+        let z = SMatrix::rotation_z(0.0).unwrap();
+        assert_eq!(
+            [z.elements[0], z.elements[1], z.elements[4], z.elements[5]],
+            [1.0, 0.0, 0.0, 1.0]
+        );
+        assert!(SMatrix::rotation_x(f32::NAN).is_err());
+    }
+    #[test]
+    fn pin_full_products_match_affine_on_affine_inputs() {
+        // RVAs 0x2d520/0x2d780: full product agrees with the affine fast
+        // path on affine inputs; mutating helper matches.
+        let a = SMatrix::rotation_z(0.5).unwrap();
+        let b = SMatrix::rotation_x(0.25).unwrap();
+        assert_eq!(
+            a.mul_full(&b).unwrap().elements.map(f32::to_bits),
+            a.mul_affine(&b).elements.map(f32::to_bits)
+        );
+        let mut m = SMatrix::identity();
+        m.make_full(&a, &b).unwrap();
+        assert_eq!(m.elements, a.mul_full(&b).unwrap().elements);
+    }
+    #[test]
+    fn pin_rotate_by_matrix_col3_and_dir_fixup() {
+        // RVAs 0x2cf40/0x2e030: col3 forced, SetDir tail words.
+        let a = SMatrix::rotation_z(0.5).unwrap();
+        let r = a.rotate_by_matrix(&SMatrix::identity()).unwrap();
+        assert_eq!(&r.elements[12..16], &[0.0, 0.0, 0.0, 1.0]);
+        let mut m = SMatrix::identity();
+        m.set_dir([0.0, 0.0, 1.0], [0.0, 1.0, 0.0]).unwrap();
+        assert_eq!(&m.elements[12..16], &[0.0, 0.0, 0.0, 1.0]);
+    }
+    #[test]
+    fn pin_scale_family_order_and_zero() {
+        // RVAs 0x2e510/0x2e580/0x2e710: rows Z,Y,X then XYZ store; mean of
+        // lengths; cos-half endpoints.
+        let mut m = SMatrix::identity();
+        m.elements[0..3].copy_from_slice(&[3.0, 4.0, 0.0]);
+        assert_eq!(m.try_get_scale2().unwrap(), [25.0, 1.0, 1.0]);
+        assert!((m.try_get_uscale().unwrap() - 7.0 / 3.0).abs() < 1e-6);
+        assert_eq!(
+            try_vector_cos_half_angle([1.0, 0.0, 0.0], [1.0, 0.0, 0.0]).unwrap(),
+            1.0
+        );
+        assert_eq!(
+            try_vector_cos_half_angle([1.0, 0.0, 0.0], [-1.0, 0.0, 0.0]).unwrap(),
+            0.0
+        );
+        assert_eq!(
+            try_vector2_angle_to([1.0, 0.0], [0.0, 1.0]).unwrap(),
+            try_vector2_angle_to([1.0, 0.0], [1.0, 0.0]).unwrap() + std::f32::consts::FRAC_PI_2
+        );
+    }
+    #[test]
+    fn pin_quat_dir_roll_inverse() {
+        // RVAs 0x2ed60/0x2fb50/0x2fd70/0x30040.
+        assert_eq!(
+            SQuat {
+                wxyz: [1.0, 0.0, 0.0, 0.0]
+            }
+            .direction()
+            .unwrap(),
+            [0.0, 0.0, 1.0]
+        );
+        let q = SQuat::try_make_dir_roll([0.0, 0.0, 1.0], 0.0).unwrap();
+        assert!((q.wxyz[0] - 1.0).abs() < 1e-6);
+        // RVA 0x2d9d0 single-arg basis: dir=[0,1,0] keeps X=[1,0,0] and
+        // takes Y=[0,0,-1] (the two-arg Y-up SetDir3 gives Y=[0,0,1] instead).
+        let s = SMatrix::set_dir_single([0.0, 1.0, 0.0]).unwrap();
+        assert_eq!(
+            [
+                [s.elements[0], s.elements[1], s.elements[2]],
+                [s.elements[4], s.elements[5], s.elements[6]],
+                [s.elements[8], s.elements[9], s.elements[10]]
+            ],
+            [[1.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]]
+        );
+        let (axis, ang) = SQuat {
+            wxyz: [1.0, 0.5, 0.0, 0.0],
+        }
+        .inverse_axis_angle()
+        .unwrap();
+        assert_eq!(ang, 0.0);
+        assert_eq!(axis, [1.0, 0.0, 0.0]);
+        let m = SMatrix::identity();
+        assert_eq!(
+            SQuat {
+                wxyz: [1.0, 0.0, 0.0, 0.0]
+            }
+            .rotate_by_matrix(&m)
+            .unwrap()
+            .wxyz,
+            [1.0, 0.0, 0.0, 0.0]
+        );
+    }
+    #[test]
+    fn pin_plane_and_line_exact_branches() {
+        // RVAs 0x30290/0x30440: z-dominant first; denom guard.
+        let (p, d) =
+            try_plane_intersection_line([0.0, 0.0, 1.0], 0.0, [1.0, 0.0, 0.0], 0.0).unwrap();
+        assert_eq!(p, [0.0, 0.0, 0.0]);
+        assert_eq!(d, [0.0, 1.0, 0.0]);
+        assert!(try_plane_intersection_line([0.0, 0.0, 1.0], 0.0, [0.0, 0.0, 1.0], 0.0).is_err());
+        let (u1, u2) = try_line_line_intersect(
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+        )
+        .unwrap();
+        assert_eq!((u1, u2), (0.0, 0.0));
+        assert!(try_line_line_intersect(
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+            [2.0, 0.0, 0.0]
+        )
+        .is_err());
     }
 }

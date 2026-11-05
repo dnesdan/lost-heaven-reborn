@@ -60,15 +60,22 @@ class RewriteProgressTests(unittest.TestCase):
         # 41 contract (21 morph: 11 differential + 10 contract; 17 anim:
         # 5 differential + 12 contract; 13 interpolator: 8 differential +
         # 5 contract; 16 pose: 7 differential + 9 contract; 11 area:
-        # 6 differential + 5 contract).", Tier rules applied: differential needs
+        # 6 differential + 5 contract).
+        # 98 wave-3 portal/occluder/sound/landscape/collision/load/math/
+        # lightmap: 20 differential + 78 contract (9 portal: 7 differential +
+        # 2 contract; 10 occluder: 7 differential + 3 contract; 19 sound:
+        # 5 differential + 14 contract; 16 landscape, 8 collision, 7 load,
+        # 19 math, 10 lightmap: all contract; 13 deferred-scope withholds
+        # with reasons in the commit message: 0x603e0 ledger-credited,
+        # 9 portal/occluder single-owner-pending, 3 sound getter/callee-folded).", Tier rules applied: differential needs
         # a Ghidra body (or complete instruction walk) plus pinning tests —
         # this includes confirm-only bodies that corroborate a pre-existing
         # port (new evidence + tests on top); contract covers no-body walks,
         # ABI-only teardown bodies (vtable re-store + base tailjump, no
         # portable state effect), and partial-coverage ports. Same standard
         # as 0x2b830 throughout.
-        self.assertEqual(ls3df["ported"], 145 + 463)
-        self.assertEqual(ls3df["verified"], 145 + 223)
+        self.assertEqual(ls3df["ported"], 145 + 561)
+        self.assertEqual(ls3df["verified"], 145 + 243)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()

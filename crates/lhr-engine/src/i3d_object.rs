@@ -37,6 +37,14 @@ use crate::visual_resources::{
 pub use lit_lod_storage::{
     LitLodStorage, LitSourceBinding, LitStorageCounts, LitStoragePhase, RetiringLitArrays,
 };
+/// Re-exported lightmap word helpers so the rewrite-overlay symbol paths
+/// (`i3d_object::convert_lightmap_texels`, …) resolve literally and not only
+/// through the validator's `#[path]` fallback.
+pub use lit_object::lightmap_atlas::{
+    convert_lightmap_texels, duplicate_free_list, fill_line_rgb_swap, insert_sorted_free_rect,
+    place_lightmap_rect, reinsert_shrunk_free_rect, resize_lightmap_rgb, AtlasError,
+    AtlasStatistics, LightmapAtlasPool, LightmapPlacement, LightmapRectangle, LightmapTexels,
+};
 pub use lit_object::{
     lightmap_atlas, lit_lod_drop_plan, lit_rect_upload_plan, lit_vertex_color_doubled,
     plan_lit_lod_create, queue_lit_face_groups, saved_lightmaps, LitConstructError,
@@ -3474,6 +3482,9 @@ mod tests {
                 texels: LightmapTexels::Single(0xff20_4080),
             }])
             .unwrap();
+        // The allocation lease keeps the page alive across retention.
+        pool.retain_live_pages();
+        assert_eq!(pool.statistics().live_pages, 1);
         let payload = SavedLitLod::Lightmap(SavedLightmapLod {
             flags: 0,
             vertices: vec![SavedLitVertex {

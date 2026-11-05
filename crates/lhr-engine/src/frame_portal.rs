@@ -230,6 +230,35 @@ impl ModelArena {
     }
     /// Preserve the original quirk: destructor calls ring(CURRENT scene), which
     /// does not unlink. Sector teardown must unregister portals beforehand.
+    /// LS3DF RVA 0x41980. Researcher name `I3D_portal::SetOn` from mafia-re
+    /// `ls3df/I3D/frames/I3d_portal.cpp:87-101` (never an original symbol:
+    /// Ghidra 12.1.4 forms no body — LAB_10041980, `not_in_procedure`).
+    /// Contract tier: entry bytes decode to the on-test, bit-2 set/clear,
+    /// twin mirror and `ret 8`. Effect order: self flags first, then twin
+    /// flags. Failure words (`ForeignArena`/`Unknown`) are admission guards
+    /// with no original counterpart; residue disclosed: a stale twin reports
+    /// the error AFTER the self write is retained.
+    pub fn portal_set_on(&mut self, key: PortalKey, on: bool) -> Result<(), ModelError> {
+        let i = self.portal_index(key)?;
+        let flags = self.portal_frames[i].flags();
+        self.portal_frames[i].put(8, if on { flags | 4 } else { flags & !4 });
+        if let Some(twin) = self.portal_frames[i].twin {
+            let ti = self.portal_index(twin)?;
+            let tflags = self.portal_frames[ti].flags();
+            self.portal_frames[ti].put(8, if on { tflags | 4 } else { tflags & !4 });
+        }
+        Ok(())
+    }
+    /// LS3DF RVA 0x419d0. Researcher name `I3D_portal::IsOn` from mafia-re
+    /// `I3d_portal.cpp:103-108` (never an original symbol: no Ghidra label
+    /// or body at all). Contract tier: entry bytes decode to `flags>>2 & 1`
+    /// / `ret`. Exact integer bit semantics.
+    pub fn portal_is_on(&self, key: PortalKey) -> Result<bool, ModelError> {
+        Ok(self.portal(key)?.flags() & 4 != 0)
+    }
+    /// Stale-twin residue mirrors portal_set_on: version++ and the scene-ring
+    /// op complete BEFORE the twin lookup, so a foreign twin reports the
+    /// error with those effects retained (disclosed, same order as native).
     pub fn delete_portal(&mut self, key: PortalKey) -> Result<(), ModelError> {
         let i = self.portal_index(key)?;
         self.portal_version = self.portal_version.wrapping_add(1);
@@ -374,5 +403,87 @@ mod tests {
         assert_eq!(arena.global_portal_version(), 3);
         arena.delete_portal(b).unwrap();
         assert_eq!(arena.live_portal_allocations(), 0); /* The original destructor intentionally leaves this dangling borrowed scene ring; no further ring traversal or fullScene destructor is claimed. */
+    }
+
+    #[test]
+    fn set_on_off_mirrors_twin_with_order_and_residue() {
+        let mut arena = ModelArena::default();
+        let a = arena.create_portal([0xa5; 0x150]).unwrap();
+        let b = arena.create_portal([0x5a; 0x150]).unwrap();
+        let ai = arena.portal_index(a).unwrap();
+        let bi = arena.portal_index(b).unwrap();
+        arena.portal_frames[ai].twin = Some(b);
+        arena.portal_frames[bi].twin = Some(a);
+        arena.portal_frames[ai].put(8, 0xF0);
+        arena.portal_frames[bi].put(8, 0x0B);
+        arena.portal_set_on(a, false).unwrap();
+        assert_eq!(
+            (
+                arena.portal(a).unwrap().flags(),
+                arena.portal(b).unwrap().flags()
+            ),
+            (0xF0, 0x0B)
+        );
+        arena.portal_set_on(a, true).unwrap();
+        assert_eq!(
+            (
+                arena.portal(a).unwrap().flags(),
+                arena.portal(b).unwrap().flags()
+            ),
+            (0xF4, 0x0F)
+        );
+        assert!(arena.portal_is_on(a).unwrap() && arena.portal_is_on(b).unwrap());
+        // Residue: stale twin (foreign arena key) errors AFTER the self write.
+        let mut foreign = ModelArena::default();
+        let ghost = foreign.create_portal([0; 0x150]).unwrap();
+        arena.portal_frames[ai].twin = Some(ghost);
+        let err = arena.portal_set_on(a, false).unwrap_err();
+        assert_eq!(err, ModelError::Portal(PortalError::ForeignArena));
+        assert_eq!(arena.portal(a).unwrap().flags() & 4, 0);
+        assert!(arena.portal_is_on(b).unwrap());
+        arena.portal_frames[ai].twin = None; // unlink ghost before teardown
+        arena.delete_portal(a).unwrap();
+        arena.portal_frames[bi].twin = None; // a is gone; unlink before deleting b
+        arena.delete_portal(b).unwrap();
+    }
+    #[test]
+    fn is_on_bit_matrix() {
+        let mut arena = ModelArena::default();
+        let p = arena.create_portal([0; 0x150]).unwrap();
+        let i = arena.portal_index(p).unwrap();
+        for (flags, want) in [
+            (0u32, false),
+            (4, true),
+            (5, true),
+            (0xFB, false),
+            (0xFFFF_FFFF, true),
+        ] {
+            arena.portal_frames[i].put(8, flags);
+            assert_eq!(arena.portal_is_on(p).unwrap(), want, "flags {flags:#x}");
+        }
+        arena.delete_portal(p).unwrap();
+    }
+    #[test]
+    fn ghidra_pins_ctor_ring_update_load_shapes() {
+        // Ghidra FUN_10041800: 1 BB/72 B/15 insn, version++; FUN_10041890:
+        // 13 BB/229 B/48 insn ring append; FUN_100419e0: 39 BB/1019 B;
+        // FUN_100458f0: 1 BB/58 B/22 insn byte-count load.
+        let mut arena = ModelArena::default();
+        let p = arena.create_portal([0xa5; 0x150]).unwrap();
+        assert_eq!(arena.global_portal_version(), 1);
+        assert_eq!(arena.portal(p).unwrap().flags(), 4);
+        assert_eq!(arena.portal(p).unwrap().known_word(0x110), Some(0xa5a5a5a5));
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        arena.portal_add_to_scene_ring(p, Some(scene)).unwrap();
+        let si = arena.scene_index(scene).unwrap();
+        assert_eq!(arena.scenes[si].portal_head, Some(p));
+        assert_eq!(arena.scenes[si].portal_count, 1);
+        let mut bytes = vec![3u8];
+        bytes.extend((0..64).map(|n| n as u8));
+        assert_eq!(arena.portal_load_image(p, &bytes).unwrap(), 65);
+        assert_eq!(arena.portal(p).unwrap().local_vertices().unwrap().len(), 3);
+        arena.portal_add_to_scene_ring(p, None).unwrap();
+        assert_eq!(arena.scenes[si].portal_count, 0);
+        arena.delete_portal(p).unwrap();
     }
 }

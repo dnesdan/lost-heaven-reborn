@@ -142,7 +142,11 @@ impl SectorOcclusion {
         Ok(())
     }
 }
-fn descendants(arena: &ModelArena, root: FrameKey, out: &mut Vec<OccluderKey>) -> Result<()> {
+pub(crate) fn descendants(
+    arena: &ModelArena,
+    root: FrameKey,
+    out: &mut Vec<OccluderKey>,
+) -> Result<()> {
     let mut at = arena.links(root)?.child;
     while let Some(frame) = at {
         at = arena.links(frame)?.next;

@@ -371,7 +371,9 @@ impl PortalWalk {
     }
 }
 
-fn parse_portal(
+/// LS3DF 0x44600 ParsePortal owner (Ghidra FUN_10044600 104 BB/1947 B/546 insn).
+/// Widened for the overlay symbol; behavior unchanged.
+pub(crate) fn parse_portal(
     arena: &mut ModelArena,
     p: PortalKey,
     parent: Option<[[f32; 2]; 2]>,
