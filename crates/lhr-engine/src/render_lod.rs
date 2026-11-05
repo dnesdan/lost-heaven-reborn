@@ -66,6 +66,11 @@ fn levels_len(object: &LodObject) -> Result<i32, LodError> {
     i32::try_from(object.levels.len()).map_err(|_| LodError::InvalidLevels)
 }
 
+/// LOD-change callback (`old_lod`, `new_lod`, live object view).
+/// Lifetime-generic alias for the `get_object_lod` callback slot; no `Send` /
+/// `Sync` / `'static` bound beyond the borrowed `FnMut` itself.
+pub type LodChangedCallback<'a> = dyn FnMut(i32, i32, &mut LodObject) + 'a;
+
 /// LS3DF RVA 0x61e30 `GetObjectLOD` (mafia-re `ls3df/I3D/render/render.cpp:115-182`).
 ///
 /// Order-exact contract: 1-lod vs N-lod distance select with
@@ -83,7 +88,7 @@ pub fn get_object_lod(
     dist_2: f32,
     rs_lod_quality: f32,
     texture_low_detail: bool,
-    on_lod: Option<&mut dyn FnMut(i32, i32, &mut LodObject)>,
+    on_lod: Option<&mut LodChangedCallback<'_>>,
 ) -> Result<i32, LodError> {
     if object.levels.is_empty() {
         return Err(LodError::InvalidLevels);

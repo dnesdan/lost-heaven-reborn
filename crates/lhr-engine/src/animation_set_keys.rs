@@ -151,6 +151,12 @@ impl AnimationSetOwner {
     }
 }
 
+impl Default for AnimationSetOwner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 // RVA 0x48b0 differential.
 pub fn release_animation_set<D: DbgBackend + DeleteBackend>(
     owner: &mut AnimationSetOwner,
