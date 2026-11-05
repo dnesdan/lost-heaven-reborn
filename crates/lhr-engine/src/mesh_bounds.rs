@@ -1,4 +1,5 @@
-//! I3D_mesh_object::UpdateBoundVolume arithmetic, original PC RVA 0x31400.
+//! I3D_mesh_object::UpdateBoundVolume arithmetic, original PC RVA 0x31400,
+//! plus BBoxVertices at PC RVA 0x6bc00 (mafia-re ls3df/IGraph/Globals.cpp:269).
 //! Original PS2 symbol correspondence is independently recorded privately.
 //! This represents PC24 round-to-nearest finite normal-or-zero intermediates;
 //! extended-exponent, subnormal and nonfinite arithmetic remains unavailable.
@@ -105,6 +106,33 @@ pub fn set_visual_bound_volume(
     if *flags & 0x40 == 0 {
         *flags &= !0x40000;
     }
+}
+
+/// Original BBoxVertices, PC RVA 0x6bc00 (differential: REA formed body 19 BB
+/// / 57 insn; mafia-re ls3df/IGraph/Globals.cpp:269-293). Exact 8-vertex slot
+/// order: `for i in 0..2 { for j in 0..2 { push(i, j, min.z); push(i, j,
+/// max.z); } }` where `i` selects `max.x`/`min.x` and `j` selects
+/// `max.y`/`min.y`. Slot order is therefore `(max.x,max.y,min.z)`,
+/// `(max.x,max.y,max.z)`, `(max.x,min.y,min.z)`, `(max.x,min.y,max.z)`,
+/// `(min.x,max.y,min.z)`, `(min.x,max.y,max.z)`, `(min.x,min.y,min.z)`,
+/// `(min.x,min.y,max.z)`. Pure copies, no arithmetic. The original returns a
+/// pointer to a function-static `S_vector v[8]` (`GLOBAL 0x101c5230`); this
+/// port returns the eight corners by value (a copy out, disclosed host
+/// adaptation — no shared mutable static, thread-safe).
+pub fn bbox_corner_vertices(bbox: [[f32; 3]; 2]) -> [[f32; 3]; 8] {
+    let mut corners = [[0.0f32; 3]; 8];
+    let mut slot = 0usize;
+    for i in 0..2 {
+        let x = if i == 0 { bbox[1][0] } else { bbox[0][0] };
+        for j in 0..2 {
+            let y = if j == 0 { bbox[1][1] } else { bbox[0][1] };
+            corners[slot] = [x, y, bbox[0][2]];
+            slot += 1;
+            corners[slot] = [x, y, bbox[1][2]];
+            slot += 1;
+        }
+    }
+    corners
 }
 
 /// Per-vertex world transform backend for UpdateWBoundProc (PC RVA 0x5a510):
@@ -366,5 +394,29 @@ mod tests {
         set_visual_bound_volume(&mut target, &source, &mut flags);
         assert_eq!(target, source);
         assert_eq!(flags & 0x40000, 0);
+    }
+    #[test]
+    fn bbox_corners_follow_exact_slot_order() {
+        let bbox = [[-1., -2., -3.], [4., 5., 6.]];
+        assert_eq!(
+            bbox_corner_vertices(bbox),
+            [
+                [4., 5., -3.],
+                [4., 5., 6.],
+                [4., -2., -3.],
+                [4., -2., 6.],
+                [-1., 5., -3.],
+                [-1., 5., 6.],
+                [-1., -2., -3.],
+                [-1., -2., 6.],
+            ]
+        );
+        // Negative-zero bit fidelity: i/j select whole words, no arithmetic.
+        let signed = [[-0., -0., 1.], [0., 0., 2.]];
+        let corners = bbox_corner_vertices(signed);
+        assert_eq!(corners[0][0].to_bits(), 0_f32.to_bits());
+        assert_eq!(corners[4][0].to_bits(), (-0_f32).to_bits());
+        assert_eq!(corners[0][1].to_bits(), 0_f32.to_bits());
+        assert_eq!(corners[2][1].to_bits(), (-0_f32).to_bits());
     }
 }

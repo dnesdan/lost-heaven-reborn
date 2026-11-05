@@ -5746,6 +5746,663 @@
       "symbol": "lhr_engine::i3d_object::LightmapAtlasPool::pack",
       "tier": "differential",
       "evidence": "REA Ghidra FUN_1005e3f0 200BB/4021B (verified) confirm-only on the pre-existing pack port + test pin_pool_ctor_and_retain_order"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x61e30",
+      "va": "0x10061e30",
+      "name": "GetObjectLOD",
+      "symbol": "lhr_engine::render_lod::get_object_lod",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/render.cpp:115-182 + Rust tests; contract per wave policy (new module, no Ghidra body claimed)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x62010",
+      "va": "0x10062010",
+      "name": "I3D_driver::initRender",
+      "symbol": "lhr_engine::render_core::init_render",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/render.cpp:184-191 (closeRender then InitParticle) + Rust tests; contract per wave policy"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x62020",
+      "va": "0x10062020",
+      "name": "I3D_driver::closeRender",
+      "symbol": "lhr_engine::render_core::close_render",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/render.cpp:193-198 (CloseParticle tail) + Rust tests; contract per wave policy"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x65560",
+      "va": "0x10065560",
+      "name": "VisualProc",
+      "symbol": "lhr_engine::render_core::visual_proc",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/render.cpp:736-775 (static, kept crate-private) + Rust tests; contract per wave policy"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x65770",
+      "va": "0x10065770",
+      "name": "NextFFrameProc",
+      "symbol": "lhr_engine::render_core::next_fframe_proc",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/render.cpp:779-811 (f32 double-sqrt unfused, no FMA) + Rust tests; contract per wave policy"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x658f0",
+      "va": "0x100658f0",
+      "name": "I3D_driver::BuildAllVBuffers",
+      "symbol": "lhr_engine::render_core::build_all_vbuffers",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/render.cpp:815-830 + Rust tests; contract per wave policy"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0xab40",
+      "va": "0x1000ab40",
+      "name": "SetBlendState",
+      "symbol": "lhr_engine::render_state::set_blend_state",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/render.h:13-44 + Rust tests; contract per wave policy"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0xae50",
+      "va": "0x1000ae50",
+      "name": "SetVertexFormat",
+      "symbol": "lhr_engine::render_state::set_vertex_format",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/render.h:46-77 + Rust tests; contract per wave policy"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x29f30",
+      "va": "0x10029f30",
+      "name": "SetColorOp1 (working name; mafia-re guess, NOT original)",
+      "symbol": "lhr_engine::render_state::set_color_op1",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/render.h:79-90 + Rust tests; working name disclosed; contract per wave policy"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x29ef0",
+      "va": "0x10029ef0",
+      "name": "SetCullState (working name; mafia-re guess, NOT original)",
+      "symbol": "lhr_engine::render_state::set_cull_state",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/render.h:92-106 + Rust tests; working name disclosed; contract per wave policy"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x333d0",
+      "va": "0x100333d0",
+      "name": "SetClipping (working name; mafia-re guess, NOT original)",
+      "symbol": "lhr_engine::render_state::set_clipping",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/render.h:108-122 + Rust tests; working name disclosed; contract per wave policy"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x659f0",
+      "va": "0x100659f0",
+      "name": "SetZBias (working name; mafia-re guess, NOT original)",
+      "symbol": "lhr_engine::render_state::set_zbias",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/render.h:127-140 + Rust tests; working name disclosed; contract per wave policy"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x4e390",
+      "va": "0x1004e390",
+      "name": "SetFog (working name; mafia-re guess, NOT original)",
+      "symbol": "lhr_engine::render_state::set_fog",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/render.h:153-209 + Rust tests; working name disclosed; contract per wave policy"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x688b0",
+      "va": "0x100688b0",
+      "name": "C_VBuffer::C_VBuffer",
+      "symbol": "lhr_engine::render_vb::vbuffer_initial_state",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/VBManager.cpp:21-40 + Rust tests; extends buffer_managers block ports without duplication; contract per wave policy"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x692b0",
+      "va": "0x100692b0",
+      "name": "C_VBManager::C_VBManager",
+      "symbol": "lhr_engine::render_vb::new_vb_manager",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/VBManager.cpp:225-233 + Rust tests; extends buffer_managers block ports without duplication; contract per wave policy"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x694e0",
+      "va": "0x100694e0",
+      "name": "C_VBManager::~C_VBManager",
+      "symbol": "lhr_engine::render_vb::drop_vb_manager",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/VBManager.cpp:235-243 + Rust tests; extends buffer_managers block ports without duplication; contract per wave policy"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x69950",
+      "va": "0x10069950",
+      "name": "C_VBManager::m_FreeAllVRAMVBuffers",
+      "symbol": "lhr_engine::render_vb::free_all_vram_vbuffers",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/VBManager.cpp:352-366 + Rust tests; extends buffer_managers block ports without duplication; contract per wave policy"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x5b390",
+      "va": "0x1005b390",
+      "name": "C_IBManager::C_IBManager",
+      "symbol": "lhr_engine::render_ib::new_ib_manager",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/IBManager.cpp:221-229 + Rust tests; extends buffer_managers block ports without duplication; contract per wave policy"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x5b5c0",
+      "va": "0x1005b5c0",
+      "name": "C_IBManager::~C_IBManager",
+      "symbol": "lhr_engine::render_ib::drop_ib_manager",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/IBManager.cpp:231-239 + Rust tests; extends buffer_managers block ports without duplication; contract per wave policy"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x5baa0",
+      "va": "0x1005baa0",
+      "name": "C_IBManager::m_FreeAllVRAMIBuffers",
+      "symbol": "lhr_engine::render_ib::free_all_vram_ibuffers",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/IBManager.cpp:341-355 + Rust tests; extends buffer_managers block ports without duplication; contract per wave policy"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1010",
+      "va": "0x10001010",
+      "name": "SetClipParams (upstream working name, NOT original)",
+      "symbol": "lhr_engine::render_clip::set_clip_params",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/clipper.cpp:151-167 (upstream working name, NOT original) + hand-derived ratio/inverse/backface tests; tier contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x10c0",
+      "va": "0x100010c0",
+      "name": "ResetClipArrays (upstream working name, NOT original)",
+      "symbol": "lhr_engine::render_clip::reset_clip_arrays",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/clipper.cpp:172-179 (upstream working name, NOT original) + count/center clearing tests; tier contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x10f0",
+      "va": "0x100010f0",
+      "name": "ReserveClipArrays (upstream working name, NOT original)",
+      "symbol": "lhr_engine::render_clip::reserve_clip_arrays",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/clipper.cpp:184-238 (upstream name, NOT original) + grow-only clamp tests; tier contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1370",
+      "va": "0x10001370",
+      "name": "FreeClipArrays (upstream working name, NOT original)",
+      "symbol": "lhr_engine::render_clip::free_clip_arrays",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/clipper.cpp:243-255 (upstream working name, NOT original) + face-block leak kept via forget, clearing tests; tier contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x13e0",
+      "va": "0x100013e0",
+      "name": "ClipFacesOrtho (upstream working name, NOT original)",
+      "symbol": "lhr_engine::render_clip::clip_faces_ortho",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/clipper2.cpp:61-476 (upstream working name, NOT original) + inside-face append tests with x87 t forms and spread-bug kept; tier contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2530",
+      "va": "0x10002530",
+      "name": "ClipFacesPersp (upstream working name, NOT original)",
+      "symbol": "lhr_engine::render_clip::clip_faces_persp",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/clipper2.cpp:482-974 (upstream working name, NOT original) + frustum/tessellation/triangulation tests; tier contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x3b40",
+      "va": "0x10003b40",
+      "name": "ClipMesh (upstream working name, NOT original)",
+      "symbol": "lhr_engine::render_clip::clip_mesh",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/clipping.cpp:40-111 (upstream working name, NOT original) + transform-flag-cull-result end-to-end tests; tier contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x3dc0",
+      "va": "0x10003dc0",
+      "name": "ClipFacegroups (upstream working name, NOT original)",
+      "symbol": "lhr_engine::render_clip::clip_facegroups",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/clipping.cpp:116-210 (upstream name; CheckClipFaces linker-dropped, rides here) + blend/cull/index/rollback/result-copy tests; tier contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x4110",
+      "va": "0x10004110",
+      "name": "ClipMeshW (upstream working name, NOT original)",
+      "symbol": "lhr_engine::render_clip::clip_mesh_w",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/clipping.cpp:215-288 (upstream working name, NOT original) + world-space end-to-end tests; tier contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x4370",
+      "va": "0x10004370",
+      "name": "ClipSingleMesh (upstream working name, NOT original)",
+      "symbol": "lhr_engine::render_clip::clip_single_mesh",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/clipping.cpp:293-364 (upstream working name, NOT original) + single-mesh parity tests; tier contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x45f0",
+      "va": "0x100045f0",
+      "name": "ClipSingleMeshW (upstream working name, NOT original)",
+      "symbol": "lhr_engine::render_clip::clip_single_mesh_w",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/clipping.cpp:369-443 (upstream working name, NOT original) + world-space single-mesh tests; tier contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x619b0",
+      "va": "0x100619b0",
+      "name": "RadixSort32",
+      "symbol": "lhr_engine::render_clip::radix_sort_32",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/RadixSort.cpp:197-254 (PS2-evidenced name) + ordering/uniform-skip tests; tier contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x65a60",
+      "va": "0x10065a60",
+      "name": "LightingSetSector (upstream working name, NOT original)",
+      "symbol": "lhr_engine::render_clip::lighting_set_sector",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/T_l.cpp:133-138 (upstream working name, NOT original) + presence-latch tests; tier contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x65a70",
+      "va": "0x10065a70",
+      "name": "PrepareLights",
+      "symbol": "lhr_engine::render_clip::prepare_lights",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/T_l.cpp:403-574 (PS2-evidenced name) + ambient-pack/cache-gate tests; tier contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x66b50",
+      "va": "0x10066b50",
+      "name": "SetVertexAlpha (upstream working name, NOT original)",
+      "symbol": "lhr_engine::render_clip::set_vertex_alpha",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/T_l.cpp:578-599 (upstream working name, NOT original) + alpha-rewrite tests; tier contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x66be0",
+      "va": "0x10066be0",
+      "name": "TexelCallback (upstream working name, NOT original)",
+      "symbol": "lhr_engine::render_clip::texel_callback",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/T_l.cpp:616-657 (upstream working name, NOT original; not_in_procedure, contract via entry bytes) + opaque/partial/transparent tests; tier contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x66e90",
+      "va": "0x10066e90",
+      "name": "VertexLightingProcess",
+      "symbol": "lhr_engine::render_clip::vertex_lighting_process",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/T_l.cpp:685-829 (PS2-evidenced name) + emissive/clamp/inside tests via probe; tier contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x67d20",
+      "va": "0x10067d20",
+      "name": "EnvProcess",
+      "symbol": "lhr_engine::render_clip::env_process",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/T_l.cpp:844-1213 (PS2-evidenced name; mode-1 to mode-0 fallthrough kept) + project/dummy tests; tier contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x685d0",
+      "va": "0x100685d0",
+      "name": "FogProcess (upstream working name, NOT original)",
+      "symbol": "lhr_engine::render_clip::fog_process",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/T_l.cpp:1455-1580 (upstream working name, NOT original) + factor/alpha byte tests; tier contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x68760",
+      "va": "0x10068760",
+      "name": "SwapVertexBytes (upstream working name, NOT original)",
+      "symbol": "lhr_engine::render_clip::swap_vertex_bytes",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/I3D/render/T_l.cpp:1584-1619 (upstream working name, NOT original) + swap-once/restore tests; tier contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x19090",
+      "va": "0x10019090",
+      "name": "I3D_driver::CreateMaterial",
+      "symbol": "lhr_engine::visual_resources::VisualResources::create_material",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_driver.cpp:1364 (FORMED Ghidra body per dossier); operator-new caller-owns + NULL->ErrorHandler(FATAL) disclosed diagnostic (no native handler at runtime); ctor-callee linkage already overlayed; pinning test driver_factory_pinning::driver_create_materials_are_caller_owned_with_ctor_words; FATAL-OOM arm is native-only/non-returning with no host fault path (factories surface quota/poison errors instead) — downgraded per review, bodies formed"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x19100",
+      "va": "0x10019100",
+      "name": "I3D_driver::CreateAnimMaterial",
+      "symbol": "lhr_engine::visual_resources::VisualResources::create_animated_material",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_driver.cpp:1374 (FORMED Ghidra body per dossier); operator-new caller-owns + NULL->ErrorHandler(FATAL) disclosed diagnostic (no native handler at runtime); ctor-callee linkage already overlayed; pinning tests driver_create_materials_are_caller_owned_with_ctor_words + driver_create_animated_material_adds_owned_frame_owner; FATAL-OOM arm is native-only/non-returning with no host fault path (factories surface quota/poison errors instead) — downgraded per review, bodies formed"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x191a0",
+      "va": "0x100191a0",
+      "name": "I3D_driver::CreateFaceGroup",
+      "symbol": "lhr_engine::visual_resources::VisualResources::create_face_group",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_driver.cpp:1391 (FORMED Ghidra body per dossier); operator-new caller-owns, no null check in factory body; ctor-callee linkage already overlayed; pinning test driver_create_groups_levels_meshes_are_distinct_with_ctor_words; FATAL-OOM arm is native-only/non-returning with no host fault path (factories surface quota/poison errors instead) — downgraded per review, bodies formed"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x19200",
+      "va": "0x10019200",
+      "name": "I3D_driver::CreateMeshLevel",
+      "symbol": "lhr_engine::visual_resources::VisualResources::create_mesh_level",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_driver.cpp:1398 (FORMED Ghidra body per dossier); operator-new caller-owns, no null check in factory body; ctor-callee linkage already overlayed; pinning test driver_create_groups_levels_meshes_are_distinct_with_ctor_words; FATAL-OOM arm is native-only/non-returning with no host fault path (factories surface quota/poison errors instead) — downgraded per review, bodies formed"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x19260",
+      "va": "0x10019260",
+      "name": "I3D_driver::CreateMesh",
+      "symbol": "lhr_engine::visual_resources::VisualResources::create_mesh_object",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_driver.cpp:1405 (FORMED Ghidra body per dossier, evidenced PS2 original name CreateMesh); operator-new caller-owns, no null check in factory body; ctor-callee linkage already overlayed; pinning test driver_create_groups_levels_meshes_are_distinct_with_ctor_words; FATAL-OOM arm is native-only/non-returning with no host fault path (factories surface quota/poison errors instead) — downgraded per review, bodies formed"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x192c0",
+      "va": "0x100192c0",
+      "name": "I3D_driver::CreateAnimationSet",
+      "symbol": "lhr_engine::animation_set_keys::AnimationSetOwner::new",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_driver.cpp:1412 (FORMED Ghidra body per dossier, evidenced PS2 original name); operator-new caller-owns over AnimationSetOwner::new (RVA 0x4890 ctor words: vtable 0x1009b3e0, refcount 1, options ANIM_ONCE, data None); pinning test driver_factory_pinning::driver_create_animation_set_yields_caller_owned_fresh_value; FATAL-OOM arm is native-only/non-returning with no host fault path (factories surface quota/poison errors instead) — downgraded per review, bodies formed"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x19320",
+      "va": "0x10019320",
+      "name": "I3D_driver::CreatePose",
+      "symbol": "lhr_engine::animation_pose::I3dPose::new_in",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_driver.cpp:1419 (FORMED Ghidra body per dossier, evidenced PS2 original class I3D_pose); operator-new caller-owns over I3dPose::new_in (RVA 0x45930 words: refcount 1, flags 0, pos 0, scale unit passthrough, rot 1.0f exact); pinning test driver_factory_pinning::driver_create_pose_yields_caller_owned_fresh_pose; FATAL-OOM arm is native-only/non-returning with no host fault path (factories surface quota/poison errors instead) — downgraded per review, bodies formed"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x19380",
+      "va": "0x10019380",
+      "name": "I3D_driver::CreatePoseSet",
+      "symbol": "lhr_engine::animation_pose::I3dPoseSet::new",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_driver.cpp:1426 (FORMED Ghidra body per dossier, evidenced PS2 original class I3D_pose_set); operator-new caller-owns over I3dPoseSet::new (RVA 0x45b90 words: refcount 1, empty, growth quantum 0x20); pinning test driver_factory_pinning::driver_create_pose_set_yields_caller_owned_empty_set; FATAL-OOM arm is native-only/non-returning with no host fault path (factories surface quota/poison errors instead) — downgraded per review, bodies formed"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1a0a0",
+      "va": "0x1001a0a0",
+      "name": "I3D_driver::DeleteFromSceneTickList",
+      "symbol": "lhr_engine::scene_ownership::ModelArena::driver_delete_from_scene_tick_list",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_driver.cpp:1744 (FORMED Ghidra body per dossier, evidenced PS2 original name); reverse newest-first loop over scenes calling DeleteTickFrame (RVA 0x4a050 callee, already overlayed differential on this symbol), stop after first I3D_OK; pinning test driver_delete_from_scene_tick_list_walks_newest_first_and_stops_after_first_ok; driver loop owns this entry (per-scene op is overlay 0x4a050, no double count); no Ghidra procedure resolved at review time — downgraded per policy"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x19b10",
+      "va": "0x10019b10",
+      "name": "I3D_driver::FindFrameFast",
+      "symbol": "lhr_engine::frame_fast_lookup::I3dFastFrameTree::find_frame_fast",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_driver.cpp:1595 (LAB_ thunk/entry shape, contract); read-only BST walk + duplicate right-chain with PC-continues-past-other-scene-sectors semantics (unlike PS2 search); pinning test driver_find_frame_fast_skips_foreign_sectors_and_stops_at_unequal_tail; arena projection documented on ModelArena::find_frame_fast"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1a0e0",
+      "va": "0x1001a0e0",
+      "name": "I3D_driver::DeleteFromAllShadows",
+      "symbol": "lhr_engine::frame_shadow::ModelArena::driver_delete_from_all_shadows",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_driver.cpp:1754 (LAB_ thunk/entry shape, contract); tail call to I3D_shadow::DeleteFromAnyShadow (RVA 0x51480, already overlayed differential on this symbol); pinning test driver_delete_from_all_shadows_tail_call_is_surgical_and_idempotent; driver thunk owns this entry via forwarder (shared 0x51480 callee keeps its own entry, no double count)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1a0f0",
+      "va": "0x1001a0f0",
+      "name": "I3D_driver::DeleteFromAllTargets",
+      "symbol": "lhr_engine::target_state::TargetRegistry::driver_delete_from_all_targets",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_driver.cpp:1761 (LAB_ thunk/entry shape, contract); tail call to I3D_target::DeleteFromAnyTarget (RVA 0x598d0: forward registration order, first matching link only, swap-last + null-guarded bit clear via DeleteFromTarget 0x597f0); CORRECTED SYMBOL (task dossier named remove_from_target/0x597f0, but the evidenced direct callee is DeleteFromAnyTarget/remove_from_any_target); pinning test driver_delete_from_all_targets_removes_first_registration_only; driver thunk owns this entry via forwarder (0x598d0 callee is ledger-credited differential, no double count)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x15e80",
+      "va": "0x10015e80",
+      "name": "I3D_driver::DrawShadowTriangles (upstream working name, NOT original)",
+      "symbol": "lhr_engine::shadow_pass::rasterize_shadow_triangles",
+      "tier": "differential",
+      "evidence": "REA formed body 52BB/216insn + mafia-re ls3df/I3D/I3d_driver.cpp:432-501 (DrawShadowTriangles) + ScanEdge ls3df/I3D/I3d_driver.cpp:405 + shadow_span_prefill/scan/fill HW order + hand-derived (0,0),(4,0),(0,4) span/fill pinning tests in shadow_pass"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x160d0",
+      "va": "0x100160d0",
+      "name": "I3D_driver::DrawShadowTrianglesSW (upstream working name, NOT original)",
+      "symbol": "lhr_engine::shadow_pass::rasterize_shadow_triangles_sw",
+      "tier": "differential",
+      "evidence": "REA formed body 49BB/208insn + mafia-re ls3df/I3D/I3d_driver.cpp:503-567 (DrawShadowTrianglesSW) + ScanEdge ls3df/I3D/I3d_driver.cpp:405 + SW byte fill 0xFF with 0x100 stride + hand-derived span/SW fill pinning tests in shadow_pass"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x16310",
+      "va": "0x10016310",
+      "name": "I3D_driver::RenderShadowTexture (upstream working name, NOT original)",
+      "symbol": "lhr_engine::shadow_pass::project_shadow_texels",
+      "tier": "contract",
+      "evidence": "CONTRACT CPU prefix only: device Lock/Unlock, Fill, AddDirtyRect and DrawShadowTriangles(SW) roster calls stay backend contracts + mafia-re ls3df/I3D/I3d_driver.cpp:569-649 (RenderShadowTexture) + reserve/scale/fistp-round-to-nearest projection tests in shadow_pass"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x16600",
+      "va": "0x10016600",
+      "name": "I3D_driver::GetIcon (upstream working name, NOT original)",
+      "symbol": "lhr_engine::texture_manager::get_icon_material",
+      "tier": "contract",
+      "evidence": "CONTRACT NULL-to-NULL plus flag behavior only: missing resource and failed CreateMaterial both map to NULL, MATF_TXT_ALPHA OR pinned; texture Create/SetTexture/Release and Win32 resource lifetime stay backend contracts + mafia-re ls3df/I3D/I3d_driver.cpp:693-719 (GetIcon) + I3D.h:3869 MATF_TXT_ALPHA + null/flag tests in texture_manager"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x6bc00",
+      "va": "0x1006bc00",
+      "name": "BBoxVertices",
+      "symbol": "lhr_engine::mesh_bounds::bbox_corner_vertices",
+      "tier": "differential",
+      "evidence": "REA formed body 19BB/57insn + mafia-re ls3df/IGraph/Globals.cpp:269-293 (BBoxVertices) + exact 8-slot i{max.x,min.x}xj{max.y,min.y} z=min,max order + static buffer copy-out noted + slot-order/bit-fidelity pinning tests in mesh_bounds"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1a100",
+      "va": "0x1001a100",
+      "name": "C_list::reserve instantiation (upstream working name, NOT original)",
+      "symbol": "lhr_engine::buffer_managers::reserve_draw_vertices",
+      "tier": "contract",
+      "evidence": "CONTRACT construction-covered only via Vec growth, never differential: C_list::reserve clamp-up/early-return/grow-copy covered by reserve_draw_vertices + mafia-re ls3df/ls3df.h:179-195 + TLVERTEX/LVERTEX instantiation pair (mapping unassigned) + capacity/len tests in buffer_managers"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1a170",
+      "va": "0x1001a170",
+      "name": "C_list::reserve instantiation (upstream working name, NOT original)",
+      "symbol": "lhr_engine::buffer_managers::reserve_draw_vertices",
+      "tier": "contract",
+      "evidence": "CONTRACT construction-covered only via Vec growth, never differential: C_list::reserve clamp-up/early-return/grow-copy covered by reserve_draw_vertices + mafia-re ls3df/ls3df.h:179-195 + TLVERTEX/LVERTEX instantiation pair (mapping unassigned) + capacity/len tests in buffer_managers"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x15730",
+      "va": "0x10015730",
+      "name": "I3D_driver::Tick",
+      "symbol": "lhr_engine::driver_lifecycle::driver_tick",
+      "tier": "contract",
+      "evidence": "REA LAB_10015730 entry shape + mafia-re ls3df/I3D/I3d_driver.cpp:171-174 (wrapping int add) + test tick_wraps_like_x86_int_add; tier contract (new-module wave policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x15750",
+      "va": "0x10015750",
+      "name": "I3D_driver::GetTickTime",
+      "symbol": "lhr_engine::driver_lifecycle::driver_get_tick_time",
+      "tier": "contract",
+      "evidence": "REA LAB_10015750 entry shape + mafia-re ls3df/I3D/I3d_driver.cpp:178-181 (pure load) + test get_tick_time_is_a_pure_load; tier contract (new-module wave policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x15760",
+      "va": "0x10015760",
+      "name": "I3D_driver::Init",
+      "symbol": "lhr_engine::driver_lifecycle::driver_init",
+      "tier": "contract",
+      "evidence": "REA LAB_10015760 entry shape + mafia-re ls3df/I3D/I3d_driver.cpp:183-241 + I3D.h:107-185 render-state defaults + tests init_stores_flags_resets_tick_and_close_prefix_order/init_problem_flags_and_sticky_disable_log; tier contract (new-module wave policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x15930",
+      "va": "0x10015930",
+      "name": "I3D_driver::Close",
+      "symbol": "lhr_engine::driver_lifecycle::driver_close",
+      "tier": "contract",
+      "evidence": "REA LAB_10015930 entry shape + mafia-re ls3df/I3D/I3d_driver.cpp:247-262 (closeRender first, icon release+NULL+clear, font release+NULL, I3DIsInit=false) + test close_releases_nulls_clears_in_order; tier contract (new-module wave policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x159b0",
+      "va": "0x100159b0",
+      "name": "I3D_driver::GetStats",
+      "symbol": "lhr_engine::driver_lifecycle::driver_get_stats",
+      "tier": "contract",
+      "evidence": "Formed 7BB/26insn/77B per assignment + mafia-re ls3df/I3D/I3d_driver.cpp:266-290 (NULL->INVALIDPARAMS, VOLUME memcpy 8 words + OK, else UNSUPPORTED, fallthrough dbgPrintf + INVALIDPARAMS) + test get_stats_null_volume_unsupported_and_fallthrough; tier contract (new-module wave policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x18d80",
+      "va": "0x10018d80",
+      "name": "I3D_driver::CreateVisual",
+      "symbol": "lhr_engine::driver_visual_factory::driver_create_visual",
+      "tier": "contract",
+      "evidence": "REA LAB_10018d80 entry shape + mafia-re ls3df/I3D/I3d_driver.cpp:1313-1360 (12-type operator-new switch, invalid dbgPrintf + NULL, OOM ErrorHandler FATAL, no driver-list insert) + tests create_visual_covers_all_twelve_kinds_in_switch_order/create_visual_invalid_reports_and_skips_allocation/create_visual_oom_invokes_fatal_and_returns_null; tier contract (new-module wave policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x19180",
+      "va": "0x10019180",
+      "name": "I3D_driver::CreateTrifaceArray",
+      "symbol": "lhr_engine::driver_visual_factory::driver_create_triface_array",
+      "tier": "contract",
+      "evidence": "REA LAB_10019180 entry shape + mafia-re ls3df/I3D/I3d_driver.cpp:1384-1388 (array-new, caller owns/delete[]) + test create_triface_array_forwards_count_and_caller_owns; tier contract (new-module wave policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x19880",
+      "va": "0x10019880",
+      "name": "I3D_driver::EnumVisualTypes",
+      "symbol": "lhr_engine::driver_visual_factory::driver_enum_visual_types",
+      "tier": "contract",
+      "evidence": "Formed per assignment + mafia-re ls3df/I3D/I3d_driver.cpp:1504-1529 (NULL proc->INVALIDPARAMS, 9 fixed + 3 conditional calls, OK; never cache across mutating callbacks) + test enum_visual_types_null_nine_and_twelve_in_native_order; tier contract (new-module wave policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x193e0",
+      "va": "0x100193e0",
+      "name": "I3D_driver::CreateFrame",
+      "symbol": "lhr_engine::driver_scene::driver_create_frame",
+      "tier": "contract",
+      "evidence": "REA LAB_100193e0 entry shape + mafia-re ls3df/I3D/I3d_driver.cpp:1433-1502 + I3D.h:4403-4415 driver lists (16-branch switch; SOUND->sounds.push_back, SCENE->viewport/listener/scenes.push_back, invalid->NULL, OOM->FATAL) + tests sixteen_arms_classify_and_plain_arms_push_no_list/sound_arm_pushes_sounds_and_scene_arm_does_viewport_listener_push/invalid_word_reports_and_skips_allocation/oom_invokes_fatal_with_no_list_push; tier contract (new-module wave policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x19930",
+      "va": "0x10019930",
+      "name": "FrameType2StringFunc",
+      "symbol": "lhr_engine::driver_strings::frame_type_string",
+      "tier": "contract",
+      "evidence": "Formed 20BB/45insn/142B per assignment + mafia-re ls3df/I3D/I3d_driver.cpp:1531-1563 (17 CASE_NAME arms, default sprintf into shared static str[64]; folds the 0x19a10 trampoline with no separate credit) + tests frame_known_arms_return_literals_and_banks_stay_empty/frame_unknown_formats_hex_into_shared_bank/frame_and_visual_banks_are_independent; tier contract (new-module wave policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x19a20",
+      "va": "0x10019a20",
+      "name": "I3D_driver::VisualType2String",
+      "symbol": "lhr_engine::driver_strings::visual_type_string",
+      "tier": "contract",
+      "evidence": "REA LAB_10019a20 entry shape + mafia-re ls3df/I3D/I3d_driver.cpp:1566-1593 (12 fourcc arms, shared statics) + tests visual_known_arms_return_literals/visual_unknown_appends_fourcc_bytes_cut_at_first_zero; tier contract (new-module wave policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x19d30",
+      "va": "0x10019d30",
+      "name": "I3D_driver::OptimalizeFastFindData",
+      "symbol": "lhr_engine::frame_fast_lookup::I3dFastFrameTree::optimalize_fast_find_data",
+      "tier": "contract",
+      "evidence": "REA LAB_10019d30 entry shape + mafia-re ls3df/I3D/I3d_driver.cpp:1665-1679 (NULL-root deref host precondition, OFFD_ListSize/Used/pFrameList globals, OOM->FATAL, rebuild + delete[]) + tests optimalize_null_root_is_an_explicit_precondition/optimalize_rebuilds_balanced_middle_back_chain/optimalize_oom_stores_size_and_observes_fatal_before_fill; tier contract (new-module wave policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x19dc0",
+      "va": "0x10019dc0",
+      "name": "I3D_driver::OFFD_RebuildBranchOfFFTree_",
+      "symbol": "lhr_engine::frame_fast_lookup::I3dFastFrameTree::offd_rebuild_branch_of_ff_tree",
+      "tier": "contract",
+      "evidence": "Formed 42BB/175insn/521B per assignment + mafia-re ls3df/I3D/I3d_driver.cpp:1682-1711 (recursive middle-back-to-first-of-name rebuild; explicit host stack policy) + tests optimalize_rebuilds_balanced_middle_back_chain/rebuild_stack_budget_is_explicit; tier contract (new-module wave policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x19fd0",
+      "va": "0x10019fd0",
+      "name": "I3D_driver::EnumFFTree",
+      "symbol": "lhr_engine::frame_fast_lookup::I3dFastFrameTree::enum_ff_tree",
+      "tier": "contract",
+      "evidence": "REA LAB_10019fd0 entry shape + mafia-re ls3df/I3D/I3d_driver.cpp:1715-1745 (NULL-root->OK, in-order via helper; folds the 0x1a050 enumSubtree helper with no separate credit) + tests enum_ff_tree_null_in_order_and_cancel/enum_ff_tree_cycle_is_explicit; tier contract (new-module wave policy: contract regardless of bodies)"
     }
   ],
   "vm": {

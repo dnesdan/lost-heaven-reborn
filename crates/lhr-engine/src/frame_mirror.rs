@@ -161,10 +161,10 @@ fn f32_finite(v: f32) -> bool {
 }
 
 /// FloatToInt(x*255) channel pack with the native shift order (A R G B).
-/// Native MakeColor truncates toward zero (mafia-re I3d_mirror.cpp:15-19),
-/// so 127.5 packs as 127, never 128. Alpha `(255-mask)/255` uses host
-/// division where native multiplies by (1/255): 1-ulp differences on the
-/// quotient are possible (disclosed).
+/// Native MakeColor rounds to nearest-even (ls3df.h:83 `fld`/`fistp`,
+/// explicitly not `__ftol` truncation), so 127.5 packs as 128.
+/// Alpha `(255-mask)/255` uses host division where native multiplies by
+/// (1/255): 1-ulp differences on the quotient are possible (disclosed).
 fn pack_channel(v: f32) -> Option<u32> {
     if !f32_finite(v) && !v.is_nan() {
         return None;
@@ -176,11 +176,11 @@ fn pack_channel(v: f32) -> Option<u32> {
     if !scaled.is_finite() {
         return None;
     }
-    let truncated = scaled.trunc();
-    if !(0.0..=255.0).contains(&truncated) {
+    let rounded = scaled.round_ties_even();
+    if !(0.0..=255.0).contains(&rounded) {
         return None;
     }
-    Some(truncated as u32 & 0xff)
+    Some(rounded as u32 & 0xff)
 }
 
 fn make_mirror_color(alpha: f32, color: [f32; 3]) -> Option<u32> {
@@ -1218,8 +1218,11 @@ mod tests {
         assert_eq!(nocull.cull, MirrorCullMode::None);
         let cw = mirror_draw_plan(&tri, [1.0, 0.0, 0.0], 0x400).unwrap();
         assert_eq!(cw.cull, MirrorCullMode::Cw);
-        // FloatToInt truncation (native MakeColor): 127.5/255 packs as 127.
-        assert_eq!(pack_channel(0.5), Some(127));
+        // FloatToInt round-to-nearest-even (native MakeColor): 127.5 packs
+        // as 128 (2.5->2, 3.5->4 likewise).
+        assert_eq!(pack_channel(0.5), Some(128));
+        assert_eq!(pack_channel(2.5 / 255.0), Some(2));
+        assert_eq!(pack_channel(3.5 / 255.0), Some(4));
         assert_eq!(pack_channel(1.0), Some(255));
         assert_eq!(pack_channel(0.0), Some(0));
     }

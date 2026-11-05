@@ -67,15 +67,22 @@ class RewriteProgressTests(unittest.TestCase):
         # 5 differential + 14 contract; 16 landscape, 8 collision, 7 load,
         # 19 math, 10 lightmap: all contract; 13 deferred-scope withholds
         # with reasons in the commit message: 0x603e0 ledger-credited,
-        # 9 portal/occluder single-owner-pending, 3 sound getter/callee-folded).", Tier rules applied: differential needs
+        # 9 portal/occluder single-owner-pending, 3 sound getter/callee-folded).
+        # 73 wave-4 render/clipping/driver: 3 differential + 70 contract
+        # (8 factories + tick-list downgraded per review: native-only FATAL
+        # arms / unverified bodies; thunks own forwarder symbols; 0x598d0
+        # ledger-credited like F2 0x603e0; 20 render-core, 20 clipping,
+        # 12 driver-fileable, 7 driver-draws, 14 driver-newmods; device
+        # draws + no-symbol items withheld with reason in the commit
+        # message).", Tier rules applied: differential needs
         # a Ghidra body (or complete instruction walk) plus pinning tests —
         # this includes confirm-only bodies that corroborate a pre-existing
         # port (new evidence + tests on top); contract covers no-body walks,
         # ABI-only teardown bodies (vtable re-store + base tailjump, no
         # portable state effect), and partial-coverage ports. Same standard
         # as 0x2b830 throughout.
-        self.assertEqual(ls3df["ported"], 145 + 561)
-        self.assertEqual(ls3df["verified"], 145 + 243)
+        self.assertEqual(ls3df["ported"], 145 + 634)
+        self.assertEqual(ls3df["verified"], 145 + 246)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()

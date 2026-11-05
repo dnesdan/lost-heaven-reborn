@@ -1,4 +1,8 @@
-//! Original I3D_driver::CreateFrame (PC 0x193e0), type13 Scene arm only.
+//! Driver scene registry plus the CreateFrame dispatch. `create_scene` below
+//! is a host adapter with an explicit audio dependency (it errors where audio
+//! is unavailable); the overlay-credited 0x193e0 port is `driver_create_frame`,
+//! which follows the native switch (listener skipped when not ready, scene
+//! still pushed). Original I3D_driver::CreateFrame (PC 0x193e0) dispatch.
 //! LS3DF SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6.
 //! Registry defaults follow driver ctor0x15620; list teardown is only the
 //! scene-list member effect of dtor0x15670, not the whole driver destructor.
@@ -1197,5 +1201,368 @@ mod tests {
                 )
                 .unwrap();
         });
+    }
+}
+
+// I3D_driver::CreateFrame full 16-arm dispatch (LS3DF RVA 0x193e0).
+// Upstream reference mafia-re ls3df/I3D/I3d_driver.cpp @ ab67b13:1433-1502,
+// driver lists I3D.h:4403-4415 (sounds at +0x38, scenes at +0x48), frame enum
+// I3D.h:62-83. Name CreateFrame is an evidenced PS2 original (I3D_driver
+// vtable); Rust spelling is snake_case per repo rule. Tier contract
+// (new-module wave policy: contract regardless of bodies; LAB_ entry shape per
+// assignment). The operator-new bodies stay behind the allocator backend; the
+// viewport rectangle, listener readiness and invalid-type diagnostic stay
+// behind backend traits. Existing DriverSceneOwner arms above keep the full
+// scene/sound constructor paths; this dispatch pins the switch shape, the two
+// list pushes and the NULL/FATAL edges for all sixteen arms.
+
+/// Frame words dispatched by CreateFrame (I3D.h:62-83). FRAME_NULL (0),
+/// FRAME_VISUAL (1) and FRAME_LAST+ fall through to the invalid arm.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum FactoryFrameKind {
+    Light,
+    Camera,
+    Sound,
+    Sector,
+    Dummy,
+    Target,
+    User,
+    Model,
+    Joint,
+    Volume,
+    Occluder,
+    Scene,
+    Area,
+    Shadow,
+    Landscape,
+    Emitor,
+}
+
+impl FactoryFrameKind {
+    /// Native I3D_FRAME_TYPE word for this arm.
+    pub fn word(self) -> u32 {
+        match self {
+            Self::Light => 2,
+            Self::Camera => 3,
+            Self::Sound => 4,
+            Self::Sector => 5,
+            Self::Dummy => 6,
+            Self::Target => 7,
+            Self::User => 8,
+            Self::Model => 9,
+            Self::Joint => 10,
+            Self::Volume => 11,
+            Self::Occluder => 12,
+            Self::Scene => 13,
+            Self::Area => 14,
+            Self::Shadow => 15,
+            Self::Landscape => 16,
+            Self::Emitor => 17,
+        }
+    }
+
+    /// Sixteen-arm classification. Words 0, 1 and 18+ report no kind.
+    pub fn from_word(word: u32) -> Option<Self> {
+        match word {
+            2 => Some(Self::Light),
+            3 => Some(Self::Camera),
+            4 => Some(Self::Sound),
+            5 => Some(Self::Sector),
+            6 => Some(Self::Dummy),
+            7 => Some(Self::Target),
+            8 => Some(Self::User),
+            9 => Some(Self::Model),
+            10 => Some(Self::Joint),
+            11 => Some(Self::Volume),
+            12 => Some(Self::Occluder),
+            13 => Some(Self::Scene),
+            14 => Some(Self::Area),
+            15 => Some(Self::Shadow),
+            16 => Some(Self::Landscape),
+            17 => Some(Self::Emitor),
+            _ => None,
+        }
+    }
+}
+
+/// Owned frame identity produced by the operator-new boundary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct DriverFrameHandle {
+    kind: FactoryFrameKind,
+    serial: u64,
+}
+
+impl DriverFrameHandle {
+    pub fn fresh(kind: FactoryFrameKind) -> Self {
+        static NEXT_FACTORY_FRAME: AtomicU64 = AtomicU64::new(1);
+        let serial = NEXT_FACTORY_FRAME
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+                value.checked_add(1)
+            })
+            .expect("driver frame identity exhausted");
+        Self { kind, serial }
+    }
+
+    pub fn kind(self) -> FactoryFrameKind {
+        self.kind
+    }
+
+    pub fn serial(self) -> u64 {
+        self.serial
+    }
+}
+
+/// Typed image of the driver lists mutated by CreateFrame: sounds (+0x38) and
+/// scenes (+0x48). Entries are borrowed identities; removal happens in the
+/// frame destructors, never here.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DriverFrameRegistry {
+    pub sounds: Vec<DriverFrameHandle>,
+    pub scenes: Vec<DriverFrameHandle>,
+}
+
+/// Operator-new plus scene-arm host boundaries. Allocation covers the per-arm
+/// new; the viewport pair covers GetViewPort/SetViewport; the listener pair
+/// covers the `pISndDriver && IsInit()` gate with CreateListener.
+pub trait DriverFrameFactoryBackend {
+    fn allocate_frame(&mut self, kind: FactoryFrameKind) -> Option<DriverFrameHandle>;
+    fn out_of_memory_fatal(&mut self);
+    /// Native GetViewPort fields [x, y, width, height].
+    fn viewport_rectangle(&mut self) -> [i32; 4];
+    fn set_viewport(&mut self, scene: DriverFrameHandle, rect: [i32; 4]);
+    fn sound_listener_ready(&self) -> bool;
+    fn create_listener(&mut self, scene: DriverFrameHandle);
+}
+
+/// Diagnostic sink for the invalid frame-type message.
+pub trait DriverFrameDiagnostic {
+    fn invalid_frame_type(&mut self, type_word: u32);
+}
+
+/// Factory-path registries (DriverFrameRegistry.sounds/scenes) serve this
+/// dispatch; the pre-existing DriverSceneOwner registries serve the arena
+/// path. The models cover disjoint native lists; no cross-model consistency
+/// is claimed at contract tier.
+/// LS3DF RVA 0x193e0. Evidenced name I3D_driver::CreateFrame from mafia-re
+/// I3d_driver.cpp:1433-1502. Sixteen arms dispatched by type word (table-driven;
+// enum declaration order is host-side, behavior-neutral); FRAME_SOUND pushes
+/// the new handle onto sounds; FRAME_SCENE sets the viewport with wrapping
+/// width/height subtraction, creates the listener when the sound driver is
+/// present and initialized, then pushes onto scenes; any other known arm
+/// returns the handle with no list effect; an invalid word emits the
+/// diagnostic and returns NULL; a failed allocation invokes the fatal handler
+/// and returns NULL with no list push. SCENE OOM hardening: native
+/// allocates then dereferences for SetViewport before any null check (a
+/// fault); the host reports fatal and returns NULL instead (pinned by
+/// oom_invokes_fatal_with_no_list_push as adaptation coverage, and the
+/// entry stays contract on that edge).
+pub fn driver_create_frame(
+    registry: &mut DriverFrameRegistry,
+    type_word: u32,
+    backend: &mut impl DriverFrameFactoryBackend,
+    diag: &mut impl DriverFrameDiagnostic,
+) -> Option<DriverFrameHandle> {
+    let Some(kind) = FactoryFrameKind::from_word(type_word) else {
+        diag.invalid_frame_type(type_word);
+        return None;
+    };
+    match kind {
+        FactoryFrameKind::Sound => {
+            let Some(handle) = backend.allocate_frame(kind) else {
+                backend.out_of_memory_fatal();
+                return None;
+            };
+            registry.sounds.push(handle);
+            Some(handle)
+        }
+        FactoryFrameKind::Scene => {
+            let Some(handle) = backend.allocate_frame(kind) else {
+                backend.out_of_memory_fatal();
+                return None;
+            };
+            let viewport = backend.viewport_rectangle();
+            backend.set_viewport(
+                handle,
+                [
+                    viewport[0],
+                    viewport[1],
+                    viewport[2].wrapping_sub(viewport[0]),
+                    viewport[3].wrapping_sub(viewport[1]),
+                ],
+            );
+            if backend.sound_listener_ready() {
+                backend.create_listener(handle);
+            }
+            registry.scenes.push(handle);
+            Some(handle)
+        }
+        _ => {
+            let Some(handle) = backend.allocate_frame(kind) else {
+                backend.out_of_memory_fatal();
+                return None;
+            };
+            Some(handle)
+        }
+    }
+}
+
+#[cfg(test)]
+mod factory_dispatch_tests {
+    use super::*;
+
+    struct TestBackend {
+        fail_on: Option<FactoryFrameKind>,
+        fatal: usize,
+        viewport: [i32; 4],
+        viewports_set: Vec<(DriverFrameHandle, [i32; 4])>,
+        listener_ready: bool,
+        listeners: Vec<DriverFrameHandle>,
+        allocated: Vec<FactoryFrameKind>,
+    }
+
+    impl TestBackend {
+        fn ok() -> Self {
+            Self {
+                fail_on: None,
+                fatal: 0,
+                viewport: [10, 20, 810, 620],
+                viewports_set: Vec::new(),
+                listener_ready: false,
+                listeners: Vec::new(),
+                allocated: Vec::new(),
+            }
+        }
+    }
+
+    impl DriverFrameFactoryBackend for TestBackend {
+        fn allocate_frame(&mut self, kind: FactoryFrameKind) -> Option<DriverFrameHandle> {
+            self.allocated.push(kind);
+            if self.fail_on == Some(kind) {
+                return None;
+            }
+            Some(DriverFrameHandle::fresh(kind))
+        }
+
+        fn out_of_memory_fatal(&mut self) {
+            self.fatal += 1;
+        }
+
+        fn viewport_rectangle(&mut self) -> [i32; 4] {
+            self.viewport
+        }
+
+        fn set_viewport(&mut self, scene: DriverFrameHandle, rect: [i32; 4]) {
+            self.viewports_set.push((scene, rect));
+        }
+
+        fn sound_listener_ready(&self) -> bool {
+            self.listener_ready
+        }
+
+        fn create_listener(&mut self, scene: DriverFrameHandle) {
+            self.listeners.push(scene);
+        }
+    }
+
+    #[derive(Default)]
+    struct TestDiag {
+        invalid: Vec<u32>,
+    }
+
+    impl DriverFrameDiagnostic for TestDiag {
+        fn invalid_frame_type(&mut self, type_word: u32) {
+            self.invalid.push(type_word);
+        }
+    }
+
+    #[test]
+    fn sixteen_arms_classify_and_plain_arms_push_no_list() {
+        let mut registry = DriverFrameRegistry::default();
+        let mut backend = TestBackend::ok();
+        let mut diag = TestDiag::default();
+        let plain = [2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17];
+        for word in plain {
+            let handle = driver_create_frame(&mut registry, word, &mut backend, &mut diag)
+                .expect("plain arm constructs");
+            assert_eq!(handle.kind(), FactoryFrameKind::from_word(word).unwrap());
+            assert!(handle.word_mirrors(word));
+        }
+        assert!(registry.sounds.is_empty());
+        assert!(registry.scenes.is_empty());
+        assert!(diag.invalid.is_empty());
+        assert_eq!(backend.fatal, 0);
+        assert!(backend.viewports_set.is_empty());
+        assert!(backend.listeners.is_empty());
+        assert_eq!(backend.allocated.len(), 14);
+    }
+
+    #[test]
+    fn sound_arm_pushes_sounds_and_scene_arm_does_viewport_listener_push() {
+        let mut registry = DriverFrameRegistry::default();
+        let mut backend = TestBackend::ok();
+        let mut diag = TestDiag::default();
+        let sound = driver_create_frame(&mut registry, 4, &mut backend, &mut diag).unwrap();
+        assert_eq!(sound.kind(), FactoryFrameKind::Sound);
+        assert_eq!(registry.sounds, vec![sound]);
+        assert!(registry.scenes.is_empty());
+        backend.listener_ready = true;
+        let scene = driver_create_frame(&mut registry, 13, &mut backend, &mut diag).unwrap();
+        assert_eq!(scene.kind(), FactoryFrameKind::Scene);
+        assert_eq!(registry.scenes, vec![scene]);
+        assert_eq!(registry.sounds, vec![sound]);
+        assert_eq!(backend.viewports_set, vec![(scene, [10, 20, 800, 600])]);
+        assert_eq!(backend.listeners, vec![scene]);
+        let mut bare = TestBackend::ok();
+        bare.viewport = [5, 7, 3, 9];
+        let mut registry2 = DriverFrameRegistry::default();
+        let mut diag2 = TestDiag::default();
+        let scene2 = driver_create_frame(&mut registry2, 13, &mut bare, &mut diag2).unwrap();
+        assert_eq!(bare.viewports_set, vec![(scene2, [5, 7, -2, 2])]);
+        assert!(bare.listeners.is_empty());
+    }
+
+    #[test]
+    fn invalid_word_reports_and_skips_allocation() {
+        let mut registry = DriverFrameRegistry::default();
+        let mut backend = TestBackend::ok();
+        let mut diag = TestDiag::default();
+        for word in [0u32, 1, 18, 19, 0xffff_ffff] {
+            assert_eq!(
+                driver_create_frame(&mut registry, word, &mut backend, &mut diag),
+                None
+            );
+        }
+        assert_eq!(diag.invalid, vec![0, 1, 18, 19, 0xffff_ffff]);
+        assert!(backend.allocated.is_empty());
+        assert!(registry.sounds.is_empty() && registry.scenes.is_empty());
+    }
+
+    #[test]
+    fn oom_invokes_fatal_with_no_list_push() {
+        let mut registry = DriverFrameRegistry::default();
+        let mut backend = TestBackend::ok();
+        backend.fail_on = Some(FactoryFrameKind::Sound);
+        let mut diag = TestDiag::default();
+        assert_eq!(
+            driver_create_frame(&mut registry, 4, &mut backend, &mut diag),
+            None
+        );
+        assert_eq!(backend.fatal, 1);
+        assert!(registry.sounds.is_empty());
+        backend.fail_on = Some(FactoryFrameKind::Scene);
+        assert_eq!(
+            driver_create_frame(&mut registry, 13, &mut backend, &mut diag),
+            None
+        );
+        assert_eq!(backend.fatal, 2);
+        assert!(registry.scenes.is_empty());
+        assert!(backend.viewports_set.is_empty() && backend.listeners.is_empty());
+        assert!(diag.invalid.is_empty());
+    }
+
+    impl DriverFrameHandle {
+        fn word_mirrors(self, word: u32) -> bool {
+            self.kind().word() == word
+        }
     }
 }

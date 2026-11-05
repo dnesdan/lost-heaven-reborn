@@ -14,11 +14,36 @@
 //! RVA0x7a910 Request is an upstream working name: frame refresh and weak queue
 //! production only; it does not load a texture.
 //! Snapshot intake/typed identities and failure handling are host adapters.
+//! RVA0x16600 GetIcon is an upstream working name (PC-only group per I3D.h:4380):
+//! NULL resource or NULL material maps to NULL; otherwise the material gains
+//! MATF_TXT_ALPHA. Texture creation flags, COM ownership and Win32 resource
+//! lifetime stay backend contracts (CPU flag decision only).
 use crate::itexture::{ManagedRecordKey, TextureGraphics, TextureKey, TextureSurface};
 mod restore;
 mod worker;
 pub use restore::*;
 pub use worker::*;
+/// `MATF_TXT_ALPHA` (mafia-re ls3df/I3D/I3D.h:3869): the texture has alpha.
+/// `GetIcon` ORs this into the fresh material (`mat->flags |= MATF_TXT_ALPHA`,
+/// mafia-re ls3df/I3D/I3d_driver.cpp:712).
+pub const ICON_MATERIAL_TXT_ALPHA: u32 = 0x40000000;
+/// `ITC_FROM_MEMORY | ITC_COLORKEY | ITC_DXT` (`0x1 | 0x8 | 0x200`) passed to
+/// `ITexture::Create` by `GetIcon` (mafia-re ls3df/I3D/I3d_driver.cpp:705).
+pub const ICON_TEXTURE_CREATE_FLAGS: u32 = 0x209;
+/// Original `GetIcon`, PC RVA 0x16600 (upstream working name, NOT original;
+/// CONTRACT: NULL-to-NULL plus flag behavior only; mafia-re
+/// ls3df/I3D/I3d_driver.cpp:693-719). `resource` is the Win32 bitmap payload
+/// (`FindResource`/`LoadResource`/`LockResource`; `None` is the missing-resource
+/// `NULL` path with its diagnostic print). `material_flags` is the fresh
+/// `CreateMaterial` result (`None` is the allocation-failure `NULL` path with
+/// its `FreeResource`); `Some(flags)` gains `MATF_TXT_ALPHA`. The
+/// `CreateITexture` / `Create` / `SetTexture` / `Release` / `FreeResource`
+/// ownership and the `GetModuleHandleA("LS3DF.dll")` lookup stay backend
+/// contracts and are not modeled here.
+pub fn get_icon_material(resource: Option<&[u8]>, material_flags: Option<u32>) -> Option<u32> {
+    resource?;
+    Some(material_flags? | ICON_MATERIAL_TXT_ALPHA)
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ManagedFilenameAllocation(pub u64);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -1400,5 +1425,26 @@ impl TextureManager {
                 })
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod icon_tests {
+    use super::*;
+    #[test]
+    fn icon_null_paths_and_flag_behavior() {
+        assert_eq!(ICON_TEXTURE_CREATE_FLAGS, 0x1 | 0x8 | 0x200);
+        assert_eq!(ICON_MATERIAL_TXT_ALPHA, 0x40000000);
+        assert_eq!(get_icon_material(None, Some(0)), None);
+        assert_eq!(get_icon_material(Some([1u8, 2, 3].as_slice()), None), None);
+        assert_eq!(get_icon_material(None, None), None);
+        assert_eq!(
+            get_icon_material(Some([0u8].as_slice()), Some(0)),
+            Some(0x40000000)
+        );
+        assert_eq!(
+            get_icon_material(Some([0u8].as_slice()), Some(0x12345678)),
+            Some(0x12345678 | 0x40000000)
+        );
     }
 }

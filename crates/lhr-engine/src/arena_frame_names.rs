@@ -41,6 +41,11 @@ impl ModelArena {
         }
         Ok(c_name(&frame.name_bytes))
     }
+    /// Arena projection of driver query 0x19b10 `I3D_driver::FindFrameFast`
+    /// (mafia-re `ls3df/I3D/I3d_driver.cpp:1595`; canonical read-only walk is
+    /// `frame_fast_lookup::I3dFastFrameTree::find_frame_fast`): same BST walk
+    /// and PC-continues-past-other-scene-sectors semantics over live arena
+    /// names and graph parent links.
     pub fn find_frame_fast(
         &self,
         scene: SceneKey,

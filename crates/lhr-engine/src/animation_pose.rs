@@ -109,6 +109,10 @@ pub type PoseHandle = Rc<RefCell<I3dPose>>;
 
 impl I3dPose {
     /// Working-name ctor. DIFFERENTIAL — RVA 0x45930 (23 ins, 1 BB).
+    /// Driver factory 0x19320 `I3D_driver::CreatePose` (mafia-re
+    /// `ls3df/I3D/I3d_driver.cpp:1419`, evidenced PS2 original class name):
+    /// operator-new over this ctor; the caller owns the fresh pose (no null
+    /// check in the factory body; no native handler at runtime).
     /// `unit_vector` is a backend-contract input: the datum copied from the
     /// engine's static unit vector (@0x101c5188/8c/90; value not observed —
     /// never invented here).
@@ -274,6 +278,10 @@ pub struct I3dPoseSet {
 
 impl I3dPoseSet {
     /// Working-name ctor. DIFFERENTIAL — RVA 0x45b90 (9 ins, 1 BB).
+    /// Driver factory 0x19380 `I3D_driver::CreatePoseSet` (mafia-re
+    /// `ls3df/I3D/I3d_driver.cpp:1426`, evidenced PS2 original class name):
+    /// operator-new over this ctor; the caller owns the fresh set (no null
+    /// check in the factory body; no native handler at runtime).
     /// Growth quantum `0x20` recorded for growth accounting (host `Vec`
     /// owns real growth).
     pub fn new() -> Self {
@@ -701,5 +709,62 @@ mod tests {
         let mut log = Vec::new();
         set.add_pose(h.clone(), None, &mut log);
         assert_eq!(h.borrow().refcount(), i32::MIN);
+    }
+}
+
+#[cfg(test)]
+mod driver_factory_pinning {
+    use super::*;
+
+    fn unit() -> [f32; 3] {
+        [1.0, 0.0, 0.0]
+    }
+
+    #[test]
+    fn driver_create_pose_yields_caller_owned_fresh_pose() {
+        // Driver factory 0x19320 (mafia-re I3d_driver.cpp:1419): operator-new
+        // ownership is the caller; each call yields an independent fresh
+        // pose with the 0x45930 ctor words. Hand-derived vectors.
+        let a = I3dPose::new_in(unit());
+        let b = I3dPose::new_in([0.0, 1.0, 0.0]);
+        for (pose, scale) in [(&a, unit()), (&b, [0.0, 1.0, 0.0])] {
+            assert_eq!(pose.refcount(), POSE_INITIAL_REFCOUNT);
+            assert_eq!(POSE_INITIAL_REFCOUNT, 1);
+            assert_eq!(pose.flags(), 0);
+            assert_eq!(pose.pos(), [0.0, 0.0, 0.0]);
+            assert_eq!(pose.scale(), scale);
+            assert_eq!(pose.rot()[0].to_bits(), 0x3F80_0000);
+            assert_eq!(&pose.rot()[1..], &[0.0, 0.0, 0.0]);
+            assert_eq!(pose.name_or_empty(), b"");
+        }
+        // No aliasing between fresh values.
+        let mut c = I3dPose::new_in(unit());
+        c.set_pos(Some([9.0, 0.0, 0.0]));
+        assert_eq!(a.pos(), [0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn driver_create_pose_set_yields_caller_owned_empty_set() {
+        // Driver factory 0x19380 (mafia-re I3d_driver.cpp:1426): operator-new
+        // ownership is the caller; fresh set is empty with refcount 1 and
+        // growth quantum 0x20. Hand-derived vectors.
+        let a = I3dPoseSet::new();
+        let b = I3dPoseSet::new();
+        for set in [&a, &b] {
+            assert_eq!(set.refcount(), POSE_INITIAL_REFCOUNT);
+            assert!(set.is_empty());
+            assert_eq!(set.len(), 0);
+            assert_eq!(set.growth_quantum(), POSE_SET_GROWTH_QUANTUM);
+            assert_eq!(POSE_SET_GROWTH_QUANTUM, 0x20);
+        }
+        let mut c = I3dPoseSet::new();
+        let mut log = Vec::new();
+        c.add_pose(
+            Rc::new(RefCell::new(I3dPose::new_in(unit()))),
+            None,
+            &mut log,
+        );
+        assert_eq!(c.len(), 1);
+        assert!(a.is_empty() && b.is_empty());
     }
 }

@@ -1,10 +1,12 @@
 #![forbid(unsafe_code)]
 //! Shadow-frame passes (PC LS3DF.dll e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
 //! RVAs 0x51ab0, 0x51c00, 0x529c0, 0x52a90, 0x52c70, 0x52ce0, 0x52e90, 0x52f80,
-//! 0x53060, 0x53250, 0x53280, 0x53ee0: 10 differential + 2 contract).
+//! 0x53060, 0x53250, 0x53280, 0x53ee0, 0x15e80, 0x160d0, 0x16310:
+//! 12 differential + 3 contract, plus the `ScanEdge` inline helper).
 //!
 //! Reference (upstream working names, never original symbols): mafia-re
-//! ls3df/I3D/visuals/I3d_shadow.cpp. State ownership: GROUP X1 owns the
+//! ls3df/I3D/visuals/I3d_shadow.cpp for the frame passes and
+//! ls3df/I3D/I3d_driver.cpp:405-649 for the PC-only driver rasterizer. State ownership: GROUP X1 owns the
 //! shadow-frame state (`crate::frame_shadow`). This module only borrows live
 //! state through the traits below using named accessors (no offsets, no
 //! `Vec<u8>` maps). Flag words below the line are X1-owned and arrive via
@@ -868,6 +870,360 @@ pub fn render_shadow_face_group_contract(
     Err(ShadowPassError::UnresolvedBoundary)
 }
 
+/// PC-only driver rasterizer working names (mafia-re I3D.h:4380 notes the
+/// whole `DrawShadowTriangles` / `DrawShadowTrianglesSW` /
+/// `RenderShadowTexture` / `GetIcon` group is PC-only with guessed names;
+/// every `I3D_driver::DrawShadow*` / `RenderShadowTexture` name below is an
+/// upstream working name, NOT an original symbol). CPU-portable behavior
+/// only: spans, integer edge walks and memory fills. Device `Lock`/`Unlock`,
+/// `Fill`, `AddDirtyRect` and the `shadow_buffer`/`shadow_spans` globals stay
+/// backend contracts; this module threads explicit buffers instead.
+pub const SHADOW_SPAN_ROWS: usize = 256;
+/// SW row stride in bytes (`imul edi, 0x100` / `add edi, 0x100`).
+pub const SHADOW_SW_STRIDE: usize = 0x100;
+/// SW flat buffer length (`static uchar shadow_mem[0x10000]`).
+pub const SHADOW_SW_BUFFER_LEN: usize = 0x10000;
+/// HW fill word (alpha 15 in the 16-bit texture: `mov eax, 0xf000f000`).
+pub const SHADOW_FILL_WORD: u16 = 0xF000;
+/// SW fill byte (`mov al, 0xff` + `rep stosb`).
+pub const SHADOW_SW_FILL_BYTE: u8 = 0xFF;
+
+/// Prefilled spans for one triangle (`lea edi, shadow_spans` + `mov ecx, 0x80`
+/// + `mov eax, 0x00ff00ff` + `rep stosd`): each row starts as left `0xFF`,
+/// right `0x00` (empty, since left > right).
+pub fn shadow_span_prefill() -> [[u8; 2]; SHADOW_SPAN_ROWS] {
+    [[0xFF, 0x00]; SHADOW_SPAN_ROWS]
+}
+
+/// `ScanEdge` (mafia-re ls3df/I3D/I3d_driver.cpp:405, `static inline`, no RVA
+/// — CONTRACT helper, no body bar). Exact integer order: horizontal edges
+/// return; descending edges swap endpoints; `dx = ((xe - xs) << 7) / (ye -
+/// ys)` truncates toward zero; `x = xs << 7` walks `ys..=ye` inclusive with
+/// arithmetic `x >> 7` narrowing to bytes on store. Shifts use wrapping
+/// 32-bit semantics (x86 wrap); the divide has a strictly positive divisor
+/// after the swap. Rows outside `0..256` are skipped (portable clip; the
+/// original indexes the flat `shadow_spans` global out of bounds there —
+/// disclosed, not modeled). In-domain rows are bit-exact, including the
+/// `(u8)` truncation on store.
+pub fn scan_shadow_edge(
+    spans: &mut [[u8; 2]; SHADOW_SPAN_ROWS],
+    xs: i32,
+    ys: i32,
+    xe: i32,
+    ye: i32,
+) {
+    if ye == ys {
+        return;
+    }
+    let (xs, ys, xe, ye) = if ye < ys {
+        (xe, ye, xs, ys)
+    } else {
+        (xs, ys, xe, ye)
+    };
+    let denom = ye.wrapping_sub(ys);
+    let dx = xe.wrapping_sub(xs).wrapping_shl(7) / denom;
+    let mut x = xs.wrapping_shl(7);
+    for y in ys..=ye {
+        if !(0..SHADOW_SPAN_ROWS as i32).contains(&y) {
+            x = x.wrapping_add(dx);
+            continue;
+        }
+        let Ok(yi) = usize::try_from(y) else {
+            x = x.wrapping_add(dx);
+            continue;
+        };
+        let row = &mut spans[yi];
+        let v = x >> 7;
+        if v < i32::from(row[0]) {
+            #[allow(clippy::cast_possible_truncation)]
+            let narrow = v as u8;
+            row[0] = narrow;
+        }
+        if v > i32::from(row[1]) {
+            #[allow(clippy::cast_possible_truncation)]
+            let narrow = v as u8;
+            row[1] = narrow;
+        }
+        x = x.wrapping_add(dx);
+    }
+}
+
+fn shadow_triangle_y_range(y0: i32, y1: i32, y2: i32) -> (i32, i32) {
+    let mut y_min = y0;
+    let mut y_max = y0;
+    if y1 < y_min {
+        y_min = y1;
+    }
+    if y2 < y_min {
+        y_min = y2;
+    }
+    if y1 > y_max {
+        y_max = y1;
+    }
+    if y2 > y_max {
+        y_max = y2;
+    }
+    (y_min, y_max)
+}
+
+fn shadow_face_verts(
+    verts: &[i32],
+    indx: &[u16],
+) -> Result<([i32; 2], [i32; 2], [i32; 2]), ShadowPassError> {
+    let fetch = |slot: u16| -> Result<[i32; 2], ShadowPassError> {
+        let base = usize::from(slot)
+            .checked_mul(2)
+            .ok_or(ShadowPassError::NumericDomain)?;
+        verts
+            .get(base..base + 2)
+            .and_then(|pair| <&[i32; 2]>::try_from(pair).ok())
+            .copied()
+            .ok_or(ShadowPassError::NumericDomain)
+    };
+    Ok((fetch(indx[0])?, fetch(indx[1])?, fetch(indx[2])?))
+}
+
+/// HW row fill (`DrawShadowTriangles` `row:` loop, mafia-re
+/// ls3df/I3D/I3d_driver.cpp:434-486). For each `y` in `y_min..y_max`
+/// (`y_max` exclusive: `sub ebx, eax` + `jz done` + `dec ebx`/`jnz row`),
+/// `width = (right - left)` as wrapping 8-bit subtraction; `width == 0`
+/// skips; otherwise `width` words of `0xF000` land at
+/// `dst + y * pitch + left * 2`. The word-at-a-time store equals the native
+/// `shr ecx, 1` / `rep stosd` + odd `stosw` sequence (`0xF000F000` pairs plus
+/// one leading word on odd widths) covering `[left, right)`. Out-of-range
+/// rows are skipped (portable clip, disclosed); a write past the end of
+/// `dst` is a numeric-domain failure (the original writes through the raw
+/// pointer — disclosed, not modeled). `pitch` is the unsigned form of the
+/// native signed pitch (negative pitches not admitted).
+pub fn fill_shadow_rows_hw(
+    spans: &[[u8; 2]; SHADOW_SPAN_ROWS],
+    y_min: i32,
+    y_max: i32,
+    dst: &mut [u8],
+    pitch: usize,
+) -> Result<(), ShadowPassError> {
+    if y_max <= y_min {
+        return Ok(());
+    }
+    for y in y_min..y_max {
+        if !(0..SHADOW_SPAN_ROWS as i32).contains(&y) {
+            continue;
+        }
+        let Ok(yi) = usize::try_from(y) else {
+            continue;
+        };
+        let row = spans[yi];
+        let width = row[1].wrapping_sub(row[0]);
+        if width == 0 {
+            continue;
+        }
+        let row_start = yi
+            .checked_mul(pitch)
+            .ok_or(ShadowPassError::NumericDomain)?;
+        let col_start = usize::from(row[0])
+            .checked_mul(2)
+            .ok_or(ShadowPassError::NumericDomain)?;
+        let byte_len = usize::from(width)
+            .checked_mul(2)
+            .ok_or(ShadowPassError::NumericDomain)?;
+        let end = row_start
+            .checked_add(col_start)
+            .and_then(|start| start.checked_add(byte_len))
+            .ok_or(ShadowPassError::NumericDomain)?;
+        if end > dst.len() {
+            return Err(ShadowPassError::NumericDomain);
+        }
+        let bytes = SHADOW_FILL_WORD.to_le_bytes();
+        for k in 0..usize::from(width) {
+            let off = row_start + col_start + k * 2;
+            dst[off] = bytes[0];
+            dst[off + 1] = bytes[1];
+        }
+    }
+    Ok(())
+}
+
+/// SW row fill (`DrawShadowTrianglesSW` `row:` loop, mafia-re
+/// ls3df/I3D/I3d_driver.cpp:505-551). Same span/width rule, but `width`
+/// bytes of `0xFF` land at `buffer + y * 0x100 + left` in the flat 64 KiB
+/// buffer, so a wrapping width (`right < left`) spills into the next rows
+/// exactly as the native flat `rep stosb` does. Buffers shorter than
+/// `0x10000` are a numeric-domain failure; out-of-range rows are skipped
+/// (portable clip, disclosed).
+pub fn fill_shadow_rows_sw(
+    spans: &[[u8; 2]; SHADOW_SPAN_ROWS],
+    y_min: i32,
+    y_max: i32,
+    buffer: &mut [u8],
+) -> Result<(), ShadowPassError> {
+    if buffer.len() < SHADOW_SW_BUFFER_LEN {
+        return Err(ShadowPassError::NumericDomain);
+    }
+    if y_max <= y_min {
+        return Ok(());
+    }
+    for y in y_min..y_max {
+        if !(0..SHADOW_SPAN_ROWS as i32).contains(&y) {
+            continue;
+        }
+        let Ok(yi) = usize::try_from(y) else {
+            continue;
+        };
+        let row = spans[yi];
+        let width = row[1].wrapping_sub(row[0]);
+        if width == 0 {
+            continue;
+        }
+        let start = yi
+            .checked_mul(SHADOW_SW_STRIDE)
+            .and_then(|base| base.checked_add(usize::from(row[0])))
+            .ok_or(ShadowPassError::NumericDomain)?;
+        let end = start
+            .checked_add(usize::from(width))
+            .ok_or(ShadowPassError::NumericDomain)?;
+        if end > buffer.len() {
+            return Err(ShadowPassError::NumericDomain);
+        }
+        for slot in &mut buffer[start..end] {
+            *slot = SHADOW_SW_FILL_BYTE;
+        }
+    }
+    Ok(())
+}
+
+/// 0x15e80 `DrawShadowTriangles` (upstream working name, NOT original;
+/// differential: REA formed body 52 BB / 216 insn; mafia-re
+/// ls3df/I3D/I3d_driver.cpp:432-501). Per-face order: prefill spans
+/// (`rep stosd`), `y_min`/`y_max` reduction, one [`scan_shadow_edge`] per
+/// edge, then [`fill_shadow_rows_hw`] (`pitch`/`dst` walk, `0xF000` words).
+/// `verts` holds `(x, y)` int pairs, `indx` holds vertex numbers. Short
+/// `indx`, vertex-number overflow past `verts`, short `dst` and short SW
+/// buffers are numeric-domain failures (the original reads/writes through
+/// raw pointers — disclosed, not modeled).
+pub fn rasterize_shadow_triangles(
+    verts: &[i32],
+    indx: &[u16],
+    num_faces: u32,
+    dst: &mut [u8],
+    pitch: usize,
+) -> Result<(), ShadowPassError> {
+    let count = num_faces as usize;
+    if indx.len() < count.checked_mul(3).ok_or(ShadowPassError::NumericDomain)? {
+        return Err(ShadowPassError::NumericDomain);
+    }
+    for face in 0..count {
+        let base = face * 3;
+        let ([x0, y0], [x1, y1], [x2, y2]) =
+            shadow_face_verts(verts, &[indx[base], indx[base + 1], indx[base + 2]])?;
+        let mut spans = shadow_span_prefill();
+        let (y_min, y_max) = shadow_triangle_y_range(y0, y1, y2);
+        scan_shadow_edge(&mut spans, x0, y0, x1, y1);
+        scan_shadow_edge(&mut spans, x1, y1, x2, y2);
+        scan_shadow_edge(&mut spans, x2, y2, x0, y0);
+        fill_shadow_rows_hw(&spans, y_min, y_max, dst, pitch)?;
+    }
+    Ok(())
+}
+
+/// 0x160d0 `DrawShadowTrianglesSW` (upstream working name, NOT original;
+/// differential: REA formed body 49 BB / 208 insn; mafia-re
+/// ls3df/I3D/I3d_driver.cpp:503-567). Same per-face order as
+/// [`rasterize_shadow_triangles`] with the SW fill ([`fill_shadow_rows_sw`]:
+/// `0xFF` bytes, `0x100` stride into the flat 64 KiB buffer).
+pub fn rasterize_shadow_triangles_sw(
+    verts: &[i32],
+    indx: &[u16],
+    num_faces: u32,
+    buffer: &mut [u8],
+) -> Result<(), ShadowPassError> {
+    if buffer.len() < SHADOW_SW_BUFFER_LEN {
+        return Err(ShadowPassError::NumericDomain);
+    }
+    let count = num_faces as usize;
+    if indx.len() < count.checked_mul(3).ok_or(ShadowPassError::NumericDomain)? {
+        return Err(ShadowPassError::NumericDomain);
+    }
+    for face in 0..count {
+        let base = face * 3;
+        let ([x0, y0], [x1, y1], [x2, y2]) =
+            shadow_face_verts(verts, &[indx[base], indx[base + 1], indx[base + 2]])?;
+        let mut spans = shadow_span_prefill();
+        let (y_min, y_max) = shadow_triangle_y_range(y0, y1, y2);
+        scan_shadow_edge(&mut spans, x0, y0, x1, y1);
+        scan_shadow_edge(&mut spans, x1, y1, x2, y2);
+        scan_shadow_edge(&mut spans, x2, y2, x0, y0);
+        fill_shadow_rows_sw(&spans, y_min, y_max, buffer)?;
+    }
+    Ok(())
+}
+
+fn shadow_fistp(value: f32) -> Result<i32, ShadowPassError> {
+    if !value.is_finite() {
+        return Err(ShadowPassError::NumericDomain);
+    }
+    let rounded = value.round_ties_even();
+    if !rounded.is_finite() || rounded < -2_147_483_648.0 || rounded > 2_147_483_647.0 {
+        return Err(ShadowPassError::NumericDomain);
+    }
+    #[allow(clippy::cast_possible_truncation)]
+    Ok(rounded as i32)
+}
+
+/// 0x16310 `RenderShadowTexture` CPU prefix (upstream working name, NOT
+/// original; CONTRACT: the device `Lock`/`Unlock`, `Fill`,
+/// `AddDirtyRect` and both `DrawShadowTriangles(SW)` roster calls stay
+/// backend contracts — only the `points.reserve(num_verts * 2)` growth and
+/// the `fistp` texel projection are claimed; mafia-re
+/// ls3df/I3D/I3d_driver.cpp:569-649). `bbox` maps the native float block as
+/// `[min.x, min.y, ignored, max.x, max.y]` (`box[2]` is never read).
+/// `size` is `(width, height)`; `sw` selects the doubled `2 * size - 1`
+/// shadow-buffer scale over the `(size - 1)` texture scale. Each output pair
+/// is `FloatToInt((v - min) * scale)` with FPU round-to-nearest
+/// (`fistp`, NOT truncation). Reserve failure reports `OutOfMemory`;
+/// odd `verts`, empty sizes, nonfinite/zero box extents and nonfinite or
+/// unrepresentable projections report `NumericDomain` (the original folds
+/// `0x80000000` through `fistp` — disclosed hardening, not modeled).
+pub fn project_shadow_texels(
+    verts: &[f32],
+    bbox: [f32; 5],
+    size: [u16; 2],
+    sw: bool,
+) -> Result<Vec<i32>, ShadowPassError> {
+    if verts.len() % 2 != 0 {
+        return Err(ShadowPassError::NumericDomain);
+    }
+    if size[0] == 0 || size[1] == 0 {
+        return Err(ShadowPassError::NumericDomain);
+    }
+    let width_f = bbox[3] - bbox[0];
+    let height_f = bbox[4] - bbox[1];
+    if !width_f.is_finite() || !height_f.is_finite() || width_f == 0.0 || height_f == 0.0 {
+        return Err(ShadowPassError::NumericDomain);
+    }
+    let scale_x = if sw {
+        (f32::from(size[0]) * 2.0 - 1.0) / width_f
+    } else {
+        (f32::from(size[0]) - 1.0) / width_f
+    };
+    let scale_y = if sw {
+        (f32::from(size[1]) * 2.0 - 1.0) / height_f
+    } else {
+        (f32::from(size[1]) - 1.0) / height_f
+    };
+    if !scale_x.is_finite() || !scale_y.is_finite() {
+        return Err(ShadowPassError::NumericDomain);
+    }
+    let mut points = Vec::new();
+    points
+        .try_reserve(verts.len())
+        .map_err(|_| ShadowPassError::OutOfMemory)?;
+    for pair in verts.chunks_exact(2) {
+        points.push(shadow_fistp((pair[0] - bbox[0]) * scale_x)?);
+        points.push(shadow_fistp((pair[1] - bbox[1]) * scale_y)?);
+    }
+    Ok(points)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1663,5 +2019,136 @@ mod tests {
         );
         assert_eq!(ShadowLock::from_word(3), Some(ShadowLock::Receivers));
         assert_eq!(ShadowLock::from_word(9), None);
+    }
+
+    #[test]
+    fn span_prefill_matches_rep_stosd_pattern() {
+        let spans = shadow_span_prefill();
+        assert_eq!(spans.len(), 256);
+        for row in spans {
+            assert_eq!(row, [0xFF, 0x00]);
+        }
+    }
+
+    #[test]
+    fn scan_edge_horizontal_is_noop_and_descending_swaps() {
+        let mut spans = shadow_span_prefill();
+        scan_shadow_edge(&mut spans, 0, 5, 9, 5);
+        assert_eq!(spans[5], [0xFF, 0x00]);
+        let mut rising = shadow_span_prefill();
+        scan_shadow_edge(&mut rising, 0, 0, 0, 4);
+        let mut falling = shadow_span_prefill();
+        scan_shadow_edge(&mut falling, 0, 4, 0, 0);
+        assert_eq!(rising, falling);
+        assert_eq!(rising[0], [0, 0]);
+        assert_eq!(rising[4], [0, 0]);
+    }
+
+    #[test]
+    fn scan_edge_diagonal_produces_hand_derived_spans() {
+        // Hand-derived: edge (4,0)->(0,4) has dx = -128, x = 512,384,256,128,0
+        // so x>>7 walks 4,3,2,1,0 down the rows.
+        let mut spans = shadow_span_prefill();
+        scan_shadow_edge(&mut spans, 4, 0, 0, 4);
+        assert_eq!(spans[0], [4, 4]);
+        assert_eq!(spans[1], [3, 3]);
+        assert_eq!(spans[2], [2, 2]);
+        assert_eq!(spans[3], [1, 1]);
+        assert_eq!(spans[4], [0, 0]);
+        assert_eq!(spans[5], [0xFF, 0x00]);
+    }
+
+    #[test]
+    fn rasterize_triangle_spans_and_hw_fill_are_hand_derived() {
+        // Triangle (0,0),(4,0),(0,4): horizontal top skipped, diagonal gives
+        // [4,4]..[0,0], vertical x=0 absorbs to [0,4],[0,3],[0,2],[0,1],[0,0].
+        let verts = [0, 0, 4, 0, 0, 4];
+        let indx = [0u16, 1, 2];
+        let pitch = 16usize;
+        let mut dst = vec![0u8; 4 * pitch];
+        rasterize_shadow_triangles(&verts, &indx, 1, &mut dst, pitch).unwrap();
+        let word = |row: usize, col: usize| {
+            let off = row * pitch + col * 2;
+            u16::from_le_bytes([dst[off], dst[off + 1]])
+        };
+        for (row, width) in [(0usize, 4usize), (1, 3), (2, 2), (3, 1)] {
+            for col in 0..width {
+                assert_eq!(word(row, col), 0xF000, "row {row} col {col}");
+            }
+            for col in width..8 {
+                assert_eq!(word(row, col), 0x0000, "row {row} col {col}");
+            }
+        }
+        // Degenerate flat triangle (y_min == y_max) fills nothing.
+        let flat = [0, 7, 5, 7, 9, 7];
+        let mut empty = vec![0u8; pitch];
+        rasterize_shadow_triangles(&flat, &indx, 1, &mut empty, pitch).unwrap();
+        assert!(empty.iter().all(|b| *b == 0));
+        // Short index and vertex-number overflow are domain failures.
+        assert_eq!(
+            rasterize_shadow_triangles(&verts, &[0u16, 1], 1, &mut dst, pitch),
+            Err(ShadowPassError::NumericDomain)
+        );
+        assert_eq!(
+            rasterize_shadow_triangles(&verts, &[0u16, 1, 9], 1, &mut dst, pitch),
+            Err(ShadowPassError::NumericDomain)
+        );
+    }
+
+    #[test]
+    fn rasterize_sw_uses_byte_fill_and_stride() {
+        let verts = [0, 0, 4, 0, 0, 4];
+        let indx = [0u16, 1, 2];
+        let mut buffer = vec![0u8; SHADOW_SW_BUFFER_LEN];
+        rasterize_shadow_triangles_sw(&verts, &indx, 1, &mut buffer).unwrap();
+        for (row, width) in [(0usize, 4usize), (1, 3), (2, 2), (3, 1)] {
+            let base = row * SHADOW_SW_STRIDE;
+            for col in 0..width {
+                assert_eq!(buffer[base + col], 0xFF, "row {row} col {col}");
+            }
+            for col in width..8 {
+                assert_eq!(buffer[base + col], 0x00, "row {row} col {col}");
+            }
+        }
+        assert_eq!(buffer[4 * SHADOW_SW_STRIDE], 0x00);
+        assert_eq!(
+            rasterize_shadow_triangles_sw(&verts, &indx, 1, &mut vec![0u8; 16]),
+            Err(ShadowPassError::NumericDomain)
+        );
+    }
+
+    #[test]
+    fn project_texels_scales_and_fistp_rounding() {
+        // HW: (11-1)/10 = 1.0, so (5,5) projects to (5,5).
+        let hw = project_shadow_texels(&[5.0, 5.0], [0.0, 0.0, 0.0, 10.0, 10.0], [11, 11], false)
+            .unwrap();
+        assert_eq!(hw, vec![5, 5]);
+        // SW: (11*2-1)/10 is approximately 2.1 in f32, so 5.0 lands near 10.5
+        // and rounds to 10.
+        let sw = project_shadow_texels(&[5.0, 5.0], [0.0, 0.0, 0.0, 10.0, 10.0], [11, 11], true)
+            .unwrap();
+        assert_eq!(sw, vec![10, 10]);
+        // Odd verts, empty size, zero box extent and NaN all fail.
+        assert_eq!(
+            project_shadow_texels(&[1.0], [0.0, 0.0, 0.0, 10.0, 10.0], [11, 11], false),
+            Err(ShadowPassError::NumericDomain)
+        );
+        assert_eq!(
+            project_shadow_texels(&[1.0, 2.0], [0.0, 0.0, 0.0, 10.0, 10.0], [0, 11], false),
+            Err(ShadowPassError::NumericDomain)
+        );
+        assert_eq!(
+            project_shadow_texels(&[1.0, 2.0], [4.0, 0.0, 0.0, 4.0, 10.0], [11, 11], false),
+            Err(ShadowPassError::NumericDomain)
+        );
+        assert_eq!(
+            project_shadow_texels(
+                &[f32::NAN, 2.0],
+                [0.0, 0.0, 0.0, 10.0, 10.0],
+                [11, 11],
+                false
+            ),
+            Err(ShadowPassError::NumericDomain)
+        );
     }
 }

@@ -651,6 +651,11 @@ impl VisualResources {
         slots.push(Some(value));
         Ok(key)
     }
+    /// Driver factory 0x19090 `I3D_driver::CreateMaterial` (mafia-re
+    /// `ls3df/I3D/I3d_driver.cpp:1364`): operator-new owner is the caller;
+    /// a null return reaches `ErrorHandler(I3DERR_OUTOFMEM, ERR_FATAL)`
+    /// (disclosed diagnostic, no native handler at runtime). The inlined
+    /// material ctor words below are the already-overlayed callee.
     pub fn create_material(&mut self) -> Result<MaterialKey, VisualResourceError> {
         self.available()?;
         let slot = Self::push(
@@ -674,7 +679,11 @@ impl VisualResources {
             slot,
         })
     }
-    /// The derived constructor owns one null entry in each frame array.
+    /// Driver factory 0x19100 `I3D_driver::CreateAnimMaterial` (mafia-re
+    /// `ls3df/I3D/I3d_driver.cpp:1374`): operator-new owner is the caller;
+    /// a null return reaches `ErrorHandler(I3DERR_OUTOFMEM, ERR_FATAL)`
+    /// (disclosed diagnostic, no native handler at runtime). The derived
+    /// constructor below owns one null entry in each frame array.
     pub fn create_animated_material(&mut self) -> Result<MaterialKey, VisualResourceError> {
         let key = self.create_material()?;
         let time = self.material_driver_time;
@@ -683,6 +692,10 @@ impl VisualResources {
         material.animation = Some(AnimatedMaterialFrames::constructor(time));
         Ok(key)
     }
+    /// Driver factory 0x191a0 `I3D_driver::CreateFaceGroup` (mafia-re
+    /// `ls3df/I3D/I3d_driver.cpp:1391`): operator-new owner is the caller
+    /// (no null check in the factory body; the ctor-callee linkage is
+    /// already overlayed).
     pub fn create_face_group(&mut self) -> Result<FaceGroupKey, VisualResourceError> {
         self.available()?;
         let slot = Self::push(
@@ -702,6 +715,10 @@ impl VisualResources {
             slot,
         })
     }
+    /// Driver factory 0x19200 `I3D_driver::CreateMeshLevel` (mafia-re
+    /// `ls3df/I3D/I3d_driver.cpp:1398`): operator-new owner is the caller
+    /// (no null check in the factory body; the ctor-callee linkage is
+    /// already overlayed).
     pub fn create_mesh_level(&mut self) -> Result<MeshLevelKey, VisualResourceError> {
         self.available()?;
         let slot = Self::push(
@@ -729,6 +746,10 @@ impl VisualResources {
             slot,
         })
     }
+    /// Driver factory 0x19260 `I3D_driver::CreateMesh` (mafia-re
+    /// `ls3df/I3D/I3d_driver.cpp:1405`, evidenced PS2 original name):
+    /// operator-new owner is the caller (no null check in the factory
+    /// body; the ctor-callee linkage is already overlayed).
     pub fn create_mesh_object(&mut self) -> Result<MeshObjectKey, VisualResourceError> {
         self.available()?;
         let slot = Self::push(
@@ -5726,5 +5747,98 @@ mod tests {
             VisualResources::INVALID_MESH_BOUNDS
         );
         assert!(!resources.is_poisoned());
+    }
+}
+
+#[cfg(test)]
+mod driver_factory_pinning {
+    use super::*;
+
+    #[test]
+    fn driver_create_materials_are_caller_owned_with_ctor_words() {
+        // Driver factories 0x19090/0x19100 (mafia-re I3d_driver.cpp:1364-1380):
+        // operator-new ownership is the caller; each call yields a distinct
+        // owned key. Hand-derived ctor vectors pinned here.
+        let mut resources = VisualResources::new().unwrap();
+        let a = resources.create_material().unwrap();
+        let b = resources.create_material().unwrap();
+        assert_ne!(a, b);
+        for key in [a, b] {
+            let m = resources.material(key).unwrap();
+            assert_eq!((m.references, m.external_references()), (1, 1));
+            assert_eq!(m.flags, 1);
+            assert_eq!(m.texture, None);
+            assert_eq!(m.env_texture, None);
+            assert_eq!(m.ambient, [1.0; 3]);
+            assert_eq!(m.diffuse, [1.0; 3]);
+            assert_eq!(m.emissive, [0.0; 3]);
+            assert_eq!((m.alpha, m.env_alpha), (1.0, 1.0));
+            assert!(m.animation.is_none());
+        }
+    }
+
+    #[test]
+    fn driver_create_animated_material_adds_owned_frame_owner() {
+        // Driver factory 0x19100: plain words plus the 0x0400_0000 flag and
+        // one null entry per frame array, clocked at the driver time.
+        let mut resources = VisualResources::new().unwrap();
+        resources.set_material_driver_time(1234).unwrap();
+        let key = resources.create_animated_material().unwrap();
+        let m = resources.material(key).unwrap();
+        assert_eq!((m.references, m.flags & 0x0400_0000), (1, 0x0400_0000));
+        let frames = m.animation.as_ref().unwrap();
+        assert_eq!(
+            (frames.textures.clone(), frames.env_textures.clone()),
+            (vec![None::<TextureKey>], vec![None::<TextureKey>])
+        );
+        assert_eq!((frames.frame, frames.env_frame), (0, 0));
+        assert_eq!((frames.last_time, frames.env_last_time), (1234, 1234));
+        assert_eq!((frames.elapsed, frames.env_elapsed), (0, 0));
+    }
+
+    #[test]
+    fn driver_create_groups_levels_meshes_are_distinct_with_ctor_words() {
+        // Driver factories 0x191a0/0x19200/0x19260 (mafia-re
+        // I3d_driver.cpp:1391-1408): distinct caller-owned keys per call.
+        let mut resources = VisualResources::new().unwrap();
+        let g0 = resources.create_face_group().unwrap();
+        let g1 = resources.create_face_group().unwrap();
+        assert_ne!(g0, g1);
+        for key in [g0, g1] {
+            let g = resources.face_group(key).unwrap();
+            assert_eq!(
+                (g.material, g.num_faces, g.next, g.owner),
+                (None, 0, None, None)
+            );
+            assert!(g.faces.is_empty() && !g.faces_locked);
+        }
+        let l0 = resources.create_mesh_level().unwrap();
+        let l1 = resources.create_mesh_level().unwrap();
+        assert_ne!(l0, l1);
+        for key in [l0, l1] {
+            let l = resources.mesh_level(key).unwrap();
+            assert_eq!(
+                (l.references, l.num_vertices, l.num_fgroups, l.fgroups),
+                (1, 0, 0, None)
+            );
+            assert_eq!(l.bbox[0], [f32::from_bits(0x5a0e1bca); 3]);
+            assert_eq!(l.bbox[1], [f32::from_bits(0xda0e1bca); 3]);
+            assert_eq!(l.lod_dist, 0.0);
+            assert_eq!(l.mesh_flags, 0);
+            assert_eq!(l.env_scale.to_bits(), f32::from_bits(0x403504f3).to_bits());
+        }
+        let m0 = resources.create_mesh_object().unwrap();
+        let m1 = resources.create_mesh_object().unwrap();
+        assert_ne!(m0, m1);
+        for key in [m0, m1] {
+            let m = resources.mesh_object(key).unwrap();
+            assert_eq!((m.references, m.num_lods), (1, 0));
+            assert!(m.levels.iter().all(|slot| slot.is_none()));
+            assert_eq!(
+                (m.u_ofs, m.v_ofs, m.env_u_ofs, m.env_v_ofs),
+                (0.0, 0.0, 0.0, 0.0)
+            );
+            assert!(m.bound_volume().is_some());
+        }
     }
 }

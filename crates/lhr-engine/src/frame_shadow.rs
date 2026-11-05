@@ -695,8 +695,17 @@ impl ModelArena {
     /// Original DeleteFromAnyShadow, PC RVA 0x51480 (differential: 91 B,
     /// 35 insn/~8 BB). Registry (insertion) order walk; per member: flag
     /// clear + null slot. Live re-reads each step (no callbacks run here).
-    /// Wiring into the base-destruction path (next to `remove_from_any_target`)
-    /// is a later step (OPEN).
+    /// Driver 0x1a0e0 `I3D_driver::DeleteFromAllShadows` (mafia-re
+    /// `ls3df/I3D/I3d_driver.cpp:1754`, evidenced PS2 original name) is a
+    /// tail call to this routine. Wiring into the base-destruction path
+    /// (next to `remove_from_any_target`) is a later step (OPEN).
+    /// Driver 0x1a0e0 DeleteFromAllShadows (mafia-re
+    /// `ls3df/I3D/I3d_driver.cpp:1754`, evidenced PS2 original name): pure
+    /// tail call to DeleteFromAnyShadow (0x51480) above; no independent
+    /// state, so the driver thunk owns this entry (not the shared callee).
+    pub fn driver_delete_from_all_shadows(&mut self, frame: FrameKey) -> Result<(), ModelError> {
+        self.delete_frame_from_any_shadow(frame)
+    }
     pub fn delete_frame_from_any_shadow(&mut self, frame: FrameKey) -> Result<(), ModelError> {
         self.frame_index(frame)?;
         let registry = self.shadow_registry.clone();
@@ -1433,6 +1442,73 @@ mod tests {
                 .all(|m| m.frame.is_none()));
         }
         assert_eq!(arena.state(door).unwrap().flags & SHADOW_MEMBER_FLAG, 0);
+    }
+
+    #[test]
+    fn driver_delete_from_all_shadows_forwards_to_any_shadow() {
+        // Driver 0x1a0e0 tail-call parity: forwarder behaves exactly like
+        // the callee (member nulled + flag cleared; non-member no-op Ok).
+        let mut arena = ModelArena::default();
+        let mut visual = NullVisual { log: Vec::new() };
+        let a = arena.create_shadow_frame(&mut visual).unwrap();
+        arena.set_shadow_def(a, Some(def_two_parts())).unwrap();
+        let root = arena
+            .insert(I3dFrameState::model(), None, Vec::new(), Vec::new(), None)
+            .unwrap();
+        let door = named_child(&mut arena, root, b"door", true);
+        arena.set_shadow_to(a, Some(root), &mut visual).unwrap();
+        arena.driver_delete_from_all_shadows(door).unwrap();
+        assert!(arena
+            .shadow_state(a)
+            .unwrap()
+            .members
+            .iter()
+            .all(|m| m.frame != Some(door)));
+        arena.driver_delete_from_all_shadows(door).unwrap();
+    }
+
+    #[test]
+    fn driver_delete_from_all_shadows_tail_call_is_surgical_and_idempotent() {
+        // Driver 0x1a0e0 (mafia-re I3d_driver.cpp:1754-1757) tail-calls
+        // DeleteFromAnyShadow: a non-member frame is a no-op Ok, removal
+        // nulls only the matching slots, and a second call is a no-op.
+        let mut arena = ModelArena::default();
+        let mut visual = NullVisual { log: Vec::new() };
+        let a = arena.create_shadow_frame(&mut visual).unwrap();
+        let b = arena.create_shadow_frame(&mut visual).unwrap();
+        arena.set_shadow_def(a, Some(def_two_parts())).unwrap();
+        arena.set_shadow_def(b, Some(def_two_parts())).unwrap();
+        let root = arena
+            .insert(I3dFrameState::model(), None, Vec::new(), Vec::new(), None)
+            .unwrap();
+        let door = named_child(&mut arena, root, b"door", true);
+        let other = named_child(&mut arena, root, b"other", true);
+        arena.set_shadow_to(a, Some(root), &mut visual).unwrap();
+        arena.set_shadow_to(b, Some(root), &mut visual).unwrap();
+        // Non-member: no-op success, matching slots and flags untouched.
+        arena.delete_frame_from_any_shadow(other).unwrap();
+        for shadow in [a, b] {
+            assert!(arena
+                .shadow_state(shadow)
+                .unwrap()
+                .members
+                .iter()
+                .any(|m| m.frame == Some(door)));
+        }
+        assert_ne!(arena.state(door).unwrap().flags & SHADOW_MEMBER_FLAG, 0);
+        // Member removal, then idempotent repeat.
+        arena.delete_frame_from_any_shadow(door).unwrap();
+        assert_eq!(arena.state(door).unwrap().flags & SHADOW_MEMBER_FLAG, 0);
+        arena.delete_frame_from_any_shadow(door).unwrap();
+        arena.delete_frame_from_any_shadow(other).unwrap();
+        for shadow in [a, b] {
+            assert!(arena
+                .shadow_state(shadow)
+                .unwrap()
+                .members
+                .iter()
+                .all(|m| m.frame.is_none()));
+        }
     }
 
     #[test]

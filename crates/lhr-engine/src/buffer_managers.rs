@@ -3,7 +3,10 @@
 //! Independently recovered LS3DF PC entries: per-buffer allocate/free
 //! 0x5aff0/0x5b1b0 and 0x68f10/0x690d0, manager allocate/free
 //! 0x5b6c0/0x5b940 and 0x695e0/0x697c0, init 0x5ae00/0x68cf0,
-//! destruction 0x5abf0/0x68af0, and reclamation 0x5b9d0/0x69820.
+//! destruction 0x5abf0/0x68af0, and reclamation 0x5b9d0/0x69820, plus the
+//! PC draw-list growth instantiations 0x1a100/0x1a170
+//! (`C_list<TLVERTEX>::reserve` / `C_list<LVERTEX>::reserve`, upstream working
+//! names, contract construction-covered only via `reserve_draw_vertices`).
 //! The original names C_IBManager/C_VBManager/C_IBuffer/C_VBuffer have PS2
 //! provenance; the unified Rust owner registry is a host storage adapter.
 //!
@@ -1369,6 +1372,28 @@ impl BufferManagers {
     }
 }
 
+/// PC draw-list growth (`C_list<TLVERTEX>::reserve` at 0x1a100 and
+/// `C_list<LVERTEX>::reserve` at 0x1a170, upstream working names for the
+/// out-of-line template instantiations; CONTRACT, construction-covered only:
+/// `Vec` growth, never differential; mafia-re ls3df/ls3df.h:179-195 and
+/// ls3df/I3D/I3d_driver.cpp:839-841,893-894,926-927 fill pattern
+/// `reserve(n)` then `used_size = n`). Native order: `n` clamps up to
+/// `used_size`, early-returns when `res_size >= n`, otherwise grows to exactly
+/// `n` and copies the live prefix. This port ensures `capacity >= max(len,
+/// requested)` via `try_reserve`, preserving elements and leaving `len`
+/// (the `used_size` equivalent) for the caller to extend with initialized
+/// values — the native uninitialized tail is not modeled (safe host
+/// adaptation, disclosed). Over-allocation beyond exactly `n` is allowed.
+/// Allocation failure reports `HostAllocation`.
+pub fn reserve_draw_vertices<T>(list: &mut Vec<T>, requested: usize) -> Result<(), BufferError> {
+    let want = requested.max(list.len());
+    if list.capacity() >= want {
+        return Ok(());
+    }
+    list.try_reserve(want - list.len())
+        .map_err(|_| BufferError::HostAllocation)
+}
+
 #[path = "buffer_vertex_access.rs"]
 mod vertex_access;
 
@@ -2086,5 +2111,19 @@ mod tests {
         assert_eq!(b.events.len(), before);
         assert_eq!(m.index_owner(spare).unwrap().lease, OwnerLease::Vacant);
         m.free_all_indices(&mut b).unwrap();
+    }
+    #[test]
+    fn draw_list_reserve_grows_capacity_and_keeps_len() {
+        let mut list = vec![1u32, 2, 3];
+        let cap = list.capacity();
+        reserve_draw_vertices(&mut list, 1).unwrap();
+        assert_eq!(list, [1, 2, 3]);
+        assert_eq!(list.capacity(), cap);
+        reserve_draw_vertices(&mut list, 64).unwrap();
+        assert!(list.capacity() >= 64);
+        assert_eq!(list, [1, 2, 3]);
+        let mut empty: Vec<u32> = Vec::new();
+        reserve_draw_vertices(&mut empty, 0).unwrap();
+        assert!(empty.is_empty());
     }
 }

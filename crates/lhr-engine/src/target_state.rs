@@ -422,7 +422,11 @@ impl TargetRegistry {
     /// last link, and clears the frame's membership bit even if a duplicate
     /// remains. `false` corresponds to native 0x80000006 (not found).
     /// LS3DF RVA 0x597f0 (Ghidra body 138 B, 14 BB, 51 insn, 0 callees;
-    /// count-- stored, swap-last fill, null-guarded bit clear).
+    /// count-- stored, swap-last fill, null-guarded bit clear). NOTE: driver
+    /// 0x1a0f0 `I3D_driver::DeleteFromAllTargets` does NOT call this
+    /// directly; it tail-calls `DeleteFromAnyTarget` (RVA 0x598d0, see
+    /// `remove_from_any_target` below), which reaches this per-owner removal
+    /// for the first matching registration only.
     pub fn remove_from_target(
         &mut self,
         owner: FrameKey,
@@ -443,7 +447,21 @@ impl TargetRegistry {
     /// forward, removing only the first match. Like DeleteFromTarget, it clears
     /// membership even when duplicate links or another registered owner remain.
     /// The search itself does not check the frame's membership bit; callers own
-    /// the flag guard required by their original call site.
+    /// the flag guard required by their original call site. Driver 0x1a0f0
+    /// `I3D_driver::DeleteFromAllTargets` (mafia-re
+    /// `ls3df/I3D/I3d_driver.cpp:1761`, evidenced PS2 original name) is a
+    /// tail call to this routine.
+    /// Driver 0x1a0f0 DeleteFromAllTargets (mafia-re
+    /// `ls3df/I3D/I3d_driver.cpp:1761`, evidenced PS2 original name): pure
+    /// tail call to DeleteFromAnyTarget (0x598d0) below; the driver thunk
+    /// owns this entry (not the shared callee).
+    pub fn driver_delete_from_all_targets(
+        &mut self,
+        frame: FrameKey,
+        frame_flags: &mut u32,
+    ) -> bool {
+        self.remove_from_any_target(frame, frame_flags)
+    }
     pub fn remove_from_any_target(&mut self, frame: FrameKey, frame_flags: &mut u32) -> bool {
         for (_, state) in &mut self.entries {
             if let Some(index) = state.frames.iter().position(|&key| key == frame) {
@@ -722,6 +740,24 @@ mod tests {
     }
 
     #[test]
+    fn driver_delete_from_all_targets_forwards_to_any_target() {
+        // Driver 0x1a0f0 tail-call parity: forwarder behaves exactly like
+        // the callee (first match removed + bit cleared; miss returns false).
+        let mut registry = TargetRegistry::default();
+        let linked = FrameKey(9);
+        registry
+            .insert(
+                FrameKey(1),
+                I3dTargetState::from_parsed_fields(0, &[1], &[linked]).unwrap(),
+            )
+            .unwrap();
+        let mut flags = 0x4000;
+        assert!(registry.driver_delete_from_all_targets(linked, &mut flags));
+        assert_eq!(flags, 0);
+        assert!(!registry.driver_delete_from_all_targets(linked, &mut flags));
+    }
+
+    #[test]
     fn queue_retains_duplicates_guard_and_snapshot_count() {
         let mut queue = TargetUpdateQueue::default();
         for flags in [0, 1, 0x2000, 0x2001, 0x4000_0001] {
@@ -924,5 +960,36 @@ mod tests {
             I3dTargetState::from_parsed_fields(0, &[3], &keys),
             Err(TargetError::InvalidFileReference(3))
         );
+    }
+
+    #[test]
+    fn driver_delete_from_all_targets_removes_first_registration_only() {
+        // Driver 0x1a0f0 (mafia-re I3d_driver.cpp:1761-1764) tail-calls
+        // DeleteFromAnyTarget: forward registration order, first matching
+        // link only, membership bit cleared. Hand-derived vectors.
+        let mut registry = TargetRegistry::default();
+        let linked = FrameKey(9);
+        for key in [FrameKey(1), FrameKey(2)] {
+            registry
+                .insert(
+                    key,
+                    I3dTargetState::from_parsed_fields(0, &[1], &[linked]).unwrap(),
+                )
+                .unwrap();
+        }
+        let mut flags = 0x4000;
+        assert!(registry.remove_from_any_target(linked, &mut flags));
+        assert_eq!(flags, 0);
+        assert!(registry.state(FrameKey(1)).unwrap().frames().is_empty());
+        assert_eq!(registry.state(FrameKey(2)).unwrap().frames(), &[linked]);
+        // Second driver pass removes the remaining registration.
+        let mut flags = 0x4000;
+        assert!(registry.remove_from_any_target(linked, &mut flags));
+        assert_eq!(flags, 0);
+        assert!(registry.state(FrameKey(2)).unwrap().frames().is_empty());
+        // No registration left: false, flags untouched.
+        let mut flags = 0x4000;
+        assert!(!registry.remove_from_any_target(linked, &mut flags));
+        assert_eq!(flags, 0x4000);
     }
 }

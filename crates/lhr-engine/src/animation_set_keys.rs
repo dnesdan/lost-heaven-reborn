@@ -110,7 +110,11 @@ pub enum OpenError {
     CorruptImage,
 }
 
-// RVA 0x4890 differential (Ghidra 7 insns, no callees).
+// RVA 0x4890 differential (Ghidra 7 insns, no callees). Driver factory
+// 0x192c0 `I3D_driver::CreateAnimationSet` (mafia-re
+// `ls3df/I3D/I3d_driver.cpp:1412`, evidenced PS2 original name) is
+// operator-new over this ctor: the caller owns the fresh value below (no
+// null check in the factory body; no native handler at runtime).
 impl AnimationSetOwner {
     pub fn new() -> Self {
         Self {
@@ -855,5 +859,35 @@ mod tests {
         let (t, p) = get_pos_key(&o, 0, 0, 0, &mut l).unwrap();
         assert_eq!(t, 9 * 40);
         assert_eq!(p, [20, 21, 22]);
+    }
+}
+
+#[cfg(test)]
+mod driver_factory_pinning {
+    use super::*;
+
+    #[test]
+    fn driver_create_animation_set_yields_caller_owned_fresh_value() {
+        // Driver factory 0x192c0 (mafia-re I3d_driver.cpp:1412): operator-new
+        // ownership is the caller; each call yields an independent fresh
+        // value with the 0x4890 ctor words. Hand-derived vectors.
+        let a = AnimationSetOwner::new();
+        let b = AnimationSetOwner::new();
+        for o in [&a, &b] {
+            assert_eq!(
+                (o.vtable_ls3df, o.refcount, o.options),
+                (0x1009_b3e0, 1, ANIM_ONCE)
+            );
+            assert_eq!(ANIM_ONCE, 1);
+            assert!(o.data.is_none());
+            assert_eq!(o.num_animations(), 0);
+            assert_eq!(o.end_time_ms(), 0);
+            assert!(o.anims().is_none());
+        }
+        // No aliasing: mutating one fresh value leaves the other at rest.
+        let mut c = AnimationSetOwner::new();
+        c.options = 0;
+        assert_eq!(a.options, ANIM_ONCE);
+        assert_eq!(b.options, ANIM_ONCE);
     }
 }

@@ -54,8 +54,11 @@ pub mod cutscene_records;
 pub mod cutscene_source;
 pub mod debris;
 pub mod door_actor;
+pub mod driver_lifecycle;
 pub mod driver_scene;
 pub mod driver_state;
+pub mod driver_strings;
+pub mod driver_visual_factory;
 pub mod driving_vehicle_tables;
 pub mod driving_world_assets;
 pub mod dynamic_collision_manager;
@@ -154,6 +157,12 @@ pub mod program_zero_parameters;
 pub mod projector_pass;
 pub mod pumper_actor;
 pub mod railway_actor;
+pub mod render_clip;
+pub mod render_core;
+pub mod render_ib;
+pub mod render_lod;
+pub mod render_state;
+pub mod render_vb;
 pub mod replay_state;
 pub mod road_network;
 pub mod rotation_animation;
@@ -228,11 +237,11 @@ pub mod visual_resources;
 /// claiming an additional DLL/Cargo package or a complete LS3DF reconstruction.
 pub mod ls3df {
     pub use crate::{
-        c_str, driver_scene, frame_camera, frame_fast_lookup, frame_hierarchy_bounds, frame_light,
-        frame_lookup, frame_occluder, frame_portal, frame_projector, frame_sector, i3d_object,
-        itexture, loaded_visual_resources, scene_animation_runtime, scene_ownership,
-        scene_projection, scene_resources, scene_weather, scene_weather_dummy, sector_sound_data,
-        texture_manager,
+        c_str, driver_lifecycle, driver_scene, driver_strings, driver_visual_factory, frame_camera,
+        frame_fast_lookup, frame_hierarchy_bounds, frame_light, frame_lookup, frame_occluder,
+        frame_portal, frame_projector, frame_sector, i3d_object, itexture, loaded_visual_resources,
+        scene_animation_runtime, scene_ownership, scene_projection, scene_resources, scene_weather,
+        scene_weather_dummy, sector_sound_data, texture_manager,
     };
 }
 

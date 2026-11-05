@@ -163,6 +163,42 @@ pub fn unconstructed_lit_material_flags(
     }))
 }
 
+/// PC debug-draw color (`MakeColor`, mafia-re ls3df/I3D/I3d_driver.cpp:721, a
+/// `static inline` helper with no RVA — CONTRACT helper, no body bar). All
+/// PC-only driver draw names are upstream working guesses per I3D.h:4380.
+/// `FloatToInt` is the FPU `fistp` round-to-nearest (ls3df.h:82-89), NOT the
+/// `cvttss2si` truncation used by the shadow-vertex pack: `127.5` rounds to
+/// `128`. `alpha` is a transparency byte, so `a = (255 - (alpha & 0xff)) *
+/// (1/255)` before the `ia = FloatToInt(a * 255)` round-trip, then
+/// `ia << 24 | r << 16 | g << 8 | b` with full-word shifts (overflow bleeds
+/// across bytes, as natively). Nonfinite inputs and unrepresentable
+/// `fistp` results are domain failures (the original folds `0x80000000`
+/// through `fistp` — disclosed hardening, not modeled).
+pub fn pack_debug_draw_color(alpha: u32, color: [f32; 3]) -> Result<u32, String> {
+    fn fistp(value: f32) -> Result<i32, String> {
+        if !value.is_finite() {
+            return Err("Debug-draw FloatToInt input is nonfinite".into());
+        }
+        let rounded = value.round_ties_even();
+        if !rounded.is_finite() || rounded < -2_147_483_648.0 || rounded > 2_147_483_647.0 {
+            return Err("Debug-draw FloatToInt result is unrepresentable".into());
+        }
+        #[allow(clippy::cast_possible_truncation)]
+        Ok(rounded as i32)
+    }
+    let transparency = 255u32.wrapping_sub(alpha & 0xFF);
+    #[allow(clippy::cast_precision_loss)]
+    let a = transparency as f32 * (1.0f32 / 255.0f32);
+    let ia = fistp(a * 255.0)?;
+    let r = fistp(color[0] * 255.0)?;
+    let g = fistp(color[1] * 255.0)?;
+    let b = fistp(color[2] * 255.0)?;
+    Ok((ia as u32).wrapping_shl(24)
+        | (r as u32).wrapping_shl(16)
+        | (g as u32).wrapping_shl(8)
+        | (b as u32))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -311,5 +347,30 @@ mod tests {
         // Quantized source vertex alpha 128/255; alpha uses SrcAlpha as well.
         assert!((i16::from(got[3]) - 191).abs() <= 1);
         assert!((i16::from(got[0]) - 35).abs() <= 1);
+    }
+    #[test]
+    fn debug_draw_color_rounds_to_nearest_not_trunc() {
+        // Opaque red: (255-0)/255 = 1.0 -> 255, channels 255,0,0.
+        assert_eq!(
+            pack_debug_draw_color(0, [1.0, 0.0, 0.0]).unwrap(),
+            0xFFFF0000
+        );
+        // Fully transparent black: (255-255)/255 = 0.0 -> 0.
+        assert_eq!(
+            pack_debug_draw_color(0xFF, [0.0, 0.0, 0.0]).unwrap(),
+            0x00000000
+        );
+        // Low alpha byte only: 0x1FF masks to 0xFF -> transparent.
+        assert_eq!(
+            pack_debug_draw_color(0x1FF, [0.0, 0.0, 0.0]).unwrap(),
+            0x00000000
+        );
+        // 127.5 rounds to even 128, proving FPU round-to-nearest over trunc.
+        assert_eq!(
+            pack_debug_draw_color(0, [0.5, 0.0, 0.0]).unwrap(),
+            0xFF800000
+        );
+        assert!(pack_debug_draw_color(0, [f32::NAN, 0.0, 0.0]).is_err());
+        assert!(pack_debug_draw_color(0, [f32::INFINITY, 0.0, 0.0]).is_err());
     }
 }

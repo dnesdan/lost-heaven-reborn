@@ -16,6 +16,29 @@ use std::{cmp::Ordering, collections::BTreeMap};
 
 pub const FAST_FRAME_TREE_FLAG: u32 = 0x2000_0000;
 
+/// Host stack budget for the OFFD rebuild recursion. Balanced rebuilds use
+/// logarithmic depth; this bound only stops corrupted/cyclic host storage.
+pub const OFFD_MAX_REBUILD_DEPTH: usize = 256;
+
+/// LS3D_RESULT words for EnumFFTree (OK and CANCELED).
+pub const FF_OK: u32 = 0;
+pub const FF_CANCELED: u32 = 0x8000_000d;
+
+/// Observer for the OptimalizeFastFindData out-of-memory path. The original
+/// emits a diagnostic then calls ErrorHandler(FATAL); formatting and the fatal
+/// handling itself are backend contracts, and the Rust caller observes
+/// AllocationFailed after the call.
+pub trait OffdDiagnostics {
+    fn optimalize_out_of_memory(&mut self, list_size: i32);
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RebuildSlot {
+    Root,
+    LeftOf(FrameKey),
+    RightOf(FrameKey),
+}
+
 /// Projection of the original-name pointer, including a released allocation
 /// after a failed SetName allocation. No dangling Rust reference is retained.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -50,6 +73,10 @@ pub enum FastFrameError {
     Cycle,
     AllocationFailed,
     InvalidNameAllocation,
+    /// OptimalizeFastFindData with no root: the original dereferences pFFRoot.
+    NullRoot,
+    /// OFFD rebuild recursion exceeded the host stack budget.
+    RebuildStackExhausted,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -71,6 +98,10 @@ pub struct I3dFastFrameTree {
     pub add_counter: u32,
     /// Projection of RS_FAST_FIND. Changing it alone does not rebuild the tree.
     pub fast_find_enabled: bool,
+    /// Native OFFD_ListSize / OFFD_ListUsed globals. The list pointer itself
+    /// is a transient rebuild allocation, never retained storage.
+    pub offd_list_size: i32,
+    pub offd_list_used: i32,
 }
 
 impl I3dFastFrameTree {
@@ -81,6 +112,8 @@ impl I3dFastFrameTree {
             last_up: None,
             add_counter: 0,
             fast_find_enabled,
+            offd_list_size: 0,
+            offd_list_used: 0,
         }
     }
 
@@ -134,6 +167,15 @@ impl I3dFastFrameTree {
             .ok_or(FastFrameError::NullInsertionName(frame))
     }
 
+    /// Driver query 0x19b10 `I3D_driver::FindFrameFast` (mafia-re
+    /// `ls3df/I3D/I3d_driver.cpp:1595`, evidenced PS2 original name):
+    /// read-only BST walk by `strcmp`; on an equal name, walk the duplicate
+    /// right-chain and return the first frame whose ancestor sector of type 5
+    /// belongs to `scene`. The PC walk continues past a sector of a
+    /// different scene (unlike the PS2 search); a null right edge or an
+    /// unequal chained name returns `None`. Lookup maps a null stored name
+    /// to empty (disclosed host hardening — native dereferences); insertion
+    /// reports NullInsertionName instead (tested divergence).
     pub fn find_frame_fast(
         &self,
         scene: Option<u32>,
@@ -367,6 +409,250 @@ impl I3dFastFrameTree {
     pub fn set_on(&mut self, frame: FrameKey, on: bool) -> Result<(), FastFrameError> {
         let flags = &mut self.frame_storage_mut(frame)?.flags;
         *flags = if on { *flags | 1 } else { *flags & !1 };
+        Ok(())
+    }
+
+    /// LS3DF RVA 0x19d30. Evidenced name I3D_driver::OptimalizeFastFindData
+    /// from mafia-re I3d_driver.cpp:1665-1679. A null root is an explicit host
+    /// precondition failure (the original dereferences pFFRoot); otherwise the
+    /// branch is counted, OFFD_ListSize/Used are stored, the alphabetical list
+    /// is allocated (OOM observes the fatal boundary and returns before the
+    /// fill), the list is filled in-order, the branch is rebuilt, and the list
+    /// is dropped (native delete[]).
+    pub fn optimalize_fast_find_data(
+        &mut self,
+        diag: &mut impl OffdDiagnostics,
+    ) -> Result<(), FastFrameError> {
+        self.optimalize_fast_find_data_with_allocator(diag, |count| {
+            let mut list = Vec::new();
+            list.try_reserve_exact(count)
+                .map_err(|_| FastFrameError::AllocationFailed)?;
+            Ok(list)
+        })
+    }
+
+    /// Fault-injection boundary for the list allocation. The allocator must
+    /// return an empty Vec with capacity for count entries; anything else
+    /// reports InvalidNameAllocation without touching the tree links.
+    pub fn optimalize_fast_find_data_with_allocator(
+        &mut self,
+        diag: &mut impl OffdDiagnostics,
+        allocate: impl FnOnce(usize) -> Result<Vec<FrameKey>, FastFrameError>,
+    ) -> Result<(), FastFrameError> {
+        let Some(root) = self.root else {
+            return Err(FastFrameError::NullRoot);
+        };
+        let count = self.offd_count_frames(root)?;
+        let list_size = i32::try_from(count).map_err(|_| FastFrameError::AllocationFailed)?;
+        self.offd_list_size = list_size;
+        self.offd_list_used = 0;
+        let mut list = match allocate(count) {
+            Ok(list) => list,
+            Err(_) => {
+                diag.optimalize_out_of_memory(list_size);
+                return Err(FastFrameError::AllocationFailed);
+            }
+        };
+        if !list.is_empty() {
+            return Err(FastFrameError::InvalidNameAllocation);
+        }
+        self.offd_fill_alphabetical(root, &mut list)?;
+        self.offd_list_used =
+            i32::try_from(list.len()).map_err(|_| FastFrameError::AllocationFailed)?;
+        self.offd_rebuild_branch_of_ff_tree(&list, 0, list.len())?;
+        Ok(())
+    }
+
+    /// LS3DF RVA 0x19dc0. Evidenced name
+    /// I3D_driver::OFFD_RebuildBranchOfFFTree_ from mafia-re
+    /// I3d_driver.cpp:1682-1711 (formed 42BB/175insn/521B per assignment).
+    /// Root entry of the recursive middle-back-to-first-of-name rebuild; the
+    /// recursion itself runs through the private slot helper with the host
+    /// stack budget. Same-name frames become a right-linked chain with cleared
+    /// left edges; the pivot keeps the left half and the chain tail keeps the
+    /// right half.
+    pub fn offd_rebuild_branch_of_ff_tree(
+        &mut self,
+        sorted: &[FrameKey],
+        first: usize,
+        num: usize,
+    ) -> Result<(), FastFrameError> {
+        self.rebuild_slot(RebuildSlot::Root, sorted, first, num, 0)
+    }
+
+    /// LS3DF RVA 0x19fd0. Evidenced name I3D_driver::EnumFFTree from mafia-re
+    /// I3d_driver.cpp:1715-1745. A null root returns OK without calling the
+    /// callback; otherwise frames are visited in-order (left, self, right) and
+    /// the first non-zero callback word stops the walk with CANCELED. The
+    /// 0x1a050 enumSubtree helper is folded inline with no separate credit;
+    /// its quirk is preserved (any non-zero word aborts, SKIPCHILDREN is not
+    /// distinguished). The right edge is reread after each mutating callback.
+    pub fn enum_ff_tree(
+        &self,
+        proc: &mut impl FnMut(FrameKey, u32) -> u32,
+        context: u32,
+    ) -> Result<u32, FastFrameError> {
+        let Some(root) = self.root else {
+            return Ok(FF_OK);
+        };
+        let mut stack: Vec<(FrameKey, bool)> = vec![(root, false)];
+        let mut steps = 0usize;
+        let bound = self.frames.len().saturating_mul(2).saturating_add(1).max(1);
+        while let Some((frame, expanded)) = stack.pop() {
+            steps += 1;
+            if steps > bound {
+                return Err(FastFrameError::Cycle);
+            }
+            if !expanded {
+                let storage = self.frame(frame)?;
+                stack.push((frame, true));
+                if let Some(left) = storage.left {
+                    stack.push((left, false));
+                }
+                continue;
+            }
+            if proc(frame, context) != 0 {
+                return Ok(FF_CANCELED);
+            }
+            if let Some(right) = self.frame(frame)?.right {
+                stack.push((right, false));
+            }
+        }
+        Ok(FF_OK)
+    }
+
+    fn offd_count_frames(&self, root: FrameKey) -> Result<usize, FastFrameError> {
+        let mut count = 0usize;
+        let mut stack = vec![root];
+        while let Some(frame) = stack.pop() {
+            let storage = self.frame(frame)?;
+            count += 1;
+            if count > self.frames.len() {
+                return Err(FastFrameError::Cycle);
+            }
+            if let Some(left) = storage.left {
+                stack.push(left);
+            }
+            if let Some(right) = storage.right {
+                stack.push(right);
+            }
+        }
+        Ok(count)
+    }
+
+    fn offd_fill_alphabetical(
+        &self,
+        root: FrameKey,
+        list: &mut Vec<FrameKey>,
+    ) -> Result<(), FastFrameError> {
+        let mut stack: Vec<(FrameKey, bool)> = vec![(root, false)];
+        let mut steps = 0usize;
+        let bound = self.frames.len().saturating_mul(2).saturating_add(1).max(1);
+        while let Some((frame, expanded)) = stack.pop() {
+            steps += 1;
+            if steps > bound {
+                return Err(FastFrameError::Cycle);
+            }
+            let storage = self.frame(frame)?;
+            if expanded {
+                list.push(frame);
+                if let Some(right) = storage.right {
+                    stack.push((right, false));
+                }
+            } else {
+                stack.push((frame, true));
+                if let Some(left) = storage.left {
+                    stack.push((left, false));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn write_slot(&mut self, slot: RebuildSlot, frame: FrameKey) -> Result<(), FastFrameError> {
+        match slot {
+            RebuildSlot::Root => {
+                self.root = Some(frame);
+                Ok(())
+            }
+            RebuildSlot::LeftOf(parent) => {
+                self.frame_storage_mut(parent)?.left = Some(frame);
+                Ok(())
+            }
+            RebuildSlot::RightOf(parent) => {
+                self.frame_storage_mut(parent)?.right = Some(frame);
+                Ok(())
+            }
+        }
+    }
+
+    fn rebuild_slot(
+        &mut self,
+        slot: RebuildSlot,
+        sorted: &[FrameKey],
+        first: usize,
+        num: usize,
+        depth: usize,
+    ) -> Result<(), FastFrameError> {
+        if num == 0 {
+            return Ok(());
+        }
+        if depth > OFFD_MAX_REBUILD_DEPTH {
+            return Err(FastFrameError::RebuildStackExhausted);
+        }
+        let end = first
+            .checked_add(num)
+            .ok_or(FastFrameError::AllocationFailed)?;
+        if end > sorted.len() {
+            return Err(FastFrameError::AllocationFailed);
+        }
+        let mut half = num / 2;
+        while half > 0 {
+            let same = {
+                let before = self.name(sorted[first + half - 1])?;
+                let at = self.name(sorted[first + half])?;
+                before == at
+            };
+            if !same {
+                break;
+            }
+            half -= 1;
+        }
+        let pivot = sorted[first + half];
+        self.write_slot(slot, pivot)?;
+        let mut last = pivot;
+        let mut run = 1usize;
+        while half + run < num {
+            let same = {
+                let pivot_name = self.name(pivot)?;
+                let next_name = self.name(sorted[first + half + run])?;
+                pivot_name == next_name
+            };
+            if !same {
+                break;
+            }
+            self.frame_storage_mut(last)?.left = None;
+            let next = sorted[first + half + run];
+            self.frame_storage_mut(last)?.right = Some(next);
+            last = next;
+            run += 1;
+        }
+        if half > 0 {
+            self.rebuild_slot(RebuildSlot::LeftOf(pivot), sorted, first, half, depth + 1)?;
+        } else {
+            self.frame_storage_mut(pivot)?.left = None;
+        }
+        if half + run < num {
+            self.rebuild_slot(
+                RebuildSlot::RightOf(last),
+                sorted,
+                first + half + run,
+                num - half - run,
+                depth + 1,
+            )?;
+        } else {
+            self.frame_storage_mut(last)?.right = None;
+        }
         Ok(())
     }
 }
@@ -635,6 +921,61 @@ mod tests {
             Err(FastFrameError::MissingFrame(FrameKey(999)))
         );
     }
+
+    #[test]
+    fn null_stored_name_lookup_maps_empty_but_insertion_rejects() {
+        // Disclosed hardening: lookup treats a null stored name as empty
+        // (native dereferences), while insertion reports NullInsertionName.
+        let mut tree = tree();
+        tree.import_frame(frame(1, None, None)).unwrap();
+        tree.import_frame(frame(2, Some(b"x"), None)).unwrap();
+        // Nameless root inserts without reading any name.
+        tree.add_to_ff_tree(FrameKey(1)).unwrap();
+        // Comparing against it reports NullInsertionName.
+        assert!(matches!(
+            tree.add_to_ff_tree(FrameKey(2)),
+            Err(FastFrameError::NullInsertionName(_))
+        ));
+        assert_eq!(tree.find_frame_fast(Some(7), b""), Ok(None));
+    }
+    #[test]
+    fn driver_find_frame_fast_skips_foreign_sectors_and_stops_at_unequal_tail() {
+        // Driver 0x19b10 (mafia-re I3d_driver.cpp:1595-1623): the PC walk
+        // continues past a sector of a different scene, and an unequal
+        // chained name ends the duplicate walk with NULL. Hand-derived.
+        let mut tree_a = tree();
+        let mut foreign = frame(101, Some(b"foreign"), None);
+        foreign.frame_type = 5;
+        foreign.sector_scene = Some(8);
+        tree_a.import_frame(foreign).unwrap();
+        tree_a
+            .import_frame(frame(1, Some(b"dup"), Some(101)))
+            .unwrap();
+        tree_a
+            .import_frame(frame(2, Some(b"dup"), Some(100)))
+            .unwrap();
+        tree_a.add_to_ff_tree(FrameKey(1)).unwrap();
+        tree_a.add_to_ff_tree(FrameKey(2)).unwrap();
+        assert_eq!(
+            tree_a.find_frame_fast(Some(7), b"dup"),
+            Ok(Some(FrameKey(2)))
+        );
+        assert_eq!(
+            tree_a.find_frame_fast(Some(8), b"dup"),
+            Ok(Some(FrameKey(1)))
+        );
+        assert_eq!(tree_a.find_frame_fast(Some(9), b"dup"), Ok(None));
+        // Unequal tail: the m,m chain with a greater unequal right child.
+        let mut tree2 = tree();
+        tree2.import_frame(frame(1, Some(b"m"), None)).unwrap();
+        tree2.import_frame(frame(2, Some(b"m"), None)).unwrap();
+        tree2.import_frame(frame(3, Some(b"z"), None)).unwrap();
+        tree2.add_to_ff_tree(FrameKey(1)).unwrap();
+        tree2.add_to_ff_tree(FrameKey(2)).unwrap();
+        tree2.add_to_ff_tree(FrameKey(3)).unwrap();
+        assert_eq!(tree2.frame(FrameKey(2)).unwrap().right, Some(FrameKey(3)));
+        assert_eq!(tree2.find_frame_fast(Some(7), b"m"), Ok(None));
+    }
 }
 
 #[cfg(test)]
@@ -675,5 +1016,188 @@ mod allocation_tests {
             OriginalFrameName::Released { offset: 2 }
         );
         assert_eq!(frame.flags & FAST_FRAME_TREE_FLAG, 0);
+    }
+}
+
+#[cfg(test)]
+mod offd_tests {
+    use super::*;
+
+    fn named(id: u32, name: &[u8]) -> FastFrameStorage {
+        FastFrameStorage {
+            frame: FrameKey(id),
+            name: Some(name.to_vec()),
+            original_name: OriginalFrameName::Offset(0),
+            frame_type: 1,
+            parent: None,
+            sector_scene: None,
+            flags: 0x4000_003c,
+            left: None,
+            right: None,
+        }
+    }
+
+    #[derive(Default)]
+    struct TestOffd {
+        oom: Vec<i32>,
+    }
+
+    impl OffdDiagnostics for TestOffd {
+        fn optimalize_out_of_memory(&mut self, list_size: i32) {
+            self.oom.push(list_size);
+        }
+    }
+
+    #[test]
+    fn optimalize_null_root_is_an_explicit_precondition() {
+        let mut tree = I3dFastFrameTree::new(true);
+        let mut diag = TestOffd::default();
+        assert_eq!(
+            tree.optimalize_fast_find_data(&mut diag),
+            Err(FastFrameError::NullRoot)
+        );
+        assert_eq!((tree.offd_list_size, tree.offd_list_used), (0, 0));
+        assert!(diag.oom.is_empty());
+    }
+
+    #[test]
+    fn optimalize_rebuilds_balanced_middle_back_chain() {
+        let mut tree = I3dFastFrameTree::new(true);
+        for (id, name) in [
+            (1u32, &b"m"[..]),
+            (2, b"z"),
+            (3, b"a"),
+            (4, b"m"),
+            (5, b"m"),
+        ] {
+            tree.import_frame(named(id, name)).unwrap();
+            tree.add_to_ff_tree(FrameKey(id)).unwrap();
+        }
+        let mut diag = TestOffd::default();
+        tree.optimalize_fast_find_data(&mut diag).unwrap();
+        assert_eq!((tree.offd_list_size, tree.offd_list_used), (5, 5));
+        assert!(diag.oom.is_empty());
+        assert_eq!(tree.root, Some(FrameKey(1)));
+        let pivot = tree.frame(FrameKey(1)).unwrap();
+        assert_eq!(
+            (pivot.left, pivot.right),
+            (Some(FrameKey(3)), Some(FrameKey(4)))
+        );
+        let second = tree.frame(FrameKey(4)).unwrap();
+        assert_eq!((second.left, second.right), (None, Some(FrameKey(5))));
+        let third = tree.frame(FrameKey(5)).unwrap();
+        assert_eq!((third.left, third.right), (None, Some(FrameKey(2))));
+        assert_eq!(
+            (
+                tree.frame(FrameKey(3)).unwrap().left,
+                tree.frame(FrameKey(3)).unwrap().right
+            ),
+            (None, None)
+        );
+        assert_eq!(
+            (
+                tree.frame(FrameKey(2)).unwrap().left,
+                tree.frame(FrameKey(2)).unwrap().right
+            ),
+            (None, None)
+        );
+        let mut order = Vec::new();
+        let mut collect = |frame: FrameKey, _context: u32| {
+            order.push(frame.0);
+            0
+        };
+        assert_eq!(tree.enum_ff_tree(&mut collect, 0), Ok(FF_OK));
+        assert_eq!(order, vec![3, 1, 4, 5, 2]);
+    }
+
+    #[test]
+    fn optimalize_oom_stores_size_and_observes_fatal_before_fill() {
+        let mut tree = I3dFastFrameTree::new(true);
+        for (id, name) in [(1u32, &b"b"[..]), (2, b"a")] {
+            tree.import_frame(named(id, name)).unwrap();
+            tree.add_to_ff_tree(FrameKey(id)).unwrap();
+        }
+        let root_before = tree.root;
+        let left_before = tree.frame(FrameKey(1)).unwrap().left;
+        let mut diag = TestOffd::default();
+        let result = tree.optimalize_fast_find_data_with_allocator(&mut diag, |count| {
+            assert_eq!(count, 2);
+            Err(FastFrameError::AllocationFailed)
+        });
+        assert_eq!(result, Err(FastFrameError::AllocationFailed));
+        assert_eq!(diag.oom, vec![2]);
+        assert_eq!((tree.offd_list_size, tree.offd_list_used), (2, 0));
+        assert_eq!(tree.root, root_before);
+        assert_eq!(tree.frame(FrameKey(1)).unwrap().left, left_before);
+    }
+
+    #[test]
+    fn rebuild_stack_budget_is_explicit() {
+        let mut tree = I3dFastFrameTree::new(true);
+        tree.import_frame(named(1, b"a")).unwrap();
+        let sorted = [FrameKey(1)];
+        assert_eq!(
+            tree.rebuild_slot(
+                super::RebuildSlot::Root,
+                &sorted,
+                0,
+                1,
+                OFFD_MAX_REBUILD_DEPTH + 1
+            ),
+            Err(FastFrameError::RebuildStackExhausted)
+        );
+        assert_eq!(tree.root, None);
+        tree.offd_rebuild_branch_of_ff_tree(&sorted, 0, 1).unwrap();
+        assert_eq!(tree.root, Some(FrameKey(1)));
+        assert_eq!(tree.offd_rebuild_branch_of_ff_tree(&sorted, 0, 0), Ok(()));
+        assert_eq!(
+            tree.offd_rebuild_branch_of_ff_tree(&sorted, 0, 2),
+            Err(FastFrameError::AllocationFailed)
+        );
+    }
+
+    #[test]
+    fn enum_ff_tree_null_in_order_and_cancel() {
+        let mut tree = I3dFastFrameTree::new(true);
+        let mut calls = 0usize;
+        let mut probe = |_frame: FrameKey, _context: u32| {
+            calls += 1;
+            0
+        };
+        assert_eq!(tree.enum_ff_tree(&mut probe, 7), Ok(FF_OK));
+        assert_eq!(calls, 0);
+        for (id, name) in [(1u32, &b"b"[..]), (2, b"a"), (3, b"c")] {
+            tree.import_frame(named(id, name)).unwrap();
+            tree.add_to_ff_tree(FrameKey(id)).unwrap();
+        }
+        let mut order = Vec::new();
+        let mut collect = |frame: FrameKey, context: u32| {
+            assert_eq!(context, 9);
+            order.push(frame.0);
+            0
+        };
+        assert_eq!(tree.enum_ff_tree(&mut collect, 9), Ok(FF_OK));
+        assert_eq!(order, vec![2, 1, 3]);
+        let mut visited = 0usize;
+        let mut cancel_after_two = |_frame: FrameKey, _context: u32| {
+            visited += 1;
+            if visited == 2 {
+                1
+            } else {
+                0
+            }
+        };
+        assert_eq!(tree.enum_ff_tree(&mut cancel_after_two, 0), Ok(FF_CANCELED));
+        assert_eq!(visited, 2);
+    }
+
+    #[test]
+    fn enum_ff_tree_cycle_is_explicit() {
+        let mut tree = I3dFastFrameTree::new(true);
+        tree.import_frame(named(1, b"a")).unwrap();
+        tree.add_to_ff_tree(FrameKey(1)).unwrap();
+        tree.frame_storage_mut(FrameKey(1)).unwrap().left = Some(FrameKey(1));
+        let mut probe = |_frame: FrameKey, _context: u32| 0;
+        assert_eq!(tree.enum_ff_tree(&mut probe, 0), Err(FastFrameError::Cycle));
     }
 }

@@ -624,6 +624,24 @@ impl ModelArena {
         self.graph.change_flags(key, 0, SCENE_TICK_FLAG)?;
         Ok(())
     }
+    /// Driver 0x1a0a0 DeleteFromSceneTickList (mafia-re
+    /// `ls3df/I3D/I3d_driver.cpp:1744-1750`, evidenced PS2 original name):
+    /// newest scene first (`for (i = scenes.size(); i--;)`), stop after the
+    /// first per-scene DeleteTickFrame reporting `I3D_OK`. Void natively.
+    /// Per-scene misses (and dead keys, disclosed host hardening — native
+    /// would dereference) continue the walk instead of stopping it.
+    pub fn driver_delete_from_scene_tick_list(&mut self, key: FrameKey) {
+        for i in (0..self.scenes.len()).rev() {
+            let scene = self.scenes[i].key;
+            if self
+                .scene_delete_tick_frame(scene, key)
+                .map(|r| r == SCENE_OK)
+                .unwrap_or(false)
+            {
+                break;
+            }
+        }
+    }
     /// Original DeleteTickFrame, PC RVA 0x4a050 (differential: Ghidra body 141 B,
     /// 51 insn/12 BB). Swap-with-last removal with the count update and slot
     /// fill preceding the TICK clear; absent members return the
@@ -2474,5 +2492,29 @@ mod tests {
         arena.release(fog).unwrap();
         arena.release(plain).unwrap();
         arena.release(ghost).unwrap();
+    }
+    #[test]
+    fn driver_delete_from_scene_tick_list_walks_newest_first_and_stops_after_first_ok() {
+        // Driver 0x1a0a0 (mafia-re I3d_driver.cpp:1744-1750): newest scene
+        // first (`for (i = scenes.size(); i--;)`), stop after the first
+        // DeleteTickFrame that returns I3D_OK. Hand-derived vectors.
+        let mut arena = ModelArena::default();
+        let older = arena.construct_scene_owner_prefix().unwrap();
+        let newer = arena.construct_scene_owner_prefix().unwrap();
+        let shared = dummy(&mut arena, b"shared-tick");
+        arena.scene_add_tick_frame(older, shared).unwrap();
+        arena.scene_add_tick_frame(newer, shared).unwrap();
+        // Newest-first walk: the newer scene reports OK first, so the older
+        // scene keeps its membership (early stop). The TICK flag clears on
+        // the per-scene removal exactly like the source (I3d_scene.cpp:456-458
+        // clears unconditionally, even with other registrations left).
+        arena.driver_delete_from_scene_tick_list(shared);
+        assert!(arena.scene(newer).unwrap().tick_frames.is_empty());
+        assert_eq!(arena.scene(older).unwrap().tick_frames, [shared]);
+        assert_eq!(arena.state(shared).unwrap().flags & SCENE_TICK_FLAG, 0);
+        // Second driver pass removes the older registration.
+        arena.driver_delete_from_scene_tick_list(shared);
+        assert!(arena.scene(older).unwrap().tick_frames.is_empty());
+        assert_eq!(arena.state(shared).unwrap().flags & SCENE_TICK_FLAG, 0);
     }
 }
