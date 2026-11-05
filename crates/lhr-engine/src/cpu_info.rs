@@ -40,11 +40,11 @@ pub fn map_model_name(family: i32, model: i32, vendor: &[u8], m_name: &mut [u8])
         match family {
             4 => write_cstr(m_name, b"AMD Am486"),
             5 => match model {
-                0 | 1 | 2 | 3 => write_cstr(m_name, b"AMD K5"),
+                0..=3 => write_cstr(m_name, b"AMD K5"),
                 4 | 5 => {}
                 6 | 7 => write_cstr(m_name, b"AMD K6"),
                 8 => write_cstr(m_name, b"AMD K6-2"),
-                9 | 10 | 11 | 12 | 13 | 14 | 15 => write_cstr(m_name, b"AMD K6-3"),
+                9..=15 => write_cstr(m_name, b"AMD K6-3"),
                 _ => write_cstr(m_name, b"Unknown"),
             },
             6 => write_cstr(m_name, b"AMD ATHLON"),
@@ -63,7 +63,7 @@ pub fn map_model_name(family: i32, model: i32, vendor: &[u8], m_name: &mut [u8])
                 _ => write_cstr(m_name, b"Unknown"),
             },
             5 => match model {
-                1 | 2 | 3 => write_cstr(m_name, b"INTEL Pentium"),
+                1..=3 => write_cstr(m_name, b"INTEL Pentium"),
                 4 => write_cstr(m_name, b"INTEL Pentium-MMX"),
                 _ => write_cstr(m_name, b"Unknown"),
             },
@@ -77,11 +77,8 @@ pub fn map_model_name(family: i32, model: i32, vendor: &[u8], m_name: &mut [u8])
             },
             _ => {}
         }
-    } else if vendor_eq(vendor, b"CyrixInstead") {
-        write_cstr(m_name, b"Unknown");
-    } else if vendor_eq(vendor, b"CentaurHauls") {
-        write_cstr(m_name, b"Unknown");
     } else {
+        // Sample maps CyrixInstead, CentaurHauls, and any other vendor to "Unknown".
         write_cstr(m_name, b"Unknown");
     }
 }
