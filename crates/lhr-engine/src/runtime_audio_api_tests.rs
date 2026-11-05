@@ -357,6 +357,9 @@ fn pin_getters_with_synthetic_vectors() {
     assert_eq!(audio.read_sound_word(7, 0x184).unwrap(), 0.25f32.to_bits());
     assert_eq!(audio.read_sound_word(7, 0x1a0).unwrap(), 0.6f32.to_bits());
     assert_eq!(audio.read_sound_word(7, 0x1a8).unwrap(), 1.2f32.to_bits());
+    // GetRange/GetCone trivial copies read back the stored words.
+    assert_eq!(audio.sound_range(&id).unwrap(), [2.0, 20.0, 0.5, 0.25]);
+    assert_eq!(audio.sound_cone(&id).unwrap(), [0.6, 1.2]);
     let dur = audio.sound_duration_ms(&id).unwrap();
     assert!(dur > 0);
     audio.set_sound_frequency(&id, 2.0).unwrap();

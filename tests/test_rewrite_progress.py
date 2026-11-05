@@ -77,15 +77,19 @@ class RewriteProgressTests(unittest.TestCase):
         # message).
         # 94 wave-5 ISound/IGraph: all contract (69 ISound isound_* + 25
         # IGraph incl. ResizeImage/format/RLA/image-info/maps-dirs/keyboard/
-        # cpuid/result-message; intra-draft 0x7be20 dup withheld/deduped).", Tier rules applied: differential needs
+        # cpuid/result-message; intra-draft 0x7be20 dup withheld/deduped).
+        # 49 wave-6 visual/C-str/remap/getters: 7 differential + 42 contract
+        # (29 visual STL+helpers, 5 C-str, 7 remap confirm-only, 2 getters,
+        # 6 scalar-dtor shared symbols; 11 math/material + 3 C-str already
+        # ledger-credited, no entries).", Tier rules applied: differential needs
         # a Ghidra body (or complete instruction walk) plus pinning tests —
         # this includes confirm-only bodies that corroborate a pre-existing
         # port (new evidence + tests on top); contract covers no-body walks,
         # ABI-only teardown bodies (vtable re-store + base tailjump, no
         # portable state effect), and partial-coverage ports. Same standard
         # as 0x2b830 throughout.
-        self.assertEqual(ls3df["ported"], 145 + 728)
-        self.assertEqual(ls3df["verified"], 145 + 246)
+        self.assertEqual(ls3df["ported"], 145 + 777)
+        self.assertEqual(ls3df["verified"], 145 + 253)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()

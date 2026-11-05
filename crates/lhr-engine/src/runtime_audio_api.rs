@@ -224,9 +224,34 @@ impl RuntimeAudio {
     pub fn set_sound_range(&self, id: &SoundId, range: [f32; 4]) -> Result<()> {
         self.sound_command(id, Command::Range(range)).map(|_| ())
     }
+    /// I3D_sound::GetRange (0x581d0, trivial 4-float copy): reads back the
+    /// stored range words. Contract tier; the pin_getters test covers the
+    /// setter round-trip.
+    pub fn sound_range(&self, id: &SoundId) -> Result<[f32; 4]> {
+        id.check_owner(self)?;
+        let mixer = self.lock()?;
+        let handle = id.checked_handle(&mixer)?;
+        mixer
+            .sounds
+            .get(&handle)
+            .map(|sound| sound.range)
+            .ok_or_else(|| AudioError(format!("unowned sound {handle:#x}")))
+    }
     /// Inner and outer angles in radians, retaining the existing upper PI cap.
     pub fn set_sound_cone(&self, id: &SoundId, cone: [f32; 2]) -> Result<()> {
         self.sound_command(id, Command::Cone(cone)).map(|_| ())
+    }
+    /// I3D_sound::GetCone (0x58210, trivial 2-float copy): reads back the
+    /// stored cone words. Contract tier; same round-trip coverage.
+    pub fn sound_cone(&self, id: &SoundId) -> Result<[f32; 2]> {
+        id.check_owner(self)?;
+        let mixer = self.lock()?;
+        let handle = id.checked_handle(&mixer)?;
+        mixer
+            .sounds
+            .get(&handle)
+            .map(|sound| sound.cone)
+            .ok_or_else(|| AudioError(format!("unowned sound {handle:#x}")))
     }
     pub fn set_sound_outside_volume(&self, id: &SoundId, volume: f32) -> Result<()> {
         self.sound_command(id, Command::OutsideVolume(volume))

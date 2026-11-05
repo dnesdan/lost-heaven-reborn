@@ -503,6 +503,42 @@ impl ModelArena {
     }
 }
 
+/// LS3DF RVA 0x577c0, VA 0x100577c0. `I3D_sound` scalar deleting destructor
+/// working name (mafia-re ab67b13 `ls3df/I3D/I3D.h:833-835` SYNTHETIC; the
+/// `I3D_sound` class name is PS2-evidenced but this destructor spelling is
+/// NOT an original symbol). Contract tier (wave policy: native 3 BB / ~30 B
+/// body — null guard, `~I3D_sound` call, `flags & 1` operator-delete branch —
+/// modeled on the existing destroy paths, no Ghidra body observed).
+/// Order-exact against `destroy_sound_derived` (mafia-re
+/// `ls3df/I3D/frames/I3d_sound.cpp:74-94`, `SetOn(false)`, sector unlink,
+/// area unlink, driver-list removal, source-and-voice release): a null key
+/// returns `Ok(false)` with no effects; otherwise `check_sound_destruction`
+/// preflight runs before any effect, then `destroy_sound_derived`
+/// (`SetOn(false)`, sector unlink, area unlink, driver-list removal,
+/// source-and-voice release through `release_sound`), then host retirement
+/// through `release` only when `flags & 1 != 0` (the native operator-delete
+/// branch; `release_inner` skips the already-removed derived record exactly
+/// once via its sound-membership guard and runs the base frame teardown). A
+/// still-shared host frame (`references > 1`) only detaches one reference,
+/// exactly like `release` — disclosed host admission, not native behavior.
+/// Returns whether host retirement ran.
+pub fn sound_scalar_deleting_dtor(
+    arena: &mut ModelArena,
+    key: Option<SoundKey>,
+    flags: u32,
+) -> Result<bool, ModelError> {
+    let Some(key) = key else {
+        return Ok(false);
+    };
+    // Single preflight lives inside destroy_sound_derived; no outer check.
+    arena.destroy_sound_derived(key)?;
+    if (flags & 1) == 0 {
+        return Ok(false);
+    }
+    arena.release(key.frame())?;
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -613,6 +649,74 @@ mod tests {
         ));
         arena.release(sound.frame()).unwrap();
         assert_eq!(audio.live_sound_count().unwrap(), 0);
+    }
+
+    #[test]
+    fn scalar_deleting_dtor_null_key_leaves_everything_alive() {
+        let mut arena = ModelArena::default();
+        let audio = RuntimeAudio::default();
+        arena
+            .bind_host_sound_backend(HostSoundBackend::new(1, &audio))
+            .unwrap();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let sector = arena.scene(scene).unwrap().sectors[0];
+        let sound = arena.create_owned_sound_frame().unwrap();
+        arena.add_sound_to_sector(sector, sound).unwrap();
+        assert!(!sound_scalar_deleting_dtor(&mut arena, None, 1).unwrap());
+        assert_eq!(audio.live_sound_count().unwrap(), 1);
+        assert_eq!(arena.sound(sound).unwrap().sectors(), &[sector]);
+        assert_eq!(arena.sector(sector).unwrap().sounds, [sound.frame()]);
+        arena.release(sound.frame()).unwrap();
+        assert_eq!(audio.live_sound_count().unwrap(), 0);
+    }
+
+    #[test]
+    fn scalar_deleting_dtor_without_delete_flag_runs_derived_only() {
+        let mut arena = ModelArena::default();
+        let audio = RuntimeAudio::default();
+        arena
+            .bind_host_sound_backend(HostSoundBackend::new(1, &audio))
+            .unwrap();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let sector = arena.scene(scene).unwrap().sectors[0];
+        let area = arena.create_area().unwrap();
+        let sound = arena.create_owned_sound_frame().unwrap();
+        arena.add_sound_to_sector(sector, sound).unwrap();
+        arena.add_sound_to_area(area, sound).unwrap();
+        assert!(!sound_scalar_deleting_dtor(&mut arena, Some(sound), 0).unwrap());
+        // Derived effects ran in native order: voice stopped and released,
+        // reciprocal links and the driver-list entry are gone.
+        assert_eq!(audio.live_sound_count().unwrap(), 0);
+        assert!(arena.sector(sector).unwrap().sounds.is_empty());
+        assert!(arena.area(area).unwrap().sounds().is_empty());
+        assert!(arena
+            .host_sound_backend()
+            .unwrap()
+            .sounds()
+            .unwrap()
+            .is_empty());
+        // The frame record itself survives without the delete branch.
+        arena.frame(sound.frame()).unwrap();
+        arena.release(sound.frame()).unwrap();
+        arena.release(area.frame()).unwrap();
+    }
+
+    #[test]
+    fn scalar_deleting_dtor_with_delete_flag_retires_the_frame() {
+        let mut arena = ModelArena::default();
+        let audio = RuntimeAudio::default();
+        arena
+            .bind_host_sound_backend(HostSoundBackend::new(1, &audio))
+            .unwrap();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let sector = arena.scene(scene).unwrap().sectors[0];
+        let sound = arena.create_owned_sound_frame().unwrap();
+        arena.add_sound_to_sector(sector, sound).unwrap();
+        assert!(sound_scalar_deleting_dtor(&mut arena, Some(sound), 1).unwrap());
+        assert_eq!(audio.live_sound_count().unwrap(), 0);
+        assert!(arena.sector(sector).unwrap().sounds.is_empty());
+        assert!(arena.frame(sound.frame()).is_err());
+        assert!(arena.release(sound.frame()).is_err());
     }
 }
 

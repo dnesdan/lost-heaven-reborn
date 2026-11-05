@@ -152,6 +152,41 @@ pub struct LodCreateParams {
 /// Boundary marker for m_AddFGroups (PC RVA 0x38020, contract only).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ObjectFaceGroupContract;
+/// Host projection of one packed-rectangle offset in a texture with room
+/// left (mafia-re ab67b13 `ls3df/I3D/mesh/lightmap.h:34-38` OFFSET_STRUCT:
+/// guessed PS2 member names `x`, `y`, `rotated`; 0xc bytes).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TexblOffset {
+    pub x: i32,
+    pub y: i32,
+    pub rotated: bool,
+}
+/// Host projection of the destructor-owned member of TEXBL_STRUCT, a
+/// texture's free room (mafia-re ab67b13 `ls3df/I3D/mesh/lightmap.cpp:28-37`;
+/// PS2-evidenced struct name, 0x28 bytes). Only the `offsets` list
+/// (`C_list<OFFSET_STRUCT>`, grown from 10) is destructor-owned; the native
+/// free-rectangle chain (`first`/`last`) is freed explicitly by
+/// `m_EraseRectList`, and the texture pointer is released through the
+/// `LightMap` destructor paths — neither is part of this teardown.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TexblStruct {
+    pub offsets: Vec<TexblOffset>,
+    pub free_area: i32,
+    pub lost_area: i32,
+}
+/// LS3DF RVA 0x5da70, VA 0x1005da70. `TEXBL_STRUCT::~TEXBL_STRUCT` working
+/// name (mafia-re ab67b13 `ls3df/I3D/mesh/lightmap.h:85-87` SYNTHETIC; the
+/// `TEXBL_STRUCT` name is PS2-evidenced but this destructor spelling is NOT
+/// an original symbol). Contract tier (wave policy: native 1 BB / 28 B body
+/// destroys exactly one member, no Ghidra body observed). Member-wise
+/// teardown: the `offsets` `C_list` destructor (`ls3df.h:120-123`, which
+/// calls `clear()`: `delete[]` the array, NULL it, zero both sizes) maps to
+/// releasing the host vector storage. Scalar words keep their values (native
+/// scalars are never zeroed; their storage vanishes with the struct), and
+/// the free-rectangle chain and texture pointer are untouched. Idempotent.
+pub fn texbl_struct_teardown(entry: &mut TexblStruct) {
+    entry.offsets = Vec::new();
+}
 /// lod::SetUV per-vertex offset add (PC RVA 0x36d00): host f32 adds with the
 /// crate checked-add domain (x87 differences quarantined to the backend).
 pub fn lod_uv_pair(uv: [f32; 2], ofs: [f32; 2]) -> Result<[f32; 2], ObjectLodError> {
@@ -1704,6 +1739,37 @@ mod tests {
     };
     use crate::visual_resources::{self as vr, RawVertexBytesKey};
     use std::collections::{BTreeMap, VecDeque};
+
+    #[test]
+    fn texbl_struct_teardown_releases_offsets_and_keeps_scalars() {
+        // LS3DF RVA 0x5da70: hand-derived offsets, no game fixtures. The
+        // 1 BB / 28 B body destroys only the offsets C_list (delete[] + NULL
+        // + zero sizes); scalar words are never zeroed by a destructor.
+        let mut entry = TexblStruct {
+            offsets: vec![
+                TexblOffset {
+                    x: 4,
+                    y: 8,
+                    rotated: false,
+                },
+                TexblOffset {
+                    x: 0,
+                    y: 0,
+                    rotated: true,
+                },
+            ],
+            free_area: 1024,
+            lost_area: 9,
+        };
+        texbl_struct_teardown(&mut entry);
+        assert!(entry.offsets.is_empty());
+        assert_eq!(entry.offsets.capacity(), 0);
+        assert_eq!((entry.free_area, entry.lost_area), (1024, 9));
+        // Idempotent: a second teardown is a clean no-op.
+        texbl_struct_teardown(&mut entry);
+        assert!(entry.offsets.is_empty());
+        assert_eq!((entry.free_area, entry.lost_area), (1024, 9));
+    }
     #[derive(Clone, Debug, PartialEq, Eq)]
     enum Event {
         BufferNew(BufferKind, AllocationToken),

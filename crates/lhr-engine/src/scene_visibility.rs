@@ -557,7 +557,9 @@ impl ModelArena {
     /// CTP_EnumProc: side-cull the initialized hierarchy for each aperture.
     /// Already-rendered parents are still walked, allowing disjoint apertures
     /// to contribute different children to one sector's final visual list.
-    fn visibility_cull_children(
+    /// `pub(crate)` minimum: this walk owns the 0x43000 overlay entry, so it
+    /// must be nameable outside the module (validator + future callers).
+    pub(crate) fn visibility_cull_children(
         &mut self,
         root: FrameKey,
         partly_off: bool,

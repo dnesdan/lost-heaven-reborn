@@ -1067,6 +1067,22 @@ pub fn try_line_line_intersect(
     Ok((u1, div(add(mul(u1, d12), d23), d22)))
 }
 
+/// LS3DF RVA 0x56e60, VA 0x10056e60. `S_vector::operator*=(const float &)`
+/// out-of-line copy working name (mafia-re ab67b13
+/// `ls3df/I3D/I3d_math.h:223-231`; the copy the linker kept lives in the
+/// single-mesh file for `I3D_joint::GetJointMatrix`; `S_vector` itself is
+/// PS2-evidenced but this operator spelling is a mafia-re recovery, NOT a PDB
+/// original symbol). Exact f32 lane multiply-assign (`x *= f; y *= f; z *=
+/// f`), no domain guard: NaN, infinities and subnormals flow through exactly
+/// as the native x87 `FMUL` stores do. The host takes the factor by value;
+/// the original takes `const float &`. Tier contract (wave policy: no Ghidra
+/// body observed).
+pub fn scale_vector_assign(vector: &mut [f32; 3], factor: f32) {
+    vector[0] *= factor;
+    vector[1] *= factor;
+    vector[2] *= factor;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1846,5 +1862,30 @@ mod tests {
             [2.0, 0.0, 0.0]
         )
         .is_err());
+    }
+
+    #[test]
+    fn scale_vector_assign_multiplies_each_lane_exactly() {
+        // LS3DF RVA 0x56e60 out-of-line copy: hand-derived dyadic vectors,
+        // no game fixtures. Exact f32 stores, bit-pinned.
+        let mut vector = [1.5, -2.0, 0.0];
+        scale_vector_assign(&mut vector, 2.0);
+        assert_eq!(
+            vector.map(f32::to_bits),
+            [3.0f32.to_bits(), (-4.0f32).to_bits(), 0.0f32.to_bits()]
+        );
+        // Signed-zero factor keeps lane signs, as IEEE multiply does.
+        let mut vector = [-1.0, 1.0, 3.25];
+        scale_vector_assign(&mut vector, 0.0);
+        assert_eq!(
+            vector.map(f32::to_bits),
+            [(-0.0f32).to_bits(), 0.0f32.to_bits(), 0.0f32.to_bits()]
+        );
+        // Non-finite lanes flow through without a domain guard.
+        let mut vector = [f32::INFINITY, f32::NAN, 1.0];
+        scale_vector_assign(&mut vector, 2.0);
+        assert_eq!(vector[0], f32::INFINITY);
+        assert!(vector[1].is_nan());
+        assert_eq!(vector[2].to_bits(), 2.0f32.to_bits());
     }
 }
