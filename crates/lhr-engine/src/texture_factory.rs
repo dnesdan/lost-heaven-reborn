@@ -4388,3 +4388,166 @@ mod tests {
         assert_eq!(b.resident_bytes(), 0);
     }
 }
+
+/// PC LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6.
+/// LS3DF RVA 0x72150 `FindMapFile` (upstream working name, NOT original)
+/// (mafia-re ls3df/IGraph/IGraph.cpp:3190-3224, pinned at ab67b13).
+/// Finds a map file: as named if the name has a path, else in the last-hit
+/// directory cache, else in the map directories last-added first. Returns the
+/// full name or `None` for the native empty string. `char[256]` path scratch:
+/// candidates longer than 255 bytes miss here (native would overflow its
+/// stack buffer; host rejects). The cache updates only on a directory hit and
+/// marks invalid (bytes retained) on a miss; a direct-path hit leaves it
+/// unchanged. A backslash-name miss falls through to cache and directories
+/// exactly like the source (no early return).
+pub const MAP_PATH_CAP: usize = 256;
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct MapFileCache {
+    pub last_dir: Vec<u8>,
+    pub ok: bool,
+}
+
+/// Existence probe for one `FindFirstFile` + `FindClose` candidate. No
+/// enumeration; directory listing lives in `maps_dirs`.
+pub trait MapFileProbe {
+    fn exists(&mut self, path: &[u8]) -> bool;
+}
+
+fn join_map_path(dir: &[u8], name: &[u8]) -> Option<Vec<u8>> {
+    let len = dir.len().checked_add(name.len())?;
+    if len > MAP_PATH_CAP - 1 {
+        return None;
+    }
+    let mut out = Vec::with_capacity(len);
+    out.extend_from_slice(dir);
+    out.extend_from_slice(name);
+    Some(out)
+}
+
+pub fn find_map_file(
+    cache: &mut MapFileCache,
+    dirs: &[Vec<u8>],
+    name: &[u8],
+    probe: &mut impl MapFileProbe,
+) -> Option<Vec<u8>> {
+    if name.iter().any(|b| *b == b'\\') {
+        if probe.exists(name) {
+            return Some(name.to_vec());
+        }
+    }
+    if cache.ok && !cache.last_dir.is_empty() {
+        if let Some(path) = join_map_path(&cache.last_dir, name) {
+            if probe.exists(&path) {
+                return Some(path);
+            }
+        }
+    }
+    for dir in dirs.iter().rev() {
+        let Some(path) = join_map_path(dir, name) else {
+            continue;
+        };
+        if probe.exists(&path) {
+            cache.last_dir = dir.clone();
+            cache.ok = true;
+            return Some(path);
+        }
+    }
+    cache.ok = false;
+    None
+}
+
+#[cfg(test)]
+mod find_map_file_tests {
+    use super::*;
+    struct Set {
+        present: Vec<Vec<u8>>,
+    }
+    impl MapFileProbe for Set {
+        fn exists(&mut self, path: &[u8]) -> bool {
+            self.present.iter().any(|p| p == path)
+        }
+    }
+    #[test]
+    fn direct_path_hit_leaves_cache_unchanged() {
+        let mut cache = MapFileCache {
+            last_dir: b"Maps\\".to_vec(),
+            ok: true,
+        };
+        let mut probe = Set {
+            present: vec![b"C:\\a\\b.tga".to_vec()],
+        };
+        let hit = find_map_file(&mut cache, &[], b"C:\\a\\b.tga", &mut probe);
+        assert_eq!(hit, Some(b"C:\\a\\b.tga".to_vec()));
+        assert_eq!(cache.last_dir, b"Maps\\".to_vec());
+        assert!(cache.ok);
+    }
+    #[test]
+    fn direct_miss_falls_through_to_dirs_and_retains_bytes() {
+        // Native falls through on a direct miss (no early return): a
+        // backslash name missing directly still probes cache, then dirs
+        // (blind dir+name concatenation, exactly like strcat).
+        let mut cache = MapFileCache {
+            last_dir: b"D:\\maps\\".to_vec(),
+            ok: true,
+        };
+        let mut probe = Set {
+            present: vec![b"D:\\other\\sub\\x.tga".to_vec()],
+        };
+        let hit = find_map_file(
+            &mut cache,
+            &[b"D:\\other\\".to_vec()],
+            b"sub\\x.tga",
+            &mut probe,
+        );
+        assert_eq!(hit, Some(b"D:\\other\\sub\\x.tga".to_vec()));
+        assert_eq!(cache.last_dir, b"D:\\other\\".to_vec());
+        // Total miss clears ok but retains the last-dir bytes.
+        let miss = find_map_file(&mut cache, &[], b"C:\\y.tga", &mut probe);
+        assert_eq!(miss, None);
+        assert!(!cache.ok);
+        assert_eq!(cache.last_dir, b"D:\\other\\".to_vec());
+    }
+
+    #[test]
+    fn cache_hit_then_directory_hit_updates_cache_and_miss_clears() {
+        let mut cache = MapFileCache {
+            last_dir: b"A\\".to_vec(),
+            ok: true,
+        };
+        let mut probe = Set {
+            present: vec![b"A\\x.tga".to_vec(), b"B\\y.tga".to_vec()],
+        };
+        let dirs = vec![b"A\\".to_vec(), b"B\\".to_vec()];
+        assert_eq!(
+            find_map_file(&mut cache, &dirs, b"x.tga", &mut probe),
+            Some(b"A\\x.tga".to_vec())
+        );
+        assert_eq!(cache.last_dir, b"A\\".to_vec());
+        assert!(cache.ok);
+        assert_eq!(
+            find_map_file(&mut cache, &dirs, b"y.tga", &mut probe),
+            Some(b"B\\y.tga".to_vec())
+        );
+        assert_eq!(cache.last_dir, b"B\\".to_vec());
+        assert_eq!(
+            find_map_file(&mut cache, &dirs, b"missing.tga", &mut probe),
+            None
+        );
+        assert!(!cache.ok);
+    }
+    #[test]
+    fn overlong_candidate_misses_without_overflow() {
+        let mut cache = MapFileCache::default();
+        let long_dir = vec![b'A'; 250];
+        let mut long = long_dir.clone();
+        long.push(b'\\');
+        let dirs = vec![long];
+        let mut probe = Set { present: vec![] };
+        assert_eq!(
+            find_map_file(&mut cache, &dirs, b"0123456789", &mut probe),
+            None
+        );
+        assert!(!cache.ok);
+    }
+}

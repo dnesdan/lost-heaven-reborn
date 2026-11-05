@@ -279,6 +279,9 @@ mod singlemorph_visual_tests {
         assert_eq!(v.singlemorph_weight(0, 9), 0.0);
         let bytes = v.singlemorph_teardown_order();
         assert_eq!(v.weights.weights().len(), 0);
+        // Residue is allocator capacity (Vec growth policy), not a fixed
+        // byte count: >= 8 pins the fixed record fixture without coupling to
+        // allocator behavior.
         assert!(bytes >= 8);
     }
 

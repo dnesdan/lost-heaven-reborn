@@ -6403,6 +6403,852 @@
       "symbol": "lhr_engine::frame_fast_lookup::I3dFastFrameTree::enum_ff_tree",
       "tier": "contract",
       "evidence": "REA LAB_10019fd0 entry shape + mafia-re ls3df/I3D/I3d_driver.cpp:1715-1745 (NULL-root->OK, in-order via helper; folds the 0x1a050 enumSubtree helper with no separate credit) + tests enum_ff_tree_null_in_order_and_cancel/enum_ff_tree_cycle_is_explicit; tier contract (new-module wave policy: contract regardless of bodies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7b060",
+      "va": "0x1007b060",
+      "name": "ISND_3Dlistener::ISND_3Dlistener (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_listener_new",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dlistener.cpp:8; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_listener_new_defaults)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7b0b0",
+      "va": "0x1007b0b0",
+      "name": "ISND_3Dlistener::AddRef (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_listener_add_ref",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dlistener.cpp:26; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_listener_add_ref_increments)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7b0c0",
+      "va": "0x1007b0c0",
+      "name": "ISND_3Dlistener::Release (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_listener_release",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dlistener.cpp:33; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_listener_release_drop_and_warn_paths)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7b100",
+      "va": "0x1007b100",
+      "name": "ISND_3Dlistener::SetPos (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_listener_set_pos",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dlistener.cpp:48; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_listener_set_pos_stores)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7b120",
+      "va": "0x1007b120",
+      "name": "ISND_3Dlistener::SetDir (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_listener_set_dir",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dlistener.cpp:58; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_listener_set_dir_stores)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7b160",
+      "va": "0x1007b160",
+      "name": "ISND_3Dlistener::SetVelocity (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_listener_set_velocity",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dlistener.cpp:71; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_listener_set_velocity_stores)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7b180",
+      "va": "0x1007b180",
+      "name": "ISND_3Dlistener::SetDistanceFactor (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_listener_set_distance_factor",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/ISound.h:238-245 (folded with I3D_material::SetEnvAlpha, marker by PDB name); tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_listener_set_distance_factor_stores)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7b190",
+      "va": "0x1007b190",
+      "name": "ISND_3Dlistener::SetDopplerFactor (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_listener_set_doppler_factor",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dlistener.cpp:88; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_listener_set_doppler_factor_stores)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7b1a0",
+      "va": "0x1007b1a0",
+      "name": "ISND_3Dlistener::SetRolloffFactor (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_listener_set_rolloff_factor",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dlistener.cpp:96; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_listener_set_rolloff_factor_stores)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7b1e0",
+      "va": "0x1007b1e0",
+      "name": "ISND_3Dlistener::SetEAXProperty (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_listener_set_eax_property",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dlistener.cpp:115; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_listener_set_eax_property_classes)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7b280",
+      "va": "0x1007b280",
+      "name": "ISND_3Dlistener::SetEAX3Property (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_listener_set_eax3_property",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dlistener.cpp:163; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_listener_set_eax3_property_passthrough)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7b2d0",
+      "va": "0x1007b2d0",
+      "name": "ISND_3Dlistener::GetEAX3Property (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_listener_get_eax3_property",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dlistener.cpp:173; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_listener_get_eax3_property_passthrough)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7b370",
+      "va": "0x1007b370",
+      "name": "ISND_3Dsound::ISND_3Dsound (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_3dsound_new",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dsound.cpp:7; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_3dsound_new_words)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7b3b0",
+      "va": "0x1007b3b0",
+      "name": "ISND_3Dsound::~ISND_3Dsound (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_3dsound_destroy",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dsound.cpp:13; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_3dsound_destroy_runs_close)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7b420",
+      "va": "0x1007b420",
+      "name": "ISND_3Dsound::Is3DInit (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_3dsound_is_3d_init",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dsound.cpp:20; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_3dsound_is_3d_init_copies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7b430",
+      "va": "0x1007b430",
+      "name": "ISND_3Dsound::SetPos (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_3dsound_set_pos",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dsound.cpp:27; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_3dsound_set_pos_null_and_fail)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7b470",
+      "va": "0x1007b470",
+      "name": "ISND_3Dsound::SetDir (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_3dsound_set_dir",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dsound.cpp:36; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_3dsound_set_dir_submit)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7b4b0",
+      "va": "0x1007b4b0",
+      "name": "ISND_3Dsound::SetVelocity (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_3dsound_set_velocity",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dsound.cpp:45; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_3dsound_set_velocity_submit)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7b4f0",
+      "va": "0x1007b4f0",
+      "name": "ISND_3Dsound::SetDistances (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_3dsound_set_distances",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dsound.cpp:54; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_3dsound_set_distances_min_first)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7b540",
+      "va": "0x1007b540",
+      "name": "ISND_3Dsound::SetCone (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_3dsound_set_cone",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dsound.cpp:70; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_3dsound_set_cone_degrees)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7b590",
+      "va": "0x1007b590",
+      "name": "ISND_3Dsound::SetOutVolume (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_3dsound_set_out_volume",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dsound.cpp:81; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_3dsound_set_out_volume_words)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7b5d0",
+      "va": "0x1007b5d0",
+      "name": "ISND_3Dsound::Open (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_3dsound_open",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dsound.cpp:91; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_3dsound_open_branches)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7b630",
+      "va": "0x1007b630",
+      "name": "ISND_3Dsound::Close (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_3dsound_close",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dsound.cpp:105; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_3dsound_close_clears)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7b680",
+      "va": "0x1007b680",
+      "name": "ISND_sound::GetSource (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_sound_get_source",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/ISound.h:150-155 (out-of-line copy); tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_sound_get_source_copies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7b690",
+      "va": "0x1007b690",
+      "name": "ISND_driver::ISND_driver (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_driver_new",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_driver.cpp:22; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_driver_new_words)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7b6e0",
+      "va": "0x1007b6e0",
+      "name": "ISND_driver::~ISND_driver (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_driver_destroy",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_driver.cpp:42; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_driver_destroy_warns_only_when_init)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7b730",
+      "va": "0x1007b730",
+      "name": "ISND_driver::IsInit (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_driver_is_init",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_driver.cpp:50; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_driver_is_init_copies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7b740",
+      "va": "0x1007b740",
+      "name": "ISND_driver::Close (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_driver_close",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_driver.cpp:57; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_driver_close_order)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7b810",
+      "va": "0x1007b810",
+      "name": "ISND_driver::InitBuffer (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_driver_init_buffer",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_driver.cpp:97; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_driver_init_buffer_words)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7b8a0",
+      "va": "0x1007b8a0",
+      "name": "ISND_driver::SetVolume (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_driver_set_volume",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_driver.cpp:113; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_driver_set_volume_guard_and_mark)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7b950",
+      "va": "0x1007b950",
+      "name": "ISND_driver::GetCaps (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_driver_get_caps",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/ISound.h:350-355 (folded, marker by PDB name); tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_driver_get_caps_ok)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7b960",
+      "va": "0x1007b960",
+      "name": "ISND_driver::CreateSource (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_driver_create_source",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_driver.cpp:135; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_driver_create_source_words)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7b9c0",
+      "va": "0x1007b9c0",
+      "name": "ISND_driver::CreateSource out-variant (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_driver_create_source_out",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_driver.cpp:142; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_driver_create_source_out_null_and_ok)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7ba00",
+      "va": "0x1007ba00",
+      "name": "ISND_driver::CreateSound (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_driver_create_sound",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_driver.cpp:152; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_driver_create_sound_words)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7ba60",
+      "va": "0x1007ba60",
+      "name": "ISND_driver::CreateSound out-variant (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_driver_create_sound_out",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_driver.cpp:159; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_driver_create_sound_out_null_and_ok)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7baa0",
+      "va": "0x1007baa0",
+      "name": "ISND_driver::Create3DSound (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_driver_create_3dsound",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_driver.cpp:169; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_driver_create_3dsound_words)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7bb00",
+      "va": "0x1007bb00",
+      "name": "ISND_driver::Create3DSound out-variant (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_driver_create_3dsound_out",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_driver.cpp:176; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_driver_create_3dsound_out_null_and_ok)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7bb40",
+      "va": "0x1007bb40",
+      "name": "ISND_driver::CreateListener (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_driver_create_listener",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_driver.cpp:186; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_driver_create_listener_refresh_and_default)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7bbd0",
+      "va": "0x1007bbd0",
+      "name": "ISND_driver::CreateListener out-variant (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_driver_create_listener_out",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_driver.cpp:198; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_driver_create_listener_out_null_and_ok)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7be20",
+      "va": "0x1007be20",
+      "name": "ISND_driver::InitDSound freq-bound repair (narrow) (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_driver_repair_freq_bounds",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_driver.cpp:296-306 (narrow CPU helper; probe and submits withheld); tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_driver_repair_freq_bounds_vectors)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7c1f0",
+      "va": "0x1007c1f0",
+      "name": "ISND_driver::Init mark (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_driver_init_mark",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_driver.cpp:384; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_driver_init_mark_fail_keeps_state)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7c240",
+      "va": "0x1007c240",
+      "name": "ISND_driver::Init from-record (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_driver_init_from_record",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_driver.cpp:396; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_driver_init_from_record_null_and_delegate)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7c340",
+      "va": "0x1007c340",
+      "name": "UpdateAllTerminatedBuffs (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_update_all_terminated_buffs",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_sound.cpp:23; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_update_all_terminated_buffs_scenario)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7c6d0",
+      "va": "0x1007c6d0",
+      "name": "TraceDSErrors (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_trace_ds_error",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_sound.cpp:94; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_trace_ds_error_messages)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7c8e0",
+      "va": "0x1007c8e0",
+      "name": "ISND_sound::ISND_sound (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_sound_new",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_sound.cpp:153; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_sound_new_words)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7c960",
+      "va": "0x1007c960",
+      "name": "ISND_sound::~ISND_sound (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_sound_destroy",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_sound.cpp:162; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_sound_destroy_runs_close)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7c9a0",
+      "va": "0x1007c9a0",
+      "name": "ISND_sound::Release (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_sound_release",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_sound.cpp:169; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_sound_release_paths)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7c9d0",
+      "va": "0x1007c9d0",
+      "name": "ISND_sound::Open (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_sound_open",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_sound.cpp:184; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_sound_open_branches)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7ca30",
+      "va": "0x1007ca30",
+      "name": "ISND_sound::Close (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_sound_close",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_sound.cpp:202; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_sound_close_effects)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7ca70",
+      "va": "0x1007ca70",
+      "name": "ISND_sound::Play with source (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_sound_play_with_source",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_sound.cpp:218; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_sound_play_with_source_chains)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7caa0",
+      "va": "0x1007caa0",
+      "name": "ISND_sound::Play (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_sound_play",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_sound.cpp:228; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_sound_play_channel_paths)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7cf50",
+      "va": "0x1007cf50",
+      "name": "ISND_sound::Stop (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_sound_stop",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_sound.cpp:333; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_sound_stop_gate)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7d040",
+      "va": "0x1007d040",
+      "name": "ISND_sound::GetCurrTime (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_sound_get_curr_time",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_sound.cpp:361; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_sound_get_curr_time_vectors)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7d090",
+      "va": "0x1007d090",
+      "name": "ISND_sound::SetCurrTime (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_sound_set_curr_time",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_sound.cpp:372; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_sound_set_curr_time_vectors)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7d160",
+      "va": "0x1007d160",
+      "name": "ISND_sound::SetVolume (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_sound_set_volume",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_sound.cpp:399; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_sound_set_volume_db_pins)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7d1f0",
+      "va": "0x1007d1f0",
+      "name": "ISND_sound::SetVolumeLOG float (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_sound_set_volume_log",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_sound.cpp:421; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_sound_set_volume_log_stores_first)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7d240",
+      "va": "0x1007d240",
+      "name": "ISND_sound::SetVolumeLOG int (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_sound_set_volume_log_db",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_sound.cpp:433; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_sound_set_volume_log_db_pins)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7d2b0",
+      "va": "0x1007d2b0",
+      "name": "ISND_sound::SetFrequency (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_sound_set_frequency",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_sound.cpp:450; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_sound_set_frequency_pins)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7d340",
+      "va": "0x1007d340",
+      "name": "ISND_sound::SetPanning (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_sound_set_panning",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_sound.cpp:466; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_sound_set_panning_pins)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x59370",
+      "va": "0x10059370",
+      "name": "ISND_source::GetFileName (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_source_file_name",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/ISound.h:103-110 (out-of-line copy); tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_source_file_name_fallback)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7d430",
+      "va": "0x1007d430",
+      "name": "ISND_source::ISND_source (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_source_new",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_source.cpp:26; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_source_new_zeroed)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7d480",
+      "va": "0x1007d480",
+      "name": "ISND_source::~ISND_source (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_source_destroy",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_source.cpp:34; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_source_destroy_closes)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7d550",
+      "va": "0x1007d550",
+      "name": "ISND_source::Release (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_source_release",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_source.cpp:42; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_source_release_paths)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7d590",
+      "va": "0x1007d590",
+      "name": "ISND_source::Open (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_source_open",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_source.cpp:57; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_source_open_vectors)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7d890",
+      "va": "0x1007d890",
+      "name": "ISND_source::Close (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_source_close",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_source.cpp:144; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_source_close_retains_name_and_flags)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7d8c0",
+      "va": "0x1007d8c0",
+      "name": "ISND_source::IsOpen (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_source_is_open",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_source.cpp:156; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_source_is_open_words)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7d8d0",
+      "va": "0x1007d8d0",
+      "name": "ISND_source::GetPlayTime (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_source_get_play_time",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_source.cpp:164; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_source_get_play_time_vectors)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7d910",
+      "va": "0x1007d910",
+      "name": "ISND_source::GetFormat (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_source_get_format",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_source.cpp:173; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_source_get_format_copies)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x6ded0",
+      "va": "0x1006ded0",
+      "name": "IGraph::GetFormatName",
+      "symbol": "lhr_engine::itexture::texture_surface::d3d_format_name",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/IGraph/IGraph.cpp:1337-1424 + authored Rust tests (not executed here)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x6fdc0",
+      "va": "0x1006fdc0",
+      "name": "SortModesCallback",
+      "symbol": "lhr_engine::render_core::compare_display_modes",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/IGraph/IGraph.cpp:2104-2118 + authored Rust tests (not executed here); sort_display_modes wrapper stays an uncredited helper (original qsort stability unspecified)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x70540",
+      "va": "0x10070540",
+      "name": "IGraph::GetImageInfo",
+      "symbol": "lhr_engine::itexture::texture_load_image::read_image_info",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/IGraph/IGraph.cpp:2250-2306 + authored Rust tests (not executed here)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x706d0",
+      "va": "0x100706d0",
+      "name": "EncodeRLAChannel (upstream working name, NOT original)",
+      "symbol": "lhr_engine::itexture::texture_surface::encode_rla_channel",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/IGraph/IGraph.cpp:2363-2406 + authored Rust tests (not executed here)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x71910",
+      "va": "0x10071910",
+      "name": "IGraph::ReadCharBuffer",
+      "symbol": "lhr_engine::input_keyboard::read_char_buffer",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/IGraph/IGraph.cpp:2800-2809 + authored Rust tests (not executed here)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x71940",
+      "va": "0x10071940",
+      "name": "IGraph::ClearCharBuffer",
+      "symbol": "lhr_engine::input_keyboard::clear_char_buffer",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/IGraph/IGraph.cpp:2809-2818 + authored Rust tests (not executed here)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x71960",
+      "va": "0x10071960",
+      "name": "IGraph::ReadKey",
+      "symbol": "lhr_engine::input_keyboard::read_key",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/IGraph/IGraph.cpp:2818-2840 + authored Rust tests (not executed here)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x71a10",
+      "va": "0x10071a10",
+      "name": "IGraph::ReadChar",
+      "symbol": "lhr_engine::input_keyboard::read_char",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/IGraph/IGraph.cpp:2841-2850 + authored Rust tests (not executed here)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x71a30",
+      "va": "0x10071a30",
+      "name": "IGraph::TestKey",
+      "symbol": "lhr_engine::input_keyboard::test_key",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/IGraph/IGraph.cpp:2850-2857 + authored Rust tests (not executed here)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x71a50",
+      "va": "0x10071a50",
+      "name": "IGraph::DefineKeys",
+      "symbol": "lhr_engine::input_keyboard::define_keys",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/IGraph/IGraph.cpp:2858-2869 + authored Rust tests (not executed here)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x71aa0",
+      "va": "0x10071aa0",
+      "name": "IGraph::ReadKeys",
+      "symbol": "lhr_engine::input_keyboard::read_keys_mask",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/IGraph/IGraph.cpp:2870-2882 + authored Rust tests (not executed here)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x71af0",
+      "va": "0x10071af0",
+      "name": "IGraph::KeyShift",
+      "symbol": "lhr_engine::input_keyboard::key_shift",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/IGraph/IGraph.cpp:2870-2881 + authored Rust tests (not executed here)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x71b10",
+      "va": "0x10071b10",
+      "name": "IGraph::KeyCtrl",
+      "symbol": "lhr_engine::input_keyboard::key_ctrl",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/IGraph/IGraph.cpp:2891-2900 + authored Rust tests (not executed here)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x71b30",
+      "va": "0x10071b30",
+      "name": "IGraph::KeyAlt",
+      "symbol": "lhr_engine::input_keyboard::key_alt",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/IGraph/IGraph.cpp:2900-2909 + authored Rust tests (not executed here)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x71b50",
+      "va": "0x10071b50",
+      "name": "IGraph::GetShiftKeys",
+      "symbol": "lhr_engine::input_keyboard::get_shift_keys",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/IGraph/IGraph.cpp:2910-2941 + authored Rust tests (not executed here)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x71c00",
+      "va": "0x10071c00",
+      "name": "IGraph::TranslateKey",
+      "symbol": "lhr_engine::input_keyboard::translate_key",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/IGraph/IGraph.cpp:2942-2953 + authored Rust tests (not executed here)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x72150",
+      "va": "0x10072150",
+      "name": "FindMapFile (upstream working name, NOT original)",
+      "symbol": "lhr_engine::itexture::find_map_file",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/IGraph/IGraph.cpp:3190-3224 + authored Rust tests (not executed here); symbol path corrected to the crate-public re-export (factory is a private submodule)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x723e0",
+      "va": "0x100723e0",
+      "name": "m_AddNameToList (upstream working name, NOT original)",
+      "symbol": "lhr_engine::maps_dirs::add_name_to_list",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/IGraph/IGraph.cpp:3229-3267 + authored Rust tests (not executed here)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x725f0",
+      "va": "0x100725f0",
+      "name": "IGraph::AddMapsDir",
+      "symbol": "lhr_engine::maps_dirs::add_maps_dir",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/IGraph/IGraph.cpp:3269-3275 + authored Rust tests (not executed here)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x72610",
+      "va": "0x10072610",
+      "name": "IGraph::DeleteMapsDir",
+      "symbol": "lhr_engine::maps_dirs::delete_maps_dir",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/IGraph/IGraph.cpp:3279-3290 + authored Rust tests (not executed here)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x72670",
+      "va": "0x10072670",
+      "name": "IGraph::ClearMapDirs",
+      "symbol": "lhr_engine::maps_dirs::clear_map_dirs",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/IGraph/IGraph.cpp:3293-3300 + authored Rust tests (not executed here)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x727d0",
+      "va": "0x100727d0",
+      "name": "IGraph::ResizeImage",
+      "symbol": "lhr_engine::itexture::texture_surface::resize_image",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/IGraph/IGraph.cpp:3361-3537 + authored Rust tests (not executed here)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x6adc0",
+      "va": "0x1006adc0",
+      "name": "map_mname",
+      "symbol": "lhr_engine::cpu_info::map_model_name",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/IGraph/cpuid.c:44-160 + authored Rust tests (not executed here)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x6b6d0",
+      "va": "0x1006b6d0",
+      "name": "GetEngineVersion",
+      "symbol": "lhr_engine::original_system::engine_version",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/IGraph/Globals.cpp:93-96 + authored Rust tests (not executed here)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x6b770",
+      "va": "0x1006b770",
+      "name": "I3DGetResultMessage",
+      "symbol": "lhr_engine::original_system::result_message_for",
+      "tier": "contract",
+      "evidence": "mafia-re ls3df/IGraph/Globals.cpp:133-186 + authored Rust tests (not executed here)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7d3e0",
+      "va": "0x1007d3e0",
+      "name": "ISND_sound::IsPlaying (working name)",
+      "symbol": "lhr_engine::runtime_audio::isound_sound_is_playing_cpu",
+      "tier": "contract",
+      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_sound.cpp:485 (CPU null-guard + playing-bit read; GetStatus submit stays behind the backend) + null-guard tests; tier contract (wave policy: no Ghidra body observed)"
     }
   ],
   "vm": {

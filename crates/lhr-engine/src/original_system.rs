@@ -1206,3 +1206,88 @@ mod graph_error_tests {
         assert_eq!(host.saves, 1);
     }
 }
+
+/// PC LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6.
+/// LS3DF RVA 0x6b6d0 `GetEngineVersion`
+/// (mafia-re ls3df/IGraph/Globals.cpp:93-96, pinned at ab67b13).
+/// Returns `ENGINE_VERSION` (395).
+pub fn engine_version() -> i32 {
+    395
+}
+
+/// PC LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6.
+/// LS3DF RVA 0x6b770 `I3DGetResultMessage`
+/// (mafia-re ls3df/IGraph/Globals.cpp:133-186, pinned at ab67b13).
+/// Literal switch in source order; unknown results `sprintf` into the 64-byte
+/// static as `Unknown result:0x%x` (lowercase hex of the `u32` word). `scratch`
+/// projects that static: known results return static bytes and ignore it,
+/// unknown results fill it and return the filled prefix (fits: at most 25
+/// bytes). Pure; no log or window access.
+pub fn result_message_for<'a>(result: i32, scratch: &'a mut [u8; 64]) -> &'a [u8] {
+    match result as u32 {
+        0 => b"OK".as_slice(),
+        0x80000001 => b"File not found".as_slice(),
+        0x80000002 => b"Out of memory".as_slice(),
+        0x80000003 => b"Bad texture format".as_slice(),
+        0x80000004 => b"Bad texture".as_slice(),
+        0x80000005 => b"Generic error".as_slice(),
+        0x80000006 => b"Object not found".as_slice(),
+        0x80000007 => b"Invalid parameter".as_slice(),
+        0x80000008 => b"Not loaded".as_slice(),
+        0x80000009 => b"Not initialized".as_slice(),
+        0x8000000a => b"File corrupted".as_slice(),
+        0x8000000b => b"No additional file (opacity map)".as_slice(),
+        0x8000000c => b"Cyclic link of hierarchy".as_slice(),
+        0x8000000d => b"Enumeration canceled".as_slice(),
+        0x8000000e => b"Unsupported".as_slice(),
+        0x8000000f => b"No 3D hardware".as_slice(),
+        0x80000010 => b"Sound buffer lost".as_slice(),
+        0x80000011 => b"User break".as_slice(),
+        0x80000012 => b"File system error".as_slice(),
+        0x80000013 => b"Bad version of file".as_slice(),
+        0x80000014 => b"Bad timestamp of file".as_slice(),
+        0x80000015 => b"Some limit of engine is exceeded".as_slice(),
+        _ => {
+            let text = format!("Unknown result:0x{:x}", result as u32);
+            let bytes = text.as_bytes();
+            scratch[..bytes.len()].copy_from_slice(bytes);
+            &scratch[..bytes.len()]
+        }
+    }
+}
+
+#[cfg(test)]
+mod result_message_tests {
+    use super::*;
+    #[test]
+    fn known_messages_match_literal_switch_in_order() {
+        let mut scratch = [0u8; 64];
+        assert_eq!(result_message_for(0, &mut scratch).to_vec(), b"OK".to_vec());
+        assert_eq!(
+            result_message_for(0x80000001u32 as i32, &mut scratch).to_vec(),
+            b"File not found".to_vec()
+        );
+        assert_eq!(
+            result_message_for(0x80000003u32 as i32, &mut scratch).to_vec(),
+            b"Bad texture format".to_vec()
+        );
+        assert_eq!(
+            result_message_for(0x80000007u32 as i32, &mut scratch).to_vec(),
+            b"Invalid parameter".to_vec()
+        );
+        assert_eq!(
+            result_message_for(0x80000015u32 as i32, &mut scratch).to_vec(),
+            b"Some limit of engine is exceeded".to_vec()
+        );
+        assert_eq!(engine_version(), 395);
+    }
+    #[test]
+    fn unknown_formats_lowercase_hex_into_static() {
+        let mut scratch = [0u8; 64];
+        assert_eq!(
+            result_message_for(0x1234abcd_u32 as i32, &mut scratch).to_vec(),
+            b"Unknown result:0x1234abcd".to_vec()
+        );
+        assert_eq!(result_message_for(0, &mut scratch).to_vec(), b"OK".to_vec());
+    }
+}

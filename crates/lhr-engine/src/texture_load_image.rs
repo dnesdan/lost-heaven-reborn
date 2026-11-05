@@ -986,3 +986,242 @@ mod tests {
         }
     }
 }
+
+/// PC LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6.
+/// LS3DF RVA 0x70540 `IGraph::GetImageInfo`
+/// (mafia-re ls3df/IGraph/IGraph.cpp:2250-2306, pinned at ab67b13).
+/// Header-only size probe. `flags & 1` returns `I3D_OK` without touching the
+/// backend or outputs. Otherwise the extension's first letter after the last
+/// dot selects BMP (`b`/`B`) or TGA (`t`/`T`); no dot is `I3DERR_BADTEXTURE`,
+/// any other letter is `I3DERR_BADTEXTUREFORMAT`. Width/height truncate to
+/// `u16` and depth to `u8` exactly as the native `(ushort)`/`(uchar)` casts
+/// (bit-preserving, including negatives). Short reads are
+/// `I3DERR_FILESYSTEM`; a missing file is `I3DERR_NOFILE`. Exact-size host
+/// reads versus native `dtaRead <= 0` checks: a positive short read fails
+/// here where native proceeds into the next read and fails there instead —
+/// result code and close count coincide, only the failure point can differ
+/// by one read. A truncated tail (positive short final read) parses stack
+/// garbage natively but reports FILESYSTEM here (disclosed hardening).
+/// With `handle_out`
+/// `Some` the handle stays open rewound to zero for the caller; with `None`
+/// it closes (NULL-handle semantics). Outputs are written only on success.
+pub const IMAGEINFO_OK: i32 = 0;
+pub const IMAGEINFO_NOFILE: i32 = 0x80000001u32 as i32;
+pub const IMAGEINFO_BADTEXTUREFORMAT: i32 = 0x80000003u32 as i32;
+pub const IMAGEINFO_BADTEXTURE: i32 = 0x80000004u32 as i32;
+pub const IMAGEINFO_FILESYSTEM: i32 = 0x80000012u32 as i32;
+pub const DTA_INVALID_HANDLE_INFO: i32 = -1;
+
+/// Live DTA view for the info probe. Borrows live handles; reads when the
+/// original does.
+pub trait ImageInfoBackend {
+    fn open(&mut self, name: &[u8]) -> i32;
+    fn read(&mut self, handle: i32, out: &mut [u8]) -> Option<u32>;
+    fn seek(&mut self, handle: i32, pos: u32);
+    fn close(&mut self, handle: i32);
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum InfoKind {
+    Bmp,
+    Tga,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn read_image_info(
+    backend: &mut impl ImageInfoBackend,
+    name: &[u8],
+    sx: &mut u16,
+    sy: &mut u16,
+    bpp: &mut u8,
+    flags: u32,
+    handle_out: Option<&mut i32>,
+) -> i32 {
+    if flags & 1 != 0 {
+        return IMAGEINFO_OK;
+    }
+    let dot = name.iter().rposition(|b| *b == b'.');
+    let Some(dot) = dot else {
+        return IMAGEINFO_BADTEXTURE;
+    };
+    let first = name.get(dot + 1).copied().unwrap_or(0);
+    let kind = if first == b'b' || first == b'B' {
+        InfoKind::Bmp
+    } else if first == b't' || first == b'T' {
+        InfoKind::Tga
+    } else {
+        return IMAGEINFO_BADTEXTUREFORMAT;
+    };
+    let h = backend.open(name);
+    if h == DTA_INVALID_HANDLE_INFO {
+        return IMAGEINFO_NOFILE;
+    }
+    match kind {
+        InfoKind::Bmp => {
+            let mut file_header = [0u8; 14];
+            if backend.read(h, &mut file_header) != Some(14) {
+                backend.close(h);
+                return IMAGEINFO_FILESYSTEM;
+            }
+            let mut info = [0u8; 40];
+            if backend.read(h, &mut info) != Some(40) {
+                backend.close(h);
+                return IMAGEINFO_FILESYSTEM;
+            }
+            let w = i32::from_le_bytes([info[4], info[5], info[6], info[7]]);
+            let hh = i32::from_le_bytes([info[8], info[9], info[10], info[11]]);
+            let depth = u16::from_le_bytes([info[14], info[15]]);
+            *sx = w as u16;
+            *sy = hh as u16;
+            *bpp = depth as u8;
+        }
+        InfoKind::Tga => {
+            let mut header = [0u8; 18];
+            if backend.read(h, &mut header) != Some(18) {
+                backend.close(h);
+                return IMAGEINFO_FILESYSTEM;
+            }
+            let w = i16::from_le_bytes([header[12], header[13]]);
+            let hh = i16::from_le_bytes([header[14], header[15]]);
+            *sx = w as u16;
+            *sy = hh as u16;
+            *bpp = header[16];
+        }
+    }
+    if let Some(slot) = handle_out {
+        *slot = h;
+        backend.seek(h, 0);
+    } else {
+        backend.close(h);
+    }
+    IMAGEINFO_OK
+}
+
+#[cfg(test)]
+mod image_info_tests {
+    use super::*;
+    struct Exact {
+        data: Vec<u8>,
+        closes: usize,
+        seeks: Vec<(i32, u32)>,
+    }
+    impl ImageInfoBackend for Exact {
+        fn open(&mut self, _: &[u8]) -> i32 {
+            7
+        }
+        fn read(&mut self, _: i32, out: &mut [u8]) -> Option<u32> {
+            if out.len() > self.data.len() {
+                return None;
+            }
+            let take = self.data[..out.len()].to_vec();
+            out.copy_from_slice(&take);
+            self.data = self.data[out.len()..].to_vec();
+            Some(out.len() as u32)
+        }
+        fn seek(&mut self, h: i32, pos: u32) {
+            self.seeks.push((h, pos));
+        }
+        fn close(&mut self, _: i32) {
+            self.closes += 1;
+        }
+    }
+    #[test]
+    fn early_ok_touches_neither_backend_nor_outputs() {
+        let mut be = Exact {
+            data: Vec::new(),
+            closes: 0,
+            seeks: Vec::new(),
+        };
+        let (mut sx, mut sy, mut bpp): (u16, u16, u8) = (0xaaaa, 0xbbbb, 0xcc);
+        let mut h = 123;
+        let rc = read_image_info(
+            &mut be,
+            b"a.bmp",
+            &mut sx,
+            &mut sy,
+            &mut bpp,
+            1,
+            Some(&mut h),
+        );
+        assert_eq!(rc, IMAGEINFO_OK);
+        assert_eq!((sx, sy, bpp, h), (0xaaaa, 0xbbbb, 0xcc, 123));
+        assert_eq!((be.closes, be.seeks.len()), (0, 0));
+    }
+    #[test]
+    fn extension_first_letter_selects_kind() {
+        let mut be = Exact {
+            data: vec![0u8; 40],
+            closes: 0,
+            seeks: Vec::new(),
+        };
+        let (mut sx, mut sy, mut bpp): (u16, u16, u8) = (0, 0, 0);
+        assert_eq!(
+            read_image_info(&mut be, b"noname", &mut sx, &mut sy, &mut bpp, 0, None),
+            IMAGEINFO_BADTEXTURE
+        );
+        let mut be2 = Exact {
+            data: vec![0u8; 40],
+            closes: 0,
+            seeks: Vec::new(),
+        };
+        assert_eq!(
+            read_image_info(&mut be2, b"a.png", &mut sx, &mut sy, &mut bpp, 0, None),
+            IMAGEINFO_BADTEXTUREFORMAT
+        );
+        assert_eq!(be2.closes, 0);
+    }
+    #[test]
+    fn bmp_truncates_width_height_depth_and_keeps_handle_open() {
+        let mut file = vec![0u8; 54];
+        file[18..22].copy_from_slice(&0x12345i32.to_le_bytes());
+        file[22..26].copy_from_slice(&(-2i32).to_le_bytes());
+        file[28..30].copy_from_slice(&0x10au16.to_le_bytes());
+        let mut be = Exact {
+            data: file.clone(),
+            closes: 0,
+            seeks: Vec::new(),
+        };
+        let (mut sx, mut sy, mut bpp): (u16, u16, u8) = (0, 0, 0);
+        let mut h = 0;
+        let rc = read_image_info(
+            &mut be,
+            b"a.BMP",
+            &mut sx,
+            &mut sy,
+            &mut bpp,
+            0,
+            Some(&mut h),
+        );
+        assert_eq!(rc, IMAGEINFO_OK);
+        assert_eq!(sx, 0x2345u16);
+        assert_eq!(sy, 0xfffeu16);
+        assert_eq!(bpp, 0x0au8);
+        assert_eq!(h, 7);
+        assert_eq!(be.seeks, vec![(7, 0)]);
+        assert_eq!(be.closes, 0);
+    }
+    #[test]
+    fn tga_null_handle_closes_and_short_read_is_filesystem() {
+        let mut hdr = vec![0u8; 18];
+        hdr[12..16].copy_from_slice(&[0x34, 0x12, 0x78, 0x56]);
+        hdr[16] = 24;
+        let mut be = Exact {
+            data: hdr,
+            closes: 0,
+            seeks: Vec::new(),
+        };
+        let (mut sx, mut sy, mut bpp): (u16, u16, u8) = (0, 0, 0);
+        let rc = read_image_info(&mut be, b"a.tga", &mut sx, &mut sy, &mut bpp, 0, None);
+        assert_eq!(rc, IMAGEINFO_OK);
+        assert_eq!((sx, sy, bpp), (0x1234u16, 0x5678u16, 24u8));
+        assert_eq!(be.closes, 1);
+        let mut short = Exact {
+            data: vec![0u8; 10],
+            closes: 0,
+            seeks: Vec::new(),
+        };
+        let rc2 = read_image_info(&mut short, b"b.bmp", &mut sx, &mut sy, &mut bpp, 0, None);
+        assert_eq!(rc2, IMAGEINFO_FILESYSTEM);
+        assert_eq!(short.closes, 1);
+    }
+}

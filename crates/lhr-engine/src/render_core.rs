@@ -673,3 +673,148 @@ mod tests {
         assert_eq!(frame_state.cam_pos[2], 2.0);
     }
 }
+
+/// PC LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6.
+/// LS3DF RVA 0x6fdc0 `SortModesCallback`
+/// (mafia-re ls3df/IGraph/IGraph.cpp:2104-2118, pinned at ab67b13).
+/// `qsort` comparison for `D3DDISPLAYMODE`: Width ascending, then Height
+/// ascending, then Format descending compared as signed `int`. Returns -1/0/1
+/// exactly as the original (the equal-Format tail returns
+/// `(int)Format < (int)Format` as 0/1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DisplayMode {
+    pub width: u32,
+    pub height: u32,
+    pub format: u32,
+}
+
+pub fn compare_display_modes(a: &DisplayMode, b: &DisplayMode) -> i32 {
+    if a.width < b.width {
+        return -1;
+    }
+    if a.width > b.width {
+        return 1;
+    }
+    if a.height < b.height {
+        return -1;
+    }
+    if a.height > b.height {
+        return 1;
+    }
+    if (a.format as i32) > (b.format as i32) {
+        return -1;
+    }
+    i32::from((a.format as i32) < (b.format as i32))
+}
+
+/// Sorts display modes with the original comparison (Width/Height ascending,
+/// Format descending as signed int). Order among fully equal modes is stable
+/// here; the original `qsort` leaves it unspecified (documented divergence,
+/// no observable contract).
+pub fn sort_display_modes(modes: &mut [DisplayMode]) {
+    modes.sort_by(|a, b| {
+        let c = compare_display_modes(a, b);
+        if c < 0 {
+            std::cmp::Ordering::Less
+        } else if c > 0 {
+            std::cmp::Ordering::Greater
+        } else {
+            std::cmp::Ordering::Equal
+        }
+    });
+}
+
+#[cfg(test)]
+mod display_mode_tests {
+    use super::*;
+    #[test]
+    fn comparator_orders_width_height_then_format_desc_signed() {
+        let lo = DisplayMode {
+            width: 640,
+            height: 480,
+            format: 22,
+        };
+        let hi = DisplayMode {
+            width: 800,
+            height: 600,
+            format: 22,
+        };
+        assert_eq!(compare_display_modes(&lo, &hi), -1);
+        assert_eq!(compare_display_modes(&hi, &lo), 1);
+        let a = DisplayMode {
+            width: 800,
+            height: 480,
+            format: 22,
+        };
+        let b = DisplayMode {
+            width: 800,
+            height: 600,
+            format: 22,
+        };
+        assert_eq!(compare_display_modes(&a, &b), -1);
+        let fa = DisplayMode {
+            width: 800,
+            height: 600,
+            format: 25,
+        };
+        let fb = DisplayMode {
+            width: 800,
+            height: 600,
+            format: 23,
+        };
+        assert_eq!(compare_display_modes(&fa, &fb), -1);
+        assert_eq!(compare_display_modes(&fb, &fa), 1);
+        assert_eq!(compare_display_modes(&fa, &fa), 0);
+    }
+    #[test]
+    fn sort_modes_callback_orders_mixed_list() {
+        let mut modes = vec![
+            DisplayMode {
+                width: 800,
+                height: 600,
+                format: 23,
+            },
+            DisplayMode {
+                width: 640,
+                height: 480,
+                format: 22,
+            },
+            DisplayMode {
+                width: 800,
+                height: 600,
+                format: 25,
+            },
+            DisplayMode {
+                width: 800,
+                height: 480,
+                format: 22,
+            },
+        ];
+        sort_display_modes(&mut modes);
+        assert_eq!(
+            modes,
+            vec![
+                DisplayMode {
+                    width: 640,
+                    height: 480,
+                    format: 22,
+                },
+                DisplayMode {
+                    width: 800,
+                    height: 480,
+                    format: 22,
+                },
+                DisplayMode {
+                    width: 800,
+                    height: 600,
+                    format: 25,
+                },
+                DisplayMode {
+                    width: 800,
+                    height: 600,
+                    format: 23,
+                },
+            ]
+        );
+    }
+}
