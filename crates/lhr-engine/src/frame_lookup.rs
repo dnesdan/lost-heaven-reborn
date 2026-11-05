@@ -386,7 +386,7 @@ fn subtree_mask_matches(pattern: &[u8], stored: &[u8], flags: u32) -> bool {
                 let same = if flags & 0x20000 != 0 {
                     a == b
                 } else {
-                    a.to_ascii_uppercase() == b.to_ascii_uppercase()
+                    a.eq_ignore_ascii_case(&b)
                 };
                 if !same {
                     return false;

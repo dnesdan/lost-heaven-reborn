@@ -623,10 +623,8 @@ pub fn collect_projector_receivers(forest: &dyn ProjectorForest, id: usize, ctx:
                 }
             }
         }
-        MTYPE_MODEL => {
-            if ctx.mode_flags & PROJF_NO_MODELS != 0 {
-                return;
-            }
+        MTYPE_MODEL if ctx.mode_flags & PROJF_NO_MODELS != 0 => {
+            return;
         }
         _ => {}
     }

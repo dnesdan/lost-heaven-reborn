@@ -465,11 +465,9 @@ pub fn set_fog(
                 backend.set_fog_start(start.to_bits());
             }
         }
-        FOGTYPE_EXP | FOGTYPE_EXP2 => {
-            if !is_abs_mrg_zero(state.curr_fog_start - start) {
-                state.curr_fog_start = start;
-                backend.set_fog_density(start.to_bits());
-            }
+        FOGTYPE_EXP | FOGTYPE_EXP2 if !is_abs_mrg_zero(state.curr_fog_start - start) => {
+            state.curr_fog_start = start;
+            backend.set_fog_density(start.to_bits());
         }
         _ => {}
     }

@@ -543,9 +543,7 @@ fn buy_node(tree: &mut SyntheticTree, parent: Option<u32>, red: bool) -> Result<
 /// Native `_Min` mechanics: leftmost descendant. A vacant start or a
 /// dangling left link stops the walk (host admission).
 fn leftmost(tree: &SyntheticTree, mut id: u32) -> Option<u32> {
-    if node_ref(tree, id).is_none() {
-        return None;
-    }
+    node_ref(tree, id)?;
     for _ in 0..tree.nodes.len().saturating_add(1) {
         let left = match node_ref(tree, id).and_then(|node| node.left) {
             Some(left) => left,

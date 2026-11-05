@@ -569,7 +569,7 @@ fn cull_face(state: &ClipState, n: [f32; 3]) -> bool {
 /// pass `sq = n.x*n.x + (n.y*n.y + n.z*n.z)`. The parenthesization is kept.
 fn lift_offset(n: [f32; 3], sq: f32, lift: f32) -> [f32; 3] {
     let mut nn = n;
-    let off = if sq < MRG_ZERO {
+    if sq < MRG_ZERO {
         if nn[0] != 0.0f32 {
             nn[0] = if nn[0] < 0.0f32 { -1.0f32 } else { 1.0f32 };
         } else if nn[2] != 0.0f32 {
@@ -581,8 +581,7 @@ fn lift_offset(n: [f32; 3], sq: f32, lift: f32) -> [f32; 3] {
     } else {
         let f = lift / sq.sqrt();
         [nn[0] * f, nn[1] * f, nn[2] * f]
-    };
-    off
+    }
 }
 
 /// Spread step for one new vertex, including the native `n.z`-for-`d.z` bug.
@@ -2651,10 +2650,8 @@ pub fn prepare_lights(
         }
         key = key.wrapping_mul(state.picked.len() as u32);
     }
-    if !force || (state.picked.is_empty() && key > 0) {
-        if key == *cached_key {
-            return false;
-        }
+    if (!force || (state.picked.is_empty() && key > 0)) && key == *cached_key {
+        return false;
     }
     *cached_key = key;
     if let Some(mat) = mat_for_color {
@@ -3544,9 +3541,7 @@ pub fn swap_vertex_bytes(
                 continue;
             }
             if b[ofs - 1] == from {
-                let c = a[ofs];
-                a[ofs] = b[ofs];
-                b[ofs] = c;
+                std::mem::swap(&mut a[ofs], &mut b[ofs]);
                 b[ofs - 1] = to;
             }
         }
