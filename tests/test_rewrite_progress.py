@@ -41,15 +41,17 @@ class RewriteProgressTests(unittest.TestCase):
         # 14 contract; 18 model: 9 differential + 9 contract; 49 scene:
         # 19 differential + 30 contract; 43 sector/camera/light: 27
         # differential + 16 contract; 44 visual/object/frames/target: 19
-        # differential + 25 contract. Tier rules applied: differential needs
+        # differential + 25 contract; 34 lit+mirror: 14 differential + 20
+        # contract (21 lit: 6 differential + 15 contract; 13 mirror: 8
+        # differential + 5 contract). Tier rules applied: differential needs
         # a Ghidra body (or complete instruction walk) plus pinning tests —
         # this includes confirm-only bodies that corroborate a pre-existing
         # port (new evidence + tests on top); contract covers no-body walks,
         # ABI-only teardown bodies (vtable re-store + base tailjump, no
         # portable state effect), and partial-coverage ports. Same standard
         # as 0x2b830 throughout.
-        self.assertEqual(ls3df["ported"], 145 + 236)
-        self.assertEqual(ls3df["verified"], 145 + 116)
+        self.assertEqual(ls3df["ported"], 145 + 270)
+        self.assertEqual(ls3df["verified"], 145 + 130)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()

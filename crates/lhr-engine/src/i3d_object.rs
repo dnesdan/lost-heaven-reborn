@@ -38,7 +38,15 @@ pub use lit_lod_storage::{
     LitLodStorage, LitSourceBinding, LitStorageCounts, LitStoragePhase, RetiringLitArrays,
 };
 pub use lit_object::{
-    lightmap_atlas, saved_lightmaps, LitLevelResources, LitObjectResources, ObjectVisualType,
+    lightmap_atlas, lit_lod_drop_plan, lit_rect_upload_plan, lit_vertex_color_doubled,
+    plan_lit_lod_create, queue_lit_face_groups, saved_lightmaps, LitConstructError,
+    LitConstructPlan, LitCreateOrder, LitCreatePlan, LitFaceGroupQueue, LitIndexLockBackend,
+    LitLevelResources, LitLodDropPlan, LitObjectResources, LitPostprocessCounts,
+    LitPostprocessOutcome, LitPostprocessRequest, LitQueueGroup, LitQueueMaterialClass,
+    LitQueueRequest, LitQueuedGroup, LitRectUpload, LitRectUploadBackend, LitSaveContract,
+    LitSortWords, ObjectVisualType, LIT_CREATE_VB_FAIL, LIT_GET_LVERTEX_MISS, LIT_MODE_LIGHTMAP,
+    LIT_POSTPROCESS_CORRUPT, LIT_POSTPROCESS_IB_OOM, LIT_POSTPROCESS_LM_FAIL,
+    LIT_POSTPROCESS_OOM_THIS, LIT_POSTPROCESS_UV_CHECK, LIT_QUEUE_OOM,
 };
 
 macro_rules! key {
@@ -556,6 +564,12 @@ impl ObjectResources {
     /// All ten unique LOD deletes precede the single whole-array clear. Mesh
     /// Release follows with its raw pointer unchanged; visual/frame base cleanup
     /// remains outside this ownership projection. A failure stops every mutation.
+    /// Provenance: PC RVA 0x36840 (ten-LOD/mesh ownership prefix) and the lit
+    /// derived-dtor confirm-only body PC RVA 0x21600 (differential: Ghidra body
+    /// 159 B, 46 insn/7 BB — vtable stores, 6x10 null-guarded deleting-dtor
+    /// calls stride 0x38, tail CALL 0x10036840; mafia-re I3d_lit_object.cpp:
+    /// 53-63) with derived-before-base order pinned by
+    /// lit_dtor_teardown_retires_all_levels_and_mesh.
     pub fn destroy_object_resources<B: ManagedVisualBackend + ?Sized>(
         &mut self,
         object: ObjectResourceKey,
@@ -2849,6 +2863,847 @@ mod tests {
             Err(super::object_lod::ObjectLodError::NumericDomain)
         );
         assert_eq!(r.object(object).unwrap().fade, 0.5001); // untouched residue
+    }
+    #[test]
+    fn lit_set_mode_stores_after_destruct_per_level_roundtrip() {
+        let mut r = ObjectResources::new().unwrap();
+        let mut b = Backend::default();
+        let lit = r.create_unconstructed_lit_object_resources(None).unwrap();
+        r.set_lit_lighting_mode(lit, 1, &mut b).unwrap();
+        let view = r.object(lit).unwrap();
+        assert_eq!(view.lit_object().unwrap().levels[0].mode, 1);
+        assert_eq!(view.lit_object().unwrap().levels[0].resolution, 5.);
+        assert_eq!(view.lit_object().unwrap().levels[0].angle, 45.);
+        r.set_lit_lighting_mode(lit, 0, &mut b).unwrap();
+        r.set_lit_lighting_mode(lit, u32::MAX, &mut b).unwrap();
+        assert_eq!(
+            r.object(lit).unwrap().lit_object().unwrap().levels[0].mode,
+            u32::MAX
+        );
+        r.set_active_lighting(lit, 5, &mut b).unwrap();
+        r.set_lit_lighting_mode(lit, 7, &mut b).unwrap();
+        r.set_active_lighting(lit, 0, &mut b).unwrap();
+        r.set_lit_lighting_mode(lit, 9, &mut b).unwrap();
+        let view = r.object(lit).unwrap().lit_object().unwrap();
+        assert_eq!(view.levels[0].mode, 9);
+        assert_eq!(view.levels[5].mode, 7);
+        for (i, level) in view.levels.iter().enumerate() {
+            if i != 0 && i != 5 {
+                assert_eq!(level.mode, 2);
+            }
+        }
+        assert!(!r.is_poisoned());
+    }
+    #[test]
+    fn lit_set_mode_failure_keeps_mode_and_residue() {
+        let mut r = ObjectResources::new().unwrap();
+        let mut b = Backend::default();
+        let plain = r.create_object_resources(None).unwrap();
+        assert_eq!(
+            r.set_lit_lighting_mode(plain, 1, &mut b),
+            Err(ObjectError::UnsupportedVisualSubtype.into())
+        );
+        assert!(!r.is_poisoned());
+        let lit = r.create_unconstructed_lit_object_resources(None).unwrap();
+        let lod = r.create_unconstructed_lit_lod(lit, 0).unwrap();
+        r.allocate_plain_lod_vertices(lod, request(2), &mut b)
+            .unwrap();
+        b.fail_release = true;
+        assert!(matches!(
+            r.set_lit_lighting_mode(lit, 1, &mut b),
+            Err(ObjectOperationError::Backend(_))
+        ));
+        assert_eq!(
+            r.object(lit).unwrap().lit_object().unwrap().levels[0].mode,
+            2
+        );
+        assert!(r.is_poisoned());
+    }
+    #[test]
+    fn lit_active_level_switch_bounds_and_residue() {
+        let mut r = ObjectResources::new().unwrap();
+        let mut b = Backend::default();
+        let lit = r.create_unconstructed_lit_object_resources(None).unwrap();
+        assert_eq!(
+            r.set_active_lighting(lit, 6, &mut b),
+            Err(ObjectError::InvalidIndex(6).into())
+        );
+        assert_eq!(r.object(lit).unwrap().lit_object().unwrap().active_level, 0);
+        assert!(!r.is_poisoned());
+        let lod = r.create_unconstructed_lit_lod(lit, 0).unwrap();
+        r.set_active_lighting(lit, 3, &mut b).unwrap();
+        assert_eq!(r.object(lit).unwrap().lit_object().unwrap().active_level, 3);
+        assert!(r.lod(lod).unwrap().dirty);
+        assert_eq!(r.lod(lod).unwrap().lights_changed, u32::MAX);
+        assert_eq!(r.lod(lod).unwrap().light_key, u32::MAX);
+        r.allocate_plain_lod_vertices(lod, request(2), &mut b)
+            .unwrap();
+        r.set_active_lighting(lit, 0, &mut b).unwrap();
+        b.fail_release = true;
+        assert!(r.set_active_lighting(lit, 1, &mut b).is_err());
+        assert_eq!(r.object(lit).unwrap().lit_object().unwrap().active_level, 0);
+        assert!(r.is_poisoned());
+    }
+    #[test]
+    fn lit_destruct_marks_unconstructed_first_despite_backend_failure() {
+        let mut r = ObjectResources::new().unwrap();
+        let mut b = Backend::default();
+        let lit = r.create_unconstructed_lit_object_resources(None).unwrap();
+        r.destruct_active_lighting(lit, &mut b).unwrap();
+        assert!(!r.object(lit).unwrap().lit_object().unwrap().levels[0].constructed);
+        assert!(!r.is_poisoned());
+        let lod = r.create_unconstructed_lit_lod(lit, 2).unwrap();
+        r.allocate_plain_lod_vertices(lod, request(2), &mut b)
+            .unwrap();
+        b.fail_release = true;
+        assert!(matches!(
+            r.destruct_active_lighting(lit, &mut b),
+            Err(ObjectOperationError::Backend(_))
+        ));
+        assert!(!r.object(lit).unwrap().lit_object().unwrap().levels[0].constructed);
+        assert!(r.is_poisoned());
+    }
+    #[test]
+    fn lit_dtor_teardown_retires_all_levels_and_mesh() {
+        let mut r = ObjectResources::new().unwrap();
+        let mut b = Backend::default();
+        let (mesh, _, _) = shared_mesh(&mut r, &mut b);
+        let lit = r
+            .create_unconstructed_lit_object_resources(Some(mesh))
+            .unwrap();
+        let lod = r.create_unconstructed_lit_lod(lit, 4).unwrap();
+        r.destroy_object_resources(lit, &mut b).unwrap();
+        assert_eq!(r.object(lit), Err(ObjectError::UnknownObject(lit)));
+        assert_eq!(r.lod(lod), Err(ObjectError::UnknownLod(lod)));
+        assert_eq!(r.saved_lighting_lod_count(), 0);
+        assert!(r
+            .lod_bindings()
+            .iter()
+            .all(|x| x.state == BindingState::Consumed || x.lod != lod));
+        assert!(!r.is_poisoned());
+    }
+    #[test]
+    fn lit_duplicate_copies_settings_only_with_masked_scalars() {
+        let mut r = ObjectResources::new().unwrap();
+        let mut b = Backend::default();
+        let (mesh, _, _) = shared_mesh(&mut r, &mut b);
+        let src = r
+            .create_unconstructed_lit_object_resources(Some(mesh))
+            .unwrap();
+        let dst = r
+            .create_unconstructed_lit_object_resources(Some(mesh))
+            .unwrap();
+        r.set_active_lighting(src, 4, &mut b).unwrap();
+        r.set_lit_lighting_mode(src, 1, &mut b).unwrap();
+        r.set_active_lighting(src, 0, &mut b).unwrap();
+        {
+            let record = r.objects[(src.slot - 1) as usize].as_mut().unwrap();
+            record.lit_object.as_mut().unwrap().levels[2].resolution = 9.5;
+            record.lit_object.as_mut().unwrap().levels[2].angle = 30.;
+            record.lightness = 0.5;
+            record.visual_flags = 0xffff_ffff;
+        }
+        r.copy_object_duplicate_state(dst, src).unwrap();
+        let (s, d) = (r.object(src).unwrap(), r.object(dst).unwrap());
+        let (sl, dl) = (s.lit_object().unwrap(), d.lit_object().unwrap());
+        for i in 0..6 {
+            assert_eq!(
+                (
+                    dl.levels[i].mode,
+                    dl.levels[i].resolution,
+                    dl.levels[i].angle
+                ),
+                (
+                    sl.levels[i].mode,
+                    sl.levels[i].resolution,
+                    sl.levels[i].angle
+                )
+            );
+            assert_eq!(dl.levels[i].lods, [None; 10]);
+        }
+        assert_eq!(
+            (
+                dl.levels[4].mode,
+                dl.levels[2].resolution,
+                dl.levels[2].angle
+            ),
+            (1, 9.5, 30.)
+        );
+        assert_eq!(dl.active_level, 0);
+        assert_eq!(d.lightness, 0.5);
+        assert_eq!(d.visual_flags, DUPLICATE_VIS_MASK);
+        assert!(!r.is_poisoned());
+    }
+    #[test]
+    fn lit_set_mesh_keep_swap_and_same_pointer_noop() {
+        let mut r = ObjectResources::new().unwrap();
+        let mut b = Backend::default();
+        let (first, _, _) = shared_mesh(&mut r, &mut b);
+        let (second, _, _) = shared_mesh(&mut r, &mut b);
+        let lit = r
+            .create_unconstructed_lit_object_resources(Some(first))
+            .unwrap();
+        r.set_lit_lighting_mode(lit, 1, &mut b).unwrap();
+        r.lit_set_object_mesh(lit, Some(second), true, &mut b)
+            .unwrap();
+        assert_eq!(r.object(lit).unwrap().mesh, Some(second));
+        assert_eq!(
+            r.object(lit).unwrap().lit_object().unwrap().levels[0].mode,
+            1
+        );
+        r.lit_set_object_mesh(lit, Some(second), true, &mut b)
+            .unwrap();
+        assert_eq!(r.object(lit).unwrap().mesh, Some(second));
+        r.lit_set_object_mesh(lit, Some(first), false, &mut b)
+            .unwrap();
+        assert_eq!(r.object(lit).unwrap().mesh, Some(first));
+        assert!(!r.is_poisoned());
+    }
+    #[test]
+    fn lit_save_contract_always_refuses_without_state_touch() {
+        use super::lit_object::LitSaveContract;
+        let mut r = ObjectResources::new().unwrap();
+        let lit = r.create_unconstructed_lit_object_resources(None).unwrap();
+        assert_eq!(
+            r.save_lit_lighting_contract(lit),
+            Err(ObjectError::UnsupportedVisualSubtype)
+        );
+        assert_eq!(
+            r.object(lit).unwrap().lit_object().unwrap().levels[0].mode,
+            2
+        );
+        assert!(!r.is_poisoned());
+        let _ = LitSaveContract;
+    }
+    #[test]
+    fn lit_update_all_marks_level_major_and_skips_nulls() {
+        let mut r = ObjectResources::new().unwrap();
+        let lit = r.create_unconstructed_lit_object_resources(None).unwrap();
+        assert_eq!(r.update_all_lit_vertices(lit).unwrap(), 0);
+        let a = r.create_plain_lod().unwrap();
+        r.lods[(a.slot - 1) as usize].as_mut().unwrap().owner = Some(lit);
+        r.lods[(a.slot - 1) as usize].as_mut().unwrap().dirty = false;
+        r.objects[(lit.slot - 1) as usize]
+            .as_mut()
+            .unwrap()
+            .lit_object
+            .as_mut()
+            .unwrap()
+            .levels[0]
+            .lods[0] = Some(a);
+        let c = r.create_plain_lod().unwrap();
+        r.lods[(c.slot - 1) as usize].as_mut().unwrap().owner = Some(lit);
+        r.lods[(c.slot - 1) as usize].as_mut().unwrap().dirty = false;
+        r.objects[(lit.slot - 1) as usize]
+            .as_mut()
+            .unwrap()
+            .lit_object
+            .as_mut()
+            .unwrap()
+            .levels[5]
+            .lods[9] = Some(c);
+        assert_eq!(r.update_all_lit_vertices(lit).unwrap(), 2);
+        assert!(r.lod(a).unwrap().dirty);
+        assert!(r.lod(c).unwrap().dirty);
+        assert!(!r.is_poisoned());
+    }
+    #[test]
+    fn lit_update_lod_column_marks_six_and_enforces_bound() {
+        let mut r = ObjectResources::new().unwrap();
+        let lit = r.create_unconstructed_lit_object_resources(None).unwrap();
+        assert_eq!(
+            r.update_lit_lod_vertices(lit, 10),
+            Err(ObjectError::InvalidIndex(10))
+        );
+        assert_eq!(r.update_lit_lod_vertices(lit, 9).unwrap(), 0);
+        for level in 0..6 {
+            let key = r.create_plain_lod().unwrap();
+            r.lods[(key.slot - 1) as usize].as_mut().unwrap().owner = Some(lit);
+            r.lods[(key.slot - 1) as usize].as_mut().unwrap().dirty = false;
+            r.objects[(lit.slot - 1) as usize]
+                .as_mut()
+                .unwrap()
+                .lit_object
+                .as_mut()
+                .unwrap()
+                .levels[level]
+                .lods[9] = Some(key);
+            r.lit_storage.push(super::LitLodStorage::new(key));
+        }
+        assert_eq!(r.update_lit_lod_vertices(lit, 9).unwrap(), 6);
+        assert!(!r.is_poisoned());
+    }
+    #[test]
+    fn lit_rect_count_and_placements_words() {
+        use super::saved_lightmaps::{SavedLightmapLod, SavedLitLod};
+        let mut r = ObjectResources::new().unwrap();
+        let lit = r.create_unconstructed_lit_object_resources(None).unwrap();
+        assert_eq!(r.lit_rect_count(lit, 0, 0).unwrap(), 0);
+        assert_eq!(r.lit_rect_placements(lit, 0, 0).unwrap(), None);
+        assert_eq!(
+            r.lit_rect_count(lit, 6, 0),
+            Err(ObjectError::InvalidIndex(6))
+        );
+        assert_eq!(
+            r.lit_rect_count(lit, 0, 10),
+            Err(ObjectError::InvalidIndex(10))
+        );
+        let _ = &lit;
+        let _ = SavedLitLod::VertexColors {
+            flags: 0,
+            colors: vec![1],
+        };
+        let _ = std::mem::size_of::<SavedLightmapLod>();
+    }
+    #[test]
+    fn lit_upload_plan_matches_native_truncation_and_marker() {
+        use super::lightmap_atlas::LightmapPlacement;
+        let placement = LightmapPlacement {
+            x: 60,
+            y: 8,
+            rotated: false,
+            width: 8,
+            height: 8,
+        };
+        let plan = super::lit_rect_upload_plan(&placement, 128, 64, 0.5, 0.125).unwrap();
+        assert_eq!((plan.dest_x, plan.dest_y, plan.rotated), (64, 8, false));
+        let rotated = super::lit_rect_upload_plan(&placement, 128, 64, 2.5, 0.125).unwrap();
+        assert_eq!((rotated.dest_x, rotated.rotated), (64, true));
+        // Native y truncates, not rounds: v=0.19 -> y=12, inside the cell.
+        let vtrunc = super::lit_rect_upload_plan(&placement, 128, 64, 0.5, 0.19).unwrap();
+        assert_eq!(vtrunc.dest_y, 12);
+        // Outside the packed cell and out-of-atlas results are refused.
+        assert!(super::lit_rect_upload_plan(&placement, 128, 64, 0.5, 0.5).is_none());
+        assert!(super::lit_rect_upload_plan(&placement, 128, 64, -0.5, 0.125).is_none());
+        assert!(super::lit_rect_upload_plan(&placement, 128, 64, 1.5, 0.125).is_none());
+        let origin = LightmapPlacement {
+            x: 0,
+            y: 0,
+            rotated: false,
+            width: 4,
+            height: 4,
+        };
+        let edge = super::lit_rect_upload_plan(&origin, 128, 64, 2.0, 0.0).unwrap();
+        assert_eq!((edge.dest_x, edge.dest_y, edge.rotated), (0, 0, true));
+    }
+    #[test]
+    fn lit_lock_flag_words_roundtrip_none_and_zero() {
+        struct Stub;
+        impl super::LitIndexLockBackend for Stub {
+            type Error = &'static str;
+            fn lock_lit_index_buffer(&mut self, _lod: PlainLodKey) -> Result<(), Self::Error> {
+                Ok(())
+            }
+        }
+        let mut r = ObjectResources::new().unwrap();
+        let mut stub = Stub;
+        let lit = r.create_unconstructed_lit_object_resources(None).unwrap();
+        assert_eq!(
+            r.lit_index_lock_flags(lit, 0, 0, 0x1234, &mut stub)
+                .unwrap(),
+            None
+        );
+        let lod = r.create_unconstructed_lit_lod(lit, 0).unwrap();
+        assert_eq!(
+            r.lit_index_lock_flags(lit, 0, 0, u32::MAX, &mut stub)
+                .unwrap(),
+            Some(0)
+        );
+        let _ = lod;
+        assert!(!r.is_poisoned());
+        // Backend lock failures keep their backend carrier (no state-word erasure).
+        struct FailStub;
+        impl super::LitIndexLockBackend for FailStub {
+            type Error = &'static str;
+            fn lock_lit_index_buffer(&mut self, _lod: PlainLodKey) -> Result<(), Self::Error> {
+                Err("index lock unavailable")
+            }
+        }
+        let mut fail = FailStub;
+        assert_eq!(
+            r.lit_index_lock_flags(lit, 0, 0, 0, &mut fail),
+            Err(ObjectOperationError::Backend("index lock unavailable"))
+        );
+        assert!(!r.is_poisoned());
+    }
+    #[test]
+    fn lit_construct_plan_guards_mesh_and_tears_down_active() {
+        let mut r = ObjectResources::new().unwrap();
+        let mut b = Backend::default();
+        let bare = r.create_unconstructed_lit_object_resources(None).unwrap();
+        assert_eq!(
+            r.plan_lit_construct(bare, 3.0, &mut b),
+            Err(super::LitConstructError::MissingMesh)
+        );
+        let (mesh, _, _) = shared_mesh(&mut r, &mut b);
+        let lit = r
+            .create_unconstructed_lit_object_resources(Some(mesh))
+            .unwrap();
+        let lod = r.create_unconstructed_lit_lod(lit, 1).unwrap();
+        let plan = r.plan_lit_construct(lit, 3.0, &mut b).unwrap();
+        assert_eq!(plan.lighting, 0);
+        assert_eq!(plan.resolution, 3.0);
+        assert_eq!(
+            r.object(lit).unwrap().lit_object().unwrap().levels[0].resolution,
+            3.0
+        );
+        assert!(r.lod(lod).is_err());
+        // Backend failure inside the teardown keeps its backend carrier (fresh
+        // arena so the failing release empties its buffer, like the SetMode
+        // residue test above).
+        let mut r2 = ObjectResources::new().unwrap();
+        let mut b2 = Backend::default();
+        let mesh2 = r2.create_mesh_object().unwrap();
+        let lit2 = r2
+            .create_unconstructed_lit_object_resources(Some(mesh2))
+            .unwrap();
+        let lod2 = r2.create_unconstructed_lit_lod(lit2, 0).unwrap();
+        r2.allocate_plain_lod_vertices(lod2, request(2), &mut b2)
+            .unwrap();
+        b2.fail_release = true;
+        assert!(matches!(
+            r2.plan_lit_construct(lit2, 3.0, &mut b2),
+            Err(super::LitConstructError::Backend(_))
+        ));
+        assert!(r2.is_poisoned());
+    }
+    #[test]
+    fn lit_memory_sum_order_count_words_and_residue() {
+        let mut r = ObjectResources::new().unwrap();
+        let mut b = Backend::default();
+        let bare = r.create_unconstructed_lit_object_resources(None).unwrap();
+        assert_eq!(r.total_lit_lightmap_memory(bare).unwrap(), 0);
+        let (mesh, _, _) = shared_mesh(&mut r, &mut b);
+        let lit = r
+            .create_unconstructed_lit_object_resources(Some(mesh))
+            .unwrap();
+        assert_eq!(r.total_lit_lightmap_memory(lit).unwrap(), 0);
+        assert!(!r.is_poisoned());
+    }
+    #[test]
+    fn lit_queue_preserves_link_order_first_offsets_counts_and_lm_sort() {
+        use super::{
+            LitQueueGroup, LitQueueMaterialClass, LitQueueRequest, LitQueuedGroup, LitSortWords,
+        };
+        fn sort_words() -> LitSortWords {
+            LitSortWords {
+                dist_word: 0x100,
+                dist_mask: 0x1ff,
+                alpha_bit: 0x4000_0000,
+                mat_mask: 0x7fff,
+                ckey_bit: 0x2000,
+            }
+        }
+        let req = LitQueueRequest {
+            constructed: true,
+            lightmap: true,
+            lm_uid: 0x9,
+            sort: sort_words(),
+            groups: vec![
+                LitQueueGroup {
+                    faces: 2,
+                    material: LitQueueMaterialClass::Untextured,
+                    texture_uid: 0,
+                },
+                LitQueueGroup {
+                    faces: 1,
+                    material: LitQueueMaterialClass::Opaque,
+                    texture_uid: 0x1_2345,
+                },
+                LitQueueGroup {
+                    faces: 4,
+                    material: LitQueueMaterialClass::Transparent,
+                    texture_uid: 0x999,
+                },
+            ],
+        };
+        let queue = super::queue_lit_face_groups(&req);
+        assert_eq!(queue.entries.len(), 3);
+        assert_eq!((queue.num_opaque, queue.num_transparent), (2, 1));
+        assert_eq!(
+            queue.entries[0],
+            LitQueuedGroup {
+                group: 0,
+                first: Some(0),
+                texture_uid: None,
+                env_texture_uid: Some(0x9),
+                sort_value: 0,
+                transparent: false,
+            }
+        );
+        assert_eq!(queue.entries[1].first, Some(6));
+        assert_eq!(queue.entries[1].sort_value, 0x4_a345);
+        assert_eq!(queue.entries[2].first, Some(9));
+        assert_eq!(queue.entries[2].sort_value, 0x100 | 0x4000_0000);
+        assert!(queue.entries[2].transparent);
+    }
+    #[test]
+    fn lit_queue_ckey_packs_evidence_bit_and_unconstructed_uses_own_sort() {
+        use super::{LitQueueGroup, LitQueueMaterialClass, LitQueueRequest, LitSortWords};
+        let sort = LitSortWords {
+            dist_word: 0x100,
+            dist_mask: 0x1ff,
+            alpha_bit: 0x4000_0000,
+            mat_mask: 0x7fff,
+            ckey_bit: 0x2000,
+        };
+        let mut req = LitQueueRequest {
+            constructed: true,
+            lightmap: true,
+            lm_uid: 0x9,
+            sort,
+            groups: vec![LitQueueGroup {
+                faces: 1,
+                material: LitQueueMaterialClass::KeyAlpha,
+                texture_uid: 0x7,
+            }],
+        };
+        let queue = super::queue_lit_face_groups(&req);
+        assert_eq!(queue.entries[0].sort_value, 0x4004_8007);
+        assert_eq!(queue.entries[0].first, Some(0));
+        req.constructed = false;
+        let flat = super::queue_lit_face_groups(&req);
+        assert!(flat.entries.iter().all(|e| e.first.is_none()));
+        assert!(flat.entries.iter().all(|e| e.env_texture_uid.is_none()));
+        assert_eq!(flat.entries[0].sort_value, 0x7 | 0x2000);
+    }
+    #[test]
+    fn lit_create_plan_arms_and_position_release_prefix() {
+        use super::{LitCreateOrder, LitCreatePlan};
+        assert_eq!(
+            super::LIT_CREATE_VB_FAIL,
+            "litLod::Create() - Error create VertexBuffer for LM !!"
+        );
+        assert_eq!(
+            super::plan_lit_lod_create(true, false, true, 0, false, false),
+            LitCreateOrder {
+                release_positions: true,
+                plan: LitCreatePlan::InitialUnlit
+            }
+        );
+        assert_eq!(
+            super::plan_lit_lod_create(false, true, false, 3, false, true).plan,
+            LitCreatePlan::VertexColors {
+                double_saturate: true
+            }
+        );
+        assert_eq!(
+            super::plan_lit_lod_create(true, true, false, 5, true, false).plan,
+            LitCreatePlan::HwtlLightmap
+        );
+        assert_eq!(
+            super::plan_lit_lod_create(true, true, true, 5, false, false),
+            LitCreateOrder {
+                release_positions: false,
+                plan: LitCreatePlan::PositionAlloc {
+                    reuse_positions: true
+                },
+            }
+        );
+    }
+    #[test]
+    fn lit_vertex_color_doubled_saturates_per_instruction_widths() {
+        assert_eq!(super::lit_vertex_color_doubled(0x0000_0000), 0x0000_0000);
+        assert_eq!(super::lit_vertex_color_doubled(0xffff_ffff), 0xffff_ffff);
+        assert_eq!(super::lit_vertex_color_doubled(0xff10_2030), 0xff20_4060);
+        assert_eq!(super::lit_vertex_color_doubled(0x8080_8080), 0x80ff_ffff);
+    }
+    #[test]
+    fn lit_drop_plan_branches_follow_dtor_arms() {
+        use super::saved_lightmaps::SavedLitLod;
+        assert_eq!(
+            super::lit_lod_drop_plan(None),
+            super::LitLodDropPlan {
+                free_positions: false,
+                free_colors: false
+            }
+        );
+        assert_eq!(
+            super::lit_lod_drop_plan(Some(&SavedLitLod::VertexColors {
+                flags: 0,
+                colors: vec![1]
+            })),
+            super::LitLodDropPlan {
+                free_positions: false,
+                free_colors: true
+            }
+        );
+    }
+    #[test]
+    fn lit_postprocess_failure_prefixes_match_original_words() {
+        assert_eq!(
+            super::LIT_QUEUE_OOM,
+            "!! Out of memory    renderLitObject()"
+        );
+        assert_eq!(
+            super::LIT_POSTPROCESS_OOM_THIS,
+            "!! out of memory  litLod::postLoadProcess()  this:0x%x"
+        );
+        assert_eq!(
+            super::LIT_POSTPROCESS_LM_FAIL,
+            "!! can't create LM  litLod::postLoadProcess()  this:0x%x"
+        );
+        assert_eq!(
+            super::LIT_POSTPROCESS_IB_OOM,
+            "!! Out of memory  litLod::postLoadProcess"
+        );
+        assert_eq!(
+            super::LIT_POSTPROCESS_UV_CHECK,
+            "!! neklaply kontroly m_pUV:0x%x  m_pLitUV:0x%x  litLod::postLoadProcess()"
+        );
+        assert_eq!(
+            super::LIT_POSTPROCESS_CORRUPT,
+            "!! corrupted lightmap  litLod::postProcess()  m_numRectangles:%d < pVI->rect:%d"
+        );
+        assert_eq!(
+            super::LIT_GET_LVERTEX_MISS,
+            "!! vertex not found GetLVertex() vertex:%d rectangle:%d"
+        );
+    }
+    #[test]
+    fn lit_postprocess_corrupt_rectangle_keeps_payload_and_phase() {
+        use super::lightmap_atlas::{LightmapAtlasPool, LightmapRectangle, LightmapTexels};
+        use super::saved_lightmaps::{
+            SavedLightingLoad, SavedLightmapLod, SavedLitLevel, SavedLitLod, SavedLitVertex,
+        };
+        let mut pool = LightmapAtlasPool::default();
+        let (atlas, placements, allocation) = pool
+            .pack(&[LightmapRectangle {
+                width: 3,
+                height: 3,
+                texels: LightmapTexels::Single(0xff20_4080),
+            }])
+            .unwrap();
+        let payload = SavedLitLod::Lightmap(SavedLightmapLod {
+            flags: 0,
+            vertices: vec![SavedLitVertex {
+                source_vertex: 0,
+                rectangle: 5,
+                lightmap_uv: [0., 0.],
+            }],
+            indices: vec![0, 1, 2],
+            face_rectangles: vec![vec![0]],
+            placements,
+            atlas,
+            memory_bytes: 36,
+            _allocation: allocation,
+        });
+        let mut r = ObjectResources::new().unwrap();
+        let mut b = Backend::default();
+        let object = r.create_unconstructed_lit_object_resources(None).unwrap();
+        let mut levels: [Option<SavedLitLevel>; 6] = std::array::from_fn(|_| None);
+        levels[0] = Some(SavedLitLevel {
+            mode: 2,
+            resolution: 5.,
+            angle: 45.,
+            constructed: true,
+            lods: std::array::from_fn(|i| if i == 0 { Some(payload.clone()) } else { None }),
+        });
+        r.install_saved_lighting(
+            object,
+            SavedLightingLoad {
+                levels,
+                bytes_read: 0,
+            },
+            &mut b,
+        )
+        .unwrap();
+        let key = r.object(object).unwrap().lit_object().unwrap().levels[0].lods[0].unwrap();
+        r.begin_lit_preparation(key).unwrap();
+        let source = super::LitSourceBinding {
+            level: r.create_mesh_level().unwrap(),
+            vertices: CompleteVertexBuffer::default(),
+            vertex_count: 0,
+            revision: 0,
+        };
+        assert!(matches!(
+            r.apply_lit_postprocess_order(
+                object,
+                0,
+                0,
+                super::LitPostprocessRequest {
+                    face_group_faces: &[1],
+                    loaded: false,
+                    source,
+                },
+                &mut b
+            ),
+            Err(ObjectOperationError::State(ObjectError::InvalidIndex(_)))
+        ));
+        assert!(r.object(object).unwrap().lit_object().unwrap().levels[0].saved_lods[0].is_some());
+        assert_eq!(
+            r.lit_lod_storage(key).unwrap().phase,
+            super::LitStoragePhase::Preparing
+        );
+    }
+    #[test]
+    fn lit_postprocess_vertex_colors_finishes_without_index_work() {
+        use super::saved_lightmaps::{SavedLightingLoad, SavedLitLevel, SavedLitLod};
+        let mut r = ObjectResources::new().unwrap();
+        let mut b = Backend::default();
+        let object = r.create_unconstructed_lit_object_resources(None).unwrap();
+        let payload = SavedLitLod::VertexColors {
+            flags: 0,
+            colors: vec![1, 2, 3],
+        };
+        let mut levels: [Option<SavedLitLevel>; 6] = std::array::from_fn(|_| None);
+        levels[0] = Some(SavedLitLevel {
+            mode: 0,
+            resolution: 5.,
+            angle: 45.,
+            constructed: true,
+            lods: std::array::from_fn(|i| if i == 0 { Some(payload.clone()) } else { None }),
+        });
+        r.install_saved_lighting(
+            object,
+            SavedLightingLoad {
+                levels,
+                bytes_read: 0,
+            },
+            &mut b,
+        )
+        .unwrap();
+        let key = r.object(object).unwrap().lit_object().unwrap().levels[0].lods[0].unwrap();
+        r.begin_lit_preparation(key).unwrap();
+        let source = super::LitSourceBinding {
+            level: r.create_mesh_level().unwrap(),
+            vertices: CompleteVertexBuffer::default(),
+            vertex_count: 0,
+            revision: 0,
+        };
+        assert_eq!(
+            r.apply_lit_postprocess_order(
+                object,
+                0,
+                0,
+                super::LitPostprocessRequest {
+                    face_group_faces: &[1],
+                    loaded: true,
+                    source,
+                },
+                &mut b
+            )
+            .unwrap(),
+            super::LitPostprocessOutcome::Ready(super::LitPostprocessCounts {
+                memory_bytes: 0,
+                lit_vertices: 3,
+                indices: 0,
+            })
+        );
+        assert!(!r.lod(key).unwrap().dirty);
+        assert_eq!(
+            r.lit_lod_storage(key).unwrap().phase,
+            super::LitStoragePhase::Ready
+        );
+    }
+    #[test]
+    fn lit_destroy_clears_slots_retires_record_and_reports_plan() {
+        use super::saved_lightmaps::{SavedLightingLoad, SavedLitLevel, SavedLitLod};
+        let mut r = ObjectResources::new().unwrap();
+        let mut b = Backend::default();
+        let object = r.create_unconstructed_lit_object_resources(None).unwrap();
+        let payload = SavedLitLod::VertexColors {
+            flags: 0,
+            colors: vec![1],
+        };
+        let mut levels: [Option<SavedLitLevel>; 6] = std::array::from_fn(|_| None);
+        levels[0] = Some(SavedLitLevel {
+            mode: 0,
+            resolution: 5.,
+            angle: 45.,
+            constructed: true,
+            lods: std::array::from_fn(|i| if i == 0 { Some(payload.clone()) } else { None }),
+        });
+        r.install_saved_lighting(
+            object,
+            SavedLightingLoad {
+                levels,
+                bytes_read: 0,
+            },
+            &mut b,
+        )
+        .unwrap();
+        let key = r.object(object).unwrap().lit_object().unwrap().levels[0].lods[0].unwrap();
+        assert_eq!(
+            r.destroy_lit_lod_allocation(object, 0, 0, &mut b).unwrap(),
+            super::LitLodDropPlan {
+                free_positions: false,
+                free_colors: true
+            }
+        );
+        let lit = r.object(object).unwrap().lit_object().unwrap();
+        assert!(lit.levels[0].lods[0].is_none());
+        assert!(lit.levels[0].saved_lods[0].is_none());
+        assert!(matches!(r.lod(key), Err(ObjectError::UnknownLod(_))));
+        assert_eq!(
+            r.lit_lod_storage_records()
+                .iter()
+                .find(|s| s.lod == key)
+                .unwrap()
+                .phase,
+            super::LitStoragePhase::Retired
+        );
+        assert_eq!(
+            r.destroy_lit_lod_allocation(object, 0, 3, &mut b).unwrap(),
+            super::LitLodDropPlan {
+                free_positions: false,
+                free_colors: false
+            }
+        );
+    }
+    #[test]
+    fn lit_update_gate_reports_moved_and_recreated_resets_light_keys() {
+        let mut r = ObjectResources::new().unwrap();
+        let object = r.create_unconstructed_lit_object_resources(None).unwrap();
+        let key = r.create_unconstructed_lit_lod(object, 0).unwrap();
+        assert!(r.sync_lit_update_count(key, 7).unwrap());
+        assert_eq!(r.lod(key).unwrap().update_count, 7);
+        assert!(!r.sync_lit_update_count(key, 7).unwrap());
+        r.note_lit_lod_recreated(key).unwrap();
+        assert_eq!(r.lod(key).unwrap().lights_changed, u32::MAX);
+        assert_eq!(r.lod(key).unwrap().light_key, u32::MAX);
+    }
+    #[test]
+    fn lit_render_entry_reports_the_device_boundary() {
+        let mut r = ObjectResources::new().unwrap();
+        let object = r.create_unconstructed_lit_object_resources(None).unwrap();
+        assert_eq!(
+            r.render_lit_face_group_contract(object),
+            Err(ObjectError::UnsupportedVisualSubtype)
+        );
+    }
+    #[test]
+    fn lit_load_failure_words_and_level_remap() {
+        use super::lightmap_atlas::LightmapAtlasPool;
+        use super::saved_lightmaps::{read_saved_lighting, SavedLightingError};
+        let mut pool = LightmapAtlasPool::default();
+        fn level_bytes(version: u8, mode: u8, lods: u32, level: u8) -> Vec<u8> {
+            let mut bytes = vec![1];
+            bytes.push(version);
+            bytes.push(mode);
+            bytes.extend(lods.to_le_bytes());
+            bytes.extend(5f32.to_le_bytes());
+            bytes.extend(45f32.to_le_bytes());
+            bytes.push(level);
+            bytes
+        }
+        fn mesh() -> Vec<super::saved_lightmaps::SavedLightMeshLod> {
+            vec![super::saved_lightmaps::SavedLightMeshLod {
+                vertex_count: 3,
+                face_group_faces: vec![1],
+            }]
+        }
+        let bytes = level_bytes(0x20, 2, 1, 1);
+        let failure = read_saved_lighting(&bytes, &mesh(), &mut pool).unwrap_err();
+        assert_eq!(failure.error, SavedLightingError::Version(0x20));
+        let level = failure.partial.levels[0].as_ref().unwrap();
+        assert_eq!((level.mode, level.resolution, level.angle), (2, 5., 45.));
+        assert!(!level.constructed);
+        let bytes = level_bytes(0x21, 2, 2, 1);
+        let failure = read_saved_lighting(&bytes, &mesh(), &mut pool).unwrap_err();
+        assert_eq!(failure.error, SavedLightingError::LodCount);
+        let failure = read_saved_lighting(&[1, 0x21], &mesh(), &mut pool).unwrap_err();
+        assert_eq!(failure.error, SavedLightingError::Truncated);
     }
 }
 

@@ -70,6 +70,7 @@ pub struct LoadedFrame {
     /// Host retry cursor for the native destructor's forward glow order.
     lensflare_release_cursor: usize,
     pub(crate) projector: Option<crate::frame_projector::I3dProjectorState>,
+    pub(crate) mirror: Option<crate::frame_mirror::I3dMirrorState>,
     pub(crate) hr_bounds_error: Option<ModelError>,
     pub(crate) hr_world_bounds_error: Option<ModelError>,
     /// Immutable host backing, independent of model membership. This is not a
@@ -170,6 +171,7 @@ pub struct SharedModelLoadFailure {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ModelError {
     DummyFrameRequired(FrameKey),
+    MirrorFrameRequired(FrameKey),
     Frame(FrameError),
     Camera(crate::frame_camera::CameraError),
     Area(crate::frame_area::AreaError),
@@ -505,6 +507,7 @@ impl ModelArena {
             lensflare_materials: None,
             lensflare_release_cursor: 0,
             projector: None,
+            mirror: None,
             hr_bounds_error: None,
             hr_world_bounds_error: None,
             source: None,

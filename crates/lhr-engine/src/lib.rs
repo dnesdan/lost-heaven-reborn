@@ -69,6 +69,7 @@ pub mod frame_fast_lookup;
 pub mod frame_hierarchy_bounds;
 pub mod frame_light;
 pub mod frame_lookup;
+pub mod frame_mirror;
 pub mod frame_occluder;
 pub mod frame_portal;
 pub mod frame_projector;

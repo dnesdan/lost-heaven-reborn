@@ -2821,6 +2821,312 @@
       "symbol": "lhr_engine::target_state::I3dTargetState::parse_load_image_fields",
       "tier": "contract",
       "evidence": "Ghidra formed no body (not_in_procedure); linear walk 0x10059f10-0x1005a113 + PUSH 2/1/2 width immediates + mafia-re I3d_target.cpp:172-188 + parse-order/rejection tests; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x21600",
+      "va": "0x10021600",
+      "name": "I3D_lit_object::~I3D_lit_object (mafia-re evidenced name)",
+      "symbol": "lhr_engine::i3d_object::ObjectResources::destroy_object_resources",
+      "tier": "differential",
+      "evidence": "REA ghidra body 159B/46asm/7BB (vtable stores, 6x10 null-guarded deleting-dtor calls stride 0x38, tail CALL 0x10036840) + mafia-re I3d_lit_object.cpp:53-63 + teardown/residue tests; confirm-only on the pre-existing port"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x216a0",
+      "va": "0x100216a0",
+      "name": "I3D_lit_object::SetActiveLevel (mafia-re evidenced name)",
+      "symbol": "lhr_engine::i3d_object::ObjectResources::set_active_lighting",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (file-offset maps to 0x100216a0, no containing procedure; entry/mid probes only) + mafia-re I3d_lit_object.cpp:65-85 + switch/bounds/residue tests; m_PosVB arm has no host equivalent (disclosed); tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x26930",
+      "va": "0x10026930",
+      "name": "I3D_lit_object::Destruct (mafia-re evidenced name)",
+      "symbol": "lhr_engine::i3d_object::ObjectResources::destruct_active_lighting",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (entry/mid probes only) + mafia-re I3d_lit_object.cpp:1125-1136 (constructed=false first, 10 deletes, flags ignored) + constructed-first failure tests; reuses existing port; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x26980",
+      "va": "0x10026980",
+      "name": "I3D_lit_object::Load (mafia-re evidenced name)",
+      "symbol": "lhr_engine::i3d_object::ObjectResources::install_saved_lighting",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (SEH-prologue entry/mid probes) + mafia-re I3d_lit_object.cpp:1157-1447 (Destruct-first, version/lod-count words, level remap, store-before-validate) + failure-word/level-remap/partial-prefix tests on read_saved_lighting + install; file/device calls stay backend contracts; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x27580",
+      "va": "0x10027580",
+      "name": "I3D_lit_object::Save (mafia-re evidenced name)",
+      "symbol": "lhr_engine::i3d_object::ObjectResources::save_lit_lighting_contract",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (push-string stub entry probe) + mafia-re I3d_lit_object.cpp:1449-1455 (printf + GENERIC, no state touch) + refusal/residue tests; new boundary marker, no parity credit"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x275a0",
+      "va": "0x100275a0",
+      "name": "I3D_lit_object::SetMode (mafia-re evidenced name)",
+      "symbol": "lhr_engine::i3d_object::ObjectResources::set_lit_lighting_mode",
+      "tier": "differential",
+      "evidence": "REA ghidra body 42B/13asm/1BB (Destruct via [EAX+0x94] first, unconditional u32 store stride 0x38, no validation branch) + mafia-re I3d_lit_object.cpp:1457-1464 + per-level roundtrip/passthrough/failure-residue tests; new impl reusing destruct_active_lighting"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x275d0",
+      "va": "0x100275d0",
+      "name": "I3D_lit_object::Duplicate (mafia-re evidenced name)",
+      "symbol": "lhr_engine::i3d_object::ObjectResources::copy_object_duplicate_state",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (null-check prologue entry/mid probes) + mafia-re I3d_lit_object.cpp:1466-1511 (settings-only x6, SetMesh keep, masked scalars) + duplicate-equality tests; emitor/world-bound arms caller-side (disclosed); tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x27760",
+      "va": "0x10027760",
+      "name": "I3D_lit_object::SetMesh (mafia-re evidenced name)",
+      "symbol": "lhr_engine::i3d_object::ObjectResources::lit_set_object_mesh",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (frame entry/mid probes) + mafia-re I3d_lit_object.cpp:1513-1537 (same-pointer early-out, !keep Destruct, Release/retain, bounds tail frame-owned) + keep/swap/noop tests; reuses existing port; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x21740",
+      "va": "0x10021740",
+      "name": "I3D_lit_object::UpdateVertices (mafia-re evidenced name)",
+      "symbol": "lhr_engine::i3d_object::ObjectResources::update_all_lit_vertices",
+      "tier": "contract",
+      "evidence": "Ghidra formed no procedure; 31-insn linear walk 0x21740-0x21783 (level-major 6x10, null-skip, +0x2c=1/+0x4=-1/+0xC=-1) + mafia-re I3d_lit_object.cpp:87-100 + mark/skip/ownership tests; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x21790",
+      "va": "0x10021790",
+      "name": "I3D_lit_object::UpdateVertices(index) (mafia-re evidenced name)",
+      "symbol": "lhr_engine::i3d_object::ObjectResources::update_lit_lod_vertices",
+      "tier": "contract",
+      "evidence": "Ghidra formed no procedure; 19-insn walk 0x21790-0x217c3 (lod-column-major, index unchecked natively, host hardens 0..10) + mafia-re I3d_lit_object.cpp:102-113 + column/bound tests; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x217d0",
+      "va": "0x100217d0",
+      "name": "I3D_lit_object::GetNumRectInfos (mafia-re evidenced name)",
+      "symbol": "lhr_engine::i3d_object::ObjectResources::lit_rect_count",
+      "tier": "contract",
+      "evidence": "Ghidra formed no procedure; 11-insn walk (IMUL 0x38 stride, null->0, count word litLod+0x54) + mafia-re I3d_lit_object.cpp:115-123 + null/lightmap/bounds tests; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x21800",
+      "va": "0x10021800",
+      "name": "I3D_lit_object::GetRectInfos (mafia-re evidenced name)",
+      "symbol": "lhr_engine::i3d_object::ObjectResources::lit_rect_placements",
+      "tier": "contract",
+      "evidence": "Ghidra formed no procedure; 11-insn walk (array word litLod+0x50, null->NULL) + mafia-re I3d_lit_object.cpp:125-133 + live-slice/borrow tests; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x21830",
+      "va": "0x10021830",
+      "name": "I3D_lit_object::UpdateLMFromRectInfos (mafia-re evidenced name)",
+      "symbol": "lhr_engine::i3d_object::lit_rect_upload_plan",
+      "tier": "contract",
+      "evidence": "Ghidra formed no procedure; 220-insn linear span 0x21830-0x21ac5 (truecolor/format/lock gates, 2.0f rotated marker, trunc x/y, Unlock+AddDirtyRect) + mafia-re I3d_lit_object.cpp:144-223 + truncation/marker/reject tests; device upload stays a backend contract (LitRectUploadBackend); tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x21ad0",
+      "va": "0x10021ad0",
+      "name": "I3D_lit_object::GetRectInfoFlags (mafia-re evidenced name)",
+      "symbol": "lhr_engine::i3d_object::ObjectResources::lit_index_lock_flags",
+      "tier": "contract",
+      "evidence": "Ghidra formed no procedure; full span 0x21ad0-0x21bab walked (null->-1, [ESI+4]&0x10 gate, flags param ignored, 0 on lock) + mafia-re I3d_lit_object.cpp:226-235 (stub omits the gate/registry) + None/Some(0)/ignored-flags tests; lock stays a backend contract; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x21bb0",
+      "va": "0x10021bb0",
+      "name": "I3D_lit_object::Construct (mafia-re evidenced name)",
+      "symbol": "lhr_engine::i3d_object::ObjectResources::plan_lit_construct",
+      "tier": "contract",
+      "evidence": "Identity=Construct via 70-insn SEH+Destruct(0)+INVALIDPARAMS+sleeping+sector-walk entry sample; guard prefix only (teardown+mesh check+resolution store), body phases OPEN + guard/teardown tests; offline lighting stays out of scope; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x27830",
+      "va": "0x10027830",
+      "name": "I3D_lit_object::GetTotalLMMemory (mafia-re evidenced name)",
+      "symbol": "lhr_engine::i3d_object::ObjectResources::total_lit_lightmap_memory",
+      "tier": "contract",
+      "evidence": "Ghidra formed no procedure; 33-insn full linear body 0x27830-0x27879 (mesh guard->0, 6xnum_lods, ADD [ECX+0x70] wrapping) + mafia-re I3d_lit_object.cpp:1539-1554 + mesh-less/empty tests; vertex-color m_MemSize unrecovered (disclosed); tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x27880",
+      "va": "0x10027880",
+      "name": "I3D_lit_object::m_AddFGroups (upstream working name, NOT original)",
+      "symbol": "lhr_engine::i3d_object::queue_lit_face_groups",
+      "tier": "differential",
+      "evidence": "REA ghidra body 5278B/276BB/1525insn/SEH-entry (calls litLod::Create, SetUV, lod-ctor, S_matrix::Inverse; OOM word x2) + mafia-re I3d_lit_object.cpp:1560-1815 + queue-order/first-offset/sort-arm/moved tests; helpers sync_lit_update_count/note_lit_lod_recreated no credit; FloatToInt/masks/MATF bits + device calls stay backend contracts"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x28d40",
+      "va": "0x10028d40",
+      "name": "I3D_lit_object::m_RenderFGroup (upstream working name, NOT original)",
+      "symbol": "lhr_engine::i3d_object::ObjectResources::render_lit_face_group_contract",
+      "tier": "contract",
+      "evidence": "No Ghidra body: parent FUN_10027880 ends 0x10028d1d, probes 0x10028d20-0x10029e00 invalid, next entry 0x10029f80; mafia-re I3d_lit_object.cpp:1824-2083 reference only; tier contract per the unresolved-boundary rule; reuses select_render_lod_index/render_total_alpha/render_stage_reset_flags"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x29f80",
+      "va": "0x10029f80",
+      "name": "litLod::~litLod (upstream working name, NOT original)",
+      "symbol": "lhr_engine::i3d_object::ObjectResources::destroy_lit_lod_allocation",
+      "tier": "differential",
+      "evidence": "REA ghidra body 339B/18BB/113insn/SEH-entry (calls lod cleanup, rect-counter DEC/STORE mid probe, no strings) + mafia-re I3d_lit_object.cpp:2087-2117 + drop-plan/destroy/residue tests; reuses cleanup_saved_lit_lod order; storage phases stay helpers"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2a0e0",
+      "va": "0x1002a0e0",
+      "name": "litLod::Create (upstream working name, NOT original)",
+      "symbol": "lhr_engine::i3d_object::plan_lit_lod_create",
+      "tier": "differential",
+      "evidence": "REA ghidra body 1708B/98BB/571insn (entry TEST [ESP+0xc],0x2 = LIGHTMAP bit 2; mid AND/SHL saturate path; RET 0xc bool; calls lod::Create; VB-fail word) + mafia-re I3d_lit_object.cpp:2121-2196 + plan-matrix/doubled-vector/prefix tests; helper lit_vertex_color_doubled no credit; VERTEX bit unevidenced (caller-resolved)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2a790",
+      "va": "0x1002a790",
+      "name": "litLod::postProcess (upstream working name, NOT original)",
+      "symbol": "lhr_engine::i3d_object::ObjectResources::apply_lit_postprocess_order",
+      "tier": "differential",
+      "evidence": "REA ghidra body 1320B/68BB/415insn/SEH-entry/RET 0x8 (all 5 failure words + GetLVertex miss x3; IB-alloc + null-check + rect-check order) + mafia-re I3d_lit_object.cpp:2200-2276 + corrupt-residue/vertex-finish/prefix tests; reuses begin/allocate/finish_lit_preparation + read_lod UV remap; GetLVertex miss handling stays backend contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x31820",
+      "va": "0x10031820",
+      "name": "I3D_mirror::I3D_mirror (upstream working name, NOT original)",
+      "symbol": "lhr_engine::frame_mirror::create_mirror_frame",
+      "tier": "differential",
+      "evidence": "REA ghidra body 42insn/1BB + callees 0x1005a200/0x1002cf20 (copies-empty, residue 0x20, Identity view_box, MIRR tag, range 100.0f, zero color/counts/flags) + mafia-re I3d_mirror.cpp:23-36 + ctor-word tests; Model carrier + LoadedFrame.mirror, no invented FrameKind"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x31910",
+      "va": "0x10031910",
+      "name": "I3D_mirror::~I3D_mirror (upstream working name, NOT original)",
+      "symbol": "lhr_engine::frame_mirror::destroy_mirror_derived",
+      "tier": "differential",
+      "evidence": "REA ghidra body 60insn/7BB (vtable resets, DeleteMirror, delete[] pair, per-copy Release pair, null triple, base dtor) + mafia-re I3d_mirror.cpp:40-51 + order tests; delete[] = host Vec drop, Release pair = backend"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x319f0",
+      "va": "0x100319f0",
+      "name": "I3D_mirror::SetColor (upstream working name, NOT original)",
+      "symbol": "lhr_engine::frame_mirror::set_mirror_color",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (not_in_procedure); entry/mid/RET x87 clamp probes + vtable slot ref + mafia-re I3d_mirror.cpp:56-71 + clamp/NaN-preserved tests; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x31ab0",
+      "va": "0x10031ab0",
+      "name": "I3D_mirror::Duplicate (upstream working name, NOT original)",
+      "symbol": "lhr_engine::frame_mirror::duplicate_mirror_frame",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (not_in_procedure); guard-word/Release-loop/delete-pair/base-Duplicate/FRAME_VISUAL probes + mafia-re I3d_mirror.cpp:76-110 + guard/deep-copy/independence tests; tail past 0x10031b45 upstream-corroborated with unprobed tail disclosed; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x32000",
+      "va": "0x10032000",
+      "name": "I3D_mirror::LinkTo (upstream working name, NOT original)",
+      "symbol": "lhr_engine::frame_mirror::link_mirror_frame",
+      "tier": "differential",
+      "evidence": "REA ghidra body 33insn/8BB (DeleteMirror if attached, sector walk + AddMirror, base LinkTo, UpdateV) + mafia-re I3d_mirror.cpp:157-175 + order tests reusing link_frame + scene_add/delete_mirror"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x32060",
+      "va": "0x10032060",
+      "name": "I3D_mirror::UpdateV (upstream working name, NOT original)",
+      "symbol": "lhr_engine::frame_mirror::update_mirror_frame",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (not_in_procedure); TEST 0x40002000/AND flag clears/copy-stamp/AddMirror probes + mafia-re I3d_mirror.cpp:180-202 + dirty/clean/sceneless tests; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x332e0",
+      "va": "0x100332e0",
+      "name": "I3D_mirror::LoadImage (upstream working name, NOT original)",
+      "symbol": "lhr_engine::frame_mirror::load_mirror_image",
+      "tier": "differential",
+      "evidence": "REA ghidra body 55insn/1BB (base LoadImage, 0x28B vis_bound + flag words, 0x58B view_box/color/range/counts + flag words, verts n x12 + faces m x6 with LEA/SHL widths, dtaRead x4 + new x2) + mafia-re I3d_mirror.cpp:440-451 + parse/flag-width/overflow tests; dtaRead/new = backend/host-Vec"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x31c70",
+      "va": "0x10031c70",
+      "name": "I3D_mirror::Draw (upstream working name, NOT original)",
+      "symbol": "lhr_engine::frame_mirror::mirror_draw_plan",
+      "tier": "differential",
+      "evidence": "REA ghidra body 262insn/33BB (null guard, alpha (255-mask)/255, MakeColor pack, MODULATE ops, opaque/cull arms, clip/world/texture/draw order) + mafia-re I3d_mirror.cpp:118-151 + null/flag/cull/color tests; device emission stays behind MirrorDrawBackend"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x320f0",
+      "va": "0x100320f0",
+      "name": "I3D_mirror::Tick (upstream working name, NOT original)",
+      "symbol": "lhr_engine::frame_mirror::mirror_tick",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (not_in_procedure; PUSH EBP entry + vtable ref only) + mafia-re I3d_mirror.cpp:207-220 (index walk, no advance on remove, time unused) + residue tests; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x321b0",
+      "va": "0x100321b0",
+      "name": "I3D_mirror::UpdateVisibility (upstream working name, NOT original)",
+      "symbol": "lhr_engine::frame_mirror::mirror_update_visibility",
+      "tier": "differential",
+      "evidence": "REA ghidra body 211insn/35BB (render-number gate, RotateByMatrix dir, facing-away cos gate, VISIBLE then distance/HWTL/draw-mirrors REFLECT gate) + mafia-re I3d_mirror.cpp:230-248 + true/false/mismatch tests; write-back in mirror_store_visibility"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x32500",
+      "va": "0x10032500",
+      "name": "I3D_mirror::CollectVisuals (upstream working name, NOT original)",
+      "symbol": "lhr_engine::frame_mirror::mirror_collect",
+      "tier": "differential",
+      "evidence": "REA ghidra body 162insn/35BB (flag gate, HR-bound refresh, sphere reject, VISUAL+OBJECT-PROXY-NOMIRROR gate, 8-corner clip accumulate, 0x3f push, child-next recursion) + mafia-re I3d_mirror.cpp:263-304 + order/clip tests via mirror_view_box_clip"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x32730",
+      "va": "0x10032730",
+      "name": "I3D_mirror::PrepareReflection (upstream working name, NOT original)",
+      "symbol": "lhr_engine::frame_mirror::mirror_rebuild_matrices",
+      "tier": "differential",
+      "evidence": "REA ghidra body 727insn/99BB (PREPARED gate, VIEW_BOX gate, view_box*world, bsphere, inv_view_box, flip(2) mirror_matrix) + mafia-re I3d_mirror.cpp:316-424 + rebuild/no-viewbox/prepared tests; Collect/Clear/draw/copy orchestration stays behind the device backend; mm dir/pos-refresh arms modeled via SetDir (roll-discarding reconstruction, I3d_math.cpp:632-653)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x331b0",
+      "va": "0x100331b0",
+      "name": "I3D_mirror::SetViewBox (upstream working name, NOT original)",
+      "symbol": "lhr_engine::frame_mirror::mirror_set_view_box",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (no FUN_100331b0; re-probe hit provider timeout on re-import) + mafia-re I3d_mirror.cpp:428-436 (per-row half-extent scale, (max+min)*0.5 translation, (flags&~PREPARED)|VIEW_BOX) + store-order/flag tests; tier contract per the unresolved-boundary rule"
     }
   ],
   "vm": {

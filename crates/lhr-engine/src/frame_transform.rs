@@ -947,6 +947,25 @@ impl I3dFrameGraph {
         self.node_mut(key)?.state.visual_flags |= 0x20000;
         Ok(())
     }
+    /// Unconditional visual-flag word op shared by the mirror Duplicate /
+    /// LoadImage / UpdateV contracts (native AND/OR immediates, no
+    /// arithmetic). Helper: no function credit.
+    pub(crate) fn set_visual_flag_words(
+        &mut self,
+        key: FrameKey,
+        clear: u32,
+        set: u32,
+    ) -> Result<(), FrameError> {
+        let state = &mut self.node_mut(key)?.state;
+        state.visual_flags = (state.visual_flags & !clear) | set;
+        Ok(())
+    }
+    /// m_UpdateCount = -1 stamp of the mirror UpdateV copies loop (u32::MAX).
+    /// Helper: no function credit.
+    pub(crate) fn mark_copy_stale(&mut self, key: FrameKey) -> Result<(), FrameError> {
+        self.node_mut(key)?.state.update_count = u32::MAX;
+        Ok(())
+    }
     /// Original SetSpace, PC RVA 0x5a3c0 (contract: no Ghidra body;
     /// entry/mid/RET probes + format bytes; mafia-re I3d_visual.cpp:40-51).
     /// Ok(false) = early return, zero backend effects (both no-change arms
