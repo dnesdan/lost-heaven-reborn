@@ -55,15 +55,20 @@ class RewriteProgressTests(unittest.TestCase):
         # 0x464d0 withheld with no tree symbol, 0x46000 partial port stays
         # contract; 8 projector passes: 5 differential + 3 contract;
         # 14 billboard: 6 differential + 8 contract, 0x5e10 ABI-only teardown
-        # and 0x9630 partial dtor stay contract). Tier rules applied: differential needs
+        # and 0x9630 partial dtor stay contract).
+        # 78 wave-2 morph/anim/interpolator/pose/area: 37 differential +
+        # 41 contract (21 morph: 11 differential + 10 contract; 17 anim:
+        # 5 differential + 12 contract; 13 interpolator: 8 differential +
+        # 5 contract; 16 pose: 7 differential + 9 contract; 11 area:
+        # 6 differential + 5 contract).", Tier rules applied: differential needs
         # a Ghidra body (or complete instruction walk) plus pinning tests —
         # this includes confirm-only bodies that corroborate a pre-existing
         # port (new evidence + tests on top); contract covers no-body walks,
         # ABI-only teardown bodies (vtable re-store + base tailjump, no
         # portable state effect), and partial-coverage ports. Same standard
         # as 0x2b830 throughout.
-        self.assertEqual(ls3df["ported"], 145 + 385)
-        self.assertEqual(ls3df["verified"], 145 + 186)
+        self.assertEqual(ls3df["ported"], 145 + 463)
+        self.assertEqual(ls3df["verified"], 145 + 223)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()

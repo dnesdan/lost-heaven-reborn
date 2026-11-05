@@ -25,6 +25,14 @@ mod crash_duplicate;
 mod glass;
 #[path = "model_morph.rs"]
 mod morph;
+/// Re-exported morph word helpers so the rewrite-overlay symbol paths
+/// (`model_loading::morph_ctor_fields`, …) resolve literally and not only
+/// through the validator's `#[path]` fallback.
+pub use morph::{
+    morph_ctor_fields, morph_def_ctor_fields, morph_def_release, morph_region_teardown_order,
+    morph_set_mesh_tail, morph_teardown_order, MorphCtorFields, MorphDefCtorError, MorphDefFields,
+    MorphDefRelease, MORPH_BBOX_MAX_WORD, MORPH_BBOX_MIN_WORD, MORPH_MAGIC,
+};
 
 use crate::frame_transform::{FrameError, FrameKey, FrameKind, I3dFrameGraph, I3dFrameState};
 use crate::joint_state::{I3dJointState, SinglemeshInvalidationState};

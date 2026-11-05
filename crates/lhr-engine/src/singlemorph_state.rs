@@ -127,6 +127,21 @@ impl SinglemorphState {
             normalized: None,
         })
     }
+    /// morphBase::Clear success-data portion (LS3DF RVA 0x34390).
+    /// Ghidra FUN_10034390 (88 insn/10 BB): flags `(f & 0xFFFFFFFD) | 1`,
+    /// counts zeroed, `delete[]` weights. The inlined unknown-handle 8+16
+    /// Release loops and MorphDef::Release stay caller backend contracts.
+    /// Returns freed weight bytes.
+    pub fn clear_morph(&mut self) -> usize {
+        let residue = self.storage_bytes();
+        self.flags = (self.flags & !LOADED) | DIRTY;
+        self.levels = 0;
+        self.regions = 0;
+        self.weights = Vec::new();
+        self.normalized = None;
+        residue
+    }
+
     /// Retained weight storage, excluding the containing state object.
     pub fn storage_bytes(&self) -> usize {
         (self.weights.capacity() + self.normalized.as_ref().map_or(0, Vec::capacity))
@@ -296,6 +311,28 @@ impl SinglemorphState {
     }
 }
 
+/// Bank selector for the morph unknown-handle teardown order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MorphUnknownBank {
+    First,
+    Second,
+}
+
+/// S_morph_unknown working-label dtor order (LS3DF RVA 0x36540; name is
+/// mafia-re's, not an evidenced original symbol). Ghidra FUN_10036540
+/// (27 insn/5 BB): virtual-Release over bank-0 slots 0..8, then bank-1
+/// slots 0..16; native tests each slot for null first (`if (unknown[i])`).
+/// Slot storage stays caller-side, so the null skip lives in the caller's
+/// closure (as the test does) — this helper only pins the visit order.
+pub fn morph_unknown_release_order(release: &mut impl FnMut(MorphUnknownBank, u8)) {
+    for slot in 0..8u8 {
+        release(MorphUnknownBank::First, slot);
+    }
+    for slot in 0..16u8 {
+        release(MorphUnknownBank::Second, slot);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -413,5 +450,60 @@ mod tests {
             Err(SinglemorphError::WeightIndex)
         );
         assert!(!state.update_morph_lod(&record, 0, &mut vertices()).unwrap());
+    }
+
+    #[test]
+    fn clear_morph_zeroes_counts_and_sets_dirty_unloaded_with_residue() {
+        let mut state = SinglemorphState::from_record(&record()).unwrap();
+        state.set_weight(0, 1, 0.5).unwrap();
+        let _ = state.normalize_weights();
+        let residue = state.storage_bytes();
+        assert!(residue >= 8);
+        let freed = state.clear_morph();
+        // Residue pin, not a native byte count: storage_bytes is capacity×4
+        // (host artifact); freed==residue holds by construction and proves
+        // only that Clear dropped the whole weight buffer.
+        assert_eq!(freed, residue);
+        assert_eq!(state.flags(), 1); // (3 & !2) | 1
+        assert_eq!((state.level_count(), state.region_count()), (0, 0));
+        assert!(state.weights().is_empty() && state.normalized_weights().is_none());
+        assert!(state.is_dirty());
+    }
+    #[test]
+    fn get_weight_b_index_math_with_guard_words() {
+        let mut state = SinglemorphState::from_record(&record()).unwrap();
+        state.set_weight(0, 1, 7.5).unwrap();
+        // region * levels + level, little-endian f32 load semantics:
+        let idx = 0 * state.level_count() + 1;
+        assert_eq!(state.weights()[idx].to_le_bytes(), 7.5f32.to_le_bytes());
+        assert_eq!(state.weights(), [1.0, 7.5]); // no neighbor clobber
+    }
+    #[test]
+    fn unknown_handles_release_banks_in_order_skipping_null() {
+        use MorphUnknownBank::{First, Second};
+        let mut log = Vec::new();
+        let bank0: [bool; 8] = [true, false, true, true, false, false, false, true];
+        let bank1: [bool; 16] = [true; 16];
+        let mut filtered = Vec::new();
+        morph_unknown_release_order(&mut |bank, slot| {
+            let alive = match bank {
+                First => bank0[slot as usize],
+                Second => bank1[slot as usize],
+            };
+            if alive {
+                filtered.push((bank, slot));
+            }
+            log.push((bank, slot));
+        });
+        assert_eq!(log.len(), 24);
+        assert_eq!(
+            &log[..8],
+            &(0..8u8).map(|s| (First, s)).collect::<Vec<_>>()[..]
+        );
+        assert_eq!(
+            &log[8..],
+            &(0..16u8).map(|s| (Second, s)).collect::<Vec<_>>()[..]
+        );
+        assert_eq!(filtered.len(), 4 + 16);
     }
 }

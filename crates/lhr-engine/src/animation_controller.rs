@@ -146,6 +146,18 @@ pub struct ControllerEvaluator {
     pub bindings: [ControllerBinding; 8],
     /// Native evaluator +8; initialized to one independently of slot weights.
     pub pose_blend: f32,
+    /// Native evaluator +4 pose word (NULL = none). Eligibility for the
+    /// 0x1e960 GetPoseBlend read-back is this word, not binding flags.
+    pub pose: Option<PoseId>,
+}
+
+/// Refcount traffic for interpolator pose words (native `I3D_pose` ref at
+/// +4, virtual Release slot 0). Poses are identity-only in this owner; the
+/// `animation_pose` module owns `I3dPose` refcounts. Backends that cannot
+/// retain wire the word stores only (disclosed per call site).
+pub trait PoseBackend {
+    fn retain_pose(&mut self, pose: PoseId);
+    fn release_pose(&mut self, pose: PoseId);
 }
 
 /// Calls outside the recovered controller bodies. IDs must be nonzero, unique
@@ -297,6 +309,62 @@ pub struct PoseSetEntry {
     pub pose: PoseId,
 }
 
+impl ControllerEvaluator {
+    /// LS3DF RVA 0x1d2f0 `I3D_interpolator::SetPoseBlend` (contract: no Ghidra
+    /// body — `LAB_1001d2f0`, `analyze_function` not_found; `read_bytes`
+    /// shows FLD/FSTP store to +8 + `RET 8`). Upstream name, not an evidenced
+    /// original symbol. Bit-exact store; no clamp, no NaN policy change.
+    pub fn store_pose_blend_bits(&mut self, blend_bits: u32) {
+        self.pose_blend = f32::from_bits(blend_bits);
+    }
+
+    /// LS3DF RVA 0x1d300 `I3D_interpolator::ClearAnimation` (contract: no
+    /// body, `LAB_1001d300`; bytes show flags-byte clear + `I3D_OK`).
+    /// Upstream name, not evidenced original. Zeroes exactly the
+    /// binding-flags word, preserving track/frame indices. The native bound
+    /// check is unevidenced — the host maps out-of-range to `InvalidSlot`,
+    /// never to a word write.
+    pub fn clear_slot_flags(
+        &mut self,
+        slot: usize,
+    ) -> Result<u32, ControllerError<std::convert::Infallible>> {
+        let b = self
+            .bindings
+            .get_mut(slot)
+            .ok_or(ControllerError::InvalidSlot)?;
+        let (track, frame) = (b.track_index, b.frame_index);
+        b.flags = 0;
+        debug_assert_eq!((b.track_index, b.frame_index), (track, frame));
+        Ok(0)
+    }
+
+    /// LS3DF RVA 0x1e230 `I3D_interpolator::SetPose` (differential: 29 asm /
+    /// 7 BB). Upstream name, not evidenced original. Same-pointer → false,
+    /// no backend call, dirty untouched. Else dirty FIRST, then release-old
+    /// (word still holds the old pointer — never an intermediate NULL),
+    /// store-new, retain-new. Widths: pose word +4, dirty byte at set+4.
+    pub fn set_interpolator_pose<B: PoseBackend>(
+        &mut self,
+        backend: &mut B,
+        pose: Option<PoseId>,
+        dirty: &mut bool,
+    ) -> bool {
+        let old = self.pose;
+        if old == pose {
+            return false;
+        }
+        *dirty = true;
+        if let Some(o) = old {
+            backend.release_pose(o);
+        }
+        self.pose = pose;
+        if let Some(new) = pose {
+            backend.retain_pose(new);
+        }
+        true
+    }
+}
+
 impl IPolSet {
     pub(crate) fn validate_live_view(
         &self,
@@ -446,6 +514,7 @@ impl IPolSet {
             destination,
             bindings: [ControllerBinding::default(); 8],
             pose_blend: 1.0,
+            pose: None,
         });
         let count = self.state.evaluators.count;
         if self.capacity <= count {
@@ -481,6 +550,35 @@ impl IPolSet {
         self.active_count += 1;
         backend.mark_animated(destination);
         Ok(id)
+    }
+
+    /// LS3DF RVA 0x1eba0 `I3D_IPolSet::GetFrameInterpolator(const char*)`
+    /// (differential: 127 asm / 22 BB). Name-resolved variant of
+    /// `get_frame_interpolator` (0x1ea60, reused worker — never re-claimed).
+    /// Upstream name, not an evidenced original symbol. Order: active-list
+    /// name scan conceptually first (native byte-pair strcmp), then the
+    /// owner search (`first_frame_named`, backend contract for
+    /// FindChildFrame+0x2ffff), then allocate-or-hit. The host resolves the
+    /// name to a key first and lets the worker scan-hit on destination
+    /// identity — observably identical (no duplicate allocation, miss has no
+    /// effects, dirty untouched) minus the resolver domain, disclosed.
+    /// Miss returns None with NO effects.
+    pub fn get_frame_interpolator_named<B: LiveControllerResourceBackend>(
+        &mut self,
+        backend: &mut B,
+        frame_name: &[u8],
+    ) -> Result<Option<EvaluatorId>, ControllerError<B::Error>> {
+        self.pose_common_guard()?;
+        if frame_name.contains(&0) {
+            return Err(ControllerError::EmbeddedNameTerminator);
+        }
+        let Some((_, key)) = backend
+            .first_frame_named(frame_name)
+            .map_err(ControllerError::Resource)?
+        else {
+            return Ok(None);
+        };
+        Ok(Some(self.get_frame_interpolator(backend, key)?))
     }
 
     /// SetAnimation changes resource references only when object identity changes.
@@ -649,6 +747,12 @@ impl IPolSet {
         for index in (0..initial_count).rev() {
             let id = self.storage[index];
             let evaluator = self.evaluator(id).unwrap();
+            // Native checks the pose word FIRST (0x1e9e0 skips pose-holding
+            // interpolators even with no animations/flags); without this,
+            // wave-2 pose stores would make pose-only evaluators collectible.
+            if evaluator.pose.is_some() {
+                continue;
+            }
             if !self.state.slots.iter().any(|s| s.enabled)
                 && evaluator.bindings.iter().all(|b| b.flags == 0)
             {
@@ -854,23 +958,29 @@ impl IPolSet {
         }
         Ok(out)
     }
-    /// RVA 0x340d0 helper (SetPose(set) application): apply pose ids in
+    /// RVA 0x340d0 helper (SetPose(set) application; overlay 0x1e860 is
+    /// contract — word stores ported, retain traffic unwired): apply pose
+    /// ids in entry order, dirty only on full success. Miss ->
+    /// OBJECTNOTFOUND with prior applies kept and dirty untouched.
     /// Upstream working name, not an evidenced original symbol.
-    /// entry order, dirty only on full success. Miss -> OBJECTNOTFOUND with
-    /// dirty untouched. Body-backed entry (0x340d0 differential); this
-    /// worker is a helper phase (no independent credit).
     pub fn set_pose_set<B: LiveControllerResourceBackend>(
         &mut self,
         backend: &mut B,
         entries: &[PoseSetEntry],
     ) -> Result<(), ControllerError<B::Error>> {
         self.pose_common_guard()?;
-        let ids = self.resolve_pose_entries(backend, entries)?;
-        // Pose application itself is virtual slot +4 on the interpolator
-        // (unrecovered I3d_interpolator body): record reachability only.
-        // Host pose deformation stays in singlemesh_pose.rs; no synthetic
-        // pose state is invented here.
-        let _ = ids;
+        // Native interleaved order (0x1e860): per entry, resolve THEN apply
+        // (virtual slot +4: same-word no-op, else retain traffic + store);
+        // a miss returns OBJECTNOTFOUND with prior applies and allocations
+        // kept — no rollback. Retain traffic has no seam on this backend
+        // (disclosed); the word stores below are the credited behavior.
+        for entry in entries {
+            let ids = self.resolve_pose_entries(backend, std::slice::from_ref(entry))?;
+            let id = ids.into_iter().next().unwrap();
+            if let Some(ev) = self.owned.iter_mut().find(|ev| ev.id == id) {
+                ev.pose = Some(entry.pose);
+            }
+        }
         self.state.dirty = true;
         Ok(())
     }
@@ -881,10 +991,15 @@ impl IPolSet {
         &mut self,
         backend: &mut B,
         destination: FrameKey,
-        _pose: PoseId,
+        pose: PoseId,
     ) -> Result<(), ControllerError<B::Error>> {
         self.pose_common_guard()?;
-        self.get_frame_interpolator(backend, destination)?;
+        let id = self.get_frame_interpolator(backend, destination)?;
+        // 0x1e230 apply order on the resolved evaluator (retain traffic has
+        // no seam on this backend — disclosed; the word store is credited).
+        if let Some(e) = self.owned.iter_mut().find(|e| e.id == id) {
+            e.pose = Some(pose);
+        }
         self.state.dirty = true;
         Ok(())
     }
@@ -895,7 +1010,7 @@ impl IPolSet {
         &mut self,
         backend: &mut B,
         frame_name: &[u8],
-        _pose: PoseId,
+        pose: PoseId,
     ) -> Result<(), ControllerError<B::Error>> {
         self.pose_common_guard()?;
         if frame_name.contains(&0) {
@@ -907,7 +1022,10 @@ impl IPolSet {
         else {
             return Err(ControllerError::InvalidResourceIdentity);
         };
-        self.get_frame_interpolator(backend, key)?;
+        let id = self.get_frame_interpolator(backend, key)?;
+        if let Some(e) = self.owned.iter_mut().find(|e| e.id == id) {
+            e.pose = Some(pose);
+        }
         self.state.dirty = true;
         Ok(())
     }
@@ -926,16 +1044,21 @@ impl IPolSet {
     ) -> Result<(), ControllerError<std::convert::Infallible>> {
         self.pose_common_guard()?;
         let blend = f32::from_bits(blend_bits);
+        // Native iterates the ACTIVE interpolator list (0x1e8c0); detached
+        // host-only evaluators are skipped exactly like missing ones.
+        let active = self.active_evaluators().to_vec();
         for e in &mut self.owned {
-            e.pose_blend = blend;
+            if active.contains(&e.id) {
+                e.store_pose_blend_bits(blend.to_bits());
+            }
         }
         self.state.dirty = true;
         Ok(())
     }
     /// RVA 0x342e0 application: changed=1 FIRST, then per-entry +8 stores
     /// Upstream working name, not an evidenced original symbol.
-    /// in set order; miss keeps dirty+prefix (no rollback). No Ghidra body
-    /// for the entry -> contract.
+    /// in set order; miss keeps dirty+prefix (no rollback). Differential
+    /// (0x1e900 body 94B/43insn/8BB); this worker is the credited behavior.
     pub fn set_pose_blend_set<B: LiveControllerResourceBackend>(
         &mut self,
         backend: &mut B,
@@ -944,43 +1067,72 @@ impl IPolSet {
     ) -> Result<(), ControllerError<B::Error>> {
         self.pose_common_guard()?;
         self.state.dirty = true;
-        let ids = self.resolve_pose_entries(backend, entries)?;
-        let blend = f32::from_bits(blend_bits);
-        for id in ids {
+        // Native interleaved order (0x1e900): per entry, resolve THEN apply
+        // (+8 store); a miss keeps dirty, prefix stores and allocations.
+        for entry in entries {
+            let ids = self.resolve_pose_entries(backend, std::slice::from_ref(entry))?;
+            let id = ids.into_iter().next().unwrap();
+            let blend = f32::from_bits(blend_bits);
             if let Some(e) = self.owned.iter_mut().find(|e| e.id == id) {
-                e.pose_blend = blend;
+                e.store_pose_blend_bits(blend.to_bits());
             }
         }
         Ok(())
     }
-    /// RVA 0x34310 application: first interpolator with any nonzero binding
-    /// Upstream working name, not an evidenced original symbol.
-    /// flag (host analog of the native +4!=0 eligibility word); else +0.0.
-    /// Bit-exact read-back; null/empty/closed -> 0x00000000. No Ghidra body for
-    /// the entry -> contract.
+    /// RVA 0x1e960 application: first interpolator whose pose word is set
+    /// (+4 != 0, i.e. `pose.is_some()`), else +0.0. Upstream working name,
+    /// not an evidenced original symbol. Bit-exact read-back; null/empty/
+    /// closed -> 0x00000000. Differential (20 asm / 5 BB). Corrects the
+    /// earlier binding-flags proxy (flags belong to animation slots, not to
+    /// the pose word the body actually tests).
     pub fn pose_blend(&self) -> u32 {
         if self.closed {
             return 0x0000_0000;
         }
         for id in self.active_evaluators() {
             if let Some(e) = self.evaluator(*id) {
-                if e.bindings.iter().any(|b| b.flags != 0) {
+                if e.pose.is_some() {
                     return e.pose_blend.to_bits();
                 }
             }
         }
         0x0000_0000
     }
-    /// IPolSet::ResetAllPoses callee projection (helper phase, no function
-    /// credit: the 0x34070 delegate target was not formed in session).
-    /// Native pose words are not ported; the only pose-adjacent state in
-    /// this owner is the per-evaluator pose_blend (constructor default 1.0).
-    /// Unconditional like the native call: slot clocks, weights, modes,
-    /// enabled flags, dirty and resource bindings are untouched (exact
-    /// native pose-field set OPEN).
+    /// LS3DF RVA 0x1e9a0 `I3D_IPolSet::ResetAllPoses` (differential: 25 asm /
+    /// 7 BB). Per-entry pose word != 0 → clear pose; unconditional trailing
+    /// dirty. Clocks/weights/modes/bindings and `pose_blend` words are
+    /// untouched. Release traffic needs a `PoseBackend` — use
+    /// `reset_all_poses_seam` when one is available; this word-only form
+    /// documents the gap instead of inventing retain/release calls.
+    /// Upstream name, not an evidenced original symbol.
     pub fn reset_all_poses(&mut self) {
+        // Native iterates the ACTIVE list (0x1e9a0); see blend-all note.
+        let active = self.active_evaluators().to_vec();
         for evaluator in &mut self.owned {
-            evaluator.pose_blend = 1.0;
+            if active.contains(&evaluator.id) {
+                evaluator.pose = None;
+            }
+        }
+        self.state.dirty = true;
+    }
+    /// Backend-threaded `ResetAllPoses`: dirty FIRST (each native entry goes
+    /// through `SetPose(NULL)`, which stores dirty before its Release), then
+    /// per-entry releases in index order with the word clears. Order:
+    /// dirty, releases, clears.
+    pub fn reset_all_poses_seam<B: PoseBackend>(&mut self, backend: &mut B) {
+        self.state.dirty = true;
+        let active = self.active_evaluators().to_vec();
+        for evaluator in &mut self.owned {
+            if !active.contains(&evaluator.id) {
+                continue;
+            }
+            // Release-while-word-holds-old (same order as
+            // set_interpolator_pose): a re-entrant backend observes the old
+            // pointer, never an intermediate None.
+            if let Some(old) = evaluator.pose {
+                backend.release_pose(old);
+            }
+            evaluator.pose = None;
         }
     }
 
@@ -1433,10 +1585,9 @@ mod tests {
             controller
                 .get_frame_interpolator(&mut backend, FrameKey(11))
                 .unwrap();
-            // Eligibility analog for the native +4!=0 word: a nonzero
-            // binding flag (fresh bindings carry none; a bound animation
-            // would set them via the slot path).
-            controller.owned[0].bindings[0].flags = 1;
+            // Eligibility for the native +4!=0 word: the evaluator pose word
+            // (RVA 0x1e960 correction — binding flags are the wrong proxy).
+            controller.owned[0].pose = Some(PoseId(77));
             controller.set_pose_blend_all(bits).unwrap();
             assert_eq!(controller.pose_blend(), bits, "bits {bits:#x}");
             assert!(controller.state().dirty);
@@ -1541,29 +1692,331 @@ mod tests {
         controller.close(&mut backend);
     }
     #[test]
-    fn reset_all_poses_restores_blends_without_touching_slots() {
-        // 0x34070 callee projection: unconditional blend restore; slot
-        // clocks, weights, modes, enabled flags and dirty untouched.
+    fn reset_all_poses_clears_pose_words_and_dirties_keeping_rest() {
+        // RVA 0x1e9a0: per-entry pose clear + unconditional trailing dirty;
+        // blends, slot clocks, modes, bindings untouched.
         let mut controller = IPolSet::new(FrameKey(1), false);
         let mut backend = Resources::default();
         controller
             .get_frame_interpolator(&mut backend, FrameKey(11))
             .unwrap();
+        controller.owned[0].pose = Some(PoseId(5));
         controller.owned[0].pose_blend = 0.25;
         controller.state_mut().slots[0].current = 42;
-        controller.state_mut().dirty = true;
-        controller.set_pose_blend_all(0x4000_0000).unwrap();
+        controller.state_mut().dirty = false;
         controller.reset_all_poses();
+        assert!(controller.owned.iter().all(|e| e.pose.is_none()));
         assert_eq!(
             controller
                 .owned
                 .iter()
                 .map(|e| e.pose_blend)
                 .collect::<Vec<_>>(),
-            vec![1.0; controller.owned.len()]
+            vec![0.25; controller.owned.len()]
         );
         assert_eq!(controller.state().slots[0].current, 42);
         assert!(controller.state().dirty);
+        controller.close(&mut backend);
+    }
+    #[test]
+    fn interpolator_pose_word_store_and_same_ptr_noop() {
+        // RVA 0x1e230: same-pointer no-op keeps dirty clear; else dirty
+        // first, release-old, store, retain-new.
+        struct PLog {
+            ops: Vec<&'static str>,
+        }
+        impl PoseBackend for PLog {
+            fn retain_pose(&mut self, _: PoseId) {
+                self.ops.push("retain");
+            }
+            fn release_pose(&mut self, _: PoseId) {
+                self.ops.push("release");
+            }
+        }
+        let mut e = ControllerEvaluator {
+            id: EvaluatorId(1),
+            destination: FrameKey(1),
+            bindings: [ControllerBinding::default(); 8],
+            pose_blend: 1.0,
+            pose: None,
+        };
+        let mut b = PLog { ops: vec![] };
+        let mut dirty = false;
+        assert!(!e.set_interpolator_pose(&mut b, None, &mut dirty));
+        assert!(b.ops.is_empty() && !dirty);
+        assert!(e.set_interpolator_pose(&mut b, Some(PoseId(7)), &mut dirty));
+        assert!(dirty && b.ops == ["retain"]);
+        dirty = false;
+        assert!(!e.set_interpolator_pose(&mut b, Some(PoseId(7)), &mut dirty));
+        assert!(!dirty && b.ops.len() == 1);
+        assert!(e.set_interpolator_pose(&mut b, None, &mut dirty));
+        assert_eq!(b.ops, ["retain", "release"]);
+        assert_eq!(e.pose, None);
+    }
+    #[test]
+    fn pose_blend_bits_and_slot_clear_words() {
+        // RVAs 0x1d2f0/0x1d300: bit-exact store incl. NaN payloads; the slot
+        // clear zeroes only the flags word and returns I3D_OK.
+        let mut e = ControllerEvaluator {
+            id: EvaluatorId(2),
+            destination: FrameKey(3),
+            bindings: [ControllerBinding::default(); 8],
+            pose_blend: 1.0,
+            pose: None,
+        };
+        for bits in [
+            0x0000_0000u32,
+            0x3F80_0000,
+            0x7FC0_0001,
+            0xFFC0_0001,
+            0x7F80_0000,
+        ] {
+            e.store_pose_blend_bits(bits);
+            assert_eq!(e.pose_blend.to_bits(), bits);
+        }
+        e.bindings[2] = ControllerBinding {
+            track_index: 5,
+            frame_index: 7,
+            flags: 0x2F,
+        };
+        assert_eq!(e.clear_slot_flags(2).unwrap(), 0);
+        assert_eq!(
+            e.bindings[2],
+            ControllerBinding {
+                track_index: 5,
+                frame_index: 7,
+                flags: 0,
+            }
+        );
+        assert!(e.clear_slot_flags(8).is_err());
+    }
+    #[test]
+    fn pose_blend_eligibility_is_pose_word_not_flags() {
+        // RVA 0x1e960 correction: flags without a pose read +0.0; a pose
+        // without flags reads exact bits.
+        let mut controller = IPolSet::new(FrameKey(1), false);
+        let mut backend = Resources::default();
+        controller
+            .get_frame_interpolator(&mut backend, FrameKey(11))
+            .unwrap();
+        controller.owned[0].bindings[0].flags = 0xFFFF;
+        controller.owned[0].pose_blend = 0.5;
+        assert_eq!(controller.pose_blend(), 0x0000_0000);
+        controller.owned[0].pose = Some(PoseId(3));
+        assert_eq!(controller.pose_blend(), 0.5f32.to_bits());
+        controller.close(&mut backend);
+    }
+    #[test]
+    fn reset_all_poses_seam_dirties_first_then_releases_in_order() {
+        // RVA 0x1e9a0 seam: dirty first (each entry's SetPose(NULL) dirties
+        // before its Release), then per-entry releases in index order;
+        // blends and slots bit-identical afterwards.
+        struct PLog {
+            ops: Vec<u32>,
+        }
+        impl PoseBackend for PLog {
+            fn retain_pose(&mut self, _: PoseId) {}
+            fn release_pose(&mut self, p: PoseId) {
+                self.ops.push(p.0);
+            }
+        }
+        let mut controller = IPolSet::new(FrameKey(1), false);
+        let mut backend = Resources::default();
+        controller
+            .get_frame_interpolator(&mut backend, FrameKey(11))
+            .unwrap();
+        controller
+            .get_frame_interpolator(&mut backend, FrameKey(12))
+            .unwrap();
+        controller.owned[0].pose = Some(PoseId(9));
+        controller.owned[1].pose = Some(PoseId(4));
+        controller.owned[0].pose_blend = 0.25;
+        controller.state_mut().dirty = false;
+        let mut pb = PLog { ops: vec![] };
+        controller.reset_all_poses_seam(&mut pb);
+        assert_eq!(pb.ops, [9, 4]);
+        assert!(controller.owned.iter().all(|e| e.pose.is_none()));
+        assert_eq!(controller.owned[0].pose_blend, 0.25);
+        assert!(controller.state().dirty);
+        controller.close(&mut backend);
+    }
+    #[test]
+    fn named_getter_miss_has_no_effects_and_scan_hits_by_identity() {
+        // RVA 0x1eba0: miss resolves to None with no allocation and dirty
+        // untouched; a second hit reuses the worker identity scan.
+        struct Miss(Resources);
+        impl ControllerResourceBackend for Miss {
+            type Error = ();
+            fn allocate_evaluator(&mut self) -> Result<EvaluatorId, ()> {
+                self.0.allocate_evaluator()
+            }
+            fn free_evaluator(&mut self, id: EvaluatorId) {
+                self.0.free_evaluator(id)
+            }
+            fn allocate_storage(&mut self, capacity: usize) -> Result<AllocationId, ()> {
+                self.0.allocate_storage(capacity)
+            }
+            fn free_storage(&mut self, id: AllocationId) {
+                self.0.free_storage(id)
+            }
+            fn retain_animation(&mut self, id: AnimSetId) {
+                self.0.retain_animation(id)
+            }
+            fn release_animation(&mut self, id: AnimSetId) {
+                self.0.release_animation(id)
+            }
+            fn mark_animated(&mut self, destination: FrameKey) {
+                self.0.mark_animated(destination)
+            }
+        }
+        impl LiveControllerResourceBackend for Miss {
+            fn first_frame_named(&mut self, _: &[u8]) -> Result<Option<(usize, FrameKey)>, ()> {
+                Ok(None)
+            }
+        }
+        let mut controller = IPolSet::new(FrameKey(1), false);
+        let mut backend = Miss(Resources::default());
+        assert_eq!(
+            controller
+                .get_frame_interpolator_named(&mut backend, b"missing")
+                .unwrap(),
+            None
+        );
+        assert!(!controller.state().dirty);
+        assert_eq!(controller.num_interpolators(), 0);
+        controller.close(&mut backend);
+    }
+    #[test]
+    fn multi_entry_prefix_applies_before_miss_without_rollback() {
+        // 0x1e860/0x1e900 interleave: [hit, miss] applies entry0 (pose word
+        // + blend-set dirty header) then returns OBJECTNOTFOUND with the
+        // prefix kept; set_pose_set leaves dirty untouched.
+        struct TwoHit(Resources);
+        impl ControllerResourceBackend for TwoHit {
+            type Error = ();
+            fn allocate_evaluator(&mut self) -> Result<EvaluatorId, ()> {
+                self.0.allocate_evaluator()
+            }
+            fn free_evaluator(&mut self, id: EvaluatorId) {
+                self.0.free_evaluator(id)
+            }
+            fn allocate_storage(&mut self, capacity: usize) -> Result<AllocationId, ()> {
+                self.0.allocate_storage(capacity)
+            }
+            fn free_storage(&mut self, id: AllocationId) {
+                self.0.free_storage(id)
+            }
+            fn retain_animation(&mut self, id: AnimSetId) {
+                self.0.retain_animation(id)
+            }
+            fn release_animation(&mut self, id: AnimSetId) {
+                self.0.release_animation(id)
+            }
+            fn mark_animated(&mut self, destination: FrameKey) {
+                self.0.mark_animated(destination)
+            }
+        }
+        impl LiveControllerResourceBackend for TwoHit {
+            fn first_frame_named(&mut self, name: &[u8]) -> Result<Option<(usize, FrameKey)>, ()> {
+                Ok((name == b"A").then_some((0, FrameKey(11))))
+            }
+        }
+        let entries = [
+            PoseSetEntry {
+                frame_name: b"A".to_vec(),
+                pose: PoseId(21),
+            },
+            PoseSetEntry {
+                frame_name: b"missing".to_vec(),
+                pose: PoseId(22),
+            },
+        ];
+        let mut controller = IPolSet::new(FrameKey(1), false);
+        let mut backend = TwoHit(Resources::default());
+        assert_eq!(
+            controller.set_pose_set(&mut backend, &entries),
+            Err(ControllerError::InvalidResourceIdentity)
+        );
+        let id = controller
+            .active_evaluators()
+            .iter()
+            .copied()
+            .find(|id| controller.evaluator(*id).unwrap().destination == FrameKey(11))
+            .unwrap();
+        assert_eq!(controller.evaluator(id).unwrap().pose, Some(PoseId(21)));
+        assert!(!controller.state().dirty);
+        let mut controller = IPolSet::new(FrameKey(1), false);
+        let mut backend = TwoHit(Resources::default());
+        assert_eq!(
+            controller.set_pose_blend_set(&mut backend, 0x3f80_0000, &entries),
+            Err(ControllerError::InvalidResourceIdentity)
+        );
+        let id = controller
+            .active_evaluators()
+            .iter()
+            .copied()
+            .find(|id| controller.evaluator(*id).unwrap().destination == FrameKey(11))
+            .unwrap();
+        assert_eq!(
+            controller.evaluator(id).unwrap().pose_blend.to_bits(),
+            0x3f80_0000
+        );
+        assert!(controller.state().dirty);
+        controller.close(&mut backend);
+    }
+    #[test]
+    fn sweeper_keeps_pose_holding_evaluators() {
+        // 0x1e9e0 pose arm: the sweeper skips pose-holding interpolators
+        // even with no animations and clear flags.
+        let mut controller = IPolSet::new(FrameKey(1), false);
+        let mut backend = Resources::default();
+        let id = controller
+            .get_frame_interpolator(&mut backend, FrameKey(11))
+            .unwrap();
+        controller.owned[0].pose = Some(PoseId(77));
+        controller.release_unused_interpolators(&mut backend);
+        assert_eq!(controller.num_interpolators(), 1);
+        assert_eq!(controller.evaluator(id).unwrap().pose, Some(PoseId(77)));
+        controller.close(&mut backend);
+    }
+    #[test]
+    fn detached_evaluators_are_skipped_by_blend_and_reset() {
+        // Active-only property: a host-only owned entry outside the active
+        // list keeps its pose word and blend through blend-all/reset/seam.
+        struct PLog {
+            ops: Vec<u32>,
+        }
+        impl PoseBackend for PLog {
+            fn retain_pose(&mut self, _: PoseId) {}
+            fn release_pose(&mut self, p: PoseId) {
+                self.ops.push(p.0);
+            }
+        }
+        let mut controller = IPolSet::new(FrameKey(1), false);
+        let mut backend = Resources::default();
+        controller
+            .get_frame_interpolator(&mut backend, FrameKey(11))
+            .unwrap();
+        controller.owned.push(ControllerEvaluator {
+            id: EvaluatorId(999),
+            destination: FrameKey(12),
+            bindings: [ControllerBinding::default(); 8],
+            pose_blend: 0.5,
+            pose: Some(PoseId(77)),
+        });
+        controller.set_pose_blend_all(0x3f80_0000).unwrap();
+        controller.reset_all_poses();
+        let mut pb = PLog { ops: vec![] };
+        controller.reset_all_poses_seam(&mut pb);
+        let detached = controller
+            .owned
+            .iter()
+            .find(|e| e.id == EvaluatorId(999))
+            .unwrap();
+        assert_eq!(detached.pose, Some(PoseId(77)));
+        assert_eq!(detached.pose_blend.to_bits(), 0.5f32.to_bits());
+        assert!(pb.ops.is_empty());
+        assert_eq!(controller.num_interpolators(), 1);
         controller.close(&mut backend);
     }
 }

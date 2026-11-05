@@ -34,6 +34,12 @@ pub struct AreaBufferKey {
     identity: u64,
     index: usize,
 }
+
+/// Diagnostic sink for the unsupported-area image message (RVA 0x5ca0).
+/// Device/backend contract: the engine never formats or emits text itself.
+pub trait AreaImageDiagnostic {
+    fn unsupported_area_image(&mut self, frame_type: u32, name: &[u8]);
+}
 #[derive(Debug)]
 struct Buffer {
     bytes: Vec<u8>,
@@ -341,6 +347,11 @@ impl AreaFrame {
         storage: &AreaStorage,
         position: [f32; 3],
     ) -> Result<bool, AreaError> {
+        // NaN hardening (disclosed): native computes `dot + d > 0` with
+        // strict `>`, where a NaN dot is false so the loop continues and the
+        // point reports inside (`true`). The host `number()` maps any
+        // non-finite/subnormal intermediate to `NumericUnavailable` instead
+        // of a boolean — never bit-exactness on the NaN domain.
         for index in 0..self.face_count as usize {
             let p = self.plane(storage, index)?;
             if number(add(
@@ -456,6 +467,76 @@ impl crate::model_loading::ModelArena {
         self.area(key)?;
         let a = self.areas.iter_mut().find(|a| a.key == key).unwrap();
         Ok(a.build(&mut self.area_storage, vertices, faces)?)
+    }
+    /// Original I3D_area::Duplicate, PC RVA 0x5820 (contract: no Ghidra body,
+    /// LAB_10005820/not_in_procedure; mafia-re I3d_area.cpp:137-151).
+    /// Upstream working name, not an evidenced original symbol. Order-exact:
+    /// base duplicate_frame first; non-area source keeps the base result;
+    /// area source rebuilds dst from src local verts/faces (stride is the
+    /// loader-fixed sizeof(S_vector)=12, so the typed-slice Build applies).
+    /// Return form: native discards the Build result and returns the base
+    /// `Duplicate` result (`Build(...); return result;`), so a Build OOM
+    /// keeps its partial effects (per 0x5880 semantics) but still reports
+    /// the base OK — the OOM word never surfaces on this path.
+    pub fn duplicate_area_derived(
+        &mut self,
+        dst: AreaKey,
+        src: crate::frame_transform::FrameKey,
+    ) -> Result<Option<u32>, crate::model_loading::ModelError> {
+        self.frame(src)
+            .map_err(|_| crate::model_loading::ModelError::UnknownFrame(src))?;
+        self.area(dst)?;
+        self.duplicate_frame(dst.frame(), src)?;
+        if self.state(src)?.kind != crate::frame_transform::FrameKind::Area {
+            return Ok(None);
+        }
+        let area = self.area_key(src)?;
+        let nv = self.area(area)?.vertex_count as usize;
+        let nf = self.area(area)?.face_count as usize;
+        let storage = &self.area_storage;
+        let src_view = self.area(area)?;
+        let mut verts = Vec::with_capacity(nv);
+        for i in 0..nv {
+            verts.push(src_view.local_vertex(storage, i)?);
+        }
+        let face_key = src_view.buffer(2).ok_or(AreaError::UnwrittenGeometry)?;
+        let mut faces = Vec::with_capacity(nf);
+        for f in 0..nf {
+            let raw = storage.read(face_key, f.checked_mul(6).ok_or(AreaError::Extent)?, 6)?;
+            faces.push(std::array::from_fn(|a| {
+                u16::from_le_bytes(raw[a * 2..a * 2 + 2].try_into().unwrap())
+            }));
+        }
+        match self.area_build(dst, &verts, &faces) {
+            Ok(code) => Ok(if code == 0 { None } else { Some(code as u32) }),
+            // Native `Build(...); return result;` discards the Build limb:
+            // partial effects stay (0x5880 rule), the base OK is reported.
+            // Narrowed to the allocation-failure limb (the only Err the
+            // typed Build can produce after validated keys/geometry).
+            Err(crate::model_loading::ModelError::Area(
+                AreaError::AllocationDiagnosticUnavailable,
+            )) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+    /// Original I3D_area::SaveImage, PC RVA 0x5ca0 (contract: no Ghidra body,
+    /// LAB_10005ca0/not_in_procedure; mafia-re I3d_area.cpp:222-228).
+    /// Upstream working name, not an evidenced original symbol. Order-exact:
+    /// areas are not saved; the native dbgPrintf("** nepodporovany typ:%s
+    /// SaveImage()  %s", FrameType2String(m_Type), GetName()) becomes one
+    /// backend call carrying the evidenced type word (14, from the 0x51a0
+    /// ctor [0x44]=0xe store) and the live name bytes. No state is touched.
+    /// The exact FrameType2String spelling is unverified (OPEN) so only the
+    /// numeric type crosses the boundary — never an invented string.
+    pub fn area_save_image(
+        &self,
+        key: AreaKey,
+        sink: &mut impl AreaImageDiagnostic,
+    ) -> Result<(), crate::model_loading::ModelError> {
+        self.area(key)?;
+        let frame = key.frame();
+        sink.unsupported_area_image(14, &self.frame(frame)?.name_bytes);
+        Ok(())
     }
     /// Native5440 changes non-owning circular links and Scene count/version.
     /// In particular removal leaves stale prev/next words as the source does.
@@ -699,5 +780,264 @@ mod tests {
         assert_eq!(arena.scene(scene).unwrap().area_count, 0);
         assert_eq!(arena.scene(scene).unwrap().area_head, None);
         assert!(arena.scene(scene).unwrap().areas_changed);
+    }
+
+    #[test]
+    fn ctor_pins_type_flags_fade_and_empty_guarded_geometry() {
+        let mut arena = ModelArena::default();
+        let key = arena.create_area().unwrap();
+        let area = arena.area(key).unwrap();
+        assert_eq!(area.vertex_count, 0);
+        assert_eq!(area.face_count, 0);
+        assert_eq!(area.switch_fade_time, 500);
+        assert_eq!(area.scene, None);
+        assert!(area.sounds().is_empty());
+        assert_eq!(
+            area.local_vertex(arena.area_storage(), 0),
+            Err(AreaError::InvalidFaceIndex)
+        );
+        assert_eq!(arena.state(key.frame()).unwrap().flags & 0x40000, 0x40000);
+        arena.release(key.frame()).unwrap();
+        assert_eq!(arena.area_storage().live_allocations(), 0);
+        assert_eq!(arena.area_storage().live_bytes(), 0);
+    }
+    #[test]
+    fn destructor_unlinks_both_sides_before_freeing_geometry_and_ring() {
+        let mut arena = ModelArena::default();
+        let audio = crate::runtime_audio::RuntimeAudio::default();
+        arena
+            .bind_host_sound_backend(crate::frame_sound::HostSoundBackend::new(1, &audio))
+            .unwrap();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let sector = arena.scene(scene).unwrap().sectors[0].frame();
+        let key = arena.create_area().unwrap();
+        arena.link_frame(key.frame(), Some(sector), 0).unwrap();
+        let sound = arena.create_owned_sound_frame().unwrap();
+        arena.add_sound_to_area(key, sound).unwrap();
+        arena.release(key.frame()).unwrap();
+        assert!(arena.sound(sound).unwrap().areas().is_empty());
+        assert_eq!(arena.area_storage().live_allocations(), 0);
+        assert_eq!(arena.area_storage().live_bytes(), 0);
+        assert_eq!(arena.scene(scene).unwrap().area_count, 0);
+        arena.release(sound.frame()).unwrap();
+        assert_eq!(audio.live_sound_count().unwrap(), 0);
+    }
+    #[test]
+    fn ring_remove_then_re_add_keeps_count_and_changed_flag_exact() {
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let sector = arena.scene(scene).unwrap().sectors[0].frame();
+        let a = arena.create_area().unwrap();
+        arena.link_frame(a.frame(), Some(sector), 0).unwrap();
+        arena.link_frame(a.frame(), None, 0).unwrap();
+        assert_eq!(arena.scene(scene).unwrap().area_count, 0);
+        assert_eq!(arena.scene(scene).unwrap().area_head, None);
+        assert!(arena.scene(scene).unwrap().areas_changed);
+        assert_eq!(arena.area(a).unwrap().scene, None);
+        arena.link_frame(a.frame(), Some(sector), 0).unwrap();
+        assert_eq!(arena.scene(scene).unwrap().area_count, 1);
+        arena.release(a.frame()).unwrap();
+        assert_eq!(arena.scene(scene).unwrap().area_count, 0);
+    }
+    #[test]
+    fn link_to_same_parent_is_noop_and_reparent_moves_scene_ring() {
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let sector = arena.scene(scene).unwrap().sectors[0].frame();
+        let a = arena.create_area().unwrap();
+        assert_eq!(arena.link_frame(a.frame(), Some(sector), 0).unwrap(), 0);
+        assert_eq!(arena.link_frame(a.frame(), Some(sector), 7).unwrap(), 0);
+        assert_eq!(arena.scene(scene).unwrap().area_count, 1);
+        arena.link_frame(a.frame(), None, 0).unwrap();
+        assert_eq!(arena.area(a).unwrap().scene, None);
+        arena.release(a.frame()).unwrap();
+    }
+    #[test]
+    fn update_v_projects_world_verts_then_planes_with_exact_translation() {
+        crate::native_precision::Pc24PrecisionState::default().run(|| {
+            let mut arena = ModelArena::default();
+            let key = arena.create_area().unwrap();
+            arena
+                .area_build(
+                    key,
+                    &[[0., 0., 0.], [1., 0., 0.], [0., 1., 0.]],
+                    &[[0, 1, 2]],
+                )
+                .unwrap();
+            assert_eq!(
+                arena
+                    .area(key)
+                    .unwrap()
+                    .world_vertex(arena.area_storage(), 0),
+                Err(AreaError::UnwrittenGeometry)
+            );
+            arena.update_frame(key.frame()).unwrap();
+            assert_eq!(
+                arena
+                    .area(key)
+                    .unwrap()
+                    .world_vertex(arena.area_storage(), 2)
+                    .unwrap(),
+                [0., 1., 0.]
+            );
+            let pl = arena
+                .area(key)
+                .unwrap()
+                .plane(arena.area_storage(), 0)
+                .unwrap();
+            assert_eq!(
+                [pl[0].to_bits(), pl[1].to_bits(), pl[2].to_bits()],
+                [0u32, 0, 1f32.to_bits()]
+            );
+            arena.release(key.frame()).unwrap();
+            assert_eq!(arena.area_storage().live_allocations(), 0);
+        });
+    }
+    #[test]
+    fn duplicate_copies_geometry_via_build_and_keeps_base_result_for_non_area() {
+        let mut arena = ModelArena::default();
+        let src = arena.create_area().unwrap();
+        arena
+            .area_build(
+                src,
+                &[[0., 0., 0.], [1., 0., 0.], [0., 1., 0.]],
+                &[[0, 1, 2]],
+            )
+            .unwrap();
+        let dst = arena.create_area().unwrap();
+        assert_eq!(
+            arena.duplicate_area_derived(dst, src.frame()).unwrap(),
+            None
+        );
+        assert_eq!(arena.area(dst).unwrap().vertex_count, 3);
+        assert_eq!(arena.area(dst).unwrap().face_count, 1);
+        assert_eq!(
+            arena
+                .area(dst)
+                .unwrap()
+                .local_vertex(arena.area_storage(), 1)
+                .unwrap(),
+            [1., 0., 0.]
+        );
+        let sector = arena.create_sector_frame().unwrap();
+        assert_eq!(
+            arena.duplicate_area_derived(dst, sector.frame()).unwrap(),
+            None
+        );
+        assert_eq!(arena.area(dst).unwrap().vertex_count, 3);
+        arena.release(src.frame()).unwrap();
+        arena.release(dst.frame()).unwrap();
+        arena.release(sector.frame()).unwrap();
+        assert_eq!(arena.area_storage().live_allocations(), 0);
+    }
+    #[test]
+    fn duplicate_oom_keeps_base_ok_with_partial_prefix() {
+        let mut arena = ModelArena::default();
+        let src = arena.create_area().unwrap();
+        arena.area_build(src, &[[0.; 3]; 3], &[[0, 1, 2]]).unwrap();
+        let dst = arena.create_area().unwrap();
+        arena.area_build(dst, &[[9.; 3]; 3], &[[0, 1, 2]]).unwrap();
+        let next_call = arena.area_storage().allocation_calls() + 1;
+        arena.area_storage_mut().fail_on_allocation(Some(next_call));
+        // Native `Build(...); return result;` discards the Build limb: the
+        // base OK is reported while the partial 0x5880 effects stay — the
+        // old COUNTS are preserved but geometry buffers were freed-first, so
+        // reads fail (native loses the old words the same way).
+        assert_eq!(
+            arena.duplicate_area_derived(dst, src.frame()).unwrap(),
+            None
+        );
+        assert_eq!(arena.area(dst).unwrap().vertex_count, 3);
+        assert_eq!(
+            arena
+                .area(dst)
+                .unwrap()
+                .local_vertex(arena.area_storage(), 0),
+            Err(AreaError::UnwrittenGeometry)
+        );
+        arena.area_storage_mut().fail_on_allocation(None);
+        arena.release(src.frame()).unwrap();
+        arena.release(dst.frame()).unwrap();
+    }
+    #[test]
+    fn build_oom_word_and_call_order_match_native_prefix() {
+        let mut arena = ModelArena::default();
+        let key = arena.create_area().unwrap();
+        arena.area_storage_mut().fail_on_allocation(Some(1));
+        assert!(matches!(
+            arena.area_build(key, &[[0.; 3]], &[]),
+            Err(crate::model_loading::ModelError::Area(
+                AreaError::AllocationDiagnosticUnavailable
+            ))
+        ));
+        assert_eq!(arena.area_storage().allocation_calls(), 4);
+        assert_eq!(arena.area_storage().live_allocations(), 3);
+        arena.release(key.frame()).unwrap();
+        assert_eq!(arena.area_storage().live_allocations(), 0);
+    }
+    #[test]
+    fn check_point_strict_zero_threshold_and_nan_is_host_error() {
+        crate::native_precision::Pc24PrecisionState::default().run(|| {
+            let mut arena = ModelArena::default();
+            let key = arena.create_area().unwrap();
+            arena
+                .area_build(
+                    key,
+                    &[[0., 0., 0.], [1., 0., 0.], [0., 1., 0.]],
+                    &[[0, 1, 2]],
+                )
+                .unwrap();
+            arena.update_frame(key.frame()).unwrap();
+            assert!(arena
+                .area(key)
+                .unwrap()
+                .check_point(arena.area_storage(), [0., 0., -1.])
+                .unwrap());
+            assert!(arena
+                .area(key)
+                .unwrap()
+                .check_point(arena.area_storage(), [0., 0., 0.])
+                .unwrap());
+            assert!(!arena
+                .area(key)
+                .unwrap()
+                .check_point(arena.area_storage(), [0., 0., 1.])
+                .unwrap());
+            assert!(arena
+                .area(key)
+                .unwrap()
+                .check_point(arena.area_storage(), [f32::NAN, 0., 0.])
+                .is_err());
+            arena.release(key.frame()).unwrap();
+            assert_eq!(arena.area_storage().live_bytes(), 0);
+        });
+    }
+    #[test]
+    fn save_image_emits_unsupported_once_without_touching_state() {
+        struct Rec {
+            calls: u32,
+            ty: u32,
+            name: Vec<u8>,
+        }
+        impl AreaImageDiagnostic for Rec {
+            fn unsupported_area_image(&mut self, frame_type: u32, name: &[u8]) {
+                self.calls += 1;
+                self.ty = frame_type;
+                self.name = name.to_vec();
+            }
+        }
+        let mut arena = ModelArena::default();
+        let key = arena.create_area().unwrap();
+        let before_calls = arena.area_storage().allocation_calls();
+        let mut rec = Rec {
+            calls: 0,
+            ty: 0,
+            name: Vec::new(),
+        };
+        arena.area_save_image(key, &mut rec).unwrap();
+        assert_eq!((rec.calls, rec.ty), (1, 14));
+        assert_eq!(arena.area_storage().allocation_calls(), before_calls);
+        assert_eq!(arena.area(key).unwrap().vertex_count, 0);
+        arena.release(key.frame()).unwrap();
     }
 }

@@ -9,6 +9,8 @@ pub mod animation_binding;
 pub mod animation_catalog;
 pub mod animation_controller;
 pub mod animation_index;
+pub mod animation_pose;
+pub mod animation_set_keys;
 mod arena_frame_names;
 pub mod billboard_state;
 pub mod box_new_actor;

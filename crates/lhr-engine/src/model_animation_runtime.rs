@@ -2546,8 +2546,9 @@ mod tests {
         assert_eq!(arena.live_frame_count(), 0);
     }
     #[test]
-    fn reset_all_poses_null_is_noop_and_bound_resets_blends_keeping_clocks() {
-        // RVA 0x34070: null-only guard; bound path resets blends only.
+    fn reset_all_poses_null_is_noop_and_bound_clears_poses_keeping_rest() {
+        // RVA 0x1e9a0: null-only guard; bound path clears pose words and sets
+        // dirty, leaving blends/slots untouched.
         let mut arena = ModelArena::default();
         let (model, _) = load(&mut arena, parsed(&[b"A"]));
         assert!(!arena.reset_all_model_poses(model).unwrap());

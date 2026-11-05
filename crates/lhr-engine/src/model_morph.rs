@@ -6,6 +6,10 @@
 //! Source Arc<Model> retains the shared immutable MorphDef; each live frame owns
 //! raw weights. The existing visual resource owner separately owns the shared
 //! canonical mesh and each visual's retained render LOD positions/update count.
+//! Port symbols below are exercised by their pinning tests and the rewrite
+//! overlay; render-pass callers land separately. Silence lib-build dead-code
+//! noise without weakening any lint elsewhere.
+#![allow(dead_code)]
 use super::*;
 use crate::singlemorph_state::{SinglemorphError, SinglemorphState};
 
@@ -14,6 +18,11 @@ pub(crate) struct MorphFrame {
     pub(super) weights: SinglemorphState,
 }
 impl MorphFrame {
+    /// I3D_morph working-label dtor, morph-owned prefix (RVA 0x34eb0):
+    /// delegates to the free-function entry point below.
+    pub(super) fn morph_teardown_order(&mut self, order: &mut Vec<&'static str>) -> usize {
+        morph_teardown_order(&mut self.weights, order)
+    }
     pub(super) fn load(record: &lhr_assets::MorphRecord) -> Result<Self, ModelError> {
         Ok(Self {
             weights: SinglemorphState::from_record(record).map_err(ModelError::Morph)?,
@@ -28,6 +37,128 @@ impl MorphFrame {
         })
     }
 }
+/// I3D_morph working-label ctor words (LS3DF RVA 0x34e30). Ghidra
+/// FUN_10034e30 (17 insn/1 BB): parent ctor (caller) → six zero words at
+/// +0x220..0x234, flags 5 at +0x21c, vtables, magic. The morphBase prefix
+/// reuses `SinglemorphState::new()`.
+pub const MORPH_MAGIC: u32 = 0x4850_524d; // LE bytes "MRPH"
+                                          // Flag words reuse the evidenced VISF_ names (I3D.h:2688,2702) instead of
+                                          // module-local aliases: `crate::frame_mirror::VISF_WBOUND_VALID` (0x40000),
+                                          // `crate::projector_pass::VISF_WORLD_SPACE` (0x40).
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MorphCtorFields {
+    pub flags: u32,
+    pub reserved: [u32; 6],
+    pub magic: u32,
+}
+
+impl MorphCtorFields {
+    pub fn morph_ctor_fields() -> Self {
+        morph_ctor_fields()
+    }
+}
+
+/// Free-function entry point for the ctor words so the overlay symbol
+/// resolves literally; the associated function delegates here (single
+/// implementation, no drift).
+pub fn morph_ctor_fields() -> MorphCtorFields {
+    MorphCtorFields {
+        flags: 5,
+        reserved: [0; 6],
+        magic: MORPH_MAGIC,
+    }
+}
+
+/// I3D_morph working-label dtor, morph-owned prefix (RVA 0x34eb0).
+/// Ghidra FUN_10034eb0 (99 insn/11 BB): vtable restores → Clear-equivalent
+/// (flags `(f&!2)|1`, counts/weights dropped) → parent dtor tail (caller).
+/// Logs the observable prefix order and returns freed weight bytes.
+/// Free-function entry point so the overlay symbol resolves literally;
+/// `MorphFrame::morph_teardown_order` delegates here. Takes the weight state
+/// directly (keeps `MorphFrame` crate-private).
+pub fn morph_teardown_order(weights: &mut SinglemorphState, order: &mut Vec<&'static str>) -> usize {
+    order.push("morph-clear");
+    weights.clear_morph()
+}
+
+/// I3D_morph::SetMesh / LoadImage shared tail (RVAs 0x35130/0x36750,
+/// contract — no Ghidra body). After the caller's mesh-compat gate and
+/// 10-dword bound copy: `if (!(flags & 0x40)) flags &= ~0x40000`.
+pub fn morph_set_mesh_tail(visual_flags: &mut u32, world_space: bool) {
+    if !world_space {
+        *visual_flags &= !crate::frame_mirror::VISF_WBOUND_VALID;
+    }
+}
+
+/// MorphDef working-label ctor words (RVA 0x36580; name is mafia-re's).
+/// Ghidra FUN_10036580 (87 insn/8 BB): refcount 1; signed `JLE` gates
+/// (widths are `i32`); bbox invalidate words; zero sphere. Allocation
+/// itself stays caller-side. Words carried as bits, no float arithmetic
+/// (decimals are comments only).
+pub const MORPH_BBOX_MIN_WORD: u32 = 0x5A0E_1BCA; // 1.0000000272564224e16f32
+pub const MORPH_BBOX_MAX_WORD: u32 = 0xDA0E_1BCA; // -1.0000000272564224e16f32
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MorphDefFields {
+    pub ref_count: i32,
+    pub num_lods: i32,
+    pub num_regions: i32,
+    pub bbox_min_words: [u32; 3],
+    pub bbox_max_words: [u32; 3],
+    pub sphere_pos_words: [u32; 3],
+    pub sphere_radius_word: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MorphDefCtorError {
+    InvalidParameter,
+}
+
+pub fn morph_def_ctor_fields(lods: i32, regs: i32) -> Result<MorphDefFields, MorphDefCtorError> {
+    if lods <= 0 || regs <= 0 {
+        return Err(MorphDefCtorError::InvalidParameter);
+    }
+    Ok(MorphDefFields {
+        ref_count: 1,
+        num_lods: lods,
+        num_regions: regs,
+        bbox_min_words: [MORPH_BBOX_MIN_WORD; 3],
+        bbox_max_words: [MORPH_BBOX_MAX_WORD; 3],
+        sphere_pos_words: [0; 3],
+        sphere_radius_word: 0,
+    })
+}
+
+/// MorphDef::Release state machine (RVA 0x366b0). Ghidra FUN_100366b0
+/// (36 insn/4 BB): `DEC; JNS` → negative logs + 0; zero deletes + 0; else
+/// retained count. Deletion itself stays caller-side.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MorphDefRelease {
+    LoggedInvalid,
+    Freed,
+    Retained(i32),
+}
+
+pub fn morph_def_release(ref_count: i32) -> (i32, MorphDefRelease) {
+    let next = ref_count.wrapping_sub(1);
+    if next < 0 {
+        (next, MorphDefRelease::LoggedInvalid)
+    } else if next == 0 {
+        (next, MorphDefRelease::Freed)
+    } else {
+        (next, MorphDefRelease::Retained(next))
+    }
+}
+
+/// morph_region working-label dtor order (RVA 0x36720). Ghidra FUN_10036720
+/// (14 insn/2 BB): `delete[]` indices, then null-guarded `_aligned_free`
+/// verts. Both frees are caller/backend effects; this pins their order.
+pub fn morph_region_teardown_order(order: &mut Vec<&'static str>) {
+    order.push("delete-indices");
+    order.push("aligned-free-verts");
+}
+
 impl ModelArena {
     pub fn morph_level_count(&self, key: FrameKey) -> Result<usize, ModelError> {
         Ok(self
@@ -690,5 +821,97 @@ mod tests {
     #[ignore = "requires a Vulkan adapter"]
     fn gpu_mrph_live_weights_change_rendered_pixels() {
         render_fixture(true);
+    }
+
+    #[test]
+    fn morph_ctor_publishes_mrph_and_morphbase() {
+        let f = MorphCtorFields::morph_ctor_fields();
+        assert_eq!(MORPH_MAGIC.to_le_bytes(), *b"MRPH");
+        assert_eq!(f.magic, 0x4850_524d);
+        assert_eq!(f.flags, 5);
+        assert_eq!(f.reserved, [0; 6]);
+        let w = SinglemorphState::new();
+        assert_eq!((w.flags(), w.level_count(), w.region_count()), (5, 0, 0));
+    }
+    #[test]
+    fn morph_teardown_clears_before_parent_tail() {
+        let (mut arena, _model, key, _source, _path) = loaded();
+        let fi = arena.frame_index(key).unwrap();
+        let mut order = Vec::new();
+        let freed = arena.frames[fi]
+            .morph
+            .as_mut()
+            .unwrap()
+            .morph_teardown_order(&mut order);
+        assert!(freed >= 8);
+        order.push("parent-tail"); // CALL 0x10036840 equivalent, caller-side
+        assert_eq!(order, ["morph-clear", "parent-tail"]);
+        assert_eq!(arena.frames[fi].morph.as_ref().unwrap().weights.flags(), 1);
+    }
+    #[test]
+    fn morphdef_ctor_words_and_invalid_arm() {
+        let f = morph_def_ctor_fields(2, 3).unwrap();
+        assert_eq!((f.ref_count, f.num_lods, f.num_regions), (1, 2, 3));
+        assert_eq!(f.bbox_min_words, [0x5A0E_1BCA; 3]);
+        assert_eq!(f.bbox_max_words, [0xDA0E_1BCA; 3]);
+        assert_eq!(f.sphere_pos_words, [0; 3]);
+        assert_eq!(f.sphere_radius_word, 0);
+        assert_eq!(
+            f32::from_bits(MORPH_BBOX_MIN_WORD) as f64,
+            1.0000000272564224e16
+        );
+        assert!(morph_def_ctor_fields(0, 3).is_err());
+        assert!(morph_def_ctor_fields(-1, -1).is_err()); // signed JLE gates
+    }
+    #[test]
+    fn morphdef_release_arms() {
+        assert_eq!(morph_def_release(1), (0, MorphDefRelease::Freed));
+        assert_eq!(morph_def_release(2), (1, MorphDefRelease::Retained(1)));
+        assert_eq!(morph_def_release(0), (-1, MorphDefRelease::LoggedInvalid));
+        assert_eq!(morph_def_release(-5), (-6, MorphDefRelease::LoggedInvalid));
+        assert_eq!(
+            morph_def_release(i32::MIN),
+            (i32::MAX, MorphDefRelease::Retained(i32::MAX))
+        ); // DEC wraps MIN->MAX; JNS tests the wrapped result (non-negative)
+    }
+    #[test]
+    fn morph_region_teardown_frees_indices_before_verts() {
+        let mut order = Vec::new();
+        morph_region_teardown_order(&mut order);
+        assert_eq!(order, ["delete-indices", "aligned-free-verts"]);
+    }
+    #[test]
+    fn morph_set_mesh_tail_clears_bound_flag_unless_world_space() {
+        use crate::frame_mirror::VISF_WBOUND_VALID;
+        use crate::projector_pass::VISF_WORLD_SPACE;
+        let mut flags = VISF_WBOUND_VALID | VISF_WORLD_SPACE;
+        morph_set_mesh_tail(&mut flags, false);
+        assert_eq!(flags & VISF_WBOUND_VALID, 0);
+        let mut flags = VISF_WBOUND_VALID | VISF_WORLD_SPACE;
+        morph_set_mesh_tail(&mut flags, true);
+        assert_eq!(flags & VISF_WBOUND_VALID, VISF_WBOUND_VALID);
+    }
+    #[test]
+    fn duplicate_reports_hrwords_and_clones_raw_weights() {
+        const I3DERR_GENERIC: i32 = 0x8000_0005u32 as i32;
+        const I3DERR_OUTOFMEM: i32 = 0x8000_0002u32 as i32;
+        assert!(I3DERR_GENERIC < 0 && I3DERR_OUTOFMEM < 0); // native `r < 0` arms
+        let empty = SinglemorphState::new(); // unloaded: no def
+        assert!(empty.duplicate_morph_def().is_err()); // maps to GENERIC arm
+                                                       // Loaded source clones raw weights with normalized dropped.
+        let (arena, _model, key, _source, _path) = loaded();
+        let weights = &arena.frame(key).unwrap().morph.as_ref().unwrap().weights;
+        let dup = weights.duplicate_morph_def().unwrap();
+        assert_eq!(dup.weights(), weights.weights());
+        assert_eq!(dup.flags(), weights.flags() | 0x1);
+        assert!(dup.normalized_weights().is_none());
+    }
+    #[test]
+    fn load_image_b_success_words() {
+        let (arena, _model, key, _source, _path) = loaded();
+        let weights = &arena.frame(key).unwrap().morph.as_ref().unwrap().weights;
+        assert_eq!(weights.flags() & 0x4, 0); // UNKNOWN_4 cleared (AND 0xFFFFFFFB)
+        assert_eq!(weights.flags() & 0x2, 0x2); // LOADED set (OR 2)
+        assert_eq!(weights.weights(), [1.0, 0.0]); // 0x3F800000 level-0 init
     }
 }
