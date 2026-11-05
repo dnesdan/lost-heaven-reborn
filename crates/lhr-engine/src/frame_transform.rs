@@ -30,7 +30,11 @@ const DIRTY: u32 = 0x40002000;
 #[path = "frame_lensflare_parameters.rs"]
 mod lensflare_parameters;
 pub(crate) use lensflare_parameters::LensflareParameter;
-pub use lensflare_parameters::{LensflareParameterUnavailable, LensflareParameters};
+pub use lensflare_parameters::{lensflare_admit_glow, lensflare_fade_step, LensflareFadePlan};
+pub use lensflare_parameters::{
+    LensflareGlowError, LensflareParameterUnavailable, LensflareParameters, LensflareReleaseCursor,
+    LENSFLARE_FIXED_EXTENT, LENSFLARE_FIXED_RADIUS,
+};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FrameKey(pub u32);
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

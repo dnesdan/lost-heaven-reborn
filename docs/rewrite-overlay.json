@@ -3613,6 +3613,555 @@
       "symbol": "lhr_engine::singlemorph_visual::singlemorph_load_image",
       "tier": "contract",
       "evidence": "Ghidra formed no body (inventory proves gap); flag4 clear, from_record install (level0 1.0 + LOADED), bound/world-space tail per mafia-re I3d_singlemorph.cpp:254-264; file arms stay backend contracts; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x3cbb0",
+      "va": "0x1003cbb0",
+      "name": "InitParticle (upstream working name, NOT original)",
+      "symbol": "lhr_engine::frame_emitor::ModelArena::init_particle_visual",
+      "tier": "differential",
+      "evidence": "REA ghidra body 53insn/3BB (new(0x210), vtables, 12 zero stores, global pParticleVisual) + mafia-re I3d_particle.cpp:64-68 + lifecycle tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x3cc70",
+      "va": "0x1003cc70",
+      "name": "CloseParticle (upstream working name, NOT original)",
+      "symbol": "lhr_engine::frame_emitor::ModelArena::close_particle_visual",
+      "tier": "differential",
+      "evidence": "REA ghidra body 7insn/3BB (null-guard + vtable-slot-0 Release) + mafia-re I3d_particle.cpp:70-76 + null-safe tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x3cca0",
+      "va": "0x1003cca0",
+      "name": "I3D_part_renderer destructor (upstream working name, NOT original)",
+      "symbol": "lhr_engine::frame_emitor::ModelArena::close_particle_visual",
+      "tier": "differential",
+      "evidence": "REA ghidra body 36insn/1BB (vtable reset + 4 m_Free at +0x1E0/0x1EC/0x1F8/0x204 + base dtor) + mafia-re I3d_particle.cpp:88-96 + free-order tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x3cd40",
+      "va": "0x1003cd40",
+      "name": "I3D_part_renderer::m_AddFGroups (upstream working name, NOT original)",
+      "symbol": "lhr_engine::frame_emitor::particle_fgroup_plan",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (dead zone swept, vtable slot + SUB ESP,0x24 entry); sort-then-group-from-top + opaque-singleton arm per mafia-re I3d_particle.cpp:101-154; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x3d0e0",
+      "va": "0x1003d0e0",
+      "name": "I3D_part_renderer::m_RenderFGroup (upstream working name, NOT original)",
+      "symbol": "lhr_engine::frame_emitor::particle_renderer_render_plan",
+      "tier": "differential",
+      "evidence": "REA ghidra body 1040insn/138BB; state arms per I3d_particle.cpp:286-310 (null material -> NONE + NULL texture, no zwrite kill, no fade/opaque consult; material -> mask-selected BLEND/ALPHA else BLEND/ADD_ALPHA with zwrite kill) + arm tests; every D3D8 call stays a backend contract"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x3de50",
+      "va": "0x1003de50",
+      "name": "I3D_emitor constructor (mafia-re evidenced name)",
+      "symbol": "lhr_engine::frame_emitor::ModelArena::create_emitor_frame",
+      "tier": "differential",
+      "evidence": "REA ghidra body 40insn/1BB (elements cap 0x20, vtable, m_Type 0x11, Reset call, id alloc) + mafia-re I3d_particle.cpp:327-341 + ctor/id tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x3df20",
+      "va": "0x1003df20",
+      "name": "I3D_emitor destructor (mafia-re evidenced name)",
+      "symbol": "lhr_engine::frame_emitor::ModelArena::destroy_emitor_derived",
+      "tier": "differential",
+      "evidence": "REA ghidra body 45insn/6BB (element backlink-NULL loop, mesh Release, list teardown) + mafia-re I3d_particle.cpp:343-352 + order tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x3dfc0",
+      "va": "0x1003dfc0",
+      "name": "I3D_emitor::SetMesh (mafia-re evidenced name)",
+      "symbol": "lhr_engine::frame_emitor::ModelArena::emitor_set_mesh",
+      "tier": "differential",
+      "evidence": "REA ghidra body 19insn/7BB (equal-return, Release/AddRef pair, store, RET 8) + mafia-re I3d_particle.cpp:354-365 + retain/release tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x3dff0",
+      "va": "0x1003dff0",
+      "name": "I3D_emitor::SetParam (mafia-re evidenced name)",
+      "symbol": "lhr_engine::frame_emitor::emitor_set_param",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (entry CMP 0x22 guard + vtable slot + RET sled); 34-discriminant arms per mafia-re I3d_particle.cpp:367-512; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x3e660",
+      "va": "0x1003e660",
+      "name": "I3D_emitor::GetParam (mafia-re evidenced name)",
+      "symbol": "lhr_engine::frame_emitor::emitor_get_param",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (same guard + dbgPrintf invalid-index path); masked reads + color-pointer words per mafia-re I3d_particle.cpp:522-602; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x3e930",
+      "va": "0x1003e930",
+      "name": "I3D_emitor::Reset (mafia-re evidenced name)",
+      "symbol": "lhr_engine::frame_emitor::I3dEmitorState::reset_defaults",
+      "tier": "differential",
+      "evidence": "REA ghidra body 66insn/1BB (28 stores incl 0x3f19999a/0xbe800000/0x3dcccccd/0xbfa0d97c/0x3fa0d97c/0x104) + mafia-re I3d_particle.cpp:604-638 + word tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x3eac0",
+      "va": "0x1003eac0",
+      "name": "I3D_emitor::SetOn (mafia-re evidenced name)",
+      "symbol": "lhr_engine::frame_emitor::apply_emitor_set_on",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (bool byte MOV CL + vtable slot + RET 8 tail); ON-bit + counter-reset order per mafia-re I3d_particle.cpp:640-654; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x3eb10",
+      "va": "0x1003eb10",
+      "name": "I3D_emitor::UpdateV (mafia-re evidenced name)",
+      "symbol": "lhr_engine::frame_emitor::emitor_update_v",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (TEST [ECX+0xac],0x40002000 + sector-NULL store + RET); sector-drop predicate per mafia-re I3d_particle.cpp:656-663; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x3eb30",
+      "va": "0x1003eb30",
+      "name": "I3D_emitor::Tick (mafia-re evidenced name)",
+      "symbol": "lhr_engine::frame_emitor::ModelArena::tick_emitor",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (dead zone, SEH prologue + vtable slot); ON-guard, emit loop with increment-then-cutoff, sector resolve per mafia-re I3d_particle.cpp:665-772; loop interior stays element-backend contract; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x3f6b0",
+      "va": "0x1003f6b0",
+      "name": "I3D_emitor::Duplicate visual path (upstream working name, NOT original)",
+      "symbol": "lhr_engine::particle_emitor_elements::emitor_duplicate_contract",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (vtable-dispatched, fallback past probe window); guard + dispatch per mafia-re I3d_particle.cpp:776-831; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x3f910",
+      "va": "0x1003f910",
+      "name": "I3D_emitor::KillElements (upstream working name, NOT original)",
+      "symbol": "lhr_engine::particle_emitor_elements::emitor_kill_elements_contract",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (32-insn walk to RET 0x4); per-element unlink+Release loop with count-zeroed residue per mafia-re I3d_particle.cpp:833-844; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x3f960",
+      "va": "0x1003f960",
+      "name": "I3D_emitor::TickElements (upstream working name, NOT original)",
+      "symbol": "lhr_engine::particle_emitor_elements::emitor_tick_elements_contract",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (31-insn walk); swap-remove tick order with i<2 quirk per mafia-re I3d_particle.cpp:846-863; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x3f9b0",
+      "va": "0x1003f9b0",
+      "name": "I3D_emitor::SetElementsOn (upstream working name, NOT original)",
+      "symbol": "lhr_engine::particle_emitor_elements::emitor_set_elements_on_contract",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (straight SetOn loop to RET 0x8) per mafia-re I3d_particle.cpp:865-872; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x3f9f0",
+      "va": "0x1003f9f0",
+      "name": "I3D_emitor::LoadImage tail (upstream working name, NOT original)",
+      "symbol": "lhr_engine::particle_emitor_elements::emitor_load_image_tail",
+      "tier": "differential",
+      "evidence": "REA ghidra body 35B/3BB/18insn (base LoadImage, load-mesh, set-mesh BEFORE conditional release) + mafia-re I3d_particle.cpp:874-883 + order tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x3fa20",
+      "va": "0x1003fa20",
+      "name": "I3D_part_element constructor (upstream working name, NOT original)",
+      "symbol": "lhr_engine::particle_emitor_elements::part_element_ctor_defaults",
+      "tier": "differential",
+      "evidence": "REA ghidra body 436B/1BB/90insn two-phase ctor (0x42545250 then 0x45545250 phases, five 0x3f800000 words) + mafia-re I3d_particle.cpp:885-909 + default tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x3fc00",
+      "va": "0x1003fc00",
+      "name": "I3D_part_element dtor remove-prefix (upstream working name, NOT original)",
+      "symbol": "lhr_engine::particle_emitor_elements::part_element_dtor_remove_index",
+      "tier": "differential",
+      "evidence": "REA ghidra body 149B/13BB/54insn (vtable-first swap-remove, count==1 fast path, JMP-tail base dtor) + mafia-re I3d_particle.cpp:911-917 + remove-order tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x3fca0",
+      "va": "0x1003fca0",
+      "name": "I3D_part_element::Duplicate fields (upstream working name, NOT original)",
+      "symbol": "lhr_engine::particle_emitor_elements::part_element_duplicate_fields",
+      "tier": "differential",
+      "evidence": "REA ghidra body 409B/6BB/95insn (base result first, type==1 && fourcc gate, 30-word copy) + mafia-re I3d_particle.cpp:919-951 + gate/equality tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x3fe40",
+      "va": "0x1003fe40",
+      "name": "I3D_part_element::Tick (upstream working name, NOT original)",
+      "symbol": "lhr_engine::particle_emitor_elements::part_element_tick_contract",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (SUB ESP,0x124 frame, ON-gate, death exits outside window); 10ms step cap admitted, full float differential unevidenced per mafia-re I3d_particle.cpp:959-1032; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x406c0",
+      "va": "0x100406c0",
+      "name": "I3D_part_base constructor (upstream working name, NOT original)",
+      "symbol": "lhr_engine::particle_emitor_elements::part_base_ctor_defaults",
+      "tier": "differential",
+      "evidence": "REA ghidra body 120B/1BB/23insn (PART_BASE fourcc, UnitVector color, billboard, sort 0xffff, flags 0x101) + mafia-re I3d_particle.cpp:1034-1046 + default tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x40770",
+      "va": "0x10040770",
+      "name": "I3D_part_base::Duplicate fields (upstream working name, NOT original)",
+      "symbol": "lhr_engine::particle_emitor_elements::part_base_duplicate_fields",
+      "tier": "differential",
+      "evidence": "REA ghidra body 173B/7BB/41insn (object result first, sector-NULL, gate, 9-word copy with sector alias) + mafia-re I3d_particle.cpp:1048-1073 + gate tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x40820",
+      "va": "0x10040820",
+      "name": "I3D_part_base::m_AddFGroups (upstream working name, NOT original)",
+      "symbol": "lhr_engine::particle_emitor_elements::part_base_add_fgroups_contract",
+      "tier": "contract",
+      "evidence": "Ghidra body formed (798 insn) but D3D8/VB/lighting queue boundary dominates (same standard as committed 0x38020); tier contract, no parity credit"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x41320",
+      "va": "0x10041320",
+      "name": "I3D_part_base::m_RenderFGroup (upstream working name, NOT original)",
+      "symbol": "lhr_engine::frame_emitor::part_base_render_plan",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (4 B past prior body end); state arms per I3d_particle.cpp:1267-1290 (mat==NULL `< 1.0` opaque rule, OPAQUE&&>=1.0 then mask ladder, NaN per-arm rules) + arm tests; reference-reported arms with a disclosed device boundary and no formed body: tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x45e30",
+      "va": "0x10045e30",
+      "name": "I3D_projector::I3D_projector (mafia-re evidenced name)",
+      "symbol": "lhr_engine::frame_projector::ModelArena::create_projector",
+      "tier": "differential",
+      "evidence": "REA ghidra body 427B/88insn/1BB (base ctor first, PROJ word, zero color source, bbox/radius immediates) + mafia-re I3d_projector.cpp:60-92 + ctor-word tests; confirm-only on the pre-existing port"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x46000",
+      "va": "0x10046000",
+      "name": "I3D_projector::~I3D_projector (mafia-re evidenced name)",
+      "symbol": "lhr_engine::frame_projector::ModelArena::release_projector_resources",
+      "tier": "contract",
+      "evidence": "REA ghidra body 187B/50insn/5BB (texture/material Release, delete[] trio, manager frees, base dtor); port covers the texture/material store clears only, delete[]/manager-free/base tails stay admitted-null backend contracts: partial coverage, tier contract per the review rule; mafia-re I3d_projector.cpp:94-107 + tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x460c0",
+      "va": "0x100460c0",
+      "name": "I3D_projector::Duplicate (mafia-re evidenced name)",
+      "symbol": "lhr_engine::frame_projector::ModelArena::duplicate_projector_derived",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (entry + vtable DATA ref + RET probe, ~118-insn decode, all targets walked); base-first order, direct range copy (no SetVisibleRange call in bytes — disclosed), mesh chain explicit boundary; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x46240",
+      "va": "0x10046240",
+      "name": "I3D_projector::SetTexture (mafia-re evidenced name)",
+      "symbol": "lhr_engine::frame_projector::ModelArena::set_projector_texture",
+      "tier": "differential",
+      "evidence": "REA ghidra body 47B/19insn/6BB (identity no-op incl. null, Release/retain pair) + mafia-re I3d_projector.cpp:156-167 + identity tests; confirm-only on the pre-existing port"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x46270",
+      "va": "0x10046270",
+      "name": "I3D_projector::SetMaterial (mafia-re evidenced name)",
+      "symbol": "lhr_engine::frame_projector::ModelArena::set_projector_material",
+      "tier": "differential",
+      "evidence": "REA ghidra body 47B/19insn/6BB (identity no-op, AddRef INC [mat+4], no invalidate) + mafia-re I3d_projector.cpp:169-180; refcount traffic stays backend contract (disclosed)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x462a0",
+      "va": "0x100462a0",
+      "name": "I3D_projector::SetOrthogonal (mafia-re evidenced name)",
+      "symbol": "lhr_engine::frame_projector::ModelArena::set_projector_orthogonal",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (MOV CL byte store proves u8 width); always invalidates per mafia-re I3d_projector.cpp:182-189; confirm-only; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x462c0",
+      "va": "0x100462c0",
+      "name": "I3D_projector::SetColor (mafia-re evidenced name)",
+      "symbol": "lhr_engine::frame_projector::ModelArena::set_projector_color",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (3-dword copy + per-limb FCOMP limbs, NaN preserved); ordered clamps bit-exact per mafia-re I3d_projector.cpp:191-210; confirm-only; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x463a0",
+      "va": "0x100463a0",
+      "name": "I3D_projector::SetAlpha (mafia-re evidenced name)",
+      "symbol": "lhr_engine::frame_projector::ModelArena::set_projector_alpha",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (store bits, negative-only clamp, NaN kept, always invalidates) per mafia-re I3d_projector.cpp:212-222; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x463f0",
+      "va": "0x100463f0",
+      "name": "I3D_projector::SetReverseFactor (mafia-re evidenced name)",
+      "symbol": "lhr_engine::frame_projector::ModelArena::set_projector_reverse_factor",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (two-stage clamp f<0->0 else f>1->1, NaN kept, always invalidates) per mafia-re I3d_projector.cpp:224-235; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x46460",
+      "va": "0x10046460",
+      "name": "I3D_projector::SetMode (mafia-re evidenced name)",
+      "symbol": "lhr_engine::frame_projector::ModelArena::set_projector_mode",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (store + invalidate); confirm-only per mafia-re I3d_projector.cpp; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x46480",
+      "va": "0x10046480",
+      "name": "I3D_projector::SetProjectorLock (mafia-re evidenced name)",
+      "symbol": "lhr_engine::frame_projector::ModelArena::set_projector_lock",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (store + invalidate); confirm-only; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x464a0",
+      "va": "0x100464a0",
+      "name": "I3D_projector::UpdateV (mafia-re evidenced name)",
+      "symbol": "lhr_engine::frame_projector::ModelArena::update_projector_v",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (9-insn decode: 0x40 gate, 0x40002000 gate, 0xffe3ffff clear, sector clear); three-way matrix per mafia-re I3d_projector.cpp:255-264; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x46780",
+      "va": "0x10046780",
+      "name": "I3D_projector::m_AddFGroups (upstream working name, NOT original)",
+      "symbol": "lhr_engine::projector_pass::queue_projector_groups_contract",
+      "tier": "contract",
+      "evidence": "Ghidra formed no entry (mid-fold address of FUN_100045f0); guard order per mafia-re I3d_projector.cpp:302-333; boundary marker, no parity credit; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x46930",
+      "va": "0x10046930",
+      "name": "ProcessProjectors (upstream working name, NOT original)",
+      "symbol": "lhr_engine::projector_pass::process_projector_queue",
+      "tier": "differential",
+      "evidence": "REA ghidra body 44B/15insn/3BB (queue base/size globals, index-order calls, size=0 reset) + mafia-re I3d_projector.cpp:339-349 + order/reset tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x46960",
+      "va": "0x10046960",
+      "name": "I3D_projector::ProcessRecList (upstream working name, NOT original)",
+      "symbol": "lhr_engine::projector_pass::process_projector_reclist",
+      "tier": "differential",
+      "evidence": "REA ghidra body 5797B/1588insn/268BB (reset, ADD-family lift select, per-receiver 0x3f test, mesh/LOD fetch, VB/IB alloc, IsMrgZeroLess + k=0.5/z arms, OOM words, face memcpys, rfg new) + mafia-re I3d_projector.cpp:358-691 + order tests; clipper/alloc stay backend contracts; div/sqrt host-f32 quarantined"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x48060",
+      "va": "0x10048060",
+      "name": "I3D_projector::ProcessShadow (upstream working name, NOT original)",
+      "symbol": "lhr_engine::projector_pass::process_projector_shadow",
+      "tier": "differential",
+      "evidence": "REA ghidra non-contiguous fold (325insn/68BB proves AddFGroups is the shared tail; update-bump, lock-set, 0x200-cap BREAK, change-count, opaque 0xbfffffff + ROUND transparent sorts) + mafia-re I3d_projector.cpp:698-759 + order/sort tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x482c0",
+      "va": "0x100482c0",
+      "name": "I3D_projector::MakeProjection (upstream working name, NOT original)",
+      "symbol": "lhr_engine::projector_pass::make_projection_contract",
+      "tier": "contract",
+      "evidence": "Ghidra formed no entry (gap 0x100482b5-0x100483df); sector/lock/flag/globals order per mafia-re I3d_projector.cpp:763-803 with NO queue call; boundary marker; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x483e0",
+      "va": "0x100483e0",
+      "name": "I3D_projector::CollectReceivers (upstream working name, NOT original)",
+      "symbol": "lhr_engine::projector_pass::collect_projector_receivers",
+      "tier": "differential",
+      "evidence": "REA ghidra body 520B/133insn/40BB (IsOn, HRBound, hier-bbox, visual/sector/model arms, in-order recursion, overflow fall-through) + mafia-re I3d_projector.cpp:810-860 + traversal tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x485f0",
+      "va": "0x100485f0",
+      "name": "I3D_projector::m_RenderFGroup (upstream working name, NOT original)",
+      "symbol": "lhr_engine::projector_pass::render_projector_group",
+      "tier": "differential",
+      "evidence": "REA ghidra body 269insn/39BB (verts-guard, stage/projector-texture/world/zbias order, single help-texture-selected arm draw, zwrite restore) + mafia-re I3d_projector.cpp:867-908 + order tests; draws and cull/clipping stay backend contracts"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x48960",
+      "va": "0x10048960",
+      "name": "I3D_projector::LoadImage (upstream working name, NOT original)",
+      "symbol": "lhr_engine::projector_pass::load_projector_image_contract",
+      "tier": "contract",
+      "evidence": "Ghidra formed no entry (4 B past prior RET); parse order + Invalid-material-ID words per mafia-re I3d_projector.cpp:913-928 (upstream-reported); boundary marker; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x5db0",
+      "va": "0x10005db0",
+      "name": "I3D_billboard::I3D_billboard (mafia-re evidenced name)",
+      "symbol": "lhr_engine::model_loading::billboard_ctor_orientation",
+      "tier": "differential",
+      "evidence": "REA ghidra body 62B/1BB/13insn (base ctor, BBRD word, rot_axis 2 u32, axis_mode 0) + mafia-re I3d_billboard.cpp:19-25 + word tests; confirm-only on pre-existing orientation"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x5e10",
+      "va": "0x10005e10",
+      "name": "I3D_billboard::~I3D_billboard (mafia-re evidenced name)",
+      "symbol": "lhr_engine::model_loading::billboard_derived_drop_is_empty",
+      "tier": "contract",
+      "evidence": "REA ghidra body 21B/1BB/3insn (vtable restore + base-dtor tailjump, empty derived); ABI-only teardown body with no portable state effect: tier contract per the review rule, no function credit; mafia-re I3d_billboard.cpp:31-33"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x5e40",
+      "va": "0x10005e40",
+      "name": "I3D_billboard::UpdateBoundProc (mafia-re evidenced name)",
+      "symbol": "lhr_engine::model_loading::cube_local_bound",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (entry bytes only); flag-first + bbox-cube + sphere-preserve order per mafia-re I3d_billboard.cpp:42-61; reuse, no re-claim; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x5f40",
+      "va": "0x10005f40",
+      "name": "I3D_billboard::SetMesh (mafia-re evidenced name)",
+      "symbol": "lhr_engine::model_loading::BILLBOARD_SET_MESH_ORDER",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (entry bytes + one CALL); SetMesh-prefix-then-bound-cube order per mafia-re I3d_billboard.cpp:65-69; order marker only; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x5f60",
+      "va": "0x10005f60",
+      "name": "I3D_billboard::Duplicate (mafia-re evidenced name)",
+      "symbol": "lhr_engine::model_loading::billboard_duplicate_fields",
+      "tier": "differential",
+      "evidence": "REA ghidra body 291B/24BB/88insn (null/self INVALIDPARAMS, frame Duplicate, 0x2ffd0 mask, bound copies, world branch, type switch, SetMesh keep=false) + mafia-re I3d_billboard.cpp:73-104 + guard/mask/order tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x6090",
+      "va": "0x10006090",
+      "name": "I3D_billboard::ProductBillMatrix (mafia-re evidenced name)",
+      "symbol": "lhr_engine::billboard_state::product_bill_matrix",
+      "tier": "differential",
+      "evidence": "REA ghidra body 4886B/207BB/1567insn (mode/axis switches, lazy matrix getters, normalize guards, row copies, scale/local paths) + mafia-re I3d_billboard.cpp:122-335; reuse, no re-claim"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x73c0",
+      "va": "0x100073c0",
+      "name": "I3D_billboard::m_AddFGroups (mafia-re evidenced name)",
+      "symbol": "lhr_engine::model_loading::billboard_sort_word",
+      "tier": "differential",
+      "evidence": "REA ghidra body 4035B/218BB/1187insn (mesh-guard, proxy arm, LOD/fade/lighting/env/fog, sort classification) + mafia-re I3d_billboard.cpp:348-569 + class/order tests; device calls stay backend contracts; MATF/sort words per I3D.h:3855-3870/4578-4581"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x83b0",
+      "va": "0x100083b0",
+      "name": "I3D_billboard::m_RenderFGroup (mafia-re evidenced name)",
+      "symbol": "lhr_engine::model_loading::billboard_cull_word",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (entry bytes + flag test); cull-once + rot4-zwrite + reset-mask order per mafia-re I3d_billboard.cpp:580-842; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x94d0",
+      "va": "0x100094d0",
+      "name": "I3D_billboard::LoadImage (mafia-re evidenced name)",
+      "symbol": "lhr_engine::billboard_state::BillboardOrientation::from_source",
+      "tier": "differential",
+      "evidence": "REA ghidra body 72B/5BB/20insn (base LoadImage, dtaRead 5B, rot/mode clamps) + mafia-re I3d_billboard.cpp:847-857; reuse, no re-claim"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x9520",
+      "va": "0x10009520",
+      "name": "I3D_lensflare::I3D_lensflare (mafia-re evidenced name)",
+      "symbol": "lhr_engine::frame_transform::LensflareParameters::constructed",
+      "tier": "differential",
+      "evidence": "REA ghidra body 235B/1BB/48insn (full word list incl LENS type word) + mafia-re I3d_billboard.cpp:861-880; reuse, no re-claim"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x9630",
+      "va": "0x10009630",
+      "name": "I3D_lensflare::~I3D_lensflare (mafia-re evidenced name)",
+      "symbol": "lhr_engine::frame_transform::LensflareReleaseCursor",
+      "tier": "contract",
+      "evidence": "REA ghidra body 175B/7BB/47insn SEH (vtable restore, forward glow Release loop, vector free, base dtor); port covers the forward-order release cursor only, vector-free/base-dtor tails stay owner contracts: partial coverage, tier contract per the review rule; mafia-re I3d_billboard.cpp:884-895 + order tests"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x96e0",
+      "va": "0x100096e0",
+      "name": "I3D_lensflare::Duplicate (mafia-re evidenced name)",
+      "symbol": "lhr_engine::frame_transform::LensflareParameters",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (entry bytes only); 5-field scalar core (test_interval/near_scale/size/fade_in/fade_out/range subset) per mafia-re I3d_billboard.cpp:904-941; glow-vector AddRef/world/bound NOT ported (no in-tree wiring); confirm-only on the pre-existing duplicate_from; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x9890",
+      "va": "0x10009890",
+      "name": "I3D_lensflare::Draw (mafia-re evidenced name)",
+      "symbol": "lhr_engine::frame_transform::lensflare_fade_step",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (272-byte frame prefix only); fade-step math per mafia-re I3d_billboard.cpp:959-1175; projection/texture/draw stay backend contracts; tier contract per the unresolved-boundary rule"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0xac90",
+      "va": "0x1000ac90",
+      "name": "I3D_lensflare::LoadImage (mafia-re evidenced name)",
+      "symbol": "lhr_engine::frame_transform::lensflare_admit_glow",
+      "tier": "contract",
+      "evidence": "Ghidra formed no body (entry bytes only); id widths + fixed bound per mafia-re I3d_billboard.cpp:1180-1206; tier contract per the unresolved-boundary rule; id<=0 refusal is disclosed host hardening (native reads LoadMaterialy[id-1] unchecked, errors only on id>count)"
     }
   ],
   "vm": {

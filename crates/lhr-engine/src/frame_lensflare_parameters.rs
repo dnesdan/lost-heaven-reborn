@@ -95,9 +95,168 @@ pub(crate) enum LensflareParameter {
     Range,
 }
 
+/// 0x9630 forward-release cursor (mafia-re I3d_billboard.cpp:884-895).
+/// Native walks glows[0..n) forward, null-guarded Release per material.
+/// Host cursor makes the order observable across interrupted cleanups.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct LensflareReleaseCursor(pub usize);
+impl LensflareReleaseCursor {
+    pub fn next_release(&mut self, glow_count: usize) -> Option<usize> {
+        if self.0 < glow_count {
+            let i = self.0;
+            self.0 += 1;
+            Some(i)
+        } else {
+            None
+        }
+    }
+}
+
+/// 0xac90 glow admission (contract; I3d_billboard.cpp:1180-1206). Widths from
+/// dtaRead: num u8(1), pos 4 floats, id i16(2). Native errors only on
+/// `id > LoadMaterialu` and reads `LoadMaterialy[id-1]` unchecked otherwise
+/// (id 0/negative is an OOB read with no error). The host refuses id <= 0 as
+/// well — disclosed hardening, bit-exact on all native-reachable inputs.
+/// The caller still pushes the glow slot on error, and the fixed bound is
+/// installed whenever the file count was nonzero (even if every id was
+/// invalid), not only when a glow was admitted. No in-tree caller wires this
+/// residue yet (pure helper + re-export; contract tier holds regardless).
+pub const LENSFLARE_FIXED_RADIUS: f32 = 0.01;
+pub const LENSFLARE_FIXED_EXTENT: f32 = 0.05;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LensflareGlowError {
+    FileCorrupted(i32),
+}
+pub fn lensflare_admit_glow(
+    material_count: usize,
+    material_id: i32,
+) -> Result<Option<usize>, LensflareGlowError> {
+    if material_id <= 0 || (material_id as usize) > material_count {
+        return Err(LensflareGlowError::FileCorrupted(material_id));
+    }
+    Ok(Some((material_id as usize) - 1))
+}
+
+/// 0x9890 draw fade plan (contract; I3d_billboard.cpp:959-1175). Pure portion
+/// only: dt==0 no-op (native `if (time-last_update)`), else a LINEAR
+/// min/max approach (not exponential) with step `(dt*rate)*0.001` in host
+/// f32 (native x87 order; disclosed). Rate select is the native
+/// IsMrgZeroLess bit-test (`(bits as i32) < 0x322BCC77` → fade_out), so tiny
+/// positive targets take the fade_out arm, unlike `<= 0.0`. Occlusion ray,
+/// viewport projection, texture/draw stay backend contracts (no live device).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LensflareFadePlan {
+    pub visibility: f32,
+    pub color: [f32; 3],
+}
+/// Marginal-zero bit threshold, same native helper as the projector/shadow
+/// passes (IsMrgZeroLess).
+const LENSFLARE_MRG_ZERO_BITMASK: i32 = 0x322b_cc77;
+fn is_lensflare_mrg_zero_less(f: f32) -> bool {
+    (f.to_bits() as i32) < LENSFLARE_MRG_ZERO_BITMASK
+}
+pub fn lensflare_fade_step(
+    visibility: f32,
+    target_visibility: f32,
+    color: [f32; 3],
+    target_color: [f32; 3],
+    dt_ms: u32,
+    fade_in: f32,
+    fade_out: f32,
+) -> Option<LensflareFadePlan> {
+    if dt_ms == 0 {
+        return None;
+    }
+    let rate = if is_lensflare_mrg_zero_less(target_visibility) {
+        fade_out
+    } else {
+        fade_in
+    };
+    let step = (dt_ms as f32 * rate) * 0.001;
+    let approach = |v: f32, t: f32| {
+        if v < t {
+            (v + step).min(t)
+        } else if v > t {
+            (v - step).max(t)
+        } else {
+            v
+        }
+    };
+    Some(LensflareFadePlan {
+        visibility: approach(visibility, target_visibility),
+        color: [
+            approach(color[0], target_color[0]),
+            approach(color[1], target_color[1]),
+            approach(color[2], target_color[2]),
+        ],
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn y5_lensflare_ctor_dtor_admit_draw_contracts() {
+        let c = LensflareParameters::constructed();
+        assert_eq!(
+            (
+                c.size,
+                c.intensity,
+                c.test_interval,
+                c.fade_in,
+                c.fade_out,
+                c.range
+            ),
+            (1., 1., 150, 15., 8., 300.)
+        );
+        // 0x9630 forward order observable through the cursor.
+        let mut cur = LensflareReleaseCursor::default();
+        assert_eq!(
+            (
+                cur.next_release(3),
+                cur.next_release(3),
+                cur.next_release(3),
+                cur.next_release(3)
+            ),
+            (Some(0), Some(1), Some(2), None)
+        );
+        // 0xac90: id widths + residue (invalid id errors; caller still pushes).
+        assert_eq!(lensflare_admit_glow(4, 3), Ok(Some(2)));
+        assert_eq!(
+            lensflare_admit_glow(4, 5),
+            Err(LensflareGlowError::FileCorrupted(5))
+        );
+        assert_eq!(
+            lensflare_admit_glow(4, 0),
+            Err(LensflareGlowError::FileCorrupted(0))
+        );
+        assert_eq!(
+            (LENSFLARE_FIXED_RADIUS, LENSFLARE_FIXED_EXTENT),
+            (0.01, 0.05)
+        );
+        // 0x9890 fade step: dt==0 no-op, else clamped approach.
+        assert_eq!(
+            lensflare_fade_step(0.5, 1.0, [0.5; 3], [1.0; 3], 0, 15.0, 8.0),
+            None
+        );
+        let s = lensflare_fade_step(0.0, 1.0, [0.0; 3], [1.0; 3], 100, 15.0, 8.0).unwrap();
+        assert_eq!(s.visibility, 1.0);
+        // Marginal-zero select: tiny positive target takes the fade_out arm.
+        let t = lensflare_fade_step(1.0, 1e-9, [0.0; 3], [0.0; 3], 100, 15.0, 8.0).unwrap();
+        let expect = 1.0f32 - 100.0f32 * 8.0f32 * 0.001f32;
+        assert!((t.visibility - expect).abs() < 1e-6);
+        // 0x96e0 core: duplicate_from keeps destination intensity.
+        let mut d = LensflareParameters::constructed();
+        d.duplicate_from(LensflareParameters {
+            size: 2.,
+            intensity: 0.25,
+            test_interval: 9,
+            fade_in: 2.,
+            fade_out: 3.,
+            range: 4.,
+        });
+        assert_eq!((d.size, d.intensity, d.test_interval), (2., 1., 9));
+    }
     #[test]
     fn constructor_and_duplicate_keep_destination_intensity() {
         let mut destination = LensflareParameters::constructed();

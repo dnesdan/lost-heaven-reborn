@@ -74,6 +74,9 @@ pub struct LoadedFrame {
     /// Shadow derived state (PC RVAs 0x50950–0x51a20). Mirror-carrier
     /// precedent: no new `FrameKind` variant; presence is the discriminant.
     pub(crate) shadow: Option<crate::frame_shadow::I3dShadowState>,
+    /// Particle-emitter derived state (LS3DF RVAs 0x3cbb0-0x3eb30). Same
+    /// carrier precedent as projector/mirror/shadow: no new FrameKind.
+    pub(crate) emitor: Option<crate::frame_emitor::I3dEmitorState>,
     pub(crate) hr_bounds_error: Option<ModelError>,
     pub(crate) hr_world_bounds_error: Option<ModelError>,
     /// Immutable host backing, independent of model membership. This is not a
@@ -176,6 +179,7 @@ pub enum ModelError {
     DummyFrameRequired(FrameKey),
     MirrorFrameRequired(FrameKey),
     ShadowFrameRequired(FrameKey),
+    EmitorFrameRequired(FrameKey),
     Frame(FrameError),
     Camera(crate::frame_camera::CameraError),
     Area(crate::frame_area::AreaError),
@@ -294,6 +298,9 @@ pub struct ModelArena {
     pub(crate) sound_backend: Option<crate::frame_sound::HostSoundBackend>,
     pub(crate) occluders: Vec<crate::frame_occluder::OccluderFrame>,
     pub(crate) occluder_storage: crate::frame_occluder::OccluderStorage,
+    /// Particle-renderer singleton (InitParticle/CloseParticle RVAs
+    /// 0x3cbb0/0x3cc70). Arena-owned analog of pParticleVisual.
+    pub(crate) particle_visual: Option<crate::frame_emitor::I3dParticleVisualState>,
     /// Host analog of `globalShadowList` (PC RVA 0x50950 ctor push_back /
     /// 0x50b90 swap-remove; traversed by 0x51480). Insertion order mirrors the
     /// native `C_list`; capacity growth is fallible (`try_reserve`).
@@ -517,6 +524,7 @@ impl ModelArena {
             projector: None,
             mirror: None,
             shadow: None,
+            emitor: None,
             hr_bounds_error: None,
             hr_world_bounds_error: None,
             source: None,
