@@ -69,13 +69,14 @@ class CaptureTests(unittest.TestCase):
         self.assertFalse(result['original_game_parity'])
         self.assertIn('pixels NOT decoded or reviewed', result['validation'])
         self.assertNotIn(str(self.root), json.dumps(stored))
+        self.assertNotIn(str(self.root.resolve()), json.dumps(stored))
         for scene, command, row in zip(lab.SCENES, self.calls, result['images']):
             self.assertEqual(command[2:-1], [
                 '--synthetic', '--lab-scene', scene, '--headless', '--capture',
             ])
             self.assertEqual((row['width'], row['height']), (1, 1))
             self.assertEqual(len(row['sha256']), 64)
-            self.assertEqual(command[-1], str(self.out / f'{scene}.png'))
+            self.assertEqual(command[-1], str(self.out.resolve() / f'{scene}.png'))
 
     def test_duplicate_scenes_are_captured_once(self):
         with patch.object(lab, 'run_capture', self.render):
