@@ -898,7 +898,7 @@ mod tests {
     fn duplicate_reports_hrwords_and_clones_raw_weights() {
         const I3DERR_GENERIC: i32 = 0x8000_0005u32 as i32;
         const I3DERR_OUTOFMEM: i32 = 0x8000_0002u32 as i32;
-        assert!(I3DERR_GENERIC < 0 && I3DERR_OUTOFMEM < 0); // native `r < 0` arms
+        const { assert!(I3DERR_GENERIC < 0 && I3DERR_OUTOFMEM < 0) }; // native `r < 0` arms
         let empty = SinglemorphState::new(); // unloaded: no def
         assert!(empty.duplicate_morph_def().is_err()); // maps to GENERIC arm
                                                        // Loaded source clones raw weights with normalized dropped.

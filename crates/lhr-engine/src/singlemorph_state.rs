@@ -474,7 +474,9 @@ mod tests {
         let mut state = SinglemorphState::from_record(&record()).unwrap();
         state.set_weight(0, 1, 7.5).unwrap();
         // region * levels + level, little-endian f32 load semantics:
-        let idx = 0 * state.level_count() + 1;
+        let region = 0usize;
+        let level = 1usize;
+        let idx = region * state.level_count() + level;
         assert_eq!(state.weights()[idx].to_le_bytes(), 7.5f32.to_le_bytes());
         assert_eq!(state.weights(), [1.0, 7.5]); // no neighbor clobber
     }
