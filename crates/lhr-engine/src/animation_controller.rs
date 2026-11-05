@@ -393,6 +393,10 @@ impl ControllerEvaluator {
     /// under the crate PC24 pipeline; rotation blends use the native
     /// spherical `Slerp(_, _, blend, false)` (spherical arm via
     /// `rotation_animation::try_slerp`, availability-bound).
+    #[expect(
+        clippy::neg_cmp_op_on_partial_ord,
+        reason = "ordered negated checks keep NaN admitted (!(w <= 0)) and blending (!(w >= 1)); rewriting as >/< would skip/overwrite NaN (only admission pinned by update_nan_weight_is_admitted_by_ordered_comparison)"
+    )]
     pub fn update_interpolator(
         &self,
         slots: &[Slot; 8],

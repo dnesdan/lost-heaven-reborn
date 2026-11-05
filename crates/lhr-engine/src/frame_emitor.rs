@@ -669,6 +669,10 @@ pub fn particle_fgroup_plan(sorted_desc: &[ParticleSortEntry]) -> ParticleFgroup
         } else {
             // Singleton tail: opaque iff PARTF_OPAQUE and not faded (NaN
             // product fails >= and takes the transparent arm, as natively).
+            #[expect(
+                clippy::neg_cmp_op_on_partial_ord,
+                reason = "ordered negation keeps NaN faded (transparent); < 1.0 would mark NaN unfaded, flipping an opaque-flagged singleton to opaque"
+            )]
             let faded = !(top.fade * top.transparency >= 1.0);
             if !faded && top.part_flags & PARTF_OPAQUE != 0 {
                 plan.groups.push(ParticleFaceGroup {
