@@ -2826,6 +2826,10 @@ pub fn isound_3dsound_set_distances(
 /// Non-positive inputs map to 0 and infinities saturate host-side; the native
 /// (DWORD) cast there is x87 UB, disclosed (tests stay finite non-negative).
 pub fn isound_cone_radians_to_dword(angle: f32) -> u32 {
+    #[expect(
+        clippy::neg_cmp_op_on_partial_ord,
+        reason = "ordered negation keeps NaN on early-zero return; <= 0.0 would let NaN fall through to multiply plus float-to-int cast"
+    )]
     if !(angle > 0.0) {
         return 0;
     }
@@ -3837,6 +3841,10 @@ pub fn isound_sound_get_curr_time(
     let Some(handle) = buffer else {
         return 0;
     };
+    #[expect(
+        clippy::neg_cmp_op_on_partial_ord,
+        reason = "ordered negation keeps NaN rate on early-zero return without backend query; <= 0.0 would query position then divide by NaN"
+    )]
     if !(bytes_per_ms > 0.0) {
         return 0;
     }
@@ -4245,6 +4253,10 @@ pub fn isound_source_is_open(source: &IsoundSource) -> bool {
 /// data length over bytes-per-ms truncated. A non-positive rate returns 0 on
 /// the host (native float division by zero is UB), disclosed.
 pub fn isound_source_get_play_time(source: &IsoundSource) -> u32 {
+    #[expect(
+        clippy::neg_cmp_op_on_partial_ord,
+        reason = "empty data returns zero via first disjunct; negation keeps nonzero data with NaN rate on early-zero return, while <= 0.0 would fall through to NaN division plus cast"
+    )]
     if source.data_bytes == 0 || !(source.bytes_per_ms > 0.0) {
         return 0;
     }
