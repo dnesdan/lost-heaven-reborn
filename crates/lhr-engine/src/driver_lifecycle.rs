@@ -396,20 +396,26 @@ mod tests {
         assert_eq!(state.tick_time, -3);
         driver_tick(&mut state, i32::MAX);
         assert_eq!(state.tick_time, (-3i32).wrapping_add(i32::MAX));
-        let mut overflow = DriverLifecycle::default();
-        overflow.tick_time = i32::MAX;
+        let mut overflow = DriverLifecycle {
+            tick_time: i32::MAX,
+            ..Default::default()
+        };
         driver_tick(&mut overflow, 1);
         assert_eq!(overflow.tick_time, i32::MIN);
-        let mut underflow = DriverLifecycle::default();
-        underflow.tick_time = i32::MIN;
+        let mut underflow = DriverLifecycle {
+            tick_time: i32::MIN,
+            ..Default::default()
+        };
         driver_tick(&mut underflow, -1);
         assert_eq!(underflow.tick_time, i32::MAX);
     }
 
     #[test]
     fn get_tick_time_is_a_pure_load() {
-        let mut state = DriverLifecycle::default();
-        state.tick_time = -42;
+        let state = DriverLifecycle {
+            tick_time: -42,
+            ..Default::default()
+        };
         assert_eq!(driver_get_tick_time(&state), -42);
         assert_eq!(driver_get_tick_time(&state), -42);
         assert_eq!(state.tick_time, -42);
@@ -417,9 +423,11 @@ mod tests {
 
     #[test]
     fn init_stores_flags_resets_tick_and_close_prefix_order() {
-        let mut state = DriverLifecycle::default();
-        state.tick_time = 999;
-        state.render_state = [7; 63];
+        let mut state = DriverLifecycle {
+            tick_time: 999,
+            render_state: [7; 63],
+            ..Default::default()
+        };
         let stale_icon = DriverMaterialId::fresh();
         let stale_font = DriverMaterialId::fresh();
         state.icon_materials = vec![Some(stale_icon), None, Some(stale_font)];
@@ -492,8 +500,10 @@ mod tests {
 
     #[test]
     fn close_releases_nulls_clears_in_order() {
-        let mut state = DriverLifecycle::default();
-        state.is_init = true;
+        let mut state = DriverLifecycle {
+            is_init: true,
+            ..Default::default()
+        };
         let first = DriverMaterialId::fresh();
         let second = DriverMaterialId::fresh();
         let font = DriverMaterialId::fresh();
@@ -523,8 +533,10 @@ mod tests {
 
     #[test]
     fn get_stats_null_volume_unsupported_and_fallthrough() {
-        let mut state = DriverLifecycle::default();
-        state.volume_stats = [11, 22, 33, 44, 55, 66, 77, 88];
+        let state = DriverLifecycle {
+            volume_stats: [11, 22, 33, 44, 55, 66, 77, 88],
+            ..Default::default()
+        };
         let mut diag = TestDiag::default();
         assert_eq!(
             driver_get_stats(&state, STATS_VOLUME, None, &mut diag),
@@ -581,14 +593,18 @@ mod tests {
         let created = driver_create();
         assert_eq!(created.next_emitor_id, 0);
         assert_eq!(created, DriverLifecycle::default());
-        let mut clean = DriverLifecycle::default();
-        clean.is_init = false;
+        let clean = DriverLifecycle {
+            is_init: false,
+            ..Default::default()
+        };
         let mut backend = DestroyLog { events: Vec::new() };
         driver_destroy(&clean, &mut backend);
         assert_eq!(backend.events, vec!["free_clip"]);
-        let mut dirty = DriverLifecycle::default();
-        dirty.is_init = true;
-        dirty.next_emitor_id = 7;
+        let dirty = DriverLifecycle {
+            is_init: true,
+            next_emitor_id: 7,
+            ..Default::default()
+        };
         let mut backend = DestroyLog { events: Vec::new() };
         driver_destroy(&dirty, &mut backend);
         assert_eq!(backend.events, vec!["warn_init", "free_clip"]);
