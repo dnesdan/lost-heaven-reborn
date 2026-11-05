@@ -509,8 +509,10 @@ mod tests {
 
     #[test]
     fn blend_caches_and_maps_all_modes_with_store_before_switch() {
-        let mut state = RenderState::default();
-        state.curr_blend = 99;
+        let mut state = RenderState {
+            curr_blend: 99,
+            ..Default::default()
+        };
         let mut backend = BlendLog { pairs: Vec::new() };
         // Cache hit issues no device call.
         state.curr_blend = BLENDSTATE_ALPHA;
@@ -589,8 +591,10 @@ mod tests {
 
     #[test]
     fn color_op1_caches_then_forwards_every_op() {
-        let mut state = RenderState::default();
-        state.curr_color_op1 = 4;
+        let mut state = RenderState {
+            curr_color_op1: 4,
+            ..Default::default()
+        };
         let mut backend = OpLog { ops: Vec::new() };
         set_color_op1(&mut state, 4, &mut backend);
         assert!(backend.ops.is_empty());
@@ -610,9 +614,11 @@ mod tests {
 
     #[test]
     fn cull_aliases_ccw_through_driver_mode() {
-        let mut state = RenderState::default();
-        state.cull_mode = D3DCULL_CW;
-        state.curr_cull = D3DCULL_NONE;
+        let mut state = RenderState {
+            cull_mode: D3DCULL_CW,
+            curr_cull: D3DCULL_NONE,
+            ..Default::default()
+        };
         let mut backend = CullLog { modes: Vec::new() };
         set_cull_state(&mut state, D3DCULL_NONE, &mut backend);
         assert!(backend.modes.is_empty());
@@ -635,8 +641,10 @@ mod tests {
 
     #[test]
     fn clipping_caches_and_maps_only_one_to_true() {
-        let mut state = RenderState::default();
-        state.curr_clip = 1;
+        let mut state = RenderState {
+            curr_clip: 1,
+            ..Default::default()
+        };
         let mut backend = ClipLog {
             enables: Vec::new(),
         };
@@ -702,12 +710,14 @@ mod tests {
 
     #[test]
     fn fog_enable_flip_disables_and_returns_without_further_effects() {
-        let mut state = RenderState::default();
-        state.curr_fog_state = 1;
-        state.curr_fog_type = FOGTYPE_LINEAR;
-        state.curr_fog_start = 1.0;
-        state.curr_fog_end = 9.0;
-        state.curr_fog_color = 0x1234;
+        let mut state = RenderState {
+            curr_fog_state: 1,
+            curr_fog_type: FOGTYPE_LINEAR,
+            curr_fog_start: 1.0,
+            curr_fog_end: 9.0,
+            curr_fog_color: 0x1234,
+            ..Default::default()
+        };
         let mut backend = FogLog { events: Vec::new() };
         set_fog(
             &mut state,
@@ -738,12 +748,14 @@ mod tests {
 
     #[test]
     fn fog_linear_updates_end_start_color_with_marginal_zero_gate() {
-        let mut state = RenderState::default();
-        state.curr_fog_state = 1;
-        state.curr_fog_type = FOGTYPE_LINEAR;
-        state.curr_fog_start = 0.0;
-        state.curr_fog_end = 9.0;
-        state.curr_fog_color = 0;
+        let mut state = RenderState {
+            curr_fog_state: 1,
+            curr_fog_type: FOGTYPE_LINEAR,
+            curr_fog_start: 0.0,
+            curr_fog_end: 9.0,
+            curr_fog_color: 0,
+            ..Default::default()
+        };
         let mut backend = FogLog { events: Vec::new() };
         // Marginal difference (5e-9) is below the bit gate: no start/end call.
         let tiny: f32 = 5e-9;
@@ -777,9 +789,11 @@ mod tests {
 
     #[test]
     fn fog_exp_uses_density_and_table_select() {
-        let mut state = RenderState::default();
-        state.hardware_caps = HWCAPS_TABLEFOG;
-        state.curr_fog_state = 0;
+        let mut state = RenderState {
+            hardware_caps: HWCAPS_TABLEFOG,
+            curr_fog_state: 0,
+            ..Default::default()
+        };
         let mut backend = FogLog { events: Vec::new() };
         set_fog(&mut state, 1, FOGTYPE_EXP, 0.5, 0.0, 0x0, &mut backend);
         assert_eq!(state.curr_fog_type, FOGTYPE_EXP);
@@ -794,16 +808,20 @@ mod tests {
     fn fog_linear_maps_to_d3d_word_not_selector() {
         // FOGTYPE_LINEAR (0) must program D3DFOG_LINEAR (3): forwarding the
         // selector raw would program D3DFOG_NONE (fog off).
-        let mut state = RenderState::default();
-        state.hardware_caps = HWCAPS_TABLEFOG;
-        state.curr_fog_state = 0;
-        state.curr_fog_type = FOGTYPE_EXP; // force a type transition below
+        let mut state = RenderState {
+            hardware_caps: HWCAPS_TABLEFOG,
+            curr_fog_state: 0,
+            curr_fog_type: FOGTYPE_EXP, // force a type transition below
+            ..Default::default()
+        };
         let mut backend = FogLog { events: Vec::new() };
         set_fog(&mut state, 1, FOGTYPE_LINEAR, 1.0, 9.0, 0x0, &mut backend);
         assert!(backend.events.contains(&"mode:true:3".to_string()));
-        let mut state = RenderState::default();
-        state.curr_fog_state = 0;
-        state.curr_fog_type = FOGTYPE_EXP;
+        let mut state = RenderState {
+            curr_fog_state: 0,
+            curr_fog_type: FOGTYPE_EXP,
+            ..Default::default()
+        };
         let mut backend = FogLog { events: Vec::new() };
         set_fog(&mut state, 1, FOGTYPE_LINEAR, 1.0, 9.0, 0x0, &mut backend);
         assert!(backend.events.contains(&"mode:false:3".to_string()));
@@ -877,8 +895,10 @@ mod tests {
 
     #[test]
     fn stage0_color_op_caches_then_forwards_every_op() {
-        let mut state = RenderState::default();
-        state.curr_color_op = 4;
+        let mut state = RenderState {
+            curr_color_op: 4,
+            ..Default::default()
+        };
         let mut backend = Stage0Log { ops: Vec::new() };
         set_color_op(&mut state, 4, &mut backend);
         assert!(backend.ops.is_empty());
@@ -893,8 +913,10 @@ mod tests {
 
     #[test]
     fn stage0_alpha_op_caches_then_forwards_every_op() {
-        let mut state = RenderState::default();
-        state.curr_alpha_op = 4;
+        let mut state = RenderState {
+            curr_alpha_op: 4,
+            ..Default::default()
+        };
         let mut backend = Stage0Log { ops: Vec::new() };
         set_alpha_op(&mut state, 4, &mut backend);
         assert!(backend.ops.is_empty());
