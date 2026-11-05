@@ -19,11 +19,51 @@ pub struct VehicleGearSoundGlobals {
     pub volume_bits: u32,
 }
 
+/// Caller-supplied opaque gear sound compatibility token (raw `u32` word).
+/// This is not an owner-scoped live `SoundId`: it carries no owner or
+/// generation, performs no liveness validation, and offers no ABA protection.
+/// Each effect call still resolves the raw word with a repeated compatibility
+/// lookup at the `RuntimeAudio` boundary (`sound_id_from_handle`); that
+/// repeated-lookup/ABA risk predates this patch and is not fixed here.
+/// Zero means "no sound". This is not an original C++ type name; the raw
+/// `u32` words remain in the storage adapter below. Handles are stored at
+/// 0x6a8/0x6ac (first bank) and 0x98c/0x990 (second bank), selected by the
+/// index word at 0x200.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GearSoundHandle(u32);
+
+impl GearSoundHandle {
+    /// Preserve the raw compatibility word without validation; no liveness
+    /// check, owner binding, or generation is attached here.
+    pub fn from_raw(raw: u32) -> Self {
+        Self(raw)
+    }
+
+    /// Expose the raw compatibility word for the boundary lookup.
+    pub fn as_raw(self) -> u32 {
+        self.0
+    }
+
+    /// Zero means "no sound"; any nonzero word is still an unvalidated token.
+    pub fn is_none(self) -> bool {
+        self.0 == 0
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum VehicleGearSoundCall {
-    IsPlaying { sound: u32, query_flag: bool },
-    SetOn { sound: u32, enabled: bool },
-    SetVolume { sound: u32, volume_bits: u32 },
+    IsPlaying {
+        sound: GearSoundHandle,
+        query_flag: bool,
+    },
+    SetOn {
+        sound: GearSoundHandle,
+        enabled: bool,
+    },
+    SetVolume {
+        sound: GearSoundHandle,
+        volume_bits: u32,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -46,7 +86,7 @@ pub struct VehicleGearSoundContext<'a, T = Vec<u8>> {
 pub trait VehicleGearSoundEffects<T = Vec<u8>> {
     fn is_playing(
         &mut self,
-        sound: u32,
+        sound: GearSoundHandle,
         query_flag: bool,
         _context: VehicleGearSoundContext<'_, T>,
     ) -> Result<u8, VehicleGearSoundUnavailable> {
@@ -57,7 +97,7 @@ pub trait VehicleGearSoundEffects<T = Vec<u8>> {
 
     fn set_on(
         &mut self,
-        sound: u32,
+        sound: GearSoundHandle,
         enabled: bool,
         _context: VehicleGearSoundContext<'_, T>,
     ) -> Result<(), VehicleGearSoundUnavailable> {
@@ -68,7 +108,7 @@ pub trait VehicleGearSoundEffects<T = Vec<u8>> {
 
     fn set_volume(
         &mut self,
-        sound: u32,
+        sound: GearSoundHandle,
         volume_bits: u32,
         _context: VehicleGearSoundContext<'_, T>,
     ) -> Result<(), VehicleGearSoundUnavailable> {
@@ -92,7 +132,9 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> VehicleDrivetrainState<T> {
             return Ok(());
         }
         let first = GearSounds::borrow(self).current_sound(GearSoundBank::First)?;
-        let first_busy = if first != 0 {
+        let first_busy = if first.is_none() {
+            false
+        } else {
             effects.is_playing(
                 first,
                 false,
@@ -102,12 +144,10 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> VehicleDrivetrainState<T> {
                     globals,
                 },
             )? != 0
-        } else {
-            false
         };
         // This second query still runs when the first sound is playing.
         let second = GearSounds::borrow(self).current_sound(GearSoundBank::Second)?;
-        if second != 0
+        if !second.is_none()
             && effects.is_playing(
                 second,
                 false,
@@ -132,7 +172,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> VehicleDrivetrainState<T> {
         GearSounds::borrow(self).select_random_variant(remainder)?;
         let bank = GearSounds::borrow(self).selected_bank()?;
         let selected = GearSounds::borrow(self).current_sound(bank)?;
-        if selected == 0 {
+        if selected.is_none() {
             return Ok(());
         }
         effects.set_on(
@@ -149,7 +189,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> VehicleDrivetrainState<T> {
             sound: selected,
             volume_bits: globals.volume_bits,
         };
-        if selected == 0 {
+        if selected.is_none() {
             return Err(VehicleGearSoundUnavailable::NullSound(call));
         }
         effects.set_volume(
@@ -245,11 +285,11 @@ mod tests {
 
     #[test]
     fn busy_first_sound_still_queries_second_using_mutated_index() {
-        struct Busy(Vec<u32>);
+        struct Busy(Vec<GearSoundHandle>);
         impl VehicleGearSoundEffects for Busy {
             fn is_playing(
                 &mut self,
-                handle: u32,
+                handle: GearSoundHandle,
                 paused: bool,
                 context: VehicleGearSoundContext<'_>,
             ) -> Result<u8, VehicleGearSoundUnavailable> {
@@ -267,7 +307,10 @@ mod tests {
         vehicle
             .gear_snd(&mut direction, &mut globals, &mut effects)
             .unwrap();
-        assert_eq!(effects.0, [11, 44]);
+        assert_eq!(
+            effects.0,
+            [GearSoundHandle::from_raw(11), GearSoundHandle::from_raw(44)]
+        );
         assert_eq!(globals.random_seed, 1);
         assert_eq!(direction, 7);
         assert_eq!(word(&vehicle, 0x200), Ok(1));
@@ -282,7 +325,7 @@ mod tests {
             vehicle.gear_snd(&mut 0, &mut globals, &mut Missing),
             Err(VehicleGearSoundUnavailable::Effect(
                 VehicleGearSoundCall::IsPlaying {
-                    sound: 11,
+                    sound: GearSoundHandle::from_raw(11),
                     query_flag: false,
                 }
             ))
@@ -305,7 +348,7 @@ mod tests {
                 impl VehicleGearSoundEffects for Silent {
                     fn is_playing(
                         &mut self,
-                        _: u32,
+                        _: GearSoundHandle,
                         _: bool,
                         _: VehicleGearSoundContext<'_>,
                     ) -> Result<u8, VehicleGearSoundUnavailable> {
@@ -323,7 +366,7 @@ mod tests {
                     vehicle.gear_snd(&mut 0, &mut globals, &mut Silent),
                     Err(VehicleGearSoundUnavailable::Effect(
                         VehicleGearSoundCall::SetOn {
-                            sound: base + index * 11,
+                            sound: GearSoundHandle::from_raw(base + index * 11),
                             enabled: true,
                         }
                     ))
@@ -343,7 +386,7 @@ mod tests {
         impl VehicleGearSoundEffects for Mutating {
             fn is_playing(
                 &mut self,
-                sound: u32,
+                sound: GearSoundHandle,
                 query_flag: bool,
                 context: VehicleGearSoundContext<'_>,
             ) -> Result<u8, VehicleGearSoundUnavailable> {
@@ -356,7 +399,7 @@ mod tests {
             }
             fn set_on(
                 &mut self,
-                sound: u32,
+                sound: GearSoundHandle,
                 enabled: bool,
                 context: VehicleGearSoundContext<'_>,
             ) -> Result<(), VehicleGearSoundUnavailable> {
@@ -370,7 +413,7 @@ mod tests {
             }
             fn set_volume(
                 &mut self,
-                sound: u32,
+                sound: GearSoundHandle,
                 volume_bits: u32,
                 context: VehicleGearSoundContext<'_>,
             ) -> Result<(), VehicleGearSoundUnavailable> {
@@ -393,19 +436,19 @@ mod tests {
             effects.0,
             [
                 VehicleGearSoundCall::IsPlaying {
-                    sound: 11,
+                    sound: GearSoundHandle::from_raw(11),
                     query_flag: false
                 },
                 VehicleGearSoundCall::IsPlaying {
-                    sound: 33,
+                    sound: GearSoundHandle::from_raw(33),
                     query_flag: false
                 },
                 VehicleGearSoundCall::SetOn {
-                    sound: 11,
+                    sound: GearSoundHandle::from_raw(11),
                     enabled: true
                 },
                 VehicleGearSoundCall::SetVolume {
-                    sound: 22,
+                    sound: GearSoundHandle::from_raw(22),
                     volume_bits: 0x7fc12345
                 },
             ]
@@ -429,7 +472,7 @@ mod tests {
             ),
             Err(VehicleMotorRotUnavailable::Effect(
                 VehicleGearSoundUnavailable::Effect(VehicleGearSoundCall::IsPlaying {
-                    sound: 11,
+                    sound: GearSoundHandle::from_raw(11),
                     query_flag: false
                 })
             ))

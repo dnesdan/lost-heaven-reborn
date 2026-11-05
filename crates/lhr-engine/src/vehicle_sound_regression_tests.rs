@@ -27,7 +27,8 @@ fn storage_view_is_lazy_and_reports_the_reached_field() {
         Err(VehicleGearSoundUnavailable::Storage(0xc68))
     );
     assert_eq!(
-        view.current_sound(GearSoundBank::First),
+        view.current_sound(GearSoundBank::First)
+            .map(|sound| sound.as_raw()),
         Err(VehicleGearSoundUnavailable::Storage(0x200))
     );
     assert_eq!(
@@ -41,7 +42,9 @@ fn storage_view_is_lazy_and_reports_the_reached_field() {
 
     let mut vehicle = VehicleDrivetrainState::from_bytes(vec![0; 0x204]);
     assert_eq!(
-        GearSounds::borrow(&mut vehicle).current_sound(GearSoundBank::Second),
+        GearSounds::borrow(&mut vehicle)
+            .current_sound(GearSoundBank::Second)
+            .map(|sound| sound.as_raw()),
         Err(VehicleGearSoundUnavailable::Storage(0x98c))
     );
 }
@@ -77,8 +80,16 @@ fn storage_index_keeps_wrapping_address_arithmetic_without_clamping() {
         store(&mut vehicle, first, 17).unwrap();
         store(&mut vehicle, second, 29).unwrap();
         let view = GearSounds::borrow(&mut vehicle);
-        assert_eq!(view.current_sound(GearSoundBank::First), Ok(17));
-        assert_eq!(view.current_sound(GearSoundBank::Second), Ok(29));
+        assert_eq!(
+            view.current_sound(GearSoundBank::First)
+                .map(|sound| sound.as_raw()),
+            Ok(17)
+        );
+        assert_eq!(
+            view.current_sound(GearSoundBank::Second)
+                .map(|sound| sound.as_raw()),
+            Ok(29)
+        );
     }
 }
 
@@ -113,7 +124,7 @@ struct Mutating {
 impl VehicleGearSoundEffects for Mutating {
     fn is_playing(
         &mut self,
-        sound: u32,
+        sound: GearSoundHandle,
         query_flag: bool,
         _: VehicleGearSoundContext<'_>,
     ) -> Result<u8, VehicleGearSoundUnavailable> {
@@ -124,7 +135,7 @@ impl VehicleGearSoundEffects for Mutating {
 
     fn set_on(
         &mut self,
-        sound: u32,
+        sound: GearSoundHandle,
         enabled: bool,
         context: VehicleGearSoundContext<'_>,
     ) -> Result<(), VehicleGearSoundUnavailable> {
@@ -134,7 +145,7 @@ impl VehicleGearSoundEffects for Mutating {
         *context.direction = 0x91;
         match self.action {
             AfterEnable::Clear => {
-                let offset = if sound == 11 { 0x6a8 } else { 0x98c };
+                let offset = if sound.as_raw() == 11 { 0x6a8 } else { 0x98c };
                 store(context.vehicle, offset, 0)?;
             }
             AfterEnable::Fail => {
@@ -143,7 +154,7 @@ impl VehicleGearSoundEffects for Mutating {
             }
             AfterEnable::ChangeBankAndIndex => {
                 store(context.vehicle, 0x200, 1)?;
-                context.vehicle.as_bytes_mut()[0x491] = u8::from(sound != 11);
+                context.vehicle.as_bytes_mut()[0x491] = u8::from(sound.as_raw() != 11);
             }
         }
         Ok(())
@@ -151,7 +162,7 @@ impl VehicleGearSoundEffects for Mutating {
 
     fn set_volume(
         &mut self,
-        sound: u32,
+        sound: GearSoundHandle,
         volume_bits: u32,
         _: VehicleGearSoundContext<'_>,
     ) -> Result<(), VehicleGearSoundUnavailable> {
@@ -174,7 +185,7 @@ fn enable_callback_removing_sound_reports_null_before_volume_call() {
         vehicle.gear_snd(&mut direction, &mut shared, &mut effects),
         Err(VehicleGearSoundUnavailable::NullSound(
             VehicleGearSoundCall::SetVolume {
-                sound: 0,
+                sound: GearSoundHandle::from_raw(0),
                 volume_bits: 0x7fc12345,
             }
         ))
@@ -198,7 +209,7 @@ fn enable_callback_failure_keeps_its_writes_and_does_not_call_volume() {
         vehicle.gear_snd(&mut direction, &mut shared, &mut effects),
         Err(VehicleGearSoundUnavailable::Effect(
             VehicleGearSoundCall::SetOn {
-                sound: 11,
+                sound: GearSoundHandle::from_raw(11),
                 enabled: true,
             }
         ))
@@ -228,19 +239,19 @@ fn enable_callback_rereads_index_and_volume_but_keeps_the_selected_bank() {
             effects.calls,
             [
                 VehicleGearSoundCall::IsPlaying {
-                    sound: 11,
+                    sound: GearSoundHandle::from_raw(11),
                     query_flag: false
                 },
                 VehicleGearSoundCall::IsPlaying {
-                    sound: 33,
+                    sound: GearSoundHandle::from_raw(33),
                     query_flag: false
                 },
                 VehicleGearSoundCall::SetOn {
-                    sound: enabled_sound,
+                    sound: GearSoundHandle::from_raw(enabled_sound),
                     enabled: true
                 },
                 VehicleGearSoundCall::SetVolume {
-                    sound: volume_sound,
+                    sound: GearSoundHandle::from_raw(volume_sound),
                     volume_bits: 0x7fc12345
                 },
             ]
@@ -250,11 +261,11 @@ fn enable_callback_rereads_index_and_volume_but_keeps_the_selected_bank() {
 
 #[test]
 fn busy_first_query_does_not_hide_a_second_query_failure() {
-    struct Queries(Vec<u32>);
+    struct Queries(Vec<GearSoundHandle>);
     impl VehicleGearSoundEffects for Queries {
         fn is_playing(
             &mut self,
-            sound: u32,
+            sound: GearSoundHandle,
             query_flag: bool,
             context: VehicleGearSoundContext<'_>,
         ) -> Result<u8, VehicleGearSoundUnavailable> {
@@ -275,12 +286,15 @@ fn busy_first_query_does_not_hide_a_second_query_failure() {
         vehicle.gear_snd(&mut 0, &mut shared, &mut effects),
         Err(VehicleGearSoundUnavailable::Effect(
             VehicleGearSoundCall::IsPlaying {
-                sound: 44,
+                sound: GearSoundHandle::from_raw(44),
                 query_flag: false,
             }
         ))
     );
-    assert_eq!(effects.0, [11, 44]);
+    assert_eq!(
+        effects.0,
+        [GearSoundHandle::from_raw(11), GearSoundHandle::from_raw(44)]
+    );
     assert_eq!(shared.random_seed, 1);
     assert_eq!(word(&vehicle, 0x200), Ok(1));
 }
@@ -291,7 +305,7 @@ fn changed_storage_after_queries_keeps_rng_advance_before_failed_choice_write() 
     impl VehicleGearSoundEffects for Queries {
         fn is_playing(
             &mut self,
-            _: u32,
+            _: GearSoundHandle,
             _: bool,
             context: VehicleGearSoundContext<'_>,
         ) -> Result<u8, VehicleGearSoundUnavailable> {

@@ -1059,16 +1059,21 @@ fn canonical_name(name: &str) -> String {
 impl<T: AsRef<[u8]> + AsMut<[u8]>> crate::vehicle_sound::VehicleGearSoundEffects<T>
     for RuntimeAudio
 {
+    // Compatibility boundary: each call re-resolves the raw token word with
+    // `sound_id_from_handle`. No generation/liveness is carried in
+    // `GearSoundHandle`, so the pre-existing repeated-lookup/ABA risk
+    // remains; callback timing and behavior are unchanged. The full planned
+    // `SoundId` migration is not complete.
     fn is_playing(
         &mut self,
-        sound: u32,
+        sound: crate::vehicle_sound::GearSoundHandle,
         query_flag: bool,
         _context: crate::vehicle_sound::VehicleGearSoundContext<'_, T>,
     ) -> std::result::Result<u8, crate::vehicle_sound::VehicleGearSoundUnavailable> {
         use crate::vehicle_sound::{
             VehicleGearSoundCall as Call, VehicleGearSoundUnavailable as Error,
         };
-        self.sound_id_from_handle(sound)
+        self.sound_id_from_handle(sound.as_raw())
             .and_then(|id| {
                 self.sound_is_playing(
                     &id,
@@ -1084,27 +1089,27 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> crate::vehicle_sound::VehicleGearSoundEffects
     }
     fn set_on(
         &mut self,
-        sound: u32,
+        sound: crate::vehicle_sound::GearSoundHandle,
         enabled: bool,
         _context: crate::vehicle_sound::VehicleGearSoundContext<'_, T>,
     ) -> std::result::Result<(), crate::vehicle_sound::VehicleGearSoundUnavailable> {
         use crate::vehicle_sound::{
             VehicleGearSoundCall as Call, VehicleGearSoundUnavailable as Error,
         };
-        self.sound_id_from_handle(sound)
+        self.sound_id_from_handle(sound.as_raw())
             .and_then(|id| self.set_sound_enabled(&id, enabled))
             .map_err(|_| Error::Effect(Call::SetOn { sound, enabled }))
     }
     fn set_volume(
         &mut self,
-        sound: u32,
+        sound: crate::vehicle_sound::GearSoundHandle,
         volume_bits: u32,
         _context: crate::vehicle_sound::VehicleGearSoundContext<'_, T>,
     ) -> std::result::Result<(), crate::vehicle_sound::VehicleGearSoundUnavailable> {
         use crate::vehicle_sound::{
             VehicleGearSoundCall as Call, VehicleGearSoundUnavailable as Error,
         };
-        self.sound_id_from_handle(sound)
+        self.sound_id_from_handle(sound.as_raw())
             .and_then(|id| self.set_sound_volume(&id, f32::from_bits(volume_bits)))
             .map_err(|_| Error::Effect(Call::SetVolume { sound, volume_bits }))
     }

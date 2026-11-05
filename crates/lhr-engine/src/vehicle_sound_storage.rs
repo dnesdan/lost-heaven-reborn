@@ -3,7 +3,7 @@
 //! decode it eagerly; each method reads only when that operation is reached.
 #![forbid(unsafe_code)]
 
-use super::VehicleGearSoundUnavailable;
+use super::{GearSoundHandle, VehicleGearSoundUnavailable};
 use crate::vehicle_drivetrain::VehicleDrivetrainState;
 
 /// Descriptive bank order, not a claim about original member names/direction.
@@ -37,17 +37,17 @@ impl<'a, T: AsRef<[u8]> + AsMut<[u8]>> GearSounds<'a, T> {
     pub(super) fn current_sound(
         &self,
         bank: GearSoundBank,
-    ) -> Result<u32, VehicleGearSoundUnavailable> {
+    ) -> Result<GearSoundHandle, VehicleGearSoundUnavailable> {
         let base: u32 = match bank {
             GearSoundBank::First => 0x6a8,
             GearSoundBank::Second => 0x98c,
         };
         // Callbacks may replace the index. Preserve the original 32-bit address
         // arithmetic and reached bounds error, rather than clamping to 0 or 1.
-        word(
+        Ok(GearSoundHandle::from_raw(word(
             self.vehicle,
             base.wrapping_add(word(self.vehicle, 0x200)?.wrapping_mul(4)),
-        )
+        )?))
     }
 
     pub(super) fn select_random_variant(
