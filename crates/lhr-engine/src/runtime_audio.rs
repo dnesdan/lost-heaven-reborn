@@ -2880,6 +2880,10 @@ pub fn isound_3dsound_set_out_volume(
 /// returns at once. With ISND_3DBUFFER the 3D interface is queried: failure
 /// returns GENERIC with the base attachment retained and init still false.
 /// Otherwise init is set true.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "ISND_3Dsound::Open port mirrors native open method with explicit Rust owners plus singular voice backend"
+)]
 pub fn isound_3dsound_open(
     sound: &mut Isound3dSound,
     self_id: u64,
@@ -3227,6 +3231,10 @@ pub fn isound_driver_speaker_config(flags: u32) -> Option<IsoundSpeakerConfig> {
 /// (mafia-re ls3df/ISound/IS_driver.cpp:384): a failed device init returns
 /// GENERIC with no state change; else the window stores, the shared init word
 /// sets, driver volume becomes 1.0, I3D_OK.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "ISND_driver::Init port mirrors native device-word phase with explicit Rust driver owners plus singular backend"
+)]
 pub fn isound_driver_init_mark(
     driver: &mut IsoundDriver,
     globals: &mut IsoundGlobals,
@@ -3471,6 +3479,10 @@ pub fn isound_sound_release(sound: &mut IsoundSound) -> i32 {
 /// WAV scan leniency (disclosed): the host takes the first 16-byte `fmt ` and
 /// first `data` chunk; native assumes `fmt ` first then scans for `data`
 /// (a leading junk chunk would desync it, not the host).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "ISND_sound::Open port mirrors native open method with explicit Rust owners plus singular voice backend"
+)]
 pub fn isound_sound_open(
     sound: &mut IsoundSound,
     self_id: u64,
@@ -3574,6 +3586,10 @@ fn isound_submit_play(
 /// LS3DF RVA 0x7ca70, VA 0x1007ca70. ISND_sound::Play with source working
 /// name (mafia-re ls3df/ISound/IS_sound.cpp:218): Open, then Play(flags, 0)
 /// on success; the Open result returns at once otherwise.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "ISND_sound::Play-with-source port chains native open/play methods with explicit Rust owners plus singular backend"
+)]
 pub fn isound_sound_play_with_source(
     sound: &mut IsoundSound,
     attached: Option<&mut IsoundSource>,
@@ -3623,6 +3639,10 @@ pub fn isound_sound_play_with_source(
 /// louder incumbent reread live), or waits on the terminated list with its
 /// current position. Submit order (hardware attempt, software fallback) is
 /// the shared helper.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "ISND_sound::Play port mirrors native channel/flag phase with explicit Rust owners plus singular voice backend"
+)]
 pub fn isound_sound_play(
     sound: &mut IsoundSound,
     bank: &mut IsoundChannelBank,
@@ -3830,6 +3850,10 @@ pub fn isound_sound_get_curr_time(
 /// fistp is UB — disclosed, corrupt-data edge); the device cursor submits,
 /// then the listed channel start becomes now minus time under the EAX
 /// hardware gate.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "ISND_sound::SetCurrTime port mirrors native cursor/channel phase with explicit Rust owners plus singular backend"
+)]
 pub fn isound_sound_set_curr_time(
     sound: &IsoundSound,
     self_id: u64,
