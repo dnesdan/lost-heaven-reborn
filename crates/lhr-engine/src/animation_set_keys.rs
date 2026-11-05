@@ -639,7 +639,7 @@ mod tests {
     fn rot_keys(n: u16, times: &[u16], quats: &[[u32; 4]]) -> Vec<u16> {
         let mut w = vec![ANIMF_ROT as u16, 0, n];
         w.extend(times.iter().copied());
-        if n % 2 == 0 {
+        if n.is_multiple_of(2) {
             w.push(0xA53C);
         }
         for q in quats {

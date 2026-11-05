@@ -1189,7 +1189,7 @@ pub fn project_shadow_texels(
     size: [u16; 2],
     sw: bool,
 ) -> Result<Vec<i32>, ShadowPassError> {
-    if verts.len() % 2 != 0 {
+    if !verts.len().is_multiple_of(2) {
         return Err(ShadowPassError::NumericDomain);
     }
     if size[0] == 0 || size[1] == 0 {
@@ -2112,7 +2112,7 @@ mod tests {
         }
         assert_eq!(buffer[4 * SHADOW_SW_STRIDE], 0x00);
         assert_eq!(
-            rasterize_shadow_triangles_sw(&verts, &indx, 1, &mut vec![0u8; 16]),
+            rasterize_shadow_triangles_sw(&verts, &indx, 1, &mut [0u8; 16]),
             Err(ShadowPassError::NumericDomain)
         );
     }

@@ -602,10 +602,12 @@ mod tests {
     }
     #[test]
     fn read_key_winmessages_branch_and_scan_skip_modifiers() {
-        let mut s = KeyboardState::default();
-        s.init_flags = KBINIT_WINMESSAGES;
-        s.last_key = 0xcb;
-        s.last_char1 = b'x' as u32;
+        let mut s = KeyboardState {
+            init_flags: KBINIT_WINMESSAGES,
+            last_key: 0xcb,
+            last_char1: b'x' as u32,
+            ..Default::default()
+        };
         assert_eq!(read_key(&mut s), 0xcb);
         assert_eq!((s.last_key, s.last_char, s.last_char1), (0, 0x78, 0));
         assert_eq!(read_char(&mut s), 0x78);

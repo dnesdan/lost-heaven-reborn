@@ -6158,7 +6158,7 @@ mod isound_contract_tests {
             0
         );
         assert_eq!(second.open_flags & ISND_3DBUFFER, 0);
-        assert_eq!(rig.created_desc.unwrap().control_3d, false);
+        assert!(!rig.created_desc.unwrap().control_3d);
         let mut sysmem = isound_source_new();
         assert_eq!(
             isound_source_open(
