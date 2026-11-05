@@ -11,4 +11,6 @@ python3 -m unittest discover -s tests -p 'test_binary_analysis.py' -v
 python3 -m unittest discover -s tests -p 'test_progress.py' -v
 python3 -m unittest discover -s tests -p 'test_rust_boundaries.py' -v
 python3 -m unittest discover -s tests -p 'test_capture_lab.py' -v
+python3 -m unittest discover -s tests -p 'test_rewrite_progress.py' -v
 python3 scripts/progress.py --check
+python3 scripts/rewrite_progress.py --check
