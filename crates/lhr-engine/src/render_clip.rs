@@ -2521,6 +2521,10 @@ pub fn prepare_lights(
                 let dz = obj.bound_pos[2] - lt.w_pos[2];
                 let dist_2 = (dx * dx + dy * dy) + dz * dz;
                 let r = obj.bound_radius + lt.radius;
+                #[expect(
+                    clippy::neg_cmp_op_on_partial_ord,
+                    reason = "negated <= admits NaN to spot energy/slot candidate branch; pickup still requires temp_light_slot"
+                )]
                 if !((r * r) <= dist_2) {
                     let energy = (lt.color[0] + lt.color[1] + lt.color[2]) / dist_2.sqrt();
                     if let Some(slot) = temp_light_slot(state, energy) {
@@ -2569,6 +2573,10 @@ pub fn prepare_lights(
                 let dz = obj.bound_pos[2] - lt.w_pos[2];
                 let dist_2 = (dx * dx + dy * dy) + dz * dz;
                 let r = obj.bound_radius + lt.range_f;
+                #[expect(
+                    clippy::neg_cmp_op_on_partial_ord,
+                    reason = "negated <= admits NaN to point energy/slot candidate branch; pickup still requires temp_light_slot"
+                )]
                 if !((r * r) <= dist_2) {
                     let energy = (lt.color[0] + lt.color[1] + lt.color[2]) / dist_2.sqrt();
                     if let Some(slot) = temp_light_slot(state, energy) {
