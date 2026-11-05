@@ -4885,8 +4885,10 @@ mod isound_contract_tests {
 
     #[test]
     fn isound_3dsound_open_branches() {
-        let mut rig = Rig::default();
-        rig.duplicate = Ok(21);
+        let mut rig = Rig {
+            duplicate: Ok(21),
+            ..Default::default()
+        };
         let mut bank = IsoundChannelBank::default();
         let mut sound = isound_3dsound_new();
         let mut fresh = isound_source_new();
@@ -5277,8 +5279,10 @@ mod isound_contract_tests {
 
     #[test]
     fn isound_driver_init_mark_fail_keeps_state() {
-        let mut rig = Rig::default();
-        rig.dsound_ok = false;
+        let mut rig = Rig {
+            dsound_ok: false,
+            ..Default::default()
+        };
         let mut driver = isound_driver_new();
         let mut globals = isound_globals_new();
         assert_eq!(
@@ -5360,8 +5364,10 @@ mod isound_contract_tests {
 
     #[test]
     fn isound_update_all_terminated_buffs_scenario() {
-        let mut rig = Rig::default();
-        rig.clock = 1000;
+        let mut rig = Rig {
+            clock: 1000,
+            ..Default::default()
+        };
         rig.playing.insert(10, false);
         rig.play_times.insert(2, 500);
         rig.play_times.insert(3, 2000);
@@ -5424,8 +5430,10 @@ mod isound_contract_tests {
         // GetPlayTime`) with no frequency division (division applies only
         // to the terminated-forget/resume paths). play_time 1000, freq 2:
         // elapsed 600 keeps the voice (divided comparison would expire it).
-        let mut rig = Rig::default();
-        rig.clock = 600;
+        let mut rig = Rig {
+            clock: 600,
+            ..Default::default()
+        };
         rig.playing.insert(10, true);
         rig.play_times.insert(1, 1000);
         rig.freq_mults.insert(1, 2.0);
@@ -5663,8 +5671,10 @@ mod isound_contract_tests {
 
     #[test]
     fn isound_sound_play_channel_paths() {
-        let mut rig = Rig::default();
-        rig.clock = 700;
+        let mut rig = Rig {
+            clock: 700,
+            ..Default::default()
+        };
         rig.positions.insert(11, 40);
         rig.playing.insert(90, true);
         rig.volumes.insert(9, 0.1);
@@ -5818,8 +5828,10 @@ mod isound_contract_tests {
 
     #[test]
     fn isound_sound_set_curr_time_vectors() {
-        let mut rig = Rig::default();
-        rig.clock = 900;
+        let mut rig = Rig {
+            clock: 900,
+            ..Default::default()
+        };
         let sound = isound_sound_new();
         assert_eq!(
             isound_sound_set_curr_time(
