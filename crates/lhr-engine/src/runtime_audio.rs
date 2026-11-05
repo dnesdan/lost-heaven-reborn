@@ -3937,11 +3937,7 @@ pub fn isound_sound_set_volume_log_db(
     }
     let attenuation = (f64::from(driver_volume).ln() * -866.0) as f32 as i32;
     let mut adjusted = volume.wrapping_sub(attenuation);
-    if adjusted < DSBVOLUME_MIN {
-        adjusted = DSBVOLUME_MIN;
-    } else if adjusted > DSBVOLUME_MAX {
-        adjusted = DSBVOLUME_MAX;
-    }
+    adjusted = adjusted.clamp(DSBVOLUME_MIN, DSBVOLUME_MAX);
     backend.set_buffer_volume(sound.buffer.unwrap_or(0), adjusted);
     ISOUND_OK
 }
@@ -3999,13 +3995,7 @@ pub fn isound_sound_set_panning(
             return ISOUND_GENERIC;
         }
         let pan = (f64::from(panning).ln() * 866.0) as i32;
-        if pan > DSBPAN_RIGHT {
-            DSBPAN_RIGHT
-        } else if pan < DSBPAN_LEFT {
-            DSBPAN_LEFT
-        } else {
-            pan
-        }
+        pan.clamp(DSBPAN_LEFT, DSBPAN_RIGHT)
     };
     backend.set_buffer_pan(sound.buffer.unwrap_or(0), pan);
     ISOUND_OK
