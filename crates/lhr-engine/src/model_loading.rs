@@ -71,6 +71,9 @@ pub struct LoadedFrame {
     lensflare_release_cursor: usize,
     pub(crate) projector: Option<crate::frame_projector::I3dProjectorState>,
     pub(crate) mirror: Option<crate::frame_mirror::I3dMirrorState>,
+    /// Shadow derived state (PC RVAs 0x50950–0x51a20). Mirror-carrier
+    /// precedent: no new `FrameKind` variant; presence is the discriminant.
+    pub(crate) shadow: Option<crate::frame_shadow::I3dShadowState>,
     pub(crate) hr_bounds_error: Option<ModelError>,
     pub(crate) hr_world_bounds_error: Option<ModelError>,
     /// Immutable host backing, independent of model membership. This is not a
@@ -172,6 +175,7 @@ pub struct SharedModelLoadFailure {
 pub enum ModelError {
     DummyFrameRequired(FrameKey),
     MirrorFrameRequired(FrameKey),
+    ShadowFrameRequired(FrameKey),
     Frame(FrameError),
     Camera(crate::frame_camera::CameraError),
     Area(crate::frame_area::AreaError),
@@ -290,6 +294,10 @@ pub struct ModelArena {
     pub(crate) sound_backend: Option<crate::frame_sound::HostSoundBackend>,
     pub(crate) occluders: Vec<crate::frame_occluder::OccluderFrame>,
     pub(crate) occluder_storage: crate::frame_occluder::OccluderStorage,
+    /// Host analog of `globalShadowList` (PC RVA 0x50950 ctor push_back /
+    /// 0x50b90 swap-remove; traversed by 0x51480). Insertion order mirrors the
+    /// native `C_list`; capacity growth is fallible (`try_reserve`).
+    pub(crate) shadow_registry: Vec<FrameKey>,
     pub(crate) sector_version: u32,
     /// m_UpdateSoundProperties throttle statics (PC RVA 0x4aaa0): the native
     /// function-static armed flag (DAT_101b4e74 bit0) and last_time
@@ -508,6 +516,7 @@ impl ModelArena {
             lensflare_release_cursor: 0,
             projector: None,
             mirror: None,
+            shadow: None,
             hr_bounds_error: None,
             hr_world_bounds_error: None,
             source: None,
