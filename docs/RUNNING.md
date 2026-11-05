@@ -55,10 +55,16 @@ execute gameplay. Pass `--probe-model-dir Models` explicitly for model intake;
 its intentional default is an empty directory list, so a run without that
 argument proves no model geometry.
 
-At tested engine `041eed8`, INTRO's CPU probe completes source loading and
-exits 0. MISE01's CPU probe intentionally exits 1 at unsupported car actor
-kind 4, cursor 3,805,059; both dispose all tracked owners. This does not run
-GameInit or mission scripts. The corresponding INTRO headless GPU source view
+Historically at engine `041eed8`, INTRO's CPU probe completed source loading and
+exited 0, while MISE01's CPU probe intentionally exited 1 at unsupported car
+actor kind 4, cursor 3,805,059; both disposed all tracked owners, without
+running GameInit or mission scripts. At tested base `9345c77`, both INTRO and
+MISE01 CPU probes with `--probe-model-dir Models` report `PrefixComplete` and
+return 0: INTRO reaches 358 objects / 28 actors, MISE01 reaches 3183 objects /
+293 actors, and both release all tracked owners at disposal. This covers only
+the admitted loading prefix including a `GameInitStart` prefix; it does not
+complete MissionOpen, later GameInit, mission scheduling, objectives, or
+gameplay. The corresponding INTRO headless GPU source view
 currently shows only sky/clouds, without recorded camera playback.
 
 The owned base VM and recording-prefix regressions use synthetic inputs:
