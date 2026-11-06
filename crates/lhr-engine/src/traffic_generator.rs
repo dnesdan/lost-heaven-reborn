@@ -726,6 +726,42 @@ pub fn free_dyn_coll_elements(
     Ok(())
 }
 
+/// `C_don_ocas` actor-kind marker, GAME RVA 0x44c640
+/// (mafia-re game/ai/C_person_traffic.cpp:50-54,
+/// game/actors/C_actor.h:33).
+/// The constructor only stores `type = ACTOR_DON_OCAS` (0x13); the `C_actor`
+/// base owner stays outside this contract, so the kind is carried as a plain
+/// value with no heap state.
+///
+/// No `Drop` impl is filed for `C_don_ocas::~C_don_ocas` (GAME 0x44c680,
+/// cpp:56-60): the native body is empty (it only restores the vtable), holds
+/// no state and performs no effect, so a no-op function would claim credit
+/// for an unobservable helper. It stays documented here instead of ported.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DonOcasKind {
+    pub actor_type: u32,
+}
+
+impl DonOcasKind {
+    /// Actor-type tag stored by the constructor (`ACTOR_DON_OCAS`,
+    /// game/actors/C_actor.h:33).
+    pub const ACTOR_TYPE: u32 = 0x13;
+
+    /// `C_don_ocas::C_don_ocas`, GAME RVA 0x44c640
+    /// (mafia-re game/ai/C_person_traffic.cpp:50-54): stores the kind tag.
+    pub fn new() -> Self {
+        Self {
+            actor_type: Self::ACTOR_TYPE,
+        }
+    }
+}
+
+impl Default for DonOcasKind {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1005,5 +1041,13 @@ mod tests {
         let mut log = Log::default();
         free_dyn_coll_elements(&mixed, &mut log).unwrap();
         assert_eq!(log.calls, [Call::Deactivate(2), Call::Deactivate(0)]);
+    }
+
+    #[test]
+    fn don_ocas_ctor_stores_don_ocas_type() {
+        // C_don_ocas::C_don_ocas 0x44c640 stores ACTOR_DON_OCAS (0x13).
+        assert_eq!(DonOcasKind::new().actor_type, DonOcasKind::ACTOR_TYPE);
+        assert_eq!(DonOcasKind::ACTOR_TYPE, 0x13);
+        assert_eq!(DonOcasKind::default().actor_type, 0x13);
     }
 }

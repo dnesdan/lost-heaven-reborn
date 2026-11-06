@@ -393,6 +393,25 @@ pub fn cb_scream_area(
     true
 }
 
+/// FUNCTION: GAME 0x408450 (`C_actor.cpp:1734-1740`, free `rnd(int n)`).
+/// Marker-only: `if (n < 1) return 0; return rand() % n`. The CRT `rand()`
+/// call has no Rust owner here; the caller passes its `u32` result as
+/// `random` and this keeps only the pure bound/guard step.
+pub fn rnd_mod(random: u32, n: i32) -> i32 {
+    if n < 1 {
+        return 0;
+    }
+    (random % n as u32) as i32
+}
+
+/// FUNCTION: GAME 0x408470 (`C_actor.cpp:1742-1746`, free `rnd()`).
+/// Marker-only: `rand() * (1.0f / RAND_MAX)` with MSVC `RAND_MAX = 0x7fff`.
+/// The caller supplies the `rand()` result; this is the pure scaling step
+/// (reciprocal then multiply, no wider intermediate).
+pub fn rnd_unit(random: u32) -> f32 {
+    random as f32 * (1.0f32 / 32767.0f32)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -693,5 +712,35 @@ mod tests {
                 ScreamAreaEntry { frame: 2, id: 0 },
             ]
         );
+    }
+
+    #[test]
+    fn rnd_mod_rejects_non_positive_bound() {
+        assert_eq!(rnd_mod(12345, 0), 0);
+        assert_eq!(rnd_mod(12345, -7), 0);
+        assert_eq!(rnd_mod(12345, i32::MIN), 0);
+    }
+
+    #[test]
+    fn rnd_mod_stays_in_range_and_is_deterministic() {
+        for random in 0..2000u32 {
+            let value = rnd_mod(random, 10);
+            assert!((0..10).contains(&value));
+        }
+        assert_eq!(rnd_mod(7, 10), rnd_mod(7, 10));
+        assert_eq!(rnd_mod(7, 10), 7);
+        assert_eq!(rnd_mod(32767, 10), 7);
+        assert_eq!(rnd_mod(5, 1), 0);
+    }
+
+    #[test]
+    fn rnd_unit_scales_rand_max_to_one() {
+        assert_eq!(rnd_unit(0), 0.0);
+        let unit = rnd_unit(0x7fff);
+        assert!((unit - 1.0).abs() < 1e-6, "{unit}");
+        for random in [1u32, 100, 16383, 32767] {
+            let value = rnd_unit(random);
+            assert!((0.0..=1.0).contains(&value), "{value}");
+        }
     }
 }

@@ -156,11 +156,11 @@ mod tests {
 // native `for (i = size; i--)` loops.
 //
 // Withheld (no claims, no functions): single DestroyIShow device sequence
-// (GAME 0x5b62c0, mafia-re stub) and DestroyIShowAll body beyond the mirrored
-// per-row release, IShowFade/IShowFadeDownAll creation (GAME 0x5b6710 /
-// 0x5b6660, stubs), film-music streams, the Tick loop-restart slice
-// (game.cpp:2140-2151, needs device GetEvent/SetCurrentPos/Play), and all
-// IShow::Open/Play/Stop/Close/IsInit plus IShowStream decode/submit paths.
+// (GAME 0x5b62c0, mafia-re stub), IShowFade/IShowFadeDownAll creation (GAME
+// 0x5b6710 / 0x5b6660, stubs), film-music stream device ops, the Tick
+// loop-restart slice (game.cpp:2140-2151, needs device
+// GetEvent/SetCurrentPos/Play), and all IShow::Open/Play/Stop/Close/IsInit
+// plus IShowStream decode/submit paths.
 
 /// Loop flag (mafia-re game/mission/game.h:188, PS2's IShowLoop's, name ours):
 /// Tick restarts the stream at its end while set.
@@ -203,11 +203,14 @@ pub struct CGameIshowFade {
     pub length: i16,
 }
 
-/// Host-owned C_game video state: the show list, the fade list, the id source
-/// and the city-music fields. Mirrors the C_game::Init stores that are in
-/// scope (mafia-re game/mission/game.cpp:309-311 for the lists and the id
-/// source, :618-623 for the city-music fields). Film-music streams and the
-/// scream/race/weather owners are out of scope and stay deferred.
+/// Host-owned C_game video state: the show list, the fade list, the id source,
+/// the city-music fields and the film-music stream tokens (mafia-re
+/// game/mission/game.h:499, `std::vector<uint>`). Mirrors the C_game::Init
+/// stores that are in scope (mafia-re game/mission/game.cpp:309-311 for the
+/// lists and the id source, :319 for the film clear, :618-623 for the
+/// city-music fields). Film stream device ops and the scream/race/weather
+/// owners are out of scope and stay deferred; only the token-list clear is
+/// ported.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct CGameVideolist {
     pub shows: Vec<CGameIshowEntry>,
@@ -219,6 +222,7 @@ pub struct CGameVideolist {
     pub city_music_old: i32,
     pub city_music_paused: bool,
     pub city_music_areas: Vec<u32>,
+    pub film_music_streams: Vec<u32>,
 }
 
 impl CGameVideolist {
@@ -275,6 +279,25 @@ fn destroy_entry(
         let entry = list.shows.remove(pos);
         backend.destroy_ishow_device(entry.id, entry.show);
     }
+}
+
+/// GAME 0x5b63b0. C_game::DestroyIShowAll (mafia-re game/mission/game.cpp:
+/// 3515-3529): every video from the last one is closed and released through
+/// the single DestroyIShow device sequence (GAME 0x5b62c0, behind
+/// destroy_ishow_device), then the show, fade and film-music-stream lists are
+/// emptied. Name storage is host-owned and drops with the rows; a null native
+/// show pointer has no host form (created rows always hold a backend token),
+/// so every row submits. Film streams clear with no device call like native.
+pub fn cgame_destroy_ishow_all(
+    list: &mut CGameVideolist,
+    backend: &mut impl CGameVideolistBackend,
+) {
+    for i in (0..list.shows.len()).rev() {
+        backend.destroy_ishow_device(list.shows[i].id, list.shows[i].show);
+    }
+    list.shows.clear();
+    list.fades.clear();
+    list.film_music_streams.clear();
 }
 
 /// GAME 0x5b5e90. C_game::CreateIShow (mafia-re game/mission/game.cpp:3446-
@@ -1019,6 +1042,33 @@ mod cgame_videolist_tests {
         assert_eq!(backend.volumes.len(), 1);
         assert_eq!(backend.volumes[0].0, show);
         assert_eq!(backend.volumes[0].1.to_bits(), 0.25f32.to_bits());
+    }
+
+    #[test]
+    fn destroy_all_releases_every_show_back_to_front_and_empties_lists() {
+        let mut list = CGameVideolist::fresh();
+        let mut backend = Fake::new();
+        let first = cgame_create_ishow(&mut list, &mut backend, 0, false, 1.0);
+        let second = cgame_create_ishow(&mut list, &mut backend, 0, false, 1.0);
+        let first_show = cgame_get_ishow(&list, first).unwrap();
+        let second_show = cgame_get_ishow(&list, second).unwrap();
+        list.fades.push(CGameIshowFade {
+            id: first,
+            from: 0.5,
+            to: 0.0,
+            time: 0,
+            length: 5000,
+        });
+        list.film_music_streams.push(77);
+        backend.destroyed.clear();
+        cgame_destroy_ishow_all(&mut list, &mut backend);
+        assert_eq!(
+            backend.destroyed,
+            vec![(second, second_show), (first, first_show)]
+        );
+        assert!(list.shows.is_empty());
+        assert!(list.fades.is_empty());
+        assert!(list.film_music_streams.is_empty());
     }
 }
 
