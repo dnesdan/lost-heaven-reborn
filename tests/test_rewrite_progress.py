@@ -106,7 +106,10 @@ class RewriteProgressTests(unittest.TestCase):
         # +4 visibility wave: RotateDir 0x84d0 via native_transform re-export
         # (itexture pub-use precedent), ghost push 0x52f920 / empty 0x507b50 /
         # DynSet merge scope 0x57cfe0 (HumanState fns promoted to pub).
-        self.assertEqual(game["ported"], 149 + 179)
+        # +1 vehicle light discovery 0xc1420 via vehicle_init re-export
+        # (model/sound cache methods stay unfileable: associated fns have no
+        # re-export path, same class as pre-fix RotateDir).
+        self.assertEqual(game["ported"], 149 + 180)
         self.assertEqual(game["verified"], 149 + 7)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
