@@ -44,7 +44,10 @@ class RewriteProgressTests(unittest.TestCase):
         # fresh 217B REA body + listing corroboration on top of port+tests).
         # +1 C_driver::Tick 0x3c4f0 leading-prefix contract (upstream STUB,
         # 130B slice to the CALL halt, tail/callers deferred).
-        self.assertEqual(game["ported"], 149 + 45)
+        # +1 G_Camera::Tick prologue 0x1ed4c0 contract (guards + dt/naklon;
+        # Rizin bounds only, Ghidra split deferred). Detector SETSIGNAL/
+        # ISSIGNAL arms (27/28) ride ledgered Process 0x6d3b0, no entries.
+        self.assertEqual(game["ported"], 149 + 46)
         self.assertEqual(game["verified"], 149 + 7)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
