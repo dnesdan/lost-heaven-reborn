@@ -5529,7 +5529,7 @@
       "name": "vector2 AngleTo",
       "symbol": "lhr_engine::native_transform::try_vector2_angle_to",
       "tier": "contract",
-      "evidence": "mafia-re I3d_math.cpp:AngleTo lane cutoffs mirrored on 2 lanes + angle tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+      "evidence": "LS3DF S_vector2::AngleTo (mafia-re I3d_math.cpp:73-81, unsigned acos with MRG_ZERO->0 cutoff); NOT Game AngleTo2 (mafia-re C_actor.cpp:1748-1760, signed atan2 difference wrapped to [-pi,pi], ported separately as car_resource_math::animation_angle for Game 0x408490). 2D wrap tests pin absolute 0/pi_2/pi/zero plus the unsigned-vs-signed distinction."
     },
     {
       "binary": "LS3DF.dll",

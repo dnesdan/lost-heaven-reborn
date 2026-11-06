@@ -1920,6 +1920,28 @@ mod tests {
         );
     }
     #[test]
+    fn pin_vector2_angle_to_absolute_zero_half_pi_and_pi() {
+        // LS3DF RVA 0x2ceb0 S_vector2::AngleTo (unsigned acos, MRG_ZERO->0),
+        // NOT Game AngleTo2 (mafia-re C_actor.cpp:1748-1760, signed atan2
+        // difference wrapped to [-pi,pi], ported separately as
+        // car_resource_math::animation_angle for Game 0x408490).
+        assert_eq!(try_vector2_angle_to([1.0, 0.0], [1.0, 0.0]).unwrap(), 0.0);
+        assert_eq!(
+            try_vector2_angle_to([1.0, 0.0], [0.0, 1.0]).unwrap(),
+            std::f32::consts::FRAC_PI_2
+        );
+        assert_eq!(
+            try_vector2_angle_to([1.0, 0.0], [-1.0, 0.0]).unwrap(),
+            std::f32::consts::PI
+        );
+        assert_eq!(try_vector2_angle_to([0.0, 0.0], [1.0, 0.0]).unwrap(), 0.0);
+        // Unsigned: the signed Game AngleTo2 would return -FRAC_PI_2 here.
+        assert_eq!(
+            try_vector2_angle_to([1.0, 0.0], [0.0, -1.0]).unwrap(),
+            std::f32::consts::FRAC_PI_2
+        );
+    }
+    #[test]
     fn pin_quat_dir_roll_inverse() {
         // RVAs 0x2ed60/0x2fb50/0x2fd70/0x30040.
         assert_eq!(
