@@ -10426,6 +10426,51 @@
       "symbol": "lhr_engine::game_housekeeping::compare_shadows",
       "tier": "contract",
       "evidence": "Shadow-item distance comparator (GAME 0x5acfb0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x408490",
+      "va": "0x808490",
+      "name": "C_actor::AngleTo2",
+      "symbol": "lhr_engine::native_transform::animation_angle",
+      "tier": "contract",
+      "evidence": "Signed atan2-difference wrapped to [-pi,pi] (GAME 0x408490); filed via native_transform re-export. NOT the unsigned LS3DF AngleTo (0x2ceb0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4084d0",
+      "va": "0x8084d0",
+      "name": "C_actor::RotateDir",
+      "symbol": "lhr_engine::native_transform::rotate_y",
+      "tier": "contract",
+      "evidence": "Y-rotation with y=0 plus normalization (GAME 0x4084d0); filed via native_transform re-export. Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x408630",
+      "va": "0x808630",
+      "name": "C_actor::RotateDirNoNorm",
+      "symbol": "lhr_engine::native_transform::rotate_y",
+      "tier": "contract",
+      "evidence": "Same lane without the normalization step (GAME 0x408630); filed via native_transform re-export. Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x5f9d10",
+      "va": "0x9f9d10",
+      "name": "C_indicators::MapEnable",
+      "symbol": "lhr_engine::indicators::IndicatorsState::map_enable",
+      "tier": "contract",
+      "evidence": "Map flag store (GAME 0x5f9d10). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x540ff0",
+      "va": "0x940ff0",
+      "name": "cbSectorBitFill",
+      "symbol": "lhr_engine::mission_load_session::fill_primary_sector_groups",
+      "tier": "contract",
+      "evidence": "Descending group-bit fill (GAME 0x540ff0); filed via mission_load_session re-export. Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {

@@ -145,7 +145,12 @@ class RewriteProgressTests(unittest.TestCase):
         # Add/DelFrame 0x4081d0+0x4083e0 / anim comparator 0x408690 /
         # GetWheelCamPos 0x4c6010 / AddSector pair 0x4ce560+0x4ce760 /
         # CompareShadows 0x5acfb0; wrappers TestLine* deferred).
-        self.assertEqual(game["ported"], 149 + 274)
+        # +5 angle/map/sector wave (AngleTo2 0x408490 signed atan2 diff via
+        # animation_angle re-export / RotateDir 0x4084d0 + NoNorm 0x408630 via
+        # rotate_y re-export / MapEnable 0x5f9d10 / cbSectorBitFill 0x540ff0
+        # via mission_load_session re-export; GlobalProgram 0x540520/50
+        # deferred: methods have no re-export path).
+        self.assertEqual(game["ported"], 149 + 279)
         self.assertEqual(game["verified"], 149 + 7)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
