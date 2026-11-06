@@ -45,6 +45,7 @@ pub mod collision_scene;
 pub mod collision_swept;
 pub mod collision_swept_aabox;
 pub mod collision_swept_box;
+pub mod collision_swept_capsule;
 pub mod collision_swept_volumes;
 pub mod collision_swept_world;
 pub mod collision_volumes;
@@ -265,11 +266,11 @@ pub mod game {
     pub use crate::{
         actor_world, ai_driver_tick, car_ai_position, car_effects, car_runtime, city_base_cache,
         collision_dispatch, collision_line, collision_links, collision_prepare, collision_query,
-        collision_swept, collision_swept_aabox, collision_swept_box, collision_swept_volumes,
-        collision_swept_world, collision_volumes, collision_world, collision_world_driving,
-        collision_world_driving_contacts, game_camera_projection, game_init_order,
-        mission_actor_stream, mission_components, mission_lifecycle, mission_resources,
-        mission_scene_loading, mission_scene_stream, mission_session_navigation,
+        collision_swept, collision_swept_aabox, collision_swept_box, collision_swept_capsule,
+        collision_swept_volumes, collision_swept_world, collision_volumes, collision_world,
+        collision_world_driving, collision_world_driving_contacts, game_camera_projection,
+        game_init_order, mission_actor_stream, mission_components, mission_lifecycle,
+        mission_resources, mission_scene_loading, mission_scene_stream, mission_session_navigation,
         mission_session_roads, mission_world_completeness, original_logo, original_program,
         original_system, original_windows, police_state, program_entity_parameters,
         program_instructions, program_parser, railway_actor, replay_state, road_network,

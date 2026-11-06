@@ -59,7 +59,9 @@ class RewriteProgressTests(unittest.TestCase):
         # +1 menu name-select 0x1e0670 contract (20B leaf, LAB_ disclosed).
         # Detector Init/Compile admission + transport: helpers without RVAs,
         # no entries (vtable gate lifted for Init, subroutine still Base-only).
-        self.assertEqual(game["ported"], 149 + 59)
+        # +1 swept-capsule static core 0x1d59c0 contract (triple-sphere
+        # nearest-hit; slide/dynamic/InVehicle deferred, pos_out hedged).
+        self.assertEqual(game["ported"], 149 + 60)
         self.assertEqual(game["verified"], 149 + 7)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
