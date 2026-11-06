@@ -1910,3 +1910,74 @@ fn retained_global_runtime_blocks_terminal_without_effects_until_explicit_host_d
         .has_retained_program_runtime());
     discard(&mut session);
 }
+
+struct ProgressSink {
+    reports: Vec<(u32, u32)>,
+}
+impl MissionProgressSink for ProgressSink {
+    fn report_mission_progress(&mut self, progress_bits: u32, step: u32) {
+        self.reports.push((progress_bits, step));
+    }
+}
+
+#[test]
+fn show_progress_unscaled_mode_passes_chunk_ratio_through() {
+    // GAME 0x540950, mafia-re `game/mission/Mission.cpp:591-598`: raw
+    // position-over-size with no `_can_show_progress_` rescale.
+    assert_eq!(show_progress_value(0, 100, 0), 0.0);
+    assert_eq!(show_progress_value(50, 100, 0), 0.5);
+    assert_eq!(show_progress_value(100, 100, 0), 1.0);
+}
+
+#[test]
+fn show_progress_empty_file_reports_full_bar() {
+    // GAME 0x540950, mafia-re `game/mission/Mission.cpp:594-597`: the
+    // zero-size branch reports 1.0 before the mode switch runs.
+    assert_eq!(show_progress_value(0, 0, 0), 1.0);
+    assert_eq!(show_progress_value(0, 0, 1), 0.2);
+    assert_eq!(show_progress_value(0, 0, 2), 1.0);
+}
+
+#[test]
+fn show_progress_cache_modes_rescale_into_bar_bands() {
+    // GAME 0x540950, mafia-re `game/mission/Mission.cpp:598-606`: mode 1 is
+    // the first fifth (`* 0.2`), mode 2 the remaining four (`* 0.8 + 0.2`).
+    assert_eq!(show_progress_value(0, 100, 1), 0.0);
+    assert_eq!(show_progress_value(100, 100, 1), 0.2);
+    assert_eq!(show_progress_value(0, 100, 2), 0.2);
+    assert_eq!(show_progress_value(100, 100, 2), 1.0);
+    let mid = show_progress_value(50, 100, 2);
+    assert!((mid - 0.6).abs() < f32::EPSILON, "mid-band {mid}");
+}
+
+#[test]
+fn show_progress_other_modes_leave_ratio_untouched() {
+    for mode in [-1, 3, 100] {
+        assert_eq!(show_progress_value(50, 100, mode), 0.5, "mode {mode}");
+    }
+}
+
+#[test]
+fn show_progress_bits_round_trip_through_float_word() {
+    // The original passes `*(uint *)&progress`; the bits must decode back to
+    // the reported value (mafia-re `game/mission/Mission.cpp:607`).
+    for (pos, size, mode) in [(0, 100, 0), (50, 100, 1), (50, 100, 2), (7, 0, 2)] {
+        let bits = show_progress_bits(pos, size, mode);
+        assert_eq!(f32::from_bits(bits), show_progress_value(pos, size, mode));
+    }
+}
+
+#[test]
+fn show_progress_session_reads_live_cache_mode() {
+    let fixture = Fixture::new(None, None, None);
+    let session = fixture.session();
+    assert_eq!(session.open_cache_progress(), 0);
+    let mut sink = ProgressSink {
+        reports: Vec::new(),
+    };
+    session.show_progress_for_open(&mut sink, 50, 100);
+    assert_eq!(
+        sink.reports,
+        vec![(0.5f32.to_bits(), MISSION_PROGRESS_STEP)]
+    );
+}
