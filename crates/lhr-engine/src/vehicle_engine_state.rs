@@ -1,8 +1,11 @@
 //! PC C_Vehicle::SetEngineOn (RVA 0xcb5b0), over the live vehicle owner.
 //! Marker-only latch siblings live here too: SetFuel, IsVehicleUnstable,
-//! GetVehicleSize, GetVehiclePivotPos and LockVehicle. The projector-light and
-//! sound sector registers (GAME 0x4ce560/0x4ce760), GetHeadPos (GAME 0x4cc620)
-//! and every collider/anim/nav/police effect stay DEFERRED with their owners.
+//! GetVehicleSize, GetVehiclePivotPos, LockVehicle, GetHeadPos, the materials
+//! table (Set/CloseVehicleMaterials) and the particle data copy (SetParticles).
+//! The projector-light and sound sector registers (GAME 0x4ce560/0x4ce760),
+//! the tyre tables (GAME 0x4c5820/0x4c5b80, deep surface copies) and
+//! CloseParticles (GAME 0x4c5f80, emitter LinkTo/Release) stay DEFERRED with
+//! their device/sector owners.
 use crate::vehicle_init::VehicleInitBackend;
 
 pub trait VehicleEngineStateBackend: VehicleInitBackend {
@@ -222,6 +225,112 @@ pub fn vehicle_lock_vehicle<B: VehicleInitBackend>(
     )
 }
 
+/// One entry of the vehicles' shared material table (mafia-re 113b5b6
+/// game/vehicles/C_Vehicle.h:42-59: S_VEH_MATERIAL, 0x30 bytes). Only the
+/// conversion-table index keeps its meaning here; the rest is carried as raw
+/// words with no member meaning assigned.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct VehicleMaterialEntry {
+    /// S_VEH_MATERIAL `id` (mafia-re 113b5b6 game/vehicles/C_Vehicle.h:46),
+    /// its index in materialList. Typed `u8` because the original indexes
+    /// `s_material_conv_tbl[0x100]` by it.
+    pub id: u8,
+    /// The remaining 0x2c bytes of the record as raw words.
+    pub payload: [u32; 11],
+}
+
+/// The vehicles' shared material table and its per-id entry index (mafia-re
+/// 113b5b6 game/vehicles/C_Vehicle.cpp:24-26: `v_materials` and
+/// `s_material_conv_tbl[0x100]`). No Default: `[u8; 256]` has none;
+/// construct explicitly.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VehicleMaterialTable {
+    pub entries: Vec<VehicleMaterialEntry>,
+    pub conv: [u8; 0x100],
+}
+
+impl Default for VehicleMaterialTable {
+    /// Empty table with a cleared conversion map (`[u8; 256]` has no
+    /// deriveable Default).
+    fn default() -> Self {
+        Self {
+            entries: Vec::new(),
+            conv: [0; 0x100],
+        }
+    }
+}
+
+/// One entry of the vehicles' shared particle table (mafia-re 113b5b6
+/// game/vehicles/C_Vehicle.h:63-70: S_VEH_PARTICLE, 0x1c bytes), data only.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct VehicleParticleEntry {
+    /// Opaque emitter identity copied with the entry. Never dereferenced here;
+    /// `LinkTo`/`Release` belong to the device/sector owner, so CloseParticles
+    /// (GAME 0x4c5f80) stays DEFERRED with it.
+    pub emitter: u32,
+    /// `velocity` (PP_VELOCITY, C_Vehicle.h:68) as raw words.
+    pub velocity: [u32; 3],
+    /// `velocity_end` (PP_VELOCITY_END, C_Vehicle.h:69) as raw words.
+    pub velocity_end: [u32; 3],
+}
+
+/// GAME 0x4c5c10 C_Vehicle::SetVehicleMaterials (mafia-re 113b5b6
+/// game/vehicles/C_Vehicle.cpp:73-85; contract game/vehicles/C_Vehicle.h:158):
+/// clear the table, rebuild the conversion table, then push a copy of each
+/// entry and record its index under its id. The `while (i--)` clear leaves
+/// index 0xff untouched, preserved here. A truncating `as u8` mirrors the
+/// original's implicit uint-to-uchar conversion. Always returns true.
+pub fn vehicle_set_materials(
+    table: &mut VehicleMaterialTable,
+    materials: &[VehicleMaterialEntry],
+) -> bool {
+    vehicle_close_materials(table);
+    // GAME 0x4c5c10's `int i = 0xff; while (i--) tbl[i] = 0;` clears 0xfe..=0.
+    table.conv[..0xff].fill(0);
+    for (index, entry) in materials.iter().enumerate() {
+        table.entries.push(*entry);
+        table.conv[usize::from(entry.id)] = index as u8;
+    }
+    true
+}
+
+/// GAME 0x4c5c80 C_Vehicle::CloseVehicleMaterials (mafia-re 113b5b6
+/// game/vehicles/C_Vehicle.cpp:87-91; contract game/vehicles/C_Vehicle.h:159):
+/// clear `v_materials`. The conversion table is left as-is, like the original.
+pub fn vehicle_close_materials(table: &mut VehicleMaterialTable) {
+    table.entries.clear();
+}
+
+/// GAME 0x4c5cc0 C_Vehicle::SetParticles (mafia-re 113b5b6
+/// game/vehicles/C_Vehicle.cpp:93-100; contract game/vehicles/C_Vehicle.h:161):
+/// data-only copy of `v_particle`. The original first runs CloseParticles,
+/// whose emitter unlink/release belong to the device owner (DEFERRED); only
+/// the vector clear is performed here. Always returns true.
+pub fn vehicle_set_particles(
+    particles: &mut Vec<VehicleParticleEntry>,
+    source: &[VehicleParticleEntry],
+) -> bool {
+    particles.clear();
+    particles.extend_from_slice(source);
+    true
+}
+
+/// GAME 0x4cc620 C_Vehicle::GetHeadPos (mafia-re 113b5b6
+/// game/vehicles/C_Vehicle.cpp:164-168; contract game/vehicles/C_Vehicle.h:226):
+/// the raw words of the driver's head position in the vehicle (mafia-re
+/// 113b5b6 game/vehicles/C_Vehicle.h:471). Returned by value as raw words so
+/// no float meaning is invented; the caller owns the S_vector interpretation.
+pub fn vehicle_get_head_pos<B: VehicleInitBackend>(
+    backend: &mut B,
+    vehicle: u32,
+) -> Result<[u32; 3], B::Error> {
+    Ok([
+        backend.read_word(vehicle + layout::HEAD_POS)?,
+        backend.read_word(vehicle + layout::HEAD_POS + 4)?,
+        backend.read_word(vehicle + layout::HEAD_POS + 8)?,
+    ])
+}
+
 // PC storage mapping stays local to this view. Accessors deliberately read on
 // demand and use the existing address arithmetic and backend error semantics.
 mod layout {
@@ -237,14 +346,16 @@ mod layout {
     pub(super) const FLAGS: u32 = 0xc68;
     // C_Vehicle latch slice (mafia-re 113b5b6 game/vehicles/C_Vehicle.h):
     // lock_count 0xc0 (:454), sizes 0x158/0x164 (:459-460), pivots
-    // 0x170/0x17c (:461-462), vehicle_flags 0x1a4 (:464), tank_size
-    // 0x1fa0 (:549); tank_fuel reuses FUEL 0xc30 above (:521).
+    // 0x170/0x17c (:461-462), vehicle_flags 0x1a4 (:464), head_pos
+    // 0x2d4 (:471), tank_size 0x1fa0 (:549); tank_fuel reuses FUEL
+    // 0xc30 above (:521).
     pub(super) const LOCK_COUNT: u32 = 0xc0;
     pub(super) const SIZE: u32 = 0x158;
     pub(super) const SIZE_2: u32 = 0x164;
     pub(super) const PIVOT: u32 = 0x170;
     pub(super) const PIVOT_2: u32 = 0x17c;
     pub(super) const VEHICLE_FLAGS: u32 = 0x1a4;
+    pub(super) const HEAD_POS: u32 = 0x2d4;
     pub(super) const TANK_SIZE: u32 = 0x1fa0;
 }
 
@@ -384,6 +495,100 @@ mod latch_tests {
             vehicle_get_pivot_pos(&mut backend, VEHICLE, true),
             Ok([10, 11, 12])
         );
+    }
+
+    #[test]
+    fn close_materials_empties_entries_and_keeps_conv() {
+        // GAME 0x4c5c10/0x4c5c80: two entries set, then closed; entries are
+        // empty while the conversion table keeps its mapping (Close touches
+        // only v_materials).
+        let mut table = VehicleMaterialTable::default();
+        let materials = [
+            VehicleMaterialEntry {
+                id: 3,
+                payload: [1; 11],
+            },
+            VehicleMaterialEntry {
+                id: 9,
+                payload: [2; 11],
+            },
+        ];
+        assert!(vehicle_set_materials(&mut table, &materials));
+        assert_eq!(table.entries.len(), 2);
+        vehicle_close_materials(&mut table);
+        assert!(table.entries.is_empty());
+        assert_eq!(table.conv[3], 0);
+        assert_eq!(table.conv[9], 1);
+    }
+
+    #[test]
+    fn set_materials_rebuilds_count_and_conv() {
+        // GAME 0x4c5c10: three entries land with count 3 and conv[id] == index;
+        // a stale slot is cleared while index 0xff keeps its quirk value.
+        let mut table = VehicleMaterialTable::default();
+        table.conv[5] = 7;
+        table.conv[0xff] = 7;
+        let materials = [
+            VehicleMaterialEntry {
+                id: 2,
+                payload: [10; 11],
+            },
+            VehicleMaterialEntry {
+                id: 4,
+                payload: [20; 11],
+            },
+            VehicleMaterialEntry {
+                id: 6,
+                payload: [30; 11],
+            },
+        ];
+        assert!(vehicle_set_materials(&mut table, &materials));
+        assert_eq!(table.entries.len(), 3);
+        assert_eq!(table.entries, materials);
+        assert_eq!([table.conv[2], table.conv[4], table.conv[6]], [0, 1, 2]);
+        assert_eq!(table.conv[5], 0);
+        assert_eq!(table.conv[0xff], 7);
+    }
+
+    #[test]
+    fn head_pos_reads_default_and_stored_words() {
+        // GAME 0x4cc620 C_Vehicle::GetHeadPos: zeroed head reads default, then
+        // the stored words.
+        let mut backend = LatchBackend::with_words(&[
+            (VEHICLE + layout::HEAD_POS, 0),
+            (VEHICLE + layout::HEAD_POS + 4, 0),
+            (VEHICLE + layout::HEAD_POS + 8, 0),
+        ]);
+        assert_eq!(vehicle_get_head_pos(&mut backend, VEHICLE), Ok([0, 0, 0]));
+        backend.put_word(VEHICLE + layout::HEAD_POS, 1);
+        backend.put_word(VEHICLE + layout::HEAD_POS + 4, 2);
+        backend.put_word(VEHICLE + layout::HEAD_POS + 8, 3);
+        assert_eq!(vehicle_get_head_pos(&mut backend, VEHICLE), Ok([1, 2, 3]));
+    }
+
+    #[test]
+    fn set_particles_copies_entries() {
+        // GAME 0x4c5cc0 C_Vehicle::SetParticles: stale contents are replaced by
+        // an equal copy of the source, emitter tokens included.
+        let mut particles = vec![VehicleParticleEntry {
+            emitter: 9,
+            velocity: [7; 3],
+            velocity_end: [8; 3],
+        }];
+        let source = [
+            VehicleParticleEntry {
+                emitter: 1,
+                velocity: [1, 2, 3],
+                velocity_end: [4, 5, 6],
+            },
+            VehicleParticleEntry {
+                emitter: 0,
+                velocity: [0; 3],
+                velocity_end: [0; 3],
+            },
+        ];
+        assert!(vehicle_set_particles(&mut particles, &source));
+        assert_eq!(particles, source);
     }
 
     #[test]
