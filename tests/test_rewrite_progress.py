@@ -131,7 +131,16 @@ class RewriteProgressTests(unittest.TestCase):
         # GetDead 0x47afc0 / GetCar 0x47b7b0 / GetSpeed 0x47b0f0 / IsCarUsable
         # 0x429850 / SetBreakMotor 0x47b3e0 / LockControls 0x595f00;
         # console_clear deferred: no observable latch without AddText owner).
-        self.assertEqual(game["ported"], 149 + 238)
+        # +22 housekeeping/mission/vehicle wave, all contract (cbEnumSectors
+        # 0x5a3b90 / PreloadAnim 0x5a3bd0 / GlobalProgramRun 0x5afd50 /
+        # cbFreeFramePlacement 0x5afca0 / InvalidateFrame 0x5b0210 /
+        # cbDelFrame 0x5b0230 / 3 stack clears 0x5b1da0-0x5b2590; cbFrameMap
+        # 0x5455e0 / AddTimeTransparent 0x5457a0 / Finish 0x5459b0 /
+        # UpdateSettings 0x545a30 / RestoreSettings 0x545ad0 / StoreModel
+        # 0x546010; SetFuel 0x4cb6e0 / Unstable 0x4cd5b0 / Size 0x4cd5c0 /
+        # Pivot 0x4cd5e0 / LockVehicle 0x4cd600 / RecordKey 0x404f30 /
+        # cbCollTester 0x587d30).
+        self.assertEqual(game["ported"], 149 + 260)
         self.assertEqual(game["verified"], 149 + 7)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
