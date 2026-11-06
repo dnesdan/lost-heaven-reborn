@@ -85,7 +85,20 @@ class RewriteProgressTests(unittest.TestCase):
         # 0x5b5e90 / OpenIShow 0x5b6110 / LoadCityMusicAreas 0x5adee0 /
         # cbCityMusic 0x5adf30 / CityMusicOff 0x5ae130; exact-RVA Get/Store/
         # Loop/SetVolume skipped: only the 0x5b64c0-0x5b6600 range evidenced).
-        self.assertEqual(game["ported"], 149 + 93)
+        # +69 inventory wave (implemented-but-unfiled sweep, all contract):
+        # car_ex STUB 0x2f110, Compile 0x6c770, 8 flag lanes 0x7a070-0x7a340,
+        # SetSpeed 0x7b4f0, ghost empty/push 0x107b50/0x12f920, DecodeParams
+        # 0x11b470, DecodeInstruction 0x11cdd0, mission ctor 0x13f010,
+        # load-map 0x14120a, GenerateDebris 0x165060, DynSet 0x17cfe0, rail
+        # STUB 0x196710, recorder-close 0x19c6a0, TickSound 0x1a5a64,
+        # traffic-visible 0x1a8470, spatial 0x1aca70/0x1acf00, CityMusicPaused
+        # 0x1ae1b0, Get/Store/Loop/SetVolume 0x1b64c0-0x1b6600, DelSemaphore
+        # 0x1b6d50, DelTelephones 0x1b7440, InVehicle 0x1d6430, Tick click
+        # 0x1ea8c0, ExecuteMenu guard 0x1eba40, camera latch 0x1ebe80,
+        # 29 indicators lanes, FreerideStoreA 0x20e920, Break_Glass 0x262f0,
+        # SetEngineOn 0xcb5b0, glass worker 0xd6670; MenuStack/#[path] scopes
+        # deferred as unfileable (RotateDir precedent).
+        self.assertEqual(game["ported"], 149 + 162)
         self.assertEqual(game["verified"], 149 + 7)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])

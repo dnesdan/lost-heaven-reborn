@@ -8797,6 +8797,627 @@
       "symbol": "lhr_engine::ishow_renderer::cgame_city_music_off",
       "tier": "contract",
       "evidence": "Area forget + fade-out-from-device-volume + id clear per game.cpp:3016 (GAME 0x5ae130). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x2f110",
+      "va": "0x42f110",
+      "name": "C_car_ex::LoadData (STUB skip)",
+      "symbol": "lhr_engine::actor_world::ActorWorld::load_car_data",
+      "tier": "contract",
+      "evidence": "Zero-consumption native STUB (GAME 0x42f110). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x6c770",
+      "va": "0x46c770",
+      "name": "C_program::Compile",
+      "symbol": "lhr_engine::program_compiler::compile",
+      "tier": "contract",
+      "evidence": "Compile intake per module header (GAME 0x46c770). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7a070",
+      "va": "0x47a070",
+      "name": "C_indicators::SetFlags",
+      "symbol": "lhr_engine::indicators::IndicatorsState::set_flags",
+      "tier": "contract",
+      "evidence": "Exact flag store (GAME 0x47a070). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7a080",
+      "va": "0x47a080",
+      "name": "C_indicators::AddFlags",
+      "symbol": "lhr_engine::indicators::IndicatorsState::add_flags",
+      "tier": "contract",
+      "evidence": "Flag union (GAME 0x47a080). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7a0a0",
+      "va": "0x47a0a0",
+      "name": "C_indicators::RemoveFlags",
+      "symbol": "lhr_engine::indicators::IndicatorsState::remove_flags",
+      "tier": "contract",
+      "evidence": "Flag removal (GAME 0x47a0a0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7a0c0",
+      "va": "0x47a0c0",
+      "name": "C_indicators::IsShown",
+      "symbol": "lhr_engine::indicators::IndicatorsState::is_shown",
+      "tier": "contract",
+      "evidence": "Flag read (GAME 0x47a0c0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7a0e0",
+      "va": "0x47a0e0",
+      "name": "C_indicators::PushFlags",
+      "symbol": "lhr_engine::indicators::IndicatorsState::push_flags",
+      "tier": "contract",
+      "evidence": "Flag stack push (GAME 0x47a0e0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7a2a0",
+      "va": "0x47a2a0",
+      "name": "C_indicators::PopFlags",
+      "symbol": "lhr_engine::indicators::IndicatorsState::pop_flags",
+      "tier": "contract",
+      "evidence": "Flag stack pop (GAME 0x47a2a0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7a300",
+      "va": "0x47a300",
+      "name": "C_indicators::SetSymbol",
+      "symbol": "lhr_engine::indicators::IndicatorsState::set_symbol",
+      "tier": "contract",
+      "evidence": "Symbol+alpha store (GAME 0x47a300). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7a340",
+      "va": "0x47a340",
+      "name": "C_indicators::SetProgress",
+      "symbol": "lhr_engine::indicators::IndicatorsState::set_progress",
+      "tier": "contract",
+      "evidence": "Progress store (GAME 0x47a340). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b4f0",
+      "va": "0x47b4f0",
+      "name": "C_shvestky::SetSpeed",
+      "symbol": "lhr_engine::police_state::PoliceGameInitState::apply_set_speed",
+      "tier": "contract",
+      "evidence": "Speed-limit store (GAME 0x47b4f0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x107b50",
+      "va": "0x4107b50",
+      "name": "ghost_colls empty leaf",
+      "symbol": "lhr_engine::ai_driver_tick::AiGhostStore::clear_for_game_init",
+      "tier": "contract",
+      "evidence": "GameInit ghost-store empty (GAME 0x507b50); human twin is pub(crate). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x11b470",
+      "va": "0x411b470",
+      "name": "C_entity::DecodeParams (admission)",
+      "symbol": "lhr_engine::program_entity_parameters::supports_entity_opcode",
+      "tier": "contract",
+      "evidence": "Entity opcode-range gate (GAME 0x51b470). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x11cdd0",
+      "va": "0x411cdd0",
+      "name": "C_entity::DecodeInstruction (entity)",
+      "symbol": "lhr_engine::program_instructions::decode_entity_instruction",
+      "tier": "contract",
+      "evidence": "Entity instruction decode (GAME 0x51cdd0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x12f920",
+      "va": "0x412f920",
+      "name": "ghost_colls push leaf",
+      "symbol": "lhr_engine::ai_driver_tick::AiGhostStore::push",
+      "tier": "contract",
+      "evidence": "Ghost push (GAME 0x52f920); human twin is pub(crate). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x13f010",
+      "va": "0x413f010",
+      "name": "C_mission ctor",
+      "symbol": "lhr_engine::mission_lifecycle::MissionLifecycle::construct",
+      "tier": "contract",
+      "evidence": "Constructor prefix (GAME 0x53f010). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x14120a",
+      "va": "0x414120a",
+      "name": "scene2 load-map init",
+      "symbol": "lhr_engine::mission_scene_loading::initialize_scene_load_map",
+      "tier": "contract",
+      "evidence": "Load-map init (GAME 0x54120a). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x165060",
+      "va": "0x4165060",
+      "name": "C_Debris::GenerateDebris",
+      "symbol": "lhr_engine::debris::generate_debris",
+      "tier": "contract",
+      "evidence": "Debris generation (GAME 0x565060). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x17cfe0",
+      "va": "0x417cfe0",
+      "name": "C_human::DynSetNextCollOwnerMult",
+      "symbol": "lhr_engine::human_move_coll::collect_next_coll_owners",
+      "tier": "contract",
+      "evidence": "colls+ghosts merge order (GAME 0x57cfe0); call plumbing deferred. Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x196710",
+      "va": "0x4196710",
+      "name": "C_rail_generator::LoadData (STUB)",
+      "symbol": "lhr_engine::actor_world::ActorWorld::load_rail_generator_data",
+      "tier": "contract",
+      "evidence": "Zero-consumption STUB (GAME 0x596710). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x19c6a0",
+      "va": "0x419c6a0",
+      "name": "C_recorder::Close (HUD subset)",
+      "symbol": "lhr_engine::indicators::IndicatorsState::apply_recorder_close",
+      "tier": "contract",
+      "evidence": "HUD overlay/fade clear triple (GAME 0x59c6a0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1a5a64",
+      "va": "0x41a5a64",
+      "name": "Tick sound phase",
+      "symbol": "lhr_engine::game_spatial_sound::tick_sounds",
+      "tier": "contract",
+      "evidence": "Sound tick gate (GAME 0x5a5a64 range). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1a8470",
+      "va": "0x41a8470",
+      "name": "C_game::SetTrafficVisible (STUB state)",
+      "symbol": "lhr_engine::traffic_generator::CityTrafficVisibleState",
+      "tier": "contract",
+      "evidence": "Visibility state owner (GAME 0x5a8470 STUB). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1aca70",
+      "va": "0x41aca70",
+      "name": "C_game spatial sound publication",
+      "symbol": "lhr_engine::game_spatial_sound::play_spatial_sound",
+      "tier": "contract",
+      "evidence": "Spatial publish (GAME 0x5aca70). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1acf00",
+      "va": "0x41acf00",
+      "name": "StopAllSounds",
+      "symbol": "lhr_engine::game_spatial_sound::stop_all_sounds",
+      "tier": "contract",
+      "evidence": "Stop-all (GAME 0x5acf00). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1ae1b0",
+      "va": "0x41ae1b0",
+      "name": "C_game::CityMusicPaused",
+      "symbol": "lhr_engine::ishow_renderer::cgame_city_music_paused",
+      "tier": "contract",
+      "evidence": "Paused-flag store, working hypothesis pending REA (GAME 0x5ae1b0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b64c0",
+      "va": "0x41b64c0",
+      "name": "C_game::GetIShow",
+      "symbol": "lhr_engine::ishow_renderer::cgame_get_ishow",
+      "tier": "contract",
+      "evidence": "Reverse id lookup (GAME 0x5b64c0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b6520",
+      "va": "0x41b6520",
+      "name": "C_game::IShowStoreVolume",
+      "symbol": "lhr_engine::ishow_renderer::cgame_ishow_store_volume",
+      "tier": "contract",
+      "evidence": "Volume store (GAME 0x5b6520). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b6580",
+      "va": "0x41b6580",
+      "name": "C_game::IShowLoop",
+      "symbol": "lhr_engine::ishow_renderer::cgame_ishow_loop",
+      "tier": "contract",
+      "evidence": "Loop flag store (GAME 0x5b6580). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b6600",
+      "va": "0x41b6600",
+      "name": "C_game::IShowSetVolume",
+      "symbol": "lhr_engine::ishow_renderer::cgame_ishow_set_volume",
+      "tier": "contract",
+      "evidence": "Reverse device submit (GAME 0x5b6600). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b6d50",
+      "va": "0x41b6d50",
+      "name": "C_game::DelSemaphore",
+      "symbol": "lhr_engine::game_crash_registry::del_semaphore",
+      "tier": "contract",
+      "evidence": "Semaphore row removal (GAME 0x5b6d50). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b7440",
+      "va": "0x41b7440",
+      "name": "C_game::DelTelephones",
+      "symbol": "lhr_engine::game_crash_registry::del_telephones",
+      "tier": "contract",
+      "evidence": "Telephone row removal (GAME 0x5b7440). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1d6430",
+      "va": "0x41d6430",
+      "name": "TestPanak2InVehicle (single pass)",
+      "symbol": "lhr_engine::collision_swept_capsule::panak2_in_vehicle_once",
+      "tier": "contract",
+      "evidence": "Single pass over dyn_colls (GAME 0x5d6430); iteration deferred. Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1ea8c0",
+      "va": "0x5ea8c0",
+      "name": "GM_Menu::Tick (click)",
+      "symbol": "lhr_engine::main_menu::main_menu_tick_click",
+      "tier": "contract",
+      "evidence": "Click routing to OnClick (GAME 0x5ea8c0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1eba40",
+      "va": "0x5eba40",
+      "name": "ExecuteMenu guard",
+      "symbol": "lhr_engine::main_menu::execute_menu_continues",
+      "tier": "contract",
+      "evidence": "Latched-result guard (GAME 0x5eba40). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1ebe80",
+      "va": "0x5ebe80",
+      "name": "GM_Menu::SetCameraTargetID latch",
+      "symbol": "lhr_engine::main_menu::MenuCameraTarget",
+      "tier": "contract",
+      "evidence": "Camera-target latch state (GAME 0x5ebe80). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1f70d0",
+      "va": "0x5f70d0",
+      "name": "G_IndicatorsClass::GetLanguage",
+      "symbol": "lhr_engine::indicators::IndicatorsState::get_language",
+      "tier": "contract",
+      "evidence": "Low-first language convention (GAME 0x5f70d0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1f7540",
+      "va": "0x5f7540",
+      "name": "G_IndicatorsClass::TimerSetInterval",
+      "symbol": "lhr_engine::indicators::IndicatorsState::timer_set_interval",
+      "tier": "contract",
+      "evidence": "Interval store with clock wrap (GAME 0x5f7540). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1f7620",
+      "va": "0x5f7620",
+      "name": "G_IndicatorsClass::TimerGetInterval",
+      "symbol": "lhr_engine::indicators::IndicatorsState::timer_get_interval",
+      "tier": "contract",
+      "evidence": "Interval read (GAME 0x5f7620). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1f7680",
+      "va": "0x5f7680",
+      "name": "SpocitejRafiku2 (corner math)",
+      "symbol": "lhr_engine::indicators::compute_needle_corners",
+      "tier": "contract",
+      "evidence": "Needle corner math (GAME 0x5f7680); device fill deferred. Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1f8690",
+      "va": "0x5f8690",
+      "name": "TachometrSetGear",
+      "symbol": "lhr_engine::indicators::IndicatorsState::tachometr_set_gear",
+      "tier": "contract",
+      "evidence": "Gear store (GAME 0x5f8690). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1f86b0",
+      "va": "0x5f86b0",
+      "name": "TachometrSetValues",
+      "symbol": "lhr_engine::indicators::IndicatorsState::tachometr_set_values",
+      "tier": "contract",
+      "evidence": "Value conversion (GAME 0x5f86b0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1f88e0",
+      "va": "0x5f88e0",
+      "name": "PlayerSetLives",
+      "symbol": "lhr_engine::indicators::IndicatorsState::player_set_lives",
+      "tier": "contract",
+      "evidence": "Signed-format lives (GAME 0x5f88e0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1f8910",
+      "va": "0x5f8910",
+      "name": "PlayerSetAmmo",
+      "symbol": "lhr_engine::indicators::IndicatorsState::player_set_ammo",
+      "tier": "contract",
+      "evidence": "Signed-format ammo (GAME 0x5f8910). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1f8940",
+      "va": "0x5f8940",
+      "name": "PlayerSetAccuracy",
+      "symbol": "lhr_engine::indicators::IndicatorsState::player_set_accuracy",
+      "tier": "contract",
+      "evidence": "Accuracy store (GAME 0x5f8940). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1f8950",
+      "va": "0x5f8950",
+      "name": "PlayerSetWingmanName",
+      "symbol": "lhr_engine::indicators::IndicatorsState::player_set_wingman_name",
+      "tier": "contract",
+      "evidence": "Guarded wingman name (GAME 0x5f8950). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1f8970",
+      "va": "0x5f8970",
+      "name": "PlayerSetWingmanLives",
+      "symbol": "lhr_engine::indicators::IndicatorsState::player_set_wingman_lives",
+      "tier": "contract",
+      "evidence": "Guarded wingman lives (GAME 0x5f8970). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1f8990",
+      "va": "0x5f8990",
+      "name": "SubtitlesClear",
+      "symbol": "lhr_engine::indicators::IndicatorsState::clear_subtitles",
+      "tier": "contract",
+      "evidence": "Subtitle clear (GAME 0x5f8990). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1f9940",
+      "va": "0x5f9940",
+      "name": "IntroSubtitlesClear",
+      "symbol": "lhr_engine::indicators::IndicatorsState::clear_intro_subtitle_slots",
+      "tier": "contract",
+      "evidence": "Intro slot clear (GAME 0x5f9940). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1fa020",
+      "va": "0x5fa020",
+      "name": "CompassSetDestination",
+      "symbol": "lhr_engine::indicators::IndicatorsState::set_compass_destination",
+      "tier": "contract",
+      "evidence": "Presence-only staging (GAME 0x5fa020). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1fa050",
+      "va": "0x5fa050",
+      "name": "WideScreenSetRatio",
+      "symbol": "lhr_engine::indicators::IndicatorsState::set_widescreen_ratio",
+      "tier": "contract",
+      "evidence": "Ratio store (GAME 0x5fa050); SetOn deferred. Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1fa400",
+      "va": "0x5fa400",
+      "name": "FadeInOutIsDark",
+      "symbol": "lhr_engine::indicators::IndicatorsState::fade_in_out_is_dark",
+      "tier": "contract",
+      "evidence": "Dark-flag read (GAME 0x5fa400). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1fa410",
+      "va": "0x5fa410",
+      "name": "SetOverlayFade",
+      "symbol": "lhr_engine::indicators::IndicatorsState::set_overlay_fade",
+      "tier": "contract",
+      "evidence": "Fade store (GAME 0x5fa410). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1fa430",
+      "va": "0x5fa430",
+      "name": "SetOverlayTexture",
+      "symbol": "lhr_engine::indicators::IndicatorsState::set_overlay_texture",
+      "tier": "contract",
+      "evidence": "Texture identity (GAME 0x5fa430, pure subset). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1fa4a0",
+      "va": "0x5fa4a0",
+      "name": "RadarClear",
+      "symbol": "lhr_engine::indicators::IndicatorsState::radar_clear",
+      "tier": "contract",
+      "evidence": "Radar clear (GAME 0x5fa4a0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1fa720",
+      "va": "0x5fa720",
+      "name": "RadarRemoveCar",
+      "symbol": "lhr_engine::indicators::IndicatorsState::radar_remove_car",
+      "tier": "contract",
+      "evidence": "First-row removal (GAME 0x5fa720). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1fa9f0",
+      "va": "0x5fa9f0",
+      "name": "RadarSetLeftEdge",
+      "symbol": "lhr_engine::indicators::IndicatorsState::stage_radar_edge",
+      "tier": "contract",
+      "evidence": "Left-edge staging (GAME 0x5fa9f0); vertices deferred. Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1fabf0",
+      "va": "0x5fabf0",
+      "name": "RadarSetRightEdge",
+      "symbol": "lhr_engine::indicators::IndicatorsState::stage_radar_edge",
+      "tier": "contract",
+      "evidence": "Right-edge staging (GAME 0x5fabf0); vertices deferred. Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1fadf0",
+      "va": "0x5fadf0",
+      "name": "RaceSetStartFlag",
+      "symbol": "lhr_engine::indicators::IndicatorsState::race_set_start_flag",
+      "tier": "contract",
+      "evidence": "Flag history inc. 0xff hiding case (GAME 0x5fadf0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1fb010",
+      "va": "0x5fb010",
+      "name": "BonusSetCount",
+      "symbol": "lhr_engine::indicators::IndicatorsState::bonus_set_count",
+      "tier": "contract",
+      "evidence": "Count store, pure subset (GAME 0x5fb010). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x201520",
+      "va": "0x602520",
+      "name": "ResolutionChanged",
+      "symbol": "lhr_engine::indicators::IndicatorsState::resolution_changed",
+      "tier": "contract",
+      "evidence": "Pure layout branches (GAME 0x601520). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x2025f0",
+      "va": "0x6025f0",
+      "name": "SetRectVertices",
+      "symbol": "lhr_engine::indicators::set_rect_vertices",
+      "tier": "contract",
+      "evidence": "Rect writes (GAME 0x6025f0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x2026d0",
+      "va": "0x6026d0",
+      "name": "SetDiamondVertices",
+      "symbol": "lhr_engine::indicators::set_diamond_vertices",
+      "tier": "contract",
+      "evidence": "Diamond writes (GAME 0x6026d0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x204a80",
+      "va": "0x604a80",
+      "name": "ParheliaSetCenter",
+      "symbol": "lhr_engine::indicators::IndicatorsState::set_parhelia_center",
+      "tier": "contract",
+      "evidence": "Flag-half store (GAME 0x604a80). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x204ee0",
+      "va": "0x604ee0",
+      "name": "G_LoadSaveClass::Init/Close (HUD subset)",
+      "symbol": "lhr_engine::indicators::IndicatorsLoadSave",
+      "tier": "contract",
+      "evidence": "LoadSave adapter driving HUD calls (GAME 0x604ee0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x20e920",
+      "va": "0x60e920",
+      "name": "G_LoadSaveClass::FreerideStoreA",
+      "symbol": "lhr_engine::main_menu::MainMenuFreeride::store_a",
+      "tier": "contract",
+      "evidence": "Exact-word store (GAME 0x60e920). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x262f0",
+      "va": "0x4262f0",
+      "name": "C_car::Break_Glass",
+      "symbol": "lhr_engine::vehicle_damage_glass::car_damage_glass_callback",
+      "tier": "contract",
+      "evidence": "Part/sound resolve (GAME 0x4262f0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xcb5b0",
+      "va": "0x40cb5b0",
+      "name": "C_Vehicle::SetEngineOn",
+      "symbol": "lhr_engine::vehicle_engine_state::vehicle_set_engine_on",
+      "tier": "contract",
+      "evidence": "Guarded engine-on (GAME 0x40cb5b0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xd6670",
+      "va": "0x40d6670",
+      "name": "C_Vehicle glass-damage worker",
+      "symbol": "lhr_engine::vehicle_damage_glass::vehicle_damage_glass",
+      "tier": "contract",
+      "evidence": "Material swap on damage (GAME 0x4d6670). Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {
