@@ -813,7 +813,7 @@
       "name": "ITexture::Fill",
       "symbol": "lhr_engine::itexture::TextureResources::fill_texture",
       "tier": "contract",
-      "evidence": "REA 512B/130 insns + jump-table + mafia-re ITexture.cpp:1206 + per-format surface tests + boundary anchors (entry SUB ESP,0x28 @0x10078940, exit RET 0x10 @0x10078b2e, corrected code span 497B not ~512B, jump-table DATA block 0x10078b34-67; tier unchanged: contract per the unresolved-boundary rule) + ev_3cbb577d69a7388b4339781f2f90f1b81e8c9325a40f2c97ef51436ec31cd742 (Rizin one-shot af body fcn.10078940; heuristic CLI, non-persisted: corroborates boundary/CFG only, below the Ghidra-body bar — tier unchanged: contract)"
+      "evidence": "REA 512B/130 insns + jump-table + mafia-re ITexture.cpp:1206 + per-format surface tests + boundary anchors (entry SUB ESP,0x28 @0x10078940, exit RET 0x10 @0x10078b2e, corrected code span 497B not ~512B, jump-table DATA block 0x10078b34-67; tier unchanged: contract per the unresolved-boundary rule) + ev_3cbb577d69a7388b4339781f2f90f1b81e8c9325a40f2c97ef51436ec31cd742 (Rizin one-shot af body fcn.10078940; heuristic CLI, non-persisted: corroborates boundary/CFG only, below the Ghidra-body bar \u2014 tier unchanged: contract)"
     },
     {
       "binary": "LS3DF.dll",
@@ -984,7 +984,7 @@
       "name": "I3D_anim_material::Duplicate (upstream working name)",
       "symbol": "lhr_engine::visual_resources::VisualResources::duplicate_animated_material",
       "tier": "contract",
-      "evidence": "REA linear decode walk 0x1002b830-0x1002bc49 (1050B, RET8 exits, ghidra; NO Ghidra function entry per ev_9a7ae51c — contract tier per the unresolved-boundary rule) + inlined base copy + TEST 0x4000000 branch + INC frame AddRefs + mafia-re I3d_material.cpp:329-396 + frame-identity/failure-prefix tests + boundary anchors ev_9a7ae51c (resolve) / entry PUSH ECX / exit RET8 @0x1002bc47 / NOP-pad tiling both sides (tier unchanged: contract per the unresolved-boundary rule) + ev_c419637dbd950304a38def481c4b02d3eed652f530ea3f0a04acd0cc4870fae2 (Rizin one-shot af body fcn.1002b830, multi-branch CFG; heuristic CLI, non-persisted: corroborates boundary/CFG only, below the Ghidra-body bar — tier unchanged: contract)"
+      "evidence": "REA linear decode walk 0x1002b830-0x1002bc49 (1050B, RET8 exits, ghidra; NO Ghidra function entry per ev_9a7ae51c \u2014 contract tier per the unresolved-boundary rule) + inlined base copy + TEST 0x4000000 branch + INC frame AddRefs + mafia-re I3d_material.cpp:329-396 + frame-identity/failure-prefix tests + boundary anchors ev_9a7ae51c (resolve) / entry PUSH ECX / exit RET8 @0x1002bc47 / NOP-pad tiling both sides (tier unchanged: contract per the unresolved-boundary rule) + ev_c419637dbd950304a38def481c4b02d3eed652f530ea3f0a04acd0cc4870fae2 (Rizin one-shot af body fcn.1002b830, multi-branch CFG; heuristic CLI, non-persisted: corroborates boundary/CFG only, below the Ghidra-body bar \u2014 tier unchanged: contract)"
     },
     {
       "binary": "LS3DF.dll",
@@ -1056,7 +1056,7 @@
       "name": "I3D_face_group::CreateFaces (upstream working name)",
       "symbol": "lhr_engine::visual_resources::VisualResources::create_faces",
       "tier": "contract",
-      "evidence": "REA ghidra linear walk 39 insns, no procedure entry (walk-derived, same standard as 0x2b830) + vtable slot + OOM/ErrorHandler(0x80000002) words + mafia-re I3d_mesh.cpp:54-66 + zero/count-guard/poison tests; tier contract per the unresolved-boundary rule + ev_c6e791c8e8819a46b4261eebbcd601dbbef0579041eff5097455d8fa26050439 (Rizin one-shot af body fcn.10030610, calls fcn.1005b940/1005b6c0 visible; heuristic CLI, non-persisted: corroborates boundary/CFG only, below the Ghidra-body bar — tier unchanged: contract)"
+      "evidence": "REA ghidra linear walk 39 insns, no procedure entry (walk-derived, same standard as 0x2b830) + vtable slot + OOM/ErrorHandler(0x80000002) words + mafia-re I3d_mesh.cpp:54-66 + zero/count-guard/poison tests; tier contract per the unresolved-boundary rule + ev_c6e791c8e8819a46b4261eebbcd601dbbef0579041eff5097455d8fa26050439 (Rizin one-shot af body fcn.10030610, calls fcn.1005b940/1005b6c0 visible; heuristic CLI, non-persisted: corroborates boundary/CFG only, below the Ghidra-body bar \u2014 tier unchanged: contract)"
     },
     {
       "binary": "LS3DF.dll",
@@ -1065,7 +1065,7 @@
       "name": "I3D_face_group::GetFaces (upstream working name)",
       "symbol": "lhr_engine::visual_resources::VisualResources::get_faces",
       "tier": "contract",
-      "evidence": "REA ghidra linear walk ~74 insns/3 exits, no procedure entry (walk-derived) + vtable slot + base*2 u16-pointer tail + mafia-re I3d_mesh.cpp:70-75 + null/lock-pairing tests; manager resolve interior stays backend-owned; tier contract per the unresolved-boundary rule + ev_d177791c8e811246244c5b83c760fef307a84549148458eeb04fd8f47f346b68 (Rizin one-shot af body fcn.10030690, indirect-call CFG; heuristic CLI, non-persisted: corroborates boundary/CFG only, below the Ghidra-body bar — tier unchanged: contract)"
+      "evidence": "REA ghidra linear walk ~74 insns/3 exits, no procedure entry (walk-derived) + vtable slot + base*2 u16-pointer tail + mafia-re I3d_mesh.cpp:70-75 + null/lock-pairing tests; manager resolve interior stays backend-owned; tier contract per the unresolved-boundary rule + ev_d177791c8e811246244c5b83c760fef307a84549148458eeb04fd8f47f346b68 (Rizin one-shot af body fcn.10030690, indirect-call CFG; heuristic CLI, non-persisted: corroborates boundary/CFG only, below the Ghidra-body bar \u2014 tier unchanged: contract)"
     },
     {
       "binary": "LS3DF.dll",
@@ -1074,7 +1074,7 @@
       "name": "I3D_face_group::UnlockFaces (upstream working name)",
       "symbol": "lhr_engine::visual_resources::VisualResources::unlock_faces",
       "tier": "contract",
-      "evidence": "REA ghidra linear walk 41 insns, no procedure entry (walk-derived) + vtable slot + unconditional-Unlock shape + mafia-re I3d_mesh.cpp:79-82 + idempotent-clear tests with managed graphics-unlock half; tier contract per the unresolved-boundary rule + ev_036879dc8ea54f635d7cb2bd8ac4d3f9effcdf9f95a0a61c992443854f02213b (Rizin one-shot af body fcn.10030780, indirect-call CFG; heuristic CLI, non-persisted: corroborates boundary/CFG only, below the Ghidra-body bar — tier unchanged: contract)"
+      "evidence": "REA ghidra linear walk 41 insns, no procedure entry (walk-derived) + vtable slot + unconditional-Unlock shape + mafia-re I3d_mesh.cpp:79-82 + idempotent-clear tests with managed graphics-unlock half; tier contract per the unresolved-boundary rule + ev_036879dc8ea54f635d7cb2bd8ac4d3f9effcdf9f95a0a61c992443854f02213b (Rizin one-shot af body fcn.10030780, indirect-call CFG; heuristic CLI, non-persisted: corroborates boundary/CFG only, below the Ghidra-body bar \u2014 tier unchanged: contract)"
     },
     {
       "binary": "LS3DF.dll",
@@ -1119,7 +1119,7 @@
       "name": "I3D_mesh_level::CreateVertexMesh (upstream working name)",
       "symbol": "lhr_engine::visual_resources::VisualResources::create_mesh_level_vertices",
       "tier": "contract",
-      "evidence": "REA ghidra linear walk ~100 insns 0x10030d00-0x10030e7d, no procedure entry (walk-derived) + same alloc/OOM words + mafia-re I3d_mesh.cpp:207-226 + zero/nonzero lock-projection tests; tier contract per the unresolved-boundary rule + ev_063842ea7e2152034e9c13e348972dc5951ed9c26fc3b001a144da402d07a008 (Rizin one-shot af body fcn.10030d00, calls fcn.100697c0; heuristic CLI, non-persisted: corroborates boundary/CFG only, below the Ghidra-body bar — tier unchanged: contract)"
+      "evidence": "REA ghidra linear walk ~100 insns 0x10030d00-0x10030e7d, no procedure entry (walk-derived) + same alloc/OOM words + mafia-re I3d_mesh.cpp:207-226 + zero/nonzero lock-projection tests; tier contract per the unresolved-boundary rule + ev_063842ea7e2152034e9c13e348972dc5951ed9c26fc3b001a144da402d07a008 (Rizin one-shot af body fcn.10030d00, calls fcn.100697c0; heuristic CLI, non-persisted: corroborates boundary/CFG only, below the Ghidra-body bar \u2014 tier unchanged: contract)"
     },
     {
       "binary": "LS3DF.dll",
@@ -1209,7 +1209,7 @@
       "name": "I3D_mesh_object::Duplicate (upstream working name)",
       "symbol": "lhr_engine::visual_resources::VisualResources::duplicate_mesh_object",
       "tier": "contract",
-      "evidence": "REA ghidra listing walk, no procedure entry (walk-derived) + vtable DATA xref + self-JZ/10-slot-clear/null-reset/per-slot-Create-Duplicate-SetLOD-Release/OOM-tail shape + mafia-re I3d_mesh.cpp:471-505 + self/null/full-content tests (per-level copy now complete via duplicate_mesh_level); tier contract per the unresolved-boundary rule + ev_75d1674e96fc44f85606227a113dfe16bc8b3266d90d5321968ce6c4a40014bf (Rizin one-shot af body fcn.100315e0, loop CFG; heuristic CLI, non-persisted: corroborates boundary/CFG only, below the Ghidra-body bar — tier unchanged: contract)"
+      "evidence": "REA ghidra listing walk, no procedure entry (walk-derived) + vtable DATA xref + self-JZ/10-slot-clear/null-reset/per-slot-Create-Duplicate-SetLOD-Release/OOM-tail shape + mafia-re I3d_mesh.cpp:471-505 + self/null/full-content tests (per-level copy now complete via duplicate_mesh_level); tier contract per the unresolved-boundary rule + ev_75d1674e96fc44f85606227a113dfe16bc8b3266d90d5321968ce6c4a40014bf (Rizin one-shot af body fcn.100315e0, loop CFG; heuristic CLI, non-persisted: corroborates boundary/CFG only, below the Ghidra-body bar \u2014 tier unchanged: contract)"
     },
     {
       "binary": "LS3DF.dll",
@@ -1218,7 +1218,7 @@
       "name": "I3D_mesh_object::DetachMaterials (upstream working name)",
       "symbol": "lhr_engine::visual_resources::VisualResources::detach_mesh_materials",
       "tier": "contract",
-      "evidence": "REA ghidra listing walk to RET4, no procedure entry (walk-derived) + 10-slot loop/+0x18-vcall/JL-exit shape, no failure words + mafia-re I3d_mesh.cpp:509-521 + order/sharing/animated/failure-prefix tests; tier contract per the unresolved-boundary rule + ev_b6b4547454068f098bee4500b4dcda29b8423c685b899c2178ae0a1f0472b8c2 (Rizin one-shot af body fcn.10031700, +0x18 loop CFG; heuristic CLI, non-persisted: corroborates boundary/CFG only, below the Ghidra-body bar — tier unchanged: contract)"
+      "evidence": "REA ghidra listing walk to RET4, no procedure entry (walk-derived) + 10-slot loop/+0x18-vcall/JL-exit shape, no failure words + mafia-re I3d_mesh.cpp:509-521 + order/sharing/animated/failure-prefix tests; tier contract per the unresolved-boundary rule + ev_b6b4547454068f098bee4500b4dcda29b8423c685b899c2178ae0a1f0472b8c2 (Rizin one-shot af body fcn.10031700, +0x18 loop CFG; heuristic CLI, non-persisted: corroborates boundary/CFG only, below the Ghidra-body bar \u2014 tier unchanged: contract)"
     },
     {
       "binary": "LS3DF.dll",
@@ -2541,7 +2541,7 @@
       "name": "I3D_object::SetMesh (upstream working name)",
       "symbol": "lhr_engine::i3d_object::ObjectResources::set_object_mesh_keep_compatible",
       "tier": "differential",
-      "evidence": "REA ghidra body 307B/101insn/25BB (same-ptr fast path, keep_lods + IsCompatible gate, Release/store/retain, bound-copy guard) + mafia-re I3d_object.cpp:39-67 + keep/noop/clear tests; new keep-compatible arm (base attach path stays set_frame_mesh); production preserve_lods callers still route through set_object_mesh — wiring is follow-up work (disclosed)"
+      "evidence": "REA ghidra body 307B/101insn/25BB (same-ptr fast path, keep_lods + IsCompatible gate, Release/store/retain, bound-copy guard) + mafia-re I3d_object.cpp:39-67 + keep/noop/clear tests; new keep-compatible arm (base attach path stays set_frame_mesh); production preserve_lods callers still route through set_object_mesh \u2014 wiring is follow-up work (disclosed)"
     },
     {
       "binary": "LS3DF.dll",
@@ -3153,7 +3153,7 @@
       "name": "I3D_shadow::Duplicate (mafia-re evidenced name)",
       "symbol": "lhr_engine::frame_shadow::ModelArena::duplicate_shadow",
       "tier": "contract",
-      "evidence": "Ghidra formed no body (LAB_10050c60/not_in_procedure); entry null/self probes + linear decode 0x10050c60-0x10050d29 (base Duplicate, virtual Close, 0xf check, def share, direct copies, 4 derived virtuals, 80000007 miss) + vtable DATA xref 0x1009cb7c + mafia-re I3d_shadow.cpp:90-116 (no SetVisibleRange call in bytes — disclosed); tier contract per the unresolved-boundary rule"
+      "evidence": "Ghidra formed no body (LAB_10050c60/not_in_procedure); entry null/self probes + linear decode 0x10050c60-0x10050d29 (base Duplicate, virtual Close, 0xf check, def share, direct copies, 4 derived virtuals, 80000007 miss) + vtable DATA xref 0x1009cb7c + mafia-re I3d_shadow.cpp:90-116 (no SetVisibleRange call in bytes \u2014 disclosed); tier contract per the unresolved-boundary rule"
     },
     {
       "binary": "LS3DF.dll",
@@ -3279,7 +3279,7 @@
       "name": "I3D_shadow::SetTextureSize (mafia-re evidenced name)",
       "symbol": "lhr_engine::frame_shadow::ModelArena::shadow_set_texture_size",
       "tier": "contract",
-      "evidence": "Ghidra formed no body (not_in_procedure); sweep with 80000007 fail block (signed >128 reject, BOTH axes round from x — original bug kept, texture Release+null) + mafia-re I3d_shadow.cpp:431-451; tier contract per the unresolved-boundary rule"
+      "evidence": "Ghidra formed no body (not_in_procedure); sweep with 80000007 fail block (signed >128 reject, BOTH axes round from x \u2014 original bug kept, texture Release+null) + mafia-re I3d_shadow.cpp:431-451; tier contract per the unresolved-boundary rule"
     },
     {
       "binary": "LS3DF.dll",
@@ -3396,7 +3396,7 @@
       "name": "I3D_singlemesh::I3D_singlemesh (mafia-re evidenced name)",
       "symbol": "lhr_engine::singlemesh_lifecycle::SINGLEMESH_JOINTS_CHANGED_INIT",
       "tier": "contract",
-      "evidence": "REA ghidra body 72B/14insn/1BB (base ctor, num_joints 0, joints NULL, vtable, SNGM magic, joints_changed -300, bvol -400) + mafia-re I3d_singlemesh.cpp:35-43; confirm-only on pre-existing owners with no single new behavior symbol — tier contract (a const cannot carry a function); pinning tests on the word consts"
+      "evidence": "REA ghidra body 72B/14insn/1BB (base ctor, num_joints 0, joints NULL, vtable, SNGM magic, joints_changed -300, bvol -400) + mafia-re I3d_singlemesh.cpp:35-43; confirm-only on pre-existing owners with no single new behavior symbol \u2014 tier contract (a const cannot carry a function); pinning tests on the word consts"
     },
     {
       "binary": "LS3DF.dll",
@@ -3504,7 +3504,7 @@
       "name": "I3D_singlemesh::LoadImage (mafia-re evidenced name)",
       "symbol": "lhr_engine::singlemesh_lifecycle::lod_image_action",
       "tier": "contract",
-      "evidence": "REA ghidra body 617B/195insn/1BB (base LoadImage first, per-LOD count byte, num==0 clear, def rebuild, joint 0x64 + weights reads, OOM flag pattern) + mafia-re I3d_singlemesh.cpp:751-813; dtaRead stays backend contract; pseudocode tail undisclosed — tier contract (downgraded from body-present differential for the untranscribed tail)"
+      "evidence": "REA ghidra body 617B/195insn/1BB (base LoadImage first, per-LOD count byte, num==0 clear, def rebuild, joint 0x64 + weights reads, OOM flag pattern) + mafia-re I3d_singlemesh.cpp:751-813; dtaRead stays backend contract; pseudocode tail undisclosed \u2014 tier contract (downgraded from body-present differential for the untranscribed tail)"
     },
     {
       "binary": "LS3DF.dll",
@@ -3882,7 +3882,7 @@
       "name": "I3D_projector::Duplicate (mafia-re evidenced name)",
       "symbol": "lhr_engine::frame_projector::ModelArena::duplicate_projector_derived",
       "tier": "contract",
-      "evidence": "Ghidra formed no body (entry + vtable DATA ref + RET probe, ~118-insn decode, all targets walked); base-first order, direct range copy (no SetVisibleRange call in bytes — disclosed), mesh chain explicit boundary; tier contract per the unresolved-boundary rule"
+      "evidence": "Ghidra formed no body (entry + vtable DATA ref + RET probe, ~118-insn decode, all targets walked); base-first order, direct range copy (no SetVisibleRange call in bytes \u2014 disclosed), mesh chain explicit boundary; tier contract per the unresolved-boundary rule"
     },
     {
       "binary": "LS3DF.dll",
@@ -4836,7 +4836,7 @@
       "name": "I3D_area::CheckPoint (upstream working name)",
       "symbol": "lhr_engine::frame_area::AreaFrame::check_point",
       "tier": "contract",
-      "evidence": "mafia-re I3d_area.cpp:183-194 + no Ghidra body (LAB/not_in_procedure) + threshold/NaN tests; tier contract per the unresolved-boundary rule; NaN domain is disclosed host-error hardening (native false-comparison reports inside=true) — never bit-exactness on NaN"
+      "evidence": "mafia-re I3d_area.cpp:183-194 + no Ghidra body (LAB/not_in_procedure) + threshold/NaN tests; tier contract per the unresolved-boundary rule; NaN domain is disclosed host-error hardening (native false-comparison reports inside=true) \u2014 never bit-exactness on NaN"
     },
     {
       "binary": "LS3DF.dll",
@@ -6114,7 +6114,7 @@
       "name": "I3D_driver::CreateMaterial",
       "symbol": "lhr_engine::visual_resources::VisualResources::create_material",
       "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_driver.cpp:1364 (FORMED Ghidra body per dossier); operator-new caller-owns + NULL->ErrorHandler(FATAL) disclosed diagnostic (no native handler at runtime); ctor-callee linkage already overlayed; pinning test driver_factory_pinning::driver_create_materials_are_caller_owned_with_ctor_words; FATAL-OOM arm is native-only/non-returning with no host fault path (factories surface quota/poison errors instead) — downgraded per review, bodies formed"
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_driver.cpp:1364 (FORMED Ghidra body per dossier); operator-new caller-owns + NULL->ErrorHandler(FATAL) disclosed diagnostic (no native handler at runtime); ctor-callee linkage already overlayed; pinning test driver_factory_pinning::driver_create_materials_are_caller_owned_with_ctor_words; FATAL-OOM arm is native-only/non-returning with no host fault path (factories surface quota/poison errors instead) \u2014 downgraded per review, bodies formed"
     },
     {
       "binary": "LS3DF.dll",
@@ -6123,7 +6123,7 @@
       "name": "I3D_driver::CreateAnimMaterial",
       "symbol": "lhr_engine::visual_resources::VisualResources::create_animated_material",
       "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_driver.cpp:1374 (FORMED Ghidra body per dossier); operator-new caller-owns + NULL->ErrorHandler(FATAL) disclosed diagnostic (no native handler at runtime); ctor-callee linkage already overlayed; pinning tests driver_create_materials_are_caller_owned_with_ctor_words + driver_create_animated_material_adds_owned_frame_owner; FATAL-OOM arm is native-only/non-returning with no host fault path (factories surface quota/poison errors instead) — downgraded per review, bodies formed"
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_driver.cpp:1374 (FORMED Ghidra body per dossier); operator-new caller-owns + NULL->ErrorHandler(FATAL) disclosed diagnostic (no native handler at runtime); ctor-callee linkage already overlayed; pinning tests driver_create_materials_are_caller_owned_with_ctor_words + driver_create_animated_material_adds_owned_frame_owner; FATAL-OOM arm is native-only/non-returning with no host fault path (factories surface quota/poison errors instead) \u2014 downgraded per review, bodies formed"
     },
     {
       "binary": "LS3DF.dll",
@@ -6132,7 +6132,7 @@
       "name": "I3D_driver::CreateFaceGroup",
       "symbol": "lhr_engine::visual_resources::VisualResources::create_face_group",
       "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_driver.cpp:1391 (FORMED Ghidra body per dossier); operator-new caller-owns, no null check in factory body; ctor-callee linkage already overlayed; pinning test driver_create_groups_levels_meshes_are_distinct_with_ctor_words; FATAL-OOM arm is native-only/non-returning with no host fault path (factories surface quota/poison errors instead) — downgraded per review, bodies formed"
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_driver.cpp:1391 (FORMED Ghidra body per dossier); operator-new caller-owns, no null check in factory body; ctor-callee linkage already overlayed; pinning test driver_create_groups_levels_meshes_are_distinct_with_ctor_words; FATAL-OOM arm is native-only/non-returning with no host fault path (factories surface quota/poison errors instead) \u2014 downgraded per review, bodies formed"
     },
     {
       "binary": "LS3DF.dll",
@@ -6141,7 +6141,7 @@
       "name": "I3D_driver::CreateMeshLevel",
       "symbol": "lhr_engine::visual_resources::VisualResources::create_mesh_level",
       "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_driver.cpp:1398 (FORMED Ghidra body per dossier); operator-new caller-owns, no null check in factory body; ctor-callee linkage already overlayed; pinning test driver_create_groups_levels_meshes_are_distinct_with_ctor_words; FATAL-OOM arm is native-only/non-returning with no host fault path (factories surface quota/poison errors instead) — downgraded per review, bodies formed"
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_driver.cpp:1398 (FORMED Ghidra body per dossier); operator-new caller-owns, no null check in factory body; ctor-callee linkage already overlayed; pinning test driver_create_groups_levels_meshes_are_distinct_with_ctor_words; FATAL-OOM arm is native-only/non-returning with no host fault path (factories surface quota/poison errors instead) \u2014 downgraded per review, bodies formed"
     },
     {
       "binary": "LS3DF.dll",
@@ -6150,7 +6150,7 @@
       "name": "I3D_driver::CreateMesh",
       "symbol": "lhr_engine::visual_resources::VisualResources::create_mesh_object",
       "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_driver.cpp:1405 (FORMED Ghidra body per dossier, evidenced PS2 original name CreateMesh); operator-new caller-owns, no null check in factory body; ctor-callee linkage already overlayed; pinning test driver_create_groups_levels_meshes_are_distinct_with_ctor_words; FATAL-OOM arm is native-only/non-returning with no host fault path (factories surface quota/poison errors instead) — downgraded per review, bodies formed"
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_driver.cpp:1405 (FORMED Ghidra body per dossier, evidenced PS2 original name CreateMesh); operator-new caller-owns, no null check in factory body; ctor-callee linkage already overlayed; pinning test driver_create_groups_levels_meshes_are_distinct_with_ctor_words; FATAL-OOM arm is native-only/non-returning with no host fault path (factories surface quota/poison errors instead) \u2014 downgraded per review, bodies formed"
     },
     {
       "binary": "LS3DF.dll",
@@ -6159,7 +6159,7 @@
       "name": "I3D_driver::CreateAnimationSet",
       "symbol": "lhr_engine::animation_set_keys::AnimationSetOwner::new",
       "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_driver.cpp:1412 (FORMED Ghidra body per dossier, evidenced PS2 original name); operator-new caller-owns over AnimationSetOwner::new (RVA 0x4890 ctor words: vtable 0x1009b3e0, refcount 1, options ANIM_ONCE, data None); pinning test driver_factory_pinning::driver_create_animation_set_yields_caller_owned_fresh_value; FATAL-OOM arm is native-only/non-returning with no host fault path (factories surface quota/poison errors instead) — downgraded per review, bodies formed"
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_driver.cpp:1412 (FORMED Ghidra body per dossier, evidenced PS2 original name); operator-new caller-owns over AnimationSetOwner::new (RVA 0x4890 ctor words: vtable 0x1009b3e0, refcount 1, options ANIM_ONCE, data None); pinning test driver_factory_pinning::driver_create_animation_set_yields_caller_owned_fresh_value; FATAL-OOM arm is native-only/non-returning with no host fault path (factories surface quota/poison errors instead) \u2014 downgraded per review, bodies formed"
     },
     {
       "binary": "LS3DF.dll",
@@ -6168,7 +6168,7 @@
       "name": "I3D_driver::CreatePose",
       "symbol": "lhr_engine::animation_pose::I3dPose::new_in",
       "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_driver.cpp:1419 (FORMED Ghidra body per dossier, evidenced PS2 original class I3D_pose); operator-new caller-owns over I3dPose::new_in (RVA 0x45930 words: refcount 1, flags 0, pos 0, scale unit passthrough, rot 1.0f exact); pinning test driver_factory_pinning::driver_create_pose_yields_caller_owned_fresh_pose; FATAL-OOM arm is native-only/non-returning with no host fault path (factories surface quota/poison errors instead) — downgraded per review, bodies formed"
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_driver.cpp:1419 (FORMED Ghidra body per dossier, evidenced PS2 original class I3D_pose); operator-new caller-owns over I3dPose::new_in (RVA 0x45930 words: refcount 1, flags 0, pos 0, scale unit passthrough, rot 1.0f exact); pinning test driver_factory_pinning::driver_create_pose_yields_caller_owned_fresh_pose; FATAL-OOM arm is native-only/non-returning with no host fault path (factories surface quota/poison errors instead) \u2014 downgraded per review, bodies formed"
     },
     {
       "binary": "LS3DF.dll",
@@ -6177,7 +6177,7 @@
       "name": "I3D_driver::CreatePoseSet",
       "symbol": "lhr_engine::animation_pose::I3dPoseSet::new",
       "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_driver.cpp:1426 (FORMED Ghidra body per dossier, evidenced PS2 original class I3D_pose_set); operator-new caller-owns over I3dPoseSet::new (RVA 0x45b90 words: refcount 1, empty, growth quantum 0x20); pinning test driver_factory_pinning::driver_create_pose_set_yields_caller_owned_empty_set; FATAL-OOM arm is native-only/non-returning with no host fault path (factories surface quota/poison errors instead) — downgraded per review, bodies formed"
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_driver.cpp:1426 (FORMED Ghidra body per dossier, evidenced PS2 original class I3D_pose_set); operator-new caller-owns over I3dPoseSet::new (RVA 0x45b90 words: refcount 1, empty, growth quantum 0x20); pinning test driver_factory_pinning::driver_create_pose_set_yields_caller_owned_empty_set; FATAL-OOM arm is native-only/non-returning with no host fault path (factories surface quota/poison errors instead) \u2014 downgraded per review, bodies formed"
     },
     {
       "binary": "LS3DF.dll",
@@ -6186,7 +6186,7 @@
       "name": "I3D_driver::DeleteFromSceneTickList",
       "symbol": "lhr_engine::scene_ownership::ModelArena::driver_delete_from_scene_tick_list",
       "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_driver.cpp:1744 (FORMED Ghidra body per dossier, evidenced PS2 original name); reverse newest-first loop over scenes calling DeleteTickFrame (RVA 0x4a050 callee, already overlayed differential on this symbol), stop after first I3D_OK; pinning test driver_delete_from_scene_tick_list_walks_newest_first_and_stops_after_first_ok; driver loop owns this entry (per-scene op is overlay 0x4a050, no double count); no Ghidra procedure resolved at review time — downgraded per policy"
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_driver.cpp:1744 (FORMED Ghidra body per dossier, evidenced PS2 original name); reverse newest-first loop over scenes calling DeleteTickFrame (RVA 0x4a050 callee, already overlayed differential on this symbol), stop after first I3D_OK; pinning test driver_delete_from_scene_tick_list_walks_newest_first_and_stops_after_first_ok; driver loop owns this entry (per-scene op is overlay 0x4a050, no double count); no Ghidra procedure resolved at review time \u2014 downgraded per policy"
     },
     {
       "binary": "LS3DF.dll",
@@ -8500,6 +8500,15 @@
       "symbol": "lhr_engine::collision_swept_capsule::panak2_static_once",
       "tier": "contract",
       "evidence": "mafia-re 113b5b6 game/collision/g_colls.cpp:60 (g_collision::TestPanak2 STUB, 0x5d59c0) with tgcPanak2 shape at game/actors/C_human.h:440-454 (0x8c bytes: radii[3] 0x0, legs 0xc, body 0x18, head 0x24, dir 0x30, flags2 0x3c, flags 0x40, pos_out 0x44, normal 0x50) and the C_human::TestMoveColl descent at game/actors/C_human.cpp:5274; owned static core: Panak2Request projects tgcPanak2 0x0-0x40 (legs/body/head/delta/radii[3]/selector/reject_mask), Panak2Request::from_prefix wires the owned human_move_coll::test_move_coll_prefix leaves (radii, biased dir, flags), panak2_static_once runs exactly one pass of 3x existing sphere_in_tree_level (collision_swept_world.rs:184) with SphereSweepRequest/SphereParam construction per collision_swept.rs, nearest-win on best_distance_squared (strict <, legs-first ties), pos_out/normal via the test_sphere_b_continue output conversion (negated normalized stored normal); Game.exe SHA256 08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27 base 0x400000 (RVA = VA - 0x400000); contract tier: reviewed upstream source plus authored Rust tests (nearest-win legs, miss arms, parked-legs body win with exact binary-fraction vectors, prefix wiring); REA bodies probe-observed only, NOT re-observed and no REA session opened here (TestPanak2 0x5d59c0-0x5d641d 2654B/603insns ev_2312cee3; TestPanak2InVehicle 0x5d6430-0x5d6e0e ev_20aee0d8); SCOPE: static core only; DEFERRED per code markers: slide/iterate loop, DAT_00648240 global, 0x5ca370 clamp, dynamic dispatch, flag-filtering, InVehicle, frame anchoring, DynSetNextCollOwnerMult, move_coll writeback; authored tests not executed (cargo unavailable on this host); overlap check: rva absent from docs/rewrite-overlay.json functions and not a ledger port (docs/progress.json lists it only in retained_entries coverage); base rust-engine 70d0688, no commit, touched crates/lhr-engine/src/collision_swept_capsule.rs (new) + lib.rs module decl, no menu/detector/human_actor/VM files touched; executed green by orchestrator: `cargo test -p lhr-engine --lib collision_swept_capsule` 4 passed (base 70d0688 + uncommitted)"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1c7f0",
+      "va": "0x401c7f0",
+      "name": "C_car::LoadMaterials",
+      "symbol": "lhr_engine::driving_vehicle_tables::materials",
+      "tier": "contract",
+      "evidence": "Tree-exact field mapping per mafia-re C_car.cpp:60-122 (PS2 GAME 0x41c7f0): empty-table default row, 10-field projection, ordered clamps ([0,1],[1,2],min-swap,[0,0.2]), flag source offsets 0xcf0/0xe60/0x36a0 + 0x170-0x5c0 lane; repo tests cover default/NaN/clamps/flags. Marker-only contract: no PC Ghidra body (no procedure at VA 0x401c7f0, Ghidra 12.1.4)."
     }
   ],
   "vm": {

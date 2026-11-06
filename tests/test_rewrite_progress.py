@@ -61,7 +61,10 @@ class RewriteProgressTests(unittest.TestCase):
         # no entries (vtable gate lifted for Init, subroutine still Base-only).
         # +1 swept-capsule static core 0x1d59c0 contract (triple-sphere
         # nearest-hit; slide/dynamic/InVehicle deferred, pos_out hedged).
-        self.assertEqual(game["ported"], 149 + 60)
+        # +1 C_car::LoadMaterials 0x1c7f0 contract (pub materials symbol,
+        # mafia-re C_car.cpp:60-122 mapping; marker-only, no PC Ghidra body
+        # at VA 0x401c7f0 disclosed).
+        self.assertEqual(game["ported"], 149 + 61)
         self.assertEqual(game["verified"], 149 + 7)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])

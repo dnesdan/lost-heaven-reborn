@@ -53,7 +53,7 @@ fn clamp_ordered(value: f32, min: f32, max: f32) -> f32 {
         value
     }
 }
-fn materials(source: &[u8]) -> Result<(Vec<u8>, [u8; 256]), String> {
+pub fn materials(source: &[u8]) -> Result<(Vec<u8>, [u8; 256]), String> {
     if !source.len().is_multiple_of(MATERIAL_SOURCE_STRIDE)
         || source.len() / MATERIAL_SOURCE_STRIDE > 256
     {
