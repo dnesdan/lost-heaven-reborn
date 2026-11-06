@@ -1,4 +1,5 @@
-//! Typed owners used by the constructor-only C_human source-admission domain.
+//! Typed owners for the C_human constructor plus copy/persist
+//! (DuplicateFrom/SaveData) source-admission domain.
 //! Game.exe SHA25608398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27.
 //! PC40e010 corresponds to the actual PS2 C_animations_machine_de_luxe
 //! constructor through its Reset/StopAnims call pattern, not shared layout.
@@ -6,6 +7,9 @@
 //! G_Inventory aggregate. Rust
 //! member names below are descriptive; unknown item/parameter bits have no
 //! invented gameplay meaning. Human GameInit and animation selection are absent.
+//! The dtor animation-stop device effect (GAME 0x56f210) and the Init frame
+//! effects (GAME 0x56f350, owned by ActorWorld::init_human_owner) stay with the
+//! frame owner; detector/AI/police owners do not exist yet and are DEFERRED.
 #![forbid(unsafe_code)]
 
 use crate::original_program::ProgramReader;
@@ -394,6 +398,37 @@ impl HumanState {
             _ => Ok(()),
         }
     }
+    /// GAME 0x56f400 (RVA 0x16f400) C_human::DuplicateFrom (mafia-re
+    /// game/actors/C_human.cpp:1303): copy the maximum-property bank and the
+    /// human type word. The C_actor::DuplicateFrom prefix is the linker's
+    /// folded empty no-op (mafia-re game/actors/C_actor.cpp:925), so there is
+    /// no base state to forward. The original casts its C_actor source to
+    /// C_human without a type check; the typed source reference carries that
+    /// caller precondition. Current properties, voice, frame targets,
+    /// inventory and auxiliary records are preserved.
+    pub(crate) fn duplicate_from(&mut self, source: &HumanState) {
+        self.properties = source.properties.clone();
+        self.human_type_mask = source.human_type_mask;
+    }
+    /// GAME 0x56f440 (RVA 0x16f440) C_human::SaveData (mafia-re
+    /// game/actors/C_human.cpp:1312): version byte HUMAN_DATA_VERSION
+    /// (6, game/actors/C_human.h:131), human type word, voice word, then the
+    /// 64-byte maximum-property bank; 73 bytes total. The C_actor::SaveData
+    /// prefix writes nothing and returns true (mafia-re
+    /// game/actors/C_actor.cpp:1896). Voice is native `int`
+    /// (game/actors/C_human.h:961) written as four bytes with no conversion,
+    /// so the bit-preserving u32 encoding is exact. Pairs with
+    /// load_source_data's version-6 path. The destructor's StopAnimation(0)
+    /// device effect (GAME 0x56f210, C_human.cpp:1275) stays with the frame
+    /// owner (ActorWorld/ModelArena): DEFERRED, no new owner filed here.
+    pub(crate) fn encode_source_data(&self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(73);
+        bytes.push(6);
+        bytes.extend_from_slice(&self.human_type_mask.to_le_bytes());
+        bytes.extend_from_slice(&self.voice_index.to_le_bytes());
+        bytes.extend_from_slice(self.properties.record());
+        bytes
+    }
     pub(crate) fn clear_resource(&mut self, slot: HumanResourceSlot) {
         match slot {
             HumanResourceSlot::LastAuxiliary => self.last_auxiliary.clear(),
@@ -622,5 +657,66 @@ mod tests {
             ),
             ([0; 4], [0; 4], [0; 4])
         );
+    }
+    #[test]
+    fn duplicate_from_copies_max_bank_and_type_and_preserves_live_state() {
+        use crate::script_scheduler::FrameReferenceId;
+        let mut target = HumanState::construct(seed());
+        target.human_type_mask = 0x1111_1111;
+        target.voice_index = 7;
+        target.properties = HumanProperties::from_record([0x11; 64]);
+        target.current_properties = HumanProperties::from_record([0x22; 64]);
+        target.target_e = Some(FrameReferenceId::from_existing(3));
+        target.target_n = Some(FrameReferenceId::from_existing(4));
+        target.base_frame = Some(FrameReferenceId::from_existing(5));
+        let mut source = HumanState::construct(seed());
+        source.human_type_mask = 0x1234_5678;
+        source.voice_index = 9;
+        source.properties = HumanProperties::from_record([0x33; 64]);
+        source.current_properties = HumanProperties::from_record([0x44; 64]);
+        target.duplicate_from(&source);
+        assert_eq!(target.human_type_mask(), 0x1234_5678);
+        assert_eq!(target.properties().record(), &[0x33; 64]);
+        assert_eq!(target.current_properties().record(), &[0x22; 64]);
+        assert_eq!(target.voice_index(), 7);
+        assert_eq!(target.target_e(), Some(FrameReferenceId::from_existing(3)));
+        assert_eq!(target.target_n(), Some(FrameReferenceId::from_existing(4)));
+        assert_eq!(
+            target.base_frame(),
+            Some(FrameReferenceId::from_existing(5))
+        );
+    }
+    #[test]
+    fn save_data_encodes_version_type_voice_and_max_bank_byte_exact() {
+        let mut human = HumanState::construct(seed());
+        human.human_type_mask = 0x1234_5678;
+        human.voice_index = 12;
+        let record: [u8; 64] = std::array::from_fn(|index| index as u8);
+        human.properties = HumanProperties::from_record(record);
+        // Hand-derived from C_human::SaveData field order: version byte,
+        // human_type word, voice word, 64 maximum-property bytes.
+        let mut expected = vec![6u8];
+        expected.extend_from_slice(&0x1234_5678u32.to_le_bytes());
+        expected.extend_from_slice(&12u32.to_le_bytes());
+        expected.extend_from_slice(&record);
+        let bytes = human.encode_source_data();
+        assert_eq!(bytes.len(), 73);
+        assert_eq!(bytes, expected);
+    }
+    #[test]
+    fn save_then_load_round_trips_version_six_fields() {
+        let mut source = HumanState::construct(seed());
+        source.human_type_mask = 0xdead_beef;
+        source.voice_index = 0x1d;
+        source.properties = HumanProperties::from_record([0x5a; 64]);
+        let bytes = source.encode_source_data();
+        let mut target = HumanState::construct(seed());
+        let mut reader = ActorDataReader::new(&bytes);
+        target.load_source_data(&mut reader).unwrap();
+        assert_eq!(reader.position(), bytes.len());
+        assert_eq!(target.human_type_mask(), 0xdead_beef);
+        assert_eq!(target.voice_index(), 0x1d);
+        assert_eq!(target.properties().record(), &[0x5a; 64]);
+        assert_eq!(target.current_properties().record(), &[0xa5; 64]);
     }
 }

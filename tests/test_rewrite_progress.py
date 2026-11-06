@@ -33,7 +33,11 @@ class RewriteProgressTests(unittest.TestCase):
         # name differential with REA body; 0x7aed0 S_GameItem ctor +
         # 0x7b020 G_Inventory Clear working-name contract; 0x147220
         # SetFromMission withheld: from_mission offset unevidenced).
-        self.assertEqual(game["ported"], 149 + 36)
+        # +4 human/menu/racecam (0x16f400 DuplicateFrom + 0x16f440 SaveData +
+        # 0x1bebd0 RacingInMainMenu + 0x1962e0 LoadData, all contract;
+        # 0x1ed040 Reset held: #[path]-only module fails the overlay
+        # module-membership gate, wrapper rejected by review).
+        self.assertEqual(game["ported"], 149 + 40)
         self.assertEqual(game["verified"], 149 + 6)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])

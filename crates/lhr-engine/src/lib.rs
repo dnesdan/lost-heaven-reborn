@@ -111,6 +111,7 @@ pub mod itexture;
 pub mod joint_state;
 pub mod landscape_roam;
 pub mod loaded_visual_resources;
+pub mod main_menu;
 pub mod managed_visual_resources;
 pub mod maps_dirs;
 pub mod mesh_bounds;
