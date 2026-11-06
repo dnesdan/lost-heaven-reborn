@@ -10039,6 +10039,69 @@
       "symbol": "lhr_engine::police_state::PolicePursuitRecord::is_nevi",
       "tier": "contract",
       "evidence": "Nevi flag read (GAME 0x49d560). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x204890",
+      "va": "0x604890",
+      "name": "Game604890 width lane",
+      "symbol": "lhr_engine::game_camera_projection::GameCameraProjection::width_single",
+      "tier": "contract",
+      "evidence": "Plain i32->f32 cast, no PC24 policy (GAME 0x604890). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x47afc0",
+      "va": "0x847afc0",
+      "name": "C_human::GetDead",
+      "symbol": "lhr_engine::actor_world::ActorWorld::actor_dead",
+      "tier": "contract",
+      "evidence": "Dead-latch read with setter round-trip (GAME 0x47afc0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x47b7b0",
+      "va": "0x847b7b0",
+      "name": "C_human::GetCar",
+      "symbol": "lhr_engine::actor_world::ActorWorld::human_car",
+      "tier": "contract",
+      "evidence": "Seat latch read; non-human gate to None (GAME 0x47b7b0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x47b0f0",
+      "va": "0x847b0f0",
+      "name": "C_Vehicle::GetSpeed",
+      "symbol": "lhr_engine::actor_world::ActorWorld::car_speed",
+      "tier": "contract",
+      "evidence": "None for non-car, m/s latch for cars (GAME 0x47b0f0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x429850",
+      "va": "0x829850",
+      "name": "C_car::IsCarUsable",
+      "symbol": "lhr_engine::actor_world::ActorWorld::is_car_usable",
+      "tier": "contract",
+      "evidence": "None for non-car, STUB false for cars (GAME 0x429850). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x47b3e0",
+      "va": "0x847b3e0",
+      "name": "C_car::SetBreakMotor",
+      "symbol": "lhr_engine::actor_world::ActorWorld::set_car_break_motor",
+      "tier": "contract",
+      "evidence": "False for non-car, latch for cars (GAME 0x47b3e0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x595f00",
+      "va": "0x995f00",
+      "name": "C_player::LockControls",
+      "symbol": "lhr_engine::actor_world::ActorWorld::set_player_controls_locked",
+      "tier": "contract",
+      "evidence": "Game-player latch store, STUB (GAME 0x595f00). Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {

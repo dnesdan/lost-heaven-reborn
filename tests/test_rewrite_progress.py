@@ -127,7 +127,11 @@ class RewriteProgressTests(unittest.TestCase):
         # 0x545c60 / Particles 0x545cb0; run_over 0x49d220 / status 0x49d390 /
         # crash 0x49d3e0 / fire 0x49d420 / angry 0x49d460+0x49d4b0 / offenses
         # 0x49d520 / nevi 0x49d560).
-        self.assertEqual(game["ported"], 149 + 231)
+        # +7 actor/projection wave, all contract (width lane 0x204890 /
+        # GetDead 0x47afc0 / GetCar 0x47b7b0 / GetSpeed 0x47b0f0 / IsCarUsable
+        # 0x429850 / SetBreakMotor 0x47b3e0 / LockControls 0x595f00;
+        # console_clear deferred: no observable latch without AddText owner).
+        self.assertEqual(game["ported"], 149 + 238)
         self.assertEqual(game["verified"], 149 + 7)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
