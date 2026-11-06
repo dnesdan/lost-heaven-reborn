@@ -97,7 +97,9 @@ class RewriteProgressTests(unittest.TestCase):
         # 0x753e0 construction-covered): all contract.
         # 4 wave-11 IShow stragglers (2 inline getters + dB sub-map +
         # IsStreamPlaying withhold-lift; full SetVolume stays device):
-        # all contract.", Tier rules applied: differential needs
+        # all contract.
+        # +26 verified-upgrade tranche A (13 vector math + 2 driver +
+        # 5 C-str + RLA/maps/keyboard/cpuid/result; 6 render/vb held).", Tier rules applied: differential needs
         # a Ghidra body (or complete instruction walk) plus pinning tests —
         # this includes confirm-only bodies that corroborate a pre-existing
         # port (new evidence + tests on top); contract covers no-body walks,
@@ -105,7 +107,7 @@ class RewriteProgressTests(unittest.TestCase):
         # portable state effect), and partial-coverage ports. Same standard
         # as 0x2b830 throughout.
         self.assertEqual(ls3df["ported"], 145 + 830)
-        self.assertEqual(ls3df["verified"], 145 + 258)
+        self.assertEqual(ls3df["verified"], 145 + 284)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()

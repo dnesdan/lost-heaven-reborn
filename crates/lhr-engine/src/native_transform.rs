@@ -1075,8 +1075,7 @@ pub fn try_line_line_intersect(
 /// original symbol). Exact f32 lane multiply-assign (`x *= f; y *= f; z *=
 /// f`), no domain guard: NaN, infinities and subnormals flow through exactly
 /// as the native x87 `FMUL` stores do. The host takes the factor by value;
-/// the original takes `const float &`. Tier contract (wave policy: no Ghidra
-/// body observed).
+/// the original takes `const float &`. Tier differential (REA formed body 1BB/25B/8insn + executed pinning tests).
 pub fn scale_vector_assign(vector: &mut [f32; 3], factor: f32) {
     vector[0] *= factor;
     vector[1] *= factor;
@@ -1086,8 +1085,7 @@ pub fn scale_vector_assign(vector: &mut [f32; 3], factor: f32) {
 /// LS3DF RVA 0xdd60, VA 0x1000dd60. `S_vector(float, float, float)` ctor
 /// (mafia-re ab67b13 `ls3df/I3D/I3d_math.h:64`; the out-of-line copy the
 /// linker kept lives in camera code; `S_vector` itself is PS2-evidenced).
-/// Pure lane copy, no arithmetic. Tier contract (wave policy: no Ghidra
-/// body observed).
+/// Pure lane copy, no arithmetic. Tier differential (REA formed body 1BB/25B/8insn + executed pinning tests).
 pub fn vector_from_components(x: f32, y: f32, z: f32) -> [f32; 3] {
     [x, y, z]
 }
@@ -1096,7 +1094,7 @@ pub fn vector_from_components(x: f32, y: f32, z: f32) -> [f32; 3] {
 /// ab67b13 `ls3df/I3D/I3d_math.h:201`; out-of-line copy in camera code).
 /// Exact f32 lane subtraction, no domain guard: NaN, infinities and
 /// subnormals flow through as the native x87 `FSUB` stores do. Tier
-/// contract (wave policy: no Ghidra body observed).
+/// differential (REA formed body 1BB/35B/12insn + executed pinning tests).
 pub fn vector_sub(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
     [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 }
@@ -1107,8 +1105,8 @@ pub fn vector_sub(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
 /// `(x*v.x + y*v.y) + z*v.z` left-associated multiplies then adds, no
 /// domain guard and no fused operations. Extended-exponent x87
 /// intermediates, NaN ordering and non-default control words are not
-/// established as equivalent to portable Rust arithmetic. Tier contract
-/// (wave policy: no Ghidra body observed).
+/// established as equivalent to portable Rust arithmetic. Tier differential
+/// (REA formed body 1BB/27B/10insn + executed pinning tests).
 pub fn vector_dot(a: [f32; 3], b: [f32; 3]) -> f32 {
     (a[0] * b[0] + a[1] * b[1]) + a[2] * b[2]
 }
@@ -1118,7 +1116,8 @@ pub fn vector_dot(a: [f32; 3], b: [f32; 3]) -> f32 {
 /// `GetNormal__8S_vectorFRC8S_vectorRC8S_vectorRC8S_vector`). Unnormalized
 /// triangle normal `(w1 - v1) x (u1 - v1)` via two `vector_sub` differences
 /// then the component cross, all exact f32 with the native association and
-/// no domain guard. Tier contract (wave policy: no Ghidra body observed).
+/// no domain guard. Tier differential (REA formed body 1BB/113B/41insn +
+/// executed pinning tests).
 pub fn vector_get_normal(u1: [f32; 3], v1: [f32; 3], w1: [f32; 3]) -> [f32; 3] {
     let u = vector_sub(w1, v1);
     let v = vector_sub(u1, v1);
@@ -1134,15 +1133,16 @@ pub fn vector_get_normal(u1: [f32; 3], v1: [f32; 3], w1: [f32; 3]) -> [f32; 3] {
 /// `__ml__8S_vectorCFRCf`; the factor is by reference, so the native reads
 /// it again for each lane; the host takes it by value, which is
 /// indistinguishable without aliasing mutation). Exact f32 lane multiply,
-/// no domain guard. Tier contract (wave policy: no Ghidra body observed).
+/// no domain guard. Tier differential (REA formed body 1BB/33B/12insn +
+/// executed pinning tests).
 pub fn vector_scale(vector: [f32; 3], factor: f32) -> [f32; 3] {
     [vector[0] * factor, vector[1] * factor, vector[2] * factor]
 }
 
 /// LS3DF RVA 0x112d0, VA 0x100112d0. `S_vector::operator+` (mafia-re
 /// ab67b13 `ls3df/I3D/I3d_math.h:184`; PS2 `__pl__8S_vectorCFRC8S_vector`).
-/// Exact f32 lane addition, no domain guard. Tier contract (wave policy: no
-/// Ghidra body observed).
+/// Exact f32 lane addition, no domain guard. Tier differential (REA formed
+/// body 1BB/35B/12insn + executed pinning tests).
 pub fn vector_add(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
     [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
 }
@@ -1150,8 +1150,8 @@ pub fn vector_add(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
 /// LS3DF RVA 0x12500, VA 0x10012500. `S_vector::Square` (mafia-re ab67b13
 /// `ls3df/I3D/I3d_math.h:123`; out-of-line copy in collision code). Exact
 /// f32 `(x*x + y*y) + z*z` written out (not via `Dot`, matching the
-/// native inline-budget spelling), no domain guard. Tier contract (wave
-/// policy: no Ghidra body observed).
+/// native inline-budget spelling), no domain guard. Tier differential (REA
+/// formed body 1BB/31B/15insn + executed pinning tests).
 pub fn vector_square(vector: [f32; 3]) -> f32 {
     (vector[0] * vector[0] + vector[1] * vector[1]) + vector[2] * vector[2]
 }
@@ -1166,8 +1166,8 @@ pub fn vector_square(vector: [f32; 3]) -> f32 {
 /// `Dot`. Host `sqrt` is the f64-mediated `sqrt` narrowed to f32 (matching
 /// the native `(float)sqrt` promotion) followed by an f32 divide; x87
 /// `FSQRT` bit parity and extended-exponent intermediates are not
-/// established (disclosed). Tier contract (wave policy: no Ghidra body
-/// observed).
+/// established (disclosed). Tier differential (REA formed body 15BB/302B/96insn
+/// + executed pinning tests).
 pub fn vector_set_normalized(v: [f32; 3]) -> [f32; 3] {
     // Local copy of MRG_ZERO (ls3df.h:48, 1e-8f) to avoid cross-module
     // coupling with render_clip; same value, same branches.
@@ -1198,8 +1198,8 @@ pub fn vector_set_normalized(v: [f32; 3]) -> [f32; 3] {
 /// spelling for the float-bits helper, NOT an evidenced original symbol);
 /// the copy the linker kept lives in the lit-object
 /// file for `Construct`). Copies the float to a local then reinterprets
-/// the bits as `int`, with no arithmetic. Tier contract (pure-REA wave
-/// policy: no Ghidra body observed).
+/// the bits as `int`, with no arithmetic. Tier differential (REA formed body
+/// 1BB/9B/5insn + executed pinning tests).
 pub fn float_bits_copy(value: f32) -> i32 {
     let local = value;
     local.to_bits() as i32

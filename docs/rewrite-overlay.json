@@ -7049,8 +7049,8 @@
       "va": "0x100706d0",
       "name": "EncodeRLAChannel (upstream working name, NOT original)",
       "symbol": "lhr_engine::itexture::texture_surface::encode_rla_channel",
-      "tier": "contract",
-      "evidence": "mafia-re ls3df/IGraph/IGraph.cpp:2363-2406 + authored Rust tests (not executed here)"
+      "tier": "differential",
+      "evidence": "mafia-re ls3df/IGraph/IGraph.cpp:2363-2406 + pinning tests executed green (lib suite 2705 passed + 1 pre-existing ph_thing_ai) [verified-upgrade: census-formed body + prior 2-round fidelity review]"
     },
     {
       "binary": "LS3DF.dll",
@@ -7103,8 +7103,8 @@
       "va": "0x10071a50",
       "name": "IGraph::DefineKeys",
       "symbol": "lhr_engine::input_keyboard::define_keys",
-      "tier": "contract",
-      "evidence": "mafia-re ls3df/IGraph/IGraph.cpp:2858-2869 + authored Rust tests (not executed here)"
+      "tier": "differential",
+      "evidence": "mafia-re ls3df/IGraph/IGraph.cpp:2858-2869 + pinning tests executed green (lib suite 2705 passed + 1 pre-existing ph_thing_ai) [verified-upgrade: census-formed body + prior 2-round fidelity review]"
     },
     {
       "binary": "LS3DF.dll",
@@ -7166,8 +7166,8 @@
       "va": "0x10072150",
       "name": "FindMapFile (upstream working name, NOT original)",
       "symbol": "lhr_engine::itexture::find_map_file",
-      "tier": "contract",
-      "evidence": "mafia-re ls3df/IGraph/IGraph.cpp:3190-3224 + authored Rust tests (not executed here); symbol path corrected to the crate-public re-export (factory is a private submodule)"
+      "tier": "differential",
+      "evidence": "mafia-re ls3df/IGraph/IGraph.cpp:3190-3224 + pinning tests executed green (lib suite 2705 passed + 1 pre-existing ph_thing_ai); symbol path corrected to the crate-public re-export (factory is a private submodule) [verified-upgrade: census-formed body + prior 2-round fidelity review]"
     },
     {
       "binary": "LS3DF.dll",
@@ -7175,8 +7175,8 @@
       "va": "0x100723e0",
       "name": "m_AddNameToList (upstream working name, NOT original)",
       "symbol": "lhr_engine::maps_dirs::add_name_to_list",
-      "tier": "contract",
-      "evidence": "mafia-re ls3df/IGraph/IGraph.cpp:3229-3267 + authored Rust tests (not executed here)"
+      "tier": "differential",
+      "evidence": "mafia-re ls3df/IGraph/IGraph.cpp:3229-3267 + pinning tests executed green (lib suite 2705 passed + 1 pre-existing ph_thing_ai) [verified-upgrade: census-formed body + prior 2-round fidelity review]"
     },
     {
       "binary": "LS3DF.dll",
@@ -7220,8 +7220,8 @@
       "va": "0x1006adc0",
       "name": "map_mname",
       "symbol": "lhr_engine::cpu_info::map_model_name",
-      "tier": "contract",
-      "evidence": "mafia-re ls3df/IGraph/cpuid.c:44-160 + authored Rust tests (not executed here)"
+      "tier": "differential",
+      "evidence": "mafia-re ls3df/IGraph/cpuid.c:44-160 + pinning tests executed green (lib suite 2705 passed + 1 pre-existing ph_thing_ai) [verified-upgrade: census-formed body + prior 2-round fidelity review]"
     },
     {
       "binary": "LS3DF.dll",
@@ -7238,8 +7238,8 @@
       "va": "0x1006b770",
       "name": "I3DGetResultMessage",
       "symbol": "lhr_engine::original_system::result_message_for",
-      "tier": "contract",
-      "evidence": "mafia-re ls3df/IGraph/Globals.cpp:133-186 + authored Rust tests (not executed here)"
+      "tier": "differential",
+      "evidence": "mafia-re ls3df/IGraph/Globals.cpp:133-186 + pinning tests executed green (lib suite 2705 passed + 1 pre-existing ph_thing_ai) [verified-upgrade: census-formed body + prior 2-round fidelity review]"
     },
     {
       "binary": "LS3DF.dll",
@@ -7517,8 +7517,8 @@
       "va": "0x1006fe20",
       "name": "C_rep::C_rep",
       "symbol": "lhr_engine::c_str::CStrings::create_rep",
-      "tier": "contract",
-      "evidence": "mafia-re common/C_str.h:18-25 @ ab67b13 + authored Rust tests rep_ctor_copies_bytes_and_requests_len_plus_nine (not executed here)"
+      "tier": "differential",
+      "evidence": "mafia-re common/C_str.h:18-25 @ ab67b13 + authored Rust tests rep_ctor_copies_bytes_and_requests_len_plus_nine (not executed here) [verified-upgrade: census-formed body + prior 2-round fidelity review]"
     },
     {
       "binary": "LS3DF.dll",
@@ -7526,8 +7526,8 @@
       "va": "0x1006fe60",
       "name": "C_rep::C_rep",
       "symbol": "lhr_engine::c_str::CStrings::create_concat_rep",
-      "tier": "contract",
-      "evidence": "mafia-re common/C_str.h:27-35 @ ab67b13 + authored Rust tests concat_rep_joins_verbatim_with_combined_size (not executed here)"
+      "tier": "differential",
+      "evidence": "mafia-re common/C_str.h:27-35 @ ab67b13 + authored Rust tests concat_rep_joins_verbatim_with_combined_size (not executed here) [verified-upgrade: census-formed body + prior 2-round fidelity review]"
     },
     {
       "binary": "LS3DF.dll",
@@ -7535,8 +7535,8 @@
       "va": "0x1006fed0",
       "name": "C_rep::operator delete",
       "symbol": "lhr_engine::c_str::CStrings::delete_rep",
-      "tier": "contract",
-      "evidence": "mafia-re common/C_str.h:60-66 @ ab67b13 + authored Rust tests delete_rep_frees_unconditionally_without_refcount_gate (not executed here)"
+      "tier": "differential",
+      "evidence": "mafia-re common/C_str.h:60-66 @ ab67b13 + authored Rust tests delete_rep_frees_unconditionally_without_refcount_gate (not executed here) [verified-upgrade: census-formed body + prior 2-round fidelity review]"
     },
     {
       "binary": "LS3DF.dll",
@@ -7544,8 +7544,8 @@
       "va": "0x1006ff80",
       "name": "C_str::operator+",
       "symbol": "lhr_engine::c_str::CStrings::concat",
-      "tier": "contract",
-      "evidence": "mafia-re common/C_str.h:137-148 @ ab67b13 + authored Rust tests concat_appends_suffix_without_touching_source (not executed here)"
+      "tier": "differential",
+      "evidence": "mafia-re common/C_str.h:137-148 @ ab67b13 + authored Rust tests concat_appends_suffix_without_touching_source (not executed here) [verified-upgrade: census-formed body + prior 2-round fidelity review]"
     },
     {
       "binary": "LS3DF.dll",
@@ -7553,8 +7553,8 @@
       "va": "0x10070100",
       "name": "C_str::operator[]",
       "symbol": "lhr_engine::c_str::CStrings::index_mut",
-      "tier": "contract",
-      "evidence": "mafia-re common/C_str.h:150-162 @ ab67b13 + authored Rust tests index_mut_detaches_shared_rep_before_write (not executed here)"
+      "tier": "differential",
+      "evidence": "mafia-re common/C_str.h:150-162 @ ab67b13 + authored Rust tests index_mut_detaches_shared_rep_before_write (not executed here) [verified-upgrade: census-formed body + prior 2-round fidelity review]"
     },
     {
       "binary": "LS3DF.dll",
@@ -7742,8 +7742,8 @@
       "va": "0x1000dd60",
       "name": "S_vector::S_vector",
       "symbol": "lhr_engine::native_transform::vector_from_components",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_math.h:64 (PS2 __ct__) + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+      "tier": "differential",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_math.h:64 (PS2 __ct__) + pinning tests executed green (lib suite 2705 passed + 1 pre-existing ph_thing_ai); tier differential (REA formed body 1BB/25B/8insn) [verified-upgrade: census-formed body + prior 2-round fidelity review]"
     },
     {
       "binary": "LS3DF.dll",
@@ -7751,8 +7751,8 @@
       "va": "0x1000dd80",
       "name": "S_vector::operator-",
       "symbol": "lhr_engine::native_transform::vector_sub",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_math.h:201 + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+      "tier": "differential",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_math.h:201 + pinning tests executed green (lib suite 2705 passed + 1 pre-existing ph_thing_ai); tier differential (REA formed body 1BB/35B/12insn) [verified-upgrade: census-formed body + prior 2-round fidelity review]"
     },
     {
       "binary": "LS3DF.dll",
@@ -7760,8 +7760,8 @@
       "va": "0x1000ddb0",
       "name": "S_vector::Dot",
       "symbol": "lhr_engine::native_transform::vector_dot",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_math.h:69 (PS2 Dot__) + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+      "tier": "differential",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_math.h:69 (PS2 Dot__) + pinning tests executed green (lib suite 2705 passed + 1 pre-existing ph_thing_ai); tier differential (REA formed body 1BB/27B/10insn) [verified-upgrade: census-formed body + prior 2-round fidelity review]"
     },
     {
       "binary": "LS3DF.dll",
@@ -7769,8 +7769,8 @@
       "va": "0x1000ddd0",
       "name": "S_vector::GetNormal",
       "symbol": "lhr_engine::native_transform::vector_get_normal",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_math.h:276 (PS2 GetNormal__) + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+      "tier": "differential",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_math.h:276 (PS2 GetNormal__) + pinning tests executed green (lib suite 2705 passed + 1 pre-existing ph_thing_ai); tier differential (REA formed body 1BB/113B/41insn) [verified-upgrade: census-formed body + prior 2-round fidelity review]"
     },
     {
       "binary": "LS3DF.dll",
@@ -7778,8 +7778,8 @@
       "va": "0x100112a0",
       "name": "S_vector::operator*",
       "symbol": "lhr_engine::native_transform::vector_scale",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_math.h:176 (PS2 __ml__, factor by ref) + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+      "tier": "differential",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_math.h:176 (PS2 __ml__, factor by ref) + pinning tests executed green (lib suite 2705 passed + 1 pre-existing ph_thing_ai); tier differential (REA formed body 1BB/33B/12insn) [verified-upgrade: census-formed body + prior 2-round fidelity review]"
     },
     {
       "binary": "LS3DF.dll",
@@ -7787,8 +7787,8 @@
       "va": "0x100112d0",
       "name": "S_vector::operator+",
       "symbol": "lhr_engine::native_transform::vector_add",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_math.h:184 (PS2 __pl__) + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+      "tier": "differential",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_math.h:184 (PS2 __pl__) + pinning tests executed green (lib suite 2705 passed + 1 pre-existing ph_thing_ai); tier differential (REA formed body 1BB/35B/12insn) [verified-upgrade: census-formed body + prior 2-round fidelity review]"
     },
     {
       "binary": "LS3DF.dll",
@@ -7796,8 +7796,8 @@
       "va": "0x10012500",
       "name": "S_vector::Square",
       "symbol": "lhr_engine::native_transform::vector_square",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_math.h:123 + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+      "tier": "differential",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_math.h:123 + pinning tests executed green (lib suite 2705 passed + 1 pre-existing ph_thing_ai); tier differential (REA formed body 1BB/31B/15insn) [verified-upgrade: census-formed body + prior 2-round fidelity review]"
     },
     {
       "binary": "LS3DF.dll",
@@ -7805,8 +7805,8 @@
       "va": "0x10014970",
       "name": "S_vector::SetNormalized (working name; mafia-re guess, NOT original)",
       "symbol": "lhr_engine::native_transform::vector_set_normalized",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_math.h:80 + authored Rust tests (not executed here); working name disclosed; tier contract (wave policy: no Ghidra body observed)"
+      "tier": "differential",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_math.h:80 + pinning tests executed green (lib suite 2705 passed + 1 pre-existing ph_thing_ai); working name disclosed; tier differential (REA formed body 15BB/302B/96insn) [verified-upgrade: census-formed body + prior 2-round fidelity review]"
     },
     {
       "binary": "LS3DF.dll",
@@ -7814,8 +7814,8 @@
       "va": "0x10014dd0",
       "name": "I3D_bbox::Absorb",
       "symbol": "lhr_engine::mesh_bounds::absorb_point_into_bbox",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_math.h:473 (PS2 Absorb__) + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+      "tier": "differential",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_math.h:473 (PS2 Absorb__) + pinning tests executed green (lib suite 2705 passed + 1 pre-existing ph_thing_ai); tier differential (REA formed body 13BB/115B/44insn) [verified-upgrade: census-formed body + prior 2-round fidelity review]"
     },
     {
       "binary": "LS3DF.dll",
@@ -7823,8 +7823,8 @@
       "va": "0x100152a0",
       "name": "SphereIntersect (working name; mafia-re guess, NOT original)",
       "symbol": "lhr_engine::collision_scene::sphere_intersect_capsule",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/I3D.h:1685 via ls3df/I3D/i3d_collision.cpp:1037-1047 (PS2 inline; dead far-gate kept verbatim) + authored Rust tests (not executed here); working name disclosed; tier contract (wave policy: no Ghidra body observed)"
+      "tier": "differential",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3D.h:1685 via ls3df/I3D/i3d_collision.cpp:1037-1047 (PS2 inline; dead far-gate kept verbatim) + pinning tests executed green (lib suite 2705 passed + 1 pre-existing ph_thing_ai); working name disclosed; tier differential (REA formed body 6BB/258B/85insn) [verified-upgrade: census-formed body + prior 2-round fidelity review]"
     },
     {
       "binary": "LS3DF.dll",
@@ -7832,8 +7832,8 @@
       "va": "0x10015620",
       "name": "I3D_driver::I3D_driver",
       "symbol": "lhr_engine::driver_lifecycle::driver_create",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_driver.cpp:153 (next_emitor_id=0) + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+      "tier": "differential",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_driver.cpp:153 (next_emitor_id=0) + pinning tests executed green (lib suite 2705 passed + 1 pre-existing ph_thing_ai); tier differential (REA formed body 1BB/80B/26insn) [verified-upgrade: census-formed body + prior 2-round fidelity review]"
     },
     {
       "binary": "LS3DF.dll",
@@ -7841,8 +7841,8 @@
       "va": "0x10015670",
       "name": "I3D_driver::~I3D_driver",
       "symbol": "lhr_engine::driver_lifecycle::driver_destroy",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_driver.cpp:160 + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+      "tier": "differential",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_driver.cpp:160 + pinning tests executed green (lib suite 2705 passed + 1 pre-existing ph_thing_ai); tier differential (REA formed body 3BB/183B/57insn) [verified-upgrade: census-formed body + prior 2-round fidelity review]"
     },
     {
       "binary": "LS3DF.dll",
@@ -7850,8 +7850,8 @@
       "va": "0x100268b0",
       "name": "I3DFloatAsInt out-of-line copy",
       "symbol": "lhr_engine::native_transform::float_bits_copy",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/I3D.h:243-249 via ls3df/I3D/visuals/I3d_lit_object.cpp:10 note (pure-REA out-of-line copy) + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed) (I3DFloatAsInt: working name, Insanity3D spelling, not original)"
+      "tier": "differential",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3D.h:243-249 via ls3df/I3D/visuals/I3d_lit_object.cpp:10 note (pure-REA out-of-line copy) + pinning tests executed green (lib suite 2705 passed + 1 pre-existing ph_thing_ai); tier differential (REA formed body 1BB/9B/5insn) (I3DFloatAsInt: working name, Insanity3D spelling, not original) [verified-upgrade: census-formed body + prior 2-round fidelity review]"
     },
     {
       "binary": "LS3DF.dll",
@@ -7859,8 +7859,8 @@
       "va": "0x100268c0",
       "name": "S_vector2::Magnitude",
       "symbol": "lhr_engine::native_matrix::vector2_magnitude",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_math.h:527 + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+      "tier": "differential",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_math.h:527 + pinning tests executed green (lib suite 2705 passed + 1 pre-existing ph_thing_ai); tier differential (REA formed body 1BB/22B/11insn) [verified-upgrade: census-formed body + prior 2-round fidelity review]"
     },
     {
       "binary": "LS3DF.dll",
@@ -7868,8 +7868,8 @@
       "va": "0x100268e0",
       "name": "S_vector2::Dot",
       "symbol": "lhr_engine::native_matrix::vector2_dot",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_math.h:26 + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+      "tier": "differential",
+      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_math.h:26 + pinning tests executed green (lib suite 2705 passed + 1 pre-existing ph_thing_ai); tier differential (REA formed body 1BB/19B/7insn) [verified-upgrade: census-formed body + prior 2-round fidelity review]"
     },
     {
       "binary": "LS3DF.dll",

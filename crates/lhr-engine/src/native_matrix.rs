@@ -387,8 +387,8 @@ impl SMatrix {
 /// lives in the lit-object file before `Dot`). Exact f32 `x*x + y*y` sum,
 /// then the native `(float)sqrt` promotion: f64 square root narrowed to
 /// f32. Host libm versus x87 `FSQRT` bit parity and extended-exponent
-/// intermediates are not established (disclosed). Tier contract (wave
-/// policy: no Ghidra body observed).
+/// intermediates are not established (disclosed). Tier differential (REA
+/// formed body 1BB/22B/11insn + executed pinning tests).
 pub fn vector2_magnitude(vector: [f32; 2]) -> f32 {
     let sum = vector[0] * vector[0] + vector[1] * vector[1];
     f64::from(sum).sqrt() as f32
@@ -396,8 +396,8 @@ pub fn vector2_magnitude(vector: [f32; 2]) -> f32 {
 
 /// LS3DF RVA 0x268e0, VA 0x100268e0. `S_vector2::Dot` (mafia-re ab67b13
 /// `ls3df/I3D/I3d_math.h:26`; the lit-object file's copy). Exact f32
-/// `x*v.x + y*v.y`, no domain guard. Tier contract (wave policy: no Ghidra
-/// body observed).
+/// `x*v.x + y*v.y`, no domain guard. Tier differential (REA formed body
+/// 1BB/19B/7insn + executed pinning tests).
 pub fn vector2_dot(a: [f32; 2], b: [f32; 2]) -> f32 {
     a[0] * b[0] + a[1] * b[1]
 }
