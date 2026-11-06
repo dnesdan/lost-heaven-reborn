@@ -1,6 +1,8 @@
 //! Borrowed PC G_Camera::Reset over the actual C_game allocation.
 //!
 //! mafia-re f42a25d, game/camera/g_camera.cpp, Game.exe 0x5ed040.
+//! Reset body lines 192-216 are cited at mafia-re 113b5b6 in the 0x1ed040
+//! overlay evidence (header history: f42a25d).
 //! G_Camera and cameraParams are PS2 names cross-checked to this PC entry;
 //! offsets here are PC evidence, never inferred from the PS2 member layout.
 //! This storage adapter does not create a second camera or Scene owner.

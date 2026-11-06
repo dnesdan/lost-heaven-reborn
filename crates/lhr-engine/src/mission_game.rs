@@ -3,8 +3,7 @@
 //! Game SHA25608398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27.
 //! Unknown fields retain their seed; vector controls distinguish caller stack
 //! residue from embedded constructors' saved-this identity bytes.
-#[path = "game_camera_reset.rs"]
-pub(super) mod camera;
+pub(super) use crate::game_camera_reset as camera;
 pub use camera::{CameraProfile, CameraResetError};
 #[derive(Clone, Copy, Debug)]
 pub struct GameConstructorInputs {

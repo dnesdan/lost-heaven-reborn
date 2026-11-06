@@ -39,8 +39,11 @@ class RewriteProgressTests(unittest.TestCase):
         # module-membership gate, wrapper rejected by review).
         # +3 detector pair + WinMain chop (0x7b750 GetSignal + 0x7b760
         # SetSignal + 0x166160 WinMain dir-chop prefix, all contract).
-        self.assertEqual(game["ported"], 149 + 43)
-        self.assertEqual(game["verified"], 149 + 6)
+        # +1 G_Camera::Reset 0x1ed040 differential confirm-only (2-line
+        # lib.rs/mission_game.rs wiring makes the faithful port creditable;
+        # fresh 217B REA body + listing corroboration on top of port+tests).
+        self.assertEqual(game["ported"], 149 + 44)
+        self.assertEqual(game["verified"], 149 + 7)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")
