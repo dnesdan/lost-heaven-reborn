@@ -100,6 +100,7 @@ pub mod game_camera_tick_prologue;
 pub mod game_controls;
 pub mod game_crash_registry;
 pub mod game_definition_tables;
+pub mod game_housekeeping;
 pub mod game_init_order;
 pub mod game_loadsave_controls;
 pub mod game_loadsave_lifecycle;
