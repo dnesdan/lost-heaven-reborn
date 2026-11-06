@@ -1,16 +1,21 @@
 //! Bounded police-manager registry: init/reset plus the person-registry
-//! transitions, with working names.
+//! transitions, the do_rici tick slice and the pursuit-record flag helpers,
+//! with working names.
 //!
 //! Existing bytes and the constructor's opaque allocator marker are explicit
 //! inputs. Native pointer words remain opaque words, never Rust pointers. This
-//! module owns the `records` registry and the `SetActive` scalar stores; it
-//! does not construct resources, run Tick/pursuit/arrest AI, or implement the
-//! mission/world side of manager ON.
+//! module owns the `records` registry, the `SetActive` scalar stores, the
+//! road-block/temp-car/do_rici id lists and the record flag helpers; it
+//! does not construct resources, run the full Tick/pursuit/arrest AI, or
+//! implement the mission/world side of manager ON.
 //!
 //! PR3 parity (mafia-re `pr3` b0c02ef): `S_shvestky::RemoveAngryActor`
 //! 0x49f780, `C_shvestky::RemoveAngryActor` 0x49f540 and
-//! `ReleaseWantedHuman` 0x49f850. `SendPoliceBackup` 0x49eee0,
-//! `SendPoliceToHuman` 0x49f980 and `FreeMyTempActor` 0x49e7e0 remain
+//! `ReleaseWantedHuman` 0x49f850. This slice adds `TickDoRiciActors` 0x49ea80,
+//! `AddDoRiciActor` 0x49e820, `DelDoRiciActor` 0x49e9e0, `FreeMyTempActor`
+//! 0x49e7e0, the `Tick` 0x49a300 timer/temp-car prefix, and the `Firing`
+//! 0x49cb20 / `HumanBoxing` 0x49d030 / `ForceArrest` 0x49d130 record effects.
+//! `SendPoliceBackup` 0x49eee0 and `SendPoliceToHuman` 0x49f980 remain
 //! unimplemented stubs; the previous vulgar working names are retired in
 //! favor of the English descriptive names above.
 //!
@@ -28,10 +33,13 @@
 //! then the active/arrest-text/unknown stores). The rest of `SetActive`
 //! (bridge-node collection, police-model preload, player auto-add) needs
 //! mission/level owners and stays deferred, as do `DriveCar` 0x49cbb0,
-//! `ForceArrest` 0x49d130, `DalsiChalpiDoPartie` (`POLICE_SUPPORT`) and the
-//! full Tick/pursuit/arrest AI. `DelPerson`'s per-angry-actor `DelDoRiciActor`
-//! 0x49e820 handoff is deferred with that stub; the removed record is returned
-//! so future wiring can enumerate it.
+//! `DalsiChalpiDoPartie` (`POLICE_SUPPORT`), `TestOverRed`,
+//! `CreateShvestkyTest` and the rest of the full Tick/pursuit/arrest AI.
+//! `DelPerson`'s per-angry-actor `DelDoRiciActor` 0x49e820 fan-out still needs
+//! the records' angry-list owner and stays deferred with that handoff; the
+//! removed record is returned so future wiring can enumerate it. `ForceArrest`
+//! 0x49d130 is covered as a record effect only; its script parameters and any
+//! mission fan-out stay deferred.
 //!
 //! VM dispatch: `POLICEMANAGER_ON` (135) already parses into
 //! `StartupCommand::PoliceManagerOn`, but no live `ScriptEffects` backend owns
@@ -214,11 +222,93 @@ pub struct PoliceRoadBlockIris {
     pub free: bool,
 }
 
-/// Owned subset of `C_shvestky` state written by `GameInit` 0x499cd0 and the
+/// Road-block enemy entry (`S_road_block_enemy`, 8 bytes: actor + free flag;
+/// mafia-re game/ai/C_shvestky.h:130-134).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PoliceRoadBlockEnemy {
+    pub actor: PoliceActorId,
+    pub free: bool,
+}
+
+/// Actor kinds distinguished by `C_shvestky::TickDoRiciActors` 0x49ea80
+/// (mafia-re game/ai/C_shvestky.cpp:873-927): `ACTOR_ENTITY`, `ACTOR_CAR`,
+/// and every other type, which goes at once.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DoRiciActorKind {
+    Entity,
+    Car,
+    Other,
+}
+
+/// Host-supplied per-actor facts for `tick_do_rici_actors` (marker-only
+/// contract: the engine never dereferences actors; the host, which owns them,
+/// snapshots these through its own accessors, as the original reads them
+/// through the actor classes' accessors per mafia-re
+/// game/ai/C_shvestky.cpp:850-856).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DoRiciMark {
+    pub kind: DoRiciActorKind,
+    /// World position; the engine zeroes `y` and squares the ground-plane
+    /// distance to the camera itself (`d.y = 0; d.Square()`).
+    pub pos: [f32; 3],
+    /// `C_actor::GetDead`.
+    pub dead: bool,
+    /// Entity `human_type == 4`.
+    pub human_type_is_4: bool,
+    /// Entity `AISTATEF_DISMISSED`.
+    pub dismissed: bool,
+    /// The entity's car, `Some` only when it reads as `ACTOR_CAR`
+    /// (same convention as `add_person`'s `car`).
+    pub car: Option<PoliceActorId>,
+    /// The entity's seat in `car`.
+    pub seat: u32,
+    /// Whether any seat of the car has an owner.
+    pub seats_occupied: bool,
+    /// Whether a player/entity global actor has the car as its car or
+    /// `using_car` (mafia-re game/ai/C_shvestky.cpp:910-919).
+    pub referenced: bool,
+    /// Whether the car's frame is on (`IsOn`, mafia-re
+    /// game/ai/C_shvestky.cpp:922).
+    pub frame_on: bool,
+    /// Whether the car is a police car (`police_car`, mafia-re
+    /// game/ai/C_shvestky.cpp:936-937).
+    pub police_car: bool,
+}
+
+/// Host-owned backends for `tick_do_rici_actors` and `police_tick_prefix`.
+/// Only host-owned slots appear here (`InvalidateActor`, radar removal);
+/// mission/camera/HUD owners (`act_mission`, `mafiaIndicators`,
+/// `GetSledovacka` internals, `C_traffic_car`) stay deferred and are applied
+/// by the host behind these slots.
+pub trait DoRiciHost {
+    /// Marker facts for one listed actor; `None` when the host owns no such
+    /// actor (treated as `Other`: evicted without car effects).
+    fn probe(&self, actor: PoliceActorId) -> Option<DoRiciMark>;
+    /// `C_shvestky::RemoveAngryActor` 0x49f540 fan-out: the records own no
+    /// angry lists here, so the host applies it to its own lists.
+    fn global_del_nasrany(&mut self, actor: PoliceActorId);
+    /// `mafiaIndicators.RadarRemoveCar`.
+    fn radar_remove_car(&mut self, car: PoliceActorId);
+    /// `GetSledovacka()->RemoveCar`.
+    fn sledovacka_remove_car(&mut self, car: PoliceActorId);
+    /// `C_traffic_car::ChlupatejVystrik` for an evicted police car.
+    fn traffic_car_release(&mut self);
+    /// `C_game::InvalidateActor(actor, false)`.
+    fn invalidate_actor(&mut self, actor: PoliceActorId);
+    /// `C_game::RemoveTemporaryActor`.
+    fn remove_temporary_actor(&mut self, actor: PoliceActorId);
+    /// `car->SetOwner(NULL, seat, 0.0f)` when an evicted entity leaves its car
+    /// (mafia-re game/ai/C_shvestky.cpp:887).
+    fn empty_car_seat(&mut self, car: PoliceActorId, seat: u32);
+}
+
+/// Owned subset of `C_shvestky` state written by `GameInit` 0x499cd0, the
 /// person-registry transitions (`SetActive` 0x49b860 prefix, `AddPerson`
-/// 0x49c7e0, `DelPerson` 0x49ca50). Fields no ported body touches (enemies,
-/// temporary cars, road-block enemies, do-rici/bridge-node lists) are outside
-/// this owner by construction. `GameInit` leaves the `SetActive` scalars
+/// 0x49c7e0, `DelPerson` 0x49ca50) and the do_rici tick slice
+/// (`TickDoRiciActors` 0x49ea80, `AddDoRiciActor` 0x49e820, `DelDoRiciActor`
+/// 0x49e9e0, `FreeMyTempActor` 0x49e7e0, the `Tick` 0x49a300 timer/temp-car
+/// prefix). Bridge-node lists stay outside this owner by construction.
+/// `GameInit` leaves the `SetActive` scalars
 /// (`arrest_text`, `unknown_38`, `unknown_39`) alone, matching the native body,
 /// which never stores them; before the first `SetActive` they are native
 /// uninitialized (the native constructor is empty), so the typed `Default`
@@ -244,7 +334,13 @@ pub struct PoliceGameInitState {
     records: Vec<PolicePursuitRecord>,
     road_block_cars: Vec<PoliceRoadBlockCar>,
     road_block_irises: Vec<PoliceRoadBlockIris>,
+    road_block_enemies: Vec<PoliceRoadBlockEnemy>,
     do_rici_actors: Vec<PoliceActorId>,
+    /// Police temporary cars on the radar (`temp_cars`, mafia-re
+    /// game/ai/C_shvestky.h:159-160). Like the original `GameInit` 0x499cd0
+    /// (mafia-re game/ai/C_shvestky.cpp:41-56), `apply_game_init` leaves this
+    /// list alone; `GameDone` owns its teardown (deferred).
+    temp_cars: Vec<PoliceActorId>,
 }
 
 impl PoliceGameInitState {
@@ -284,8 +380,20 @@ impl PoliceGameInitState {
         self.road_block_irises.len()
     }
 
+    pub fn road_block_enemy_count(&self) -> usize {
+        self.road_block_enemies.len()
+    }
+
     pub fn do_rici_actor_count(&self) -> usize {
         self.do_rici_actors.len()
+    }
+
+    pub fn temp_car_count(&self) -> usize {
+        self.temp_cars.len()
+    }
+
+    pub fn temp_cars(&self) -> &[PoliceActorId] {
+        &self.temp_cars
     }
 
     pub fn arrest_text(&self) -> u32 {
@@ -373,7 +481,9 @@ impl PoliceGameInitState {
     /// Original `C_shvestky::GameInit` 0x499cd0 in native order: inactive,
     /// timer resets (330/913/217/4013 ms), 17.0/28.0 speed limits, zeroed
     /// words, and cleared lists. The `SetActive` scalars stay untouched, as
-    /// natively.
+    /// natively, and so do the road-block enemies and temp cars, which the
+    /// native body (mafia-re game/ai/C_shvestky.cpp:41-56) clears neither of
+    /// (`GameDone` owns their teardown; deferred).
     pub fn apply_game_init(&mut self) {
         self.active = false;
         self.records_timer.reset(330);
@@ -389,12 +499,226 @@ impl PoliceGameInitState {
         self.do_rici_timer.reset(913);
         self.do_rici_actors.clear();
     }
+
+    /// Original `C_shvestky::AddDoRiciActor` 0x49e820 list transition
+    /// (mafia-re game/ai/C_shvestky.cpp:838-842 is a log-only stub; shape per
+    /// the GAME contract): appends the actor unless it is already listed.
+    /// Returns whether the actor was appended.
+    pub fn admit_do_rici(&mut self, actor: PoliceActorId) -> bool {
+        if self.do_rici_actors.contains(&actor) {
+            return false;
+        }
+        self.do_rici_actors.push(actor);
+        true
+    }
+
+    /// Original `C_shvestky::DelDoRiciActor` 0x49e9e0 list transition
+    /// (mafia-re game/ai/C_shvestky.cpp:844-848 is a log-only stub; shape per
+    /// the GAME contract): removes the actor with swap-with-back + pop,
+    /// searched back-to-front like the other registry removals here (the
+    /// duplicate guard in `admit_do_rici` keeps at most one copy, so the
+    /// direction is unobservable). Returns whether the actor was listed.
+    pub fn evict_do_rici(&mut self, actor: PoliceActorId) -> bool {
+        let Some(index) = self
+            .do_rici_actors
+            .iter()
+            .rposition(|&listed| listed == actor)
+        else {
+            return false;
+        };
+        self.do_rici_actors.swap_remove(index);
+        true
+    }
+
+    /// Original `C_shvestky::FreeMyTempActor` 0x49e7e0 ownership test
+    /// (mafia-re game/ai/C_shvestky.cpp:831-836 is a log-only stub; freed-set
+    /// per mafia-re game/ai/C_shvestky.h:117-134 and 229-231, PS2's
+    /// `FreeTempCar`/`FreeTempEnemy`/`FreeTempIris` by entry type): marks the
+    /// matching road-block car/enemy/policeman entry free and reports it, and
+    /// releases a matching temporary car from the police's `temp_cars`
+    /// tracking (order-preserving; the car itself stays in the game, which is
+    /// why `TickDoRiciActors` skips its `RemoveTemporaryActor` on `true`).
+    /// Reports `false` for any other actor.
+    pub fn free_my_temp_actor(&mut self, actor: PoliceActorId) -> bool {
+        for entry in &mut self.road_block_cars {
+            if entry.car == actor {
+                entry.free = true;
+                return true;
+            }
+        }
+        for entry in &mut self.road_block_enemies {
+            if entry.actor == actor {
+                entry.free = true;
+                return true;
+            }
+        }
+        for entry in &mut self.road_block_irises {
+            if entry.actor == actor {
+                entry.free = true;
+                return true;
+            }
+        }
+        if let Some(index) = self.temp_cars.iter().position(|&car| car == actor) {
+            self.temp_cars.remove(index);
+            return true;
+        }
+        false
+    }
+
+    /// Original `C_shvestky::TickDoRiciActors` 0x49ea80 (mafia-re
+    /// game/ai/C_shvestky.cpp:858-954 with the PS2 order/shape notes there):
+    /// evicts listed actors far from the camera on the ground plane
+    /// (`dist_sq_xz > 22500`, i.e. 150 m; `y` forced to zero), switching on
+    /// the host-supplied marker kind. An entity goes once it is that far, or
+    /// at once by a dismissed flag where its `human_type` is 4; one in a car
+    /// empties the car and reruns the loop for it when far, else the records
+    /// forget it while it stays listed. A car goes once it is that far with
+    /// no owner in its seats and no player/entity holding it, or once its
+    /// frame is off; every other actor goes at once. Eviction runs
+    /// `GlobalDelNasrany` plus the car radar/`sledovacka`/temp cleanup through
+    /// the host, then swap-removes from the list; the `again` loop reruns the
+    /// pass after an entity leaves its car, and `all` wipes any remainder.
+    /// Mission/camera/HUD owners stay deferred behind `DoRiciHost`.
+    pub fn tick_do_rici_actors(
+        &mut self,
+        camera: [f32; 3],
+        all: bool,
+        host: &mut impl DoRiciHost,
+    ) {
+        loop {
+            let mut again = false;
+            let mut i = 0;
+            while i < self.do_rici_actors.len() {
+                let actor = self.do_rici_actors[i];
+                let mark = host.probe(actor);
+                let mut remove = all;
+                let mut empty_seat: Option<(PoliceActorId, u32)> = None;
+                let mut forget_only = false;
+                if !remove {
+                    match mark {
+                        Some(marked) if marked.kind == DoRiciActorKind::Entity => {
+                            let dx = marked.pos[0] - camera[0];
+                            let dz = marked.pos[2] - camera[2];
+                            let dist_sq = dx * dx + dz * dz;
+                            let mut entity_remove = dist_sq > DO_RICI_GROUND_DIST_SQ;
+                            if !marked.dead && marked.human_type_is_4 {
+                                entity_remove = marked.dismissed;
+                            }
+                            if entity_remove {
+                                if let Some(car) = marked.car {
+                                    entity_remove = dist_sq > DO_RICI_GROUND_DIST_SQ;
+                                    if entity_remove {
+                                        empty_seat = Some((car, marked.seat));
+                                        again = true;
+                                    } else {
+                                        forget_only = true;
+                                    }
+                                }
+                            }
+                            remove = entity_remove;
+                        }
+                        Some(marked) if marked.kind == DoRiciActorKind::Car => {
+                            let dx = marked.pos[0] - camera[0];
+                            let dz = marked.pos[2] - camera[2];
+                            let dist_sq = dx * dx + dz * dz;
+                            if dist_sq > DO_RICI_GROUND_DIST_SQ {
+                                remove = !marked.seats_occupied && !marked.referenced;
+                            } else if !marked.frame_on {
+                                remove = true;
+                            }
+                        }
+                        _ => remove = true,
+                    }
+                }
+                if forget_only {
+                    host.global_del_nasrany(actor);
+                    i += 1;
+                    continue;
+                }
+                if remove {
+                    if let Some((car, seat)) = empty_seat {
+                        host.empty_car_seat(car, seat);
+                    }
+                    host.global_del_nasrany(actor);
+                    let is_car = matches!(
+                        mark,
+                        Some(DoRiciMark {
+                            kind: DoRiciActorKind::Car,
+                            ..
+                        })
+                    );
+                    let police_car = mark.map(|marked| marked.police_car).unwrap_or(false);
+                    if is_car {
+                        host.radar_remove_car(actor);
+                        host.sledovacka_remove_car(actor);
+                        if police_car {
+                            host.traffic_car_release();
+                        }
+                    }
+                    host.invalidate_actor(actor);
+                    if !self.free_my_temp_actor(actor) {
+                        host.invalidate_actor(actor);
+                        host.remove_temporary_actor(actor);
+                    }
+                    self.do_rici_actors.swap_remove(i);
+                } else {
+                    i += 1;
+                }
+            }
+            if !again {
+                break;
+            }
+        }
+        if all {
+            self.do_rici_actors.clear();
+        }
+    }
+
+    /// First block of `C_shvestky::Tick` 0x49a300 (mafia-re
+    /// game/ai/C_shvestky.cpp:167-177): runs `TickDoRiciActors(false)` at each
+    /// `do_rici_timer` period, then trims `temp_cars` past five from the
+    /// front through the host backend. Camera/HUD/mission owners stay
+    /// deferred behind `DoRiciHost`.
+    pub fn police_tick_prefix(
+        &mut self,
+        camera: [f32; 3],
+        time_ms: u32,
+        host: &mut impl DoRiciHost,
+    ) {
+        if self.do_rici_timer.tick(time_ms) {
+            self.tick_do_rici_actors(camera, false, host);
+        }
+        while self.temp_cars.len() > 5 {
+            let car = self.temp_cars.remove(0);
+            host.invalidate_actor(car);
+            host.radar_remove_car(car);
+            host.remove_temporary_actor(car);
+        }
+    }
 }
+
 /// Opaque human identity for wanted-record lookup.
 pub type PoliceHumanId = u32;
 
 /// Cleared pursuit state written by `ReleaseWantedHuman` (`SHVSTATE_NONE`).
 pub const SHVSTATE_NONE: u32 = 0;
+/// Arrest state raised by `ForceArrest` (`SHVSTATE_ARREST`, mafia-re
+/// game/ai/C_shvestky.h:36).
+pub const SHVSTATE_ARREST: u32 = 2;
+
+/// `SHVF_FIRE` 0x2: `Firing`'s bit, cleared once `fire_time` runs out
+/// (mafia-re game/ai/C_shvestky.h:17).
+pub const SHVF_FIRE: u32 = 0x2;
+/// `SHVF_BOXING` 0x200: `HumanBoxing`'s bit, cleared once `boxing_time` runs
+/// out (mafia-re game/ai/C_shvestky.h:22).
+pub const SHVF_BOXING: u32 = 0x200;
+/// `SHVF_FORCE_ARREST` 0x4000: `ForceArrest`'s bit, `SHVSTATE_ARREST`
+/// (mafia-re game/ai/C_shvestky.h:28).
+pub const SHVF_FORCE_ARREST: u32 = 0x4000;
+
+/// Ground-plane squared eviction distance for `TickDoRiciActors`
+/// (150 m; mafia-re game/ai/C_shvestky.cpp:869, 876, 884, 896).
+pub const DO_RICI_GROUND_DIST_SQ: f32 = 22500.0;
 
 /// Still-unimplemented police dispatch. Entries name the original PC
 /// addresses; the vulgar working names are retired.
@@ -415,6 +739,18 @@ pub const SEND_POLICE_BACKUP_ENTRY: u32 = 0x49eee0;
 pub const SEND_POLICE_TO_HUMAN_ENTRY: u32 = 0x49f980;
 /// `C_shvestky::FreeMyTempActor` 0x49e7e0.
 pub const FREE_TEMP_ACTOR_ENTRY: u32 = 0x49e7e0;
+/// `C_shvestky::TickDoRiciActors` 0x49ea80.
+pub const TICK_DO_RICI_ENTRY: u32 = 0x49ea80;
+/// `C_shvestky::AddDoRiciActor` 0x49e820.
+pub const ADD_DO_RICI_ENTRY: u32 = 0x49e820;
+/// `C_shvestky::DelDoRiciActor` 0x49e9e0.
+pub const DEL_DO_RICI_ENTRY: u32 = 0x49e9e0;
+/// `C_shvestky::Firing` 0x49cb20.
+pub const FIRING_ENTRY: u32 = 0x49cb20;
+/// `C_shvestky::HumanBoxing` 0x49d030.
+pub const HUMAN_BOXING_ENTRY: u32 = 0x49d030;
+/// `C_shvestky::ForceArrest` 0x49d130.
+pub const FORCE_ARREST_ENTRY: u32 = 0x49d130;
 
 pub fn send_police_backup(
     _human: PoliceHumanId,
@@ -519,6 +855,39 @@ impl PolicePursuitRecord {
             nevi: false,
             support_level: 0,
             rammed_car: 0,
+        }
+    }
+
+    /// Record effect of `C_shvestky::Firing` 0x49cb20 (mafia-re
+    /// game/ai/C_shvestky.cpp:1012-1016 is a log-only stub; effect per
+    /// game/ai/C_shvestky.h:194-195: `SHVF_FIRE` set, `fire_time`). The
+    /// duration value itself is caller-owned: no duration is evidenced
+    /// upstream (`C_human::Shooting` at game/actors/C_human.cpp:7298, 7403
+    /// passes none), so the caller supplies the latched `fire_time`.
+    pub fn record_firing(&mut self, fire_time: u32) {
+        self.flags |= SHVF_FIRE;
+        self.fire_time = fire_time;
+    }
+
+    /// Record effect of `C_shvestky::HumanBoxing` 0x49d030 (mafia-re
+    /// game/ai/C_shvestky.cpp:993-997 is a log-only stub; effect per
+    /// game/ai/C_shvestky.h:70, 205-206: `SHVF_BOXING` set, `boxing_time`
+    /// 5000 more).
+    pub fn record_boxing(&mut self) {
+        self.flags |= SHVF_BOXING;
+        self.boxing_time = self.boxing_time.wrapping_add(5000);
+    }
+
+    /// Record effect of `C_shvestky::ForceArrest` 0x49d130 (mafia-re
+    /// game/ai/C_shvestky.cpp:770-774 is a log-only stub; effect per
+    /// game/ai/C_shvestky.h:28 and the `SHVF_FORCE_ARREST` arm of
+    /// `CreateShvestkyTest` at game/ai/C_shvestky.cpp:561-565): flag set,
+    /// `new_state` raised to `SHVSTATE_ARREST`. The script `a`/`b` parameters
+    /// need mission owners and stay deferred.
+    pub fn record_force_arrest(&mut self) {
+        self.flags |= SHVF_FORCE_ARREST;
+        if self.new_state < SHVSTATE_ARREST {
+            self.new_state = SHVSTATE_ARREST;
         }
     }
 }
@@ -904,5 +1273,416 @@ mod tests {
         assert_eq!(state.speed_limit(), 17.0 / 3.6);
         assert_eq!(state.speed_limit_arrest(), 28.0 / 3.6);
         assert_eq!(state.speed_limit_bits(), (17.0f32 / 3.6).to_bits());
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum HostCall {
+        GlobalDelNasrany(PoliceActorId),
+        RadarRemove(PoliceActorId),
+        SledovackaRemove(PoliceActorId),
+        TrafficRelease,
+        Invalidate(PoliceActorId),
+        RemoveTemporary(PoliceActorId),
+        EmptySeat { car: PoliceActorId, seat: u32 },
+    }
+
+    struct FakeHost {
+        marks: Vec<(PoliceActorId, DoRiciMark)>,
+        calls: Vec<HostCall>,
+    }
+
+    impl FakeHost {
+        fn with_marks(marks: Vec<(PoliceActorId, DoRiciMark)>) -> Self {
+            Self {
+                marks,
+                calls: Vec::new(),
+            }
+        }
+    }
+
+    impl DoRiciHost for FakeHost {
+        fn probe(&self, actor: PoliceActorId) -> Option<DoRiciMark> {
+            self.marks
+                .iter()
+                .find(|(listed, _)| *listed == actor)
+                .map(|(_, mark)| *mark)
+        }
+
+        fn global_del_nasrany(&mut self, actor: PoliceActorId) {
+            self.calls.push(HostCall::GlobalDelNasrany(actor));
+        }
+
+        fn radar_remove_car(&mut self, car: PoliceActorId) {
+            self.calls.push(HostCall::RadarRemove(car));
+        }
+
+        fn sledovacka_remove_car(&mut self, car: PoliceActorId) {
+            self.calls.push(HostCall::SledovackaRemove(car));
+        }
+
+        fn traffic_car_release(&mut self) {
+            self.calls.push(HostCall::TrafficRelease);
+        }
+
+        fn invalidate_actor(&mut self, actor: PoliceActorId) {
+            self.calls.push(HostCall::Invalidate(actor));
+        }
+
+        fn remove_temporary_actor(&mut self, actor: PoliceActorId) {
+            self.calls.push(HostCall::RemoveTemporary(actor));
+        }
+
+        fn empty_car_seat(&mut self, car: PoliceActorId, seat: u32) {
+            self.calls.push(HostCall::EmptySeat { car, seat });
+        }
+    }
+
+    fn base_mark(kind: DoRiciActorKind, pos: [f32; 3]) -> DoRiciMark {
+        DoRiciMark {
+            kind,
+            pos,
+            dead: false,
+            human_type_is_4: false,
+            dismissed: false,
+            car: None,
+            seat: 0,
+            seats_occupied: false,
+            referenced: false,
+            frame_on: true,
+            police_car: false,
+        }
+    }
+
+    const CAMERA: [f32; 3] = [0.0, 0.0, 0.0];
+
+    #[test]
+    fn do_rici_admit_guards_duplicates() {
+        let mut state = PoliceGameInitState::default();
+        assert!(state.admit_do_rici(11));
+        assert!(state.admit_do_rici(13));
+        assert!(!state.admit_do_rici(11));
+        assert_eq!(state.do_rici_actor_count(), 2);
+    }
+
+    #[test]
+    fn do_rici_evict_swap_removes() {
+        let mut state = PoliceGameInitState::default();
+        assert!(state.admit_do_rici(11));
+        assert!(state.admit_do_rici(13));
+        assert!(state.admit_do_rici(17));
+        assert!(state.evict_do_rici(13));
+        assert_eq!(state.do_rici_actors, vec![11, 17]);
+        assert!(!state.evict_do_rici(99));
+        assert_eq!(state.do_rici_actor_count(), 2);
+    }
+
+    #[test]
+    fn free_my_temp_actor_marks_road_block_entries() {
+        let mut state = PoliceGameInitState::default();
+        state.road_block_cars.push(PoliceRoadBlockCar {
+            car: 5,
+            free: false,
+        });
+        state.road_block_enemies.push(PoliceRoadBlockEnemy {
+            actor: 6,
+            free: false,
+        });
+        state.road_block_irises.push(PoliceRoadBlockIris {
+            actor: 7,
+            free: false,
+        });
+        assert!(state.free_my_temp_actor(5));
+        assert!(state.road_block_cars[0].free);
+        assert!(state.free_my_temp_actor(6));
+        assert!(state.road_block_enemies[0].free);
+        assert!(state.free_my_temp_actor(7));
+        assert!(state.road_block_irises[0].free);
+        assert!(!state.free_my_temp_actor(99));
+    }
+
+    #[test]
+    fn free_my_temp_actor_releases_temp_car_tracking() {
+        let mut state = PoliceGameInitState::default();
+        state.temp_cars.extend([40, 41, 42]);
+        assert!(state.free_my_temp_actor(41));
+        assert_eq!(state.temp_cars(), &[40, 42]);
+        assert!(!state.free_my_temp_actor(41));
+    }
+
+    #[test]
+    fn tick_evicts_far_entity_without_car() {
+        let mut state = PoliceGameInitState::default();
+        assert!(state.admit_do_rici(11));
+        // `y` is forced to zero: height must not save a far actor.
+        let mut host = FakeHost::with_marks(vec![(
+            11,
+            base_mark(DoRiciActorKind::Entity, [200.0, 500.0, 0.0]),
+        )]);
+        state.tick_do_rici_actors(CAMERA, false, &mut host);
+        assert_eq!(state.do_rici_actor_count(), 0);
+        assert_eq!(
+            host.calls,
+            vec![
+                HostCall::GlobalDelNasrany(11),
+                HostCall::Invalidate(11),
+                HostCall::Invalidate(11),
+                HostCall::RemoveTemporary(11),
+            ]
+        );
+    }
+
+    #[test]
+    fn tick_keeps_near_entity_and_boundary() {
+        let mut state = PoliceGameInitState::default();
+        assert!(state.admit_do_rici(11));
+        assert!(state.admit_do_rici(12));
+        let mut host = FakeHost::with_marks(vec![
+            (11, base_mark(DoRiciActorKind::Entity, [10.0, 0.0, 0.0])),
+            // Exactly 150 m is not past 22500, so it stays.
+            (12, base_mark(DoRiciActorKind::Entity, [150.0, 0.0, 0.0])),
+        ]);
+        state.tick_do_rici_actors(CAMERA, false, &mut host);
+        assert_eq!(state.do_rici_actors, vec![11, 12]);
+        assert!(host.calls.is_empty());
+    }
+
+    #[test]
+    fn tick_evicted_entity_in_far_car_empties_it_and_reruns() {
+        let mut state = PoliceGameInitState::default();
+        assert!(state.admit_do_rici(21));
+        assert!(state.admit_do_rici(22));
+        let mut entity = base_mark(DoRiciActorKind::Entity, [200.0, 0.0, 0.0]);
+        entity.human_type_is_4 = true;
+        entity.dismissed = true;
+        entity.car = Some(22);
+        entity.seat = 3;
+        let mut car = base_mark(DoRiciActorKind::Car, [200.0, 0.0, 0.0]);
+        car.police_car = true;
+        let mut host = FakeHost::with_marks(vec![(21, entity), (22, car)]);
+        state.tick_do_rici_actors(CAMERA, false, &mut host);
+        assert_eq!(state.do_rici_actor_count(), 0);
+        assert_eq!(
+            host.calls,
+            vec![
+                HostCall::EmptySeat { car: 22, seat: 3 },
+                HostCall::GlobalDelNasrany(21),
+                HostCall::Invalidate(21),
+                HostCall::Invalidate(21),
+                HostCall::RemoveTemporary(21),
+                HostCall::GlobalDelNasrany(22),
+                HostCall::RadarRemove(22),
+                HostCall::SledovackaRemove(22),
+                HostCall::TrafficRelease,
+                HostCall::Invalidate(22),
+                HostCall::Invalidate(22),
+                HostCall::RemoveTemporary(22),
+            ]
+        );
+    }
+
+    #[test]
+    fn tick_dismissed_entity_in_near_car_is_only_forgotten() {
+        let mut state = PoliceGameInitState::default();
+        assert!(state.admit_do_rici(21));
+        let mut entity = base_mark(DoRiciActorKind::Entity, [10.0, 0.0, 0.0]);
+        entity.human_type_is_4 = true;
+        entity.dismissed = true;
+        entity.car = Some(22);
+        let mut host = FakeHost::with_marks(vec![(21, entity)]);
+        state.tick_do_rici_actors(CAMERA, false, &mut host);
+        assert_eq!(state.do_rici_actors, vec![21]);
+        assert_eq!(host.calls, vec![HostCall::GlobalDelNasrany(21)]);
+    }
+
+    #[test]
+    fn tick_keeps_far_car_with_owner_or_reference() {
+        let mut state = PoliceGameInitState::default();
+        assert!(state.admit_do_rici(31));
+        assert!(state.admit_do_rici(32));
+        let mut seated = base_mark(DoRiciActorKind::Car, [200.0, 0.0, 0.0]);
+        seated.seats_occupied = true;
+        let mut held = base_mark(DoRiciActorKind::Car, [200.0, 0.0, 0.0]);
+        held.referenced = true;
+        let mut host = FakeHost::with_marks(vec![(31, seated), (32, held)]);
+        state.tick_do_rici_actors(CAMERA, false, &mut host);
+        assert_eq!(state.do_rici_actors, vec![31, 32]);
+        assert!(host.calls.is_empty());
+    }
+
+    #[test]
+    fn tick_other_kind_goes_at_once_without_car_effects() {
+        let mut state = PoliceGameInitState::default();
+        assert!(state.admit_do_rici(61));
+        let mut host = FakeHost::with_marks(vec![(
+            61,
+            base_mark(DoRiciActorKind::Other, [10.0, 0.0, 0.0]),
+        )]);
+        state.tick_do_rici_actors(CAMERA, false, &mut host);
+        assert_eq!(state.do_rici_actor_count(), 0);
+        assert_eq!(
+            host.calls,
+            vec![
+                HostCall::GlobalDelNasrany(61),
+                HostCall::Invalidate(61),
+                HostCall::Invalidate(61),
+                HostCall::RemoveTemporary(61),
+            ]
+        );
+    }
+
+    #[test]
+    fn tick_evicts_frame_off_car_near_camera() {
+        let mut state = PoliceGameInitState::default();
+        assert!(state.admit_do_rici(33));
+        let mut car = base_mark(DoRiciActorKind::Car, [10.0, 0.0, 0.0]);
+        car.frame_on = false;
+        let mut host = FakeHost::with_marks(vec![(33, car)]);
+        state.tick_do_rici_actors(CAMERA, false, &mut host);
+        assert_eq!(state.do_rici_actor_count(), 0);
+        assert_eq!(
+            host.calls,
+            vec![
+                HostCall::GlobalDelNasrany(33),
+                HostCall::RadarRemove(33),
+                HostCall::SledovackaRemove(33),
+                HostCall::Invalidate(33),
+                HostCall::Invalidate(33),
+                HostCall::RemoveTemporary(33),
+            ]
+        );
+    }
+
+    #[test]
+    fn tick_skips_game_removal_for_owned_temp_actor() {
+        let mut state = PoliceGameInitState::default();
+        assert!(state.admit_do_rici(41));
+        state.temp_cars.push(41);
+        let mut host = FakeHost::with_marks(vec![(
+            41,
+            base_mark(DoRiciActorKind::Entity, [200.0, 0.0, 0.0]),
+        )]);
+        state.tick_do_rici_actors(CAMERA, false, &mut host);
+        assert_eq!(state.do_rici_actor_count(), 0);
+        assert!(state.temp_cars().is_empty());
+        assert_eq!(
+            host.calls,
+            vec![
+                HostCall::GlobalDelNasrany(41),
+                HostCall::Invalidate(41),
+            ]
+        );
+    }
+
+    #[test]
+    fn tick_all_evicts_everything_and_wipes_remainder() {
+        let mut state = PoliceGameInitState::default();
+        assert!(state.admit_do_rici(11));
+        assert!(state.admit_do_rici(12));
+        let mut host = FakeHost::with_marks(vec![(
+            11,
+            base_mark(DoRiciActorKind::Entity, [10.0, 0.0, 0.0]),
+        )]);
+        state.tick_do_rici_actors(CAMERA, true, &mut host);
+        assert_eq!(state.do_rici_actor_count(), 0);
+        // Actor 11 is near but `all` still evicts it; actor 12 has no mark
+        // and goes at once without car effects.
+        assert_eq!(
+            host.calls,
+            vec![
+                HostCall::GlobalDelNasrany(11),
+                HostCall::Invalidate(11),
+                HostCall::Invalidate(11),
+                HostCall::RemoveTemporary(11),
+                HostCall::GlobalDelNasrany(12),
+                HostCall::Invalidate(12),
+                HostCall::Invalidate(12),
+                HostCall::RemoveTemporary(12),
+            ]
+        );
+    }
+
+    #[test]
+    fn tick_prefix_fires_do_rici_on_timer_and_trims_temp_cars_from_front() {
+        let mut state = PoliceGameInitState::default();
+        assert!(state.admit_do_rici(11));
+        state.temp_cars.extend([50, 51, 52, 53, 54, 55, 56]);
+        let mut host = FakeHost::with_marks(vec![(
+            11,
+            base_mark(DoRiciActorKind::Entity, [200.0, 0.0, 0.0]),
+        )]);
+        // Default 200 ms period: no do_rici pass yet, but the trim runs.
+        state.police_tick_prefix(CAMERA, 0, &mut host);
+        assert_eq!(state.do_rici_actors, vec![11]);
+        assert_eq!(state.temp_cars(), &[52, 53, 54, 55, 56]);
+        assert_eq!(
+            host.calls,
+            vec![
+                HostCall::Invalidate(50),
+                HostCall::RadarRemove(50),
+                HostCall::RemoveTemporary(50),
+                HostCall::Invalidate(51),
+                HostCall::RadarRemove(51),
+                HostCall::RemoveTemporary(51),
+            ]
+        );
+        host.calls.clear();
+        // Past the period the do_rici pass runs too.
+        state.police_tick_prefix(CAMERA, 201, &mut host);
+        assert_eq!(state.do_rici_actor_count(), 0);
+        assert_eq!(
+            host.calls,
+            vec![
+                HostCall::GlobalDelNasrany(11),
+                HostCall::Invalidate(11),
+                HostCall::Invalidate(11),
+                HostCall::RemoveTemporary(11),
+            ]
+        );
+    }
+
+    #[test]
+    fn record_firing_sets_flag_and_time() {
+        let mut record = PolicePursuitRecord::new(7);
+        record.record_firing(4000);
+        assert_eq!(record.flags & SHVF_FIRE, SHVF_FIRE);
+        assert_eq!(record.fire_time, 4000);
+        record.record_firing(1500);
+        assert_eq!(record.fire_time, 1500);
+    }
+
+    #[test]
+    fn record_boxing_sets_flag_and_adds_time() {
+        let mut record = PolicePursuitRecord::new(7);
+        record.record_boxing();
+        assert_eq!(record.flags & SHVF_BOXING, SHVF_BOXING);
+        assert_eq!(record.boxing_time, 5000);
+        record.record_boxing();
+        assert_eq!(record.boxing_time, 10000);
+    }
+
+    #[test]
+    fn record_force_arrest_sets_flag_and_raises_new_state() {
+        let mut record = PolicePursuitRecord::new(7);
+        record.record_force_arrest();
+        assert_eq!(record.flags & SHVF_FORCE_ARREST, SHVF_FORCE_ARREST);
+        assert_eq!(record.new_state, SHVSTATE_ARREST);
+        assert_eq!(record.state, SHVSTATE_NONE);
+        record.new_state = 3;
+        record.record_force_arrest();
+        assert_eq!(record.new_state, 3);
+    }
+
+    #[test]
+    fn game_init_leaves_enemies_and_temp_cars_alone() {
+        let mut state = PoliceGameInitState::default();
+        state.road_block_enemies.push(PoliceRoadBlockEnemy {
+            actor: 6,
+            free: true,
+        });
+        state.temp_cars.push(40);
+        state.apply_game_init();
+        assert_eq!(state.road_block_enemy_count(), 1);
+        assert_eq!(state.temp_car_count(), 1);
+        assert_eq!(state.do_rici_actor_count(), 0);
     }
 }
