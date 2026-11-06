@@ -1,6 +1,8 @@
 use super::*;
 use crate::entity_actor::EntityProcessState;
-use crate::script_lookup::{FrameSetOnOutcome, LookupError, LookupWorldBackend};
+use crate::script_lookup::{
+    DetectorCollisionFlags, FrameSetOnOutcome, LookupError, LookupWorldBackend,
+};
 use std::collections::{HashMap, HashSet};
 #[derive(Default)]
 struct Memory {
@@ -42,6 +44,14 @@ struct FakeEntityWorld {
     force_stops: Vec<ActorReferenceId>,
     player_locked: Option<bool>,
     fail_player_lock: bool,
+    detector_types: HashMap<ActorReferenceId, u32>,
+    fail_detector_types: Option<ActorReferenceId>,
+    active_list: Vec<Option<ActorReferenceId>>,
+    fail_active_list: bool,
+    scan_candidates: HashMap<ActorReferenceId, Option<(Option<FrameReferenceId>, u32)>>,
+    fail_candidate: Option<ActorReferenceId>,
+    collision_flags: HashMap<ActorReferenceId, DetectorCollisionFlags>,
+    fail_collision_flags: Option<ActorReferenceId>,
 }
 impl LookupWorldBackend for FakeEntityWorld {
     fn diagnostic_default_c_locale(&self) -> bool {
@@ -272,6 +282,66 @@ impl LookupWorldBackend for FakeEntityWorld {
         self.player_locked = Some(locked);
         Ok(())
     }
+    fn detector_human_types(&self, actor: ActorReferenceId) -> Result<u32, LookupError> {
+        if self.fail_detector_types == Some(actor) {
+            return Err(LookupError::Backend("injected human-types failure".into()));
+        }
+        if let Some(types) = self.detector_types.get(&actor) {
+            return Ok(*types);
+        }
+        if self.non_detectors.contains(&actor) {
+            return Err(LookupError::Backend("actor is not a detector".into()));
+        }
+        Err(LookupError::StaleActor(actor))
+    }
+    fn active_actors(&self) -> Result<&[Option<ActorReferenceId>], LookupError> {
+        if self.fail_active_list {
+            return Err(LookupError::Backend("injected active-list failure".into()));
+        }
+        Ok(&self.active_list)
+    }
+    fn detector_inrange_candidate(
+        &self,
+        actor: ActorReferenceId,
+    ) -> Result<Option<(Option<FrameReferenceId>, u32)>, LookupError> {
+        if self.fail_candidate == Some(actor) {
+            return Err(LookupError::Backend("injected candidate failure".into()));
+        }
+        if let Some(candidate) = self.scan_candidates.get(&actor) {
+            return Ok(*candidate);
+        }
+        Err(LookupError::StaleActor(actor))
+    }
+    fn detector_collision_flags(
+        &self,
+        actor: ActorReferenceId,
+    ) -> Result<DetectorCollisionFlags, LookupError> {
+        if self.fail_collision_flags == Some(actor) {
+            return Err(LookupError::Backend("injected collision-flags failure".into()));
+        }
+        if let Some(flags) = self.collision_flags.get(&actor) {
+            return Ok(*flags);
+        }
+        Err(LookupError::StaleActor(actor))
+    }
+    fn set_detector_collision_flags(
+        &mut self,
+        actor: ActorReferenceId,
+        flags: DetectorCollisionFlags,
+    ) -> Result<(), LookupError> {
+        if self.fail_collision_flags == Some(actor) {
+            return Err(LookupError::Backend("injected collision-flags failure".into()));
+        }
+        if self.collision_flags.contains_key(&actor) {
+            self.collision_flags.insert(actor, flags);
+            return Ok(());
+        }
+        Err(LookupError::StaleActor(actor))
+    }
+    // detector_erase_colls, detector_create_colls and detector_create_use_object
+    // keep the trait default refusal (UnsupportedWorldBackend): no
+    // dynamic-collision or using-object owner exists in the test world, which
+    // is exactly the deferred production state.
 }
 impl ProgramBackend for Memory {
     fn allocate(
@@ -651,8 +721,8 @@ fn detector_source_compiles_with_base_table_but_refuses_subroutine_entry() {
     // (mafia-re 113b5b6 game/actors/C_detector.cpp:433ce0-433d00), so the
     // C_detector::GameInit (GAME 0x432a00) C_program::Init prefix admits
     // detector sources with the base table. Detector Process dispatch (GAME
-    // 0x433d10) stays deferred: INRANGE rides the Remaining no-op advance,
-    // and CallSubroutine stays base-only.
+    // RVA 0x33d10) runs through the Detector vtable inside CallProcess;
+    // CallSubroutine stays base-only.
     let mut memory = Memory::default();
     let mut p = program(
         b"dim_act 2\ndetector_setsignal -1, 1\ndetector_inrange 0, 10",
@@ -687,17 +757,27 @@ fn detector_source_compiles_with_base_table_but_refuses_subroutine_entry() {
             ProgramVtable::Detector
         ))
     );
-    // The admitted INRANGE advances without effect (Remaining no-op); the
-    // counting dispatch over the live active actors stays deferred.
+    // The admitted INRANGE now runs the detector scan, which needs the
+    // script owner: each call runs one instruction, so dim_act and the
+    // ownerless setsignal (silent gate, base dispatch) advance first, and the
+    // third call stops loudly at the scan instead of advancing.
     p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
         .unwrap();
     assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
     p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
         .unwrap();
     assert_eq!(p.runtime().unwrap().fields.program_counter(), 2);
-    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
-        .unwrap();
-    assert_eq!(p.runtime().unwrap().fields.program_counter(), 3);
+    assert_eq!(
+        p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory),
+        Err(RuntimeError::Lookup(LookupError::Backend(
+            "detector command without owner".into()
+        )))
+    );
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 2);
+    assert_eq!(
+        p.runtime().unwrap().stage,
+        RuntimeStage::ProcessInterrupted
+    );
     let report = p.discard_runtime_host().unwrap();
     assert_eq!(report.pair_allocations, 1);
     assert_eq!(report.remaining_allocations, 1);
@@ -1406,6 +1486,307 @@ fn detector_arms_resolve_owner_and_gate_non_detectors() {
         format!("{error:?}").contains("injected detector-signal failure"),
         "{error:?}"
     );
+}
+#[test]
+fn detector_inrange_counts_live_in_range_humans() {
+    // Detector vtable, owner 7 with human-type mask 0b11, frame 100 at the
+    // origin; range word 10 scans range² = 100.0 (C_detector.cpp:205-227).
+    let mut memory = Memory::default();
+    let mut p = program(b"dim_flt 1\ndetector_inrange 0, 10", &mut memory);
+    p.set_detector_vtable();
+    p.set_owner(Some(ActorReferenceId::from_existing(7)))
+        .unwrap();
+    p.init_fresh_runtime(&mut memory).unwrap();
+    let world = &mut memory.entity_world;
+    world
+        .detector_types
+        .insert(ActorReferenceId::from_existing(7), 0b11);
+    world.actor_frames.insert(
+        ActorReferenceId::from_existing(7),
+        FrameReferenceId::from_existing(100),
+    );
+    world.frame_positions.insert(FrameReferenceId::from_existing(100), [0.0, 0.0, 0.0]);
+    world.active_list = vec![
+        Some(ActorReferenceId::from_existing(20)),
+        None,
+        Some(ActorReferenceId::from_existing(21)),
+        Some(ActorReferenceId::from_existing(22)),
+        Some(ActorReferenceId::from_existing(23)),
+        Some(ActorReferenceId::from_existing(24)),
+        Some(ActorReferenceId::from_existing(25)),
+    ];
+    // 20: ENTITY/PLAYER type with matching bit 0, distance 5 (3,4,0).
+    world.scan_candidates.insert(
+        ActorReferenceId::from_existing(20),
+        Some((Some(FrameReferenceId::from_existing(200)), 0b01)),
+    );
+    world.frame_positions.insert(FrameReferenceId::from_existing(200), [3.0, 4.0, 0.0]);
+    // 21: matching bit 1 exactly at range (10,0,0); the native `<=` counts it.
+    world.scan_candidates.insert(
+        ActorReferenceId::from_existing(21),
+        Some((Some(FrameReferenceId::from_existing(201)), 0b10)),
+    );
+    world.frame_positions.insert(FrameReferenceId::from_existing(201), [10.0, 0.0, 0.0]);
+    // 22: no shared bit with 0b11, skipped despite proximity.
+    world.scan_candidates.insert(
+        ActorReferenceId::from_existing(22),
+        Some((Some(FrameReferenceId::from_existing(202)), 0b100)),
+    );
+    world.frame_positions.insert(FrameReferenceId::from_existing(202), [1.0, 0.0, 0.0]);
+    // 23: native ENTITY/PLAYER type gate, skipped.
+    world
+        .scan_candidates
+        .insert(ActorReferenceId::from_existing(23), None);
+    // 24: frameless host-only actor, skipped like GETACTORSDIST.
+    world.scan_candidates.insert(
+        ActorReferenceId::from_existing(24),
+        Some((None, 0b11)),
+    );
+    // 25: matching bits but out of range (11,0,0), skipped.
+    world.scan_candidates.insert(
+        ActorReferenceId::from_existing(25),
+        Some((Some(FrameReferenceId::from_existing(203)), 0b11)),
+    );
+    world.frame_positions.insert(FrameReferenceId::from_existing(203), [11.0, 0.0, 0.0]);
+    // Each call runs one instruction: dim_flt first, then the scan.
+    p.call_owned_process(5, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
+    p.call_owned_process(5, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    let fields = &p.runtime().unwrap().fields;
+    assert_eq!(fields.program_counter(), 2);
+    assert_eq!(fields.floats.as_ref().unwrap()[0], 2.0);
+    // NextCommand zeroed the clock, then the arm added this tick's delta.
+    assert_eq!(fields.command_time, 5);
+    // A refusing frame position stops the scan loudly instead of skipping.
+    p.runtime.as_mut().unwrap().stage = RuntimeStage::Ready;
+    p.runtime.as_mut().unwrap().fields.scheduler.program_counter = 1;
+    memory.entity_world.fail_frame_pos = Some(FrameReferenceId::from_existing(200));
+    let error = p
+        .call_owned_process(5, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap_err();
+    assert!(
+        format!("{error:?}").contains("injected frame-pos failure"),
+        "{error:?}"
+    );
+}
+#[test]
+fn detector_inrange_out_of_range_register_still_advances() {
+    // The native register guard (`0 <= reg < num_float_regs`) skips the
+    // zeroing and the scan but still takes NextCommand plus the tick's delta.
+    let mut memory = Memory::default();
+    let mut p = program(b"dim_flt 1\ndetector_inrange 9, 10", &mut memory);
+    p.set_detector_vtable();
+    p.set_owner(Some(ActorReferenceId::from_existing(7)))
+        .unwrap();
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.call_owned_process(5, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
+    p.call_owned_process(5, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    let fields = &p.runtime().unwrap().fields;
+    assert_eq!(fields.program_counter(), 2);
+    assert_eq!(fields.floats.as_ref().unwrap()[0], 0.0);
+    assert_eq!(fields.command_time, 5);
+    assert!(memory.entity_world.detector_types.is_empty());
+}
+#[test]
+fn detector_inrange_ignores_base_programs() {
+    // Opcode 29 in a base program keeps the Remaining no-op advance: no scan,
+    // no float store, and the shared tail zeroes the clock.
+    let mut memory = Memory::default();
+    let mut p = program(b"dim_flt 1\ndetector_inrange 0, 10", &mut memory);
+    p.set_owner(Some(ActorReferenceId::from_existing(7)))
+        .unwrap();
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.call_owned_process(5, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
+    p.call_owned_process(5, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    let fields = &p.runtime().unwrap().fields;
+    assert_eq!(fields.program_counter(), 2);
+    assert_eq!(fields.floats.as_ref().unwrap()[0], 0.0);
+    assert_eq!(fields.command_time, 0);
+}
+#[test]
+fn detector_storage_parks_with_actstate_none() {
+    // No saved-code chain exists in fresh admission, so STORAGE always takes
+    // the SetActState(ACTSTATE_NONE = 2) branch and stays on the command,
+    // accumulating the tick's delta like the native `command_time += time`.
+    let mut memory = Memory::default();
+    let mut p = program(b"program_storage", &mut memory);
+    p.set_detector_vtable();
+    p.set_owner(Some(ActorReferenceId::from_existing(7)))
+        .unwrap();
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.call_owned_process(3, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 0);
+    assert_eq!(
+        memory.entity_world.act_states.get(&ActorReferenceId::from_existing(7)),
+        Some(&2)
+    );
+    assert_eq!(p.runtime().unwrap().fields.command_time, 3);
+    p.call_owned_process(4, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 0);
+    assert_eq!(p.runtime().unwrap().fields.command_time, 7);
+}
+#[test]
+fn detector_waitforhit_latches_then_defers_to_collisions() {
+    let mut memory = Memory::default();
+    let mut p = program(b"detector_waitforhit", &mut memory);
+    p.set_detector_vtable();
+    p.set_owner(Some(ActorReferenceId::from_existing(7)))
+        .unwrap();
+    p.init_fresh_runtime(&mut memory).unwrap();
+    memory.entity_world.collision_flags.insert(
+        ActorReferenceId::from_existing(7),
+        DetectorCollisionFlags {
+            wait_for_hit: false,
+            dyn_colls: false,
+        },
+    );
+    // Latch first: wait_for_hit stores, ACTSTATE_INACTIVE (1) stores, then the
+    // missing static collisions refuse loudly; the command does not advance.
+    let error = p
+        .call_owned_process(5, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap_err();
+    assert_eq!(
+        error,
+        RuntimeError::Lookup(LookupError::UnsupportedWorldBackend)
+    );
+    assert_eq!(
+        memory.entity_world.collision_flags.get(&ActorReferenceId::from_existing(7)),
+        Some(&DetectorCollisionFlags {
+            wait_for_hit: true,
+            dyn_colls: false,
+        })
+    );
+    assert_eq!(
+        memory.entity_world.act_states.get(&ActorReferenceId::from_existing(7)),
+        Some(&1)
+    );
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 0);
+    // With dynamic collisions already running, the arm advances past the
+    // command with no stores and no collision touch.
+    p.runtime.as_mut().unwrap().stage = RuntimeStage::Ready;
+    memory.entity_world.collision_flags.insert(
+        ActorReferenceId::from_existing(7),
+        DetectorCollisionFlags {
+            wait_for_hit: false,
+            dyn_colls: true,
+        },
+    );
+    memory.entity_world.act_states.clear();
+    p.call_owned_process(5, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
+    assert_eq!(p.runtime().unwrap().fields.command_time, 5);
+    assert!(memory.entity_world.act_states.is_empty());
+    assert_eq!(
+        memory.entity_world.collision_flags.get(&ActorReferenceId::from_existing(7)),
+        Some(&DetectorCollisionFlags {
+            wait_for_hit: false,
+            dyn_colls: true,
+        })
+    );
+}
+#[test]
+fn detector_create_and_erase_colls_latch_around_unavailable_collisions() {
+    let mut memory = Memory::default();
+    let mut p = program(
+        b"detector_createdyncoll\ndetector_erasedyncoll",
+        &mut memory,
+    );
+    p.set_detector_vtable();
+    p.set_owner(Some(ActorReferenceId::from_existing(7)))
+        .unwrap();
+    p.init_fresh_runtime(&mut memory).unwrap();
+    memory.entity_world.collision_flags.insert(
+        ActorReferenceId::from_existing(7),
+        DetectorCollisionFlags {
+            wait_for_hit: false,
+            dyn_colls: false,
+        },
+    );
+    // CREATE latches dyn_colls, then the missing collision registry refuses.
+    let error = p
+        .call_owned_process(5, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap_err();
+    assert_eq!(
+        error,
+        RuntimeError::Lookup(LookupError::UnsupportedWorldBackend)
+    );
+    assert_eq!(
+        memory.entity_world.collision_flags.get(&ActorReferenceId::from_existing(7)),
+        Some(&DetectorCollisionFlags {
+            wait_for_hit: false,
+            dyn_colls: true,
+        })
+    );
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 0);
+    // ERASE clears the latched flag, then the missing registry refuses.
+    p.runtime.as_mut().unwrap().stage = RuntimeStage::Ready;
+    p.runtime.as_mut().unwrap().fields.scheduler.program_counter = 1;
+    let error = p
+        .call_owned_process(5, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap_err();
+    assert_eq!(
+        error,
+        RuntimeError::Lookup(LookupError::UnsupportedWorldBackend)
+    );
+    assert_eq!(
+        memory.entity_world.collision_flags.get(&ActorReferenceId::from_existing(7)),
+        Some(&DetectorCollisionFlags {
+            wait_for_hit: false,
+            dyn_colls: false,
+        })
+    );
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
+    // While waiting for a hit, CREATE advances without touching anything.
+    p.runtime.as_mut().unwrap().stage = RuntimeStage::Ready;
+    p.runtime.as_mut().unwrap().fields.scheduler.program_counter = 0;
+    memory.entity_world.collision_flags.insert(
+        ActorReferenceId::from_existing(7),
+        DetectorCollisionFlags {
+            wait_for_hit: true,
+            dyn_colls: false,
+        },
+    );
+    p.call_owned_process(5, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
+    assert_eq!(p.runtime().unwrap().fields.command_time, 5);
+    assert_eq!(
+        memory.entity_world.collision_flags.get(&ActorReferenceId::from_existing(7)),
+        Some(&DetectorCollisionFlags {
+            wait_for_hit: true,
+            dyn_colls: false,
+        })
+    );
+}
+#[test]
+fn detector_waitforuse_reaches_unavailable_use_object() {
+    // WAITFORUSE always arms a new use object, so with no using-object owner
+    // it refuses loudly and stays on the command.
+    let mut memory = Memory::default();
+    let mut p = program(b"detector_waitforuse 4, 0", &mut memory);
+    p.set_detector_vtable();
+    p.set_owner(Some(ActorReferenceId::from_existing(7)))
+        .unwrap();
+    p.init_fresh_runtime(&mut memory).unwrap();
+    let error = p
+        .call_owned_process(5, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap_err();
+    assert_eq!(
+        error,
+        RuntimeError::Lookup(LookupError::UnsupportedWorldBackend)
+    );
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 0);
 }
 #[test]
 fn event_use_cb_toggles_top_flag_and_needs_stack() {

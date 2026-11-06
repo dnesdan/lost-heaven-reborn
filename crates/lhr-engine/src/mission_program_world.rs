@@ -15,7 +15,7 @@ use crate::original_program::{
     CProgram, LookupRuntimeBackend, RuntimeBackend, RuntimeError, RuntimeLookupWorld, RuntimeView,
 };
 use crate::scene_ownership::SceneKey;
-use crate::script_lookup::{LookupError, LookupWorldBackend};
+use crate::script_lookup::{DetectorCollisionFlags, LookupError, LookupWorldBackend};
 use crate::script_scheduler::{ActorReferenceId, DispatchBudget, FrameReferenceId};
 
 /// The two source libraries have independent CRT locale admissions.
@@ -155,9 +155,8 @@ impl<'a, B: RuntimeBackend, D: MissionProgramDiagnostic> MissionProgramWorldCont
     /// run under a Pc24PrecisionState scope so transcendental boundary
     /// admissions can record responsibility. Already-initialized programs are
     /// left untouched and uncounted. The GameInit body beyond the Init prefix,
-    /// GameDone, the detector tick (C_detector::Process GAME 0x433d10 needs
-    /// the live active-actor enumeration) and program owner assignment (owned
-    /// by Init, mirroring the entity owner link) stay DEFERRED.
+    /// GameDone and the collision/use-object owners stay DEFERRED; the tick
+    /// itself runs through [`Self::tick_detector_programs`].
     pub fn init_detector_programs(
         &mut self,
         world: &mut ActorWorld,
@@ -231,6 +230,49 @@ impl<'a, B: RuntimeBackend, D: MissionProgramDiagnostic> MissionProgramWorldCont
                 .return_entity_program(actor, Some(program))
                 .map_err(|_| EntityTickError::Actor(actor))?;
             result.map_err(EntityTickError::Runtime)?;
+            stepped += 1;
+        }
+        Ok(stepped)
+    }
+    /// Step every Ready detector actor's embedded program once against the live
+    /// world, in ownership order, sharing one budget. Each program is taken
+    /// out of its actor, run through this context, and returned on every path
+    /// including failed ticks. Actors without a program (consumed or never
+    /// loaded) are skipped; non-Ready and non-detector actors do not tick.
+    /// Detector-vtable programs run the C_detector::Process dispatch (GAME
+    /// RVA 0x33d10) inside CallProcess: PROGRAM_STORAGE parks, INRANGE scans
+    /// the live active actors, and the WAITFORUSE/WAITFORHIT/CREATEDYNCOLL/
+    /// ERASEDYNCOLL arms latch before their unavailable collision/use-object
+    /// owners refuse loudly. Program owners are assigned at actor Init;
+    /// ownerless programs refuse inside dispatch like any worldless execution.
+    /// This is the AI tick transport, not a Game tick: no game clock, camera,
+    /// input or objectives run here.
+    pub fn tick_detector_programs(
+        &mut self,
+        world: &mut ActorWorld,
+        delta: i32,
+        budget: &mut DispatchBudget,
+    ) -> Result<usize, DetectorTickError> {
+        let actors: Vec<ActorReferenceId> = world.owned_actor_references().collect();
+        let mut stepped = 0usize;
+        for actor in actors {
+            if world.phase(actor) != Ok(ActorPhase::Ready) {
+                continue;
+            }
+            if world.detector(actor).is_err() {
+                continue;
+            }
+            let program = world
+                .take_detector_program(actor)
+                .map_err(|_| DetectorTickError::Actor(actor))?;
+            let Some(mut program) = program else {
+                continue;
+            };
+            let result = self.call_process(&mut program, world, delta, budget);
+            world
+                .return_detector_program(actor, Some(program))
+                .map_err(|_| DetectorTickError::Actor(actor))?;
+            result.map_err(DetectorTickError::Runtime)?;
             stepped += 1;
         }
         Ok(stepped)
@@ -390,6 +432,48 @@ impl<D> LookupWorldBackend for MissionLookupWorld<'_, D> {
             result => result.map_err(|error| LookupError::Backend(format!("{error:?}"))),
         }
     }
+    fn detector_human_types(&self, actor: ActorReferenceId) -> Result<u32, LookupError> {
+        // The INRANGE owner is implicit, so unlike ISSIGNAL there is no
+        // silent type gate: a non-detector reports like any host defect.
+        self.world
+            .detector_human_types(actor)
+            .map_err(|error| LookupError::Backend(format!("{error:?}")))
+    }
+    fn active_actors(&self) -> Result<&[Option<ActorReferenceId>], LookupError> {
+        // The native C_detector::Process scan vector
+        // (`act_mission->game->active_actors`, C_detector.cpp:212).
+        Ok(self.world.source(ActorSource::Active))
+    }
+    fn detector_inrange_candidate(
+        &self,
+        actor: ActorReferenceId,
+    ) -> Result<Option<(Option<FrameReferenceId>, u32)>, LookupError> {
+        self.world
+            .detector_inrange_candidate(actor)
+            .map_err(|error| LookupError::Backend(format!("{error:?}")))
+    }
+    fn detector_collision_flags(
+        &self,
+        actor: ActorReferenceId,
+    ) -> Result<DetectorCollisionFlags, LookupError> {
+        self.world
+            .detector_collision_flags(actor)
+            .map_err(|error| LookupError::Backend(format!("{error:?}")))
+    }
+    fn set_detector_collision_flags(
+        &mut self,
+        actor: ActorReferenceId,
+        flags: DetectorCollisionFlags,
+    ) -> Result<(), LookupError> {
+        self.world
+            .set_detector_collision_flags(actor, flags)
+            .map_err(|error| LookupError::Backend(format!("{error:?}")))
+    }
+    // detector_erase_colls, detector_create_colls and
+    // detector_create_use_object keep the trait default refusal
+    // (UnsupportedWorldBackend): the dynamic-collision registry and the
+    // using-object registry have no owner yet, so the WAITFORHIT,
+    // CREATEDYNCOLL, ERASEDYNCOLL and WAITFORUSE arms stop loudly there.
     fn set_program_event(
         &mut self,
         actor: ActorReferenceId,
@@ -478,10 +562,10 @@ pub enum EntityTickError {
     Runtime(RuntimeError),
 }
 
-/// One detector-actor init pass failed: which actor, and the init error.
-/// A failed init still returns the taken program before reporting. This
-/// mirrors [`EntityTickError`] for the detector transport; the detector tick
-/// itself stays deferred with C_detector::Process.
+/// One detector-actor init or tick pass failed: which actor, and the error.
+/// A failed pass still returns the taken program before reporting. This
+/// mirrors [`EntityTickError`] for the detector transport, covering both the
+/// GameInit-prefix compile pass and the C_detector::Process tick.
 #[derive(Debug, PartialEq, Eq)]
 pub enum DetectorTickError {
     Actor(ActorReferenceId),

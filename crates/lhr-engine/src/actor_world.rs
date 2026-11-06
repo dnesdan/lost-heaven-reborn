@@ -195,12 +195,15 @@ pub struct DetectorSeed {
 /// actor phase prevents same-actor reentry while context reads the live owner.
 /// Admitted: construct_detector, C_detector::Init via the generic init prefix
 /// (base init plus the +0xd8 human_types zero and program owner assignment),
-/// C_program::Init/Compile via init_fresh_runtime with the base table, and
-/// the take/return_detector_program transport.
+/// C_program::Init/Compile via init_fresh_runtime with the base table, the
+/// take/return_detector_program transport, and the C_detector::Process dispatch
+/// owners below (human_types read, in-range candidate gate, collision-arm
+/// flags, signal). The tick transport itself lives on the mission program
+/// world.
 /// DEFERRED (no credit, untouched here): the C_detector::GameInit body beyond
 /// the C_program::Init prefix (unknown_65 handling, DebustizeFrame, signal
-/// and flag nulling), GameDone, C_detector::Process/InRange dispatch, and the
-/// CreateColls/EraseColls/CreateUO collision owners.
+/// and flag nulling), GameDone, and the CreateColls/EraseColls/CreateUO
+/// collision owners.
 #[derive(Debug)]
 pub struct DetectorState {
     program: Option<CProgram>,
@@ -214,6 +217,18 @@ pub struct DetectorState {
     /// Note: bytes_d8_ef[4] positionally images +0xdc but is stale seed that
     /// set_signal never rewrites; all readers use signal, never that byte.
     pub signal: bool,
+    /// DETECTOR_WAITFORHIT latch at +0xde (mafia-re
+    /// game/actors/C_detector.h:79-81): set while waiting for a hit with
+    /// static collisions; CREATEDYNCOLL and ERASEDYNCOLL do nothing then.
+    /// Natively nulled by GameInit (GAME 0x432a00, C_detector.cpp:44-58);
+    /// collapsed to zero here like signal.
+    pub wait_for_hit: bool,
+    /// DETECTOR_CREATEDYNCOLL latch at +0xdf (mafia-re
+    /// game/actors/C_detector.h:82-84): dynamic collisions following the frame
+    /// (Update) until ERASEDYNCOLL. Natively nulled by GameInit; collapsed to
+    /// zero here. The collision arrays it gates stay with the future
+    /// collision owner.
+    pub dyn_colls: bool,
     pub bytes_d8_ef: [u8; 24],
     pub word_f0: u32,
     pub word_f4: u32,
@@ -1546,8 +1561,12 @@ impl ActorWorld {
             // C_detector.cpp:44-58), not in the ctor (0x432880,
             // C_detector.cpp:18-22 sets only type); the zero here collapses
             // that deferred-GameInit effect into construction (safe zero-init,
-            // consistent with the neighboring zeroed fields).
+            // consistent with the neighboring zeroed fields). The same
+            // collapse covers wait_for_hit (+0xde) and dyn_colls (+0xdf),
+            // nulled by the same GameInit.
             signal: false,
+            wait_for_hit: false,
+            dyn_colls: false,
             bytes_d8_ef: seed.bytes_d8_ef,
             word_f0: 0,
             word_f4: seed.word_f4,
@@ -1601,9 +1620,9 @@ impl ActorWorld {
     /// byte is untouched, matching the single-byte native store. Requires a
     /// Ready actor so construction/loading reentry stays rejected; the native
     /// body itself performs no phase check.
-    /// DEFERRED (no credit): C_detector::Process/InRange dispatch, the
-    /// GameInit body beyond the C_program::Init prefix, GameDone, and the
-    /// CreateColls/EraseColls/CreateUO collision owners.
+    /// DEFERRED (no credit): the GameInit body beyond the C_program::Init
+    /// prefix, GameDone, and the CreateColls/EraseColls/CreateUO collision
+    /// owners.
     pub fn set_detector_signal(
         &mut self,
         actor: ActorReferenceId,
@@ -1617,6 +1636,73 @@ impl ActorWorld {
         if let Some(detector) = self.actors[i].detector.as_mut() {
             detector.set_signal(on);
         }
+        Ok(())
+    }
+    /// Original C_detector +0xd8 human-type mask (mafia-re
+    /// game/actors/C_detector.h:73-75; LoadData C_detector.cpp:73-82) for the
+    /// DETECTOR_INRANGE scan (C_detector.cpp:205-227, GAME RVA 0x33d10): the
+    /// bit mask of C_human::human_type values (C_human.h:951-954) the scan
+    /// counts. Const read with host liveness only, like detector_signal; a
+    /// non-detector reports NotDetector (the owner is implicit here, so there
+    /// is no ISSIGNAL-style silent gate). LoadData stores the mask into
+    /// bytes_d8_ef[..4], which data_d8 reads back.
+    pub fn detector_human_types(&self, actor: ActorReferenceId) -> Result<u32, ActorWorldError> {
+        Ok(self.detector(actor)?.data_d8())
+    }
+    /// Original DETECTOR_INRANGE candidate gate (mafia-re 113b5b6
+    /// game/actors/C_detector.cpp:216-217) for one enumerated actor:
+    /// ACTOR_ENTITY/ACTOR_PLAYER with a human record. None is the native type
+    /// gate (the scan skips the actor). Some carries the live attached frame
+    /// (None for a frameless host-only actor, which the scan skips like
+    /// GETACTORSDIST instead of dereferencing null) and the live
+    /// C_human::human_type mask. Stale actors propagate; no Ready-phase
+    /// requirement, matching the scan's unconditional enumeration.
+    pub fn detector_inrange_candidate(
+        &self,
+        actor: ActorReferenceId,
+    ) -> Result<Option<(Option<FrameReferenceId>, u32)>, ActorWorldError> {
+        let i = self.index(actor)?;
+        let entry = &self.actors[i];
+        if !matches!(
+            entry.state.vtable,
+            ActorVtable::Entity | ActorVtable::Player
+        ) {
+            return Ok(None);
+        }
+        let Some(human) = entry.human.as_ref() else {
+            return Ok(None);
+        };
+        Ok(Some((entry.state.frame, human.human_type_mask())))
+    }
+    /// Original C_detector collision-arm flags at +0xde/+0xdf (mafia-re
+    /// game/actors/C_detector.h:79-84) for the WAITFORHIT, CREATEDYNCOLL and
+    /// ERASEDYNCOLL Process arms. Const read with host liveness only, like
+    /// detector_signal; a non-detector reports NotDetector.
+    pub fn detector_collision_flags(
+        &self,
+        actor: ActorReferenceId,
+    ) -> Result<crate::script_lookup::DetectorCollisionFlags, ActorWorldError> {
+        let detector = self.detector(actor)?;
+        Ok(crate::script_lookup::DetectorCollisionFlags {
+            wait_for_hit: detector.wait_for_hit,
+            dyn_colls: detector.dyn_colls,
+        })
+    }
+    /// Store for the flags above, after the arm's condition read. Requires a
+    /// Ready actor like set_detector_signal so construction/loading reentry
+    /// stays rejected.
+    pub fn set_detector_collision_flags(
+        &mut self,
+        actor: ActorReferenceId,
+        flags: crate::script_lookup::DetectorCollisionFlags,
+    ) -> Result<(), ActorWorldError> {
+        let i = self.ready(actor)?;
+        let detector = self.actors[i]
+            .detector
+            .as_mut()
+            .ok_or(ActorWorldError::NotDetector)?;
+        detector.wait_for_hit = flags.wait_for_hit;
+        detector.dyn_colls = flags.dyn_colls;
         Ok(())
     }
     pub fn railway_global_byte(&self) -> Option<u8> {
@@ -3326,15 +3412,17 @@ impl ActorWorld {
             .program = program;
         Ok(())
     }
-    /// Take a detector actor's embedded program for one init pass. The actor
-    /// keeps its identity and phase; only the program moves. The caller must
-    /// return it through [`Self::return_detector_program`] on every path,
-    /// including failed inits: dropping a live program is host cleanup, never
+    /// Take a detector actor's embedded program for one init or tick pass. The
+    /// actor keeps its identity and phase; only the program moves. The caller
+    /// must return it through [`Self::return_detector_program`] on every path,
+    /// including failed passes: dropping a live program is host cleanup, never
     /// a sanctioned native free. This mirrors [`Self::take_entity_program`]
     /// for the C_detector::GameInit (mafia-re 113b5b6
     /// game/actors/C_detector.cpp:44-58, GAME 0x432a00) C_program::Init prefix
-    /// (GAME 0x461580); the GameInit body beyond that prefix, GameDone and
-    /// C_detector::Process dispatch (GAME 0x433d10) stay DEFERRED.
+    /// (GAME 0x461580) and for the C_detector::Process tick dispatch (GAME
+    /// 0x433d10, C_detector.cpp:189-271); the GameInit body beyond that
+    /// prefix, GameDone and the CreateColls/EraseColls/CreateUO collision
+    /// owners stay DEFERRED.
     pub fn take_detector_program(
         &mut self,
         actor: ActorReferenceId,
@@ -5973,6 +6061,81 @@ mod tests {
         );
         // The rejected store must not touch base bytes.
         assert_eq!(w.state(a).unwrap().bytes_64_65, [0x65; 2]);
+    }
+    #[test]
+    fn detector_process_owners_default_clear_and_round_trip() {
+        use crate::script_lookup::DetectorCollisionFlags;
+        // Hand-derived vectors from mafia-re game/actors/C_detector.h:73-84:
+        // +0xd8 carries the LoadData human-type mask, +0xde/+0xdf the
+        // collision-arm latches. The fixture seed presets bytes_d8_ef to 0xa5.
+        let mut w = world();
+        let mut e = Effects::default();
+        let a = w
+            .construct_detector(9, seed(), detector_seed(), &mut e)
+            .unwrap();
+        assert_eq!(w.detector_human_types(a), Ok(0xa5a5a5a5));
+        assert!(!w.detector(a).unwrap().wait_for_hit);
+        assert!(!w.detector(a).unwrap().dyn_colls);
+        assert_eq!(
+            w.detector_collision_flags(a),
+            Ok(DetectorCollisionFlags {
+                wait_for_hit: false,
+                dyn_colls: false,
+            })
+        );
+        w.set_detector_collision_flags(
+            a,
+            DetectorCollisionFlags {
+                wait_for_hit: true,
+                dyn_colls: true,
+            },
+        )
+        .unwrap();
+        assert!(w.detector(a).unwrap().wait_for_hit);
+        assert!(w.detector(a).unwrap().dyn_colls);
+        // The rejected stores must not touch base bytes.
+        let b = w.construct_base(7, seed(), &mut e).unwrap();
+        assert_eq!(
+            w.detector_human_types(b),
+            Err(ActorWorldError::NotDetector)
+        );
+        assert_eq!(
+            w.detector_collision_flags(b),
+            Err(ActorWorldError::NotDetector)
+        );
+        assert_eq!(
+            w.set_detector_collision_flags(
+                b,
+                DetectorCollisionFlags {
+                    wait_for_hit: true,
+                    dyn_colls: false,
+                }
+            ),
+            Err(ActorWorldError::NotDetector)
+        );
+        assert_eq!(w.state(b).unwrap().bytes_64_65, [0x65; 2]);
+    }
+    #[test]
+    fn detector_inrange_candidate_gates_non_entity_owners() {
+        // The native scan only counts ACTOR_ENTITY/ACTOR_PLAYER with a human
+        // record (C_detector.cpp:216-217). Base and detector owners carry no
+        // human record here, so both gate to None; stale owners propagate.
+        let mut w = world();
+        let mut e = Effects::default();
+        let base = w.construct_base(7, seed(), &mut e).unwrap();
+        assert_eq!(w.detector_inrange_candidate(base), Ok(None));
+        let detector = w
+            .construct_detector(9, seed(), detector_seed(), &mut e)
+            .unwrap();
+        assert_eq!(w.detector_inrange_candidate(detector), Ok(None));
+        assert_eq!(
+            w.detector_inrange_candidate(crate::script_scheduler::ActorReferenceId::from_existing(
+                0xdead
+            )),
+            Err(ActorWorldError::StaleActor(
+                crate::script_scheduler::ActorReferenceId::from_existing(0xdead)
+            ))
+        );
     }
     #[test]
     fn detector_program_transport_round_trips_through_the_authoritative_owner() {

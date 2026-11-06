@@ -1496,3 +1496,192 @@ fn init_detector_programs_compiles_fresh_detector_sources_through_context() {
     ));
     assert!(world.detector(detector2).unwrap().program().is_some());
 }
+
+#[test]
+fn tick_detector_programs_steps_owned_live_state_through_context() {
+    use crate::actor_world::{
+        ActorAllocationBackend, ActorCollectionBackend, ActorSource, ActorStorageId, ActorWorld,
+        BaseActorSeed, DetectorSeed, SourceBacking,
+    };
+    use crate::model_loading::ModelArena;
+    use crate::original_program::{
+        ProgramAllocation, ProgramBackend, ProgramBuffer, ProgramSeed,
+    };
+
+    struct Heap {
+        next: u32,
+        program_next: u64,
+    }
+    fn base_seed() -> BaseActorSeed {
+        BaseActorSeed {
+            word_0e: 0,
+            actor_id: 0,
+            state_1c: 0,
+            bytes_21_5f: [0; 63],
+            bytes_64_65: [0; 2],
+            byte_67: 0,
+            release_frame: 0,
+            bytes_6d_6f: [0; 3],
+        }
+    }
+    fn detector_seed() -> DetectorSeed {
+        DetectorSeed {
+            program: ProgramSeed {
+                address_high_byte: 0,
+                padding_0d: [0; 3],
+                words_1c_2c: [0; 5],
+                padding_31: [0; 3],
+                word_40: 0,
+                bytes_64: [0; 4],
+            },
+            bytes_d8_ef: [0; 24],
+            word_f4: 0,
+            bytes_105_107: [0; 3],
+            bytes_118_127: [0; 16],
+        }
+    }
+    impl ActorAllocationBackend for Heap {
+        fn allocate_actor(&mut self, bytes: u32) -> Result<Option<(u32, BaseActorSeed)>, String> {
+            assert_eq!(bytes, 0x70);
+            self.next += 1;
+            Ok(Some((self.next, base_seed())))
+        }
+        fn allocate_detector(
+            &mut self,
+            bytes: u32,
+        ) -> Result<Option<(u32, BaseActorSeed, DetectorSeed)>, String> {
+            assert_eq!(bytes, 0x128);
+            self.next += 1;
+            Ok(Some((self.next, base_seed(), detector_seed())))
+        }
+    }
+    impl ActorCollectionBackend for Heap {
+        fn allocate_collection(
+            &mut self,
+            _: &ActorWorld,
+            _: ActorSource,
+            _: u32,
+        ) -> Result<ActorStorageId, String> {
+            Ok(ActorStorageId(2))
+        }
+        fn free_collection(
+            &mut self,
+            _: &ActorWorld,
+            _: ActorSource,
+            _: Option<ActorStorageId>,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+    }
+    impl ProgramBackend for Heap {
+        fn allocate(
+            &mut self,
+            _: &crate::original_program::CProgram,
+            _: ProgramBuffer,
+            _: u32,
+        ) -> Result<ProgramAllocation, String> {
+            self.program_next += 1;
+            Ok(ProgramAllocation(self.program_next))
+        }
+        fn free(
+            &mut self,
+            _: &crate::original_program::CProgram,
+            _: ProgramBuffer,
+            _: Option<ProgramAllocation>,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    let backing = SourceBacking {
+        storage: Some(ActorStorageId(1)),
+        capacity: 16,
+    };
+    let mut world = ActorWorld::new(0, 0, backing, backing, backing).unwrap();
+    let mut heap = Heap {
+        next: 0,
+        program_next: 0,
+    };
+    let detector = world.create_actor(5, &mut heap).unwrap().unwrap();
+    // A non-detector actor never ticks, mirroring the entity transport skip.
+    world.create_actor(1, &mut heap).unwrap().unwrap();
+    // PROGRAM_STORAGE parks on its command: the transport returns Ok(1) while
+    // the program stays with its owner and accumulates command_time.
+    let mut program = world.take_detector_program(detector).unwrap().unwrap();
+    program
+        .set_source_code(Some(b"program_storage"), &mut heap)
+        .unwrap();
+    program.set_owner(Some(detector)).unwrap();
+    world.return_detector_program(detector, Some(program)).unwrap();
+    // A WAITFORUSE arm reaches the unavailable using-object owner: the tick
+    // reports the runtime error yet restores the program to its owner
+    // (return-on-every-path, mirroring entities).
+    let waiter = world.create_actor(5, &mut heap).unwrap().unwrap();
+    let mut wait_program = world.take_detector_program(waiter).unwrap().unwrap();
+    wait_program
+        .set_source_code(Some(b"detector_waitforuse 4, 0"), &mut heap)
+        .unwrap();
+    wait_program.set_owner(Some(waiter)).unwrap();
+    world
+        .return_detector_program(waiter, Some(wait_program))
+        .unwrap();
+    let mut arena = ModelArena::default();
+    let mut scene = crate::script_scheduler::FrameReferenceId::from_existing(1);
+    let mut effects = Effects::default();
+    let mut diagnostic = Diagnostic::default();
+    let mut context = MissionProgramWorldContext::new(
+        &mut arena,
+        &mut scene,
+        &mut effects,
+        &mut diagnostic,
+        locales(),
+    );
+    assert_eq!(context.init_detector_programs(&mut world), Ok(2));
+    // The storage detector steps alone: the waiter fails after it, so the
+    // shared transport reports the runtime error with one step taken.
+    let mut budget = crate::script_scheduler::DispatchBudget::new(8).unwrap();
+    assert!(matches!(
+        context.tick_detector_programs(&mut world, 3, &mut budget),
+        Err(crate::mission_content_loading::program_world::DetectorTickError::Runtime(_))
+    ));
+    let stored = world
+        .detector(detector)
+        .unwrap()
+        .program()
+        .unwrap()
+        .runtime()
+        .unwrap();
+    assert_eq!(stored.fields.program_counter(), 0);
+    assert_eq!(stored.fields.command_time, 3);
+    assert!(world.detector(detector).unwrap().program().is_some());
+    assert!(world.detector(waiter).unwrap().program().is_some());
+    drop(context);
+    // Without the waiter the storage detector ticks cleanly and accumulates
+    // across takes: each pass takes the program out and returns it.
+    let mut effects = Effects::default();
+    let mut diagnostic = Diagnostic::default();
+    let mut context = MissionProgramWorldContext::new(
+        &mut arena,
+        &mut scene,
+        &mut effects,
+        &mut diagnostic,
+        locales(),
+    );
+    world
+        .return_detector_program(waiter, None)
+        .unwrap();
+    assert_eq!(
+        context.tick_detector_programs(&mut world, 4, &mut budget),
+        Ok(1)
+    );
+    let stored = world
+        .detector(detector)
+        .unwrap()
+        .program()
+        .unwrap()
+        .runtime()
+        .unwrap();
+    assert_eq!(stored.fields.program_counter(), 0);
+    assert_eq!(stored.fields.command_time, 7);
+    assert!(world.detector(detector).unwrap().program().is_some());
+}

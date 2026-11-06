@@ -6,17 +6,23 @@
 //! recognition retains its existing ASCII admission.
 //! Process also executes FINDFRAME/FINDACTOR with an explicit borrowed lookup world,
 //! the `{`/`}` compact-block flags, IFFLTINRANGE range jumps, the FRM_SETON
-//! arena switch with deferred device side effects, and the detector
+//! arena switch with deferred device side effects, the detector
 //! SETSIGNAL store plus the ISSIGNAL signal jump (both ride Process
-//! GAME 0x46d3b0; no new entry RVA). DETECTOR_INRANGE stays deferred: it
-//! needs the live active-actor enumeration plus actor positions and the
-//! ENTITY/PLAYER human-type read, which no lookup owner serves yet.
+//! GAME 0x46d3b0), and the C_detector::Process tick dispatch (GAME RVA 0x33d10,
+//! C_detector.cpp:189-271) for Detector-vtable programs: PROGRAM_STORAGE (38)
+//! parks with ACTSTATE_NONE, DETECTOR_INRANGE (29) counts live in-range humans
+//! into the float bank, DETECTOR_WAITFORUSE (32) reaches the unavailable
+//! using-object owner, WAITFORHIT (33) latches before the unavailable static
+//! collisions, and CREATEDYNCOLL (346)/ERASEDYNCOLL (347) latch before the
+//! unavailable dynamic collisions. Base programs keep the base Process only.
+//! Recording and remaining unsupported commands still stop when reached.
 //! Recording and remaining unsupported commands still stop when reached.
 //! Fresh compilation admits base, entity and detector sources (detector
 //! decodes with the base table, entity with its table plus base fallback;
-//! entity word-count admission only); no derived dispatch runs:
-//! entity opcodes stop at UnsupportedCommand, detector Process dispatch stays
-//! deferred, and CallSubroutine stays base-only.
+//! entity word-count admission only). Derived dispatch runs for the detector
+//! tick (C_detector::Process GAME RVA 0x33d10 arms listed above) and the
+//! C_entity::Process owner commands; other entity opcodes stop at
+//! UnsupportedCommand, and CallSubroutine stays base-only.
 //! Unsupported dependencies retain reached state and never become no-op success.
 //! Saved-code chains, repeated Init and runtime-owning source destruction remain
 //! outside admission. Explicit host discard releases actual Rust allocations;
@@ -105,8 +111,8 @@ pub use pair_parameters::{
 };
 pub use detector_parameters::{
     supports_detector_signal_opcode, AsciiDetectorSignalParameterBackend,
-    DetectorSignalDecodeError, DetectorSignalParameter, DetectorSignalParameterBackend,
-    DetectorSignalParameterSlot,
+    DetectorInRangeParameter, DetectorSignalDecodeError, DetectorSignalParameter,
+    DetectorSignalParameterBackend, DetectorSignalParameterSlot, DetectorWaitForUseParameter,
 };
 pub use getactorsdist_parameters::{
     supports_getactorsdist_opcode, AsciiGetActorsDistParameterBackend, GetActorsDistDecodeError,
@@ -1924,9 +1930,11 @@ impl CProgram {
         // C_program (mafia-re 113b5b6 game/actors/C_detector.cpp:433ce0-433d00),
         // so this admits the C_detector::GameInit (GAME 0x432a00)
         // C_program::Init prefix (GAME 0x461580 plus Compile 0x46c770). No
-        // vtable executes derived dispatch: entity opcodes stop at
-        // UnsupportedCommand, detector Process (GAME 0x433d10, INRANGE and its
-        // sibling arms) stays deferred, and CallSubroutine stays base-only.
+        // vtable executes derived entity dispatch beyond the admitted owner
+        // commands (other entity opcodes stop at UnsupportedCommand); detector
+        // runtimes run C_detector::Process dispatch (GAME RVA 0x33d10) through
+        // their Detector vtable inside CallProcess, and CallSubroutine stays
+        // base-only.
         let decoder = match self.vtable {
             ProgramVtable::Base | ProgramVtable::Detector => {
                 crate::program_instructions::InstructionDecoder::Base
@@ -2010,8 +2018,9 @@ impl CProgram {
     /// enter its owned CallProcess with delta1. No diagnostic program or state
     /// copy is constructed. Entity/Detector CallSubroutine remain unadmitted:
     /// compiled entity sources stop at UnsupportedCommand on dispatch and
-    /// here; admitted detector runtimes run C_program::Process only, never
-    /// C_detector::Process dispatch (GAME 0x433d10 stays deferred).
+    /// here; admitted detector runtimes run C_program::Process only on this
+    /// path, never the C_detector::Process dispatch (GAME RVA 0x33d10 runs
+    /// inside CallProcess through the Detector vtable).
     pub fn call_owned_subroutine<B: RuntimeBackend>(
         &mut self,
         budget: &mut DispatchBudget,
@@ -2075,6 +2084,7 @@ impl CProgram {
         } = &mut runtime.fields;
         let mut dispatch = Process {
             owner: &mut self.owner,
+            vtable: self.vtable,
             stage: &mut runtime.stage,
             flags,
             instructions: &runtime.instructions,
@@ -2491,6 +2501,10 @@ impl CProgram {
 }
 struct Process<'a, B> {
     owner: &'a mut Option<ActorReferenceId>,
+    /// The owning program's vtable selects derived dispatch: Detector-vtable
+    /// programs run C_detector::Process (GAME RVA 0x33d10) arms before the
+    /// base C_program::Process switch, mirroring the native override.
+    vtable: ProgramVtable,
     stage: &'a mut RuntimeStage,
     flags: &'a mut RuntimeFlags,
     instructions: &'a InstructionStorage,
@@ -2780,6 +2794,246 @@ impl<B: RuntimeBackend> Process<'_, B> {
             .and_then(|p| p.value())
             .ok_or(RuntimeError::Domain("current scalar parameter unavailable"))
     }
+    /// Current Detector-vtable owner, implicit in every C_detector::Process
+    /// arm (the scan and the flag/collision arms all run for the script's own
+    /// detector, never through an actor register). Missing owners report like
+    /// the entity arms ("entity command without owner" via the world), so the
+    /// scheduler wrapper passes them through unwrapped.
+    fn detector_owner(&self) -> Result<ActorReferenceId, RuntimeError> {
+        (*self.owner).ok_or(RuntimeError::Lookup(
+            crate::script_lookup::LookupError::Backend("detector command without owner".into()),
+        ))
+    }
+    /// C_detector::Process dispatch (mafia-re 113b5b6
+    /// game/actors/C_detector.cpp:189-271, GAME RVA 0x33d10) for
+    /// Detector-vtable programs. Only the six detector commands route here
+    /// (the match guard at the call site); every other opcode runs the base
+    /// C_program::Process switch, which is the native default arm
+    /// (`C_program::Process(time)` with `add_time = false`, since the shared
+    /// dispatch top already added this tick's delta once).
+    /// Clock model: arms that stay on their command (no NextCommand) return
+    /// Stay and keep the top-added delta; arms that take NextCommand then add
+    /// time return DetectorNext, whose tail resets to exactly this tick's
+    /// delta (NextCommand zeroes, then `command_time += time`).
+    fn dispatch_detector(
+        &mut self,
+        state: &mut ResetState,
+        opcode: u32,
+    ) -> Result<Advance, RuntimeError> {
+        match opcode {
+            38 => {
+                // CMD_PROGRAM_STORAGE (C_detector.cpp:198-203): inactive where
+                // the script runs no other's code. Without a saved-code chain
+                // the actor parks in ACTSTATE_NONE (2, C_actor.h:61-63); with
+                // one it advances. Fresh admission never carries a saved-code
+                // chain (S_saved_code at C_program.h:679-684; the Done domain
+                // check rejects nonempty return storage), so only the parking
+                // branch runs here, staying on the command.
+                let owner = self.detector_owner()?;
+                self.backend
+                    .lookup_world()
+                    .map_err(RuntimeError::Lookup)?
+                    .set_actor_act_state(owner, 2)
+                    .map_err(RuntimeError::Lookup)?;
+                Ok(Advance::Stay)
+            }
+            29 => {
+                // CMD_DETECTOR_INRANGE (C_detector.cpp:205-227): count the
+                // live active actors near enough to the detector into the
+                // register, then NextCommand plus the tick's delta.
+                let values = self
+                    .instructions
+                    .active()
+                    .get(state.program_counter as usize)
+                    .and_then(|instruction| instruction.parameter.as_ref())
+                    .and_then(|parameter| parameter.remaining_parameter())
+                    .map(|parameter| parameter.values())
+                    .ok_or(RuntimeError::Domain("current inrange parameter unavailable"))?;
+                let inrange = DetectorInRangeParameter::from_words(values)
+                    .ok_or(RuntimeError::Domain("current inrange words unavailable"))?;
+                let owner = self.detector_owner()?;
+                let num = *self.float_count as i32;
+                if num > inrange.register && inrange.register >= 0 {
+                    let bank = self.floats.as_mut().ok_or(RuntimeError::Domain(
+                        "float bank unavailable for admitted count",
+                    ))?;
+                    let slot = bank
+                        .get_mut(inrange.register as usize)
+                        .ok_or(RuntimeError::Domain(
+                            "float destination outside admitted bank",
+                        ))?;
+                    *slot = 0.0;
+                    // Live scan (C_detector.cpp:212-223): the detector's own
+                    // frame, human-type mask and the game active-actor vector
+                    // are reread here; each candidate's frame and position are
+                    // read live like GETACTORSDIST, never from a snapshot.
+                    let world = self.backend.lookup_world().map_err(RuntimeError::Lookup)?;
+                    let human_types =
+                        world.detector_human_types(owner).map_err(RuntimeError::Lookup)?;
+                    let detector_frame =
+                        world.actor_frame(owner).map_err(RuntimeError::Lookup)?;
+                    if let Some(detector_frame) = detector_frame {
+                        let detector_pos = world
+                            .frame_world_position(detector_frame)
+                            .map_err(RuntimeError::Lookup)?;
+                        // Copy the membership vector first: the per-candidate
+                        // position reads below need the world mutably, which
+                        // the borrowed slice would forbid.
+                        let active: Vec<ActorReferenceId> = world
+                            .active_actors()
+                            .map_err(RuntimeError::Lookup)?
+                            .iter()
+                            .flatten()
+                            .copied()
+                            .collect();
+                        for actor in active {
+                            let candidate = world
+                                .detector_inrange_candidate(actor)
+                                .map_err(RuntimeError::Lookup)?;
+                            let Some((frame, human_type)) = candidate else {
+                                continue;
+                            };
+                            if human_type & human_types == 0 {
+                                continue;
+                            }
+                            let Some(frame) = frame else {
+                                // Frameless host-only actor: skip like the
+                                // frameless GETACTORSDIST actors keep 0.0.
+                                continue;
+                            };
+                            let pos = world
+                                .frame_world_position(frame)
+                                .map_err(RuntimeError::Lookup)?;
+                            let dx = detector_pos[0] - pos[0];
+                            let dy = detector_pos[1] - pos[1];
+                            let dz = detector_pos[2] - pos[2];
+                            if dx * dx + dy * dy + dz * dz <= inrange.range_squared {
+                                let bank = self.floats.as_mut().ok_or(RuntimeError::Domain(
+                                    "float bank unavailable for admitted count",
+                                ))?;
+                                let slot = bank.get_mut(inrange.register as usize).ok_or(
+                                    RuntimeError::Domain("float destination outside admitted bank"),
+                                )?;
+                                *slot += 1.0;
+                            }
+                        }
+                    }
+                    // A frameless detector keeps the zeroed register, like the
+                    // frameless GETACTORSDIST actors keep their 0.0.
+                }
+                Ok(Advance::DetectorNext)
+            }
+            32 => {
+                // CMD_DETECTOR_WAITFORUSE (C_detector.cpp:229-235): waits until
+                // the player uses it. The previous use object leaves the game
+                // registry and CreateUO(first, second == 0) arms the new one;
+                // the arm stays on the command (no NextCommand). No
+                // using-object owner exists yet (the C_game registry plus the
+                // detector 0xe0 item; CreateUO itself is a STUB, GAME 0x433b80),
+                // so the world refuses loudly below; never a silent no-op.
+                let values = self
+                    .instructions
+                    .active()
+                    .get(state.program_counter as usize)
+                    .and_then(|instruction| instruction.parameter.as_ref())
+                    .and_then(|parameter| parameter.remaining_parameter())
+                    .map(|parameter| parameter.values())
+                    .ok_or(RuntimeError::Domain("current waitforuse parameter unavailable"))?;
+                let wait = DetectorWaitForUseParameter::from_words(values)
+                    .ok_or(RuntimeError::Domain("current waitforuse words unavailable"))?;
+                let owner = self.detector_owner()?;
+                self.backend
+                    .lookup_world()
+                    .map_err(RuntimeError::Lookup)?
+                    .detector_create_use_object(owner, wait.first, wait.second_negated)
+                    .map_err(RuntimeError::Lookup)?;
+                Ok(Advance::Stay)
+            }
+            33 => {
+                // CMD_DETECTOR_WAITFORHIT (C_detector.cpp:238-247): waits for
+                // a hit with static collisions, unless dynamic ones run. The
+                // arm stays on the command (no NextCommand) while it latches.
+                let owner = self.detector_owner()?;
+                let world = self.backend.lookup_world().map_err(RuntimeError::Lookup)?;
+                let mut flags = world
+                    .detector_collision_flags(owner)
+                    .map_err(RuntimeError::Lookup)?;
+                if !flags.dyn_colls {
+                    flags.wait_for_hit = true;
+                    world
+                        .set_detector_collision_flags(owner, flags)
+                        .map_err(RuntimeError::Lookup)?;
+                    // ACTSTATE_INACTIVE (C_actor.h:61-63).
+                    world
+                        .set_actor_act_state(owner, 1)
+                        .map_err(RuntimeError::Lookup)?;
+                    // Both collision calls await the dynamic-collision owner
+                    // (CreateColls itself is a STUB, GAME 0x4330b0) and refuse
+                    // loudly below; never a silent no-op.
+                    world
+                        .detector_erase_colls(owner)
+                        .map_err(RuntimeError::Lookup)?;
+                    world
+                        .detector_create_colls(owner, false)
+                        .map_err(RuntimeError::Lookup)?;
+                    Ok(Advance::Stay)
+                } else {
+                    Ok(Advance::DetectorNext)
+                }
+            }
+            346 => {
+                // CMD_DETECTOR_CREATEDYNCOLL (C_detector.cpp:249-256): latch
+                // dynamic collisions unless waiting for a hit or already
+                // latched, then advance past the command either way.
+                let owner = self.detector_owner()?;
+                let world = self.backend.lookup_world().map_err(RuntimeError::Lookup)?;
+                let mut flags = world
+                    .detector_collision_flags(owner)
+                    .map_err(RuntimeError::Lookup)?;
+                if !flags.wait_for_hit && !flags.dyn_colls {
+                    flags.dyn_colls = true;
+                    world
+                        .set_detector_collision_flags(owner, flags)
+                        .map_err(RuntimeError::Lookup)?;
+                    // Both collision calls await the dynamic-collision owner
+                    // (CreateColls itself is a STUB, GAME 0x4330b0) and refuse
+                    // loudly below; never a silent no-op.
+                    world
+                        .detector_erase_colls(owner)
+                        .map_err(RuntimeError::Lookup)?;
+                    world
+                        .detector_create_colls(owner, true)
+                        .map_err(RuntimeError::Lookup)?;
+                }
+                Ok(Advance::DetectorNext)
+            }
+            347 => {
+                // CMD_DETECTOR_ERASEDYNCOLL (C_detector.cpp:257-264): drop the
+                // dynamic collisions unless waiting for a hit or none run,
+                // then advance past the command either way.
+                let owner = self.detector_owner()?;
+                let world = self.backend.lookup_world().map_err(RuntimeError::Lookup)?;
+                let mut flags = world
+                    .detector_collision_flags(owner)
+                    .map_err(RuntimeError::Lookup)?;
+                if !flags.wait_for_hit && flags.dyn_colls {
+                    flags.dyn_colls = false;
+                    world
+                        .set_detector_collision_flags(owner, flags)
+                        .map_err(RuntimeError::Lookup)?;
+                    // Erase awaits the dynamic-collision owner with the calls
+                    // above and refuses loudly below; never a silent no-op.
+                    world
+                        .detector_erase_colls(owner)
+                        .map_err(RuntimeError::Lookup)?;
+                }
+                Ok(Advance::DetectorNext)
+            }
+            _ => Err(RuntimeError::Domain(
+                "detector dispatch without a detector command",
+            )),
+        }
+    }
     fn effect(
         &mut self,
         state: &mut ResetState,
@@ -3044,11 +3298,16 @@ impl<B: RuntimeBackend> Process<'_, B> {
 }
 /// Post-dispatch program-counter movement. Mirrors NextCommand: every taken
 /// path resets the command clock; only staying on WAIT preserves it.
+/// DetectorNext is the C_detector::Process detector-arm tail (NextCommand
+/// plus `command_time += time`, C_detector.cpp:189-271): the shared dispatch
+/// top already added this tick's delta, so the tail resets to exactly that
+/// delta instead of zeroing.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Advance {
     Next,
     Jump(u32),
     Stay,
+    DetectorNext,
 }
 
 /// Original MSVC rand() used by RND: linear congruential step 214013/2531011
@@ -3124,6 +3383,15 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
         let opcode = self.instructions.active()[state.program_counter as usize].opcode;
         let mut advance = Advance::Next;
         match opcode {
+            29 | 32 | 33 | 38 | 346 | 347 if self.vtable == ProgramVtable::Detector => {
+                // C_detector::Process override (GAME RVA 0x33d10,
+                // game/actors/C_detector.cpp:189-271): the six detector arms
+                // replace the base switch here. Every other opcode runs the
+                // base arms below, which is the native default arm
+                // (C_program::Process with add_time = false, since the shared
+                // top already added this tick's delta once).
+                advance = self.dispatch_detector(state, opcode)?;
+            }
             13 | 18 => self.dispatch_lookup(state, opcode == 18)?,
             34 => {
                 let value = self.value_at(state)?;
@@ -3617,10 +3885,9 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                 // policemanager_on/off (135/136), stream_create (181), stream_fadevol (187),
                 // zatmyse (234). Decode admitted via RemainingParameter;
                 // execution is a no-op advance for now (car, player etc remain stubs).
-                // DEFERRED: detector_inrange (29) needs the live active-actor
-                // enumeration plus actor positions and the ENTITY/PLAYER
-                // human-type read, which no lookup owner serves yet (native
-                // C_detector::Process GAME 0x433d10).
+                // Detector-vtable programs never reach this arm for 29: the
+                // C_detector::Process guard above runs the live INRANGE scan
+                // (GAME RVA 0x33d10, C_detector.cpp:205-227) instead.
             }
             57 => {
                 // Original CMD_GETACTORSDIST (mafia-re 113b5b6
@@ -4025,6 +4292,14 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                 state.program_counter = target;
             }
             Advance::Stay => {}
+            Advance::DetectorNext => {
+                // C_detector::Process detector-arm tail: NextCommand(NULL),
+                // then `command_time += time`. The shared dispatch top already
+                // added this tick's delta once, so reset to exactly that
+                // delta instead of zeroing.
+                *self.command_time = delta as u32;
+                state.program_counter = state.program_counter.wrapping_add(1);
+            }
         }
         Ok(())
     }

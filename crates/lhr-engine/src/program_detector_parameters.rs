@@ -161,6 +161,60 @@ pub fn supports_detector_signal_opcode(opcode: u32) -> bool {
     opcode == 27
 }
 
+/// Owned execution view of CMD_DETECTOR_INRANGE (29) for C_detector::Process
+/// (mafia-re 113b5b6 game/actors/C_detector.cpp:205-227, GAME RVA 0x433d10):
+/// S_int_float_params (game/mission/C_program.h:568-574) decoded as two
+/// integers — value2 keeps integer text (`(float)atoi`), so the range word is
+/// an integer cast to float. The decoded payload stays RemainingParameter;
+/// this maps the two admitted words to the destination register plus the
+/// precomputed squared range (`range² = value2²`, C_detector.cpp:208).
+/// Only the native-valid two-word shape maps; any other admitted Remaining
+/// shape fails closed so dispatch never invents register or range values.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DetectorInRangeParameter {
+    pub register: i32,
+    pub range_squared: f32,
+}
+
+impl DetectorInRangeParameter {
+    pub fn from_words(values: &[Option<i32>]) -> Option<Self> {
+        if values.len() != 2 {
+            return None;
+        }
+        let register = values[0]?;
+        let range = values[1]?;
+        let range = range as f32;
+        Some(Self {
+            register,
+            range_squared: range * range,
+        })
+    }
+}
+
+/// Owned execution view of CMD_DETECTOR_WAITFORUSE (32) for
+/// C_detector::Process (mafia-re 113b5b6 game/actors/C_detector.cpp:229-235):
+/// the native two-integer params with missing words defaulting to 0
+/// (game/mission/C_program.cpp:781-801, `num` 0..=2). The arm drops the
+/// previous use object and calls CreateUO(first, second == 0); both parameter
+/// meanings stay unknown per game/actors/C_detector.h:55-57, so the fields
+/// keep neutral names. Extra admitted Remaining words (a non-native shape)
+/// are ignored after the first two; an empty word list fails closed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DetectorWaitForUseParameter {
+    pub first: i32,
+    pub second_negated: bool,
+}
+
+impl DetectorWaitForUseParameter {
+    pub fn from_words(values: &[Option<i32>]) -> Option<Self> {
+        let first = *values.first()?;
+        Some(Self {
+            first: first.unwrap_or(0),
+            second_negated: values.get(1).copied().flatten().unwrap_or(0) == 0,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -250,6 +304,73 @@ mod tests {
         assert_eq!(
             slot.decode(27, &mut source, &mut backend),
             Err(DetectorSignalDecodeError::AlreadyEntered)
+        );
+    }
+
+    #[test]
+    fn inrange_maps_register_and_squared_integer_range() {
+        // value2 keeps integer text ((float)atoi): a range word of 10 scans
+        // range² = 100.0, and a negative word squares the same as positive.
+        assert_eq!(
+            DetectorInRangeParameter::from_words(&[Some(0), Some(10)]),
+            Some(DetectorInRangeParameter {
+                register: 0,
+                range_squared: 100.0,
+            })
+        );
+        assert_eq!(
+            DetectorInRangeParameter::from_words(&[Some(2), Some(-3)]),
+            Some(DetectorInRangeParameter {
+                register: 2,
+                range_squared: 9.0,
+            })
+        );
+        // Only the native-valid two-word shape maps; any other admitted
+        // Remaining shape fails closed instead of inventing values.
+        for words in [
+            vec![],
+            vec![Some(0)],
+            vec![None, Some(10)],
+            vec![Some(0), None],
+            vec![Some(0), Some(10), Some(1)],
+        ] {
+            assert_eq!(DetectorInRangeParameter::from_words(&words), None);
+        }
+    }
+
+    #[test]
+    fn wait_for_use_defaults_missing_words_to_zero() {
+        // Native admits 0..=2 words with missing defaulting to 0
+        // (C_program.cpp:781-801); decode admission never yields empty, which
+        // fails closed. The second field negates like CreateUO(p[0], !p[1]).
+        assert_eq!(DetectorWaitForUseParameter::from_words(&[]), None);
+        assert_eq!(
+            DetectorWaitForUseParameter::from_words(&[Some(5)]),
+            Some(DetectorWaitForUseParameter {
+                first: 5,
+                second_negated: true,
+            })
+        );
+        assert_eq!(
+            DetectorWaitForUseParameter::from_words(&[Some(5), Some(0)]),
+            Some(DetectorWaitForUseParameter {
+                first: 5,
+                second_negated: true,
+            })
+        );
+        assert_eq!(
+            DetectorWaitForUseParameter::from_words(&[Some(5), Some(1)]),
+            Some(DetectorWaitForUseParameter {
+                first: 5,
+                second_negated: false,
+            })
+        );
+        assert_eq!(
+            DetectorWaitForUseParameter::from_words(&[None, None]),
+            Some(DetectorWaitForUseParameter {
+                first: 0,
+                second_negated: true,
+            })
         );
     }
 }

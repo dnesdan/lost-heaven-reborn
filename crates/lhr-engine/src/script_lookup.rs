@@ -243,10 +243,120 @@ pub trait LookupWorldBackend {
         let _ = locked;
         Err(LookupError::UnsupportedWorldBackend)
     }
+    /// Original C_detector +0xd8 human-type mask (mafia-re 113b5b6
+    /// game/actors/C_detector.h:73-75; LoadData C_detector.cpp:73-82) for
+    /// DETECTOR_INRANGE (C_detector.cpp:205-227, GAME RVA 0x33d10): the bit
+    /// mask of C_human::human_type values (C_human.h:951-954) the scan counts.
+    /// A non-detector is a host defect here (the owner is implicit, unlike the
+    /// ISSIGNAL register gate), so it reports instead of gating. The default
+    /// refuses.
+    fn detector_human_types(&self, actor: ActorReferenceId) -> Result<u32, LookupError> {
+        let _ = actor;
+        Err(LookupError::UnsupportedWorldBackend)
+    }
+    /// Original C_game::active_actors enumeration (C_detector.cpp:212,
+    /// `act_mission->game->active_actors`) for DETECTOR_INRANGE. Entries are
+    /// the live membership vector, including empty slots; the scan skips
+    /// those. The default refuses.
+    fn active_actors(&self) -> Result<&[Option<ActorReferenceId>], LookupError> {
+        Err(LookupError::UnsupportedWorldBackend)
+    }
+    /// Original DETECTOR_INRANGE candidate gate (C_detector.cpp:216-217) for
+    /// one active actor: ACTOR_ENTITY/ACTOR_PLAYER with a human record. None
+    /// is the native type gate (caller skips the actor, like the
+    /// human_car/GETACTORSDIST gates). Some carries the live frame (None for a
+    /// frameless host-only actor, which the scan skips like GETACTORSDIST
+    /// instead of touching null) and the live C_human::human_type mask. Stale
+    /// actors propagate. The default refuses.
+    fn detector_inrange_candidate(
+        &self,
+        actor: ActorReferenceId,
+    ) -> Result<Option<(Option<FrameReferenceId>, u32)>, LookupError> {
+        let _ = actor;
+        Err(LookupError::UnsupportedWorldBackend)
+    }
+    /// Original C_detector collision-arm flags at +0xde/+0xdf (mafia-re
+    /// 113b5b6 game/actors/C_detector.h:79-84; nulled by GameInit GAME
+    /// 0x432a00, C_detector.cpp:44-58) for DETECTOR_WAITFORHIT (33),
+    /// DETECTOR_CREATEDYNCOLL (346) and DETECTOR_ERASEDYNCOLL (347). A
+    /// non-detector owner is a host defect and reports. The default refuses.
+    fn detector_collision_flags(
+        &self,
+        actor: ActorReferenceId,
+    ) -> Result<DetectorCollisionFlags, LookupError> {
+        let _ = actor;
+        Err(LookupError::UnsupportedWorldBackend)
+    }
+    /// Store for the flags above, after the arm's condition read. The default
+    /// refuses.
+    fn set_detector_collision_flags(
+        &mut self,
+        actor: ActorReferenceId,
+        flags: DetectorCollisionFlags,
+    ) -> Result<(), LookupError> {
+        let _ = actor;
+        let _ = flags;
+        Err(LookupError::UnsupportedWorldBackend)
+    }
+    /// Original C_detector::EraseColls (mafia-re 113b5b6
+    /// game/actors/C_detector.cpp:146-166, GAME 0x43ae0) for the WAITFORHIT,
+    /// CREATEDYNCOLL and ERASEDYNCOLL arms: take each collision back from the
+    /// game collision system and free it. No dynamic-collision owner exists
+    /// yet (CreateColls itself is a STUB, GAME 0x4330b0), so the default
+    /// refuses with UnsupportedWorldBackend; a future collision owner serves
+    /// the live registry. Loud refusal, never a silent no-op.
+    fn detector_erase_colls(&mut self, actor: ActorReferenceId) -> Result<(), LookupError> {
+        let _ = actor;
+        Err(LookupError::UnsupportedWorldBackend)
+    }
+    /// Original C_detector::CreateColls (mafia-re 113b5b6
+    /// game/actors/C_detector.cpp:273-277, STUB GAME 0x4330b0) for the
+    /// WAITFORHIT (static, `dynamic` false) and CREATEDYNCOLL (dynamic, true)
+    /// arms. No collision owner exists yet, so the default refuses with
+    /// UnsupportedWorldBackend; a future collision owner serves the live
+    /// registry. Loud refusal, never a silent no-op.
+    fn detector_create_colls(
+        &mut self,
+        actor: ActorReferenceId,
+        dynamic: bool,
+    ) -> Result<(), LookupError> {
+        let _ = actor;
+        let _ = dynamic;
+        Err(LookupError::UnsupportedWorldBackend)
+    }
+    /// Original DETECTOR_WAITFORUSE tail (mafia-re 113b5b6
+    /// game/actors/C_detector.cpp:229-235): drop the previous use object from
+    /// the game registry, then CreateUO(id, second == 0) (STUB GAME 0x433b80;
+    /// parameter meanings unknown per C_detector.h:55-57). No using-object
+    /// owner exists yet (the C_game registry plus the detector 0xe0 item), so
+    /// the default refuses with UnsupportedWorldBackend. Loud refusal, never
+    /// a silent no-op.
+    fn detector_create_use_object(
+        &mut self,
+        actor: ActorReferenceId,
+        id: i32,
+        enabled: bool,
+    ) -> Result<(), LookupError> {
+        let _ = actor;
+        let _ = id;
+        let _ = enabled;
+        Err(LookupError::UnsupportedWorldBackend)
+    }
 }
 pub struct LiveActor<'a> {
     pub lifetime: &'a ActorLifetime,
     pub frame: Option<FrameReferenceId>,
+}
+/// Original C_detector collision-arm flags at +0xde/+0xdf (mafia-re 113b5b6
+/// game/actors/C_detector.h:79-84): wait_for_hit (0xde, set by
+/// DETECTOR_WAITFORHIT, gates CREATEDYNCOLL/ERASEDYNCOLL) and dyn_colls (0xdf,
+/// DETECTOR_CREATEDYNCOLL collisions following the frame via Update until
+/// ERASEDYNCOLL). Both nulled by GameInit (GAME 0x432a00). Plain bools; the
+/// collision arrays they gate stay with the future collision owner.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DetectorCollisionFlags {
+    pub wait_for_hit: bool,
+    pub dyn_colls: bool,
 }
 /// Core CMD_FRM_SETON switch report. The device side effects below stay
 /// deferred to game/device owners, like other deferred device effects: sound
