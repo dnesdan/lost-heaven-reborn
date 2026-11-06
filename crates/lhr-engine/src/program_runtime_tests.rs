@@ -1,7 +1,7 @@
 use super::*;
 use crate::entity_actor::EntityProcessState;
-use crate::script_lookup::{LookupError, LookupWorldBackend};
-use std::collections::HashMap;
+use crate::script_lookup::{FrameSetOnOutcome, LookupError, LookupWorldBackend};
+use std::collections::{HashMap, HashSet};
 #[derive(Default)]
 struct Memory {
     next: u64,
@@ -19,6 +19,11 @@ struct FakeEntityWorld {
     set_event_calls: Vec<(ActorReferenceId, i32)>,
     set_event_results: HashMap<(ActorReferenceId, i32), bool>,
     set_event_fail: Option<ActorReferenceId>,
+    actor_frames: HashMap<ActorReferenceId, FrameReferenceId>,
+    frame_switches: Vec<(FrameReferenceId, bool)>,
+    frame_states: HashMap<FrameReferenceId, bool>,
+    sound_frames: HashSet<FrameReferenceId>,
+    fail_frame_switch: bool,
 }
 impl LookupWorldBackend for FakeEntityWorld {
     fn diagnostic_default_c_locale(&self) -> bool {
@@ -31,6 +36,9 @@ impl LookupWorldBackend for FakeEntityWorld {
         &self,
         actor: ActorReferenceId,
     ) -> Result<Option<FrameReferenceId>, LookupError> {
+        if let Some(frame) = self.actor_frames.get(&actor) {
+            return Ok(Some(*frame));
+        }
         Err(LookupError::StaleActor(actor))
     }
     fn primary(&self) -> Result<&[Option<ActorReferenceId>], LookupError> {
@@ -109,6 +117,28 @@ impl LookupWorldBackend for FakeEntityWorld {
             .get(&(actor, event_id))
             .copied()
             .unwrap_or(true))
+    }
+    fn set_frame_on(
+        &mut self,
+        frame: FrameReferenceId,
+        on: bool,
+    ) -> Result<FrameSetOnOutcome, LookupError> {
+        if self.fail_frame_switch {
+            return Err(LookupError::Backend("injected frame-switch failure".into()));
+        }
+        self.frame_switches.push((frame, on));
+        if self.sound_frames.contains(&frame) {
+            // Sound frames take the device switch; no arena store runs.
+            return Ok(FrameSetOnOutcome {
+                core_applied: false,
+                device_effects_deferred: true,
+            });
+        }
+        self.frame_states.insert(frame, on);
+        Ok(FrameSetOnOutcome {
+            core_applied: true,
+            device_effects_deferred: true,
+        })
     }
 }
 impl ProgramBackend for Memory {
@@ -1217,7 +1247,8 @@ fn unwound_process_frame_release_is_uncertain_and_never_retried_by_done() {
 #[test]
 fn nondestructive_process_failure_still_allows_done_cleanup() {
     let mut memory = Memory::default();
-    let mut p = program(b"dim_act 2\nfrm_seton 0, 1", &mut memory);
+    // FRM_LINKTO stays unimplemented and stops dispatch without effects.
+    let mut p = program(b"dim_act 2\nfrm_linkto 0, 1", &mut memory);
     p.init_fresh_runtime(&mut memory).unwrap();
     p.call_owned_process(1, &mut DispatchBudget::new(4).unwrap(), &mut memory)
         .unwrap();
@@ -1357,18 +1388,15 @@ impl RuntimeError {
 }
 
 #[test]
-fn original_frame_visibility_parameters_compile_on_the_owned_runtime_but_do_not_fake_game_effects()
-{
+fn frm_seton_switches_register_frames_and_leaves_seton1_unsupported() {
+    use crate::original_program::RuntimeReferenceSlot;
+    // Empty slots advance without a world call.
     let mut memory = Memory::default();
-    let mut program = program(
-        b"commandblock 1\nfrm_seton 0, 1\nfrm_seton1 2, 0\ncommandblock 0",
-        &mut memory,
-    );
-    let progress = program.init_fresh_runtime(&mut memory).unwrap();
-    assert_eq!((progress.accepted, progress.errors), (4, 0));
-    let instructions = program.runtime().unwrap().instructions.active();
+    let mut empty = program(b"dim_frm 2\nfrm_seton 0, 1\nfrm_seton 1, 0", &mut memory);
+    let progress = empty.init_fresh_runtime(&mut memory).unwrap();
+    assert_eq!((progress.accepted, progress.errors), (3, 0));
+    let instructions = empty.runtime().unwrap().instructions.active();
     assert_eq!(instructions[1].opcode, 14);
-    assert_eq!(instructions[2].opcode, 15);
     assert_eq!(
         instructions[1]
             .parameter
@@ -1380,7 +1408,66 @@ fn original_frame_visibility_parameters_compile_on_the_owned_runtime_but_do_not_
         [Some(0), Some(1)]
     );
     assert_eq!(
-        instructions[2]
+        memory
+            .events
+            .iter()
+            .filter(|event| event.0 == RuntimeEffect::AllocatePair)
+            .count(),
+        2
+    );
+    empty.call_owned_process(9, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    empty.call_owned_process(9, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    empty.call_owned_process(9, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(empty.runtime().unwrap().fields.program_counter(), 3);
+    assert!(memory.entity_world.frame_switches.is_empty());
+    empty.done_fresh_runtime(&mut memory).unwrap();
+    empty.discard_runtime_host().unwrap();
+
+    // Live slots switch through the world: the plain frame stores the core
+    // state, the sound frame only records the deferred device switch.
+    let mut memory = Memory::default();
+    let mut live = program(b"dim_frm 2\nfrm_seton 0, 1\nfrm_seton 1, 0", &mut memory);
+    live.init_fresh_runtime(&mut memory).unwrap();
+    live
+        .call_owned_process(9, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert!(memory.entity_world.frame_switches.is_empty());
+    let plain = FrameReferenceId::from_existing(41);
+    let sound = FrameReferenceId::from_existing(42);
+    live.runtime.as_mut().unwrap().fields.frames = Some(
+        vec![
+            RuntimeReferenceSlot::Reference(plain),
+            RuntimeReferenceSlot::Reference(sound),
+        ]
+        .into_boxed_slice(),
+    );
+    memory.entity_world.sound_frames.insert(sound);
+    live.runtime.as_mut().unwrap().fields.scheduler.program_counter = 1;
+    live.call_owned_process(9, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    live.call_owned_process(9, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(
+        memory.entity_world.frame_switches,
+        vec![(plain, true), (sound, false)]
+    );
+    assert_eq!(memory.entity_world.frame_states.get(&plain), Some(&true));
+    assert!(!memory.entity_world.frame_states.contains_key(&sound));
+    assert_eq!(live.runtime().unwrap().fields.program_counter(), 3);
+    live.done_fresh_runtime(&mut memory).unwrap();
+    live.discard_runtime_host().unwrap();
+
+    // FRM_SETON1 decodes beside FRM_SETON but stays an explicit stop, with
+    // reverse release order.
+    let mut memory = Memory::default();
+    let mut program = program(b"dim_frm 1\nfrm_seton1 2, 0", &mut memory);
+    let progress = program.init_fresh_runtime(&mut memory).unwrap();
+    assert_eq!((progress.accepted, progress.errors), (2, 0));
+    assert_eq!(
+        program.runtime().unwrap().instructions.active()[1]
             .parameter
             .as_ref()
             .unwrap()
@@ -1389,24 +1476,19 @@ fn original_frame_visibility_parameters_compile_on_the_owned_runtime_but_do_not_
             .values(),
         [Some(2), Some(0)]
     );
-    assert_eq!(
-        memory
-            .events
-            .iter()
-            .filter(|event| event.0 == RuntimeEffect::AllocatePair)
-            .count(),
-        2
+    let error = {
+        program
+            .call_owned_process(9, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+            .unwrap();
+        program
+            .call_owned_process(9, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+            .unwrap_err()
+    };
+    assert!(
+        format!("{error:?}").contains("UnsupportedCommand(15)"),
+        "{error:?}"
     );
-
-    let mut budget = DispatchBudget::new(8).unwrap();
-    assert!(program
-        .call_owned_process(9, &mut budget, &mut memory)
-        .unwrap_err()
-        .to_debug()
-        .contains("UnsupportedCommand(14)"));
-    let fields = &program.runtime().unwrap().fields;
-    assert_eq!((fields.program_counter(), fields.elapsed), (1, 9));
-
+    assert_eq!(program.runtime().unwrap().fields.program_counter(), 1);
     memory.events.clear();
     program.done_fresh_runtime(&mut memory).unwrap();
     let releases: Vec<_> = memory
@@ -1414,14 +1496,250 @@ fn original_frame_visibility_parameters_compile_on_the_owned_runtime_but_do_not_
         .iter()
         .filter_map(|event| matches!(event.0, RuntimeEffect::ReleasePair(_)).then_some(event.0))
         .collect();
-    assert_eq!(
-        releases,
-        [
-            RuntimeEffect::ReleasePair(15),
-            RuntimeEffect::ReleasePair(14)
-        ]
-    );
+    assert_eq!(releases, [RuntimeEffect::ReleasePair(15)]);
     assert_eq!(program.runtime().unwrap().instructions.active().len(), 0);
+    let report = program.discard_runtime_host().unwrap();
+    assert_eq!(report.pair_allocations, 0);
+}
+
+#[test]
+fn frm_seton_guard_paths_advance_silently_or_stop_explicitly() {
+    use crate::original_program::RuntimeReferenceSlot;
+    // Out-of-range and negative registers without an owner advance silently.
+    for source in [b"frm_seton 5, 1".as_slice(), b"frm_seton -1, 1".as_slice()] {
+        let mut memory = Memory::default();
+        let mut p = program(source, &mut memory);
+        p.init_fresh_runtime(&mut memory).unwrap();
+        p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+            .unwrap();
+        assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
+        assert!(memory.entity_world.frame_switches.is_empty());
+        p.discard_runtime_host().unwrap();
+    }
+    // Either form falls back to the script actor's frame when owned.
+    for (source, on) in [
+        (b"frm_seton 9, 0".as_slice(), false),
+        (b"frm_seton -1, 1".as_slice(), true),
+    ] {
+        let mut memory = Memory::default();
+        let mut p = program(source, &mut memory);
+        let owner = ActorReferenceId::from_existing(7);
+        let frame = FrameReferenceId::from_existing(43);
+        p.set_owner(Some(owner)).unwrap();
+        p.init_fresh_runtime(&mut memory).unwrap();
+        memory.entity_world.actor_frames.insert(owner, frame);
+        p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+            .unwrap();
+        assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
+        assert_eq!(memory.entity_world.frame_switches, vec![(frame, on)]);
+        assert_eq!(memory.entity_world.frame_states.get(&frame), Some(&on));
+        p.discard_runtime_host().unwrap();
+    }
+    // A stale owner stops dispatch instead of switching a wrong frame.
+    let mut memory = Memory::default();
+    let mut p = program(b"frm_seton 9, 1", &mut memory);
+    p.set_owner(Some(ActorReferenceId::from_existing(8)))
+        .unwrap();
+    p.init_fresh_runtime(&mut memory).unwrap();
+    let error = p
+        .call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap_err();
+    assert!(
+        format!("{error:?}").contains("StaleActor"),
+        "{error:?}"
+    );
+    assert_eq!(p.runtime().unwrap().stage, RuntimeStage::ProcessInterrupted);
+    p.discard_runtime_host().unwrap();
+    // A refusing world is a nondestructive stop: Done still runs.
+    let mut memory = Memory::default();
+    let mut p = program(b"dim_frm 1\nfrm_seton 0, 1", &mut memory);
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert!(memory.entity_world.frame_switches.is_empty());
+    // Seed a live slot and rewind to the switch; DIM_FRM owns the first pass.
+    p.runtime.as_mut().unwrap().fields.frames = Some(
+        vec![RuntimeReferenceSlot::Reference(
+            FrameReferenceId::from_existing(44),
+        )]
+        .into_boxed_slice(),
+    );
+    p.runtime.as_mut().unwrap().fields.scheduler.program_counter = 1;
+    memory.entity_world.fail_frame_switch = true;
+    let error = p
+        .call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap_err();
+    assert!(
+        format!("{error:?}").contains("injected frame-switch failure"),
+        "{error:?}"
+    );
+    assert_eq!(p.runtime().unwrap().stage, RuntimeStage::ProcessInterrupted);
+    memory.entity_world.fail_frame_switch = false;
+    p.done_fresh_runtime(&mut memory).unwrap();
+    assert_eq!(p.runtime().unwrap().stage, RuntimeStage::Done);
+    p.discard_runtime_host().unwrap();
+}
+
+#[test]
+fn frm_seton_outcome_marks_core_and_deferred_device_effects() {
+    let mut world = FakeEntityWorld::default();
+    let plain = FrameReferenceId::from_existing(7);
+    let sound = FrameReferenceId::from_existing(8);
+    world.sound_frames.insert(sound);
+    assert_eq!(
+        world.set_frame_on(plain, true).unwrap(),
+        FrameSetOnOutcome {
+            core_applied: true,
+            device_effects_deferred: true,
+        }
+    );
+    assert_eq!(
+        world.set_frame_on(sound, true).unwrap(),
+        FrameSetOnOutcome {
+            core_applied: false,
+            device_effects_deferred: true,
+        }
+    );
+    assert_eq!(world.frame_states.get(&plain), Some(&true));
+    assert!(!world.frame_states.contains_key(&sound));
+}
+
+#[test]
+fn block_begin_end_set_clear_and_nest_modes() {
+    // Each program parks on a WAIT so one call observes the flags mid-script.
+    for (source, accepted, in_block, mode) in [
+        (&b"{\nwait 1000"[..], 2, true, BLOCK_MODE_NONE),
+        (&b"{ UP\nwait 1000"[..], 2, true, BLOCK_MODE_UP),
+        (&b"{ DOWN\nwait 1000"[..], 2, true, BLOCK_MODE_DOWN),
+        (&b"{ sideways\nwait 1000"[..], 2, true, BLOCK_MODE_NONE),
+        (&b"{ UP\n}\nwait 1000"[..], 3, false, BLOCK_MODE_NONE),
+        (&b"}\nwait 1000"[..], 2, false, BLOCK_MODE_NONE),
+        (&b"{ UP\n{ DOWN\nwait 1000"[..], 3, true, BLOCK_MODE_DOWN),
+        (&b"{ DOWN\n{ UP\n}\nwait 1000"[..], 4, false, BLOCK_MODE_NONE),
+    ] {
+        let mut memory = Memory::default();
+        let mut p = program(source, &mut memory);
+        let progress = p.init_fresh_runtime(&mut memory).unwrap();
+        assert_eq!(
+            (progress.accepted, progress.errors),
+            (accepted, 0),
+            "{source:?}"
+        );
+        // One owned-process call retires exactly one instruction (the
+        // continuation starts cleared); step through the whole prefix so a
+        // trailing WAIT parks mid-script and the flags are observable.
+        for _ in 0..accepted {
+            p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+                .unwrap();
+        }
+        let fields = &p.runtime().unwrap().fields;
+        assert_eq!(
+            (fields.flags.in_block, fields.flags.block_mode),
+            (in_block, mode),
+            "{source:?}"
+        );
+        p.discard_runtime_host().unwrap();
+    }
+    // The opener takes the allocation boundary and releases in reverse order.
+    let mut memory = Memory::default();
+    let mut p = program(b"{ UP\n}", &mut memory);
+    p.init_fresh_runtime(&mut memory).unwrap();
+    assert!(memory
+        .events
+        .iter()
+        .any(|event| event.0 == RuntimeEffect::AllocateBlock));
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert!(!p.runtime().unwrap().fields.flags.in_block);
+    memory.events.clear();
+    p.done_fresh_runtime(&mut memory).unwrap();
+    assert!(memory
+        .events
+        .iter()
+        .any(|event| event.0 == RuntimeEffect::ReleaseBlock(70)));
+    let report = p.discard_runtime_host().unwrap();
+    assert_eq!((report.block_allocations, report.ifflt_allocations), (0, 0));
+    // A two-word opener rejects the instruction but keeps the rest admitted.
+    let mut memory = Memory::default();
+    let mut p = program(b"{ UP, DOWN\ndim_flt 4", &mut memory);
+    let progress = p.init_fresh_runtime(&mut memory).unwrap();
+    assert_eq!((progress.accepted, progress.errors), (1, 1));
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.float_count, 4);
+    assert!(!p.runtime().unwrap().fields.flags.in_block);
+    p.discard_runtime_host().unwrap();
+}
+
+#[test]
+fn iffltinrange_jumps_only_inside_the_closed_range() {
+    for (value, range, expected) in [
+        ("5", "iffltinrange 0, 1.0, 10.0, hit", 5.0f32),
+        ("1.0", "iffltinrange 0, 1.0, 10.0, hit", 1.0f32),
+        ("10.0", "iffltinrange 0, 1.0, 10.0, hit", 10.0f32),
+        ("0", "iffltinrange 0, 1.0, 10.0, hit", 99.0f32),
+        ("11", "iffltinrange 0, 1.0, 10.0, hit", 99.0f32),
+        ("nan", "iffltinrange 0, 1.0, 10.0, hit", 99.0f32),
+        ("5", "iffltinrange 9, 1.0, 10.0, hit", 99.0f32),
+        ("5", "iffltinrange -1, 1.0, 10.0, hit", 99.0f32),
+        ("5", "iffltinrange 0, 1.0, 10.0, nowhere", 99.0f32),
+        ("5", "iffltinrange 0, 10.0, 1.0, hit", 99.0f32),
+    ] {
+        let source = format!("dim_flt 1\nlet flt[0] = {value}\n{range}\nlet flt[0] = 99\nlabel hit");
+        let mut memory = Memory::default();
+        let mut p = program(source.as_bytes(), &mut memory);
+        let progress = p.init_fresh_runtime(&mut memory).unwrap();
+        assert_eq!((progress.accepted, progress.errors), (5, 0), "{source:?}");
+        // Single-step semantics: one call retires one instruction; the
+        // conditional jump skips the overwritten store when taken.
+        for _ in 0..6 {
+            if p.runtime().unwrap().fields.program_counter() == 5 {
+                break;
+            }
+            p.call_owned_process(1, &mut DispatchBudget::new(12).unwrap(), &mut memory)
+                .unwrap();
+        }
+        let bank = p.runtime().unwrap().fields.floats.as_ref().unwrap().clone();
+        assert_eq!(bank[0].to_bits(), expected.to_bits(), "{source:?}");
+        assert_eq!(p.runtime().unwrap().fields.program_counter(), 5);
+        p.discard_runtime_host().unwrap();
+    }
+    // The range takes the allocation/conversion boundary and releases by opcode.
+    let mut memory = Memory::default();
+    let mut p = program(b"iffltinrange 0, 1.0, 10.0, hit", &mut memory);
+    p.init_fresh_runtime(&mut memory).unwrap();
+    for effect in [
+        RuntimeEffect::AllocateIfFlt,
+        RuntimeEffect::ConvertIfFlt(0),
+        RuntimeEffect::ConvertIfFlt(1),
+        RuntimeEffect::ConvertIfFlt(2),
+    ] {
+        assert!(
+            memory.events.iter().any(|event| event.0 == effect),
+            "{effect:?}"
+        );
+    }
+    memory.events.clear();
+    p.done_fresh_runtime(&mut memory).unwrap();
+    assert!(memory
+        .events
+        .iter()
+        .any(|event| event.0 == RuntimeEffect::ReleaseIfFlt(20)));
+    let report = p.discard_runtime_host().unwrap();
+    assert_eq!(report.ifflt_allocations, 0);
+    // Bad shapes reject the instruction without becoming executable.
+    for source in [
+        b"iffltinrange 0, 1, 2".as_slice(),
+        b"iffltinrange 0, 1, 2, 0123456789abcdef".as_slice(),
+    ] {
+        let mut memory = Memory::default();
+        let mut p = program(source, &mut memory);
+        let progress = p.init_fresh_runtime(&mut memory).unwrap();
+        assert_eq!((progress.accepted, progress.errors), (0, 1), "{source:?}");
+        p.discard_runtime_host().unwrap();
+    }
 }
 
 #[test]

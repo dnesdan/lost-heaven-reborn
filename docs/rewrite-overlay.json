@@ -8257,6 +8257,33 @@
       "symbol": "lhr_engine::actor_world::ActorWorld::construct_racecam",
       "tier": "contract",
       "evidence": "mafia-re 113b5b6 game/camera/c_racecam.cpp:8-11 + LoadData stub :46-50 + vtable game/camera/c_racecam.h:7; Game.exe SHA256 08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27; contract tier: STUB ctor stores kind marker only; LoadData 0x5962e0 zero-consumption skip; vectors executed green (clock_actor 6, actor_shot 5, rail_generator 5, racecam 4, car_ex_actor 4, actor_world 78 total (19 new this unit); base 66c3a13 + uncommitted unit)"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b6d0",
+      "va": "0x47b6d0",
+      "name": "CanUseTruck (working name)",
+      "symbol": "lhr_engine::car_ex_actor::CarExState::can_use_truck",
+      "tier": "differential",
+      "evidence": "mafia-re 113b5b6 game/vehicles/C_car_ex.h:35 + REA body 29B/10insn/4BB (MOV AL,[ECX+0x223c]/TEST/JZ; MOV EAX,[ECX+0x2258]/TEST/JZ; 1/0); authored tests; executed green: car_ex_actor suite passed (base 466d648 + uncommitted)"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7aed0",
+      "va": "0x47aed0",
+      "name": "S_GameItem ctor (working name)",
+      "symbol": "lhr_engine::human_actor::HumanInventoryItem::construct",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 game/actors/g_inventory.h:28 S_GameItem memset(this,0,16); 16-byte zeroed item words; authored tests; executed green: human_actor suite passed (base 466d648 + uncommitted)"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b020",
+      "va": "0x47b020",
+      "name": "G_Inventory Clear (working name)",
+      "symbol": "lhr_engine::human_actor::HumanInventory::reset",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 game/actors/g_inventory.h:154 G_Inventory::Clear empties items + cycle reset (partial: can_have_big_weapon/in_car/num_items flags not modeled); authored tests; executed green: human_actor suite passed (base 466d648 + uncommitted)"
     }
   ],
   "vm": {

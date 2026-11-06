@@ -4,7 +4,9 @@
 //! Init RVA0x61580, Done RVA0x616a0, Compile RVA0x6c770, CallProcess RVA0x6ccb0.
 //! Fresh compilation also owns the named payload family 13/18/43. Instruction
 //! recognition retains its existing ASCII admission.
-//! Process also executes FINDFRAME/FINDACTOR with an explicit borrowed lookup world.
+//! Process also executes FINDFRAME/FINDACTOR with an explicit borrowed lookup world,
+//! the `{`/`}` compact-block flags, IFFLTINRANGE range jumps, and the FRM_SETON
+//! arena switch with deferred device side effects.
 //! Recording and remaining unsupported commands still stop when reached.
 //! Fresh compilation admits base and entity sources (entity word-count
 //! admission only); detector sources stay refused and no derived dispatch runs:
@@ -19,12 +21,16 @@ mod lookup;
 pub use lookup::{LookupRuntimeBackend, RuntimeLookupWorld};
 #[path = "program_act_state_parameters.rs"]
 mod act_state_parameters;
+#[path = "program_block_parameters.rs"]
+mod block_parameters;
 #[path = "program_event_parameters.rs"]
 mod event_parameters;
 #[path = "program_flow_parameters.rs"]
 mod flow_parameters;
 #[path = "program_human_talk_parameters.rs"]
 mod human_talk_parameters;
+#[path = "program_ifflt_parameters.rs"]
+mod ifflt_parameters;
 #[path = "program_mission_parameters.rs"]
 mod mission_parameters;
 #[path = "program_name_parameters.rs"]
@@ -53,6 +59,10 @@ pub use act_state_parameters::{
     supports_act_state_opcode, ActState, ActStateDecodeError, ActStateParameter,
     ActStateParameterBackend, ActStateParameterSlot, AsciiActStateParameterBackend,
 };
+pub use block_parameters::{
+    supports_block_opcode, AsciiBlockParameterBackend, BlockDecodeError, BlockParameter,
+    BlockParameterBackend, BlockParameterSlot, BLOCK_MODE_DOWN, BLOCK_MODE_NONE, BLOCK_MODE_UP,
+};
 pub use event_parameters::{
     decode_event_id, supports_event_opcode, supports_set_event_opcode, AsciiEventParameterBackend,
     AsciiSetEventParameterBackend, EventDecodeError, EventParameter, EventParameterBackend,
@@ -66,6 +76,10 @@ pub use flow_parameters::{
 pub use human_talk_parameters::{
     supports_human_talk_opcode, AsciiHumanTalkParameterBackend, HumanTalkDecodeError,
     HumanTalkParameter, HumanTalkParameterBackend, HumanTalkParameterSlot,
+};
+pub use ifflt_parameters::{
+    supports_ifflt_opcode, AsciiIfFltParameterBackend, IfFltDecodeError, IfFltParameter,
+    IfFltParameterBackend, IfFltParameterSlot,
 };
 pub use mission_parameters::{
     supports_change_mission_opcode, supports_end_of_mission_opcode, AsciiMissionFlowBackend,
@@ -219,6 +233,8 @@ pub enum InstructionParameter {
     Remaining(RemainingParameterSlot),
     Quad(QuadParameterSlot),
     ActState(ActStateParameterSlot),
+    Block(BlockParameterSlot),
+    IfFlt(IfFltParameterSlot),
 }
 impl InstructionParameter {
     /// Scalar-only accessor retained for existing runtime diagnostics.
@@ -236,7 +252,9 @@ impl InstructionParameter {
             | Self::ChangeMission(_)
             | Self::Remaining(_)
             | Self::Quad(_)
-            | Self::ActState(_) => None,
+            | Self::ActState(_)
+            | Self::Block(_)
+            | Self::IfFlt(_) => None,
         }
     }
     pub fn name_parameter(&self) -> Option<&NameParameter> {
@@ -252,7 +270,9 @@ impl InstructionParameter {
             | Self::ChangeMission(_)
             | Self::Remaining(_)
             | Self::Quad(_)
-            | Self::ActState(_) => None,
+            | Self::ActState(_)
+            | Self::Block(_)
+            | Self::IfFlt(_) => None,
             Self::Name(slot) => slot.parameter(),
         }
     }
@@ -270,7 +290,9 @@ impl InstructionParameter {
             | Self::ChangeMission(_)
             | Self::Remaining(_)
             | Self::Quad(_)
-            | Self::ActState(_) => None,
+            | Self::ActState(_)
+            | Self::Block(_)
+            | Self::IfFlt(_) => None,
         }
     }
     pub fn flow_parameter(&self) -> Option<&FlowParameter> {
@@ -287,7 +309,9 @@ impl InstructionParameter {
             | Self::ChangeMission(_)
             | Self::Remaining(_)
             | Self::Quad(_)
-            | Self::ActState(_) => None,
+            | Self::ActState(_)
+            | Self::Block(_)
+            | Self::IfFlt(_) => None,
         }
     }
     pub fn entity_parameter(&self) -> Option<&EntityParameter> {
@@ -304,7 +328,9 @@ impl InstructionParameter {
             | Self::ChangeMission(_)
             | Self::Remaining(_)
             | Self::Quad(_)
-            | Self::ActState(_) => None,
+            | Self::ActState(_)
+            | Self::Block(_)
+            | Self::IfFlt(_) => None,
         }
     }
     pub fn event_parameter(&self) -> Option<&EventParameter> {
@@ -321,7 +347,9 @@ impl InstructionParameter {
             | Self::ChangeMission(_)
             | Self::Remaining(_)
             | Self::Quad(_)
-            | Self::ActState(_) => None,
+            | Self::ActState(_)
+            | Self::Block(_)
+            | Self::IfFlt(_) => None,
         }
     }
     pub fn set_event_parameter(&self) -> Option<&SetEventParameter> {
@@ -338,7 +366,9 @@ impl InstructionParameter {
             | Self::ChangeMission(_)
             | Self::Remaining(_)
             | Self::Quad(_)
-            | Self::ActState(_) => None,
+            | Self::ActState(_)
+            | Self::Block(_)
+            | Self::IfFlt(_) => None,
         }
     }
     pub fn human_talk_parameter(&self) -> Option<&HumanTalkParameter> {
@@ -355,7 +385,9 @@ impl InstructionParameter {
             | Self::ChangeMission(_)
             | Self::Remaining(_)
             | Self::Quad(_)
-            | Self::ActState(_) => None,
+            | Self::ActState(_)
+            | Self::Block(_)
+            | Self::IfFlt(_) => None,
         }
     }
     pub fn human_talk_parameter_mut(&mut self) -> Option<&mut HumanTalkParameter> {
@@ -372,7 +404,9 @@ impl InstructionParameter {
             | Self::ChangeMission(_)
             | Self::Remaining(_)
             | Self::Quad(_)
-            | Self::ActState(_) => None,
+            | Self::ActState(_)
+            | Self::Block(_)
+            | Self::IfFlt(_) => None,
         }
     }
     pub fn end_of_mission_parameter(&self) -> Option<&EndOfMissionParameter> {
@@ -389,7 +423,9 @@ impl InstructionParameter {
             | Self::ChangeMission(_)
             | Self::Remaining(_)
             | Self::Quad(_)
-            | Self::ActState(_) => None,
+            | Self::ActState(_)
+            | Self::Block(_)
+            | Self::IfFlt(_) => None,
         }
     }
     pub fn change_mission_parameter(&self) -> Option<&ChangeMissionParameter> {
@@ -406,7 +442,9 @@ impl InstructionParameter {
             | Self::EndOfMission(_)
             | Self::Remaining(_)
             | Self::Quad(_)
-            | Self::ActState(_) => None,
+            | Self::ActState(_)
+            | Self::Block(_)
+            | Self::IfFlt(_) => None,
         }
     }
     pub fn remaining_parameter(&self) -> Option<&RemainingParameter> {
@@ -423,7 +461,9 @@ impl InstructionParameter {
             | Self::EndOfMission(_)
             | Self::ChangeMission(_)
             | Self::Quad(_)
-            | Self::ActState(_) => None,
+            | Self::ActState(_)
+            | Self::Block(_)
+            | Self::IfFlt(_) => None,
         }
     }
     pub fn quad_parameter(&self) -> Option<&QuadParameter> {
@@ -440,7 +480,9 @@ impl InstructionParameter {
             | Self::EndOfMission(_)
             | Self::ChangeMission(_)
             | Self::Remaining(_)
-            | Self::ActState(_) => None,
+            | Self::ActState(_)
+            | Self::Block(_)
+            | Self::IfFlt(_) => None,
         }
     }
     pub fn act_state_parameter(&self) -> Option<&ActStateParameter> {
@@ -457,7 +499,47 @@ impl InstructionParameter {
             | Self::EndOfMission(_)
             | Self::ChangeMission(_)
             | Self::Remaining(_)
+            | Self::Block(_)
+            | Self::IfFlt(_)
             | Self::Quad(_) => None,
+        }
+    }
+    pub fn block_parameter(&self) -> Option<&BlockParameter> {
+        match self {
+            Self::Block(slot) => slot.parameter(),
+            Self::Scalar(_)
+            | Self::Name(_)
+            | Self::Pair(_)
+            | Self::Flow(_)
+            | Self::Entity(_)
+            | Self::Event(_)
+            | Self::SetEvent(_)
+            | Self::HumanTalk(_)
+            | Self::EndOfMission(_)
+            | Self::ChangeMission(_)
+            | Self::Remaining(_)
+            | Self::Quad(_)
+            | Self::IfFlt(_)
+            | Self::ActState(_) => None,
+        }
+    }
+    pub fn ifflt_parameter(&self) -> Option<&IfFltParameter> {
+        match self {
+            Self::IfFlt(slot) => slot.parameter(),
+            Self::Scalar(_)
+            | Self::Name(_)
+            | Self::Pair(_)
+            | Self::Flow(_)
+            | Self::Entity(_)
+            | Self::Event(_)
+            | Self::SetEvent(_)
+            | Self::HumanTalk(_)
+            | Self::EndOfMission(_)
+            | Self::ChangeMission(_)
+            | Self::Remaining(_)
+            | Self::Quad(_)
+            | Self::Block(_)
+            | Self::ActState(_) => None,
         }
     }
 }
@@ -509,6 +591,11 @@ pub enum RuntimeEffect {
     ConvertActStateActor,
     ConvertActState,
     ReleaseActState(u32),
+    AllocateBlock,
+    ReleaseBlock(u32),
+    AllocateIfFlt,
+    ConvertIfFlt(usize),
+    ReleaseIfFlt(u32),
     AllocateEvent,
     ConvertEventId,
     ConvertEventExtra,
@@ -725,6 +812,26 @@ pub trait RuntimeBackend {
         fields: RuntimeView<'_>,
         effect: RuntimeEffect,
         _published: Option<&ActStateParameter>,
+    ) -> Result<(), String> {
+        self.effect(fields, effect, None)
+    }
+    /// Block parameters have their own actual instruction-owned payload.
+    /// A default backend still observes the required allocation/free.
+    fn block_parameter_effect(
+        &mut self,
+        fields: RuntimeView<'_>,
+        effect: RuntimeEffect,
+        _published: Option<&BlockParameter>,
+    ) -> Result<(), String> {
+        self.effect(fields, effect, None)
+    }
+    /// Range parameters have their own actual instruction-owned payload.
+    /// A default backend still observes the required allocation/conversion/free.
+    fn ifflt_parameter_effect(
+        &mut self,
+        fields: RuntimeView<'_>,
+        effect: RuntimeEffect,
+        _published: Option<&IfFltParameter>,
     ) -> Result<(), String> {
         self.effect(fields, effect, None)
     }
@@ -1107,6 +1214,76 @@ impl<B: RuntimeBackend> ActStateParameterBackend for ActStateBoundary<'_, B> {
         }
     }
 }
+struct BlockBoundary<'a, B> {
+    fields: &'a mut RuntimeFields,
+    backend: &'a mut B,
+}
+impl<B: RuntimeBackend> BlockParameterBackend for BlockBoundary<'_, B> {
+    type Error = RuntimeError;
+    fn allocate_block(&mut self) -> Result<Option<Box<BlockParameter>>, RuntimeError> {
+        self.backend
+            .block_parameter_effect(self.fields.view(), RuntimeEffect::AllocateBlock, None)
+            .map_err(RuntimeError::Effect)?;
+        Ok(Some(Box::new(BlockParameter::default())))
+    }
+}
+struct IfFltBoundary<'a, B> {
+    fields: &'a mut RuntimeFields,
+    backend: &'a mut B,
+}
+impl<B: RuntimeBackend> IfFltParameterBackend for IfFltBoundary<'_, B> {
+    type Error = RuntimeError;
+    fn allocate_ifflt(&mut self) -> Result<Option<Box<IfFltParameter>>, RuntimeError> {
+        self.backend
+            .ifflt_parameter_effect(self.fields.view(), RuntimeEffect::AllocateIfFlt, None)
+            .map_err(RuntimeError::Effect)?;
+        Ok(Some(Box::new(IfFltParameter::default())))
+    }
+    fn convert_ifflt_register(
+        &mut self,
+        token: &[u8],
+        published: &IfFltParameter,
+    ) -> Result<i32, RuntimeError> {
+        self.backend
+            .ifflt_parameter_effect(
+                self.fields.view(),
+                RuntimeEffect::ConvertIfFlt(0),
+                Some(published),
+            )
+            .map_err(RuntimeError::Effect)?;
+        ascii_integer_prefix(token).map_err(|error| RuntimeError::Parameter(error.to_string()))
+    }
+    fn convert_ifflt_min(
+        &mut self,
+        token: &[u8],
+        published: &IfFltParameter,
+    ) -> Result<f32, RuntimeError> {
+        self.backend
+            .ifflt_parameter_effect(
+                self.fields.view(),
+                RuntimeEffect::ConvertIfFlt(1),
+                Some(published),
+            )
+            .map_err(RuntimeError::Effect)?;
+        crate::program_parameters::ascii_float_prefix(token)
+            .map_err(|error| RuntimeError::Parameter(error.to_string()))
+    }
+    fn convert_ifflt_max(
+        &mut self,
+        token: &[u8],
+        published: &IfFltParameter,
+    ) -> Result<f32, RuntimeError> {
+        self.backend
+            .ifflt_parameter_effect(
+                self.fields.view(),
+                RuntimeEffect::ConvertIfFlt(2),
+                Some(published),
+            )
+            .map_err(RuntimeError::Effect)?;
+        crate::program_parameters::ascii_float_prefix(token)
+            .map_err(|error| RuntimeError::Parameter(error.to_string()))
+    }
+}
 struct FlowBoundary<'a, B> {
     fields: &'a mut RuntimeFields,
     backend: &'a mut B,
@@ -1237,6 +1414,10 @@ impl<B: RuntimeBackend> CompileBackend for Compiler<'_, B> {
                 Some(InstructionParameter::ActState(
                     ActStateParameterSlot::default(),
                 ))
+            } else if supports_block_opcode(opcode) {
+                Some(InstructionParameter::Block(BlockParameterSlot::default()))
+            } else if supports_ifflt_opcode(opcode) {
+                Some(InstructionParameter::IfFlt(IfFltParameterSlot::default()))
             } else if supports_entity_opcode(opcode) {
                 Some(InstructionParameter::Entity(EntityParameterSlot::default()))
             } else {
@@ -1361,6 +1542,22 @@ impl<B: RuntimeBackend> CompileBackend for Compiler<'_, B> {
                     slot.decode(opcode, parameters, &mut boundary)
                         .map_err(|error| RuntimeError::Parameter(format!("{error:?}")))?
                 }
+                InstructionParameter::Block(slot) => {
+                    let mut boundary = BlockBoundary {
+                        fields: self.fields,
+                        backend: self.backend,
+                    };
+                    slot.decode(opcode, parameters, &mut boundary)
+                        .map_err(|error| RuntimeError::Parameter(format!("{error:?}")))?
+                }
+                InstructionParameter::IfFlt(slot) => {
+                    let mut boundary = IfFltBoundary {
+                        fields: self.fields,
+                        backend: self.backend,
+                    };
+                    slot.decode(opcode, parameters, &mut boundary)
+                        .map_err(|error| RuntimeError::Parameter(format!("{error:?}")))?
+                }
             };
             if !accepted {
                 *self.pending = None;
@@ -1416,6 +1613,8 @@ pub struct HostRuntimeDiscard {
     pub remaining_allocations: usize,
     pub quad_allocations: usize,
     pub act_state_allocations: usize,
+    pub block_allocations: usize,
+    pub ifflt_allocations: usize,
     pub actor_slots: usize,
     pub frame_slots: usize,
     pub float_slots: usize,
@@ -1834,6 +2033,30 @@ impl CProgram {
                         .is_some_and(|payload| payload.act_state_parameter().is_some())
                 })
                 .count(),
+            block_allocations: runtime
+                .instructions
+                .records
+                .iter()
+                .chain(runtime.pending.iter())
+                .filter(|instruction| {
+                    instruction
+                        .parameter
+                        .as_ref()
+                        .is_some_and(|payload| payload.block_parameter().is_some())
+                })
+                .count(),
+            ifflt_allocations: runtime
+                .instructions
+                .records
+                .iter()
+                .chain(runtime.pending.iter())
+                .filter(|instruction| {
+                    instruction
+                        .parameter
+                        .as_ref()
+                        .is_some_and(|payload| payload.ifflt_parameter().is_some())
+                })
+                .count(),
             actor_slots: runtime.fields.actors.as_ref().map_or(0, |a| a.len()),
             frame_slots: runtime.fields.frames.as_ref().map_or(0, |a| a.len()),
             float_slots: runtime.fields.floats.as_ref().map_or(0, |f| f.len()),
@@ -1932,6 +2155,16 @@ impl CProgram {
                     InstructionParameter::ActState(slot) => backend.act_state_parameter_effect(
                         runtime.fields.view(),
                         RuntimeEffect::ReleaseActState(opcode),
+                        slot.parameter(),
+                    ),
+                    InstructionParameter::Block(slot) => backend.block_parameter_effect(
+                        runtime.fields.view(),
+                        RuntimeEffect::ReleaseBlock(opcode),
+                        slot.parameter(),
+                    ),
+                    InstructionParameter::IfFlt(slot) => backend.ifflt_parameter_effect(
+                        runtime.fields.view(),
+                        RuntimeEffect::ReleaseIfFlt(opcode),
                         slot.parameter(),
                     ),
                     // Entity payloads are pure host word copies: decode runs
@@ -2061,6 +2294,29 @@ impl<B: RuntimeBackend> Process<'_, B> {
             .to_vec()
             .into_boxed_slice();
         Ok((register, event, label))
+    }
+    /// Current `{` payload: the decoded command-block mode word.
+    fn block_payload(&self, state: &ResetState) -> Result<BlockParameter, RuntimeError> {
+        self.instructions
+            .active()
+            .get(state.program_counter as usize)
+            .and_then(|instruction| instruction.parameter.as_ref())
+            .and_then(|parameter| parameter.block_parameter())
+            .cloned()
+            .ok_or(RuntimeError::Domain("current block parameter unavailable"))
+    }
+    /// Current IFFLTINRANGE payload: float-bank register, inclusive bounds
+    /// and jump label.
+    fn ifflt_payload(&self, state: &ResetState) -> Result<IfFltParameter, RuntimeError> {
+        self.instructions
+            .active()
+            .get(state.program_counter as usize)
+            .and_then(|instruction| instruction.parameter.as_ref())
+            .and_then(|parameter| parameter.ifflt_parameter())
+            .cloned()
+            .ok_or(RuntimeError::Domain(
+                "current range parameter unavailable",
+            ))
     }
     #[allow(dead_code)]
     /// Current HumanTalk payload: actor register, speech id, kind and channel.
@@ -2314,6 +2570,115 @@ impl<B: RuntimeBackend> Process<'_, B> {
         }
         true
     }
+    /// Original CMD_BLOCK_BEGIN/CMD_BLOCK_END (mafia-re 113b5b6
+    /// game/mission/C_program.cpp:3785/3789): pure program VM state. The
+    /// opener sets the compact flag and the decoded `{` mode word; the closer
+    /// clears both (BLOCK_MODE_NONE). Nested openers overwrite the mode, as
+    /// the original stores without a stack.
+    fn dispatch_block(
+        &mut self,
+        state: &mut ResetState,
+        begin: bool,
+    ) -> Result<Advance, RuntimeError> {
+        if begin {
+            let mode = self
+                .block_payload(state)?
+                .mode()
+                .ok_or(RuntimeError::Domain("current block mode unavailable"))?;
+            self.flags.in_block = true;
+            self.flags.block_mode = mode;
+        } else {
+            self.flags.in_block = false;
+            self.flags.block_mode = BLOCK_MODE_NONE;
+        }
+        Ok(Advance::Next)
+    }
+    /// Original CMD_IFFLTINRANGE (mafia-re 113b5b6
+    /// game/mission/C_program.cpp:3274): an inclusive float-range test on a
+    /// live bank register jumps to the label, like NextCommand. A bad
+    /// register, a missing bank slot, a value outside the closed interval, an
+    /// empty label or a missing label all advance instead. NaN never matches,
+    /// as both native comparisons are false for it.
+    fn dispatch_ifflt_inrange(&mut self, state: &mut ResetState) -> Result<Advance, RuntimeError> {
+        let payload = self.ifflt_payload(state)?;
+        let (register, min, max, label) = (
+            payload.register().ok_or(RuntimeError::Domain(
+                "current range register unavailable",
+            ))?,
+            payload
+                .min()
+                .ok_or(RuntimeError::Domain("current range lower bound unavailable"))?,
+            payload
+                .max()
+                .ok_or(RuntimeError::Domain("current range upper bound unavailable"))?,
+            payload
+                .label()
+                .ok_or(RuntimeError::Domain("current range label unavailable"))?
+                .to_vec(),
+        );
+        let inside = register >= 0
+            && (*self.float_count as i32) > register
+            && self
+                .floats
+                .as_deref()
+                .and_then(|bank| bank.get(register as usize).copied())
+                .is_some_and(|value| value >= min && value <= max);
+        if inside && !label.is_empty() {
+            if let Some(target) = self.jump_to_label(&label) {
+                return Ok(Advance::Jump(target));
+            }
+        }
+        Ok(Advance::Next)
+    }
+    /// Original CMD_FRM_SETON (mafia-re 113b5b6
+    /// game/mission/C_program.cpp:3134): the register's frame when the
+    /// register names a live slot, else the script actor's frame. An empty
+    /// slot, an out-of-range register without an owner, or no frame at all
+    /// advances without effect, matching the native `if (frm)` guard. The
+    /// world applies the core arena on/off store; sound, chase-camera,
+    /// placement, projector and shadow side effects stay deferred with
+    /// explicit unavailable markers in its outcome. A refusing world stops
+    /// dispatch instead of faking the switch.
+    fn dispatch_frm_seton(&mut self, state: &mut ResetState) -> Result<Advance, RuntimeError> {
+        let pair = self
+            .instructions
+            .active()
+            .get(state.program_counter as usize)
+            .and_then(|instruction| instruction.parameter.as_ref())
+            .and_then(|parameter| parameter.pair_parameter())
+            .map(|parameter| parameter.values())
+            .ok_or(RuntimeError::Domain("current seton parameter unavailable"))?;
+        let (register, on_word) = (
+            pair[0].ok_or(RuntimeError::Domain("current seton register unavailable"))?,
+            pair[1].ok_or(RuntimeError::Domain("current seton switch unavailable"))?,
+        );
+        let frame = if register >= 0 && (*self.frame_count as i32) > register {
+            match self
+                .frames
+                .as_deref()
+                .and_then(|slots| slots.get(register as usize))
+            {
+                Some(RuntimeReferenceSlot::Reference(frame)) => Some(*frame),
+                _ => None,
+            }
+        } else if let Some(owner) = *self.owner {
+            self.backend
+                .lookup_world()
+                .map_err(RuntimeError::Lookup)?
+                .actor_frame(owner)
+                .map_err(RuntimeError::Lookup)?
+        } else {
+            None
+        };
+        if let Some(frame) = frame {
+            self.backend
+                .lookup_world()
+                .map_err(RuntimeError::Lookup)?
+                .set_frame_on(frame, on_word != 0)
+                .map_err(RuntimeError::Lookup)?;
+        }
+        Ok(Advance::Next)
+    }
 
     /// Operand resolution shared by WAIT/LET/IF/GOTO: -1 is the literal, a
     /// valid index reads the live float bank. Any other index is a fail-closed
@@ -2524,6 +2889,15 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
             }
             0 => {
                 // LABEL has no Process case; the common tail advances past it.
+            }
+            70 | 71 => {
+                advance = self.dispatch_block(state, opcode == 70)?;
+            }
+            20 => {
+                advance = self.dispatch_ifflt_inrange(state)?;
+            }
+            14 => {
+                advance = self.dispatch_frm_seton(state)?;
             }
             1 | 2 => {
                 if opcode == 2 {
@@ -2841,14 +3215,14 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                 // admitted; execution is a no-op advance for now (fade/menu
                 // and objectives vector remain stubs).
             }
-            20 | 27 | 29 | 36 | 45 | 57 | 68 | 101 | 102 | 103 | 106 | 122 | 129 | 135 | 136
+            27 | 29 | 36 | 45 | 57 | 68 | 101 | 102 | 103 | 106 | 122 | 129 | 135 | 136
             | 181 | 187 | 234 => {
                 // Remaining MISE01 commands: detector_inrange (29), detector_issignal (27),
                 // soundfade (36), recloadfull (45), getactorsdist (57), loaddifferences (68),
                 // compareownerwithex (101), human_setproperty (102), human_getproperty (103),
                 // human_force_settocar (106), wingman_setindicator (122), autosavegame (129),
                 // policemanager_on/off (135/136), stream_create (181), stream_fadevol (187),
-                // iffltinrange (20), zatmyse (234). Decode admitted via RemainingParameter;
+                // zatmyse (234). Decode admitted via RemainingParameter;
                 // execution is a no-op advance for now (detector signal, car, player etc remain stubs).
             }
             209 => {

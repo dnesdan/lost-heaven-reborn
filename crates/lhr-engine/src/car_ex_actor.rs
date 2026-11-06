@@ -6,7 +6,7 @@
 //! Actual PS2 SLUS_206.71
 //! SHA256 adf4944c5cdac23fcc4e9af9ef3ec1ba6234497e57cec2af2ff1a7a15c62a46f
 //! corroborates the class name only, not the PC member layout. Reference sibling
-//! mafia-re @ 113b5b6 game/vehicles/C_car_ex.h:9 (vtable), :20-42 (tail layout),
+//! mafia-re @ 113b5b6 game/vehicles/C_car_ex.h:9 (vtable), :41-50 (tail layout),
 //! :30-31 (DCAddPerson/DCDelPerson) + game/vehicles/C_car_ex.cpp:9-12
 //! (constructor), :63-67 (DCAddPerson STUB 0x42f160), :69-73 (DCDelPerson STUB
 //! 0x42f320); CanUseTruck GAME 0x47b6d0; factory game/mission/Mission.cpp:211
@@ -69,29 +69,29 @@ impl CarExState {
         })
     }
 
-    /// Truck-use flag at +0x223c (mafia-re C_car_ex.h:23).
+    /// Truck-use flag at +0x223c (mafia-re C_car_ex.h:42).
     pub fn truck_usable_flag(&self) -> bool {
         self.tail[0x223c - 0x221c] != 0
     }
 
-    /// Opaque dynamic-collision vector word at +0x2258 (mafia-re C_car_ex.h:37).
+    /// Opaque dynamic-collision vector word at +0x2258 (mafia-re C_car_ex.h:47-49).
     /// Retained verbatim; never dereferenced on the host.
     pub fn dyn_colls_word(&self) -> u32 {
         self.tail_word(0x2258)
     }
 
-    /// Original C_car_ex::CanUseTruck (mafia-re C_car_ex.h:34-38, GAME 0x47b6d0):
+    /// Original C_car_ex::CanUseTruck (mafia-re C_car_ex.h:35-38, GAME 0x47b6d0):
     /// the flag word and the collision vector word are both set.
     pub fn can_use_truck(&self) -> bool {
         self.truck_usable_flag() && self.dyn_colls_word() != 0
     }
 
-    /// Truck bed position in the truck frame at +0x2240 (mafia-re C_car_ex.h:27).
+    /// Truck bed position in the truck frame at +0x2240 (mafia-re C_car_ex.h:45).
     pub fn truck_pos(&self) -> [f32; 3] {
         self.tail_floats(0x2240)
     }
 
-    /// Truck bed direction in the truck frame at +0x224c (mafia-re C_car_ex.h:28).
+    /// Truck bed direction in the truck frame at +0x224c (mafia-re C_car_ex.h:46).
     pub fn truck_dir(&self) -> [f32; 3] {
         self.tail_floats(0x224c)
     }

@@ -798,8 +798,12 @@ impl ActorWorld {
         }
         Ok(&mut self.actors[i].state)
     }
-    /// Game.exe547220: mark an actor loaded from the scene stream. This shared
-    /// byte store does not expose derived storage or perform GameInit.
+    /// Scene-stream load marker: flags one byte of base storage loaded.
+    /// Related to Game.exe 0x547220 SetFromMission (working name,
+    /// mafia-re game/actors/C_actor.h:272); the native from_mission field
+    /// offset is unevidenced, so this helper takes no function credit for
+    /// that RVA. This shared byte store does not expose derived storage or
+    /// perform GameInit.
     pub fn mark_scene_loaded(&mut self, actor: ActorReferenceId) -> Result<(), ActorWorldError> {
         self.ready(actor)?;
         self.state_mut_inner(actor)?.byte_66 = 1;

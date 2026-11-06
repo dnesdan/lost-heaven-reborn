@@ -2,7 +2,8 @@
 //! Game.exe SHA25608398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27.
 //! PC40e010 corresponds to the actual PS2 C_animations_machine_de_luxe
 //! constructor through its Reset/StopAnims call pattern, not shared layout.
-//! PC47aed0/47b020 construct/reset the embedded G_Inventory aggregate. Rust
+//! GAME 0x47aed0/0x47b020 (RVA 0x7aed0/0x7b020) construct/reset the embedded
+//! G_Inventory aggregate. Rust
 //! member names below are descriptive; unknown item/parameter bits have no
 //! invented gameplay meaning. Human GameInit and animation selection are absent.
 #![forbid(unsafe_code)]
@@ -51,7 +52,7 @@ pub struct HumanInventoryItem {
     bits: [u32; 4],
 }
 impl HumanInventoryItem {
-    fn construct() -> Self {
+    pub(crate) fn construct() -> Self {
         Self { bits: [0; 4] }
     }
 

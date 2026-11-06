@@ -29,8 +29,12 @@ class RewriteProgressTests(unittest.TestCase):
         game = next(card for card in cards if card["name"] == "Game.exe")
         self.assertEqual(game["total"], 4914)
         # Ledger base plus overlay entries, no overlap by construction.
-        self.assertEqual(game["ported"], 149 + 33)
-        self.assertEqual(game["verified"], 149 + 5)
+        # +3 VM-adjacent actor/inventory remap (0x7b6d0 CanUseTruck working
+        # name differential with REA body; 0x7aed0 S_GameItem ctor +
+        # 0x7b020 G_Inventory Clear working-name contract; 0x147220
+        # SetFromMission withheld: from_mission offset unevidenced).
+        self.assertEqual(game["ported"], 149 + 36)
+        self.assertEqual(game["verified"], 149 + 6)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")

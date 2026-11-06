@@ -124,10 +124,40 @@ pub trait LookupWorldBackend {
         let _ = spare;
         Err(LookupError::UnsupportedWorldBackend)
     }
+    /// Original CMD_FRM_SETON frame switch (mafia-re 113b5b6
+    /// game/mission/C_program.cpp:3134) for a resolved frame. The world
+    /// applies the core arena on/off store and reports the device side
+    /// effects it deferred. The default refuses; a world with arena ownership
+    /// serves the live frame.
+    fn set_frame_on(
+        &mut self,
+        frame: FrameReferenceId,
+        on: bool,
+    ) -> Result<FrameSetOnOutcome, LookupError> {
+        let _ = frame;
+        let _ = on;
+        Err(LookupError::UnsupportedWorldBackend)
+    }
 }
 pub struct LiveActor<'a> {
     pub lifetime: &'a ActorLifetime,
     pub frame: Option<FrameReferenceId>,
+}
+/// Core CMD_FRM_SETON switch report. The device side effects below stay
+/// deferred to game/device owners, like other deferred device effects: sound
+/// frames take the device switch instead of the arena store, the chase-camera
+/// guard needs the player car and camera mode, placement/projector updates
+/// need the game scene, and shadow add/delete plus the car tick need the actor
+/// owners. Each flag is an explicit unavailable marker for its effect.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FrameSetOnOutcome {
+    /// The arena on/off store ran (false for sound frames, whose device
+    /// switch stays deferred and runs no arena store, matching the native
+    /// break).
+    pub core_applied: bool,
+    /// Sound, chase-camera, placement, projector and shadow side effects stay
+    /// deferred; true while any applies to the switched frame.
+    pub device_effects_deferred: bool,
 }
 /// Live read lease, valid only while all object owners and collection storage are
 /// borrowed. Rebuilding it after deletion excludes removed actors/frames; old
