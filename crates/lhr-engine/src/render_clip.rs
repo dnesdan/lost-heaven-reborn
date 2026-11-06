@@ -3374,13 +3374,9 @@ pub fn env_process(
             let mat = mul_matrix(m, &d.inv);
             for i in 0..count {
                 let p = transform_point(src[i].pos, &mat);
-                let u = if p[2] < 0.0f32 {
-                    0.0f32
-                } else if p[2] > 1.0f32 {
-                    1.0f32
-                } else {
-                    p[2]
-                };
+                // `clamp` is bit-identical here (NaN flows through; finite
+                // constant bounds, so no panic arm applies).
+                let u = p[2].clamp(0.0f32, 1.0f32);
                 let v = if p[1] < 0.0f32 {
                     1.0f32
                 } else if p[1] > 1.0f32 {

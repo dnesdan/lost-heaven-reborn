@@ -176,13 +176,9 @@ fn round_half_up(x: f32) -> Result<i32, ProjectorError> {
     float_to_int(fadd(x, 0.5)?)
 }
 fn clamp01(x: f32) -> f32 {
-    if x > 1.0 {
-        1.0
-    } else if x < 0.0 {
-        0.0
-    } else {
-        x
-    }
+    // `clamp` is bit-identical here (NaN flows through both spellings;
+    // bounds are finite constants, so no panic arm applies).
+    x.clamp(0.0, 1.0)
 }
 
 /// 0x46960 vertex packing (differential). Fade strengths first (native order:
