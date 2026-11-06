@@ -17,6 +17,13 @@
 //! and police effect of the three car-function bodies. TestMoveColl's capsule
 //! descent (TestPanak2) has no owner; its collision-independent leaves live
 //! as a guarded prefix in human_move_coll.
+//! The on-foot micro-state (Do_Breath, Go_Front/Back/Left/Right, Do_Aimed,
+//! InventoryTruncate) is owned here as marker-only leaves over the velocity,
+//! turn_speed, dir, crouch/box/dead-body latches, aim/guard/change latches
+//! and carried-weapon ammo words staged in this file; the PersonAnim,
+//! ChangeWeaponModel and DelExtendedAnim invocations inside them are recorded
+//! as call markers, and collision, animation-machine, frame, tick, table and
+//! car/seat owner-lifecycle effects stay DEFERRED.
 //! The dtor animation-stop device effect (GAME 0x56f210) and the Init frame
 //! effects (GAME 0x56f350, owned by ActorWorld::init_human_owner) stay with the
 //! frame owner; detector/police owners do not exist yet and are DEFERRED. AI
@@ -89,6 +96,27 @@ impl HumanInventoryItem {
     pub fn representation_bits(&self) -> &[u32; 4] {
         &self.bits
     }
+    /// Item-table index (mafia-re 113b5b6 game/actors/g_inventory.h:16:
+    /// ushort id at +0x0; stored widened, the low 16 bits carry the value).
+    pub fn item_id(&self) -> u16 {
+        self.bits[0] as u16
+    }
+    /// Loaded ammunition (mafia-re 113b5b6 game/actors/g_inventory.h:22:
+    /// int ammo_loaded at +0x4).
+    pub fn ammo_loaded(&self) -> i32 {
+        self.bits[1] as i32
+    }
+    /// Reserve ammunition (mafia-re 113b5b6 game/actors/g_inventory.h:23:
+    /// int ammo_spare at +0x8).
+    pub fn ammo_spare(&self) -> i32 {
+        self.bits[2] as i32
+    }
+    /// Test/host setter for the ammunition words (the table-clamp writer is
+    /// the truncate core; the using-object word stays untouched).
+    pub fn set_ammo(&mut self, loaded: i32, spare: i32) {
+        self.bits[1] = loaded as u32;
+        self.bits[2] = spare as u32;
+    }
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HumanInventorySeed {
@@ -110,6 +138,14 @@ pub struct HumanInventory {
     second_slots: [HumanInventoryItem; 4],
     last_parameters: [u32; 4],
     cycle_flag: u8,
+    /// Marker-only staging of the carried weapons the truncate core clamps
+    /// (mafia-re 113b5b6 game/actors/g_inventory.h:142-144: right_hand 0x20,
+    /// pockets[INVENTORY_POCKETS] 0x30, big_weapon 0x80). G_Inventory
+    /// Select/Holster/Insert/SetInCar placement plus the gameItemTable owner
+    /// stay DEFERRED; the truncate caller supplies the table maxima per id.
+    right_hand: HumanInventoryItem,
+    big_weapon: HumanInventoryItem,
+    pockets: [HumanInventoryItem; INVENTORY_POCKETS],
 }
 impl HumanInventory {
     pub(crate) fn construct(seed: HumanInventorySeed) -> Self {
@@ -125,6 +161,9 @@ impl HumanInventory {
             second_slots: [HumanInventoryItem::construct(); 4],
             last_parameters: [0; 4],
             cycle_flag: 0,
+            right_hand: HumanInventoryItem::construct(),
+            big_weapon: HumanInventoryItem::construct(),
+            pockets: [HumanInventoryItem::construct(); INVENTORY_POCKETS],
         };
         inventory.reset();
         inventory
@@ -176,6 +215,89 @@ impl HumanInventory {
             &self.last_parameters,
         ]
     }
+    /// Carried right-hand weapon staging for the truncate core (mafia-re
+    /// 113b5b6 game/actors/g_inventory.h:142: right_hand 0x20).
+    pub fn right_hand(&self) -> &HumanInventoryItem {
+        &self.right_hand
+    }
+    /// Carried big-weapon staging for the truncate core (mafia-re 113b5b6
+    /// game/actors/g_inventory.h:144: big_weapon 0x80).
+    pub fn big_weapon(&self) -> &HumanInventoryItem {
+        &self.big_weapon
+    }
+    /// Carried pocket-weapon staging for the truncate core (mafia-re 113b5b6
+    /// game/actors/g_inventory.h:143: pockets[INVENTORY_POCKETS] 0x30).
+    pub fn pockets(&self) -> &[HumanInventoryItem; INVENTORY_POCKETS] {
+        &self.pockets
+    }
+    /// Test/host setter for the right-hand staging (placement writers stay
+    /// DEFERRED).
+    pub fn set_right_hand(&mut self, item: HumanInventoryItem) {
+        self.right_hand = item;
+    }
+    /// Test/host setter for the big-weapon staging (placement writers stay
+    /// DEFERRED).
+    pub fn set_big_weapon(&mut self, item: HumanInventoryItem) {
+        self.big_weapon = item;
+    }
+    /// Mutable pocket staging for the truncate core and test/host setup.
+    pub fn pocket_mut(&mut self, index: usize) -> &mut HumanInventoryItem {
+        &mut self.pockets[index]
+    }
+    /// GAME 0x57f9a0 (RVA 0x17f9a0) C_human::InventoryTruncate (mafia-re
+    /// 113b5b6 game/actors/C_human.cpp:6133-6140): clamp right_hand,
+    /// big_weapon and every pocket through the TruncateAmmo leaf
+    /// (C_human.cpp:6121-6131). `num_game_items` is `numOfGameItems` and
+    /// `ammo_limits` the `gameItemTable` (ammo_max, spare_max) lookup by id;
+    /// out-of-range ids and missing table entries are left untouched.
+    /// SCOPE: ammunition clamp only. DEFERRED with explicit markers, no new
+    /// owner here: the material-table owner, collision, tick, and every
+    /// Select/Holster/Insert/SetInCar placement writer.
+    pub fn apply_inventory_truncate(
+        &mut self,
+        num_game_items: u32,
+        ammo_limits: &dyn Fn(u16) -> Option<(u32, u32)>,
+    ) {
+        Self::truncate_slot(&mut self.right_hand, num_game_items, ammo_limits);
+        Self::truncate_slot(&mut self.big_weapon, num_game_items, ammo_limits);
+        for pocket in self.pockets.iter_mut() {
+            Self::truncate_slot(pocket, num_game_items, ammo_limits);
+        }
+    }
+    fn truncate_slot(
+        item: &mut HumanInventoryItem,
+        num_game_items: u32,
+        ammo_limits: &dyn Fn(u16) -> Option<(u32, u32)>,
+    ) {
+        let id = item.item_id();
+        if id > 1 && u32::from(id) < num_game_items {
+            if let Some((ammo_max, spare_max)) = ammo_limits(id) {
+                truncate_item_ammo(item, ammo_max, spare_max);
+            }
+        }
+    }
+}
+
+/// GAME 0x57f9a0 (RVA 0x17f9a0) TruncateAmmo clamp leaf (mafia-re 113b5b6
+/// game/actors/C_human.cpp:6120-6131, `static inline` ahead of
+/// C_human::InventoryTruncate): unsigned compare of each ammunition word
+/// against its table maximum (`(uint)loaded > ammo_max`, `(uint)spare >
+/// spare_max`), clamping down only. The id-range gate (`id > 1 && id <
+/// numOfGameItems`, C_human.cpp:6123 with `numOfGameItems` and `gameItemTable`
+/// from mafia-re 113b5b6 game/g_material.h:203-224 and .cpp:16,40) and the
+/// table lookup live with the material-table owner (DEFERRED); the caller
+/// supplies the looked-up maxima. The using-object word stays untouched.
+pub(crate) fn truncate_item_ammo(
+    item: &mut HumanInventoryItem,
+    ammo_max: u32,
+    spare_max: u32,
+) {
+    if item.bits[1] > ammo_max {
+        item.bits[1] = ammo_max;
+    }
+    if item.bits[2] > spare_max {
+        item.bits[2] = spare_max;
+    }
 }
 
 /// Original property-name table supplies the first fifteen labels. The
@@ -222,6 +344,25 @@ impl HumanProperties {
     }
     pub(crate) fn set_component_bits(&mut self, component: usize, bits: u32) {
         self.bytes[component * 4..component * 4 + 4].copy_from_slice(&bits.to_le_bytes());
+    }
+    /// Live float view of one property component (little-endian f32 words,
+    /// matching the constructor's bit patterns). The Go_* walk cores read
+    /// index HUMAN_PROPERTY_SPEED through here (mafia-re 113b5b6
+    /// game/actors/C_human.h:92); like the original there is no bounds
+    /// concept, so an out-of-range index panics instead of reading adjacent
+    /// memory.
+    pub fn float_component(&self, component: usize) -> f32 {
+        f32::from_le_bytes(
+            self.bytes[component * 4..component * 4 + 4]
+                .try_into()
+                .unwrap(),
+        )
+    }
+    /// Live "Speed" multiplier for the Go_* walk cores (mafia-re 113b5b6
+    /// game/actors/C_human.h:92 HUMAN_PROPERTY_SPEED 7; read at
+    /// game/actors/C_human.cpp:5395 and its Go_* siblings).
+    pub fn speed_factor(&self) -> f32 {
+        self.float_component(HUMAN_PROPERTY_SPEED)
     }
 }
 
@@ -343,6 +484,43 @@ pub const HUMAN_SEAT_NONE: i32 = -1;
 /// Do_StopAnim core of this slice; the PersonAnim stance/anim-set remap of
 /// the id stays DEFERRED to the PersonAnim owner.
 pub const ANIM_BREATH01A: i32 = 1;
+/// Original "Speed" property index (mafia-re 113b5b6
+/// game/actors/C_human.h:92 HUMAN_PROPERTY_SPEED 7): the multiplier the Go_*
+/// walk cores scale their base speeds by. Read from the live bank
+/// (`current_properties`); the maximum bank only feeds GameInit's copy.
+pub const HUMAN_PROPERTY_SPEED: usize = 7;
+/// Original run animation id (mafia-re 113b5b6 game/actors/C_actor.h:552:
+/// 0x5, "run1.i3d"). Written by the Go_Front core of this slice; the
+/// PersonAnim stance/anim-set remap of the id stays DEFERRED.
+pub const ANIM_RUN1: i32 = 5;
+/// Original walk animation id (mafia-re 113b5b6 game/actors/C_actor.h:553:
+/// 0x6, "walk1.i3d"). Written by the Go_Front core of this slice; the
+/// PersonAnim stance/anim-set remap of the id stays DEFERRED.
+pub const ANIM_WALK1: i32 = 6;
+/// Original back-walk animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:554: 0x7, "back1.i3d"). Written by the Go_Back core
+/// of this slice; the PersonAnim stance/anim-set remap stays DEFERRED.
+pub const ANIM_BACK1: i32 = 7;
+/// Original left-strafe walk animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:558: 0xb, "strafL1.i3d"). Written by the Go_Left
+/// core of this slice; the PersonAnim stance/anim-set remap stays DEFERRED.
+pub const ANIM_STRAFL1: i32 = 0xb;
+/// Original right-strafe walk animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:559: 0xc, "strafR1.i3d"). Written by the Go_Right
+/// core of this slice; the PersonAnim stance/anim-set remap stays DEFERRED.
+pub const ANIM_STRAFR1: i32 = 0xc;
+/// Original left-strafe run animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:560: 0xd, "strafRL1.i3d"). Written by the Go_Left
+/// core of this slice; the PersonAnim stance/anim-set remap stays DEFERRED.
+pub const ANIM_STRAFRL1: i32 = 0xd;
+/// Original right-strafe run animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:561: 0xe, "strafRR1.i3d"). Written by the Go_Right
+/// core of this slice; the PersonAnim stance/anim-set remap stays DEFERRED.
+pub const ANIM_STRAFRR1: i32 = 0xe;
+/// Pocket count the truncate core iterates (mafia-re 113b5b6
+/// game/actors/g_inventory.h:41 INVENTORY_POCKETS 5, iterated at
+/// game/actors/C_human.cpp:6138).
+pub const INVENTORY_POCKETS: usize = 5;
 /// Bloody-footprint track texture index (mafia-re 113b5b6
 /// game/mission/game.h:92-94: TRACK_TEXTURE_BFOOTPRINT 6, the
 /// C_game::track_textures index of "2bfootprint.bmp", given to the steps of
@@ -504,6 +682,61 @@ pub struct HumanState {
     track_steps_max: i16,
     track_steps: i16,
     track_texture: u8,
+    /// Walk velocity per second (mafia-re 113b5b6 game/actors/C_human.h:839
+    /// -841: 0x420 S_vector velocity, PS2 0xc0; C_human.cpp:5395 scales the
+    /// facing dir by the Go_* base speeds). Written by the Do_Breath/Go_*
+    /// cores of this slice; MovementIntern/Update motion effects stay
+    /// DEFERRED.
+    velocity: [f32; 3],
+    /// Facing direction the Go_* cores scale (the frame direction; the frame
+    /// owner stays DEFERRED, so callers stage it via `set_dir`). Deterministic
+    /// working default zero; no original default is evidenced on this path.
+    dir: [f32; 3],
+    /// Turn speed in radians per second (mafia-re 113b5b6
+    /// game/actors/C_human.h:842-844: 0x42c turn_speed; C_human.cpp:5417,
+    /// :5426, :5381 stop it). Cleared by Do_Breath/Go_Left/Go_Right; Update's
+    /// dir integration stays DEFERRED.
+    turn_speed: f32,
+    /// Crouch latch (mafia-re 113b5b6 game/actors/C_human.h:728: 0x1e4
+    /// crouching). Forces the walk variants of Go_Front/Left/Right
+    /// (C_human.cpp:5392,5414,5431); the Do_Crouched writer stays DEFERRED,
+    /// callers stage it via `set_crouching`.
+    crouching: bool,
+    /// Box-carried latch staging the box frame pointer (mafia-re 113b5b6
+    /// game/actors/C_human.h:1008: 0x6f8 I3D_frame *box). Same guard role as
+    /// crouching plus the Do_Aimed clear (C_human.cpp:6082); the box frame
+    /// owner stays DEFERRED.
+    carrying_box: bool,
+    /// Dead-body-carried latch staging the dead-body frame pointer (mafia-re
+    /// 113b5b6 game/actors/C_human.h:1010: 0x700 I3D_frame *dead_body). Same
+    /// guard role as the box (C_human.cpp:5392,5414,5431,6082); the body/cart
+    /// owners stay DEFERRED.
+    carrying_dead_body: bool,
+    /// Aim latch (mafia-re 113b5b6 game/actors/C_human.h:729-731: 0x1e5
+    /// aimed). Written by the Do_Aimed core of this slice; the Do_Shoot,
+    /// reload and weapon-change writers stay DEFERRED.
+    aimed: bool,
+    /// Melee-guard latch (mafia-re 113b5b6 game/actors/C_human.h:780-783:
+    /// 0x22c guarding, ended by Do_Aimed(false) at C_human.cpp:6090-6094).
+    /// Cleared here through the DelExtendedAnim marker; the Update and
+    /// SetFreeBoxingAnim writers stay DEFERRED.
+    guarding: bool,
+    /// Weapon-change-in-progress latch (mafia-re 113b5b6
+    /// game/actors/C_human.h:794-796: 0x230 changing_weapon). Read by the
+    /// Do_Aimed core for the ChangeWeaponModel marker (C_human.cpp:6087); the
+    /// Do_ChangeWeapon and NOTE_CHANGE_WEAPON writers stay DEFERRED.
+    changing_weapon: bool,
+    /// Marker-only ChangeWeaponModel call count (mafia-re 113b5b6
+    /// game/actors/C_human.h:574; C_human.cpp:6087-6088). The weapon model,
+    /// sound and kind effects stay with the weapon owner (DEFERRED).
+    change_weapon_model_calls: u32,
+    /// Marker-only DelExtendedAnim call count (Do_Aimed passes 4.0f;
+    /// mafia-re 113b5b6 game/actors/C_human.cpp:6092). The animation effect
+    /// stays with the animation owner (DEFERRED).
+    del_extended_anim_calls: u32,
+    /// Blend of the last staged DelExtendedAnim marker (4.0f per
+    /// C_human.cpp:6092), None before the first staged call.
+    del_extended_anim_blend: Option<f32>,
 }
 impl HumanState {
     pub(crate) fn construct(seed: HumanSeed) -> Self {
@@ -539,6 +772,18 @@ impl HumanState {
             track_steps_max: 0,
             track_steps: 0,
             track_texture: 0,
+            velocity: [0.0; 3],
+            dir: [0.0; 3],
+            turn_speed: 0.0,
+            crouching: false,
+            carrying_box: false,
+            carrying_dead_body: false,
+            aimed: false,
+            guarding: false,
+            changing_weapon: false,
+            change_weapon_model_calls: 0,
+            del_extended_anim_calls: 0,
+            del_extended_anim_blend: None,
         }
     }
     pub fn human_type_mask(&self) -> u32 {
@@ -626,6 +871,80 @@ impl HumanState {
     /// Seat index in the car, HUMAN_SEAT_NONE for none.
     pub fn seat(&self) -> i32 {
         self.seat
+    }
+    /// Walk velocity per second staged by the Do_Breath/Go_* cores.
+    pub fn velocity(&self) -> [f32; 3] {
+        self.velocity
+    }
+    /// Facing direction staged for the Go_* cores (frame owner DEFERRED).
+    pub fn dir(&self) -> [f32; 3] {
+        self.dir
+    }
+    /// Test/host setter for the facing direction (frame owner DEFERRED).
+    pub fn set_dir(&mut self, dir: [f32; 3]) {
+        self.dir = dir;
+    }
+    /// Turn speed in radians per second.
+    pub fn turn_speed(&self) -> f32 {
+        self.turn_speed
+    }
+    /// Crouch latch forcing the Go_* walk variants.
+    pub fn crouching(&self) -> bool {
+        self.crouching
+    }
+    /// Test/host setter for the crouch latch (Do_Crouched writer DEFERRED).
+    pub fn set_crouching(&mut self, crouching: bool) {
+        self.crouching = crouching;
+    }
+    /// Box-carried latch (box frame owner DEFERRED).
+    pub fn carrying_box(&self) -> bool {
+        self.carrying_box
+    }
+    /// Test/host setter for the box-carried latch.
+    pub fn set_carrying_box(&mut self, carrying: bool) {
+        self.carrying_box = carrying;
+    }
+    /// Dead-body-carried latch (body/cart owners DEFERRED).
+    pub fn carrying_dead_body(&self) -> bool {
+        self.carrying_dead_body
+    }
+    /// Test/host setter for the dead-body-carried latch.
+    pub fn set_carrying_dead_body(&mut self, carrying: bool) {
+        self.carrying_dead_body = carrying;
+    }
+    /// Aim latch written by the Do_Aimed core.
+    pub fn aimed(&self) -> bool {
+        self.aimed
+    }
+    /// Melee-guard latch cleared by Do_Aimed(false).
+    pub fn guarding(&self) -> bool {
+        self.guarding
+    }
+    /// Test/host setter for the melee-guard latch (Update/SetFreeBoxingAnim
+    /// writers DEFERRED).
+    pub fn set_guarding(&mut self, guarding: bool) {
+        self.guarding = guarding;
+    }
+    /// Weapon-change-in-progress latch read by the Do_Aimed core.
+    pub fn changing_weapon(&self) -> bool {
+        self.changing_weapon
+    }
+    /// Test/host setter for the weapon-change latch (Do_ChangeWeapon/NOTE
+    /// writers DEFERRED).
+    pub fn set_changing_weapon(&mut self, changing: bool) {
+        self.changing_weapon = changing;
+    }
+    /// Staged ChangeWeaponModel call count (weapon owner DEFERRED).
+    pub fn change_weapon_model_calls(&self) -> u32 {
+        self.change_weapon_model_calls
+    }
+    /// Staged DelExtendedAnim call count (animation owner DEFERRED).
+    pub fn del_extended_anim_calls(&self) -> u32 {
+        self.del_extended_anim_calls
+    }
+    /// Blend of the last staged DelExtendedAnim marker, if any.
+    pub fn del_extended_anim_blend(&self) -> Option<f32> {
+        self.del_extended_anim_blend
     }
     pub fn collection_is_empty(&self, slot: HumanResourceSlot) -> bool {
         match slot {
@@ -800,6 +1119,181 @@ impl HumanState {
                 play_once: false,
             });
         }
+    }
+    /// Shared car-seat guard of the Go_* cores (mafia-re 113b5b6
+    /// game/actors/C_human.cpp:5390,5402,5412,5427: `if (car && car->type ==
+    /// ACTOR_CAR && seat != -1) return;`). `car_is_car_actor` carries the
+    /// car-type owner's verdict (DEFERRED); the seat latch is owned here while
+    /// the car/seat owner lifecycle stays DEFERRED.
+    fn seated_in_car(&self, car_is_car_actor: bool) -> bool {
+        self.car.is_some() && car_is_car_actor && self.seat != HUMAN_SEAT_NONE
+    }
+    /// GAME 0x57d310 (RVA 0x17d310) C_human::Do_Breath (mafia-re 113b5b6
+    /// game/actors/C_human.cpp:5373-5385): when alive and the action is
+    /// STAND, WALK or FALL, settle to STAND, stop the turn (turn_speed 0),
+    /// zero the velocity and select ANIM_BREATH01A; otherwise a no-op (early
+    /// return, not even the STAND write). No PersonAnim call: the original
+    /// only arms next_anim_id here. SCOPE: breath settle only. DEFERRED with
+    /// explicit markers, no new owner here: the PersonAnim/Update/Movement
+    /// writers of these words, collision, tick.
+    pub fn apply_do_breath(&mut self) {
+        if !self.alive {
+            return;
+        }
+        if self.action_state == HUMAN_ACTION_STAND
+            || self.action_state == HUMAN_ACTION_WALK
+            || self.action_state == HUMAN_ACTION_FALL
+        {
+            self.action_state = HUMAN_ACTION_STAND;
+            self.turn_speed = 0.0;
+            self.velocity = [0.0; 3];
+            self.next_anim_id = ANIM_BREATH01A;
+        }
+    }
+    /// GAME 0x57d360 (RVA 0x17d360) C_human::Go_Front (mafia-re 113b5b6
+    /// game/actors/C_human.cpp:5387-5397): guarded no-op while seated in a
+    /// car; crouching, a carried box or a carried dead body force the walk
+    /// variant. Otherwise WALK with velocity dir * (run ? 5.0 : 1.7) *
+    /// properties[SPEED] and next_anim_id RUN1/WALK1. turn_speed is
+    /// deliberately untouched (the original writes none here, unlike the
+    /// strafes). Returns true on admission. SCOPE: velocity/anim select only.
+    /// DEFERRED with explicit markers, no new owner here: the car-type
+    /// verdict arrives via `car_is_car_actor` (car/seat owner lifecycle
+    /// DEFERRED), plus collision, PersonAnim, tick.
+    pub fn apply_go_front(&mut self, run: bool, car_is_car_actor: bool) -> bool {
+        if self.seated_in_car(car_is_car_actor) {
+            return false;
+        }
+        let run =
+            run && !self.crouching && !self.carrying_box && !self.carrying_dead_body;
+        self.action_state = HUMAN_ACTION_WALK;
+        let base = if run { 5.0 } else { 1.7 };
+        let speed = base * self.current_properties.speed_factor();
+        self.velocity = [
+            self.dir[0] * speed,
+            self.dir[1] * speed,
+            self.dir[2] * speed,
+        ];
+        self.next_anim_id = if run { ANIM_RUN1 } else { ANIM_WALK1 };
+        true
+    }
+    /// GAME 0x57d430 (RVA 0x17d430) C_human::Go_Back (mafia-re 113b5b6
+    /// game/actors/C_human.cpp:5399-5407): pinned symmetry with Go_Front: the
+    /// same car-seat guard and WALK entry, but no crouch/box/dead-body arm
+    /// (the original has none there), velocity -dir * 1.5 *
+    /// properties[SPEED], next_anim_id BACK1, turn_speed untouched. Returns
+    /// true on admission. SCOPE and DEFERRED markers as in `apply_go_front`.
+    pub fn apply_go_back(&mut self, car_is_car_actor: bool) -> bool {
+        if self.seated_in_car(car_is_car_actor) {
+            return false;
+        }
+        self.action_state = HUMAN_ACTION_WALK;
+        let speed = 1.5 * self.current_properties.speed_factor();
+        self.velocity = [
+            -self.dir[0] * speed,
+            -self.dir[1] * speed,
+            -self.dir[2] * speed,
+        ];
+        self.next_anim_id = ANIM_BACK1;
+        true
+    }
+    /// GAME 0x57d4d0 (RVA 0x17d4d0) C_human::Go_Left (mafia-re 113b5b6
+    /// game/actors/C_human.cpp:5409-5423): guarded no-op while seated in a
+    /// car; crouching, a carried box or a carried dead body force the walk
+    /// variant. Otherwise WALK with the turn stopped (turn_speed 0), the
+    /// strafe perpendicular velocity.x = -dir.z, velocity.z = dir.x,
+    /// velocity.y = dir.y scaled by (run ? 3.0 : 1.5) * properties[SPEED],
+    /// and next_anim_id STRAFRL1/STRAFL1. Returns true on admission. SCOPE
+    /// and DEFERRED markers as in `apply_go_front`.
+    pub fn apply_go_left(&mut self, run: bool, car_is_car_actor: bool) -> bool {
+        if self.seated_in_car(car_is_car_actor) {
+            return false;
+        }
+        let run =
+            run && !self.crouching && !self.carrying_box && !self.carrying_dead_body;
+        self.action_state = HUMAN_ACTION_WALK;
+        self.turn_speed = 0.0;
+        let base = if run { 3.0 } else { 1.5 };
+        let speed = base * self.current_properties.speed_factor();
+        self.velocity = [
+            -self.dir[2] * speed,
+            self.dir[1] * speed,
+            self.dir[0] * speed,
+        ];
+        self.next_anim_id = if run {
+            ANIM_STRAFRL1
+        } else {
+            ANIM_STRAFL1
+        };
+        true
+    }
+    /// GAME 0x57d5a0 (RVA 0x17d5a0) C_human::Go_Right (mafia-re 113b5b6
+    /// game/actors/C_human.cpp:5425-5439): mirror of Go_Left with velocity.x
+    /// = dir.z, velocity.z = -dir.x, velocity.y = dir.y scaled by (run ? 3.0
+    /// : 1.5) * properties[SPEED], next_anim_id STRAFRR1/STRAFR1, turn
+    /// stopped, same car-seat guard. Returns true on admission. SCOPE and
+    /// DEFERRED markers as in `apply_go_front`.
+    pub fn apply_go_right(&mut self, run: bool, car_is_car_actor: bool) -> bool {
+        if self.seated_in_car(car_is_car_actor) {
+            return false;
+        }
+        let run =
+            run && !self.crouching && !self.carrying_box && !self.carrying_dead_body;
+        self.action_state = HUMAN_ACTION_WALK;
+        self.turn_speed = 0.0;
+        let base = if run { 3.0 } else { 1.5 };
+        let speed = base * self.current_properties.speed_factor();
+        self.velocity = [
+            self.dir[2] * speed,
+            self.dir[1] * speed,
+            -self.dir[0] * speed,
+        ];
+        self.next_anim_id = if run {
+            ANIM_STRAFRR1
+        } else {
+            ANIM_STRAFR1
+        };
+        true
+    }
+    /// GAME 0x57f830 (RVA 0x17f830) C_human::Do_Aimed (mafia-re 113b5b6
+    /// game/actors/C_human.cpp:6079-6095): carrying a box or a dead body
+    /// clears the aim latch and returns; an aim request while changing the
+    /// weapon stages a ChangeWeaponModel marker; the latch takes `aim`;
+    /// leaving aim while guarding stages a DelExtendedAnim(4.0) marker and
+    /// clears the guard. Marker-only: the weapon-model/sound/kind effects
+    /// (ChangeWeaponModel, C_human.h:574) and the extended-animation effect
+    /// (DelExtendedAnim) stay with their owners (DEFERRED); the staged counts
+    /// and blend expose the calls. SCOPE: aim latch plus call markers only.
+    /// DEFERRED with explicit markers, no new owner here: collision, tick,
+    /// and the Do_Shoot/reload/change writers of the latch.
+    pub fn apply_do_aimed(&mut self, aim: bool) {
+        if self.carrying_box || self.carrying_dead_body {
+            self.aimed = false;
+            return;
+        }
+        if aim && self.changing_weapon {
+            self.change_weapon_model_calls += 1;
+        }
+        self.aimed = aim;
+        if !aim && self.guarding {
+            self.del_extended_anim_calls += 1;
+            self.del_extended_anim_blend = Some(4.0);
+            self.guarding = false;
+        }
+    }
+    /// GAME 0x57f9a0 (RVA 0x17f9a0) C_human::InventoryTruncate (mafia-re
+    /// 113b5b6 game/actors/C_human.cpp:6133-6140): clamp right_hand,
+    /// big_weapon and every pocket through the TruncateAmmo leaf. Delegates
+    /// to the inventory owner; the gameItemTable owner stays DEFERRED (the
+    /// caller supplies `num_game_items`/`ammo_limits`), as do collision and
+    /// tick.
+    pub fn apply_inventory_truncate(
+        &mut self,
+        num_game_items: u32,
+        ammo_limits: &dyn Fn(u16) -> Option<(u32, u32)>,
+    ) {
+        self.inventory
+            .apply_inventory_truncate(num_game_items, ammo_limits);
     }
     /// GAME 0x5808c0 (RVA 0x1808c0) C_human::Can_EnterToCar OWNED-CAR GUARD
     /// MARKER (mafia-re 113b5b6 game/actors/C_human.cpp:6373, ~54 lines):
