@@ -9535,6 +9535,42 @@
       "symbol": "lhr_engine::menu::MenuStack::find_list_next",
       "tier": "contract",
       "evidence": "List search (GAME 0x5eb4e0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x84d0",
+      "va": "0x4084d0",
+      "name": "C_actor::RotateDir (y)",
+      "symbol": "lhr_engine::native_transform::rotate_y",
+      "tier": "contract",
+      "evidence": "Horizontal-rotation lane per C_actor.cpp:1765 (GAME 0x4084d0); filed via native_transform re-export (itexture pub-use precedent); FSIN/FCOS spill and PC24 policy disclosed. Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x52f920",
+      "va": "0x92f920",
+      "name": "C_human ghost push leaf",
+      "symbol": "lhr_engine::human_actor::HumanState::push_ghost_coll",
+      "tier": "contract",
+      "evidence": "Ghost-coll staging push (GAME 0x52f920); promoted to pub for filing. Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x507b50",
+      "va": "0x907b50",
+      "name": "C_human ghost empty leaf",
+      "symbol": "lhr_engine::human_actor::HumanState::empty_ghost_colls",
+      "tier": "contract",
+      "evidence": "Ghost-coll empty (GAME 0x507b50); promoted to pub for filing. Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x57cfe0",
+      "va": "0x97cfe0",
+      "name": "C_human::DynSetNextCollOwnerMult (merge scope)",
+      "symbol": "lhr_engine::human_actor::HumanState::rebuild_next_coll_owners",
+      "tier": "contract",
+      "evidence": "colls+ghosts reversed merge (GAME 0x57cfe0); call plumbing deferred. Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {
