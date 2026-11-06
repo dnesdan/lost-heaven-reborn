@@ -535,4 +535,28 @@ mod tests {
         assert_eq!(q.point, [-0.5, 0.5, -0.5]);
         assert_eq!(q.best_distance_squared, 0.);
     }
+    #[test]
+    fn cross_matches_straight_line_x87_formula() {
+        // LS3DF RVA 0x2e360 (mafia-re ls3df/I3D/I3d_math.h:111, original name;
+        // PS2 Cross__8S_vectorCFRC8S_vector). Confirm-only: the existing
+        // collision_swept::cross already computes
+        // (y*v.z-z*v.y, z*v.x-x*v.z, x*v.y-y*v.x) with mul-then-sub order.
+        // Float policy: native is straight-line x87 with 80-bit
+        // intermediates; this port uses single-rounded f32 mul/sub under the
+        // PC24/RN guard. The vectors below are exactly representable, so both
+        // roundings coincide; general inexact inputs retain a one-ulp
+        // x87-vs-f32 proof obligation (disclosed, not established here).
+        // Domain divergence (disclosed): subnormal/overflowing lanes report
+        // NumericDomain here where native x87 yields denormals/Inf; exact
+        // vectors coincide.
+        assert_eq!(cross([1., 2., 3.], [4., 5., 6.]).unwrap(), [-3., 6., -3.]);
+        assert_eq!(cross([4., 5., 6.], [1., 2., 3.]).unwrap(), [3., -6., 3.]);
+        assert_eq!(cross([0., 0., 0.], [1., -2., 3.]).unwrap(), [0., 0., 0.]);
+        assert_eq!(cross([1., 0., 0.], [0., 1., 0.]).unwrap(), [0., 0., 1.]);
+        let large = 16_777_216_f32;
+        assert_eq!(
+            cross([large, 0., 0.], [0., large, 0.]).unwrap(),
+            [0., 0., large * large]
+        );
+    }
 }

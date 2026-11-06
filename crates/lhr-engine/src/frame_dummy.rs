@@ -5,7 +5,7 @@
 use crate::{
     frame_transform::{FrameKey, FrameKind, I3dFrameState},
     model_loading::{ModelArena, ModelError},
-    native_transform::SQuat,
+    native_transform::{SMatrix, SQuat},
     scene_weather_dummy::WEATHER_FLAG,
 };
 
@@ -171,6 +171,57 @@ impl ModelArena {
         self.frames[index].dummy_bounds = Some(bbox);
         Ok(())
     }
+    /// Original I3D_dummy::GetInvMatrix, PC RVA 0x68840 (differential: REA
+    /// formed Ghidra body FUN_10068840 5BB/60B/18insn; mafia-re
+    /// ls3df/I3D/I3D.h:1850, original Insanity3D-sourced name, not a working
+    /// name; render/T_l.cpp:6 copy-ordering caveat: the T_l.cpp copy sits after
+    /// EnvProcess, its first caller, while the original sits at the file end).
+    /// Order-exact: dummy_flags&0x10 (DUMMYF_INV_MAT_VALID) lazy gate returns
+    /// the cache, else sets 0x10 first, then the 0x20-gated UpdateWMatrixProc
+    /// path (RVA 0x1c7d0) via world_matrix, then S_matrix::Inverse (RVA
+    /// 0x2d0b0, reused native_matrix::inverse), returning the cache (native
+    /// this+0x158). The native Inverse boolean is discarded: a singular world
+    /// yields the identity, matching LinkTo. Flag stores use the existing
+    /// change_dummy_flags handling. Float policy: world and inverse run under
+    /// the guarded PC24/RN policy; an unavailable world or inverse retains
+    /// the already-set flag and marks the interrupted cache unavailable, so a
+    /// later read reports the same NumericDomain instead of a partial matrix.
+    pub fn dummy_inv_matrix(&mut self, key: FrameKey) -> Result<SMatrix, ModelError> {
+        if self.state(key)?.kind != FrameKind::Dummy {
+            return Err(ModelError::DummyFrameRequired(key));
+        }
+        if self.graph.state(key)?.dummy_flags & 0x10 != 0 {
+            if let Some(error) = self.graph.dummy_inv_failure(key)? {
+                return Err(ModelError::Frame(error));
+            }
+            if let Some(cached) = self.graph.dummy_inv_cached(key)? {
+                return Ok(cached);
+            }
+            // Flag set with neither error nor matrix is unreachable through
+            // this entry (flag and stores change together below); fall through
+            // recomputes rather than exposing a partial cache. Direct helper
+            // misuse (preset flag, empty cache) safely tightens to recompute.
+        } else {
+            self.graph.change_dummy_flags(key, 0, 0x10)?;
+        }
+        let result = (|| {
+            let world = self.graph.world_matrix(key)?;
+            let (inverse, _) = world.inverse().map_err(|_| {
+                crate::frame_transform::FrameError::NumericDomain("dummy GetInvMatrix inverse")
+            })?;
+            Ok(inverse)
+        })();
+        match result {
+            Ok(matrix) => {
+                self.graph.store_dummy_inv(key, Some(matrix), None)?;
+                Ok(matrix)
+            }
+            Err(error) => {
+                self.graph.store_dummy_inv(key, None, Some(error))?;
+                Err(ModelError::Frame(error))
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -333,6 +384,60 @@ mod tests {
         let model = arena.create_model().unwrap();
         assert!(matches!(
             arena.apply_dummy_load_image_fields(model.root(), [0.; 3], [1.; 3], rotation, 0, bbox),
+            Err(ModelError::DummyFrameRequired(_))
+        ));
+        arena.release(model.root()).unwrap();
+        arena.release(key).unwrap();
+        assert_eq!(arena.live_frame_count(), 0);
+    }
+    #[test]
+    fn dummy_inv_matrix_lazy_gate_caches_inverse_and_reports_singular_identity() {
+        // PC RVA 0x68840 (mafia-re ls3df/I3D/I3D.h:1850, original
+        // Insanity3D-sourced name; render/T_l.cpp:6 copy-ordering caveat): flag 0x10
+        // set first, then 0x20-gated world, then Inverse(0x2d0b0). Float
+        // policy: guarded PC24/RN world plus native_matrix::inverse; singular
+        // discards the boolean and returns identity.
+        let mut arena = ModelArena::default();
+        let key = arena.create_dummy_frame().unwrap();
+        assert_eq!(arena.state(key).unwrap().dummy_flags & 0x10, 0);
+        let first = arena.dummy_inv_matrix(key).unwrap();
+        assert_eq!(first, SMatrix::identity());
+        assert_eq!(arena.state(key).unwrap().dummy_flags & 0x10, 0x10);
+        arena.graph.assign_position(key, [5., 0., 0.]).unwrap();
+        let stale = arena.dummy_inv_matrix(key).unwrap();
+        assert_eq!(stale, SMatrix::identity());
+        arena.graph.dummy_update_v(key).unwrap();
+        assert_eq!(arena.state(key).unwrap().dummy_flags & 0x10, 0);
+        let refreshed = arena.dummy_inv_matrix(key).unwrap();
+        assert_eq!(refreshed.elements[0], 1.);
+        assert_eq!(refreshed.elements[5], 1.);
+        assert_eq!(refreshed.elements[10], 1.);
+        assert_eq!(refreshed.elements[12..15], [-5., 0., 0.]);
+        assert_eq!(arena.dummy_inv_matrix(key).unwrap(), refreshed);
+        arena.graph.assign_scale(key, [0., 0., 0.]).unwrap();
+        arena.graph.dummy_update_v(key).unwrap();
+        let singular = arena.dummy_inv_matrix(key).unwrap();
+        assert_eq!(singular, SMatrix::identity());
+        // Interrupted path: non-finite scale poisons the world, so the
+        // inverse reports NumericDomain with the flag retained and no cache;
+        // a second read reports the identical error without recompute.
+        arena.graph.assign_scale(key, [f32::NAN, 1., 1.]).unwrap();
+        arena.graph.dummy_update_v(key).unwrap();
+        let first_err = arena.dummy_inv_matrix(key).unwrap_err();
+        assert!(matches!(
+            first_err,
+            ModelError::Frame(crate::frame_transform::FrameError::NumericDomain(_))
+        ));
+        assert_eq!(arena.state(key).unwrap().dummy_flags & 0x10, 0x10);
+        assert!(arena.graph.dummy_inv_cached(key).unwrap().is_none());
+        let second_err = arena.dummy_inv_matrix(key).unwrap_err();
+        assert_eq!(format!("{first_err:?}"), format!("{second_err:?}"));
+        // Clearing the flag retries cold on the next call.
+        arena.graph.dummy_update_v(key).unwrap();
+        assert_eq!(arena.state(key).unwrap().dummy_flags & 0x10, 0);
+        let model = arena.create_model().unwrap();
+        assert!(matches!(
+            arena.dummy_inv_matrix(model.root()),
             Err(ModelError::DummyFrameRequired(_))
         ));
         arena.release(model.root()).unwrap();

@@ -7924,6 +7924,33 @@
       "symbol": "lhr_engine::occluder_visibility::pois_enum_proc",
       "tier": "differential",
       "evidence": "REA formed Ghidra body FUN_1003c480 25BB/386B + mafia-re 113b5b6 ls3df/I3D/frames/I3d_occluder.cpp:518 + I3D.h:2421 FUNCTION marker (PDB procedure name, no public symbol) + hand-derived render-number rollback/PORTAL-participation vectors, executed green (occluder_visibility 4 passed, lib suite 2670 passed + 1 pre-existing ph_thing_ai)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2ad00",
+      "va": "0x1002ad00",
+      "name": "I3D_visual::GetRenderMatrix",
+      "symbol": "lhr_engine::frame_transform::I3dFrameGraph::visual_render_matrix",
+      "tier": "differential",
+      "evidence": "REA formed Ghidra body FUN_1002ad00 5BB/40B/15insn (vis_flags&0x40 -> Identity, else 0x20-gated UpdateWMatrixProc 0x1c7d0, return this+0x10) + mafia-re 113b5b6 ls3df/I3D/I3D.h:2796 (working name, not original, per 'the name is a guess') + hand-derived identity/world-gate vectors in frame_transform tests [executed green: frame_transform module suite, 51 #[test], all passed]"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2e360",
+      "va": "0x1002e360",
+      "name": "S_vector::Cross",
+      "symbol": "lhr_engine::collision_swept::cross",
+      "tier": "differential",
+      "evidence": "REA formed Ghidra body FUN_1002e360 1BB/57B/21insn straight-line x87 + mafia-re 113b5b6 ls3df/I3D/I3d_math.h:109-113 (original name; PS2 Cross__8S_vectorCFRC8S_vector per :68) + confirm-only reuse of collision_swept::cross with hand-derived golden/zero/large vectors; x87 80-bit-intermediate vs f32 single-rounding one-ulp proof obligation disclosed, exact vectors coincide; subnormal/overflowing lanes report NumericDomain where native yields denormals/Inf (disclosed) [executed green: collision_swept module suite, 8 #[test], all passed]"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x68840",
+      "va": "0x10068840",
+      "name": "I3D_dummy::GetInvMatrix",
+      "symbol": "lhr_engine::frame_dummy::ModelArena::dummy_inv_matrix",
+      "tier": "differential",
+      "evidence": "REA formed Ghidra body FUN_10068840 5BB/60B/18insn (dummy_flags&0x10 lazy gate -> set 0x10 -> 0x20-gated UpdateWMatrixProc -> S_matrix::Inverse 0x2d0b0, return this+0x158) + mafia-re 113b5b6 ls3df/I3D/I3D.h:1850 (original Insanity3D-sourced name; render/T_l.cpp:6 copy-ordering caveat) + hand-derived lazy-gate/stale/singular vectors in frame_dummy tests [executed green: frame_dummy module suite, 7 #[test], all passed]"
     }
   ],
   "vm": {

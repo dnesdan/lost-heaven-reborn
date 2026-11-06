@@ -191,6 +191,13 @@ struct Node {
     world_error: Option<FrameError>,
     joint_error: Option<FrameError>,
     singlemesh_bound_error: Option<FrameError>,
+    /// Cached dummy inverse matrix for I3D_dummy::GetInvMatrix (PC RVA
+    /// 0x68840, native +0x158). Set only by the lazy getter; the 0x10 flag
+    /// is the validity bit.
+    dummy_inv: Option<SMatrix>,
+    /// Interrupted dummy inverse computation. Retains the native set-flag
+    /// order while keeping a partial matrix unavailable to later readers.
+    dummy_inv_error: Option<FrameError>,
 }
 #[derive(Clone, Copy, Debug)]
 struct Visit {
@@ -307,6 +314,8 @@ impl I3dFrameGraph {
             world_error: None,
             joint_error: None,
             singlemesh_bound_error: None,
+            dummy_inv: None,
+            dummy_inv_error: None,
         });
         // Retain bounded traversal storage so the scene charges all allocations
         // before ticking or lazily rendering; traversal cannot grow past nodes.
@@ -2018,6 +2027,25 @@ impl I3dFrameGraph {
         }
         Ok(self.state(key)?.world)
     }
+    /// Original I3D_visual::GetRenderMatrix, PC RVA 0x2ad00 (differential:
+    /// REA formed Ghidra body FUN_1002ad00 5BB/40B/15insn; mafia-re
+    /// ls3df/I3D/I3D.h:2796, working name not original per the header comment
+    /// "the name is a guess"). Order-exact thin wrapper: vis_flags&0x40
+    /// (VISF_WORLD_SPACE) returns the identity, else the 0x20-gated
+    /// UpdateWMatrixProc path (RVA 0x1c7d0) via world_matrix, returning the
+    /// world cache (native this+0x10). Reuses world_matrix and the existing
+    /// 0x40 world-space handling, not the billboard ProductBillMatrix camera
+    /// path. Callable on any frame key in this unified graph (world_matrix
+    /// itself is unguarded); native method exists only on I3D_visual. Float
+    /// policy: the identity arm is bit-exact with no arithmetic; the local
+    /// arm inherits the guarded PC24/RN world_matrix policy.
+    pub fn visual_render_matrix(&mut self, key: FrameKey) -> Result<SMatrix, FrameError> {
+        if self.state(key)?.visual_flags & 0x40 != 0 {
+            Ok(SMatrix::identity())
+        } else {
+            self.world_matrix(key)
+        }
+    }
     /// Original export0x1c7d0. An explicit stack preserves child-local-before-parent
     /// ordering without a host recursion limit or an invented native update budget.
     pub fn update_w_matrix_proc(&mut self, key: FrameKey) -> Result<(), FrameError> {
@@ -2203,6 +2231,35 @@ impl I3dFrameGraph {
         if self.state(key)?.flags & 0x4000_2000 != 0 {
             self.node_mut(key)?.state.dummy_flags &= !0x10;
         }
+        Ok(())
+    }
+    /// Cached dummy inverse matrix for I3D_dummy::GetInvMatrix (PC RVA
+    /// 0x68840). Helper: no function credit. Returns the stored matrix when
+    /// the lazy getter has populated it.
+    pub(crate) fn dummy_inv_cached(&self, key: FrameKey) -> Result<Option<SMatrix>, FrameError> {
+        Ok(self.node(key)?.dummy_inv)
+    }
+    /// Interrupted dummy inverse computation for I3D_dummy::GetInvMatrix.
+    /// Helper: no function credit.
+    pub(crate) fn dummy_inv_failure(
+        &self,
+        key: FrameKey,
+    ) -> Result<Option<FrameError>, FrameError> {
+        Ok(self.node(key)?.dummy_inv_error)
+    }
+    /// Store the dummy inverse outcome for I3D_dummy::GetInvMatrix. Helper:
+    /// no function credit. A failure clears the matrix so a partial native
+    /// store can never masquerade as a valid cache. Exactly one of the two
+    /// slots is Some (exclusive outcome); the single caller upholds it.
+    pub(crate) fn store_dummy_inv(
+        &mut self,
+        key: FrameKey,
+        matrix: Option<SMatrix>,
+        error: Option<FrameError>,
+    ) -> Result<(), FrameError> {
+        let node = self.node_mut(key)?;
+        node.dummy_inv = matrix;
+        node.dummy_inv_error = error;
         Ok(())
     }
     /// Original Update/recursive-child effects for model/standard-mesh/dummy/joint
@@ -3994,5 +4051,43 @@ mod tests {
         assert_eq!(graph.state(joint), Err(FrameError::UnknownFrame(joint)));
         assert_eq!(graph.singlemesh_binding(mesh).unwrap().joints(), &[None]);
         graph.destroy_frame(mesh).unwrap_err();
+    }
+    #[test]
+    fn visual_render_matrix_selects_identity_or_gated_world() {
+        // PC RVA 0x2ad00 (mafia-re ls3df/I3D/I3D.h:2796, working name per the
+        // header comment): vis_flags&0x40 returns identity, else the 0x20-gated
+        // world cache. Float policy: identity arm has no arithmetic; local arm
+        // inherits the guarded PC24/RN world_matrix policy.
+        let mut graph = I3dFrameGraph::default();
+        let key = graph.insert(I3dFrameState::mesh()).unwrap();
+        graph.assign_position(key, [3., 4., 5.]).unwrap();
+        let world = graph.world_matrix(key).unwrap();
+        assert_eq!(graph.visual_render_matrix(key).unwrap(), world);
+        assert_eq!(
+            graph.visual_render_matrix(key).unwrap().elements[12..15],
+            [3., 4., 5.]
+        );
+        graph.assign_position(key, [7., 0., 0.]).unwrap();
+        assert_eq!(graph.state(key).unwrap().flags & 0x20, 0);
+        assert_eq!(graph.visual_render_matrix(key).unwrap().elements[12], 7.);
+        graph.node_mut(key).unwrap().state.visual_flags |= 0x40;
+        graph.assign_position(key, [9., 9., 9.]).unwrap();
+        let before = *graph.state(key).unwrap();
+        assert_eq!(
+            graph.visual_render_matrix(key).unwrap(),
+            SMatrix::identity()
+        );
+        assert_eq!(*graph.state(key).unwrap(), before);
+        assert_eq!(
+            graph.visual_render_matrix(FrameKey(u32::MAX)),
+            Err(FrameError::UnknownFrame(FrameKey(u32::MAX)))
+        );
+        // Poisoned world errors propagate instead of returning a matrix.
+        graph.node_mut(key).unwrap().state.visual_flags &= !0x40;
+        graph.assign_scale(key, [f32::NAN, 1., 1.]).unwrap();
+        assert!(matches!(
+            graph.visual_render_matrix(key),
+            Err(FrameError::NumericDomain(_))
+        ));
     }
 }

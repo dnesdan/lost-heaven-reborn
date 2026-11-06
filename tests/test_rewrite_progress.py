@@ -88,15 +88,18 @@ class RewriteProgressTests(unittest.TestCase):
         # ledger-credited, no entries).
         # 2 wave-8 occluder pair (0x3c2e0 CullOcclsEachOther + 0x3c480
         # POIS_EnumProc, PDB static names, REA bodies 25BB/411B + 25BB/386B):
-        # both differential.", Tier rules applied: differential needs
+        # both differential.
+        # 3 wave-9 inline trio (0x2ad00 GetRenderMatrix working name +
+        # 0x2e360 Cross original + 0x68840 GetInvMatrix original; REA bodies
+        # 5BB/40B + 1BB/57B + 5BB/60B): all differential.", Tier rules applied: differential needs
         # a Ghidra body (or complete instruction walk) plus pinning tests —
         # this includes confirm-only bodies that corroborate a pre-existing
         # port (new evidence + tests on top); contract covers no-body walks,
         # ABI-only teardown bodies (vtable re-store + base tailjump, no
         # portable state effect), and partial-coverage ports. Same standard
         # as 0x2b830 throughout.
-        self.assertEqual(ls3df["ported"], 145 + 803)
-        self.assertEqual(ls3df["verified"], 145 + 255)
+        self.assertEqual(ls3df["ported"], 145 + 806)
+        self.assertEqual(ls3df["verified"], 145 + 258)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()
