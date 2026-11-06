@@ -102,10 +102,14 @@ cargo +1.99.1 run --locked -p lhr-engine -- --root "C:\Games\Mafia" --mission mi
 cargo +1.99.1 run --locked -p lhr-engine --features engine-lab -- --root "C:\Games\Mafia" --model models/taxi00.4ds --car-driving --lab
 ```
 
-These commands follow the current CLI and dependency configuration; no native
-Windows build, GPU, audio or interactive result has been recorded. `cargo
-+1.99.1 test --workspace --locked` runs the Rust tests, but does not replace
-all checks in `scripts/test.sh`.
+These commands follow the current CLI and dependency configuration. First
+recorded native Windows results at `5d22891` (Rust 1.99.1 MSVC + VS Build
+Tools, RX 6700 XT): `cargo check`/`cargo test`/`cargo build` pass, the MISE01
+CPU `--mission-load-probe` exits 0 (3183 objects / 293 actors, PrefixComplete),
+and the headless captures render (construction-site inspection view, textured
+skeletal Tommy). Audio and interactive input on Windows remain unverified.
+`cargo +1.99.1 test --workspace --locked` runs the Rust tests, but does not
+replace all checks in `scripts/test.sh`.
 
 ## macOS — build and Metal rendering tested; audio and interaction not yet
 
