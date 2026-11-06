@@ -159,7 +159,10 @@ class RewriteProgressTests(unittest.TestCase):
         # / GetTShift 0x547120).
         # +3 indexed sound tables (LoadTables 0x55f390 / ConstructSound
         # 0x55f820 / FreeTables 0x55ee00; parse helper has no RVA).
-        self.assertEqual(game["ported"], 149 + 296)
+        # +4 rnd/don_ocas/IShowDestroy wave (rnd_mod 0x408450 / rnd_unit
+        # 0x408470 / C_don_ocas ctor 0x44c640, dtor 0x44c680 honestly
+        # unfiled as no-observable-state / DestroyIShowAll 0x5b63b0).
+        self.assertEqual(game["ported"], 149 + 300)
         self.assertEqual(game["verified"], 149 + 7)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])

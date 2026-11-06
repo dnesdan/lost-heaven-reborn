@@ -10624,6 +10624,42 @@
       "symbol": "lhr_engine::indexed_sound_manager::cleanup_sound_manager",
       "tier": "contract",
       "evidence": "Table teardown (GAME 0x55ee00, tools.cpp:196). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x408450",
+      "va": "0x808450",
+      "name": "C_actor::rnd",
+      "symbol": "lhr_engine::game_housekeeping::rnd_mod",
+      "tier": "contract",
+      "evidence": "Caller-supplied rand % n, n<1 to 0 (GAME 0x408450). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x408470",
+      "va": "0x808470",
+      "name": "C_actor::rnd",
+      "symbol": "lhr_engine::game_housekeeping::rnd_unit",
+      "tier": "contract",
+      "evidence": "Caller-supplied rand scaled by 1/RAND_MAX (GAME 0x408470). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x44c640",
+      "va": "0x844c640",
+      "name": "C_don_ocas::C_don_ocas",
+      "symbol": "lhr_engine::traffic_generator::DonOcasKind::new",
+      "tier": "contract",
+      "evidence": "Actor-type tag store (GAME 0x44c640); empty dtor 0x44c680 unfiled (no observable state). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x5b63b0",
+      "va": "0x9b63b0",
+      "name": "C_game::DestroyIShowAll",
+      "symbol": "lhr_engine::ishow_renderer::cgame_destroy_ishow_all",
+      "tier": "contract",
+      "evidence": "Videos/fades/film teardown (GAME 0x5b63b0). Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {
