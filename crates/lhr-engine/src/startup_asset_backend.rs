@@ -590,6 +590,90 @@ mod tests {
         assert_eq!(backend.open_file_count(), 0);
         assert_eq!(backend.open_file(b"missing.txt"), Ok(None));
     }
+
+    /// Env-gated real-data startup prefix: runs only when
+    /// LHR_ORIGINAL_INSTALLATION is set, otherwise it skips. To reach the
+    /// graph owner it requires the required archives plus equality of the
+    /// resulting two-byte version values from tables/version.txt and
+    /// patch/version.txt, where both missing still yields `??` == `??`. A
+    /// missing required archive, a missing a1 lookup, or a version mismatch
+    /// interrupts with a different Unsupported before the graph owner.
+    /// NativeFiles::new itself does not check completeness. This is not
+    /// completed startup and claims no graphics, sound, profile, mission,
+    /// content, or archive-content reads were proven; it only checks the
+    /// prefix retains its genuine owners and leaks no version streams.
+    #[test]
+    fn real_installation_prefix_stops_at_first_unsupported_graph_owner() {
+        use crate::original_config::OriginalConfig;
+        use crate::original_system::SystemState;
+        let Some(root) =
+            std::env::var_os("LHR_ORIGINAL_INSTALLATION").map(std::path::PathBuf::from)
+        else {
+            eprintln!("SKIP: LHR_ORIGINAL_INSTALLATION is not set; needs the original game data");
+            return;
+        };
+        // Same admission budgets as Installation::open: 64 MiB selected-read
+        // quota and 256 MiB catalog/retention budget.
+        let provider = NativeFiles::new(&root, 64 * 1024 * 1024, 256 * 1024 * 1024).expect(
+            "LHR_ORIGINAL_INSTALLATION must open as a native provider (completeness is checked by init_system, not by NativeFiles::new)",
+        );
+        let mut backend = StartupAssetBackend::new(&provider);
+        let mut state = SystemState::default();
+        let mut fatal = 0xa5;
+        let result = state.init_system(
+            &mut backend,
+            &OriginalConfig::default(),
+            SystemHandle(1),
+            &mut fatal,
+        );
+        // Graph owner boundary, reached only with the required archives and
+        // equal resulting two-byte versions (both missing yields `??`). The
+        // exact prefix effects (archives + version reads) already executed;
+        // nothing was rolled back or faked. A missing required archive, a
+        // missing a1 lookup, or a version mismatch interrupts with a different
+        // Unsupported before this owner.
+        assert_eq!(
+            result,
+            Err(SystemError::Unsupported("original IGraph startup owner"))
+        );
+        // Required archive slots are live; slot 1 (b8.dta) is the only
+        // original optional slot. The backend retains exactly those owners and
+        // no version streams leak.
+        for (index, slot) in state.archives.iter().enumerate() {
+            if index != 1 {
+                assert!(
+                    slot.is_some(),
+                    "required real archive slot {index} must be retained; needs required archives and equal two-byte versions"
+                );
+            }
+        }
+        assert_eq!(
+            backend.archive_count(),
+            state.archives.iter().flatten().count()
+        );
+        assert!(backend.archive_count() >= 13);
+        assert_eq!(backend.open_file_count(), 0);
+        assert_eq!((state.graph, state.sound, state.driver), (None, None, None));
+        assert_eq!(fatal, 0xa5);
+        // Host test cleanup only, not the original CloseSystem path (never
+        // exercised here): explicitly Release each genuine owner through the
+        // real owner path, then invalidate the local SystemState slot after
+        // each successful release so the local handle cannot be reused. Then
+        // host disposal. Unreleased owners would fail the Some(0) check inside
+        // Release or linger in archive_count.
+        for slot in state.archives.iter_mut() {
+            if let Some(handle) = *slot {
+                backend
+                    .effect(SystemEffect::ReleaseArchive(handle))
+                    .expect("real archive Release must succeed");
+                *slot = None;
+            }
+        }
+        assert!(state.archives.iter().all(|slot| slot.is_none()));
+        assert_eq!(backend.archive_count(), 0);
+        assert_eq!(backend.open_file_count(), 0);
+        provider.shutdown().unwrap();
+    }
 }
 
 /// Binds the mission's caller-owned allocator to this startup provider. The
