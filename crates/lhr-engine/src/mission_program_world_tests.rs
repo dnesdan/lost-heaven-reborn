@@ -1318,3 +1318,181 @@ fn program_set_event_via_world_sets_jump_and_act_state() {
     assert!(world2.program_set_event(base_actor, 60001).unwrap());
     assert_eq!(world2.state(base_actor).unwrap().state_1c, 7);
 }
+
+#[test]
+fn init_detector_programs_compiles_fresh_detector_sources_through_context() {
+    use crate::actor_world::{
+        ActorAllocationBackend, ActorCollectionBackend, ActorSource, ActorStorageId, ActorWorld,
+        BaseActorSeed, DetectorSeed, SourceBacking,
+    };
+    use crate::model_loading::ModelArena;
+    use crate::original_program::{
+        ProgramAllocation, ProgramBackend, ProgramBuffer, ProgramSeed,
+    };
+
+    struct Heap {
+        next: u32,
+        program_next: u64,
+    }
+    fn base_seed() -> BaseActorSeed {
+        BaseActorSeed {
+            word_0e: 0,
+            actor_id: 0,
+            state_1c: 0,
+            bytes_21_5f: [0; 63],
+            bytes_64_65: [0; 2],
+            byte_67: 0,
+            release_frame: 0,
+            bytes_6d_6f: [0; 3],
+        }
+    }
+    impl ActorAllocationBackend for Heap {
+        fn allocate_actor(&mut self, bytes: u32) -> Result<Option<(u32, BaseActorSeed)>, String> {
+            assert_eq!(bytes, 0x70);
+            self.next += 1;
+            Ok(Some((self.next, base_seed())))
+        }
+        fn allocate_detector(
+            &mut self,
+            bytes: u32,
+        ) -> Result<Option<(u32, BaseActorSeed, DetectorSeed)>, String> {
+            assert_eq!(bytes, 0x128);
+            self.next += 1;
+            Ok(Some((
+                self.next,
+                base_seed(),
+                DetectorSeed {
+                    program: ProgramSeed {
+                        address_high_byte: 0,
+                        padding_0d: [0; 3],
+                        words_1c_2c: [0; 5],
+                        padding_31: [0; 3],
+                        word_40: 0,
+                        bytes_64: [0; 4],
+                    },
+                    bytes_d8_ef: [0; 24],
+                    word_f4: 0,
+                    bytes_105_107: [0; 3],
+                    bytes_118_127: [0; 16],
+                },
+            )))
+        }
+    }
+    impl ActorCollectionBackend for Heap {
+        fn allocate_collection(
+            &mut self,
+            _: &ActorWorld,
+            _: ActorSource,
+            _: u32,
+        ) -> Result<ActorStorageId, String> {
+            Ok(ActorStorageId(2))
+        }
+        fn free_collection(
+            &mut self,
+            _: &ActorWorld,
+            _: ActorSource,
+            _: Option<ActorStorageId>,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+    }
+    impl ProgramBackend for Heap {
+        fn allocate(
+            &mut self,
+            _: &crate::original_program::CProgram,
+            _: ProgramBuffer,
+            _: u32,
+        ) -> Result<ProgramAllocation, String> {
+            self.program_next += 1;
+            Ok(ProgramAllocation(self.program_next))
+        }
+        fn free(
+            &mut self,
+            _: &crate::original_program::CProgram,
+            _: ProgramBuffer,
+            _: Option<ProgramAllocation>,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    let backing = SourceBacking {
+        storage: Some(ActorStorageId(1)),
+        capacity: 16,
+    };
+    let mut world = ActorWorld::new(0, 0, backing, backing, backing).unwrap();
+    let mut heap = Heap {
+        next: 0,
+        program_next: 0,
+    };
+    let detector = world.create_actor(5, &mut heap).unwrap().unwrap();
+    // Non-detector actors are skipped by the init pass, mirroring entities.
+    world.create_actor(1, &mut heap).unwrap().unwrap();
+    // The live Init owns the program owner link; the fixture assigns it
+    // explicitly like the entity pass test, then the pass compiles around it.
+    let mut program = world.take_detector_program(detector).unwrap().unwrap();
+    program
+        .set_source_code(Some(b"dim_act 1\ndetector_setsignal -1, 1"), &mut heap)
+        .unwrap();
+    program.set_owner(Some(detector)).unwrap();
+    world.return_detector_program(detector, Some(program)).unwrap();
+    let mut arena = ModelArena::default();
+    let mut scene = crate::script_scheduler::FrameReferenceId::from_existing(1);
+    let mut effects = Effects::default();
+    let mut diagnostic = Diagnostic::default();
+    let mut context = MissionProgramWorldContext::new(
+        &mut arena,
+        &mut scene,
+        &mut effects,
+        &mut diagnostic,
+        locales(),
+    );
+    // The init pass compiles the sourceless-runtime program and leaves
+    // initialized programs untouched; the program stays with its owner.
+    assert_eq!(context.init_detector_programs(&mut world), Ok(1));
+    assert!(world.detector(detector).unwrap().program().is_some_and(
+        |program| program.runtime().is_some()
+    ));
+    assert_eq!(
+        world
+            .detector(detector)
+            .unwrap()
+            .program()
+            .unwrap()
+            .owner(),
+        Some(detector)
+    );
+    assert_eq!(context.init_detector_programs(&mut world), Ok(0));
+    // The context borrows the effects backend; release it before arming the
+    // failure injection below.
+    drop(context);
+    // A failing effects backend reports the runtime error yet restores the
+    // taken program to its owner (return-on-every-path, mirroring entities):
+    // a second fresh detector still needs its first Init when the backend
+    // refuses the working-source allocation.
+    let detector2 = world.create_actor(5, &mut heap).unwrap().unwrap();
+    let mut program2 = world.take_detector_program(detector2).unwrap().unwrap();
+    program2
+        .set_source_code(Some(b"dim_act 1"), &mut heap)
+        .unwrap();
+    program2.set_owner(Some(detector2)).unwrap();
+    world
+        .return_detector_program(detector2, Some(program2))
+        .unwrap();
+    effects.fail = Some(RuntimeEffect::AllocateWorkingSource(
+        // Working-source size is the C-string length plus its NUL.
+        b"dim_act 1".len() + 1,
+    ));
+    let mut context = MissionProgramWorldContext::new(
+        &mut arena,
+        &mut scene,
+        &mut effects,
+        &mut diagnostic,
+        locales(),
+    );
+    assert!(matches!(
+        context.init_detector_programs(&mut world),
+        Err(crate::mission_content_loading::program_world::DetectorTickError::Runtime(_))
+    ));
+    assert!(world.detector(detector2).unwrap().program().is_some());
+}

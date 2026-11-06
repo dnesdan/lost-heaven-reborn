@@ -143,6 +143,59 @@ impl<'a, B: RuntimeBackend, D: MissionProgramDiagnostic> MissionProgramWorldCont
         }
         Ok(initialized)
     }
+    /// Compile every Ready detector actor's embedded program that has source
+    /// but no runtime yet, in ownership order. Each program is taken out of
+    /// its actor, initialized through this context's effects backend, and
+    /// returned on every path including failed inits. This mirrors the entity
+    /// init pass for the C_detector::GameInit (mafia-re 113b5b6
+    /// game/actors/C_detector.cpp:44-58, GAME 0x432a00) C_program::Init prefix
+    /// (GAME 0x461580): detector sources decode with the base table because
+    /// C_detector::DecodeInstruction/DecodeParams forward to C_program
+    /// (C_detector.cpp:433ce0-433d00). Like the entity pass, the caller must
+    /// run under a Pc24PrecisionState scope so transcendental boundary
+    /// admissions can record responsibility. Already-initialized programs are
+    /// left untouched and uncounted. The GameInit body beyond the Init prefix,
+    /// GameDone, the detector tick (C_detector::Process GAME 0x433d10 needs
+    /// the live active-actor enumeration) and program owner assignment (owned
+    /// by Init, mirroring the entity owner link) stay DEFERRED.
+    pub fn init_detector_programs(
+        &mut self,
+        world: &mut ActorWorld,
+    ) -> Result<usize, DetectorTickError> {
+        let actors: Vec<ActorReferenceId> = world.owned_actor_references().collect();
+        let mut initialized = 0usize;
+        for actor in actors {
+            if world.phase(actor) != Ok(ActorPhase::Ready) {
+                continue;
+            }
+            if world.detector(actor).is_err() {
+                continue;
+            }
+            let program = world
+                .take_detector_program(actor)
+                .map_err(|_| DetectorTickError::Actor(actor))?;
+            let Some(mut program) = program else {
+                continue;
+            };
+            let freshly_initialized = program.runtime().is_none();
+            let result = if freshly_initialized {
+                program
+                    .init_fresh_runtime(&mut *self.effects)
+                    .map(|_| ())
+                    .map_err(DetectorTickError::Runtime)
+            } else {
+                Ok(())
+            };
+            world
+                .return_detector_program(actor, Some(program))
+                .map_err(|_| DetectorTickError::Actor(actor))?;
+            result?;
+            if freshly_initialized {
+                initialized += 1;
+            }
+        }
+        Ok(initialized)
+    }
     /// Step every Ready entity actor's embedded program once against the live
     /// world, in ownership order, sharing one budget. Each program is taken
     /// out of its actor, run through this context, and returned on every path
@@ -421,6 +474,16 @@ impl<D: MissionProgramDiagnostic> RuntimeLookupWorld for MissionLookupWorld<'_, 
 /// A failed tick still returns the taken program before reporting.
 #[derive(Debug, PartialEq, Eq)]
 pub enum EntityTickError {
+    Actor(ActorReferenceId),
+    Runtime(RuntimeError),
+}
+
+/// One detector-actor init pass failed: which actor, and the init error.
+/// A failed init still returns the taken program before reporting. This
+/// mirrors [`EntityTickError`] for the detector transport; the detector tick
+/// itself stays deferred with C_detector::Process.
+#[derive(Debug, PartialEq, Eq)]
+pub enum DetectorTickError {
     Actor(ActorReferenceId),
     Runtime(RuntimeError),
 }

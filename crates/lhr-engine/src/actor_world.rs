@@ -193,9 +193,14 @@ pub struct DetectorSeed {
 /// Actual source-only C_detector storage owned by the same actor incarnation.
 /// The optional program is taken only during a serialized payload operation;
 /// actor phase prevents same-actor reentry while context reads the live owner.
-/// DEFERRED (no credit, untouched here): vtable admission beyond
-/// construct_detector, C_detector::Process/InRange dispatch, GameInit/GameDone,
-/// and the CreateColls/EraseColls/CreateUO collision owners.
+/// Admitted: construct_detector, C_detector::Init via the generic init prefix
+/// (base init plus the +0xd8 human_types zero and program owner assignment),
+/// C_program::Init/Compile via init_fresh_runtime with the base table, and
+/// the take/return_detector_program transport.
+/// DEFERRED (no credit, untouched here): the C_detector::GameInit body beyond
+/// the C_program::Init prefix (unknown_65 handling, DebustizeFrame, signal
+/// and flag nulling), GameDone, C_detector::Process/InRange dispatch, and the
+/// CreateColls/EraseColls/CreateUO collision owners.
 #[derive(Debug)]
 pub struct DetectorState {
     program: Option<CProgram>,
@@ -1596,8 +1601,8 @@ impl ActorWorld {
     /// byte is untouched, matching the single-byte native store. Requires a
     /// Ready actor so construction/loading reentry stays rejected; the native
     /// body itself performs no phase check.
-    /// DEFERRED (no credit): C_detector::Process/InRange dispatch, GameInit/
-    /// GameDone, vtable admission beyond construct_detector, and the
+    /// DEFERRED (no credit): C_detector::Process/InRange dispatch, the
+    /// GameInit body beyond the C_program::Init prefix, GameDone, and the
     /// CreateColls/EraseColls/CreateUO collision owners.
     pub fn set_detector_signal(
         &mut self,
@@ -3318,6 +3323,40 @@ impl ActorWorld {
             .entity
             .as_mut()
             .ok_or(ActorWorldError::NotEntity)?
+            .program = program;
+        Ok(())
+    }
+    /// Take a detector actor's embedded program for one init pass. The actor
+    /// keeps its identity and phase; only the program moves. The caller must
+    /// return it through [`Self::return_detector_program`] on every path,
+    /// including failed inits: dropping a live program is host cleanup, never
+    /// a sanctioned native free. This mirrors [`Self::take_entity_program`]
+    /// for the C_detector::GameInit (mafia-re 113b5b6
+    /// game/actors/C_detector.cpp:44-58, GAME 0x432a00) C_program::Init prefix
+    /// (GAME 0x461580); the GameInit body beyond that prefix, GameDone and
+    /// C_detector::Process dispatch (GAME 0x433d10) stay DEFERRED.
+    pub fn take_detector_program(
+        &mut self,
+        actor: ActorReferenceId,
+    ) -> Result<Option<CProgram>, ActorWorldError> {
+        let i = self.ready(actor)?;
+        Ok(self.actors[i]
+            .detector
+            .as_mut()
+            .ok_or(ActorWorldError::NotDetector)?
+            .program
+            .take())
+    }
+    pub fn return_detector_program(
+        &mut self,
+        actor: ActorReferenceId,
+        program: Option<CProgram>,
+    ) -> Result<(), ActorWorldError> {
+        let i = self.index(actor)?;
+        self.actors[i]
+            .detector
+            .as_mut()
+            .ok_or(ActorWorldError::NotDetector)?
             .program = program;
         Ok(())
     }
@@ -5934,6 +5973,47 @@ mod tests {
         );
         // The rejected store must not touch base bytes.
         assert_eq!(w.state(a).unwrap().bytes_64_65, [0x65; 2]);
+    }
+    #[test]
+    fn detector_program_transport_round_trips_through_the_authoritative_owner() {
+        // Take/return mirror the entity transport for the C_detector::GameInit
+        // C_program::Init prefix; only the program moves, never the actor.
+        let mut w = world();
+        let mut e = Effects::default();
+        let detector = w
+            .construct_detector(9, seed(), detector_seed(), &mut e)
+            .unwrap();
+        let program = w.take_detector_program(detector).unwrap();
+        assert!(program.is_some());
+        assert!(w.detector(detector).unwrap().program().is_none());
+        assert!(w.take_detector_program(detector).unwrap().is_none());
+        w.return_detector_program(detector, program).unwrap();
+        assert!(w.detector(detector).unwrap().program().is_some());
+        // A resolved non-detector reports the type gate on both directions.
+        // (matches!, not assert_eq!: the taken program payload has no
+        // equality impl, like the stale-actor gates below.)
+        let base = w.construct_base(7, seed(), &mut e).unwrap();
+        assert!(matches!(
+            w.take_detector_program(base),
+            Err(ActorWorldError::NotDetector)
+        ));
+        assert_eq!(
+            w.return_detector_program(base, None),
+            Err(ActorWorldError::NotDetector)
+        );
+        // Stale actors propagate on both directions.
+        let stale = ActorReferenceId::from_existing(999);
+        assert!(matches!(
+            w.take_detector_program(stale),
+            Err(ActorWorldError::StaleActor(_))
+        ));
+        assert!(matches!(
+            w.return_detector_program(stale, None),
+            Err(ActorWorldError::StaleActor(_))
+        ));
+        // A consumed (None) return is a valid empty store on the same owner.
+        w.return_detector_program(detector, None).unwrap();
+        assert!(w.detector(detector).unwrap().program().is_none());
     }
     #[test]
     fn detector_init_keeps_derived_identity_while_base_callbacks_change_attachment() {

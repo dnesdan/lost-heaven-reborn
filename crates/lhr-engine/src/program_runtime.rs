@@ -9,11 +9,14 @@
 //! arena switch with deferred device side effects, and the detector
 //! SETSIGNAL store plus the ISSIGNAL signal jump (both ride Process
 //! GAME 0x46d3b0; no new entry RVA). DETECTOR_INRANGE stays deferred: it
-//! needs live actor positions plus the active-actor enumeration.
+//! needs the live active-actor enumeration plus actor positions and the
+//! ENTITY/PLAYER human-type read, which no lookup owner serves yet.
 //! Recording and remaining unsupported commands still stop when reached.
-//! Fresh compilation admits base and entity sources (entity word-count
-//! admission only); detector sources stay refused and no derived dispatch runs:
-//! entity opcodes stop at UnsupportedCommand and CallSubroutine stays base-only.
+//! Fresh compilation admits base, entity and detector sources (detector
+//! decodes with the base table, entity with its table plus base fallback;
+//! entity word-count admission only); no derived dispatch runs:
+//! entity opcodes stop at UnsupportedCommand, detector Process dispatch stays
+//! deferred, and CallSubroutine stays base-only.
 //! Unsupported dependencies retain reached state and never become no-op success.
 //! Saved-code chains, repeated Init and runtime-owning source destruction remain
 //! outside admission. Explicit host discard releases actual Rust allocations;
@@ -1916,13 +1919,19 @@ impl CProgram {
     ) -> Result<CompileProgress, RuntimeError> {
         // Base programs decode with the 398-keyword table; entity programs
         // decode embedded AI sources with the entity table plus base fallback
-        // (word-count admission only). Detector programs stay refused, and no
+        // (word-count admission only). Detector programs decode with the base
+        // table: C_detector::DecodeInstruction/DecodeParams forward to
+        // C_program (mafia-re 113b5b6 game/actors/C_detector.cpp:433ce0-433d00),
+        // so this admits the C_detector::GameInit (GAME 0x432a00)
+        // C_program::Init prefix (GAME 0x461580 plus Compile 0x46c770). No
         // vtable executes derived dispatch: entity opcodes stop at
-        // UnsupportedCommand and CallSubroutine stays base-only.
+        // UnsupportedCommand, detector Process (GAME 0x433d10, INRANGE and its
+        // sibling arms) stays deferred, and CallSubroutine stays base-only.
         let decoder = match self.vtable {
-            ProgramVtable::Base => crate::program_instructions::InstructionDecoder::Base,
+            ProgramVtable::Base | ProgramVtable::Detector => {
+                crate::program_instructions::InstructionDecoder::Base
+            }
             ProgramVtable::Entity => crate::program_instructions::InstructionDecoder::Entity,
-            _ => return Err(RuntimeError::UnsupportedDerivedRuntime(self.vtable)),
         };
         if self.runtime.is_some() || self.runtime_started || self.phase != ProgramPhase::Source {
             return Err(RuntimeError::Domain("fresh source program required"));
@@ -1999,8 +2008,10 @@ impl CProgram {
     /// Original CallSubroutine (RVA0x6cbc0): reset the actual program's PC,
     /// empty-return cursor and owner, enable continuation, then synchronously
     /// enter its owned CallProcess with delta1. No diagnostic program or state
-    /// copy is constructed. Entity CallProcess remains unadmitted: compiled
-    /// entity sources stop at UnsupportedCommand on dispatch and here.
+    /// copy is constructed. Entity/Detector CallSubroutine remain unadmitted:
+    /// compiled entity sources stop at UnsupportedCommand on dispatch and
+    /// here; admitted detector runtimes run C_program::Process only, never
+    /// C_detector::Process dispatch (GAME 0x433d10 stays deferred).
     pub fn call_owned_subroutine<B: RuntimeBackend>(
         &mut self,
         budget: &mut DispatchBudget,
@@ -3607,7 +3618,9 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                 // zatmyse (234). Decode admitted via RemainingParameter;
                 // execution is a no-op advance for now (car, player etc remain stubs).
                 // DEFERRED: detector_inrange (29) needs the live active-actor
-                // enumeration plus actor positions, which no lookup owner serves yet.
+                // enumeration plus actor positions and the ENTITY/PLAYER
+                // human-type read, which no lookup owner serves yet (native
+                // C_detector::Process GAME 0x433d10).
             }
             57 => {
                 // Original CMD_GETACTORSDIST (mafia-re 113b5b6

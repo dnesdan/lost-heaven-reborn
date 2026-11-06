@@ -646,25 +646,61 @@ fn initially_oversized_request_uses_callback_reloaded_allowed_parameter() {
     p.discard_runtime_host().unwrap();
 }
 #[test]
-fn derived_program_source_lifetime_survives_explicit_base_runtime_admission_rejection() {
+fn detector_source_compiles_with_base_table_but_refuses_subroutine_entry() {
+    // C_detector::DecodeInstruction/DecodeParams forward to C_program
+    // (mafia-re 113b5b6 game/actors/C_detector.cpp:433ce0-433d00), so the
+    // C_detector::GameInit (GAME 0x432a00) C_program::Init prefix admits
+    // detector sources with the base table. Detector Process dispatch (GAME
+    // 0x433d10) stays deferred: INRANGE rides the Remaining no-op advance,
+    // and CallSubroutine stays base-only.
     let mut memory = Memory::default();
-    let mut p = program(b"dim_act 2", &mut memory);
+    let mut p = program(
+        b"dim_act 2\ndetector_setsignal -1, 1\ndetector_inrange 0, 10",
+        &mut memory,
+    );
     p.set_detector_vtable();
     let before = p.source().unwrap().bytes.clone();
     memory.events.clear();
+    let progress = p.init_fresh_runtime(&mut memory).unwrap();
+    assert_eq!(
+        progress,
+        CompileProgress {
+            errors: 0,
+            accepted: 3
+        }
+    );
+    assert!(p.runtime().is_some());
+    assert!(p.runtime_started);
+    assert_eq!(p.vtable(), ProgramVtable::Detector);
+    assert_eq!(p.source().unwrap().bytes, before);
+    // A repeated Init refuses with the source lifetime intact.
     assert_eq!(
         p.init_fresh_runtime(&mut memory),
+        Err(RuntimeError::Domain("fresh source program required"))
+    );
+    assert!(p.runtime().is_some());
+    assert_eq!(p.source().unwrap().bytes, before);
+    // Subroutine entry stays base-only for derived programs.
+    assert_eq!(
+        p.call_owned_subroutine(&mut DispatchBudget::new(8).unwrap(), &mut memory),
         Err(RuntimeError::UnsupportedDerivedRuntime(
             ProgramVtable::Detector
         ))
     );
-    assert!(p.runtime().is_none());
-    assert!(!p.runtime_started);
-    assert_eq!(p.vtable(), ProgramVtable::Detector);
-    assert_eq!(p.source().unwrap().bytes, before);
-    assert!(memory.events.is_empty());
-    p.set_source_code(Some(b"dim_frm 3"), &mut memory).unwrap();
-    assert_eq!(p.source().unwrap().c_bytes(), Some(b"dim_frm 3".as_slice()));
+    // The admitted INRANGE advances without effect (Remaining no-op); the
+    // counting dispatch over the live active actors stays deferred.
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 2);
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 3);
+    let report = p.discard_runtime_host().unwrap();
+    assert_eq!(report.pair_allocations, 1);
+    assert_eq!(report.remaining_allocations, 1);
     p.destruct(&mut memory).unwrap();
     assert_eq!(p.phase(), ProgramPhase::Dead);
 }
