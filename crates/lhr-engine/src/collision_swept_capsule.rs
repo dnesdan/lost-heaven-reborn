@@ -24,7 +24,10 @@ use crate::{
     collision_dispatch::CollisionPrimitive,
     collision_swept::{normalized, SphereParam, SphereSweepError, SphereSweepRequest},
     collision_swept_world::sphere_in_tree_level,
-    human_move_coll::TestMoveCollProbe,
+    human_move_coll::{
+        test_move_coll_hit_result, test_move_coll_miss_result, test_move_coll_prefix,
+        TestMoveCollProbe,
+    },
 };
 
 /// Static projection of tgcPanak2 bytes 0x0-0x40: the three sphere centres with their radii share
@@ -124,6 +127,64 @@ pub fn panak2_static_once(
     }))
 }
 
+/// Pure glue outcome of one C_human::TestMoveColl static pass: the selected
+/// result vector plus the winning static hit, if any. `result` is the only
+/// value the original returns by value; the deferred move_coll (0x414)
+/// writeback would consume `hit` elsewhere.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TestMoveCollStaticOutcome {
+    pub result: [f32; 3],
+    pub hit: Option<Panak2StaticHit>,
+}
+
+/// Glue between the two landed units, no new RVA (recorded in comments
+/// only): GAME 0x57cb60 (RVA 0x17cb60) C_human::TestMoveColl with GAME
+/// 0x5d59c0 (RVA 0x1d59c0) g_collision::TestPanak2. Game.exe SHA-256
+/// 08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27,
+/// base 0x400000. Reviewed upstream assembly order, never vendored:
+/// mafia-re 113b5b6 game/actors/C_human.cpp:5274-5308 (prefix leaves ->
+/// DynSetNextCollOwnerMult -> TestPanak2 -> miss from+dir / hit pos_out-0.4).
+/// Runs human_move_coll::test_move_coll_prefix, then the single static pass
+/// panak2_static_once over the caller-supplied candidates, then the owned
+/// result selection: a miss returns test_move_coll_miss_result(from, dir)
+/// with the original UNBIASED displacement (the biased sweep direction stays
+/// inside the request only), a hit returns test_move_coll_hit_result of the
+/// winning pos_out (pos_out.y - 0.4). Centres are caller-supplied already-
+/// anchored values, not read here.
+/// DEFERRED with explicit markers, no new owner here: frame anchoring of
+/// legs/body/head (GetWorldPos/GetWorldDir), DynSetNextCollOwnerMult and
+/// colls/ghost_colls plumbing around the sweep, is_player resolution against
+/// act_mission/game player (the caller supplies the bool), flags2-to-selector
+/// mapping (the caller supplies the static selector; dynamic dispatch stays
+/// out), the slide/iterate loop around this single pass, the DAT_00648240
+/// global, the 0x5ca370 clamp, TestPanak2InVehicle, and the C_human move_coll
+/// (0x414) writeback.
+pub fn test_move_coll_static_result(
+    candidates: &[CollisionPrimitive],
+    alive: bool,
+    crouching: bool,
+    is_player: bool,
+    from: [f32; 3],
+    dir: [f32; 3],
+    legs: [f32; 3],
+    body: [f32; 3],
+    head: [f32; 3],
+    selector: i32,
+) -> Result<TestMoveCollStaticOutcome, SphereSweepError> {
+    let prefix = test_move_coll_prefix(alive, crouching, is_player, from, dir);
+    let req = Panak2Request::from_prefix(legs, body, head, &prefix, selector);
+    match panak2_static_once(candidates, &req)? {
+        Some(hit) => Ok(TestMoveCollStaticOutcome {
+            result: test_move_coll_hit_result(hit.pos_out),
+            hit: Some(hit),
+        }),
+        None => Ok(TestMoveCollStaticOutcome {
+            result: test_move_coll_miss_result(from, dir),
+            hit: None,
+        }),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -132,6 +193,21 @@ mod tests {
     fn floor(identity: u32) -> CollisionPrimitive {
         CollisionPrimitive::Triangle(Triangle {
             properties: 3,
+            vertices: [[-2., 0., -2.], [-2., 0., 2.], [2., 0., -2.]],
+            plane: [0., -1., 0., 0.],
+            identity,
+        })
+    }
+
+    /// Mask-clean floor for the glued result mapping: the real prefix flags
+    /// (0x80002, effective 0x80022 after the worker's | 0x20 augmentation in
+    /// SphereParam::new) reject any primitive sharing a mask bit under the
+    /// owned reject-on-overlap rule, so the proven properties=3 fixture would
+    /// miss here by mask, not by geometry. Flag-filtering semantics beyond
+    /// the mask stay DEFERRED; this fixture pins only the miss/hit mapping.
+    fn floor_unflagged(identity: u32) -> CollisionPrimitive {
+        CollisionPrimitive::Triangle(Triangle {
+            properties: 0,
             vertices: [[-2., 0., -2.], [-2., 0., 2.], [2., 0., -2.]],
             plane: [0., -1., 0., 0.],
             identity,
@@ -213,5 +289,102 @@ mod tests {
         assert_eq!(req.delta, [0.5, -0.265, -1.]);
         assert_eq!(req.reject_mask, 0x80002);
         assert_eq!(req.selector, -1);
+    }
+
+    #[test]
+    fn static_result_miss_keeps_unbiased_dir() {
+        // Hand-derived from C_human.cpp:5300-5301 with the mask-clean floor
+        // (upward geometry misses; the proven properties=3 floor would also
+        // miss here by mask, so the unflagged fixture isolates geometry):
+        // the sweep runs the biased direction ([0, 3.985, 0] from
+        // dir [0, 4, 0]) upward into a miss, while the returned result adds
+        // the original unbiased displacement. All miss arithmetic below is
+        // exact binary fractions.
+        let candidates = [floor_unflagged(7)];
+        let from = [1., 2., 3.];
+        let dir = [0., 4., 0.];
+        let outcome = test_move_coll_static_result(
+            &candidates,
+            true,
+            false,
+            false,
+            from,
+            dir,
+            [-0.5, 2., -0.5],
+            [-0.5, 2.5, -0.5],
+            [-0.5, 3., -0.5],
+            -1,
+        )
+        .unwrap();
+        assert_eq!(outcome.hit, None);
+        assert_eq!(outcome.result, [1., 6., 3.]);
+        assert_eq!(
+            outcome.result,
+            crate::human_move_coll::test_move_coll_miss_result(from, dir)
+        );
+    }
+
+    #[test]
+    fn static_result_hit_subtracts_legs_radius() {
+        // Hand-derived from C_human.cpp:5303 with the mask-clean floor
+        // fixture (the proven properties=3 floor would miss here by mask,
+        // not geometry; see floor_unflagged): dir [0, -4, 0] sweeps biased
+        // [0, -4.015, 0] down through the floor, so legs (contact 1.6) beats
+        // body (2.25) and head (2.65) and the result drops the winning
+        // pos_out by the legs radius on y only. The exact stopped height is
+        // not hand-pinned (0.4 is not a binary fraction); the wiring
+        // assertions below check the owned 0.4 leaf by construction instead.
+        let candidates = [floor_unflagged(7)];
+        let from = [1., 2., 3.];
+        let dir = [0., -4., 0.];
+        let outcome = test_move_coll_static_result(
+            &candidates,
+            true,
+            false,
+            false,
+            from,
+            dir,
+            [-0.5, 2., -0.5],
+            [-0.5, 2.5, -0.5],
+            [-0.5, 3., -0.5],
+            -1,
+        )
+        .unwrap();
+        let hit = outcome.hit.expect("downward sweep over the floor hits");
+        assert_eq!(hit.sphere, 0);
+        assert_eq!(
+            outcome.result,
+            crate::human_move_coll::test_move_coll_hit_result(hit.pos_out)
+        );
+        assert_eq!(outcome.result[0], hit.pos_out[0]);
+        assert_eq!(outcome.result[2], hit.pos_out[2]);
+        assert_eq!(
+            outcome.result[1],
+            hit.pos_out[1] - crate::human_move_coll::TEST_MOVE_COLL_RESULT_DROP
+        );
+    }
+
+    #[test]
+    fn static_result_empty_candidates_misses() {
+        // Hand-derived from C_human.cpp:5300-5301: with no candidates the
+        // downward sweep that hits the floor above must still miss, returning
+        // from + unbiased dir ([1, -2, 3], exact binary fractions).
+        let from = [1., 2., 3.];
+        let dir = [0., -4., 0.];
+        let outcome = test_move_coll_static_result(
+            &[],
+            true,
+            false,
+            false,
+            from,
+            dir,
+            [-0.5, 2., -0.5],
+            [-0.5, 2.5, -0.5],
+            [-0.5, 3., -0.5],
+            -1,
+        )
+        .unwrap();
+        assert_eq!(outcome.hit, None);
+        assert_eq!(outcome.result, [1., -2., 3.]);
     }
 }
