@@ -705,6 +705,9 @@ pub const SHVSTATE_NONE: u32 = 0;
 /// Arrest state raised by `ForceArrest` (`SHVSTATE_ARREST`, mafia-re
 /// game/ai/C_shvestky.h:36).
 pub const SHVSTATE_ARREST: u32 = 2;
+/// Kill state raised by the sixth `NextNaSrackySoudruh` run-over
+/// (`SHVSTATE_KILL`, mafia-re game/ai/C_shvestky.h:37, 106-108).
+pub const SHVSTATE_KILL: u32 = 3;
 
 /// `SHVF_FIRE` 0x2: `Firing`'s bit, cleared once `fire_time` runs out
 /// (mafia-re game/ai/C_shvestky.h:17).
@@ -751,6 +754,22 @@ pub const FIRING_ENTRY: u32 = 0x49cb20;
 pub const HUMAN_BOXING_ENTRY: u32 = 0x49d030;
 /// `C_shvestky::ForceArrest` 0x49d130.
 pub const FORCE_ARREST_ENTRY: u32 = 0x49d130;
+/// `C_shvestky::NextNaSrackySoudruh` 0x49d220.
+pub const RUN_OVER_ENTRY: u32 = 0x49d220;
+/// `C_shvestky::JakPicusNaTomJest` 0x49d390.
+pub const STATUS_WORD_ENTRY: u32 = 0x49d390;
+/// `C_shvestky::GetCrashTime` 0x49d3e0.
+pub const CRASH_TIME_ENTRY: u32 = 0x49d3e0;
+/// `C_shvestky::GetFireTime` 0x49d420.
+pub const FIRE_TIME_ENTRY: u32 = 0x49d420;
+/// `C_shvestky::PocetNasranych` 0x49d460.
+pub const ANGRY_COUNT_ENTRY: u32 = 0x49d460;
+/// `C_shvestky::PocetNasranychZivych` 0x49d4b0.
+pub const ANGRY_ALIVE_COUNT_ENTRY: u32 = 0x49d4b0;
+/// `C_shvestky::PocetPrestupku` 0x49d520.
+pub const OFFENSES_ENTRY: u32 = 0x49d520;
+/// `C_shvestky::NeviDoKterePiceVlezl` 0x49d560.
+pub const NEVI_ENTRY: u32 = 0x49d560;
 
 pub fn send_police_backup(
     _human: PoliceHumanId,
@@ -890,6 +909,83 @@ impl PolicePursuitRecord {
             self.new_state = SHVSTATE_ARREST;
         }
     }
+
+    /// Record effect of `C_shvestky::NextNaSrackySoudruh` 0x49d220 (mafia-re
+    /// game/ai/C_shvestky.cpp:988-991 is a log-only stub; effect per
+    /// game/ai/C_shvestky.h:106-108: the driver's `run_over` count, 6 making
+    /// a `CarCollision` hit of a human `SHVSTATE_KILL`). Counts one more
+    /// run-over; at six raises `state` (and `new_state`, which
+    /// `CreateShvestkyTest` at game/ai/C_shvestky.cpp:640-663 would promote)
+    /// to `SHVSTATE_KILL`. Exact hit arbitration inside `CarCollision` stays
+    /// deferred with the game/actor owners; this is the marker-only contract.
+    pub fn record_run_over(&mut self) {
+        self.run_over = self.run_over.wrapping_add(1);
+        if self.run_over >= 6 {
+            self.state = SHVSTATE_KILL;
+            if self.new_state < SHVSTATE_KILL {
+                self.new_state = SHVSTATE_KILL;
+            }
+        }
+    }
+
+    /// Original `C_shvestky::JakPicusNaTomJest` 0x49d390 record read
+    /// (mafia-re game/ai/C_shvestky.cpp:784-788 is a log-only stub; read per
+    /// game/ai/C_shvestky.h:211: the record's `state`, 0 without a record).
+    /// The human-to-record lookup needs the game owner and stays deferred;
+    /// this is the marker-only contract over the owned record.
+    pub fn status_word(&self) -> u32 {
+        self.state
+    }
+
+    /// Original `C_shvestky::GetCrashTime` 0x49d3e0 record read (mafia-re
+    /// game/ai/C_shvestky.cpp:791-795 is a log-only stub; read per
+    /// game/ai/C_shvestky.h:69, 214: the record's `crash_time`).
+    pub fn crash_time(&self) -> u32 {
+        self.crash_time
+    }
+
+    /// Original `C_shvestky::GetFireTime` 0x49d420 record read (mafia-re
+    /// game/ai/C_shvestky.cpp:798-802 is a log-only stub; read per
+    /// game/ai/C_shvestky.h:66, 215: the record's `fire_time`, paired with
+    /// `record_firing`).
+    pub fn fire_time(&self) -> u32 {
+        self.fire_time
+    }
+
+    /// Original `C_shvestky::PocetPrestupku` 0x49d520 record read (mafia-re
+    /// game/ai/C_shvestky.cpp:1000-1004 is a log-only stub; read per
+    /// game/ai/C_shvestky.h:74-75, 213: the record's `offenses` count).
+    pub fn offenses(&self) -> u32 {
+        self.offenses
+    }
+
+    /// Original `C_shvestky::NeviDoKterePiceVlezl` 0x49d560 record read
+    /// (mafia-re game/ai/C_shvestky.cpp:819-823 is a log-only stub; read per
+    /// game/ai/C_shvestky.h:94, 218-220: the record's `nevi` flag).
+    pub fn is_nevi(&self) -> bool {
+        self.nevi
+    }
+}
+
+/// Original `C_shvestky::PocetNasranych` 0x49d460 (mafia-re
+/// game/ai/C_shvestky.cpp:805-809 is a log-only stub; count per
+/// game/ai/C_shvestky.h:111-113, 216: the length of the human's `nasrany`
+/// list). The human-to-record lookup needs the game owner and stays
+/// deferred; this is the marker-only contract over the caller-owned list.
+pub fn angry_count(angry: &[PoliceActorId]) -> usize {
+    angry.len()
+}
+
+/// Original `C_shvestky::PocetNasranychZivych` 0x49d4b0 (mafia-re
+/// game/ai/C_shvestky.cpp:812-816 is a log-only stub; count per
+/// game/ai/C_shvestky.h:111-113, 217: the `nasrany` actors that are not dead
+/// via `C_actor::GetDead`). The host owns actors and supplies the deadness
+/// probe; the human-to-record lookup stays deferred with the game owner.
+pub fn angry_alive_count(
+    angry: &[PoliceActorId],
+    is_dead: impl Fn(PoliceActorId) -> bool,
+) -> usize {
+    angry.iter().copied().filter(|&actor| !is_dead(actor)).count()
 }
 
 /// Original `C_shvestky::ReleaseWantedHuman` 0x49f850: clears the human's
@@ -1670,6 +1766,48 @@ mod tests {
         record.new_state = 3;
         record.record_force_arrest();
         assert_eq!(record.new_state, 3);
+    }
+
+    #[test]
+    fn record_run_over_counts_and_raises_kill_at_six() {
+        let mut record = PolicePursuitRecord::new(7);
+        record.record_run_over();
+        assert_eq!(record.run_over, 1);
+        assert_eq!(record.state, SHVSTATE_NONE);
+        assert_eq!(record.status_word(), SHVSTATE_NONE);
+        record.run_over = 5;
+        record.record_run_over();
+        assert_eq!(record.run_over, 6);
+        assert_eq!(record.state, SHVSTATE_KILL);
+        assert_eq!(record.new_state, SHVSTATE_KILL);
+        assert_eq!(record.status_word(), SHVSTATE_KILL);
+    }
+
+    #[test]
+    fn record_status_crash_fire_offenses_nevi_read_fields() {
+        let mut record = PolicePursuitRecord::new(7);
+        record.state = SHVSTATE_ARREST;
+        assert_eq!(record.status_word(), SHVSTATE_ARREST);
+        record.crash_time = 1234;
+        assert_eq!(record.crash_time(), 1234);
+        record.record_firing(4000);
+        assert_eq!(record.fire_time(), 4000);
+        record.offenses = 2;
+        assert_eq!(record.offenses(), 2);
+        assert!(!record.is_nevi());
+        record.nevi = true;
+        assert!(record.is_nevi());
+    }
+
+    #[test]
+    fn angry_counts_length_and_live_filter() {
+        assert_eq!(angry_count(&[]), 0);
+        assert_eq!(angry_count(&[11]), 1);
+        assert_eq!(angry_count(&[11, 13, 17]), 3);
+        let angry = vec![11u32, 13, 17];
+        assert_eq!(angry_alive_count(&angry, |actor| actor == 13), 2);
+        assert_eq!(angry_alive_count(&[], |_| true), 0);
+        assert_eq!(angry_alive_count(&angry, |_| false), 3);
     }
 
     #[test]
