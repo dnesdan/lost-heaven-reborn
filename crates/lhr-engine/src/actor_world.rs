@@ -201,9 +201,10 @@ pub struct DetectorSeed {
 /// flags, signal). The tick transport itself lives on the mission program
 /// world.
 /// DEFERRED (no credit, untouched here): the C_detector::GameInit body beyond
-/// the C_program::Init prefix (unknown_65 handling, DebustizeFrame, signal
-/// and flag nulling), GameDone, and the CreateColls/EraseColls/CreateUO
-/// collision owners.
+/// the latch-nulling slice (C_actor::GameInit call, actor=self assignment,
+/// C_program::Init, unknown_65 handling, DebustizeFrame) and the coll-pointer
+/// nulling (colls/matrices, num), GameDone, and the CreateColls/EraseColls/
+/// CreateUO collision owners.
 #[derive(Debug)]
 pub struct DetectorState {
     program: Option<CProgram>,
@@ -256,6 +257,17 @@ impl DetectorState {
     /// complete behavior.
     pub fn set_signal(&mut self, on: bool) {
         self.signal = on;
+    }
+    /// Owned slice of C_detector::GameInit (mafia-re game/actors/
+    /// C_detector.cpp:44-62, GAME 0x432a00): null the signal and the
+    /// wait_for_hit/dyn_colls latches. The C_actor::GameInit call, the
+    /// actor=self assignment, C_program::Init, unknown_65 handling,
+    /// DebustizeFrame and the coll-pointer nulling (colls/matrices, num)
+    /// stay with their future owners.
+    pub fn apply_game_init(&mut self) {
+        self.signal = false;
+        self.wait_for_hit = false;
+        self.dyn_colls = false;
     }
     pub fn data_d8(&self) -> u32 {
         u32::from_le_bytes(self.bytes_d8_ef[..4].try_into().unwrap())
@@ -3448,6 +3460,23 @@ impl ActorWorld {
             .program = program;
         Ok(())
     }
+    /// Owned slice of C_detector::GameInit (mafia-re game/actors/
+    /// C_detector.cpp:44-62, GAME 0x432a00): null the signal and the
+    /// wait_for_hit/dyn_colls latches. The C_actor::GameInit call, the
+    /// actor=self assignment, C_program::Init, unknown_65 handling,
+    /// DebustizeFrame and the coll-pointer nulling stay with future owners.
+    pub fn game_init_detector(
+        &mut self,
+        actor: ActorReferenceId,
+    ) -> Result<(), ActorWorldError> {
+        let i = self.ready(actor)?;
+        self.actors[i]
+            .detector
+            .as_mut()
+            .ok_or(ActorWorldError::NotDetector)?
+            .apply_game_init();
+        Ok(())
+    }
     /// Original C_actor::SetActState: store the ACTSTATE_* word. The +0x1c
     /// identity follows C_actor.h (act_state at 0x1c, 0 from Init, matching
     /// the zeroed real seeds); only this writer treats the word as act state.
@@ -6048,6 +6077,30 @@ mod tests {
         assert!(!w.detector(a).unwrap().get_signal());
         assert_eq!(w.detector_signal(a), Ok(false));
         assert_eq!(w.state(a).unwrap().bytes_64_65, [0x65, 0]);
+    }
+    #[test]
+    fn detector_game_init_nulls_signal_and_collision_latches() {
+        // Owned slice of C_detector::GameInit (GAME 0x432a00,
+        // C_detector.cpp:44-62): the signal + wait_for_hit/dyn_colls
+        // nulling. Base calls and coll-pointer nulling stay deferred.
+        use crate::script_lookup::DetectorCollisionFlags;
+        let mut w = world();
+        let mut e = Effects::default();
+        let a = w
+            .construct_detector(9, seed(), detector_seed(), &mut e)
+            .unwrap();
+        w.set_detector_signal(a, true).unwrap();
+        w.set_detector_collision_flags(
+            a,
+            DetectorCollisionFlags {
+                wait_for_hit: true,
+                dyn_colls: true,
+            },
+        )
+        .unwrap();
+        w.game_init_detector(a).unwrap();
+        let latched = w.detector(a).unwrap();
+        assert!(!latched.signal && !latched.wait_for_hit && !latched.dyn_colls);
     }
     #[test]
     fn detector_signal_rejects_non_detector_owner() {
