@@ -221,7 +221,10 @@ pub enum BeginLink {
     CarFrame,
     /// C_RAILWAY_IN/P_BEHIND_23: `LinkTo(link)` (I3D owner).
     Link,
-    /// CP_SNIPER: HUD indicator swap (HUD owner; no relink).
+    /// CP_SNIPER: HUD indicator swap (HUD owner; no relink). The native arm is
+    /// `mafiaIndicators.show_flags &= ~INDF_CROSSHAIR; show_flags |=
+    /// INDF_SNIPER` (`game/camera/g_camera.cpp:1213-1215`); the owned
+    /// transition is `crate::indicators::IndicatorsState::apply_camera_begin_sniper`.
     Sniper,
     /// DEATH: `cameraInDeath`/`interpInDeath`/`destInDeath` snapshot plus relink
     /// to the primary sector (future death Tick-block unit + I3D owner).
@@ -261,7 +264,12 @@ pub enum BeginOutcome {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct EndApplied {
-    /// CP_SNIPER arm: HUD indicators back to CROSSHAIR. DEFERRED (HUD owner).
+    /// CP_SNIPER arm: HUD indicators back to CROSSHAIR. The native arm is
+    /// `mafiaIndicators.show_flags &= ~INDF_SNIPER; show_flags |=
+    /// INDF_CROSSHAIR` (`game/camera/g_camera.cpp:1238-1240`); the owned
+    /// transition is
+    /// `crate::indicators::IndicatorsState::apply_camera_end_sniper`.
+    /// DEFERRED (HUD owner).
     pub sniper_hud_restore: bool,
     /// C_RAILWAY_IN/P_BEHIND_23 arms: relink to the primary sector. DEFERRED.
     pub relink_primary: bool,
@@ -739,5 +747,34 @@ mod tests {
             Err(CameraBeginError::UnavailableOwner)
         );
         assert_eq!(need_look, 0x5555_5555);
+    }
+    #[test]
+    fn sniper_swap_routes_through_hud_owner() {
+        // `Begin` selects the sniper arm by mode alone; the flag swap itself
+        // is owned by `IndicatorsState` (`g_camera.cpp:1213-1215,1238-1240`).
+        use crate::indicators::{IndicatorsState, TimerClock, INDF_CROSSHAIR, INDF_SNIPER};
+        let mut bytes = camera_with(0x1000, 0x2000, 0x3000, CAMERA_CP_SNIPER, 0, 0);
+        let mut need_look = 0u32;
+        match begin(&mut bytes, &mut need_look).unwrap() {
+            BeginOutcome::Applied(applied) => assert_eq!(applied.link, BeginLink::Sniper),
+            BeginOutcome::NoCamera => panic!("expected Applied"),
+        }
+        let mut hud = IndicatorsState::constructed(TimerClock {
+            hour: 0,
+            minute: 0,
+            second: 0,
+        });
+        hud.set_flags(INDF_CROSSHAIR);
+        hud.apply_camera_begin_sniper();
+        assert!(!hud.is_shown(INDF_CROSSHAIR));
+        assert!(hud.is_shown(INDF_SNIPER));
+        // `End` still sees the sniper mode and classifies the restore.
+        match end(&bytes).unwrap() {
+            EndOutcome::Classified(applied) => assert!(applied.sniper_hud_restore),
+            EndOutcome::NoCamera => panic!("expected Classified"),
+        }
+        hud.apply_camera_end_sniper();
+        assert!(hud.is_shown(INDF_CROSSHAIR));
+        assert!(!hud.is_shown(INDF_SNIPER));
     }
 }

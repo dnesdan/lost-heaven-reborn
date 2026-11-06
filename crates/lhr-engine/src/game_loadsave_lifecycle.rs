@@ -42,11 +42,21 @@ impl crate::mission_components::CameraProfile for ProfileState {
 
 /// Every call is a required actual-owner capability. The PC source ignores
 /// menu-mission Open's native result, but the backend must still perform it.
+/// The three HUD calls are owned by `crate::indicators::IndicatorsState`
+/// (see `crate::indicators::IndicatorsLoadSave`): `create_indicators` is
+/// `G_IndicatorsClass::Create` (GAME 0x5f70e0, `g_indicators.cpp:256`),
+/// `clear_indicator_slot_40a4` is the direct `show_flags = 0` store at member
+/// 0x40a4 (`G_LoadSaveClass::Init` GAME 0x604ee0, `g_loadsave.cpp:120`), and
+/// `destroy_indicators` is `G_IndicatorsClass::Destroy` (GAME 0x5f7250,
+/// `g_indicators.cpp:298`).
 pub trait LoadSaveEffects {
     type Error;
     fn all_default(&mut self, profile: &mut ProfileState) -> Result<(), Self::Error>;
+    /// HUD owner `create`: `IndicatorsState::create` (GAME 0x5f70e0).
     fn create_indicators(&mut self) -> Result<(), Self::Error>;
     fn resolution_changed(&mut self) -> Result<(), Self::Error>;
+    /// HUD owner slot clear: `IndicatorsState::clear_flags_slot` (direct
+    /// `show_flags` member 0x40a4 zero store, `g_loadsave.cpp:120`).
     fn clear_indicator_slot_40a4(&mut self) -> Result<(), Self::Error>;
     fn enumerate_profiles(&mut self, profile: &mut ProfileState) -> Result<(), Self::Error>;
     fn null_timer(&mut self) -> Result<(), Self::Error>;
@@ -54,6 +64,7 @@ pub trait LoadSaveEffects {
     fn execute_profile_select(&mut self) -> Result<i32, Self::Error>;
     fn profile_load(&mut self, profile: &mut ProfileState) -> Result<(), Self::Error>;
     fn profile_save(&mut self, profile: &ProfileState) -> Result<(), Self::Error>;
+    /// HUD owner `destroy`: `IndicatorsState::destroy` (GAME 0x5f7250).
     fn destroy_indicators(&mut self) -> Result<(), Self::Error>;
     fn unload_text(&mut self) -> Result<(), Self::Error>;
     fn close_car_database(&mut self) -> Result<(), Self::Error>;

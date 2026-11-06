@@ -36,7 +36,7 @@ pub enum InitStep {
     SoundAndLightness,
     /// `GlobalProgramGameInit` then `Run("GameInitStart")`.
     GlobalProgramStart,
-    /// `mafiaIndicators.GameInit`.
+    /// `mafiaIndicators.GameInit` (game.cpp:334).
     IndicatorsGameInit,
     /// Box pools, static particles, `Mission_Start`, web `DeRiciConns`,
     /// force-feedback init.
@@ -236,7 +236,10 @@ impl InitOperations for crate::mission_load_session::MissionLoadSession {
             InitStep::GlobalProgramStart => {
                 Err(SessionInitError::unavailable(step, "program-runtime"))
             }
-            InitStep::IndicatorsGameInit => Err(SessionInitError::unavailable(step, "indicators")),
+            InitStep::IndicatorsGameInit => Err(SessionInitError::unavailable(
+                step,
+                "indicators HUD (IndicatorsState::game_init_texture_plan/apply, GAME 0x5f73c0; no HUD field on this session yet)",
+            )),
             InitStep::EffectsStart => Err(SessionInitError::unavailable(step, "effects start")),
             InitStep::DiffClear => Err(SessionInitError::unavailable(step, "diff pools")),
             InitStep::BloodAndFramePools => {
@@ -263,7 +266,10 @@ impl InitOperations for crate::mission_load_session::MissionLoadSession {
             InitStep::RmorfAndDriverRestore => {
                 Err(SessionInitError::unavailable(step, "rmorf restore"))
             }
-            InitStep::PlayerHud => Err(SessionInitError::unavailable(step, "player HUD")),
+            InitStep::PlayerHud => Err(SessionInitError::unavailable(
+                step,
+                "player HUD clamp (IndicatorsState::apply_player_hud, game.cpp:937-947; no HUD/human fields on this session yet)",
+            )),
             InitStep::BuffersAndPrograms => {
                 Err(SessionInitError::unavailable(step, "program-runtime"))
             }
@@ -361,5 +367,31 @@ mod tests {
                 .unwrap()]
         );
         assert_eq!(attempt.run(&mut ops), Err(InitRunError::AlreadyEntered));
+    }
+
+    #[test]
+    fn indicators_steps_delegate_to_hud_owner() {
+        // The session still lacks the HUD field, so its own arms stay
+        // unavailable; the live owner contract is `IndicatorsInit`, which
+        // executes exactly the two indicator-owned steps.
+        use crate::indicators::{IndicatorsInit, IndicatorsState, TimerClock, INDF_PLAYER};
+        let mut state = IndicatorsState::constructed(TimerClock {
+            hour: 9,
+            minute: 0,
+            second: 0,
+        });
+        let mut ops = IndicatorsInit {
+            state: &mut state,
+            night_mission: false,
+            speedometer_mph: true,
+            player_energy_fraction: Some(0.5),
+        };
+        ops.execute(InitStep::IndicatorsGameInit).unwrap();
+        assert_eq!(ops.state.dial_asset(), Some("2intmph.tga"));
+        ops.execute(InitStep::PlayerHud).unwrap();
+        assert_eq!(ops.state.show_flags(), INDF_PLAYER);
+        assert_eq!(ops.state.lives(), 50);
+        let error = ops.execute(InitStep::PoliceBeginShift).unwrap_err();
+        assert_eq!(error.step, InitStep::PoliceBeginShift);
     }
 }

@@ -596,10 +596,17 @@ impl CutsceneOwner {
     }
 
     /// Explicit terminal host cleanup for this interrupted prefix, NOT native
-    /// C_cutscene::Close (which requires actual game/HUD/actor dependencies).
-    /// Releases input allocations retained here. A transferred manager pool and
-    /// retained record objects require separate terminal ActorWorld cleanup;
-    /// no native actor cleanup or playing-state transition is performed.
+    /// C_cutscene::Close (GAME 0x59c6a0, `game/mission/C_recorder.cpp:517-591`)
+    /// which requires actual game/HUD/actor dependencies. Releases input
+    /// allocations retained here. The HUD-owned subset of `Close`
+    /// (`SetOverlayTexture(NULL, ...)`, `SetOverlayFade(0, 0)`,
+    /// `ParheliaSetCenter(false)`, `SubtitlesClear` and
+    /// `SetFlags(show_flags & ~INDF_CUTSCENE)` at `C_recorder.cpp:552-553`
+    /// and `:588-590`) is owned by
+    /// `crate::indicators::IndicatorsState::apply_recorder_close`. A
+    /// transferred manager pool and retained record objects require separate
+    /// terminal ActorWorld cleanup; no native actor cleanup or
+    /// playing-state transition is performed.
     pub fn discard_prefix(self) -> CutscenePrefixDiscard {
         CutscenePrefixDiscard {
             source_bytes_released: self.source.as_ref().map_or(0, CutsceneSource::source_len),

@@ -109,6 +109,7 @@ pub mod human_actor;
 pub mod human_move_coll;
 pub mod i3d_object;
 pub mod indexed_sound_manager;
+pub mod indicators;
 pub mod input_keyboard;
 pub mod inspection_lod;
 pub mod interpolator;
