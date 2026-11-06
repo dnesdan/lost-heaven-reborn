@@ -120,7 +120,14 @@ class RewriteProgressTests(unittest.TestCase):
         # +5 movement/HUD/detector wave, all contract (Movement dispatch
         # 0x57a710 / MovementIntern core 0x57b660 / InOwner probe 0x57d0e0 /
         # player-HUD step 0x5a0810 / Detector GameInit latch scope 0x432a00).
-        self.assertEqual(game["ported"], 149 + 210)
+        # +21 textdb/mission-options/police wave, all contract (TextDB ctor
+        # 0x60fa40 / dtor 0x60fa50 / Load 0x60fa60 / Unload 0x60fb10 / GetText
+        # 0x60fb40 / GetOrNull 0x60fba0; LOD 0x545b20 / DrawDist 0x545b60 /
+        # Effects 0x545ba0 / Sounds 0x545bd0 / Shadows 0x545c00 / GetShadows
+        # 0x545c60 / Particles 0x545cb0; run_over 0x49d220 / status 0x49d390 /
+        # crash 0x49d3e0 / fire 0x49d420 / angry 0x49d460+0x49d4b0 / offenses
+        # 0x49d520 / nevi 0x49d560).
+        self.assertEqual(game["ported"], 149 + 231)
         self.assertEqual(game["verified"], 149 + 7)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
