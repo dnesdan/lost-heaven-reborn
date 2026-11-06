@@ -1069,3 +1069,56 @@ mod tests {
         owner.discard_prefix();
     }
 }
+
+// ---------------------------------------------------------------------------
+// Cutscene Close videolist branch: overlay reset triple (pure state, no device).
+//
+// C_recorder::Close clears the cutscene fade and picture over the scene
+// (mafia-re game/mission/C_recorder.cpp:552-553) through the HUD's
+// SetOverlayTexture(NULL, false, false) and SetOverlayFade(0.0f, 0)
+// (GAME 0x5fa410/0x5fa430, game/ui/g_indicators.cpp:1231-1235/1238-1251).
+// The canonical state and the device texture load stay with
+// `crate::indicators::IndicatorsState`; this helper only publishes the exact
+// Close triple so the videolist branch carries no HUD or device claims.
+
+/// Pure overlay reset published by the cutscene Close videolist branch.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CutsceneCloseOverlayReset {
+    pub texture_name: Option<Vec<u8>>,
+    pub texture_opaque: bool,
+    pub texture_reload: bool,
+    pub fade: f32,
+    pub fade_color: u32,
+}
+
+/// The Close overlay reset triple: NULL picture without opaque or reload, and
+/// a zero fade with color zero (mafia-re game/mission/C_recorder.cpp:552-553).
+/// Applying it to the HUD owner is deferred with the device texture load.
+pub fn cutscene_close_overlay_reset() -> CutsceneCloseOverlayReset {
+    CutsceneCloseOverlayReset {
+        texture_name: None,
+        texture_opaque: false,
+        texture_reload: false,
+        fade: 0.0,
+        fade_color: 0,
+    }
+}
+
+#[cfg(test)]
+mod cutscene_close_overlay_reset_tests {
+    use super::*;
+
+    #[test]
+    fn close_overlay_reset_matches_recorder_close_triple() {
+        assert_eq!(
+            cutscene_close_overlay_reset(),
+            CutsceneCloseOverlayReset {
+                texture_name: None,
+                texture_opaque: false,
+                texture_reload: false,
+                fade: 0.0,
+                fade_color: 0,
+            }
+        );
+    }
+}
