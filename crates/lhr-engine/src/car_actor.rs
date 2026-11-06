@@ -29,6 +29,20 @@ pub struct CarSeed {
     pub vehicle_allocator_tag: u8,
 }
 
+/// Marker-only vehicle door open request (GAME 0x4cda20 `C_Vehicle::OpenDoor`;
+/// mafia-re 113b5b6 `game/vehicles/C_Vehicle.cpp:213-217`). `door` is the
+/// script door index (`C_program.cpp:4925-4926` bounds it by `GetNumSeats()`;
+/// `C_human.cpp:865-879,1611,4929,6724` passes seat indices with 0.0/1.0
+/// amounts). `open01` is the 0..=1 open amount (the script pre-clamps
+/// `value * .01` at `C_program.cpp:4928-4932`). Frame articulation and sound
+/// effects run in deferred frame/sound owners.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct VehicleDoorOpenRequest {
+    pub door: u32,
+    pub open01: f32,
+    pub unknown: bool,
+}
+
 #[derive(Debug)]
 pub struct CarActorState {
     construction: Option<CarConstructionState>,
@@ -53,6 +67,30 @@ pub struct CarActorState {
     /// true)`). The physics/AI effects of those calls stay DEFERRED; this
     /// records that the command ran. Starts clear.
     force_stopped: bool,
+    /// Marker-only door open request log for `C_Vehicle::OpenDoor` (GAME
+    /// 0x4cda20; mafia-re 113b5b6 `game/vehicles/C_Vehicle.cpp:213-217`).
+    /// Frame articulation and sound effects stay DEFERRED.
+    door_open_requests: Vec<VehicleDoorOpenRequest>,
+    /// Seat-indexed window-open store for `C_Vehicle::OpenWindow` /
+    /// `IsWindowOpen` (GAME 0x4d7a80/0x4d7c80; mafia-re 113b5b6
+    /// `game/vehicles/C_Vehicle.cpp:284-295`). Index `i` is addressed once
+    /// `OpenWindow(i, _)` has run; frame effects stay DEFERRED.
+    windows_open: Vec<bool>,
+    /// `SetSpecialDynamicColls` store at 0x1faa (mafia-re 113b5b6
+    /// `game/vehicles/C_Vehicle.h:551`; GAME 0x4cdb10 at
+    /// `game/vehicles/C_Vehicle.cpp:219-224`). The wake-up edge through
+    /// `wake_up`/`callback_context` (as in `SetVelocity`/`SetAngularVelocity`
+    /// at `C_Vehicle.h:271-284`) stays DEFERRED.
+    special_dynamic_colls: bool,
+    /// `SetDynamicCollsOn` first-flag store at 0x1fab (mafia-re 113b5b6
+    /// `game/vehicles/C_Vehicle.h:552`; GAME 0x4cdcc0 at
+    /// `game/vehicles/C_Vehicle.cpp:226-230`). Collider attach/detach and the
+    /// wake-up edge stay DEFERRED to the collision owner.
+    dynamic_colls_on: bool,
+    /// `SetDynamicCollsOn` second-flag store at 0x1fac (mafia-re 113b5b6
+    /// `game/vehicles/C_Vehicle.h:553`), read back by `GetUnknown1fac`
+    /// (`C_Vehicle.h:249-256`).
+    dynamic_colls_unknown: bool,
 }
 
 /// Read-only provenance for a reached Init automatic vector. These are
@@ -313,6 +351,103 @@ impl CarActorState {
     pub fn apply_force_stop(&mut self) {
         self.force_stopped = true;
     }
+    /// Original `OpenDoor` marker store (GAME 0x4cda20; mafia-re 113b5b6
+    /// `game/vehicles/C_Vehicle.cpp:213-217`). Rejects negative door indices;
+    /// the frame/seat-count upper bound lives in the deferred frame owner,
+    /// matching the script-side `door < GetNumSeats()` guard at
+    /// `C_program.cpp:4926`. Repeats the script-side 0..=1 clamp from
+    /// `C_program.cpp:4928-4932` so direct `C_human.cpp` 0.0/1.0 callers and
+    /// script callers observe one contract. Frame/sound effects DEFERRED.
+    pub fn open_door(&mut self, door: i32, open: f32, unknown: bool) -> Result<(), String> {
+        if door < 0 {
+            return Err("vehicle door index outside supported domain".into());
+        }
+        self.door_open_requests.push(VehicleDoorOpenRequest {
+            door: door as u32,
+            open01: open.clamp(0.0, 1.0),
+            unknown,
+        });
+        Ok(())
+    }
+    /// Borrow of the recorded `OpenDoor` requests in arrival order.
+    pub fn door_open_requests(&self) -> &[VehicleDoorOpenRequest] {
+        &self.door_open_requests
+    }
+    /// Latest recorded open amount for one door, if ever requested.
+    pub fn door_open_amount(&self, door: u32) -> Option<f32> {
+        self.door_open_requests
+            .iter()
+            .rev()
+            .find(|request| request.door == door)
+            .map(|request| request.open01)
+    }
+    /// Original `OpenWindow` marker store (GAME 0x4d7a80; mafia-re 113b5b6
+    /// `game/vehicles/C_Vehicle.cpp:284-288`). Grows the seat-indexed store
+    /// with shut (`false`) fill; frame effects DEFERRED.
+    pub fn open_window(&mut self, seat: i32, open: bool) -> Result<(), String> {
+        if seat < 0 {
+            return Err("vehicle window seat outside supported domain".into());
+        }
+        let seat = seat as usize;
+        if self.windows_open.len() <= seat {
+            self.windows_open.resize(seat + 1, false);
+        }
+        self.windows_open[seat] = open;
+        Ok(())
+    }
+    /// Original `IsWindowOpen` query (GAME 0x4d7c80; mafia-re 113b5b6
+    /// `game/vehicles/C_Vehicle.cpp:290-294`). Errors for seats never
+    /// addressed by `OpenWindow`, exactly the bounds the callers
+    /// (`C_human.cpp:4941-4942,4964-4965`) never probe.
+    pub fn is_window_open(&self, seat: i32) -> Result<bool, String> {
+        if seat < 0 {
+            return Err("vehicle window seat outside supported domain".into());
+        }
+        self.windows_open
+            .get(seat as usize)
+            .copied()
+            .ok_or_else(|| "vehicle window seat never addressed".into())
+    }
+    /// Original `SetSpecialDynamicColls` store (GAME 0x4cdb10; mafia-re 113b5b6
+    /// `game/vehicles/C_Vehicle.cpp:219-224`, member at
+    /// `game/vehicles/C_Vehicle.h:551`, accessor `GetSpecialDynamicColls`
+    /// GAME 0x47b0e0 at `C_Vehicle.h:260-264`). Returns the stored value;
+    /// the stub's constant `false` return carries no state. The wake-up edge
+    /// stays DEFERRED.
+    pub fn set_special_dynamic_colls(&mut self, on: bool) -> bool {
+        self.special_dynamic_colls = on;
+        self.special_dynamic_colls
+    }
+    /// Read back of the `SetSpecialDynamicColls` flag.
+    pub fn special_dynamic_colls(&self) -> bool {
+        self.special_dynamic_colls
+    }
+    /// Original `SetDynamicCollsOn` store (GAME 0x4cdcc0; mafia-re 113b5b6
+    /// `game/vehicles/C_Vehicle.cpp:226-230`, members at
+    /// `game/vehicles/C_Vehicle.h:552-553`). Collider attach/detach and the
+    /// wake-up edge stay DEFERRED to the collision owner.
+    pub fn set_dynamic_colls_on(&mut self, on: bool, unknown: bool) {
+        self.dynamic_colls_on = on;
+        self.dynamic_colls_unknown = unknown;
+    }
+    /// Read back of the `SetDynamicCollsOn` first flag.
+    pub fn dynamic_colls_on(&self) -> bool {
+        self.dynamic_colls_on
+    }
+    /// Read back of the `SetDynamicCollsOn` second flag (the member
+    /// `GetUnknown1fac` returns at `C_Vehicle.h:249-256`).
+    pub fn dynamic_colls_unknown(&self) -> bool {
+        self.dynamic_colls_unknown
+    }
+    // Deferred, no latch here: `C_Vehicle::CalmVehicle` (GAME 0x4ce960;
+    // mafia-re 113b5b6 `game/vehicles/C_Vehicle.cpp:260-264`, called from the
+    // start-of-game settle loop at `game/mission/game.cpp:576` and the
+    // `CAR_CALM` script at `game/mission/C_program.cpp:6839-6846,7306`) is not
+    // a clean flag settle. Its `wake_request` store (see `C_Vehicle.h:529-531`)
+    // plus the velocity/angular-velocity and `dyn_coll` collision-object
+    // effects belong to the deferred dynamics/collision owners, so recording
+    // a bare boolean here would claim coverage of collider behavior this
+    // module does not own.
     pub(crate) fn allocation(actor: ActorReferenceId, seed: CarSeed) -> Result<Self, String> {
         // A checked, scoped compatibility translation, never another actor ID
         // or an original process pointer. Distinct actors cannot overlap.
@@ -361,6 +496,11 @@ impl CarActorState {
             script_speed_mps: 0.0,
             break_motor: false,
             force_stopped: false,
+            door_open_requests: Vec::new(),
+            windows_open: Vec::new(),
+            special_dynamic_colls: false,
+            dynamic_colls_on: false,
+            dynamic_colls_unknown: false,
         })
     }
     pub(crate) fn construct(
@@ -780,5 +920,65 @@ mod tests {
             .unwrap();
         assert_eq!(services.allocations(), 0);
         arena.close(model).unwrap();
+    }
+    #[test]
+    fn door_open_request_stores_clamped_amount_and_rejects_negative() {
+        // Hand-derived: OpenDoor (GAME 0x4cda20) keeps door/open01/unknown;
+        // the script pre-clamps value * .01 at C_program.cpp:4928-4932.
+        let mut state = car(10, 0xa5);
+        assert!(state.door_open_requests().is_empty());
+        assert_eq!(state.door_open_amount(1), None);
+        state.open_door(1, 1.0, false).unwrap();
+        state.open_door(1, 0.0, false).unwrap();
+        assert_eq!(
+            state.door_open_requests(),
+            &[
+                VehicleDoorOpenRequest { door: 1, open01: 1.0, unknown: false },
+                VehicleDoorOpenRequest { door: 1, open01: 0.0, unknown: false },
+            ]
+        );
+        assert_eq!(state.door_open_amount(1), Some(0.0));
+        state.open_door(2, 2.5, true).unwrap();
+        assert_eq!(state.door_open_amount(2), Some(1.0));
+        state.open_door(3, -1.0, true).unwrap();
+        assert_eq!(state.door_open_amount(3), Some(0.0));
+        assert!(state.open_door(-1, 1.0, false).is_err());
+    }
+    #[test]
+    fn window_store_round_trips_per_seat_with_bounds_errors() {
+        // Hand-derived: OpenWindow/IsWindowOpen (GAME 0x4d7a80/0x4d7c80) keep
+        // a per-seat flag; unaddressed seats error (C_human.cpp:4941-4965).
+        let mut state = car(11, 0xa5);
+        assert!(state.is_window_open(0).is_err());
+        assert!(state.open_window(-1, true).is_err());
+        assert!(state.is_window_open(-1).is_err());
+        state.open_window(0, true).unwrap();
+        assert_eq!(state.is_window_open(0), Ok(true));
+        state.open_window(0, false).unwrap();
+        assert_eq!(state.is_window_open(0), Ok(false));
+        state.open_window(2, true).unwrap();
+        assert_eq!(state.is_window_open(1), Ok(false));
+        assert_eq!(state.is_window_open(2), Ok(true));
+        assert!(state.is_window_open(3).is_err());
+    }
+    #[test]
+    fn dynamic_coll_flags_start_clear_and_store_both_edges() {
+        // Hand-derived: SetSpecialDynamicColls (GAME 0x4cdb10) and
+        // SetDynamicCollsOn (GAME 0x4cdcc0) keep their flag stores at
+        // C_Vehicle.h:551-553; wake-up/collider edges stay DEFERRED.
+        let mut state = car(12, 0xa5);
+        assert!(!state.special_dynamic_colls());
+        assert!(!state.dynamic_colls_on());
+        assert!(!state.dynamic_colls_unknown());
+        assert!(state.set_special_dynamic_colls(true));
+        assert!(state.special_dynamic_colls());
+        assert!(!state.set_special_dynamic_colls(false));
+        assert!(!state.special_dynamic_colls());
+        state.set_dynamic_colls_on(true, true);
+        assert!(state.dynamic_colls_on());
+        assert!(state.dynamic_colls_unknown());
+        state.set_dynamic_colls_on(false, false);
+        assert!(!state.dynamic_colls_on());
+        assert!(!state.dynamic_colls_unknown());
     }
 }
