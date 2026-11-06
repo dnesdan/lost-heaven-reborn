@@ -54,6 +54,7 @@ pub use source_parameters::*;
 #[path = "vehicle_light_init.rs"]
 mod light_init;
 pub use light_init::*;
+pub use light_init::vehicle_light_init;
 
 #[path = "vehicle_light_projectors.rs"]
 mod light_projectors;
