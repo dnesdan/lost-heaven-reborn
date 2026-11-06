@@ -429,6 +429,303 @@ impl CityTrafficVisibleState {
     }
 }
 
+/// Pedestrian-generator runtime slice as a marker-only contract.
+/// GAME RVAs 0x44e960/0x44ef70/0x44f090/0x44f740/0x44fcf0/0x44fd10/0x44fd50/0x450860
+/// (mafia-re game/ai/C_person_traffic.cpp:77-138,246-320,
+/// game/ai/C_person_traffic.h:67-150).
+/// Only visibility, timer, predicate and lifecycle ordering are reconstructed.
+/// `TryGoToAssHole` 0x44f0e0 stays unported: it needs the parking, navigation,
+/// ground-collision and node owners, and is reported through
+/// [`TrafficTickOutcome::needs_try_go_to_ass_hole`] instead.
+/// `GeneratePassengerForTaxi` 0x44f7d0 (STUB) is likewise reported, never run.
+pub type TrafficCarId = u64;
+
+/// Live-view marker for one `C_traffic_element`. It borrows no heap object:
+/// the authoritative pedestrian owner stays outside this contract.
+/// `has_frame` mirrors the native `frame` null check
+/// (mafia-re game/ai/C_person_traffic.cpp:84); `car` mirrors the `C_car *car`
+/// identity compared by `IsCarHasOcas` (cpp:132-134).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TrafficElementMarker {
+    pub active: bool,
+    pub dead: bool,
+    pub fleeing: bool,
+    pub waving: bool,
+    pub has_frame: bool,
+    pub car: Option<TrafficCarId>,
+    pub pos_x: f32,
+    pub pos_z: f32,
+    pub dist: f32,
+}
+
+/// Marker for one `C_animations_machine_de_luxe` slot. The animation machine
+/// owner is deferred, so this carries no behavior; it only counts slots for
+/// [`clear_elements`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TrafficAnimMarker;
+
+/// Frame/pedestrian effects the generator reaches through backend owners.
+/// Every method is a reached effect prefix: an `Err` stops the loop and keeps
+/// the already-applied stores, exactly like the other actor backends.
+/// Unimplemented owners keep the default, which reports the boundary.
+pub trait TrafficElementBackend {
+    fn set_frame_on(&mut self, _index: usize, _visible: bool) -> Result<(), String> {
+        Err("traffic frame SetOn owner unavailable".into())
+    }
+    fn tick_element(&mut self, _index: usize, _time: u32) -> Result<(), String> {
+        Err("traffic element Tick owner unavailable".into())
+    }
+    fn end_waving_on_taxi(&mut self, _index: usize) -> Result<(), String> {
+        Err("traffic EndMavaniNaTaxi owner unavailable".into())
+    }
+    fn deactivate_element(&mut self, _index: usize) -> Result<(), String> {
+        Err("traffic element Deactivate owner unavailable".into())
+    }
+}
+
+/// Shared generator tick state: native zero-initialized statics
+/// (mafia-re game/ai/C_person_traffic.cpp:42-48: `all_visible`, `t_horn`,
+/// `try_do_rici`, `taxi_timer` start cleared).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TrafficTickState {
+    all_visible: bool,
+    t_horn: i32,
+    try_do_rici: i32,
+    taxi_timer: i32,
+}
+
+impl TrafficTickState {
+    pub fn all_visible(self) -> bool {
+        self.all_visible
+    }
+    pub fn t_horn(self) -> i32 {
+        self.t_horn
+    }
+    pub fn try_do_rici(self) -> i32 {
+        self.try_do_rici
+    }
+    pub fn taxi_timer(self) -> i32 {
+        self.taxi_timer
+    }
+
+    /// `C_traffic_generator::SetVisible`, GAME RVA 0x44e960
+    /// (mafia-re game/ai/C_person_traffic.cpp:77-87).
+    /// Equal input returns `Ok(false)` with no backend call; otherwise stores
+    /// first, then visits elements last-to-first and applies `SetOn(visible)`
+    /// to each active element with a frame.
+    pub fn set_visible(
+        &mut self,
+        visible: bool,
+        elements: &[TrafficElementMarker],
+        backend: &mut impl TrafficElementBackend,
+    ) -> Result<bool, String> {
+        if self.all_visible == visible {
+            return Ok(false);
+        }
+        self.all_visible = visible;
+        for index in (0..elements.len()).rev() {
+            if elements[index].active && elements[index].has_frame {
+                backend.set_frame_on(index, visible)?;
+            }
+        }
+        Ok(true)
+    }
+
+    /// `C_traffic_generator::TickElements` prefix skeleton, GAME RVA 0x44ef70
+    /// (mafia-re game/ai/C_person_traffic.cpp:92-127).
+    /// Hidden state returns early with timers and distances untouched. The
+    /// visible path runs the `t_horn` countdown, the per-element horizontal
+    /// distance plus `Tick` callback (last-to-first), the `try_do_rici`
+    /// countdown, and the taxi branch. Parking/navigation/collision work
+    /// (`TryGoToAssHole`) and passenger spawning (`GeneratePassengerForTaxi`)
+    /// are deferred and reported through the returned outcome.
+    /// Distance policy: `d.y` is zeroed before `Square` (cpp:109-110), so the
+    /// sum is `dx*dx + dz*dz` in IEEE-754 binary32 evaluation order with no
+    /// fused operation; any x87 extended-precision divergence stays open
+    /// until original-runtime validation.
+    pub fn tick_elements_prefix(
+        &mut self,
+        time: u32,
+        cam_x: f32,
+        cam_z: f32,
+        elements: &mut [TrafficElementMarker],
+        enable_taxi_driver: bool,
+        player_in_taxi: bool,
+        backend: &mut impl TrafficElementBackend,
+    ) -> Result<TrafficTickOutcome, String> {
+        if !self.all_visible {
+            return Ok(TrafficTickOutcome::none());
+        }
+        if self.t_horn > 0 {
+            if u64::from(time) > self.t_horn as u64 {
+                self.t_horn = 0;
+            } else {
+                self.t_horn -= time as i32;
+            }
+        }
+        for index in (0..elements.len()).rev() {
+            if elements[index].active {
+                let dx = cam_x - elements[index].pos_x;
+                let dz = cam_z - elements[index].pos_z;
+                elements[index].dist = dx * dx + dz * dz;
+                backend.tick_element(index, time)?;
+            }
+        }
+        // Native 32-bit SUB wraps; `time as i32` keeps the low 32 bits.
+        self.try_do_rici = self.try_do_rici.wrapping_sub(time as i32);
+        let mut outcome = TrafficTickOutcome::none();
+        if self.try_do_rici < 0 {
+            self.try_do_rici = 2123;
+            outcome.needs_try_go_to_ass_hole = true;
+        }
+        if enable_taxi_driver && player_in_taxi {
+            if self.taxi_timer < 0 {
+                outcome.needs_taxi_passenger = true;
+            } else {
+                self.taxi_timer = self.taxi_timer.wrapping_sub(time as i32);
+            }
+        }
+        Ok(outcome)
+    }
+}
+
+/// Deferred-work markers produced by [`TrafficTickState::tick_elements_prefix`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TrafficTickOutcome {
+    /// `TryGoToAssHole` 0x44f0e0 reached: needs parking/navigation/
+    /// ground-collision/node owners, so the caller handles it explicitly.
+    pub needs_try_go_to_ass_hole: bool,
+    /// `GeneratePassengerForTaxi` 0x44f7d0 (STUB) reached: needs the taxi
+    /// passenger-spawn owner, so the caller handles it explicitly.
+    pub needs_taxi_passenger: bool,
+}
+
+impl TrafficTickOutcome {
+    pub fn none() -> Self {
+        Self::default()
+    }
+}
+
+/// `C_traffic_generator::IsCarHasOcas`, GAME RVA 0x44f090
+/// (mafia-re game/ai/C_person_traffic.cpp:130-138).
+/// Pure predicate: reverse scan for an active, live, non-fleeing element
+/// walking to `car`.
+pub fn is_car_has_ocas(elements: &[TrafficElementMarker], car: TrafficCarId) -> bool {
+    for index in (0..elements.len()).rev() {
+        let element = &elements[index];
+        if element.active && !element.dead && !element.fleeing && element.car == Some(car) {
+            return true;
+        }
+    }
+    false
+}
+
+/// The PC's nine taxi model names, GAME RVA 0x44f740 string table
+/// (mafia-re game/ai/C_person_traffic.cpp:251-270).
+pub const TRAFFIC_TAXI_MODELS: [&str; 9] = [
+    "taxi",
+    "hotrodp4",
+    "hotrodp5",
+    "tbirdold",
+    "fordhot",
+    "phantomtaxi",
+    "hotrodp2",
+    "fordapicktaxi",
+    "blackdragon",
+];
+
+impl TrafficGameFlags {
+    /// `C_traffic_generator::PlayerInTaxi`, GAME RVA 0x44f740
+    /// (mafia-re game/ai/C_person_traffic.cpp:246-280).
+    /// Always clears first; a non-null model sets the flag only on a
+    /// case-insensitive match against the nine PC taxi names.
+    /// The `None` path is the original `PlayerInTaxi(NULL)` call from `Init`.
+    pub fn apply_player_in_taxi(&mut self, model: Option<&str>) {
+        self.player_in_taxi = false;
+        let Some(model) = model else { return };
+        for index in (0..TRAFFIC_TAXI_MODELS.len()).rev() {
+            if model.eq_ignore_ascii_case(TRAFFIC_TAXI_MODELS[index]) {
+                self.player_in_taxi = true;
+                return;
+            }
+        }
+    }
+
+    /// `C_traffic_generator::EnableTaxiDriver`, GAME RVA 0x44fcf0
+    /// (mafia-re game/ai/C_person_traffic.cpp:282-288).
+    /// Disabling an enabled driver first ends every waver through the backend
+    /// (`ZrusVsechnyMavajici` edge), then stores unconditionally.
+    pub fn enable_taxi_driver(
+        &mut self,
+        enable: bool,
+        elements: &[TrafficElementMarker],
+        backend: &mut impl TrafficElementBackend,
+    ) -> Result<(), String> {
+        if !enable && self.taxi_driver_enabled {
+            zrus_vsechny_mavajici(elements, backend)?;
+        }
+        self.taxi_driver_enabled = enable;
+        Ok(())
+    }
+}
+
+/// `C_traffic_generator::ZrusVsechnyMavajici`, GAME RVA 0x44fd10
+/// (mafia-re game/ai/C_person_traffic.cpp:291-299).
+/// Ends the waving at a taxi of every waving pedestrian, last-to-first,
+/// through the `EndMavaniNaTaxi` backend.
+pub fn zrus_vsechny_mavajici(
+    elements: &[TrafficElementMarker],
+    backend: &mut impl TrafficElementBackend,
+) -> Result<(), String> {
+    for index in (0..elements.len()).rev() {
+        if elements[index].waving {
+            backend.end_waving_on_taxi(index)?;
+        }
+    }
+    Ok(())
+}
+
+/// Dropped-slot counts for [`clear_elements`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TrafficClearOutcome {
+    pub dropped_elements: usize,
+    pub dropped_anims: usize,
+}
+
+/// `C_traffic_generator::ClearElements`, GAME RVA 0x44fd50
+/// (mafia-re game/ai/C_person_traffic.cpp:301-309).
+/// Forgets the pedestrians, then frees the animations last-to-first through
+/// their owner. This marker contract drops both vectors and reports the
+/// counts so the host animation owner can free its machines in native order.
+pub fn clear_elements(
+    elements: &mut Vec<TrafficElementMarker>,
+    anims: &mut Vec<TrafficAnimMarker>,
+) -> TrafficClearOutcome {
+    let outcome = TrafficClearOutcome {
+        dropped_elements: elements.len(),
+        dropped_anims: anims.len(),
+    };
+    elements.clear();
+    anims.clear();
+    outcome
+}
+
+/// `C_traffic_generator::FreeDynCollElements`, GAME RVA 0x450860
+/// (mafia-re game/ai/C_person_traffic.cpp:311-320).
+/// Takes every active pedestrian out of the game, last-to-first, through the
+/// `Deactivate` backend.
+pub fn free_dyn_coll_elements(
+    elements: &[TrafficElementMarker],
+    backend: &mut impl TrafficElementBackend,
+) -> Result<(), String> {
+    for index in (0..elements.len()).rev() {
+        if elements[index].active {
+            backend.deactivate_element(index)?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -479,5 +776,234 @@ mod tests {
         assert!(!state.visible());
         state.set_visible(true);
         assert!(state.visible());
+    }
+
+    #[test]
+    fn traffic_slice_backends_and_markers_cover_setvisible_tick_predicate_taxi_and_lifecycle() {
+        #[derive(Debug, PartialEq)]
+        enum Call {
+            SetOn(usize, bool),
+            Tick(usize, u32),
+            EndWaving(usize),
+            Deactivate(usize),
+        }
+        #[derive(Default)]
+        struct Log {
+            calls: Vec<Call>,
+            fail_at: Option<usize>,
+        }
+        impl TrafficElementBackend for Log {
+            fn set_frame_on(&mut self, index: usize, visible: bool) -> Result<(), String> {
+                if self.fail_at == Some(self.calls.len()) {
+                    return Err("frame SetOn unavailable".into());
+                }
+                self.calls.push(Call::SetOn(index, visible));
+                Ok(())
+            }
+            fn tick_element(&mut self, index: usize, time: u32) -> Result<(), String> {
+                if self.fail_at == Some(self.calls.len()) {
+                    return Err("element Tick unavailable".into());
+                }
+                self.calls.push(Call::Tick(index, time));
+                Ok(())
+            }
+            fn end_waving_on_taxi(&mut self, index: usize) -> Result<(), String> {
+                if self.fail_at == Some(self.calls.len()) {
+                    return Err("EndMavaniNaTaxi unavailable".into());
+                }
+                self.calls.push(Call::EndWaving(index));
+                Ok(())
+            }
+            fn deactivate_element(&mut self, index: usize) -> Result<(), String> {
+                if self.fail_at == Some(self.calls.len()) {
+                    return Err("Deactivate unavailable".into());
+                }
+                self.calls.push(Call::Deactivate(index));
+                Ok(())
+            }
+        }
+        fn element(
+            active: bool,
+            dead: bool,
+            fleeing: bool,
+            waving: bool,
+            has_frame: bool,
+            car: Option<TrafficCarId>,
+            x: f32,
+            z: f32,
+        ) -> TrafficElementMarker {
+            TrafficElementMarker {
+                active,
+                dead,
+                fleeing,
+                waving,
+                has_frame,
+                car,
+                pos_x: x,
+                pos_z: z,
+                dist: -1.0,
+            }
+        }
+
+        // SetVisible 0x44e960: equal input is a no-op with no backend call.
+        let mut state = TrafficTickState::default();
+        assert!(!state.all_visible());
+        let elements = [element(true, false, false, false, true, None, 0.0, 0.0)];
+        let mut log = Log::default();
+        assert_eq!(state.set_visible(false, &elements, &mut log), Ok(false));
+        assert!(log.calls.is_empty());
+
+        // Only active elements with a frame are visited, last-to-first.
+        let elements = [
+            element(true, false, false, false, true, None, 0.0, 0.0),
+            element(true, false, false, false, false, None, 0.0, 0.0),
+            element(false, false, false, false, true, None, 0.0, 0.0),
+            element(true, false, false, false, true, None, 0.0, 0.0),
+        ];
+        assert_eq!(state.set_visible(true, &elements, &mut log), Ok(true));
+        assert!(state.all_visible());
+        assert_eq!(log.calls, [Call::SetOn(3, true), Call::SetOn(0, true)]);
+        // A failed SetOn keeps the store and the already-applied prefix.
+        log.calls.clear();
+        log.fail_at = Some(0);
+        assert!(state.set_visible(false, &elements, &mut log).is_err());
+        assert!(!state.all_visible());
+        assert!(log.calls.is_empty());
+
+        // TickElements 0x44ef70: hidden state returns early, timers/dist untouched.
+        let mut hidden = TrafficTickState::default();
+        hidden.t_horn = 500;
+        hidden.try_do_rici = 7;
+        let mut elems = [element(true, false, false, false, true, None, 1.0, 2.0)];
+        let mut log = Log::default();
+        let outcome = hidden
+            .tick_elements_prefix(100, 0.0, 0.0, &mut elems, false, false, &mut log)
+            .unwrap();
+        assert_eq!(outcome, TrafficTickOutcome::none());
+        assert_eq!(hidden.t_horn(), 500);
+        assert_eq!(hidden.try_do_rici(), 7);
+        assert_eq!(elems[0].dist, -1.0);
+        assert!(log.calls.is_empty());
+
+        // Visible prefix: t_horn clamp arm, dist write before Tick, try_do_rici
+        // wrap to 2123 with the TryGoToAssHole marker, taxi countdown arm.
+        let mut ticking = TrafficTickState {
+            all_visible: true,
+            t_horn: 50,
+            try_do_rici: 30,
+            taxi_timer: 400,
+        };
+        let mut elems = [
+            element(true, false, false, false, true, None, 1.0, 0.0),
+            element(false, false, false, false, true, None, 9.0, 9.0),
+        ];
+        let mut log = Log::default();
+        let outcome = ticking
+            .tick_elements_prefix(100, 4.0, 0.0, &mut elems, true, true, &mut log)
+            .unwrap();
+        assert_eq!(ticking.t_horn(), 0);
+        assert_eq!(elems[0].dist, 9.0); // (4-1)^2 + 0^2, y zeroed per cpp:109-110.
+        assert_eq!(elems[1].dist, -1.0); // inactive elements keep their distance.
+        assert_eq!(log.calls, [Call::Tick(0, 100)]);
+        assert_eq!(ticking.try_do_rici(), 2123);
+        assert!(outcome.needs_try_go_to_ass_hole);
+        assert!(!outcome.needs_taxi_passenger);
+        assert_eq!(ticking.taxi_timer(), 300);
+        // Taxi branch: negative timer reports the deferred passenger spawn.
+        ticking.taxi_timer = -1;
+        let outcome = ticking
+            .tick_elements_prefix(10, 4.0, 0.0, &mut elems, true, true, &mut log)
+            .unwrap();
+        assert!(outcome.needs_taxi_passenger);
+        assert_eq!(ticking.taxi_timer(), -1);
+        // A failed Tick keeps the already-written distance.
+        log.fail_at = Some(log.calls.len());
+        let before = ticking.t_horn();
+        assert!(
+            ticking
+                .tick_elements_prefix(10, 4.0, 0.0, &mut elems, false, false, &mut log)
+                .is_err()
+        );
+        assert_eq!(elems[0].dist, 9.0);
+        assert_eq!(ticking.t_horn(), before);
+
+        // IsCarHasOcas 0x44f090: active && !dead && !fleeing && car match.
+        let walkers = [
+            element(true, false, false, false, true, Some(7), 0.0, 0.0),
+            element(true, true, false, false, true, Some(7), 0.0, 0.0),
+            element(true, false, true, false, true, Some(7), 0.0, 0.0),
+            element(false, false, false, false, true, Some(7), 0.0, 0.0),
+            element(true, false, false, false, true, Some(9), 0.0, 0.0),
+        ];
+        assert!(is_car_has_ocas(&walkers, 7));
+        assert!(is_car_has_ocas(&walkers, 9));
+        assert!(!is_car_has_ocas(&walkers, 11));
+        assert!(!is_car_has_ocas(&[], 7));
+
+        // PlayerInTaxi 0x44f740: None clears; all nine PC names match
+        // case-insensitively; other models clear.
+        let mut flags = TrafficGameFlags::default();
+        for model in TRAFFIC_TAXI_MODELS {
+            flags.apply_player_in_taxi(Some(&model.to_ascii_uppercase()));
+            assert!(flags.player_in_taxi(), "{model}");
+        }
+        flags.apply_player_in_taxi(Some("sedan"));
+        assert!(!flags.player_in_taxi());
+        flags.apply_player_in_taxi(Some("Taxi"));
+        assert!(flags.player_in_taxi());
+        flags.apply_player_in_taxi(None);
+        assert!(!flags.player_in_taxi());
+
+        // EnableTaxiDriver 0x44fcf0: enabling stores without waver calls.
+        let wavers = [
+            element(true, false, false, true, true, None, 0.0, 0.0),
+            element(true, false, false, false, true, None, 0.0, 0.0),
+            element(true, false, false, true, true, None, 0.0, 0.0),
+        ];
+        let mut log = Log::default();
+        flags.enable_taxi_driver(true, &wavers, &mut log).unwrap();
+        assert!(flags.taxi_driver_enabled());
+        assert!(log.calls.is_empty());
+        // Disabling an enabled driver ends wavers last-to-first, then stores.
+        flags.enable_taxi_driver(false, &wavers, &mut log).unwrap();
+        assert!(!flags.taxi_driver_enabled());
+        assert_eq!(log.calls, [Call::EndWaving(2), Call::EndWaving(0)]);
+        // Disabling an already-disabled driver stores without backend calls.
+        log.calls.clear();
+        flags.enable_taxi_driver(false, &wavers, &mut log).unwrap();
+        assert!(log.calls.is_empty());
+        // A failed waver-clear keeps the driver enabled.
+        flags.enable_taxi_driver(true, &wavers, &mut log).unwrap();
+        log.fail_at = Some(0);
+        assert!(flags.enable_taxi_driver(false, &wavers, &mut log).is_err());
+        assert!(flags.taxi_driver_enabled());
+
+        // ZrusVsechnyMavajici 0x44fd10 standalone: wavers only, reversed.
+        let mut log = Log::default();
+        zrus_vsechny_mavajici(&wavers, &mut log).unwrap();
+        assert_eq!(log.calls, [Call::EndWaving(2), Call::EndWaving(0)]);
+
+        // ClearElements 0x44fd50: drops both vectors and reports counts.
+        let mut elems = vec![element(true, false, false, false, true, None, 0.0, 0.0)];
+        let mut anims = vec![TrafficAnimMarker, TrafficAnimMarker, TrafficAnimMarker];
+        let outcome = clear_elements(&mut elems, &mut anims);
+        assert_eq!(
+            outcome,
+            TrafficClearOutcome {
+                dropped_elements: 1,
+                dropped_anims: 3
+            }
+        );
+        assert!(elems.is_empty() && anims.is_empty());
+
+        // FreeDynCollElements 0x450860: active elements only, last-to-first.
+        let mixed = [
+            element(true, false, false, false, true, None, 0.0, 0.0),
+            element(false, false, false, false, true, None, 0.0, 0.0),
+            element(true, false, false, false, true, None, 0.0, 0.0),
+        ];
+        let mut log = Log::default();
+        free_dyn_coll_elements(&mixed, &mut log).unwrap();
+        assert_eq!(log.calls, [Call::Deactivate(2), Call::Deactivate(0)]);
     }
 }
