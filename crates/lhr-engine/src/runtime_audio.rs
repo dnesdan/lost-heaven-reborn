@@ -3090,6 +3090,10 @@ pub fn isound_driver_init_buffer(
 /// max-then-min order (NaN folds to 1.0 through the windows.h macro order)
 /// and mark every logically playing scene cell with SOUNDF_VOLUME. Always
 /// I3D_OK.
+#[expect(
+    clippy::manual_clamp,
+    reason = "min-then-max folds NaN to 1.0; clamp would return NaN"
+)]
 pub fn isound_driver_set_volume(
     driver: &mut IsoundDriver,
     globals: &IsoundGlobals,

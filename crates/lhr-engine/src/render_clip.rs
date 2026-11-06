@@ -2679,6 +2679,10 @@ pub fn prepare_lights(
         let gg = if g / num > 0xff { 0xff } else { g / num };
         let bb = if b / num > 0xff { 0xff } else { b / num };
         let color = state.alpha_word | rr << 16 | gg << 8 | bb;
+        #[expect(
+            clippy::needless_range_loop,
+            reason = "index preserves out-of-bounds panic when dst is shorter than num_vertices with exact prefix writes; iter_mut().take() would silently truncate"
+        )]
         for i in 0..level.num_vertices {
             dst[i] = color;
         }
