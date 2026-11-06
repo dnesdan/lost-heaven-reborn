@@ -8482,6 +8482,15 @@
       "symbol": "lhr_engine::police_state::PoliceGameInitState::apply_set_active",
       "tier": "contract",
       "evidence": "Ghidra 12.1.4 read-only analyze_function 0x49b860 (body 0x49b860-0x49c7ac, 3917 bytes), registry prefix only: same-state early return (on==*this, no stores), then active=on, +0x34=text, +0x38=0, +0x39=unknown2; remainder (bridge-node collection, police-model preload, player auto-add via AddPerson) needs mission/level owners and is DEFERRED with reasons in code docs; mafia-re 113b5b6 game/ai/C_shvestky.cpp:747-751 is a log-only stub. Authored #[cfg(test)] vectors; NOT executed (no cargo in this session).; executed green by orchestrator: `cargo test -p lhr-engine --lib police` 17 passed (base 573420d + uncommitted)"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1e0670",
+      "va": "0x5e0670",
+      "name": "GM_MainMenu::OnBeforeCreate",
+      "symbol": "lhr_engine::main_menu::select_main_menu_mission",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 game/ui/g_m_func.cpp:271-280 (GM_MainMenu::OnBeforeCreate selects mainmenu when RacingInMainMenu is false, mainmenurac when true) + game/ui/g_menu.cpp GM_Menu::Create 0x5ea2e0 chain (cited only, never vendored) + RacingInMainMenu caller game/Main.cpp:262-266 (FUNCTION GAME 0x5bebd0, body return false) and game/Main.h:28; Game.exe SHA256 08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27 base 0x400000 (VA 0x5e0670, RVA 0x1e0670, 20-byte leaf VA 0x5e0670-0x5e0683 (RET at 0x5e0683): CALL 0x5bebd0, TEST AL,AL, EAX select with explicit binding 0x6381d0=mainmenu (fall-through/false arm) / 0x6381dc=mainmenurac (JNZ-taken/true arm), RET; mainmenu/mainmenurac strings verified; single vtable ref 0x625eb8); REA ev_1b813b8d (body bytes) + ev_752737b8 (marker name is a LAB_ label, NOT a Ghidra function entry, disclosed) + ev_1033bebe (xrefs) + ev_7056efa9 (strings); analyze_function REJECTED (LAB_ leaf, no procedure), so marker plus binary-read evidence only, NOT a Ghidra body; tier contract, differential unwarranted; SCOPE: typed name-select only (MainMenuMission Mainmenu|MainmenuRac consuming racing_in_main_menu(), main_menu.rs select_main_menu_mission/main_menu_mission/mission_name); DEFERRED with explicit code markers and no credit: OnCreate VA 0x5e0690/RVA 0x1e0690 (needs camera/freeride owners), gap VA 0x5e0684-0x5e068f (present-but-uncredited 12-byte code run needing an owner; the 0x5e0670-0x5e0683 tail belongs to this leaf), OnChange/OnClick, GM_Menu::Create stack, GameLoopSingle; authored tests in main_menu.rs (false->mainmenu, true->mainmenurac, determinism plus live-predicate consumption) not executed (cargo unavailable on this host); overlap check: RVA 0x1e0670 absent from docs/rewrite-overlay.json functions and not a docs/progress.json ledger port (neighbor 0x1e0690 is retained inventory only); base rust-engine fce422a, no commit, no detector/police/human_actor/camera/VM files touched; no REA session left open; executed green by orchestrator: `cargo test -p lhr-engine --lib main_menu` 4 passed (base fce422a + uncommitted)"
     }
   ],
   "vm": {

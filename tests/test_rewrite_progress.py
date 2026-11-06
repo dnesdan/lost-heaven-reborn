@@ -56,7 +56,10 @@ class RewriteProgressTests(unittest.TestCase):
         # guarded prefix, contract) + 3 police registry (0x09c7e0 AddPerson +
         # 0x09ca50 DelPerson + 0x09b860 SetActive prefix, contract; Ghidra
         # single-session recollection, differential explicitly unwarranted).
-        self.assertEqual(game["ported"], 149 + 58)
+        # +1 menu name-select 0x1e0670 contract (20B leaf, LAB_ disclosed).
+        # Detector Init/Compile admission + transport: helpers without RVAs,
+        # no entries (vtable gate lifted for Init, subroutine still Base-only).
+        self.assertEqual(game["ported"], 149 + 59)
         self.assertEqual(game["verified"], 149 + 7)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
