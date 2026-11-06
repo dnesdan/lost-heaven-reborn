@@ -1,4 +1,8 @@
 //! PC C_Vehicle::SetEngineOn (RVA 0xcb5b0), over the live vehicle owner.
+//! Marker-only latch siblings live here too: SetFuel, IsVehicleUnstable,
+//! GetVehicleSize, GetVehiclePivotPos and LockVehicle. The projector-light and
+//! sound sector registers (GAME 0x4ce560/0x4ce760), GetHeadPos (GAME 0x4cc620)
+//! and every collider/anim/nav/police effect stay DEFERRED with their owners.
 use crate::vehicle_init::VehicleInitBackend;
 
 pub trait VehicleEngineStateBackend: VehicleInitBackend {
@@ -121,6 +125,103 @@ impl<B: VehicleEngineStateBackend> VehicleEngine<'_, B> {
     }
 }
 
+// Original C_Vehicle flag bits owned by this slice (mafia-re 113b5b6
+// game/vehicles/C_Vehicle.h:120-122: VEHF_UNSTABLE is IsVehicleUnstable's,
+// VEHF_LOCKED holds while LockVehicle's count is above 0).
+pub const VEHF_UNSTABLE: u32 = 0x8;
+pub const VEHF_LOCKED: u32 = 0x10000000;
+
+/// GAME 0x4cb6e0 C_Vehicle::SetFuel (mafia-re 113b5b6
+/// game/vehicles/C_Vehicle.cpp:148-156; contract game/vehicles/C_Vehicle.h:186-187):
+/// fill the tank up to `fuel`, at most its size, and report true. A NaN fuel
+/// compares false against the size and is stored as-is, exactly like the
+/// original's `if (fuel > tank_size)` guard.
+pub fn vehicle_set_fuel<B: VehicleInitBackend>(
+    backend: &mut B,
+    vehicle: u32,
+    fuel: f32,
+) -> Result<bool, B::Error> {
+    let capacity = f32::from_bits(backend.read_word(vehicle + layout::TANK_SIZE)?);
+    let clamped = if fuel > capacity { capacity } else { fuel };
+    backend.write_word(vehicle + layout::FUEL, clamped.to_bits())?;
+    Ok(true)
+}
+
+/// GAME 0x4cd5b0 C_Vehicle::IsVehicleUnstable (mafia-re 113b5b6
+/// game/vehicles/C_Vehicle.cpp:170-174; contract game/vehicles/C_Vehicle.h:228):
+/// whether VEHF_UNSTABLE is set in the vehicle flags.
+pub fn vehicle_is_unstable<B: VehicleInitBackend>(
+    backend: &mut B,
+    vehicle: u32,
+) -> Result<bool, B::Error> {
+    Ok(backend.read_word(vehicle + layout::VEHICLE_FLAGS)? & VEHF_UNSTABLE != 0)
+}
+
+/// GAME 0x4cd5c0 C_Vehicle::GetVehicleSize (mafia-re 113b5b6
+/// game/vehicles/C_Vehicle.cpp:176-180; contract game/vehicles/C_Vehicle.h:234-235):
+/// the raw words of one of the two vehicle sizes (mafia-re
+/// game/vehicles/C_Vehicle.h:458-460), the second one when `second` is set.
+/// Returned as raw words so no float meaning is invented; the caller owns
+/// the S_vector interpretation.
+pub fn vehicle_get_size<B: VehicleInitBackend>(
+    backend: &mut B,
+    vehicle: u32,
+    second: bool,
+) -> Result<[u32; 3], B::Error> {
+    let base = vehicle + if second { layout::SIZE_2 } else { layout::SIZE };
+    Ok([
+        backend.read_word(base)?,
+        backend.read_word(base + 4)?,
+        backend.read_word(base + 8)?,
+    ])
+}
+
+/// GAME 0x4cd5e0 C_Vehicle::GetVehiclePivotPos (mafia-re 113b5b6
+/// game/vehicles/C_Vehicle.cpp:182-186; contract game/vehicles/C_Vehicle.h:236-237):
+/// the raw words of the pivot position in the vehicle (mafia-re
+/// game/vehicles/C_Vehicle.h:461-462), the second one when `second` is set.
+pub fn vehicle_get_pivot_pos<B: VehicleInitBackend>(
+    backend: &mut B,
+    vehicle: u32,
+    second: bool,
+) -> Result<[u32; 3], B::Error> {
+    let base = vehicle + if second { layout::PIVOT_2 } else { layout::PIVOT };
+    Ok([
+        backend.read_word(base)?,
+        backend.read_word(base + 4)?,
+        backend.read_word(base + 8)?,
+    ])
+}
+
+/// GAME 0x4cd600 C_Vehicle::LockVehicle (mafia-re 113b5b6
+/// game/vehicles/C_Vehicle.cpp:188-205; contract game/vehicles/C_Vehicle.h:188-189):
+/// count the locks up (`lock`) or down, the vehicle locked (VEHF_LOCKED) while
+/// any remain. Reads the count, then the flags, then stores the count and the
+/// flags, matching the original's local/ordering. Wrapping arithmetic keeps
+/// the host from panicking where the original int would overflow.
+pub fn vehicle_lock_vehicle<B: VehicleInitBackend>(
+    backend: &mut B,
+    vehicle: u32,
+    lock: bool,
+) -> Result<(), B::Error> {
+    let count = backend.read_word(vehicle + layout::LOCK_COUNT)? as i32;
+    let count = if lock {
+        count.wrapping_add(1)
+    } else {
+        count.wrapping_sub(1)
+    };
+    let flags = backend.read_word(vehicle + layout::VEHICLE_FLAGS)?;
+    backend.write_word(vehicle + layout::LOCK_COUNT, count as u32)?;
+    backend.write_word(
+        vehicle + layout::VEHICLE_FLAGS,
+        if count > 0 {
+            flags | VEHF_LOCKED
+        } else {
+            flags & !VEHF_LOCKED
+        },
+    )
+}
+
 // PC storage mapping stays local to this view. Accessors deliberately read on
 // demand and use the existing address arithmetic and backend error semantics.
 mod layout {
@@ -134,8 +235,183 @@ mod layout {
     pub(super) const ENGINE_STATE: u32 = 0xc2c;
     pub(super) const FUEL: u32 = 0xc30;
     pub(super) const FLAGS: u32 = 0xc68;
+    // C_Vehicle latch slice (mafia-re 113b5b6 game/vehicles/C_Vehicle.h):
+    // lock_count 0xc0 (:454), sizes 0x158/0x164 (:459-460), pivots
+    // 0x170/0x17c (:461-462), vehicle_flags 0x1a4 (:464), tank_size
+    // 0x1fa0 (:549); tank_fuel reuses FUEL 0xc30 above (:521).
+    pub(super) const LOCK_COUNT: u32 = 0xc0;
+    pub(super) const SIZE: u32 = 0x158;
+    pub(super) const SIZE_2: u32 = 0x164;
+    pub(super) const PIVOT: u32 = 0x170;
+    pub(super) const PIVOT_2: u32 = 0x17c;
+    pub(super) const VEHICLE_FLAGS: u32 = 0x1a4;
+    pub(super) const TANK_SIZE: u32 = 0x1fa0;
 }
 
 #[cfg(test)]
 #[path = "vehicle_engine_state_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod latch_tests {
+    use super::*;
+    use crate::vehicle_init::{
+        VehicleInitEnumeration, VehicleInitFrameVector, VehicleInitQuery, VehicleInitUnavailable,
+        VehicleUninitializedStorage,
+    };
+    use std::collections::BTreeMap;
+
+    const VEHICLE: u32 = 0x1000;
+
+    struct LatchBackend {
+        bytes: BTreeMap<u32, u8>,
+    }
+    impl LatchBackend {
+        fn with_words(words: &[(u32, u32)]) -> Self {
+            let mut backend = Self {
+                bytes: BTreeMap::new(),
+            };
+            for &(address, value) in words {
+                backend.put_word(address, value);
+            }
+            backend
+        }
+        fn put_word(&mut self, address: u32, value: u32) {
+            for (i, byte) in value.to_le_bytes().into_iter().enumerate() {
+                self.bytes.insert(address + i as u32, byte);
+            }
+        }
+        fn get_word(&self, address: u32) -> u32 {
+            u32::from_le_bytes(std::array::from_fn(|i| self.bytes[&(address + i as u32)]))
+        }
+    }
+    impl VehicleInitBackend for LatchBackend {
+        type Error = String;
+        fn read_byte(&mut self, address: u32) -> Result<u8, String> {
+            self.bytes
+                .get(&address)
+                .copied()
+                .ok_or_else(|| String::from(VehicleUninitializedStorage { address }))
+        }
+        fn read_word(&mut self, address: u32) -> Result<u32, String> {
+            Ok(u32::from_le_bytes([
+                self.read_byte(address)?,
+                self.read_byte(address + 1)?,
+                self.read_byte(address + 2)?,
+                self.read_byte(address + 3)?,
+            ]))
+        }
+        fn write_byte(&mut self, address: u32, value: u8) -> Result<(), String> {
+            self.bytes.insert(address, value);
+            Ok(())
+        }
+        fn write_word(&mut self, address: u32, value: u32) -> Result<(), String> {
+            for (i, byte) in value.to_le_bytes().into_iter().enumerate() {
+                self.write_byte(address + i as u32, byte)?;
+            }
+            Ok(())
+        }
+        fn allocate(&mut self, _: u32) -> Result<u32, String> {
+            Err("unexpected allocation".into())
+        }
+        fn free(&mut self, _: u32) -> Result<(), String> {
+            Err("unexpected free".into())
+        }
+        fn collect_frame(
+            &mut self,
+            _: &mut VehicleInitFrameVector,
+            _: u32,
+        ) -> Result<(), String> {
+            Err("unexpected collector".into())
+        }
+        fn enumerate(
+            &mut self,
+            _: u32,
+            _: VehicleInitQuery,
+            _: &mut VehicleInitEnumeration<'_>,
+        ) -> Result<(), VehicleInitUnavailable<String>> {
+            Err(VehicleInitUnavailable::Effect("unexpected enumeration".into()))
+        }
+    }
+
+    #[test]
+    fn set_fuel_clamps_to_tank_size() {
+        // GAME 0x4cb6e0 C_Vehicle::SetFuel: tank 50, fuel 60 stores 50.
+        let mut backend = LatchBackend::with_words(&[
+            (VEHICLE + layout::TANK_SIZE, 50.0f32.to_bits()),
+            (VEHICLE + layout::FUEL, 0),
+        ]);
+        assert_eq!(vehicle_set_fuel(&mut backend, VEHICLE, 60.0), Ok(true));
+        assert_eq!(backend.get_word(VEHICLE + layout::FUEL), 50.0f32.to_bits());
+        // Below capacity stores the fuel unchanged.
+        assert_eq!(vehicle_set_fuel(&mut backend, VEHICLE, 30.0), Ok(true));
+        assert_eq!(backend.get_word(VEHICLE + layout::FUEL), 30.0f32.to_bits());
+    }
+
+    #[test]
+    fn is_unstable_reads_vehf_unstable_bit() {
+        // GAME 0x4cd5b0 C_Vehicle::IsVehicleUnstable: flags & VEHF_UNSTABLE.
+        let mut backend = LatchBackend::with_words(&[(VEHICLE + layout::VEHICLE_FLAGS, 0)]);
+        assert_eq!(vehicle_is_unstable(&mut backend, VEHICLE), Ok(false));
+        backend.put_word(VEHICLE + layout::VEHICLE_FLAGS, VEHF_UNSTABLE);
+        assert_eq!(vehicle_is_unstable(&mut backend, VEHICLE), Ok(true));
+    }
+
+    #[test]
+    fn size_and_pivot_select_branch_by_flag() {
+        // GAME 0x4cd5c0/0x4cd5e0: false reads the first vector, true the second.
+        let mut backend = LatchBackend::with_words(&[
+            (VEHICLE + layout::SIZE, 1),
+            (VEHICLE + layout::SIZE + 4, 2),
+            (VEHICLE + layout::SIZE + 8, 3),
+            (VEHICLE + layout::SIZE_2, 4),
+            (VEHICLE + layout::SIZE_2 + 4, 5),
+            (VEHICLE + layout::SIZE_2 + 8, 6),
+            (VEHICLE + layout::PIVOT, 7),
+            (VEHICLE + layout::PIVOT + 4, 8),
+            (VEHICLE + layout::PIVOT + 8, 9),
+            (VEHICLE + layout::PIVOT_2, 10),
+            (VEHICLE + layout::PIVOT_2 + 4, 11),
+            (VEHICLE + layout::PIVOT_2 + 8, 12),
+        ]);
+        assert_eq!(vehicle_get_size(&mut backend, VEHICLE, false), Ok([1, 2, 3]));
+        assert_eq!(vehicle_get_size(&mut backend, VEHICLE, true), Ok([4, 5, 6]));
+        assert_eq!(
+            vehicle_get_pivot_pos(&mut backend, VEHICLE, false),
+            Ok([7, 8, 9])
+        );
+        assert_eq!(
+            vehicle_get_pivot_pos(&mut backend, VEHICLE, true),
+            Ok([10, 11, 12])
+        );
+    }
+
+    #[test]
+    fn lock_counts_and_holds_locked_while_any_remain() {
+        // GAME 0x4cd600 C_Vehicle::LockVehicle: true/true/false lands on
+        // count 2/1 with VEHF_LOCKED held; draining to 0 clears it.
+        let mut backend = LatchBackend::with_words(&[
+            (VEHICLE + layout::LOCK_COUNT, 0),
+            (VEHICLE + layout::VEHICLE_FLAGS, 0),
+        ]);
+        vehicle_lock_vehicle(&mut backend, VEHICLE, true).unwrap();
+        vehicle_lock_vehicle(&mut backend, VEHICLE, true).unwrap();
+        assert_eq!(backend.get_word(VEHICLE + layout::LOCK_COUNT), 2);
+        assert_eq!(
+            backend.get_word(VEHICLE + layout::VEHICLE_FLAGS) & VEHF_LOCKED,
+            VEHF_LOCKED
+        );
+        vehicle_lock_vehicle(&mut backend, VEHICLE, false).unwrap();
+        assert_eq!(backend.get_word(VEHICLE + layout::LOCK_COUNT), 1);
+        assert_eq!(
+            backend.get_word(VEHICLE + layout::VEHICLE_FLAGS) & VEHF_LOCKED,
+            VEHF_LOCKED
+        );
+        vehicle_lock_vehicle(&mut backend, VEHICLE, false).unwrap();
+        assert_eq!(backend.get_word(VEHICLE + layout::LOCK_COUNT), 0);
+        assert_eq!(
+            backend.get_word(VEHICLE + layout::VEHICLE_FLAGS) & VEHF_LOCKED,
+            0
+        );
+    }
+}

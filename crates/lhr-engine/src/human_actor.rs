@@ -25,6 +25,7 @@
 //! and the pedestrian AI Tick (GAME 0x508150) stay DEFERRED.
 #![forbid(unsafe_code)]
 
+use crate::mission_options::OPTION_HIGH;
 use crate::original_program::ProgramReader;
 use crate::script_scheduler::{ActorReferenceId, FrameReferenceId};
 
@@ -342,6 +343,11 @@ pub const HUMAN_SEAT_NONE: i32 = -1;
 /// Do_StopAnim core of this slice; the PersonAnim stance/anim-set remap of
 /// the id stays DEFERRED to the PersonAnim owner.
 pub const ANIM_BREATH01A: i32 = 1;
+/// Bloody-footprint track texture index (mafia-re 113b5b6
+/// game/mission/game.h:92-94: TRACK_TEXTURE_BFOOTPRINT 6, the
+/// C_game::track_textures index of "2bfootprint.bmp", given to the steps of
+/// a human through blood by cbCollTester).
+pub const TRACK_TEXTURE_BFOOTPRINT: u8 = 6;
 
 /// Opaque identity of one dynamic collision object (`tDynamicCollObject *`).
 /// Working name and representation (NOT original): the native value is a host
@@ -488,6 +494,16 @@ pub struct HumanState {
     /// Rebuilt by rebuild_next_coll_owners (GAME 0x57cfe0); the collision call
     /// itself stays with the collision manager (DEFERRED).
     next_coll_owners: Vec<HumanDynCollId>,
+    /// The steps that leave a track, the count they started from (which fades
+    /// them) and the track texture index (mafia-re 113b5b6
+    /// game/actors/C_human.h:1000-1005: track_steps_max @0x6ec,
+    /// track_steps @0x6ee, track_texture @0x6f0). Written by cb_coll_tester
+    /// (GAME 0x587d30) of this slice; the GameInit/constructor writers that
+    /// zero track_steps (C_human.cpp:3200, :9079) and the track-tick consumer
+    /// (:821-840) stay DEFERRED.
+    track_steps_max: i16,
+    track_steps: i16,
+    track_texture: u8,
 }
 impl HumanState {
     pub(crate) fn construct(seed: HumanSeed) -> Self {
@@ -520,6 +536,9 @@ impl HumanState {
             person_anim_request: None,
             ghost_colls: Vec::new(),
             next_coll_owners: Vec::new(),
+            track_steps_max: 0,
+            track_steps: 0,
+            track_texture: 0,
         }
     }
     pub fn human_type_mask(&self) -> u32 {
@@ -854,6 +873,40 @@ impl HumanState {
         }
         for ghost in self.ghost_colls.iter().rev() {
             self.next_coll_owners.push(*ghost);
+        }
+    }
+    /// Remaining bloody-track steps (mafia-re 113b5b6
+    /// game/actors/C_human.h:1003: track_steps @0x6ee).
+    pub fn track_steps(&self) -> i16 {
+        self.track_steps
+    }
+    /// Step count the current track started from, fading it (mafia-re 113b5b6
+    /// game/actors/C_human.h:1002: track_steps_max @0x6ec).
+    pub fn track_steps_max(&self) -> i16 {
+        self.track_steps_max
+    }
+    /// Track texture index (mafia-re 113b5b6 game/actors/C_human.h:1004:
+    /// track_texture @0x6f0).
+    pub fn track_texture(&self) -> u8 {
+        self.track_texture
+    }
+    /// GAME 0x587d30 (RVA 0x187d30) C_human::cbCollTester marker slice
+    /// (mafia-re 113b5b6 game/actors/C_human.cpp:8167-8181): while game
+    /// effects are HIGH or above, restart bloody-footprint tracking (10 steps
+    /// of TRACK_TEXTURE_BFOOTPRINT) when no steps remain, then publish the
+    /// live count as the fade maximum. The collided object never enters this
+    /// slice; collision ownership stays DEFERRED. Animal bodies, the
+    /// track-tick consumer (C_human.cpp:821-840), ThrowCocot/TryGoToAssHole
+    /// AI/nav and the police effects stay DEFERRED with their owners.
+    pub fn cb_coll_tester(&mut self, game_effects: i32) {
+        if game_effects >= OPTION_HIGH {
+            let mut steps = self.track_steps as u16;
+            if steps == 0 {
+                steps = 10;
+                self.track_texture = TRACK_TEXTURE_BFOOTPRINT;
+                self.track_steps = steps as i16;
+            }
+            self.track_steps_max = steps as i16;
         }
     }
     /// GAME 0x56f440 (RVA 0x16f440) C_human::SaveData (mafia-re
@@ -1470,5 +1523,55 @@ mod tests {
         assert!(human.ghost_colls().is_empty());
         human.rebuild_next_coll_owners(&colls);
         assert!(human.next_coll_owners().is_empty());
+    }
+    #[test]
+    fn cb_coll_tester_restarts_bloody_tracks_only_on_high_effects() {
+        use crate::mission_options::{OPTION_HIGH, OPTION_LOW};
+        // Hand-derived from C_human::cbCollTester (mafia-re 113b5b6
+        // game/actors/C_human.cpp:8167-8181) with TRACK_TEXTURE_BFOOTPRINT 6
+        // (game/mission/game.h:92-94): below HIGH nothing happens even with
+        // no steps; on HIGH empty steps restart to 10 of texture 6 with max
+        // 10; nonzero steps publish the live count and keep the texture.
+        let mut human = HumanState::construct(seed());
+        assert_eq!(human.track_steps(), 0);
+        human.cb_coll_tester(OPTION_LOW);
+        assert_eq!(
+            (
+                human.track_steps(),
+                human.track_steps_max(),
+                human.track_texture()
+            ),
+            (0, 0, 0)
+        );
+        human.cb_coll_tester(OPTION_HIGH);
+        assert_eq!(
+            (
+                human.track_steps(),
+                human.track_steps_max(),
+                human.track_texture()
+            ),
+            (10, 10, TRACK_TEXTURE_BFOOTPRINT)
+        );
+        human.track_steps = 7;
+        human.track_steps_max = 3;
+        human.track_texture = 9;
+        human.cb_coll_tester(OPTION_HIGH);
+        assert_eq!(
+            (
+                human.track_steps(),
+                human.track_steps_max(),
+                human.track_texture()
+            ),
+            (7, 7, 9)
+        );
+        human.cb_coll_tester(OPTION_LOW);
+        assert_eq!(
+            (
+                human.track_steps(),
+                human.track_steps_max(),
+                human.track_texture()
+            ),
+            (7, 7, 9)
+        );
     }
 }

@@ -122,6 +122,12 @@ impl BaseActorState {
     pub fn set_dead(&mut self, dead: bool) {
         self.dead = dead;
     }
+    /// Original C_actor::RecordKey (GAME 0x404f30, mafia-re 113b5b6
+    /// game/actors/C_actor.cpp:670-674; contract game/actors/C_actor.h:166):
+    /// the record made for the time has no type here, always -1.
+    pub fn record_key(&self, _time: i32) -> i32 {
+        -1
+    }
 }
 /// Evidenced primary vtable identities; opaque tags supply no derived behavior.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -9122,6 +9128,14 @@ mod human_owner_tests {
         assert_eq!(w.actor_dead(actor), Ok(true));
         w.set_actor_dead(actor, false).unwrap();
         assert_eq!(w.actor_dead(actor), Ok(false));
+    }
+    #[test]
+    fn record_key_is_always_minus_one() {
+        // GAME 0x404f30 C_actor::RecordKey always returns -1 (mafia-re
+        // 113b5b6 game/actors/C_actor.cpp:670-674, C_actor.h:166).
+        let state = BaseActorState::construct(base());
+        assert_eq!(state.record_key(0), -1);
+        assert_eq!(state.record_key(12345), -1);
     }
     #[test]
     fn human_car_latches_seat_owner_and_gates_non_humans() {
