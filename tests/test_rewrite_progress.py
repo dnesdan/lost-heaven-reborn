@@ -98,7 +98,12 @@ class RewriteProgressTests(unittest.TestCase):
         # 29 indicators lanes, FreerideStoreA 0x20e920, Break_Glass 0x262f0,
         # SetEngineOn 0xcb5b0, glass worker 0xd6670; MenuStack/#[path] scopes
         # deferred as unfileable (RotateDir precedent).
-        self.assertEqual(game["ported"], 149 + 162)
+        # +13 MenuStack wave after moving menu.rs under lib.rs as a real
+        # module (Create 0x1ea2e0 / Close 0x1eae10 / CloseAll 0x1eae40 / Open
+        # 0x1ead50 / Exchange 0x1ead80 / SetDisabled 0x1eaed0 / ActivateByID
+        # 0x1eb1c0 / OrNext 0x1eb210 / Find 0x1eb2f0 / Prev/Next id+list
+        # 0x1eb320-0x1eb4e0; Tick 0x1ea8c0 already filed via main_menu).
+        self.assertEqual(game["ported"], 149 + 175)
         self.assertEqual(game["verified"], 149 + 7)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])

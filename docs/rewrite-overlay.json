@@ -9418,6 +9418,123 @@
       "symbol": "lhr_engine::vehicle_damage_glass::vehicle_damage_glass",
       "tier": "contract",
       "evidence": "Material swap on damage (GAME 0x4d6670). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1ea2e0",
+      "va": "0x5ea2e0",
+      "name": "GM_Menu::Create",
+      "symbol": "lhr_engine::menu::MenuStack::create",
+      "tier": "contract",
+      "evidence": "Stack intake skipping upup, INTRO auto-activate (GAME 0x5ea2e0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1eae10",
+      "va": "0x5eae10",
+      "name": "GM_Menu::MenuClose",
+      "symbol": "lhr_engine::menu::MenuStack::menu_close",
+      "tier": "contract",
+      "evidence": "Close latch (GAME 0x5eae10). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1eae40",
+      "va": "0x5eae40",
+      "name": "GM_Menu::MenuCloseAll",
+      "symbol": "lhr_engine::menu::MenuStack::menu_close_all",
+      "tier": "contract",
+      "evidence": "Close-all with result code (GAME 0x5eae40). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1ead50",
+      "va": "0x5ead50",
+      "name": "GM_Menu::MenuOpen",
+      "symbol": "lhr_engine::menu::menu_open_definition",
+      "tier": "contract",
+      "evidence": "Definition-name resolve for Open (GAME 0x5ead50). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1ead80",
+      "va": "0x5ead80",
+      "name": "GM_Menu::MenuExchange",
+      "symbol": "lhr_engine::menu::MenuStack::menu_exchange",
+      "tier": "contract",
+      "evidence": "Exchange rebuild (GAME 0x5ead80). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1eaed0",
+      "va": "0x5eaed0",
+      "name": "GM_Menu::SetDisabled",
+      "symbol": "lhr_engine::menu::MenuStack::set_disabled",
+      "tier": "contract",
+      "evidence": "COMPF ENABLED bit set/clear (GAME 0x5eaed0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1eb1c0",
+      "va": "0x5eb1c0",
+      "name": "GM_Menu::ActivateByID",
+      "symbol": "lhr_engine::menu::MenuStack::activate_by_id",
+      "tier": "contract",
+      "evidence": "Direct activation (GAME 0x5eb1c0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1eb210",
+      "va": "0x5eb210",
+      "name": "GM_Menu::ActivateByIDOrNext",
+      "symbol": "lhr_engine::menu::MenuStack::activate_by_id_or_next",
+      "tier": "contract",
+      "evidence": "Activate with next-fallback (GAME 0x5eb210). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1eb2f0",
+      "va": "0x5eb2f0",
+      "name": "GM_Menu::FindComponentByID",
+      "symbol": "lhr_engine::menu::MenuStack::find_component_by_id",
+      "tier": "contract",
+      "evidence": "By-id search (GAME 0x5eb2f0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1eb320",
+      "va": "0x5eb320",
+      "name": "GM_Menu::FindComponentByIDPrev",
+      "symbol": "lhr_engine::menu::MenuStack::find_by_id_prev",
+      "tier": "contract",
+      "evidence": "Wrapping id search (GAME 0x5eb320). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1eb3c0",
+      "va": "0x5eb3c0",
+      "name": "GM_Menu::FindComponentByIDNext",
+      "symbol": "lhr_engine::menu::MenuStack::find_by_id_next",
+      "tier": "contract",
+      "evidence": "Wrapping id search (GAME 0x5eb3c0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1eb460",
+      "va": "0x5eb460",
+      "name": "GM_Menu::FindComponentPrev",
+      "symbol": "lhr_engine::menu::MenuStack::find_list_prev",
+      "tier": "contract",
+      "evidence": "List search (GAME 0x5eb460). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1eb4e0",
+      "va": "0x5eb4e0",
+      "name": "GM_Menu::FindComponentNext",
+      "symbol": "lhr_engine::menu::MenuStack::find_list_next",
+      "tier": "contract",
+      "evidence": "List search (GAME 0x5eb4e0). Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {
