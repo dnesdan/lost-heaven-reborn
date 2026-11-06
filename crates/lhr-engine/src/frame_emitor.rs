@@ -472,6 +472,10 @@ pub struct EmitorDerived {
     pub grow: f32,
     pub emit_time: u32,
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "preserve existing public explicit-parameter signature"
+)]
 pub fn emitor_derived_params(
     life_base: u32,
     life_rnd: u32,

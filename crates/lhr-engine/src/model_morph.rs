@@ -54,6 +54,10 @@ pub struct MorphCtorFields {
 }
 
 impl MorphCtorFields {
+    #[expect(
+        clippy::self_named_constructors,
+        reason = "preserve existing public associated constructor name"
+    )]
     pub fn morph_ctor_fields() -> Self {
         morph_ctor_fields()
     }
