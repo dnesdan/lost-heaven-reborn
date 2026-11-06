@@ -269,6 +269,23 @@ fn sort_index_records(entries: &mut [(u32, i32)]) {
     }
 }
 
+/// FUNCTION: GAME 0x408690 (`compare_anim_index`, mafia-re
+/// `game/actors/C_actor.cpp:1792`).
+///
+/// qsort comparator over `S_anim_index` ids (mafia-re
+/// `game/actors/C_actor.h:756`): unsigned comparison returning -1, 0 or 1.
+/// Only the compared id participates here; record lifetime and the
+/// surrounding `InitAnimIndex` sort stay with the index owner.
+pub fn compare_anim_index(a_id: u32, b_id: u32) -> i32 {
+    if a_id == b_id {
+        0
+    } else if a_id < b_id {
+        -1
+    } else {
+        1
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -439,5 +456,15 @@ mod tests {
         );
         assert_eq!(state.pointer_identity(), u32::MAX - 3);
         assert_eq!(state.storage(), &AnimationIndexStorage::Unavailable);
+    }
+
+    #[test]
+    fn anim_index_comparator_orders_unsigned_ids() {
+        assert_eq!(compare_anim_index(3, 5), -1);
+        assert_eq!(compare_anim_index(5, 5), 0);
+        assert_eq!(compare_anim_index(7, 5), 1);
+        assert_eq!(compare_anim_index(0, u32::MAX), -1);
+        assert_eq!(compare_anim_index(u32::MAX, 0), 1);
+        assert_eq!(compare_anim_index(u32::MAX, u32::MAX), 0);
     }
 }

@@ -514,3 +514,63 @@ impl VehicleInitState {
         .run()
     }
 }
+
+/// Marker-only projection of the wheel data read by
+/// `C_Vehicle::GetWheelCamPos` (mafia-re `game/vehicles/C_Vehicle.h:73`):
+/// the outward camera distance (`cam_offset`) and the wheel position in the
+/// vehicle (`pos`). Frame tick and native `I3D_frame` lifetime are DEFERRED.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WheelCamState {
+    pub cam_offset: f32,
+    pub pos: [f32; 3],
+}
+
+/// FUNCTION: GAME 0x4c6010 (`C_Vehicle::GetWheelCamPos`, mafia-re
+/// `game/vehicles/C_Vehicle.cpp:116`).
+///
+/// Even wheels mirror `offset.x` and subtract `cam_offset`; odd wheels add
+/// it; then the wheel position is added. The caller guarantees `wheel` names
+/// an entry (the PC original performs no bounds check); out-of-range access
+/// panics in place of the native fault.
+pub fn get_wheel_cam_pos(wheels: &[WheelCamState], wheel: usize, offset: [f32; 3]) -> [f32; 3] {
+    let base = wheels[wheel];
+    let mut x = offset[0];
+    if wheel % 2 == 0 {
+        x = -x;
+        x -= base.cam_offset;
+    } else {
+        x += base.cam_offset;
+    }
+    [
+        x + base.pos[0],
+        offset[1] + base.pos[1],
+        offset[2] + base.pos[2],
+    ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wheel_cam_pos_mirrors_offset_x_by_wheel_parity() {
+        let wheels = [
+            WheelCamState {
+                cam_offset: 0.5,
+                pos: [10.0, 0.0, 0.0],
+            },
+            WheelCamState {
+                cam_offset: 0.25,
+                pos: [20.0, 0.0, 0.0],
+            },
+        ];
+        assert_eq!(
+            get_wheel_cam_pos(&wheels, 0, [1.0, 2.0, 3.0]),
+            [8.5, 2.0, 3.0]
+        );
+        assert_eq!(
+            get_wheel_cam_pos(&wheels, 1, [1.0, 2.0, 3.0]),
+            [21.25, 2.0, 3.0]
+        );
+    }
+}

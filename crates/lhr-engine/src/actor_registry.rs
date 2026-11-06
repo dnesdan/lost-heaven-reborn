@@ -265,6 +265,53 @@ fn apply<B: ActorCacheBackend + ?Sized>(
         })
 }
 
+/// Marker-only projection of `C_actor::S_posscoll_frame` (mafia-re
+/// `game/actors/C_actor.h:384`).
+///
+/// Only the compared frame handle and its radius participate here. Collision
+/// testing against these frames and the owning actor tick stay with their
+/// respective owners (DEFERRED); native `I3D_frame` lifetime is not modeled.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PossCollEntry {
+    pub frame: FrameKey,
+    pub radius: f32,
+}
+
+/// FUNCTION: GAME 0x4081d0 (`C_actor::AddFrameForPossibleColl`, mafia-re
+/// `game/actors/C_actor.cpp:1701`).
+///
+/// Dedup-push scanned from the back: a null frame is a no-op, an existing
+/// frame keeps its slot with its radius rewritten, otherwise the pair is
+/// appended.
+pub fn add_frame_for_possible_coll(
+    frames: &mut Vec<PossCollEntry>,
+    frame: Option<FrameKey>,
+    radius: f32,
+) {
+    let Some(frame) = frame else { return };
+    for entry in frames.iter_mut().rev() {
+        if entry.frame == frame {
+            entry.radius = radius;
+            return;
+        }
+    }
+    frames.push(PossCollEntry { frame, radius });
+}
+
+/// FUNCTION: GAME 0x4083e0 (`C_actor::DelFrameForPossibleColl`, mafia-re
+/// `game/actors/C_actor.cpp:1721`).
+///
+/// Swap-remove scanned from the back (the last entry takes the removed
+/// slot, as for `DelActorFromGlobal`); a miss is a no-op.
+pub fn del_frame_for_possible_coll(frames: &mut Vec<PossCollEntry>, frame: FrameKey) {
+    for index in (0..frames.len()).rev() {
+        if frames[index].frame == frame {
+            frames.swap_remove(index);
+            return;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -498,5 +545,71 @@ mod tests {
             );
             assert_eq!(registry.records().is_empty(), removed);
         }
+    }
+
+    #[test]
+    fn possible_coll_add_rewrites_radius_and_ignores_null() {
+        let mut frames = vec![
+            PossCollEntry {
+                frame: FrameKey(1),
+                radius: 1.0,
+            },
+            PossCollEntry {
+                frame: FrameKey(2),
+                radius: 2.0,
+            },
+        ];
+        add_frame_for_possible_coll(&mut frames, Some(FrameKey(1)), 5.0);
+        assert_eq!(
+            frames,
+            vec![
+                PossCollEntry {
+                    frame: FrameKey(1),
+                    radius: 5.0,
+                },
+                PossCollEntry {
+                    frame: FrameKey(2),
+                    radius: 2.0,
+                },
+            ]
+        );
+        add_frame_for_possible_coll(&mut frames, Some(FrameKey(3)), 3.0);
+        assert_eq!(frames.len(), 3);
+        add_frame_for_possible_coll(&mut frames, None, 9.0);
+        assert_eq!(frames.len(), 3);
+    }
+
+    #[test]
+    fn possible_coll_remove_swaps_last_into_place_and_miss_is_noop() {
+        let mut frames = vec![
+            PossCollEntry {
+                frame: FrameKey(1),
+                radius: 1.0,
+            },
+            PossCollEntry {
+                frame: FrameKey(2),
+                radius: 2.0,
+            },
+            PossCollEntry {
+                frame: FrameKey(3),
+                radius: 3.0,
+            },
+        ];
+        del_frame_for_possible_coll(&mut frames, FrameKey(1));
+        assert_eq!(
+            frames,
+            vec![
+                PossCollEntry {
+                    frame: FrameKey(3),
+                    radius: 3.0,
+                },
+                PossCollEntry {
+                    frame: FrameKey(2),
+                    radius: 2.0,
+                },
+            ]
+        );
+        del_frame_for_possible_coll(&mut frames, FrameKey(9));
+        assert_eq!(frames.len(), 2);
     }
 }

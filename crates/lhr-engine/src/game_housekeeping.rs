@@ -193,6 +193,32 @@ pub fn character_stack_clear(stack: &mut Vec<u32>) {
     stack.clear();
 }
 
+/// Marker-only projection of `C_game::S_shadow_item` (mafia-re
+/// `game/mission/game.h:142`).
+///
+/// Only the compared `dist` member (distance from the camera,
+/// `game.h:150`) participates here; frame/model ownership and the shadow
+/// tick stay with their owners (DEFERRED).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ShadowItem {
+    pub dist: f32,
+}
+
+/// FUNCTION: GAME 0x5acfb0 (`game.cpp:2865`, `C_game::CompareShadows`).
+///
+/// qsort comparator by `dist`: 0 when equal, -1 when nearer, 1 otherwise.
+/// The two-comparison sequence is the whole contract; NaN behavior beyond
+/// it is explicitly out of scope.
+pub fn compare_shadows(a: &ShadowItem, b: &ShadowItem) -> i32 {
+    if a.dist == b.dist {
+        0
+    } else if a.dist < b.dist {
+        -1
+    } else {
+        1
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -364,5 +390,14 @@ mod tests {
         let mut characters = vec![3u32, 4];
         character_stack_clear(&mut characters);
         assert!(characters.is_empty());
+    }
+
+    #[test]
+    fn compare_shadows_orders_by_distance() {
+        let near = ShadowItem { dist: 1.0 };
+        let far = ShadowItem { dist: 2.0 };
+        assert_eq!(compare_shadows(&near, &far), -1);
+        assert_eq!(compare_shadows(&far, &near), 1);
+        assert_eq!(compare_shadows(&near, &near), 0);
     }
 }

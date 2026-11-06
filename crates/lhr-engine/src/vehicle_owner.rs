@@ -143,6 +143,36 @@ impl VehicleOwnerState {
     }
 }
 
+/// FUNCTION: GAME 0x4ce560 (`C_Vehicle::AddSectorForProjectorLights`,
+/// mafia-re `game/vehicles/C_Vehicle.cpp:234`).
+///
+/// Dedup-push over the caller's projection of the `v_light_sector` static
+/// (mafia-re `game/vehicles/C_Vehicle.h:152`), scanned from the back; an
+/// already listed sector is a no-op. Sector tick and native `I3D_sector`
+/// lifetime are DEFERRED.
+pub fn add_sector_for_projector_lights(sectors: &mut Vec<u32>, sector: u32) {
+    for index in (0..sectors.len()).rev() {
+        if sectors[index] == sector {
+            return;
+        }
+    }
+    sectors.push(sector);
+}
+
+/// FUNCTION: GAME 0x4ce760 (`C_Vehicle::AddSectorForSounds`, mafia-re
+/// `game/vehicles/C_Vehicle.cpp:248`).
+///
+/// The same dedup-push over the caller's projection of the `v_sound_sector`
+/// static (mafia-re `game/vehicles/C_Vehicle.h:153`).
+pub fn add_sector_for_sounds(sectors: &mut Vec<u32>, sector: u32) {
+    for index in (0..sectors.len()).rev() {
+        if sectors[index] == sector {
+            return;
+        }
+    }
+    sectors.push(sector);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -208,5 +238,23 @@ mod tests {
         assert_eq!(&state.as_bytes()[0x2004..], &[0x5a; 3]);
         assert_eq!(word(&state, 0), 0x5a5a5a5a);
         assert_eq!(state.as_bytes()[0x98], 0x5a);
+    }
+
+    #[test]
+    fn projector_light_sectors_dedup_from_the_back() {
+        let mut sectors = vec![7u32, 9];
+        add_sector_for_projector_lights(&mut sectors, 7);
+        assert_eq!(sectors, vec![7, 9]);
+        add_sector_for_projector_lights(&mut sectors, 11);
+        assert_eq!(sectors, vec![7, 9, 11]);
+    }
+
+    #[test]
+    fn sound_sectors_dedup_from_the_back() {
+        let mut sectors = vec![7u32, 9];
+        add_sector_for_sounds(&mut sectors, 9);
+        assert_eq!(sectors, vec![7, 9]);
+        add_sector_for_sounds(&mut sectors, 11);
+        assert_eq!(sectors, vec![7, 9, 11]);
     }
 }
