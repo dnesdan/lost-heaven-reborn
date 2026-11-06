@@ -58,6 +58,7 @@ pub mod crash_actors;
 pub mod cutscene_owner;
 pub mod cutscene_records;
 pub mod cutscene_source;
+pub mod dabing;
 pub mod debris;
 pub mod door_actor;
 pub mod driver_lifecycle;
