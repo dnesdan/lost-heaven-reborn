@@ -301,10 +301,25 @@ pub struct HumanSeed {
 /// game/actors/C_human.h:137 HUMAN_ACTION_STAND; the live word is `int`
 /// action_state per C_human.h:824-826, save-packed as ushort per the
 /// S_human_savegame 0x6d field, so the Rust owner keeps the PC 32-bit signed
-/// width as i32). CAR is owned below by the Intern_UseCar seat core; the
-/// remaining HUMAN_ACTION_* values are written by the DEFERRED Movement and
+/// width as i32). WALK, FALL and JUMP are owned below by the Movement slice;
+/// the remaining HUMAN_ACTION_* values are written by the DEFERRED Update and
 /// car AI, so they take no constants here.
 pub const HUMAN_ACTION_STAND: i32 = 1;
+/// Original walking action value (mafia-re 113b5b6
+/// game/actors/C_human.h:138 HUMAN_ACTION_WALK; same PC 32-bit signed word
+/// as HUMAN_ACTION_STAND). Read by the Movement dispatch writer of STAND/FALL
+/// transitions; the Go_*/Update writers stay DEFERRED.
+pub const HUMAN_ACTION_WALK: i32 = 2;
+/// Original falling action value (mafia-re 113b5b6 game/actors/C_human.h:139
+/// HUMAN_ACTION_FALL; same PC 32-bit signed word). Written by MovementIntern
+/// (landing clears it to STAND) and by the Movement fall entry; the landing
+/// Hit/PersonAnim/particle/sound effects stay DEFERRED.
+pub const HUMAN_ACTION_FALL: i32 = 3;
+/// Original jump action value (mafia-re 113b5b6 game/actors/C_human.h:147
+/// HUMAN_ACTION_JUMP; same PC 32-bit signed word). Read by MovementIntern
+/// (slope projection skipped, landing converts it to STAND); the Do_Jump
+/// writer stays DEFERRED.
+pub const HUMAN_ACTION_JUMP: i32 = 11;
 /// Original seated-in-car action value (mafia-re 113b5b6
 /// game/actors/C_human.h:145 HUMAN_ACTION_CAR; same PC 32-bit signed word
 /// as HUMAN_ACTION_STAND). Written here only by the Intern_UseCar seat core;
