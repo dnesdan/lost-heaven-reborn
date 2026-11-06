@@ -12,9 +12,12 @@
 //! admission limits, not native actor limits. Unsupported native allocator
 //! exceptions, allocator callback reentry into collection mutation, other derived virtuals and
 //! nonzero manager cleanup flags have no implicit successful implementation.
+use crate::actor_shot::{ActorShotSeed, ActorShotState};
 use crate::box_new_actor::{BoxLoadFlag, BoxNewSeed, BoxNewState};
 use crate::bridge_actor::{BridgeSectors, BridgeSeed, BridgeState, BridgeTable};
 use crate::car_actor::{CarActorServices, CarActorState, CarSeed};
+use crate::car_ex_actor::{CarExSeed, CarExState};
+use crate::clock_actor::{ClockSeed, ClockState};
 use crate::cutscene_records::{
     ActorUserData, CutsceneRecordArena, RecordedActorAssociation, RecordedActorId,
 };
@@ -30,6 +33,8 @@ use crate::original_program::{
 };
 use crate::player_actor::{PlayerSeed, PlayerState};
 use crate::pumper_actor::{PumperSeed, PumperState};
+use crate::racecam::{RacecamSeed, RacecamState};
+use crate::rail_generator::{RailGeneratorSeed, RailGeneratorState};
 use crate::railway_actor::{RailwayAllocation, RailwaySeed, RailwayState, RailwayVectorSlot};
 use crate::script_lookup::{ActorLifetime, LookupError, LookupWorldBackend, MAX_ACTOR_SOURCES};
 use crate::script_scheduler::{ActorReferenceId, FrameReferenceId};
@@ -119,6 +124,11 @@ pub enum ActorVtable {
     Player,
     Entity,
     Car,
+    CarEx,
+    Clock,
+    ActorShot,
+    RailGenerator,
+    Racecam,
     TrafficGenerator,
     Opaque(u32),
 }
@@ -150,6 +160,11 @@ struct OwnedActor {
     player: Option<PlayerState>,
     entity: Option<EntityState>,
     car: Option<CarActorState>,
+    car_ex: Option<CarExState>,
+    clock: Option<ClockState>,
+    actor_shot: Option<ActorShotState>,
+    rail_generator: Option<RailGeneratorState>,
+    racecam: Option<RacecamState>,
     traffic: Option<TrafficGeneratorState>,
 }
 /// Untouched native detector storage, including the embedded program seed.
@@ -275,6 +290,11 @@ pub enum ActorWorldError {
     NotTrafficCar,
     NotPumper,
     NotBoxNew,
+    NotClock,
+    NotActorShot,
+    NotRailGenerator,
+    NotRacecam,
+    NotCarEx,
     BridgeTableUnavailable,
     BridgeTableTruncated,
     NotHuman,
@@ -468,6 +488,41 @@ pub trait ActorAllocationBackend {
         _bytes: u32,
     ) -> Result<Option<(u32, BaseActorSeed, BoxNewSeed)>, String> {
         Err("box allocation unavailable".into())
+    }
+    /// Kind34 requires actual 0x88-byte storage and its untouched seed.
+    fn allocate_clock(
+        &mut self,
+        _bytes: u32,
+    ) -> Result<Option<(u32, BaseActorSeed, ClockSeed)>, String> {
+        Err("clock allocation unavailable".into())
+    }
+    /// Kind33 requires actual 0x8c-byte storage and its untouched seed.
+    fn allocate_actor_shot(
+        &mut self,
+        _bytes: u32,
+    ) -> Result<Option<(u32, BaseActorSeed, ActorShotSeed)>, String> {
+        Err("actor shot allocation unavailable".into())
+    }
+    /// Kind38 requires actual 0x84-byte storage and its untouched seed.
+    fn allocate_rail_generator(
+        &mut self,
+        _bytes: u32,
+    ) -> Result<Option<(u32, BaseActorSeed, RailGeneratorSeed)>, String> {
+        Err("rail generator allocation unavailable".into())
+    }
+    /// Kind36 requires actual 0x227c-byte storage and its untouched seed.
+    fn allocate_car_ex(
+        &mut self,
+        _bytes: u32,
+    ) -> Result<Option<(u32, BaseActorSeed, CarExSeed)>, String> {
+        Err("car_ex allocation unavailable".into())
+    }
+    /// Kind28 requires actual 0x88-byte storage and its untouched seed.
+    fn allocate_racecam(
+        &mut self,
+        _bytes: u32,
+    ) -> Result<Option<(u32, BaseActorSeed, RacecamSeed)>, String> {
+        Err("racecam allocation unavailable".into())
     }
 }
 /// Native backing/free dependencies. A failed scalar `free_actor` retains its
@@ -938,6 +993,11 @@ impl ActorWorld {
             player: None,
             entity: None,
             car: None,
+            car_ex: None,
+            clock: None,
+            actor_shot: None,
+            rail_generator: None,
+            racecam: None,
             traffic: None,
         });
         self.actor_count = self.actor_count.wrapping_add(1);
@@ -1243,6 +1303,11 @@ impl ActorWorld {
                 detail,
             })
     }
+    /// Shared C_car/C_car_ex LoadData owner. Native C_car_ex::LoadData is a
+    /// stub (STUB GAME 0x42f110 falling through to the C_car::LoadData stub,
+    /// mafia-re game/vehicles/C_car_ex.cpp:60-62 + C_car.cpp:523-526, which
+    /// parses nothing): kind 36 takes the zero-consumption skip below while
+    /// kind 4 runs the deep source conversion.
     pub fn load_car_data(
         &mut self,
         actor: ActorReferenceId,
@@ -1250,8 +1315,27 @@ impl ActorWorld {
         arena: &mut crate::model_loading::ModelArena,
     ) -> Result<bool, ActorWorldError> {
         let i = self.ready(actor)?;
-        if self.actors[i].car.is_none() || self.actors[i].state.vtable != ActorVtable::Car {
+        if self.actors[i].car.is_none()
+            || !matches!(
+                self.actors[i].state.vtable,
+                ActorVtable::Car | ActorVtable::CarEx
+            )
+        {
+            // CarEx without its car half reports the kind error; anything
+            // else keeps the generic vtable error.
+            if self.actors[i].state.vtable == ActorVtable::CarEx {
+                return Err(ActorWorldError::NotCarEx);
+            }
             return Err(ActorWorldError::UnsupportedVtable);
+        }
+        // Native C_car_ex does not override LoadData: STUB 0x42f110 falls
+        // through to the C_car::LoadData stub (mafia-re C_car.cpp:523-526),
+        // which parses nothing and returns base-true. The host mirrors the
+        // stub (zero consumption); the deep packed/parameter conversion
+        // stays a post-Init path (it needs primed vehicle init).
+        if self.actors[i].state.vtable == ActorVtable::CarEx {
+            self.actors[i].phase = ActorPhase::Ready;
+            return Ok(true);
         }
         self.actors[i].phase = ActorPhase::Loading;
         let result = self.actors[i]
@@ -1326,8 +1410,12 @@ impl ActorWorld {
         if self.actors[i].car.is_none() {
             return Err(ActorWorldError::UnsupportedVtable);
         }
+        let vtable = self.actors[i].state.vtable;
+        if !matches!(vtable, ActorVtable::Car | ActorVtable::CarEx) {
+            return Err(ActorWorldError::UnsupportedVtable);
+        }
         self.actors[i].phase = ActorPhase::Destroying;
-        self.actors[i].state.vtable = ActorVtable::Car;
+        self.actors[i].state.vtable = vtable;
         let result = frames
             .destroy_car_resources(self, actor)
             .map_err(|detail| ActorWorldError::Effect {
@@ -1359,6 +1447,8 @@ impl ActorWorld {
         }
         Ok(())
     }
+    /// Shared C_car/C_car_ex virtual Release: the car_ex tail carries no
+    /// native free, so the car deleting wrapper retires both owners.
     pub fn release_car<F: ActorFrameBackend + ?Sized, B: ActorDeallocationBackend + ?Sized>(
         &mut self,
         actor: ActorReferenceId,
@@ -1366,7 +1456,10 @@ impl ActorWorld {
         backend: &mut B,
     ) -> Result<u16, ActorWorldError> {
         let i = self.ready(actor)?;
-        if self.actors[i].state.vtable != ActorVtable::Car {
+        if !matches!(
+            self.actors[i].state.vtable,
+            ActorVtable::Car | ActorVtable::CarEx
+        ) {
             return Err(ActorWorldError::UnsupportedVtable);
         }
         let count = self.actors[i].state.references.wrapping_sub(1);
@@ -2345,6 +2438,656 @@ impl ActorWorld {
         }
         Ok(())
     }
+    /// Genuine C_clock construction: the caller's base owner plus the kind
+    /// marker for kind 34 (0x88 bytes, vtable 0x625648). The constructor
+    /// (mafia-re game/actors/c_clock.cpp:8-12) stores no other derived words;
+    /// Init/GameInit/AI populate the hand words and angles.
+    pub fn construct_clock<B: ActorCollectionBackend + ?Sized>(
+        &mut self,
+        identity: u32,
+        base: BaseActorSeed,
+        seed: ClockSeed,
+        backend: &mut B,
+    ) -> Result<ActorReferenceId, ActorCreationError> {
+        identity.checked_add(0x87).ok_or(ActorCreationError {
+            actor: None,
+            source: ActorWorldError::InvalidBacking,
+        })?;
+        let actor = self.construct_base(identity, base, backend)?;
+        let i = self.index(actor).expect("constructed clock owner");
+        let mut state = ClockState::allocation(seed);
+        state.complete_constructor();
+        self.actors[i].clock = Some(state);
+        self.actors[i].state.vtable = ActorVtable::Clock;
+        self.actors[i].state.word_10 = 34;
+        Ok(actor)
+    }
+    pub fn clock(&self, actor: ActorReferenceId) -> Result<&ClockState, ActorWorldError> {
+        self.actors[self.index(actor)?]
+            .clock
+            .as_ref()
+            .ok_or(ActorWorldError::NotClock)
+    }
+    pub fn inspect_clock(&self, actor: ActorReferenceId) -> Option<&ClockState> {
+        self.actors
+            .iter()
+            .find(|a| a.lifetime.reference() == actor)?
+            .clock
+            .as_ref()
+    }
+    /// Original C_clock::Init tail after the base init (mafia-re game/actors/
+    /// c_clock.cpp:14-29): record the resolved Mala/Velka/Sekundova visual
+    /// hand frames. Missing hour or minute hands fail closed like the native
+    /// refused init; a missing second hand stores zero and stays admitted,
+    /// since the clock may lack one. Only resolved identities cross here; the
+    /// ENUMF_VISUAL (0x1) child search lives with the loader link.
+    pub fn init_clock_linked(
+        &mut self,
+        actor: ActorReferenceId,
+        hour: Option<FrameReferenceId>,
+        minute: Option<FrameReferenceId>,
+        second: Option<FrameReferenceId>,
+    ) -> Result<bool, ActorWorldError> {
+        let i = self.ready(actor)?;
+        if self.actors[i].clock.is_none() || self.actors[i].state.vtable != ActorVtable::Clock {
+            return Err(ActorWorldError::NotClock);
+        }
+        let (Some(hour), Some(minute)) = (hour, minute) else {
+            return Ok(false);
+        };
+        self.actors[i]
+            .clock
+            .as_mut()
+            .expect("admitted clock")
+            .set_hand_frames(
+                hour.identity(),
+                minute.identity(),
+                second.map_or(0, |frame| frame.identity()),
+            );
+        Ok(true)
+    }
+    /// Original C_clock::GameInit derived math (mafia-re game/actors/
+    /// c_clock.cpp:31-52): zero the elapsed/angles, then set both hands from
+    /// the supplied local-time hour/minute words. The SetDir/Update frame
+    /// effects stay with a future frame effect owner. Original GameDone
+    /// (mafia-re c_clock.cpp:54-58) runs only the base Done and stores no
+    /// derived word, so it has no effect owner here beyond shared destruction.
+    pub fn game_init_clock(
+        &mut self,
+        actor: ActorReferenceId,
+        hour: u16,
+        minute: u16,
+    ) -> Result<(), ActorWorldError> {
+        let i = self.ready(actor)?;
+        if self.actors[i].clock.is_none() || self.actors[i].state.vtable != ActorVtable::Clock {
+            return Err(ActorWorldError::NotClock);
+        }
+        self.actors[i]
+            .clock
+            .as_mut()
+            .expect("admitted clock")
+            .game_init(hour, minute);
+        Ok(())
+    }
+    /// Original C_clock::AI (mafia-re game/actors/c_clock.cpp:73-96): add the
+    /// tick milliseconds, turn the minute/hour hands each minute past, and
+    /// turn the second hand with the time. See ClockState::advance for the
+    /// verbatim transition; frame SetDir/Update effects stay with a future
+    /// frame effect owner.
+    pub fn tick_clock(
+        &mut self,
+        actor: ActorReferenceId,
+        time: u32,
+    ) -> Result<(), ActorWorldError> {
+        let i = self.ready(actor)?;
+        if self.actors[i].clock.is_none() || self.actors[i].state.vtable != ActorVtable::Clock {
+            return Err(ActorWorldError::NotClock);
+        }
+        self.actors[i]
+            .clock
+            .as_mut()
+            .expect("admitted clock")
+            .advance(time);
+        Ok(())
+    }
+    /// C_clock has no scene2 LoadData override (mafia-re game/actors/
+    /// c_clock.h lists none past the folded literal-success SaveGame leaves):
+    /// zero payload bytes are consumed and native success is reported. The
+    /// enclosing chunk reader skips the record by its declared extent.
+    pub fn load_clock_data(&mut self, actor: ActorReferenceId) -> Result<usize, ActorWorldError> {
+        let i = self.ready(actor)?;
+        if self.actors[i].clock.is_none() || self.actors[i].state.vtable != ActorVtable::Clock {
+            return Err(ActorWorldError::NotClock);
+        }
+        self.actors[i].phase = ActorPhase::Ready;
+        Ok(0)
+    }
+    pub fn release_clock<F: ActorFrameBackend + ?Sized, B: ActorDeallocationBackend + ?Sized>(
+        &mut self,
+        actor: ActorReferenceId,
+        frames: &mut F,
+        backend: &mut B,
+    ) -> Result<u16, ActorWorldError> {
+        let i = self.ready(actor)?;
+        if self.actors[i].clock.is_none() || self.actors[i].state.vtable != ActorVtable::Clock {
+            return Err(ActorWorldError::NotClock);
+        }
+        let count = self.actors[i].state.references.wrapping_sub(1);
+        self.actors[i].state.references = count;
+        if count == 0 {
+            self.delete_clock(actor, 1, frames, backend)?;
+        }
+        Ok(count)
+    }
+    pub fn destroy_clock<F: ActorFrameBackend + ?Sized>(
+        &mut self,
+        actor: ActorReferenceId,
+        backend: &mut F,
+    ) -> Result<(), ActorWorldError> {
+        let i = self.index(actor)?;
+        if !matches!(
+            self.actors[i].phase,
+            ActorPhase::Ready
+                | ActorPhase::LoadingInterrupted
+                | ActorPhase::InitializationInterrupted
+        ) {
+            return Err(ActorWorldError::Busy(actor));
+        }
+        if self.actors[i].clock.is_none() {
+            return Err(ActorWorldError::NotClock);
+        }
+        self.actors[i].phase = ActorPhase::Destroying;
+        self.actors[i].state.vtable = ActorVtable::Clock;
+        self.destroy_base_inner(actor, backend)
+    }
+    pub fn delete_clock<F: ActorFrameBackend + ?Sized, B: ActorDeallocationBackend + ?Sized>(
+        &mut self,
+        actor: ActorReferenceId,
+        argument: u32,
+        frames: &mut F,
+        backend: &mut B,
+    ) -> Result<(), ActorWorldError> {
+        self.destroy_clock(actor, frames)?;
+        if argument & 1 != 0 {
+            backend
+                .free_actor(self, actor.identity())
+                .map_err(|detail| ActorWorldError::Effect {
+                    stage: "free_clock",
+                    detail,
+                })?;
+        }
+        Ok(())
+    }
+    /// Genuine C_actor_shot construction: the caller's base owner plus the kind
+    /// marker for kind 33 (0x8c bytes, vtable 0x625458). The stub constructor
+    /// (mafia-re game/actors/C_actor_shot.cpp:9-12) stores no other derived
+    /// words; the firing words stay allocation bytes.
+    pub fn construct_actor_shot<B: ActorCollectionBackend + ?Sized>(
+        &mut self,
+        identity: u32,
+        base: BaseActorSeed,
+        seed: ActorShotSeed,
+        backend: &mut B,
+    ) -> Result<ActorReferenceId, ActorCreationError> {
+        identity.checked_add(0x8b).ok_or(ActorCreationError {
+            actor: None,
+            source: ActorWorldError::InvalidBacking,
+        })?;
+        let actor = self.construct_base(identity, base, backend)?;
+        let i = self.index(actor).expect("constructed shot owner");
+        let mut state = ActorShotState::allocation(seed);
+        state.complete_constructor();
+        self.actors[i].actor_shot = Some(state);
+        self.actors[i].state.vtable = ActorVtable::ActorShot;
+        self.actors[i].state.word_10 = 33;
+        Ok(actor)
+    }
+    pub fn actor_shot(&self, actor: ActorReferenceId) -> Result<&ActorShotState, ActorWorldError> {
+        self.actors[self.index(actor)?]
+            .actor_shot
+            .as_ref()
+            .ok_or(ActorWorldError::NotActorShot)
+    }
+    pub fn inspect_actor_shot(&self, actor: ActorReferenceId) -> Option<&ActorShotState> {
+        self.actors
+            .iter()
+            .find(|a| a.lifetime.reference() == actor)?
+            .actor_shot
+            .as_ref()
+    }
+    /// C_actor_shot has no scene2 LoadData override (mafia-re game/actors/
+    /// C_actor_shot.h lists none past the folded literal-success SaveGame
+    /// leaves): zero payload bytes are consumed and native success is reported.
+    /// The enclosing chunk reader skips the record by its declared extent.
+    pub fn load_actor_shot_data(
+        &mut self,
+        actor: ActorReferenceId,
+    ) -> Result<usize, ActorWorldError> {
+        let i = self.ready(actor)?;
+        if self.actors[i].actor_shot.is_none()
+            || self.actors[i].state.vtable != ActorVtable::ActorShot
+        {
+            return Err(ActorWorldError::NotActorShot);
+        }
+        self.actors[i].phase = ActorPhase::Ready;
+        Ok(0)
+    }
+    pub fn release_actor_shot<
+        F: ActorFrameBackend + ?Sized,
+        B: ActorDeallocationBackend + ?Sized,
+    >(
+        &mut self,
+        actor: ActorReferenceId,
+        frames: &mut F,
+        backend: &mut B,
+    ) -> Result<u16, ActorWorldError> {
+        let i = self.ready(actor)?;
+        if self.actors[i].actor_shot.is_none()
+            || self.actors[i].state.vtable != ActorVtable::ActorShot
+        {
+            return Err(ActorWorldError::NotActorShot);
+        }
+        let count = self.actors[i].state.references.wrapping_sub(1);
+        self.actors[i].state.references = count;
+        if count == 0 {
+            self.delete_actor_shot(actor, 1, frames, backend)?;
+        }
+        Ok(count)
+    }
+    pub fn destroy_actor_shot<F: ActorFrameBackend + ?Sized>(
+        &mut self,
+        actor: ActorReferenceId,
+        backend: &mut F,
+    ) -> Result<(), ActorWorldError> {
+        let i = self.index(actor)?;
+        if !matches!(
+            self.actors[i].phase,
+            ActorPhase::Ready
+                | ActorPhase::LoadingInterrupted
+                | ActorPhase::InitializationInterrupted
+        ) {
+            return Err(ActorWorldError::Busy(actor));
+        }
+        if self.actors[i].actor_shot.is_none() {
+            return Err(ActorWorldError::NotActorShot);
+        }
+        self.actors[i].phase = ActorPhase::Destroying;
+        self.actors[i].state.vtable = ActorVtable::ActorShot;
+        self.destroy_base_inner(actor, backend)
+    }
+    pub fn delete_actor_shot<
+        F: ActorFrameBackend + ?Sized,
+        B: ActorDeallocationBackend + ?Sized,
+    >(
+        &mut self,
+        actor: ActorReferenceId,
+        argument: u32,
+        frames: &mut F,
+        backend: &mut B,
+    ) -> Result<(), ActorWorldError> {
+        self.destroy_actor_shot(actor, frames)?;
+        if argument & 1 != 0 {
+            backend
+                .free_actor(self, actor.identity())
+                .map_err(|detail| ActorWorldError::Effect {
+                    stage: "free_actor_shot",
+                    detail,
+                })?;
+        }
+        Ok(())
+    }
+    /// Genuine C_rail_generator construction: the caller's base owner plus the
+    /// kind marker for kind 38 (0x84 bytes, vtable 0x6259e8). The stub
+    /// constructor (mafia-re game/vehicles/C_rail_generator.cpp:9-12) stores no
+    /// other derived words; Init (mafia-re :26-30) stores the frame and
+    /// returns true with no base call — the frame store is unobservable on
+    /// the host (no slot, no reader; Update folded empty), so init records
+    /// initialization only.
+    pub fn construct_rail_generator<B: ActorCollectionBackend + ?Sized>(
+        &mut self,
+        identity: u32,
+        base: BaseActorSeed,
+        seed: RailGeneratorSeed,
+        backend: &mut B,
+    ) -> Result<ActorReferenceId, ActorCreationError> {
+        identity.checked_add(0x83).ok_or(ActorCreationError {
+            actor: None,
+            source: ActorWorldError::InvalidBacking,
+        })?;
+        let actor = self.construct_base(identity, base, backend)?;
+        let i = self.index(actor).expect("constructed rail owner");
+        let mut state = RailGeneratorState::allocation(seed);
+        state.complete_constructor();
+        self.actors[i].rail_generator = Some(state);
+        self.actors[i].state.vtable = ActorVtable::RailGenerator;
+        self.actors[i].state.word_10 = 38;
+        Ok(actor)
+    }
+    pub fn rail_generator(
+        &self,
+        actor: ActorReferenceId,
+    ) -> Result<&RailGeneratorState, ActorWorldError> {
+        self.actors[self.index(actor)?]
+            .rail_generator
+            .as_ref()
+            .ok_or(ActorWorldError::NotRailGenerator)
+    }
+    pub fn inspect_rail_generator(&self, actor: ActorReferenceId) -> Option<&RailGeneratorState> {
+        self.actors
+            .iter()
+            .find(|a| a.lifetime.reference() == actor)?
+            .rail_generator
+            .as_ref()
+    }
+    /// Original C_rail_generator::LoadData (STUB 0x596710, mafia-re game/
+    /// vehicles/C_rail_generator.cpp:40-44) delegates to C_actor::LoadData:
+    /// zero payload bytes are consumed and native success is reported. The
+    /// enclosing chunk reader skips the record by its declared extent.
+    pub fn load_rail_generator_data(
+        &mut self,
+        actor: ActorReferenceId,
+    ) -> Result<usize, ActorWorldError> {
+        let i = self.ready(actor)?;
+        if self.actors[i].rail_generator.is_none()
+            || self.actors[i].state.vtable != ActorVtable::RailGenerator
+        {
+            return Err(ActorWorldError::NotRailGenerator);
+        }
+        self.actors[i].phase = ActorPhase::Ready;
+        Ok(0)
+    }
+    pub fn release_rail_generator<
+        F: ActorFrameBackend + ?Sized,
+        B: ActorDeallocationBackend + ?Sized,
+    >(
+        &mut self,
+        actor: ActorReferenceId,
+        frames: &mut F,
+        backend: &mut B,
+    ) -> Result<u16, ActorWorldError> {
+        let i = self.ready(actor)?;
+        if self.actors[i].rail_generator.is_none()
+            || self.actors[i].state.vtable != ActorVtable::RailGenerator
+        {
+            return Err(ActorWorldError::NotRailGenerator);
+        }
+        let count = self.actors[i].state.references.wrapping_sub(1);
+        self.actors[i].state.references = count;
+        if count == 0 {
+            self.delete_rail_generator(actor, 1, frames, backend)?;
+        }
+        Ok(count)
+    }
+    pub fn destroy_rail_generator<F: ActorFrameBackend + ?Sized>(
+        &mut self,
+        actor: ActorReferenceId,
+        backend: &mut F,
+    ) -> Result<(), ActorWorldError> {
+        let i = self.index(actor)?;
+        if !matches!(
+            self.actors[i].phase,
+            ActorPhase::Ready
+                | ActorPhase::LoadingInterrupted
+                | ActorPhase::InitializationInterrupted
+        ) {
+            return Err(ActorWorldError::Busy(actor));
+        }
+        if self.actors[i].rail_generator.is_none() {
+            return Err(ActorWorldError::NotRailGenerator);
+        }
+        self.actors[i].phase = ActorPhase::Destroying;
+        self.actors[i].state.vtable = ActorVtable::RailGenerator;
+        self.destroy_base_inner(actor, backend)
+    }
+    pub fn delete_rail_generator<
+        F: ActorFrameBackend + ?Sized,
+        B: ActorDeallocationBackend + ?Sized,
+    >(
+        &mut self,
+        actor: ActorReferenceId,
+        argument: u32,
+        frames: &mut F,
+        backend: &mut B,
+    ) -> Result<(), ActorWorldError> {
+        self.destroy_rail_generator(actor, frames)?;
+        if argument & 1 != 0 {
+            backend
+                .free_actor(self, actor.identity())
+                .map_err(|detail| ActorWorldError::Effect {
+                    stage: "free_rail_generator",
+                    detail,
+                })?;
+        }
+        Ok(())
+    }
+    /// Genuine C_car_ex construction: the caller's base owner, the shared car
+    /// compatibility owner, plus the 0x60-byte truck tail for kind 36 (0x227c
+    /// bytes, vtable 0x6237d8). The stub constructor (mafia-re game/vehicles/
+    /// C_car_ex.cpp:9-12) stores nothing past the car prefix; the tail stays
+    /// allocation bytes. Init/GameInit/GameDone/destruction reuse the car paths
+    /// (C_car_ex stubs delegate to C_car); only the factory allocation, the
+    /// kind marker and the tail/passenger owners are extended here.
+    pub fn construct_car_ex<B: ActorCollectionBackend + ?Sized>(
+        &mut self,
+        identity: u32,
+        base: BaseActorSeed,
+        seed: CarExSeed,
+        backend: &mut B,
+    ) -> Result<ActorReferenceId, ActorCreationError> {
+        identity.checked_add(0x227b).ok_or(ActorCreationError {
+            actor: None,
+            source: ActorWorldError::InvalidBacking,
+        })?;
+        if self.car_services.is_none() {
+            return Err(ActorCreationError {
+                actor: None,
+                source: ActorWorldError::Effect {
+                    stage: "car_resources",
+                    detail: "Game car resource context unavailable".into(),
+                },
+            });
+        }
+        let actor = self.construct_base(identity, base, backend)?;
+        let i = self.index(actor).expect("constructed base actor");
+        self.actors[i].phase = ActorPhase::Constructing;
+        let result = (|| {
+            let state = CarActorState::allocation(actor, seed.car).map_err(|detail| {
+                ActorWorldError::Effect {
+                    stage: "car_allocation",
+                    detail,
+                }
+            })?;
+            self.actors[i].car = Some(state);
+            let owner = &mut self.actors[i];
+            let base = &mut owner.state;
+            owner
+                .car
+                .as_mut()
+                .unwrap()
+                .construct(self.car_services.as_mut().unwrap(), || {
+                    base.vtable = ActorVtable::CarEx;
+                    base.word_10 = 36;
+                    Ok(())
+                })
+                .map_err(|detail| ActorWorldError::Effect {
+                    stage: "car_constructor",
+                    detail,
+                })?;
+            self.actors[i].car_ex = Some(CarExState::allocation(seed));
+            Ok(())
+        })();
+        result.map_err(|source| ActorCreationError {
+            actor: Some(actor),
+            source,
+        })?;
+        self.actors[i].phase = ActorPhase::Ready;
+        Ok(actor)
+    }
+    pub fn car_ex(&self, actor: ActorReferenceId) -> Result<&CarExState, ActorWorldError> {
+        self.actors[self.index(actor)?]
+            .car_ex
+            .as_ref()
+            .ok_or(ActorWorldError::NotCarEx)
+    }
+    pub fn inspect_car_ex(&self, actor: ActorReferenceId) -> Option<&CarExState> {
+        self.actors
+            .iter()
+            .find(|owner| owner.lifetime.reference() == actor)?
+            .car_ex
+            .as_ref()
+    }
+    /// Original C_car_ex::CanUseTruck (mafia-re game/vehicles/C_car_ex.h:34-38,
+    /// GAME 0x47b6d0) over the retained tail words.
+    pub fn can_use_truck(&self, actor: ActorReferenceId) -> Result<bool, ActorWorldError> {
+        Ok(self.car_ex(actor)?.can_use_truck())
+    }
+    /// Live truck passenger owners placed by DCAddPerson.
+    pub fn car_ex_passengers(
+        &self,
+        actor: ActorReferenceId,
+    ) -> Result<&[crate::script_scheduler::ActorReferenceId], ActorWorldError> {
+        Ok(self.car_ex(actor)?.passengers())
+    }
+    /// Original C_car_ex::DCAddPerson effect owner (STUB GAME 0x42f160,
+    /// mafia-re game/vehicles/C_car_ex.cpp:63-67): retain the passenger owner.
+    /// Only owner liveness is validated; the C_human shape gate stays open.
+    pub fn dc_add_person(
+        &mut self,
+        actor: ActorReferenceId,
+        human: crate::script_scheduler::ActorReferenceId,
+    ) -> Result<bool, ActorWorldError> {
+        let i = self.ready(actor)?;
+        if self.actors[i].car_ex.is_none() || self.actors[i].state.vtable != ActorVtable::CarEx {
+            return Err(ActorWorldError::NotCarEx);
+        }
+        self.index(human)?;
+        Ok(self.actors[i]
+            .car_ex
+            .as_mut()
+            .expect("admitted car_ex")
+            .add_person(human))
+    }
+    /// Original C_car_ex::DCDelPerson effect owner (STUB GAME 0x42f320,
+    /// mafia-re game/vehicles/C_car_ex.cpp:69-73): release the passenger owner.
+    pub fn dc_del_person(
+        &mut self,
+        actor: ActorReferenceId,
+        human: crate::script_scheduler::ActorReferenceId,
+    ) -> Result<bool, ActorWorldError> {
+        let i = self.ready(actor)?;
+        if self.actors[i].car_ex.is_none() || self.actors[i].state.vtable != ActorVtable::CarEx {
+            return Err(ActorWorldError::NotCarEx);
+        }
+        Ok(self.actors[i]
+            .car_ex
+            .as_mut()
+            .expect("admitted car_ex")
+            .remove_person(human))
+    }
+    /// Genuine C_racecam construction: the caller's base owner plus the kind
+    /// marker for kind 28 (0x88 bytes, vtable 0x625950). The stub constructor
+    /// (mafia-re game/camera/c_racecam.cpp:8-11) stores no other derived words.
+    pub fn construct_racecam<B: ActorCollectionBackend + ?Sized>(
+        &mut self,
+        identity: u32,
+        base: BaseActorSeed,
+        seed: RacecamSeed,
+        backend: &mut B,
+    ) -> Result<ActorReferenceId, ActorCreationError> {
+        identity.checked_add(0x87).ok_or(ActorCreationError {
+            actor: None,
+            source: ActorWorldError::InvalidBacking,
+        })?;
+        let actor = self.construct_base(identity, base, backend)?;
+        let i = self.index(actor).expect("constructed racecam owner");
+        let mut state = RacecamState::allocation(seed);
+        state.complete_constructor();
+        self.actors[i].racecam = Some(state);
+        self.actors[i].state.vtable = ActorVtable::Racecam;
+        self.actors[i].state.word_10 = 28;
+        Ok(actor)
+    }
+    pub fn racecam(&self, actor: ActorReferenceId) -> Result<&RacecamState, ActorWorldError> {
+        self.actors[self.index(actor)?]
+            .racecam
+            .as_ref()
+            .ok_or(ActorWorldError::NotRacecam)
+    }
+    pub fn inspect_racecam(&self, actor: ActorReferenceId) -> Option<&RacecamState> {
+        self.actors
+            .iter()
+            .find(|a| a.lifetime.reference() == actor)?
+            .racecam
+            .as_ref()
+    }
+    /// Original C_racecam::LoadData (STUB 0x5962e0, mafia-re game/camera/
+    /// c_racecam.cpp:46-50) delegates to C_actor::LoadData: zero payload bytes
+    /// are consumed and native success is reported. The enclosing chunk reader
+    /// skips the record by its declared extent.
+    pub fn load_racecam_data(&mut self, actor: ActorReferenceId) -> Result<usize, ActorWorldError> {
+        let i = self.ready(actor)?;
+        if self.actors[i].racecam.is_none() || self.actors[i].state.vtable != ActorVtable::Racecam {
+            return Err(ActorWorldError::NotRacecam);
+        }
+        self.actors[i].phase = ActorPhase::Ready;
+        Ok(0)
+    }
+    pub fn release_racecam<F: ActorFrameBackend + ?Sized, B: ActorDeallocationBackend + ?Sized>(
+        &mut self,
+        actor: ActorReferenceId,
+        frames: &mut F,
+        backend: &mut B,
+    ) -> Result<u16, ActorWorldError> {
+        let i = self.ready(actor)?;
+        if self.actors[i].racecam.is_none() || self.actors[i].state.vtable != ActorVtable::Racecam {
+            return Err(ActorWorldError::NotRacecam);
+        }
+        let count = self.actors[i].state.references.wrapping_sub(1);
+        self.actors[i].state.references = count;
+        if count == 0 {
+            self.delete_racecam(actor, 1, frames, backend)?;
+        }
+        Ok(count)
+    }
+    pub fn destroy_racecam<F: ActorFrameBackend + ?Sized>(
+        &mut self,
+        actor: ActorReferenceId,
+        backend: &mut F,
+    ) -> Result<(), ActorWorldError> {
+        let i = self.index(actor)?;
+        if !matches!(
+            self.actors[i].phase,
+            ActorPhase::Ready
+                | ActorPhase::LoadingInterrupted
+                | ActorPhase::InitializationInterrupted
+        ) {
+            return Err(ActorWorldError::Busy(actor));
+        }
+        if self.actors[i].racecam.is_none() {
+            return Err(ActorWorldError::NotRacecam);
+        }
+        self.actors[i].phase = ActorPhase::Destroying;
+        self.actors[i].state.vtable = ActorVtable::Racecam;
+        self.destroy_base_inner(actor, backend)
+    }
+    pub fn delete_racecam<F: ActorFrameBackend + ?Sized, B: ActorDeallocationBackend + ?Sized>(
+        &mut self,
+        actor: ActorReferenceId,
+        argument: u32,
+        frames: &mut F,
+        backend: &mut B,
+    ) -> Result<(), ActorWorldError> {
+        self.destroy_racecam(actor, frames)?;
+        if argument & 1 != 0 {
+            backend
+                .free_actor(self, actor.identity())
+                .map_err(|detail| ActorWorldError::Effect {
+                    stage: "free_racecam",
+                    detail,
+                })?;
+        }
+        Ok(())
+    }
     /// Native LoadData returns AL1 even when bounded read guards skip fields.
     /// Returns consumed payload bytes for host inspection, not a native status.
     pub fn load_railway_data(
@@ -3219,6 +3962,84 @@ impl ActorWorld {
                 .map(|(identity, base, seed)| self.construct_box_new(identity, base, seed, backend))
                 .transpose();
         }
+        if kind == 28 {
+            let allocation =
+                backend
+                    .allocate_racecam(0x88)
+                    .map_err(|detail| ActorCreationError {
+                        actor: None,
+                        source: ActorWorldError::Effect {
+                            stage: "allocate_racecam",
+                            detail,
+                        },
+                    })?;
+            return allocation
+                .map(|(identity, base, seed)| self.construct_racecam(identity, base, seed, backend))
+                .transpose();
+        }
+        if kind == 33 {
+            let allocation =
+                backend
+                    .allocate_actor_shot(0x8c)
+                    .map_err(|detail| ActorCreationError {
+                        actor: None,
+                        source: ActorWorldError::Effect {
+                            stage: "allocate_actor_shot",
+                            detail,
+                        },
+                    })?;
+            return allocation
+                .map(|(identity, base, seed)| {
+                    self.construct_actor_shot(identity, base, seed, backend)
+                })
+                .transpose();
+        }
+        if kind == 34 {
+            let allocation = backend
+                .allocate_clock(0x88)
+                .map_err(|detail| ActorCreationError {
+                    actor: None,
+                    source: ActorWorldError::Effect {
+                        stage: "allocate_clock",
+                        detail,
+                    },
+                })?;
+            return allocation
+                .map(|(identity, base, seed)| self.construct_clock(identity, base, seed, backend))
+                .transpose();
+        }
+        if kind == 36 {
+            let allocation =
+                backend
+                    .allocate_car_ex(0x227c)
+                    .map_err(|detail| ActorCreationError {
+                        actor: None,
+                        source: ActorWorldError::Effect {
+                            stage: "allocate_car_ex",
+                            detail,
+                        },
+                    })?;
+            return allocation
+                .map(|(identity, base, seed)| self.construct_car_ex(identity, base, seed, backend))
+                .transpose();
+        }
+        if kind == 38 {
+            let allocation =
+                backend
+                    .allocate_rail_generator(0x84)
+                    .map_err(|detail| ActorCreationError {
+                        actor: None,
+                        source: ActorWorldError::Effect {
+                            stage: "allocate_rail_generator",
+                            detail,
+                        },
+                    })?;
+            return allocation
+                .map(|(identity, base, seed)| {
+                    self.construct_rail_generator(identity, base, seed, backend)
+                })
+                .transpose();
+        }
         if kind != 1 {
             return Err(ActorCreationError {
                 actor: None,
@@ -3263,6 +4084,13 @@ impl ActorWorld {
         }
         if self.actors[i].human.is_some() {
             return self.init_human_owner(actor, frame, backend);
+        }
+        if self.actors[i].rail_generator.is_some() {
+            // Native Init stores the frame and returns true
+            // (C_rail_generator.cpp:26-30, no null check, no base call).
+            // The frame has no host slot and no reader (Update is folded
+            // empty), so the store is unobservable: initialization only.
+            return Ok(true);
         }
         let Some(frame) = frame else {
             return Ok(false);
@@ -4523,7 +5351,9 @@ mod tests {
                 ] {
                     assert!(w.source(source).is_empty());
                 }
-            } else if ![1, 2, 4, 5, 6, 8, 12, 18, 20, 25, 27, 35].contains(&kind) {
+            } else if ![1, 2, 4, 5, 6, 8, 12, 18, 20, 25, 27, 28, 33, 34, 35, 36, 38]
+                .contains(&kind)
+            {
                 assert_eq!(
                     result.unwrap_err().source,
                     ActorWorldError::UnsupportedKind(kind)
@@ -6389,6 +7219,962 @@ mod box_new_tests {
         assert_eq!(
             world
                 .release_box_new(
+                    actor,
+                    &mut ModelActorFrames::borrow(&mut arena, true),
+                    &mut heap
+                )
+                .unwrap(),
+            0
+        );
+        assert!(heap.actor_freed);
+        assert_eq!(world.inspect(actor).unwrap().0, ActorPhase::Dead);
+        assert_eq!(world.actor_count, 9);
+        assert_eq!(world.inspect(actor).unwrap().1.vtable, ActorVtable::Base);
+    }
+}
+
+#[cfg(test)]
+mod clock_tests {
+    use super::*;
+    use crate::actor_frames::ModelActorFrames;
+    use crate::clock_actor::ClockSeed;
+    use crate::model_loading::ModelArena;
+    fn seed() -> BaseActorSeed {
+        BaseActorSeed {
+            word_0e: 0xaabb,
+            actor_id: 0x1234,
+            state_1c: 0x87654321,
+            bytes_21_5f: [0x21; 63],
+            bytes_64_65: [0x65; 2],
+            byte_67: 0x67,
+            release_frame: 1,
+            bytes_6d_6f: [0x6f; 3],
+        }
+    }
+    fn clock_world(capacity: usize) -> ActorWorld {
+        let b = SourceBacking {
+            storage: (capacity != 0).then_some(ActorStorageId(1)),
+            capacity,
+        };
+        ActorWorld::new(9, 100, b, b, b).unwrap()
+    }
+    #[derive(Default)]
+    struct Heap {
+        identity: u32,
+        null: bool,
+        actor_freed: bool,
+    }
+    impl ActorAllocationBackend for Heap {
+        fn allocate_actor(&mut self, _: u32) -> Result<Option<(u32, BaseActorSeed)>, String> {
+            Err("base allocation outside fixture".into())
+        }
+        fn allocate_clock(
+            &mut self,
+            bytes: u32,
+        ) -> Result<Option<(u32, BaseActorSeed, ClockSeed)>, String> {
+            assert_eq!(bytes, 0x88);
+            if self.null {
+                return Ok(None);
+            }
+            self.identity += 1;
+            Ok(Some((
+                self.identity,
+                seed(),
+                ClockSeed {
+                    bytes_00_87: [0xa5; 0x88],
+                },
+            )))
+        }
+    }
+    impl ActorCollectionBackend for Heap {
+        fn allocate_collection(
+            &mut self,
+            _: &ActorWorld,
+            _: ActorSource,
+            _: u32,
+        ) -> Result<ActorStorageId, String> {
+            Ok(ActorStorageId(2))
+        }
+        fn free_collection(
+            &mut self,
+            _: &ActorWorld,
+            _: ActorSource,
+            _: Option<ActorStorageId>,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+    }
+    impl ActorDeallocationBackend for Heap {
+        fn free_actor(&mut self, _: &ActorWorld, identity: u32) -> Result<(), String> {
+            assert_eq!(identity, self.identity);
+            self.actor_freed = true;
+            Ok(())
+        }
+    }
+    fn actor(world: &mut ActorWorld, heap: &mut Heap) -> ActorReferenceId {
+        world.create_actor(34, heap).unwrap().unwrap()
+    }
+    #[test]
+    fn clock_factory_constructs_kind_marker_without_derived_writes() {
+        let mut world = clock_world(8);
+        let mut heap = Heap {
+            identity: 0x81000000,
+            ..Heap::default()
+        };
+        let actor = actor(&mut world, &mut heap);
+        assert_eq!(world.state(actor).unwrap().word_10, 34);
+        assert_eq!(world.state(actor).unwrap().vtable, ActorVtable::Clock);
+        assert_eq!(world.clock(actor).unwrap().bytes(), &[0xa5; 0x88]);
+        assert!(world.inspect_clock(actor).is_some());
+        let mut empty = clock_world(8);
+        let mut null = Heap {
+            null: true,
+            ..Heap::default()
+        };
+        assert_eq!(empty.create_actor(34, &mut null).unwrap(), None);
+        assert_eq!(empty.actor_count, 9);
+    }
+    #[test]
+    fn clock_linked_init_records_hand_frames() {
+        let mut world = clock_world(8);
+        let mut heap = Heap {
+            identity: 0x81000000,
+            ..Heap::default()
+        };
+        let actor = actor(&mut world, &mut heap);
+        assert!(!world.init_clock_linked(actor, None, None, None).unwrap());
+        let hour = FrameReferenceId::from_existing(0x10203040);
+        let minute = FrameReferenceId::from_existing(0x50607080);
+        assert!(!world
+            .init_clock_linked(actor, Some(hour), None, None)
+            .unwrap());
+        assert!(world
+            .init_clock_linked(actor, Some(hour), Some(minute), None)
+            .unwrap());
+        let clock = world.clock(actor).unwrap();
+        assert_eq!(clock.hand_hour(), 0x10203040);
+        assert_eq!(clock.hand_minute(), 0x50607080);
+        assert_eq!(clock.hand_second(), 0);
+        let second = FrameReferenceId::from_existing(0x90a0b0c0);
+        assert!(world
+            .init_clock_linked(actor, Some(hour), Some(minute), Some(second))
+            .unwrap());
+        assert_eq!(world.clock(actor).unwrap().hand_second(), 0x90a0b0c0);
+        let i = world.index(actor).unwrap();
+        world.actors[i].clock = None;
+        assert_eq!(
+            world.init_clock_linked(actor, Some(hour), Some(minute), None),
+            Err(ActorWorldError::NotClock)
+        );
+    }
+    #[test]
+    fn clock_game_init_and_ai_follow_native_math() {
+        let mut world = clock_world(8);
+        let mut heap = Heap {
+            identity: 0x81000000,
+            ..Heap::default()
+        };
+        let actor = actor(&mut world, &mut heap);
+        world.game_init_clock(actor, 3, 30).unwrap();
+        let clock = world.clock(actor).unwrap();
+        assert_eq!(clock.elapsed(), 0);
+        let epsilon = 1e-6;
+        assert!((clock.angle_hour() - std::f32::consts::FRAC_PI_2).abs() < epsilon);
+        assert!((clock.angle_minute() - std::f32::consts::PI).abs() < epsilon);
+        world.tick_clock(actor, 60001).unwrap();
+        let clock = world.clock(actor).unwrap();
+        assert_eq!(clock.elapsed(), 1);
+        assert!(
+            (clock.angle_minute() - (std::f32::consts::PI + 2.0 * std::f32::consts::PI / 60.0))
+                .abs()
+                < 1e-5
+        );
+        let i = world.index(actor).unwrap();
+        world.actors[i].clock = None;
+        assert_eq!(
+            world.game_init_clock(actor, 0, 0),
+            Err(ActorWorldError::NotClock)
+        );
+        assert_eq!(world.tick_clock(actor, 1), Err(ActorWorldError::NotClock));
+        assert_eq!(world.load_clock_data(actor), Err(ActorWorldError::NotClock));
+    }
+    #[test]
+    fn clock_load_data_consumes_zero_and_reports_success() {
+        let mut world = clock_world(8);
+        let mut heap = Heap {
+            identity: 0x81000000,
+            ..Heap::default()
+        };
+        let actor = actor(&mut world, &mut heap);
+        assert_eq!(world.load_clock_data(actor), Ok(0));
+        assert_eq!(world.phase(actor), Ok(ActorPhase::Ready));
+    }
+    #[test]
+    fn clock_release_decrements_and_deletes_at_zero() {
+        let mut world = clock_world(8);
+        let mut heap = Heap {
+            identity: 0x81000000,
+            ..Heap::default()
+        };
+        let actor = actor(&mut world, &mut heap);
+        let i = world.index(actor).unwrap();
+        world.actors[i].state.references = 2;
+        let mut arena = ModelArena::default();
+        assert_eq!(
+            world
+                .release_clock(
+                    actor,
+                    &mut ModelActorFrames::borrow(&mut arena, true),
+                    &mut heap
+                )
+                .unwrap(),
+            1
+        );
+        assert!(!heap.actor_freed);
+        assert_eq!(
+            world
+                .release_clock(
+                    actor,
+                    &mut ModelActorFrames::borrow(&mut arena, true),
+                    &mut heap
+                )
+                .unwrap(),
+            0
+        );
+        assert!(heap.actor_freed);
+        assert_eq!(world.inspect(actor).unwrap().0, ActorPhase::Dead);
+        assert_eq!(world.actor_count, 9);
+        assert_eq!(world.inspect(actor).unwrap().1.vtable, ActorVtable::Base);
+    }
+}
+
+#[cfg(test)]
+mod actor_shot_tests {
+    use super::*;
+    use crate::actor_frames::ModelActorFrames;
+    use crate::actor_shot::ActorShotSeed;
+    use crate::model_loading::ModelArena;
+    fn seed() -> BaseActorSeed {
+        BaseActorSeed {
+            word_0e: 0xaabb,
+            actor_id: 0x1234,
+            state_1c: 0x87654321,
+            bytes_21_5f: [0x21; 63],
+            bytes_64_65: [0x65; 2],
+            byte_67: 0x67,
+            release_frame: 1,
+            bytes_6d_6f: [0x6f; 3],
+        }
+    }
+    fn shot_world(capacity: usize) -> ActorWorld {
+        let b = SourceBacking {
+            storage: (capacity != 0).then_some(ActorStorageId(1)),
+            capacity,
+        };
+        ActorWorld::new(9, 100, b, b, b).unwrap()
+    }
+    #[derive(Default)]
+    struct Heap {
+        identity: u32,
+        null: bool,
+        actor_freed: bool,
+    }
+    impl ActorAllocationBackend for Heap {
+        fn allocate_actor(&mut self, _: u32) -> Result<Option<(u32, BaseActorSeed)>, String> {
+            Err("base allocation outside fixture".into())
+        }
+        fn allocate_actor_shot(
+            &mut self,
+            bytes: u32,
+        ) -> Result<Option<(u32, BaseActorSeed, ActorShotSeed)>, String> {
+            assert_eq!(bytes, 0x8c);
+            if self.null {
+                return Ok(None);
+            }
+            self.identity += 1;
+            Ok(Some((
+                self.identity,
+                seed(),
+                ActorShotSeed {
+                    bytes_00_8b: [0xa5; 0x8c],
+                },
+            )))
+        }
+    }
+    impl ActorCollectionBackend for Heap {
+        fn allocate_collection(
+            &mut self,
+            _: &ActorWorld,
+            _: ActorSource,
+            _: u32,
+        ) -> Result<ActorStorageId, String> {
+            Ok(ActorStorageId(2))
+        }
+        fn free_collection(
+            &mut self,
+            _: &ActorWorld,
+            _: ActorSource,
+            _: Option<ActorStorageId>,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+    }
+    impl ActorDeallocationBackend for Heap {
+        fn free_actor(&mut self, _: &ActorWorld, identity: u32) -> Result<(), String> {
+            assert_eq!(identity, self.identity);
+            self.actor_freed = true;
+            Ok(())
+        }
+    }
+    fn actor(world: &mut ActorWorld, heap: &mut Heap) -> ActorReferenceId {
+        world.create_actor(33, heap).unwrap().unwrap()
+    }
+    #[test]
+    fn shot_factory_constructs_kind_marker_without_derived_writes() {
+        let mut world = shot_world(8);
+        let mut heap = Heap {
+            identity: 0x81000000,
+            ..Heap::default()
+        };
+        let actor = actor(&mut world, &mut heap);
+        assert_eq!(world.state(actor).unwrap().word_10, 33);
+        assert_eq!(world.state(actor).unwrap().vtable, ActorVtable::ActorShot);
+        assert_eq!(world.actor_shot(actor).unwrap().bytes(), &[0xa5; 0x8c]);
+        assert!(world.inspect_actor_shot(actor).is_some());
+        let mut empty = shot_world(8);
+        let mut null = Heap {
+            null: true,
+            ..Heap::default()
+        };
+        assert_eq!(empty.create_actor(33, &mut null).unwrap(), None);
+        assert_eq!(empty.actor_count, 9);
+    }
+    #[test]
+    fn shot_load_data_consumes_zero_and_reports_success() {
+        let mut world = shot_world(8);
+        let mut heap = Heap {
+            identity: 0x81000000,
+            ..Heap::default()
+        };
+        let actor = actor(&mut world, &mut heap);
+        assert_eq!(world.load_actor_shot_data(actor), Ok(0));
+        assert_eq!(world.phase(actor), Ok(ActorPhase::Ready));
+        let i = world.index(actor).unwrap();
+        world.actors[i].actor_shot = None;
+        assert_eq!(
+            world.load_actor_shot_data(actor),
+            Err(ActorWorldError::NotActorShot)
+        );
+    }
+    #[test]
+    fn shot_release_decrements_and_deletes_at_zero() {
+        let mut world = shot_world(8);
+        let mut heap = Heap {
+            identity: 0x81000000,
+            ..Heap::default()
+        };
+        let actor = actor(&mut world, &mut heap);
+        let i = world.index(actor).unwrap();
+        world.actors[i].state.references = 2;
+        let mut arena = ModelArena::default();
+        assert_eq!(
+            world
+                .release_actor_shot(
+                    actor,
+                    &mut ModelActorFrames::borrow(&mut arena, true),
+                    &mut heap
+                )
+                .unwrap(),
+            1
+        );
+        assert!(!heap.actor_freed);
+        assert_eq!(
+            world
+                .release_actor_shot(
+                    actor,
+                    &mut ModelActorFrames::borrow(&mut arena, true),
+                    &mut heap
+                )
+                .unwrap(),
+            0
+        );
+        assert!(heap.actor_freed);
+        assert_eq!(world.inspect(actor).unwrap().0, ActorPhase::Dead);
+        assert_eq!(world.actor_count, 9);
+        assert_eq!(world.inspect(actor).unwrap().1.vtable, ActorVtable::Base);
+    }
+}
+
+#[cfg(test)]
+mod rail_generator_tests {
+    use super::*;
+    use crate::actor_frames::ModelActorFrames;
+    use crate::model_loading::ModelArena;
+    use crate::rail_generator::RailGeneratorSeed;
+    fn seed() -> BaseActorSeed {
+        BaseActorSeed {
+            word_0e: 0xaabb,
+            actor_id: 0x1234,
+            state_1c: 0x87654321,
+            bytes_21_5f: [0x21; 63],
+            bytes_64_65: [0x65; 2],
+            byte_67: 0x67,
+            release_frame: 1,
+            bytes_6d_6f: [0x6f; 3],
+        }
+    }
+    fn rail_world(capacity: usize) -> ActorWorld {
+        let b = SourceBacking {
+            storage: (capacity != 0).then_some(ActorStorageId(1)),
+            capacity,
+        };
+        ActorWorld::new(9, 100, b, b, b).unwrap()
+    }
+    #[derive(Default)]
+    struct Heap {
+        identity: u32,
+        null: bool,
+        actor_freed: bool,
+    }
+    impl ActorAllocationBackend for Heap {
+        fn allocate_actor(&mut self, _: u32) -> Result<Option<(u32, BaseActorSeed)>, String> {
+            Err("base allocation outside fixture".into())
+        }
+        fn allocate_rail_generator(
+            &mut self,
+            bytes: u32,
+        ) -> Result<Option<(u32, BaseActorSeed, RailGeneratorSeed)>, String> {
+            assert_eq!(bytes, 0x84);
+            if self.null {
+                return Ok(None);
+            }
+            self.identity += 1;
+            Ok(Some((
+                self.identity,
+                seed(),
+                RailGeneratorSeed {
+                    bytes_00_83: [0xa5; 0x84],
+                },
+            )))
+        }
+    }
+    impl ActorCollectionBackend for Heap {
+        fn allocate_collection(
+            &mut self,
+            _: &ActorWorld,
+            _: ActorSource,
+            _: u32,
+        ) -> Result<ActorStorageId, String> {
+            Ok(ActorStorageId(2))
+        }
+        fn free_collection(
+            &mut self,
+            _: &ActorWorld,
+            _: ActorSource,
+            _: Option<ActorStorageId>,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+    }
+    impl ActorDeallocationBackend for Heap {
+        fn free_actor(&mut self, _: &ActorWorld, identity: u32) -> Result<(), String> {
+            assert_eq!(identity, self.identity);
+            self.actor_freed = true;
+            Ok(())
+        }
+    }
+    fn actor(world: &mut ActorWorld, heap: &mut Heap) -> ActorReferenceId {
+        world.create_actor(38, heap).unwrap().unwrap()
+    }
+    struct Frames;
+    impl ActorFrameBackend for Frames {
+        fn actor_data(
+            &mut self,
+            _: &mut ActorWorld,
+            _: FrameReferenceId,
+        ) -> Result<FrameActorData, String> {
+            Err("rail test has no frame data".into())
+        }
+        fn clear_actor_data(
+            &mut self,
+            _: &mut ActorWorld,
+            _: FrameReferenceId,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+        fn find_child(
+            &mut self,
+            _: &mut ActorWorld,
+            _: FrameReferenceId,
+            _: &[u8],
+            _: u32,
+        ) -> Result<Option<FrameReferenceId>, String> {
+            Ok(None)
+        }
+        fn set_child_enabled(
+            &mut self,
+            _: &mut ActorWorld,
+            _: FrameReferenceId,
+            _: u32,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+        fn release_frame(&mut self, _: &mut ActorWorld, _: FrameReferenceId) -> Result<(), String> {
+            Ok(())
+        }
+    }
+    #[test]
+    fn rail_init_returns_true_without_base_call() {
+        // Native Init stores the frame and returns true (C_rail_generator
+        // .cpp:26-30); the frame store is unobservable on the host.
+        let mut world = rail_world(8);
+        let mut heap = Heap::default();
+        let actor = actor(&mut world, &mut heap);
+        let mut frames = Frames;
+        assert_eq!(world.init(actor, None, &mut frames), Ok(true));
+        assert_eq!(
+            world.init(actor, Some(FrameReferenceId::from_existing(7)), &mut frames),
+            Ok(true)
+        );
+    }
+    #[test]
+    fn rail_factory_constructs_kind_marker_without_derived_writes() {
+        let mut world = rail_world(8);
+        let mut heap = Heap {
+            identity: 0x81000000,
+            ..Heap::default()
+        };
+        let actor = actor(&mut world, &mut heap);
+        assert_eq!(world.state(actor).unwrap().word_10, 38);
+        assert_eq!(
+            world.state(actor).unwrap().vtable,
+            ActorVtable::RailGenerator
+        );
+        assert_eq!(world.rail_generator(actor).unwrap().bytes(), &[0xa5; 0x84]);
+        assert!(world.inspect_rail_generator(actor).is_some());
+        let mut empty = rail_world(8);
+        let mut null = Heap {
+            null: true,
+            ..Heap::default()
+        };
+        assert_eq!(empty.create_actor(38, &mut null).unwrap(), None);
+        assert_eq!(empty.actor_count, 9);
+    }
+    #[test]
+    fn rail_load_data_consumes_zero_and_reports_success() {
+        let mut world = rail_world(8);
+        let mut heap = Heap {
+            identity: 0x81000000,
+            ..Heap::default()
+        };
+        let actor = actor(&mut world, &mut heap);
+        assert_eq!(world.load_rail_generator_data(actor), Ok(0));
+        assert_eq!(world.phase(actor), Ok(ActorPhase::Ready));
+        let i = world.index(actor).unwrap();
+        world.actors[i].rail_generator = None;
+        assert_eq!(
+            world.load_rail_generator_data(actor),
+            Err(ActorWorldError::NotRailGenerator)
+        );
+    }
+    #[test]
+    fn rail_release_decrements_and_deletes_at_zero() {
+        let mut world = rail_world(8);
+        let mut heap = Heap {
+            identity: 0x81000000,
+            ..Heap::default()
+        };
+        let actor = actor(&mut world, &mut heap);
+        let i = world.index(actor).unwrap();
+        world.actors[i].state.references = 2;
+        let mut arena = ModelArena::default();
+        assert_eq!(
+            world
+                .release_rail_generator(
+                    actor,
+                    &mut ModelActorFrames::borrow(&mut arena, true),
+                    &mut heap
+                )
+                .unwrap(),
+            1
+        );
+        assert!(!heap.actor_freed);
+        assert_eq!(
+            world
+                .release_rail_generator(
+                    actor,
+                    &mut ModelActorFrames::borrow(&mut arena, true),
+                    &mut heap
+                )
+                .unwrap(),
+            0
+        );
+        assert!(heap.actor_freed);
+        assert_eq!(world.inspect(actor).unwrap().0, ActorPhase::Dead);
+        assert_eq!(world.actor_count, 9);
+        assert_eq!(world.inspect(actor).unwrap().1.vtable, ActorVtable::Base);
+    }
+}
+
+#[cfg(test)]
+mod car_ex_tests {
+    use super::*;
+    use crate::actor_frames::ModelActorFrames;
+    use crate::car_actor::CarSeed;
+    use crate::car_ex_actor::CarExSeed;
+    use crate::human_actor::ActorDataReader;
+    use crate::model_loading::ModelArena;
+    fn seed() -> BaseActorSeed {
+        BaseActorSeed {
+            word_0e: 0xaabb,
+            actor_id: 0x1234,
+            state_1c: 0x87654321,
+            bytes_21_5f: [0x21; 63],
+            bytes_64_65: [0x65; 2],
+            byte_67: 0x67,
+            release_frame: 1,
+            bytes_6d_6f: [0x6f; 3],
+        }
+    }
+    fn car_ex_world(capacity: usize) -> ActorWorld {
+        let b = SourceBacking {
+            storage: (capacity != 0).then_some(ActorStorageId(1)),
+            capacity,
+        };
+        let mut world = ActorWorld::new(9, 100, b, b, b).unwrap();
+        world.configure_car_resources(1).unwrap();
+        world
+    }
+    #[derive(Default)]
+    struct Heap {
+        identity: u32,
+        null: bool,
+        actor_freed: bool,
+    }
+    impl ActorAllocationBackend for Heap {
+        fn allocate_actor(&mut self, _: u32) -> Result<Option<(u32, BaseActorSeed)>, String> {
+            Err("base allocation outside fixture".into())
+        }
+        fn allocate_car_ex(
+            &mut self,
+            bytes: u32,
+        ) -> Result<Option<(u32, BaseActorSeed, CarExSeed)>, String> {
+            assert_eq!(bytes, 0x227c);
+            if self.null {
+                return Ok(None);
+            }
+            self.identity += 1;
+            Ok(Some((
+                self.identity,
+                seed(),
+                CarExSeed {
+                    car: CarSeed {
+                        allocator_fill: 0xa5,
+                        constructor_allocator_tag: 0x79,
+                        vehicle_allocator_tag: 0xb3,
+                    },
+                    bytes_221c_227b: [0x3c; 0x60],
+                },
+            )))
+        }
+    }
+    impl ActorCollectionBackend for Heap {
+        fn allocate_collection(
+            &mut self,
+            _: &ActorWorld,
+            _: ActorSource,
+            _: u32,
+        ) -> Result<ActorStorageId, String> {
+            Ok(ActorStorageId(2))
+        }
+        fn free_collection(
+            &mut self,
+            _: &ActorWorld,
+            _: ActorSource,
+            _: Option<ActorStorageId>,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+    }
+    impl ActorDeallocationBackend for Heap {
+        fn free_actor(&mut self, _: &ActorWorld, identity: u32) -> Result<(), String> {
+            assert_eq!(identity, self.identity);
+            self.actor_freed = true;
+            Ok(())
+        }
+    }
+    fn actor(world: &mut ActorWorld, heap: &mut Heap) -> ActorReferenceId {
+        world.create_actor(36, heap).unwrap().unwrap()
+    }
+    fn car_payload() -> Vec<u8> {
+        let packed = vec![0; 4385];
+        let mut compressed = b"COMP".to_vec();
+        compressed.extend(4385u32.to_le_bytes());
+        compressed.extend((4385u32 + 13).to_le_bytes());
+        compressed.push(0xff);
+        compressed.extend(packed);
+        let mut payload = 1u32.to_le_bytes().to_vec();
+        payload.extend((compressed.len() as u32).to_le_bytes());
+        payload.extend(compressed);
+        payload
+    }
+    #[test]
+    fn car_ex_factory_constructs_extended_bytes_and_kind() {
+        let mut world = car_ex_world(8);
+        let mut heap = Heap {
+            // Car-compat domain needs small identities (see CarState::allocation):
+            // default Heap starts at 1, unlike the 0x81000000 pattern elsewhere.
+            ..Heap::default()
+        };
+        let actor = actor(&mut world, &mut heap);
+        assert_eq!(world.state(actor).unwrap().word_10, 36);
+        assert_eq!(world.state(actor).unwrap().vtable, ActorVtable::CarEx);
+        assert_eq!(world.car_ex(actor).unwrap().tail_bytes(), &[0x3c; 0x60]);
+        assert!(world.inspect_car_ex(actor).is_some());
+        assert!(world.car(actor).is_ok());
+        assert!(world.can_use_truck(actor).unwrap());
+        let mut empty = car_ex_world(8);
+        let mut null = Heap {
+            null: true,
+            ..Heap::default()
+        };
+        assert_eq!(empty.create_actor(36, &mut null).unwrap(), None);
+        assert_eq!(empty.actor_count, 9);
+    }
+    #[test]
+    fn car_ex_load_is_native_stub_skip() {
+        let mut world = car_ex_world(8);
+        let mut heap = Heap {
+            // Car-compat domain needs small identities (see CarState::allocation):
+            // default Heap starts at 1, unlike the 0x81000000 pattern elsewhere.
+            ..Heap::default()
+        };
+        let actor = actor(&mut world, &mut heap);
+        // Native C_car_ex::LoadData is a stub chain (0x42f110 -> C_car
+        // stub -> base true): zero consumption, Ready, no conversion.
+        let payload = car_payload();
+        let mut reader = ActorDataReader::new(&payload);
+        assert_eq!(
+            world.load_car_data(actor, &mut reader, &mut ModelArena::default()),
+            Ok(true)
+        );
+        assert_eq!(reader.position(), 0);
+        assert_eq!(world.phase(actor), Ok(ActorPhase::Ready));
+    }
+    #[test]
+    fn car_ex_passengers_add_once_and_remove() {
+        let mut world = car_ex_world(8);
+        let mut heap = Heap {
+            // Car-compat domain needs small identities (see CarState::allocation):
+            // default Heap starts at 1, unlike the 0x81000000 pattern elsewhere.
+            ..Heap::default()
+        };
+        let truck = actor(&mut world, &mut heap);
+        let rider = actor(&mut world, &mut heap);
+        assert!(world.dc_add_person(truck, rider).unwrap());
+        assert!(!world.dc_add_person(truck, rider).unwrap());
+        assert_eq!(world.car_ex_passengers(truck).unwrap(), &[rider]);
+        assert!(!world.dc_del_person(truck, truck).unwrap());
+        assert!(world.dc_del_person(truck, rider).unwrap());
+        assert!(world.car_ex_passengers(truck).unwrap().is_empty());
+        let stale = ActorLifetime::for_existing(0xdeadbeef).reference();
+        assert_eq!(
+            world.dc_add_person(truck, stale),
+            Err(ActorWorldError::StaleActor(stale))
+        );
+        let i = world.index(truck).unwrap();
+        world.actors[i].car_ex = None;
+        assert_eq!(
+            world.dc_add_person(truck, rider),
+            Err(ActorWorldError::NotCarEx)
+        );
+    }
+    #[test]
+    fn car_ex_release_uses_shared_car_deleting_wrapper() {
+        let mut world = car_ex_world(8);
+        let mut heap = Heap {
+            // Car-compat domain needs small identities (see CarState::allocation):
+            // default Heap starts at 1, unlike the 0x81000000 pattern elsewhere.
+            ..Heap::default()
+        };
+        let actor = actor(&mut world, &mut heap);
+        let i = world.index(actor).unwrap();
+        world.actors[i].state.references = 2;
+        let mut arena = ModelArena::default();
+        assert_eq!(
+            world
+                .release_car(
+                    actor,
+                    &mut ModelActorFrames::borrow(&mut arena, true),
+                    &mut heap
+                )
+                .unwrap(),
+            1
+        );
+        assert!(!heap.actor_freed);
+        assert_eq!(
+            world
+                .release_car(
+                    actor,
+                    &mut ModelActorFrames::borrow(&mut arena, true),
+                    &mut heap
+                )
+                .unwrap(),
+            0
+        );
+        assert!(heap.actor_freed);
+        assert_eq!(world.inspect(actor).unwrap().0, ActorPhase::Dead);
+        assert_eq!(world.actor_count, 9);
+        assert_eq!(world.inspect(actor).unwrap().1.vtable, ActorVtable::Base);
+    }
+}
+
+#[cfg(test)]
+mod racecam_tests {
+    use super::*;
+    use crate::actor_frames::ModelActorFrames;
+    use crate::model_loading::ModelArena;
+    use crate::racecam::RacecamSeed;
+    fn seed() -> BaseActorSeed {
+        BaseActorSeed {
+            word_0e: 0xaabb,
+            actor_id: 0x1234,
+            state_1c: 0x87654321,
+            bytes_21_5f: [0x21; 63],
+            bytes_64_65: [0x65; 2],
+            byte_67: 0x67,
+            release_frame: 1,
+            bytes_6d_6f: [0x6f; 3],
+        }
+    }
+    fn racecam_world(capacity: usize) -> ActorWorld {
+        let b = SourceBacking {
+            storage: (capacity != 0).then_some(ActorStorageId(1)),
+            capacity,
+        };
+        ActorWorld::new(9, 100, b, b, b).unwrap()
+    }
+    #[derive(Default)]
+    struct Heap {
+        identity: u32,
+        null: bool,
+        actor_freed: bool,
+    }
+    impl ActorAllocationBackend for Heap {
+        fn allocate_actor(&mut self, _: u32) -> Result<Option<(u32, BaseActorSeed)>, String> {
+            Err("base allocation outside fixture".into())
+        }
+        fn allocate_racecam(
+            &mut self,
+            bytes: u32,
+        ) -> Result<Option<(u32, BaseActorSeed, RacecamSeed)>, String> {
+            assert_eq!(bytes, 0x88);
+            if self.null {
+                return Ok(None);
+            }
+            self.identity += 1;
+            Ok(Some((
+                self.identity,
+                seed(),
+                RacecamSeed {
+                    bytes_00_87: [0xa5; 0x88],
+                },
+            )))
+        }
+    }
+    impl ActorCollectionBackend for Heap {
+        fn allocate_collection(
+            &mut self,
+            _: &ActorWorld,
+            _: ActorSource,
+            _: u32,
+        ) -> Result<ActorStorageId, String> {
+            Ok(ActorStorageId(2))
+        }
+        fn free_collection(
+            &mut self,
+            _: &ActorWorld,
+            _: ActorSource,
+            _: Option<ActorStorageId>,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+    }
+    impl ActorDeallocationBackend for Heap {
+        fn free_actor(&mut self, _: &ActorWorld, identity: u32) -> Result<(), String> {
+            assert_eq!(identity, self.identity);
+            self.actor_freed = true;
+            Ok(())
+        }
+    }
+    fn actor(world: &mut ActorWorld, heap: &mut Heap) -> ActorReferenceId {
+        world.create_actor(28, heap).unwrap().unwrap()
+    }
+    #[test]
+    fn racecam_factory_constructs_kind_marker_without_derived_writes() {
+        let mut world = racecam_world(8);
+        let mut heap = Heap {
+            // Car-compat domain needs small identities (see CarState::allocation):
+            // default Heap starts at 1, unlike the 0x81000000 pattern elsewhere.
+            ..Heap::default()
+        };
+        let actor = actor(&mut world, &mut heap);
+        assert_eq!(world.state(actor).unwrap().word_10, 28);
+        assert_eq!(world.state(actor).unwrap().vtable, ActorVtable::Racecam);
+        assert_eq!(world.racecam(actor).unwrap().bytes(), &[0xa5; 0x88]);
+        assert!(world.inspect_racecam(actor).is_some());
+        let mut empty = racecam_world(8);
+        let mut null = Heap {
+            null: true,
+            ..Heap::default()
+        };
+        assert_eq!(empty.create_actor(28, &mut null).unwrap(), None);
+        assert_eq!(empty.actor_count, 9);
+    }
+    #[test]
+    fn racecam_load_data_consumes_zero_and_reports_success() {
+        let mut world = racecam_world(8);
+        let mut heap = Heap {
+            // Car-compat domain needs small identities (see CarState::allocation):
+            // default Heap starts at 1, unlike the 0x81000000 pattern elsewhere.
+            ..Heap::default()
+        };
+        let actor = actor(&mut world, &mut heap);
+        assert_eq!(world.load_racecam_data(actor), Ok(0));
+        assert_eq!(world.phase(actor), Ok(ActorPhase::Ready));
+        let i = world.index(actor).unwrap();
+        world.actors[i].racecam = None;
+        assert_eq!(
+            world.load_racecam_data(actor),
+            Err(ActorWorldError::NotRacecam)
+        );
+    }
+    #[test]
+    fn racecam_release_decrements_and_deletes_at_zero() {
+        let mut world = racecam_world(8);
+        let mut heap = Heap {
+            // Car-compat domain needs small identities (see CarState::allocation):
+            // default Heap starts at 1, unlike the 0x81000000 pattern elsewhere.
+            ..Heap::default()
+        };
+        let actor = actor(&mut world, &mut heap);
+        let i = world.index(actor).unwrap();
+        world.actors[i].state.references = 2;
+        let mut arena = ModelArena::default();
+        assert_eq!(
+            world
+                .release_racecam(
+                    actor,
+                    &mut ModelActorFrames::borrow(&mut arena, true),
+                    &mut heap
+                )
+                .unwrap(),
+            1
+        );
+        assert!(!heap.actor_freed);
+        assert_eq!(
+            world
+                .release_racecam(
                     actor,
                     &mut ModelActorFrames::borrow(&mut arena, true),
                     &mut heap

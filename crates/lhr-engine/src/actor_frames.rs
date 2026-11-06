@@ -14,6 +14,8 @@ use crate::script_scheduler::{ActorReferenceId, FrameReferenceId};
 
 pub const ACTOR_FIND_FLAGS: u32 = 0x40;
 pub const ACTOR_FIND_ALL_FLAGS: u32 = 0xffff;
+/// Native ENUMF_VISUAL (I3D.h:211): match visual frames by name.
+pub const ACTOR_FIND_VISUAL_FLAGS: u32 = 0x1;
 
 /// Pointer-to-record projection of frame+8. Clearing the pointer does not clear
 /// the pointed record or retain/release its actor. Opaque userdata cannot be
@@ -106,9 +108,10 @@ impl<'a> ModelActorFrames<'a> {
         Ok(())
     }
     /// First matching descendant in actual child/next depth-first order. Only
-    /// flags0x40/0xffff, nonempty exact ASCII names and the default C locale are
-    /// admitted. This is not an EnumFrames callback API and cannot mutate links
-    /// during traversal; native saved-next behavior therefore has no reentry.
+    /// flags 0x40/0xffff/0x1, nonempty exact ASCII names and the default C
+    /// locale are admitted. This is not an EnumFrames callback API and cannot
+    /// mutate links during traversal; native saved-next behavior therefore
+    /// has no reentry.
     pub fn find_child_frame(
         &self,
         root: FrameReferenceId,
@@ -117,7 +120,10 @@ impl<'a> ModelActorFrames<'a> {
         visits: usize,
     ) -> Result<Option<FrameReferenceId>, ActorFrameError> {
         let fail = |error| ActorFrameError::Lookup(error);
-        if !matches!(flags, ACTOR_FIND_FLAGS | ACTOR_FIND_ALL_FLAGS) {
+        if !matches!(
+            flags,
+            ACTOR_FIND_FLAGS | ACTOR_FIND_ALL_FLAGS | ACTOR_FIND_VISUAL_FLAGS
+        ) {
             return Err(fail(FrameLookupError::UnsupportedFlags(flags)));
         }
         if visits == 0 || visits > MAX_LOOKUP_VISITS {
@@ -158,7 +164,21 @@ impl<'a> ModelActorFrames<'a> {
             }
             // EnumSubtree1001c02c..3a masks the low word and bypasses the
             // entire type switch for0xffff. Human Init uses this for `base`.
-            if flags == ACTOR_FIND_ALL_FLAGS || self.arena.state(key)?.kind == FrameKind::Target {
+            // ENUMF_VISUAL matches an admitted subset of visual frames
+            // (Mesh/Singlemesh/Projector/Lensflare — sufficient for clock
+            // hands; the full native visual-type mapping is unevidenced).
+            let visual_match = flags == ACTOR_FIND_VISUAL_FLAGS
+                && matches!(
+                    self.arena.state(key)?.kind,
+                    FrameKind::Mesh
+                        | FrameKind::Singlemesh
+                        | FrameKind::Projector
+                        | FrameKind::Lensflare
+                );
+            if flags == ACTOR_FIND_ALL_FLAGS
+                || visual_match
+                || self.arena.state(key)?.kind == FrameKind::Target
+            {
                 if let Some(stored) = &self.arena.frame(key)?.original_name_bytes {
                     // Class admission precedes stored-name inspection. A
                     // filtered visual/dummy name cannot interrupt this search.

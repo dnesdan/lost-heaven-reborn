@@ -288,6 +288,21 @@ impl MissionContentOwner {
                     }
                 }
                 ActorVtable::Car => world.delete_car(actor, 1, &mut frames, &mut self.memory),
+                ActorVtable::CarEx => {
+                    // The car_ex tail carries no native free; the shared car
+                    // deleting wrapper retires both owners.
+                    world.delete_car(actor, 1, &mut frames, &mut self.memory)
+                }
+                ActorVtable::Clock => world.delete_clock(actor, 1, &mut frames, &mut self.memory),
+                ActorVtable::ActorShot => {
+                    world.delete_actor_shot(actor, 1, &mut frames, &mut self.memory)
+                }
+                ActorVtable::RailGenerator => {
+                    world.delete_rail_generator(actor, 1, &mut frames, &mut self.memory)
+                }
+                ActorVtable::Racecam => {
+                    world.delete_racecam(actor, 1, &mut frames, &mut self.memory)
+                }
                 ActorVtable::Human => world.delete_human(actor, 1, &mut frames, &mut self.memory),
                 ActorVtable::Player => world.delete_player(actor, 1, &mut frames, &mut self.memory),
                 ActorVtable::Entity => world.delete_entity(actor, 1, &mut frames, &mut self.memory),

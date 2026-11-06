@@ -172,6 +172,31 @@ impl MissionActorLoader {
             .init_box_volume(actor, volume)
             .map_err(|e| format!("{e:?}"))
     }
+    /// Original C_clock::Init tail for kind 34 after the base init: resolve
+    /// the Mala/Velka/Sekundova visual hand frames and record the handles. A
+    /// missing hour or minute hand fails closed like the native refused init;
+    /// a missing second hand stays admitted with a zero word, since the clock
+    /// may lack one. ENUMF_VISUAL is 0x1 (mafia-re ls3df/I3D/I3D.h:211).
+    fn link_clock_actor(
+        &mut self,
+        actor: ActorReferenceId,
+        frame: FrameReferenceId,
+        arena: &mut ModelArena,
+    ) -> Result<bool, String> {
+        let mut frames = ModelActorFrames::borrow(arena, true);
+        let hour = frames
+            .find_child(&mut self.world, frame, b"Mala", 0x1)
+            .map_err(|e| format!("{e:?}"))?;
+        let minute = frames
+            .find_child(&mut self.world, frame, b"Velka", 0x1)
+            .map_err(|e| format!("{e:?}"))?;
+        let second = frames
+            .find_child(&mut self.world, frame, b"Sekundova", 0x1)
+            .map_err(|e| format!("{e:?}"))?;
+        self.world
+            .init_clock_linked(actor, hour, minute, second)
+            .map_err(|e| format!("{e:?}"))
+    }
     /// Actual installation bytes feed the same ordered executor used by an
     /// enclosing scene loader. Non-actor phases must already have been loaded
     /// by the caller; this method supplies no substitute implementation for them.
@@ -405,6 +430,13 @@ impl MissionActorLoader {
                             // refused base init.
                             admitted = self.link_box_actor(actor, frame, arena)?;
                         }
+                        if admitted && kind == 34 {
+                            // Original C_clock::Init tail after the base
+                            // init: the Mala/Velka/Sekundova visual hand
+                            // frames. Missing hour/minute hands fail closed
+                            // like a refused base init.
+                            admitted = self.link_clock_actor(actor, frame, arena)?;
+                        }
                         if admitted {
                             //547220, then53fea0(actor,false), before frame userdata publication.
                             self.world
@@ -462,6 +494,26 @@ impl MissionActorLoader {
                                 self.world
                                     .release_box_new(actor, &mut frames, backend)
                                     .map_err(|e| format!("{e:?}"))?;
+                            } else if kind == 34 {
+                                self.world
+                                    .release_clock(actor, &mut frames, backend)
+                                    .map_err(|e| format!("{e:?}"))?;
+                            } else if kind == 33 {
+                                self.world
+                                    .release_actor_shot(actor, &mut frames, backend)
+                                    .map_err(|e| format!("{e:?}"))?;
+                            } else if kind == 38 {
+                                self.world
+                                    .release_rail_generator(actor, &mut frames, backend)
+                                    .map_err(|e| format!("{e:?}"))?;
+                            } else if kind == 36 {
+                                self.world
+                                    .release_car(actor, &mut frames, backend)
+                                    .map_err(|e| format!("{e:?}"))?;
+                            } else if kind == 28 {
+                                self.world
+                                    .release_racecam(actor, &mut frames, backend)
+                                    .map_err(|e| format!("{e:?}"))?;
                             } else {
                                 self.world
                                     .release(actor, &mut ReleaseFrames { frames, backend })
@@ -489,7 +541,12 @@ impl MissionActorLoader {
                             self.pending_load_data = None;
                             return Ok(());
                         }
-                        if self.current_kind == Some(4) {
+                        if self.current_kind == Some(4) || self.current_kind == Some(36) {
+                            // C_car_ex::LoadData (STUB 0x42f110) falls through
+                            // to the C_car::LoadData stub (mafia-re C_car.cpp
+                            // :523-526, parses nothing, base true); kind 36
+                            // therefore skips inside load_car_data while kind
+                            // 4 runs the deep source conversion.
                             let mut reader = ActorDataReader::new(field.payload);
                             let result = self.world.load_car_data(actor, &mut reader, arena);
                             self.cursor = field.offset + 6 + reader.position();
@@ -596,6 +653,56 @@ impl MissionActorLoader {
                                 let mut reader = ActorDataReader::new(field.payload);
                                 let result = self.world.load_door_data(actor, &mut reader);
                                 self.cursor = field.offset + 6 + reader.position();
+                                result.map_err(|e| format!("{e:?}"))?;
+                                self.pending_load_data = None;
+                                return Ok(());
+                            }
+                            if self.current_kind == Some(34) {
+                                // C_clock has no scene2 LoadData override: it
+                                // reads no payload and reports native success.
+                                // The record is skipped by its declared extent
+                                // after this zero-consumption load, as for
+                                // kind 1.
+                                let result = self.world.load_clock_data(actor);
+                                self.cursor = field.offset + 6;
+                                result.map_err(|e| format!("{e:?}"))?;
+                                self.pending_load_data = None;
+                                return Ok(());
+                            }
+                            if self.current_kind == Some(33) {
+                                // C_actor_shot has no scene2 LoadData override:
+                                // it reads no payload and reports native
+                                // success. The record is skipped by its
+                                // declared extent after this zero-consumption
+                                // load, as for kind 1.
+                                let result = self.world.load_actor_shot_data(actor);
+                                self.cursor = field.offset + 6;
+                                result.map_err(|e| format!("{e:?}"))?;
+                                self.pending_load_data = None;
+                                return Ok(());
+                            }
+                            if self.current_kind == Some(38) {
+                                // Original C_rail_generator::LoadData (STUB
+                                // 0x596710) delegates to C_actor::LoadData: it
+                                // reads no payload and reports native success.
+                                // The record is skipped by its declared extent
+                                // after this zero-consumption load, as for
+                                // kind 1.
+                                let result = self.world.load_rail_generator_data(actor);
+                                self.cursor = field.offset + 6;
+                                result.map_err(|e| format!("{e:?}"))?;
+                                self.pending_load_data = None;
+                                return Ok(());
+                            }
+                            if self.current_kind == Some(28) {
+                                // Original C_racecam::LoadData (STUB 0x5962e0)
+                                // delegates to C_actor::LoadData: it reads no
+                                // payload and reports native success. The
+                                // record is skipped by its declared extent
+                                // after this zero-consumption load, as for
+                                // kind 1.
+                                let result = self.world.load_racecam_data(actor);
+                                self.cursor = field.offset + 6;
                                 result.map_err(|e| format!("{e:?}"))?;
                                 self.pending_load_data = None;
                                 return Ok(());

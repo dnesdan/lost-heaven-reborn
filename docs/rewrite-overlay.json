@@ -8212,6 +8212,51 @@
       "symbol": "lhr_engine::mission_lifecycle::MissionLifecycle::uninit_active",
       "tier": "contract",
       "evidence": "mafia-re 113b5b6 game/mission/Mission.cpp C_mission::UnInit (GAME 0x53f3b0): Close phase then deletes tshift/web/roads/effects/game, releases scene, drops mission name; host destroy path for re-Init repeats (native retains for Open reuse, disclosed); staged vectors executed green (mission_lifecycle, all passed; base d7e702c + uncommitted unit)"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16add0",
+      "va": "0x56add0",
+      "name": "C_clock::C_clock",
+      "symbol": "lhr_engine::actor_world::ActorWorld::construct_clock",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 game/actors/c_clock.cpp:8-9 + vtable game/actors/c_clock.h:8; Game.exe SHA256 08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27; contract tier: stub-equivalent ctor stores kind marker only; Init 0x56ae20 / GameInit 0x56ae90 / GameDone 0x56afd0 / AI 0x56afe0 NOT ported as functions (no entries): only their derived angle math lives in clock_actor.rs; vectors executed green (clock_actor 6, actor_shot 5, rail_generator 5, racecam 4, car_ex_actor 4, actor_world 78 total (19 new this unit); base 66c3a13 + uncommitted unit) (scoped to ctor + derived math; base GameInit/unknown_65/time-source/SetDir/Update deferred, disclosed)"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x166f40",
+      "va": "0x566f40",
+      "name": "C_actor_shot::C_actor_shot",
+      "symbol": "lhr_engine::actor_world::ActorWorld::construct_actor_shot",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 game/actors/C_actor_shot.cpp:9-12 + vtable game/actors/C_actor_shot.h:25; Game.exe SHA256 08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27; contract tier: STUB ctor stores kind marker only, no derived words; stub Init 0x566f90 / Update 0x566fd0 / GameInit 0x567330 delegate to base; firing state at +0x78/+0x7c/+0x84/+0x88 retained; vectors executed green (clock_actor 6, actor_shot 5, rail_generator 5, racecam 4, car_ex_actor 4, actor_world 78 total (19 new this unit); base 66c3a13 + uncommitted unit)"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x196620",
+      "va": "0x596620",
+      "name": "C_rail_generator::C_rail_generator",
+      "symbol": "lhr_engine::actor_world::ActorWorld::construct_rail_generator",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 game/vehicles/C_rail_generator.cpp:9-12 + written Init :26-30 + LoadData stub :40-44 + vtable game/vehicles/C_rail_generator.h:7; Game.exe SHA256 08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27; contract tier: STUB ctor stores kind marker only; Init early-returns Ok(true) with no base call (frame store unobservable, no host slot); LoadData 0x596710 zero-consumption skip; vectors executed green (clock_actor 6, actor_shot 5, rail_generator 5, racecam 4, car_ex_actor 4, actor_world 78 total (19 new this unit); base 66c3a13 + uncommitted unit)"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x2e240",
+      "va": "0x42e240",
+      "name": "C_car_ex::C_car_ex",
+      "symbol": "lhr_engine::actor_world::ActorWorld::construct_car_ex",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 game/vehicles/C_car_ex.cpp:9-12 + vtable game/vehicles/C_car_ex.h:9 + DCAddPerson :63-67 / DCDelPerson :69-73 + CanUseTruck 0x47b6d0; Game.exe SHA256 08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27; contract tier: STUB ctor; car prefix reuses Vehicle backend init/load/destructor via shared car owner; extended 0x227c allocation + 0x60 tail + passenger owners; LoadData is the native stub skip (0x42f110->C_car stub, zero consumption); vectors executed green (clock_actor 6, actor_shot 5, rail_generator 5, racecam 4, car_ex_actor 4, actor_world 78 total (19 new this unit); base 66c3a13 + uncommitted unit) (scoped to STUB ctor + allocation/tail/passenger-manifest; LoadData is the native stub skip; DCAddPerson/DCDelPerson are host-only manifest, no function credit)"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x196200",
+      "va": "0x596200",
+      "name": "C_racecam::C_racecam",
+      "symbol": "lhr_engine::actor_world::ActorWorld::construct_racecam",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 game/camera/c_racecam.cpp:8-11 + LoadData stub :46-50 + vtable game/camera/c_racecam.h:7; Game.exe SHA256 08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27; contract tier: STUB ctor stores kind marker only; LoadData 0x5962e0 zero-consumption skip; vectors executed green (clock_actor 6, actor_shot 5, rail_generator 5, racecam 4, car_ex_actor 4, actor_world 78 total (19 new this unit); base 66c3a13 + uncommitted unit)"
     }
   ],
   "vm": {
