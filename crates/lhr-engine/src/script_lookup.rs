@@ -138,6 +138,33 @@ pub trait LookupWorldBackend {
         let _ = on;
         Err(LookupError::UnsupportedWorldBackend)
     }
+    /// Original C_detector::GetSignal read (mafia-re 113b5b6
+    /// game/actors/C_detector.h:60-64, GAME 0x47b750) for a resolved
+    /// detector, serving the C_program DETECTOR_ISSIGNAL case (mafia-re
+    /// game/mission/C_program.cpp:3351-3365). Some carries the live +0xdc
+    /// signal bit; None is the native type gate (resolved actor exists but
+    /// is not a detector), where the caller advances without jumping. The
+    /// default refuses; the mission world serves the live actor.
+    fn detector_signal(&self, actor: ActorReferenceId) -> Result<Option<bool>, LookupError> {
+        let _ = actor;
+        Err(LookupError::UnsupportedWorldBackend)
+    }
+    /// Original C_detector::SetSignal store (mafia-re 113b5b6
+    /// game/actors/C_detector.h:65-71, GAME 0x47b760) for a resolved
+    /// detector, serving the C_program DETECTOR_SETSIGNAL case (mafia-re
+    /// game/mission/C_program.cpp:3341-3350). A resolved non-detector is
+    /// the native silent type gate and reports success without storing,
+    /// like the human_add_weapon NotHuman gate in the mission world. The
+    /// default refuses; the mission world serves the live actor.
+    fn set_detector_signal(
+        &mut self,
+        actor: ActorReferenceId,
+        on: bool,
+    ) -> Result<(), LookupError> {
+        let _ = actor;
+        let _ = on;
+        Err(LookupError::UnsupportedWorldBackend)
+    }
 }
 pub struct LiveActor<'a> {
     pub lifetime: &'a ActorLifetime,

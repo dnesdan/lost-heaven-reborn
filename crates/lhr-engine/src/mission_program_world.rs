@@ -319,6 +319,24 @@ impl<D> LookupWorldBackend for MissionLookupWorld<'_, D> {
             result => result.map_err(|error| LookupError::Backend(format!("{error:?}"))),
         }
     }
+    fn detector_signal(&self, actor: ActorReferenceId) -> Result<Option<bool>, LookupError> {
+        match self.world.detector_signal(actor) {
+            Ok(signal) => Ok(Some(signal)),
+            // The native ISSIGNAL type gate falls through to the next
+            // command; only real host defects propagate.
+            Err(crate::actor_world::ActorWorldError::NotDetector) => Ok(None),
+            Err(error) => Err(LookupError::Backend(format!("{error:?}"))),
+        }
+    }
+    fn set_detector_signal(&mut self, actor: ActorReferenceId, on: bool) -> Result<(), LookupError> {
+        match self.world.set_detector_signal(actor, on) {
+            Ok(()) => Ok(()),
+            // The native SETSIGNAL type gate stores nothing; only real host
+            // defects (stale actors and below) propagate.
+            Err(crate::actor_world::ActorWorldError::NotDetector) => Ok(()),
+            result => result.map_err(|error| LookupError::Backend(format!("{error:?}"))),
+        }
+    }
     fn set_program_event(
         &mut self,
         actor: ActorReferenceId,

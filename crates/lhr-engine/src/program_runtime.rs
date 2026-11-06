@@ -5,8 +5,11 @@
 //! Fresh compilation also owns the named payload family 13/18/43. Instruction
 //! recognition retains its existing ASCII admission.
 //! Process also executes FINDFRAME/FINDACTOR with an explicit borrowed lookup world,
-//! the `{`/`}` compact-block flags, IFFLTINRANGE range jumps, and the FRM_SETON
-//! arena switch with deferred device side effects.
+//! the `{`/`}` compact-block flags, IFFLTINRANGE range jumps, the FRM_SETON
+//! arena switch with deferred device side effects, and the detector
+//! SETSIGNAL store plus the ISSIGNAL signal jump (both ride Process
+//! GAME 0x46d3b0; no new entry RVA). DETECTOR_INRANGE stays deferred: it
+//! needs live actor positions plus the active-actor enumeration.
 //! Recording and remaining unsupported commands still stop when reached.
 //! Fresh compilation admits base and entity sources (entity word-count
 //! admission only); detector sources stay refused and no derived dispatch runs:
@@ -37,6 +40,8 @@ mod mission_parameters;
 mod name_parameters;
 #[path = "program_pair_parameters.rs"]
 mod pair_parameters;
+#[path = "program_detector_parameters.rs"]
+mod detector_parameters;
 #[path = "program_quad_parameters.rs"]
 mod quad_parameters;
 #[path = "program_remaining_parameters.rs"]
@@ -92,6 +97,11 @@ pub use name_parameters::{
 pub use pair_parameters::{
     supports_pair_opcode, AsciiPairParameterBackend, PairDecodeError, PairParameter,
     PairParameterBackend, PairParameterSlot,
+};
+pub use detector_parameters::{
+    supports_detector_signal_opcode, AsciiDetectorSignalParameterBackend,
+    DetectorSignalDecodeError, DetectorSignalParameter, DetectorSignalParameterBackend,
+    DetectorSignalParameterSlot,
 };
 pub use quad_parameters::{
     supports_quad_opcode, AsciiQuadParameterBackend, QuadDecodeError, QuadParameter,
@@ -227,6 +237,7 @@ pub enum InstructionParameter {
     Entity(EntityParameterSlot),
     Event(EventParameterSlot),
     SetEvent(SetEventParameterSlot),
+    DetectorSignal(DetectorSignalParameterSlot),
     HumanTalk(HumanTalkParameterSlot),
     EndOfMission(EndOfMissionParameterSlot),
     ChangeMission(ChangeMissionParameterSlot),
@@ -254,6 +265,7 @@ impl InstructionParameter {
             | Self::Quad(_)
             | Self::ActState(_)
             | Self::Block(_)
+            | Self::DetectorSignal(_)
             | Self::IfFlt(_) => None,
         }
     }
@@ -272,6 +284,7 @@ impl InstructionParameter {
             | Self::Quad(_)
             | Self::ActState(_)
             | Self::Block(_)
+            | Self::DetectorSignal(_)
             | Self::IfFlt(_) => None,
             Self::Name(slot) => slot.parameter(),
         }
@@ -292,6 +305,7 @@ impl InstructionParameter {
             | Self::Quad(_)
             | Self::ActState(_)
             | Self::Block(_)
+            | Self::DetectorSignal(_)
             | Self::IfFlt(_) => None,
         }
     }
@@ -311,6 +325,7 @@ impl InstructionParameter {
             | Self::Quad(_)
             | Self::ActState(_)
             | Self::Block(_)
+            | Self::DetectorSignal(_)
             | Self::IfFlt(_) => None,
         }
     }
@@ -330,6 +345,7 @@ impl InstructionParameter {
             | Self::Quad(_)
             | Self::ActState(_)
             | Self::Block(_)
+            | Self::DetectorSignal(_)
             | Self::IfFlt(_) => None,
         }
     }
@@ -349,6 +365,7 @@ impl InstructionParameter {
             | Self::Quad(_)
             | Self::ActState(_)
             | Self::Block(_)
+            | Self::DetectorSignal(_)
             | Self::IfFlt(_) => None,
         }
     }
@@ -361,6 +378,27 @@ impl InstructionParameter {
             | Self::Flow(_)
             | Self::Entity(_)
             | Self::Event(_)
+            | Self::HumanTalk(_)
+            | Self::EndOfMission(_)
+            | Self::ChangeMission(_)
+            | Self::Remaining(_)
+            | Self::Quad(_)
+            | Self::ActState(_)
+            | Self::Block(_)
+            | Self::DetectorSignal(_)
+            | Self::IfFlt(_) => None,
+        }
+    }
+    pub fn detector_signal_parameter(&self) -> Option<&DetectorSignalParameter> {
+        match self {
+            Self::DetectorSignal(slot) => slot.parameter(),
+            Self::Scalar(_)
+            | Self::Name(_)
+            | Self::Pair(_)
+            | Self::Flow(_)
+            | Self::Entity(_)
+            | Self::Event(_)
+            | Self::SetEvent(_)
             | Self::HumanTalk(_)
             | Self::EndOfMission(_)
             | Self::ChangeMission(_)
@@ -387,6 +425,7 @@ impl InstructionParameter {
             | Self::Quad(_)
             | Self::ActState(_)
             | Self::Block(_)
+            | Self::DetectorSignal(_)
             | Self::IfFlt(_) => None,
         }
     }
@@ -406,6 +445,7 @@ impl InstructionParameter {
             | Self::Quad(_)
             | Self::ActState(_)
             | Self::Block(_)
+            | Self::DetectorSignal(_)
             | Self::IfFlt(_) => None,
         }
     }
@@ -425,6 +465,7 @@ impl InstructionParameter {
             | Self::Quad(_)
             | Self::ActState(_)
             | Self::Block(_)
+            | Self::DetectorSignal(_)
             | Self::IfFlt(_) => None,
         }
     }
@@ -444,6 +485,7 @@ impl InstructionParameter {
             | Self::Quad(_)
             | Self::ActState(_)
             | Self::Block(_)
+            | Self::DetectorSignal(_)
             | Self::IfFlt(_) => None,
         }
     }
@@ -463,6 +505,7 @@ impl InstructionParameter {
             | Self::Quad(_)
             | Self::ActState(_)
             | Self::Block(_)
+            | Self::DetectorSignal(_)
             | Self::IfFlt(_) => None,
         }
     }
@@ -482,6 +525,7 @@ impl InstructionParameter {
             | Self::Remaining(_)
             | Self::ActState(_)
             | Self::Block(_)
+            | Self::DetectorSignal(_)
             | Self::IfFlt(_) => None,
         }
     }
@@ -501,6 +545,7 @@ impl InstructionParameter {
             | Self::Remaining(_)
             | Self::Block(_)
             | Self::IfFlt(_)
+            | Self::DetectorSignal(_)
             | Self::Quad(_) => None,
         }
     }
@@ -520,6 +565,7 @@ impl InstructionParameter {
             | Self::Remaining(_)
             | Self::Quad(_)
             | Self::IfFlt(_)
+            | Self::DetectorSignal(_)
             | Self::ActState(_) => None,
         }
     }
@@ -539,6 +585,7 @@ impl InstructionParameter {
             | Self::Remaining(_)
             | Self::Quad(_)
             | Self::Block(_)
+            | Self::DetectorSignal(_)
             | Self::ActState(_) => None,
         }
     }
@@ -604,6 +651,9 @@ pub enum RuntimeEffect {
     ConvertSetEventRegister,
     ConvertSetEventId,
     ReleaseSetEvent(u32),
+    AllocateDetectorSignal,
+    ConvertDetectorSignalRegister,
+    ReleaseDetectorSignal(u32),
     AllocateHumanTalk,
     ConvertHumanTalk(usize),
     ReleaseHumanTalk(u32),
@@ -792,6 +842,16 @@ pub trait RuntimeBackend {
         fields: RuntimeView<'_>,
         effect: RuntimeEffect,
         _published: Option<&SetEventParameter>,
+    ) -> Result<(), String> {
+        self.effect(fields, effect, None)
+    }
+    /// Detector-signal parameters have their own actual instruction-owned payload.
+    /// A default backend still observes the required allocation/conversion/free.
+    fn detector_signal_parameter_effect(
+        &mut self,
+        fields: RuntimeView<'_>,
+        effect: RuntimeEffect,
+        _published: Option<&DetectorSignalParameter>,
     ) -> Result<(), String> {
         self.effect(fields, effect, None)
     }
@@ -1041,6 +1101,39 @@ impl<B: RuntimeBackend> SetEventParameterBackend for SetEventBoundary<'_, B> {
             .set_event_parameter_effect(
                 self.fields.view(),
                 RuntimeEffect::ConvertSetEventId,
+                Some(published),
+            )
+            .map_err(RuntimeError::Effect)?;
+        ascii_integer_prefix(token).map_err(|e| RuntimeError::Parameter(e.to_string()))
+    }
+}
+struct DetectorSignalBoundary<'a, B> {
+    fields: &'a mut RuntimeFields,
+    backend: &'a mut B,
+}
+impl<B: RuntimeBackend> DetectorSignalParameterBackend for DetectorSignalBoundary<'_, B> {
+    type Error = RuntimeError;
+    fn allocate_detector_signal(
+        &mut self,
+    ) -> Result<Option<Box<DetectorSignalParameter>>, RuntimeError> {
+        self.backend
+            .detector_signal_parameter_effect(
+                self.fields.view(),
+                RuntimeEffect::AllocateDetectorSignal,
+                None,
+            )
+            .map_err(RuntimeError::Effect)?;
+        Ok(Some(Box::new(DetectorSignalParameter::default())))
+    }
+    fn convert_detector_signal_register(
+        &mut self,
+        token: &[u8],
+        published: &DetectorSignalParameter,
+    ) -> Result<i32, RuntimeError> {
+        self.backend
+            .detector_signal_parameter_effect(
+                self.fields.view(),
+                RuntimeEffect::ConvertDetectorSignalRegister,
                 Some(published),
             )
             .map_err(RuntimeError::Effect)?;
@@ -1392,6 +1485,10 @@ impl<B: RuntimeBackend> CompileBackend for Compiler<'_, B> {
                 Some(InstructionParameter::SetEvent(
                     SetEventParameterSlot::default(),
                 ))
+            } else if supports_detector_signal_opcode(opcode) {
+                Some(InstructionParameter::DetectorSignal(
+                    DetectorSignalParameterSlot::default(),
+                ))
             } else if supports_human_talk_opcode(opcode) {
                 Some(InstructionParameter::HumanTalk(
                     HumanTalkParameterSlot::default(),
@@ -1488,6 +1585,14 @@ impl<B: RuntimeBackend> CompileBackend for Compiler<'_, B> {
                 }
                 InstructionParameter::SetEvent(slot) => {
                     let mut boundary = SetEventBoundary {
+                        fields: self.fields,
+                        backend: self.backend,
+                    };
+                    slot.decode(opcode, parameters, &mut boundary)
+                        .map_err(|error| RuntimeError::Parameter(format!("{error:?}")))?
+                }
+                InstructionParameter::DetectorSignal(slot) => {
+                    let mut boundary = DetectorSignalBoundary {
                         fields: self.fields,
                         backend: self.backend,
                     };
@@ -1607,6 +1712,7 @@ pub struct HostRuntimeDiscard {
     pub flow_allocations: usize,
     pub event_allocations: usize,
     pub set_event_allocations: usize,
+    pub detector_signal_allocations: usize,
     pub human_talk_allocations: usize,
     pub end_of_mission_allocations: usize,
     pub change_mission_allocations: usize,
@@ -1961,6 +2067,18 @@ impl CProgram {
                         .is_some_and(|payload| payload.set_event_parameter().is_some())
                 })
                 .count(),
+            detector_signal_allocations: runtime
+                .instructions
+                .records
+                .iter()
+                .chain(runtime.pending.iter())
+                .filter(|instruction| {
+                    instruction
+                        .parameter
+                        .as_ref()
+                        .is_some_and(|payload| payload.detector_signal_parameter().is_some())
+                })
+                .count(),
             human_talk_allocations: runtime
                 .instructions
                 .records
@@ -2125,6 +2243,13 @@ impl CProgram {
                         RuntimeEffect::ReleaseSetEvent(opcode),
                         slot.parameter(),
                     ),
+                    InstructionParameter::DetectorSignal(slot) => {
+                        backend.detector_signal_parameter_effect(
+                            runtime.fields.view(),
+                            RuntimeEffect::ReleaseDetectorSignal(opcode),
+                            slot.parameter(),
+                        )
+                    }
                     InstructionParameter::HumanTalk(slot) => backend.human_talk_parameter_effect(
                         runtime.fields.view(),
                         RuntimeEffect::ReleaseHumanTalk(opcode),
@@ -2294,6 +2419,62 @@ impl<B: RuntimeBackend> Process<'_, B> {
             .to_vec()
             .into_boxed_slice();
         Ok((register, event, label))
+    }
+    /// Current DETECTOR_ISSIGNAL payload: actor register and the two jump
+    /// labels selected by the live signal bit.
+    fn detector_signal_payload(
+        &self,
+        state: &ResetState,
+    ) -> Result<(i32, Box<[u8]>, Box<[u8]>), RuntimeError> {
+        let parameter = self
+            .instructions
+            .active()
+            .get(state.program_counter as usize)
+            .and_then(|instruction| instruction.parameter.as_ref())
+            .and_then(|parameter| parameter.detector_signal_parameter())
+            .ok_or(RuntimeError::Domain(
+                "current detector-signal parameter unavailable",
+            ))?;
+        let register = parameter.register().ok_or(RuntimeError::Domain(
+            "current detector-signal register unavailable",
+        ))?;
+        let label1 = parameter
+            .label1()
+            .ok_or(RuntimeError::Domain(
+                "current detector-signal label1 unavailable",
+            ))?
+            .to_vec()
+            .into_boxed_slice();
+        let label2 = parameter
+            .label2()
+            .ok_or(RuntimeError::Domain(
+                "current detector-signal label2 unavailable",
+            ))?
+            .to_vec()
+            .into_boxed_slice();
+        Ok((register, label1, label2))
+    }
+    /// Original detector-actor resolution shared by DETECTOR_SETSIGNAL and
+    /// DETECTOR_ISSIGNAL (mafia-re 113b5b6 game/mission/C_program.cpp:3341-3365):
+    /// a negative register keeps the script's own actor, an in-range register
+    /// reads the live slot (an empty slot resolves to no actor, matching the
+    /// native overwrite with NULL), and an out-of-range register without
+    /// backing keeps the owner, like the ACT_SETSTATE arm.
+    fn detector_actor(&self, register: i32) -> Option<ActorReferenceId> {
+        if register < 0 {
+            *self.owner
+        } else if let Some(slots) = self.actors.as_deref() {
+            if (register as usize) < slots.len() {
+                match &slots[register as usize] {
+                    RuntimeReferenceSlot::Reference(actor) => Some(*actor),
+                    _ => None,
+                }
+            } else {
+                *self.owner
+            }
+        } else {
+            *self.owner
+        }
     }
     /// Current `{` payload: the decoded command-block mode word.
     fn block_payload(&self, state: &ResetState) -> Result<BlockParameter, RuntimeError> {
@@ -3215,15 +3396,81 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                 // admitted; execution is a no-op advance for now (fade/menu
                 // and objectives vector remain stubs).
             }
-            27 | 29 | 36 | 45 | 57 | 68 | 101 | 102 | 103 | 106 | 122 | 129 | 135 | 136
+            27 => {
+                // Original CMD_DETECTOR_ISSIGNAL (mafia-re 113b5b6
+                // game/mission/C_program.cpp:3351-3365, dispatching
+                // C_program::Process GAME 0x46d3b0; read
+                // C_detector::GetSignal, mafia-re game/actors/C_detector.h:60-64,
+                // GAME 0x47b750): with a negative register keeps the script's
+                // actor, else the register's actor (in-range slot wins,
+                // out-of-range keeps the owner). A detector jumps to label1
+                // when its signal bit reads set, else to label2, like
+                // NextCommand (an empty or missing label advances instead). A missing actor
+                // or a non-detector advances without effect; only a refusing
+                // world stops dispatch.
+                let (register, label1, label2) = self.detector_signal_payload(state)?;
+                if let Some(actor) = self.detector_actor(register) {
+                    let signal = self
+                        .backend
+                        .lookup_world()
+                        .map_err(RuntimeError::Lookup)?
+                        .detector_signal(actor)
+                        .map_err(RuntimeError::Lookup)?;
+                    if let Some(signal) = signal {
+                        let label = if signal { &label1 } else { &label2 };
+                        if !label.is_empty() {
+                            if let Some(target) = self.jump_to_label(label) {
+                                advance = Advance::Jump(target);
+                            }
+                        }
+                    }
+                }
+            }
+            28 => {
+                // Original CMD_DETECTOR_SETSIGNAL (mafia-re 113b5b6
+                // game/mission/C_program.cpp:3341-3350, same Process 0x46d3b0;
+                // store C_detector::SetSignal, mafia-re
+                // game/actors/C_detector.h:65-71, GAME 0x47b760): with a
+                // negative register keeps the script's actor, else the
+                // register's actor (in-range slot wins, out-of-range keeps
+                // the owner). Only a
+                // detector stores p[1] != 0 (the world applies the silent type
+                // gate, then clears the base +0x65 byte with the +0xdc bit).
+                // An unresolved actor advances without effect; host defects
+                // propagate.
+                let pair = self
+                    .instructions
+                    .active()
+                    .get(state.program_counter as usize)
+                    .and_then(|instruction| instruction.parameter.as_ref())
+                    .and_then(|parameter| parameter.pair_parameter())
+                    .map(|parameter| parameter.values())
+                    .ok_or(RuntimeError::Domain("current setsignal parameter unavailable"))?;
+                let (register, on) = (
+                    pair[0].ok_or(RuntimeError::Domain(
+                        "current setsignal register unavailable",
+                    ))?,
+                    pair[1].ok_or(RuntimeError::Domain("current setsignal switch unavailable"))?,
+                );
+                if let Some(actor) = self.detector_actor(register) {
+                    self.backend
+                        .lookup_world()
+                        .map_err(RuntimeError::Lookup)?
+                        .set_detector_signal(actor, on != 0)
+                        .map_err(RuntimeError::Lookup)?;
+                }
+            }
+            29 | 36 | 45 | 57 | 68 | 101 | 102 | 103 | 106 | 122 | 129 | 135 | 136
             | 181 | 187 | 234 => {
-                // Remaining MISE01 commands: detector_inrange (29), detector_issignal (27),
+                // Remaining MISE01 commands: detector_inrange (29),
                 // soundfade (36), recloadfull (45), getactorsdist (57), loaddifferences (68),
                 // compareownerwithex (101), human_setproperty (102), human_getproperty (103),
                 // human_force_settocar (106), wingman_setindicator (122), autosavegame (129),
                 // policemanager_on/off (135/136), stream_create (181), stream_fadevol (187),
                 // zatmyse (234). Decode admitted via RemainingParameter;
-                // execution is a no-op advance for now (detector signal, car, player etc remain stubs).
+                // execution is a no-op advance for now (car, player etc remain stubs).
+                // DEFERRED: detector_inrange (29) needs the live active-actor
+                // enumeration plus actor positions, which no lookup owner serves yet.
             }
             209 => {
                 // GETTICKTIME: float_regs[reg] = delta

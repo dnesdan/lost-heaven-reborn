@@ -24,6 +24,10 @@ struct FakeEntityWorld {
     frame_states: HashMap<FrameReferenceId, bool>,
     sound_frames: HashSet<FrameReferenceId>,
     fail_frame_switch: bool,
+    detector_signals: HashMap<ActorReferenceId, bool>,
+    detector_sets: Vec<(ActorReferenceId, bool)>,
+    non_detectors: HashSet<ActorReferenceId>,
+    fail_detector: Option<ActorReferenceId>,
 }
 impl LookupWorldBackend for FakeEntityWorld {
     fn diagnostic_default_c_locale(&self) -> bool {
@@ -139,6 +143,26 @@ impl LookupWorldBackend for FakeEntityWorld {
             core_applied: true,
             device_effects_deferred: true,
         })
+    }
+    fn detector_signal(&self, actor: ActorReferenceId) -> Result<Option<bool>, LookupError> {
+        if self.fail_detector == Some(actor) {
+            return Err(LookupError::Backend("injected detector-signal failure".into()));
+        }
+        if self.non_detectors.contains(&actor) {
+            return Ok(None);
+        }
+        Ok(Some(self.detector_signals.get(&actor).copied().unwrap_or(false)))
+    }
+    fn set_detector_signal(&mut self, actor: ActorReferenceId, on: bool) -> Result<(), LookupError> {
+        if self.fail_detector == Some(actor) {
+            return Err(LookupError::Backend("injected detector-signal failure".into()));
+        }
+        if self.non_detectors.contains(&actor) {
+            return Ok(());
+        }
+        self.detector_sets.push((actor, on));
+        self.detector_signals.insert(actor, on);
+        Ok(())
     }
 }
 impl ProgramBackend for Memory {
@@ -1031,6 +1055,213 @@ fn setevent_resolves_register_and_jumps_on_event_busy() {
     memory.entity_world.set_event_fail = None;
     let report = p.discard_runtime_host().unwrap();
     assert_eq!(report.set_event_allocations, 1);
+}
+#[test]
+fn detector_setsignal_then_issignal_round_trip_jumps_by_signal() {
+    use crate::original_program::RuntimeReferenceSlot;
+    // 0: setsignal 0,1 | 1: issignal 0,hit1,miss1 | 2: label hit1
+    // 3: setsignal 0,0 | 4: issignal 0,hit2,miss2 | 5: label miss1
+    // 6: label hit2 | 7: label miss2
+    let mut memory = Memory::default();
+    let mut p = program(
+        b"detector_setsignal 0,1\ndetector_issignal 0,hit1,miss1\nlabel hit1\ndetector_setsignal 0,0\ndetector_issignal 0,hit2,miss2\nlabel miss1\nlabel hit2\nlabel miss2",
+        &mut memory,
+    );
+    let progress = p.init_fresh_runtime(&mut memory).unwrap();
+    assert_eq!((progress.accepted, progress.errors), (8, 0));
+    p.runtime.as_mut().unwrap().fields.actors = Some(
+        vec![RuntimeReferenceSlot::Reference(
+            ActorReferenceId::from_existing(11),
+        )]
+        .into_boxed_slice(),
+    );
+    // SETSIGNAL stores p[1] != 0 through dispatch.
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
+    assert_eq!(
+        memory.entity_world.detector_sets,
+        vec![(ActorReferenceId::from_existing(11), true)]
+    );
+    // ISSIGNAL reads the set bit and jumps to label1.
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 2);
+    // LABEL advances past hit1 to the clearing store.
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 3);
+    // SETSIGNAL with 0 clears the bit through dispatch.
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 4);
+    assert_eq!(
+        memory
+            .entity_world
+            .detector_signals
+            .get(&ActorReferenceId::from_existing(11)),
+        Some(&false)
+    );
+    // ISSIGNAL reads the cleared bit and jumps to label2 (miss2 at 7).
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 7);
+    let report = p.discard_runtime_host().unwrap();
+    assert_eq!(report.detector_signal_allocations, 2);
+}
+#[test]
+fn detector_issignal_empty_label_falls_through() {
+    use crate::original_program::RuntimeReferenceSlot;
+    // 0: setsignal 0,1 | 1: issignal 0,,miss | 2: setsignal 0,0 | 3: label miss.
+    // The empty first label decodes (interior empty arguments count) and, like
+    // NextCommand(NULL), advances instead of jumping.
+    let mut memory = Memory::default();
+    let mut p = program(
+        b"detector_setsignal 0,1\ndetector_issignal 0,,miss\ndetector_setsignal 0,0\nlabel miss",
+        &mut memory,
+    );
+    let progress = p.init_fresh_runtime(&mut memory).unwrap();
+    assert_eq!((progress.accepted, progress.errors), (4, 0));
+    p.runtime.as_mut().unwrap().fields.actors = Some(
+        vec![RuntimeReferenceSlot::Reference(
+            ActorReferenceId::from_existing(11),
+        )]
+        .into_boxed_slice(),
+    );
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
+    // Signal reads set but label1 is empty: fall through to the next command.
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 2);
+    // Clear the bit, then reread: label2 still jumps.
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 3);
+    p.runtime.as_mut().unwrap().fields.scheduler.program_counter = 1;
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 3);
+    let report = p.discard_runtime_host().unwrap();
+    assert_eq!(report.detector_signal_allocations, 1);
+}
+#[test]
+fn detector_arms_resolve_owner_and_gate_non_detectors() {
+    use crate::original_program::RuntimeReferenceSlot;
+    // Negative registers keep the script's own actor for both arms.
+    let mut memory = Memory::default();
+    let mut p = program(
+        b"detector_setsignal -1,5\ndetector_issignal -1,hit,miss\nlabel hit\nlabel miss",
+        &mut memory,
+    );
+    p.set_owner(Some(ActorReferenceId::from_existing(7)))
+        .unwrap();
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
+    assert_eq!(
+        memory.entity_world.detector_sets,
+        vec![(ActorReferenceId::from_existing(7), true)]
+    );
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 2);
+    // An out-of-range register keeps the owner instead of the empty slot.
+    let mut memory = Memory::default();
+    let mut p = program(b"detector_setsignal 9,1", &mut memory);
+    p.set_owner(Some(ActorReferenceId::from_existing(7)))
+        .unwrap();
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.runtime.as_mut().unwrap().fields.actors =
+        Some(vec![RuntimeReferenceSlot::Empty].into_boxed_slice());
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(
+        memory.entity_world.detector_sets,
+        vec![(ActorReferenceId::from_existing(7), true)]
+    );
+    // A resolved non-detector advances both arms without effect or jump.
+    let mut memory = Memory::default();
+    let mut p = program(
+        b"detector_setsignal 0,1\ndetector_issignal 0,hit,miss\nlabel hit\nlabel miss",
+        &mut memory,
+    );
+    p.set_owner(Some(ActorReferenceId::from_existing(7)))
+        .unwrap();
+    p.init_fresh_runtime(&mut memory).unwrap();
+    memory
+        .entity_world
+        .non_detectors
+        .insert(ActorReferenceId::from_existing(12));
+    p.runtime.as_mut().unwrap().fields.actors = Some(
+        vec![RuntimeReferenceSlot::Reference(
+            ActorReferenceId::from_existing(12),
+        )]
+        .into_boxed_slice(),
+    );
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
+    assert!(memory.entity_world.detector_sets.is_empty());
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 2);
+    // An in-range empty slot resolves to no actor: the owner stays untouched.
+    p.runtime.as_mut().unwrap().fields.scheduler.program_counter = 0;
+    p.runtime.as_mut().unwrap().fields.actors =
+        Some(vec![RuntimeReferenceSlot::Empty].into_boxed_slice());
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
+    assert!(memory.entity_world.detector_sets.is_empty());
+    assert!(
+        !memory
+            .entity_world
+            .detector_signals
+            .contains_key(&ActorReferenceId::from_existing(7))
+    );
+    // A missing label advances like the empty label.
+    let mut memory = Memory::default();
+    let mut p = program(
+        b"detector_setsignal 0,1\ndetector_issignal 0,nowhere1,nowhere2",
+        &mut memory,
+    );
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.runtime.as_mut().unwrap().fields.actors = Some(
+        vec![RuntimeReferenceSlot::Reference(
+            ActorReferenceId::from_existing(11),
+        )]
+        .into_boxed_slice(),
+    );
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 2);
+    // Host failures on either arm propagate instead of advancing silently.
+    memory.entity_world.fail_detector = Some(ActorReferenceId::from_existing(11));
+    p.runtime.as_mut().unwrap().fields.scheduler.program_counter = 0;
+    let error = p
+        .call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap_err();
+    assert!(
+        format!("{error:?}").contains("injected detector-signal failure"),
+        "{error:?}"
+    );
+    // A failed call latches ProcessInterrupted; re-arm the host stage to
+    // probe the second arm on the same program (test-harness stepping, like
+    // the program_counter sets above).
+    p.runtime.as_mut().unwrap().stage = RuntimeStage::Ready;
+    p.runtime.as_mut().unwrap().fields.scheduler.program_counter = 1;
+    let error = p
+        .call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap_err();
+    assert!(
+        format!("{error:?}").contains("injected detector-signal failure"),
+        "{error:?}"
+    );
 }
 #[test]
 fn event_use_cb_toggles_top_flag_and_needs_stack() {
