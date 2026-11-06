@@ -10300,6 +10300,132 @@
       "symbol": "lhr_engine::human_actor::HumanState::cb_coll_tester",
       "tier": "contract",
       "evidence": "Effects-gated footprint (GAME 0x587d30). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x57d310",
+      "va": "0x97d310",
+      "name": "C_human::Do_Breath",
+      "symbol": "lhr_engine::human_actor::HumanState::apply_do_breath",
+      "tier": "contract",
+      "evidence": "Alive+STAND/WALK/FALL breath arm (GAME 0x57d310). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x57d360",
+      "va": "0x97d360",
+      "name": "C_human::Go_Front",
+      "symbol": "lhr_engine::human_actor::HumanState::apply_go_front",
+      "tier": "contract",
+      "evidence": "Walk arm 5.0/1.7 with car-seat guard (GAME 0x57d360). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x57d430",
+      "va": "0x97d430",
+      "name": "C_human::Go_Back",
+      "symbol": "lhr_engine::human_actor::HumanState::apply_go_back",
+      "tier": "contract",
+      "evidence": "Backpedal arm (GAME 0x57d430). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x57d4d0",
+      "va": "0x97d4d0",
+      "name": "C_human::Go_Left",
+      "symbol": "lhr_engine::human_actor::HumanState::apply_go_left",
+      "tier": "contract",
+      "evidence": "Strafe arm (GAME 0x57d4d0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x57d5a0",
+      "va": "0x97d5a0",
+      "name": "C_human::Go_Right",
+      "symbol": "lhr_engine::human_actor::HumanState::apply_go_right",
+      "tier": "contract",
+      "evidence": "Strafe mirror (GAME 0x57d5a0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x57f830",
+      "va": "0x97f830",
+      "name": "C_human::Do_Aimed",
+      "symbol": "lhr_engine::human_actor::HumanState::apply_do_aimed",
+      "tier": "contract",
+      "evidence": "Aim latch with box/dead gate (GAME 0x57f830). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x57f9a0",
+      "va": "0x97f9a0",
+      "name": "C_human::InventoryTruncate",
+      "symbol": "lhr_engine::human_actor::HumanState::apply_inventory_truncate",
+      "tier": "contract",
+      "evidence": "Ammo clamp (GAME 0x57f9a0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4081d0",
+      "va": "0x8081d0",
+      "name": "C_actor::AddFrameForPossibleColl",
+      "symbol": "lhr_engine::actor_registry::add_frame_for_possible_coll",
+      "tier": "contract",
+      "evidence": "Dedup-push frame evidence (GAME 0x4081d0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4083e0",
+      "va": "0x8083e0",
+      "name": "C_actor::DelFrameForPossibleColl",
+      "symbol": "lhr_engine::actor_registry::del_frame_for_possible_coll",
+      "tier": "contract",
+      "evidence": "Swap-remove frame evidence (GAME 0x4083e0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x408690",
+      "va": "0x808690",
+      "name": "compare_anim_index",
+      "symbol": "lhr_engine::animation_index::compare_anim_index",
+      "tier": "contract",
+      "evidence": "Unsigned id comparator (GAME 0x408690). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4c6010",
+      "va": "0x8c6010",
+      "name": "C_Vehicle::GetWheelCamPos",
+      "symbol": "lhr_engine::vehicle_init::get_wheel_cam_pos",
+      "tier": "contract",
+      "evidence": "Mirrored wheel-cam offset (GAME 0x4c6010); filed via vehicle_init re-export. Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4ce560",
+      "va": "0x8ce560",
+      "name": "C_Vehicle::AddSectorForProjectorLights",
+      "symbol": "lhr_engine::vehicle_owner::add_sector_for_projector_lights",
+      "tier": "contract",
+      "evidence": "Dedup sector push (GAME 0x4ce560). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4ce760",
+      "va": "0x8ce760",
+      "name": "C_Vehicle::AddSectorForSounds",
+      "symbol": "lhr_engine::vehicle_owner::add_sector_for_sounds",
+      "tier": "contract",
+      "evidence": "Dedup sector push (GAME 0x4ce760). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x5acfb0",
+      "va": "0x9acfb0",
+      "name": "C_game::CompareShadows",
+      "symbol": "lhr_engine::game_housekeeping::compare_shadows",
+      "tier": "contract",
+      "evidence": "Shadow-item distance comparator (GAME 0x5acfb0). Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {

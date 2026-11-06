@@ -140,7 +140,12 @@ class RewriteProgressTests(unittest.TestCase):
         # 0x546010; SetFuel 0x4cb6e0 / Unstable 0x4cd5b0 / Size 0x4cd5c0 /
         # Pivot 0x4cd5e0 / LockVehicle 0x4cd600 / RecordKey 0x404f30 /
         # cbCollTester 0x587d30).
-        self.assertEqual(game["ported"], 149 + 260)
+        # +14 human/registry wave, all contract (Do_Breath 0x57d310 / Go_*
+        # 0x57d360-0x57d5a0 / Do_Aimed 0x57f830 / InventoryTruncate 0x57f9a0;
+        # Add/DelFrame 0x4081d0+0x4083e0 / anim comparator 0x408690 /
+        # GetWheelCamPos 0x4c6010 / AddSector pair 0x4ce560+0x4ce760 /
+        # CompareShadows 0x5acfb0; wrappers TestLine* deferred).
+        self.assertEqual(game["ported"], 149 + 274)
         self.assertEqual(game["verified"], 149 + 7)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
