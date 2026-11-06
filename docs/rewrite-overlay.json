@@ -7951,6 +7951,186 @@
       "symbol": "lhr_engine::frame_dummy::ModelArena::dummy_inv_matrix",
       "tier": "differential",
       "evidence": "REA formed Ghidra body FUN_10068840 5BB/60B/18insn (dummy_flags&0x10 lazy gate -> set 0x10 -> 0x20-gated UpdateWMatrixProc -> S_matrix::Inverse 0x2d0b0, return this+0x158) + mafia-re 113b5b6 ls3df/I3D/I3D.h:1850 (original Insanity3D-sourced name; render/T_l.cpp:6 copy-ordering caveat) + hand-derived lazy-gate/stale/singular vectors in frame_dummy tests [executed green: frame_dummy module suite, 7 #[test], all passed]"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x73570",
+      "va": "0x10073570",
+      "name": "IShow::AddRef",
+      "symbol": "lhr_engine::original_logo::ishow_add_ref",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 ls3df/IGraph/IShow.cpp:189 + assigned REA note 16B body (not re-observed here) (counter inc); tier contract (wave policy: CPU prefix behind backend traits) [executed green: original_logo module suite, 16 #[test], all passed; base 4bb8e53 + uncommitted wave-10, cargo test -p lhr-engine --lib]"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x740e0",
+      "va": "0x100740e0",
+      "name": "IShow::IsInit",
+      "symbol": "lhr_engine::original_logo::ishow_is_init",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 ls3df/IGraph/IShow.cpp:589 + assigned REA note body (not re-observed here) (flag read); tier contract (wave policy: CPU prefix behind backend traits) [executed green: original_logo module suite, 16 #[test], all passed; base 4bb8e53 + uncommitted wave-10, cargo test -p lhr-engine --lib]"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x74380",
+      "va": "0x10074380",
+      "name": "IShow::m_PrepareVerts",
+      "symbol": "lhr_engine::original_logo::ishow_prepare_verts",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 ls3df/IGraph/IShow.cpp:717 + assigned REA note 531B proc (not re-observed here) (pure CPU float layout); tier contract (wave policy: CPU layout, device dims caller-supplied) (scale uses m_Rect.right/bottom directly, IShow.cpp:722-726) [executed green: original_logo module suite, 16 #[test], all passed; base 4bb8e53 + uncommitted wave-10, cargo test -p lhr-engine --lib]"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x745a0",
+      "va": "0x100745a0",
+      "name": "IShow::SetRect",
+      "symbol": "lhr_engine::original_logo::ishow_set_rect",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 ls3df/IGraph/IShow.cpp:763 + assigned REA note body (not re-observed here) (rect resolve+store+prepare, Win32 behind backend); tier contract (wave policy: CPU store/prepare, Win32 submits behind backend) [executed green: original_logo module suite, 16 #[test], all passed; base 4bb8e53 + uncommitted wave-10, cargo test -p lhr-engine --lib]"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x74640",
+      "va": "0x10074640",
+      "name": "IShow::GetRect",
+      "symbol": "lhr_engine::original_logo::ishow_get_rect",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 ls3df/IGraph/IShow.cpp:778 + assigned REA note body (not re-observed here) (guard !m_Init->0x80000009 + 4-word copy); tier contract (wave policy: pure CPU guard/copy) [executed green: original_logo module suite, 16 #[test], all passed; base 4bb8e53 + uncommitted wave-10, cargo test -p lhr-engine --lib]"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x74680",
+      "va": "0x10074680",
+      "name": "IShow::GetVideoRect",
+      "symbol": "lhr_engine::original_logo::ishow_get_video_rect",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 ls3df/IGraph/IShow.cpp:788 + assigned REA note body (not re-observed here) (guard + dims behind backend); tier contract (wave policy: CPU guard/zero/fill, Bink-vs-renderer branch behind backend) [executed green: original_logo module suite, 16 #[test], all passed; base 4bb8e53 + uncommitted wave-10, cargo test -p lhr-engine --lib]"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x74ae0",
+      "va": "0x10074ae0",
+      "name": "IShow::GetRegionCnt",
+      "symbol": "lhr_engine::original_logo::ishow_region_count",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 ls3df/IGraph/IShow.cpp:935 + assigned REA note body (not re-observed here) (counter read); tier contract (wave policy: pure CPU counter read) [executed green: original_logo module suite, 16 #[test], all passed; base 4bb8e53 + uncommitted wave-10, cargo test -p lhr-engine --lib]"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x74af0",
+      "va": "0x10074af0",
+      "name": "IShow::GetRegions",
+      "symbol": "lhr_engine::original_logo::ishow_regions",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 ls3df/IGraph/IShow.cpp:942 + assigned REA note body (not re-observed here) (yield + base ptr); tier contract (wave policy: CPU slice, Sleep(0) yield behind backend) [executed green: original_logo module suite, 16 #[test], all passed; base 4bb8e53 + uncommitted wave-10, cargo test -p lhr-engine --lib]"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x74060",
+      "va": "0x10074060",
+      "name": "read_func (upstream Insanity3D name; working name ishow_vorbis_read)",
+      "symbol": "lhr_engine::startup_asset_backend::ishow_vorbis_read",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 ls3df/IGraph/IShow.cpp:562 + assigned REA note body (not re-observed here) (dta delegate, no err map); tier contract (wave policy: CPU delegate; upstream name read_func disclosed Insanity3D, not original) (native returns dtaRead directly: bytes, not items, IShow.cpp:562) [executed green: startup_asset_backend module suite, 9 #[test], all passed; base 4bb8e53 + uncommitted wave-10, cargo test -p lhr-engine --lib]"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x74080",
+      "va": "0x10074080",
+      "name": "seek_func (upstream Insanity3D name; working name ishow_vorbis_seek)",
+      "symbol": "lhr_engine::startup_asset_backend::ishow_vorbis_seek",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 ls3df/IGraph/IShow.cpp:569 + assigned REA note body (not re-observed here) (dta delegate + -1/0 err map); tier contract (wave policy: CPU delegate/map; upstream name seek_func disclosed Insanity3D, not original) [executed green: startup_asset_backend module suite, 9 #[test], all passed; base 4bb8e53 + uncommitted wave-10, cargo test -p lhr-engine --lib]"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x740b0",
+      "va": "0x100740b0",
+      "name": "close_func (upstream Insanity3D name; working name ishow_vorbis_close)",
+      "symbol": "lhr_engine::startup_asset_backend::ishow_vorbis_close",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 ls3df/IGraph/IShow.cpp:576 + assigned REA note body (not re-observed here) (dta delegate); tier contract (wave policy: CPU delegate; upstream name close_func disclosed Insanity3D, not original) [executed green: startup_asset_backend module suite, 9 #[test], all passed; base 4bb8e53 + uncommitted wave-10, cargo test -p lhr-engine --lib]"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x740c0",
+      "va": "0x100740c0",
+      "name": "tell_func (upstream Insanity3D name; working name ishow_vorbis_tell)",
+      "symbol": "lhr_engine::startup_asset_backend::ishow_vorbis_tell",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 ls3df/IGraph/IShow.cpp:583 + assigned REA note body (not re-observed here) (dta SEEK_CUR delegate); tier contract (wave policy: CPU delegate; upstream name tell_func disclosed Insanity3D, not original) [executed green: startup_asset_backend module suite, 9 #[test], all passed; base 4bb8e53 + uncommitted wave-10, cargo test -p lhr-engine --lib]"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x75920",
+      "va": "0x10075920",
+      "name": "IShow::OpenStream (PC-only guessed name)",
+      "symbol": "lhr_engine::runtime_audio::ishow_open_stream",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 ls3df/IGraph/IShowStream.cpp:30 + assigned REA note body (not re-observed here) (ISND Init/Open submits + inline stream_shows growth shape verified); tier contract (wave policy: CPU list/flag portion, device submits behind backend) [executed green: runtime_audio module suite, 100 #[test], all passed; base 4bb8e53 + uncommitted wave-10, cargo test -p lhr-engine --lib]"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x75a20",
+      "va": "0x10075a20",
+      "name": "IShow::CloseStream (PC-only guessed name)",
+      "symbol": "lhr_engine::runtime_audio::ishow_close_stream",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 ls3df/IGraph/IShowStream.cpp:59 + assigned REA note body (not re-observed here) (flags + swap-remove + guarded submits); tier contract (wave policy: CPU flags/list, DSound submits behind backend) [executed green: runtime_audio module suite, 100 #[test], all passed; base 4bb8e53 + uncommitted wave-10, cargo test -p lhr-engine --lib]"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x75ad0",
+      "va": "0x10075ad0",
+      "name": "IShow::PlayStream (PC-only guessed name)",
+      "symbol": "lhr_engine::runtime_audio::ishow_play_stream",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 ls3df/IGraph/IShowStream.cpp:78 + assigned REA note body (not re-observed here) (paused-flag branch); tier contract (wave policy: CPU branch/flag, Resume/Play submits behind backend) [executed green: runtime_audio module suite, 100 #[test], all passed; base 4bb8e53 + uncommitted wave-10, cargo test -p lhr-engine --lib]"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x75b30",
+      "va": "0x10075b30",
+      "name": "IShow::StopStream (PC-only guessed name)",
+      "symbol": "lhr_engine::runtime_audio::ishow_stop_stream",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 ls3df/IGraph/IShowStream.cpp:91 + assigned REA note body (not re-observed here) (forward + error word); tier contract (wave policy: CPU forward, Stop submit behind backend) [executed green: runtime_audio module suite, 100 #[test], all passed; base 4bb8e53 + uncommitted wave-10, cargo test -p lhr-engine --lib]"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x75b60",
+      "va": "0x10075b60",
+      "name": "IShow::PauseStream (PC-only guessed name)",
+      "symbol": "lhr_engine::runtime_audio::ishow_pause_stream",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 ls3df/IGraph/IShowStream.cpp:98 + assigned REA note body (not re-observed here) (submit + flag on success); tier contract (wave policy: CPU flag, Pause submit behind backend) [executed green: runtime_audio module suite, 100 #[test], all passed; base 4bb8e53 + uncommitted wave-10, cargo test -p lhr-engine --lib]"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x75b90",
+      "va": "0x10075b90",
+      "name": "IShow::SetStreamVolume (PC-only guessed name)",
+      "symbol": "lhr_engine::runtime_audio::ishow_set_stream_volume",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 ls3df/IGraph/IShowStream.cpp:108 + assigned REA note body (not re-observed here) (forward + error word); tier contract (wave policy: CPU forward, SetVolume submit behind backend) [executed green: runtime_audio module suite, 100 #[test], all passed; base 4bb8e53 + uncommitted wave-10, cargo test -p lhr-engine --lib]"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x75bc0",
+      "va": "0x10075bc0",
+      "name": "IShow::SetStreamPan (PC-only guessed name)",
+      "symbol": "lhr_engine::runtime_audio::ishow_set_stream_pan",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 ls3df/IGraph/IShowStream.cpp:115 + assigned REA note body (not re-observed here) (forward + error word); tier contract (wave policy: CPU forward, SetPan submit behind backend) [executed green: runtime_audio module suite, 100 #[test], all passed; base 4bb8e53 + uncommitted wave-10, cargo test -p lhr-engine --lib]"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x75400",
+      "va": "0x10075400",
+      "name": "CTextureRenderer::~CTextureRenderer",
+      "symbol": "lhr_engine::ishow_renderer::ctexture_renderer_drop",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 ls3df/IGraph/IShow.cpp:1227 + assigned REA note body (not re-observed here) (null-guarded sound-renderer Release + 5 vtable restores + base-dtor dispatch behind backend; 0x753e0 deleting-dtor construction-covered, no entry); tier contract (wave policy: CPU guard/order, COM/base submits behind backend) (5-restore count: working guess per assigned note, pending REA) [executed green: ishow_renderer module suite, 2 #[test], all passed; base 4bb8e53 + uncommitted wave-10, cargo test -p lhr-engine --lib]"
     }
   ],
   "vm": {

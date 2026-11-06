@@ -776,3 +776,210 @@ where
             .map_err(MissionAssetError::Memory)
     }
 }
+
+// ---------------------------------------------------------------------------
+// IShow Vorbis file callbacks (LS3DF.dll e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6).
+//
+// CPU-only prefixes per sibling mafia-re @ 113b5b6
+// (ls3df/IGraph/IShow.cpp:558-586, ls3df/IGraph/vorbisfile.h:26-30). Every
+// entry below is tier contract: reviewed upstream source plus pinning tests.
+// No Ghidra bodies were re-observed here; shapes follow the assigned REA
+// notes.
+//
+// Working names: the upstream ov_callbacks field names read_func, seek_func,
+// close_func and tell_func are Insanity3D Ogg loader names per
+// IShow.cpp:558-559, not original symbols; Rust names ishow_vorbis_* are
+// descriptive working names. The DTA file handle is a working-guess member
+// per source (IGraph.h:536 m_DtaHandle style); only its int identity crosses
+// this boundary.
+//
+// Scope: CPU delegation plus error mapping only. dtaRead/dtaSeek/dtaClose
+// submits stay behind IshowVorbisBackend with raw bytes passed in; Ogg
+// decoding, DirectSound buffering and thread wakeups are withheld with no
+// functions.
+//
+// Precision: size*nmemb wraps to 32-bit like native size_t on x86; the
+// ogg_int64_t seek offset truncates to i32 via as cast like the native
+// (int)offset.
+//
+/// Seek origins for the Vorbis tell/seek delegates (C SEEK_SET/CUR/END).
+pub const ISHOW_SEEK_SET: i32 = 0;
+/// Seek origins for the Vorbis tell/seek delegates (C SEEK_SET/CUR/END).
+pub const ISHOW_SEEK_CUR: i32 = 1;
+/// Seek origins for the Vorbis tell/seek delegates (C SEEK_SET/CUR/END).
+pub const ISHOW_SEEK_END: i32 = 2;
+
+/// Device side of the DTA file delegates. Handles are caller-owned int
+/// identities; addresses never cross this boundary.
+pub trait IshowVorbisBackend {
+    fn dta_read(&mut self, handle: i32, out: &mut [u8]) -> usize;
+    fn dta_seek(&mut self, handle: i32, offset: i32, whence: i32) -> i32;
+    /// Native `bool dtaClose` (rw_data.h:55); close_func returns it as int.
+    fn dta_close(&mut self, handle: i32) -> bool;
+}
+
+/// LS3DF RVA 0x74060, VA 0x10074060. read_func upstream Insanity3D name
+/// (mafia-re ls3df/IGraph/IShow.cpp:562): byte count is size*nmemb wrapped to
+/// 32-bit, then the DTA read fills the caller buffer prefix and returns bytes
+/// read. Pure delegate, no error mapping: native returns dtaRead(...) directly
+/// (bytes, not items). Clamping the want to the caller's
+/// buffer length is host hardening (native trusts the vorbis buffer).
+pub fn ishow_vorbis_read(
+    backend: &mut impl IshowVorbisBackend,
+    handle: i32,
+    out: &mut [u8],
+    size: usize,
+    nmemb: usize,
+) -> usize {
+    let wanted = (size as u32).wrapping_mul(nmemb as u32) as usize;
+    let take = wanted.min(out.len());
+    backend.dta_read(handle, &mut out[..take])
+}
+
+/// LS3DF RVA 0x74080, VA 0x10074080. seek_func upstream Insanity3D name
+/// (mafia-re ls3df/IGraph/IShow.cpp:569): truncates the 64-bit offset to i32,
+/// delegates to dtaSeek, maps -1 to -1 else 0 for libvorbis.
+pub fn ishow_vorbis_seek(
+    backend: &mut impl IshowVorbisBackend,
+    handle: i32,
+    offset: i64,
+    whence: i32,
+) -> i32 {
+    let truncated = offset as i32;
+    if backend.dta_seek(handle, truncated, whence) == -1 {
+        -1
+    } else {
+        0
+    }
+}
+
+/// LS3DF RVA 0x740b0, VA 0x100740b0. close_func upstream Insanity3D name
+/// (mafia-re ls3df/IGraph/IShow.cpp:576): returns the bool dtaClose as int
+/// (success 1, failure 0).
+pub fn ishow_vorbis_close(backend: &mut impl IshowVorbisBackend, handle: i32) -> i32 {
+    backend.dta_close(handle) as i32
+}
+
+/// LS3DF RVA 0x740c0, VA 0x100740c0. tell_func upstream Insanity3D name
+/// (mafia-re ls3df/IGraph/IShow.cpp:583): dtaSeek(handle, 0, SEEK_CUR)
+/// delegate, returns position or -1.
+pub fn ishow_vorbis_tell(backend: &mut impl IshowVorbisBackend, handle: i32) -> i32 {
+    backend.dta_seek(handle, 0, ISHOW_SEEK_CUR)
+}
+
+#[cfg(test)]
+mod ishow_vorbis_contract_tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    struct Fake {
+        files: HashMap<i32, (Vec<u8>, usize)>,
+        closed: Vec<i32>,
+        seeks: Vec<(i32, i32, i32)>,
+    }
+
+    impl Fake {
+        fn new() -> Self {
+            Self {
+                files: HashMap::new(),
+                closed: Vec::new(),
+                seeks: Vec::new(),
+            }
+        }
+        fn insert(&mut self, handle: i32, bytes: &[u8]) {
+            self.files.insert(handle, (bytes.to_vec(), 0));
+        }
+    }
+
+    impl IshowVorbisBackend for Fake {
+        fn dta_read(&mut self, handle: i32, out: &mut [u8]) -> usize {
+            let Some((bytes, cursor)) = self.files.get_mut(&handle) else {
+                return 0;
+            };
+            let mut count = 0;
+            while count < out.len() && *cursor < bytes.len() {
+                out[count] = bytes[*cursor];
+                *cursor += 1;
+                count += 1;
+            }
+            count
+        }
+        fn dta_seek(&mut self, handle: i32, offset: i32, whence: i32) -> i32 {
+            self.seeks.push((handle, offset, whence));
+            let Some((bytes, cursor)) = self.files.get_mut(&handle) else {
+                return -1;
+            };
+            let base: i64 = match whence {
+                0 => 0,
+                1 => *cursor as i64,
+                2 => bytes.len() as i64,
+                _ => return -1,
+            };
+            let next = base + i64::from(offset);
+            if next < 0 || next > bytes.len() as i64 {
+                return -1;
+            }
+            *cursor = next as usize;
+            *cursor as i32
+        }
+        fn dta_close(&mut self, handle: i32) -> bool {
+            self.closed.push(handle);
+            self.files.remove(&handle).is_some()
+        }
+    }
+
+    #[test]
+    fn ishow_vorbis_read_returns_bytes() {
+        let mut backend = Fake::new();
+        backend.insert(3, b"abcdef");
+        let mut out = [0u8; 4];
+        assert_eq!(ishow_vorbis_read(&mut backend, 3, &mut out, 2, 2), 4);
+        assert_eq!(&out, b"abcd");
+        assert_eq!(ishow_vorbis_read(&mut backend, 3, &mut out, 1, 4), 2);
+        assert_eq!(&out[..2], b"ef");
+        // Host hardening: a short caller buffer truncates the want.
+        let mut backend = Fake::new();
+        backend.insert(3, b"abcdef");
+        let mut tiny = [0u8; 2];
+        assert_eq!(ishow_vorbis_read(&mut backend, 3, &mut tiny, 4, 4), 2);
+        assert_eq!(&tiny, b"ab");
+        // size*nmemb wraps to 32 bits before the read (0x10000^2 -> 0).
+        let mut backend = Fake::new();
+        backend.insert(3, b"abcdef");
+        let mut out = [0u8; 4];
+        assert_eq!(
+            ishow_vorbis_read(&mut backend, 3, &mut out, 0x10000, 0x10000),
+            0
+        );
+    }
+
+    #[test]
+    fn ishow_vorbis_seek_maps_errors() {
+        let mut backend = Fake::new();
+        backend.insert(3, b"abcdef");
+        assert_eq!(ishow_vorbis_seek(&mut backend, 3, 2, ISHOW_SEEK_SET), 0);
+        assert_eq!(ishow_vorbis_tell(&mut backend, 3), 2);
+        assert_eq!(ishow_vorbis_seek(&mut backend, 3, 100, ISHOW_SEEK_SET), -1);
+        assert_eq!(ishow_vorbis_seek(&mut backend, 9, 0, ISHOW_SEEK_SET), -1);
+        // 64-bit offsets truncate to i32 low bits (native int cast).
+        assert_eq!(
+            ishow_vorbis_seek(&mut backend, 3, 0x1_0000_0002, ISHOW_SEEK_SET),
+            0
+        );
+        assert_eq!(ishow_vorbis_tell(&mut backend, 3), 2);
+        // SEEK_END anchors at the length.
+        assert_eq!(ishow_vorbis_seek(&mut backend, 3, -6, ISHOW_SEEK_END), 0);
+        assert_eq!(ishow_vorbis_tell(&mut backend, 3), 0);
+    }
+
+    #[test]
+    fn ishow_vorbis_close_and_tell_delegate() {
+        let mut backend = Fake::new();
+        backend.insert(3, b"ab");
+        assert_eq!(ishow_vorbis_tell(&mut backend, 3), 0);
+        // Native bool-as-int: success 1, missing handle 0.
+        assert_eq!(ishow_vorbis_close(&mut backend, 3), 1);
+        assert_eq!(ishow_vorbis_close(&mut backend, 3), 0);
+        assert_eq!(backend.closed, vec![3, 3]);
+    }
+}

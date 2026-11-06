@@ -103,6 +103,7 @@ pub mod indexed_sound_manager;
 pub mod input_keyboard;
 pub mod inspection_lod;
 pub mod interpolator;
+pub mod ishow_renderer;
 pub mod itexture;
 pub mod joint_state;
 pub mod landscape_roam;

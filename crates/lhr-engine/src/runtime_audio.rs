@@ -6280,3 +6280,469 @@ mod isound_contract_tests {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// IShow music-stream behavioral contracts (LS3DF.dll e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6).
+//
+// CPU-plausible prefixes per sibling mafia-re @ 113b5b6
+// (ls3df/IGraph/IShowStream.cpp:1-118, ls3df/ISound/ISound.h:278-295,
+// ls3df/IGraph/IGraph.h:474-496). Every entry below is tier contract:
+// reviewed upstream source plus pinning tests. No Ghidra bodies were
+// re-observed here; shapes follow the assigned REA notes, filed after the
+// 0x7d3e0 IsPlaying-CPU precedent (CPU guard/prefix ported, device submits
+// stay behind the backend).
+//
+// Working names: IShow::OpenStream/CloseStream/PlayStream/StopStream/
+// PauseStream/SetStreamVolume/SetStreamPan are PC-only guessed IShow method
+// names per source (IGraph.h class comment); Rust spelling is snake_case
+// per repo rule; each function doc records its RVA/VA and mafia-re file:line.
+// The stream/file members below (stream handle, init/paused/done flags and
+// the stream_shows bank) are working-guess projections per source
+// (IGraph.h:505-534 notes PC members guessed).
+//
+// Scope: CPU list/flag logic only. ISND stream Init/Open/Close/Play/Stop/
+// Pause/Resume/Volume/Pan submits stay behind IshowStreamBackend; Bink,
+// DirectShow, Ogg and DirectSound buffering are withheld with no functions.
+// StreamCallback end-marking (ISND_STREAM_END scan) is caller-side and stays
+// unwired; only the done flag it would set is stored here.
+//
+// Ownership: typed state throughout, no byte maps. Show identities are
+// caller-owned u64 values; the bank removes by swap-remove matching
+// C_list::remove moving the last element into the hole (ls3df.h:305-335).
+// Native `delete this` does not apply; the caller drops owners.
+//
+/// IShow stream CPU state (IShowStream.cpp:30-55 members m_Stream,
+/// m_StreamInit, m_StreamPaused, m_StreamDone, working guess per source).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IshowStream {
+    pub stream: i32,
+    pub stream_init: bool,
+    pub stream_paused: bool,
+    pub stream_done: bool,
+}
+
+/// Caller-owned bank for the stream_shows list (IShowStream.cpp:10,
+/// GLOBAL LS3DF 0x101c5db8, working guess per source). Removal is
+/// swap-remove like C_list::remove; &mut is the thread boundary. Show ids
+/// must be caller-stable: a reused id resurrects a stale entry, so the
+/// caller owns liveness and must drop ids on teardown.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct IshowStreamBank {
+    pub shows: Vec<u64>,
+}
+
+/// Device side of the ISND stream table (ISound.h:278-295
+/// ISND_STREAM_FUNCS). Bool returns are SUCCEEDED submits; name and unknown
+/// words are caller-owned. Result words reuse the ISound domain constants
+/// (numerically equal to the I3D LS3D_RESULT words, ls3df.h:20-35).
+/// All COM/DSound submits stay behind this trait.
+/// The native StreamCallback (ISND_STREAM_END -> m_StreamDone) has no host
+/// carrier: backends report end-of-stream via ishow_stream_mark_done below.
+/// IsStreamPlaying (0x75840) and StreamCallback (0x758e0) stay withheld.
+pub trait IshowStreamBackend {
+    fn stream_init(&mut self, unknown: i32) -> bool;
+    fn stream_open(&mut self, unknown: i32, name: &str, unknown1: i32) -> Option<i32>;
+    fn stream_close(&mut self, unknown: i32) -> bool;
+    fn stream_close_stream(&mut self, stream: i32) -> bool;
+    fn stream_play(&mut self, stream: i32, looping: bool) -> bool;
+    fn stream_stop(&mut self, stream: i32) -> bool;
+    fn stream_pause(&mut self, stream: i32) -> bool;
+    fn stream_resume(&mut self, stream: i32) -> bool;
+    fn stream_set_volume(&mut self, stream: i32, unknown: i32, volume: i32) -> bool;
+    fn stream_set_pan(&mut self, stream: i32, unknown: i32, pan: i32) -> bool;
+}
+
+/// LS3DF RVA 0x75920, VA 0x10075920. IShow::OpenStream (mafia-re
+/// ls3df/IGraph/IShowStream.cpp:30): CloseStream prefix, then ISND Init submit
+/// (FAILED is UNSUPPORTED, success sets init flag), then ISND Open submit
+/// (FAILED is NOFILE). The CPU list/flag portion files the inline
+/// stream_shows growth shape verified against IShowStream.cpp:40-53: found
+/// flag, base pointer walk over size, size-tested loop, push_back only when
+/// absent. Unused int arg is carried (ignored like native). Stream names are
+/// UTF-8 only; non-UTF8 or interior-NUL game data is unrepresentable
+/// (narrowed domain, disclosed). Native takes the list base
+/// before the size test (OOB on empty); the host guards size != 0 first
+/// (disclosed hardening).
+pub fn ishow_open_stream(
+    state: &mut IshowStream,
+    show_id: u64,
+    bank: &mut IshowStreamBank,
+    name: &str,
+    _unused: i32,
+    backend: &mut impl IshowStreamBackend,
+) -> i32 {
+    ishow_close_stream(state, show_id, bank, backend);
+    if !backend.stream_init(0) {
+        return ISOUND_UNSUPPORTED;
+    }
+    state.stream_init = true;
+    let Some(handle) = backend.stream_open(0, name, 0) else {
+        return ISOUND_NOFILE;
+    };
+    state.stream = handle;
+    let mut found = false;
+    let size = bank.shows.len();
+    if size != 0 {
+        let mut index = 0usize;
+        let mut remaining = size;
+        while remaining != 0 {
+            remaining -= 1;
+            if bank.shows[index] == show_id {
+                found = true;
+                break;
+            }
+            index += 1;
+        }
+    }
+    if !found {
+        bank.shows.push(show_id);
+    }
+    ISOUND_OK
+}
+
+/// Host-side end-of-stream marker (native StreamCallback body, no separate
+/// credit): the backend calls this when the device reports ISND_STREAM_END.
+/// Keeps stream_done reachable now that OpenStream files no callback.
+pub fn ishow_stream_mark_done(state: &mut IshowStream) {
+    state.stream_done = true;
+}
+
+/// LS3DF RVA 0x75a20, VA 0x10075a20. IShow::CloseStream (mafia-re
+/// ls3df/IGraph/IShowStream.cpp:59): clears paused/done flags, swap-removes
+/// the show from stream_shows, then guarded submits. A live stream handle
+/// first forwards to Stop (result ignored like native), then CloseStream
+/// (FAILED returns early keeping the handle); then an init flag forwards to
+/// Close and clears only on SUCCEEDED. Returns void in native.
+pub fn ishow_close_stream(
+    state: &mut IshowStream,
+    show_id: u64,
+    bank: &mut IshowStreamBank,
+    backend: &mut impl IshowStreamBackend,
+) {
+    state.stream_paused = false;
+    state.stream_done = false;
+    if let Some(position) = bank.shows.iter().position(|id| *id == show_id) {
+        bank.shows.swap_remove(position);
+    }
+    if state.stream != -1 {
+        let _ = ishow_stop_stream(state, backend);
+        if !backend.stream_close_stream(state.stream) {
+            return;
+        }
+        state.stream = -1;
+    }
+    if state.stream_init && backend.stream_close(0) {
+        state.stream_init = false;
+    }
+}
+
+/// LS3DF RVA 0x75ad0, VA 0x10075ad0. IShow::PlayStream (mafia-re
+/// ls3df/IGraph/IShowStream.cpp:78): paused-flag branch. When paused, clears
+/// the flag and resumes (FAILED is GENERIC); else plays with loop word
+/// (FAILED is GENERIC). I3D_OK on success.
+pub fn ishow_play_stream(
+    state: &mut IshowStream,
+    looping: bool,
+    backend: &mut impl IshowStreamBackend,
+) -> i32 {
+    if state.stream_paused {
+        state.stream_paused = false;
+        if !backend.stream_resume(state.stream) {
+            return ISOUND_GENERIC;
+        }
+    } else if !backend.stream_play(state.stream, looping) {
+        return ISOUND_GENERIC;
+    }
+    ISOUND_OK
+}
+
+/// LS3DF RVA 0x75b30, VA 0x10075b30. IShow::StopStream (mafia-re
+/// ls3df/IGraph/IShowStream.cpp:91): forwards to the stream Stop submit;
+/// FAILED is GENERIC else I3D_OK. No flag writes.
+pub fn ishow_stop_stream(state: &IshowStream, backend: &mut impl IshowStreamBackend) -> i32 {
+    if !backend.stream_stop(state.stream) {
+        return ISOUND_GENERIC;
+    }
+    ISOUND_OK
+}
+
+/// LS3DF RVA 0x75b60, VA 0x10075b60. IShow::PauseStream (mafia-re
+/// ls3df/IGraph/IShowStream.cpp:98): Pause submit first (FAILED is GENERIC
+/// without flag write); success sets the paused flag, I3D_OK.
+pub fn ishow_pause_stream(state: &mut IshowStream, backend: &mut impl IshowStreamBackend) -> i32 {
+    if !backend.stream_pause(state.stream) {
+        return ISOUND_GENERIC;
+    }
+    state.stream_paused = true;
+    ISOUND_OK
+}
+
+/// LS3DF RVA 0x75b90, VA 0x10075b90. IShow::SetStreamVolume (mafia-re
+/// ls3df/IGraph/IShowStream.cpp:108): forwards stream plus zero unknown word
+/// and volume to SetVolume; FAILED is GENERIC else I3D_OK.
+pub fn ishow_set_stream_volume(
+    state: &IshowStream,
+    volume: i32,
+    backend: &mut impl IshowStreamBackend,
+) -> i32 {
+    if !backend.stream_set_volume(state.stream, 0, volume) {
+        return ISOUND_GENERIC;
+    }
+    ISOUND_OK
+}
+
+/// LS3DF RVA 0x75bc0, VA 0x10075bc0. IShow::SetStreamPan (mafia-re
+/// ls3df/IGraph/IShowStream.cpp:115): forwards stream plus zero unknown word
+/// and pan to SetPan; FAILED is GENERIC else I3D_OK.
+pub fn ishow_set_stream_pan(
+    state: &IshowStream,
+    pan: i32,
+    backend: &mut impl IshowStreamBackend,
+) -> i32 {
+    if !backend.stream_set_pan(state.stream, 0, pan) {
+        return ISOUND_GENERIC;
+    }
+    ISOUND_OK
+}
+
+#[cfg(test)]
+mod ishow_stream_contract_tests {
+    use super::*;
+
+    struct Rig {
+        init_ok: bool,
+        open: Option<i32>,
+        close_ok: bool,
+        close_stream_ok: bool,
+        play_ok: bool,
+        stop_ok: bool,
+        pause_ok: bool,
+        resume_ok: bool,
+        volume_ok: bool,
+        pan_ok: bool,
+        calls: Vec<String>,
+        opened_name: Option<String>,
+    }
+
+    impl Default for Rig {
+        fn default() -> Self {
+            Self {
+                init_ok: true,
+                open: Some(7),
+                close_ok: true,
+                close_stream_ok: true,
+                play_ok: true,
+                stop_ok: true,
+                pause_ok: true,
+                resume_ok: true,
+                volume_ok: true,
+                pan_ok: true,
+                calls: Vec::new(),
+                opened_name: None,
+            }
+        }
+    }
+
+    impl IshowStreamBackend for Rig {
+        fn stream_init(&mut self, unknown: i32) -> bool {
+            self.calls.push(format!("init:{unknown}"));
+            self.init_ok
+        }
+        fn stream_open(&mut self, unknown: i32, name: &str, unknown1: i32) -> Option<i32> {
+            self.calls.push(format!("open:{unknown}:{name}:{unknown1}"));
+            self.opened_name = Some(name.to_string());
+            self.open
+        }
+        fn stream_close(&mut self, unknown: i32) -> bool {
+            self.calls.push(format!("close:{unknown}"));
+            self.close_ok
+        }
+        fn stream_close_stream(&mut self, stream: i32) -> bool {
+            self.calls.push(format!("close_stream:{stream}"));
+            self.close_stream_ok
+        }
+        fn stream_play(&mut self, stream: i32, looping: bool) -> bool {
+            self.calls.push(format!("play:{stream}:{looping}"));
+            self.play_ok
+        }
+        fn stream_stop(&mut self, stream: i32) -> bool {
+            self.calls.push(format!("stop:{stream}"));
+            self.stop_ok
+        }
+        fn stream_pause(&mut self, stream: i32) -> bool {
+            self.calls.push(format!("pause:{stream}"));
+            self.pause_ok
+        }
+        fn stream_resume(&mut self, stream: i32) -> bool {
+            self.calls.push(format!("resume:{stream}"));
+            self.resume_ok
+        }
+        fn stream_set_volume(&mut self, stream: i32, unknown: i32, volume: i32) -> bool {
+            self.calls
+                .push(format!("volume:{stream}:{unknown}:{volume}"));
+            self.volume_ok
+        }
+        fn stream_set_pan(&mut self, stream: i32, unknown: i32, pan: i32) -> bool {
+            self.calls.push(format!("pan:{stream}:{unknown}:{pan}"));
+            self.pan_ok
+        }
+    }
+
+    fn live_stream() -> IshowStream {
+        IshowStream {
+            stream: 7,
+            stream_init: true,
+            stream_paused: false,
+            stream_done: false,
+        }
+    }
+
+    #[test]
+    fn ishow_open_stream_inits_opens_and_grows_once() {
+        let mut rig = Rig::default();
+        let mut state = IshowStream {
+            stream: -1,
+            stream_init: false,
+            stream_paused: true,
+            stream_done: true,
+        };
+        let mut bank = IshowStreamBank::default();
+        assert_eq!(
+            ishow_open_stream(&mut state, 11, &mut bank, "music", 0, &mut rig),
+            0
+        );
+        assert!(state.stream_init);
+        assert_eq!(state.stream, 7);
+        assert_eq!(bank.shows, vec![11]);
+        assert_eq!(rig.opened_name.as_deref(), Some("music"));
+        assert_eq!(
+            ishow_open_stream(&mut state, 11, &mut bank, "music", 0, &mut rig),
+            0
+        );
+        assert_eq!(bank.shows, vec![11]);
+    }
+
+    #[test]
+    fn ishow_open_clears_prefix_flags_and_done_is_backend_marked() {
+        // Open starts with the CloseStream prefix (paused/done clear) and
+        // end-of-stream stays backend-marked (no callback carrier in Open).
+        let mut rig = Rig::default();
+        let mut state = IshowStream {
+            stream: -1,
+            stream_init: false,
+            stream_paused: true,
+            stream_done: true,
+        };
+        let mut bank = IshowStreamBank::default();
+        assert_eq!(
+            ishow_open_stream(&mut state, 11, &mut bank, "music", 0, &mut rig),
+            0
+        );
+        assert!(!state.stream_paused);
+        assert!(!state.stream_done);
+        ishow_stream_mark_done(&mut state);
+        assert!(state.stream_done);
+    }
+
+    #[test]
+    fn ishow_open_stream_maps_init_and_open_errors() {
+        let mut bank = IshowStreamBank::default();
+        let mut state = IshowStream {
+            stream: -1,
+            stream_init: false,
+            stream_paused: false,
+            stream_done: false,
+        };
+        let mut failing = Rig {
+            init_ok: false,
+            ..Rig::default()
+        };
+        assert_eq!(
+            ishow_open_stream(&mut state, 11, &mut bank, "music", 0, &mut failing),
+            ISOUND_UNSUPPORTED
+        );
+        assert!(!state.stream_init);
+        let mut missing = Rig {
+            open: None,
+            ..Rig::default()
+        };
+        assert_eq!(
+            ishow_open_stream(&mut state, 11, &mut bank, "music", 0, &mut missing),
+            ISOUND_NOFILE
+        );
+        assert!(state.stream_init);
+    }
+
+    #[test]
+    fn ishow_close_stream_flags_swap_remove_and_guards() {
+        let mut rig = Rig::default();
+        let mut state = live_stream();
+        state.stream_paused = true;
+        state.stream_done = true;
+        let mut bank = IshowStreamBank {
+            shows: vec![11, 22, 33],
+        };
+        ishow_close_stream(&mut state, 22, &mut bank, &mut rig);
+        assert!(!state.stream_paused);
+        assert!(!state.stream_done);
+        // swap-remove moves the last element into the hole (C_list::erase
+        // semantics), not an order-preserving erase: [11, 22, 33] -> [11, 33].
+        assert_eq!(bank.shows, vec![11, 33]);
+        assert_eq!(state.stream, -1);
+        assert!(!state.stream_init);
+        assert!(rig.calls.iter().any(|c| c == "stop:7"));
+    }
+
+    #[test]
+    fn ishow_close_stream_keeps_handle_on_close_failure() {
+        let mut rig = Rig {
+            close_stream_ok: false,
+            ..Rig::default()
+        };
+        let mut state = live_stream();
+        let mut bank = IshowStreamBank { shows: vec![11] };
+        ishow_close_stream(&mut state, 11, &mut bank, &mut rig);
+        assert!(bank.shows.is_empty());
+        assert_eq!(state.stream, 7);
+        assert!(state.stream_init);
+    }
+
+    #[test]
+    fn ishow_play_stream_paused_branch() {
+        let mut rig = Rig::default();
+        let mut paused = live_stream();
+        paused.stream_paused = true;
+        assert_eq!(ishow_play_stream(&mut paused, true, &mut rig), 0);
+        assert!(!paused.stream_paused);
+        assert!(rig.calls.iter().any(|c| c == "resume:7"));
+        let mut fresh = live_stream();
+        assert_eq!(ishow_play_stream(&mut fresh, true, &mut rig), 0);
+        assert!(rig.calls.iter().any(|c| c == "play:7:true"));
+        rig.resume_ok = false;
+        let mut failing = live_stream();
+        failing.stream_paused = true;
+        assert_eq!(
+            ishow_play_stream(&mut failing, false, &mut rig),
+            ISOUND_GENERIC
+        );
+        assert!(!failing.stream_paused);
+    }
+
+    #[test]
+    fn ishow_stop_pause_volume_pan_forwards() {
+        let mut rig = Rig::default();
+        let state = live_stream();
+        assert_eq!(ishow_stop_stream(&state, &mut rig), 0);
+        let mut pausable = live_stream();
+        assert_eq!(ishow_pause_stream(&mut pausable, &mut rig), 0);
+        assert!(pausable.stream_paused);
+        assert_eq!(ishow_set_stream_volume(&state, -1000, &mut rig), 0);
+        assert_eq!(ishow_set_stream_pan(&state, 1000, &mut rig), 0);
+        rig.stop_ok = false;
+        assert_eq!(ishow_stop_stream(&state, &mut rig), ISOUND_GENERIC);
+        rig.pause_ok = false;
+        let mut failing = live_stream();
+        assert_eq!(ishow_pause_stream(&mut failing, &mut rig), ISOUND_GENERIC);
+        assert!(!failing.stream_paused);
+    }
+}
