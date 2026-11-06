@@ -157,7 +157,9 @@ class RewriteProgressTests(unittest.TestCase):
         # 0x5f9a10 / InternTempActDel 0x5a79f0 / cbTelephones 0x5b71b0 /
         # cbScreamArea 0x5b9110 / ShowProgress 0x540950 / SceneErrFnc 0x540fd0
         # / GetTShift 0x547120).
-        self.assertEqual(game["ported"], 149 + 293)
+        # +3 indexed sound tables (LoadTables 0x55f390 / ConstructSound
+        # 0x55f820 / FreeTables 0x55ee00; parse helper has no RVA).
+        self.assertEqual(game["ported"], 149 + 296)
         self.assertEqual(game["verified"], 149 + 7)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
