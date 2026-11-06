@@ -21,10 +21,9 @@ mod lab_playback;
 mod lab_preset;
 mod lab_scene;
 mod lab_state;
-#[path = "menu.rs"]
-mod menu;
 #[path = "mission_load_probe.rs"]
 mod mission_load_probe;
+use lhr_engine::menu;
 #[path = "neighborhood.rs"]
 mod neighborhood;
 use glam::{Mat4, Quat, Vec3};

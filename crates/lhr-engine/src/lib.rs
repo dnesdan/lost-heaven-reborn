@@ -122,6 +122,7 @@ pub mod loaded_visual_resources;
 pub mod main_menu;
 pub mod managed_visual_resources;
 pub mod maps_dirs;
+pub mod menu;
 pub mod mesh_bounds;
 pub mod mission_actor_stream;
 pub mod mission_components;

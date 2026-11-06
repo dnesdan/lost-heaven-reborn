@@ -12,7 +12,7 @@
 //! plus mission/scene owners (ExecuteMenu, TickCamera, Draw device paths),
 //! and the component classes (Draw/Key/Mouse virtuals, text/value storage).
 use lhr_assets::{FontMetrics, Installation, MenuDefinition, Texture as Image};
-use lhr_engine::main_menu;
+use crate::main_menu;
 use lhr_render::{Mesh, Texture, Vertex};
 use std::sync::Arc;
 
@@ -133,10 +133,10 @@ impl MenuUi {
         let version = installation
             .read_optional("tables/version.txt")
             .map_err(|e| format!("Menu data version: {e}"))?;
-        let code = lhr_engine::original_language::language_code_from_version(
+        let code = crate::original_language::language_code_from_version(
             version.as_deref().unwrap_or_default(),
         );
-        let paths = lhr_engine::original_language::language_resource_paths(code)?;
+        let paths = crate::original_language::language_resource_paths(code)?;
         let text = lhr_assets::parse_raw_text_db(&read(&paths.text_database)?)
             .map_err(|e| e.to_string())?;
         let labels = definition
