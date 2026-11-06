@@ -8572,6 +8572,15 @@
       "symbol": "lhr_engine::actor_world::ActorWorld::destroy_racecam",
       "tier": "contract",
       "evidence": "Empty dtor path: phase gate, vtable restore, shared destroy_base_inner; delete_racecam adds free_actor on arg&1 (actor_world.rs:3128-3182, exercised via release tests). Marker-only contract."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x33d10",
+      "va": "0x433d10",
+      "name": "C_detector::Process (tick dispatch + INRANGE counting scope)",
+      "symbol": "lhr_engine::actor_world::ActorWorld::detector_inrange_candidate",
+      "tier": "contract",
+      "evidence": "Tick pass: Process dispatch (STORAGE/INRANGE/WAITFORUSE/WAITFORHIT/CREATEDYNCOLL/ERASEDYNCOLL + default C_program::Process) lives in program_runtime (original_program #[path] module, unfileable path, same gate as held 0x1ed040); filed scope is the actor-side INRANGE counting owner (human_types mask +0xd8, ENTITY/PLAYER + human gate, live frame + human_type) with take/return transport and tick_detector_programs, per mafia-re C_detector.cpp:189-271 and C_detector.h:16-94. Coll/use arms latch then refuse loudly; GameInit bodies and coll registries deferred. Tests: detector and program suites green on this tree."
     }
   ],
   "vm": {

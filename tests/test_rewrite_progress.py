@@ -70,7 +70,10 @@ class RewriteProgressTests(unittest.TestCase):
         # racecam dtor 0x196240 shared destroy path; RotateDir(y) deferred:
         # two-level #[path] chain fails the validator gate; clock GameDone
         # deferred: no own state word).
-        self.assertEqual(game["ported"], 149 + 68)
+        # +1 C_detector::Process 0x33d10 tick dispatch + INRANGE counting
+        # scope (contract; dispatch core in #[path] program_runtime module,
+        # filed via actor-side counting owner; coll/use arms loud-refuse).
+        self.assertEqual(game["ported"], 149 + 69)
         self.assertEqual(game["verified"], 149 + 7)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
