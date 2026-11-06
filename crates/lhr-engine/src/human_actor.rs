@@ -817,7 +817,7 @@ impl HumanState {
     /// radius bookkeeping (`C_entity::ai_ghost` @0x1268, `ai_ghost_actor`
     /// items) and the pedestrian `C_entity::AI` Tick (GAME 0x508150) stay
     /// DEFERRED with the entity owner.
-    pub(crate) fn push_ghost_coll(&mut self, coll: HumanDynCollId) {
+    pub fn push_ghost_coll(&mut self, coll: HumanDynCollId) {
         self.ghost_colls.push(coll);
     }
     /// GAME 0x507b50 (RVA 0x107b50) `ghost_colls` empty leaf (mafia-re 113b5b6
@@ -826,7 +826,7 @@ impl HumanState {
     /// `C_entity::GameInit` body (GAME 0x5074d0, `C_human::GameInit` prefix
     /// included) stays DEFERRED; callers threading `GameInit` invoke this to
     /// keep the staging empty.
-    pub(crate) fn empty_ghost_colls(&mut self) {
+    pub fn empty_ghost_colls(&mut self) {
         self.ghost_colls.clear();
     }
     /// GAME 0x57cfe0 (RVA 0x17cfe0) `C_human::DynSetNextCollOwnerMult` merge
@@ -843,7 +843,7 @@ impl HumanState {
     /// stays with the collision manager (DEFERRED). `is_player` does not enter
     /// this merge; it selects `flags2` in `human_move_coll::test_move_coll_prefix`
     /// (C_human.cpp:5293-5295).
-    pub(crate) fn rebuild_next_coll_owners(&mut self, colls: &[HumanDynCollId]) {
+    pub fn rebuild_next_coll_owners(&mut self, colls: &[HumanDynCollId]) {
         self.next_coll_owners.clear();
         if self.ghost_colls.is_empty() {
             return;

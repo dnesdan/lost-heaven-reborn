@@ -69,7 +69,7 @@ pub(crate) fn animation_angle(first: [f32; 3], last: [f32; 3]) -> Result<f32, Ma
 
 /// Game 0x408630, and 0x4084d0's rotation prefix. FSIN/FCOS are spilled to
 /// matrix f32 slots before RotateByMatrix evaluates the three row products.
-pub(crate) fn rotate_y(vector: [f32; 3], angle: f32) -> Result<[f32; 3], MakeUnavailable> {
+pub fn rotate_y(vector: [f32; 3], angle: f32) -> Result<[f32; 3], MakeUnavailable> {
     let (sine, cosine) = if angle == 0. {
         (angle, 1.)
     } else {
