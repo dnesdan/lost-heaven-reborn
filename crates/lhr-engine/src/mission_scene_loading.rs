@@ -124,6 +124,147 @@ fn publish(
     Ok(())
 }
 
+/// Fades below this length are left out (GAME 0x5457a0, mafia-re
+/// `game/mission/Mission.cpp:1711`).
+pub const TIME_TRANSPARENT_MIN_FADE: i16 = 83;
+
+/// Deferred `C_mission` owners around this slice (marker-only, no credit):
+/// `FrmActBuff_StoreActor` (GAME 0x545ce0, mafia-re
+/// `game/mission/Mission.cpp:1855-1893`), `FrmActBuff_GetActor` (GAME
+/// 0x546280, mafia-re `game/mission/Mission.cpp:1924-1952`), and the whole
+/// `Open`/`CreateActor`/`Tick` bodies.
+pub const FRM_ACT_BUFF_STORE_ACTOR_DEFERRED: bool = true;
+/// Deferred actor-takeback side of the frame/actor buffer (GAME 0x546280,
+/// mafia-re `game/mission/Mission.cpp:1924-1952`).
+pub const FRM_ACT_BUFF_GET_ACTOR_DEFERRED: bool = true;
+/// Deferred mission open path; settings application stays host-callback only.
+pub const MISSION_OPEN_DEFERRED: bool = true;
+/// Deferred actor factory path.
+pub const MISSION_CREATE_ACTOR_DEFERRED: bool = true;
+/// Deferred per-frame path (fade stepping and release live there).
+pub const MISSION_TICK_DEFERRED: bool = true;
+
+/// `S_t_transparent` entry (mafia-re `game/mission/Mission.h:91-96`): the
+/// fading object, the elapsed time (0 when added) and the
+/// `AddTimeTransparentObject` fade time. Host identity is the owning frame;
+/// refcount/transparency effects run through `TimeTransparentBackend`, so this
+/// slice owns no I3D/camera/weather/device state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TimeTransparentEntry {
+    pub object: FrameKey,
+    pub time: i16,
+    pub fade_time: i16,
+}
+
+/// Host effects for the transparent-object slice. `retain` mirrors the
+/// `m_RefCount++` add, `set_transparency` mirrors `SetTransparency`, and
+/// `release` mirrors `Release`; ordering (including the reverse finish walk)
+/// is observable by the host.
+pub trait TimeTransparentBackend {
+    fn retain_transparent_object(&mut self, object: FrameKey);
+    fn set_transparent_object_transparency(&mut self, object: FrameKey, transparency: f32);
+    fn release_transparent_object(&mut self, object: FrameKey);
+}
+
+/// EnumFrames callback (GAME 0x5455e0, mafia-re
+/// `game/mission/Mission.cpp:1697-1703`): `map[name] = frm`. The name is the
+/// frame's own full name bytes; native `C_str` allocation and map balancing
+/// stay host projections inside `OriginalLoadMap`.
+pub fn cb_frame_map(
+    map: &mut crate::mission_actor_stream::OriginalLoadMap,
+    arena: &ModelArena,
+    name: &[u8],
+    frame: FrameReferenceId,
+) -> Result<(), String> {
+    map.publish_loaded_frame(arena, name, frame)
+}
+
+/// Keep an object until its fade ends (GAME 0x5457a0, mafia-re
+/// `game/mission/Mission.cpp:1705-1720`): a null object or a fade below 83
+/// returns early; otherwise the host retains, the transparency drops to 0.0,
+/// and `{object, time: 0, fade_time}` is pushed.
+pub fn add_time_transparent_object<B: TimeTransparentBackend>(
+    transparent: &mut Vec<TimeTransparentEntry>,
+    backend: &mut B,
+    object: Option<FrameKey>,
+    fade_time: i16,
+) {
+    let Some(object) = object else {
+        return;
+    };
+    if fade_time < TIME_TRANSPARENT_MIN_FADE {
+        return;
+    }
+    backend.retain_transparent_object(object);
+    backend.set_transparent_object_transparency(object, 0.0);
+    transparent.push(TimeTransparentEntry {
+        object,
+        time: 0,
+        fade_time,
+    });
+}
+
+/// End every fade from the last entry (GAME 0x5459b0, mafia-re
+/// `game/mission/Mission.cpp:1722-1732`): each object returns to transparency
+/// 1.0 and is released, then the vector is cleared.
+pub fn finish_time_transparent_objects<B: TimeTransparentBackend>(
+    transparent: &mut Vec<TimeTransparentEntry>,
+    backend: &mut B,
+) {
+    for entry in transparent.iter().rev() {
+        backend.set_transparent_object_transparency(entry.object, 1.0);
+        backend.release_transparent_object(entry.object);
+    }
+    transparent.clear();
+}
+
+/// `S_frame_actor_buffer` entry (mafia-re `game/mission/Mission.h:97-107`):
+/// the kept actor (none for a stored model), its frame or the model, the file
+/// name without folders, and the `StoreActor` release flag (always false for a
+/// stored model). Actor behavior (`StoreActor`/`GetActor`) stays deferred.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FrameActorBufferEntry {
+    pub actor: Option<FrameKey>,
+    pub frame: FrameKey,
+    pub name: Vec<u8>,
+    pub release_frame: bool,
+}
+
+/// File-name tail after the last `\`, else the whole name (mafia-re
+/// `game/mission/Mission.cpp:1884-1888,1911-1915`).
+fn frame_actor_buffer_basename(file_name: &[u8]) -> &[u8] {
+    match file_name.iter().rposition(|byte| *byte == b'\\') {
+        Some(index) => &file_name[index + 1..],
+        None => file_name,
+    }
+}
+
+/// Keep a model between missions unless its pointer is kept already (GAME
+/// 0x546010, mafia-re `game/mission/Mission.cpp:1895-1919`): a null model
+/// returns early, a duplicate frame pointer returns early, otherwise a
+/// model-only entry (`actor: None`, `release_frame: false`) is pushed under
+/// the file-name tail.
+pub fn frm_act_buff_store_model(
+    buffer: &mut Vec<FrameActorBufferEntry>,
+    model: Option<FrameKey>,
+    file_name: &[u8],
+) {
+    let Some(model) = model else {
+        return;
+    };
+    for entry in buffer.iter().rev() {
+        if entry.frame == model {
+            return;
+        }
+    }
+    buffer.push(FrameActorBufferEntry {
+        actor: None,
+        frame: model,
+        name: frame_actor_buffer_basename(file_name).to_vec(),
+        release_frame: false,
+    });
+}
+
 #[derive(Debug)]
 pub struct MissionSceneLoadError {
     pub cursor: usize,
@@ -3739,6 +3880,102 @@ mod tests {
             driver.release_empty_registry_storage().unwrap();
             assert_eq!(arena.live_frame_count(), 0);
         });
+    }
+    struct FakeTransparentBackend {
+        retained: Vec<FrameKey>,
+        transparencies: Vec<(FrameKey, u32)>,
+        released: Vec<FrameKey>,
+    }
+    impl TimeTransparentBackend for FakeTransparentBackend {
+        fn retain_transparent_object(&mut self, object: FrameKey) {
+            self.retained.push(object);
+        }
+        fn set_transparent_object_transparency(&mut self, object: FrameKey, transparency: f32) {
+            self.transparencies.push((object, transparency.to_bits()));
+        }
+        fn release_transparent_object(&mut self, object: FrameKey) {
+            self.released.push(object);
+        }
+    }
+    #[test]
+    fn cb_frame_map_publishes_single_frame_slot() {
+        let mut arena = ModelArena::default();
+        let model = arena.create_model().unwrap();
+        let frame = arena.lookup_reference(model.root());
+        let mut map = crate::mission_actor_stream::OriginalLoadMap::for_preceding_loader();
+        cb_frame_map(&mut map, &arena, b"only", frame).unwrap();
+        assert_eq!(map.slot(b"only"), Some(Some(frame)));
+        arena.release(model.root()).unwrap();
+    }
+    #[test]
+    fn time_transparent_fade_guards_keep_83_and_100() {
+        let mut transparent = Vec::new();
+        let mut backend = FakeTransparentBackend {
+            retained: Vec::new(),
+            transparencies: Vec::new(),
+            released: Vec::new(),
+        };
+        add_time_transparent_object(&mut transparent, &mut backend, None, 100);
+        add_time_transparent_object(&mut transparent, &mut backend, Some(FrameKey(7)), 82);
+        assert!(transparent.is_empty());
+        assert!(backend.retained.is_empty());
+        add_time_transparent_object(&mut transparent, &mut backend, Some(FrameKey(7)), 83);
+        add_time_transparent_object(&mut transparent, &mut backend, Some(FrameKey(9)), 100);
+        assert_eq!(
+            transparent,
+            vec![
+                TimeTransparentEntry {
+                    object: FrameKey(7),
+                    time: 0,
+                    fade_time: 83,
+                },
+                TimeTransparentEntry {
+                    object: FrameKey(9),
+                    time: 0,
+                    fade_time: 100,
+                },
+            ]
+        );
+        assert_eq!(backend.retained, vec![FrameKey(7), FrameKey(9)]);
+        assert_eq!(
+            backend.transparencies,
+            vec![
+                (FrameKey(7), 0.0f32.to_bits()),
+                (FrameKey(9), 0.0f32.to_bits()),
+            ]
+        );
+        finish_time_transparent_objects(&mut transparent, &mut backend);
+        assert!(transparent.is_empty());
+        assert_eq!(
+            backend.transparencies[2..].to_vec(),
+            vec![
+                (FrameKey(9), 1.0f32.to_bits()),
+                (FrameKey(7), 1.0f32.to_bits()),
+            ]
+        );
+        assert_eq!(backend.released, vec![FrameKey(9), FrameKey(7)]);
+    }
+    #[test]
+    fn frame_actor_buffer_store_model_dedups_by_pointer() {
+        let mut buffer = Vec::new();
+        frm_act_buff_store_model(&mut buffer, None, b"models\\car.i3d");
+        assert!(buffer.is_empty());
+        frm_act_buff_store_model(&mut buffer, Some(FrameKey(11)), b"models\\car.i3d");
+        assert_eq!(buffer.len(), 1);
+        assert_eq!(buffer[0].actor, None);
+        assert_eq!(buffer[0].frame, FrameKey(11));
+        assert_eq!(buffer[0].name, b"car.i3d".to_vec());
+        assert!(!buffer[0].release_frame);
+        frm_act_buff_store_model(&mut buffer, Some(FrameKey(11)), b"models\\car.i3d");
+        assert_eq!(buffer.len(), 1);
+        frm_act_buff_store_model(&mut buffer, Some(FrameKey(12)), b"plain.i3d");
+        assert_eq!(buffer.len(), 2);
+        assert_eq!(buffer[1].name, b"plain.i3d".to_vec());
+        assert!(FRM_ACT_BUFF_STORE_ACTOR_DEFERRED);
+        assert!(FRM_ACT_BUFF_GET_ACTOR_DEFERRED);
+        assert!(MISSION_OPEN_DEFERRED);
+        assert!(MISSION_CREATE_ACTOR_DEFERRED);
+        assert!(MISSION_TICK_DEFERRED);
     }
     include!("mission_visual_replacement_tests.rs");
 }

@@ -196,6 +196,76 @@ impl MissionOptions {
             self.particles = OPTION_HIGH;
         }
     }
+
+    /// Video-option application (GAME 0x545a30, mafia-re
+    /// `game/mission/Mission.cpp:1738-1754`): with an open city cache the
+    /// camera sees `far_range * draw_distance`, otherwise `far_range`; the
+    /// level-of-detail clamp below 1.0 applies only with a closed cache. Only
+    /// option reads happen here; camera/driver/weather effects run through
+    /// the host backends, which own no I3D/camera/weather/device state.
+    pub fn update_settings<C, D, W>(
+        &self,
+        base_cache_open: bool,
+        camera: Option<&mut C>,
+        driver: &mut D,
+        weather: &mut W,
+    ) where
+        C: MissionSettingsCamera,
+        D: MissionSettingsDriver,
+        W: MissionSettingsWeather,
+    {
+        if let Some(camera) = camera {
+            if base_cache_open {
+                camera.set_range(0.05, self.far_range * self.draw_distance);
+            } else {
+                camera.set_range(0.05, self.far_range);
+            }
+            camera.update();
+        }
+        let mut lod = self.level_of_detail;
+        if !base_cache_open && lod < 1.0 {
+            lod = 1.0;
+        }
+        driver.set_lod_quality_bits(lod.to_bits() as i32);
+        weather.refresh_weather(false, u32::MAX);
+    }
+
+    /// Scene-local restore (GAME 0x545ad0, mafia-re
+    /// `game/mission/Mission.cpp:1756-1766`): camera back to `far_range` and
+    /// `RS_LOD_QUALITY` back to 1.0. Same host-callback split as
+    /// `update_settings`; no base-cache read and no weather call.
+    pub fn restore_settings<C, D>(&self, camera: Option<&mut C>, driver: &mut D)
+    where
+        C: MissionSettingsCamera,
+        D: MissionSettingsDriver,
+    {
+        if let Some(camera) = camera {
+            camera.set_range(0.05, self.far_range);
+            camera.update();
+        }
+        driver.set_lod_quality_bits(1.0f32.to_bits() as i32);
+    }
+}
+
+/// Host camera effects for `update_settings`/`restore_settings` (marker-only
+/// contract; the scene/camera owner stays deferred). `set_range` mirrors
+/// `I3D_camera::SetRange` and `update` mirrors `I3D_camera::Update`.
+pub trait MissionSettingsCamera {
+    fn set_range(&mut self, near: f32, far: f32);
+    fn update(&mut self);
+}
+
+/// Host driver effect for the `RS_LOD_QUALITY` store. The bit pattern is the
+/// original `*(int *)&lod` / `I3DFloatAsInt` word, not a rounded integer.
+pub trait MissionSettingsDriver {
+    fn set_lod_quality_bits(&mut self, bits: i32);
+}
+
+/// Host weather effect for `game->OsefujPocasi(false, (uint)-1)` (mafia-re
+/// `game/mission/Mission.cpp:1753`). Arguments keep the native order and the
+/// all-bits-set second word.
+pub trait MissionSettingsWeather {
+    fn refresh_weather(&mut self, enable: bool, param: u32);
 }
 
 impl Default for MissionOptions {
@@ -323,5 +393,108 @@ mod tests {
         assert_eq!(options.particles, OPTION_HIGH);
         options.set_particles(OPTION_MEDIUM);
         assert_eq!(options.particles, OPTION_MEDIUM);
+    }
+
+    struct FakeCamera {
+        ranges: Vec<[f32; 2]>,
+        updates: usize,
+    }
+    struct FakeDriver {
+        lod_bits: Vec<i32>,
+    }
+    struct FakeWeather {
+        calls: Vec<(bool, u32)>,
+    }
+    impl MissionSettingsCamera for FakeCamera {
+        fn set_range(&mut self, near: f32, far: f32) {
+            self.ranges.push([near, far]);
+        }
+        fn update(&mut self) {
+            self.updates += 1;
+        }
+    }
+    impl MissionSettingsDriver for FakeDriver {
+        fn set_lod_quality_bits(&mut self, bits: i32) {
+            self.lod_bits.push(bits);
+        }
+    }
+    impl MissionSettingsWeather for FakeWeather {
+        fn refresh_weather(&mut self, enable: bool, param: u32) {
+            self.calls.push((enable, param));
+        }
+    }
+
+    #[test]
+    fn update_settings_open_cache_scales_range_and_keeps_low_lod() {
+        let options = MissionOptions {
+            level_of_detail: 0.4,
+            draw_distance: 0.5,
+            far_range: 250.0,
+            ..MissionOptions::new()
+        };
+        let mut camera = FakeCamera {
+            ranges: Vec::new(),
+            updates: 0,
+        };
+        let mut driver = FakeDriver { lod_bits: Vec::new() };
+        let mut weather = FakeWeather { calls: Vec::new() };
+        options.update_settings(true, Some(&mut camera), &mut driver, &mut weather);
+        assert_eq!(camera.ranges, vec![[0.05, 125.0]]);
+        assert_eq!(camera.updates, 1);
+        assert_eq!(driver.lod_bits, vec![0.4f32.to_bits() as i32]);
+        assert_eq!(weather.calls, vec![(false, u32::MAX)]);
+    }
+
+    #[test]
+    fn update_settings_closed_cache_clamps_lod_below_one() {
+        let options = MissionOptions {
+            level_of_detail: 0.4,
+            draw_distance: 0.5,
+            far_range: 250.0,
+            ..MissionOptions::new()
+        };
+        let mut camera = FakeCamera {
+            ranges: Vec::new(),
+            updates: 0,
+        };
+        let mut driver = FakeDriver { lod_bits: Vec::new() };
+        let mut weather = FakeWeather { calls: Vec::new() };
+        options.update_settings(false, Some(&mut camera), &mut driver, &mut weather);
+        assert_eq!(camera.ranges, vec![[0.05, 250.0]]);
+        assert_eq!(camera.updates, 1);
+        assert_eq!(driver.lod_bits, vec![1.0f32.to_bits() as i32]);
+        assert_eq!(weather.calls, vec![(false, u32::MAX)]);
+    }
+
+    #[test]
+    fn update_settings_without_camera_still_drives_lod_and_weather() {
+        let options = MissionOptions {
+            level_of_detail: 1.5,
+            ..MissionOptions::new()
+        };
+        let mut driver = FakeDriver { lod_bits: Vec::new() };
+        let mut weather = FakeWeather { calls: Vec::new() };
+        let camera: Option<&mut FakeCamera> = None;
+        options.update_settings(false, camera, &mut driver, &mut weather);
+        assert_eq!(driver.lod_bits, vec![1.5f32.to_bits() as i32]);
+        assert_eq!(weather.calls, vec![(false, u32::MAX)]);
+    }
+
+    #[test]
+    fn restore_settings_returns_range_and_lod_quality() {
+        let options = MissionOptions {
+            far_range: 250.0,
+            level_of_detail: 0.4,
+            ..MissionOptions::new()
+        };
+        let mut camera = FakeCamera {
+            ranges: Vec::new(),
+            updates: 0,
+        };
+        let mut driver = FakeDriver { lod_bits: Vec::new() };
+        options.restore_settings(Some(&mut camera), &mut driver);
+        assert_eq!(camera.ranges, vec![[0.05, 250.0]]);
+        assert_eq!(camera.updates, 1);
+        assert_eq!(driver.lod_bits, vec![1.0f32.to_bits() as i32]);
     }
 }
