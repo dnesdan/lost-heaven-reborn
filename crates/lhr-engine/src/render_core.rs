@@ -260,10 +260,10 @@ pub fn next_fframe_proc(
                             count = dists.len();
                         }
                         let mut prev = 0.0f32;
-                        for index in 0..count {
+                        for dist in dists.iter().take(count) {
                             state.cam_pos = node.bound_pos;
                             state.rs_lod_quality = 1.0f32 / node.world_scale;
-                            let inner = dists[index].sqrt();
+                            let inner = dist.sqrt();
                             let d = inner.sqrt();
                             let half = (d + prev) * 0.5f32;
                             state.cam_pos[2] += half;

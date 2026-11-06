@@ -2218,24 +2218,24 @@ pub fn radix_sort_32(data: &mut [SortEntry32], storage: &mut SortStorage) {
     // Ping-pong between data and scratch; src/dst swap per executed pass.
     // `in_scratch` tracks where the live array currently sits.
     let mut in_scratch = false;
-    for byte in 0..4 {
+    for (byte, counts) in count.iter_mut().enumerate() {
         let uniform = if byte < 3 {
-            count[byte][0] as usize == num || count[byte][0xff] as usize == num
+            counts[0] as usize == num || counts[0xff] as usize == num
         } else {
-            count[byte][0x80] as usize == num || count[byte][0x7f] as usize == num
+            counts[0x80] as usize == num || counts[0x7f] as usize == num
         };
         if uniform {
             // Clear the uniform count exactly as native does.
             if byte < 3 {
-                if count[byte][0] as usize == num {
-                    count[byte][0] = 0;
+                if counts[0] as usize == num {
+                    counts[0] = 0;
                 } else {
-                    count[byte][0xff] = 0;
+                    counts[0xff] = 0;
                 }
-            } else if count[byte][0x80] as usize == num {
-                count[byte][0x80] = 0;
+            } else if counts[0x80] as usize == num {
+                counts[0x80] = 0;
             } else {
-                count[byte][0x7f] = 0;
+                counts[0x7f] = 0;
             }
             continue;
         }
@@ -2243,8 +2243,8 @@ pub fn radix_sort_32(data: &mut [SortEntry32], storage: &mut SortStorage) {
         let mut next = 0u32;
         for i in 0..256 {
             index[i] = next;
-            next += count[byte][i];
-            count[byte][i] = 0;
+            next += counts[i];
+            counts[i] = 0;
         }
         let shift = (byte * 8) as u32;
         if !in_scratch {
