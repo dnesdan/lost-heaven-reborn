@@ -265,6 +265,44 @@ pub fn frm_act_buff_store_model(
     });
 }
 
+/// `C_mission::__SceneErrFnc` routing contract (GAME 0x540fd0, mafia-re
+/// `game/mission/Mission.cpp:694-701`). Marker-only: the load-screen
+/// `cbLoadScene` owner stays deferred; only the pure filter is owned here.
+///
+/// Filtered loader messages (mafia-re `ls3df/I3D/I3D.h:294-298`): the game's
+/// scene loader ignores both, and no loader of LS3DF sends them.
+pub const SCENE_CALLBACK_ERROR: i32 = 0x10;
+pub const SCENE_CALLBACK_LOG: i32 = 0x20;
+
+/// Pure `__SceneErrFnc` predicate: every scene-loader message forwards to
+/// `cbLoadScene` except `CBM_ERROR` and `CBM_LOG`.
+pub fn scene_error_callback_forwards(message: i32) -> bool {
+    message != SCENE_CALLBACK_ERROR && message != SCENE_CALLBACK_LOG
+}
+
+/// Host effect for the forwarded `cbLoadScene(msg, prm1, prm2, context)` call
+/// (mafia-re `game/mission/Mission.cpp:700`, `game/ui/Load_progress.cpp:17-19`).
+/// The load-screen owner stays with the caller.
+pub trait SceneLoadCallbackSink {
+    fn report_scene_callback(&mut self, message: i32, param1: u32, param2: u32);
+}
+
+/// Route one scene-loader callback through the `__SceneErrFnc` filter.
+/// Returns whether the message reached the sink, with parameters unchanged.
+pub fn forward_scene_callback<S: SceneLoadCallbackSink>(
+    sink: &mut S,
+    message: i32,
+    param1: u32,
+    param2: u32,
+) -> bool {
+    if scene_error_callback_forwards(message) {
+        sink.report_scene_callback(message, param1, param2);
+        true
+    } else {
+        false
+    }
+}
+
 #[derive(Debug)]
 pub struct MissionSceneLoadError {
     pub cursor: usize,
@@ -3976,6 +4014,40 @@ mod tests {
         assert!(MISSION_OPEN_DEFERRED);
         assert!(MISSION_CREATE_ACTOR_DEFERRED);
         assert!(MISSION_TICK_DEFERRED);
+    }
+    #[test]
+    fn scene_error_callback_filters_error_and_log() {
+        // GAME 0x540fd0, mafia-re `game/mission/Mission.cpp:699`: neither
+        // CBM_ERROR (0x10) nor CBM_LOG (0x20) reaches `cbLoadScene`.
+        assert_eq!(SCENE_CALLBACK_ERROR, 0x10);
+        assert_eq!(SCENE_CALLBACK_LOG, 0x20);
+        assert!(!scene_error_callback_forwards(SCENE_CALLBACK_ERROR));
+        assert!(!scene_error_callback_forwards(SCENE_CALLBACK_LOG));
+    }
+    #[test]
+    fn scene_error_callback_forwards_loader_traffic() {
+        // Every other message, including the progress traffic the loading bar
+        // needs (CBM_PROGRESS = 8, CBM_MISSION_PROGRESS = 10000), forwards.
+        for message in [0, 8, 10000, 0x200, 0x400, -1] {
+            assert!(scene_error_callback_forwards(message), "message {message}");
+        }
+    }
+    #[test]
+    fn scene_error_callback_sink_round_trips_params() {
+        struct Sink {
+            calls: Vec<(i32, u32, u32)>,
+        }
+        impl SceneLoadCallbackSink for Sink {
+            fn report_scene_callback(&mut self, message: i32, param1: u32, param2: u32) {
+                self.calls.push((message, param1, param2));
+            }
+        }
+        let mut sink = Sink { calls: Vec::new() };
+        assert!(forward_scene_callback(&mut sink, 8, 0x3f80_0000, 1));
+        assert!(!forward_scene_callback(&mut sink, SCENE_CALLBACK_ERROR, 1, 2));
+        assert!(!forward_scene_callback(&mut sink, SCENE_CALLBACK_LOG, 3, 4));
+        assert!(forward_scene_callback(&mut sink, 10000, 7, 1));
+        assert_eq!(sink.calls, vec![(8, 0x3f80_0000, 1), (10000, 7, 1)]);
     }
     include!("mission_visual_replacement_tests.rs");
 }

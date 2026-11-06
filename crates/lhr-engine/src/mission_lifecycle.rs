@@ -176,6 +176,13 @@ impl MissionLifecycle {
     pub fn scene(&self) -> Option<SceneKey> {
         self.scene
     }
+    /// Trivial `C_mission::GetTShift` (FUNCTION: GAME 0x547120, mafia-re
+    /// `game/mission/Mission.h:177-182`): reads the tshift member (mission
+    /// +0x28, the `C_tshift` the mission owns). The host keeps the member's
+    /// identity word; no tshift owner is resolved here.
+    pub fn get_tshift(&self) -> i32 {
+        self.word(0x28) as i32
+    }
     pub fn pending_scene(&self) -> Option<SceneKey> {
         self.pending_scene
     }
@@ -976,6 +983,23 @@ mod tests {
         let before = *mission.raw_bytes();
         mission.close().unwrap();
         assert_eq!(*mission.raw_bytes(), before);
+    }
+    #[test]
+    fn get_tshift_reads_member_word_as_identity() {
+        // FUNCTION: GAME 0x547120, mafia-re `game/mission/Mission.h:177-182`:
+        // the trivial `tshift` member (mission +0x28) read. The constructor
+        // stores a null member, so the default read is zero.
+        let mut mission = MissionLifecycle::construct(0x6c00_0000, [0; MISSION_BYTES]);
+        assert_eq!(mission.get_tshift(), 0);
+        mission.put_word(0x28, 0x1234_5678);
+        assert_eq!(mission.get_tshift(), 0x1234_5678 as i32);
+    }
+    #[test]
+    fn get_tshift_round_trips_negative_bit_patterns() {
+        let mut mission = MissionLifecycle::construct(0x6c00_0000, [0; MISSION_BYTES]);
+        mission.put_word(0x28, (-1i32) as u32);
+        assert_eq!(mission.get_tshift(), -1);
+        assert_eq!(mission.get_tshift() as u32, mission.word(0x28));
     }
     struct Heap {
         next: u32,

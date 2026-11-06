@@ -1051,6 +1051,20 @@ impl MissionLoadSession {
         Ok(())
     }
 
+    /// `ShowProgress` over the live progress mode (GAME 0x540950, mafia-re
+    /// `game/mission/Mission.cpp:589-608`): reads `open_cache_progress`
+    /// (`_can_show_progress_`) live with the chunk position, then reports
+    /// the rescaled bar through the caller-supplied sink. The chunk seek,
+    /// I3D/device scenes and the load-screen callback stay deferred.
+    pub fn show_progress_for_open<S: MissionProgressSink>(
+        &self,
+        sink: &mut S,
+        chunk_pos: i32,
+        chunk_file_size: i32,
+    ) {
+        forward_mission_progress(sink, chunk_pos, chunk_file_size, self.open_cache_progress);
+    }
+
     /// Mark the mission opened. Only reached after a successful `OpenBin`.
     /// Terminal-guarded: after discard the mark stays rejected.
     pub fn mark_open_mission_opened(&mut self) -> Result<(), String> {
@@ -1546,6 +1560,64 @@ impl MissionLoadSession {
             .map_err(MissionDiscardCause::StartupPatches)?;
         Ok(())
     }
+}
+
+/// `C_mission::ShowProgress` loading-bar contract (GAME 0x540950, mafia-re
+/// `game/mission/Mission.cpp:589-608`). Marker-only: the I3D/device scenes,
+/// the chunk seek and the `cbLoadScene` owner stay deferred; only the pure
+/// state switch over the chunk position is owned here.
+///
+/// The game's own progress message to the load callback (mafia-re
+/// `game/ui/Load_progress.h:11`).
+pub const MISSION_PROGRESS_MESSAGE: i32 = 10_000;
+/// `CBM_PROGRESS` second parameter for an intermediate report (mafia-re
+/// `ls3df/I3D/I3D.h:323-326`).
+pub const MISSION_PROGRESS_STEP: u32 = 1;
+
+/// Pure `ShowProgress` value: the chunk position over its file size, then the
+/// `_can_show_progress_` switch (GLOBAL GAME 0x646db0, mafia-re
+/// `game/mission/Mission.cpp:60-62,598-606`): mode 1 shows the first fifth of
+/// the bar (`* 0.2`), mode 2 the remaining four (`* 0.8 + 0.2`), every other
+/// mode the raw ratio. An empty file reports a full bar, as the original.
+pub fn show_progress_value(chunk_pos: i32, chunk_file_size: i32, can_show_progress: i32) -> f32 {
+    let progress = if chunk_file_size != 0 {
+        chunk_pos as f32 / chunk_file_size as f32
+    } else {
+        1.0
+    };
+    match can_show_progress {
+        1 => progress * 0.2,
+        2 => progress * 0.8 + 0.2,
+        _ => progress,
+    }
+}
+
+/// `ShowProgress` report word: the value's bits, as the original passes
+/// `*(uint *)&progress` to `cbLoadScene`.
+pub fn show_progress_bits(chunk_pos: i32, chunk_file_size: i32, can_show_progress: i32) -> u32 {
+    show_progress_value(chunk_pos, chunk_file_size, can_show_progress).to_bits()
+}
+
+/// Host effect for the `cbLoadScene(CBM_MISSION_PROGRESS, bits,
+/// LOAD_PROGRESS_STEP, NULL)` call (mafia-re `game/mission/Mission.cpp:607`,
+/// `game/ui/Load_progress.cpp:17-19`). The load-screen owner stays with the
+/// caller.
+pub trait MissionProgressSink {
+    fn report_mission_progress(&mut self, progress_bits: u32, step: u32);
+}
+
+/// Route one `ShowProgress` report to the host sink. Pure dispatch: reads the
+/// given mode once, with no I3D/device/mission owner involved.
+pub fn forward_mission_progress<S: MissionProgressSink>(
+    sink: &mut S,
+    chunk_pos: i32,
+    chunk_file_size: i32,
+    can_show_progress: i32,
+) {
+    sink.report_mission_progress(
+        show_progress_bits(chunk_pos, chunk_file_size, can_show_progress),
+        MISSION_PROGRESS_STEP,
+    );
 }
 
 #[cfg(test)]
