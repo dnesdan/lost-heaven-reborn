@@ -152,7 +152,12 @@ class RewriteProgressTests(unittest.TestCase):
         # deferred: methods have no re-export path).
         # +4 vehicle materials latch (CloseMaterials 0x4c5c80 / GetHeadPos
         # 0x4cc620 / SetMaterials 0x4c5c10 / SetParticles 0x4cc0).
-        self.assertEqual(game["ported"], 149 + 283)
+        # +10 housekeeping/mission slice, all contract (cbFindTaxiPoints
+        # 0x5b6e0 / LightnessClear 0x5b5180 / ScoreSet 0x5b9fe0 / ScoreSetOn
+        # 0x5f9a10 / InternTempActDel 0x5a79f0 / cbTelephones 0x5b71b0 /
+        # cbScreamArea 0x5b9110 / ShowProgress 0x540950 / SceneErrFnc 0x540fd0
+        # / GetTShift 0x547120).
+        self.assertEqual(game["ported"], 149 + 293)
         self.assertEqual(game["verified"], 149 + 7)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
