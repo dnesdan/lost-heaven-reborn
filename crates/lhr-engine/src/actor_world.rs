@@ -8840,6 +8840,13 @@ mod human_owner_tests {
             untouched_padding: [0xa5; 3],
         }
     }
+    fn car_seed() -> CarSeed {
+        CarSeed {
+            allocator_fill: 0xa5,
+            constructor_allocator_tag: 0x12,
+            vehicle_allocator_tag: 0x9a,
+        }
+    }
     fn world() -> ActorWorld {
         let b = SourceBacking {
             storage: Some(ActorStorageId(1)),
@@ -8890,6 +8897,18 @@ mod human_owner_tests {
             }
             self.next += 1;
             Ok(Some((self.next, base(), entity())))
+        }
+        fn allocate_car(
+            &mut self,
+            bytes: u32,
+        ) -> Result<Option<(u32, BaseActorSeed, CarSeed)>, String> {
+            assert_eq!(bytes, 0x221c);
+            self.log.borrow_mut().push("allocate-car".into());
+            if self.null {
+                return Ok(None);
+            }
+            self.next += 1;
+            Ok(Some((self.next, base(), car_seed())))
         }
     }
     impl ActorCollectionBackend for Heap {
@@ -9091,6 +9110,78 @@ mod human_owner_tests {
                 .push(format!("release-frame:{}", f.identity()));
             Ok(())
         }
+    }
+    #[test]
+    fn actor_dead_round_trips_via_setter() {
+        // GAME 0x47afc0 C_human::GetDead read; stale actors propagate.
+        let mut w = world();
+        let mut heap = Heap::default();
+        let actor = w.create_actor(27, &mut heap).unwrap().unwrap();
+        assert_eq!(w.actor_dead(actor), Ok(false));
+        w.set_actor_dead(actor, true).unwrap();
+        assert_eq!(w.actor_dead(actor), Ok(true));
+        w.set_actor_dead(actor, false).unwrap();
+        assert_eq!(w.actor_dead(actor), Ok(false));
+    }
+    #[test]
+    fn human_car_latches_seat_owner_and_gates_non_humans() {
+        // GAME 0x47b7b0 C_human::GetCar: ENTITY/PLAYER latch read; a
+        // non-human resolves to None without a dest write (VM-owned null
+        // branch). The three-conjunct nulling gate stays in the VM.
+        let mut w = world();
+        let mut heap = Heap::default();
+        w.configure_car_resources(0x1234).unwrap();
+        let car = w.create_actor(4, &mut heap).unwrap().unwrap();
+        let pedestrian = w.create_actor(27, &mut heap).unwrap().unwrap();
+        assert_eq!(w.human_car(car), Ok(None));
+        assert_eq!(w.human_car(pedestrian), Ok(Some(None)));
+        w.set_human_car(pedestrian, Some(car)).unwrap();
+        assert_eq!(w.human_car(pedestrian), Ok(Some(Some(car))));
+        w.set_human_car(pedestrian, None).unwrap();
+        assert_eq!(w.human_car(pedestrian), Ok(Some(None)));
+    }
+    #[test]
+    fn car_speed_none_for_non_car_and_zero_latch_for_fresh_car() {
+        // GAME 0x47b0f0 C_Vehicle::GetSpeed: non-car resolves to None
+        // (caller leaves the float bank untouched); fresh cars latch 0.0.
+        let mut w = world();
+        let mut heap = Heap::default();
+        w.configure_car_resources(0x1234).unwrap();
+        let pedestrian = w.create_actor(27, &mut heap).unwrap().unwrap();
+        let car = w.create_actor(4, &mut heap).unwrap().unwrap();
+        assert_eq!(w.car_speed(pedestrian), Ok(None));
+        assert_eq!(w.car_speed(car), Ok(Some(0.0)));
+    }
+    #[test]
+    fn is_car_usable_none_for_non_car_and_stub_false_for_car() {
+        // GAME 0x429850 STUB C_car::IsCarUsable always returns false.
+        let mut w = world();
+        let mut heap = Heap::default();
+        w.configure_car_resources(0x1234).unwrap();
+        let pedestrian = w.create_actor(27, &mut heap).unwrap().unwrap();
+        let car = w.create_actor(4, &mut heap).unwrap().unwrap();
+        assert_eq!(w.is_car_usable(pedestrian), Ok(None));
+        assert_eq!(w.is_car_usable(car), Ok(Some(false)));
+    }
+    #[test]
+    fn set_car_break_motor_false_for_pedestrian_true_for_car() {
+        // GAME 0x47b3e0 C_car::SetBreakMotor: non-car stores nothing.
+        let mut w = world();
+        let mut heap = Heap::default();
+        w.configure_car_resources(0x1234).unwrap();
+        let pedestrian = w.create_actor(27, &mut heap).unwrap().unwrap();
+        let car = w.create_actor(4, &mut heap).unwrap().unwrap();
+        assert_eq!(w.set_car_break_motor(pedestrian, true), Ok(false));
+        assert_eq!(w.set_car_break_motor(car, true), Ok(true));
+    }
+    #[test]
+    fn player_controls_lock_accepts_release_cycle() {
+        // GAME 0x595f00 STUB C_player::LockControls: game-player latch.
+        let mut w = world();
+        let mut heap = Heap::default();
+        let _player = w.create_actor(2, &mut heap).unwrap().unwrap();
+        assert!(w.set_player_controls_locked(true).is_ok());
+        assert!(w.set_player_controls_locked(false).is_ok());
     }
     #[test]
     fn human_player_entity_factories_own_real_derived_defaults_and_separate_program() {
