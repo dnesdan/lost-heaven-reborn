@@ -117,6 +117,19 @@ pub const PANAK2_CLAMP_SITE_VA: u32 = 0x5ca370;
 /// callers pass -1 (static only) and TestMoveCollInOwner callers pass -1 (the
 /// InOwner body sets only flags, no flags2 per C_human.cpp:5341).
 pub const PANAK2_FLAGS2_SELECTOR_DEFERRED: bool = true;
+/// GAME 0x57cfe0 (RVA 0x17cfe0) `C_human::DynSetNextCollOwnerMult` contract
+/// around the `TestMoveColl` sweep (mafia-re 113b5b6
+/// game/actors/C_human.cpp:5296,5308-5322): the staged merge itself
+/// (`colls` reversed then staged `ghost_colls` reversed, ghost-free arm passes
+/// `colls` straight through) is owned by `human_actor::HumanState` and
+/// `human_move_coll::collect_next_coll_owners`; the `is_player` distinction
+/// selects `flags2` in `human_move_coll::test_move_coll_prefix` (:5293-5295).
+/// This core consumes only the already-merged candidate slices, so the
+/// `g_collision::DynSetNextCollOwnerMult` call and the `next_coll_owners`
+/// global stay with the collision manager (DEFERRED). Pedestrian `C_entity`
+/// AI Tick (GAME 0x508150) refreshing the source `ai_ghost` vector stays
+/// DEFERRED as well.
+pub const PANAK2_GHOST_MERGE_RVA: u32 = 0x17cfe0;
 /// Working-model slide bound for the TestMoveColl glue (descriptive, NOT
 /// original: the binary range proves iteration, not the count). The core takes
 /// the bound as a caller argument; the glue passes this default.
@@ -130,6 +143,19 @@ pub const PANAK2_SLIDE_REST_SQUARED: f32 = 1e-12;
 /// dynamic list with the same reject mask, nearest win across both lists.
 pub fn panak2_uses_dynamic(selector: i32) -> bool {
     selector != -1
+}
+
+/// Staged owner count for the `TestMoveColl` sweep contract (mafia-re 113b5b6
+/// game/actors/C_human.cpp:5310-5322): `colls.len() + ghost_len` once ghosts
+/// are staged, else `colls.len()` (the ghost-free arm passes `colls` straight
+/// through). Marker-only length leaf for the `DynSetNextCollOwnerMult` merge;
+/// the exclusion itself stays with the collision manager (DEFERRED).
+pub fn panak2_next_owner_count(colls_len: usize, ghost_len: usize) -> usize {
+    if ghost_len == 0 {
+        colls_len
+    } else {
+        colls_len.saturating_add(ghost_len)
+    }
 }
 
 fn panak2_dot(a: [f32; 3], b: [f32; 3]) -> f32 {
@@ -751,5 +777,16 @@ mod tests {
         )
         .unwrap();
         assert_eq!(miss_outcome.result, [1., 6., 3.]);
+    }
+
+    #[test]
+    fn ghost_merge_owner_count_matches_dyn_set_next_coll_owner_mult_arms() {
+        // Hand-derived from C_human::DynSetNextCollOwnerMult (mafia-re 113b5b6
+        // game/actors/C_human.cpp:5310-5322): ghost-free passes colls straight
+        // through, otherwise colls plus staged ghosts.
+        assert_eq!(panak2_next_owner_count(3, 0), 3);
+        assert_eq!(panak2_next_owner_count(3, 2), 5);
+        assert_eq!(panak2_next_owner_count(0, 2), 2);
+        assert_eq!(PANAK2_GHOST_MERGE_RVA, 0x17cfe0);
     }
 }

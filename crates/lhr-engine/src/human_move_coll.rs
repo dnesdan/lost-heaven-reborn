@@ -28,7 +28,9 @@
 //! DEFERRED with explicit markers, no new owner here: the TestPanak2 capsule
 //! sweep itself (no capsule owner exists), the frame anchoring
 //! (GetWorldPos/GetWorldDir; no frame owner on this path), the
-//! DynSetNextCollOwnerMult plumbing (no colls/ghost_colls owner), the
+//! g_collision::DynSetNextCollOwnerMult call itself (no collision manager
+//! owner; the colls + ghost_colls merge leaf is owned here and staged in
+//! human_actor), the
 //! act_mission/game player comparison behind is_player (no mission owner),
 //! the move_coll writeback (C_human 0x414 word; no owner yet), the step_actor
 //! handoff around the move_ratio>=0.3 ground probe (no collision manager
@@ -221,6 +223,49 @@ pub fn test_move_coll_in_owner_result(
         Some(pos_out) => test_move_coll_hit_result(pos_out),
         None => test_move_coll_miss_result(from, dir),
     }
+}
+
+/// GAME 0x57cfe0 (RVA 0x17cfe0) `C_human::DynSetNextCollOwnerMult` merge
+/// contract (mafia-re 113b5b6 game/actors/C_human.cpp:5308-5322, called at
+/// :5048 for the `MovementIntern` ground probe and at :5296 for the
+/// `TestMoveColl` sweep; :5342 `TestMoveCollInOwner` passes `colls` only and
+/// :6298/:6343/:6389 car-door probes build their own one-car lists and stay
+/// outside this helper).
+/// With staged ghosts the original clears `next_coll_owners` and refills it
+/// with `colls` reversed then `ghost_colls` reversed (the two reverse
+/// `push_back` loops); without ghosts it passes `colls` straight through.
+/// This pure helper returns the merged staging (`None` means "pass `colls`
+/// directly", matching the ghost-free arm that leaves `next_coll_owners`
+/// untouched); the typed staging itself lives in
+/// `human_actor::HumanState::rebuild_next_coll_owners`. Element type stays
+/// generic over the opaque dynamic-coll identity so this file assigns no
+/// representation to `tDynamicCollObject *`.
+/// `is_player` does not enter this merge: it selects `flags2` in
+/// [`test_move_coll_prefix`] (C_human.cpp:5293-5295, `this != GetPlayer()`
+/// adds `COLF2_UNKNOWN_80000`), while the merged owners ride the
+/// `DynSetNextCollOwnerMult` call around the same `TestPanak2` sweep.
+pub fn collect_next_coll_owners<T: Clone>(
+    colls: &[T],
+    ghost_colls: &[T],
+) -> Option<Vec<T>> {
+    if ghost_colls.is_empty() {
+        return None;
+    }
+    let mut merged = Vec::with_capacity(colls.len() + ghost_colls.len());
+    for coll in colls.iter().rev() {
+        merged.push(coll.clone());
+    }
+    for ghost in ghost_colls.iter().rev() {
+        merged.push(ghost.clone());
+    }
+    Some(merged)
+}
+
+/// Whether the `TestMoveColl` sweep threads the merged staging (`true`) or
+/// passes `colls` straight through (`false`): exactly `!ghost_colls.is_empty()`
+/// (mafia-re 113b5b6 game/actors/C_human.cpp:5310-5322).
+pub fn next_coll_owners_use_ghost(ghost_len: usize) -> bool {
+    ghost_len != 0
 }
 
 // ---------------------------------------------------------------------------
@@ -1388,5 +1433,26 @@ mod tests {
         let boundary = movement_fall_entry(HUMAN_ACTION_STAND, 2.0, true);
         assert_eq!(boundary.action_state, HUMAN_ACTION_STAND);
         assert!(!boundary.wants_person_anim);
+    }
+
+    #[test]
+    fn next_coll_owner_merge_reverses_colls_then_ghosts() {
+        // Hand-derived from C_human::DynSetNextCollOwnerMult (mafia-re 113b5b6
+        // game/actors/C_human.cpp:5308-5322): the ghost-free arm passes colls
+        // straight through (None staging), otherwise colls reversed then
+        // ghost_colls reversed; is_player never enters the merge (it selects
+        // flags2 in test_move_coll_prefix, :5293-5295).
+        assert_eq!(collect_next_coll_owners::<u32>(&[1, 2], &[]), None);
+        assert!(!next_coll_owners_use_ghost(0));
+        assert_eq!(
+            collect_next_coll_owners(&[1, 2, 3], &[7, 9]),
+            Some(vec![3, 2, 1, 9, 7])
+        );
+        assert!(next_coll_owners_use_ghost(2));
+        // Ghost-only merge still reverses the ghost staging.
+        assert_eq!(
+            collect_next_coll_owners::<u32>(&[], &[7, 9]),
+            Some(vec![9, 7])
+        );
     }
 }

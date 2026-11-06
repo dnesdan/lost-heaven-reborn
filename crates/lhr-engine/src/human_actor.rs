@@ -19,7 +19,10 @@
 //! as a guarded prefix in human_move_coll.
 //! The dtor animation-stop device effect (GAME 0x56f210) and the Init frame
 //! effects (GAME 0x56f350, owned by ActorWorld::init_human_owner) stay with the
-//! frame owner; detector/AI/police owners do not exist yet and are DEFERRED.
+//! frame owner; detector/police owners do not exist yet and are DEFERRED. AI
+//! ghost staging only is owned here (ghost_colls @0x698 push/empty plus the
+//! next_coll_owners @0x6a8 merge leaf); the C_entity ai_ghost @0x1268 refresh
+//! and the pedestrian AI Tick (GAME 0x508150) stay DEFERRED.
 #![forbid(unsafe_code)]
 
 use crate::original_program::ProgramReader;
@@ -340,6 +343,42 @@ pub const HUMAN_SEAT_NONE: i32 = -1;
 /// the id stays DEFERRED to the PersonAnim owner.
 pub const ANIM_BREATH01A: i32 = 1;
 
+/// Opaque identity of one dynamic collision object (`tDynamicCollObject *`).
+/// Working name and representation (NOT original): the native value is a host
+/// pointer, which never crosses this boundary. Only opaque identity flows here;
+/// the collision manager owns exclusion. Zero is a valid test identity, never
+/// a null pointer on this path.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HumanDynCollId(pub u32);
+
+impl HumanDynCollId {
+    /// Wrap an opaque test/capture identity without host-address meaning.
+    pub const fn from_raw(raw: u32) -> Self {
+        Self(raw)
+    }
+
+    /// The opaque identity back for capture comparison only.
+    pub const fn raw(self) -> u32 {
+        self.0
+    }
+}
+
+/// GAME 0x52f920 (RVA 0x12f920): `C_entity` publishes one AI-ghost collision
+/// into `C_human::ghost_colls` (0x698) whenever the ghosts change (mafia-re
+/// 113b5b6 game/actors/C_human.h:970-973). Body DEFERRED to the entity owner;
+/// [`HumanState::push_ghost_coll`] is the typed staging leaf only.
+pub const GHOST_COLLS_PUSH_VA: u32 = 0x52f920;
+/// GAME 0x507b50 (RVA 0x107b50): helper emptying `C_human::ghost_colls`
+/// (0x698), called from `C_entity::GameInit` (mafia-re 113b5b6
+/// game/actors/C_human.h:970-973). [`HumanState::empty_ghost_colls`] owns the
+/// emptying leaf; the entity `GameInit` body stays DEFERRED.
+pub const GHOST_COLLS_EMPTY_VA: u32 = 0x507b50;
+/// GAME 0x57cfe0 (RVA 0x17cfe0): `C_human::DynSetNextCollOwnerMult` inline
+/// (mafia-re 113b5b6 game/actors/C_human.cpp:5308-5322). The merge itself is
+/// owned here via [`HumanState::rebuild_next_coll_owners`]; the
+/// `g_collision::DynSetNextCollOwnerMult` call stays with the collision
+/// manager (DEFERRED).
+pub const DYN_SET_NEXT_COLL_OWNER_MULT_RVA: u32 = 0x17cfe0;
 /// Pending PersonAnim invocation recorded by the Do_StopAnim core (descriptive
 /// working name and field names; the original call is synchronous with no
 /// latch). The future PersonAnim owner consumes it via
@@ -435,6 +474,20 @@ pub struct HumanState {
     /// path leaves a previous request untouched, exactly matching the
     /// original's call placement (C_human.cpp:5362-5371).
     person_anim_request: Option<HumanPersonAnimRequest>,
+    /// Marker-only staging of C_human::ghost_colls @0x698 (mafia-re 113b5b6
+    /// game/actors/C_human.h:970-973): the AI ghosts' collisions the move
+    /// tests leave out besides colls. Filled by push_ghost_coll (GAME 0x52f920
+    /// push) and emptied by empty_ghost_colls (GAME 0x507b50 empty, called from
+    /// C_entity::GameInit whose body stays DEFERRED). Pedestrian C_entity AI
+    /// Tick (GAME 0x508150) that refreshes the source ai_ghost vector stays
+    /// DEFERRED; this is staging only, never refreshed here.
+    ghost_colls: Vec<HumanDynCollId>,
+    /// Marker-only staging of C_human::next_coll_owners @0x6a8 (mafia-re
+    /// 113b5b6 game/actors/C_human.h:974-976): the merged list
+    /// g_collision::DynSetNextCollOwnerMult takes (colls plus ghost_colls).
+    /// Rebuilt by rebuild_next_coll_owners (GAME 0x57cfe0); the collision call
+    /// itself stays with the collision manager (DEFERRED).
+    next_coll_owners: Vec<HumanDynCollId>,
 }
 impl HumanState {
     pub(crate) fn construct(seed: HumanSeed) -> Self {
@@ -465,6 +518,8 @@ impl HumanState {
             anim_id: 0,
             next_anim_id: 0,
             person_anim_request: None,
+            ghost_colls: Vec::new(),
+            next_coll_owners: Vec::new(),
         }
     }
     pub fn human_type_mask(&self) -> u32 {
@@ -740,6 +795,66 @@ impl HumanState {
     /// `test_line` `TestColHierarchy` probe (scene owner).
     pub(crate) fn can_enter_to_car_guard(&self) -> bool {
         self.car.is_none()
+    }
+    /// Staged `C_human::ghost_colls` @0x698 view (mafia-re 113b5b6
+    /// game/actors/C_human.h:970-973). Empty at construction; filled from the
+    /// `C_entity::ai_ghost` vector (whose Tick refresh stays DEFERRED as
+    /// pedestrian AI, GAME 0x508150) and consumed only by
+    /// [`HumanState::rebuild_next_coll_owners`].
+    pub fn ghost_colls(&self) -> &[HumanDynCollId] {
+        &self.ghost_colls
+    }
+    /// Staged `C_human::next_coll_owners` @0x6a8 view (mafia-re 113b5b6
+    /// game/actors/C_human.h:974-976). Empty at construction; rebuilt around
+    /// each `TestMoveColl` sweep.
+    pub fn next_coll_owners(&self) -> &[HumanDynCollId] {
+        &self.next_coll_owners
+    }
+    /// GAME 0x52f920 (RVA 0x12f920) `ghost_colls` push leaf (mafia-re 113b5b6
+    /// game/actors/C_human.h:970-973: `C_entity` puts the ghosts' collisions
+    /// here whenever the ghosts change). Marker-only staging: appends one
+    /// opaque collision identity. The ghost-vector refresh, the actor/time/
+    /// radius bookkeeping (`C_entity::ai_ghost` @0x1268, `ai_ghost_actor`
+    /// items) and the pedestrian `C_entity::AI` Tick (GAME 0x508150) stay
+    /// DEFERRED with the entity owner.
+    pub(crate) fn push_ghost_coll(&mut self, coll: HumanDynCollId) {
+        self.ghost_colls.push(coll);
+    }
+    /// GAME 0x507b50 (RVA 0x107b50) `ghost_colls` empty leaf (mafia-re 113b5b6
+    /// game/actors/C_human.h:970-973: `C_entity::GameInit` and 0x507b50 empty
+    /// it). Marker-only lifecycle: clears the staged vector. The surrounding
+    /// `C_entity::GameInit` body (GAME 0x5074d0, `C_human::GameInit` prefix
+    /// included) stays DEFERRED; callers threading `GameInit` invoke this to
+    /// keep the staging empty.
+    pub(crate) fn empty_ghost_colls(&mut self) {
+        self.ghost_colls.clear();
+    }
+    /// GAME 0x57cfe0 (RVA 0x17cfe0) `C_human::DynSetNextCollOwnerMult` merge
+    /// leaf (mafia-re 113b5b6 game/actors/C_human.cpp:5308-5322, called at
+    /// :5048 for the `MovementIntern` ground probe and at :5296 for the
+    /// `TestMoveColl` sweep; :5342 `TestMoveCollInOwner` passes `colls` only).
+    /// With staged ghosts, clears and refills `next_coll_owners` with `colls`
+    /// reversed then `ghost_colls` reversed, exactly matching the original's
+    /// two reverse `push_back` loops; without ghosts the original passes
+    /// `colls` straight through, so the staging is cleared and left empty as
+    /// the marker for "pass `colls` directly". `colls` arrives from the
+    /// caller because the `colls`/`num_colls` owner (@0x688/0x690) does not
+    /// exist here yet. The `g_collision::DynSetNextCollOwnerMult` call itself
+    /// stays with the collision manager (DEFERRED). `is_player` does not enter
+    /// this merge; it selects `flags2` in `human_move_coll::test_move_coll_prefix`
+    /// (C_human.cpp:5293-5295).
+    pub(crate) fn rebuild_next_coll_owners(&mut self, colls: &[HumanDynCollId]) {
+        self.next_coll_owners.clear();
+        if self.ghost_colls.is_empty() {
+            return;
+        }
+        self.next_coll_owners.reserve(colls.len() + self.ghost_colls.len());
+        for coll in colls.iter().rev() {
+            self.next_coll_owners.push(*coll);
+        }
+        for ghost in self.ghost_colls.iter().rev() {
+            self.next_coll_owners.push(*ghost);
+        }
     }
     /// GAME 0x56f440 (RVA 0x16f440) C_human::SaveData (mafia-re
     /// game/actors/C_human.cpp:1312): version byte HUMAN_DATA_VERSION
@@ -1313,5 +1428,47 @@ mod tests {
             })
         );
         assert_eq!(human.person_anim_request(), None);
+    }
+    #[test]
+    fn ghost_colls_push_empty_and_merge_follow_original_order() {
+        // Marker-only contract for C_human::ghost_colls @0x698 and
+        // C_human::next_coll_owners @0x6a8 (mafia-re 113b5b6
+        // game/actors/C_human.h:970-976) with the GAME 0x57cfe0 merge
+        // (game/actors/C_human.cpp:5308-5322): construction stages empty
+        // vectors; GAME 0x52f920 pushes append; GAME 0x507b50 empties;
+        // the merge reverses colls then ghosts, and the ghost-free path
+        // leaves the staging empty (pass colls straight through).
+        let mut human = HumanState::construct(seed());
+        assert!(human.ghost_colls().is_empty());
+        assert!(human.next_coll_owners().is_empty());
+        human.push_ghost_coll(HumanDynCollId::from_raw(7));
+        human.push_ghost_coll(HumanDynCollId::from_raw(9));
+        assert_eq!(
+            human.ghost_colls(),
+            &[
+                HumanDynCollId::from_raw(7),
+                HumanDynCollId::from_raw(9)
+            ]
+        );
+        let colls = [
+            HumanDynCollId::from_raw(1),
+            HumanDynCollId::from_raw(2),
+            HumanDynCollId::from_raw(3),
+        ];
+        human.rebuild_next_coll_owners(&colls);
+        assert_eq!(
+            human.next_coll_owners(),
+            &[
+                HumanDynCollId::from_raw(3),
+                HumanDynCollId::from_raw(2),
+                HumanDynCollId::from_raw(1),
+                HumanDynCollId::from_raw(9),
+                HumanDynCollId::from_raw(7),
+            ]
+        );
+        human.empty_ghost_colls();
+        assert!(human.ghost_colls().is_empty());
+        human.rebuild_next_coll_owners(&colls);
+        assert!(human.next_coll_owners().is_empty());
     }
 }

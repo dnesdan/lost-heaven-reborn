@@ -159,6 +159,148 @@ pub trait AiDriverTickBackend {
 /// work including the 0x43f035 guard-convergence tail.
 pub const AI_DRIVER_TICK_DEFERRED_FROM: u32 = 0x43c572;
 
+// ---------------------------------------------------------------------------
+// AI ghost plumbing (marker-only contract scope) plus the C_game::Tick AI
+// dispatch stub. Pedestrian C_entity AI Tick itself stays DEFERRED.
+// ---------------------------------------------------------------------------
+
+use crate::human_actor::HumanDynCollId;
+use crate::script_scheduler::ActorReferenceId;
+
+/// GAME 0x508150 (RVA 0x108150) `C_entity::AI` (mafia-re 113b5b6
+/// game/ai/jp_ai_entity.cpp:170-174, header game/ai/jp_ai_entity.h:164):
+/// the pedestrian AI tick. CONTRACT CEILING: no AI behavior is owned here;
+/// the whole body stays DEFERRED.
+pub const ENTITY_AI_RVA: u32 = 0x108150;
+/// Pedestrian `C_entity::AI` Tick runs no owned behavior in this contract.
+pub const ENTITY_AI_TICK_DEFERRED: bool = true;
+/// GAME 0x5074d0 (RVA 0x1074d0) `C_entity::GameInit` (mafia-re 113b5b6
+/// game/ai/jp_ai_entity.cpp:120-124): calls `C_human::GameInit` and empties
+/// the staged `ghost_colls` via GAME 0x507b50. Body DEFERRED; the emptying
+/// leaf is `human_actor::HumanState::empty_ghost_colls`.
+pub const ENTITY_GAMEINIT_RVA: u32 = 0x1074d0;
+/// GAME 0x531340 (RVA 0x131340) `ai_groups::Tick` (mafia-re 113b5b6
+/// game/ai/jp_ai_groups.cpp:56-83), called from `C_game::Tick`
+/// (game/mission/game.cpp:2061). Body DEFERRED; dispatched only.
+pub const AI_GROUPS_TICK_RVA: u32 = 0x131340;
+/// GAME 0x5325a0 (RVA 0x1325a0) `ai_follow_manager::Update` (mafia-re 113b5b6
+/// game/ai/jp_ai_groups.cpp:120-335), called from `C_game::Tick`
+/// (game/mission/game.cpp:2062). Body DEFERRED; dispatched only.
+pub const AI_FOLLOW_UPDATE_RVA: u32 = 0x1325a0;
+/// GAME 0x5350b0 (RVA 0x1350b0) `ai_fight_manager::Tick` (mafia-re 113b5b6
+/// game/ai/jp_ai_groups.cpp:410-836), called from `C_game::Tick`
+/// (game/mission/game.cpp:2063). Body DEFERRED; dispatched only.
+pub const AI_FIGHT_TICK_RVA: u32 = 0x1350b0;
+
+/// One `ai_ghost_actor` item of `C_entity::ai_ghost` @0x1268 (mafia-re 113b5b6
+/// game/actors/C_human.h:970-973: an actor, its collision, a time and a
+/// radius, 0x24-byte vector first per game/ai/jp_ai_entity.h:284).
+/// Working names and widths (NOT original): the actor rides the typed owner
+/// handle, the collision rides the opaque dynamic-coll identity (never a host
+/// pointer), the time word is an opaque `u32` (units unproven) and the radius
+/// is the evidenced `f32` sweep radius.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AiGhostEntry {
+    pub actor: Option<ActorReferenceId>,
+    pub collision: HumanDynCollId,
+    pub time: u32,
+    pub radius: f32,
+}
+
+impl AiGhostEntry {
+    /// Stage one ghost item without running any AI behavior.
+    pub const fn from_parts(
+        actor: Option<ActorReferenceId>,
+        collision: HumanDynCollId,
+        time: u32,
+        radius: f32,
+    ) -> Self {
+        Self {
+            actor,
+            collision,
+            time,
+            radius,
+        }
+    }
+}
+
+/// Marker-only owner of the `C_entity::ai_ghost` @0x1268 vector (mafia-re
+/// 113b5b6 game/ai/jp_ai_entity.h:284, described at
+/// game/actors/C_human.h:970-973). Staging only: the pedestrian Tick refresh
+/// (GAME 0x508150) stays DEFERRED, and publication into
+/// `C_human::ghost_colls` @0x698 rides [`AiGhostStore::ghost_coll_snapshot`]
+/// for the GAME 0x52f920 push leaf. Clearing rides
+/// [`AiGhostStore::clear_for_game_init`] for the GAME 0x507b50 empty leaf.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct AiGhostStore {
+    items: Vec<AiGhostEntry>,
+}
+
+impl AiGhostStore {
+    /// Stage an empty ghost vector (constructor state).
+    pub fn new() -> Self {
+        Self { items: Vec::new() }
+    }
+
+    /// Staged ghost items in push order.
+    pub fn items(&self) -> &[AiGhostEntry] {
+        &self.items
+    }
+
+    /// Number of staged ghosts.
+    pub fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    /// Whether no ghost is staged.
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+
+    /// GAME 0x52f920 (RVA 0x12f920) staging leaf: remember one ghost item;
+    /// the caller publishes `entry.collision` through
+    /// `human_actor::HumanState::push_ghost_coll` into `ghost_colls` @0x698.
+    pub fn push(&mut self, entry: AiGhostEntry) {
+        self.items.push(entry);
+    }
+
+    /// GAME 0x507b50 (RVA 0x107b50) empty leaf for the `GameInit` lifecycle
+    /// (called from `C_entity::GameInit`, GAME 0x5074d0): drops the staged
+    /// ghosts. The caller also empties `HumanState::ghost_colls` so both
+    /// sides of the lifecycle stay empty together.
+    pub fn clear_for_game_init(&mut self) {
+        self.items.clear();
+    }
+
+    /// Collisions to publish into `C_human::ghost_colls` @0x698, in the
+    /// staged push order (one entry per ghost item).
+    pub fn ghost_coll_snapshot(&self) -> Vec<HumanDynCollId> {
+        self.items.iter().map(|item| item.collision).collect()
+    }
+}
+
+/// Owned dispatch boundary for the `C_game::Tick` AI slice (mafia-re 113b5b6
+/// game/mission/game.cpp:2061-2063). Each arm runs exactly one deferred
+/// manager body; no AI behavior is owned here.
+pub trait AiManagerTickBackend {
+    /// `ai_groups::Tick` (GAME 0x531340). Body DEFERRED.
+    fn tick_groups(&mut self);
+    /// `ai_follow_manager::Update` (GAME 0x5325a0). Body DEFERRED.
+    fn update_follow(&mut self);
+    /// `ai_fight_manager::Tick` (GAME 0x5350b0). Body DEFERRED.
+    fn tick_fight(&mut self);
+}
+
+/// `C_game::Tick` AI dispatch stub (mafia-re 113b5b6
+/// game/mission/game.cpp:2061-2063), in the original's order: groups, then
+/// follow, then fight. Owned dispatch only; every arm body stays DEFERRED
+/// behind [`AiManagerTickBackend`] and is never replayed automatically.
+pub fn ai_manager_tick_dispatch(backend: &mut impl AiManagerTickBackend) {
+    backend.tick_groups();
+    backend.update_follow();
+    backend.tick_fight();
+}
+
 /// `C_driver::Tick` leading prefix, native bytes 0x43c4f0-0x43c571.
 ///
 /// Effect order matches the entry decode: subject-byte clear (via backend,
@@ -303,5 +445,77 @@ mod tests {
             DRIVER_PATH_NODE_BYTES,
             "opaque element must stay 112B to match the native /112 divisor"
         );
+    }
+
+    struct OrderBackend {
+        order: Vec<&'static str>,
+    }
+
+    impl AiManagerTickBackend for OrderBackend {
+        fn tick_groups(&mut self) {
+            self.order.push("groups");
+        }
+        fn update_follow(&mut self) {
+            self.order.push("follow");
+        }
+        fn tick_fight(&mut self) {
+            self.order.push("fight");
+        }
+    }
+
+    #[test]
+    fn ghost_store_push_snapshot_and_game_init_empty_match_lifecycle() {
+        // Marker-only contract for C_entity::ai_ghost @0x1268 items
+        // (actor + collision + time + radius, mafia-re 113b5b6
+        // game/actors/C_human.h:970-973): GAME 0x52f920 pushes stage items
+        // whose collisions snapshot into ghost_colls @0x698 in push order;
+        // GAME 0x507b50 (from C_entity::GameInit, GAME 0x5074d0) empties.
+        use crate::script_scheduler::ActorReferenceId;
+        let mut store = AiGhostStore::new();
+        assert!(store.is_empty());
+        assert_eq!(store.len(), 0);
+        assert!(store.ghost_coll_snapshot().is_empty());
+        store.push(AiGhostEntry::from_parts(
+            Some(ActorReferenceId::from_existing(11)),
+            HumanDynCollId::from_raw(7),
+            120,
+            0.5,
+        ));
+        store.push(AiGhostEntry::from_parts(
+            None,
+            HumanDynCollId::from_raw(9),
+            240,
+            1.25,
+        ));
+        assert_eq!(store.len(), 2);
+        assert_eq!(
+            store.items()[0].actor,
+            Some(ActorReferenceId::from_existing(11))
+        );
+        assert_eq!(
+            store.ghost_coll_snapshot(),
+            vec![
+                HumanDynCollId::from_raw(7),
+                HumanDynCollId::from_raw(9)
+            ]
+        );
+        store.clear_for_game_init();
+        assert!(store.is_empty());
+        assert!(store.ghost_coll_snapshot().is_empty());
+        assert!(ENTITY_AI_TICK_DEFERRED);
+        assert_eq!(ENTITY_AI_RVA, 0x108150);
+    }
+
+    #[test]
+    fn game_tick_dispatch_runs_groups_follow_fight_in_order() {
+        // Owned dispatch stub for C_game::Tick (mafia-re 113b5b6
+        // game/mission/game.cpp:2061-2063): groups (GAME 0x531340), follow
+        // update (GAME 0x5325a0), fight (GAME 0x5350b0); bodies DEFERRED.
+        let mut backend = OrderBackend { order: Vec::new() };
+        ai_manager_tick_dispatch(&mut backend);
+        assert_eq!(backend.order, vec!["groups", "follow", "fight"]);
+        assert_eq!(AI_GROUPS_TICK_RVA, 0x131340);
+        assert_eq!(AI_FOLLOW_UPDATE_RVA, 0x1325a0);
+        assert_eq!(AI_FIGHT_TICK_RVA, 0x1350b0);
     }
 }
