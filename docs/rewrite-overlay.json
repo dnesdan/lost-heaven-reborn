@@ -8581,6 +8581,105 @@
       "symbol": "lhr_engine::actor_world::ActorWorld::detector_inrange_candidate",
       "tier": "contract",
       "evidence": "Tick pass: Process dispatch (STORAGE/INRANGE/WAITFORUSE/WAITFORHIT/CREATEDYNCOLL/ERASEDYNCOLL + default C_program::Process) lives in program_runtime (original_program #[path] module, unfileable path, same gate as held 0x1ed040); filed scope is the actor-side INRANGE counting owner (human_types mask +0xd8, ENTITY/PLAYER + human gate, live frame + human_type) with take/return transport and tick_detector_programs, per mafia-re C_detector.cpp:189-271 and C_detector.h:16-94. Coll/use arms latch then refuse loudly; GameInit bodies and coll registries deferred. Tests: detector and program suites green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x5e06e0",
+      "va": "0x9e06e0",
+      "name": "GM_MainMenu::OnClick",
+      "symbol": "lhr_engine::main_menu::main_menu_onclick",
+      "tier": "contract",
+      "evidence": "13-branch CloseAll/Open dispatch over latched menu IDs per mafia-re g_m_func.cpp:309 (GAME 0x5e06e0); COMPF ENABLED/ACTIVE bit sense preserved. Draw/sound/MenuOpen allocation deferred. Marker-only contract."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x5e4a50",
+      "va": "0x9e4a50",
+      "name": "GM_MainMenu::OnChange",
+      "symbol": "lhr_engine::main_menu::main_menu_onchange",
+      "tier": "contract",
+      "evidence": "Active-component id routed to the MenuCameraTarget latch per mafia-re g_m_func.cpp:299 (GAME 0x5e4a50). Marker-only contract."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1e0690",
+      "va": "0x5e0690",
+      "name": "GM_MainMenu::OnCreate",
+      "symbol": "lhr_engine::main_menu::main_menu_oncreate_dispatch",
+      "tier": "contract",
+      "evidence": "START+gating+StoreA+INTRO dispatch matching the landed prefix order per mafia-re g_m_func.cpp:286 (GAME 0x5e0690; RVA ledger form 0x1e0690). Marker-only contract."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x5ea370",
+      "va": "0x9ea370",
+      "name": "GM_Menu::CreateCompsByDef (language probe scope)",
+      "symbol": "lhr_assets::menu::menu_file_candidates",
+      "tier": "contract",
+      "evidence": "Localized <name>_<ll>.mnu then <name>.mnu fallback probe per mafia-re g_menu.cpp:639-660 (GAME 0x5ea370) with upup-tag skip 0x5ea370; stem validation is a bounded host admission. Marker-only contract."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x5f6b70",
+      "va": "0x9f6b70",
+      "name": "G_IndicatorsClass::ctor",
+      "symbol": "lhr_engine::indicators::IndicatorsState::constructed",
+      "tier": "contract",
+      "evidence": "Zeroed-state construction per mafia-re g_indicators.cpp:118 (GAME 0x5f6b70). Marker-only contract."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x5f70e0",
+      "va": "0x9f70e0",
+      "name": "G_IndicatorsClass::Create",
+      "symbol": "lhr_engine::indicators::IndicatorsState::create",
+      "tier": "contract",
+      "evidence": "Create-time flag/texture-slot intake per mafia-re g_indicators.cpp:256 (GAME 0x5f70e0); device loads deferred. Marker-only contract."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x5f7250",
+      "va": "0x9f7250",
+      "name": "G_IndicatorsClass::Destroy",
+      "symbol": "lhr_engine::indicators::IndicatorsState::destroy",
+      "tier": "contract",
+      "evidence": "Teardown clearing owned slots per mafia-re g_indicators.cpp:298 (GAME 0x5f7250). Marker-only contract."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x5f6cf0",
+      "va": "0x9f6cf0",
+      "name": "G_IndicatorsClass::ResetValues",
+      "symbol": "lhr_engine::indicators::IndicatorsState::reset_values",
+      "tier": "contract",
+      "evidence": "Default-row reset per mafia-re g_indicators.cpp:140 (GAME 0x5f6cf0), covered by reset/lifecycle tests. Marker-only contract."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x5f7500",
+      "va": "0x9f7500",
+      "name": "G_IndicatorsClass::TimerSetTime",
+      "symbol": "lhr_engine::indicators::IndicatorsState::timer_set_time",
+      "tier": "contract",
+      "evidence": "Clock-word intake per mafia-re timer setters (GAME 0x5f7500 family); truncation/clamp behavior tested. Marker-only contract."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x5f73c0",
+      "va": "0x9f73c0",
+      "name": "G_IndicatorsClass::GameInit (texture-plan scope)",
+      "symbol": "lhr_engine::indicators::IndicatorsState::game_init_texture_plan",
+      "tier": "contract",
+      "evidence": "Night/mph to 2int*.tga asset-name plan per mafia-re g_indicators.cpp:355 (GAME 0x5f73c0); device release/load deferred. Marker-only contract."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x5f74a0",
+      "va": "0x9f74a0",
+      "name": "G_IndicatorsClass::GameDone",
+      "symbol": "lhr_engine::indicators::IndicatorsState::game_done",
+      "tier": "contract",
+      "evidence": "Map/radar/bonus/race-start clear + interval re-apply per mafia-re g_indicators.cpp:391-402 (GAME 0x5f74a0); hiding case stores 0xff verbatim. Marker-only contract."
     }
   ],
   "vm": {

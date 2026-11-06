@@ -73,7 +73,13 @@ class RewriteProgressTests(unittest.TestCase):
         # +1 C_detector::Process 0x33d10 tick dispatch + INRANGE counting
         # scope (contract; dispatch core in #[path] program_runtime module,
         # filed via actor-side counting owner; coll/use arms loud-refuse).
-        self.assertEqual(game["ported"], 149 + 69)
+        # +11 menu/HUD wave, all contract (OnClick 0x5e06e0 / OnChange
+        # 0x5e4a50 / OnCreate 0x1e0690 via main_menu module; CreateCompsByDef
+        # language probe 0x5ea370 via lhr_assets::menu; indicators ctor
+        # 0x5f6b70 / Create 0x5f70e0 / Destroy 0x5f7250 / ResetValues 0x5f6cf0
+        # / TimerSetTime 0x5f7500 / GameInit plan 0x5f73c0 / GameDone 0x5f74a0;
+        # MenuStack stays behind main.rs #[path], unfileable like RotateDir).
+        self.assertEqual(game["ported"], 149 + 80)
         self.assertEqual(game["verified"], 149 + 7)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
