@@ -653,6 +653,29 @@ pub fn init_original_animation_index<B: crate::animation_index::AnimationIndexBa
         .map_err(OriginalAnimationIndexError::Index)
 }
 
+/// Game-global animation preload latch for NOANIMPRELOAD (mafia-re 113b5b6
+/// game/mission/C_program.cpp:6766, C_game::SetAnimPreload GAME 0x47b690).
+/// C_game::Init stores true (game.cpp:318); NOANIMPRELOAD clears it with
+/// `SetAnimPreload(false)`. No overlay entry; rides Process 0x6d3b0.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AnimationPreloadState {
+    enabled: bool,
+}
+impl Default for AnimationPreloadState {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+impl AnimationPreloadState {
+    pub fn enabled(self) -> bool {
+        self.enabled
+    }
+    /// Original `SetAnimPreload(false)` store for NOANIMPRELOAD.
+    pub fn disable(&mut self) {
+        self.enabled = false;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -735,5 +758,14 @@ mod tests {
         assert_eq!(records.len(), ORIGINAL_ANIMATION_CATALOG.len());
         assert_eq!(records.last().unwrap().resource_identity, 0);
         assert_eq!(records.last().unwrap().code, 0xffff);
+    }
+
+    #[test]
+    fn preload_starts_enabled_and_noanimpreload_clears_it() {
+        // Hand-derived: C_game::Init stores true, NOANIMPRELOAD clears.
+        let mut state = AnimationPreloadState::default();
+        assert!(state.enabled());
+        state.disable();
+        assert!(!state.enabled());
     }
 }

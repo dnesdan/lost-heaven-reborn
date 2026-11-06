@@ -1,12 +1,14 @@
 //! Typed owners for the C_human constructor plus copy/persist
 //! (DuplicateFrom/SaveData) source-admission domain.
-//! Game.exe SHA25608398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27.
+//! Game.exe SHA256 08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27.
 //! PC40e010 corresponds to the actual PS2 C_animations_machine_de_luxe
 //! constructor through its Reset/StopAnims call pattern, not shared layout.
 //! GAME 0x47aed0/0x47b020 (RVA 0x7aed0/0x7b020) construct/reset the embedded
 //! G_Inventory aggregate. Rust
 //! member names below are descriptive; unknown item/parameter bits have no
-//! invented gameplay meaning. Human GameInit and animation selection are absent.
+//! invented gameplay meaning. Only the Human GameInit prefix slice
+//! (car/using_car clear, STAND, max-to-current bank copy) is owned here;
+//! the full GameInit body plus animation selection, AI and Update stay DEFERRED.
 //! The dtor animation-stop device effect (GAME 0x56f210) and the Init frame
 //! effects (GAME 0x56f350, owned by ActorWorld::init_human_owner) stay with the
 //! frame owner; detector/AI/police owners do not exist yet and are DEFERRED.
@@ -287,6 +289,14 @@ pub struct HumanSeed {
     pub base_frame: Option<FrameReferenceId>,
     pub auxiliary: [HumanAuxiliarySeed; 2],
 }
+/// Original on-foot idle action value (mafia-re 113b5b6
+/// game/actors/C_human.h:137 HUMAN_ACTION_STAND; the live word is `int`
+/// action_state per C_human.h:824-826, save-packed as ushort per the
+/// S_human_savegame 0x6d field, so the Rust owner keeps the PC 32-bit signed
+/// width as i32). The remaining HUMAN_ACTION_* values are written by the
+/// DEFERRED Movement and car AI, so they take no constants here.
+pub const HUMAN_ACTION_STAND: i32 = 1;
+
 #[derive(Debug)]
 pub struct HumanState {
     pub(crate) previous_animation_code: u32,
@@ -305,6 +315,25 @@ pub struct HumanState {
     pub(crate) second_auxiliary: EmptyHumanCollection,
     pub(crate) last_auxiliary: EmptyHumanCollection,
     pub(crate) auxiliary: [HumanAuxiliaryRecord; 2],
+    /// Script-visible car latch for HUMAN_GETOWNER (mafia-re 113b5b6
+    /// game/actors/C_human.h:1120 GetCar GAME 0x47b7b0). The enter-car AI
+    /// that populates it (Use_Actor/Movement, seat/action_state gating per
+    /// game/mission/C_program.cpp:4325) stays DEFERRED; this starts at no car.
+    /// No overlay entry; rides Process 0x6d3b0.
+    car: Option<ActorReferenceId>,
+    /// Script-visible car the human is getting into or was thrown out of
+    /// (mafia-re 113b5b6 game/actors/C_human.h:707-713: 0x9c C_car *using_car;
+    /// the name is ours per the upstream comment). The Use_Actor and
+    /// car-function writers that populate or clear it stay DEFERRED; this
+    /// starts at no car and the GameInit prefix re-clears it
+    /// (C_human.cpp:3175). No invented boarding semantics beyond the latch.
+    using_car: Option<ActorReferenceId>,
+    /// Live HUMAN_ACTION_* word (mafia-re 113b5b6 game/actors/C_human.h:824
+    /// -826: 0x40c int action_state; the name is ours). Only the STAND value
+    /// is produced here; the Movement and car-function writers of the other
+    /// values stay DEFERRED, so no meaning beyond STAND is assigned. Starts
+    /// at STAND; the GameInit prefix re-affirms it (C_human.cpp:3176).
+    action_state: i32,
 }
 impl HumanState {
     pub(crate) fn construct(seed: HumanSeed) -> Self {
@@ -327,6 +356,9 @@ impl HumanState {
             second_auxiliary: EmptyHumanCollection::construct(seed.allocator_tag),
             last_auxiliary: EmptyHumanCollection::construct(seed.allocator_tag),
             auxiliary: seed.auxiliary.map(HumanAuxiliaryRecord::construct),
+            car: None,
+            using_car: None,
+            action_state: HUMAN_ACTION_STAND,
         }
     }
     pub fn human_type_mask(&self) -> u32 {
@@ -335,8 +367,8 @@ impl HumanState {
     pub fn voice_index(&self) -> u32 {
         self.voice_index
     }
-    /// Serialized maximum-property bank. Current values are not copied here;
-    /// that separate operation belongs to the later genuine Human GameInit.
+    /// Serialized maximum-property bank. The GameInit prefix copies it over
+    /// the current bank (apply_game_init_prefix, C_human.cpp:3180).
     pub fn properties(&self) -> &HumanProperties {
         &self.properties
     }
@@ -366,6 +398,26 @@ impl HumanState {
     }
     pub fn auxiliary_records(&self) -> &[HumanAuxiliaryRecord; 2] {
         &self.auxiliary
+    }
+    /// Script-visible car for HUMAN_GETOWNER reads.
+    pub fn car(&self) -> Option<ActorReferenceId> {
+        self.car
+    }
+    /// Test/host setter for the enter-car latch (AI population deferred).
+    pub fn set_car(&mut self, car: Option<ActorReferenceId>) {
+        self.car = car;
+    }
+    /// Script-visible using-car latch for the car-function door notes.
+    pub fn using_car(&self) -> Option<ActorReferenceId> {
+        self.using_car
+    }
+    /// Test/host setter for the using-car latch (car-function writers deferred).
+    pub fn set_using_car(&mut self, car: Option<ActorReferenceId>) {
+        self.using_car = car;
+    }
+    /// Live HUMAN_ACTION_* word; only STAND is produced by this owner so far.
+    pub fn action_state(&self) -> i32 {
+        self.action_state
     }
     pub fn collection_is_empty(&self, slot: HumanResourceSlot) -> bool {
         match slot {
@@ -409,6 +461,30 @@ impl HumanState {
     pub(crate) fn duplicate_from(&mut self, source: &HumanState) {
         self.properties = source.properties.clone();
         self.human_type_mask = source.human_type_mask;
+    }
+    /// GAME 0x574bd0 (RVA 0x174bd0) C_human::GameInit PREFIX SLICE (mafia-re
+    /// 113b5b6 game/actors/C_human.cpp, non-contiguous statements :3174-3176
+    /// plus :3180; interleaved :3177-3179 deferred): clear the car and
+    /// using_car latches to NULL, set action_state to HUMAN_ACTION_STAND
+    /// (C_human.h:137), and copy the maximum-property bank over the current
+    /// bank (memcpy(properties, max_properties, sizeof(properties))). SCOPE:
+    /// prefix only. The rest of the :3162-3407 body stays DEFERRED with no new
+    /// owner here: orig_model and the C_actor::GameInit prefix, base_frame
+    /// lookup plus frame refcount/DeleteFrame, DebustizeFrame and
+    /// NoShadowFrame, vehicle_action, anim_machine.Init plus next_anim_id, the
+    /// anim/velocity/turn/fall/guard/idle/breath/combat/dead/track/move/hit/
+    /// reload/voice/death/car-use/shot words (incl. stealing_car, last_car,
+    /// locked_car, vehicle_action, car_stance), pose creation and SetPose, sound
+    /// frame creation, shot_skeleton plus notify callback, anims reset, shadow
+    /// registration, weapon models and hand targets, fire words, inventory
+    /// reset plus ChangeWeaponModel, PoseValidate, ground snapping,
+    /// LightnessAdd, and the loc/blob/cutscene/tick words. AI/Update stay
+    /// DEFERRED.
+    pub(crate) fn apply_game_init_prefix(&mut self) {
+        self.car = None;
+        self.using_car = None;
+        self.action_state = HUMAN_ACTION_STAND;
+        self.current_properties = self.properties.clone();
     }
     /// GAME 0x56f440 (RVA 0x16f440) C_human::SaveData (mafia-re
     /// game/actors/C_human.cpp:1312): version byte HUMAN_DATA_VERSION
@@ -512,6 +588,9 @@ mod tests {
         }
     }
     #[test]
+    // Predates the GameInit prefix (construct now also sets the car latches
+    // to None and action_state to STAND); asserts the untouched remainder.
+    // Overlap with the prefix defaults is covered by the prefix test below.
     fn human_constructor_defaults_do_not_overwrite_unwritten_seed_or_run_game_init() {
         let human = HumanState::construct(seed());
         assert_eq!(human.human_type_mask(), 0xa5a5_a5a5);
@@ -718,5 +797,73 @@ mod tests {
         assert_eq!(target.voice_index(), 0x1d);
         assert_eq!(target.properties().record(), &[0x5a; 64]);
         assert_eq!(target.current_properties().record(), &[0xa5; 64]);
+    }
+    #[test]
+    fn car_latch_starts_empty_and_stores_owner() {
+        use crate::script_scheduler::ActorReferenceId;
+        let mut human = HumanState::construct(seed());
+        assert_eq!(human.car(), None);
+        let car = ActorReferenceId::from_existing(11);
+        human.set_car(Some(car));
+        assert_eq!(human.car(), Some(car));
+        human.set_car(None);
+        assert_eq!(human.car(), None);
+    }
+    #[test]
+    fn game_init_prefix_defaults_to_null_cars_stand_and_max_bank_copy() {
+        let mut human = HumanState::construct(seed());
+        // Hand-derived from C_human::GameInit (mafia-re 113b5b6
+        // game/actors/C_human.cpp:3174-3176,3180): NULL cars, STAND
+        // (1, C_human.h:137), max bank copied over the current bank.
+        assert_eq!(human.car(), None);
+        assert_eq!(human.using_car(), None);
+        assert_eq!(human.action_state(), HUMAN_ACTION_STAND);
+        assert_eq!(human.action_state(), 1);
+        assert_ne!(
+            human.current_properties().record(),
+            human.properties().record()
+        );
+        human.apply_game_init_prefix();
+        assert_eq!(human.car(), None);
+        assert_eq!(human.using_car(), None);
+        assert_eq!(human.action_state(), 1);
+        assert_eq!(
+            human.current_properties().record(),
+            human.properties().record()
+        );
+        assert_eq!(
+            human.current_properties().component_bits(),
+            [
+                0x3f333333, 0x42c80000, 0x41a00000, 0x41a00000, 0x41a00000, 0x41a00000, 0x3f333333,
+                0x3f800000, 0x3f19999a, 0x3f4ccccd, 0x3f333333, 0x3f800000, 0x3f800000, 0x3f4ccccd,
+                0x42a00000, 0x3f000000
+            ]
+        );
+    }
+    #[test]
+    fn game_init_prefix_clears_latched_cars_restores_bank_and_stand() {
+        use crate::script_scheduler::ActorReferenceId;
+        let mut human = HumanState::construct(seed());
+        human.set_car(Some(ActorReferenceId::from_existing(11)));
+        human.set_using_car(Some(ActorReferenceId::from_existing(12)));
+        // Direct word write: no other owner produces action values yet
+        // (Movement/car AI DEFERRED); 9 is HUMAN_ACTION_CAR (C_human.h:145).
+        human.action_state = 9;
+        human.current_properties = HumanProperties::from_record([0x77; 64]);
+        human.apply_game_init_prefix();
+        assert_eq!(human.car(), None);
+        assert_eq!(human.using_car(), None);
+        assert_eq!(human.action_state(), HUMAN_ACTION_STAND);
+        assert_eq!(
+            human.current_properties().record(),
+            human.properties().record()
+        );
+        // Repeating the prefix over init state stays a pure no-op.
+        let bank = human.current_properties().clone();
+        human.apply_game_init_prefix();
+        assert_eq!(human.car(), None);
+        assert_eq!(human.using_car(), None);
+        assert_eq!(human.action_state(), 1);
+        assert_eq!(human.current_properties(), &bank);
     }
 }

@@ -28,6 +28,20 @@ struct FakeEntityWorld {
     detector_sets: Vec<(ActorReferenceId, bool)>,
     non_detectors: HashSet<ActorReferenceId>,
     fail_detector: Option<ActorReferenceId>,
+    dead: HashMap<ActorReferenceId, bool>,
+    fail_dead: Option<ActorReferenceId>,
+    frame_positions: HashMap<FrameReferenceId, [f32; 3]>,
+    fail_frame_pos: Option<FrameReferenceId>,
+    human_cars: HashMap<ActorReferenceId, Option<ActorReferenceId>>,
+    non_humans: HashSet<ActorReferenceId>,
+    fail_human_car: Option<ActorReferenceId>,
+    car_speeds: HashMap<ActorReferenceId, f32>,
+    non_cars: HashSet<ActorReferenceId>,
+    fail_car: Option<ActorReferenceId>,
+    break_motors: HashMap<ActorReferenceId, bool>,
+    force_stops: Vec<ActorReferenceId>,
+    player_locked: Option<bool>,
+    fail_player_lock: bool,
 }
 impl LookupWorldBackend for FakeEntityWorld {
     fn diagnostic_default_c_locale(&self) -> bool {
@@ -162,6 +176,100 @@ impl LookupWorldBackend for FakeEntityWorld {
         }
         self.detector_sets.push((actor, on));
         self.detector_signals.insert(actor, on);
+        Ok(())
+    }
+    fn actor_dead(&self, actor: ActorReferenceId) -> Result<bool, LookupError> {
+        if self.fail_dead == Some(actor) {
+            return Err(LookupError::Backend("injected dead failure".into()));
+        }
+        Ok(self.dead.get(&actor).copied().unwrap_or(false))
+    }
+    fn frame_world_position(
+        &mut self,
+        frame: FrameReferenceId,
+    ) -> Result<[f32; 3], LookupError> {
+        if self.fail_frame_pos == Some(frame) {
+            return Err(LookupError::Backend("injected frame-pos failure".into()));
+        }
+        self.frame_positions
+            .get(&frame)
+            .copied()
+            .ok_or(LookupError::Backend("frame position unavailable".into()))
+    }
+    fn human_car(
+        &self,
+        actor: ActorReferenceId,
+    ) -> Result<Option<Option<ActorReferenceId>>, LookupError> {
+        if self.fail_human_car == Some(actor) {
+            return Err(LookupError::Backend("injected human-car failure".into()));
+        }
+        if self.non_humans.contains(&actor) {
+            return Ok(None);
+        }
+        if let Some(car) = self.human_cars.get(&actor) {
+            return Ok(Some(*car));
+        }
+        Err(LookupError::StaleActor(actor))
+    }
+    fn car_speed(&self, actor: ActorReferenceId) -> Result<Option<f32>, LookupError> {
+        if self.fail_car == Some(actor) {
+            return Err(LookupError::Backend("injected car failure".into()));
+        }
+        if self.non_cars.contains(&actor) {
+            return Ok(None);
+        }
+        if let Some(speed) = self.car_speeds.get(&actor) {
+            return Ok(Some(*speed));
+        }
+        Err(LookupError::StaleActor(actor))
+    }
+    fn is_car_usable(&self, actor: ActorReferenceId) -> Result<Option<bool>, LookupError> {
+        if self.fail_car == Some(actor) {
+            return Err(LookupError::Backend("injected car failure".into()));
+        }
+        if self.non_cars.contains(&actor) {
+            return Ok(None);
+        }
+        if self.car_speeds.contains_key(&actor) || self.break_motors.contains_key(&actor) {
+            return Ok(Some(false));
+        }
+        Err(LookupError::StaleActor(actor))
+    }
+    fn set_car_break_motor(
+        &mut self,
+        actor: ActorReferenceId,
+        on: bool,
+    ) -> Result<bool, LookupError> {
+        if self.fail_car == Some(actor) {
+            return Err(LookupError::Backend("injected car failure".into()));
+        }
+        if self.non_cars.contains(&actor) {
+            return Ok(false);
+        }
+        if self.car_speeds.contains_key(&actor) || self.break_motors.contains_key(&actor) {
+            self.break_motors.insert(actor, on);
+            return Ok(true);
+        }
+        Err(LookupError::StaleActor(actor))
+    }
+    fn force_stop_car(&mut self, actor: ActorReferenceId) -> Result<bool, LookupError> {
+        if self.fail_car == Some(actor) {
+            return Err(LookupError::Backend("injected car failure".into()));
+        }
+        if self.non_cars.contains(&actor) {
+            return Ok(false);
+        }
+        if self.car_speeds.contains_key(&actor) || self.break_motors.contains_key(&actor) {
+            self.force_stops.push(actor);
+            return Ok(true);
+        }
+        Err(LookupError::StaleActor(actor))
+    }
+    fn set_player_controls_locked(&mut self, locked: bool) -> Result<(), LookupError> {
+        if self.fail_player_lock {
+            return Err(LookupError::Backend("injected player-lock failure".into()));
+        }
+        self.player_locked = Some(locked);
         Ok(())
     }
 }
@@ -2391,4 +2499,494 @@ fn use_lightcache_reports_operandless_request_through_backend() {
             .any(|event| event.0 == RuntimeEffect::UseLightCache),
         "missing UseLightCache effect"
     );
+}
+
+#[test]
+fn getactorsdist_measures_world_distance_and_dead_sign() {
+    use crate::original_program::RuntimeReferenceSlot;
+    // Hand-derived: A at [0,0,0], B at [3,4,0] gives 5.0; fourth word 0
+    // skips the dead gate. One call retires one instruction.
+    let mut memory = Memory::default();
+    let mut p = program(b"getactorsdist 0,1,0", &mut memory);
+    let progress = p.init_fresh_runtime(&mut memory).unwrap();
+    assert_eq!((progress.accepted, progress.errors), (1, 0));
+    let actor_a = ActorReferenceId::from_existing(11);
+    let actor_b = ActorReferenceId::from_existing(12);
+    let frame_a = FrameReferenceId::from_existing(21);
+    let frame_b = FrameReferenceId::from_existing(22);
+    p.runtime.as_mut().unwrap().fields.actor_count = 2;
+    p.runtime.as_mut().unwrap().fields.actors = Some(
+        vec![
+            RuntimeReferenceSlot::Reference(actor_a),
+            RuntimeReferenceSlot::Reference(actor_b),
+        ]
+        .into_boxed_slice(),
+    );
+    p.runtime.as_mut().unwrap().fields.float_count = 1;
+    p.runtime.as_mut().unwrap().fields.floats = Some(vec![0.0f32].into_boxed_slice());
+    memory.entity_world.actor_frames.insert(actor_a, frame_a);
+    memory.entity_world.actor_frames.insert(actor_b, frame_b);
+    memory.entity_world.frame_positions.insert(frame_a, [0.0, 0.0, 0.0]);
+    memory.entity_world.frame_positions.insert(frame_b, [3.0, 4.0, 0.0]);
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
+    assert_eq!(
+        p.runtime().unwrap().fields.floats.as_ref().unwrap()[0].to_bits(),
+        5.0f32.to_bits()
+    );
+    let report = p.discard_runtime_host().unwrap();
+    assert_eq!(report.getactorsdist_allocations, 1);
+
+    // Dead gate: same point gives 0.0, clamped to 0.1 then negated to -0.1.
+    let mut memory = Memory::default();
+    let mut p = program(b"getactorsdist 0,1,0,1", &mut memory);
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.runtime.as_mut().unwrap().fields.actor_count = 2;
+    p.runtime.as_mut().unwrap().fields.actors = Some(
+        vec![
+            RuntimeReferenceSlot::Reference(actor_a),
+            RuntimeReferenceSlot::Reference(actor_b),
+        ]
+        .into_boxed_slice(),
+    );
+    p.runtime.as_mut().unwrap().fields.float_count = 1;
+    p.runtime.as_mut().unwrap().fields.floats = Some(vec![0.0f32].into_boxed_slice());
+    memory.entity_world.actor_frames.insert(actor_a, frame_a);
+    memory.entity_world.actor_frames.insert(actor_b, frame_b);
+    memory.entity_world.frame_positions.insert(frame_a, [1.0, 2.0, 2.0]);
+    memory.entity_world.frame_positions.insert(frame_b, [1.0, 2.0, 2.0]);
+    memory.entity_world.dead.insert(actor_b, true);
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(
+        p.runtime().unwrap().fields.floats.as_ref().unwrap()[0].to_bits(),
+        (-0.1f32).to_bits()
+    );
+
+    // Alive second actor with the flag set keeps the positive distance.
+    memory.entity_world.dead.insert(actor_b, false);
+    p.runtime.as_mut().unwrap().fields.scheduler.program_counter = 0;
+    p.runtime.as_mut().unwrap().fields.floats = Some(vec![9.0f32].into_boxed_slice());
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(
+        p.runtime().unwrap().fields.floats.as_ref().unwrap()[0].to_bits(),
+        0.0f32.to_bits()
+    );
+
+    // Bad float register leaves the bank untouched and advances.
+    let mut memory = Memory::default();
+    let mut p = program(b"getactorsdist 0,1,9", &mut memory);
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.runtime.as_mut().unwrap().fields.actor_count = 2;
+    p.runtime.as_mut().unwrap().fields.actors = Some(
+        vec![
+            RuntimeReferenceSlot::Reference(actor_a),
+            RuntimeReferenceSlot::Reference(actor_b),
+        ]
+        .into_boxed_slice(),
+    );
+    p.runtime.as_mut().unwrap().fields.float_count = 1;
+    p.runtime.as_mut().unwrap().fields.floats = Some(vec![7.0f32].into_boxed_slice());
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
+    assert_eq!(
+        p.runtime().unwrap().fields.floats.as_ref().unwrap()[0].to_bits(),
+        7.0f32.to_bits()
+    );
+
+    // Missing source actor stores 0.0 first and advances.
+    let mut memory = Memory::default();
+    let mut p = program(b"getactorsdist 0,1,0", &mut memory);
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.runtime.as_mut().unwrap().fields.actor_count = 2;
+    p.runtime.as_mut().unwrap().fields.actors = Some(
+        vec![
+            RuntimeReferenceSlot::Empty,
+            RuntimeReferenceSlot::Reference(actor_b),
+        ]
+        .into_boxed_slice(),
+    );
+    p.runtime.as_mut().unwrap().fields.float_count = 1;
+    p.runtime.as_mut().unwrap().fields.floats = Some(vec![7.0f32].into_boxed_slice());
+    memory.entity_world.actor_frames.insert(actor_b, frame_b);
+    memory.entity_world.frame_positions.insert(frame_b, [3.0, 4.0, 0.0]);
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(
+        p.runtime().unwrap().fields.floats.as_ref().unwrap()[0].to_bits(),
+        0.0f32.to_bits()
+    );
+
+    // Stale actor frame stops dispatch instead of inventing a distance.
+    let mut memory = Memory::default();
+    let mut p = program(b"getactorsdist 0,1,0", &mut memory);
+    p.init_fresh_runtime(&mut memory).unwrap();
+    let stale = ActorReferenceId::from_existing(99);
+    p.runtime.as_mut().unwrap().fields.actor_count = 2;
+    p.runtime.as_mut().unwrap().fields.actors = Some(
+        vec![
+            RuntimeReferenceSlot::Reference(stale),
+            RuntimeReferenceSlot::Reference(actor_b),
+        ]
+        .into_boxed_slice(),
+    );
+    p.runtime.as_mut().unwrap().fields.float_count = 1;
+    p.runtime.as_mut().unwrap().fields.floats = Some(vec![0.0f32].into_boxed_slice());
+    memory.entity_world.actor_frames.insert(actor_b, frame_b);
+    memory.entity_world.frame_positions.insert(frame_b, [0.0, 0.0, 0.0]);
+    let error = p
+        .call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap_err();
+    assert!(format!("{error:?}").contains("StaleActor"), "{error:?}");
+    p.discard_runtime_host().unwrap();
+}
+
+#[test]
+fn human_getowner_copies_live_car_and_gates_non_humans() {
+    use crate::original_program::RuntimeReferenceSlot;
+    // Human with a car writes the car; one call retires one instruction.
+    let mut memory = Memory::default();
+    let mut p = program(b"human_getowner 0,1", &mut memory);
+    p.init_fresh_runtime(&mut memory).unwrap();
+    let human = ActorReferenceId::from_existing(11);
+    let car = ActorReferenceId::from_existing(12);
+    p.runtime.as_mut().unwrap().fields.actor_count = 2;
+    p.runtime.as_mut().unwrap().fields.actors = Some(
+        vec![
+            RuntimeReferenceSlot::Reference(human),
+            RuntimeReferenceSlot::Empty,
+        ]
+        .into_boxed_slice(),
+    );
+    memory.entity_world.human_cars.insert(human, Some(car));
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
+    assert_eq!(
+        p.runtime().unwrap().fields.actors.as_ref().unwrap()[1],
+        RuntimeReferenceSlot::Reference(car)
+    );
+
+    // Human with no car writes null (empty).
+    memory.entity_world.human_cars.insert(human, None);
+    p.runtime.as_mut().unwrap().fields.scheduler.program_counter = 0;
+    p.runtime.as_mut().unwrap().fields.actors = Some(
+        vec![
+            RuntimeReferenceSlot::Reference(human),
+            RuntimeReferenceSlot::Reference(car),
+        ]
+        .into_boxed_slice(),
+    );
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(
+        p.runtime().unwrap().fields.actors.as_ref().unwrap()[1],
+        RuntimeReferenceSlot::Empty
+    );
+
+    // Resolved non-human advances without touching the destination.
+    let mut memory = Memory::default();
+    let mut p = program(b"human_getowner 0,1", &mut memory);
+    p.init_fresh_runtime(&mut memory).unwrap();
+    let other = ActorReferenceId::from_existing(13);
+    let keep = ActorReferenceId::from_existing(14);
+    p.runtime.as_mut().unwrap().fields.actor_count = 2;
+    p.runtime.as_mut().unwrap().fields.actors = Some(
+        vec![
+            RuntimeReferenceSlot::Reference(other),
+            RuntimeReferenceSlot::Reference(keep),
+        ]
+        .into_boxed_slice(),
+    );
+    memory.entity_world.non_humans.insert(other);
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(
+        p.runtime().unwrap().fields.actors.as_ref().unwrap()[1],
+        RuntimeReferenceSlot::Reference(keep)
+    );
+
+    // Empty source leaves the destination untouched.
+    p.runtime.as_mut().unwrap().fields.scheduler.program_counter = 0;
+    p.runtime.as_mut().unwrap().fields.actors = Some(
+        vec![
+            RuntimeReferenceSlot::Empty,
+            RuntimeReferenceSlot::Reference(keep),
+        ]
+        .into_boxed_slice(),
+    );
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(
+        p.runtime().unwrap().fields.actors.as_ref().unwrap()[1],
+        RuntimeReferenceSlot::Reference(keep)
+    );
+
+    // Out-of-range source breaks without a world call.
+    let mut memory = Memory::default();
+    let mut p = program(b"human_getowner 9,0", &mut memory);
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.runtime.as_mut().unwrap().fields.actor_count = 1;
+    p.runtime.as_mut().unwrap().fields.actors =
+        Some(vec![RuntimeReferenceSlot::Empty].into_boxed_slice());
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
+    p.discard_runtime_host().unwrap();
+}
+
+#[test]
+fn car_getspeed_scales_mps_to_kmh_and_gates_non_cars() {
+    use crate::original_program::RuntimeReferenceSlot;
+    // Hand-derived: 10.0 m/s * 3.6 = 36.0 km/h.
+    let mut memory = Memory::default();
+    let mut p = program(b"car_getspeed 0,0", &mut memory);
+    p.init_fresh_runtime(&mut memory).unwrap();
+    let car = ActorReferenceId::from_existing(11);
+    p.runtime.as_mut().unwrap().fields.actor_count = 1;
+    p.runtime.as_mut().unwrap().fields.actors = Some(
+        vec![RuntimeReferenceSlot::Reference(car)].into_boxed_slice(),
+    );
+    p.runtime.as_mut().unwrap().fields.float_count = 1;
+    p.runtime.as_mut().unwrap().fields.floats = Some(vec![0.0f32].into_boxed_slice());
+    memory.entity_world.car_speeds.insert(car, 10.0);
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
+    assert_eq!(
+        p.runtime().unwrap().fields.floats.as_ref().unwrap()[0].to_bits(),
+        36.0f32.to_bits()
+    );
+
+    // Resolved non-car leaves the float bank untouched.
+    let mut memory = Memory::default();
+    let mut p = program(b"car_getspeed 0,0", &mut memory);
+    p.init_fresh_runtime(&mut memory).unwrap();
+    let other = ActorReferenceId::from_existing(13);
+    p.runtime.as_mut().unwrap().fields.actor_count = 1;
+    p.runtime.as_mut().unwrap().fields.actors = Some(
+        vec![RuntimeReferenceSlot::Reference(other)].into_boxed_slice(),
+    );
+    p.runtime.as_mut().unwrap().fields.float_count = 1;
+    p.runtime.as_mut().unwrap().fields.floats = Some(vec![7.0f32].into_boxed_slice());
+    memory.entity_world.non_cars.insert(other);
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(
+        p.runtime().unwrap().fields.floats.as_ref().unwrap()[0].to_bits(),
+        7.0f32.to_bits()
+    );
+
+    // Bad actor register breaks without a world call.
+    p.runtime.as_mut().unwrap().fields.scheduler.program_counter = 0;
+    p.runtime.as_mut().unwrap().fields.actors =
+        Some(vec![RuntimeReferenceSlot::Empty].into_boxed_slice());
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
+
+    // Stale car stops dispatch.
+    let mut memory = Memory::default();
+    let mut p = program(b"car_getspeed 0,0", &mut memory);
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.runtime.as_mut().unwrap().fields.actor_count = 1;
+    p.runtime.as_mut().unwrap().fields.actors = Some(
+        vec![RuntimeReferenceSlot::Reference(
+            ActorReferenceId::from_existing(99),
+        )]
+        .into_boxed_slice(),
+    );
+    p.runtime.as_mut().unwrap().fields.float_count = 1;
+    p.runtime.as_mut().unwrap().fields.floats = Some(vec![0.0f32].into_boxed_slice());
+    let error = p
+        .call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap_err();
+    assert!(format!("{error:?}").contains("StaleActor"), "{error:?}");
+    p.discard_runtime_host().unwrap();
+}
+
+#[test]
+fn iscarusable_stores_stub_false_and_gates_non_cars() {
+    use crate::original_program::RuntimeReferenceSlot;
+    // The native body is a STUB returning false; a car stores 0.0.
+    let mut memory = Memory::default();
+    let mut p = program(b"iscarusable 0,0", &mut memory);
+    p.init_fresh_runtime(&mut memory).unwrap();
+    let car = ActorReferenceId::from_existing(11);
+    p.runtime.as_mut().unwrap().fields.actor_count = 1;
+    p.runtime.as_mut().unwrap().fields.actors = Some(
+        vec![RuntimeReferenceSlot::Reference(car)].into_boxed_slice(),
+    );
+    p.runtime.as_mut().unwrap().fields.float_count = 1;
+    p.runtime.as_mut().unwrap().fields.floats = Some(vec![7.0f32].into_boxed_slice());
+    memory.entity_world.car_speeds.insert(car, 0.0);
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(
+        p.runtime().unwrap().fields.floats.as_ref().unwrap()[0].to_bits(),
+        0.0f32.to_bits()
+    );
+
+    // Resolved non-car leaves the bank untouched (native type gate).
+    let mut memory = Memory::default();
+    let mut p = program(b"iscarusable 0,0", &mut memory);
+    p.init_fresh_runtime(&mut memory).unwrap();
+    let other = ActorReferenceId::from_existing(13);
+    p.runtime.as_mut().unwrap().fields.actor_count = 1;
+    p.runtime.as_mut().unwrap().fields.actors = Some(
+        vec![RuntimeReferenceSlot::Reference(other)].into_boxed_slice(),
+    );
+    p.runtime.as_mut().unwrap().fields.float_count = 1;
+    p.runtime.as_mut().unwrap().fields.floats = Some(vec![7.0f32].into_boxed_slice());
+    memory.entity_world.non_cars.insert(other);
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(
+        p.runtime().unwrap().fields.floats.as_ref().unwrap()[0].to_bits(),
+        7.0f32.to_bits()
+    );
+    p.discard_runtime_host().unwrap();
+}
+
+#[test]
+fn car_breakmotor_and_forcestop_latch_on_car_owner() {
+    use crate::original_program::RuntimeReferenceSlot;
+    // BREAKMOTOR stores p[1] != 0 on the car.
+    let mut memory = Memory::default();
+    let mut p = program(b"car_breakmotor 0,1", &mut memory);
+    p.init_fresh_runtime(&mut memory).unwrap();
+    let car = ActorReferenceId::from_existing(11);
+    p.runtime.as_mut().unwrap().fields.actor_count = 1;
+    p.runtime.as_mut().unwrap().fields.actors = Some(
+        vec![RuntimeReferenceSlot::Reference(car)].into_boxed_slice(),
+    );
+    memory.entity_world.car_speeds.insert(car, 0.0);
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
+    assert_eq!(memory.entity_world.break_motors.get(&car), Some(&true));
+
+    // Clearing stores false through the same latch.
+    let mut memory = Memory::default();
+    let mut p = program(b"car_breakmotor 0,0", &mut memory);
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.runtime.as_mut().unwrap().fields.actor_count = 1;
+    p.runtime.as_mut().unwrap().fields.actors = Some(
+        vec![RuntimeReferenceSlot::Reference(car)].into_boxed_slice(),
+    );
+    memory.entity_world.car_speeds.insert(car, 0.0);
+    memory.entity_world.break_motors.insert(car, true);
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(memory.entity_world.break_motors.get(&car), Some(&false));
+
+    // Non-car advances without storing.
+    let mut memory = Memory::default();
+    let mut p = program(b"car_breakmotor 0,1", &mut memory);
+    p.init_fresh_runtime(&mut memory).unwrap();
+    let other = ActorReferenceId::from_existing(13);
+    p.runtime.as_mut().unwrap().fields.actor_count = 1;
+    p.runtime.as_mut().unwrap().fields.actors = Some(
+        vec![RuntimeReferenceSlot::Reference(other)].into_boxed_slice(),
+    );
+    memory.entity_world.non_cars.insert(other);
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert!(memory.entity_world.break_motors.is_empty());
+
+    // FORCESTOP latches Deactivate+Reset as a flag; physics stays deferred.
+    let mut memory = Memory::default();
+    let mut p = program(b"car_forcestop 0", &mut memory);
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.runtime.as_mut().unwrap().fields.actor_count = 1;
+    p.runtime.as_mut().unwrap().fields.actors = Some(
+        vec![RuntimeReferenceSlot::Reference(car)].into_boxed_slice(),
+    );
+    memory.entity_world.car_speeds.insert(car, 5.0);
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
+    assert_eq!(memory.entity_world.force_stops, vec![car]);
+
+    // Non-car forcestop advances without effect.
+    let mut memory = Memory::default();
+    let mut p = program(b"car_forcestop 0", &mut memory);
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.runtime.as_mut().unwrap().fields.actor_count = 1;
+    p.runtime.as_mut().unwrap().fields.actors = Some(
+        vec![RuntimeReferenceSlot::Reference(other)].into_boxed_slice(),
+    );
+    memory.entity_world.non_cars.insert(other);
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert!(memory.entity_world.force_stops.is_empty());
+    p.discard_runtime_host().unwrap();
+}
+
+#[test]
+fn player_lockcontrols_stores_bool_and_defers_breath() {
+    // Hand-derived: LockControls(param != 0); Do_Breath is not run here.
+    for (argument, expected) in [(1, true), (0, false), (-5, true)] {
+        let mut memory = Memory::default();
+        let source = format!("player_lockcontrols {argument}");
+        let mut p = program(source.as_bytes(), &mut memory);
+        let progress = p.init_fresh_runtime(&mut memory).unwrap();
+        assert_eq!((progress.accepted, progress.errors), (1, 0));
+        p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+            .unwrap();
+        assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
+        assert_eq!(memory.entity_world.player_locked, Some(expected));
+    }
+    // A refusing world stops dispatch instead of faking the lock.
+    let mut memory = Memory::default();
+    let mut p = program(b"player_lockcontrols 1", &mut memory);
+    p.init_fresh_runtime(&mut memory).unwrap();
+    memory.entity_world.fail_player_lock = true;
+    let error = p
+        .call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap_err();
+    assert!(
+        format!("{error:?}").contains("injected player-lock failure"),
+        "{error:?}"
+    );
+    p.discard_runtime_host().unwrap();
+}
+
+#[test]
+fn setcitytrafficvisible_and_noanimpreload_record_game_flags() {
+    for (argument, expected) in [(1, true), (0, false), (-5, true)] {
+        let mut memory = Memory::default();
+        let source = format!("setcitytrafficvisible {argument}");
+        let mut p = program(source.as_bytes(), &mut memory);
+        let progress = p.init_fresh_runtime(&mut memory).unwrap();
+        assert_eq!((progress.accepted, progress.errors), (1, 0));
+        p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+            .unwrap();
+        assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
+        assert!(
+            memory
+                .events
+                .iter()
+                .any(|event| event.0 == RuntimeEffect::SetCityTrafficVisible(expected)),
+            "missing SetCityTrafficVisible({expected}) for argument {argument}"
+        );
+    }
+    let mut memory = Memory::default();
+    let mut p = program(b"noanimpreload", &mut memory);
+    let progress = p.init_fresh_runtime(&mut memory).unwrap();
+    assert_eq!((progress.accepted, progress.errors), (1, 0));
+    p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
+    assert!(
+        memory
+            .events
+            .iter()
+            .any(|event| event.0 == RuntimeEffect::DisableAnimPreload),
+        "missing DisableAnimPreload effect"
+    );
+    p.discard_runtime_host().unwrap();
 }

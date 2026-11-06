@@ -346,6 +346,64 @@ impl<D> LookupWorldBackend for MissionLookupWorld<'_, D> {
             .program_set_event(actor, event_id)
             .map_err(|error| LookupError::Backend(format!("{error:?}")))
     }
+    fn actor_dead(&self, actor: ActorReferenceId) -> Result<bool, LookupError> {
+        self.world
+            .actor_dead(actor)
+            .map_err(|error| LookupError::Backend(format!("{error:?}")))
+    }
+    fn frame_world_position(
+        &mut self,
+        frame: FrameReferenceId,
+    ) -> Result<[f32; 3], LookupError> {
+        let key = FrameKey(frame.identity());
+        if self.arena.lookup_reference(key) != frame {
+            return Err(crate::frame_lookup::FrameLookupError::StaleFrame(frame).into());
+        }
+        let matrix = self
+            .arena
+            .world_matrix(key)
+            .map_err(|error| LookupError::Backend(format!("program frame world pos: {error:?}")))?;
+        matrix
+            .try_transform_point([0.0; 3])
+            .map_err(|error| LookupError::Backend(format!("program frame world pos: {error:?}")))
+    }
+    fn human_car(
+        &self,
+        actor: ActorReferenceId,
+    ) -> Result<Option<Option<ActorReferenceId>>, LookupError> {
+        self.world
+            .human_car(actor)
+            .map_err(|error| LookupError::Backend(format!("{error:?}")))
+    }
+    fn car_speed(&self, actor: ActorReferenceId) -> Result<Option<f32>, LookupError> {
+        self.world
+            .car_speed(actor)
+            .map_err(|error| LookupError::Backend(format!("{error:?}")))
+    }
+    fn is_car_usable(&self, actor: ActorReferenceId) -> Result<Option<bool>, LookupError> {
+        self.world
+            .is_car_usable(actor)
+            .map_err(|error| LookupError::Backend(format!("{error:?}")))
+    }
+    fn set_car_break_motor(
+        &mut self,
+        actor: ActorReferenceId,
+        on: bool,
+    ) -> Result<bool, LookupError> {
+        self.world
+            .set_car_break_motor(actor, on)
+            .map_err(|error| LookupError::Backend(format!("{error:?}")))
+    }
+    fn force_stop_car(&mut self, actor: ActorReferenceId) -> Result<bool, LookupError> {
+        self.world
+            .force_stop_car(actor)
+            .map_err(|error| LookupError::Backend(format!("{error:?}")))
+    }
+    fn set_player_controls_locked(&mut self, locked: bool) -> Result<(), LookupError> {
+        self.world
+            .set_player_controls_locked(locked)
+            .map_err(|error| LookupError::Backend(format!("{error:?}")))
+    }
 }
 impl<D: MissionProgramDiagnostic> RuntimeLookupWorld for MissionLookupWorld<'_, D> {
     fn runtime_message_beep(

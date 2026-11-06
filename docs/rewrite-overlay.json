@@ -8374,6 +8374,15 @@
       "symbol": "lhr_engine::game_camera_tick_prologue::tick_prologue",
       "tier": "contract",
       "evidence": "mafia-re 113b5b6 game/camera/g_camera.cpp:368-389 (prologue: params snapshot, null-camera out, 83ms clamp, dt, MENU/unknown_20/player guards, naklon += dt*0.3 wrap 2.0) + g_camera.cpp:39 MAX_TICK_TIME + g_camera.cpp:143-144 naklon 0x6bdb04 + g_camera.h:125-137 layout (camera 0x4/player 0x8/mode 0x10/params 0x1c/unknown_20 0x20 via game_camera_reset.rs 0xa0-B Game+0x4c slice) + Rizin bounds 0x5ed4c0-0x5f20e0 (Ghidra split deferred: contract ceiling) + Rust tests (authored without cargo, no execution claimed); SCOPE: prologue only, mode dispatch g_camera.cpp:390 on DEFERRED with explicit code markers, no full-function credit; executed green by orchestrator: `cargo test -p lhr-engine --lib game_camera_tick` 4 passed (base e4722da + uncommitted)"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x174bd0",
+      "va": "0x574bd0",
+      "name": "C_human::GameInit (prefix slice)",
+      "symbol": "lhr_engine::human_actor::HumanState::apply_game_init_prefix",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 game/actors/C_human.cpp:3174-3176 (car = NULL; using_car = NULL; action_state = HUMAN_ACTION_STAND) + :3180 (memcpy(properties, max_properties, sizeof(properties))) + game/actors/C_human.h:137 (HUMAN_ACTION_STAND 1) + :707-713 (0x9c C_car *using_car, name ours per upstream comment) + :824-826 (0x40c int action_state, name ours) + S_human_savegame 0x6d ushort packing; Game.exe SHA256 08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27 base 0x400000; contract tier: upstream source plus authored Rust tests in human_actor.rs (prefix-defaults and dirty-restore vectors); SCOPE: prefix slice only, the :3162-3407 remainder (orig_model, C_actor::GameInit prefix, base_frame lookup, DebustizeFrame/NoShadowFrame, vehicle_action, anim_machine.Init, anim/velocity/combat/move/shot words, poses, sound frames, shadow, weapons, inventory, ground snap, loc/blob/cutscene words) plus AI/Update DEFERRED; authored tests not executed (cargo unavailable); executed green by orchestrator: `cargo test -p lhr-engine --lib human_actor` 11 passed (base 42b7d07 + uncommitted)"
     }
   ],
   "vm": {

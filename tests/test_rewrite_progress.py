@@ -47,7 +47,9 @@ class RewriteProgressTests(unittest.TestCase):
         # +1 G_Camera::Tick prologue 0x1ed4c0 contract (guards + dt/naklon;
         # Rizin bounds only, Ghidra split deferred). Detector SETSIGNAL/
         # ISSIGNAL arms (27/28) ride ledgered Process 0x6d3b0, no entries.
-        self.assertEqual(game["ported"], 149 + 46)
+        # +1 C_human::GameInit prefix slice 0x174bd0 contract (NULL latches,
+        # STAND, max->current copy; non-contiguous :3174-3176+:3180).
+        self.assertEqual(game["ported"], 149 + 47)
         self.assertEqual(game["verified"], 149 + 7)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])

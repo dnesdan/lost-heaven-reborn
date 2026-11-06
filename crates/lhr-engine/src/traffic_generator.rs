@@ -405,6 +405,30 @@ impl TrafficGameFlags {
     }
 }
 
+/// Game-global city-traffic visibility for SETCITYTRAFFICVISIBLE (mafia-re
+/// 113b5b6 game/mission/C_program.cpp:5677, C_game::SetTrafficVisible GAME
+/// 0x5a8470 STUB). The native body only logs; the Rust flag records
+/// `p[0] != 0` for the future traffic tick. Starts visible; the Init default
+/// is unevidenced and stays open. No overlay entry; rides Process 0x6d3b0.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CityTrafficVisibleState {
+    visible: bool,
+}
+impl Default for CityTrafficVisibleState {
+    fn default() -> Self {
+        Self { visible: true }
+    }
+}
+impl CityTrafficVisibleState {
+    pub fn visible(self) -> bool {
+        self.visible
+    }
+    /// Original `SetTrafficVisible(p[0] != 0)` store.
+    pub fn set_visible(&mut self, visible: bool) {
+        self.visible = visible;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -444,5 +468,16 @@ mod tests {
         };
         flags.clear_player_in_taxi();
         assert!(!flags.player_in_taxi());
+    }
+
+    #[test]
+    fn city_traffic_visible_starts_visible_and_stores_bool() {
+        // Hand-derived: default visible, SetTrafficVisible(p[0] != 0).
+        let mut state = CityTrafficVisibleState::default();
+        assert!(state.visible());
+        state.set_visible(false);
+        assert!(!state.visible());
+        state.set_visible(true);
+        assert!(state.visible());
     }
 }

@@ -38,6 +38,21 @@ pub struct CarActorState {
     fill: u8,
     vehicle_allocator_tag: u8,
     vehicle_returned_initialized: bool,
+    /// Script-visible dynamics latch for CAR_GETSPEED (mafia-re 113b5b6
+    /// game/vehicles/C_Vehicle.h:266 GetSpeed GAME 0x47b0f0 reads `speed`
+    /// at 0x59c, m/s; C_program.cpp:4994 stores `* 3.6f` to km/h). The live
+    /// dynamics producer (SetVelocity) stays open; this starts at 0.0.
+    /// No overlay entry; rides Process 0x6d3b0.
+    script_speed_mps: f32,
+    /// Script-visible motor latch for CAR_BREAKMOTOR (mafia-re 113b5b6
+    /// game/vehicles/C_car.h:276 break_motor at 0x210d, SetBreakMotor GAME
+    /// 0x47b3e0; C_program.cpp:5002 stores `p[1]`). Starts clear.
+    break_motor: bool,
+    /// Script-visible stop latch for CAR_FORCESTOP (mafia-re 113b5b6
+    /// game/mission/C_program.cpp:5803: `Deactivate(0)` + `Reset(0.0f,
+    /// true)`). The physics/AI effects of those calls stay DEFERRED; this
+    /// records that the command ran. Starts clear.
+    force_stopped: bool,
 }
 
 /// Read-only provenance for a reached Init automatic vector. These are
@@ -273,6 +288,31 @@ impl CarActorState {
     pub fn vehicle_byte_validity(&self) -> Option<&[bool]> {
         self.vehicle.as_ref().map(VehicleInitState::byte_validity)
     }
+    /// Script-visible speed latch for CAR_GETSPEED reads.
+    pub fn script_speed_mps(&self) -> f32 {
+        self.script_speed_mps
+    }
+    /// Test/host setter for the dynamics speed latch (SetVelocity stays open).
+    pub fn set_script_speed_mps(&mut self, speed: f32) {
+        self.script_speed_mps = speed;
+    }
+    /// Script-visible motor latch for CAR_BREAKMOTOR.
+    pub fn break_motor(&self) -> bool {
+        self.break_motor
+    }
+    /// Original SetBreakMotor(bool) store.
+    pub fn set_break_motor(&mut self, on: bool) {
+        self.break_motor = on;
+    }
+    /// Script-visible stop latch for CAR_FORCESTOP.
+    pub fn force_stopped(&self) -> bool {
+        self.force_stopped
+    }
+    /// Original Deactivate(0)+Reset(0.0f,true) applied as a latch; the
+    /// physics/AI effects stay DEFERRED.
+    pub fn apply_force_stop(&mut self) {
+        self.force_stopped = true;
+    }
     pub(crate) fn allocation(actor: ActorReferenceId, seed: CarSeed) -> Result<Self, String> {
         // A checked, scoped compatibility translation, never another actor ID
         // or an original process pointer. Distinct actors cannot overlap.
@@ -318,6 +358,9 @@ impl CarActorState {
             fill: seed.allocator_fill,
             vehicle_allocator_tag: seed.vehicle_allocator_tag,
             vehicle_returned_initialized: false,
+            script_speed_mps: 0.0,
+            break_motor: false,
+            force_stopped: false,
         })
     }
     pub(crate) fn construct(
@@ -650,6 +693,24 @@ mod tests {
                 .unwrap();
             assert!(state.init_temporaries(&services).unwrap().is_empty());
         }
+    }
+    #[test]
+    fn script_speed_break_and_stop_latches_start_clear_and_store() {
+        // Hand-derived: GetSpeed latch starts 0.0 m/s, break/force start clear.
+        let mut state = car(9, 0xa5);
+        assert_eq!(state.script_speed_mps(), 0.0);
+        assert!(!state.break_motor());
+        assert!(!state.force_stopped());
+        state.set_script_speed_mps(10.0);
+        assert_eq!(state.script_speed_mps(), 10.0);
+        // 10.0 m/s * 3.6 = 36.0 km/h for CAR_GETSPEED.
+        assert_eq!(state.script_speed_mps() * 3.6, 36.0);
+        state.set_break_motor(true);
+        assert!(state.break_motor());
+        state.set_break_motor(false);
+        assert!(!state.break_motor());
+        state.apply_force_stop();
+        assert!(state.force_stopped());
     }
     #[test]
     fn retired_vehicle_scope_never_reinterprets_stale_exhaust_or_frees_unrelated_heap() {

@@ -42,6 +42,8 @@ mod name_parameters;
 mod pair_parameters;
 #[path = "program_detector_parameters.rs"]
 mod detector_parameters;
+#[path = "program_getactorsdist_parameters.rs"]
+mod getactorsdist_parameters;
 #[path = "program_quad_parameters.rs"]
 mod quad_parameters;
 #[path = "program_remaining_parameters.rs"]
@@ -102,6 +104,10 @@ pub use detector_parameters::{
     supports_detector_signal_opcode, AsciiDetectorSignalParameterBackend,
     DetectorSignalDecodeError, DetectorSignalParameter, DetectorSignalParameterBackend,
     DetectorSignalParameterSlot,
+};
+pub use getactorsdist_parameters::{
+    supports_getactorsdist_opcode, AsciiGetActorsDistParameterBackend, GetActorsDistDecodeError,
+    GetActorsDistParameter, GetActorsDistParameterBackend, GetActorsDistParameterSlot,
 };
 pub use quad_parameters::{
     supports_quad_opcode, AsciiQuadParameterBackend, QuadDecodeError, QuadParameter,
@@ -238,6 +244,7 @@ pub enum InstructionParameter {
     Event(EventParameterSlot),
     SetEvent(SetEventParameterSlot),
     DetectorSignal(DetectorSignalParameterSlot),
+    GetActorsDist(GetActorsDistParameterSlot),
     HumanTalk(HumanTalkParameterSlot),
     EndOfMission(EndOfMissionParameterSlot),
     ChangeMission(ChangeMissionParameterSlot),
@@ -266,6 +273,7 @@ impl InstructionParameter {
             | Self::ActState(_)
             | Self::Block(_)
             | Self::DetectorSignal(_)
+            | Self::GetActorsDist(_)
             | Self::IfFlt(_) => None,
         }
     }
@@ -285,6 +293,7 @@ impl InstructionParameter {
             | Self::ActState(_)
             | Self::Block(_)
             | Self::DetectorSignal(_)
+            | Self::GetActorsDist(_)
             | Self::IfFlt(_) => None,
             Self::Name(slot) => slot.parameter(),
         }
@@ -306,6 +315,7 @@ impl InstructionParameter {
             | Self::ActState(_)
             | Self::Block(_)
             | Self::DetectorSignal(_)
+            | Self::GetActorsDist(_)
             | Self::IfFlt(_) => None,
         }
     }
@@ -326,6 +336,7 @@ impl InstructionParameter {
             | Self::ActState(_)
             | Self::Block(_)
             | Self::DetectorSignal(_)
+            | Self::GetActorsDist(_)
             | Self::IfFlt(_) => None,
         }
     }
@@ -346,6 +357,7 @@ impl InstructionParameter {
             | Self::ActState(_)
             | Self::Block(_)
             | Self::DetectorSignal(_)
+            | Self::GetActorsDist(_)
             | Self::IfFlt(_) => None,
         }
     }
@@ -366,6 +378,7 @@ impl InstructionParameter {
             | Self::ActState(_)
             | Self::Block(_)
             | Self::DetectorSignal(_)
+            | Self::GetActorsDist(_)
             | Self::IfFlt(_) => None,
         }
     }
@@ -386,6 +399,7 @@ impl InstructionParameter {
             | Self::ActState(_)
             | Self::Block(_)
             | Self::DetectorSignal(_)
+            | Self::GetActorsDist(_)
             | Self::IfFlt(_) => None,
         }
     }
@@ -406,6 +420,28 @@ impl InstructionParameter {
             | Self::Quad(_)
             | Self::ActState(_)
             | Self::Block(_)
+            | Self::GetActorsDist(_)
+            | Self::IfFlt(_) => None,
+        }
+    }
+    pub fn getactorsdist_parameter(&self) -> Option<&GetActorsDistParameter> {
+        match self {
+            Self::GetActorsDist(slot) => slot.parameter(),
+            Self::Scalar(_)
+            | Self::Name(_)
+            | Self::Pair(_)
+            | Self::Flow(_)
+            | Self::Entity(_)
+            | Self::Event(_)
+            | Self::SetEvent(_)
+            | Self::HumanTalk(_)
+            | Self::EndOfMission(_)
+            | Self::ChangeMission(_)
+            | Self::Remaining(_)
+            | Self::Quad(_)
+            | Self::ActState(_)
+            | Self::Block(_)
+            | Self::DetectorSignal(_)
             | Self::IfFlt(_) => None,
         }
     }
@@ -426,6 +462,7 @@ impl InstructionParameter {
             | Self::ActState(_)
             | Self::Block(_)
             | Self::DetectorSignal(_)
+            | Self::GetActorsDist(_)
             | Self::IfFlt(_) => None,
         }
     }
@@ -446,6 +483,7 @@ impl InstructionParameter {
             | Self::ActState(_)
             | Self::Block(_)
             | Self::DetectorSignal(_)
+            | Self::GetActorsDist(_)
             | Self::IfFlt(_) => None,
         }
     }
@@ -466,6 +504,7 @@ impl InstructionParameter {
             | Self::ActState(_)
             | Self::Block(_)
             | Self::DetectorSignal(_)
+            | Self::GetActorsDist(_)
             | Self::IfFlt(_) => None,
         }
     }
@@ -486,6 +525,7 @@ impl InstructionParameter {
             | Self::ActState(_)
             | Self::Block(_)
             | Self::DetectorSignal(_)
+            | Self::GetActorsDist(_)
             | Self::IfFlt(_) => None,
         }
     }
@@ -506,6 +546,7 @@ impl InstructionParameter {
             | Self::ActState(_)
             | Self::Block(_)
             | Self::DetectorSignal(_)
+            | Self::GetActorsDist(_)
             | Self::IfFlt(_) => None,
         }
     }
@@ -526,6 +567,7 @@ impl InstructionParameter {
             | Self::ActState(_)
             | Self::Block(_)
             | Self::DetectorSignal(_)
+            | Self::GetActorsDist(_)
             | Self::IfFlt(_) => None,
         }
     }
@@ -546,6 +588,7 @@ impl InstructionParameter {
             | Self::Block(_)
             | Self::IfFlt(_)
             | Self::DetectorSignal(_)
+            | Self::GetActorsDist(_)
             | Self::Quad(_) => None,
         }
     }
@@ -566,6 +609,7 @@ impl InstructionParameter {
             | Self::Quad(_)
             | Self::IfFlt(_)
             | Self::DetectorSignal(_)
+            | Self::GetActorsDist(_)
             | Self::ActState(_) => None,
         }
     }
@@ -586,6 +630,7 @@ impl InstructionParameter {
             | Self::Quad(_)
             | Self::Block(_)
             | Self::DetectorSignal(_)
+            | Self::GetActorsDist(_)
             | Self::ActState(_) => None,
         }
     }
@@ -654,6 +699,9 @@ pub enum RuntimeEffect {
     AllocateDetectorSignal,
     ConvertDetectorSignalRegister,
     ReleaseDetectorSignal(u32),
+    AllocateGetActorsDist,
+    ConvertGetActorsDist(usize),
+    ReleaseGetActorsDist(u32),
     AllocateHumanTalk,
     ConvertHumanTalk(usize),
     ReleaseHumanTalk(u32),
@@ -696,6 +744,19 @@ pub enum RuntimeEffect {
     /// The backend records the request; the frame array, state words and
     /// culling pass belong to a future game owner and stay open.
     UseLightCache,
+    /// City-traffic visibility latch (`SETCITYTRAFFICVISIBLE` 213): true when
+    /// the command's integer operand is nonzero, matching
+    /// `SetTrafficVisible(p[0] != 0)` (mafia-re 113b5b6
+    /// game/mission/C_program.cpp:5677, C_game::SetTrafficVisible GAME
+    /// 0x5a8470 STUB). A backend without game ownership records it without
+    /// applying; the traffic_generator visible flag is the future owner.
+    SetCityTrafficVisible(bool),
+    /// Animation preload clear (`NOANIMPRELOAD` 307): matches
+    /// `SetAnimPreload(false)` (mafia-re 113b5b6
+    /// game/mission/C_program.cpp:6766, C_game::SetAnimPreload GAME 0x47b690).
+    /// A backend without game ownership records it without applying; the
+    /// animation_catalog preload flag is the future owner.
+    DisableAnimPreload,
 }
 /// Required external allocation boundary, borrowing actual fields at the call.
 /// The runtime itself owns actual Rust allocations and performs release only
@@ -852,6 +913,16 @@ pub trait RuntimeBackend {
         fields: RuntimeView<'_>,
         effect: RuntimeEffect,
         _published: Option<&DetectorSignalParameter>,
+    ) -> Result<(), String> {
+        self.effect(fields, effect, None)
+    }
+    /// GetActorsDist parameters have their own actual instruction-owned payload.
+    /// A default backend still observes the required allocation/conversion/free.
+    fn getactorsdist_parameter_effect(
+        &mut self,
+        fields: RuntimeView<'_>,
+        effect: RuntimeEffect,
+        _published: Option<&GetActorsDistParameter>,
     ) -> Result<(), String> {
         self.effect(fields, effect, None)
     }
@@ -1138,6 +1209,40 @@ impl<B: RuntimeBackend> DetectorSignalParameterBackend for DetectorSignalBoundar
             )
             .map_err(RuntimeError::Effect)?;
         ascii_integer_prefix(token).map_err(|e| RuntimeError::Parameter(e.to_string()))
+    }
+}
+struct GetActorsDistBoundary<'a, B> {
+    fields: &'a mut RuntimeFields,
+    backend: &'a mut B,
+}
+impl<B: RuntimeBackend> GetActorsDistParameterBackend for GetActorsDistBoundary<'_, B> {
+    type Error = RuntimeError;
+    fn allocate_getactorsdist(
+        &mut self,
+    ) -> Result<Option<Box<GetActorsDistParameter>>, RuntimeError> {
+        self.backend
+            .getactorsdist_parameter_effect(
+                self.fields.view(),
+                RuntimeEffect::AllocateGetActorsDist,
+                None,
+            )
+            .map_err(RuntimeError::Effect)?;
+        Ok(Some(Box::new(GetActorsDistParameter::default())))
+    }
+    fn convert_integer(
+        &mut self,
+        index: usize,
+        token: &[u8],
+        published: &GetActorsDistParameter,
+    ) -> Result<i32, RuntimeError> {
+        self.backend
+            .getactorsdist_parameter_effect(
+                self.fields.view(),
+                RuntimeEffect::ConvertGetActorsDist(index),
+                Some(published),
+            )
+            .map_err(RuntimeError::Effect)?;
+        ascii_integer_prefix(token).map_err(|error| RuntimeError::Parameter(error.to_string()))
     }
 }
 struct EndOfMissionBoundary<'a, B> {
@@ -1489,6 +1594,10 @@ impl<B: RuntimeBackend> CompileBackend for Compiler<'_, B> {
                 Some(InstructionParameter::DetectorSignal(
                     DetectorSignalParameterSlot::default(),
                 ))
+            } else if supports_getactorsdist_opcode(opcode) {
+                Some(InstructionParameter::GetActorsDist(
+                    GetActorsDistParameterSlot::default(),
+                ))
             } else if supports_human_talk_opcode(opcode) {
                 Some(InstructionParameter::HumanTalk(
                     HumanTalkParameterSlot::default(),
@@ -1593,6 +1702,14 @@ impl<B: RuntimeBackend> CompileBackend for Compiler<'_, B> {
                 }
                 InstructionParameter::DetectorSignal(slot) => {
                     let mut boundary = DetectorSignalBoundary {
+                        fields: self.fields,
+                        backend: self.backend,
+                    };
+                    slot.decode(opcode, parameters, &mut boundary)
+                        .map_err(|error| RuntimeError::Parameter(format!("{error:?}")))?
+                }
+                InstructionParameter::GetActorsDist(slot) => {
+                    let mut boundary = GetActorsDistBoundary {
                         fields: self.fields,
                         backend: self.backend,
                     };
@@ -1713,6 +1830,7 @@ pub struct HostRuntimeDiscard {
     pub event_allocations: usize,
     pub set_event_allocations: usize,
     pub detector_signal_allocations: usize,
+    pub getactorsdist_allocations: usize,
     pub human_talk_allocations: usize,
     pub end_of_mission_allocations: usize,
     pub change_mission_allocations: usize,
@@ -2079,6 +2197,18 @@ impl CProgram {
                         .is_some_and(|payload| payload.detector_signal_parameter().is_some())
                 })
                 .count(),
+            getactorsdist_allocations: runtime
+                .instructions
+                .records
+                .iter()
+                .chain(runtime.pending.iter())
+                .filter(|instruction| {
+                    instruction
+                        .parameter
+                        .as_ref()
+                        .is_some_and(|payload| payload.getactorsdist_parameter().is_some())
+                })
+                .count(),
             human_talk_allocations: runtime
                 .instructions
                 .records
@@ -2247,6 +2377,13 @@ impl CProgram {
                         backend.detector_signal_parameter_effect(
                             runtime.fields.view(),
                             RuntimeEffect::ReleaseDetectorSignal(opcode),
+                            slot.parameter(),
+                        )
+                    }
+                    InstructionParameter::GetActorsDist(slot) => {
+                        backend.getactorsdist_parameter_effect(
+                            runtime.fields.view(),
+                            RuntimeEffect::ReleaseGetActorsDist(opcode),
                             slot.parameter(),
                         )
                     }
@@ -3460,10 +3597,10 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                         .map_err(RuntimeError::Lookup)?;
                 }
             }
-            29 | 36 | 45 | 57 | 68 | 101 | 102 | 103 | 106 | 122 | 129 | 135 | 136
+            29 | 36 | 45 | 68 | 101 | 102 | 103 | 106 | 122 | 129 | 135 | 136
             | 181 | 187 | 234 => {
                 // Remaining MISE01 commands: detector_inrange (29),
-                // soundfade (36), recloadfull (45), getactorsdist (57), loaddifferences (68),
+                // soundfade (36), recloadfull (45), loaddifferences (68),
                 // compareownerwithex (101), human_setproperty (102), human_getproperty (103),
                 // human_force_settocar (106), wingman_setindicator (122), autosavegame (129),
                 // policemanager_on/off (135/136), stream_create (181), stream_fadevol (187),
@@ -3471,6 +3608,115 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                 // execution is a no-op advance for now (car, player etc remain stubs).
                 // DEFERRED: detector_inrange (29) needs the live active-actor
                 // enumeration plus actor positions, which no lookup owner serves yet.
+            }
+            57 => {
+                // Original CMD_GETACTORSDIST (mafia-re 113b5b6
+                // game/mission/C_program.cpp:3631-3650, dispatching
+                // C_program::Process GAME 0x46d3b0; S_vector::Magnitude):
+                // with a bad float register breaks leaving the bank
+                // untouched, else stores 0.0 first. Bad or missing actor
+                // registers leave that 0.0 and advance. Live frames supply
+                // world positions for the distance; a missing frame leaves
+                // 0.0. With the fourth word set and the second actor dead,
+                // the distance clamps to at least 0.1 then negates. Only a
+                // refusing world stops dispatch.
+                let values = self
+                    .instructions
+                    .active()
+                    .get(state.program_counter as usize)
+                    .and_then(|instruction| instruction.parameter.as_ref())
+                    .and_then(|parameter| parameter.getactorsdist_parameter())
+                    .map(|parameter| parameter.values())
+                    .ok_or(RuntimeError::Domain("current getactorsdist parameter unavailable"))?;
+                let (areg_a, areg_b, freg, dead_flag) = (
+                    values[0].ok_or(RuntimeError::Domain(
+                        "current getactorsdist actor-a unavailable",
+                    ))?,
+                    values[1].ok_or(RuntimeError::Domain(
+                        "current getactorsdist actor-b unavailable",
+                    ))?,
+                    values[2].ok_or(RuntimeError::Domain(
+                        "current getactorsdist float register unavailable",
+                    ))?,
+                    values[3].ok_or(RuntimeError::Domain(
+                        "current getactorsdist dead flag unavailable",
+                    ))?,
+                );
+                if freg < 0 || (*self.float_count as i32) <= freg {
+                    // Native float-register guard breaks first.
+                } else {
+                    let bank = self.floats.as_mut().ok_or(RuntimeError::Domain(
+                        "float bank unavailable for admitted count",
+                    ))?;
+                    let slot = bank.get_mut(freg as usize).ok_or(RuntimeError::Domain(
+                        "float destination outside admitted bank",
+                    ))?;
+                    *slot = 0.0;
+                    if let (Some(actor_a), Some(actor_b)) =
+                        (self.actor_register(areg_a), self.actor_register(areg_b))
+                    {
+                        let mut distance: Option<f32> = None;
+                        // Resolve frames live; frameless actors are a host-only
+                        // state with no native branch (the original
+                        // dereferences GetFrame() unconditionally), so they
+                        // keep the stored 0.0 instead of touching null.
+                        let frame_a = self
+                            .backend
+                            .lookup_world()
+                            .map_err(RuntimeError::Lookup)?
+                            .actor_frame(actor_a)
+                            .map_err(RuntimeError::Lookup)?;
+                        let frame_b = self
+                            .backend
+                            .lookup_world()
+                            .map_err(RuntimeError::Lookup)?
+                            .actor_frame(actor_b)
+                            .map_err(RuntimeError::Lookup)?;
+                        if let (Some(frame_a), Some(frame_b)) = (frame_a, frame_b) {
+                            let pos_a = self
+                                .backend
+                                .lookup_world()
+                                .map_err(RuntimeError::Lookup)?
+                                .frame_world_position(frame_a)
+                                .map_err(RuntimeError::Lookup)?;
+                            let pos_b = self
+                                .backend
+                                .lookup_world()
+                                .map_err(RuntimeError::Lookup)?
+                                .frame_world_position(frame_b)
+                                .map_err(RuntimeError::Lookup)?;
+                            let dx = pos_a[0] - pos_b[0];
+                            let dy = pos_a[1] - pos_b[1];
+                            let dz = pos_a[2] - pos_b[2];
+                            distance = Some((dx * dx + dy * dy + dz * dz).sqrt());
+                        }
+                        if let Some(mut value) = distance {
+                            if dead_flag != 0 {
+                                let dead_b = self
+                                    .backend
+                                    .lookup_world()
+                                    .map_err(RuntimeError::Lookup)?
+                                    .actor_dead(actor_b)
+                                    .map_err(RuntimeError::Lookup)?;
+                                if dead_b {
+                                    if value < 0.1 {
+                                        value = 0.1;
+                                    }
+                                    value *= -1.0;
+                                }
+                            }
+                            let bank = self.floats.as_mut().ok_or(RuntimeError::Domain(
+                                "float bank unavailable for admitted count",
+                            ))?;
+                            let slot =
+                                bank.get_mut(freg as usize).ok_or(RuntimeError::Domain(
+                                    "float destination outside admitted bank",
+                                ))?;
+                            *slot = value;
+                        }
+                    }
+                    // Bad or missing actor registers leave the stored 0.0.
+                }
             }
             209 => {
                 // GETTICKTIME: float_regs[reg] = delta
@@ -3502,6 +3748,251 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
             180 => {
                 // USE_LIGHTCACHE: C_game::UseLightCacheSystem(), no operands
                 self.effect(state, RuntimeEffect::UseLightCache)?;
+            }
+            95 => {
+                // Original CMD_PLAYER_LOCKCONTROLS (mafia-re 113b5b6
+                // game/mission/C_program.cpp:4172-4180, dispatching
+                // C_program::Process GAME 0x46d3b0; C_player::LockControls
+                // GAME 0x595f00 STUB): records `param != 0` on the game player
+                // for a future owner; the native body is an empty STUB
+                // storing nothing. No player advances without effect; Do_Breath stays
+                // DEFERRED (needs the player breath/animation owner). Only a
+                // refusing world stops dispatch.
+                let value = self.value_at(state)?;
+                self.backend
+                    .lookup_world()
+                    .map_err(RuntimeError::Lookup)?
+                    .set_player_controls_locked(value != 0)
+                    .map_err(RuntimeError::Lookup)?;
+            }
+            105 => {
+                // Original CMD_HUMAN_GETOWNER (mafia-re 113b5b6
+                // game/mission/C_program.cpp:4325-4339, dispatching
+                // C_program::Process GAME 0x46d3b0; C_human::GetCar GAME
+                // 0x47b7b0): with out-of-range registers or a missing source
+                // actor breaks leaving the destination untouched, like the
+                // native register guards. A resolved non-human advances
+                // without dest write (native type gate). A human writes its
+                // live car latch (null becomes empty). The three-conjunct
+                // nulling gate (GetCar()->GetType() == ACTOR_CAR plus
+                // action_state != HUMAN_ACTION_CAR 9 per C_human.h:145 with
+                // seat > -1) needs enter-car AI and stays DEFERRED: the car
+                // latch is an untyped ActorReferenceId, so the type conjunct
+                // is deferred with the seat/action writers. Only a refusing
+                // world stops dispatch.
+                let pair = self
+                    .instructions
+                    .active()
+                    .get(state.program_counter as usize)
+                    .and_then(|instruction| instruction.parameter.as_ref())
+                    .and_then(|parameter| parameter.pair_parameter())
+                    .map(|parameter| parameter.values())
+                    .ok_or(RuntimeError::Domain("current getowner parameter unavailable"))?;
+                let (src, dst) = (
+                    pair[0].ok_or(RuntimeError::Domain(
+                        "current getowner source unavailable",
+                    ))?,
+                    pair[1].ok_or(RuntimeError::Domain(
+                        "current getowner destination unavailable",
+                    ))?,
+                );
+                if src < 0
+                    || dst < 0
+                    || (*self.actor_count as i32) <= src
+                    || (*self.actor_count as i32) <= dst
+                {
+                    // Native register guards break first.
+                } else if let Some(actor) = self.actor_register(src) {
+                    let car = self
+                        .backend
+                        .lookup_world()
+                        .map_err(RuntimeError::Lookup)?
+                        .human_car(actor)
+                        .map_err(RuntimeError::Lookup)?;
+                    if let Some(car) = car {
+                        let actors = self.actors.as_mut().ok_or(RuntimeError::Domain(
+                            "actor bank unavailable for admitted count",
+                        ))?;
+                        let slot = actors.get_mut(dst as usize).ok_or(RuntimeError::Domain(
+                            "actor destination outside admitted bank",
+                        ))?;
+                        *slot = car.map_or(
+                            RuntimeReferenceSlot::Empty,
+                            RuntimeReferenceSlot::Reference,
+                        );
+                    }
+                }
+            }
+            143 => {
+                // Original CMD_ISCARUSABLE (mafia-re 113b5b6
+                // game/mission/C_program.cpp:4954-4960, dispatching
+                // C_program::Process GAME 0x46d3b0; C_car::IsCarUsable GAME
+                // 0x429850 STUB false): with bad registers breaks leaving the
+                // float bank untouched. A resolved non-car advances without
+                // store (native type gate). A car stores the predicate as a
+                // float (1.0/0.0; always 0.0 until the stub is replaced).
+                // Partial: the full usable predicate stays DEFERRED. Only a
+                // refusing world stops dispatch.
+                let pair = self
+                    .instructions
+                    .active()
+                    .get(state.program_counter as usize)
+                    .and_then(|instruction| instruction.parameter.as_ref())
+                    .and_then(|parameter| parameter.pair_parameter())
+                    .map(|parameter| parameter.values())
+                    .ok_or(RuntimeError::Domain("current iscarusable parameter unavailable"))?;
+                let (areg, freg) = (
+                    pair[0].ok_or(RuntimeError::Domain(
+                        "current iscarusable actor unavailable",
+                    ))?,
+                    pair[1].ok_or(RuntimeError::Domain(
+                        "current iscarusable float register unavailable",
+                    ))?,
+                );
+                if areg < 0
+                    || freg < 0
+                    || (*self.actor_count as i32) <= areg
+                    || (*self.float_count as i32) <= freg
+                {
+                } else if let Some(actor) = self.actor_register(areg) {
+                    let usable = self
+                        .backend
+                        .lookup_world()
+                        .map_err(RuntimeError::Lookup)?
+                        .is_car_usable(actor)
+                        .map_err(RuntimeError::Lookup)?;
+                    if let Some(usable) = usable {
+                        let bank = self.floats.as_mut().ok_or(RuntimeError::Domain(
+                            "float bank unavailable for admitted count",
+                        ))?;
+                        let slot = bank.get_mut(freg as usize).ok_or(RuntimeError::Domain(
+                            "float destination outside admitted bank",
+                        ))?;
+                        *slot = if usable { 1.0 } else { 0.0 };
+                    }
+                }
+            }
+            147 => {
+                // Original CMD_CAR_GETSPEED (mafia-re 113b5b6
+                // game/mission/C_program.cpp:4994-5000, dispatching
+                // C_program::Process GAME 0x46d3b0; C_Vehicle::GetSpeed GAME
+                // 0x47b0f0 reads speed at 0x59c m/s): with bad registers
+                // breaks leaving the float bank untouched. A resolved non-car
+                // advances without store (native type gate). A car stores
+                // `speed * 3.6f` km/h. The dynamics producer (SetVelocity)
+                // stays open. Only a refusing world stops dispatch.
+                let pair = self
+                    .instructions
+                    .active()
+                    .get(state.program_counter as usize)
+                    .and_then(|instruction| instruction.parameter.as_ref())
+                    .and_then(|parameter| parameter.pair_parameter())
+                    .map(|parameter| parameter.values())
+                    .ok_or(RuntimeError::Domain("current getspeed parameter unavailable"))?;
+                let (areg, freg) = (
+                    pair[0].ok_or(RuntimeError::Domain(
+                        "current getspeed actor unavailable",
+                    ))?,
+                    pair[1].ok_or(RuntimeError::Domain(
+                        "current getspeed float register unavailable",
+                    ))?,
+                );
+                if areg < 0
+                    || freg < 0
+                    || (*self.actor_count as i32) <= areg
+                    || (*self.float_count as i32) <= freg
+                {
+                } else if let Some(actor) = self.actor_register(areg) {
+                    let speed = self
+                        .backend
+                        .lookup_world()
+                        .map_err(RuntimeError::Lookup)?
+                        .car_speed(actor)
+                        .map_err(RuntimeError::Lookup)?;
+                    if let Some(speed) = speed {
+                        let bank = self.floats.as_mut().ok_or(RuntimeError::Domain(
+                            "float bank unavailable for admitted count",
+                        ))?;
+                        let slot = bank.get_mut(freg as usize).ok_or(RuntimeError::Domain(
+                            "float destination outside admitted bank",
+                        ))?;
+                        *slot = speed * 3.6;
+                    }
+                }
+            }
+            149 => {
+                // Original CMD_CAR_FORCESTOP (mafia-re 113b5b6
+                // game/mission/C_program.cpp:5803-5814, dispatching
+                // C_program::Process GAME 0x46d3b0: `Deactivate(0)` +
+                // `Reset(0.0f, true)`): with a bad register or a missing
+                // actor breaks. A resolved non-car advances without effect
+                // (native type gate). A car latches the stop; the
+                // physics/AI effects of those calls stay DEFERRED (needs
+                // vehicle dynamics, camera, HUD). Only a refusing world stops
+                // dispatch.
+                let reg = self.value_at(state)?;
+                if reg >= 0 && (*self.actor_count as i32) > reg {
+                    if let Some(actor) = self.actor_register(reg) {
+                        self.backend
+                            .lookup_world()
+                            .map_err(RuntimeError::Lookup)?
+                            .force_stop_car(actor)
+                            .map_err(RuntimeError::Lookup)?;
+                    }
+                }
+            }
+            150 => {
+                // Original CMD_CAR_BREAKMOTOR (mafia-re 113b5b6
+                // game/mission/C_program.cpp:5002-5008, dispatching
+                // C_program::Process GAME 0x46d3b0; C_car::SetBreakMotor GAME
+                // 0x47b3e0 stores break_motor at 0x210d): with a bad actor
+                // register breaks. A resolved non-car advances without effect
+                // (native type gate). A car stores `p[1]`. Only a refusing
+                // world stops dispatch.
+                let pair = self
+                    .instructions
+                    .active()
+                    .get(state.program_counter as usize)
+                    .and_then(|instruction| instruction.parameter.as_ref())
+                    .and_then(|parameter| parameter.pair_parameter())
+                    .map(|parameter| parameter.values())
+                    .ok_or(RuntimeError::Domain("current breakmotor parameter unavailable"))?;
+                let (areg, on) = (
+                    pair[0].ok_or(RuntimeError::Domain(
+                        "current breakmotor actor unavailable",
+                    ))?,
+                    pair[1].ok_or(RuntimeError::Domain(
+                        "current breakmotor switch unavailable",
+                    ))?,
+                );
+                if areg >= 0 && (*self.actor_count as i32) > areg {
+                    if let Some(actor) = self.actor_register(areg) {
+                        self.backend
+                            .lookup_world()
+                            .map_err(RuntimeError::Lookup)?
+                            .set_car_break_motor(actor, on != 0)
+                            .map_err(RuntimeError::Lookup)?;
+                    }
+                }
+            }
+            213 => {
+                // Original CMD_SETCITYTRAFFICVISIBLE (mafia-re 113b5b6
+                // game/mission/C_program.cpp:5677-5682, dispatching
+                // C_program::Process GAME 0x46d3b0; C_game::SetTrafficVisible
+                // GAME 0x5a8470 STUB): stores `p[0] != 0`. A backend without
+                // game ownership records it without applying; the
+                // traffic_generator visible flag is the future owner.
+                let value = self.value_at(state)?;
+                self.effect(state, RuntimeEffect::SetCityTrafficVisible(value != 0))?;
+            }
+            307 => {
+                // Original CMD_NOANIMPRELOAD (mafia-re 113b5b6
+                // game/mission/C_program.cpp:6766, dispatching
+                // C_program::Process GAME 0x46d3b0; C_game::SetAnimPreload
+                // GAME 0x47b690): stores false with no operands. A backend
+                // without game ownership records it without applying; the
+                // animation_catalog preload flag is the future owner.
+                self.effect(state, RuntimeEffect::DisableAnimPreload)?;
             }
             0x1004 | 0x101a | 0x1031 | 0x103a | 0x103b => {
                 advance = self.dispatch_entity(state, opcode)?;

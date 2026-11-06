@@ -84,6 +84,11 @@ pub struct BaseActorState {
     pub frame: Option<FrameReferenceId>,
     pub release_frame: u8,
     pub bytes_6d_6f: [u8; 3],
+    /// Script-visible dead latch for GETACTORSDIST/actor reads (mafia-re
+    /// game/actors/C_actor.h:359 dead at 0x5e, GetDead GAME 0x47afc0).
+    /// Starts clear; GameInit/Tick producers stay open.
+    /// No overlay entry; rides Process 0x6d3b0.
+    pub dead: bool,
 }
 impl BaseActorState {
     fn construct(seed: BaseActorSeed) -> Self {
@@ -106,7 +111,16 @@ impl BaseActorState {
             frame: None,
             release_frame: seed.release_frame,
             bytes_6d_6f: seed.bytes_6d_6f,
+            dead: false,
         }
+    }
+    /// Original GetDead read.
+    pub fn get_dead(&self) -> bool {
+        self.dead
+    }
+    /// Test/host setter for the dead latch (Tick producer deferred).
+    pub fn set_dead(&mut self, dead: bool) {
+        self.dead = dead;
     }
 }
 /// Evidenced primary vtable identities; opaque tags supply no derived behavior.
@@ -3345,6 +3359,175 @@ impl ActorWorld {
             .ok_or(ActorWorldError::NotHuman)?
             .inventory
             .push_weapon(HumanInventoryItem::from_weapon_parts(id, loaded, spare));
+        Ok(())
+    }
+    /// Original C_actor::GetDead read (mafia-re game/actors/C_actor.h:359 at
+    /// 0x5e, GetDead GAME 0x47afc0) for GETACTORSDIST. Stale actors propagate.
+    pub fn actor_dead(&self, actor: ActorReferenceId) -> Result<bool, ActorWorldError> {
+        Ok(self.actors[self.index(actor)?].state.get_dead())
+    }
+    /// Test/host setter for the dead latch (Tick producer deferred).
+    pub fn set_actor_dead(
+        &mut self,
+        actor: ActorReferenceId,
+        dead: bool,
+    ) -> Result<(), ActorWorldError> {
+        let i = self.index(actor)?;
+        self.actors[i].state.set_dead(dead);
+        Ok(())
+    }
+    /// Original C_human::GetCar read (mafia-re game/actors/C_human.h:1120 GAME
+    /// 0x47b7b0) for HUMAN_GETOWNER. Returns None for a resolved non-human
+    /// (native type gate, caller advances without dest write); Some carries
+    /// the live car latch (None for no car, caller writes null). Stale actors
+    /// propagate. The three-conjunct nulling gate (GetCar()->GetType() ==
+    /// ACTOR_CAR plus action_state != HUMAN_ACTION_CAR && seat > -1 per
+    /// C_program.cpp:4325, HUMAN_ACTION_CAR 9 per C_human.h:145) needs
+    /// enter-car AI and stays DEFERRED with the seat/action writers.
+    pub fn human_car(
+        &self,
+        actor: ActorReferenceId,
+    ) -> Result<Option<Option<ActorReferenceId>>, ActorWorldError> {
+        let i = self.index(actor)?;
+        if !matches!(
+            self.actors[i].state.vtable,
+            ActorVtable::Entity | ActorVtable::Player
+        ) {
+            return Ok(None);
+        }
+        let human = self.actors[i].human.as_ref().ok_or(ActorWorldError::NotHuman)?;
+        Ok(Some(human.car()))
+    }
+    /// Test/host setter for the human car latch (enter-car AI deferred).
+    pub fn set_human_car(
+        &mut self,
+        actor: ActorReferenceId,
+        car: Option<ActorReferenceId>,
+    ) -> Result<(), ActorWorldError> {
+        let i = self.index(actor)?;
+        if !matches!(
+            self.actors[i].state.vtable,
+            ActorVtable::Entity | ActorVtable::Player
+        ) {
+            return Err(ActorWorldError::NotHuman);
+        }
+        self.actors[i]
+            .human
+            .as_mut()
+            .ok_or(ActorWorldError::NotHuman)?
+            .set_car(car);
+        Ok(())
+    }
+    /// Original C_Vehicle::GetSpeed read (mafia-re game/vehicles/C_Vehicle.h:266
+    /// GAME 0x47b0f0, speed at 0x59c m/s) for CAR_GETSPEED. Returns None for a
+    /// resolved non-car (native type gate, caller leaves the float bank
+    /// untouched); Some carries m/s. Stale actors propagate. The dynamics
+    /// producer (SetVelocity) stays open; the latch starts at 0.0.
+    pub fn car_speed(&self, actor: ActorReferenceId) -> Result<Option<f32>, ActorWorldError> {
+        let i = self.index(actor)?;
+        if !matches!(
+            self.actors[i].state.vtable,
+            ActorVtable::Car | ActorVtable::CarEx
+        ) {
+            return Ok(None);
+        }
+        let car = self.actors[i].car.as_ref().ok_or(ActorWorldError::UnsupportedVtable)?;
+        Ok(Some(car.script_speed_mps()))
+    }
+    /// Test/host setter for the car speed latch.
+    pub fn set_car_speed(
+        &mut self,
+        actor: ActorReferenceId,
+        speed_mps: f32,
+    ) -> Result<(), ActorWorldError> {
+        let i = self.index(actor)?;
+        if !matches!(
+            self.actors[i].state.vtable,
+            ActorVtable::Car | ActorVtable::CarEx
+        ) {
+            return Err(ActorWorldError::UnsupportedVtable);
+        }
+        self.actors[i]
+            .car
+            .as_mut()
+            .ok_or(ActorWorldError::UnsupportedVtable)?
+            .set_script_speed_mps(speed_mps);
+        Ok(())
+    }
+    /// Original C_car::IsCarUsable read (mafia-re game/vehicles/C_car.h:160,
+    /// GAME 0x429850 STUB returning false; C_program.cpp:4954 stores it to a
+    /// float). Returns None for a resolved non-car (native type gate);
+    /// Some carries the predicate (always false until the stub is replaced).
+    /// Partial: the full usable predicate stays DEFERRED. Stale propagates.
+    pub fn is_car_usable(&self, actor: ActorReferenceId) -> Result<Option<bool>, ActorWorldError> {
+        let i = self.index(actor)?;
+        if !matches!(
+            self.actors[i].state.vtable,
+            ActorVtable::Car | ActorVtable::CarEx
+        ) {
+            return Ok(None);
+        }
+        if self.actors[i].car.is_none() {
+            return Err(ActorWorldError::UnsupportedVtable);
+        }
+        Ok(Some(false))
+    }
+    /// Original C_car::SetBreakMotor store (mafia-re game/vehicles/C_car.h:193
+    /// GAME 0x47b3e0, break_motor at 0x210d; C_program.cpp:5002). Returns
+    /// false for a resolved non-car (native type gate, no store); true after
+    /// storing. Stale actors propagate.
+    pub fn set_car_break_motor(
+        &mut self,
+        actor: ActorReferenceId,
+        on: bool,
+    ) -> Result<bool, ActorWorldError> {
+        let i = self.index(actor)?;
+        if !matches!(
+            self.actors[i].state.vtable,
+            ActorVtable::Car | ActorVtable::CarEx
+        ) {
+            return Ok(false);
+        }
+        self.actors[i]
+            .car
+            .as_mut()
+            .ok_or(ActorWorldError::UnsupportedVtable)?
+            .set_break_motor(on);
+        Ok(true)
+    }
+    /// Original CAR_FORCESTOP tail (mafia-re game/mission/C_program.cpp:5803:
+    /// `Deactivate(0)` + `Reset(0.0f, true)`). Returns false for a resolved
+    /// non-car (native type gate, no store); true after latching. The
+    /// physics/AI effects of those calls stay DEFERRED. Stale propagates.
+    pub fn force_stop_car(&mut self, actor: ActorReferenceId) -> Result<bool, ActorWorldError> {
+        let i = self.index(actor)?;
+        if !matches!(
+            self.actors[i].state.vtable,
+            ActorVtable::Car | ActorVtable::CarEx
+        ) {
+            return Ok(false);
+        }
+        self.actors[i]
+            .car
+            .as_mut()
+            .ok_or(ActorWorldError::UnsupportedVtable)?
+            .apply_force_stop();
+        Ok(true)
+    }
+    /// Original C_player::LockControls store (mafia-re game/actors/C_player.h:60
+    /// GAME 0x595f00 STUB; C_program.cpp:4172) for PLAYER_LOCKCONTROLS.
+    /// Locks the game player (players[0]); no player advances without effect.
+    /// Do_Breath stays DEFERRED. Stale player propagates as a host defect.
+    pub fn set_player_controls_locked(&mut self, locked: bool) -> Result<(), ActorWorldError> {
+        let Some(player) = self.players[0] else {
+            return Ok(());
+        };
+        let i = self.index(player)?;
+        self.actors[i]
+            .player
+            .as_mut()
+            .ok_or(ActorWorldError::NotPlayer)?
+            .set_controls_locked(locked);
         Ok(())
     }
     /// Original C_program::SetEvent for a target actor's embedded program.

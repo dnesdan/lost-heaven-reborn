@@ -118,8 +118,8 @@ impl RemainingParameterSlot {
     }
 }
 
-pub const REMAINING_OPCODE_IDS: [u32; 110] = [
-    5, 21, 22, 29, 32, 35, 36, 44, 45, 48, 49, 53, 54, 56, 57, 60, 62, 67, 68, 72, 76,
+pub const REMAINING_OPCODE_IDS: [u32; 109] = [
+    5, 21, 22, 29, 32, 35, 36, 44, 45, 48, 49, 53, 54, 56, 60, 62, 67, 68, 72, 76,
     77, 82, 83, 85, 86, 87, 88, 90, 96, 101, 102, 103, 106, 111, 113, 116, 122, 126, 128, 129, 130,
     135, 136, 137, 138, 139, 141, 142, 144, 148, 153, 155, 171, 175, 181, 187, 199, 205, 208, 212,
     218, 219, 222, 227, 228, 229, 230, 231, 232, 234, 236, 237, 261, 263, 273, 274, 275, 282, 283,
@@ -148,7 +148,7 @@ mod tests {
                 &[Some(1), Some(2), Some(3)]
             );
         }
-        for opcode in [0, 1, 14, 20, 26, 27, 37, 52, 70, 71, 73, 78, 132, 999] {
+        for opcode in [0, 1, 14, 20, 26, 27, 37, 52, 57, 70, 71, 73, 78, 132, 999] {
             assert!(!supports_remaining_opcode(opcode));
         }
         // Opcode 27 left Remaining for its own DetectorSignal family: the
@@ -158,6 +158,14 @@ mod tests {
         assert_eq!(
             slot.decode(27, &mut buf, &mut AsciiRemainingParameterBackend),
             Err(RemainingDecodeError::UnsupportedOpcode(27))
+        );
+        // Opcode 57 left Remaining for its own GetActorsDist family (3-or-4
+        // words with defaulted fourth): Remaining now refuses it.
+        let mut buf = b"\0".to_vec();
+        let mut slot = RemainingParameterSlot::default();
+        assert_eq!(
+            slot.decode(57, &mut buf, &mut AsciiRemainingParameterBackend),
+            Err(RemainingDecodeError::UnsupportedOpcode(57))
         );
     }
 }

@@ -165,6 +165,84 @@ pub trait LookupWorldBackend {
         let _ = on;
         Err(LookupError::UnsupportedWorldBackend)
     }
+    /// Original C_actor::GetDead read (mafia-re 113b5b6
+    /// game/actors/C_actor.h:359, GAME 0x47afc0) for GETACTORSDIST. The
+    /// default refuses; the mission world serves the live actor.
+    fn actor_dead(&self, actor: ActorReferenceId) -> Result<bool, LookupError> {
+        let _ = actor;
+        Err(LookupError::UnsupportedWorldBackend)
+    }
+    /// Original frame world position (C_actor::GetFrame()->GetWorldPos,
+    /// S_vector::Magnitude for GETACTORSDIST, mafia-re 113b5b6
+    /// game/mission/C_program.cpp:3631) for a resolved frame. The default
+    /// refuses; a world with arena ownership serves the live frame.
+    fn frame_world_position(
+        &mut self,
+        frame: FrameReferenceId,
+    ) -> Result<[f32; 3], LookupError> {
+        let _ = frame;
+        Err(LookupError::UnsupportedWorldBackend)
+    }
+    /// Original C_human::GetCar read (mafia-re 113b5b6
+    /// game/actors/C_human.h:1120, GAME 0x47b7b0) for HUMAN_GETOWNER
+    /// (C_program.cpp:4325). None-outer is the native PLAYER/ENTITY type
+    /// gate (caller advances without dest write); Some carries the live car
+    /// latch (None for no car, caller writes null). The seat/action_state
+    /// nulling gate stays DEFERRED. The default refuses.
+    fn human_car(
+        &self,
+        actor: ActorReferenceId,
+    ) -> Result<Option<Option<ActorReferenceId>>, LookupError> {
+        let _ = actor;
+        Err(LookupError::UnsupportedWorldBackend)
+    }
+    /// Original C_Vehicle::GetSpeed read (mafia-re 113b5b6
+    /// game/vehicles/C_Vehicle.h:266, GAME 0x47b0f0) for CAR_GETSPEED
+    /// (C_program.cpp:4994). None is the native CAR type gate (caller leaves
+    /// the float bank untouched); Some carries m/s. The default refuses.
+    fn car_speed(&self, actor: ActorReferenceId) -> Result<Option<f32>, LookupError> {
+        let _ = actor;
+        Err(LookupError::UnsupportedWorldBackend)
+    }
+    /// Original C_car::IsCarUsable read (mafia-re 113b5b6
+    /// game/vehicles/C_car.h:160, GAME 0x429850 STUB false;
+    /// C_program.cpp:4954) for ISCARUSABLE. None is the native CAR type gate;
+    /// Some carries the predicate (always false until the stub is replaced).
+    /// Partial: the full predicate stays DEFERRED. The default refuses.
+    fn is_car_usable(&self, actor: ActorReferenceId) -> Result<Option<bool>, LookupError> {
+        let _ = actor;
+        Err(LookupError::UnsupportedWorldBackend)
+    }
+    /// Original C_car::SetBreakMotor store (mafia-re 113b5b6
+    /// game/vehicles/C_car.h:193, GAME 0x47b3e0; C_program.cpp:5002) for
+    /// CAR_BREAKMOTOR. False is the native CAR type gate (no store); true
+    /// after storing. The default refuses.
+    fn set_car_break_motor(
+        &mut self,
+        actor: ActorReferenceId,
+        on: bool,
+    ) -> Result<bool, LookupError> {
+        let _ = actor;
+        let _ = on;
+        Err(LookupError::UnsupportedWorldBackend)
+    }
+    /// Original CAR_FORCESTOP tail (mafia-re 113b5b6
+    /// game/mission/C_program.cpp:5803: `Deactivate(0)` + `Reset(0.0f,
+    /// true)`) for CAR_FORCESTOP. False is the native CAR type gate (no
+    /// store); true after latching. Physics/AI effects stay DEFERRED. The
+    /// default refuses.
+    fn force_stop_car(&mut self, actor: ActorReferenceId) -> Result<bool, LookupError> {
+        let _ = actor;
+        Err(LookupError::UnsupportedWorldBackend)
+    }
+    /// Original C_player::LockControls store (mafia-re 113b5b6
+    /// game/actors/C_player.h:60, GAME 0x595f00; C_program.cpp:4172) for
+    /// PLAYER_LOCKCONTROLS. No player advances without effect; Do_Breath
+    /// stays DEFERRED. The default refuses.
+    fn set_player_controls_locked(&mut self, locked: bool) -> Result<(), LookupError> {
+        let _ = locked;
+        Err(LookupError::UnsupportedWorldBackend)
+    }
 }
 pub struct LiveActor<'a> {
     pub lifetime: &'a ActorLifetime,
