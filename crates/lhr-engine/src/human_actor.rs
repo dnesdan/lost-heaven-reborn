@@ -7,8 +7,13 @@
 //! G_Inventory aggregate. Rust
 //! member names below are descriptive; unknown item/parameter bits have no
 //! invented gameplay meaning. Only the Human GameInit prefix slice
-//! (car/using_car clear, STAND, max-to-current bank copy) is owned here;
-//! the full GameInit body plus animation selection, AI and Update stay DEFERRED.
+//! (car/using_car clear, STAND, max-to-current bank copy), the
+//! Intern_UseCar/Intern_FromCar seat-placement core (seat latch plus the
+//! car/using_car/action writers of this slice only) and the Can_EnterToCar
+//! owned-car guard are owned here; the full GameInit body plus animation
+//! selection, AI and Update stay DEFERRED, as do every collision,
+//! animation-machine, frame, camera, indicator, inventory, weapon and police
+//! effect of the three car-function bodies.
 //! The dtor animation-stop device effect (GAME 0x56f210) and the Init frame
 //! effects (GAME 0x56f350, owned by ActorWorld::init_human_owner) stay with the
 //! frame owner; detector/AI/police owners do not exist yet and are DEFERRED.
@@ -293,9 +298,23 @@ pub struct HumanSeed {
 /// game/actors/C_human.h:137 HUMAN_ACTION_STAND; the live word is `int`
 /// action_state per C_human.h:824-826, save-packed as ushort per the
 /// S_human_savegame 0x6d field, so the Rust owner keeps the PC 32-bit signed
-/// width as i32). The remaining HUMAN_ACTION_* values are written by the
-/// DEFERRED Movement and car AI, so they take no constants here.
+/// width as i32). CAR is owned below by the Intern_UseCar seat core; the
+/// remaining HUMAN_ACTION_* values are written by the DEFERRED Movement and
+/// car AI, so they take no constants here.
 pub const HUMAN_ACTION_STAND: i32 = 1;
+/// Original seated-in-car action value (mafia-re 113b5b6
+/// game/actors/C_human.h:145 HUMAN_ACTION_CAR; same PC 32-bit signed word
+/// as HUMAN_ACTION_STAND). Written here only by the Intern_UseCar seat core;
+/// the Movement and car-function writers of the remaining HUMAN_ACTION_*
+/// values stay DEFERRED.
+pub const HUMAN_ACTION_CAR: i32 = 9;
+/// No-seat sentinel for the seat latch (descriptive working name: the
+/// upstream field name `seat` is itself a guess per mafia-re 113b5b6
+/// game/actors/C_human.h:718-719). Evidenced by the Intern_FromCar guard
+/// `seat == -1` (C_human.cpp:5658), the truck-back `seat = -1`
+/// (C_human.cpp:2242) and the `seat != -1` in-car tests throughout
+/// C_human.cpp; the GameInit body (:3162-3407) writes no seat word.
+pub const HUMAN_SEAT_NONE: i32 = -1;
 
 #[derive(Debug)]
 pub struct HumanState {
@@ -316,24 +335,38 @@ pub struct HumanState {
     pub(crate) last_auxiliary: EmptyHumanCollection,
     pub(crate) auxiliary: [HumanAuxiliaryRecord; 2],
     /// Script-visible car latch for HUMAN_GETOWNER (mafia-re 113b5b6
-    /// game/actors/C_human.h:1120 GetCar GAME 0x47b7b0). The enter-car AI
-    /// that populates it (Use_Actor/Movement, seat/action_state gating per
-    /// game/mission/C_program.cpp:4325) stays DEFERRED; this starts at no car.
+    /// game/actors/C_human.h:1120 GetCar GAME 0x47b7b0). Populated by the
+    /// Intern_UseCar seat core and cleared by the Intern_FromCar placement
+    /// core of this slice; the Use_Actor/Movement enter-car AI (seat/
+    /// action_state gating per game/mission/C_program.cpp:4325) stays
+    /// DEFERRED. Starts at no car.
     /// No overlay entry; rides Process 0x6d3b0.
     car: Option<ActorReferenceId>,
     /// Script-visible car the human is getting into or was thrown out of
     /// (mafia-re 113b5b6 game/actors/C_human.h:707-713: 0x9c C_car *using_car;
-    /// the name is ours per the upstream comment). The Use_Actor and
-    /// car-function writers that populate or clear it stay DEFERRED; this
-    /// starts at no car and the GameInit prefix re-clears it
-    /// (C_human.cpp:3175). No invented boarding semantics beyond the latch.
+    /// the name is ours per the upstream comment). Cleared by the
+    /// Intern_FromCar placement core of this slice; the Use_Actor writer
+    /// that populates it stays DEFERRED. Starts at no car and the GameInit
+    /// prefix re-clears it (C_human.cpp:3175). No invented boarding
+    /// semantics beyond the latch.
     using_car: Option<ActorReferenceId>,
     /// Live HUMAN_ACTION_* word (mafia-re 113b5b6 game/actors/C_human.h:824
-    /// -826: 0x40c int action_state; the name is ours). Only the STAND value
-    /// is produced here; the Movement and car-function writers of the other
-    /// values stay DEFERRED, so no meaning beyond STAND is assigned. Starts
-    /// at STAND; the GameInit prefix re-affirms it (C_human.cpp:3176).
+    /// -826: 0x40c int action_state; the name is ours). STAND is produced by
+    /// the GameInit prefix, STAND and CAR by the FromCar/UseCar seat cores
+    /// of this slice; the Movement and remaining car-function writers of the
+    /// other values stay DEFERRED, so no meaning beyond STAND/CAR is
+    /// assigned. Starts at STAND; the GameInit prefix re-affirms it
+    /// (C_human.cpp:3176).
     action_state: i32,
+    /// Seat index in the car (mafia-re 113b5b6 game/actors/C_human.h:718-719:
+    /// 0xac, PS2 0x238; the field name is itself an upstream guess),
+    /// HUMAN_SEAT_NONE for none. Written by the Intern_UseCar seat core and
+    /// read by the Intern_FromCar and enter guards; notably NOT cleared by
+    /// Intern_FromCar (C_human.cpp:5656-5717 carries no seat write). Starts
+    /// at none; the GameInit body (:3162-3407) writes no seat word, so the
+    /// GameInit prefix leaves it alone. No overlay entry of its own; rides
+    /// the 0x17e020/0x17e500/0x1808c0 seat-placement entries.
+    seat: i32,
 }
 impl HumanState {
     pub(crate) fn construct(seed: HumanSeed) -> Self {
@@ -359,6 +392,7 @@ impl HumanState {
             car: None,
             using_car: None,
             action_state: HUMAN_ACTION_STAND,
+            seat: HUMAN_SEAT_NONE,
         }
     }
     pub fn human_type_mask(&self) -> u32 {
@@ -415,9 +449,13 @@ impl HumanState {
     pub fn set_using_car(&mut self, car: Option<ActorReferenceId>) {
         self.using_car = car;
     }
-    /// Live HUMAN_ACTION_* word; only STAND is produced by this owner so far.
+    /// Live HUMAN_ACTION_* word; STAND and CAR are produced by this owner so far.
     pub fn action_state(&self) -> i32 {
         self.action_state
+    }
+    /// Seat index in the car, HUMAN_SEAT_NONE for none.
+    pub fn seat(&self) -> i32 {
+        self.seat
     }
     pub fn collection_is_empty(&self, slot: HumanResourceSlot) -> bool {
         match slot {
@@ -485,6 +523,101 @@ impl HumanState {
         self.using_car = None;
         self.action_state = HUMAN_ACTION_STAND;
         self.current_properties = self.properties.clone();
+    }
+    /// GAME 0x57e020 (RVA 0x17e020) C_human::Intern_UseCar SEAT-PLACEMENT
+    /// CORE SLICE (mafia-re 113b5b6 game/actors/C_human.cpp:5568-5655):
+    /// the :5570 guard's seat-range arm (`c->GetNumSeats() <= s`) plus the
+    /// owned state writes :5589 (`car = c`), :5601 (`seat = s`) and
+    /// :5610 (`action_state = HUMAN_ACTION_CAR`). `num_seats` is the car's
+    /// `GetNumSeats()` value (native `int` on both sides, so i32 here).
+    /// Returns true on admission; on refusal the state is untouched and
+    /// false is returned (the original is void with an early return; the
+    /// bool is the admission signal, not new state). Negative seats refuse:
+    /// the original indexes `v_seats[s]` with the raw int, so admitting a
+    /// sub-zero seat would read out of bounds; the bound is a defensive
+    /// refusal, not original behavior. SCOPE: seat-placement core only.
+    /// DEFERRED with explicit markers, no new owner here: the :5570
+    /// `box || dead_body` guard arms (no box/dead-body owners exist; callers
+    /// must establish them as a precondition), `SetOwner` (car owner),
+    /// `track_test = 0` and `unknown_b0 = 0` (unowned human words),
+    /// `last_car = c` (no owner yet; NOT written here),
+    /// `PlayerInTaxi`/`VyfunOdTeMasiny` (traffic owner), `DelExtendedAnim`/
+    /// `PersonAnim`/`Tick` and the `next_anim_id` select (animation owner;
+    /// the select itself is owned by `get_anim_id_for_use_car` plus
+    /// `CarInitAnimationCatalog`), `Do_Aimed`/`PoseNullRotate`/
+    /// `PoseInterpolate` (pose/aim owners), `DeactivateColls` (collision
+    /// owner), `SetEngineOn`/`SetSpeedLimit`/`auto_gearing` (car owner),
+    /// `DelFrameForShadow`/`shadow` (frame owner), `pos`/`dir` plus
+    /// `SetPos`/`SetDir`/`LinkTo` (frame owner), camera/indicators/
+    /// player-alpha/lights/dynamic-colls (no owners), `SetInCar` (inventory
+    /// owner), `ChangeWeaponModel`/weapon models (weapon owner),
+    /// `shvestky.DriveCar` (police owner) and `HideLegs`. `using_car` is
+    /// deliberately untouched: the body writes no such word on this path.
+    pub(crate) fn apply_intern_use_car(
+        &mut self,
+        car: ActorReferenceId,
+        seat: i32,
+        num_seats: i32,
+    ) -> bool {
+        if seat < 0 || num_seats <= seat {
+            return false;
+        }
+        self.car = Some(car);
+        self.seat = seat;
+        self.action_state = HUMAN_ACTION_CAR;
+        true
+    }
+    /// GAME 0x57e500 (RVA 0x17e500) C_human::Intern_FromCar PLACEMENT CORE
+    /// SLICE (mafia-re 113b5b6 game/actors/C_human.cpp:5656-5717): the :5658
+    /// guard (`!frm || !car || car->type != ACTOR_CAR || seat == -1`) plus
+    /// the owned state writes :5668 (`action_state = HUMAN_ACTION_STAND`),
+    /// :5674 (`car = NULL`) and :5675 (`using_car = NULL`).
+    /// `destination_present` is the `frm` null check and `car_is_car_actor`
+    /// the `car->type == ACTOR_CAR` check; both live with owners outside
+    /// this slice, so the caller supplies them. Returns true on admission;
+    /// on refusal the state is untouched and false is returned (the original
+    /// is void with an early return). The seat latch is deliberately NOT
+    /// cleared: the :5656-5717 body carries no seat write, so the index is
+    /// retained while the car latches drop. SCOPE: placement core only.
+    /// DEFERRED with explicit markers, no new owner here: `PlayerInTaxi`
+    /// (traffic owner), `Do_Aimed`/free-look (aim/camera owners),
+    /// `SetEngineOn`/`DriveCar` (car/police owners), `pos`/`dir`/frame
+    /// `SetPos`/`SetDir`/`LinkTo`/`SetFrameSectorPos` (frame owner),
+    /// indicators/camera (no owners), `SetOwner(NULL, ...)` (car owner),
+    /// `ActivateColls`/shadow (collision/frame owners), `SetInCar`/`dropped`
+    /// /`DropOutItems` (inventory owner), `ChangeWeaponModel`/weapon models
+    /// (weapon owner), `StopAnims`/`Reset`/`PersonAnim` (animation owner)
+    /// and `HideLegs`.
+    pub(crate) fn apply_intern_from_car(
+        &mut self,
+        destination_present: bool,
+        car_is_car_actor: bool,
+    ) -> bool {
+        if !destination_present
+            || self.car.is_none()
+            || !car_is_car_actor
+            || self.seat == HUMAN_SEAT_NONE
+        {
+            return false;
+        }
+        self.action_state = HUMAN_ACTION_STAND;
+        self.car = None;
+        self.using_car = None;
+        true
+    }
+    /// GAME 0x5808c0 (RVA 0x1808c0) C_human::Can_EnterToCar OWNED-CAR GUARD
+    /// MARKER (mafia-re 113b5b6 game/actors/C_human.cpp:6373, ~54 lines):
+    /// only the `if (car) return false;` arm is owned here; a human latched
+    /// to a car cannot enter another. True admits to the deferred probes,
+    /// false refuses. CONTRACT CEILING: no collision, scene or door owner
+    /// exists for the remainder, so the rest stays DEFERRED with explicit
+    /// markers and no invented geometry: `GetSeatProperty` (owned as
+    /// `car_get_seat_property`; wiring deferred), the 1.3 m side offset and
+    /// the ground `TestLineV`/room `TestLineH`/`TestSphereB` probes plus the
+    /// `DynSetNextCollOwnerMult` plumbing (collision owner), and the
+    /// `test_line` `TestColHierarchy` probe (scene owner).
+    pub(crate) fn can_enter_to_car_guard(&self) -> bool {
+        self.car.is_none()
     }
     /// GAME 0x56f440 (RVA 0x16f440) C_human::SaveData (mafia-re
     /// game/actors/C_human.cpp:1312): version byte HUMAN_DATA_VERSION
@@ -865,5 +998,98 @@ mod tests {
         assert_eq!(human.using_car(), None);
         assert_eq!(human.action_state(), 1);
         assert_eq!(human.current_properties(), &bank);
+    }
+    #[test]
+    fn intern_use_car_seat_core_admits_range_and_leaves_refusals_untouched() {
+        use crate::script_scheduler::ActorReferenceId;
+        let mut human = HumanState::construct(seed());
+        // Hand-derived from C_human::Intern_UseCar (mafia-re 113b5b6
+        // game/actors/C_human.cpp:5570 guard, :5589 car, :5601 seat,
+        // :5610 HUMAN_ACTION_CAR 9, C_human.h:145): a 2-seat car admits
+        // seats 0 and 1, starting from the no-seat sentinel.
+        assert_eq!(human.seat(), HUMAN_SEAT_NONE);
+        assert_eq!(human.seat(), -1);
+        let car = ActorReferenceId::from_existing(21);
+        assert!(human.apply_intern_use_car(car, 0, 2));
+        assert_eq!(human.car(), Some(car));
+        assert_eq!(human.seat(), 0);
+        assert_eq!(human.action_state(), HUMAN_ACTION_CAR);
+        // The :5570 range arm refuses seat == num_seats with the latched
+        // state untouched.
+        let other = ActorReferenceId::from_existing(22);
+        assert!(!human.apply_intern_use_car(other, 2, 2));
+        assert_eq!(human.car(), Some(car));
+        assert_eq!(human.seat(), 0);
+        assert_eq!(human.action_state(), HUMAN_ACTION_CAR);
+        // Negative seats refuse: the body indexes v_seats[s] with the raw
+        // int, so admission would read out of bounds.
+        assert!(!human.apply_intern_use_car(other, -1, 2));
+        assert_eq!(human.car(), Some(car));
+        assert_eq!(human.seat(), 0);
+        // A latched using_car survives refusal (no path here writes it).
+        human.set_using_car(Some(ActorReferenceId::from_existing(23)));
+        assert!(!human.apply_intern_use_car(other, 2, 2));
+        assert_eq!(human.car(), Some(car));
+        assert_eq!(human.seat(), 0);
+        assert_eq!(
+            human.using_car(),
+            Some(ActorReferenceId::from_existing(23))
+        );
+        // The passenger seat admits over a previous latch.
+        assert!(human.apply_intern_use_car(other, 1, 2));
+        assert_eq!(human.car(), Some(other));
+        assert_eq!(human.seat(), 1);
+        assert_eq!(human.action_state(), HUMAN_ACTION_CAR);
+        // The using_car latch is untouched on this path (the body writes no
+        // such word here), across both refusals and admissions; last_car
+        // has no owner yet and stays unwritten.
+        assert_eq!(
+            human.using_car(),
+            Some(ActorReferenceId::from_existing(23))
+        );
+    }
+    #[test]
+    fn intern_from_car_placement_clears_cars_keeps_seat_and_refuses_empty() {
+        use crate::script_scheduler::ActorReferenceId;
+        let mut human = HumanState::construct(seed());
+        // Hand-derived from the C_human::Intern_FromCar guard (mafia-re
+        // 113b5b6 game/actors/C_human.cpp:5658): no car, no destination, a
+        // non-car carrier, or the no-seat sentinel each refuse with the
+        // state untouched.
+        assert!(!human.apply_intern_from_car(true, true));
+        assert_eq!(human.action_state(), HUMAN_ACTION_STAND);
+        let car = ActorReferenceId::from_existing(21);
+        assert!(human.apply_intern_use_car(car, 1, 2));
+        human.set_using_car(Some(ActorReferenceId::from_existing(23)));
+        assert!(!human.apply_intern_from_car(false, true));
+        assert!(!human.apply_intern_from_car(true, false));
+        assert_eq!(human.car(), Some(car));
+        assert_eq!(human.action_state(), HUMAN_ACTION_CAR);
+        // Refusals leave using_car and seat untouched.
+        assert_eq!(
+            human.using_car(),
+            Some(ActorReferenceId::from_existing(23))
+        );
+        assert_eq!(human.seat(), 1);
+        assert!(human.apply_intern_from_car(true, true));
+        assert_eq!(human.car(), None);
+        assert_eq!(human.using_car(), None);
+        assert_eq!(human.action_state(), HUMAN_ACTION_STAND);
+        // The :5656-5717 body carries no seat write: the index is retained
+        // while the car latches drop.
+        assert_eq!(human.seat(), 1);
+    }
+    #[test]
+    fn can_enter_to_car_owned_guard_tracks_car_latch_only() {
+        use crate::script_scheduler::ActorReferenceId;
+        // Marker for GAME 0x5808c0 (mafia-re 113b5b6
+        // game/actors/C_human.cpp:6373): only the `if (car) return false;`
+        // arm is owned; seat-property and collision probes stay DEFERRED.
+        let mut human = HumanState::construct(seed());
+        assert!(human.can_enter_to_car_guard());
+        human.set_car(Some(ActorReferenceId::from_existing(21)));
+        assert!(!human.can_enter_to_car_guard());
+        human.set_car(None);
+        assert!(human.can_enter_to_car_guard());
     }
 }

@@ -91,6 +91,7 @@ pub mod frame_sound;
 pub mod frame_transform;
 pub mod frame_user;
 pub mod frame_volume;
+pub mod game_camera_begin;
 pub mod game_camera_projection;
 pub mod game_camera_reset;
 pub mod game_camera_tick_prologue;

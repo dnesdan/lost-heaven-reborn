@@ -49,7 +49,10 @@ class RewriteProgressTests(unittest.TestCase):
         # ISSIGNAL arms (27/28) ride ledgered Process 0x6d3b0, no entries.
         # +1 C_human::GameInit prefix slice 0x174bd0 contract (NULL latches,
         # STAND, max->current copy; non-contiguous :3174-3176+:3180).
-        self.assertEqual(game["ported"], 149 + 47)
+        # +3 UseCar seat core (0x17e020 Intern_UseCar + 0x17e500 Intern_FromCar
+        # + 0x1808c0 Can_EnterToCar guard, all contract) + 3 camera lifecycle
+        # (0x1ed400 SetMode + 0x1f2ea0 Begin + 0x1f3450 End, all contract).
+        self.assertEqual(game["ported"], 149 + 53)
         self.assertEqual(game["verified"], 149 + 7)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])

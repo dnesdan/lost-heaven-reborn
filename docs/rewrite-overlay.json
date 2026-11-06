@@ -8383,6 +8383,60 @@
       "symbol": "lhr_engine::human_actor::HumanState::apply_game_init_prefix",
       "tier": "contract",
       "evidence": "mafia-re 113b5b6 game/actors/C_human.cpp:3174-3176 (car = NULL; using_car = NULL; action_state = HUMAN_ACTION_STAND) + :3180 (memcpy(properties, max_properties, sizeof(properties))) + game/actors/C_human.h:137 (HUMAN_ACTION_STAND 1) + :707-713 (0x9c C_car *using_car, name ours per upstream comment) + :824-826 (0x40c int action_state, name ours) + S_human_savegame 0x6d ushort packing; Game.exe SHA256 08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27 base 0x400000; contract tier: upstream source plus authored Rust tests in human_actor.rs (prefix-defaults and dirty-restore vectors); SCOPE: prefix slice only, the :3162-3407 remainder (orig_model, C_actor::GameInit prefix, base_frame lookup, DebustizeFrame/NoShadowFrame, vehicle_action, anim_machine.Init, anim/velocity/combat/move/shot words, poses, sound frames, shadow, weapons, inventory, ground snap, loc/blob/cutscene words) plus AI/Update DEFERRED; authored tests not executed (cargo unavailable); executed green by orchestrator: `cargo test -p lhr-engine --lib human_actor` 11 passed (base 42b7d07 + uncommitted)"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x17e020",
+      "va": "0x57e020",
+      "name": "C_human::Intern_UseCar",
+      "symbol": "lhr_engine::human_actor::HumanState::apply_intern_use_car",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 game/actors/C_human.cpp:5568-5655 (:5570 seat-range guard arm, :5589 car latch, :5601 seat latch, :5610 HUMAN_ACTION_CAR) + game/actors/C_human.h:145 (HUMAN_ACTION_CAR 9), :718-719 (0xac seat, name ours per upstream guess), :824-826 (0x40c action_state) + S_human_savegame 0x21 int seat convention; Game.exe SHA256 08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27 base 0x400000; contract tier: upstream source plus authored Rust tests in human_actor.rs (admit/refuse/untouched-refusal/seat-retention vectors); SCOPE: seat-placement core only (car/seat/CAR writers); DEFERRED: box/dead_body guard arms, SetOwner, last_car latch, traffic/anim/pose/collision/car/frame/camera/indicator/inventory/weapon/police effects per code markers; negative-seat refusal is a defensive bound (original indexes v_seats[s] raw); authored tests not executed (cargo unavailable); executed green by orchestrator: `cargo test -p lhr-engine --lib human_actor` 14 passed (base daf4d72 + uncommitted)"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x17e500",
+      "va": "0x57e500",
+      "name": "C_human::Intern_FromCar",
+      "symbol": "lhr_engine::human_actor::HumanState::apply_intern_from_car",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 game/actors/C_human.cpp:5656-5717 (:5658 guard !frm||!car||type||seat==-1, :5668 STAND, :5674 car NULL, :5675 using_car NULL; body carries no seat write so the index is retained) + game/actors/C_human.h:137 (HUMAN_ACTION_STAND 1); Game.exe SHA256 08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27 base 0x400000; contract tier: upstream source plus authored Rust tests in human_actor.rs (guard-arm refusals, latch clearing, seat-retention pin, use-then-from round trip); SCOPE: placement core only (STAND + car/using_car clear); DEFERRED: traffic/aim/camera/engine/police/frame/indicator/SetOwner/collision/inventory/weapon/anim/HideLegs effects per code markers; authored tests not executed (cargo unavailable); executed green by orchestrator: `cargo test -p lhr-engine --lib human_actor` 14 passed (base daf4d72 + uncommitted)"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1808c0",
+      "va": "0x5808c0",
+      "name": "C_human::Can_EnterToCar",
+      "symbol": "lhr_engine::human_actor::HumanState::can_enter_to_car_guard",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 game/actors/C_human.cpp:6373 (~54 lines); marker-only CONTRACT CEILING: only the `if (car) return false;` arm is owned as the car-latch guard; no REA body observation, no collision/scene/door owners for the remainder; GetSeatProperty (owned as car_get_seat_property, wiring deferred), 1.3 m side offset plus TestLineV/TestLineH/TestSphereB probes with DynSetNextCollOwnerMult plumbing, and the test_line TestColHierarchy probe stay DEFERRED per code markers with no invented geometry; Game.exe SHA256 08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27 base 0x400000; authored latch-guard test not executed (cargo unavailable); executed green by orchestrator: `cargo test -p lhr-engine --lib human_actor` 14 passed (base daf4d72 + uncommitted)"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1ed400",
+      "va": "0x5ed400",
+      "name": "G_Camera::SetMode",
+      "symbol": "lhr_engine::game_camera_begin::set_mode",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 game/camera/g_camera.cpp:323-338 (NEXT guard on next_mode, car [7,16)/foot [1,4) keeps, mode store; begin-gated End/Begin composed as the pure subsets of the sibling entries, in native order) + g_camera.h:37-67 mode consts (all upstream working guesses, disclosed) + g_camera.h:125-137 layout (mode 0x10/next_mode 0x14 via game_camera_reset.rs 0xa0-B Game+0x4c slice) + Rust tests (authored without cargo, no execution claimed); SCOPE: slice stores + keep decisions only; settings keeps returned for the future settings owner (not written), I3D/HUD/car/human effects DEFERRED with typed markers; no REA body (marker-only, no session opened); tier contract ceiling, no full-function credit; executed green by orchestrator: `cargo test -p lhr-engine --lib game_camera_begin` 8 passed (base daf4d72 + uncommitted)"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1f2ea0",
+      "va": "0x5f2ea0",
+      "name": "G_Camera::Begin",
+      "symbol": "lhr_engine::game_camera_begin::begin",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 game/camera/g_camera.cpp:1145-1228 (camera guard, next_mode=0, first-match scan over cameraParams g_camera.cpp:55-90 with params/flags/unknown_22/next stores, EYES-gated needLookFromEyes zero, linkage switch, Update, mode_changed=true) + g_camera.h:76-83 flag consts + g_camera.h:105 table shape (names ours, disclosed; entry 0 resolves to 0x638708, cross-checked against game_camera_reset.rs FIRST_CAMERA_VALUES) + g_camera.h:125-169 layout check (mode/next_mode/tilt/swing fields) + Rust tests (authored without cargo, no execution claimed); SCOPE: pure slice/global-bits subset only; car frame dereference + SetOn/hidden_by_camera (car owner), ACTOR_PLAYER check + FadeReset (human owner, concurrent unit), all LinkTo/SetPos/SetDir/Update (I3D/mission owners), sniper indicators (HUD owner), rotInAct + death globals (future Tick-block units) DEFERRED with typed markers; no REA body (marker-only, no session opened); tier contract ceiling, no full-function credit; executed green by orchestrator: `cargo test -p lhr-engine --lib game_camera_begin` 8 passed (base daf4d72 + uncommitted)"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1f3450",
+      "va": "0x5f3450",
+      "name": "G_Camera::End",
+      "symbol": "lhr_engine::game_camera_begin::end",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 game/camera/g_camera.cpp:1232-1255 (camera guard, CP_SNIPER / C_RAILWAY_IN / P_BEHIND_23 switch arms, Update, car restore without a frame check) + g_camera.h mode consts (upstream working guesses, disclosed) + Rust tests (authored without cargo, no execution claimed); SCOPE: read-only classification, zero slice stores natively; I3D relink/Update (I3D/mission owners), indicator swap (HUD owner), car frame restore (car owner) DEFERRED with typed markers; no REA body (marker-only, no session opened); tier contract ceiling, no full-function credit; executed green by orchestrator: `cargo test -p lhr-engine --lib game_camera_begin` 8 passed (base daf4d72 + uncommitted)"
     }
   ],
   "vm": {
