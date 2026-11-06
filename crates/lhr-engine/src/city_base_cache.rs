@@ -1,6 +1,6 @@
 //! Session-owned city base-block cache (`cache.bin` intake target).
 //!
-//! Reference: mafia-re `d0fbd6d`, game/mission/m_cache.h + m_cache.cpp
+//! Reference: mafia-re `113b5b6`, game/mission/m_cache.h + m_cache.cpp
 //! (PC file 0x401030–0x404cdc; PS2 m_cache.cpp correspondence). Layouts are
 //! PS2-attributed with PC sizes: `S_cache_base_block` 0x74 bytes,
 //! `S_cache_model_inbb` 0x44 bytes (model-set index u16 at +0x2),
@@ -103,6 +103,15 @@ pub enum BaseCacheError {
     Unsupported { entry: u32 },
 }
 
+/// Host interruption of the staged `Open` intake, distinct from the native
+/// `Open` outcome codes (which are `Ok` results, not host errors).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BaseCacheOpenError {
+    /// Empty input has no root chunk to walk; the already-closed state is
+    /// preserved. This is a host admission boundary, not native code 1..4.
+    EmptyInput,
+}
+
 /// Owned city base-block cache (PC `C_cache_base_block`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CityBaseCache {
@@ -195,6 +204,104 @@ impl CityBaseCache {
         Err(BaseCacheError::Unsupported {
             entry: BASE_CACHE_OPEN_ENTRY,
         })
+    }
+
+    /// Staged `Open` 0x4013f0 intake over caller-owned `cache.bin` bytes,
+    /// without the scene owner. The native body closes first; this does the
+    /// same, so every return preserves the closed prefix. Reference: mafia-re
+    /// `113b5b6`, game/mission/m_cache.cpp `Open` stub called by
+    /// `C_mission::Open` (PC `C_mission::Open` 0x5409d0); REA Ghidra
+    /// 0x4013f0 chunk walk 500/1 -> 1000 -> 2000 matches
+    /// `lhr_assets::parse_city_cache`, with the case-insensitive
+    /// `0rek23.i3d` -> `0rek17.i3d` rewrite and the success epilogue
+    /// (`unknown_20 = 0`, `open = true`, `unknown_28 = 0x0FFFFFFF` plus 12
+    /// opaque helper bytes). Parse failures are native outcome codes
+    /// (`BadRootOrVersion`/`NonChunkInput`), not host errors; the closed
+    /// state is preserved. Model loading and live-frame wiring stay with
+    /// the scene owner: staged placements use `frame_present = false`,
+    /// `unknown_0` carries the part index as a host guess (native epilogue
+    /// bytes unknown), and the trailer is a host zero placeholder pending
+    /// the scene-integrated port. Frames are unwired here by design. This
+    /// is staged intake filed under the 0x4013f0 entry, not the full native
+    /// `Open` with scene wiring. This is intake, not gameplay.
+    pub fn open_from_bytes(
+        &mut self,
+        bytes: &[u8],
+    ) -> Result<BaseCacheOpenOutcome, BaseCacheOpenError> {
+        self.close();
+        if bytes.is_empty() {
+            return Err(BaseCacheOpenError::EmptyInput);
+        }
+        let cache = match lhr_assets::parse_city_cache(bytes) {
+            Ok(cache) => cache,
+            Err(error) => {
+                // Only the exact version-1 root error maps to
+                // BadRootOrVersion; every other intake failure (quota, NUL,
+                // truncation, short reads) is NonChunkInput. Mapped strings
+                // are listed here so the mapping stays exact: "expected city
+                // cache version 1" alone takes the version arm.
+                if error.to_string() == "expected city cache version 1" {
+                    return Ok(BaseCacheOpenOutcome::BadRootOrVersion);
+                }
+                return Ok(BaseCacheOpenOutcome::NonChunkInput);
+            }
+        };
+        let mut distinct: std::collections::BTreeMap<String, u16> =
+            std::collections::BTreeMap::new();
+        let mut sets: Vec<CacheModelSet> = Vec::new();
+        for part in &cache.parts {
+            for object in &part.objects {
+                let rewritten = rewrite_unsupported_cache_model(&object.model)
+                    .unwrap_or(object.model.as_str())
+                    .to_owned();
+                if !distinct.contains_key(&rewritten) {
+                    // The parser caps objects at 65535, so distinct sets can
+                    // never exceed the u16 placement index (dead budget arm
+                    // removed; a breach here is an internal invariant break).
+                    let index =
+                        u16::try_from(distinct.len()).expect("parser quota bounds distinct sets");
+                    distinct.insert(rewritten.clone(), index);
+                    sets.push(CacheModelSet {
+                        name: rewritten.into_bytes(),
+                        ones: Vec::new(),
+                    });
+                }
+            }
+        }
+        let mut blocks: Vec<CacheBaseBlock> = Vec::new();
+        for (part_index, part) in cache.parts.iter().enumerate() {
+            let mut models: Vec<CacheModelPlacement> = Vec::new();
+            for object in &part.objects {
+                let rewritten =
+                    rewrite_unsupported_cache_model(&object.model).unwrap_or(object.model.as_str());
+                let index = *distinct.get(rewritten).expect("staged distinct model");
+                models.push(CacheModelPlacement {
+                    unknown_0: [0, 0],
+                    model_set: index,
+                    unknown_4: [0; 0x40],
+                });
+                let set = &mut sets[usize::from(index)];
+                set.ones.push(CacheModelOne {
+                    frame_present: false,
+                    unknown_4: [0; 4],
+                });
+            }
+            blocks.push(CacheBaseBlock {
+                unknown_0: part_index as i32,
+                unknown_4: 0,
+                values: Vec::new(),
+                unknown_18: 0,
+                unknown_1c: 0,
+                unknown_20: 0,
+                pairs_a: [[0; 8]; 4],
+                pairs_b: [[0; 8]; 4],
+                models,
+            });
+        }
+        self.blocks = blocks;
+        self.model_sets = sets;
+        self.apply_open_success([0; 12]);
+        Ok(BaseCacheOpenOutcome::Ok)
     }
 
     /// Successful-`Open` epilogue from the 0x4013f0 tail: `unknown_20 = 0`,
@@ -345,5 +452,111 @@ mod tests {
         assert_eq!(BaseCacheOpenOutcome::NonChunkInput as u32, 2);
         assert_eq!(BaseCacheOpenOutcome::ModelLoadFailed as u32, 3);
         assert_eq!(BaseCacheOpenOutcome::ModelKindUnknown as u32, 4);
+    }
+
+    fn cache_bytes(models: &[&str]) -> Vec<u8> {
+        fn chunk(kind: u16, body: &[u8]) -> Vec<u8> {
+            [
+                kind.to_le_bytes().as_slice(),
+                &((body.len() + 6) as u32).to_le_bytes(),
+                body,
+            ]
+            .concat()
+        }
+        fn text(value: &str) -> Vec<u8> {
+            [
+                (value.len() as u32).to_le_bytes().as_slice(),
+                value.as_bytes(),
+            ]
+            .concat()
+        }
+        let mut frames = Vec::new();
+        for model in models {
+            let mut body = text(model);
+            for value in [1f32, 2., 3., 1., 0., 0., 0., 1., 2., 1.] {
+                body.extend(value.to_le_bytes());
+            }
+            body.extend(7u32.to_le_bytes());
+            for value in [2f32, 3., 4.] {
+                body.extend(value.to_le_bytes());
+            }
+            frames.extend(chunk(2000, &body));
+        }
+        let mut part = text("district");
+        part.extend([0; 19 * 4]);
+        part.extend(frames);
+        let mut root = 1u32.to_le_bytes().to_vec();
+        root.extend(chunk(1000, &part));
+        chunk(500, &root)
+    }
+
+    #[test]
+    fn staged_open_closes_first_stages_blocks_and_applies_rewrite() {
+        let mut cache = CityBaseCache::new(0xdead_beef);
+        cache.stage_for_tests(vec![block()], vec![set(b"old.i3d", &[true])]);
+        let bytes = cache_bytes(&["0REK23.I3D", "car.i3d", "car.i3d"]);
+        assert_eq!(cache.open_from_bytes(&bytes), Ok(BaseCacheOpenOutcome::Ok));
+        assert!(cache.is_open());
+        assert_eq!(cache.unknown_20(), 0);
+        assert_eq!(cache.unknown_28(), BASE_CACHE_OPEN_UNKNOWN_28);
+        assert_eq!(cache.blocks().len(), 1);
+        assert_eq!(cache.blocks()[0].models.len(), 3);
+        assert_eq!(cache.model_sets().len(), 2);
+        assert_eq!(cache.model_sets()[0].name, b"0rek17.i3d");
+        assert_eq!(cache.model_sets()[1].name, b"car.i3d");
+        assert_eq!(cache.model_sets()[0].ones.len(), 1);
+        assert_eq!(cache.model_sets()[1].ones.len(), 2);
+        assert!(cache
+            .model_sets()
+            .iter()
+            .flat_map(|set| &set.ones)
+            .all(|one| !one.frame_present));
+        let report = cache.close();
+        assert!(!cache.is_open());
+        assert!(cache.blocks().is_empty());
+        assert!(cache.model_sets().is_empty());
+        assert_eq!(report.names_released, 2);
+        assert_eq!(report.ones_released, 3);
+        assert_eq!(report.frames_present, 0);
+        assert_eq!(cache.open_from_bytes(&bytes), Ok(BaseCacheOpenOutcome::Ok));
+        assert!(cache.is_open());
+    }
+
+    #[test]
+    fn staged_open_preserves_closed_prefix_on_empty_and_bad_inputs() {
+        let mut cache = CityBaseCache::new(0x1234);
+        cache.stage_for_tests(vec![block()], vec![set(b"old.i3d", &[false])]);
+        assert_eq!(
+            cache.open_from_bytes(&[]),
+            Err(BaseCacheOpenError::EmptyInput)
+        );
+        assert!(!cache.is_open());
+        assert!(cache.blocks().is_empty());
+        assert!(cache.model_sets().is_empty());
+        cache.stage_for_tests(vec![block()], vec![set(b"old.i3d", &[false])]);
+        assert_eq!(
+            cache.open_from_bytes(&[1, 2, 3]),
+            Ok(BaseCacheOpenOutcome::NonChunkInput)
+        );
+        assert!(!cache.is_open());
+        assert!(cache.blocks().is_empty());
+        let mut bad = cache_bytes(&["car.i3d"]);
+        bad[6] = 2;
+        assert_eq!(
+            CityBaseCache::new(0).open_from_bytes(&bad),
+            Ok(BaseCacheOpenOutcome::BadRootOrVersion)
+        );
+    }
+
+    #[test]
+    fn staged_open_u16_budget_held_by_parser_quota() {
+        // The parser caps objects at 65535, so 65535 distinct names still
+        // fit the u16 index and the budget arm is dead: full intake Ok.
+        let names: Vec<String> = (0..65535u32).map(|n| format!("m{n:05}.i3d")).collect();
+        let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+        let bytes = cache_bytes(&refs);
+        let mut cache = CityBaseCache::new(0);
+        assert_eq!(cache.open_from_bytes(&bytes), Ok(BaseCacheOpenOutcome::Ok));
+        assert_eq!(cache.model_sets().len(), 65535);
     }
 }

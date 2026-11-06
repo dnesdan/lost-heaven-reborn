@@ -1,10 +1,10 @@
 //! Ordered `C_game::Init` dependency driver, not a substitute for the owners.
 //!
-//! Reference: mafia-re `d0fbd6d`, game/mission/game.cpp, `C_game::Init`
+//! Reference: mafia-re `113b5b6`, game/mission/game.cpp, `C_game::Init`
 //! (PC 0x5a0810, 0x314c bytes). Every reached operation is required;
-//! unavailable dependencies return `Err`. This is not yet connected to the
-//! production mission runtime and does not run actor `GameInit`, scripts, or
-//! rendering.
+//! unavailable dependencies return `Err`. Production wiring over the live
+//! session owners follows below; VM, player, camera and HUD intake stays
+//! out of scope and never becomes a silent success.
 //!
 //! Step order follows the native body verbatim, including progress marks and
 //! `intern_load`/`anim_preload` gates. Names are descriptive; only PC
@@ -175,6 +175,112 @@ impl InitAttempt {
         Ok(())
     }
 }
+
+/// Production `Init` failure over the live session owners. The display
+/// always carries the originating `InitStep` prefix.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SessionInitError(pub String);
+
+impl SessionInitError {
+    fn prefixed(step: InitStep, detail: impl std::fmt::Display) -> Self {
+        Self(format!("{step:?}: {detail}"))
+    }
+
+    fn unavailable(step: InitStep, what: &str) -> Self {
+        Self(format!("{step:?}: unavailable {what} owner"))
+    }
+}
+
+impl std::fmt::Display for SessionInitError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for SessionInitError {}
+
+/// Production wiring of the driver over the live session owners. Owned:
+/// the `Init` guard (live initialized flag + open prefix), police init,
+/// traffic flags, the base-cache `IsOpen` read, and the `MarkInitialized`
+/// flag write. Every other boundary returns `Err` with its step prefix and
+/// preserves the reached live prefix: the driver stops at the first
+/// unowned step. Actor `GameInit`, scripts and rendering never run
+/// here; program execution remains in the headless probe. This is the owned
+/// `Init` prefix without claiming gameplay.
+impl InitOperations for crate::mission_load_session::MissionLoadSession {
+    type Error = SessionInitError;
+
+    fn execute(&mut self, step: InitStep) -> Result<(), Self::Error> {
+        match step {
+            InitStep::GuardNotInitialized => self
+                .guard_game_init_for_init()
+                .map_err(|detail| SessionInitError::prefixed(step, detail)),
+            InitStep::ResetMissionState => {
+                Err(SessionInitError::unavailable(step, "mission-state reset"))
+            }
+            InitStep::PoliceBeginShift => {
+                Err(SessionInitError::unavailable(step, "police shift begin"))
+            }
+            InitStep::PlayerNavi => Err(SessionInitError::unavailable(step, "player navipoint")),
+            InitStep::VehicleSectors => Err(SessionInitError::unavailable(step, "vehicle sectors")),
+            InitStep::PhysicsClear => Err(SessionInitError::unavailable(step, "physics clear")),
+            InitStep::PoliceGameInit => self
+                .apply_police_game_init_for_init()
+                .map_err(|detail| SessionInitError::prefixed(step, detail)),
+            InitStep::TrafficFlags => self
+                .apply_traffic_flags_for_init()
+                .map_err(|detail| SessionInitError::prefixed(step, detail)),
+            InitStep::SoundAndLightness => {
+                Err(SessionInitError::unavailable(step, "sound/lightness"))
+            }
+            InitStep::GlobalProgramStart => {
+                Err(SessionInitError::unavailable(step, "program-runtime"))
+            }
+            InitStep::IndicatorsGameInit => Err(SessionInitError::unavailable(step, "indicators")),
+            InitStep::EffectsStart => Err(SessionInitError::unavailable(step, "effects start")),
+            InitStep::DiffClear => Err(SessionInitError::unavailable(step, "diff pools")),
+            InitStep::BloodAndFramePools => {
+                Err(SessionInitError::unavailable(step, "blood/frame pools"))
+            }
+            InitStep::DriverAndConsoles => {
+                Err(SessionInitError::unavailable(step, "driver consoles"))
+            }
+            InitStep::SegmentsLoad => Err(SessionInitError::unavailable(step, "segments load")),
+            InitStep::CarTables => Err(SessionInitError::unavailable(step, "car tables")),
+            InitStep::HydrantsAndWheels => {
+                Err(SessionInitError::unavailable(step, "hydrants/wheels"))
+            }
+            InitStep::ShadowModels => Err(SessionInitError::unavailable(step, "shadow models")),
+            InitStep::PlayerSelect => Err(SessionInitError::unavailable(step, "player")),
+            InitStep::ActorsGameInit => Err(SessionInitError::unavailable(step, "actor GameInit")),
+            InitStep::ActorLists => Err(SessionInitError::unavailable(step, "actor-list")),
+            InitStep::InterCityAndTraffic => {
+                Err(SessionInitError::unavailable(step, "inter-city traffic"))
+            }
+            InitStep::CameraAndChase => Err(SessionInitError::unavailable(step, "camera")),
+            InitStep::MissionSystems => Err(SessionInitError::unavailable(step, "mission systems")),
+            InitStep::TrackResources => Err(SessionInitError::unavailable(step, "track resources")),
+            InitStep::RmorfAndDriverRestore => {
+                Err(SessionInitError::unavailable(step, "rmorf restore"))
+            }
+            InitStep::PlayerHud => Err(SessionInitError::unavailable(step, "player HUD")),
+            InitStep::BuffersAndPrograms => {
+                Err(SessionInitError::unavailable(step, "program-runtime"))
+            }
+            InitStep::BaseBlocks => self
+                .read_base_blocks_for_init()
+                .map(|_| ())
+                .map_err(|detail| SessionInitError::prefixed(step, detail)),
+            InitStep::MarkInitialized => self
+                .mark_game_initialized_for_init()
+                .map_err(|detail| SessionInitError::prefixed(step, detail)),
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "game_init_session_tests.rs"]
+mod session_tests;
 
 #[cfg(test)]
 mod tests {

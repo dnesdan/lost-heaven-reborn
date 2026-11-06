@@ -1,11 +1,12 @@
 //! C_mission lifetime, Game.exe SHA-256
 //! 08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27.
-//! Constructor RVA 0x13f010; Close RVA 0x1405e0, unopened branch only.
+//! Constructor RVA 0x13f010; Close RVA 0x5405e0, unopened and active paths.
 //! Original PS2 C_mission names corroborate identity, not PC member offsets.
 //! Explicit seeded storage preserves uninitialized pointers, padding and far range.
 //! This owner does not open missions or initialize the game.
 
 use crate::c_str::CStrBackend;
+use crate::city_base_cache::{BaseCacheCloseReport, CityBaseCache};
 use crate::driver_scene::{
     DriverSceneContext, DriverSceneOwner, DriverSceneScreen, NativeSceneSoundDriver,
 };
@@ -208,6 +209,18 @@ impl MissionLifecycle {
         let failure = MissionFailure {
             phase: self.phase,
             detail: format!("{detail:?}"),
+        };
+        self.first_failure.get_or_insert_with(|| failure.clone());
+        failure
+    }
+    /// Display-formatted failure for Close paths: stores the raw `Close:`
+    /// detail without Debug quotes so production `starts_with("Close:")`
+    /// checks hold (the legacy `fail` keeps Debug form for old paths).
+    fn fail_display(&mut self, detail: impl std::fmt::Display) -> MissionFailure {
+        self.interrupted = true;
+        let failure = MissionFailure {
+            phase: self.phase,
+            detail: detail.to_string(),
         };
         self.first_failure.get_or_insert_with(|| failure.clone());
         failure
@@ -716,6 +729,216 @@ impl MissionLifecycle {
             return Err(MissionLifecycleError::ActiveCloseUnavailable);
         }
         Ok(())
+    }
+
+    /// Shared Close-entry checks (purity, admission, null-game note, vector
+    /// and mission-name owners) used by both `close_active` (retain,
+    /// GAME 0x5405e0) and `uninit_active` (destroy, GAME 0x53f3b0).
+    /// Reference: mafia-re `113b5b6`. Returns Ok with `phase` still unset;
+    /// the caller sets its phase on success.
+    fn check_close_vectors<A>(
+        &mut self,
+        context: &mut DriverSceneContext<'_>,
+        allocator: &mut A,
+        driver: &mut DriverSceneOwner,
+    ) -> Result<(), MissionFailure>
+    where
+        A: MissionAllocator + CStrBackend<Error = <A as MissionAllocator>::Error>,
+        <A as MissionAllocator>::Error: std::fmt::Debug,
+    {
+        self.available().map_err(|e| MissionFailure {
+            phase: self.phase,
+            detail: format!(
+                "Close: lifecycle unavailable: {}",
+                e.detail.trim_matches('"')
+            ),
+        })?;
+        self.bind(context, allocator, driver)
+            .map_err(|e| MissionFailure {
+                phase: self.phase,
+                detail: format!("Close: bind unavailable: {}", e.detail.trim_matches('"')),
+            })?;
+        if let Some(scene) = self.scene {
+            driver
+                .validate_scene_domain(context.arena, context.resources, scene)
+                .map_err(|e| MissionFailure {
+                    phase: self.phase,
+                    detail: format!(
+                        "Close: scene domain unavailable: {}",
+                        format!("{e:?}").trim_matches('"')
+                    ),
+                })?;
+        }
+        // Native `if (game)` tolerates a null game (Done/DoneIntern skipped,
+        // clears continue); the host has no Done owner, so a zero word only
+        // skips the Done boundary and the component loop below still clears.
+        // Vector-owner words in native `C_mission` layout order (cleared
+        // trailers at +4); names keep the layout greppable per AGENTS.md.
+        for (offset, _tail) in [
+            (0xcc, "sound-tail"),
+            (0xbc, "anim-tail"),
+            (0xac, "model-tail"),
+            (0x80, "cache-tail"),
+            (0x54, "program-tail"),
+            (0x44, "transparent-tail"),
+            (0x34, "buffer-tail"),
+            (0x14, "name-tail"),
+        ] {
+            if self.word(offset + 4) != 0 {
+                return Err(self.fail_display(format!(
+                    "Close: active Close requires unavailable vector owner at {offset:#x}"
+                )));
+            }
+        }
+        if self.word(0x68) != 0 {
+            return Err(
+                self.fail_display("Close: active Close requires unavailable mission-name owner")
+            );
+        }
+        Ok(())
+    }
+
+    /// Native `C_mission::Close` (GAME 0x5405e0) retain semantics: clears
+    /// without destroying, for `Open` reuse. Unopened is a pure no-op.
+    /// Populated vectors, Ready components, a live scene, or a set
+    /// mission-name word report unavailable owners instead of a silent
+    /// clear, since the host has no DelActors/program/transparent/scene
+    /// owners. Allocations are retained (unlike `uninit_active` below).
+    pub fn close_active<A>(
+        &mut self,
+        caches: &mut MissionCaches,
+        driver: &mut DriverSceneOwner,
+        context: &mut DriverSceneContext<'_>,
+        allocator: &mut A,
+        base_cache: &mut CityBaseCache,
+    ) -> Result<BaseCacheCloseReport, MissionFailure>
+    where
+        A: MissionAllocator + CStrBackend<Error = <A as MissionAllocator>::Error>,
+        <A as MissionAllocator>::Error: std::fmt::Debug,
+    {
+        if self.bytes[0x0c] == 0 {
+            return Ok(BaseCacheCloseReport::default());
+        }
+        self.phase = MissionPhase::Close;
+        self.check_close_vectors(context, allocator, driver)?;
+        let report = base_cache.close();
+        caches
+            .clear_for_mission(context.arena, allocator)
+            .map_err(|e| self.fail_display(format!("Close: caches clear: {e:?}")))?;
+        for (kind, offset) in [
+            (MissionComponentKind::Tshift, 0x28),
+            (MissionComponentKind::WebPath, 0x2c),
+            (MissionComponentKind::Roads, 0x30),
+            (MissionComponentKind::Effects, 0x6c),
+            (MissionComponentKind::Game, 0x24),
+        ] {
+            if self.word(offset) != 0 {
+                return Err(self.fail_display(format!(
+                    "Close: component clear needs unavailable owner at {offset:#x}"
+                )));
+            }
+            let _ = kind;
+        }
+        if self.word(0x10) != 0 {
+            return Err(self.fail_display("Close: scene Close needs unavailable scene owner"));
+        }
+        self.bytes[0x0c] = 0;
+        self.phase = MissionPhase::Complete;
+        Ok(report)
+    }
+
+    /// Native `C_mission::Close` (GAME 0x5405e0) full order for reference:
+    /// game `Done`,
+    /// `FrmActBuff_ClearAll`, cutscene `Close`, tshift/web/roads clears,
+    /// `FrmActBuff_ClearAll`, cutscene `Close`, tshift/web/roads clears,
+    /// `DelActors`, anim-model clear, `base_cache.Close`, cache `Clear`,
+    /// program deletes, transparent clear, scene `Close`, `opened = false`.
+    /// VM, player, camera and HUD intake stays out of scope: populated actor,
+    /// program, transparent, buffer and mission-name vectors report their
+    /// unavailable ownership instead of a silent clear. Every failure
+    /// preserves its reached prefix via `MissionFailure` with a `Close:`
+    /// detail prefix and never replays. This is teardown, not gameplay.
+    ///
+    /// Native `UnInit` (GAME 0x53f3b0) calls `Close()` first, then deletes
+    /// tshift/web/roads/effects/game, releases the scene and drops the
+    /// mission name. The host follows the same two phases: the clear phase
+    /// below mirrors `Close` (base-cache close, cache clear; populated
+    /// vectors report unavailable owners), then the destroy phase drops
+    /// host-owned components and releases the scene for re-`Init` repeats
+    /// (native retains for `Open` reuse — disclosed admission).
+    pub fn uninit_active<A>(
+        &mut self,
+        caches: &mut MissionCaches,
+        driver: &mut DriverSceneOwner,
+        context: &mut DriverSceneContext<'_>,
+        allocator: &mut A,
+        base_cache: &mut CityBaseCache,
+    ) -> Result<BaseCacheCloseReport, MissionFailure>
+    where
+        A: MissionAllocator + CStrBackend<Error = <A as MissionAllocator>::Error>,
+        <A as MissionAllocator>::Error: std::fmt::Debug,
+    {
+        // Native `if (!opened) return;` first: unopened Close is pure and
+        // touches no owner domain (checked before available/bind/validate).
+        if self.bytes[0x0c] == 0 {
+            return Ok(BaseCacheCloseReport::default());
+        }
+        self.phase = MissionPhase::Close;
+        self.check_close_vectors(context, allocator, driver)?;
+        let report = base_cache.close();
+        caches
+            .clear_for_mission(context.arena, allocator)
+            .map_err(|e| self.fail_display(format!("Close: caches clear: {e:?}")))?;
+        for (kind, offset) in [
+            (MissionComponentKind::Tshift, 0x28),
+            (MissionComponentKind::WebPath, 0x2c),
+            (MissionComponentKind::Roads, 0x30),
+            (MissionComponentKind::Effects, 0x6c),
+            (MissionComponentKind::Game, 0x24),
+        ] {
+            let identity = self.word(offset);
+            if identity == 0 {
+                continue;
+            }
+            self.phase = MissionPhase::Destroy(kind);
+            let Some(index) = self.components.iter().position(|entry| {
+                entry.disposal == ComponentDisposal::Ready
+                    && entry.value.identity() == identity
+                    && entry.value.kind() == kind
+            }) else {
+                return Err(
+                    self.fail_display("Close: component pointer has no matching owned allocation")
+                );
+            };
+            self.components[index].disposal = ComponentDisposal::DestroyEntered;
+            self.components[index]
+                .value
+                .destroy(allocator)
+                .map_err(|e| self.fail_display(format!("Close: component destroy: {e:?}")))?;
+            self.components[index].disposal = ComponentDisposal::Destroyed;
+            self.phase = MissionPhase::Free(kind);
+            self.components[index].disposal = ComponentDisposal::FreeEntered;
+            allocator
+                .free(identity)
+                .map_err(|e| self.fail_display(format!("Close: component free: {e:?}")))?;
+            self.components[index].disposal = ComponentDisposal::Released;
+            self.put_word(offset, 0);
+        }
+        self.bytes[0x0c] = 0;
+        if self.word(0x10) != 0 {
+            self.phase = MissionPhase::ReleaseScene;
+            let scene = self.scene.ok_or_else(|| {
+                self.fail_display("Close: scene pointer has no matching owned SceneKey")
+            })?;
+            self.scene_release_entered = true;
+            driver
+                .release_scene(context, scene)
+                .map_err(|e| self.fail_display(format!("Close: scene release: {e:?}")))?;
+            self.scene = None;
+            self.put_word(0x10, 0);
+        }
+        self.phase = MissionPhase::Complete;
+        Ok(report)
     }
 }
 
@@ -1587,6 +1810,120 @@ mod tests {
                 .unwrap()
                 .is_empty());
             assert_eq!(mission.failure(), Some(&failure));
+        });
+    }
+    #[test]
+    fn uninit_disposes_to_zero_and_restart_repeats() {
+        with_fault_fixture(|mission, driver, context, heap| {
+            fault_init(mission, driver, context, heap, &mut FaultScreen::default()).unwrap();
+            mission.bytes[0x0c] = 1;
+            assert_eq!(
+                mission.close(),
+                Err(MissionLifecycleError::ActiveCloseUnavailable)
+            );
+            let mut caches = MissionCaches::empty().unwrap();
+            let mut base = crate::city_base_cache::CityBaseCache::new(0);
+            let report = mission
+                .uninit_active(&mut caches, driver, context, heap, &mut base)
+                .unwrap();
+            assert_eq!(
+                report,
+                crate::city_base_cache::BaseCacheCloseReport::default()
+            );
+            assert_eq!(mission.bytes[0x0c], 0);
+            assert!(mission.scene().is_none());
+            assert!(mission.components().all(|(_, alive)| !alive));
+            assert!(driver.scenes().is_empty());
+            assert!(heap.live.is_empty());
+            assert_eq!(mission.phase(), MissionPhase::Complete);
+            assert!(mission.failure().is_none());
+            assert_eq!(mission.close(), Ok(()));
+            fault_init(mission, driver, context, heap, &mut FaultScreen::default()).unwrap();
+            assert!(mission.scene().is_some());
+            assert_eq!(mission.components().filter(|(_, alive)| *alive).count(), 5);
+            mission.bytes[0x0c] = 1;
+            let mut base = crate::city_base_cache::CityBaseCache::new(0);
+            mission
+                .uninit_active(&mut caches, driver, context, heap, &mut base)
+                .unwrap();
+            assert!(mission.scene().is_none());
+            assert!(mission.components().all(|(_, alive)| !alive));
+            assert!(driver.scenes().is_empty());
+            assert!(heap.live.is_empty());
+        });
+    }
+    #[test]
+    fn close_unopened_is_noop_without_touching_owners() {
+        with_fault_fixture(|mission, driver, context, heap| {
+            fault_init(mission, driver, context, heap, &mut FaultScreen::default()).unwrap();
+            let mut caches = MissionCaches::empty().unwrap();
+            let mut base = crate::city_base_cache::CityBaseCache::new(0);
+            let frees = heap.free_calls.clone();
+            let report = mission
+                .close_active(&mut caches, driver, context, heap, &mut base)
+                .unwrap();
+            assert_eq!(
+                report,
+                crate::city_base_cache::BaseCacheCloseReport::default()
+            );
+            assert!(mission.scene().is_some());
+            assert_eq!(heap.free_calls, frees);
+            assert_eq!(mission.bytes[0x0c], 0);
+        });
+    }
+    #[test]
+    fn uninit_requires_unavailable_vector_owner_with_prefix() {
+        with_fault_fixture(|mission, driver, context, heap| {
+            fault_init(mission, driver, context, heap, &mut FaultScreen::default()).unwrap();
+            mission.bytes[0x0c] = 1;
+            mission.put_word(0x34 + 4, 1);
+            let mut caches = MissionCaches::empty().unwrap();
+            let mut base = crate::city_base_cache::CityBaseCache::new(0);
+            let failure = mission
+                .uninit_active(&mut caches, driver, context, heap, &mut base)
+                .unwrap_err();
+            assert_eq!(failure.phase, MissionPhase::Close);
+            // Close paths store the raw detail (fail_display, no Debug quotes).
+            assert!(failure.detail.starts_with("Close:"), "{}", failure.detail);
+            assert!(failure.detail.contains("0x34"));
+            assert_eq!(mission.bytes[0x0c], 1);
+            assert!(mission.scene().is_some());
+            assert_eq!(mission.failure(), Some(&failure));
+        });
+    }
+    #[test]
+    fn close_retains_empty_mission_for_open_reuse() {
+        // Retain semantics (GAME 0x5405e0): an opened-but-empty mission
+        // clears caches and flips opened=false while keeping every
+        // allocation for Open reuse (no destroy, no free).
+        with_fault_fixture(|mission, driver, context, heap| {
+            mission.bytes[0x0c] = 1;
+            let mut caches = MissionCaches::empty().unwrap();
+            let mut base = crate::city_base_cache::CityBaseCache::new(0);
+            let frees = heap.free_calls.clone();
+            mission
+                .close_active(&mut caches, driver, context, heap, &mut base)
+                .unwrap();
+            assert_eq!(mission.bytes[0x0c], 0);
+            assert_eq!(mission.phase(), MissionPhase::Complete);
+            assert_eq!(heap.free_calls, frees);
+            assert!(mission.failure().is_none());
+        });
+    }
+    #[test]
+    fn close_reports_unavailable_component_clear() {
+        // Populated components cannot clear without owners: Err, retained.
+        with_fault_fixture(|mission, driver, context, heap| {
+            fault_init(mission, driver, context, heap, &mut FaultScreen::default()).unwrap();
+            mission.bytes[0x0c] = 1;
+            let mut caches = MissionCaches::empty().unwrap();
+            let mut base = crate::city_base_cache::CityBaseCache::new(0);
+            let failure = mission
+                .close_active(&mut caches, driver, context, heap, &mut base)
+                .unwrap_err();
+            assert!(failure.detail.starts_with("Close:"), "{}", failure.detail);
+            assert_eq!(mission.bytes[0x0c], 1);
+            assert_eq!(mission.components().filter(|(_, alive)| *alive).count(), 5);
         });
     }
 }

@@ -1,9 +1,10 @@
 //! Ordered C_mission::Open dependency driver, not a substitute for the owners.
 //!
-//! Reference: mafia-re dc867c3238488de27d094bb79b6550e392566e3c,
+//! Reference: mafia-re `113b5b6`,
 //! game/mission/Mission.cpp, C_mission::Open (PC entry 0x5409d0).
 //! Every reached operation is required; unavailable dependencies return Err.
-//! This is not yet connected to the production mission runtime.
+//! Production wiring over the live session owners follows below; the driver
+//! itself never fabricates an owner.
 #![forbid(unsafe_code)]
 
 /// Descriptive callback boundaries, not separately reconstructed functions.
@@ -169,6 +170,152 @@ impl OpenAttempt {
         Ok(OpenResult::Opened)
     }
 }
+
+/// Production `Open` failure over the live session owners. The display
+/// always carries the originating `OpenStep` prefix; the driver also
+/// records it in `OpenFailure.step`. `Ok(false)` from `open_bin` stays a
+/// native `OpenBinFailed`, never this error.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SessionOpenError(pub String);
+
+impl SessionOpenError {
+    fn prefixed(step: OpenStep, detail: impl std::fmt::Display) -> Self {
+        Self(format!("{step:?}: {detail}"))
+    }
+}
+
+impl std::fmt::Display for SessionOpenError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for SessionOpenError {}
+
+fn session_mission_name(
+    session: &crate::mission_load_session::MissionLoadSession,
+    step: OpenStep,
+) -> Result<String, SessionOpenError> {
+    let bytes = session
+        .open_mission_name()
+        .ok_or_else(|| SessionOpenError::prefixed(step, "mission name unavailable"))?;
+    String::from_utf8(bytes.to_vec())
+        .map_err(|_| SessionOpenError::prefixed(step, "mission name unavailable"))
+}
+
+/// Production wiring of the driver over the live session owners. The caller
+/// sets the mission name and configured volume before `run`; `CopyMissionName`
+/// verifies the retained copy. Steps without a live owner in this unit are
+/// explicit host markers documented at the session method; VM, player,
+/// camera and HUD intake stays out of scope and never becomes a silent
+/// success. Full `scene.i3d`/`scene2.bin` actor and program intake remains
+/// in `MissionLoadSession::load`; `OpenBin`/`OpenWorld` here probe presence
+/// and root validity over the live installation owner. This completes the
+/// ordered boundaries without claiming gameplay.
+impl OpenOperations for crate::mission_load_session::MissionLoadSession {
+    type Error = SessionOpenError;
+
+    fn execute(&mut self, step: OpenStep) -> Result<(), Self::Error> {
+        match step {
+            OpenStep::ResetGame => self
+                .reset_open_game()
+                .map_err(|detail| SessionOpenError::prefixed(step, detail)),
+            OpenStep::ClosePrevious => self
+                .close_previous_for_open()
+                .map_err(|detail| SessionOpenError::prefixed(step, detail)),
+            OpenStep::ResetPostClose => self
+                .reset_post_close_for_open()
+                .map_err(|detail| SessionOpenError::prefixed(step, detail)),
+            OpenStep::WaitForMedia => Err(SessionOpenError::prefixed(step, "use media_ready")),
+            OpenStep::BindVehicleScene => self
+                .bind_vehicle_scene_for_open()
+                .map_err(|detail| SessionOpenError::prefixed(step, detail)),
+            OpenStep::CopyMissionName => {
+                if self.open_mission_name().is_none() {
+                    return Err(SessionOpenError::prefixed(step, "mission name unavailable"));
+                }
+                Ok(())
+            }
+            OpenStep::PrepareProgress => self
+                .prepare_progress_for_open()
+                .map_err(|detail| SessionOpenError::prefixed(step, detail)),
+            OpenStep::OpenWorld => {
+                let mission = session_mission_name(self, step)?;
+                self.open_world_present_for_open(&mission)
+                    .map_err(|detail| SessionOpenError::prefixed(step, detail))
+            }
+            OpenStep::ResetWeather => self
+                .reset_weather_for_open()
+                .map_err(|detail| SessionOpenError::prefixed(step, detail)),
+            OpenStep::FillSectorBits => self
+                .fill_sector_bits_for_open()
+                .map_err(|detail| SessionOpenError::prefixed(step, detail)),
+            OpenStep::LoadNavigation => {
+                let mission = session_mission_name(self, step)?;
+                self.load_navigation_for_open(&mission)
+                    .map_err(|detail| SessionOpenError::prefixed(step, detail))
+            }
+            OpenStep::LoadRoads => {
+                let mission = session_mission_name(self, step)?;
+                self.load_roads_for_open(&mission)
+                    .map_err(|detail| SessionOpenError::prefixed(step, detail))
+            }
+            OpenStep::ProbeCache => {
+                let mission = session_mission_name(self, step)?;
+                self.probe_cache_bin_for_open(&mission)
+                    .map(|_| ())
+                    .map_err(|detail| SessionOpenError::prefixed(step, detail))
+            }
+            OpenStep::MuteAudioAndRender => self
+                .mute_audio_and_render_for_open()
+                .map_err(|detail| SessionOpenError::prefixed(step, detail)),
+            OpenStep::MarkRestoreVolume => self
+                .mark_open_restore_volume()
+                .map_err(|detail| SessionOpenError::prefixed(step, detail)),
+            OpenStep::OpenBin => Err(SessionOpenError::prefixed(step, "use open_bin")),
+            OpenStep::RestoreAudio => self
+                .restore_audio_for_open()
+                .map_err(|detail| SessionOpenError::prefixed(step, detail)),
+            OpenStep::AdvanceCacheProgress => self
+                .advance_open_cache_progress()
+                .map_err(|detail| SessionOpenError::prefixed(step, detail)),
+            OpenStep::MarkMissionOpened => self
+                .mark_open_mission_opened()
+                .map_err(|detail| SessionOpenError::prefixed(step, detail)),
+            OpenStep::OpenCache => {
+                let mission = session_mission_name(self, step)?;
+                self.open_cache_bin_for_open(&mission)
+                    .map(|_| ())
+                    .map_err(|detail| SessionOpenError::prefixed(step, detail))
+            }
+            OpenStep::FinishProgress => self
+                .finish_progress_for_open()
+                .map_err(|detail| SessionOpenError::prefixed(step, detail)),
+        }
+    }
+
+    fn media_ready(&mut self) -> Result<bool, Self::Error> {
+        // No live media owner in this unit: the session reports ready while
+        // the driver retains the NoMedia arm (pinned at driver level with a
+        // failing backend, not through this impl).
+        Ok(true)
+    }
+
+    fn open_bin(&mut self) -> Result<bool, Self::Error> {
+        let step = OpenStep::OpenBin;
+        let mission = session_mission_name(self, step)?;
+        self.open_bin_probe_for_open(&mission)
+            .map_err(|detail| SessionOpenError::prefixed(step, detail))
+    }
+
+    fn audio_present(&self) -> bool {
+        self.audio_present_for_open()
+    }
+}
+
+#[cfg(test)]
+#[path = "mission_open_session_tests.rs"]
+mod session_tests;
 
 #[cfg(test)]
 #[path = "mission_open_order_tests.rs"]

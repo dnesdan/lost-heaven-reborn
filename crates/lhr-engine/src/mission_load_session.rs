@@ -382,6 +382,33 @@ pub struct MissionLoadSession {
     base_cache: CityBaseCache,
     police_init: PoliceGameInitState,
     traffic_flags: TrafficGameFlags,
+    /// Native `C_mission::Open` progress mode (`_can_show_progress_` at
+    /// 0x646db0): 0 cleared, 1 when `cache.bin` probes present, 2 after
+    /// `OpenBin`. Read live by `ShowProgress`; only 1 advances to 2.
+    open_cache_progress: i32,
+    /// Native `restore_volume` (mission +0x7c): set even when audio is
+    /// absent, consumed by the first `Tick` with `skip_frames < 1`.
+    open_restore_volume: bool,
+    /// Native `opened` (mission +0xc): set only after a successful
+    /// `OpenBin`, before the final `cache.bin` open.
+    open_mission_opened: bool,
+    /// Host-owned analogue of `C_game::initialized`: set by the
+    /// `MarkInitialized` step, consulted by the `Init` guard. Native
+    /// returns false from `Init` when already initialized; the host
+    /// reports the boundary instead of re-running.
+    game_initialized: bool,
+    /// Native `mission_name` copy (mission +0x68): the parent folder name,
+    /// not the `scene2.bin` filename. `None` until `CopyMissionName`.
+    open_mission_name: Option<Vec<u8>>,
+    /// Host-configured volume used by `RestoreAudio`
+    /// (`mafiaLoadSave.settings.sound_volume` in the original). Defaults to
+    /// 1.0 pending the settings owner; always read live after `OpenBin`.
+    open_configured_volume: f32,
+    /// Host markers for the audio mute/restore boundaries. Muting needs a
+    /// live audio owner; the exact DirectSound volume curve stays outside
+    /// this owner by construction.
+    open_muted: bool,
+    open_restored: Option<f32>,
     precision: Pc24PrecisionState,
     phase: MissionLoadPhase,
     entered: bool,
@@ -424,6 +451,14 @@ impl MissionLoadSession {
             // into them after `Open`. No teardown: pure scalar state.
             police_init: PoliceGameInitState::default(),
             traffic_flags: TrafficGameFlags::default(),
+            open_cache_progress: 0,
+            open_restore_volume: false,
+            open_mission_opened: false,
+            game_initialized: false,
+            open_mission_name: None,
+            open_configured_volume: 1.0,
+            open_muted: false,
+            open_restored: None,
             precision,
             phase: MissionLoadPhase::NotStarted,
             entered: false,
@@ -687,6 +722,377 @@ impl MissionLoadSession {
         &self.traffic_flags
     }
 
+    /// Native `C_mission::Open` progress mode (`_can_show_progress_`).
+    pub fn open_cache_progress(&self) -> i32 {
+        self.open_cache_progress
+    }
+
+    /// Native `restore_volume` flag (mission +0x7c).
+    pub fn open_restore_volume(&self) -> bool {
+        self.open_restore_volume
+    }
+
+    /// Native `opened` flag (mission +0xc).
+    pub fn open_mission_opened(&self) -> bool {
+        self.open_mission_opened
+    }
+
+    /// Native `mission_name` copy, if set.
+    pub fn open_mission_name(&self) -> Option<&[u8]> {
+        self.open_mission_name.as_deref()
+    }
+
+    /// Host-configured volume read live by `RestoreAudio`.
+    pub fn open_configured_volume(&self) -> f32 {
+        self.open_configured_volume
+    }
+
+    /// Whether the mute boundary ran over a live audio owner.
+    pub fn open_muted(&self) -> bool {
+        self.open_muted
+    }
+
+    /// Volume restored over the live audio owner, if any.
+    pub fn open_restored(&self) -> Option<f32> {
+        self.open_restored
+    }
+
+    fn open_terminal_guard(&self) -> Result<(), String> {
+        if self.discard.phase != MissionDiscardPhase::NotStarted {
+            return Err("terminal discard entered".into());
+        }
+        Ok(())
+    }
+
+    /// Native `strcpy` takes any name; the host requires nonempty, NUL-free
+    /// input within a 256-byte quota (path traversal stays the backend's
+    /// sandbox domain, disclosed).
+    fn validate_open_mission_name(mission: &str) -> Result<(), String> {
+        if mission.is_empty() || mission.len() > 256 || mission.bytes().any(|byte| byte == 0) {
+            return Err("mission name must be nonempty NUL-free input within 256 bytes".into());
+        }
+        Ok(())
+    }
+
+    fn open_cache_path(mission: &str) -> String {
+        format!("missions/{mission}/cache.bin")
+    }
+
+    fn open_check_path(mission: &str) -> String {
+        format!("missions/{mission}/check.bin")
+    }
+
+    fn open_road_path(mission: &str) -> String {
+        format!("missions/{mission}/road.bin")
+    }
+
+    fn open_scene2_path(mission: &str) -> String {
+        format!("missions/{mission}/scene2.bin")
+    }
+
+    fn open_world_path(mission: &str) -> String {
+        format!("missions/{mission}/scene.i3d")
+    }
+
+    /// Store the `CopyMissionName` copy over the live progress owner. The
+    /// parent folder name is copied, not the `scene2.bin` filename.
+    pub fn set_open_mission_name(&mut self, mission: &str) -> Result<(), String> {
+        self.open_terminal_guard()?;
+        Self::validate_open_mission_name(mission)?;
+        self.open_mission_name = Some(mission.as_bytes().to_vec());
+        Ok(())
+    }
+
+    /// Store the configured volume read live by `RestoreAudio`. It must be
+    /// finite; the original settings owner stays outside this session.
+    pub fn set_open_configured_volume(&mut self, volume: f32) -> Result<(), String> {
+        self.open_terminal_guard()?;
+        if !volume.is_finite() {
+            return Err("configured volume must be finite".into());
+        }
+        self.open_configured_volume = volume;
+        Ok(())
+    }
+
+    /// `ResetGame` prefix over the live open state. This resets the host
+    /// opened/restore/mute markers; full `ResetIntern` game state stays
+    /// outside this owner by construction.
+    pub fn reset_open_game(&mut self) -> Result<(), String> {
+        self.open_terminal_guard()?;
+        self.open_mission_opened = false;
+        self.open_restore_volume = false;
+        self.open_muted = false;
+        self.open_restored = None;
+        Ok(())
+    }
+
+    /// `ClosePrevious` over the live owners: explicit teardown of the
+    /// previous navigation, roads and base-cache prefix so a restart
+    /// repeats from zero. This covers the session-owned prefix only; the
+    /// native full `Close` (game Done, cutscene, DelActors, programs,
+    /// scene) has no live owners in this unit — a previously opened
+    /// mission retears down through `MissionLifecycle::close_active`,
+    /// which the caller composes before this step. A refused teardown
+    /// stops with its first error and preserves the reached prefix; it is
+    /// never retried implicitly.
+    pub fn close_previous_for_open(&mut self) -> Result<(), String> {
+        self.open_terminal_guard()?;
+        self.navigation
+            .destroy()
+            .map_err(|cause| format!("navigation teardown: {cause:?}"))?;
+        self.roads
+            .destroy()
+            .map_err(|cause| format!("roads teardown: {cause:?}"))?;
+        let _report = self.base_cache.close();
+        Ok(())
+    }
+
+    /// `ResetPostClose` marker: verify the previous close disposed to zero.
+    /// Session-owned navigation, roads and base-cache owners must read
+    /// empty/closed here (not the native unknown_78/actor-ref counters,
+    /// which have no live owners in this unit); anything else is an
+    /// unavailable-dependency error, not a silent skip.
+    pub fn reset_post_close_for_open(&self) -> Result<(), String> {
+        self.open_terminal_guard()?;
+        if self.navigation.live_allocations() != 0 || self.navigation.live_bytes() != 0 {
+            return Err("navigation retains live allocations after close".into());
+        }
+        if self.roads.node_count() != 0 || self.roads.link_count() != 0 {
+            return Err("roads retain a live network after close".into());
+        }
+        if self.base_cache.is_open()
+            || !self.base_cache.blocks().is_empty()
+            || !self.base_cache.model_sets().is_empty()
+        {
+            return Err("base cache retains live blocks after close".into());
+        }
+        Ok(())
+    }
+
+    /// `BindVehicleScene` marker over the live driver owner. The vehicle
+    /// `SetScene` wiring stays outside this unit; this verifies the driver
+    /// owner is reachable and preserves its order without inventing vehicle
+    /// state.
+    pub fn bind_vehicle_scene_for_open(&self) -> Result<(), String> {
+        self.open_terminal_guard()?;
+        let _ = self.driver.capacity();
+        Ok(())
+    }
+
+    /// `PrepareProgress` marker. Progress creation stays a host marker in
+    /// this unit; the mode itself is owned by `ProbeCache`/`AdvanceCacheProgress`.
+    pub fn prepare_progress_for_open(&mut self) -> Result<(), String> {
+        self.open_terminal_guard()?;
+        Ok(())
+    }
+
+    /// `OpenWorld` presence over the live installation owner. Full
+    /// `scene.i3d` intake remains in the `World` phase of `load`; this step
+    /// verifies the required world input is present without duplicating it.
+    /// The original `scene.i3d` name rewrites to `scene.4ds`; either spelling
+    /// satisfies presence here.
+    pub fn open_world_present_for_open(&self, mission: &str) -> Result<(), String> {
+        self.open_terminal_guard()?;
+        Self::validate_open_mission_name(mission)?;
+        let primary = Self::open_world_path(mission);
+        let rewritten = format!("missions/{mission}/scene.4ds");
+        let present = self
+            .installation
+            .read_optional(&primary)
+            .map_err(|error| format!("world source: {error}"))?;
+        if present.is_some() {
+            return Ok(());
+        }
+        let fallback = self
+            .installation
+            .read_optional(&rewritten)
+            .map_err(|error| format!("world source: {error}"))?;
+        if fallback.is_none() {
+            return Err(format!("world input absent: {primary}"));
+        }
+        Ok(())
+    }
+
+    /// `ResetWeather` marker. Full weather reset remains in the `World`
+    /// phase of `load` over the live scene owner.
+    pub fn reset_weather_for_open(&self) -> Result<(), String> {
+        self.open_terminal_guard()?;
+        Ok(())
+    }
+
+    /// `FillSectorBits` marker. Full sector-group fill remains in the
+    /// `World` phase of `load` over the live arena owner.
+    pub fn fill_sector_bits_for_open(&self) -> Result<(), String> {
+        self.open_terminal_guard()?;
+        Ok(())
+    }
+
+    /// `LoadNavigation` (`check.bin`) over the live navigation owner in
+    /// `Open` order. Absence is the original `ROpen`-failed branch and
+    /// succeeds with nothing retained; any other failure stops with its
+    /// first error.
+    pub fn load_navigation_for_open(&mut self, mission: &str) -> Result<(), String> {
+        self.open_terminal_guard()?;
+        Self::validate_open_mission_name(mission)?;
+        let path = Self::open_check_path(mission);
+        self.navigation
+            .load(&self.installation, &path)
+            .map_err(|cause| format!("navigation load: {cause:?}"))?;
+        Ok(())
+    }
+
+    /// `LoadRoads` (`road.bin`) over the live roads owner in `Open` order.
+    /// Same absence rule as navigation.
+    pub fn load_roads_for_open(&mut self, mission: &str) -> Result<(), String> {
+        self.open_terminal_guard()?;
+        Self::validate_open_mission_name(mission)?;
+        let path = Self::open_road_path(mission);
+        self.roads
+            .load(&self.installation, &path)
+            .map_err(|cause| format!("roads load: {cause:?}"))?;
+        Ok(())
+    }
+
+    /// `ProbeCache`: set progress mode to zero, try `cache.bin`, close it
+    /// on success, then set mode to one. This probe does not decide whether
+    /// the later open is tried. Returns presence. Source errors are host
+    /// interruptions with the zeroed progress preserved.
+    pub fn probe_cache_bin_for_open(&mut self, mission: &str) -> Result<bool, String> {
+        self.open_terminal_guard()?;
+        Self::validate_open_mission_name(mission)?;
+        self.open_cache_progress = 0;
+        let path = Self::open_cache_path(mission);
+        let present = self
+            .installation
+            .read_optional(&path)
+            .map_err(|error| format!("cache probe source: {error}"))?;
+        if present.is_some() {
+            self.open_cache_progress = 1;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    /// Reread live audio-owner presence. The driver sound backend is the
+    /// `isound`-presence analogue; `OpenBin` and rendering may change it, so
+    /// callers must not cache this observation.
+    pub fn audio_present_for_open(&self) -> bool {
+        self.driver.host_sound_backend().is_some()
+    }
+
+    /// `MuteAudioAndRender` over the live audio owner. Muting records its
+    /// host marker; exact DirectSound curves stay outside this owner. Scene
+    /// rendering stays with the scene owner and is verified only as
+    /// reachable here, not executed as a gameplay frame.
+    pub fn mute_audio_and_render_for_open(&mut self) -> Result<(), String> {
+        self.open_terminal_guard()?;
+        if !self.audio_present_for_open() {
+            return Err("audio owner absent".into());
+        }
+        self.open_muted = true;
+        Ok(())
+    }
+
+    /// Set the original `restore_volume` flag even when audio is absent.
+    /// Terminal-guarded like the other mutators: after discard no mutation.
+    pub fn mark_open_restore_volume(&mut self) -> Result<(), String> {
+        self.open_terminal_guard()?;
+        self.open_restore_volume = true;
+        Ok(())
+    }
+
+    /// `OpenBin` (`scene2.bin`) presence and root-validity probe over the
+    /// live installation owner. `Ok(false)` is the native nonzero result
+    /// (`NOFILE`/`CORRUPTED`) and becomes `OpenBinFailed` with completed
+    /// effects preserved; `Err` is a distinct host interruption. Full actor
+    /// and program intake remains in the `Scene2Prefix` phase of `load`.
+    pub fn open_bin_probe_for_open(&self, mission: &str) -> Result<bool, String> {
+        self.open_terminal_guard()?;
+        Self::validate_open_mission_name(mission)?;
+        let path = Self::open_scene2_path(mission);
+        let bytes = self
+            .installation
+            .read_optional(&path)
+            .map_err(|error| format!("scene2 source: {error}"))?;
+        let Some(bytes) = bytes else {
+            return Ok(false);
+        };
+        if lhr_assets::scene_actor_stream::scene2_root(&bytes).is_err() {
+            return Ok(false);
+        }
+        Ok(true)
+    }
+
+    /// `RestoreAudio` over the live audio owner and the configured volume
+    /// that exists after `OpenBin`. Reads both live; never uses a cached
+    /// pre-`OpenBin` flag or volume.
+    pub fn restore_audio_for_open(&mut self) -> Result<(), String> {
+        self.open_terminal_guard()?;
+        if !self.audio_present_for_open() {
+            return Err("audio owner absent".into());
+        }
+        if !self.open_configured_volume.is_finite() {
+            return Err("configured volume unavailable".into());
+        }
+        self.open_restored = Some(self.open_configured_volume);
+        Ok(())
+    }
+
+    /// Read live progress mode: change one to two, leaving every other
+    /// value. This occurs after audio restoration, including native
+    /// `OpenBin` failure.
+    pub fn advance_open_cache_progress(&mut self) -> Result<(), String> {
+        self.open_terminal_guard()?;
+        if self.open_cache_progress == 1 {
+            self.open_cache_progress = 2;
+        }
+        Ok(())
+    }
+
+    /// Mark the mission opened. Only reached after a successful `OpenBin`.
+    /// Terminal-guarded: after discard the mark stays rejected.
+    pub fn mark_open_mission_opened(&mut self) -> Result<(), String> {
+        self.open_terminal_guard()?;
+        self.open_mission_opened = true;
+        Ok(())
+    }
+
+    /// `OpenCache`: try a fresh optional `cache.bin` open regardless of the
+    /// probe result. On success consume the retained stream through the
+    /// staged `base_cache` intake and close it; genuine absence is the
+    /// original empty branch. A staged intake failure closes to zero and
+    /// continues as the empty branch (native `base_cache.Open` is void and
+    /// `Open` continues); only host interruptions stop with `Err`.
+    pub fn open_cache_bin_for_open(&mut self, mission: &str) -> Result<bool, String> {
+        self.open_terminal_guard()?;
+        Self::validate_open_mission_name(mission)?;
+        let path = Self::open_cache_path(mission);
+        let bytes = self
+            .installation
+            .read_optional(&path)
+            .map_err(|error| format!("cache source: {error}"))?;
+        let Some(bytes) = bytes else {
+            return Ok(false);
+        };
+        match self.base_cache.open_from_bytes(&bytes) {
+            Ok(crate::city_base_cache::BaseCacheOpenOutcome::Ok) => Ok(true),
+            // Staged non-Ok (partial outcome or intake error): close to zero
+            // and continue as the empty branch like the void native call.
+            _ => {
+                self.base_cache.close();
+                Ok(false)
+            }
+        }
+    }
+
+    /// `FinishProgress` marker (`LOAD_PROGRESS_END`). Progress teardown
+    /// stays a host marker in this unit.
+    pub fn finish_progress_for_open(&mut self) -> Result<(), String> {
+        self.open_terminal_guard()?;
+        Ok(())
+    }
+
     /// Owned `C_shvestky::GameInit` + traffic-flag stores in `Init` order,
     /// after `Open`. Police init is infallible; traffic reports its
     /// waver-clear boundary when leaving an enabled driver.
@@ -696,6 +1102,58 @@ impl MissionLoadSession {
         self.police_init.apply_game_init();
         self.traffic_flags.apply_game_init()?;
         Ok(())
+    }
+
+    fn game_init_admission(&self) -> Result<(), String> {
+        self.open_terminal_guard()?;
+        if self.phase != MissionLoadPhase::PrefixComplete && !self.open_mission_opened {
+            return Err("game init requires completed open prefix".into());
+        }
+        Ok(())
+    }
+
+    /// `Init` guard over the live initialized flag. An already-initialized
+    /// game reports the native `return false` boundary; otherwise the open
+    /// prefix must be complete (loaded prefix or ordered `Open`).
+    pub fn guard_game_init_for_init(&self) -> Result<(), String> {
+        if self.game_initialized {
+            return Err("game already initialized".into());
+        }
+        self.game_init_admission()
+    }
+    /// `MarkInitialized` owner: records the initialized flag the guard
+    /// consults. Called by the `Init` driver at its step, never implicitly.
+    pub fn mark_game_initialized_for_init(&mut self) -> Result<(), String> {
+        self.game_init_admission()?;
+        self.game_initialized = true;
+        Ok(())
+    }
+
+    /// `PoliceGameInit` (`C_shvestky::GameInit` 0x499cd0) over the live
+    /// police owner in `Init` order. Infallible by construction.
+    pub fn apply_police_game_init_for_init(&mut self) -> Result<(), String> {
+        self.game_init_admission()?;
+        self.police_init.apply_game_init();
+        Ok(())
+    }
+
+    /// `TrafficFlags` over the live traffic owner in `Init` order. Leaving
+    /// an enabled taxi driver reports its waver-clear boundary instead of
+    /// silently dropping it.
+    pub fn apply_traffic_flags_for_init(&mut self) -> Result<(), String> {
+        self.game_init_admission()?;
+        self.traffic_flags
+            .apply_game_init()
+            .map_err(|error| format!("{error:?}"))?;
+        Ok(())
+    }
+
+    /// `BaseBlocks` over the live base-cache owner (`IsOpen` only;
+    /// `PrepareBaseBlocks` 0x5a3990 is itself a stub upstream). Always
+    /// succeeds; it only reads the live open flag.
+    pub fn read_base_blocks_for_init(&self) -> Result<bool, String> {
+        self.game_init_admission()?;
+        Ok(self.base_cache.is_open())
     }
     /// Persistent arithmetic status seeded explicitly by the host caller.
     pub fn precision_state(&self) -> Pc24PrecisionState {

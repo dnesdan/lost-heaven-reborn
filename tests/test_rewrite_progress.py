@@ -29,7 +29,7 @@ class RewriteProgressTests(unittest.TestCase):
         game = next(card for card in cards if card["name"] == "Game.exe")
         self.assertEqual(game["total"], 4914)
         # Ledger base plus overlay entries, no overlap by construction.
-        self.assertEqual(game["ported"], 149 + 23)
+        self.assertEqual(game["ported"], 149 + 28)
         self.assertEqual(game["verified"], 149 + 5)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
