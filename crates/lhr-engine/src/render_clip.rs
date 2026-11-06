@@ -1779,9 +1779,7 @@ pub fn clip_faces_persp(state: &mut ClipState, faces: &[Triface]) -> bool {
                 }
             }
             // Publish tessellated polygon into cur for lift/spread.
-            for i in 0..tlen {
-                poly.cur[i] = tessellated[i];
-            }
+            poly.cur[..tlen].copy_from_slice(&tessellated[..tlen]);
             poly.cur[tlen] = tessellated[0];
             poly.len = tlen;
             state.poly_num = tlen;
@@ -1798,16 +1796,10 @@ pub fn clip_faces_persp(state: &mut ClipState, faces: &[Triface]) -> bool {
                 let first = min_i + 1;
                 if first < tlen {
                     let tail = tlen - first;
-                    for i in 0..tail {
-                        ordered[i] = poly.cur[first + i];
-                    }
-                    for i in 0..min_i {
-                        ordered[tail + i] = poly.cur[i];
-                    }
+                    ordered[..tail].copy_from_slice(&poly.cur[first..(tail + first)]);
+                    ordered[tail..(min_i + tail)].copy_from_slice(&poly.cur[..min_i]);
                 } else {
-                    for i in 0..min_i {
-                        ordered[i] = poly.cur[i];
-                    }
+                    ordered[..min_i].copy_from_slice(&poly.cur[..min_i]);
                 }
                 let mut hi: usize = tlen - 2;
                 let mut lo: usize = 0;
