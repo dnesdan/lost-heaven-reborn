@@ -105,6 +105,7 @@ pub mod game_spatial_sound;
 pub mod glass_subdivision;
 pub mod host_scene_adapters;
 pub mod human_actor;
+pub mod human_move_coll;
 pub mod i3d_object;
 pub mod indexed_sound_manager;
 pub mod input_keyboard;

@@ -8437,6 +8437,51 @@
       "symbol": "lhr_engine::game_camera_begin::end",
       "tier": "contract",
       "evidence": "mafia-re 113b5b6 game/camera/g_camera.cpp:1232-1255 (camera guard, CP_SNIPER / C_RAILWAY_IN / P_BEHIND_23 switch arms, Update, car restore without a frame check) + g_camera.h mode consts (upstream working guesses, disclosed) + Rust tests (authored without cargo, no execution claimed); SCOPE: read-only classification, zero slice stores natively; I3D relink/Update (I3D/mission owners), indicator swap (HUD owner), car frame restore (car owner) DEFERRED with typed markers; no REA body (marker-only, no session opened); tier contract ceiling, no full-function credit; executed green by orchestrator: `cargo test -p lhr-engine --lib game_camera_begin` 8 passed (base daf4d72 + uncommitted)"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x17d2e0",
+      "va": "0x57d2e0",
+      "name": "C_human::Do_StopAnim",
+      "symbol": "lhr_engine::human_actor::HumanState::apply_do_stop_anim",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 game/actors/C_human.cpp:5362 (~12 lines: action_state = HUMAN_ACTION_STAND; if (alive) { anim_id = 0; next_anim_id = ANIM_BREATH01A; PersonAnim(0.0, true, false); }) + game/actors/C_human.h:137 (HUMAN_ACTION_STAND 1), :690-692 (0x70 int anim_id / 0x74 int next_anim_id, names ours), :185 (PersonAnim first bool: stance) and :172-174 (second bool: once, on to SetAnim) + game/actors/C_actor.h:548 (ANIM_BREATH01A 0x1 breath01a.i3d; id original, symbolic name follows upstream) and :355-358 (0x5d bool alive, true from GameInit) + C_human.cpp:2965-2971 (PersonAnim float flows to SetAnim); Game.exe SHA256 08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27 base 0x400000 (RVA = VA - 0x400000); contract tier: reviewed upstream source plus authored Rust tests in human_actor.rs (construct-defaults, dead-path-only-STAND with anim/latch preservation incl. stale request, alive-path full transition + handoff + take-once vectors); SCOPE: stop core only; the PersonAnim frame/machine effects (stance/anim-set remap, breath guards, SetAnim) are recorded as a HumanPersonAnimRequest handoff for the future animation owner, no invented behavior; DEFERRED per code markers: move_coll word 0x414, crouching/weapon/aimed reads, every Movement/Update/car-function writer; no REA body observation (marker-only); authored tests not executed (cargo unavailable on this host); overlap check: rva absent from docs/rewrite-overlay.json functions and not a ledger port (docs/progress.json lists it only in retained_entries coverage); base rust-engine 573420d, no commit, no camera/VM files touched; executed green by orchestrator: `cargo test -p lhr-engine --lib human_move_coll` 5 passed + `human_actor` 17 passed (base 573420d + uncommitted)"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x17cb60",
+      "va": "0x57cb60",
+      "name": "C_human::TestMoveColl (guarded prefix)",
+      "symbol": "lhr_engine::human_move_coll::test_move_coll_prefix",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 game/actors/C_human.cpp:5274 (~34 lines) with tgcPanak2 shape at game/actors/C_human.h:440 and flag words at game/collision/g_colls.h:31-37 (COLF_ALL 0xffffffff, COLF_UNKNOWN_80000 0x80000, COLF_UNKNOWN_2 2, COLF2_UNKNOWN_800000 0x800000, COLF2_UNKNOWN_80000 0x80000); owned leaves: radii [0.4, 0.25, 0.35] (:5286-5288), legs lift 0.405 (:5278), alive lifts (0.55, 1.0) / crouch (0.3, 0.6) (:5280-5281), dir.y -= 0.015 (:5291), flags (alive?0:ALL)|0x80000|2 (:5292), flags2 0x800000 + 0x80000 for non-player (:5293-5295), miss result from + unbiased dir (:5300-5301), hit result pos_out - 0.4 (:5303); Game.exe SHA256 08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27 base 0x400000 (RVA = VA - 0x400000); contract tier: reviewed upstream source plus authored Rust tests in human_move_coll.rs (radii/lifts, flag arms, y-only bias, miss/hit vectors incl. bit-exact f32 derivations, prefix assembly for alive-non-player and dead-player); SCOPE: guarded prefix only (test_move_coll_prefix + pure leaves); TestPanak2 capsule sweep has no owner (TestPanak2 capsule does not exist in tree) so collision descent stays DEFERRED, as do frame anchoring (GetWorldPos/GetWorldDir), DynSetNextCollOwnerMult plumbing (no colls/ghost_colls owner), the player comparison behind is_player (no mission owner) and the move_coll 0x414 writeback, all with explicit markers and no invented geometry; no REA body observation (marker-only); authored tests not executed (cargo unavailable on this host); overlap check: rva absent from docs/rewrite-overlay.json functions and not a ledger port (docs/progress.json lists it only in retained_entries coverage); base rust-engine 573420d, no commit, no camera/VM files touched; executed green by orchestrator: `cargo test -p lhr-engine --lib human_move_coll` 5 passed + `human_actor` 17 passed (base 573420d + uncommitted)"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x09c7e0",
+      "va": "0x49c7e0",
+      "name": "C_shvestky::AddPerson",
+      "symbol": "lhr_engine::police_state::PoliceGameInitState::add_person",
+      "tier": "contract",
+      "evidence": "Ghidra 12.1.4 read-only analyze_function 0x49c7e0 (body 0x49c7e0-0x49ca49, 618 bytes): null (!human) and inactive (!*this) guards, back-to-front duplicate scan, 0x80-byte cleared record (state/new_state 0, hits/wanted_time -1, car latched from human+0x98 only when car type == 4 ACTOR_CAR), vector push-back growth; mafia-re 113b5b6 game/ai/C_shvestky.cpp:753-757 is a log-only stub. Rust symbol owns the registry transition; +0x70 low-human-byte store uninterpreted and unmodeled (see code comment). Authored #[cfg(test)] vectors; NOT executed (no cargo in this session).; executed green by orchestrator: `cargo test -p lhr-engine --lib police` 17 passed (base 573420d + uncommitted)"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x09ca50",
+      "va": "0x49ca50",
+      "name": "C_shvestky::DelPerson",
+      "symbol": "lhr_engine::police_state::PoliceGameInitState::del_person",
+      "tier": "contract",
+      "evidence": "Ghidra 12.1.4 read-only analyze_function 0x49ca50: same null/inactive/empty guards, back-to-front search for the human record, per-angry-actor DelDoRiciActor 0x49e820 handoff (stub upstream, deferred), record destruction, swap-with-back + pop; mafia-re 113b5b6 game/ai/C_shvestky.cpp:759-763 is a log-only stub. Rust symbol returns the removed record (swap_remove, identical order) for future DelDoRici wiring. Authored #[cfg(test)] vectors; NOT executed (no cargo in this session).; executed green by orchestrator: `cargo test -p lhr-engine --lib police` 17 passed (base 573420d + uncommitted)"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x09b860",
+      "va": "0x49b860",
+      "name": "C_shvestky::SetActive (registry prefix)",
+      "symbol": "lhr_engine::police_state::PoliceGameInitState::apply_set_active",
+      "tier": "contract",
+      "evidence": "Ghidra 12.1.4 read-only analyze_function 0x49b860 (body 0x49b860-0x49c7ac, 3917 bytes), registry prefix only: same-state early return (on==*this, no stores), then active=on, +0x34=text, +0x38=0, +0x39=unknown2; remainder (bridge-node collection, police-model preload, player auto-add via AddPerson) needs mission/level owners and is DEFERRED with reasons in code docs; mafia-re 113b5b6 game/ai/C_shvestky.cpp:747-751 is a log-only stub. Authored #[cfg(test)] vectors; NOT executed (no cargo in this session).; executed green by orchestrator: `cargo test -p lhr-engine --lib police` 17 passed (base 573420d + uncommitted)"
     }
   ],
   "vm": {

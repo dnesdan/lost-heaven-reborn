@@ -1,8 +1,11 @@
-//! Bounded raw police-manager initialization and reset, with working names.
+//! Bounded police-manager registry: init/reset plus the person-registry
+//! transitions, with working names.
 //!
 //! Existing bytes and the constructor's opaque allocator marker are explicit
 //! inputs. Native pointer words remain opaque words, never Rust pointers. This
-//! module does not construct resources, own actors, or implement manager ON.
+//! module owns the `records` registry and the `SetActive` scalar stores; it
+//! does not construct resources, run Tick/pursuit/arrest AI, or implement the
+//! mission/world side of manager ON.
 //!
 //! PR3 parity (mafia-re `pr3` b0c02ef): `S_shvestky::RemoveAngryActor`
 //! 0x49f780, `C_shvestky::RemoveAngryActor` 0x49f540 and
@@ -10,6 +13,34 @@
 //! `SendPoliceToHuman` 0x49f980 and `FreeMyTempActor` 0x49e7e0 remain
 //! unimplemented stubs; the previous vulgar working names are retired in
 //! favor of the English descriptive names above.
+//!
+//! Person registry (Game.exe SHA-256
+//! 08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27,
+//! base 0x400000; mafia-re game/ai/C_shvestky.{h,cpp} at 113b5b6 are log-only
+//! stubs for these three, so the transitions below are evidenced by a single
+//! closed Ghidra read-only probe session instead (single-session recollection:
+//! no ev IDs were retained, so re-derive the bodies before any differential
+//! claim; contract ceiling holds): `C_shvestky::AddPerson` 0x49c7e0 (null/inactive
+//! guards, duplicate scan from the back, cleared 0x80-byte record with the
+//! human's car latched when it is `ACTOR_CAR`), `C_shvestky::DelPerson`
+//! 0x49ca50 (same guards, back-to-front search, swap-with-back + pop) and the
+//! `C_shvestky::SetActive` 0x49b860 registry prefix (same-state early return,
+//! then the active/arrest-text/unknown stores). The rest of `SetActive`
+//! (bridge-node collection, police-model preload, player auto-add) needs
+//! mission/level owners and stays deferred, as do `DriveCar` 0x49cbb0,
+//! `ForceArrest` 0x49d130, `DalsiChalpiDoPartie` (`POLICE_SUPPORT`) and the
+//! full Tick/pursuit/arrest AI. `DelPerson`'s per-angry-actor `DelDoRiciActor`
+//! 0x49e820 handoff is deferred with that stub; the removed record is returned
+//! so future wiring can enumerate it.
+//!
+//! VM dispatch: `POLICEMANAGER_ON` (135) already parses into
+//! `StartupCommand::PoliceManagerOn`, but no live `ScriptEffects` backend owns
+//! `PoliceGameInitState`, and the ON arm additionally needs the deferred
+//! bridge/model/player-add owners; `POLICEMANAGER_ADD` (136) has no startup
+//! command yet and needs a live actor-by-frame-name lookup plus a car-type
+//! read, both ownerless. Both arms ride the unledgered `C_program::Process`
+//! 0x46d3b0, so no overlay sub-opcode entries arise either way. Arms deferred
+//! for those reasons; the registry behaviors they call are ready here.
 
 /// Raw words of one retained native allocation; these are not host addresses.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -183,9 +214,15 @@ pub struct PoliceRoadBlockIris {
     pub free: bool,
 }
 
-/// Owned subset of `C_shvestky` state written by `GameInit` 0x49cd0.
-/// Fields the native body does not touch (enemies, temporary cars, arrest
-/// text, `unknown_38`) are outside this owner by construction.
+/// Owned subset of `C_shvestky` state written by `GameInit` 0x499cd0 and the
+/// person-registry transitions (`SetActive` 0x49b860 prefix, `AddPerson`
+/// 0x49c7e0, `DelPerson` 0x49ca50). Fields no ported body touches (enemies,
+/// temporary cars, road-block enemies, do-rici/bridge-node lists) are outside
+/// this owner by construction. `GameInit` leaves the `SetActive` scalars
+/// (`arrest_text`, `unknown_38`, `unknown_39`) alone, matching the native body,
+/// which never stores them; before the first `SetActive` they are native
+/// uninitialized (the native constructor is empty), so the typed `Default`
+/// (zero/false) is an explicit host default, not an original value.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PoliceGameInitState {
     active: bool,
@@ -197,6 +234,13 @@ pub struct PoliceGameInitState {
     unknown_24: PoliceTimer,
     unknown_2c: u32,
     unknown_30: u32,
+    /// Failure-menu text at +0x34 (`SetActive`'s; upstream notes 980000,
+    /// "You've been arrested", as the usual script value).
+    arrest_text: u32,
+    /// Cleared by `SetActive`; read by `ReleaseWantedHuman` and Tick.
+    unknown_38: bool,
+    /// First byte of `unknown_39`; `SetActive`'s `unknown2` parameter.
+    unknown_39: bool,
     records: Vec<PolicePursuitRecord>,
     road_block_cars: Vec<PoliceRoadBlockCar>,
     road_block_irises: Vec<PoliceRoadBlockIris>,
@@ -244,9 +288,92 @@ impl PoliceGameInitState {
         self.do_rici_actors.len()
     }
 
+    pub fn arrest_text(&self) -> u32 {
+        self.arrest_text
+    }
+
+    pub fn unknown_38(&self) -> bool {
+        self.unknown_38
+    }
+
+    pub fn unknown_39(&self) -> bool {
+        self.unknown_39
+    }
+
+    /// Original `C_shvestky::SetActive` 0x49b860 registry prefix: when the
+    /// requested state already holds, the native body returns before any
+    /// store; otherwise it records the flag, the failure-menu text, clears
+    /// +0x38 and stores `unknown2` at +0x39, in that order. Returns whether
+    /// any store happened. The remainder of the native body (bridge-node
+    /// collection, police-model preload, player auto-add) needs mission/level
+    /// owners and stays deferred.
+    pub fn apply_set_active(&mut self, on: bool, arrest_text: u32, unknown2: bool) -> bool {
+        if on == self.active {
+            return false;
+        }
+        self.active = on;
+        self.arrest_text = arrest_text;
+        self.unknown_38 = false;
+        self.unknown_39 = unknown2;
+        true
+    }
+
+    /// Original `C_shvestky::AddPerson` 0x49c7e0 registry transition: a null
+    /// human (identity zero, the native null) or an inactive manager adds
+    /// nothing; a human that already has a record (scanned from the back, as
+    /// natively) adds nothing. Otherwise a cleared record is appended and
+    /// reported. `car` carries the human's current car when that car reads as
+    /// `ACTOR_CAR` (native: `human->car` with `car->type == 4`), `None`
+    /// otherwise; the caller owns that read. The native constructor also
+    /// writes one uninterpreted byte at +0x70 from the human word's low byte
+    /// (single closed probe session, bounds not retained; upstream
+    /// C_shvestky.h documents `nasrany` at 0x70, so the store may overlap the
+    /// vector head per upstream layout — wording softened accordingly);
+    /// this owner does not model it. Returns whether a record was
+    /// appended.
+    pub fn add_person(&mut self, human: PoliceHumanId, car: Option<PoliceActorId>) -> bool {
+        if human == 0 || !self.active {
+            return false;
+        }
+        if self.records.iter().rev().any(|record| record.human == human) {
+            return false;
+        }
+        let mut record = PolicePursuitRecord::new(human);
+        record.car = car;
+        self.records.push(record);
+        true
+    }
+
+    /// Original `C_shvestky::DelPerson` 0x49ca50 registry transition: the
+    /// same null/inactive/empty guards as `AddPerson`, then a back-to-front
+    /// search for the human's record. The found record is removed with
+    /// swap-with-back + pop (`swap_remove`, identical order) and returned so
+    /// future `DelDoRiciActor` 0x49e820 wiring can enumerate it; the native
+    /// body additionally routes each of the record's angry actors through
+    /// `DelDoRiciActor` and frees the record storage, both deferred here.
+    /// Returns the removed record, or `None` when no store happened.
+    pub fn del_person(&mut self, human: PoliceHumanId) -> Option<PolicePursuitRecord> {
+        if human == 0 || !self.active || self.records.is_empty() {
+            return None;
+        }
+        let index = (0..self.records.len())
+            .rev()
+            .find(|&i| self.records[i].human == human)?;
+        Some(self.records.swap_remove(index))
+    }
+
+    /// Original inline `C_shvestky::SetSpeed` (mafia-re game/ai/C_shvestky.h,
+    /// accessor copy GAME 0x47b4f0): stores both limits. `POLICEMANAGER_SETSPEED`
+    /// passes km/h scaled by 1/3.6; the caller owns that scaling.
+    pub fn apply_set_speed(&mut self, speed_limit: f32, speed_limit_arrest: f32) {
+        self.speed_limit = speed_limit.to_bits();
+        self.speed_limit_arrest = speed_limit_arrest.to_bits();
+    }
+
     /// Original `C_shvestky::GameInit` 0x499cd0 in native order: inactive,
     /// timer resets (330/913/217/4013 ms), 17.0/28.0 speed limits, zeroed
-    /// words, and cleared lists. Untouched fields stay out of this owner.
+    /// words, and cleared lists. The `SetActive` scalars stay untouched, as
+    /// natively.
     pub fn apply_game_init(&mut self) {
         self.active = false;
         self.records_timer.reset(330);
@@ -276,6 +403,12 @@ pub enum PoliceDispatchError {
     Unsupported { entry: u32 },
 }
 
+/// `C_shvestky::SetActive` 0x49b860 (`POLICEMANAGER_ON`).
+pub const SET_ACTIVE_ENTRY: u32 = 0x49b860;
+/// `C_shvestky::AddPerson` 0x49c7e0 (`POLICEMANAGER_ADD`).
+pub const ADD_PERSON_ENTRY: u32 = 0x49c7e0;
+/// `C_shvestky::DelPerson` 0x49ca50 (`POLICEMANAGER_DEL`).
+pub const DEL_PERSON_ENTRY: u32 = 0x49ca50;
 /// `C_shvestky::SendPoliceBackup` 0x49eee0 (`POLICE_SUPPORT`).
 pub const SEND_POLICE_BACKUP_ENTRY: u32 = 0x49eee0;
 /// `C_shvestky::SendPoliceToHuman` 0x49f980.
@@ -334,6 +467,9 @@ pub fn remove_angry_actor_everywhere(records: &mut [Vec<PoliceActorId>], actor: 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PolicePursuitRecord {
     pub human: PoliceHumanId,
+    /// The human's car at `AddPerson` time when it reads as `ACTOR_CAR`
+    /// (`None` for the native null otherwise); `DriveCar` owns later updates.
+    pub car: Option<PoliceActorId>,
     pub flags: u32,
     pub flags2: u32,
     pub car_steal_time: u32,
@@ -361,6 +497,7 @@ impl PolicePursuitRecord {
     pub fn new(human: PoliceHumanId) -> Self {
         Self {
             human,
+            car: None,
             flags: 0,
             flags2: 0,
             car_steal_time: 0,
@@ -638,5 +775,134 @@ mod tests {
         // Second application is idempotent over cleared lists.
         state.apply_game_init();
         assert_eq!(state.record_count(), 0);
+    }
+
+    #[test]
+    fn game_init_leaves_set_active_scalars_alone() {
+        let mut state = PoliceGameInitState::default();
+        assert!(state.apply_set_active(true, 980000, true));
+        state.records.push(PolicePursuitRecord::new(3));
+        state.apply_game_init();
+        assert!(!state.active());
+        assert_eq!(state.record_count(), 0);
+        // Native GameInit never stores these; only SetActive does.
+        assert_eq!(state.arrest_text(), 980000);
+        assert!(!state.unknown_38());
+        assert!(state.unknown_39());
+    }
+
+    #[test]
+    fn set_active_same_state_stores_nothing() {
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.apply_set_active(false, 980000, true));
+        assert!(!state.active());
+        assert_eq!(state.arrest_text(), 0);
+        assert!(!state.unknown_39());
+        assert!(state.apply_set_active(true, 111, false));
+        assert!(!state.apply_set_active(true, 222, true));
+        assert_eq!(state.arrest_text(), 111);
+        assert!(!state.unknown_39());
+    }
+
+    #[test]
+    fn set_active_flip_stores_flag_text_and_clears_unknown_38() {
+        let mut state = PoliceGameInitState::default();
+        assert!(state.apply_set_active(true, 980000, true));
+        assert!(state.active());
+        assert_eq!(state.arrest_text(), 980000);
+        assert!(!state.unknown_38());
+        assert!(state.unknown_39());
+        assert!(state.apply_set_active(false, 42, false));
+        assert!(!state.active());
+        assert_eq!(state.arrest_text(), 42);
+        assert!(!state.unknown_39());
+    }
+
+    #[test]
+    fn add_person_guards_null_inactive_and_duplicates() {
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.add_person(7, None));
+        assert_eq!(state.record_count(), 0);
+        assert!(state.apply_set_active(true, 980000, false));
+        assert!(!state.add_person(0, None));
+        assert_eq!(state.record_count(), 0);
+        assert!(state.add_person(7, None));
+        assert!(state.add_person(9, Some(51)));
+        assert_eq!(state.record_count(), 2);
+        assert!(!state.add_person(7, None));
+        assert!(!state.add_person(9, None));
+        assert_eq!(state.record_count(), 2);
+        let cleared = &state.records[0];
+        assert_eq!(cleared.human, 7);
+        assert_eq!(cleared.car, None);
+        assert_eq!(cleared.state, SHVSTATE_NONE);
+        assert_eq!(cleared.new_state, SHVSTATE_NONE);
+        assert_eq!(cleared.wanted_time, -1);
+        assert_eq!(cleared.hits_time, -1);
+        assert_eq!(state.records[1].car, Some(51));
+    }
+
+    #[test]
+    fn del_person_guards_null_inactive_and_missing() {
+        let mut state = PoliceGameInitState::default();
+        assert_eq!(state.del_person(7), None);
+        assert!(state.apply_set_active(true, 980000, false));
+        assert_eq!(state.del_person(0), None);
+        assert_eq!(state.del_person(7), None);
+        assert!(state.add_person(7, None));
+        assert!(state.apply_set_active(false, 0, false));
+        assert_eq!(state.del_person(7), None);
+        assert_eq!(state.record_count(), 1);
+    }
+
+    #[test]
+    fn del_person_removes_backmost_with_swap_with_back() {
+        let mut state = PoliceGameInitState::default();
+        assert!(state.apply_set_active(true, 980000, false));
+        for human in [7, 9, 11, 13] {
+            assert!(state.add_person(human, None));
+        }
+        // Middle removal moves the tail into the hole (not a shifting remove).
+        let removed = state.del_person(9).expect("staged record");
+        assert_eq!(removed.human, 9);
+        assert_eq!(
+            state.records.iter().map(|record| record.human).collect::<Vec<_>>(),
+            vec![7, 13, 11]
+        );
+        // Manually staged duplicate with a car marker: the back-to-front
+        // search removes the trailing copy, not the earlier one.
+        let mut duplicate = PolicePursuitRecord::new(13);
+        duplicate.car = Some(99);
+        state.records.push(duplicate);
+        let removed = state.del_person(13).expect("duplicate record");
+        assert_eq!(removed.car, Some(99));
+        assert_eq!(
+            state.records.iter().map(|record| record.human).collect::<Vec<_>>(),
+            vec![7, 13, 11]
+        );
+        assert_eq!(state.del_person(99), None);
+        assert_eq!(state.record_count(), 3);
+    }
+
+    #[test]
+    fn add_del_round_trip_restores_registry() {
+        let mut state = PoliceGameInitState::default();
+        assert!(state.apply_set_active(true, 980000, false));
+        assert!(state.add_person(7, Some(60)));
+        let removed = state.del_person(7).expect("added record");
+        assert_eq!(removed.car, Some(60));
+        assert_eq!(state.record_count(), 0);
+        assert!(state.add_person(7, None));
+        assert_eq!(state.records[0].car, None);
+    }
+
+    #[test]
+    fn set_speed_stores_exact_limit_bits() {
+        let mut state = PoliceGameInitState::default();
+        state.apply_game_init();
+        state.apply_set_speed(17.0 / 3.6, 28.0 / 3.6);
+        assert_eq!(state.speed_limit(), 17.0 / 3.6);
+        assert_eq!(state.speed_limit_arrest(), 28.0 / 3.6);
+        assert_eq!(state.speed_limit_bits(), (17.0f32 / 3.6).to_bits());
     }
 }

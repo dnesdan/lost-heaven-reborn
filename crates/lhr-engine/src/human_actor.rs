@@ -9,11 +9,14 @@
 //! invented gameplay meaning. Only the Human GameInit prefix slice
 //! (car/using_car clear, STAND, max-to-current bank copy), the
 //! Intern_UseCar/Intern_FromCar seat-placement core (seat latch plus the
-//! car/using_car/action writers of this slice only) and the Can_EnterToCar
-//! owned-car guard are owned here; the full GameInit body plus animation
-//! selection, AI and Update stay DEFERRED, as do every collision,
-//! animation-machine, frame, camera, indicator, inventory, weapon and police
-//! effect of the three car-function bodies.
+//! car/using_car/action writers of this slice only), the Can_EnterToCar
+//! owned-car guard and the Do_StopAnim stop core (STAND plus the alive-gated
+//! anim-id reset and PersonAnim handoff) are owned here; the full GameInit
+//! body plus animation selection, AI and Update stay DEFERRED, as do every
+//! collision, animation-machine, frame, camera, indicator, inventory, weapon
+//! and police effect of the three car-function bodies. TestMoveColl's capsule
+//! descent (TestPanak2) has no owner; its collision-independent leaves live
+//! as a guarded prefix in human_move_coll.
 //! The dtor animation-stop device effect (GAME 0x56f210) and the Init frame
 //! effects (GAME 0x56f350, owned by ActorWorld::init_human_owner) stay with the
 //! frame owner; detector/AI/police owners do not exist yet and are DEFERRED.
@@ -315,6 +318,28 @@ pub const HUMAN_ACTION_CAR: i32 = 9;
 /// (C_human.cpp:2242) and the `seat != -1` in-car tests throughout
 /// C_human.cpp; the GameInit body (:3162-3407) writes no seat word.
 pub const HUMAN_SEAT_NONE: i32 = -1;
+/// The idle breath animation id (mafia-re 113b5b6 game/actors/C_actor.h:548:
+/// 0x1, "breath01a.i3d"). The numeric id is original; the symbolic name
+/// follows upstream, derived from the animation file name. Written by the
+/// Do_StopAnim core of this slice; the PersonAnim stance/anim-set remap of
+/// the id stays DEFERRED to the PersonAnim owner.
+pub const ANIM_BREATH01A: i32 = 1;
+
+/// Pending PersonAnim invocation recorded by the Do_StopAnim core (descriptive
+/// working name and field names; the original call is synchronous with no
+/// latch). The future PersonAnim owner consumes it via
+/// take_person_anim_request; no frame or animation-machine effect happens here.
+/// Parameter meanings per mafia-re 113b5b6 game/actors/C_human.h:185 (first
+/// bool: stance, in the weapon's and the crouch's stance) and :172-174
+/// (second bool: once, the animation plays once, not looped, on to
+/// C_animations_machine_de_luxe::SetAnim); the float is the blend passed on
+/// to SetAnim (C_human.cpp:2965-2971).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HumanPersonAnimRequest {
+    pub blend: f32,
+    pub stance: bool,
+    pub play_once: bool,
+}
 
 #[derive(Debug)]
 pub struct HumanState {
@@ -367,6 +392,34 @@ pub struct HumanState {
     /// GameInit prefix leaves it alone. No overlay entry of its own; rides
     /// the 0x17e020/0x17e500/0x1808c0 seat-placement entries.
     seat: i32,
+    /// Liveness word (mafia-re 113b5b6 game/actors/C_actor.h:355-358: 0x5d
+    /// bool alive, true from GameInit till the end; the name is ours). Read
+    /// by the Do_StopAnim core of this slice; the GameInit writer that sets
+    /// it and the death writer that clears it (C_human.cpp:2326) stay
+    /// DEFERRED. Starts at not alive (working deterministic default for the
+    /// pre-GameInit seed; the native C_actor ctor leaves it true).
+    /// No overlay entry of its own, rides the 0x17d2e0 stop entry.
+    alive: bool,
+    /// Current animation id (mafia-re 113b5b6 game/actors/C_human.h:690:
+    /// 0x70 int anim_id, PS2 0x200; the name is ours). Written by the
+    /// Do_StopAnim core of this slice; the PersonAnim/Update/Movement writers
+    /// stay DEFERRED. Starts at the cleared value 0 (the constructor leaves
+    /// the word untouched; 0 is what Do_StopAnim and SaveGameLoad write).
+    /// No overlay entry of its own; rides the 0x17d2e0 stop entry.
+    anim_id: i32,
+    /// Next animation id PersonAnim plays (mafia-re 113b5b6
+    /// game/actors/C_human.h:691-692: 0x74 int next_anim_id, PS2 0x204; the
+    /// name is ours). Written by the Do_StopAnim core of this slice; the
+    /// PersonAnim/Update/Movement/GameInit writers stay DEFERRED. Starts at
+    /// 0 (no selection yet). No overlay entry of its own; rides the
+    /// 0x17d2e0 stop entry.
+    next_anim_id: i32,
+    /// Pending PersonAnim handoff for the future animation owner (see
+    /// HumanPersonAnimRequest). The Do_StopAnim core records
+    /// PersonAnim(0.0, true, false) here on the alive path only; the dead
+    /// path leaves a previous request untouched, exactly matching the
+    /// original's call placement (C_human.cpp:5362-5371).
+    person_anim_request: Option<HumanPersonAnimRequest>,
 }
 impl HumanState {
     pub(crate) fn construct(seed: HumanSeed) -> Self {
@@ -393,6 +446,10 @@ impl HumanState {
             using_car: None,
             action_state: HUMAN_ACTION_STAND,
             seat: HUMAN_SEAT_NONE,
+            alive: false,
+            anim_id: 0,
+            next_anim_id: 0,
+            person_anim_request: None,
         }
     }
     pub fn human_type_mask(&self) -> u32 {
@@ -449,9 +506,33 @@ impl HumanState {
     pub fn set_using_car(&mut self, car: Option<ActorReferenceId>) {
         self.using_car = car;
     }
+    /// Test/host setter for the liveness word (GameInit/death writers deferred).
+    pub fn set_alive(&mut self, alive: bool) {
+        self.alive = alive;
+    }
     /// Live HUMAN_ACTION_* word; STAND and CAR are produced by this owner so far.
     pub fn action_state(&self) -> i32 {
         self.action_state
+    }
+    /// Liveness word (C_actor 0x5d); the Do_StopAnim core reads it.
+    pub fn alive(&self) -> bool {
+        self.alive
+    }
+    /// Current animation id; the Do_StopAnim core clears it on the alive path.
+    pub fn anim_id(&self) -> i32 {
+        self.anim_id
+    }
+    /// Next animation id; the Do_StopAnim core selects the breath on the alive path.
+    pub fn next_anim_id(&self) -> i32 {
+        self.next_anim_id
+    }
+    /// Pending PersonAnim handoff for the future animation owner, if any.
+    pub fn person_anim_request(&self) -> Option<HumanPersonAnimRequest> {
+        self.person_anim_request
+    }
+    /// Take the pending PersonAnim handoff (future PersonAnim owner consumes it).
+    pub(crate) fn take_person_anim_request(&mut self) -> Option<HumanPersonAnimRequest> {
+        self.person_anim_request.take()
     }
     /// Seat index in the car, HUMAN_SEAT_NONE for none.
     pub fn seat(&self) -> i32 {
@@ -604,6 +685,32 @@ impl HumanState {
         self.car = None;
         self.using_car = None;
         true
+    }
+    /// GAME 0x57d2e0 (RVA 0x17d2e0) C_human::Do_StopAnim STOP CORE (mafia-re
+    /// 113b5b6 game/actors/C_human.cpp:5362, ~12 lines): set action_state to
+    /// HUMAN_ACTION_STAND (C_human.h:137); when alive, clear anim_id to 0,
+    /// select next_anim_id ANIM_BREATH01A and invoke
+    /// PersonAnim(0.0, true, false). The PersonAnim invocation is recorded as
+    /// a HumanPersonAnimRequest handoff for the future animation owner; the
+    /// frame/animation-machine effects inside the PersonAnim body (stance and
+    /// anim-set remap, breath guards, SetAnim) stay DEFERRED with no invented
+    /// behavior. The dead path writes only action_state, leaving the anim
+    /// words and any pending request untouched, exactly as the original's
+    /// `if (alive)` placement. SCOPE: stop core only. DEFERRED with explicit
+    /// markers, no new owner here: the TestMoveColl move_coll word (0x414),
+    /// crouching/weapon/aimed reads inside PersonAnim, and every Movement,
+    /// Update and car-function writer of these words.
+    pub(crate) fn apply_do_stop_anim(&mut self) {
+        self.action_state = HUMAN_ACTION_STAND;
+        if self.alive {
+            self.anim_id = 0;
+            self.next_anim_id = ANIM_BREATH01A;
+            self.person_anim_request = Some(HumanPersonAnimRequest {
+                blend: 0.0,
+                stance: true,
+                play_once: false,
+            });
+        }
     }
     /// GAME 0x5808c0 (RVA 0x1808c0) C_human::Can_EnterToCar OWNED-CAR GUARD
     /// MARKER (mafia-re 113b5b6 game/actors/C_human.cpp:6373, ~54 lines):
@@ -1091,5 +1198,105 @@ mod tests {
         assert!(!human.can_enter_to_car_guard());
         human.set_car(None);
         assert!(human.can_enter_to_car_guard());
+    }
+    #[test]
+    fn stop_anim_core_starts_cleared_and_dead_with_no_request() {
+        // Construction defaults for the Do_StopAnim words (GAME 0x57d2e0,
+        // mafia-re 113b5b6 game/actors/C_human.cpp:5362): pre-GameInit not
+        // alive, anim words cleared, no pending PersonAnim handoff.
+        let human = HumanState::construct(seed());
+        assert!(!human.alive());
+        assert_eq!(human.anim_id(), 0);
+        assert_eq!(human.next_anim_id(), 0);
+        assert_eq!(human.person_anim_request(), None);
+    }
+    #[test]
+    fn do_stop_anim_dead_path_writes_only_stand() {
+        // Hand-derived from C_human::Do_StopAnim (mafia-re 113b5b6
+        // game/actors/C_human.cpp:5362): the dead path writes only
+        // action_state = HUMAN_ACTION_STAND (1, C_human.h:137); the anim
+        // words and any pending PersonAnim request stay untouched.
+        let mut human = HumanState::construct(seed());
+        // Direct word writes: no other owner produces these values yet
+        // (Movement/Update DEFERRED); 2 is HUMAN_ACTION_WALK (C_human.h:138).
+        human.action_state = 2;
+        human.anim_id = 7;
+        human.next_anim_id = 0x42;
+        assert!(!human.alive());
+        human.apply_do_stop_anim();
+        assert_eq!(human.action_state(), HUMAN_ACTION_STAND);
+        assert_eq!(human.action_state(), 1);
+        assert_eq!(human.anim_id(), 7);
+        assert_eq!(human.next_anim_id(), 0x42);
+        assert_eq!(human.person_anim_request(), None);
+        // A stale pending request also survives the dead path (the original
+        // issues no PersonAnim call there).
+        human.person_anim_request = Some(HumanPersonAnimRequest {
+            blend: 1.5,
+            stance: false,
+            play_once: true,
+        });
+        human.action_state = 2;
+        human.apply_do_stop_anim();
+        assert_eq!(human.action_state(), 1);
+        assert_eq!(human.anim_id(), 7);
+        assert_eq!(human.next_anim_id(), 0x42);
+        assert_eq!(
+            human.person_anim_request(),
+            Some(HumanPersonAnimRequest {
+                blend: 1.5,
+                stance: false,
+                play_once: true,
+            })
+        );
+    }
+    #[test]
+    fn do_stop_anim_alive_path_clears_anim_selects_breath_and_hands_off() {
+        // Hand-derived from C_human::Do_StopAnim (mafia-re 113b5b6
+        // game/actors/C_human.cpp:5362): the alive path sets STAND,
+        // anim_id = 0, next_anim_id = ANIM_BREATH01A (1, C_actor.h:548) and
+        // invokes PersonAnim(0.0, true, false), recorded here as the handoff.
+        let mut human = HumanState::construct(seed());
+        human.set_alive(true);
+        human.action_state = 2;
+        human.anim_id = 7;
+        human.next_anim_id = 0x42;
+        human.apply_do_stop_anim();
+        assert_eq!(human.action_state(), 1);
+        assert_eq!(human.anim_id(), 0);
+        assert_eq!(human.next_anim_id(), ANIM_BREATH01A);
+        assert_eq!(human.next_anim_id(), 1);
+        assert_eq!(
+            human.person_anim_request(),
+            Some(HumanPersonAnimRequest {
+                blend: 0.0,
+                stance: true,
+                play_once: false,
+            })
+        );
+        // Repeating over the stopped state is a pure no-op (same words, same
+        // handoff overwritten with an equal value).
+        human.apply_do_stop_anim();
+        assert_eq!(human.action_state(), 1);
+        assert_eq!(human.anim_id(), 0);
+        assert_eq!(human.next_anim_id(), 1);
+        assert_eq!(
+            human.person_anim_request(),
+            Some(HumanPersonAnimRequest {
+                blend: 0.0,
+                stance: true,
+                play_once: false,
+            })
+        );
+        // The future PersonAnim owner takes the handoff exactly once.
+        assert_eq!(
+            human.take_person_anim_request(),
+            Some(HumanPersonAnimRequest {
+                blend: 0.0,
+                stance: true,
+                play_once: false,
+            })
+        );
+        assert_eq!(human.person_anim_request(), None);
     }
 }

@@ -52,7 +52,11 @@ class RewriteProgressTests(unittest.TestCase):
         # +3 UseCar seat core (0x17e020 Intern_UseCar + 0x17e500 Intern_FromCar
         # + 0x1808c0 Can_EnterToCar guard, all contract) + 3 camera lifecycle
         # (0x1ed400 SetMode + 0x1f2ea0 Begin + 0x1f3450 End, all contract).
-        self.assertEqual(game["ported"], 149 + 53)
+        # +2 movement leaves (0x17d2e0 Do_StopAnim + 0x17cb60 TestMoveColl
+        # guarded prefix, contract) + 3 police registry (0x09c7e0 AddPerson +
+        # 0x09ca50 DelPerson + 0x09b860 SetActive prefix, contract; Ghidra
+        # single-session recollection, differential explicitly unwarranted).
+        self.assertEqual(game["ported"], 149 + 58)
         self.assertEqual(game["verified"], 149 + 7)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
