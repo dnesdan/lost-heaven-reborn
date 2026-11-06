@@ -41,7 +41,7 @@ impl ModelArena {
 /// This is called once by MissionLoadSession after world intake and before scene2.
 /// Its existing single-use guard retains any reached error prefix; no rollback
 /// or replay is introduced here. Other MissionOpen dependencies remain separate.
-pub(super) fn fill_primary_sector_groups(
+pub fn fill_primary_sector_groups(
     arena: &mut ModelArena,
     scene: SceneKey,
 ) -> Result<(), ModelError> {

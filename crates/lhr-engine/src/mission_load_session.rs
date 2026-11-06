@@ -40,6 +40,7 @@ use std::convert::Infallible;
 
 #[path = "mission_sector_groups.rs"]
 mod sector_groups;
+pub use sector_groups::fill_primary_sector_groups;
 
 /// Explicit probe inputs. Projection and model directories are supplied by
 /// the caller; this host adapter does not infer original GameInit.

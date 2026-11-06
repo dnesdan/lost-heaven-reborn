@@ -28,7 +28,7 @@ pub(crate) fn normalized_z(vector: [f32; 3]) -> Result<f32, MakeUnavailable> {
 }
 
 /// Game 0x408490: retain both FPATAN values until their PC24 subtraction.
-pub(crate) fn animation_angle(first: [f32; 3], last: [f32; 3]) -> Result<f32, MakeUnavailable> {
+pub fn animation_angle(first: [f32; 3], last: [f32; 3]) -> Result<f32, MakeUnavailable> {
     if first[0].is_finite()
         && first[2].is_finite()
         && first[0].to_bits() == last[0].to_bits()

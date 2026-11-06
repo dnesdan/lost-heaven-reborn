@@ -1706,6 +1706,16 @@ mod tests {
     }
 
     #[test]
+    fn map_enable_stores_flag() {
+        // GAME 0x5f9d10 C_indicators::MapEnable: plain flag store.
+        let mut state = IndicatorsState::constructed(staged_clock());
+        state.map_enable(true);
+        assert!(state.map_enabled());
+        state.map_enable(false);
+        assert!(!state.map_enabled());
+    }
+
+    #[test]
     fn wingman_guards_reject_out_of_range() {
         let mut state = IndicatorsState::constructed(staged_clock());
         state.player_set_wingman_name(2, 0xf);

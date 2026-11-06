@@ -19,6 +19,7 @@ mod retained_angle;
 #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
 pub(crate) use native_trig::vector_angle::try_ph_thing_friction_products;
 pub use native_trig::vector_angle::try_vector_angle_to;
+pub use native_trig::car_resource_math::animation_angle;
 pub use native_trig::car_resource_math::rotate_y;
 #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
 pub use native_trig::vector_angle::{
