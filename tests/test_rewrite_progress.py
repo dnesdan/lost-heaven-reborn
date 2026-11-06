@@ -42,7 +42,9 @@ class RewriteProgressTests(unittest.TestCase):
         # +1 G_Camera::Reset 0x1ed040 differential confirm-only (2-line
         # lib.rs/mission_game.rs wiring makes the faithful port creditable;
         # fresh 217B REA body + listing corroboration on top of port+tests).
-        self.assertEqual(game["ported"], 149 + 44)
+        # +1 C_driver::Tick 0x3c4f0 leading-prefix contract (upstream STUB,
+        # 130B slice to the CALL halt, tail/callers deferred).
+        self.assertEqual(game["ported"], 149 + 45)
         self.assertEqual(game["verified"], 149 + 7)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])

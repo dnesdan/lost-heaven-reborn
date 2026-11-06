@@ -8356,6 +8356,15 @@
       "symbol": "lhr_engine::game_camera_reset::reset",
       "tier": "differential",
       "evidence": "mafia-re 113b5b6 game/camera/g_camera.cpp:192-216 (pure field stores + two push_pop.clear); confirm-only over pre-existing port: probe-observed REA ev_d719a04f1b5c62b6b1b6d15fa35b7431667086a1231311b74b912abf22373385 (Ghidra body 0x5ed040-0x5ed118, 217B contiguous, non-thunk, read-only probe session, closed, not reviewer-observed) + probe-observed ev_2172f30f679381227964b4d4466964dc3623d0cfbe25e921d92c5946ce34c9c3 (full listing: four zero-stores, live profile read, 5.0f/0.5f/0.2f stores, two push_pop-clear loops, global clear) corroborates the port exactly; pinning tests game_camera_reset.rs:122/147-164 + wrapper mission_components.rs:667; executed green by orchestrator: `cargo test -p lhr-engine --lib game_camera_reset` 2 passed + `cargo test -p lhr-engine --lib mission_components` 27 passed (substring filter spans nested mission_components::web_path:: tests; base 883f601 + uncommitted)"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x3c4f0",
+      "va": "0x43c4f0",
+      "name": "C_driver::Tick (leading prefix)",
+      "symbol": "lhr_engine::ai_driver_tick::ai_driver_tick_prefix",
+      "tier": "contract",
+      "evidence": "REA analyze_function 0x43c4f0 parent ev_92c7676ef333da2b6eae2222ed0c273f42851e5f5f1cdb0d10fdbde4a73d8f73 + summary ev_378af46a02176159807f7927628b161012345e7f6924a9138eab7deb3d31bec0 (FUN_0043c4f0 non-thunk, body 0x43c4f0-0x43f043 contiguous 11092B, 2881 asm/339 BB/43 callees/4 callers/1 param) + entry read_bytes 160B ev_7215919d2bc144d2664ec3bb20f553e46df8ae8d96c85ebc4594fdfc66fcaaeb (capstone-decoded 0x43c4f0-0x43c58f: subject+0xAC clear, /112 path-size snapshot to +0x64, empty/cursor/null guards, +0x21C wrapping time add, halt at CALL 0x4cb710) + mafia-re 113b5b6 game/ai/C_driver.h:45-68 (state fields incl path/next_node/unknown_220) and game/ai/C_driver.cpp:16 (Tick is a STUB, no semantics) + Rust tests; contract tier: leading-slice prefix only, tail convergence at 0x43f035 unverified; authored tests; executed green by orchestrator: `cargo test -p lhr-engine --lib ai_driver_tick` 7 passed (base 5466b31 + uncommitted)"
     }
   ],
   "vm": {

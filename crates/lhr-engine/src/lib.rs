@@ -6,6 +6,7 @@ pub mod actor_registry;
 pub mod actor_shot;
 pub mod actor_tick;
 pub mod actor_world;
+pub mod ai_driver_tick;
 pub mod animation_binding;
 pub mod animation_catalog;
 pub mod animation_controller;
@@ -259,7 +260,7 @@ pub mod ls3df {
 /// Original game executable boundary; replay helper names remain descriptive.
 pub mod game {
     pub use crate::{
-        actor_world, car_ai_position, car_effects, car_runtime, city_base_cache,
+        actor_world, ai_driver_tick, car_ai_position, car_effects, car_runtime, city_base_cache,
         collision_dispatch, collision_line, collision_links, collision_prepare, collision_query,
         collision_swept, collision_swept_aabox, collision_swept_box, collision_swept_volumes,
         collision_swept_world, collision_volumes, collision_world, collision_world_driving,
