@@ -241,14 +241,21 @@ mod tests {
 // CPU-only prefixes per sibling mafia-re @ 113b5b6 (ls3df/IGraph/IShow.cpp,
 // ls3df/IGraph/IGraph.h). Every entry below is tier contract: reviewed
 // upstream source plus pinning tests. No Ghidra bodies were re-observed here;
-// REA body notes below repeat the assigned 16B and 531B shapes.
+// REA body notes below repeat the assigned 16B and 531B shapes. The
+// GetVolume/GetDecodedFrameNum/IsStreamPlaying-dB entries likewise have no
+// Ghidra proc; their byte proofs are cited in the function docs.
 //
-// Working names: all IShow:: method names are PS2-evidenced original names
-// per IGraph.h:424-433 (PS2 IShow.cpp); Rust spelling is snake_case per repo
-// rule and each function doc records its RVA/VA and mafia-re file:line. All
-// IShow data members used here (reference count, init flag, rectangle,
-// region list, video source dims) are working-guess projections per source;
-// the native member offsets are not claimed.
+// Working names: IShow:: method names are PS2-evidenced original names
+// per IGraph.h:424-433 (PS2 IShow.cpp) plus the inline header originals
+// GetVolume (IGraph.h:454) and GetDecodedFrameNum (IGraph.h:469);
+// IsStreamPlaying (IGraph.h:481-483) is PC-only-guessed and lives in
+// runtime_audio; Rust spelling is snake_case per repo rule and each
+// function doc records its RVA/VA and mafia-re file:line. All IShow data
+// members used here (reference count, init flag, rectangle, region list,
+// video source dims) are working-guess projections per source, including
+// m_Volume/m_DecodedFrameNum (IGraph.h:510,513 — members guessed except
+// m_RefCount); the native member offsets are not mirrored on the host
+// (named fields, no raw layout).
 //
 // Scope: CPU logic only. Win32 window/client selection, GetClientRect,
 // DirectShow/COM graph, Bink decoding, Ogg/DirectSound submits and thread
@@ -261,7 +268,8 @@ mod tests {
 // &list[0] and assumes a region exists), disclosed hardening.
 //
 // Withheld (no claims, no functions): Open/Close/Play/Stop/Pause/Event/Seek/
-// Volume/Render paths (DirectShow/Bink/Ogg device submits). Construction-
+// Volume-submit/Render paths (DirectShow/Bink/Ogg device submits); the CPU
+// dB sub-map is ported as ishow_volume_db in runtime_audio. Construction-
 // covered, no new functions: empty IShow ctor/dtor field defaults (covered by
 // struct construction in tests).
 //
@@ -318,15 +326,42 @@ pub struct IshowRegion {
     pub verts: [IshowVertex; 4],
 }
 
-/// IShow CPU projection (IGraph.h:431-534, working-guess members per source).
-/// Reference count, init flag, screen rectangle and region list only; graph,
-/// Bink, Ogg, DirectSound and thread handles stay behind the backend.
+/// IShow CPU projection (IGraph.h:431-534, working-guess members per source;
+/// m_Volume/m_DecodedFrameNum are working-guess names per IGraph.h:510,513
+/// (members guessed except m_RefCount); native offsets +0x3C/+0x54 cited in
+/// the getter docs and kept as named fields on the host, not raw layout).
+/// Reference count, init flag, screen rectangle, region list, volume and
+/// decoded frame number only; graph, Bink, Ogg, DirectSound and thread
+/// handles stay behind the backend.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Ishow {
     pub ref_count: i32,
     pub is_init: bool,
     pub rect: [i32; 4],
     pub regions: Vec<IshowRegion>,
+    /// Working-guess m_Volume (IGraph.h:510, native +0x3C matching the
+    /// SetVolume store). Default matches the native ctor 1.0f
+    /// (IShow.cpp:127,147).
+    pub volume: f32,
+    /// Working-guess m_DecodedFrameNum (IGraph.h:513, native +0x54,
+    /// counted by the renderer).
+    pub decoded_frame_num: i32,
+}
+
+impl Default for Ishow {
+    /// Host-chosen initials: ref 1 and zeroed rect mirror the native ctor;
+    /// volume starts at the native 1.0f initial (IShow.cpp:127,147); decoded frame
+    /// number 0 matches native.
+    fn default() -> Self {
+        Self {
+            ref_count: 1,
+            is_init: false,
+            rect: [0, 0, 0, 0],
+            regions: Vec::new(),
+            volume: 1.0,
+            decoded_frame_num: 0,
+        }
+    }
 }
 
 /// LS3DF RVA 0x73570, VA 0x10073570. IShow::AddRef PS2-evidenced original name
@@ -341,6 +376,26 @@ pub fn ishow_add_ref(show: &mut Ishow) -> i32 {
 /// (mafia-re ls3df/IGraph/IShow.cpp:589): init flag read, pure CPU.
 pub fn ishow_is_init(show: &Ishow) -> bool {
     show.is_init
+}
+
+/// LS3DF RVA 0x75820, VA 0x10075820. IShow::GetVolume PS2-evidenced original
+/// name (mafia-re ls3df/IGraph/IGraph.h:454; method not PC-only-marked,
+/// so the PS2 name stands — unlike the guessed members below): volume word
+/// copy, pure CPU. No
+/// Ghidra proc was observed here; byte proof is MOV EAX,[ESP+4] then FLD
+/// dword [EAX+0x3C] then RET 4, reading float m_Volume at +0x3C matching the
+/// SetVolume store. Host copies the bit-exact f32 with no conversion.
+pub fn ishow_get_volume(show: &Ishow) -> f32 {
+    show.volume
+}
+
+/// LS3DF RVA 0x75830, VA 0x10075830. IShow::GetDecodedFrameNum PS2-evidenced
+/// original name (mafia-re ls3df/IGraph/IGraph.h:469; method not
+/// PC-only-marked, so the PS2 name stands): decoded frame counter
+/// read, pure CPU. No Ghidra proc was observed here; byte proof is MOV
+/// EAX,[EAX+0x54] then RET 4, reading i32 m_DecodedFrameNum at +0x54.
+pub fn ishow_get_decoded_frame_num(show: &Ishow) -> i32 {
+    show.decoded_frame_num
 }
 
 /// LS3DF RVA 0x74380, VA 0x10074380. IShow::m_PrepareVerts PS2-evidenced
@@ -554,6 +609,8 @@ mod ishow_contract_tests {
             is_init: false,
             rect: [0, 0, 0, 0],
             regions: Vec::new(),
+            volume: 1.0,
+            decoded_frame_num: 0,
         }
     }
 
@@ -588,6 +645,32 @@ mod ishow_contract_tests {
         assert!(!ishow_is_init(&show));
         show.is_init = true;
         assert!(ishow_is_init(&show));
+    }
+
+    #[test]
+    fn ishow_get_volume_round_trip_incl_default() {
+        // Default matches the native 1.0f initial; the getter copies the
+        // bit-exact f32.
+        let def = Ishow::default();
+        assert_eq!(def.volume.to_bits(), 1.0f32.to_bits());
+        assert_eq!(ishow_get_volume(&def).to_bits(), 1.0f32.to_bits());
+        let mut show = sample_show();
+        assert_eq!(ishow_get_volume(&show).to_bits(), 1.0f32.to_bits());
+        show.volume = 0.75;
+        assert_eq!(ishow_get_volume(&show).to_bits(), 0.75f32.to_bits());
+        show.volume = 1.0;
+        assert_eq!(ishow_get_volume(&show).to_bits(), 1.0f32.to_bits());
+    }
+
+    #[test]
+    fn ishow_get_decoded_frame_num_default_and_set() {
+        let def = Ishow::default();
+        assert_eq!(def.decoded_frame_num, 0);
+        assert_eq!(ishow_get_decoded_frame_num(&def), 0);
+        let mut show = sample_show();
+        assert_eq!(ishow_get_decoded_frame_num(&show), 0);
+        show.decoded_frame_num = 42;
+        assert_eq!(ishow_get_decoded_frame_num(&show), 42);
     }
 
     #[test]

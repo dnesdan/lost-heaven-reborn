@@ -94,14 +94,17 @@ class RewriteProgressTests(unittest.TestCase):
         # 5BB/40B + 1BB/57B + 5BB/60B): all differential.
         # 20 wave-10 IShow CPU prefixes (8 logo refcount/flag/rect/region +
         # 4 vorbis dta delegates + 7 stream flag/submit + 1 renderer drop;
-        # 0x753e0 construction-covered): all contract.", Tier rules applied: differential needs
+        # 0x753e0 construction-covered): all contract.
+        # 4 wave-11 IShow stragglers (2 inline getters + dB sub-map +
+        # IsStreamPlaying withhold-lift; full SetVolume stays device):
+        # all contract.", Tier rules applied: differential needs
         # a Ghidra body (or complete instruction walk) plus pinning tests —
         # this includes confirm-only bodies that corroborate a pre-existing
         # port (new evidence + tests on top); contract covers no-body walks,
         # ABI-only teardown bodies (vtable re-store + base tailjump, no
         # portable state effect), and partial-coverage ports. Same standard
         # as 0x2b830 throughout.
-        self.assertEqual(ls3df["ported"], 145 + 826)
+        self.assertEqual(ls3df["ported"], 145 + 830)
         self.assertEqual(ls3df["verified"], 145 + 258)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):

@@ -6294,8 +6294,12 @@ mod isound_contract_tests {
 //
 // Working names: IShow::OpenStream/CloseStream/PlayStream/StopStream/
 // PauseStream/SetStreamVolume/SetStreamPan are PC-only guessed IShow method
-// names per source (IGraph.h class comment); Rust spelling is snake_case
-// per repo rule; each function doc records its RVA/VA and mafia-re file:line.
+// names per source (IGraph.h class comment); IShow::GetVolume and
+// GetDecodedFrameNum are PS2-evidenced original names
+// per IGraph.h:454,469 (the first two live in original_logo), while
+// IsStreamPlaying is a PC-only guessed name per the stream-block note;
+// Rust spelling is snake_case per repo rule; each function doc records its
+// RVA/VA and mafia-re file:line.
 // The stream/file members below (stream handle, init/paused/done flags and
 // the stream_shows bank) are working-guess projections per source
 // (IGraph.h:505-534 notes PC members guessed).
@@ -6338,7 +6342,8 @@ pub struct IshowStreamBank {
 /// All COM/DSound submits stay behind this trait.
 /// The native StreamCallback (ISND_STREAM_END -> m_StreamDone) has no host
 /// carrier: backends report end-of-stream via ishow_stream_mark_done below.
-/// IsStreamPlaying (0x75840) and StreamCallback (0x758e0) stay withheld.
+/// StreamCallback (0x758e0) stays withheld; IsStreamPlaying (0x75840) is now
+/// ported as ishow_is_stream_playing below (owner lifts the prior withhold).
 pub trait IshowStreamBackend {
     fn stream_init(&mut self, unknown: i32) -> bool;
     fn stream_open(&mut self, unknown: i32, name: &str, unknown1: i32) -> Option<i32>;
@@ -6503,6 +6508,38 @@ pub fn ishow_set_stream_pan(
         return ISOUND_GENERIC;
     }
     ISOUND_OK
+}
+
+/// LS3DF RVA 0x74a30 dB-map sub-portion, VA 0x10074a30. IShow::SetVolume
+/// evidenced original name (mafia-re ls3df/IGraph/IShow.cpp:909-931): CPU
+/// decibel map only. Below marginal zero (plain `vol < MRG_ZERO` compare, so
+/// negatives too) yields DSBVOLUME_MIN, else `(int)(log(vol)*866.0)` with a
+/// low clamp only (no high clamp, unlike ISND_sound::SetVolume). The x87
+/// FYL2X lowering follows the probe's prior REA note (FLDLN2/FLD/FYL2X +
+/// FMUL 866.0 + __ftol + clamp at -10000, not re-observed here); no Ghidra
+/// proc was re-observed here. The host uses
+/// f64::ln*866.0 like the neighboring isound_sound_set_volume/
+/// isound_sound_set_panning paths. Host `as i32` saturates where native
+/// __ftol/fistp is UB on nonfinite/overflow, disclosed. The full SetVolume
+/// stays device-WITHHELD (BinkSetVolume and the DirectSound/BasicAudio
+/// submits have no function here).
+pub fn ishow_volume_db(vol: f32) -> i32 {
+    if vol < 1e-8f32 {
+        DSBVOLUME_MIN
+    } else {
+        ((f64::from(vol).ln() * 866.0) as i32).max(DSBVOLUME_MIN)
+    }
+}
+
+/// LS3DF RVA 0x75840, VA 0x10075840. IShow::IsStreamPlaying PC-only guessed
+/// name (mafia-re ls3df/IGraph/IGraph.h:481-483 `return
+/// !m_StreamDone`, stream block marked PC-only): pure-CPU one-liner, no backend. Native int 0/1 is
+/// carried as host bool (exact value map, width adaptation disclosed).
+/// No Ghidra proc was
+/// observed here; byte proof is the negated byte at [ECX+0x5E] (m_StreamDone
+/// at +0x5E per IGraph.h:520). Owner lifts the prior withhold.
+pub fn ishow_is_stream_playing(state: &IshowStream) -> bool {
+    !state.stream_done
 }
 
 #[cfg(test)]
@@ -6744,5 +6781,34 @@ mod ishow_stream_contract_tests {
         let mut failing = live_stream();
         assert_eq!(ishow_pause_stream(&mut failing, &mut rig), ISOUND_GENERIC);
         assert!(!failing.stream_paused);
+    }
+
+    #[test]
+    fn ishow_volume_db_hand_vectors() {
+        // 1.0 -> 0 hundredths of a dB; 0.0 and sub-MRG_ZERO -> DSBVOLUME_MIN;
+        // 0.5 -> (int)(ln(0.5)*866.0) = (int)(-600.265...) = -600.
+        assert_eq!(ishow_volume_db(1.0), 0);
+        assert_eq!(ishow_volume_db(0.0), DSBVOLUME_MIN);
+        assert_eq!(ishow_volume_db(5e-9f32), DSBVOLUME_MIN);
+        assert_eq!(ishow_volume_db(-1.0), DSBVOLUME_MIN);
+        assert_eq!(ishow_volume_db(0.5), -600);
+        // No high clamp (unlike ISND SetVolume): positive dB passes through.
+        assert_eq!(ishow_volume_db(2.0), 600);
+        // Strict less-than edge: exactly MRG_ZERO takes the ln arm, whose
+        // cast still lands on the low clamp.
+        assert_eq!(ishow_volume_db(1e-8f32), DSBVOLUME_MIN);
+        assert_eq!(ishow_volume_db(1e-7f32), DSBVOLUME_MIN);
+        // NaN takes the ln arm (comparison false); saturating cast gives 0
+        // where native __ftol is UB (disclosed).
+        assert_eq!(ishow_volume_db(f32::NAN), 0);
+    }
+
+    #[test]
+    fn ishow_is_stream_playing_negates_done() {
+        let mut playing = live_stream();
+        playing.stream_done = false;
+        assert!(ishow_is_stream_playing(&playing));
+        playing.stream_done = true;
+        assert!(!ishow_is_stream_playing(&playing));
     }
 }

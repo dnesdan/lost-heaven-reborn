@@ -8131,6 +8131,42 @@
       "symbol": "lhr_engine::ishow_renderer::ctexture_renderer_drop",
       "tier": "contract",
       "evidence": "mafia-re 113b5b6 ls3df/IGraph/IShow.cpp:1227 + assigned REA note body (not re-observed here) (null-guarded sound-renderer Release + 5 vtable restores + base-dtor dispatch behind backend; 0x753e0 deleting-dtor construction-covered, no entry); tier contract (wave policy: CPU guard/order, COM/base submits behind backend) (5-restore count: working guess per assigned note, pending REA) [executed green: ishow_renderer module suite, 2 #[test], all passed; base 4bb8e53 + uncommitted wave-10, cargo test -p lhr-engine --lib]"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x75820",
+      "va": "0x10075820",
+      "name": "IShow::GetVolume",
+      "symbol": "lhr_engine::original_logo::ishow_get_volume",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 ls3df/IGraph/IGraph.h:454 + raw bytes MOV EAX,this; FLD dword [EAX+0x3C (exact bytes MOV EAX,[ESP+4]; FLD dword [EAX+0x3C])]; RET 4 (float m_Volume at +0x3C matching SetVolume store); no Ghidra proc (byte proof only); tier contract (pure CPU bit-exact f32 copy) + Rust tests executed green (original_logo module suite, 18 #[test], all passed; base 82c246d + uncommitted wave-11, cargo test -p lhr-engine --lib)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x75830",
+      "va": "0x10075830",
+      "name": "IShow::GetDecodedFrameNum",
+      "symbol": "lhr_engine::original_logo::ishow_get_decoded_frame_num",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 ls3df/IGraph/IGraph.h:469 + raw bytes MOV EAX,[EAX+0x54 (exact bytes MOV EAX,[ESP+4]; MOV EAX,[EAX+0x54])]; RET 4 (i32 m_DecodedFrameNum at +0x54); no Ghidra proc (byte proof only); tier contract (pure CPU counter read) + Rust tests executed green (original_logo module suite, 18 #[test], all passed; base 82c246d + uncommitted wave-11, cargo test -p lhr-engine --lib)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x74a30",
+      "va": "0x10074a30",
+      "name": "IShow::SetVolume dB map",
+      "symbol": "lhr_engine::runtime_audio::ishow_volume_db",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 ls3df/IGraph/IShow.cpp:909-931 + x87 FYL2X lowering per prior REA note (FLDLN2/FLD/FYL2X + FMUL 866.0 + __ftol + clamp at -10000, not re-observed here); CPU dB map only, full SetVolume device-WITHHELD (Bink/DirectSound/BasicAudio submits); no Ghidra proc re-observed here; tier contract (f64-ln-866 like isound_sound_set_volume, host saturation disclosed) + Rust tests executed green (runtime_audio module suite, 102 #[test], all passed; base 82c246d + uncommitted wave-11, cargo test -p lhr-engine --lib)"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x75840",
+      "va": "0x10075840",
+      "name": "IShow::IsStreamPlaying (PC-only guessed name)",
+      "symbol": "lhr_engine::runtime_audio::ishow_is_stream_playing",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 ls3df/IGraph/IGraph.h:481-483 `return !m_StreamDone` + raw bytes negated byte at [ECX+0x5E] (m_StreamDone at +0x5E); pure-CPU one-liner, owner lifts prior withhold (StreamCallback 0x758e0 stays withheld); no Ghidra proc re-observed here; tier contract + Rust tests executed green (runtime_audio module suite, 102 #[test], all passed; base 82c246d + uncommitted wave-11, cargo test -p lhr-engine --lib) (name PC-only-guessed per stream-block note, not PS2-evidenced)"
     }
   ],
   "vm": {
