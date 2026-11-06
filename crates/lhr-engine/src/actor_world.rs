@@ -179,9 +179,22 @@ pub struct DetectorSeed {
 /// Actual source-only C_detector storage owned by the same actor incarnation.
 /// The optional program is taken only during a serialized payload operation;
 /// actor phase prevents same-actor reentry while context reads the live owner.
+/// DEFERRED (no credit, untouched here): vtable admission beyond
+/// construct_detector, C_detector::Process/InRange dispatch, GameInit/GameDone,
+/// and the CreateColls/EraseColls/CreateUO collision owners.
 #[derive(Debug)]
 pub struct DetectorState {
     program: Option<CProgram>,
+    /// Detector +0xdc signal bit (mafia-re game/actors/C_detector.h:60-71:
+    /// GetSignal GAME 0x47b750 reads it, SetSignal GAME 0x47b760 stores it;
+    /// natively cleared by GameInit GAME 0x432a00, collapsed to zero here).
+    /// Typed owner for the evidenced bit only; the surrounding +0xd8 raw
+    /// bytes stay untouched in bytes_d8_ef, and the actor +0x65 clear that
+    /// SetSignal performs first lives on the world owner (see
+    /// ActorWorld::set_detector_signal), which alone reaches base storage.
+    /// Note: bytes_d8_ef[4] positionally images +0xdc but is stale seed that
+    /// set_signal never rewrites; all readers use signal, never that byte.
+    pub signal: bool,
     pub bytes_d8_ef: [u8; 24],
     pub word_f0: u32,
     pub word_f4: u32,
@@ -194,6 +207,21 @@ pub struct DetectorState {
 impl DetectorState {
     pub fn program(&self) -> Option<&CProgram> {
         self.program.as_ref()
+    }
+    /// Detector-side half of C_detector::GetSignal (mafia-re
+    /// game/actors/C_detector.h:60-64, GAME 0x47b750): read the +0xdc signal
+    /// bit. Full original semantics (live-owner resolution) are on
+    /// ActorWorld::detector_signal.
+    pub fn get_signal(&self) -> bool {
+        self.signal
+    }
+    /// Detector-side half of C_detector::SetSignal (mafia-re
+    /// game/actors/C_detector.h:65-71, GAME 0x47b760): store the +0xdc signal
+    /// bit. The actor +0x65 clear that the original performs first is not
+    /// reachable from this owner; use ActorWorld::set_detector_signal for the
+    /// complete behavior.
+    pub fn set_signal(&mut self, on: bool) {
+        self.signal = on;
     }
     pub fn data_d8(&self) -> u32 {
         u32::from_le_bytes(self.bytes_d8_ef[..4].try_into().unwrap())
@@ -1495,6 +1523,12 @@ impl ActorWorld {
         let i = self.index(actor).expect("constructor owns actor");
         self.actors[i].detector = Some(DetectorState {
             program: Some(CProgram::construct(seed.program)),
+            // Native clears signal in C_detector::GameInit (GAME 0x432a00,
+            // C_detector.cpp:44-58), not in the ctor (0x432880,
+            // C_detector.cpp:18-22 sets only type); the zero here collapses
+            // that deferred-GameInit effect into construction (safe zero-init,
+            // consistent with the neighboring zeroed fields).
+            signal: false,
             bytes_d8_ef: seed.bytes_d8_ef,
             word_f0: 0,
             word_f4: seed.word_f4,
@@ -1529,6 +1563,42 @@ impl ActorWorld {
             .find(|a| a.lifetime.reference() == actor)?
             .detector
             .as_ref()
+    }
+    /// Original C_detector::GetSignal (mafia-re game/actors/C_detector.h:60-64,
+    /// GAME 0x47b750, read by the C_program ISSIGNAL case
+    /// game/mission/C_program.cpp:3351-3365): read the detector +0xdc signal
+    /// bit from the live owner. Const read with host liveness only
+    /// (Dead actors report StaleActor); no Ready-phase requirement and no
+    /// base-byte effect, matching the single-load native body.
+    pub fn detector_signal(&self, actor: ActorReferenceId) -> Result<bool, ActorWorldError> {
+        Ok(self.detector(actor)?.get_signal())
+    }
+    /// Original C_detector::SetSignal (mafia-re game/actors/C_detector.h:65-71,
+    /// GAME 0x47b760, stored by the C_program SETSIGNAL case
+    /// game/mission/C_program.cpp:3341-3350 dispatching C_program::Process
+    /// GAME 0x46d3b0):
+    /// clear the base C_actor +0x65 byte, then store the detector +0xdc signal
+    /// bit. The +0x65 byte is BaseActorState::bytes_64_65[1]; the sibling +0x64
+    /// byte is untouched, matching the single-byte native store. Requires a
+    /// Ready actor so construction/loading reentry stays rejected; the native
+    /// body itself performs no phase check.
+    /// DEFERRED (no credit): C_detector::Process/InRange dispatch, GameInit/
+    /// GameDone, vtable admission beyond construct_detector, and the
+    /// CreateColls/EraseColls/CreateUO collision owners.
+    pub fn set_detector_signal(
+        &mut self,
+        actor: ActorReferenceId,
+        on: bool,
+    ) -> Result<(), ActorWorldError> {
+        let i = self.ready(actor)?;
+        if self.actors[i].detector.is_none() {
+            return Err(ActorWorldError::NotDetector);
+        }
+        self.actors[i].state.bytes_64_65[1] = 0;
+        if let Some(detector) = self.actors[i].detector.as_mut() {
+            detector.set_signal(on);
+        }
+        Ok(())
     }
     pub fn railway_global_byte(&self) -> Option<u8> {
         self.railway_global_byte
@@ -5642,6 +5712,45 @@ mod tests {
         assert_eq!(w.state(a).unwrap().vtable, ActorVtable::Detector);
         assert_eq!(w.state(a).unwrap().word_10, 5);
         assert_eq!(w.detector(a).unwrap().program().unwrap().owner(), None);
+    }
+    #[test]
+    fn detector_signal_defaults_false_and_round_trips_with_actor_byte_clear() {
+        // Hand-derived vectors from the evidenced bodies via mafia-re
+        // game/actors/C_detector.h:60-71: GetSignal (GAME 0x47b750) returns the
+        // +0xdc bit; SetSignal (GAME 0x47b760) clears C_actor+0x65, then stores
+        // the +0xdc bit. The seed presets both +0x64/+0x65 to 0x65.
+        let mut w = world();
+        let mut e = Effects::default();
+        let a = w
+            .construct_detector(9, seed(), detector_seed(), &mut e)
+            .unwrap();
+        assert!(!w.detector(a).unwrap().signal);
+        assert!(!w.detector(a).unwrap().get_signal());
+        assert_eq!(w.detector_signal(a), Ok(false));
+        assert_eq!(w.state(a).unwrap().bytes_64_65, [0x65; 2]);
+        w.set_detector_signal(a, true).unwrap();
+        assert!(w.detector(a).unwrap().signal);
+        assert!(w.detector(a).unwrap().get_signal());
+        assert_eq!(w.detector_signal(a), Ok(true));
+        assert_eq!(w.state(a).unwrap().bytes_64_65, [0x65, 0]);
+        w.set_detector_signal(a, false).unwrap();
+        assert!(!w.detector(a).unwrap().signal);
+        assert!(!w.detector(a).unwrap().get_signal());
+        assert_eq!(w.detector_signal(a), Ok(false));
+        assert_eq!(w.state(a).unwrap().bytes_64_65, [0x65, 0]);
+    }
+    #[test]
+    fn detector_signal_rejects_non_detector_owner() {
+        let mut w = world();
+        let mut e = Effects::default();
+        let a = w.construct_base(7, seed(), &mut e).unwrap();
+        assert_eq!(w.detector_signal(a), Err(ActorWorldError::NotDetector));
+        assert_eq!(
+            w.set_detector_signal(a, true),
+            Err(ActorWorldError::NotDetector)
+        );
+        // The rejected store must not touch base bytes.
+        assert_eq!(w.state(a).unwrap().bytes_64_65, [0x65; 2]);
     }
     #[test]
     fn detector_init_keeps_derived_identity_while_base_callbacks_change_attachment() {

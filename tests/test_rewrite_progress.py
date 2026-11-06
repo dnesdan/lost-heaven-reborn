@@ -37,7 +37,9 @@ class RewriteProgressTests(unittest.TestCase):
         # 0x1bebd0 RacingInMainMenu + 0x1962e0 LoadData, all contract;
         # 0x1ed040 Reset held: #[path]-only module fails the overlay
         # module-membership gate, wrapper rejected by review).
-        self.assertEqual(game["ported"], 149 + 40)
+        # +3 detector pair + WinMain chop (0x7b750 GetSignal + 0x7b760
+        # SetSignal + 0x166160 WinMain dir-chop prefix, all contract).
+        self.assertEqual(game["ported"], 149 + 43)
         self.assertEqual(game["verified"], 149 + 6)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])

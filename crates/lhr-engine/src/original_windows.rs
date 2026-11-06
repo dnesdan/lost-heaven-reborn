@@ -1,5 +1,5 @@
 //! Descriptive working names for the PC Windows caller helpers (Game RVAs
-//! 0x1662a0..0x166440). Host callbacks implement the actual operating-system
+//! 0x166160 and 0x1662a0..0x166440). Host callbacks implement the actual operating-system
 //! operations; this module does not fabricate Windows drive/window services.
 
 use crate::original_system::{SystemError, SystemHandle};
@@ -68,6 +68,38 @@ pub fn file_exists(backend: &mut impl WindowsBackend, path: &[u8]) -> Result<boo
         Ok(true)
     } else {
         Ok(false)
+    }
+}
+
+/// WinMain executable-directory chop (descriptive working name; `WinMain` is
+/// the standard Windows entry symbol, Game VA 0x566160, RVA 0x166160).
+///
+/// Pure prefix of the 84-byte contiguous body [0x566160-0x5661b3]: after the
+/// host supplies the module path bytes (native `GetModuleFileNameA` intake,
+/// caller-provided here), the body runs `_strrchr(path, '\\')` and, only when
+/// found, stores NUL at the hit (`*cp = 0`). Forward slashes are ordinary
+/// bytes; a missing backslash leaves the buffer unchanged (the native call
+/// then receives the bare filename); a trailing backslash is itself removed.
+///
+/// `path` carries the C-string payload without its terminator. Game SHA-256
+/// 08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27;
+/// REA ev_6fcc2ee9e70e9a8843fa01f79ded45dec1a2ab398853a48495996374403c3c11
+/// (Ghidra FUN_00566160, 84B, 26 asm, callees GetModuleFileNameA, _strrchr
+/// 0x610760, FUN_0061d13c, FUN_005bebe0; re-observed this session);
+/// mafia-re 113b5b6 game/WinMain.cpp:9-21.
+///
+/// DEFERRED halt points past this chop (no tree owners, no dispatch here):
+/// `_chdir` (FUN_0061d13c, VA 0x61d13c, RVA 0x21d13c; REA
+/// ev_c54b6ac668ae5842ac77f37b96e623f6ca05b2a3273b203332f9d8c6690c773c:
+/// `SetCurrentDirectoryA` plus drive-letter `SetEnvironmentVariableA`) has no
+/// host current-directory backend, and `main` (FUN_005bebe0, VA 0x5bebe0,
+/// 2276B [0x5bebe0-0x5bf4c3]) is not reconstructed: only its Init/Close
+/// fragments exist as real `original_system::SystemState` owners, so a full
+/// WinMain-to-main dispatch stays deferred and claims no function credit
+/// beyond this chop.
+pub fn winmain_exe_dir_prefix(path: &mut Vec<u8>) {
+    if let Some(cut) = path.iter().rposition(|byte| *byte == b'\\') {
+        path.truncate(cut);
     }
 }
 
@@ -156,6 +188,23 @@ mod tests {
         }
         fn set_class_icon(&mut self, _: SystemHandle, _: SystemHandle) -> Result<(), SystemError> {
             Err(SystemError::Unsupported("window"))
+        }
+    }
+    #[test]
+    fn winmain_chop_keeps_native_strrchr_backslash_semantics() {
+        let vectors: &[(&[u8], &[u8])] = &[
+            (b"C:\\Mafia\\Game.exe", b"C:\\Mafia"),
+            (b"A\\B\\C.exe", b"A\\B"),
+            (b"C:\\Mafia\\", b"C:\\Mafia"),
+            (b"C:\\", b"C:"),
+            (b"Game.exe", b"Game.exe"),
+            (b"C:/Mafia/Game.exe", b"C:/Mafia/Game.exe"),
+            (b"", b""),
+        ];
+        for (input, expected) in vectors {
+            let mut path = input.to_vec();
+            winmain_exe_dir_prefix(&mut path);
+            assert_eq!(path, expected.to_vec(), "input {input:?}");
         }
     }
     #[test]

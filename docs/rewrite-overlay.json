@@ -8320,6 +8320,33 @@
       "symbol": "lhr_engine::actor_world::ActorWorld::load_racecam_data",
       "tier": "contract",
       "evidence": "mafia-re 113b5b6 game/camera/c_racecam.cpp:46-50 (STUB GAME 0x5962e0 delegates to C_actor::LoadData) + vtable game/camera/c_racecam.h:7; Game.exe SHA256 08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27; contract tier: zero-payload delegate, native success, chunk reader skips by declared extent; existing port actor_world.rs:3031 load_racecam_data with pinning test actor_world.rs:8139-8155 plus racecam.rs storage and mission_actor_stream.rs:698-704 call site (not executed here, cargo unavailable); no code change in this unit; executed green: racecam 4 passed (base 2f7a92e + uncommitted)"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b750",
+      "va": "0x47b750",
+      "name": "C_detector::GetSignal (upstream working name, NOT original)",
+      "symbol": "lhr_engine::actor_world::ActorWorld::detector_signal",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 game/actors/C_detector.h:60-64 (GAME 0x47b750, read by the C_program ISSIGNAL case game/mission/C_program.cpp:3351-3365 dispatching C_program::Process 0x46d3b0) + Rust tests; contract tier: no REA body re-observed in this session; executed green: detector 11 passed (base dce136d + uncommitted)"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b760",
+      "va": "0x47b760",
+      "name": "C_detector::SetSignal (upstream working name, NOT original)",
+      "symbol": "lhr_engine::actor_world::ActorWorld::set_detector_signal",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 game/actors/C_detector.h:65-71 (GAME 0x47b760, stored by the C_program SETSIGNAL case game/mission/C_program.cpp:3341-3350 dispatching C_program::Process 0x46d3b0; clears C_actor+0x65 then stores +0xdc) + Rust tests; contract tier: no REA body re-observed in this session; executed green: detector 11 passed (base dce136d + uncommitted)"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x166160",
+      "va": "0x566160",
+      "name": "WinMain",
+      "symbol": "lhr_engine::original_windows::winmain_exe_dir_prefix",
+      "tier": "contract",
+      "evidence": "REA ev_6fcc2ee9e70e9a8843fa01f79ded45dec1a2ab398853a48495996374403c3c11 (Ghidra FUN_00566160, 84B contiguous [0x566160-0x5661b3], 26 asm, callees GetModuleFileNameA/_strrchr 0x610760/FUN_0061d13c/FUN_005bebe0; re-observed this session, base 0x400000) + mafia-re 113b5b6 game/WinMain.cpp:9-21 + path-chop vectors (backslash/no-backslash/trailing/root/forward-slash/empty); SCOPE: dir-chop prefix only, GetModuleFileNameA intake is caller-supplied bytes, _chdir (FUN_0061d13c, RVA 0x21d13c, ev_c54b6ac668ae5842ac77f37b96e623f6ca05b2a3273b203332f9d8c6690c773c) and main (FUN_005bebe0, 2276B [0x5bebe0-0x5bf4c3]) dispatch DEFERRED with explicit code markers, no full-function credit beyond this chop; executed green: original_windows 4 passed (base dce136d + uncommitted)"
     }
   ],
   "vm": {
