@@ -147,6 +147,16 @@ impl<'a> Cursor<'a> {
 }
 /// Pointer-free original ConvertTyres field projection. The input extent may
 /// include the file's trailing fields; the original converter reads 18 words.
+/// Provenance: mafia-re `game/vehicles/C_car.cpp:290-316` (PS2 GAME 0x41d770)
+/// computes each curve lane as `angle * 3.14159f / 180.0f`; the port folds
+/// the two operations into one multiply by 0x3c8efa2e. A PC-side byte probe
+/// of LS3DF.dll (SHA-256 e211c850…, REA search_bytes over .text/.rdata/.data)
+/// finds no 0x3c8efa2e, 0x40490fd0 (3.14159f) or 0x43340000 (180.0f)
+/// immediate, and Ghidra 12.1.4 merges PC RVA 0x1d770 into FUN_1001d320
+/// (0x1001d320-0x1001e228), so the fold is pinned against the PS2 two-op
+/// reference, not PC bytes. The correctly rounded fold f32(3.14159/180) is
+/// 0x3c8efa2d (one ULP below the port constant); the kilo lanes are exact
+/// 1000.0 (0x447a0000, PC .rdata VA 0x1009b688).
 pub fn convert_tyre_payload(
     material: u32,
     source: &[u8],
@@ -403,6 +413,26 @@ mod tests {
                 )
                 .is_err(),
                 "accepted truncated source at {end}"
+            );
+        }
+    }
+    #[test]
+    fn radian_lane_fold_stays_within_one_ulp_of_two_op_reference() {
+        fn ulps(a: f32, b: f32) -> u32 {
+            (a.to_bits() as i32).wrapping_sub(b.to_bits() as i32).abs() as u32
+        }
+        for &degrees in &[
+            0.0f32, 0.5, 1.0, 30.0, 45.0, 90.0, 135.0, 180.0, 270.0, -45.0,
+        ] {
+            let mut source = [0u8; 72];
+            put_float(&mut source, 0, 2.5);
+            put_float(&mut source, 4, degrees);
+            let row = convert_tyre_payload(7, &source).unwrap();
+            assert_eq!(float(&row, 4), 2500.0);
+            let reference = ((degrees as f64) * (3.14159f32 as f64) / 180.0) as f32;
+            assert!(
+                ulps(float(&row, 8), reference) <= 1,
+                "radian lane drifts more than one ULP at {degrees:?}"
             );
         }
     }
