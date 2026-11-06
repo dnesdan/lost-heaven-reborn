@@ -9805,6 +9805,51 @@
       "symbol": "lhr_engine::car_actor::CarActorState::set_dynamic_colls_on",
       "tier": "contract",
       "evidence": "Flag stores (GAME 0x4cdcc0); attach deferred. Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x57a710",
+      "va": "0x97a710",
+      "name": "C_human::Movement (dispatch)",
+      "symbol": "lhr_engine::human_move_coll::movement_dispatch",
+      "tier": "contract",
+      "evidence": "STAND-seed/void/lethal dispatch (GAME 0x57a710); effects deferred. Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x57b660",
+      "va": "0x97b660",
+      "name": "C_human::MovementIntern (core)",
+      "symbol": "lhr_engine::human_move_coll::movement_apply_step",
+      "tier": "contract",
+      "evidence": "Pin/landing/damage core (GAME 0x57b660); anim/sound/police deferred. Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x57d0e0",
+      "va": "0x97d0e0",
+      "name": "C_human::TestMoveCollInOwner (probe)",
+      "symbol": "lhr_engine::human_move_coll::test_move_coll_in_owner_gate",
+      "tier": "contract",
+      "evidence": "Seat/railway gate (GAME 0x57d0e0); sweep deferred. Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x5a0810",
+      "va": "0x9a0810",
+      "name": "C_game::Init (player-HUD step)",
+      "symbol": "lhr_engine::indicators::IndicatorsState::apply_player_hud",
+      "tier": "contract",
+      "evidence": "Flags=PLAYER + clamped lives/accuracy (GAME 0x5a0810). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x432a00",
+      "va": "0x832a00",
+      "name": "C_detector::GameInit (latch-nulling scope)",
+      "symbol": "lhr_engine::actor_world::ActorWorld::game_init_detector",
+      "tier": "contract",
+      "evidence": "Signal/wait_for_hit/dyn_colls nulling (GAME 0x432a00); base calls and coll pointers deferred. Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {

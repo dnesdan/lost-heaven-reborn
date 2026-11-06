@@ -117,7 +117,10 @@ class RewriteProgressTests(unittest.TestCase):
         # door SetState 0x439610 / angle 0x43b810 / ChangeState 0x43bcc0 /
         # EnableUsingObject 0x43add0; OpenDoor 0x4cda20 / windows 0x4d7a80+ /
         # colls flags 0x4cdb10+).
-        self.assertEqual(game["ported"], 149 + 205)
+        # +5 movement/HUD/detector wave, all contract (Movement dispatch
+        # 0x57a710 / MovementIntern core 0x57b660 / InOwner probe 0x57d0e0 /
+        # player-HUD step 0x5a0810 / Detector GameInit latch scope 0x432a00).
+        self.assertEqual(game["ported"], 149 + 210)
         self.assertEqual(game["verified"], 149 + 7)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
