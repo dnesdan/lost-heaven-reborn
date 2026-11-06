@@ -10471,6 +10471,42 @@
       "symbol": "lhr_engine::mission_load_session::fill_primary_sector_groups",
       "tier": "contract",
       "evidence": "Descending group-bit fill (GAME 0x540ff0); filed via mission_load_session re-export. Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4c5c80",
+      "va": "0x8c5c80",
+      "name": "CloseVehicleMaterials",
+      "symbol": "lhr_engine::vehicle_engine_state::vehicle_close_materials",
+      "tier": "contract",
+      "evidence": "Entries clear (GAME 0x4c5c80). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4cc620",
+      "va": "0x8cc620",
+      "name": "GetHeadPos",
+      "symbol": "lhr_engine::vehicle_engine_state::vehicle_get_head_pos",
+      "tier": "contract",
+      "evidence": "Raw head words (GAME 0x4cc620). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4c5c10",
+      "va": "0x8c5c10",
+      "name": "SetVehicleMaterials",
+      "symbol": "lhr_engine::vehicle_engine_state::vehicle_set_materials",
+      "tier": "contract",
+      "evidence": "Rebuild with 0xff conv quirk (GAME 0x4c5c10). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4cc0",
+      "va": "0x404cc0",
+      "name": "SetParticles",
+      "symbol": "lhr_engine::vehicle_engine_state::vehicle_set_particles",
+      "tier": "contract",
+      "evidence": "Data-only copy (GAME 0x4cc0). Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {

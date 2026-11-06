@@ -150,7 +150,9 @@ class RewriteProgressTests(unittest.TestCase):
         # rotate_y re-export / MapEnable 0x5f9d10 / cbSectorBitFill 0x540ff0
         # via mission_load_session re-export; GlobalProgram 0x540520/50
         # deferred: methods have no re-export path).
-        self.assertEqual(game["ported"], 149 + 279)
+        # +4 vehicle materials latch (CloseMaterials 0x4c5c80 / GetHeadPos
+        # 0x4cc620 / SetMaterials 0x4c5c10 / SetParticles 0x4cc0).
+        self.assertEqual(game["ported"], 149 + 283)
         self.assertEqual(game["verified"], 149 + 7)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
