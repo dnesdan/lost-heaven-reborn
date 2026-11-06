@@ -9580,6 +9580,231 @@
       "symbol": "lhr_engine::vehicle_init::vehicle_light_init",
       "tier": "contract",
       "evidence": "Delegated light collector (GAME 0xc1420); filed via vehicle_init re-export (itexture pub-use precedent). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x49ea80",
+      "va": "0x89ea80",
+      "name": "C_shvestky::TickDoRiciActors",
+      "symbol": "lhr_engine::police_state::PoliceGameInitState::tick_do_rici_actors",
+      "tier": "contract",
+      "evidence": "do_rici eviction over camera (GAME 0x49ea80); mission/camera owners deferred. Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x49e820",
+      "va": "0x89e820",
+      "name": "C_shvestky::AddDoRiciActor",
+      "symbol": "lhr_engine::police_state::PoliceGameInitState::admit_do_rici",
+      "tier": "contract",
+      "evidence": "Dup-guarded admit (GAME 0x49e820). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x49e9e0",
+      "va": "0x89e9e0",
+      "name": "C_shvestky::DelDoRiciActor",
+      "symbol": "lhr_engine::police_state::PoliceGameInitState::evict_do_rici",
+      "tier": "contract",
+      "evidence": "Swap-remove evict (GAME 0x49e9e0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x49e7e0",
+      "va": "0x89e7e0",
+      "name": "C_shvestky::FreeMyTempActor",
+      "symbol": "lhr_engine::police_state::PoliceGameInitState::free_my_temp_actor",
+      "tier": "contract",
+      "evidence": "Road-block/temp predicate (GAME 0x49e7e0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x49a300",
+      "va": "0x89a300",
+      "name": "C_shvestky::Tick (prefix)",
+      "symbol": "lhr_engine::police_state::PoliceGameInitState::police_tick_prefix",
+      "tier": "contract",
+      "evidence": "Timer gate + temp trim prefix (GAME 0x49a300); full Tick deferred. Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x49cb20",
+      "va": "0x89cb20",
+      "name": "C_shvestky::Firing",
+      "symbol": "lhr_engine::police_state::PolicePursuitRecord::record_firing",
+      "tier": "contract",
+      "evidence": "SHVF_FIRE setter (GAME 0x49cb20). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x49d030",
+      "va": "0x89d030",
+      "name": "C_shvestky::HumanBoxing",
+      "symbol": "lhr_engine::police_state::PolicePursuitRecord::record_boxing",
+      "tier": "contract",
+      "evidence": "SHVF_BOXING setter (GAME 0x49d030). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x49d130",
+      "va": "0x89d130",
+      "name": "C_shvestky::ForceArrest",
+      "symbol": "lhr_engine::police_state::PolicePursuitRecord::record_force_arrest",
+      "tier": "contract",
+      "evidence": "SHVF_FORCE_ARREST setter (GAME 0x49d130). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x44e960",
+      "va": "0x84e960",
+      "name": "C_traffic_generator::SetVisible",
+      "symbol": "lhr_engine::traffic_generator::TrafficTickState::set_visible",
+      "tier": "contract",
+      "evidence": "All-visible gate + frame SetOn (GAME 0x44e960). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x44ef70",
+      "va": "0x84ef70",
+      "name": "C_traffic_generator::TickElements (prefix)",
+      "symbol": "lhr_engine::traffic_generator::TrafficTickState::tick_elements_prefix",
+      "tier": "contract",
+      "evidence": "Hidden/horn/try_do_rici/taxi prefix (GAME 0x44ef70); element Tick deferred. Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x44f090",
+      "va": "0x84f090",
+      "name": "C_traffic_generator::IsCarHasOcas",
+      "symbol": "lhr_engine::traffic_generator::is_car_has_ocas",
+      "tier": "contract",
+      "evidence": "Reverse car predicate (GAME 0x44f090). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x44f740",
+      "va": "0x84f740",
+      "name": "C_traffic_generator::PlayerInTaxi",
+      "symbol": "lhr_engine::traffic_generator::TrafficGameFlags::apply_player_in_taxi",
+      "tier": "contract",
+      "evidence": "9-taxi case-insensitive match (GAME 0x44f740). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x44fcf0",
+      "va": "0x84fcf0",
+      "name": "C_traffic_generator::EnableTaxiDriver",
+      "symbol": "lhr_engine::traffic_generator::TrafficGameFlags::enable_taxi_driver",
+      "tier": "contract",
+      "evidence": "Enable with disable-edge waver clear (GAME 0x44fcf0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x44fd10",
+      "va": "0x84fd10",
+      "name": "C_traffic_generator::ZrusVsechnyMavajici",
+      "symbol": "lhr_engine::traffic_generator::TrafficGameFlags::zrus_vsechny_mavajici",
+      "tier": "contract",
+      "evidence": "Waver loop (GAME 0x44fd10). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x44fd50",
+      "va": "0x84fd50",
+      "name": "C_traffic_generator::ClearElements",
+      "symbol": "lhr_engine::traffic_generator::TrafficGameFlags::clear_elements",
+      "tier": "contract",
+      "evidence": "Array clear (GAME 0x44fd50). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x450860",
+      "va": "0x850860",
+      "name": "C_traffic_generator::FreeDynCollElements",
+      "symbol": "lhr_engine::traffic_generator::TrafficGameFlags::free_dyn_coll_elements",
+      "tier": "contract",
+      "evidence": "Dyn-coll deactivation (GAME 0x450860). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x439610",
+      "va": "0x839610",
+      "name": "C_door::SetState",
+      "symbol": "lhr_engine::door_actor::DoorControlState::set_state",
+      "tier": "contract",
+      "evidence": "E_state transition (GAME 0x439610). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x43b810",
+      "va": "0x83b810",
+      "name": "C_door::SetOpenAngle",
+      "symbol": "lhr_engine::door_actor::DoorControlState::set_open_angle",
+      "tier": "contract",
+      "evidence": "Angle store (GAME 0x43b810). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x43bcc0",
+      "va": "0x83bcc0",
+      "name": "C_door::ChangeState",
+      "symbol": "lhr_engine::door_actor::DoorControlState::change_state",
+      "tier": "contract",
+      "evidence": "Toggle round-trip (GAME 0x43bcc0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x43add0",
+      "va": "0x83add0",
+      "name": "C_door::EnableUsingObject",
+      "symbol": "lhr_engine::door_actor::DoorControlState::enable_using_object",
+      "tier": "contract",
+      "evidence": "Using flag (GAME 0x43add0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4cda20",
+      "va": "0x8cda20",
+      "name": "C_Vehicle::OpenDoor",
+      "symbol": "lhr_engine::car_actor::CarActorState::open_door",
+      "tier": "contract",
+      "evidence": "Door request latch with clamp (GAME 0x4cda20); frame/sound deferred. Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4d7a80",
+      "va": "0x8d7a80",
+      "name": "C_Vehicle::OpenWindow",
+      "symbol": "lhr_engine::car_actor::CarActorState::open_window",
+      "tier": "contract",
+      "evidence": "Seat-indexed bool store (GAME 0x4d7a80). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4d7c80",
+      "va": "0x8d7c80",
+      "name": "C_Vehicle::IsWindowOpen",
+      "symbol": "lhr_engine::car_actor::CarActorState::is_window_open",
+      "tier": "contract",
+      "evidence": "Seat-indexed query (GAME 0x4d7c80). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4cdb10",
+      "va": "0x8cdb10",
+      "name": "C_Vehicle::SetSpecialDynamicColls",
+      "symbol": "lhr_engine::car_actor::CarActorState::set_special_dynamic_colls",
+      "tier": "contract",
+      "evidence": "Flag store (GAME 0x4cdb10); wake-up deferred. Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4cdcc0",
+      "va": "0x8cdcc0",
+      "name": "C_Vehicle::SetDynamicCollsOn",
+      "symbol": "lhr_engine::car_actor::CarActorState::set_dynamic_colls_on",
+      "tier": "contract",
+      "evidence": "Flag stores (GAME 0x4cdcc0); attach deferred. Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {

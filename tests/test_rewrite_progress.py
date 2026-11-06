@@ -109,7 +109,15 @@ class RewriteProgressTests(unittest.TestCase):
         # +1 vehicle light discovery 0xc1420 via vehicle_init re-export
         # (model/sound cache methods stay unfileable: associated fns have no
         # re-export path, same class as pre-fix RotateDir).
-        self.assertEqual(game["ported"], 149 + 180)
+        # +25 police/traffic/vehicle wave, all contract (TickDoRiciActors
+        # 0x49ea80 / Add 0x49e820 / Del 0x49e9e0 / FreeMyTemp 0x49e7e0 / Tick
+        # prefix 0x49a300 / Firing 0x49cb20 / Boxing 0x49d030 / ForceArrest
+        # 0x49d130; SetVisible 0x44e960 / TickElements 0x44ef70 / IsCarHasOcas
+        # 0x44f090 / PlayerInTaxi 0x44f740 / taxi lifecycle 0x44fcf0-0x450860;
+        # door SetState 0x439610 / angle 0x43b810 / ChangeState 0x43bcc0 /
+        # EnableUsingObject 0x43add0; OpenDoor 0x4cda20 / windows 0x4d7a80+ /
+        # colls flags 0x4cdb10+).
+        self.assertEqual(game["ported"], 149 + 205)
         self.assertEqual(game["verified"], 149 + 7)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
