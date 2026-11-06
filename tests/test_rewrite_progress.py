@@ -64,7 +64,13 @@ class RewriteProgressTests(unittest.TestCase):
         # +1 C_car::LoadMaterials 0x1c7f0 contract (pub materials symbol,
         # mafia-re C_car.cpp:60-122 mapping; marker-only, no PC Ghidra body
         # at VA 0x401c7f0 disclosed).
-        self.assertEqual(game["ported"], 149 + 61)
+        # +7 Tier-2 marker-only batch, all contract (LoadTyres 0x1d480 scope
+        # intake, GetPos 0x7fe0 null/frame branches, SetActState 0x6da0 +0x1c
+        # store, clock Init 0x16ae20 / GameInit 0x16ae90 / AI 0x16afe0,
+        # racecam dtor 0x196240 shared destroy path; RotateDir(y) deferred:
+        # two-level #[path] chain fails the validator gate; clock GameDone
+        # deferred: no own state word).
+        self.assertEqual(game["ported"], 149 + 68)
         self.assertEqual(game["verified"], 149 + 7)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])

@@ -8509,6 +8509,69 @@
       "symbol": "lhr_engine::driving_vehicle_tables::materials",
       "tier": "contract",
       "evidence": "Tree-exact field mapping per mafia-re C_car.cpp:60-122 (PS2 GAME 0x41c7f0): empty-table default row, 10-field projection, ordered clamps ([0,1],[1,2],min-swap,[0,0.2]), flag source offsets 0xcf0/0xe60/0x36a0 + 0x170-0x5c0 lane; repo tests cover default/NaN/clamps/flags. Marker-only contract: no PC Ghidra body (no procedure at VA 0x401c7f0, Ghidra 12.1.4)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1d480",
+      "va": "0x401d480",
+      "name": "C_car::LoadTyres",
+      "symbol": "lhr_engine::driving_vehicle_tables::DrivingVehicleTables::from_source_bytes",
+      "tier": "contract",
+      "evidence": "Version/count/extent-checked tables/tyres.bin intake per mafia-re C_car.cpp:229-288 (PS2 GAME 0x41d480); per-surface ConvertTyres lanes pinned in convert_tyre_payload tests. Marker-only contract: Ghidra merges PC RVA 0x1d480 into FUN_1001d320, no separate PC body walked."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7fe0",
+      "va": "0x4007fe0",
+      "name": "C_actor::GetPos",
+      "symbol": "lhr_engine::ph_thing_update::ph_thing_contact_position",
+      "tier": "contract",
+      "evidence": "Null-frame branch returns the +0x24 vector, else the 0x20-flag-gated UpdateWorld effect plus the frame+0x40 vector (ph_thing_update.rs:212-225), matching C_actor.cpp:1682-1688 (GAME 0x407fe0). Tests cover null/frame branches and the origin. Marker-only contract."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x6da0",
+      "va": "0x4006da0",
+      "name": "C_actor::SetActState",
+      "symbol": "lhr_engine::actor_world::ActorWorld::set_actor_act_state",
+      "tier": "contract",
+      "evidence": "Stores the +0x1c ACTSTATE word (C_actor.h act_state at 0x1c); the game-side change notification has no Game owner yet (actor_world.rs:3363-3376). Guard/no-op/retention tests pass. Marker-only contract."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16ae20",
+      "va": "0x416ae20",
+      "name": "C_clock::Init",
+      "symbol": "lhr_engine::actor_world::ActorWorld::init_clock_linked",
+      "tier": "contract",
+      "evidence": "Vtable-gated Mala/Velka/Sekundova hand-frame intake at +0x70/+0x74/+0x78 (missing-H/M fail closed, missing-S stores zero) per mafia-re c_clock.cpp:14-29; SetDir/Update frame effects stay with a future owner. Tests pass. Marker-only contract."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16ae90",
+      "va": "0x416ae90",
+      "name": "C_clock::GameInit",
+      "symbol": "lhr_engine::actor_world::ActorWorld::game_init_clock",
+      "tier": "contract",
+      "evidence": "Zeroes elapsed/angles then sets both hands from u16 hour/minute per mafia-re c_clock.cpp:31-52 (midnight and 3:30 cases tested); GetLocalTime sourcing and SetDir/Update stay deferred. Marker-only contract."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16afe0",
+      "va": "0x416afe0",
+      "name": "C_clock::AI",
+      "symbol": "lhr_engine::actor_world::ActorWorld::tick_clock",
+      "tier": "contract",
+      "evidence": "wrapping_add tick accumulation with strict >60000 minute/hour strict-float turns per mafia-re c_clock.cpp:73-96 (60000/60001/wrap cases tested). Frame effects deferred. Marker-only contract."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x196240",
+      "va": "0x4196240",
+      "name": "C_racecam::dtor",
+      "symbol": "lhr_engine::actor_world::ActorWorld::destroy_racecam",
+      "tier": "contract",
+      "evidence": "Empty dtor path: phase gate, vtable restore, shared destroy_base_inner; delete_racecam adds free_actor on arg&1 (actor_world.rs:3128-3182, exercised via release tests). Marker-only contract."
     }
   ],
   "vm": {
