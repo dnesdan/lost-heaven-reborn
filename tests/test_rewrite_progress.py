@@ -79,7 +79,13 @@ class RewriteProgressTests(unittest.TestCase):
         # 0x5f6b70 / Create 0x5f70e0 / Destroy 0x5f7250 / ResetValues 0x5f6cf0
         # / TimerSetTime 0x5f7500 / GameInit plan 0x5f73c0 / GameDone 0x5f74a0;
         # MenuStack stays behind main.rs #[path], unfileable like RotateDir).
-        self.assertEqual(game["ported"], 149 + 80)
+        # +13 dabing/IShow wave, all contract (Dabing Init 0x5f4bc0 / Done
+        # 0x5f4c10 / GetFree 0x5f4ca0 / SetHuman 0x5f4cd0 / Reset 0x5f5060 /
+        # Speak 0x5f5570 / IsSpeaking 0x5f5c40 / Tick 0x5f5dd0; CreateIShow
+        # 0x5b5e90 / OpenIShow 0x5b6110 / LoadCityMusicAreas 0x5adee0 /
+        # cbCityMusic 0x5adf30 / CityMusicOff 0x5ae130; exact-RVA Get/Store/
+        # Loop/SetVolume skipped: only the 0x5b64c0-0x5b6600 range evidenced).
+        self.assertEqual(game["ported"], 149 + 93)
         self.assertEqual(game["verified"], 149 + 7)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])

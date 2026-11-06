@@ -8680,6 +8680,123 @@
       "symbol": "lhr_engine::indicators::IndicatorsState::game_done",
       "tier": "contract",
       "evidence": "Map/radar/bonus/race-start clear + interval re-apply per mafia-re g_indicators.cpp:391-402 (GAME 0x5f74a0); hiding case stores 0xff verbatim. Marker-only contract."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x5f4bc0",
+      "va": "0x9f4bc0",
+      "name": "G_Dabing::Init",
+      "symbol": "lhr_engine::dabing::DabingOwner::dabing_init",
+      "tier": "contract",
+      "evidence": "Channel/model reset per g_dabing.cpp:24 (GAME 0x5f4bc0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x5f4c10",
+      "va": "0x9f4c10",
+      "name": "G_Dabing::Done",
+      "symbol": "lhr_engine::dabing::DabingOwner::dabing_done",
+      "tier": "contract",
+      "evidence": "Teardown via audio probe per g_dabing.cpp:32 (GAME 0x5f4c10). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x5f4ca0",
+      "va": "0x9f4ca0",
+      "name": "G_Dabing::GetFreeChanel",
+      "symbol": "lhr_engine::dabing::DabingOwner::dabing_get_free_chanel",
+      "tier": "contract",
+      "evidence": "First FREE channel scan per g_dabing.cpp:47 (GAME 0x5f4ca0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x5f4cd0",
+      "va": "0x9f4cd0",
+      "name": "G_Dabing::SetHuman",
+      "symbol": "lhr_engine::dabing::DabingOwner::set_human_marker",
+      "tier": "contract",
+      "evidence": "Speaker marker store per g_dabing.cpp:100 (GAME 0x5f4cd0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x5f5060",
+      "va": "0x9f5060",
+      "name": "G_Dabing::Reset",
+      "symbol": "lhr_engine::dabing::DabingOwner::dabing_reset",
+      "tier": "contract",
+      "evidence": "Channel reset incl. recorder-close path per g_dabing.cpp:62 (GAME 0x5f5060). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x5f5570",
+      "va": "0x9f5570",
+      "name": "G_Dabing::Speak",
+      "symbol": "lhr_engine::dabing::DabingOwner::speak_marker",
+      "tier": "contract",
+      "evidence": "Kind 1-6/subtitle/scene-sound intake per g_dabing.cpp:117 (GAME 0x5f5570); file I/O deferred. Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x5f5c40",
+      "va": "0x9f5c40",
+      "name": "G_Dabing::IsSpeaking",
+      "symbol": "lhr_engine::dabing::DabingOwner::dabing_is_speaking",
+      "tier": "contract",
+      "evidence": "Non-FREE channel query per g_dabing.cpp:95 (GAME 0x5f5c40). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x5f5dd0",
+      "va": "0x9f5dd0",
+      "name": "G_Dabing::Tick",
+      "symbol": "lhr_engine::dabing::DabingOwner::dabing_tick",
+      "tier": "contract",
+      "evidence": "Clock/weight/fade/subtitle countdown per g_dabing.cpp:117+ (GAME 0x5f5dd0); device mix deferred. Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x5b5e90",
+      "va": "0x9b5e90",
+      "name": "C_game::CreateIShow",
+      "symbol": "lhr_engine::ishow_renderer::cgame_create_ishow",
+      "tier": "contract",
+      "evidence": "Disable-sound-gated id allocation per game.cpp:3446 (GAME 0x5b5e90); decode deferred. Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x5b6110",
+      "va": "0x9b6110",
+      "name": "C_game::OpenIShow",
+      "symbol": "lhr_engine::ishow_renderer::cgame_open_ishow",
+      "tier": "contract",
+      "evidence": "Duplicate-rm + .ogg->.mp3 NOFILE-only retry per game.cpp:3468 (GAME 0x5b6110). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x5adee0",
+      "va": "0x9adee0",
+      "name": "C_game::LoadCityMusicAreas",
+      "symbol": "lhr_engine::ishow_renderer::cgame_load_city_music_areas",
+      "tier": "contract",
+      "evidence": "Area-frame enumeration with cbCityMusic filter per game.cpp:2992 (GAME 0x5adee0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x5adf30",
+      "va": "0x9adf30",
+      "name": "C_game::S_hlp::cbCityMusic",
+      "symbol": "lhr_engine::ishow_renderer::cgame_cb_city_music",
+      "tier": "contract",
+      "evidence": "len>12 + city_music_ i-case area predicate per game.cpp:3001 (GAME 0x5adf30). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x5ae130",
+      "va": "0x9ae130",
+      "name": "C_game::CityMusicOff",
+      "symbol": "lhr_engine::ishow_renderer::cgame_city_music_off",
+      "tier": "contract",
+      "evidence": "Area forget + fade-out-from-device-volume + id clear per game.cpp:3016 (GAME 0x5ae130). Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {
