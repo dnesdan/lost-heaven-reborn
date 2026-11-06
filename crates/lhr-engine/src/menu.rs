@@ -1,15 +1,66 @@
 //! Data-driven original menu layout and atlas text; no game scripts are executed here.
+//!
+//! Marker-only menu-stack contracts (Game.exe menu RVAs 0x1e06e0 OnClick,
+//! 0x1e4a50 OnChange, 0x1e0690 OnCreate, 0x1ea2e0 Create stack; siblings
+//! mafia-re game/ui/g_m_func.cpp:273-354 and game/ui/g_menu.cpp:610-691,
+//! 735-853, 855-901, 903-914, 1046-1139, cited only, never vendored):
+//! MenuComponent/MenuStack own the pure list contracts (intake with `upup`
+//! skipping, FindComponentByID, SetDisabled COMPF bits, ActivateByID(All)
+//! search, key/hover routing into the OnClick dispatch, close/exchange
+//! latches). Device owners stay DEFERRED: menu sounds, parent callbacks, the
+//! activeMenuWindow global and menu allocation (MenuOpen), the igraph pump
+//! plus mission/scene owners (ExecuteMenu, TickCamera, Draw device paths),
+//! and the component classes (Draw/Key/Mouse virtuals, text/value storage).
 use lhr_assets::{FontMetrics, Installation, MenuDefinition, Texture as Image};
+use lhr_engine::main_menu;
 use lhr_render::{Mesh, Texture, Vertex};
 use std::sync::Arc;
 
 pub const DESIGN: [f32; 2] = [800.0, 600.0];
+/// Host-side reading of the GM_MainMenu::OnClick dispatch (Game.exe VA
+/// 0x5e06e0, RVA 0x1e06e0; sibling game/ui/g_m_func.cpp:309-354, cited only).
+/// The full 13-branch dispatch lives in `main_menu_onclick`; this mirrors its
+/// CloseAll outcomes that the host menu can observe. Variants beyond the host
+/// admission subset (see `enabled`) are reachable only through
+/// `action_for_id`/`click_effect`, never through pointer/keyboard focus.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
     Intro,
+    Tutorial,
     NewGame,
+    LoadGame,
+    FreeRide,
+    Extreme,
+    Racing,
+    Multiplayer,
+    Carcyclopedia,
+    Options,
+    Credits,
+    Profile,
     Quit,
     Unsupported(u32),
+}
+
+/// Pure id reading of the OnClick dispatch above: every native branch maps to
+/// its outcome, unknown ids to `Unsupported` (the native no-op path returning
+/// 0 with no menu effect).
+pub fn action_for_id(id: u32) -> Action {
+    match id {
+        main_menu::MAINMENU_ITEM_INTRO => Action::Intro,
+        main_menu::MAINMENU_ITEM_TUTORIAL => Action::Tutorial,
+        main_menu::MAINMENU_ITEM_NEW_GAME => Action::NewGame,
+        main_menu::MAINMENU_ITEM_LOAD_GAME => Action::LoadGame,
+        main_menu::MAINMENU_ITEM_FREE_RIDE => Action::FreeRide,
+        main_menu::MAINMENU_ITEM_FREE_RIDE_EXTREME => Action::Extreme,
+        main_menu::MAINMENU_ITEM_RACING => Action::Racing,
+        main_menu::MAINMENU_ITEM_MULTIPLAYER => Action::Multiplayer,
+        main_menu::MAINMENU_ITEM_CARCYCLOPEDIA => Action::Carcyclopedia,
+        main_menu::MAINMENU_ITEM_OPTIONS => Action::Options,
+        main_menu::MAINMENU_ITEM_CREDITS => Action::Credits,
+        main_menu::MAINMENU_ITEM_CHANGE_PROFILE => Action::Profile,
+        main_menu::MAINMENU_ITEM_QUIT => Action::Quit,
+        id => Action::Unsupported(id),
+    }
 }
 
 /// GM_Menu::Tick distinguishes component-list traversal from traversal by ID.
@@ -263,12 +314,15 @@ impl MenuUi {
         })
     }
     pub fn activate(&self) -> Action {
-        match self.focus_id() {
-            990101 => Action::Intro,
-            990103 => Action::NewGame,
-            990113 => Action::Quit,
-            id => Action::Unsupported(id),
-        }
+        action_for_id(self.focus_id())
+    }
+
+    /// Pure GM_MainMenu::OnClick dispatch for the latched focus id (Game.exe
+    /// VA 0x5e06e0; sibling game/ui/g_m_func.cpp:309-354): the MenuCloseAll
+    /// result or the MenuOpen target. Component lookup, stack allocation and
+    /// device effects stay with the stack/device owners (DEFERRED).
+    pub fn click_effect(&self) -> Option<main_menu::MainMenuClickEffect> {
+        main_menu::main_menu_onclick(self.focus_id())
     }
     pub fn pixels(&self) -> Texture {
         let mut canvas = Canvas::new();
@@ -379,8 +433,431 @@ impl MenuUi {
         width
     }
 }
+/// Host admission subset for pointer/keyboard focus: the Lab-hosted original
+/// menu admits New Game and Exit only. The full 13-branch OnClick dispatch
+/// (`action_for_id`, `click_effect`, `main_menu::main_menu_onclick`) is
+/// independent of this gate: it routes every native id, including ones the
+/// host never focuses.
 fn enabled(id: u32) -> bool {
     matches!(id, 990103 | 990113)
+}
+
+/// Host-decoded Tick navigation keys (Game.exe RVA 0x1ea8c0; sibling
+/// game/ui/g_menu.cpp:777-802, cited only). DIK_* decoding plus IGraph shift
+/// state are device input admitted by the caller; this only names the routed
+/// direction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TickKey {
+    Left,
+    Right,
+    Up,
+    Down,
+    TabForward,
+    TabBackward,
+}
+
+/// Marker-only GM_Component id/flag word (Game.exe GM_Menu::components 0x10;
+/// siblings game/ui/g_menu.h:283-284, game/ui/g_m_comps.h:19-33, cited only).
+/// Class-specific behavior (Draw/Key/Mouse virtuals, text/value storage,
+/// parent/child placement) needs the component-class owners and stays
+/// DEFERRED; only the id plus the activation-gating COMPF word are owned here.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MenuComponent {
+    pub id: u32,
+    pub flags: u32,
+}
+
+impl MenuComponent {
+    /// Fresh component word with the default COMPF sense (VISIBLE|ENABLED|
+    /// ACTIVATABLE). The definition's own style bits stay opaque (DEFERRED).
+    pub fn new(id: u32) -> Self {
+        Self {
+            id,
+            flags: main_menu::DEFAULT_COMPONENT_FLAGS,
+        }
+    }
+
+    /// GM_Menu::SetDisabled bit application (GAME 0x5eaed0; sibling
+    /// game/ui/g_menu.cpp:903-914, cited only): true sets COMPF_ENABLED,
+    /// false clears it.
+    pub fn set_disabled(&mut self, enabled: bool) {
+        if enabled {
+            self.flags |= main_menu::COMPONENT_ENABLED;
+        } else {
+            self.flags &= !main_menu::COMPONENT_ENABLED;
+        }
+    }
+
+    /// Live ENABLED-bit read.
+    pub fn is_enabled(&self) -> bool {
+        self.flags & main_menu::COMPONENT_ENABLED != 0
+    }
+
+    /// Activation gate (sibling game/ui/g_menu.cpp:1055,1070,1097-1098,
+    /// cited only): ENABLED, VISIBLE and ACTIVATABLE together.
+    pub fn can_activate(&self) -> bool {
+        const GATE: u32 = main_menu::COMPONENT_ENABLED
+            | main_menu::COMPONENT_VISIBLE
+            | main_menu::COMPONENT_ACTIVATABLE;
+        self.flags & GATE == GATE
+    }
+
+    /// Mark/unmark this component as the menu's active one (COMPF_ACTIVE bit,
+    /// sibling game/ui/g_menu.cpp:815-826, cited only).
+    pub fn set_active(&mut self) {
+        self.flags |= main_menu::COMPONENT_ACTIVE;
+    }
+    pub fn clear_active(&mut self) {
+        self.flags &= !main_menu::COMPONENT_ACTIVE;
+    }
+}
+
+/// Marker-only GM_Menu component stack (Game.exe GM_Menu 0x30, Create RVA
+/// 0x1ea2e0; siblings game/ui/g_menu.h:150-290, game/ui/g_menu.cpp:610-625,
+/// cited only). Owns only the pure list contracts: intake, lookup, activation
+/// search, and close/exchange latches. Device owners stay DEFERRED: menu
+/// sounds, parent OnCreateChild/OnCloseChild callbacks, the activeMenuWindow
+/// global and menu allocation (MenuOpen), the igraph pump plus mission/scene
+/// owners (ExecuteMenu, TickCamera, Draw device paths), and the component
+/// classes.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct MenuStack {
+    components: Vec<MenuComponent>,
+    active: Option<u32>,
+    closing: bool,
+    close_code: u32,
+    open_id: u32,
+}
+
+impl MenuStack {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// GM_Menu::CreateCompsByDef intake (GAME 0x5ea370; sibling
+    /// game/ui/g_menu.cpp:639-691, cited only): `upup` items never become
+    /// components. Intake assignment: the first kept item is the root window,
+    /// which keeps no ACTIVATABLE bit (windows/parents are not activatable,
+    /// sibling game/ui/g_m_comps.h:199,260,269,302), while every later item is
+    /// admitted with the default word. Factory NULL skips (g_menu.cpp:677-679),
+    /// menuScreenScale/levyOkraj placement and CanBeParent chaining need the
+    /// component-class owners and stay DEFERRED.
+    pub fn create_from_definition(definition: &MenuDefinition) -> Self {
+        let mut stack = Self::new();
+        let mut root_seen = false;
+        for item in definition.items.iter().filter(|item| !item.is_upup()) {
+            let mut component = MenuComponent::new(item.id);
+            if !root_seen {
+                component.flags &= !main_menu::COMPONENT_ACTIVATABLE;
+                root_seen = true;
+            }
+            stack.components.push(component);
+        }
+        stack
+    }
+
+    /// GM_Menu::Create ordered stack (GAME 0x5ea2e0; sibling
+    /// game/ui/g_menu.cpp:610-625, cited only): clear, intake,
+    /// ActivateByIDOrNext(1). The caller's OnCreate/OnChange run next; the
+    /// open sound plus the parent OnCreateChild call are device owners
+    /// (DEFERRED).
+    pub fn create(definition: &MenuDefinition) -> Self {
+        let mut stack = Self::create_from_definition(definition);
+        stack.activate_by_id_or_next(1);
+        stack
+    }
+
+    /// Live component count (intake-admitted only; `upup` excluded).
+    pub fn len(&self) -> usize {
+        self.components.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.components.is_empty()
+    }
+
+    /// GM_Menu::FindComponentByID (GAME 0x5eb2f0; sibling
+    /// game/ui/g_menu.cpp:1081-1088, cited only): linear search, None for a
+    /// missing component.
+    pub fn find_component_by_id(&self, id: u32) -> Option<&MenuComponent> {
+        self.components.iter().find(|component| component.id == id)
+    }
+    fn find_component_by_id_mut(&mut self, id: u32) -> Option<&mut MenuComponent> {
+        self.components
+            .iter_mut()
+            .find(|component| component.id == id)
+    }
+
+    /// GM_Menu::SetDisabled (GAME 0x5eaed0; sibling game/ui/g_menu.cpp:903-914,
+    /// cited only): no-op where the menu has no such component.
+    pub fn set_disabled(&mut self, id: u32, enabled: bool) {
+        if let Some(component) = self.find_component_by_id_mut(id) {
+            component.set_disabled(enabled);
+        }
+    }
+
+    fn set_active_id(&mut self, id: Option<u32>) {
+        if let Some(old) = self.active {
+            if let Some(component) = self.find_component_by_id_mut(old) {
+                component.clear_active();
+            }
+        }
+        self.active = id;
+        if let Some(new) = id {
+            if let Some(component) = self.find_component_by_id_mut(new) {
+                component.set_active();
+            }
+        }
+    }
+
+    /// GM_Menu::ActivateByID (GAME 0x5eb1c0; sibling game/ui/g_menu.cpp:1046-1060,
+    /// cited only): clears the old ACTIVE bit, takes the id's component, keeps
+    /// it only where ENABLED|VISIBLE|ACTIVATABLE all hold, else none.
+    pub fn activate_by_id(&mut self, id: u32) {
+        if let Some(old) = self.active {
+            if let Some(component) = self.find_component_by_id_mut(old) {
+                component.clear_active();
+            }
+        }
+        let take = self
+            .find_component_by_id(id)
+            .is_some_and(MenuComponent::can_activate);
+        if take {
+            self.active = Some(id);
+            if let Some(component) = self.find_component_by_id_mut(id) {
+                component.set_active();
+            }
+        } else {
+            self.active = None;
+        }
+    }
+
+    /// GM_Menu::ActivateByIDOrNext (GAME 0x5eb210; sibling
+    /// game/ui/g_menu.cpp:1062-1079, cited only): ActivateByID, else the
+    /// FindComponentByIDNext fallback, which always sets ACTIVE where it lands.
+    pub fn activate_by_id_or_next(&mut self, id: u32) {
+        self.activate_by_id(id);
+        if self.active.is_none() {
+            let fallback = self.find_by_id_next(id);
+            self.set_active_id(fallback);
+        }
+    }
+
+    /// GM_Menu::FindComponentByIDNext (GAME 0x5eb3c0; sibling
+    /// game/ui/g_menu.cpp:1115-1139, cited only): lowest activatable id above
+    /// `id`, else the lowest activatable id. None where nothing can activate.
+    pub fn find_by_id_next(&self, id: u32) -> Option<u32> {
+        let mut best: Option<u32> = None;
+        for component in self.components.iter().filter(|c| c.can_activate()) {
+            if component.id > id && best.is_none_or(|current| component.id < current) {
+                best = Some(component.id);
+            }
+        }
+        if best.is_some() {
+            return best;
+        }
+        self.components
+            .iter()
+            .filter(|component| component.can_activate())
+            .map(|component| component.id)
+            .min()
+    }
+
+    /// GM_Menu::FindComponentByIDPrev (GAME 0x5eb320; sibling
+    /// game/ui/g_menu.cpp:1090-1114, cited only): highest activatable id below
+    /// `id`, else the highest activatable id. None where nothing can activate.
+    pub fn find_by_id_prev(&self, id: u32) -> Option<u32> {
+        let mut best: Option<u32> = None;
+        for component in self.components.iter().filter(|c| c.can_activate()) {
+            if component.id < id && best.is_none_or(|current| component.id > current) {
+                best = Some(component.id);
+            }
+        }
+        if best.is_some() {
+            return best;
+        }
+        self.components
+            .iter()
+            .filter(|component| component.can_activate())
+            .map(|component| component.id)
+            .max()
+    }
+
+    /// GM_Menu::FindComponentNext (GAME 0x5eb4e0; sibling
+    /// game/ui/g_menu.cpp:1161-1183, cited only): the activatable component
+    /// after the one of `id` in list order, wrapping to the start (the start
+    /// element itself excluded, as the original's `it != start` bound). None
+    /// for an empty list or where nothing else can be activated.
+    pub fn find_list_next(&self, id: u32) -> Option<u32> {
+        let start = self.components.iter().position(|c| c.id == id)?;
+        for offset in 1..self.components.len() {
+            let candidate = &self.components[(start + offset) % self.components.len()];
+            if candidate.can_activate() {
+                return Some(candidate.id);
+            }
+        }
+        None
+    }
+
+    /// GM_Menu::FindComponentPrev (GAME 0x5eb460; sibling
+    /// game/ui/g_menu.cpp:1140-1160, cited only): the activatable component
+    /// before the one of `id` in list order, wrapping from the end. None for
+    /// an empty list or where nothing else can be activated.
+    pub fn find_list_prev(&self, id: u32) -> Option<u32> {
+        let count = self.components.len();
+        let start = self.components.iter().position(|c| c.id == id)?;
+        for offset in 1..count {
+            let candidate = &self.components[(start + count - offset) % count];
+            if candidate.can_activate() {
+                return Some(candidate.id);
+            }
+        }
+        None
+    }
+
+    /// GM_Menu::Tick pure activation routing (GAME 0x5ea8c0; sibling
+    /// game/ui/g_menu.cpp:777-827, cited only): a host-decoded navigation key
+    /// moves the active id through the list/id-order searches. Returns true
+    /// where the selection changed; the caller then runs OnChange plus the
+    /// change sound, which need component/device owners (DEFERRED).
+    pub fn route_key(&mut self, key: TickKey) -> bool {
+        let current = self.active.unwrap_or(0);
+        let next = match key {
+            TickKey::Left => self.find_list_prev(current),
+            TickKey::Right => self.find_list_next(current),
+            TickKey::Up => self.find_by_id_prev(current),
+            TickKey::Down => self.find_by_id_next(current),
+            TickKey::TabForward => self.find_list_next(current),
+            TickKey::TabBackward => self.find_list_prev(current),
+        };
+        match next {
+            Some(id) if Some(id) != self.active => {
+                self.set_active_id(Some(id));
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Mouse-in-use hover routing (sibling game/ui/g_menu.cpp:806-807,
+    /// root->FindComponentAt, cited only): takes the already-resolved component
+    /// id under the cursor; the pixel hit test (IsOverClientArea/IsOverActive
+    /// plus viewport scale) is admitted by the caller through MenuUi::point.
+    /// Returns true where the selection changed.
+    pub fn hover(&mut self, id: u32) -> bool {
+        if self
+            .find_component_by_id(id)
+            .is_some_and(MenuComponent::can_activate)
+            && self.active != Some(id)
+        {
+            self.set_active_id(Some(id));
+            return true;
+        }
+        false
+    }
+
+    /// Click routing for the latched active id into the main-menu OnClick
+    /// (sibling game/ui/g_menu.cpp:828-829, cited only): pure dispatch, no
+    /// device effects.
+    pub fn click_active(&self) -> Option<main_menu::MainMenuClickEffect> {
+        self.active.and_then(main_menu::main_menu_onclick)
+    }
+
+    /// Live read of the latched active selection, if any.
+    pub fn active_id(&self) -> Option<u32> {
+        self.active
+    }
+
+    /// Live reads of the close latch (GM_Menu::MenuClose 0x5eae10 code/flag).
+    pub fn is_closing(&self) -> bool {
+        self.closing
+    }
+    pub fn close_code(&self) -> u32 {
+        self.close_code
+    }
+    /// MenuOpen's id, handed back to the parent in OnCreateChild/OnCloseChild
+    /// (sibling game/ui/g_menu.h:288-289, cited only).
+    pub fn open_id(&self) -> u32 {
+        self.open_id
+    }
+
+    /// GM_Menu::MenuClose pure latch (GAME 0x5eae10; sibling
+    /// game/ui/g_menu.cpp:883-891, cited only): records the code and raises
+    /// the closing flag. The parent OnCloseChild call plus OnClose need the
+    /// menu-class owner: DEFERRED.
+    pub fn menu_close(&mut self, code: u32) {
+        self.close_code = code;
+        self.closing = true;
+    }
+
+    /// GM_Menu::MenuCloseAll pure latch (GAME 0x5eae40; sibling
+    /// game/ui/g_menu.cpp:893-901, cited only): this menu's close plus the
+    /// caller's result for the host loop. The parent chain and the
+    /// zz_globalReturnCode global are device state: DEFERRED.
+    pub fn menu_close_all(&mut self, code: u32, result: u32) -> u32 {
+        self.menu_close(code);
+        result
+    }
+
+    /// GM_Menu::MenuExchange pure rebuild (GAME 0x5ead80; sibling
+    /// game/ui/g_menu.cpp:865-881, cited only): drops the components,
+    /// recreates those of the exchanged definition, re-activates the old
+    /// active id (or the next one). The OnBeforeExchange/OnExchange/OnChange
+    /// callbacks need the menu-class owners: DEFERRED; the re-activated id is
+    /// returned for them.
+    pub fn menu_exchange(&mut self, definition: &MenuDefinition) -> Option<u32> {
+        let id = self.active.unwrap_or(1);
+        let (open_id, closing, close_code) = (self.open_id, self.closing, self.close_code);
+        *self = Self::create_from_definition(definition);
+        self.open_id = open_id;
+        self.closing = closing;
+        self.close_code = close_code;
+        self.activate_by_id_or_next(id);
+        self.active
+    }
+}
+
+/// GM_Menu::MenuOpen definition-name contract (GAME 0x5ead50; sibling
+/// game/ui/g_menu.cpp:855-863, cited only): names the definition the opened
+/// menu builds. Allocation, parent linkage, Create and the activeMenuWindow
+/// global need the device menu owner and stay DEFERRED.
+pub fn menu_open_definition(target: main_menu::MainMenuOpenTarget) -> &'static str {
+    target.definition_name()
+}
+
+/// CreateCompsByDef file probe (GAME 0x5ea370; sibling game/ui/g_menu.cpp:639-660,
+/// cited only): the localized `<name>_<ll>.mnu` first, then `<name>.mnu`;
+/// missing files fall through to the next candidate, unparseable content
+/// errors. Name validation plus candidate order come from the asset owner
+/// (`MenuDefinition::menu_file_candidates`).
+pub fn load_definition_for_menu(
+    installation: &Installation,
+    name: &str,
+    language_code: u32,
+) -> Result<MenuDefinition, String> {
+    let candidates = MenuDefinition::menu_file_candidates(name, language_code)
+        .ok_or_else(|| format!("Menu name {name} is not admittable"))?;
+    for path in &candidates {
+        match installation.read(path) {
+            Ok(bytes) => {
+                return lhr_assets::parse_menu_definition(&bytes).map_err(|e| e.to_string());
+            }
+            Err(_) => continue,
+        }
+    }
+    Err(format!("Menu definition {name} is unavailable"))
+}
+
+/// GM_MainMenu::OnCreate dispatch over this stack (GAME 0x5e0690; sibling
+/// game/ui/g_m_func.cpp:286-294, cited only): SetDisabled with real COMPF bit
+/// sense, then ActivateByIDOrNext(INTRO). The camera latch plus the
+/// FreerideStoreA triple run in the lib latch owners
+/// (`main_menu_oncreate_dispatch`); frame positioning stays DEFERRED.
+pub fn oncreate_stack_activate(stack: &mut MenuStack, extreme_gated: bool) -> i32 {
+    if extreme_gated {
+        stack.set_disabled(main_menu::MAINMENU_ITEM_FREE_RIDE_EXTREME, false);
+    }
+    stack.activate_by_id_or_next(main_menu::MAINMENU_ITEM_INTRO);
+    0
 }
 fn validate_layout(definition: &MenuDefinition) -> Result<(), String> {
     if definition
@@ -870,5 +1347,286 @@ mod tests {
             MenuUi::load(&installation).err().unwrap(),
             "Unsupported menu language table"
         );
+    }
+
+    fn stack_definition() -> MenuDefinition {
+        let item = |id: u32, kind: [u8; 4]| lhr_assets::MenuItem {
+            id,
+            kind,
+            rect: [10.0, 10.0, 100.0, 20.0],
+            text_id: 0,
+            style: 0,
+        };
+        MenuDefinition {
+            version: 1,
+            reserved: 0,
+            items: vec![
+                item(1, *b"dniw"),
+                item(main_menu::MAINMENU_ITEM_INTRO, *b"ttub"),
+                // The intake separator: never becomes a component.
+                item(0, *b"upup"),
+                item(main_menu::MAINMENU_ITEM_NEW_GAME, *b"ttub"),
+                item(main_menu::MAINMENU_ITEM_FREE_RIDE_EXTREME, *b"ttub"),
+                item(main_menu::MAINMENU_ITEM_QUIT, *b"ttub"),
+            ],
+        }
+    }
+
+    #[test]
+    fn onclick_dispatch_covers_all_native_ids_through_the_latch_model() {
+        let cases = [
+            (main_menu::MAINMENU_ITEM_INTRO, Action::Intro),
+            (main_menu::MAINMENU_ITEM_TUTORIAL, Action::Tutorial),
+            (main_menu::MAINMENU_ITEM_NEW_GAME, Action::NewGame),
+            (main_menu::MAINMENU_ITEM_LOAD_GAME, Action::LoadGame),
+            (main_menu::MAINMENU_ITEM_FREE_RIDE, Action::FreeRide),
+            (
+                main_menu::MAINMENU_ITEM_FREE_RIDE_EXTREME,
+                Action::Extreme,
+            ),
+            (main_menu::MAINMENU_ITEM_RACING, Action::Racing),
+            (main_menu::MAINMENU_ITEM_MULTIPLAYER, Action::Multiplayer),
+            (
+                main_menu::MAINMENU_ITEM_CARCYCLOPEDIA,
+                Action::Carcyclopedia,
+            ),
+            (main_menu::MAINMENU_ITEM_OPTIONS, Action::Options),
+            (main_menu::MAINMENU_ITEM_CREDITS, Action::Credits),
+            (main_menu::MAINMENU_ITEM_CHANGE_PROFILE, Action::Profile),
+            (main_menu::MAINMENU_ITEM_QUIT, Action::Quit),
+        ];
+        for (id, action) in cases {
+            assert_eq!(action_for_id(id), action);
+        }
+        assert_eq!(action_for_id(0), Action::Unsupported(0));
+        assert_eq!(action_for_id(990100), Action::Unsupported(990100));
+        // The fixture's focus (New Game) dispatches to its CloseAll outcome.
+        let mut ui = fixture();
+        ui.selected = 1;
+        assert_eq!(ui.focus_id(), main_menu::MAINMENU_ITEM_NEW_GAME);
+        assert_eq!(ui.activate(), Action::NewGame);
+        assert_eq!(
+            ui.click_effect(),
+            Some(main_menu::MainMenuClickEffect::CloseAll {
+                result: main_menu::MAINMENU_NEW_GAME,
+            })
+        );
+    }
+
+    #[test]
+    fn create_intake_skips_upup_and_activates_intro_by_id_or_next() {
+        let stack = MenuStack::create(&stack_definition());
+        // Root plus four buttons; the `upup` item never becomes a component.
+        assert_eq!(stack.len(), 5);
+        assert!(!stack.is_empty());
+        assert!(stack.find_component_by_id(0).is_none());
+        // The root window is not activatable, so ActivateByIDOrNext(1) lands
+        // on the lowest activatable id above it: Intro.
+        assert_eq!(stack.active_id(), Some(main_menu::MAINMENU_ITEM_INTRO));
+        assert!(
+            stack
+                .find_component_by_id(main_menu::MAINMENU_ITEM_INTRO)
+                .unwrap()
+                .can_activate()
+        );
+    }
+
+    #[test]
+    fn set_disabled_is_a_noop_for_missing_ids_and_gates_activation() {
+        let mut stack = MenuStack::create(&stack_definition());
+        stack.set_disabled(424242, false);
+        assert_eq!(stack.active_id(), Some(main_menu::MAINMENU_ITEM_INTRO));
+        // Disabling the active row keeps the latch; re-activation must fail
+        // closed through the ENABLED gate.
+        stack.set_disabled(main_menu::MAINMENU_ITEM_INTRO, false);
+        stack.activate_by_id(main_menu::MAINMENU_ITEM_INTRO);
+        assert_eq!(stack.active_id(), None);
+        // The OrNext fallback skips the disabled row for New Game.
+        stack.activate_by_id_or_next(main_menu::MAINMENU_ITEM_INTRO);
+        assert_eq!(
+            stack.active_id(),
+            Some(main_menu::MAINMENU_ITEM_NEW_GAME)
+        );
+        stack.set_disabled(main_menu::MAINMENU_ITEM_INTRO, true);
+        stack.activate_by_id(main_menu::MAINMENU_ITEM_INTRO);
+        assert_eq!(stack.active_id(), Some(main_menu::MAINMENU_ITEM_INTRO));
+    }
+
+    #[test]
+    fn id_and_list_searches_wrap_like_the_original_fallbacks() {
+        let mut stack = MenuStack::create(&stack_definition());
+        // Above the top: wrap to the lowest activatable id.
+        assert_eq!(
+            stack.find_by_id_next(u32::MAX),
+            Some(main_menu::MAINMENU_ITEM_INTRO)
+        );
+        // Below the bottom: wrap to the highest activatable id.
+        assert_eq!(
+            stack.find_by_id_prev(0),
+            Some(main_menu::MAINMENU_ITEM_QUIT)
+        );
+        assert_eq!(
+            stack.find_by_id_next(main_menu::MAINMENU_ITEM_INTRO),
+            Some(main_menu::MAINMENU_ITEM_NEW_GAME)
+        );
+        assert_eq!(
+            stack.find_by_id_prev(main_menu::MAINMENU_ITEM_NEW_GAME),
+            Some(main_menu::MAINMENU_ITEM_INTRO)
+        );
+        // List order wraps around the ends; the non-activatable root is
+        // never returned.
+        assert_eq!(
+            stack.find_list_next(main_menu::MAINMENU_ITEM_QUIT),
+            Some(main_menu::MAINMENU_ITEM_INTRO)
+        );
+        assert_eq!(
+            stack.find_list_prev(main_menu::MAINMENU_ITEM_INTRO),
+            Some(main_menu::MAINMENU_ITEM_QUIT)
+        );
+        assert_eq!(stack.find_list_next(424242), None);
+        // All rows disabled: every search reports nothing to activate.
+        for id in [
+            main_menu::MAINMENU_ITEM_INTRO,
+            main_menu::MAINMENU_ITEM_NEW_GAME,
+            main_menu::MAINMENU_ITEM_FREE_RIDE_EXTREME,
+            main_menu::MAINMENU_ITEM_QUIT,
+        ] {
+            stack.set_disabled(id, false);
+        }
+        assert_eq!(stack.find_by_id_next(1), None);
+        assert_eq!(stack.find_by_id_prev(u32::MAX), None);
+        assert_eq!(
+            stack.find_list_next(main_menu::MAINMENU_ITEM_INTRO),
+            None
+        );
+        assert_eq!(
+            stack.find_list_prev(main_menu::MAINMENU_ITEM_QUIT),
+            None
+        );
+    }
+
+    #[test]
+    fn tick_key_and_hover_routing_feed_the_onclick_dispatch() {
+        let mut stack = MenuStack::create(&stack_definition());
+        assert!(stack.route_key(TickKey::Down));
+        assert_eq!(
+            stack.active_id(),
+            Some(main_menu::MAINMENU_ITEM_NEW_GAME)
+        );
+        assert!(stack.route_key(TickKey::Down));
+        assert_eq!(
+            stack.active_id(),
+            Some(main_menu::MAINMENU_ITEM_FREE_RIDE_EXTREME)
+        );
+        assert!(stack.route_key(TickKey::Up));
+        assert_eq!(
+            stack.active_id(),
+            Some(main_menu::MAINMENU_ITEM_NEW_GAME)
+        );
+        assert!(stack.route_key(TickKey::TabForward));
+        assert_eq!(
+            stack.active_id(),
+            Some(main_menu::MAINMENU_ITEM_FREE_RIDE_EXTREME)
+        );
+        assert!(stack.route_key(TickKey::TabBackward));
+        assert_eq!(
+            stack.active_id(),
+            Some(main_menu::MAINMENU_ITEM_NEW_GAME)
+        );
+        assert!(stack.route_key(TickKey::Left));
+        assert_eq!(
+            stack.active_id(),
+            Some(main_menu::MAINMENU_ITEM_INTRO)
+        );
+        assert!(stack.route_key(TickKey::Right));
+        assert_eq!(
+            stack.active_id(),
+            Some(main_menu::MAINMENU_ITEM_NEW_GAME)
+        );
+        // A key press that cannot move (single activatable row) changes nothing.
+        let mut solo = MenuStack::create(&stack_definition());
+        for id in [
+            main_menu::MAINMENU_ITEM_NEW_GAME,
+            main_menu::MAINMENU_ITEM_FREE_RIDE_EXTREME,
+            main_menu::MAINMENU_ITEM_QUIT,
+        ] {
+            solo.set_disabled(id, false);
+        }
+        assert!(!solo.route_key(TickKey::Down));
+        assert_eq!(
+            solo.active_id(),
+            Some(main_menu::MAINMENU_ITEM_INTRO)
+        );
+        assert!(stack.hover(main_menu::MAINMENU_ITEM_QUIT));
+        assert_eq!(stack.active_id(), Some(main_menu::MAINMENU_ITEM_QUIT));
+        assert!(!stack.hover(main_menu::MAINMENU_ITEM_QUIT));
+        // Hovering the non-activatable root changes nothing.
+        assert!(!stack.hover(1));
+        assert_eq!(stack.active_id(), Some(main_menu::MAINMENU_ITEM_QUIT));
+        assert_eq!(
+            stack.click_active(),
+            Some(main_menu::MainMenuClickEffect::Open {
+                target: main_menu::MainMenuOpenTarget::ExitQuestion,
+            })
+        );
+        assert_eq!(
+            menu_open_definition(main_menu::MainMenuOpenTarget::FreeRide),
+            "freeride"
+        );
+    }
+
+    #[test]
+    fn close_latches_and_exchange_rebuild_preserve_requests() {
+        let mut stack = MenuStack::create(&stack_definition());
+        assert!(!stack.is_closing());
+        let result = stack.menu_close_all(
+            main_menu::MENU_CLOSE_CANCEL,
+            main_menu::MAINMENU_QUIT,
+        );
+        assert_eq!(result, main_menu::MAINMENU_QUIT);
+        assert!(stack.is_closing());
+        assert_eq!(stack.close_code(), main_menu::MENU_CLOSE_CANCEL);
+        // Exchange keeps the close latch, rebuilds the list, and re-targets
+        // the previously active id (Quit survives the rebuild here).
+        stack.hover(main_menu::MAINMENU_ITEM_QUIT);
+        let active = stack.menu_exchange(&stack_definition());
+        assert_eq!(active, Some(main_menu::MAINMENU_ITEM_QUIT));
+        assert_eq!(stack.active_id(), Some(main_menu::MAINMENU_ITEM_QUIT));
+        assert!(stack.is_closing());
+        // OnCreate stack activation gates Extreme, then selects Intro.
+        let mut gated = MenuStack::create(&stack_definition());
+        assert_eq!(oncreate_stack_activate(&mut gated, true), 0);
+        assert!(
+            !gated
+                .find_component_by_id(main_menu::MAINMENU_ITEM_FREE_RIDE_EXTREME)
+                .unwrap()
+                .is_enabled()
+        );
+        gated.activate_by_id(main_menu::MAINMENU_ITEM_FREE_RIDE_EXTREME);
+        assert_eq!(gated.active_id(), None);
+        // The OrNext fallback skips the gated row for New Game.
+        gated.activate_by_id_or_next(main_menu::MAINMENU_ITEM_FREE_RIDE_EXTREME);
+        assert_eq!(
+            gated.active_id(),
+            Some(main_menu::MAINMENU_ITEM_QUIT)
+        );
+        assert_eq!(oncreate_stack_activate(&mut gated, false), 0);
+        assert_eq!(
+            gated.active_id(),
+            Some(main_menu::MAINMENU_ITEM_INTRO)
+        );
+    }
+
+    #[test]
+    fn language_menu_probe_prefers_localized_then_falls_back() {
+        let resources = Resources::new();
+        let installation = Installation::open(&resources.0).unwrap();
+        // Only the fallback exists: the probe falls through to it.
+        let definition =
+            load_definition_for_menu(&installation, "mainmenu", 0x656e).unwrap();
+        assert_eq!(definition.items.len(), 2);
+        assert!(load_definition_for_menu(&installation, "optionsb", 0x656e).is_err());
+        assert!(load_definition_for_menu(&installation, "main menu", 0x656e).is_err());
+        assert!(load_definition_for_menu(&installation, "", 0x656e).is_err());
     }
 }

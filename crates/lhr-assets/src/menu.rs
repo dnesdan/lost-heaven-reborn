@@ -265,6 +265,63 @@ impl MenuDefinition {
     pub fn item(&self, id: u32) -> Option<&MenuItem> {
         self.items.iter().find(|item| item.id == id)
     }
+
+    /// The two language letters the original `CreateCompsByDef` formats into
+    /// `tables\menu\<name>_<ll>.mnu` (Game.exe RVA 0x1ea370; mafia-re
+    /// game/ui/g_menu.cpp:646-651 via `G_IndicatorsClass::GetLanguage`
+    /// 0x5f70d0, low byte first). The engine's version-derived code keeps the
+    /// first letter in the high byte, so the letters are `(code >> 8, code)`.
+    /// Returns `None` for bytes outside the admittable host filename domain.
+    pub fn language_letters(code: u32) -> Option<[u8; 2]> {
+        let letters = [(code >> 8) as u8, code as u8];
+        if letters
+            .iter()
+            .all(|byte| byte.is_ascii_graphic() && !matches!(byte, b'/' | b'\\' | b':'))
+        {
+            Some(letters)
+        } else {
+            None
+        }
+    }
+
+    /// Ordered file candidates for `GM_Menu::CreateCompsByDef` (Game.exe RVA
+    /// 0x1ea370; mafia-re game/ui/g_menu.cpp:639-660): the localized
+    /// `<name>_<ll>.mnu` first, then the `<name>.mnu` fallback. Returns `None`
+    /// for an inadmittable menu stem; an unusable language yields only the
+    /// fallback entry, matching the original's skip of the localized probe.
+    pub fn menu_file_candidates(name: &str, language_code: u32) -> Option<Vec<String>> {
+        if name.is_empty()
+            || name.len() > MAX_MENU_NAME_LEN
+            || !name
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+        {
+            return None;
+        }
+        let fallback = format!("tables/menu/{name}.mnu");
+        let Some(letters) = Self::language_letters(language_code) else {
+            return Some(vec![fallback]);
+        };
+        let language = std::str::from_utf8(&letters).unwrap();
+        Some(vec![format!("tables/menu/{name}_{language}.mnu"), fallback])
+    }
+}
+
+/// Original `upup` separator tag (Game.exe tables/menu/*.mnu; mafia-re
+/// game/ui/g_menu.cpp:665-676, `GM_Menu::CreateCompsByDef` RVA 0x1ea370):
+/// items with this tag never become components; the components after one are
+/// the root's children. Byte order matches the file: four ASCII bytes in order.
+pub const UPUP_TAG: [u8; 4] = *b"upup";
+
+/// Maximum evidenced menu file stem length. A bounded host admission, not an
+/// original limit claim.
+pub const MAX_MENU_NAME_LEN: usize = 64;
+
+impl MenuItem {
+    /// True for the `upup` separator (mafia-re game/ui/g_menu.cpp:670).
+    pub fn is_upup(&self) -> bool {
+        self.kind == UPUP_TAG
+    }
 }
 
 /// Parse the evidenced `Menu` header followed by fixed 32-byte UI records.
@@ -468,5 +525,42 @@ mod tests {
         let mut b = menu_fixture();
         b[24..28].copy_from_slice(&f32::NAN.to_le_bytes());
         assert!(parse_menu_definition(&b).is_err());
+    }
+    #[test]
+    fn menu_candidates_prefer_localized_def_and_reject_bad_stems() {
+        // Language code 0x656e is version-derived "en" (high byte first).
+        let candidates = MenuDefinition::menu_file_candidates("mainmenu", 0x656e).unwrap();
+        assert_eq!(
+            candidates,
+            vec![
+                "tables/menu/mainmenu_en.mnu".to_owned(),
+                "tables/menu/mainmenu.mnu".to_owned()
+            ]
+        );
+        // An unusable language yields only the fallback entry.
+        let candidates = MenuDefinition::menu_file_candidates("mainmenu", 0x2f2e).unwrap();
+        assert_eq!(candidates, vec!["tables/menu/mainmenu.mnu".to_owned()]);
+        let long = "x".repeat(65);
+        for bad in ["", "a/b", "a\\b", "a:b", "options b", "menu.mnu", long.as_str()] {
+            assert!(MenuDefinition::menu_file_candidates(bad, 0x656e).is_none());
+        }
+        assert_eq!(MenuDefinition::language_letters(0x637a), Some([b'c', b'z']));
+        assert_eq!(MenuDefinition::language_letters(0x2f2e), None);
+    }
+    #[test]
+    fn upup_items_are_separators_not_components() {
+        let item = MenuItem {
+            id: 0,
+            kind: *b"upup",
+            rect: [0.0, 0.0, 1.0, 1.0],
+            text_id: 0,
+            style: 0,
+        };
+        assert!(item.is_upup());
+        let button = MenuItem {
+            kind: *b"ttub",
+            ..item.clone()
+        };
+        assert!(!button.is_upup());
     }
 }

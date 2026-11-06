@@ -31,36 +31,45 @@
 //! The typed select below owns exactly this branch and consumes the existing
 //! racing_in_main_menu() predicate; it performs no menu construction.
 //!
-//! DEFERRED with explicit markers (no credit, untouched here): the OnCreate
-//! dispatch at VA 0x5e0690 (RVA 0x1e0690) past the pure prefix wired below;
+//! DEFERRED with explicit markers (no credit, untouched here):
 //! the 0x5e0670-0x5e0683 tail (JNZ operand, second MOV, RET) belongs to the
 //! OnBeforeCreate leaf; the distinct 12-byte code run at VA 0x5e0684-0x5e068f
 //! is present-but-uncredited code needing an owner (not padding);
-//! GM_MainMenu::OnChange and GM_MainMenu::OnClick have no owner here; the
-//! GM_Menu::Create 0x5ea2e0 construction stack and GameLoopSingle dispatch
-//! stay deferred. A select return never advances any of them automatically.
+//! SetCameraTargetID frame positioning past the ID latch (0x5ebe80) and the
+//! TickCamera approach (0x5ec8a0) need the mission scene owner; the GM_Menu
+//! device half (sounds, parent callbacks, igraph/mission pump, Draw/TickCamera
+//! device paths, zz_globalReturnCode global) and GameLoopSingle dispatch stay
+//! deferred. The pure OnClick/OnChange/OnCreate/Tick-routing contracts below
+//! are marker-only dispatch owners: no overlay function credit is claimed.
 //!
 //! OnCreate ownership (Game.exe SHA-256 as above, base 0x400000; reference
 //! sibling mafia-re @ 113b5b6 game/ui/g_m_func.cpp:286-294
 //! GM_MainMenu::OnCreate 0x5e0690, cited only, never vendored; marker-only,
 //! no REA body observed in this session): the three small global owners the
-//! body needs now exist below as pure state with authored tests (no cargo
+//! body needs exist below as pure state with authored tests (no cargo
 //! execution is claimed): (1) MenuCameraTarget, the lastKameraTargetID latch
 //! (g_menu.h:323) written by SetCameraTargetID 0x5ebe80, (2)
 //! MainMenuFreeride, the freeride_enabled word (g_loadsave.h, +0x1f0) plus
 //! the FreerideStoreA 0x60e920 triple, reusing the checked loadsave/settings
 //! owners (game_loadsave_controls.rs, game_loadsave_lifecycle.rs,
 //! mission_load_session.rs), none of which owns freeride state, and (3)
-//! MenuComponentLatches, the per-ID disabled request plus the active-selection
-//! latch, reusing the checked menu.rs host (hardcoded enabled() for
-//! 990103|990113, selected index, 990101 Intro mapping), which owns no
-//! per-ID disabled flag and no active-selection latch. main_menu_oncreate_prefix
-//! wires the ordered latch transition; the component dispatch itself stays
-//! DEFERRED (no menu-stack/component owners yet: FindComponentByID 0x5eb2f0
-//! plus real COMPF flag bits, the ActivateByIDOrNext 0x5eb210 fallback
-//! search, and SetCameraTargetID frame positioning past the ID latch all
-//! need scene/component owners), so RVA 0x1e0690 takes no overlay entry:
-//! owners-only helpers receive no function credit.
+//! MenuComponentLatches, the per-ID COMPF words with real ENABLED bit sense
+//! plus the active-selection latch, consumed by the menu host's list owner
+//! (engine menu.rs MenuStack: FindComponentByID 0x5eb2f0, ActivateByIDOrNext
+//! 0x5eb210 fallback search). main_menu_oncreate_dispatch wires the ordered
+//! transition with those real contracts (main_menu_oncreate_prefix is its
+//! established alias); the scene/component-device half stays DEFERRED as
+//! above, so RVA 0x1e0690 takes no overlay entry: owners-only helpers receive
+//! no function credit.
+//!
+//! OnClick ownership (Game.exe VA 0x5e06e0, RVA 0x1e06e0; sibling
+//! game/ui/g_m_func.cpp:309-354, cited only, never vendored; marker-only):
+//! main_menu_onclick is the full 13-branch pure dispatch over the latch model
+//! (MenuCloseAll with E_MAINMENU_RESULT vs MenuOpen of loadgame/freeride/
+//! optionsb/exityesno); OnChange ownership (VA 0x5e4a50; g_m_func.cpp:299-304):
+//! main_menu_onchange routes active->id into SetCameraTargetID. Both are pure
+//! id routing; component lookup, stack allocation and device effects stay with
+//! the menu host / DEFERRED owners.
 //!
 //! The tests in this module are hand-derived vectors authored without cargo
 //! (no execution is claimed).
@@ -228,53 +237,255 @@ impl MainMenuFreeride {
     }
 }
 
-/// GM_Component flag bits for the deferred dispatch below (g_m_comps.h; names
-/// ours per upstream): COMPF_ENABLED 0x20 is GM_Menu::SetDisabled's bit,
-/// COMPF_ACTIVE 0x80000000 marks the menu's active component. Reference bits
-/// only — no component owner applies them yet.
+/// GM_Component flag bits for the deferred dispatch below (mafia-re
+/// game/ui/g_m_comps.h:19-20,30-33; names ours per upstream): COMPF_VISIBLE
+/// 0x10 is GM_Menu::SetHidden's bit, COMPF_ENABLED 0x20 is GM_Menu::SetDisabled's
+/// bit, COMPF_MOUSE_CAPTURE 0x4000 keeps clicks on the active component,
+/// COMPF_ACTIVATABLE 0x8000 gates activation, COMPF_ACTIVE 0x80000000 marks the
+/// menu's active component. Reference bits only — the list-owning application
+/// lives in the menu host; the latch here records requests with real bit sense.
+pub const COMPONENT_VISIBLE: u32 = 0x10;
 pub const COMPONENT_ENABLED: u32 = 0x20;
+pub const COMPONENT_MOUSE_CAPTURE: u32 = 0x4000;
+pub const COMPONENT_ACTIVATABLE: u32 = 0x8000;
 pub const COMPONENT_ACTIVE: u32 = 0x8000_0000;
 
-/// Main-menu item ids from tables/menu/mainmenu.mnu, decimal
-/// (g_m_func.cpp:28-34; symbolic names follow upstream, disclosed here).
-/// Consistent with the menu.rs host, which maps 990101 to Intro and treats
-/// 990106 as a disabled row.
-pub const MAINMENU_ITEM_INTRO: u32 = 990101;
-pub const MAINMENU_ITEM_FREE_RIDE_EXTREME: u32 = 990106;
+/// Default COMPF word for a freshly admitted component (g_m_comps.h:19-21,31):
+/// visible, enabled and activatable. Definition style bits stay opaque.
+pub const DEFAULT_COMPONENT_FLAGS: u32 =
+    COMPONENT_VISIBLE | COMPONENT_ENABLED | COMPONENT_ACTIVATABLE;
 
-/// Minimal per-ID disabled requests plus the active-selection latch. The
-/// menu.rs host owns no per-ID disabled flag (its enabled() hardcodes
-/// 990103|990113) and no active-selection latch (only a row index), so this
-/// is a genuine gap. Absent ids read as enabled: the request latch's neutral
-/// element (no SetDisabled call yet); definition-flag defaults stay with the
-/// future component owner (DEFERRED). SCOPE: request latches only; component
-/// lookup (FindComponentByID 0x5eb2f0, including its missing-component
-/// no-op) and the ActivateByIDOrNext 0x5eb210 enabled/visible/activatable
-/// checks plus the FindComponentByIDNext fallback need the component list
-/// owner and stay DEFERRED.
+/// Main-menu item ids from tables/menu/mainmenu.mnu, decimal
+/// (mafia-re game/ui/g_m_func.cpp:28-41; symbolic names follow upstream,
+/// disclosed here). Consistent with the menu host, which maps 990101 to Intro.
+pub const MAINMENU_ITEM_INTRO: u32 = 990101;
+pub const MAINMENU_ITEM_TUTORIAL: u32 = 990102;
+pub const MAINMENU_ITEM_NEW_GAME: u32 = 990103;
+pub const MAINMENU_ITEM_LOAD_GAME: u32 = 990104;
+pub const MAINMENU_ITEM_FREE_RIDE: u32 = 990105;
+pub const MAINMENU_ITEM_FREE_RIDE_EXTREME: u32 = 990106;
+pub const MAINMENU_ITEM_RACING: u32 = 990107;
+pub const MAINMENU_ITEM_MULTIPLAYER: u32 = 990108;
+pub const MAINMENU_ITEM_CARCYCLOPEDIA: u32 = 990109;
+pub const MAINMENU_ITEM_OPTIONS: u32 = 990110;
+pub const MAINMENU_ITEM_CREDITS: u32 = 990111;
+pub const MAINMENU_ITEM_CHANGE_PROFILE: u32 = 990112;
+pub const MAINMENU_ITEM_QUIT: u32 = 990113;
+
+/// E_MAINMENU_RESULT choices returned via MenuCloseAll by the main-menu OnClick
+/// (mafia-re game/ui/g_m_func.h:5-23; names and values per upstream, disclosed
+/// here). Only the codes the OnClick switch emits are listed.
+pub const MAINMENU_TUTORIAL: u32 = 0x11;
+pub const MAINMENU_NEW_GAME: u32 = 0x12;
+pub const MAINMENU_MULTIPLAYER: u32 = 0x14;
+pub const MAINMENU_RACING: u32 = 0x15;
+pub const MAINMENU_INTRO: u32 = 0x16;
+pub const MAINMENU_CREDITS: u32 = 0x17;
+pub const MAINMENU_QUIT: u32 = 0x18;
+pub const MAINMENU_CARCYCLOPEDIA: u32 = 0x19;
+pub const MAINMENU_PROFILE_CHANGE: u32 = 0x1a;
+pub const MAINMENU_EXTREME: u32 = 0x1b;
+
+/// Cancel code the native switch passes as MenuClose(All)'s code: `(uint)-1`
+/// (mafia-re game/ui/g_m_func.cpp:309-354).
+pub const MENU_CLOSE_CANCEL: u32 = u32::MAX;
+
+/// Menus the main-menu OnClick opens over itself (mafia-re
+/// game/ui/g_m_func.cpp:142-245,324-342): Load Game opens "loadgame", Free
+/// Ride "freeride", Options "optionsb", Quit the "exityesno" question. The
+/// allocation plus parent linkage (GM_Menu::MenuOpen 0x5ead50) needs the device
+/// menu allocator and the activeMenuWindow global, so only the definition name
+/// contract is owned here; the open itself stays DEFERRED.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MainMenuOpenTarget {
+    LoadGame,
+    FreeRide,
+    Options,
+    ExitQuestion,
+}
+
+impl MainMenuOpenTarget {
+    /// Original tables/menu/<name>.mnu stem selected by the native branch
+    /// (mafia-re game/ui/g_m_func.cpp:371-389).
+    pub fn definition_name(self) -> &'static str {
+        match self {
+            Self::LoadGame => "loadgame",
+            Self::FreeRide => "freeride",
+            Self::Options => "optionsb",
+            Self::ExitQuestion => "exityesno",
+        }
+    }
+}
+
+/// Pure GM_MainMenu::OnClick effect: either MenuCloseAll with an
+/// E_MAINMENU_RESULT, or MenuOpen of one of the four menus above. Native
+/// returns 0 on every path (mafia-re game/ui/g_m_func.cpp:309-354); unknown
+/// ids are that no-op path and yield no effect here.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MainMenuClickEffect {
+    CloseAll { result: u32 },
+    Open { target: MainMenuOpenTarget },
+}
+
+impl MainMenuClickEffect {
+    /// The E_MAINMENU_RESULT for CloseAll effects, if any.
+    pub fn close_all_result(self) -> Option<u32> {
+        match self {
+            Self::CloseAll { result } => Some(result),
+            Self::Open { .. } => None,
+        }
+    }
+
+    /// The menu to open for Open effects, if any.
+    pub fn open_target(self) -> Option<MainMenuOpenTarget> {
+        match self {
+            Self::Open { target } => Some(target),
+            Self::CloseAll { .. } => None,
+        }
+    }
+}
+
+/// GM_MainMenu::OnClick full 13-branch dispatch (Game.exe VA 0x5e06e0, RVA
+/// 0x1e06e0; sibling game/ui/g_m_func.cpp:309-354, cited only). Pure function
+/// of the clicked id over the latch model: no component lookup, no menu stack,
+/// no device access. Branch order follows the original switch.
+pub fn main_menu_onclick(id: u32) -> Option<MainMenuClickEffect> {
+    match id {
+        MAINMENU_ITEM_INTRO => Some(MainMenuClickEffect::CloseAll {
+            result: MAINMENU_INTRO,
+        }),
+        MAINMENU_ITEM_TUTORIAL => Some(MainMenuClickEffect::CloseAll {
+            result: MAINMENU_TUTORIAL,
+        }),
+        MAINMENU_ITEM_NEW_GAME => Some(MainMenuClickEffect::CloseAll {
+            result: MAINMENU_NEW_GAME,
+        }),
+        MAINMENU_ITEM_LOAD_GAME => Some(MainMenuClickEffect::Open {
+            target: MainMenuOpenTarget::LoadGame,
+        }),
+        MAINMENU_ITEM_FREE_RIDE => Some(MainMenuClickEffect::Open {
+            target: MainMenuOpenTarget::FreeRide,
+        }),
+        MAINMENU_ITEM_FREE_RIDE_EXTREME => Some(MainMenuClickEffect::CloseAll {
+            result: MAINMENU_EXTREME,
+        }),
+        MAINMENU_ITEM_RACING => Some(MainMenuClickEffect::CloseAll {
+            result: MAINMENU_RACING,
+        }),
+        MAINMENU_ITEM_MULTIPLAYER => Some(MainMenuClickEffect::CloseAll {
+            result: MAINMENU_MULTIPLAYER,
+        }),
+        MAINMENU_ITEM_CARCYCLOPEDIA => Some(MainMenuClickEffect::CloseAll {
+            result: MAINMENU_CARCYCLOPEDIA,
+        }),
+        MAINMENU_ITEM_OPTIONS => Some(MainMenuClickEffect::Open {
+            target: MainMenuOpenTarget::Options,
+        }),
+        MAINMENU_ITEM_CREDITS => Some(MainMenuClickEffect::CloseAll {
+            result: MAINMENU_CREDITS,
+        }),
+        MAINMENU_ITEM_CHANGE_PROFILE => Some(MainMenuClickEffect::CloseAll {
+            result: MAINMENU_PROFILE_CHANGE,
+        }),
+        MAINMENU_ITEM_QUIT => Some(MainMenuClickEffect::Open {
+            target: MainMenuOpenTarget::ExitQuestion,
+        }),
+        _ => None,
+    }
+}
+
+/// GM_MainMenu::OnChange pure routing (Game.exe VA 0x5e4a50, RVA 0x1e4a50;
+/// sibling game/ui/g_m_func.cpp:299-304, cited only):
+/// `if (active) SetCameraTargetID(active->id)`. Returns the id the menu-camera
+/// latch must take, or `None` when no component became active. Frame lookup and
+/// TickCamera approach (GM_Menu::SetCameraTargetID 0x5ebe80 past the id latch,
+/// TickCamera 0x5ec8a0) need the mission scene owner and stay DEFERRED.
+pub fn main_menu_onchange(active_id: Option<u32>) -> Option<u32> {
+    active_id
+}
+
+/// GM_Menu::Tick pure click routing into the main-menu OnClick (Game.exe RVA
+/// 0x1ea8c0; sibling game/ui/g_menu.cpp:735-853, cited only): a resolved
+/// non-zero clicked id runs the OnClick dispatch above and returns its effect.
+/// Key/mouse decoding into the clicked id (DIK_* handling, FindComponentAt
+/// hover, component Key/Mouse virtuals), the ACTIVE-bit swap plus OnChange
+/// call, cursor motion, sounds, closing-destroy and TickCamera all need device
+/// or component-class owners and stay DEFERRED.
+pub fn main_menu_tick_click(clicked_id: u32) -> Option<MainMenuClickEffect> {
+    if clicked_id == 0 {
+        None
+    } else {
+        main_menu_onclick(clicked_id)
+    }
+}
+
+/// ExecuteMenu loop guard (Game.exe RVA 0x1eba40; sibling
+/// game/ui/g_menu.cpp:1281-1379, cited only): the original runs the menu while
+/// `zz_globalReturnCode` is 0. The pump itself (igraph wins/messages, mission
+/// tick vs game camera tick, blink timing, key repeat, mouse buttons,
+/// TickCamera, scene render/present, Destroy, HUD flag stack) needs device and
+/// mission owners and stays DEFERRED.
+pub fn execute_menu_continues(return_code: u32) -> bool {
+    return_code == 0
+}
+
+/// Minimal per-ID COMPF words plus the active-selection latch. The menu host
+/// owns no per-ID flags (its enabled() hardcodes 990103|990113) and no
+/// active-selection latch (only a row index), so this is a genuine gap.
+/// Absent ids read the neutral element: the default word
+/// (VISIBLE|ENABLED|ACTIVATABLE), i.e. enabled; definition-flag defaults stay
+/// with the future component-class owner (DEFERRED). SCOPE: request words plus
+/// the active latch; the list-owning lookups (FindComponentByID 0x5eb2f0,
+/// including its missing-component no-op) and the ActivateByIDOrNext 0x5eb210
+/// enabled/visible/activatable checks plus the FindComponentByIDNext fallback
+/// run in the menu host's list owner, which reads these words.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct MenuComponentLatches {
-    enabled: std::collections::BTreeMap<u32, bool>,
+    flags: std::collections::BTreeMap<u32, u32>,
     active: Option<u32>,
 }
 
 impl MenuComponentLatches {
-    /// GM_Menu::SetDisabled (GAME 0x5eaed0) request record. The bool keeps
-    /// the original sense (g_menu.cpp:904-913): true sets the COMPF_ENABLED
-    /// bit, false clears it, so OnCreate's SetDisabled(990106, false)
-    /// disables Free Ride Extreme.
+    /// GM_Menu::SetDisabled (GAME 0x5eaed0; sibling game/ui/g_menu.cpp:903-914,
+    /// cited only) request record with real bit sense: true sets the
+    /// COMPF_ENABLED bit, false clears it, so OnCreate's
+    /// SetDisabled(990106, false) disables Free Ride Extreme. Missing ids are
+    /// admitted with the default word first, matching the no-op-then-set order
+    /// of the original's FindComponentByID gate for a present component.
     pub fn set_disabled(&mut self, id: u32, enabled: bool) {
-        self.enabled.insert(id, enabled);
+        let flags = self.flags.entry(id).or_insert(DEFAULT_COMPONENT_FLAGS);
+        if enabled {
+            *flags |= COMPONENT_ENABLED;
+        } else {
+            *flags &= !COMPONENT_ENABLED;
+        }
     }
 
     /// Live read of the latched ENABLED sense for one id.
     pub fn is_enabled(&self, id: u32) -> bool {
-        self.enabled.get(&id).copied().unwrap_or(true)
+        self.flags
+            .get(&id)
+            .copied()
+            .unwrap_or(DEFAULT_COMPONENT_FLAGS)
+            & COMPONENT_ENABLED
+            != 0
     }
 
-    /// GM_Menu::ActivateByIDOrNext (GAME 0x5eb210) request latch: records
-    /// the requested id. Flag checks and the next-component fallback stay
-    /// DEFERRED (no component owners yet).
+    /// Live read of the full latched COMPF word for one id (default word for
+    /// ids with no request yet). The ACTIVE bit is owned by the active latch
+    /// below, not stored here; readers OR it in from `active_id`.
+    pub fn component_flags(&self, id: u32) -> u32 {
+        self.flags
+            .get(&id)
+            .copied()
+            .unwrap_or(DEFAULT_COMPONENT_FLAGS)
+    }
+
+    /// GM_Menu::ActivateByIDOrNext (GAME 0x5eb210; sibling
+    /// game/ui/g_menu.cpp:1062-1079, cited only) request latch: records the
+    /// requested id. The ENABLED|VISIBLE|ACTIVATABLE gate and the
+    /// FindComponentByIDNext fallback need the component list owner and stay
+    /// DEFERRED here; the host list owner consumes `active_id` for them.
     pub fn activate_by_id_or_next(&mut self, id: u32) {
         self.active = Some(id);
     }
@@ -285,19 +496,22 @@ impl MenuComponentLatches {
     }
 }
 
-/// GM_MainMenu::OnCreate pure prefix (Game.exe VA 0x5e0690, RVA 0x1e0690;
-/// sibling g_m_func.cpp:286-294, cited only): the ordered latch transition
-/// over the three owned globals. Native order: latch MENUCAM_START via
-/// 0x5ebe80; when the freeride_enabled word (sibling
-/// mafiaLoadSave.freeride_enabled; absolute address unverified in this
-/// marker-only session) reads <= FREERIDE_COUNTRYSIDE, record
-/// SetDisabled(FREE_RIDE_EXTREME, false); FreerideStoreA triple (1, 0, 1.0,
+/// GM_MainMenu::OnCreate real dispatch (Game.exe VA 0x5e0690, RVA 0x1e0690;
+/// sibling game/ui/g_m_func.cpp:286-294, cited only): the ordered transition
+/// over the three owned globals, now driving the real latch contracts instead
+/// of a pure prefix. Native order: latch MENUCAM_START via 0x5ebe80; when the
+/// freeride_enabled word (sibling mafiaLoadSave.freeride_enabled; absolute
+/// address unverified in this marker-only session) reads <=
+/// FREERIDE_COUNTRYSIDE, record SetDisabled(FREE_RIDE_EXTREME, false) with real
+/// COMPF_ENABLED bit sense via 0x5eaed0; FreerideStoreA triple (1, 0, 1.0,
 /// 1.0, 1.0) via 0x60e920; latch ActivateByIDOrNext(INTRO 990101) via
-/// 0x5eb210; return 0. The full dispatch (real COMPF flag bits
-/// on components, the next-component fallback, SetCameraTargetID frame
-/// positioning, menu-stack effects) stays DEFERRED for the missing
-/// scene/component owners, so this prefix takes no overlay function entry.
-pub fn main_menu_oncreate_prefix(
+/// 0x5eb210; return 0. The dispatch's list-owning half (real COMPF words on
+/// components, the next-component fallback for the INTRO activation,
+/// SetCameraTargetID frame positioning past the ID latch, menu-stack effects)
+/// runs in the menu host's component owner, which consumes these latches;
+/// scene positioning stays DEFERRED for the missing scene owner. Takes no
+/// overlay function entry: owners-only helpers receive no function credit.
+pub fn main_menu_oncreate_dispatch(
     camera: &mut MenuCameraTarget,
     freeride: &mut MainMenuFreeride,
     components: &mut MenuComponentLatches,
@@ -309,6 +523,16 @@ pub fn main_menu_oncreate_prefix(
     freeride.store_a(1, 0, 1.0, 1.0, 1.0);
     components.activate_by_id_or_next(MAINMENU_ITEM_INTRO);
     0
+}
+
+/// Ordered latch transition kept under its established name; a thin alias of
+/// the real dispatch above (same order, same latch contracts).
+pub fn main_menu_oncreate_prefix(
+    camera: &mut MenuCameraTarget,
+    freeride: &mut MainMenuFreeride,
+    components: &mut MenuComponentLatches,
+) -> i32 {
+    main_menu_oncreate_dispatch(camera, freeride, components)
 }
 
 #[cfg(test)]
@@ -458,6 +682,136 @@ mod tests {
         assert_eq!(camera.camera_target_id(), MENU_CAMERA_START);
         assert!(components.is_enabled(MAINMENU_ITEM_FREE_RIDE_EXTREME));
         assert_eq!(freeride.choices.car, 1);
+        assert_eq!(components.active_id(), Some(MAINMENU_ITEM_INTRO));
+    }
+    #[test]
+    fn onclick_dispatch_covers_all_thirteen_native_branches() {
+        // Item order follows the original switch (g_m_func.cpp:309-354).
+        let close_all = [
+            (MAINMENU_ITEM_INTRO, MAINMENU_INTRO),
+            (MAINMENU_ITEM_TUTORIAL, MAINMENU_TUTORIAL),
+            (MAINMENU_ITEM_NEW_GAME, MAINMENU_NEW_GAME),
+            (MAINMENU_ITEM_FREE_RIDE_EXTREME, MAINMENU_EXTREME),
+            (MAINMENU_ITEM_RACING, MAINMENU_RACING),
+            (MAINMENU_ITEM_MULTIPLAYER, MAINMENU_MULTIPLAYER),
+            (MAINMENU_ITEM_CARCYCLOPEDIA, MAINMENU_CARCYCLOPEDIA),
+            (MAINMENU_ITEM_CREDITS, MAINMENU_CREDITS),
+            (MAINMENU_ITEM_CHANGE_PROFILE, MAINMENU_PROFILE_CHANGE),
+        ];
+        for (id, result) in close_all {
+            assert_eq!(
+                main_menu_onclick(id),
+                Some(MainMenuClickEffect::CloseAll { result })
+            );
+        }
+        let opens = [
+            (MAINMENU_ITEM_LOAD_GAME, MainMenuOpenTarget::LoadGame),
+            (MAINMENU_ITEM_FREE_RIDE, MainMenuOpenTarget::FreeRide),
+            (MAINMENU_ITEM_OPTIONS, MainMenuOpenTarget::Options),
+            (MAINMENU_ITEM_QUIT, MainMenuOpenTarget::ExitQuestion),
+        ];
+        for (id, target) in opens {
+            assert_eq!(
+                main_menu_onclick(id),
+                Some(MainMenuClickEffect::Open { target })
+            );
+        }
+        // The native default path returns 0 with no menu effect.
+        for id in [0, 1, 990100, 990114, 990411, u32::MAX] {
+            assert_eq!(main_menu_onclick(id), None);
+        }
+    }
+    #[test]
+    fn onclick_effects_carry_result_or_definition_name() {
+        let effect = main_menu_onclick(MAINMENU_ITEM_NEW_GAME).unwrap();
+        assert_eq!(effect.close_all_result(), Some(MAINMENU_NEW_GAME));
+        assert_eq!(effect.open_target(), None);
+        let effect = main_menu_onclick(MAINMENU_ITEM_LOAD_GAME).unwrap();
+        assert_eq!(effect.close_all_result(), None);
+        assert_eq!(effect.open_target(), Some(MainMenuOpenTarget::LoadGame));
+        assert_eq!(
+            MainMenuOpenTarget::LoadGame.definition_name(),
+            "loadgame"
+        );
+        assert_eq!(MainMenuOpenTarget::FreeRide.definition_name(), "freeride");
+        assert_eq!(MainMenuOpenTarget::Options.definition_name(), "optionsb");
+        assert_eq!(
+            MainMenuOpenTarget::ExitQuestion.definition_name(),
+            "exityesno"
+        );
+        assert_eq!(MENU_CLOSE_CANCEL, u32::MAX);
+    }
+    #[test]
+    fn onchange_routes_the_active_id_to_the_camera_latch() {
+        assert_eq!(main_menu_onchange(Some(MAINMENU_ITEM_OPTIONS)), Some(MAINMENU_ITEM_OPTIONS));
+        assert_eq!(main_menu_onchange(None), None);
+        // The routed id lands in the latch unchanged.
+        let mut camera = MenuCameraTarget::new();
+        camera.set_camera_target_id(main_menu_onchange(Some(MAINMENU_ITEM_INTRO)).unwrap());
+        assert_eq!(camera.camera_target_id(), MAINMENU_ITEM_INTRO);
+    }
+    #[test]
+    fn tick_click_resolves_to_the_onclick_dispatch() {
+        assert_eq!(main_menu_tick_click(0), None);
+        assert_eq!(
+            main_menu_tick_click(MAINMENU_ITEM_QUIT),
+            Some(MainMenuClickEffect::Open {
+                target: MainMenuOpenTarget::ExitQuestion,
+            })
+        );
+        assert_eq!(
+            main_menu_tick_click(MAINMENU_ITEM_RACING),
+            Some(MainMenuClickEffect::CloseAll {
+                result: MAINMENU_RACING,
+            })
+        );
+        assert_eq!(main_menu_tick_click(12345), None);
+    }
+    #[test]
+    fn execute_guard_runs_while_no_result_is_latched() {
+        assert!(execute_menu_continues(0));
+        for code in [MAINMENU_QUIT, 0x4fd, u32::MAX] {
+            assert!(!execute_menu_continues(code));
+        }
+    }
+    #[test]
+    fn component_flags_keep_real_compf_bit_sense() {
+        let mut components = MenuComponentLatches::default();
+        assert_eq!(
+            components.component_flags(MAINMENU_ITEM_INTRO),
+            DEFAULT_COMPONENT_FLAGS
+        );
+        assert_eq!(
+            DEFAULT_COMPONENT_FLAGS
+                & (COMPONENT_VISIBLE | COMPONENT_ENABLED | COMPONENT_ACTIVATABLE),
+            COMPONENT_VISIBLE | COMPONENT_ENABLED | COMPONENT_ACTIVATABLE
+        );
+        components.set_disabled(MAINMENU_ITEM_INTRO, false);
+        assert_eq!(
+            components.component_flags(MAINMENU_ITEM_INTRO),
+            DEFAULT_COMPONENT_FLAGS & !COMPONENT_ENABLED
+        );
+        assert!(!components.is_enabled(MAINMENU_ITEM_INTRO));
+        components.set_disabled(MAINMENU_ITEM_INTRO, true);
+        assert_eq!(
+            components.component_flags(MAINMENU_ITEM_INTRO),
+            DEFAULT_COMPONENT_FLAGS
+        );
+    }
+    #[test]
+    fn oncreate_dispatch_matches_prefix_order_with_real_bits() {
+        let mut camera = MenuCameraTarget::new();
+        let mut freeride = MainMenuFreeride::default();
+        let mut components = MenuComponentLatches::default();
+        assert_eq!(
+            main_menu_oncreate_dispatch(&mut camera, &mut freeride, &mut components),
+            0
+        );
+        assert_eq!(camera.camera_target_id(), MENU_CAMERA_START);
+        assert_eq!(
+            components.component_flags(MAINMENU_ITEM_FREE_RIDE_EXTREME),
+            DEFAULT_COMPONENT_FLAGS & !COMPONENT_ENABLED
+        );
         assert_eq!(components.active_id(), Some(MAINMENU_ITEM_INTRO));
     }
 }
