@@ -361,8 +361,10 @@ class RewriteProgressTests(unittest.TestCase):
         # complete both-branch walks; SetActiveLevel loop held).
         # +1 driver Close (complete ~70-insn walk: voice loop + 7 releases +
         # flag clear; InitBuffer held).
+        # +2 InitBuffer/SetActiveLevel (complete walks: WAVEFORMATEX+HRESULT
+        # map + 10-loop lighting; frame/anim low-RVA pools held).
         self.assertEqual(ls3df["ported"], 145 + 830)
-        self.assertEqual(ls3df["verified"], 145 + 364)
+        self.assertEqual(ls3df["verified"], 145 + 366)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()

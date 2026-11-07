@@ -2837,8 +2837,8 @@
       "va": "0x100216a0",
       "name": "I3D_lit_object::SetActiveLevel (mafia-re evidenced name)",
       "symbol": "lhr_engine::i3d_object::ObjectResources::set_active_lighting",
-      "tier": "contract",
-      "evidence": "Ghidra formed no body (file-offset maps to 0x100216a0, no containing procedure; entry/mid probes only) + mafia-re I3d_lit_object.cpp:65-85 + switch/bounds/residue tests; m_PosVB arm has no host equivalent (disclosed); tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_909f1714c5 + complete walk (index IMUL 0x38 + LEA +0x220, loop of 10 critical-section zero+flag sets, store level + RET 8); pin tests lit_ 67 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -6662,8 +6662,8 @@
       "va": "0x1007b810",
       "name": "ISND_driver::InitBuffer (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_driver_init_buffer",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_driver.cpp:97; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_driver_init_buffer_words)"
+      "tier": "differential",
+      "evidence": "REA ev_6ce2aa4d37 + complete walk ~40 insns (WAVEFORMATEX fill + CALL CreateBuffer [ECX+0x38] + HRESULT map success->0/fail->0x80000007 via SETGE/DEC/AND; 0x1009b304=1.0/0x1009b310=0.0 verified); pin test init_buffer 1 pass"
     },
     {
       "binary": "LS3DF.dll",
