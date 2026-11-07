@@ -839,8 +839,8 @@
       "va": "0x1007a380",
       "name": "CompressTexture",
       "symbol": "lhr_engine::itexture::texture_surface::compress_texture",
-      "tier": "contract",
-      "evidence": "REA full procedure (486B/18BB, S3TCencode callee) + mafia-re ITexture.cpp:1956 + mask/encode/order tests"
+      "tier": "differential",
+      "evidence": "REA ev_ed84de3835 + Ghidra body 130 insns/18 bbs, CompressTexture S3TC path; pin tests itexture 129 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -1163,8 +1163,8 @@
       "va": "0x100311c0",
       "name": "I3D_mesh_level::NumFaces (upstream working name)",
       "symbol": "lhr_engine::visual_resources::VisualResources::count_mesh_level_faces",
-      "tier": "contract",
-      "evidence": "REA ghidra 12-insn walk, no procedure entry (walk-derived) + [fg+8] accumulate over [fg+0xc] chain + mafia-re I3d_mesh.cpp:318-324 + wrap tests (wrapping_add, MAX+2->1, same policy as 0x311e0/0x317a0); tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_56037e8998 + complete walk (null->0; else sum loop over face-group chain + RET 4); pin tests visual_resources 143 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -1190,8 +1190,8 @@
       "va": "0x100313f0",
       "name": "I3D_mesh_object::GetLOD (upstream working name)",
       "symbol": "lhr_engine::visual_resources::VisualResources::get_lod",
-      "tier": "contract",
-      "evidence": "REA ghidra 4-insn listing, no procedure entry (walk-derived) + vtable DATA xref + mafia-re I3d_mesh.cpp:413-416 + verbatim-slot/guard/poisoned-read tests; tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_5f266def08 + complete walk 4 insns (indexed LOD load [EAX+ECX*4+0xc] + RET 8); pin tests visual_resources"
     },
     {
       "binary": "LS3DF.dll",
@@ -1532,8 +1532,8 @@
       "va": "0x10034090",
       "name": "I3D_model::NumInterpolators (upstream working name)",
       "symbol": "lhr_engine::animation_controller::IPolSet::num_interpolators",
-      "tier": "contract",
-      "evidence": "REA linear walk 7 insns/2BB (null->0 else u32[ipol+0xf0], walk-derived, no body) + mafia-re I3d_model.cpp:452-459 + count/width tests; tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_e4e8e8e04b + complete walk both branches ([+0x150] null->RET; else [+0xf0] count + RET); pin tests model_animation 21 pass"
     },
     {
       "binary": "LS3DF.dll",
