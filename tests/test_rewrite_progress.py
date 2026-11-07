@@ -276,8 +276,11 @@ class RewriteProgressTests(unittest.TestCase):
         # +10 mission actor-list batch (c_str_less/Add-Del-ClearAnimModel/
         # DelActor(s)/DelNotMe/IsOwn/FindByName/ChangeActState; bodies
         # 42-186 insns; suites green).
+        # +10 misc batch (FreeTables/rnd x2/DonOcas/DestroyIShowAll/SetHidden/
+        # detector Init walk/UpdateControls/ShowProgress/PrepareBaseBlocks;
+        # 9 dossiers + 1 walk; STUBs held).
         self.assertEqual(game["ported"], 149 + 363)
-        self.assertEqual(game["verified"], 149 + 289)
+        self.assertEqual(game["verified"], 149 + 299)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")

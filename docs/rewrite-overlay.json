@@ -10532,8 +10532,8 @@
       "va": "0x55ee00",
       "name": "FreeTables (sound manager)",
       "symbol": "lhr_engine::indexed_sound_manager::cleanup_sound_manager",
-      "tier": "contract",
-      "evidence": "Table teardown (GAME 0x55ee00, tools.cpp:196). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_ac673b5e7c + Ghidra body 27 insns/1 bb, FreeTables; pin tests indexed_sound 2 pass"
     },
     {
       "binary": "Game.exe",
@@ -10541,8 +10541,8 @@
       "va": "0x408450",
       "name": "C_actor::rnd",
       "symbol": "lhr_engine::game_housekeeping::rnd_mod",
-      "tier": "contract",
-      "evidence": "Caller-supplied rand % n, n<1 to 0 (GAME 0x408450). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_a1534c580d + Ghidra body 13 insns/3 bbs, rnd_mod; pin tests rnd 4 pass"
     },
     {
       "binary": "Game.exe",
@@ -10550,8 +10550,8 @@
       "va": "0x408470",
       "name": "C_actor::rnd",
       "symbol": "lhr_engine::game_housekeeping::rnd_unit",
-      "tier": "contract",
-      "evidence": "Caller-supplied rand scaled by 1/RAND_MAX (GAME 0x408470). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_27a098eeda + Ghidra body 7 insns/1 bb, rnd_unit; pin tests rnd"
     },
     {
       "binary": "Game.exe",
@@ -10559,8 +10559,8 @@
       "va": "0x44c640",
       "name": "C_don_ocas::C_don_ocas",
       "symbol": "lhr_engine::traffic_generator::DonOcasKind::new",
-      "tier": "contract",
-      "evidence": "Actor-type tag store (GAME 0x44c640); empty dtor 0x44c680 unfiled (no observable state). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_98bba82dc5 + Ghidra body 8 insns/1 bb, DonOcas ctor; pin test don_ocas 1 pass"
     },
     {
       "binary": "Game.exe",
@@ -10568,8 +10568,8 @@
       "va": "0x5b63b0",
       "name": "C_game::DestroyIShowAll",
       "symbol": "lhr_engine::ishow_renderer::cgame_destroy_ishow_all",
-      "tier": "contract",
-      "evidence": "Videos/fades/film teardown (GAME 0x5b63b0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_1a290fb3c6 + Ghidra body 93 insns/13 bbs, DestroyIShowAll; pin test destroy_ishow 1 pass"
     },
     {
       "binary": "Game.exe",
@@ -10649,8 +10649,8 @@
       "va": "0x5eaf20",
       "name": "GM_Menu::SetHidden",
       "symbol": "lhr_engine::menu::MenuStack::set_hidden",
-      "tier": "contract",
-      "evidence": "VISIBLE-bit set/clear with no-op on missing id (GAME 0x5eaf20). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_391fdfa94b + Ghidra body 14 insns/6 bbs, SetHidden; pin test set_hidden 1 pass"
     },
     {
       "binary": "Game.exe",
@@ -10658,8 +10658,8 @@
       "va": "0x432990",
       "name": "C_detector::Init (mask-nulling scope)",
       "symbol": "lhr_engine::actor_world::ActorWorld::init_detector",
-      "tier": "contract",
-      "evidence": "human_types mask zeroing (GAME 0x432990); C_actor gate and actor=self deferred. Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_852e4d1f99 + complete walk (base Init gate + zero mask +0xd8 + self +0xb4 + RET true/false); pin tests detector_init 2 pass"
     },
     {
       "binary": "Game.exe",
@@ -11027,8 +11027,8 @@
       "va": "0x5a7ff0",
       "name": "C_game::UpdateControlsPlayers",
       "symbol": "lhr_engine::mission_actor_lists::update_controls_players",
-      "tier": "contract",
-      "evidence": "Update controls players (GAME 0x5a7ff0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_2b5ef0ecd1 + Ghidra body 25 insns/7 bbs, UpdateControlsPlayers; pin test update_controls 1 pass"
     },
     {
       "binary": "Game.exe",
@@ -11036,8 +11036,8 @@
       "va": "0x5a3960",
       "name": "C_game::ShowProgress gate",
       "symbol": "lhr_engine::mission_actor_lists::show_progress_gate",
-      "tier": "contract",
-      "evidence": "Show progress gate (GAME 0x5a3960). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_4861970308 + Ghidra body 9 insns/3 bbs, ShowProgress gate; pin tests show_progress 7 pass"
     },
     {
       "binary": "Game.exe",
@@ -11045,8 +11045,8 @@
       "va": "0x5a3990",
       "name": "C_game::PrepareBaseBlocks",
       "symbol": "lhr_engine::mission_actor_lists::prepare_base_blocks",
-      "tier": "contract",
-      "evidence": "STUB: PrepareBaseBlocks (GAME 0x5a3990). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_cb4e24795b + Ghidra body 130 insns/12 bbs, PrepareBaseBlocks; pin tests mission_actor_lists"
     },
     {
       "binary": "Game.exe",
