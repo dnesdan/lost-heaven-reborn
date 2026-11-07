@@ -303,6 +303,111 @@ pub fn remove_car(_actor: u32) -> Result<(), TrafficRemovalError> {
     })
 }
 
+/// One `C_traffic_car::S_ELEMENT` list slot (mafia-re game/vehicles/C_trf_c.h:56-61
+/// at pin 113b5b6). Only the frame and car identities are admitted: both are
+/// opaque native identities, never dereferenced on the host. The surrounding
+/// unknown bytes carry no interpreted meaning and stay outside this contract.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TrafficListSlot {
+    pub frame: u32,
+    pub car: u32,
+}
+
+/// Owner of the two traffic-car lists: the parked cars (`v_elems_parking`,
+/// GAME 0x63d834) and the traffic's cars (`v_elems`, GAME 0x63d844). Native
+/// statics start empty; growth/shrink order is the caller's, this only owns
+/// the slots the accessors below publish.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TrafficCarLists {
+    parking: Vec<TrafficListSlot>,
+    elems: Vec<TrafficListSlot>,
+}
+
+impl TrafficCarLists {
+    pub fn parking_cars(&self) -> &[TrafficListSlot] {
+        &self.parking
+    }
+
+    pub fn parking_cars_mut(&mut self) -> &mut Vec<TrafficListSlot> {
+        &mut self.parking
+    }
+
+    pub fn elems(&self) -> &[TrafficListSlot] {
+        &self.elems
+    }
+
+    pub fn elems_mut(&mut self) -> &mut Vec<TrafficListSlot> {
+        &mut self.elems
+    }
+}
+
+/// Original `C_traffic_car::GetParkingCars`, GAME RVA 0xb8540
+/// (VA 0x4b8540; mafia-re game/vehicles/C_trf_c.cpp:29-33 at pin 113b5b6):
+/// returns the parked-car list `v_elems_parking`, which
+/// `C_traffic_generator::TryGoToAssHole` sends pedestrians to.
+pub fn get_parking_cars(lists: &TrafficCarLists) -> &[TrafficListSlot] {
+    lists.parking_cars()
+}
+
+/// Original `C_traffic_car::GetElems`, GAME RVA 0xa9ca0 (VA 0x4a9ca0;
+/// mafia-re game/vehicles/C_trf_c.h:82-87 at pin 113b5b6): returns the
+/// traffic's car list `v_elems`.
+pub fn get_elems(lists: &TrafficCarLists) -> &[TrafficListSlot] {
+    lists.elems()
+}
+
+/// Original `C_traffic_car::vfunc_38`, GAME RVA 0xab120 (VA 0x4ab120;
+/// mafia-re game/vehicles/C_trf_c.cpp:106-110 at pin 113b5b6): the last
+/// vtable slot; the body only returns false and reads no argument.
+pub fn traffic_car_vfunc_38(_args: [i32; 12]) -> bool {
+    false
+}
+
+/// Extra save-game bytes written by `C_traffic_car::SaveGameSave` past the
+/// base `C_actor` payload (the u16 tag handled by
+/// [`encode_traffic_savegame_tag`]).
+pub const TRAFFIC_SAVE_GAME_EXTRA: i32 = 2;
+
+/// Original `C_traffic_car::SaveGameGetSize`, GAME RVA 0xbc150
+/// (VA 0x4bc150; mafia-re game/vehicles/C_trf_c.cpp:160-164 at pin 113b5b6):
+/// the base size plus 2. 32-bit wrapping matches the native `int` addition.
+pub fn traffic_car_save_game_size(base_size: i32) -> i32 {
+    base_size.wrapping_add(TRAFFIC_SAVE_GAME_EXTRA)
+}
+
+/// `C_traffic_car::Corovacka` entry, GAME RVA 0xb8480 (VA 0x4b8480;
+/// mafia-re game/vehicles/C_trf_c.cpp:180-185 at pin 113b5b6): the model of
+/// a traffic car's driver the player throws out of the car (NULL for a car
+/// not of the traffic's). The native body is an unwritten STUB returning
+/// NULL; the driver hand-off owner stays outside this contract, so the stub
+/// is an explicit boundary reusing [`TrafficRemovalError`].
+pub const COROVACKA_ENTRY: u32 = 0x4b8480;
+
+/// Original `C_traffic_car::Corovacka` stub: always reports the boundary,
+/// mirroring the native NULL (no driver model is handed out).
+pub fn corovacka(_car: u32) -> Result<(), TrafficRemovalError> {
+    Err(TrafficRemovalError::Unsupported {
+        entry: COROVACKA_ENTRY,
+    })
+}
+
+impl TrafficCarState {
+    /// Original `C_traffic_car::DuplicateFrom`, GAME RVA 0xaab20
+    /// (VA 0x4aab20; mafia-re game/vehicles/C_trf_c.cpp:73-90 at pin
+    /// 113b5b6): runs the base copy (caller-owned), then copies the four
+    /// derived words (+0x21c/+0x224/+0x228/+0x22c) and the counted
+    /// `TRAFFIC_NAME_SIZE` name records. The host clones the admitted
+    /// element bytes verbatim; native `strcpy` tail bytes past each NUL are
+    /// uninitialized heap garbage and stay untracked.
+    pub(crate) fn duplicate_from(&mut self, other: &Self) {
+        for offset in [0x21c, 0x224, 0x228, 0x22c] {
+            let word = other.word(offset);
+            self.put_word(offset, word);
+        }
+        self.replace_elements(other.elements.clone());
+    }
+}
+
 /// Payload versions admitted by C_traffic_car::LoadData. Versions 4 and 5
 /// share the four-word header plus the counted 0x20-byte element array; any
 /// other version consumes only its own version word.
@@ -477,6 +582,82 @@ mod tests {
         assert_eq!(
             remove_car(0x1234),
             Err(TrafficRemovalError::Unsupported { entry: 0x4bbe90 })
+        );
+    }
+
+    #[test]
+    fn rva_b8540_get_parking_cars_returns_parking_list() {
+        // C_traffic_car::GetParkingCars GAME RVA 0xb8540 (VA 0x4b8540).
+        let mut lists = TrafficCarLists::default();
+        assert!(get_parking_cars(&lists).is_empty());
+        lists.parking_cars_mut().push(TrafficListSlot { frame: 1, car: 2 });
+        lists.parking_cars_mut().push(TrafficListSlot { frame: 3, car: 4 });
+        lists.elems_mut().push(TrafficListSlot { frame: 9, car: 9 });
+        assert_eq!(
+            get_parking_cars(&lists),
+            &[TrafficListSlot { frame: 1, car: 2 }, TrafficListSlot { frame: 3, car: 4 }]
+        );
+    }
+
+    #[test]
+    fn rva_a9ca0_get_elems_returns_traffic_list() {
+        // C_traffic_car::GetElems GAME RVA 0xa9ca0 (VA 0x4a9ca0).
+        let mut lists = TrafficCarLists::default();
+        assert!(get_elems(&lists).is_empty());
+        lists.elems_mut().push(TrafficListSlot { frame: 7, car: 8 });
+        lists.parking_cars_mut().push(TrafficListSlot { frame: 1, car: 1 });
+        assert_eq!(get_elems(&lists), &[TrafficListSlot { frame: 7, car: 8 }]);
+    }
+
+    #[test]
+    fn rva_ab120_vfunc_38_always_false() {
+        // C_traffic_car::vfunc_38 GAME RVA 0xab120 (VA 0x4ab120).
+        assert!(!traffic_car_vfunc_38([0; 12]));
+        assert!(!traffic_car_vfunc_38([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]));
+        assert!(!traffic_car_vfunc_38([i32::MIN; 12]));
+    }
+
+    #[test]
+    fn rva_bc150_save_game_size_adds_two() {
+        // C_traffic_car::SaveGameGetSize GAME RVA 0xbc150 (VA 0x4bc150).
+        assert_eq!(TRAFFIC_SAVE_GAME_EXTRA, 2);
+        assert_eq!(traffic_car_save_game_size(0), 2);
+        assert_eq!(traffic_car_save_game_size(41), 43);
+        assert_eq!(traffic_car_save_game_size(i32::MAX), i32::MIN.wrapping_add(1));
+    }
+
+    #[test]
+    fn rva_aab20_duplicate_from_copies_words_and_names() {
+        // C_traffic_car::DuplicateFrom GAME RVA 0xaab20 (VA 0x4aab20).
+        let mut source = constructed();
+        source.put_load_word(0x21c, 0x11111111);
+        source.put_load_word(0x224, 0x22222222);
+        source.put_load_word(0x228, 0x33333333);
+        source.put_load_word(0x22c, 0x44444444);
+        source.replace_elements(vec![0x5au8; 0x40]);
+        let mut target = constructed();
+        target.put_load_word(0x224, 0xdeadbeef);
+        target.duplicate_from(&source);
+        for (offset, word) in [
+            (0x21c, 0x11111111u32),
+            (0x224, 0x22222222),
+            (0x228, 0x33333333),
+            (0x22c, 0x44444444),
+        ] {
+            assert_eq!(target.word(offset), word, "{offset:#x}");
+        }
+        assert_eq!(target.elements(), &[0x5au8; 0x40]);
+        // Untouched words outside the four copied offsets survive.
+        assert_eq!(target.word(0x220), 0);
+    }
+
+    #[test]
+    fn rva_b8480_corovacka_reports_unsupported_null() {
+        // C_traffic_car::Corovacka GAME RVA 0xb8480 (VA 0x4b8480): STUB NULL.
+        assert_eq!(COROVACKA_ENTRY, 0x4b8480);
+        assert_eq!(
+            corovacka(0x1234),
+            Err(TrafficRemovalError::Unsupported { entry: 0x4b8480 })
         );
     }
 }

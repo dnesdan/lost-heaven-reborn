@@ -206,7 +206,9 @@ class RewriteProgressTests(unittest.TestCase):
         # honestly unfiled as ledger-credited; 17 tests green).
         # +10 ctor/order differential (cache open / mission open-close-uninit /
         # clock-shot-rail-carex-racecam ctors / inventory item; 8-680 insns).
-        self.assertEqual(game["ported"], 149 + 343)
+        # +20 traffic/rail contracts (traffic_car 6 / car_ex 4 / rail_generator
+        # 4 / railway 3 / turnout 1 / wagon 2; marker-only, tests green).
+        self.assertEqual(game["ported"], 149 + 363)
         self.assertEqual(game["verified"], 149 + 92)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])

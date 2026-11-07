@@ -44,6 +44,63 @@ impl RailGeneratorState {
     pub(crate) fn complete_constructor(&mut self) {}
 }
 
+/// Base-delegating `C_rail_generator` overrides. Every native body below is
+/// an unwritten STUB that only logs and runs the base `C_actor` override
+/// (mafia-re game/vehicles/C_rail_generator.cpp at pin 113b5b6); the
+/// `C_actor` owners stay outside this contract, so each entry is an explicit
+/// boundary. The empty destructor (GAME 0x596680, cpp:15-19) files no entry:
+/// it stores the vtable again before the base's with no observable state
+/// effect, like the honestly unfiled `C_don_ocas` destructor.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RailGeneratorError {
+    Unsupported { entry: u32 },
+}
+
+/// `C_rail_generator::GameInit` entry, GAME RVA 0x196860 (VA 0x596860;
+/// mafia-re game/vehicles/C_rail_generator.cpp:47-52): logs and runs
+/// `C_actor::GameInit`.
+pub const RAIL_GENERATOR_GAME_INIT_ENTRY: u32 = 0x596860;
+/// `C_rail_generator::GameDone` entry, GAME RVA 0x197a20 (VA 0x597a20;
+/// mafia-re game/vehicles/C_rail_generator.cpp:54-59): logs and runs
+/// `C_actor::GameDone`.
+pub const RAIL_GENERATOR_GAME_DONE_ENTRY: u32 = 0x597a20;
+/// `C_rail_generator::AI` entry, GAME RVA 0x197bf0 (VA 0x597bf0; mafia-re
+/// game/vehicles/C_rail_generator.cpp:61-66): logs and runs `C_actor::AI`.
+pub const RAIL_GENERATOR_AI_ENTRY: u32 = 0x597bf0;
+
+/// Original `C_rail_generator::Init`, GAME RVA 0x196690 (VA 0x596690;
+/// mafia-re game/vehicles/C_rail_generator.cpp:26-31): stores the frame on
+/// the caller-owned `C_actor` base and returns true. The base store is owned
+/// by the caller, so the port returns the frame value to publish alongside
+/// the success flag; no derived word is written.
+pub fn rail_generator_init(frame: u32) -> (u32, bool) {
+    (frame, true)
+}
+
+/// Original `C_rail_generator::GameInit` stub: reports the base-owner
+/// boundary.
+pub fn rail_generator_game_init() -> Result<(), RailGeneratorError> {
+    Err(RailGeneratorError::Unsupported {
+        entry: RAIL_GENERATOR_GAME_INIT_ENTRY,
+    })
+}
+
+/// Original `C_rail_generator::GameDone` stub: reports the base-owner
+/// boundary.
+pub fn rail_generator_game_done() -> Result<(), RailGeneratorError> {
+    Err(RailGeneratorError::Unsupported {
+        entry: RAIL_GENERATOR_GAME_DONE_ENTRY,
+    })
+}
+
+/// Original `C_rail_generator::AI` stub: reports the base-owner boundary,
+/// keeping the admitted tick time untouched by any host simulation.
+pub fn rail_generator_ai(_time_ms: u32) -> Result<(), RailGeneratorError> {
+    Err(RailGeneratorError::Unsupported {
+        entry: RAIL_GENERATOR_AI_ENTRY,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -56,5 +113,43 @@ mod tests {
         state.complete_constructor();
         assert_eq!(state.bytes, [0xaa; 0x84]);
         assert_eq!(state.bytes(), &[0xaa; 0x84]);
+    }
+
+    #[test]
+    fn rva_196690_init_publishes_frame_and_true() {
+        // C_rail_generator::Init GAME RVA 0x196690 (VA 0x596690): frame = frm.
+        assert_eq!(rail_generator_init(0), (0, true));
+        assert_eq!(rail_generator_init(0x1234), (0x1234, true));
+        assert_eq!(rail_generator_init(u32::MAX), (u32::MAX, true));
+    }
+
+    #[test]
+    fn rva_196860_game_init_reports_base_boundary() {
+        // C_rail_generator::GameInit GAME RVA 0x196860 (VA 0x596860).
+        assert_eq!(RAIL_GENERATOR_GAME_INIT_ENTRY, 0x596860);
+        assert_eq!(
+            rail_generator_game_init(),
+            Err(RailGeneratorError::Unsupported { entry: 0x596860 })
+        );
+    }
+
+    #[test]
+    fn rva_197a20_game_done_reports_base_boundary() {
+        // C_rail_generator::GameDone GAME RVA 0x197a20 (VA 0x597a20).
+        assert_eq!(RAIL_GENERATOR_GAME_DONE_ENTRY, 0x597a20);
+        assert_eq!(
+            rail_generator_game_done(),
+            Err(RailGeneratorError::Unsupported { entry: 0x597a20 })
+        );
+    }
+
+    #[test]
+    fn rva_197bf0_ai_reports_base_boundary() {
+        // C_rail_generator::AI GAME RVA 0x197bf0 (VA 0x597bf0).
+        assert_eq!(RAIL_GENERATOR_AI_ENTRY, 0x597bf0);
+        assert_eq!(
+            rail_generator_ai(16),
+            Err(RailGeneratorError::Unsupported { entry: 0x597bf0 })
+        );
     }
 }

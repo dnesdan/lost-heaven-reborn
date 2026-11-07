@@ -11047,6 +11047,186 @@
       "symbol": "lhr_engine::mission_actor_lists::prepare_base_blocks",
       "tier": "contract",
       "evidence": "STUB: PrepareBaseBlocks (GAME 0x5a3990). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xb8540",
+      "va": "0x4b8540",
+      "name": "C_traffic_car::GetParkingCars",
+      "symbol": "lhr_engine::traffic_car_actor::get_parking_cars",
+      "tier": "contract",
+      "evidence": "Parking cars accessor (GAME 0x4b8540). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xa9ca0",
+      "va": "0x4a9ca0",
+      "name": "C_traffic_car::GetElems",
+      "symbol": "lhr_engine::traffic_car_actor::get_elems",
+      "tier": "contract",
+      "evidence": "Elems accessor (GAME 0x4a9ca0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xab120",
+      "va": "0x4ab120",
+      "name": "C_traffic_car::vfunc_38",
+      "symbol": "lhr_engine::traffic_car_actor::traffic_car_vfunc_38",
+      "tier": "contract",
+      "evidence": "vfunc_38 false (GAME 0x4ab120). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xbc150",
+      "va": "0x4bc150",
+      "name": "C_traffic_car::SaveGameGetSize",
+      "symbol": "lhr_engine::traffic_car_actor::traffic_car_save_game_size",
+      "tier": "contract",
+      "evidence": "SaveGame size base+2 (GAME 0x4bc150). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xaab20",
+      "va": "0x4aab20",
+      "name": "C_traffic_car::LoadVersion decode",
+      "symbol": "lhr_engine::traffic_car_actor::TrafficLoadVersion::decode",
+      "tier": "contract",
+      "evidence": "Load version decode V4/V5 (GAME 0x4aab20). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xb8480",
+      "va": "0x4b8480",
+      "name": "C_traffic_car::Corovacka",
+      "symbol": "lhr_engine::traffic_car_actor::corovacka",
+      "tier": "contract",
+      "evidence": "Corovacka NULL boundary STUB (GAME 0x4b8480). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x2e3a0",
+      "va": "0x42e3a0",
+      "name": "C_car_ex::Init",
+      "symbol": "lhr_engine::car_ex_actor::car_ex_init",
+      "tier": "contract",
+      "evidence": "Car_ex init (GAME 0x42e3a0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x2e3c0",
+      "va": "0x42e3c0",
+      "name": "C_car_ex::GameInit",
+      "symbol": "lhr_engine::car_ex_actor::car_ex_game_init",
+      "tier": "contract",
+      "evidence": "Car_ex GameInit (GAME 0x42e3c0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x2ee30",
+      "va": "0x42ee30",
+      "name": "C_car_ex::GameDone",
+      "symbol": "lhr_engine::car_ex_actor::car_ex_game_done",
+      "tier": "contract",
+      "evidence": "Car_ex GameDone (GAME 0x42ee30). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x2f390",
+      "va": "0x42f390",
+      "name": "C_car_ex::Update",
+      "symbol": "lhr_engine::car_ex_actor::car_ex_update",
+      "tier": "contract",
+      "evidence": "Car_ex update (GAME 0x42f390). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x196690",
+      "va": "0x596690",
+      "name": "C_rail_generator::Init",
+      "symbol": "lhr_engine::rail_generator::rail_generator_init",
+      "tier": "contract",
+      "evidence": "Rail generator init (GAME 0x596690). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x196860",
+      "va": "0x596860",
+      "name": "C_rail_generator::GameInit",
+      "symbol": "lhr_engine::rail_generator::rail_generator_game_init",
+      "tier": "contract",
+      "evidence": "Rail generator GameInit (GAME 0x596860). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x197a20",
+      "va": "0x597a20",
+      "name": "C_rail_generator::GameDone",
+      "symbol": "lhr_engine::rail_generator::rail_generator_game_done",
+      "tier": "contract",
+      "evidence": "Rail generator GameDone (GAME 0x597a20). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x197bf0",
+      "va": "0x597bf0",
+      "name": "C_rail_generator::AI",
+      "symbol": "lhr_engine::rail_generator::rail_generator_ai",
+      "tier": "contract",
+      "evidence": "Rail generator AI STUB (GAME 0x597bf0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x868f0",
+      "va": "0x4868f0",
+      "name": "C_railway::DuplicateFrom",
+      "symbol": "lhr_engine::railway_actor::duplicate_from",
+      "tier": "contract",
+      "evidence": "Duplicate two words (GAME 0x4868f0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x96e40",
+      "va": "0x496e40",
+      "name": "C_railway::SaveGameGetSize",
+      "symbol": "lhr_engine::railway_actor::railway_save_game_size",
+      "tier": "contract",
+      "evidence": "SaveGame size base+80 (GAME 0x496e40). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x98a70",
+      "va": "0x498a70",
+      "name": "C_railway::GetMaterialID",
+      "symbol": "lhr_engine::railway_actor::railway_material_id",
+      "tier": "contract",
+      "evidence": "Material word +0x2ac (GAME 0x498a70). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xbd420",
+      "va": "0x4bd420",
+      "name": "C_turnout::SaveGameGetSize",
+      "symbol": "lhr_engine::turnout_actor::turnout_save_game_size",
+      "tier": "contract",
+      "evidence": "SaveGame size base+16 (GAME 0x4bd420). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xf1ca0",
+      "va": "0x4f1ca0",
+      "name": "C_wagon::SaveGameGetSize",
+      "symbol": "lhr_engine::wagon_actor::WagonState::save_game_size",
+      "tier": "contract",
+      "evidence": "SaveGame size (GAME 0x4f1ca0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b6f0",
+      "va": "0x47b6f0",
+      "name": "C_wagon::SetEvent",
+      "symbol": "lhr_engine::wagon_actor::WagonState::set_event",
+      "tier": "contract",
+      "evidence": "Set event program+id (GAME 0x47b6f0). Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {

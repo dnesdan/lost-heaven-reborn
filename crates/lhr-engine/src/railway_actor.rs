@@ -170,6 +170,45 @@ impl RailwayState {
         }
         out
     }
+
+    /// Material index read by `C_railway::GetMaterialID` (a materials.def
+    /// index into the material list; descriptive name).
+    pub fn material_word(&self) -> u32 {
+        self.word(0x2ac)
+    }
+
+    pub(crate) fn set_material_word(&mut self, value: u32) {
+        self.put_word(0x2ac, value);
+    }
+
+    /// Original `C_railway::DuplicateFrom`, GAME RVA 0x868f0 (VA 0x4868f0;
+    /// mafia-re game/vehicles/C_railway.cpp:28-34 at pin 113b5b6): runs the
+    /// base copy (caller-owned), then copies the two derived words
+    /// (+0x1a8/+0x1b4). No other derived word is read.
+    pub(crate) fn duplicate_from(&mut self, other: &Self) {
+        for offset in [0x1a8, 0x1b4] {
+            let word = other.word(offset);
+            self.put_word(offset, word);
+        }
+    }
+}
+
+/// Extra save-game bytes written by `C_railway` past the base `C_actor`
+/// payload (the save payload itself stays a `C_chunk` owner effect).
+pub const RAILWAY_SAVE_GAME_EXTRA: i32 = 80;
+
+/// Original `C_railway::SaveGameGetSize`, GAME RVA 0x96e40 (VA 0x496e40;
+/// mafia-re game/vehicles/C_railway.cpp:101-105 at pin 113b5b6): the base
+/// size plus 80. 32-bit wrapping matches the native `int` addition.
+pub fn railway_save_game_size(base_size: i32) -> i32 {
+    base_size.wrapping_add(RAILWAY_SAVE_GAME_EXTRA)
+}
+
+/// Original `C_railway::GetMaterialID`, GAME RVA 0x98a70 (VA 0x498a70;
+/// mafia-re game/vehicles/C_railway.cpp:135-139 at pin 113b5b6): returns
+/// the material word at +0x2ac, a materials.def index.
+pub fn railway_material_id(state: &RailwayState) -> u32 {
+    state.material_word()
 }
 
 #[cfg(test)]
@@ -213,5 +252,40 @@ mod tests {
         let consumed = value.load_payload(&[0u8; 1 + 5 * 4]);
         assert_eq!(consumed, 1 + 5 * 4);
         assert_eq!(value.word(0x1bc), before);
+    }
+
+    #[test]
+    fn rva_868f0_duplicate_from_copies_two_words_only() {
+        // C_railway::DuplicateFrom GAME RVA 0x868f0 (VA 0x4868f0).
+        let mut source = state();
+        source.put_word(0x1a8, 0x11111111);
+        source.put_word(0x1b4, 0x22222222);
+        source.put_word(0x1ac, 0x33333333);
+        let mut target = state();
+        target.duplicate_from(&source);
+        assert_eq!(target.word(0x1a8), 0x11111111);
+        assert_eq!(target.word(0x1b4), 0x22222222);
+        // +0x1ac is saved/loaded but not duplicated: the untouched seed stays.
+        assert_eq!(target.word(0x1ac), 0xaaaaaaaa);
+    }
+
+    #[test]
+    fn rva_96e40_save_game_size_adds_eighty() {
+        // C_railway::SaveGameGetSize GAME RVA 0x96e40 (VA 0x496e40).
+        assert_eq!(RAILWAY_SAVE_GAME_EXTRA, 80);
+        assert_eq!(railway_save_game_size(0), 80);
+        assert_eq!(railway_save_game_size(100), 180);
+        assert_eq!(railway_save_game_size(i32::MAX), i32::MIN.wrapping_add(79));
+    }
+
+    #[test]
+    fn rva_98a70_get_material_id_reads_material_word() {
+        // C_railway::GetMaterialID GAME RVA 0x98a70 (VA 0x498a70).
+        let mut value = state();
+        value.set_material_word(7);
+        assert_eq!(railway_material_id(&value), 7);
+        assert_eq!(value.material_word(), 7);
+        value.set_material_word(0);
+        assert_eq!(railway_material_id(&value), 0);
     }
 }

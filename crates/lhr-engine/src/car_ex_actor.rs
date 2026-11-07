@@ -126,6 +126,58 @@ impl CarExState {
     }
 }
 
+/// Base-delegating `C_car_ex` overrides. Every native body below is an
+/// unwritten STUB that only logs and runs the base `C_car` override
+/// (mafia-re game/vehicles/C_car_ex.cpp at pin 113b5b6); the `C_car` owners
+/// stay outside this contract, so each entry is an explicit boundary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CarExError {
+    Unsupported { entry: u32 },
+}
+
+/// `C_car_ex::Init` entry, GAME RVA 0x2e3a0 (VA 0x42e3a0; mafia-re
+/// game/vehicles/C_car_ex.cpp:21-26): logs and runs `C_car::Init`.
+pub const CAR_EX_INIT_ENTRY: u32 = 0x42e3a0;
+/// `C_car_ex::GameInit` entry, GAME RVA 0x2e3c0 (VA 0x42e3c0; mafia-re
+/// game/vehicles/C_car_ex.cpp:28-33): logs and runs `C_car::GameInit`.
+pub const CAR_EX_GAME_INIT_ENTRY: u32 = 0x42e3c0;
+/// `C_car_ex::GameDone` entry, GAME RVA 0x2ee30 (VA 0x42ee30; mafia-re
+/// game/vehicles/C_car_ex.cpp:35-40): logs and runs `C_car::GameDone`.
+pub const CAR_EX_GAME_DONE_ENTRY: u32 = 0x42ee30;
+/// `C_car_ex::Update` entry, GAME RVA 0x2f390 (VA 0x42f390; mafia-re
+/// game/vehicles/C_car_ex.cpp:56-61): logs and runs `C_car::Update`.
+pub const CAR_EX_UPDATE_ENTRY: u32 = 0x42f390;
+
+/// Original `C_car_ex::Init` stub: the base frame hand-off owner is
+/// unavailable, so the boundary is reported and no frame is consumed.
+pub fn car_ex_init(_frame: u32) -> Result<(), CarExError> {
+    Err(CarExError::Unsupported {
+        entry: CAR_EX_INIT_ENTRY,
+    })
+}
+
+/// Original `C_car_ex::GameInit` stub: reports the base-owner boundary.
+pub fn car_ex_game_init() -> Result<(), CarExError> {
+    Err(CarExError::Unsupported {
+        entry: CAR_EX_GAME_INIT_ENTRY,
+    })
+}
+
+/// Original `C_car_ex::GameDone` stub: reports the base-owner boundary.
+pub fn car_ex_game_done() -> Result<(), CarExError> {
+    Err(CarExError::Unsupported {
+        entry: CAR_EX_GAME_DONE_ENTRY,
+    })
+}
+
+/// Original `C_car_ex::Update` stub: reports the base-owner boundary,
+/// keeping the admitted tick time untouched by any host simulation.
+pub fn car_ex_update(_time_ms: u32) -> Result<(), CarExError> {
+    Err(CarExError::Unsupported {
+        entry: CAR_EX_UPDATE_ENTRY,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -205,5 +257,45 @@ mod tests {
         assert!(state.remove_person(human(7)));
         assert_eq!(state.passengers(), &[human(9)]);
         assert!(!state.remove_person(human(7)));
+    }
+
+    #[test]
+    fn rva_2e3a0_car_ex_init_reports_base_boundary() {
+        // C_car_ex::Init GAME RVA 0x2e3a0 (VA 0x42e3a0): STUB base delegate.
+        assert_eq!(CAR_EX_INIT_ENTRY, 0x42e3a0);
+        assert_eq!(
+            car_ex_init(0x1234),
+            Err(CarExError::Unsupported { entry: 0x42e3a0 })
+        );
+    }
+
+    #[test]
+    fn rva_2e3c0_car_ex_game_init_reports_base_boundary() {
+        // C_car_ex::GameInit GAME RVA 0x2e3c0 (VA 0x42e3c0).
+        assert_eq!(CAR_EX_GAME_INIT_ENTRY, 0x42e3c0);
+        assert_eq!(
+            car_ex_game_init(),
+            Err(CarExError::Unsupported { entry: 0x42e3c0 })
+        );
+    }
+
+    #[test]
+    fn rva_2ee30_car_ex_game_done_reports_base_boundary() {
+        // C_car_ex::GameDone GAME RVA 0x2ee30 (VA 0x42ee30).
+        assert_eq!(CAR_EX_GAME_DONE_ENTRY, 0x42ee30);
+        assert_eq!(
+            car_ex_game_done(),
+            Err(CarExError::Unsupported { entry: 0x42ee30 })
+        );
+    }
+
+    #[test]
+    fn rva_2f390_car_ex_update_reports_base_boundary() {
+        // C_car_ex::Update GAME RVA 0x2f390 (VA 0x42f390).
+        assert_eq!(CAR_EX_UPDATE_ENTRY, 0x42f390);
+        assert_eq!(
+            car_ex_update(16),
+            Err(CarExError::Unsupported { entry: 0x42f390 })
+        );
     }
 }

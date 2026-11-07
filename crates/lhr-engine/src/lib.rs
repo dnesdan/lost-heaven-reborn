@@ -217,6 +217,7 @@ pub mod singlemorph_visual;
 pub mod startup_asset_backend;
 pub mod traffic_car_actor;
 pub mod traffic_generator;
+pub mod turnout_actor;
 #[path = "car_runtime_simulation_effects.rs"]
 pub mod vehicle_runtime_effects;
 
@@ -253,6 +254,8 @@ pub mod vehicle_init;
 pub mod vehicle_owner;
 pub mod vehicle_sound;
 pub mod vehicle_wheel_pose;
+
+pub mod wagon_actor;
 
 pub mod visual_replacement;
 pub mod visual_resources;
