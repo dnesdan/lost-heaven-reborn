@@ -9065,8 +9065,8 @@
       "va": "0x5ea8c0",
       "name": "GM_Menu::Tick (click)",
       "symbol": "lhr_engine::main_menu::main_menu_tick_click",
-      "tier": "contract",
-      "evidence": "Click routing to OnClick (GAME 0x5ea8c0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_3966e1cc68 + Ghidra body 312 insns/70 bbs, menu Tick click routing (draw/sound deferred); pin tests main_menu 17 pass"
     },
     {
       "binary": "Game.exe",
@@ -9074,8 +9074,8 @@
       "va": "0x5eba40",
       "name": "ExecuteMenu guard",
       "symbol": "lhr_engine::main_menu::execute_menu_continues",
-      "tier": "contract",
-      "evidence": "Latched-result guard (GAME 0x5eba40). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_8401dd2ca4 + Ghidra body 291 insns/49 bbs, ExecuteMenu latched-result guard; pin tests main_menu"
     },
     {
       "binary": "Game.exe",
@@ -9236,8 +9236,8 @@
       "va": "0x5fa410",
       "name": "SetOverlayFade",
       "symbol": "lhr_engine::indicators::IndicatorsState::set_overlay_fade",
-      "tier": "contract",
-      "evidence": "Fade store (GAME 0x5fa410). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_06803f508a + Ghidra body 5 insns/1 bb, overlay fade store; pin tests indicators 34 pass"
     },
     {
       "binary": "Game.exe",
@@ -9245,8 +9245,8 @@
       "va": "0x5fa430",
       "name": "SetOverlayTexture",
       "symbol": "lhr_engine::indicators::IndicatorsState::set_overlay_texture",
-      "tier": "contract",
-      "evidence": "Texture identity (GAME 0x5fa430, pure subset). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_0ae8969ff5 + Ghidra body 40 insns/8 bbs, overlay texture identity (pure subset); pin tests indicators"
     },
     {
       "binary": "Game.exe",
@@ -9254,8 +9254,8 @@
       "va": "0x5fa4a0",
       "name": "RadarClear",
       "symbol": "lhr_engine::indicators::IndicatorsState::radar_clear",
-      "tier": "contract",
-      "evidence": "Radar clear (GAME 0x5fa4a0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_e750ff463e + Ghidra body 33 insns/5 bbs, radar clear; pin tests indicators"
     },
     {
       "binary": "Game.exe",
@@ -9272,8 +9272,8 @@
       "va": "0x5fa9f0",
       "name": "RadarSetLeftEdge",
       "symbol": "lhr_engine::indicators::IndicatorsState::stage_radar_edge",
-      "tier": "contract",
-      "evidence": "Left-edge staging (GAME 0x5fa9f0); vertices deferred. Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_999756f2c7 + Ghidra body 142 insns/15 bbs, radar left-edge staging (vertices deferred); pin tests indicators"
     },
     {
       "binary": "Game.exe",
@@ -9281,8 +9281,8 @@
       "va": "0x5fabf0",
       "name": "RadarSetRightEdge",
       "symbol": "lhr_engine::indicators::IndicatorsState::stage_radar_edge",
-      "tier": "contract",
-      "evidence": "Right-edge staging (GAME 0x5fabf0); vertices deferred. Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_3bc1211267 + Ghidra body 142 insns/15 bbs, radar right-edge staging (vertices deferred); pin tests indicators"
     },
     {
       "binary": "Game.exe",
@@ -9299,8 +9299,8 @@
       "va": "0x5fb010",
       "name": "BonusSetCount",
       "symbol": "lhr_engine::indicators::IndicatorsState::bonus_set_count",
-      "tier": "contract",
-      "evidence": "Count store, pure subset (GAME 0x5fb010). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_11dd3d90c2 + Ghidra body 20 insns/3 bbs, bonus count store (pure subset); pin tests indicators"
     },
     {
       "binary": "Game.exe",
@@ -9326,8 +9326,8 @@
       "va": "0x6026d0",
       "name": "SetDiamondVertices",
       "symbol": "lhr_engine::indicators::set_diamond_vertices",
-      "tier": "contract",
-      "evidence": "Diamond writes (GAME 0x6026d0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_7f85ef8a72 + Ghidra body 69 insns/1 bb, diamond vertex writes; pin tests indicators"
     },
     {
       "binary": "Game.exe",
@@ -9335,8 +9335,8 @@
       "va": "0x604a80",
       "name": "ParheliaSetCenter",
       "symbol": "lhr_engine::indicators::IndicatorsState::set_parhelia_center",
-      "tier": "contract",
-      "evidence": "Flag-half store (GAME 0x604a80). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_26746428a4 + Ghidra body 277 insns/12 bbs, parhelia flag-half store; pin tests indicators"
     },
     {
       "binary": "Game.exe",

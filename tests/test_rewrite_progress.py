@@ -229,8 +229,11 @@ class RewriteProgressTests(unittest.TestCase):
         # +9 indicators setters batch (Tachometr 0x1f86b0 / Ammo-Accuracy-
         # Wingman 0x1f8910-0x1f8970 / Subtitles clears / Compass /
         # WideScreen; bodies 3-147 insns; SetOn deferred disclosed).
+        # +10 overlay/radar/menu batch (Fade/Texture/Clear/Edges/Bonus/
+        # Diamond/Parhelia 0x1fa410-0x204a80 + Tick/guard; bodies 5-312
+        # insns; vertices/draw deferred disclosed).
         self.assertEqual(game["ported"], 149 + 363)
-        self.assertEqual(game["verified"], 149 + 154)
+        self.assertEqual(game["verified"], 149 + 164)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")
