@@ -8732,8 +8732,8 @@
       "va": "0x5f5c40",
       "name": "G_Dabing::IsSpeaking",
       "symbol": "lhr_engine::dabing::DabingOwner::dabing_is_speaking",
-      "tier": "contract",
-      "evidence": "Non-FREE channel query per g_dabing.cpp:95 (GAME 0x5f5c40). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_31527fdac3 + Ghidra body 48 insns/11 bbs, IsSpeaking non-FREE query; pin tests dabing 10 pass"
     },
     {
       "binary": "Game.exe",
@@ -8768,8 +8768,8 @@
       "va": "0x5adee0",
       "name": "C_game::LoadCityMusicAreas",
       "symbol": "lhr_engine::ishow_renderer::cgame_load_city_music_areas",
-      "tier": "contract",
-      "evidence": "Area-frame enumeration with cbCityMusic filter per game.cpp:2992 (GAME 0x5adee0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_fd0c25505c + Ghidra body 28 insns/5 bbs, LoadCityMusicAreas enumeration; pin tests city_music 4 pass"
     },
     {
       "binary": "Game.exe",
@@ -8786,8 +8786,8 @@
       "va": "0x5ae130",
       "name": "C_game::CityMusicOff",
       "symbol": "lhr_engine::ishow_renderer::cgame_city_music_off",
-      "tier": "contract",
-      "evidence": "Area forget + fade-out-from-device-volume + id clear per game.cpp:3016 (GAME 0x5ae130). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_3db02f47e5 + Ghidra body 37 insns/5 bbs, CityMusicOff forget+fade+clear; pin tests city_music"
     },
     {
       "binary": "Game.exe",
@@ -8885,8 +8885,8 @@
       "va": "0x47b4f0",
       "name": "C_shvestky::SetSpeed",
       "symbol": "lhr_engine::police_state::PoliceGameInitState::apply_set_speed",
-      "tier": "contract",
-      "evidence": "Speed-limit store (GAME 0x47b4f0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_fdbe67e012 + Ghidra body 5 insns/1 bb, speed-limit store; pin test set_speed_stores_exact_limit_bits"
     },
     {
       "binary": "Game.exe",
@@ -8912,8 +8912,8 @@
       "va": "0x53f010",
       "name": "C_mission ctor",
       "symbol": "lhr_engine::mission_lifecycle::MissionLifecycle::construct",
-      "tier": "contract",
-      "evidence": "Constructor prefix (GAME 0x53f010). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_0c8362cb5e + Ghidra body 59 insns/1 bb, mission ctor prefix; pin tests mission_lifecycle 19 pass"
     },
     {
       "binary": "Game.exe",

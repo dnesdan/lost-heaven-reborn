@@ -220,8 +220,11 @@ class RewriteProgressTests(unittest.TestCase):
         # GameInit/GameDone 0x1f6b70-0x1f74a0, Dabing Init/Done/FreeCh
         # 0x1f4bc0-0x1f4ca0, OnBeforeCreate/OnChange walks; 10 dossiers +
         # 2 walks; 0x1f9d10 ledger, 5 unported, scopes held).
+        # +5 music/speed/ctor batch (SetSpeed 0x7b4f0 / mission ctor 0x13f010 /
+        # IsSpeaking 0x1f5c40 / LoadCityMusicAreas 0x1adee0 / CityMusicOff
+        # 0x1ae130; bodies 5-59 insns; markers/scopes held).
         self.assertEqual(game["ported"], 149 + 363)
-        self.assertEqual(game["verified"], 149 + 133)
+        self.assertEqual(game["verified"], 149 + 138)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")
