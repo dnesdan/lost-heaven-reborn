@@ -6581,8 +6581,8 @@
       "va": "0x1007b540",
       "name": "ISND_3Dsound::SetCone (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_3dsound_set_cone",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dsound.cpp:70; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_3dsound_set_cone_degrees)"
+      "tier": "differential",
+      "evidence": "REA ev_1180e20ecb + complete walk all branches (null voice -> RET 0; FMUL/ftol args + vcall + HRESULT -> 0/0x80000005); pin test set_cone 1 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -6590,8 +6590,8 @@
       "va": "0x1007b590",
       "name": "ISND_3Dsound::SetOutVolume (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_3dsound_set_out_volume",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dsound.cpp:81; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_3dsound_set_out_volume_words)"
+      "tier": "differential",
+      "evidence": "REA ev_204849e9bd + complete walk all branches (null voice -> RET 0; 1.0-x FMUL + ftol + vcall + HRESULT check); pin test out_volume 1 pass"
     },
     {
       "binary": "LS3DF.dll",
