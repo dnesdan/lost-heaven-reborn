@@ -13153,6 +13153,105 @@
       "symbol": "lhr_engine::game_housekeeping::load_diff_data",
       "tier": "contract",
       "evidence": "STUB: name owner deferred (GAME 0x5ae480). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x99c00",
+      "va": "0x499c00",
+      "name": "C_shvestky::~C_shvestky",
+      "symbol": "lhr_engine::police_state::PoliceGameInitState::apply_dtor_empty",
+      "tier": "differential",
+      "evidence": "REA ev_ebf9783de5 + Ghidra body 58 insns/1 bbs; pin tests police_state 61 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x9a120",
+      "va": "0x49a120",
+      "name": "C_shvestky::S_shvestky::~S_shvestky",
+      "symbol": "lhr_engine::police_state::drop_record_angry_list",
+      "tier": "differential",
+      "evidence": "REA ev_086b1311b9 + Ghidra body 12 insns/1 bbs; pin tests police_state 61 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x9cbb0",
+      "va": "0x49cbb0",
+      "name": "C_shvestky::DriveCar",
+      "symbol": "lhr_engine::police_state::PolicePursuitRecord::apply_drive_car",
+      "tier": "differential",
+      "evidence": "REA ev_f07a7824b4 + Ghidra body 72 insns/14 bbs; pin tests police_state 61 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x9d0b0",
+      "va": "0x49d0b0",
+      "name": "C_shvestky::CarSteal",
+      "symbol": "lhr_engine::police_state::PolicePursuitRecord::record_car_steal",
+      "tier": "differential",
+      "evidence": "REA ev_f5307447e6 + Ghidra body 52 insns/12 bbs; pin tests police_state 61 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x9d340",
+      "va": "0x49d340",
+      "name": "C_shvestky::GetHumanStatus",
+      "symbol": "lhr_engine::police_state::PolicePursuitRecord::human_status",
+      "tier": "differential",
+      "evidence": "REA ev_4cff5b8e6e + Ghidra body 32 insns/7 bbs; pin tests police_state 61 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x9d980",
+      "va": "0x49d980",
+      "name": "C_shvestky::CreateRoadBlock",
+      "symbol": "lhr_engine::police_state::create_road_block",
+      "tier": "contract",
+      "evidence": "STUB: road-block owner deferred (GAME 0x49d980). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x9a140",
+      "va": "0x49a140",
+      "name": "C_shvestky::DezoSebralGumyIRadio",
+      "symbol": "lhr_engine::police_state::take_car_tyres_and_radio",
+      "tier": "contract",
+      "evidence": "STUB: car owner deferred (GAME 0x49a140). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xa0230",
+      "va": "0x4a0230",
+      "name": "C_shvestky::RenamePoliceCar",
+      "symbol": "lhr_engine::police_state::rename_police_car",
+      "tier": "contract",
+      "evidence": "STUB: car owner deferred (GAME 0x4a0230). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xa0320",
+      "va": "0x4a0320",
+      "name": "C_sledovacka::C_sledovacka",
+      "symbol": "lhr_engine::police_state::SledovackaState::new",
+      "tier": "differential",
+      "evidence": "REA ev_0ddbcb3117 + Ghidra body 16 insns/1 bbs; pin tests police_state 61 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xa0360",
+      "va": "0x4a0360",
+      "name": "C_sledovacka::Init",
+      "symbol": "lhr_engine::police_state::sledovacka_init_bridges",
+      "tier": "contract",
+      "evidence": "STUB: mission/roads owners deferred (GAME 0x4a0360). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xa0660",
+      "va": "0x4a0660",
+      "name": "C_sledovacka::Done",
+      "symbol": "lhr_engine::police_state::SledovackaState::apply_done",
+      "tier": "differential",
+      "evidence": "REA ev_7e1202744d + Ghidra body 67 insns/11 bbs; pin tests police_state 61 pass"
     }
   ],
   "vm": {

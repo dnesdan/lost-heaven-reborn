@@ -699,6 +699,13 @@ impl PoliceGameInitState {
             host.remove_temporary_actor(car);
         }
     }
+
+    /// Original `C_shvestky::~C_shvestky` 0x499c00 (GAME VA 0x499c00,
+    /// RVA 0x99c00; mafia-re game/ai/C_shvestky.cpp:32-35 at pin 113b5b6):
+    /// the native destructor body is empty (no stores). This owner holds no
+    /// native allocations, so teardown is an explicit no-op marker; the
+    /// state is left untouched.
+    pub fn apply_dtor_empty(&mut self) {}
 }
 
 /// Opaque human identity for wanted-record lookup.
@@ -719,6 +726,9 @@ pub const SHVF_FIRE: u32 = 0x2;
 /// `SHVF_BOXING` 0x200: `HumanBoxing`'s bit, cleared once `boxing_time` runs
 /// out (mafia-re game/ai/C_shvestky.h:22).
 pub const SHVF_BOXING: u32 = 0x200;
+/// `SHVF_CAR_STEAL` 0x800: `CarSteal`'s bit, cleared once `car_steal_time`
+/// runs out (mafia-re game/ai/C_shvestky.h:24-25, 65).
+pub const SHVF_CAR_STEAL: u32 = 0x800;
 /// `SHVF_FORCE_ARREST` 0x4000: `ForceArrest`'s bit, `SHVSTATE_ARREST`
 /// (mafia-re game/ai/C_shvestky.h:28).
 pub const SHVF_FORCE_ARREST: u32 = 0x4000;
@@ -774,6 +784,22 @@ pub const ANGRY_ALIVE_COUNT_ENTRY: u32 = 0x49d4b0;
 pub const OFFENSES_ENTRY: u32 = 0x49d520;
 /// `C_shvestky::NeviDoKterePiceVlezl` 0x49d560.
 pub const NEVI_ENTRY: u32 = 0x49d560;
+/// `C_shvestky::~C_shvestky` 0x499c00 (empty destructor body).
+pub const SHVESTKY_DTOR_ENTRY: u32 = 0x499c00;
+/// `C_shvestky::S_shvestky::~S_shvestky` 0x49a120 (record destructor).
+pub const RECORD_DTOR_ENTRY: u32 = 0x49a120;
+/// `C_shvestky::DriveCar` 0x49cbb0.
+pub const DRIVE_CAR_ENTRY: u32 = 0x49cbb0;
+/// `C_shvestky::GetHumanStatus` 0x49d340.
+pub const HUMAN_STATUS_ENTRY: u32 = 0x49d340;
+/// `C_shvestky::CarSteal` 0x49d0b0.
+pub const CAR_STEAL_ENTRY: u32 = 0x49d0b0;
+/// `C_shvestky::CreateRoadBlock` 0x49d980 (PC only).
+pub const CREATE_ROAD_BLOCK_ENTRY: u32 = 0x49d980;
+/// `C_shvestky::DezoSebralGumyIRadio` 0x49a140.
+pub const TAKE_TYRES_RADIO_ENTRY: u32 = 0x49a140;
+/// `C_shvestky::RenamePoliceCar` 0x4a0230.
+pub const RENAME_POLICE_CAR_ENTRY: u32 = 0x4a0230;
 
 pub fn send_police_backup(
     _human: PoliceHumanId,
@@ -794,6 +820,43 @@ pub fn send_police_to_human(
 ) -> Result<(), PoliceDispatchError> {
     Err(PoliceDispatchError::Unsupported {
         entry: SEND_POLICE_TO_HUMAN_ENTRY,
+    })
+}
+
+/// Original `C_shvestky::CreateRoadBlock` 0x49d980 (GAME VA 0x49d980,
+/// RVA 0x9d980; mafia-re game/ai/C_shvestky.cpp:825-829 at pin 113b5b6 is a
+/// log-only stub; PC-only road-block setup that `Tick` 0x49a300 calls once a
+/// police car comes near a block). The game's road-block set plus the
+/// mission/actor owners stay outside this contract, so the boundary is
+/// explicit.
+pub fn create_road_block(
+    _index: u32,
+    _human: PoliceHumanId,
+) -> Result<(), PoliceDispatchError> {
+    Err(PoliceDispatchError::Unsupported {
+        entry: CREATE_ROAD_BLOCK_ENTRY,
+    })
+}
+
+/// Original `C_shvestky::DezoSebralGumyIRadio` 0x49a140 (GAME VA 0x49a140,
+/// RVA 0x9a140; mafia-re game/ai/C_shvestky.cpp:1006-1010 at pin 113b5b6 is
+/// a log-only stub; the car the human takes from another driver, told via
+/// `C_human::Use_Actor`). The car/wheel owners stay outside this contract,
+/// so the boundary is explicit.
+pub fn take_car_tyres_and_radio(_car: PoliceActorId) -> Result<(), PoliceDispatchError> {
+    Err(PoliceDispatchError::Unsupported {
+        entry: TAKE_TYRES_RADIO_ENTRY,
+    })
+}
+
+/// Original `C_shvestky::RenamePoliceCar` 0x4a0230 (GAME VA 0x4a0230,
+/// RVA 0xa0230; mafia-re game/ai/C_shvestky.cpp:1018-1022 at pin 113b5b6 is
+/// a log-only stub; a police car the human gets into, told via
+/// `C_human::Use_Actor`). The car/frame-name owner stays outside this
+/// contract, so the boundary is explicit.
+pub fn rename_police_car(_car: PoliceActorId) -> Result<(), PoliceDispatchError> {
+    Err(PoliceDispatchError::Unsupported {
+        entry: RENAME_POLICE_CAR_ENTRY,
     })
 }
 
@@ -846,6 +909,12 @@ pub const SLEDOVACKA_TICK_DRIVER_ENTRY: u32 = 0x4a2a80;
 pub const SLEDOVACKA_ACTION_STATUS_ENTRY: u32 = 0x4a8670;
 /// `C_sledovacka::SetActionStatus` 0x4a86d0 (GAME VA 0x4a86d0, RVA 0xa86d0).
 pub const SLEDOVACKA_SET_ACTION_STATUS_ENTRY: u32 = 0x4a86d0;
+/// `C_sledovacka::C_sledovacka` 0x4a0320 (constructor, `road_net(0)`).
+pub const SLEDOVACKA_CTOR_ENTRY: u32 = 0x4a0320;
+/// `C_sledovacka::Init` 0x4a0360 (bridge collection).
+pub const SLEDOVACKA_INIT_ENTRY: u32 = 0x4a0360;
+/// `C_sledovacka::Done` 0x4a0660 (driver/element teardown).
+pub const SLEDOVACKA_DONE_ENTRY: u32 = 0x4a0660;
 
 /// Original `C_sledovacka::ActionStatus` (mafia-re
 /// game/ai/C_sledovacka.cpp:1193-1199 at pin 113b5b6; `STUB: GAME` VA
@@ -949,6 +1018,67 @@ pub fn sledovacka_set_action_status(
     })
 }
 
+/// Owned subset of `C_sledovacka` chase-manager state written by the
+/// constructor 0x4a0320 and `Done` 0x4a0660. The full `S_BRIDGE` (actor plus
+/// road node) and `S_ELEMENT` (car, driver, target, path) owners stay outside
+/// this contract (mission actors, drivers, roads); only opaque actor
+/// identities plus the road-net presence bit are tracked here. `Init`
+/// 0x4a0360 needs the mission actors/roads owners and stays deferred behind
+/// `sledovacka_init_bridges`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SledovackaState {
+    road_net_set: bool,
+    bridges: Vec<PoliceActorId>,
+    chase_cars: Vec<PoliceActorId>,
+}
+
+impl SledovackaState {
+    /// Original `C_sledovacka::C_sledovacka` 0x4a0320 (GAME VA 0x4a0320,
+    /// RVA 0xa0320; mafia-re game/ai/C_sledovacka.cpp:29-33 at pin 113b5b6):
+    /// `road_net(0)` with empty bridge/chase lists.
+    pub fn new() -> Self {
+        Self {
+            road_net_set: false,
+            bridges: Vec::new(),
+            chase_cars: Vec::new(),
+        }
+    }
+
+    pub fn road_net_set(&self) -> bool {
+        self.road_net_set
+    }
+
+    pub fn bridge_count(&self) -> usize {
+        self.bridges.len()
+    }
+
+    pub fn chase_car_count(&self) -> usize {
+        self.chase_cars.len()
+    }
+
+    /// Original `C_sledovacka::Done` 0x4a0660 (GAME VA 0x4a0660,
+    /// RVA 0xa0660; mafia-re game/ai/C_sledovacka.cpp:67-74 at pin 113b5b6):
+    /// deletes each element's driver, then clears the elements and the
+    /// bridges. Driver deletion needs the driver owner and stays deferred;
+    /// this clears the tracked lists and the road-net bit.
+    pub fn apply_done(&mut self) {
+        self.bridges.clear();
+        self.chase_cars.clear();
+        self.road_net_set = false;
+    }
+}
+
+/// Original `C_sledovacka::Init` 0x4a0360 (GAME VA 0x4a0360, RVA 0xa0360;
+/// mafia-re game/ai/C_sledovacka.cpp:44-64 at pin 113b5b6): collects the
+/// mission's bridge actors with the nearer road node of the link
+/// `GetNearNode` finds. The mission actors/roads owners stay outside this
+/// contract, so the boundary is explicit.
+pub fn sledovacka_init_bridges() -> Result<(), SledovackaError> {
+    Err(SledovackaError::Unsupported {
+        entry: SLEDOVACKA_INIT_ENTRY,
+    })
+}
+
 /// Original `S_shvestky::RemoveAngryActor` 0x49f780: removes the actor from
 /// one record's angry list with swap-with-back + pop. Returns whether the
 /// actor was present.
@@ -970,6 +1100,15 @@ pub fn remove_angry_actor_everywhere(records: &mut [Vec<PoliceActorId>], actor: 
     for record in records.iter_mut().rev() {
         remove_angry_actor_from_record(record, actor);
     }
+}
+
+/// Original `C_shvestky::S_shvestky::~S_shvestky` 0x49a120 (GAME VA 0x49a120,
+/// RVA 0x9a120; mafia-re game/ai/C_shvestky.cpp:141-145 at pin 113b5b6 is a
+/// log-only stub): destroys one pursuit record, whose owned subset here is
+/// its caller-owned angry list. Record storage itself is Rust-owned, so this
+/// clears that list only.
+pub fn drop_record_angry_list(list: &mut Vec<PoliceActorId>) {
+    list.clear();
 }
 
 /// Typed pursuit record cleared by `ReleaseWantedHuman` 0x49f850. Field
@@ -1120,6 +1259,66 @@ impl PolicePursuitRecord {
     /// game/ai/C_shvestky.h:94, 218-220: the record's `nevi` flag).
     pub fn is_nevi(&self) -> bool {
         self.nevi
+    }
+
+    /// Record effect of `C_shvestky::DriveCar` 0x49cbb0 (GAME VA 0x49cbb0,
+    /// RVA 0x9cbb0; mafia-re game/ai/C_shvestky.cpp:764-768 at pin 113b5b6
+    /// is a log-only stub): the record's `car` follows the human's car
+    /// (`C_human` calls it with the entered car and with null on exit).
+    /// The human-to-record lookup and the `ACTOR_CAR` type read need the
+    /// game/actor owners and stay deferred; this is the marker-only
+    /// contract over the owned record.
+    pub fn apply_drive_car(&mut self, car: Option<PoliceActorId>) {
+        self.car = car;
+    }
+
+    /// Record effect of `C_shvestky::CarSteal` 0x49d0b0 (GAME VA 0x49d0b0,
+    /// RVA 0x9d0b0; mafia-re game/ai/C_shvestky.cpp:981-985 at pin 113b5b6
+    /// is a log-only stub; effect per game/ai/C_shvestky.h:24-25, 65:
+    /// `SHVF_CAR_STEAL` set, `car_steal_time` 5000, cleared once the time
+    /// runs out). The native `bool a, bool b` pair has no evidenced meaning
+    /// (header notes the meanings unknown) and stays deferred, as does the
+    /// human-to-record lookup with the game owner.
+    pub fn record_car_steal(&mut self) {
+        self.flags |= SHVF_CAR_STEAL;
+        self.car_steal_time = 5000;
+    }
+
+    /// Original `C_shvestky::GetHumanStatus` 0x49d340 (GAME VA 0x49d340,
+    /// RVA 0x9d340; mafia-re game/ai/C_shvestky.cpp:776-781 at pin 113b5b6
+    /// is a log-only stub returning zero): the `GET_PM` script command
+    /// `CMD_GET_PM_STATE` tests `p[2] & GetHumanStatus(...)` (mafia-re
+    /// game/mission/C_program.cpp:5262-5273), i.e. the record's status flag
+    /// bits. The human-to-record lookup needs the game owner and stays
+    /// deferred; this is the marker-only contract over the owned record.
+    /// Whether the native word also folds `flags2` into the high half is
+    /// unresolved (stub body, no word evidence) and stays deferred.
+    pub fn human_status(&self) -> u32 {
+        self.flags
+    }
+
+    /// Working name (no separate native entry): reads the owned record's
+    /// `wanted_time` latch. The native reads it inline in `Tick` 0x49a300
+    /// (HUD bar, `DobreMiPokuril_MuzeJitDom` countdown) with no dedicated
+    /// function, so no RVA is claimed.
+    pub fn wanted_time(&self) -> i32 {
+        self.wanted_time
+    }
+
+    /// Working name (no separate native entry): reads the owned record's
+    /// `signal_time` latch (`SHVF_RED_LIGHT`/`SHVF_SIGNAL_MARK`, cleared once
+    /// the time runs out). The native touches it inline in `Tick` 0x49a300
+    /// with no dedicated function, so no RVA is claimed.
+    pub fn signal_time(&self) -> u32 {
+        self.signal_time
+    }
+
+    /// Working name (no separate native entry): reads the owned record's
+    /// `car_steal_time` latch, paired with `record_car_steal`. The native
+    /// expiry runs inline in `Tick` 0x49a300 with no dedicated function, so
+    /// no RVA is claimed.
+    pub fn car_steal_time(&self) -> u32 {
+        self.car_steal_time
     }
 }
 
@@ -2070,5 +2269,156 @@ mod tests {
             sledovacka_set_action_status(3, PursuitChaseStatus::Failed),
             Err(SledovackaError::Unsupported { entry: 0x4a86d0 })
         );
+    }
+
+    #[test]
+    fn rva_99c00_dtor_empty_stores_nothing() {
+        // C_shvestky::~C_shvestky GAME VA 0x499c00 (RVA 0x99c00): empty body.
+        assert_eq!(SHVESTKY_DTOR_ENTRY, 0x499c00);
+        let mut state = PoliceGameInitState::default();
+        assert!(state.apply_set_active(true, 980000, true));
+        let before = state.clone();
+        state.apply_dtor_empty();
+        assert_eq!(state, before);
+    }
+
+    #[test]
+    fn rva_9a120_record_dtor_clears_angry_list() {
+        // C_shvestky::S_shvestky::~S_shvestky GAME VA 0x49a120 (RVA 0x9a120).
+        assert_eq!(RECORD_DTOR_ENTRY, 0x49a120);
+        let mut list = vec![11u32, 13, 17];
+        drop_record_angry_list(&mut list);
+        assert!(list.is_empty());
+        drop_record_angry_list(&mut list);
+        assert!(list.is_empty());
+    }
+
+    #[test]
+    fn rva_9cbb0_drive_car_sets_and_clears_car() {
+        // C_shvestky::DriveCar GAME VA 0x49cbb0 (RVA 0x9cbb0).
+        assert_eq!(DRIVE_CAR_ENTRY, 0x49cbb0);
+        let mut record = PolicePursuitRecord::new(7);
+        assert_eq!(record.car, None);
+        record.apply_drive_car(Some(60));
+        assert_eq!(record.car, Some(60));
+        record.apply_drive_car(None);
+        assert_eq!(record.car, None);
+    }
+
+    #[test]
+    fn rva_9d340_human_status_reports_flags() {
+        // C_shvestky::GetHumanStatus GAME VA 0x49d340 (RVA 0x9d340).
+        assert_eq!(HUMAN_STATUS_ENTRY, 0x49d340);
+        let mut record = PolicePursuitRecord::new(7);
+        assert_eq!(record.human_status(), 0);
+        record.record_firing(4000);
+        assert_eq!(record.human_status(), SHVF_FIRE);
+        assert_eq!(record.human_status() & SHVF_FIRE, SHVF_FIRE);
+        assert_eq!(record.human_status() & SHVF_CAR_STEAL, 0);
+    }
+
+    #[test]
+    fn rva_9d0b0_car_steal_sets_flag_and_time() {
+        // C_shvestky::CarSteal GAME VA 0x49d0b0 (RVA 0x9d0b0).
+        assert_eq!(CAR_STEAL_ENTRY, 0x49d0b0);
+        let mut record = PolicePursuitRecord::new(7);
+        record.record_car_steal();
+        assert_eq!(record.flags & SHVF_CAR_STEAL, SHVF_CAR_STEAL);
+        assert_eq!(record.car_steal_time(), 5000);
+        assert_eq!(record.human_status() & SHVF_CAR_STEAL, SHVF_CAR_STEAL);
+    }
+
+    #[test]
+    fn rva_9d980_create_road_block_reports_unsupported() {
+        // C_shvestky::CreateRoadBlock GAME VA 0x49d980 (RVA 0x9d980).
+        assert_eq!(CREATE_ROAD_BLOCK_ENTRY, 0x49d980);
+        assert_eq!(
+            create_road_block(2, 7),
+            Err(PoliceDispatchError::Unsupported { entry: 0x49d980 })
+        );
+    }
+
+    #[test]
+    fn rva_9a140_take_tyres_radio_reports_unsupported() {
+        // C_shvestky::DezoSebralGumyIRadio GAME VA 0x49a140 (RVA 0x9a140).
+        assert_eq!(TAKE_TYRES_RADIO_ENTRY, 0x49a140);
+        assert_eq!(
+            take_car_tyres_and_radio(9),
+            Err(PoliceDispatchError::Unsupported { entry: 0x49a140 })
+        );
+    }
+
+    #[test]
+    fn rva_a0230_rename_police_car_reports_unsupported() {
+        // C_shvestky::RenamePoliceCar GAME VA 0x4a0230 (RVA 0xa0230).
+        assert_eq!(RENAME_POLICE_CAR_ENTRY, 0x4a0230);
+        assert_eq!(
+            rename_police_car(9),
+            Err(PoliceDispatchError::Unsupported { entry: 0x4a0230 })
+        );
+    }
+
+    #[test]
+    fn rva_a0320_sledovacka_new_has_no_road_net() {
+        // C_sledovacka::C_sledovacka GAME VA 0x4a0320 (RVA 0xa0320).
+        assert_eq!(SLEDOVACKA_CTOR_ENTRY, 0x4a0320);
+        let state = SledovackaState::new();
+        assert!(!state.road_net_set());
+        assert_eq!(state.bridge_count(), 0);
+        assert_eq!(state.chase_car_count(), 0);
+        assert_eq!(state, SledovackaState::default());
+    }
+
+    #[test]
+    fn rva_a0360_sledovacka_init_reports_unsupported() {
+        // C_sledovacka::Init GAME VA 0x4a0360 (RVA 0xa0360).
+        assert_eq!(SLEDOVACKA_INIT_ENTRY, 0x4a0360);
+        assert_eq!(
+            sledovacka_init_bridges(),
+            Err(SledovackaError::Unsupported { entry: 0x4a0360 })
+        );
+    }
+
+    #[test]
+    fn rva_a0660_sledovacka_done_forgets_lists() {
+        // C_sledovacka::Done GAME VA 0x4a0660 (RVA 0xa0660).
+        assert_eq!(SLEDOVACKA_DONE_ENTRY, 0x4a0660);
+        let mut state = SledovackaState {
+            road_net_set: true,
+            bridges: vec![11, 13],
+            chase_cars: vec![21],
+        };
+        state.apply_done();
+        assert!(!state.road_net_set());
+        assert_eq!(state.bridge_count(), 0);
+        assert_eq!(state.chase_car_count(), 0);
+        assert_eq!(state, SledovackaState::new());
+    }
+
+    #[test]
+    fn wanted_time_reports_latched_value() {
+        // Working name: no separate native entry (inline in Tick 0x49a300).
+        let mut record = PolicePursuitRecord::new(7);
+        assert_eq!(record.wanted_time(), -1);
+        record.wanted_time = 20000;
+        assert_eq!(record.wanted_time(), 20000);
+    }
+
+    #[test]
+    fn signal_time_reports_latched_value() {
+        // Working name: no separate native entry (inline in Tick 0x49a300).
+        let mut record = PolicePursuitRecord::new(7);
+        assert_eq!(record.signal_time(), 0);
+        record.signal_time = 4000;
+        assert_eq!(record.signal_time(), 4000);
+    }
+
+    #[test]
+    fn car_steal_time_pairs_with_car_steal_flag() {
+        // Working name: no separate native entry (inline expiry in Tick).
+        let mut record = PolicePursuitRecord::new(7);
+        assert_eq!(record.car_steal_time(), 0);
+        record.record_car_steal();
+        assert_eq!(record.car_steal_time(), 5000);
     }
 }

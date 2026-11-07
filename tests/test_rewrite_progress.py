@@ -355,8 +355,12 @@ class RewriteProgressTests(unittest.TestCase):
         # box-count fragment unfiled; marker-only).
         # +10 game-lifecycle differential (Ghidra bodies 3-385 insns; pin
         # tests housekeeping 83 pass; 2 STUBs held as contract).
-        self.assertEqual(game["ported"], 149 + 573)
-        self.assertEqual(game["verified"], 149 + 490)
+        # +11 police contracts (dtor/drop/drive/steal/status + 4 STUBs +
+        # sledovacka ctor/done + init-bridges STUB; marker-only, tests green).
+        # +7 police differential (Ghidra bodies 12-72 insns; pin tests
+        # police_state 61 pass; 4 STUBs held as contract).
+        self.assertEqual(game["ported"], 149 + 584)
+        self.assertEqual(game["verified"], 149 + 497)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")
