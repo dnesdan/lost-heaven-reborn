@@ -11369,8 +11369,8 @@
       "va": "0x47b1f0",
       "name": "C_Vehicle::GetNumSeats",
       "symbol": "lhr_engine::vehicle_small_accessors::vehicle_get_num_seats",
-      "tier": "contract",
-      "evidence": "Seat count (GAME 0x47b1f0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_59e487d67f + Ghidra body 14 insns/3 bbs; pin tests vehicle_small 15 pass"
     },
     {
       "binary": "Game.exe",
@@ -11378,8 +11378,8 @@
       "va": "0x47b220",
       "name": "C_Vehicle::SetIndicatorAuto",
       "symbol": "lhr_engine::vehicle_small_accessors::vehicle_set_indicator_auto",
-      "tier": "contract",
-      "evidence": "Indicator-auto flag (GAME 0x47b220). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_eba5a09b27 + Ghidra body 10 insns/3 bbs; pin tests vehicle_small 15 pass"
     },
     {
       "binary": "Game.exe",
@@ -11387,8 +11387,8 @@
       "va": "0x47b250",
       "name": "C_Vehicle::SetLight",
       "symbol": "lhr_engine::vehicle_small_accessors::vehicle_set_light",
-      "tier": "contract",
-      "evidence": "Light store (GAME 0x47b250). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_6da57ccf0c + Ghidra body 14 insns/6 bbs; pin tests vehicle_small 15 pass"
     },
     {
       "binary": "Game.exe",
@@ -11396,8 +11396,8 @@
       "va": "0x47b280",
       "name": "C_Vehicle::SetIndicatorL",
       "symbol": "lhr_engine::vehicle_small_accessors::vehicle_set_indicator_l",
-      "tier": "contract",
-      "evidence": "Left indicator (GAME 0x47b280). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_1cb256d320 + Ghidra body 17 insns/6 bbs; pin tests vehicle_small 15 pass"
     },
     {
       "binary": "Game.exe",
@@ -11405,8 +11405,8 @@
       "va": "0x47b2c0",
       "name": "C_Vehicle::SetIndicatorR",
       "symbol": "lhr_engine::vehicle_small_accessors::vehicle_set_indicator_r",
-      "tier": "contract",
-      "evidence": "Right indicator (GAME 0x47b2c0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_faa1680d71 + Ghidra body 17 insns/6 bbs; pin tests vehicle_small 15 pass"
     },
     {
       "binary": "Game.exe",
@@ -11414,8 +11414,8 @@
       "va": "0x47b300",
       "name": "C_Vehicle::SetMainLights",
       "symbol": "lhr_engine::vehicle_small_accessors::vehicle_set_main_lights",
-      "tier": "contract",
-      "evidence": "Main lights (GAME 0x47b300). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_4f2ef474d4 + Ghidra body 14 insns/6 bbs; pin tests vehicle_small 15 pass"
     },
     {
       "binary": "Game.exe",
@@ -11423,8 +11423,8 @@
       "va": "0x47b340",
       "name": "C_Vehicle::SetProjectors",
       "symbol": "lhr_engine::vehicle_small_accessors::vehicle_set_projectors",
-      "tier": "contract",
-      "evidence": "Projectors store (GAME 0x47b340). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_7795a9a784 + Ghidra body 13 insns/3 bbs; pin tests vehicle_small 15 pass"
     },
     {
       "binary": "Game.exe",
@@ -11432,8 +11432,8 @@
       "va": "0x47b380",
       "name": "C_Vehicle::GetProjectors",
       "symbol": "lhr_engine::vehicle_small_accessors::vehicle_get_projectors",
-      "tier": "contract",
-      "evidence": "Projectors read (GAME 0x47b380). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_1ff94fc29e + Ghidra body 3 insns/1 bbs; pin tests vehicle_small 15 pass"
     },
     {
       "binary": "Game.exe",
@@ -11441,8 +11441,8 @@
       "va": "0x47b390",
       "name": "C_Vehicle::GetNumWheels",
       "symbol": "lhr_engine::vehicle_small_accessors::vehicle_get_num_wheels",
-      "tier": "contract",
-      "evidence": "Wheel count (GAME 0x47b390). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_e92f880346 + Ghidra body 2 insns/1 bbs; pin tests vehicle_small 15 pass"
     },
     {
       "binary": "Game.exe",
@@ -11450,8 +11450,8 @@
       "va": "0x47b3a0",
       "name": "C_car::SetTankHitCount",
       "symbol": "lhr_engine::vehicle_small_accessors::car_set_tank_hit_count",
-      "tier": "contract",
-      "evidence": "Tank-hit store (GAME 0x47b3a0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_6d148b2302 + Ghidra body 4 insns/1 bbs; pin tests vehicle_small 15 pass"
     },
     {
       "binary": "Game.exe",
@@ -11459,8 +11459,8 @@
       "va": "0x47b3c0",
       "name": "C_car::SetMustSteal",
       "symbol": "lhr_engine::vehicle_small_accessors::car_set_must_steal",
-      "tier": "contract",
-      "evidence": "Must-steal flag (GAME 0x47b3c0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_b0d8d2e300 + Ghidra body 3 insns/1 bbs; pin tests vehicle_small 15 pass"
     },
     {
       "binary": "Game.exe",
@@ -11468,8 +11468,8 @@
       "va": "0x47b3d0",
       "name": "C_car::SetDestroyMotor",
       "symbol": "lhr_engine::vehicle_small_accessors::car_set_destroy_motor",
-      "tier": "contract",
-      "evidence": "Destroy-motor flag (GAME 0x47b3d0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_c5f4878f73 + Ghidra body 3 insns/1 bbs; pin tests vehicle_small 15 pass"
     },
     {
       "binary": "Game.exe",
@@ -11477,8 +11477,8 @@
       "va": "0x47b400",
       "name": "C_car::SetShowDamage",
       "symbol": "lhr_engine::vehicle_small_accessors::car_set_show_damage",
-      "tier": "contract",
-      "evidence": "Show-damage flag (GAME 0x47b400). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_3fc4cd78e0 + Ghidra body 3 insns/1 bbs; pin tests vehicle_small 15 pass"
     },
     {
       "binary": "Game.exe",
@@ -11486,8 +11486,8 @@
       "va": "0x47b490",
       "name": "C_car::SetUnbreakable",
       "symbol": "lhr_engine::vehicle_small_accessors::car_set_unbreakable",
-      "tier": "contract",
-      "evidence": "Unbreakable flag (GAME 0x47b490). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_13c997abcc + Ghidra body 3 insns/1 bbs; pin tests vehicle_small 15 pass"
     },
     {
       "binary": "Game.exe",
@@ -11495,8 +11495,8 @@
       "va": "0x47b4a0",
       "name": "C_car::SetRecordPlaying",
       "symbol": "lhr_engine::vehicle_small_accessors::car_set_record_playing",
-      "tier": "contract",
-      "evidence": "Record-playing flag (GAME 0x47b4a0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_0b21a77592 + Ghidra body 2 insns/1 bbs; pin tests vehicle_small 15 pass"
     }
   ],
   "vm": {

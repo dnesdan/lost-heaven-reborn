@@ -288,8 +288,10 @@ class RewriteProgressTests(unittest.TestCase):
         # +15 vehicle small-accessor contracts (lights/projectors/wheels +
         # tank/must-steal/destroy/show/unbreakable/record 0x7b1f0-0x7b4a0;
         # subagent VA-form fixed before filing; marker-only, tests green).
+        # +15 vehicle small-accessor differential (Ghidra bodies 2-17 insns;
+        # pin tests vehicle_small 15 pass).
         self.assertEqual(game["ported"], 149 + 393)
-        self.assertEqual(game["verified"], 149 + 313)
+        self.assertEqual(game["verified"], 149 + 328)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")
