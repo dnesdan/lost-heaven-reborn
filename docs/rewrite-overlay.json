@@ -6545,8 +6545,8 @@
       "va": "0x1007b430",
       "name": "ISND_3Dsound::SetPos (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_3dsound_set_pos",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dsound.cpp:27; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_3dsound_set_pos_null_and_fail)"
+      "tier": "differential",
+      "evidence": "REA ev_4c33e79ffa + complete walk (null voice -> RET 0; else 3-dword copy + vcall [EDX+0x4c] + HRESULT check -> 0/0x80000005); pin tests 3dsound 13 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -6554,8 +6554,8 @@
       "va": "0x1007b470",
       "name": "ISND_3Dsound::SetDir (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_3dsound_set_dir",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dsound.cpp:36; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_3dsound_set_dir_submit)"
+      "tier": "differential",
+      "evidence": "REA ev_19b9167d55 + complete walk (null voice -> RET 0; else copy + vcall [EDX+0x38] + HRESULT check); pin tests 3dsound"
     },
     {
       "binary": "LS3DF.dll",
@@ -6563,8 +6563,8 @@
       "va": "0x1007b4b0",
       "name": "ISND_3Dsound::SetVelocity (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_3dsound_set_velocity",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dsound.cpp:45; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_3dsound_set_velocity_submit)"
+      "tier": "differential",
+      "evidence": "REA ev_be10fd1746 + complete walk (null voice -> RET 0; else copy + vcall [EDX+0x50] + HRESULT check); pin tests 3dsound"
     },
     {
       "binary": "LS3DF.dll",
@@ -6572,8 +6572,8 @@
       "va": "0x1007b4f0",
       "name": "ISND_3Dsound::SetDistances (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_3dsound_set_distances",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dsound.cpp:54; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_3dsound_set_distances_min_first)"
+      "tier": "differential",
+      "evidence": "REA ev_9ddcdde09f + Ghidra body 31 insns/6 bbs, SetDistances; pin tests 3dsound"
     },
     {
       "binary": "LS3DF.dll",
@@ -6599,8 +6599,8 @@
       "va": "0x1007b5d0",
       "name": "ISND_3Dsound::Open (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_3dsound_open",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dsound.cpp:91; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_3dsound_open_branches)"
+      "tier": "differential",
+      "evidence": "REA ev_51d0e1997d + Ghidra body 34 insns/6 bbs, 3dsound Open; pin tests 3dsound"
     },
     {
       "binary": "LS3DF.dll",
@@ -6608,8 +6608,8 @@
       "va": "0x1007b630",
       "name": "ISND_3Dsound::Close (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_3dsound_close",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dsound.cpp:105; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_3dsound_close_clears)"
+      "tier": "differential",
+      "evidence": "REA ev_6a80f0cc34 + Ghidra body 15 insns/3 bbs, 3dsound Close; pin tests 3dsound"
     },
     {
       "binary": "LS3DF.dll",
@@ -6716,8 +6716,8 @@
       "va": "0x1007ba60",
       "name": "ISND_driver::CreateSound out-variant (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_driver_create_sound_out",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_driver.cpp:159; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_driver_create_sound_out_null_and_ok)"
+      "tier": "differential",
+      "evidence": "REA ev_c8bcff154a + Ghidra body 20 insns/3 bbs, CreateSound out-variant; pin tests isound_3dsound 11 pass"
     },
     {
       "binary": "LS3DF.dll",

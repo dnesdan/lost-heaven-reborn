@@ -366,8 +366,11 @@ class RewriteProgressTests(unittest.TestCase):
         # flag clear; InitBuffer held).
         # +2 InitBuffer/SetActiveLevel (complete walks: WAVEFORMATEX+HRESULT
         # map + 10-loop lighting; frame/anim low-RVA pools held).
+        # +7 3dsound tranche K (SetPos/Dir/Velocity walks + SetDistances/Open/
+        # Close dossiers + CreateSound out-variant; SetCone/OutVolume tails +
+        # GetSource held).
         self.assertEqual(ls3df["ported"], 145 + 830)
-        self.assertEqual(ls3df["verified"], 145 + 366)
+        self.assertEqual(ls3df["verified"], 145 + 373)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()
