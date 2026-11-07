@@ -270,8 +270,12 @@ class RewriteProgressTests(unittest.TestCase):
         # 0x2e510/0x2e580, CosAngleTo 0x2e710, RotateByNorm 0x2eab0, quat
         # Inverse 0x2fd70/RotateByMatrix 0x30040, scale lanes 0x56e60;
         # Ghidra bodies + pinning tests, 1 new test).
+        # +8 ISound tranche D (listener ctor/AddRef/Release/SetPos
+        # 0x7b060-0x7b100, sound ctor/dtor 0x7c8e0/0x7c960, source
+        # GetPlayTime/GetFormat 0x7d8d0/0x7d910; 3 Ghidra bodies + 5
+        # complete instruction walks + pinning tests).
         self.assertEqual(ls3df["ported"], 145 + 830)
-        self.assertEqual(ls3df["verified"], 145 + 299)
+        self.assertEqual(ls3df["verified"], 145 + 307)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()

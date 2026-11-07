@@ -6410,8 +6410,8 @@
       "va": "0x1007b060",
       "name": "ISND_3Dlistener::ISND_3Dlistener (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_listener_new",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dlistener.cpp:8; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_listener_new_defaults)"
+      "tier": "differential",
+      "evidence": "REA ev_4b663fa5c5 + Ghidra body 19 insns (vtable 0x1009d968, refcount 1, zero 16 dwords from +8, 1.0f at +0x3c/+0x40/+0x44, size 0x40); pin test isound_listener_new_defaults"
     },
     {
       "binary": "LS3DF.dll",
@@ -6419,8 +6419,8 @@
       "va": "0x1007b0b0",
       "name": "ISND_3Dlistener::AddRef (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_listener_add_ref",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dlistener.cpp:26; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_listener_add_ref_increments)"
+      "tier": "differential",
+      "evidence": "REA ev_0733b3f37e + complete instruction walk 6 insns (MOV EAX,[ESP+4]; MOV ECX,[EAX+4]; INC ECX; MOV [EAX+4],ECX; MOV EAX,ECX; RET 4), pre-increment refcount++; pin test isound_listener_add_ref_increments"
     },
     {
       "binary": "LS3DF.dll",
@@ -6428,8 +6428,8 @@
       "va": "0x1007b0c0",
       "name": "ISND_3Dlistener::Release (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_listener_release",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dlistener.cpp:33; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_listener_release_drop_and_warn_paths)"
+      "tier": "differential",
+      "evidence": "REA ev_0bfd71df33 + complete walk DEC+JNS with warning path (PUSH ECX/PUSH 0x100ab330/CALL 0x1006b890) and zero path (vtable restore 0x1009d968 + CALL 0x1008d404); pin test isound_listener_release_drop_and_warn_paths"
     },
     {
       "binary": "LS3DF.dll",
@@ -6437,8 +6437,8 @@
       "va": "0x1007b100",
       "name": "ISND_3Dlistener::SetPos (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_listener_set_pos",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dlistener.cpp:48; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_listener_set_pos_stores)"
+      "tier": "differential",
+      "evidence": "REA ev_2140dbf828 + complete walk 10 insns (copy 3 dwords to [ECX+0xc/+0x10/+0x14], XOR EAX,EAX, RET 8); pin test isound_listener_set_pos_stores"
     },
     {
       "binary": "LS3DF.dll",
@@ -6806,8 +6806,8 @@
       "va": "0x1007c8e0",
       "name": "ISND_sound::ISND_sound (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_sound_new",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_sound.cpp:153; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_sound_new_words)"
+      "tier": "differential",
+      "evidence": "REA ev_bd432f6267 + Ghidra body 10 insns (vtable 0x1009db08, refcount 1, 1.0f at +0x14/+0x18); pin test isound_sound_new_words"
     },
     {
       "binary": "LS3DF.dll",
@@ -6815,8 +6815,8 @@
       "va": "0x1007c960",
       "name": "ISND_sound::~ISND_sound (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_sound_destroy",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_sound.cpp:162; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_sound_destroy_runs_close)"
+      "tier": "differential",
+      "evidence": "REA ev_15ce2b6ecf + Ghidra body 21 insns/5 bbs (vtable restore + base call [0x1009db1c] + release +0x8/+0xc); pin test isound_sound_destroy_runs_close"
     },
     {
       "binary": "LS3DF.dll",
@@ -7004,8 +7004,8 @@
       "va": "0x1007d8d0",
       "name": "ISND_source::GetPlayTime (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_source_get_play_time",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_source.cpp:164; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_source_get_play_time_vectors)"
+      "tier": "differential",
+      "evidence": "REA ev_49cef8f710 + complete walk (null-check [ECX+0x1c], FILD qword/FDIV [ECX+0x24]/CALL 0x1008d520 ftol); pin test isound_source_get_play_time_vectors"
     },
     {
       "binary": "LS3DF.dll",
@@ -7013,8 +7013,8 @@
       "va": "0x1007d910",
       "name": "ISND_source::GetFormat (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_source_get_format",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_source.cpp:173; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_source_get_format_copies)"
+      "tier": "differential",
+      "evidence": "REA ev_75dc9e8883 + complete walk 12 insns (copy 4 dwords from [EAX+0x10] to out, XOR EAX,EAX, RET 8); pin test isound_source_get_format_copies"
     },
     {
       "binary": "LS3DF.dll",
