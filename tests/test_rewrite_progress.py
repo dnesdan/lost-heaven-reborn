@@ -204,8 +204,10 @@ class RewriteProgressTests(unittest.TestCase):
         # +13 mission actor-list contracts (C_mission/C_game 0x13efb0-0x1a3990;
         # marker-only; add_actor 0x13fea0 + unload 0x140080 + Tick 0x1407e0
         # honestly unfiled as ledger-credited; 17 tests green).
+        # +10 ctor/order differential (cache open / mission open-close-uninit /
+        # clock-shot-rail-carex-racecam ctors / inventory item; 8-680 insns).
         self.assertEqual(game["ported"], 149 + 343)
-        self.assertEqual(game["verified"], 149 + 82)
+        self.assertEqual(game["verified"], 149 + 92)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")
