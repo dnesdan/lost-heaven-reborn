@@ -294,8 +294,13 @@ class RewriteProgressTests(unittest.TestCase):
         # Shock/DeadBodyDrop + NaviPoint/FadeReset; Do_Crouched ledger-held).
         # +13 human/player differential (Ghidra bodies 2-147 insns; suites
         # human_actor 32 / player_actor 4 pass).
-        self.assertEqual(game["ported"], 149 + 406)
-        self.assertEqual(game["verified"], 149 + 341)
+        # +14 vehicle accessor contracts (SpecialDynamicColls/Velocity/AngVel/
+        # ModelName/Lock/Temporary/ShowEnergy/Unknown/Axis/DynOff + EngineOn/
+        # AutoGearing/Horn/Siren; VA-form ok; marker-only, tests green).
+        # +14 vehicle accessor differential (Ghidra bodies 2-56 insns; pin
+        # tests vehicle_small 29 pass).
+        self.assertEqual(game["ported"], 149 + 420)
+        self.assertEqual(game["verified"], 149 + 355)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")

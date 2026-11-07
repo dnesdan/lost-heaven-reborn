@@ -11614,6 +11614,132 @@
       "symbol": "lhr_engine::player_actor::PlayerState::apply_fade_reset",
       "tier": "differential",
       "evidence": "REA ev_73a3ff2c48 + Ghidra body 6 insns/1 bbs; pin tests human_actor 32 / player_actor 4 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b0e0",
+      "va": "0x47b0e0",
+      "name": "C_Vehicle::GetSpecialDynamicColls",
+      "symbol": "lhr_engine::vehicle_small_accessors::vehicle_get_special_dynamic_colls",
+      "tier": "differential",
+      "evidence": "REA ev_a817a2cca1 + Ghidra body 2 insns/1 bbs; pin tests vehicle_small 29 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b100",
+      "va": "0x47b100",
+      "name": "C_Vehicle::SetVelocity",
+      "symbol": "lhr_engine::vehicle_small_accessors::vehicle_set_velocity",
+      "tier": "differential",
+      "evidence": "REA ev_f467a28797 + Ghidra body 56 insns/8 bbs; pin tests vehicle_small 29 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b1b0",
+      "va": "0x47b1b0",
+      "name": "C_Vehicle::SetAngularVelocity",
+      "symbol": "lhr_engine::vehicle_small_accessors::vehicle_set_angular_velocity",
+      "tier": "differential",
+      "evidence": "REA ev_ac781262cc + Ghidra body 16 insns/3 bbs; pin tests vehicle_small 29 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b3f0",
+      "va": "0x47b3f0",
+      "name": "C_car::GetModelName",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_get_model_name",
+      "tier": "differential",
+      "evidence": "REA ev_3aec92b9aa + Ghidra body 2 insns/1 bbs; pin tests vehicle_small 29 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b410",
+      "va": "0x47b410",
+      "name": "C_car::Lock",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_lock",
+      "tier": "differential",
+      "evidence": "REA ev_3c8372331c + Ghidra body 10 insns/3 bbs; pin tests vehicle_small 29 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b440",
+      "va": "0x47b440",
+      "name": "C_car::SetTemporary",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_set_temporary",
+      "tier": "differential",
+      "evidence": "REA ev_bfe838949d + Ghidra body 3 insns/1 bbs; pin tests vehicle_small 29 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b450",
+      "va": "0x47b450",
+      "name": "C_car::SetShowEnergy",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_set_show_energy",
+      "tier": "differential",
+      "evidence": "REA ev_bfe263eaf7 + Ghidra body 4 insns/1 bbs; pin tests vehicle_small 29 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b470",
+      "va": "0x47b470",
+      "name": "C_car::SetUnknown217c",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_set_unknown_217c",
+      "tier": "differential",
+      "evidence": "REA ev_6d253fa5c7 + Ghidra body 3 insns/1 bbs; pin tests vehicle_small 29 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b480",
+      "va": "0x47b480",
+      "name": "C_car::SetAxis",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_set_axis",
+      "tier": "differential",
+      "evidence": "REA ev_4ad74492dc + Ghidra body 3 insns/1 bbs; pin tests vehicle_small 29 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b4b0",
+      "va": "0x47b4b0",
+      "name": "C_car::SetDynamicCollsOff",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_set_dynamic_colls_off",
+      "tier": "differential",
+      "evidence": "REA ev_a22a14703a + Ghidra body 9 insns/1 bbs; pin tests vehicle_small 29 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xa9bf0",
+      "va": "0x4a9bf0",
+      "name": "C_Vehicle::GetEngineOn",
+      "symbol": "lhr_engine::vehicle_small_accessors::vehicle_get_engine_on",
+      "tier": "differential",
+      "evidence": "REA ev_c309479719 + Ghidra body 2 insns/1 bbs; pin tests vehicle_small 29 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xa9c00",
+      "va": "0x4a9c00",
+      "name": "C_Vehicle::SetAutoGearing",
+      "symbol": "lhr_engine::vehicle_small_accessors::vehicle_set_auto_gearing",
+      "tier": "differential",
+      "evidence": "REA ev_3b41e62df8 + Ghidra body 3 insns/1 bbs; pin tests vehicle_small 29 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xa9c10",
+      "va": "0x4a9c10",
+      "name": "C_Vehicle::SetHorn",
+      "symbol": "lhr_engine::vehicle_small_accessors::vehicle_set_horn",
+      "tier": "differential",
+      "evidence": "REA ev_770b4d440a + Ghidra body 3 insns/1 bbs; pin tests vehicle_small 29 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xa9c20",
+      "va": "0x4a9c20",
+      "name": "C_Vehicle::GetSiren",
+      "symbol": "lhr_engine::vehicle_small_accessors::vehicle_get_siren",
+      "tier": "differential",
+      "evidence": "REA ev_29a4098910 + Ghidra body 2 insns/1 bbs; pin tests vehicle_small 29 pass"
     }
   ],
   "vm": {

@@ -166,6 +166,121 @@ pub fn car_set_record_playing(slot: &mut bool, on: bool) {
     *slot = on;
 }
 
+/// RVA 0x7b0e0, VA 0x47b0e0 (`C_Vehicle::GetSpecialDynamicColls`,
+/// mafia-re 113b5b6 `game/vehicles/C_Vehicle.h:260-264`).
+/// Reads the `special_dynamic_colls` flag at 0x1faa.
+pub fn vehicle_get_special_dynamic_colls(flag: bool) -> bool {
+    flag
+}
+
+/// RVA 0x7b100, VA 0x47b100 (`C_Vehicle::SetVelocity`,
+/// mafia-re 113b5b6 `game/vehicles/C_Vehicle.h:270-277`).
+/// Stores the velocity vector and refreshes `speed` as its magnitude.
+/// Returns the new speed and the deferred wake-up edge (always requested;
+/// the owner invokes `wake_up` through `callback_context` when present).
+pub fn vehicle_set_velocity(velocity: [f32; 3]) -> ([f32; 3], f32, bool) {
+    let speed = (velocity[0] * velocity[0]
+        + velocity[1] * velocity[1]
+        + velocity[2] * velocity[2])
+        .sqrt();
+    (velocity, speed, true)
+}
+
+/// RVA 0x7b1b0, VA 0x47b1b0 (`C_Vehicle::SetAngularVelocity`,
+/// mafia-re 113b5b6 `game/vehicles/C_Vehicle.h:278-284`).
+/// Stores the angular velocity. The boolean is the deferred wake-up edge
+/// (always requested; the owner invokes `wake_up` when present).
+pub fn vehicle_set_angular_velocity(angular_velocity: [f32; 3]) -> ([f32; 3], bool) {
+    (angular_velocity, true)
+}
+
+/// RVA 0x7b3f0, VA 0x47b3f0 (`C_car::GetModelName`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.h:197-201`).
+/// Returns the model-name field up to the first NUL byte, mirroring the
+/// original `char *` return without exposing the trailing fill.
+pub fn car_get_model_name(model_name: &[u8]) -> &[u8] {
+    let end = model_name.iter().position(|&b| b == 0).unwrap_or(model_name.len());
+    &model_name[..end]
+}
+
+/// RVA 0x7b410, VA 0x47b410 (`C_car::Lock`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.h:207-214`).
+/// Counts the `CAR_LOCK` locks up or down with wrapping `i32` arithmetic.
+pub fn car_lock(locks: i32, lock: bool) -> i32 {
+    if lock {
+        locks.wrapping_add(1)
+    } else {
+        locks.wrapping_sub(1)
+    }
+}
+
+/// RVA 0x7b440, VA 0x47b440 (`C_car::SetTemporary`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.h:215-219`).
+/// Stores the temporary-car flag.
+pub fn car_set_temporary(slot: &mut bool, temporary: bool) {
+    *slot = temporary;
+}
+
+/// RVA 0x7b450, VA 0x47b450 (`C_car::SetShowEnergy`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.h:221-227`).
+/// Stores the new value and returns the previous one.
+pub fn car_set_show_energy(slot: &mut i32, show: i32) -> i32 {
+    let old = *slot;
+    *slot = show;
+    old
+}
+
+/// RVA 0x7b470, VA 0x47b470 (`C_car::SetUnknown217c`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.h:228-232`).
+/// Stores the flag at 0x217c.
+pub fn car_set_unknown_217c(slot: &mut bool, on: bool) {
+    *slot = on;
+}
+
+/// RVA 0x7b480, VA 0x47b480 (`C_car::SetAxis`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.h:233-237`).
+/// Stores the axis word (`CAR_SETAXIS` sets 1).
+pub fn car_set_axis(slot: &mut i32, value: i32) {
+    *slot = value;
+}
+
+/// RVA 0x7b4b0, VA 0x47b4b0 (`C_car::SetDynamicCollsOff`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.h:246-250`).
+/// Maps to `SetDynamicCollsOn(!off, GetUnknown1fac())`: returns the
+/// `(on, unknown)` pair the owner stores. Collider attach/detach and the
+/// wake-up edge stay deferred to the collision owner.
+pub fn car_set_dynamic_colls_off(off: bool, keep_unknown: bool) -> (bool, bool) {
+    (!off, keep_unknown)
+}
+
+/// RVA 0xa9bf0, VA 0x4a9bf0 (`C_Vehicle::GetEngineOn`,
+/// mafia-re 113b5b6 `game/vehicles/C_Vehicle.h:404-408`).
+/// Reads the engine-running flag.
+pub fn vehicle_get_engine_on(engine_on: bool) -> bool {
+    engine_on
+}
+
+/// RVA 0xa9c00, VA 0x4a9c00 (`C_Vehicle::SetAutoGearing`,
+/// mafia-re 113b5b6 `game/vehicles/C_Vehicle.h:409-413`).
+/// Stores the automatic-gearing flag.
+pub fn vehicle_set_auto_gearing(slot: &mut bool, automatic: bool) {
+    *slot = automatic;
+}
+
+/// RVA 0xa9c10, VA 0x4a9c10 (`C_Vehicle::SetHorn`,
+/// mafia-re 113b5b6 `game/vehicles/C_Vehicle.h:414-418`).
+/// Stores the horn flag.
+pub fn vehicle_set_horn(slot: &mut bool, on: bool) {
+    *slot = on;
+}
+
+/// RVA 0xa9c20, VA 0x4a9c20 (`C_Vehicle::GetSiren`,
+/// mafia-re 113b5b6 `game/vehicles/C_Vehicle.h:419-423`).
+/// Reads the siren flag.
+pub fn vehicle_get_siren(siren: bool) -> bool {
+    siren
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -316,5 +431,132 @@ mod tests {
         assert!(flag);
         car_set_record_playing(&mut flag, false);
         assert!(!flag);
+    }
+
+    #[test]
+    fn rva_7b0e0_get_special_dynamic_colls_reads_flag() {
+        // RVA 0x7b0e0: plain member read at 0x1faa.
+        assert!(vehicle_get_special_dynamic_colls(true));
+        assert!(!vehicle_get_special_dynamic_colls(false));
+    }
+
+    #[test]
+    fn rva_7b100_set_velocity_stores_vector_speed_and_wakes() {
+        // RVA 0x7b100: velocity store + speed = magnitude + wake edge.
+        let (velocity, speed, wake) = vehicle_set_velocity([3.0, 4.0, 0.0]);
+        assert_eq!(velocity, [3.0, 4.0, 0.0]);
+        assert_eq!(speed, 5.0);
+        assert!(wake);
+        let (_, speed, _) = vehicle_set_velocity([0.0, 0.0, 0.0]);
+        assert_eq!(speed, 0.0);
+    }
+
+    #[test]
+    fn rva_7b1b0_set_angular_velocity_stores_and_wakes() {
+        // RVA 0x7b1b0: angular velocity store + wake edge.
+        let (stored, wake) = vehicle_set_angular_velocity([1.0, -2.0, 0.5]);
+        assert_eq!(stored, [1.0, -2.0, 0.5]);
+        assert!(wake);
+    }
+
+    #[test]
+    fn rva_7b3f0_get_model_name_trims_at_nul() {
+        // RVA 0x7b3f0: char * return without trailing fill.
+        let mut field = [0x41u8; 32];
+        field[4] = 0;
+        assert_eq!(car_get_model_name(&field), b"AAAA".as_slice());
+        let full = [0x42u8; 8];
+        assert_eq!(car_get_model_name(&full), full.as_slice());
+        assert!(car_get_model_name(&[]).is_empty());
+    }
+
+    #[test]
+    fn rva_7b410_lock_counts_up_and_down() {
+        // RVA 0x7b410: locks++/locks-- with no saturation.
+        assert_eq!(car_lock(0, true), 1);
+        assert_eq!(car_lock(1, false), 0);
+        assert_eq!(car_lock(i32::MAX, true), i32::MIN);
+    }
+
+    #[test]
+    fn rva_7b440_set_temporary_stores_flag() {
+        // RVA 0x7b440: plain bool store.
+        let mut flag = false;
+        car_set_temporary(&mut flag, true);
+        assert!(flag);
+        car_set_temporary(&mut flag, false);
+        assert!(!flag);
+    }
+
+    #[test]
+    fn rva_7b450_set_show_energy_returns_old() {
+        // RVA 0x7b450: old value returned, new value stored.
+        let mut slot = 0;
+        assert_eq!(car_set_show_energy(&mut slot, 1), 0);
+        assert_eq!(slot, 1);
+        assert_eq!(car_set_show_energy(&mut slot, 5), 1);
+        assert_eq!(slot, 5);
+    }
+
+    #[test]
+    fn rva_7b470_set_unknown_217c_stores_flag() {
+        // RVA 0x7b470: plain bool store.
+        let mut flag = false;
+        car_set_unknown_217c(&mut flag, true);
+        assert!(flag);
+        car_set_unknown_217c(&mut flag, false);
+        assert!(!flag);
+    }
+
+    #[test]
+    fn rva_7b480_set_axis_stores_word() {
+        // RVA 0x7b480: plain int store (CAR_SETAXIS sets 1).
+        let mut axis = 0;
+        car_set_axis(&mut axis, 1);
+        assert_eq!(axis, 1);
+        car_set_axis(&mut axis, -1);
+        assert_eq!(axis, -1);
+    }
+
+    #[test]
+    fn rva_7b4b0_set_dynamic_colls_off_negates_and_keeps_second() {
+        // RVA 0x7b4b0: SetDynamicCollsOn(!off, GetUnknown1fac()).
+        assert_eq!(car_set_dynamic_colls_off(true, true), (false, true));
+        assert_eq!(car_set_dynamic_colls_off(false, false), (true, false));
+        assert_eq!(car_set_dynamic_colls_off(true, false), (false, false));
+    }
+
+    #[test]
+    fn rva_a9bf0_get_engine_on_reads_flag() {
+        // RVA 0xa9bf0: plain member read.
+        assert!(vehicle_get_engine_on(true));
+        assert!(!vehicle_get_engine_on(false));
+    }
+
+    #[test]
+    fn rva_a9c00_set_auto_gearing_stores_flag() {
+        // RVA 0xa9c00: plain bool store.
+        let mut flag = false;
+        vehicle_set_auto_gearing(&mut flag, true);
+        assert!(flag);
+        vehicle_set_auto_gearing(&mut flag, false);
+        assert!(!flag);
+    }
+
+    #[test]
+    fn rva_a9c10_set_horn_stores_flag() {
+        // RVA 0xa9c10: plain bool store.
+        let mut flag = false;
+        vehicle_set_horn(&mut flag, true);
+        assert!(flag);
+        vehicle_set_horn(&mut flag, false);
+        assert!(!flag);
+    }
+
+    #[test]
+    fn rva_a9c20_get_siren_reads_flag() {
+        // RVA 0xa9c20: plain member read.
+        assert!(vehicle_get_siren(true));
+        assert!(!vehicle_get_siren(false));
     }
 }
