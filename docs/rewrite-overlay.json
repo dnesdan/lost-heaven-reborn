@@ -6653,8 +6653,8 @@
       "va": "0x1007b740",
       "name": "ISND_driver::Close (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_driver_close",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_driver.cpp:57; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_driver_close_order)"
+      "tier": "differential",
+      "evidence": "REA ev_1914559328 + complete walk ~70 insns (voice warn+delete loop + releases +0x20/+0x18/+0x2c/+0x10/+0x14/+0x28/+0xc + init-flag clear + RET 4); pin test driver_close 1 pass + isound_driver 19 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -9884,8 +9884,8 @@
       "va": "0x545ba0",
       "name": "S_mission_options::SetGameEffects",
       "symbol": "lhr_engine::mission_options::MissionOptions::set_game_effects",
-      "tier": "contract",
-      "evidence": "Clamp OPTION range (GAME 0x545ba0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_56f9c5ed96 + Ghidra body 11 insns/5 bbs, SetGameEffects; pin tests mission_option 14 pass"
     },
     {
       "binary": "Game.exe",
@@ -9893,8 +9893,8 @@
       "va": "0x545bd0",
       "name": "S_mission_options::SetGameSounds",
       "symbol": "lhr_engine::mission_options::MissionOptions::set_game_sounds",
-      "tier": "contract",
-      "evidence": "Clamp OPTION range (GAME 0x545bd0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_b145373136 + Ghidra body 11 insns/5 bbs, SetGameSounds; pin tests mission_option"
     },
     {
       "binary": "Game.exe",
@@ -9902,8 +9902,8 @@
       "va": "0x545c00",
       "name": "S_mission_options::SetShadows",
       "symbol": "lhr_engine::mission_options::MissionOptions::set_shadows",
-      "tier": "contract",
-      "evidence": "Translated table store (GAME 0x545c00). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_9267a8e01f + Ghidra body 23 insns/5 bbs, SetShadows; pin tests mission_option"
     },
     {
       "binary": "Game.exe",
@@ -9911,8 +9911,8 @@
       "va": "0x545c60",
       "name": "S_mission_options::GetShadows",
       "symbol": "lhr_engine::mission_options::MissionOptions::get_shadows",
-      "tier": "contract",
-      "evidence": "Index scan, unknown to MEDIUM (GAME 0x545c60). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_5121a17020 + Ghidra body 17 insns/5 bbs, GetShadows; pin tests mission_option"
     },
     {
       "binary": "Game.exe",
@@ -9920,8 +9920,8 @@
       "va": "0x545cb0",
       "name": "S_mission_options::SetParticles",
       "symbol": "lhr_engine::mission_options::MissionOptions::set_particles",
-      "tier": "contract",
-      "evidence": "Clamp OPTION range (GAME 0x545cb0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_e4e6a9dc2a + Ghidra body 11 insns/5 bbs, SetParticles; pin tests mission_option"
     },
     {
       "binary": "Game.exe",
@@ -9929,8 +9929,8 @@
       "va": "0x49d220",
       "name": "C_shvestky::NextNaSrackySoudruh",
       "symbol": "lhr_engine::police_state::PolicePursuitRecord::record_run_over",
-      "tier": "contract",
-      "evidence": "Run-over increment with KILL threshold (GAME 0x49d220). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_a7f0dccd5a + Ghidra body 23 insns/8 bbs, NextNaSrackySoudruh; pin tests police 38 pass"
     },
     {
       "binary": "Game.exe",
@@ -9956,8 +9956,8 @@
       "va": "0x49d420",
       "name": "C_shvestky::GetFireTime",
       "symbol": "lhr_engine::police_state::PolicePursuitRecord::fire_time",
-      "tier": "contract",
-      "evidence": "Fire-time read (GAME 0x49d420). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_cb53d9551a + Ghidra body 28 insns/7 bbs, GetFireTime; pin tests police"
     },
     {
       "binary": "Game.exe",
@@ -9974,8 +9974,8 @@
       "va": "0x49d4b0",
       "name": "C_shvestky::PocetNasranychZivych",
       "symbol": "lhr_engine::police_state::angry_alive_count",
-      "tier": "contract",
-      "evidence": "Live-angry count via host predicate (GAME 0x49d4b0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_41769e80f2 + Ghidra body 48 insns/14 bbs, PocetNasranychZivych; pin tests police"
     },
     {
       "binary": "Game.exe",
@@ -9983,8 +9983,8 @@
       "va": "0x49d520",
       "name": "C_shvestky::PocetPrestupku",
       "symbol": "lhr_engine::police_state::PolicePursuitRecord::offenses",
-      "tier": "contract",
-      "evidence": "Offense count read (GAME 0x49d520). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_bf88d92fd0 + Ghidra body 28 insns/7 bbs, PocetPrestupku; pin tests police"
     },
     {
       "binary": "Game.exe",
@@ -9992,8 +9992,8 @@
       "va": "0x49d560",
       "name": "C_shvestky::NeviDoKterePiceVlezl",
       "symbol": "lhr_engine::police_state::PolicePursuitRecord::is_nevi",
-      "tier": "contract",
-      "evidence": "Nevi flag read (GAME 0x49d560). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_193e35c8d9 + Ghidra body 35 insns/9 bbs, NeviDoKterePiceVlezl; pin tests police"
     },
     {
       "binary": "Game.exe",

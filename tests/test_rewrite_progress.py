@@ -249,8 +249,11 @@ class RewriteProgressTests(unittest.TestCase):
         # +6 vehicle/coll/text batch (SetDynamicCollsOn 0xcdcc0 / InOwner
         # probe 0x17d0e0 / TextDatabase ctor/dtor/Load/Unload; 5 dossiers +
         # 1 walk; Movement/Dispatch/Init steps held as partial).
+        # +10 options/police batch (SetGameEffects/Sounds/Shadows/GetShadows/
+        # SetParticles 0x145ba0-0x145cb0 + NextNaSracky/GetFireTime/Pocet/
+        # Nevi 0x9d220-0x9d560; bodies 11-48 insns).
         self.assertEqual(game["ported"], 149 + 363)
-        self.assertEqual(game["verified"], 149 + 210)
+        self.assertEqual(game["verified"], 149 + 220)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")
@@ -353,8 +356,10 @@ class RewriteProgressTests(unittest.TestCase):
         # clamp [0.0..1.0] via FCOMP + voice loop OR 0x8; close/initbuf held).
         # +3 lit_object tranche J (GetNumRectInfos/GetRectInfos/Destruct;
         # complete both-branch walks; SetActiveLevel loop held).
+        # +1 driver Close (complete ~70-insn walk: voice loop + 7 releases +
+        # flag clear; InitBuffer held).
         self.assertEqual(ls3df["ported"], 145 + 830)
-        self.assertEqual(ls3df["verified"], 145 + 363)
+        self.assertEqual(ls3df["verified"], 145 + 364)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()
