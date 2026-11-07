@@ -5087,8 +5087,8 @@
       "va": "0x10057940",
       "name": "I3D_sound::Open",
       "symbol": "lhr_engine::runtime_audio::RuntimeAudio::load_sound_with",
-      "tier": "contract",
-      "evidence": "mafia-re I3d_sound.cpp:95-159 + no Ghidra procedure + test pin_open_tail_flags_and_loop_word; tier contract"
+      "tier": "differential",
+      "evidence": "REA ev_d94f49fbb5 + walk 18 insns + branches (CALL [ECX+0xc] guard -> 0x80000009, null name -> 0x80000001, strcmp loop exact-name fast path, OR 0x200; pin tests exact_name_preserves_voice + pin_open_tail_flags)"
     },
     {
       "binary": "LS3DF.dll",
@@ -5096,8 +5096,8 @@
       "va": "0x10057c40",
       "name": "I3D_sound::IsPlaying",
       "symbol": "lhr_engine::runtime_audio::RuntimeAudio::sound_is_playing",
-      "tier": "contract",
-      "evidence": "mafia-re I3d_sound.cpp:162-186 + no Ghidra procedure + test pin_is_playing_logical_boundary_vectors; tier contract"
+      "tier": "differential",
+      "evidence": "REA ev_7cffbc3f0f + walk 12 insns + branches (null [ESI+0x15c] -> AL=0, state 1 -> 0, 3/4 voice-flag branch, time-delta/FILD/FDIV path; pin tests is_playing logical vs voice)"
     },
     {
       "binary": "LS3DF.dll",
@@ -5114,8 +5114,8 @@
       "va": "0x10057dd0",
       "name": "I3D_sound::SetRange",
       "symbol": "lhr_engine::runtime_audio::RuntimeAudio::set_sound_range",
-      "tier": "contract",
-      "evidence": "mafia-re I3d_sound.cpp:210-222 + no Ghidra procedure + tests pin_setter_guards_flags_and_caps/pin_getters_with_synthetic_vectors; tier contract"
+      "tier": "differential",
+      "evidence": "REA ev_6178527a31 + walk 60 insns (4x FLD/FSUB/FABS + CMP 0x322bcc77 MRG_ZERO, stores [0x168/0x17c/0x170/0x184], OR 0x4; pin tests range_pause + world_scale range)"
     },
     {
       "binary": "LS3DF.dll",
@@ -5123,8 +5123,8 @@
       "va": "0x10057eb0",
       "name": "I3D_sound::SetCone",
       "symbol": "lhr_engine::runtime_audio::RuntimeAudio::set_sound_cone",
-      "tier": "contract",
-      "evidence": "mafia-re I3d_sound.cpp:225-239 + no Ghidra procedure + tests pin_setter_guards_flags_and_caps/pin_getters_with_synthetic_vectors; tier contract"
+      "tier": "differential",
+      "evidence": "REA ev_9ff690e683 + walk 56 insns (FCOMP pi + FNSTSW clamp to 0x40490fdb, stores [0x1a0/0x1a8], OR 0x40, FMUL+FCOS -> [0x1a4/0x1ac]; pin test spot_cone + world_scale cone)"
     },
     {
       "binary": "LS3DF.dll",
@@ -5132,8 +5132,8 @@
       "va": "0x10057f90",
       "name": "I3D_sound::SetOutVol",
       "symbol": "lhr_engine::runtime_audio::RuntimeAudio::set_sound_outside_volume",
-      "tier": "contract",
-      "evidence": "mafia-re I3d_sound.cpp:242-249 + no Ghidra procedure + test pin_setter_guards_flags_and_caps; tier contract"
+      "tier": "differential",
+      "evidence": "REA ev_188f032fca + walk 18 insns (FLD [ECX+0x188] MRG_ZERO guard, store [0x188], OR [0x140],0x10; pin tests outside volume)"
     },
     {
       "binary": "LS3DF.dll",
@@ -5141,8 +5141,8 @@
       "va": "0x10057fd0",
       "name": "I3D_sound::SetVolume",
       "symbol": "lhr_engine::runtime_audio::RuntimeAudio::set_sound_volume",
-      "tier": "contract",
-      "evidence": "mafia-re I3d_sound.cpp:254-259 + no Ghidra procedure + test pin_setter_guards_flags_and_caps; tier contract"
+      "tier": "differential",
+      "evidence": "REA ev_9d49530838 + walk 18 insns (FLD [ECX+0x18c] MRG_ZERO guard, store [0x18c], OR 0x8; pin tests set_volume)"
     },
     {
       "binary": "LS3DF.dll",
@@ -5150,8 +5150,8 @@
       "va": "0x10058010",
       "name": "I3D_sound::SetLoop",
       "symbol": "lhr_engine::runtime_audio::RuntimeAudio::set_sound_looping",
-      "tier": "contract",
-      "evidence": "mafia-re I3d_sound.cpp:262-272 + no Ghidra procedure + test pin_open_tail_flags_and_loop_word; tier contract"
+      "tier": "differential",
+      "evidence": "REA ev_e13cf9fa1f + walk 17 insns ([EAX+0x164]=CL, [0x198] OR/AND 0x100, TEST [0xac],1 -> JMP [ECX+0x24] SetOn tail; pin tests loop_restart + deferred_play)"
     },
     {
       "binary": "LS3DF.dll",
@@ -5159,8 +5159,8 @@
       "va": "0x10058060",
       "name": "I3D_sound::SetCurrTime",
       "symbol": "lhr_engine::runtime_audio::RuntimeAudio::seek_sound_ms",
-      "tier": "contract",
-      "evidence": "mafia-re I3d_sound.cpp:275-288 + no Ghidra procedure + test pin_getters_with_synthetic_vectors; tier contract"
+      "tier": "differential",
+      "evidence": "REA ev_446bce04fd + walk 12+20+15 insns (null [ESI+0x15c] -> EAX=0, CALL [0x1009b20c] clock, SUB -> [0x150], states 3/4 -> [0x154]/[0x158]; pin tests paused_seek + seek)"
     },
     {
       "binary": "LS3DF.dll",
@@ -5177,8 +5177,8 @@
       "va": "0x10058120",
       "name": "I3D_sound::SetVelocity",
       "symbol": "lhr_engine::runtime_audio::RuntimeAudio::set_velocity",
-      "tier": "contract",
-      "evidence": "mafia-re I3d_sound.cpp:301-308 + no Ghidra procedure + test pin_setter_guards_flags_and_caps; tier contract"
+      "tier": "differential",
+      "evidence": "REA ev_0c5b5b897f + walk 51 insns (3x FLD/FSUB MRG_ZERO per-component, stores [0x1c0/0x1c4/0x1c8], OR 0x2000; pin tests set_velocity)"
     },
     {
       "binary": "LS3DF.dll",
@@ -5186,8 +5186,8 @@
       "va": "0x10058230",
       "name": "I3D_sound::GetCurrTime",
       "symbol": "lhr_engine::runtime_audio::RuntimeAudio::sound_position_ms",
-      "tier": "contract",
-      "evidence": "mafia-re I3d_sound.cpp:329-335 + no Ghidra procedure + test pin_getters_with_synthetic_vectors; tier contract"
+      "tier": "differential",
+      "evidence": "REA ev_3098ea00d1 + walk 5+3 insns (MOV EAX,[EAX+0x15c], TEST/JNZ, null -> RET 0, else JMP [ECX+0x18]; pin tests position_ms)"
     },
     {
       "binary": "LS3DF.dll",

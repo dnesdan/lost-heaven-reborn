@@ -278,8 +278,12 @@ class RewriteProgressTests(unittest.TestCase):
         # 0x7b060-0x7b100, sound ctor/dtor 0x7c8e0/0x7c960, source
         # GetPlayTime/GetFormat 0x7d8d0/0x7d910; 3 Ghidra bodies + 5
         # complete instruction walks + pinning tests).
+        # +10 ISound tranche E (I3D_sound Open/IsPlaying/SetRange/SetCone/
+        # SetOutVol/SetVolume/SetLoop/SetCurrTime/SetVelocity/GetCurrTime;
+        # complete walks + pinning tests; SetSoundType/SetFrequency held as
+        # hardening ODCHYLKA).
         self.assertEqual(ls3df["ported"], 145 + 830)
-        self.assertEqual(ls3df["verified"], 145 + 307)
+        self.assertEqual(ls3df["verified"], 145 + 317)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()
