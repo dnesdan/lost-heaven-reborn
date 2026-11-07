@@ -322,8 +322,10 @@ class RewriteProgressTests(unittest.TestCase):
         # +22 tree tranche G (VC6 _Tree begin/erase/insert/Inc/ctor/Min/Erase/
         # Init/Lrotate/Rrotate/iter/Buynode/Dec + OFFD rebuild; Ghidra bodies
         # 5-362 insns; working-name TEMPLATE note kept; EnumFFTree held).
+        # +7 driver tranche H (ctor/dtor/IsInit/CreateSource(x2)/CreateSound/
+        # GetCaps; 5 dossiers + 2 walks; Close/InitBuffer/SetVolume held).
         self.assertEqual(ls3df["ported"], 145 + 830)
-        self.assertEqual(ls3df["verified"], 145 + 346)
+        self.assertEqual(ls3df["verified"], 145 + 353)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()

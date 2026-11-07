@@ -6626,8 +6626,8 @@
       "va": "0x1007b690",
       "name": "ISND_driver::ISND_driver (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_driver_new",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_driver.cpp:22; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_driver_new_words)"
+      "tier": "differential",
+      "evidence": "REA ev_a60baa7569 + Ghidra body 22 insns/1 bb, driver ctor; pin tests isound_driver 19 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -6635,8 +6635,8 @@
       "va": "0x1007b6e0",
       "name": "ISND_driver::~ISND_driver (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_driver_destroy",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_driver.cpp:42; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_driver_destroy_warns_only_when_init)"
+      "tier": "differential",
+      "evidence": "REA ev_cd46739aef + Ghidra body 18 insns/3 bbs, driver dtor; pin tests driver destroy"
     },
     {
       "binary": "LS3DF.dll",
@@ -6644,8 +6644,8 @@
       "va": "0x1007b730",
       "name": "ISND_driver::IsInit (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_driver_is_init",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_driver.cpp:50; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_driver_is_init_copies)"
+      "tier": "differential",
+      "evidence": "REA ev_a50902d55a + complete walk 2 insns (MOV AL,[0x101c62dc]; RET 4), init-flag read; pin test driver is_init"
     },
     {
       "binary": "LS3DF.dll",
@@ -6680,8 +6680,8 @@
       "va": "0x1007b950",
       "name": "ISND_driver::GetCaps (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_driver_get_caps",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/ISound.h:350-355 (folded, marker by PDB name); tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_driver_get_caps_ok)"
+      "tier": "differential",
+      "evidence": "REA ev_bd2b7c1277 + complete walk 2 insns (XOR EAX,EAX; RET 8), zero caps; pin test get_caps"
     },
     {
       "binary": "LS3DF.dll",
@@ -6689,8 +6689,8 @@
       "va": "0x1007b960",
       "name": "ISND_driver::CreateSource (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_driver_create_source",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_driver.cpp:135; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_driver_create_source_words)"
+      "tier": "differential",
+      "evidence": "REA ev_3cf03e51b1 + Ghidra body 24 insns/3 bbs, CreateSource; pin tests create_source"
     },
     {
       "binary": "LS3DF.dll",
@@ -6698,8 +6698,8 @@
       "va": "0x1007b9c0",
       "name": "ISND_driver::CreateSource out-variant (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_driver_create_source_out",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_driver.cpp:142; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_driver_create_source_out_null_and_ok)"
+      "tier": "differential",
+      "evidence": "REA ev_18ae9f74fb + Ghidra body 20 insns/3 bbs, CreateSource out-variant; pin tests"
     },
     {
       "binary": "LS3DF.dll",
@@ -6707,8 +6707,8 @@
       "va": "0x1007ba00",
       "name": "ISND_driver::CreateSound (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_driver_create_sound",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_driver.cpp:152; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_driver_create_sound_words)"
+      "tier": "differential",
+      "evidence": "REA ev_6565df4038 + Ghidra body 24 insns/3 bbs, CreateSound; pin tests create_sound"
     },
     {
       "binary": "LS3DF.dll",
