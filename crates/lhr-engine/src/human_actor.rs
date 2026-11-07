@@ -17,7 +17,10 @@
 //! and police effect of the three car-function bodies. TestMoveColl's capsule
 //! descent (TestPanak2) has no owner; its collision-independent leaves live
 //! as a guarded prefix in human_move_coll.
-//! The on-foot micro-state (Do_Breath, Go_Front/Back/Left/Right, Do_Aimed,
+//! The on-foot micro-state (Do_Breath, Go_Front/Back/Left/Right plus the
+//! diagonal Go_FrontLeft/FrontRight/BackLeft/BackRight blends, Do_Aimed,
+//! the Do_Crouched latch slice, Turn_Turn, the Do_CornerBreath/View selects,
+//! Do_ShockUp/Stumble, the Do_DeadBodyDrop anim slice, Force_CanWorking and
 //! InventoryTruncate) is owned here as marker-only leaves over the velocity,
 //! turn_speed, dir, crouch/box/dead-body latches, aim/guard/change latches
 //! and carried-weapon ammo words staged in this file; the PersonAnim,
@@ -300,6 +303,37 @@ pub(crate) fn truncate_item_ammo(
     }
 }
 
+/// Replication of S_vector::Normalize for the diagonal Go_* strafe blends
+/// (mafia-re 113b5b6 ls3df/I3D/I3d_math.h:153-171, inlined at the call sites
+/// with no out-of-line copy, so it carries no GAME address of its own):
+/// near-unit vectors (|sq - 1| < MRG_ZERO, 1e-8 per ls3df/ls3df.h:48) pass
+/// through; near-zero vectors (sq < MRG_ZERO) become the unit vector along
+/// the first nonzero axis (x, else z, else y-by-sign with 0.0 counting as
+/// positive); otherwise the vector scales by 1/sqrt(sq). All arithmetic is
+/// f32, matching the original.
+fn normalize_strafe_vector(vector: [f32; 3]) -> [f32; 3] {
+    const MRG_ZERO: f32 = 1e-8;
+    let square = vector[0] * vector[0] + vector[1] * vector[1] + vector[2] * vector[2];
+    if (square - 1.0).abs() < MRG_ZERO {
+        return vector;
+    }
+    if square < MRG_ZERO {
+        if vector[0] != 0.0 {
+            return [if vector[0] < 0.0 { -1.0 } else { 1.0 }, 0.0, 0.0];
+        }
+        if vector[2] != 0.0 {
+            return [0.0, 0.0, if vector[2] < 0.0 { -1.0 } else { 1.0 }];
+        }
+        return [0.0, if vector[1] < 0.0 { -1.0 } else { 1.0 }, 0.0];
+    }
+    let factor = 1.0 / square.sqrt();
+    [
+        vector[0] * factor,
+        vector[1] * factor,
+        vector[2] * factor,
+    ]
+}
+
 /// Original property-name table supplies the first fifteen labels. The
 /// sixteenth value remains unnamed; no gameplay meaning is assigned to it.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -517,6 +551,90 @@ pub const ANIM_STRAFRL1: i32 = 0xd;
 /// game/actors/C_actor.h:561: 0xe, "strafRR1.i3d"). Written by the Go_Right
 /// core of this slice; the PersonAnim stance/anim-set remap stays DEFERRED.
 pub const ANIM_STRAFRR1: i32 = 0xe;
+/// Original front-left run animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:562: 0xf, "runL1.i3d"). Written by the Go_FrontLeft
+/// core of this slice; the PersonAnim stance/anim-set remap stays DEFERRED.
+pub const ANIM_RUNL1: i32 = 0xf;
+/// Original front-right run animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:563: 0x10, "runR1.i3d"). Written by the
+/// Go_FrontRight core of this slice; the PersonAnim stance/anim-set remap
+/// stays DEFERRED.
+pub const ANIM_RUNR1: i32 = 0x10;
+/// Original front-left walk animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:564: 0x11, "walkL1.i3d"). Written by the
+/// Go_FrontLeft core of this slice; the PersonAnim stance/anim-set remap
+/// stays DEFERRED.
+pub const ANIM_WALKL1: i32 = 0x11;
+/// Original front-right walk animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:565: 0x12, "walkR1.i3d"). Written by the
+/// Go_FrontRight core of this slice; the PersonAnim stance/anim-set remap
+/// stays DEFERRED.
+pub const ANIM_WALKR1: i32 = 0x12;
+/// Original back-left walk animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:566: 0x13, "backL1.i3d"). Written by the Go_BackLeft
+/// core of this slice; the PersonAnim stance/anim-set remap stays DEFERRED.
+pub const ANIM_BACKL1: i32 = 0x13;
+/// Original back-right walk animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:567: 0x14, "backR1.i3d"). Written by the
+/// Go_BackRight core of this slice; the PersonAnim stance/anim-set remap
+/// stays DEFERRED.
+pub const ANIM_BACKR1: i32 = 0x14;
+/// Original turn animation id (mafia-re 113b5b6 game/actors/C_actor.h:557:
+/// 0xa, "turn1.i3d"). Written by the Turn_Turn core of this slice; the
+/// PersonAnim stance/anim-set remap stays DEFERRED.
+pub const ANIM_TURN1: i32 = 0xa;
+/// Original panic-crouch-down stativ animation ids (mafia-re 113b5b6
+/// game/actors/C_actor.h:597-601: 0x3d "x panika drep dolu.i3d", 0x3e
+/// "x panika drep stativ.i3d", 0x40 "x panika na4 dolu.i3d", 0x41
+/// "x panika na4 stativ.i3d", 0x43 "x panika leh dolu.i3d", 0x44
+/// "x panika leh stativ.i3d"). Read by the Do_ShockUp core of this slice,
+/// which advances a matching stativ by one; the PersonAnim remap stays
+/// DEFERRED.
+pub const ANIM_X_PANIKA_DREP_STATIV: i32 = 0x3e;
+/// Original panic-on-all-fours stativ animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:599: 0x41). Read by the Do_ShockUp core.
+pub const ANIM_X_PANIKA_NA4_STATIV: i32 = 0x41;
+/// Original panic-lying stativ animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:601: 0x44). Read by the Do_ShockUp core.
+pub const ANIM_X_PANIKA_LEH_STATIV: i32 = 0x44;
+/// Original panic-run animation ids (mafia-re 113b5b6
+/// game/actors/C_actor.h:603-605: 0x46 "panika run01a.i3d", 0x48
+/// "panika run03a.i3d", 0x4a "panika run02a.i3d"). Read by the
+/// Do_ShockStumble core of this slice, which advances a matching run by one;
+/// the PersonAnim remap stays DEFERRED.
+pub const ANIM_PANIKA_RUN01A: i32 = 0x46;
+/// Original panic-run animation id, second variant (mafia-re 113b5b6
+/// game/actors/C_actor.h:604: 0x48). Read by the Do_ShockStumble core.
+pub const ANIM_PANIKA_RUN03A: i32 = 0x48;
+/// Original panic-run animation id, third variant (mafia-re 113b5b6
+/// game/actors/C_actor.h:605: 0x4a). Read by the Do_ShockStumble core.
+pub const ANIM_PANIKA_RUN02A: i32 = 0x4a;
+/// Original corner-stand breath animation ids (mafia-re 113b5b6
+/// game/actors/C_actor.h:606-607: 0x4e "enm roh stoj stat L.i3d", 0x4f
+/// "enm roh stoj stat R.i3d"). Written by the Do_CornerBreath core of this
+/// slice; the PersonAnim stance/anim-set remap stays DEFERRED.
+pub const ANIM_ENM_ROH_STOJ_STAT_L: i32 = 0x4e;
+/// Original right corner-stand breath animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:607: 0x4f). Written by the Do_CornerBreath core.
+pub const ANIM_ENM_ROH_STOJ_STAT_R: i32 = 0x4f;
+/// Original corner-stand peek animation ids (mafia-re 113b5b6
+/// game/actors/C_actor.h:608-610: 0x50 "enm roh stoj nahl L.i3d", 0x51
+/// "enm roh stoj nahl R.i3d", 0x52 "enm roh drep nahl T.i3d"). Written by the
+/// Do_CornerView core of this slice; the PersonAnim/SetWaitAnim remap stays
+/// DEFERRED.
+pub const ANIM_ENM_ROH_STOJ_NAHL_L: i32 = 0x50;
+/// Original right corner-stand peek animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:609: 0x51). Written by the Do_CornerView core.
+pub const ANIM_ENM_ROH_STOJ_NAHL_R: i32 = 0x51;
+/// Original crouched corner peek animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:610: 0x52, crouched only). Written by the
+/// Do_CornerView core on the crouched CORNER_2 path.
+pub const ANIM_ENM_ROH_DREP_NAHL_T: i32 = 0x52;
+/// Original dead-body-drop animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:658: 0xa8, "NoseniMrtvolyTomShozeni.i3d"). Written
+/// by the Do_DeadBodyDrop core of this slice; the PersonAnim/SetWaitAnim
+/// remap stays DEFERRED.
+pub const ANIM_NOSENI_MRTVOLY_TOM_SHOZENI: i32 = 0xa8;
 /// Pocket count the truncate core iterates (mafia-re 113b5b6
 /// game/actors/g_inventory.h:41 INVENTORY_POCKETS 5, iterated at
 /// game/actors/C_human.cpp:6138).
@@ -577,6 +695,19 @@ pub struct HumanPersonAnimRequest {
     pub blend: f32,
     pub stance: bool,
     pub play_once: bool,
+}
+
+/// Corners a human looks, fires and breathes around (mafia-re 113b5b6
+/// game/actors/C_human.h:464-470: PS2 C_human::E_corner_view, CORNER_0,
+/// CORNER_1, CORNER_2 with the crouched-only note; the upstream values are
+/// not evidenced beyond the declaration order, so the plain 0/1/2 order is
+/// the working representation). Read by the Do_CornerBreath/Do_CornerView
+/// cores of this slice; the corner-fire writers stay DEFERRED.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CornerView {
+    Corner0 = 0,
+    Corner1 = 1,
+    Corner2 = 2,
 }
 
 #[derive(Debug)]
@@ -1354,6 +1485,110 @@ impl HumanState {
         };
         true
     }
+    /// GAME 0x57d670 (RVA 0x17d670) C_human::Go_FrontLeft (mafia-re 113b5b6
+    /// game/actors/C_human.cpp:5442): guarded no-op while seated in a car;
+    /// crouching, a carried box or a carried dead body force the walk variant.
+    /// Otherwise WALK with the turn stopped (turn_speed 0), the normalized
+    /// (side + dir) blend (side.x = -dir.z, side.y = dir.y, side.z = dir.x)
+    /// scaled by (run ? 5.0 : 1.7) * properties[SPEED] and next_anim_id
+    /// RUNL1/WALKL1. Returns true on admission. SCOPE and DEFERRED markers
+    /// as in `apply_go_front`.
+    pub fn apply_go_front_left(&mut self, run: bool, car_is_car_actor: bool) -> bool {
+        if self.seated_in_car(car_is_car_actor) {
+            return false;
+        }
+        let run =
+            run && !self.crouching && !self.carrying_box && !self.carrying_dead_body;
+        let side = [-self.dir[2], self.dir[1], self.dir[0]];
+        self.action_state = HUMAN_ACTION_WALK;
+        self.turn_speed = 0.0;
+        let blended = normalize_strafe_vector([
+            side[0] + self.dir[0],
+            side[1] + self.dir[1],
+            side[2] + self.dir[2],
+        ]);
+        let base = if run { 5.0 } else { 1.7 };
+        let speed = base * self.current_properties.speed_factor();
+        self.velocity = [blended[0] * speed, blended[1] * speed, blended[2] * speed];
+        self.next_anim_id = if run { ANIM_RUNL1 } else { ANIM_WALKL1 };
+        true
+    }
+    /// GAME 0x57d860 (RVA 0x17d860) C_human::Go_FrontRight (mafia-re 113b5b6
+    /// game/actors/C_human.cpp:5458): mirror of Go_FrontLeft with side.x =
+    /// dir.z, side.y = dir.y, side.z = -dir.x, the same car-seat guard, walk
+    /// forcing, normalization, scaling and turn stop, and next_anim_id
+    /// RUNR1/WALKR1. Returns true on admission. SCOPE and DEFERRED markers
+    /// as in `apply_go_front`.
+    pub fn apply_go_front_right(&mut self, run: bool, car_is_car_actor: bool) -> bool {
+        if self.seated_in_car(car_is_car_actor) {
+            return false;
+        }
+        let run =
+            run && !self.crouching && !self.carrying_box && !self.carrying_dead_body;
+        let side = [self.dir[2], self.dir[1], -self.dir[0]];
+        self.action_state = HUMAN_ACTION_WALK;
+        self.turn_speed = 0.0;
+        let blended = normalize_strafe_vector([
+            side[0] + self.dir[0],
+            side[1] + self.dir[1],
+            side[2] + self.dir[2],
+        ]);
+        let base = if run { 5.0 } else { 1.7 };
+        let speed = base * self.current_properties.speed_factor();
+        self.velocity = [blended[0] * speed, blended[1] * speed, blended[2] * speed];
+        self.next_anim_id = if run { ANIM_RUNR1 } else { ANIM_WALKR1 };
+        true
+    }
+    /// GAME 0x57da50 (RVA 0x17da50) C_human::Go_BackLeft (mafia-re 113b5b6
+    /// game/actors/C_human.cpp:5474): guarded no-op while seated in a car;
+    /// no crouch/box/dead-body arm (the original has none here). Otherwise
+    /// WALK with the turn stopped (turn_speed 0), the normalized (side +
+    /// -dir) blend (side.x = -dir.z, side.y = dir.y, side.z = dir.x) scaled
+    /// by properties[SPEED] * 1.5 and next_anim_id BACKL1. Returns true on
+    /// admission. SCOPE and DEFERRED markers as in `apply_go_front`.
+    pub fn apply_go_back_left(&mut self, car_is_car_actor: bool) -> bool {
+        if self.seated_in_car(car_is_car_actor) {
+            return false;
+        }
+        let side = [-self.dir[2], self.dir[1], self.dir[0]];
+        self.action_state = HUMAN_ACTION_WALK;
+        self.turn_speed = 0.0;
+        let blended = normalize_strafe_vector([
+            side[0] - self.dir[0],
+            side[1] - self.dir[1],
+            side[2] - self.dir[2],
+        ]);
+        let speed = self.current_properties.speed_factor() * 1.5;
+        self.velocity = [blended[0] * speed, blended[1] * speed, blended[2] * speed];
+        self.next_anim_id = ANIM_BACKL1;
+        true
+    }
+    /// GAME 0x57dc10 (RVA 0x17dc10) C_human::Go_BackRight (mafia-re 113b5b6
+    /// game/actors/C_human.cpp:5488): mirror of Go_BackLeft with side.x =
+    /// dir.z, side.y = dir.y, side.z = -dir.x, the same car-seat guard, WALK
+    /// entry and turn stop, scaled by properties[SPEED] * 1.5 with
+    /// next_anim_id BACKR1, but WITHOUT the normalization: the original only
+    /// tests IsMrgZeroLess(velocity.Square()) and discards the result (noted
+    /// at C_human.cpp:5496-5500 as going on like Go_BackLeft), so the raw
+    /// blend is scaled directly. The discarded pure read has no observable
+    /// effect and is not replicated. Returns true on admission. SCOPE and
+    /// DEFERRED markers as in `apply_go_front`.
+    pub fn apply_go_back_right(&mut self, car_is_car_actor: bool) -> bool {
+        if self.seated_in_car(car_is_car_actor) {
+            return false;
+        }
+        let side = [self.dir[2], self.dir[1], -self.dir[0]];
+        self.action_state = HUMAN_ACTION_WALK;
+        self.turn_speed = 0.0;
+        let speed = self.current_properties.speed_factor() * 1.5;
+        self.velocity = [
+            (side[0] - self.dir[0]) * speed,
+            (side[1] - self.dir[1]) * speed,
+            (side[2] - self.dir[2]) * speed,
+        ];
+        self.next_anim_id = ANIM_BACKR1;
+        true
+    }
     /// GAME 0x57f830 (RVA 0x17f830) C_human::Do_Aimed (mafia-re 113b5b6
     /// game/actors/C_human.cpp:6079-6095): carrying a box or a dead body
     /// clears the aim latch and returns; an aim request while changing the
@@ -1379,6 +1614,187 @@ impl HumanState {
             self.del_extended_anim_blend = Some(4.0);
             self.guarding = false;
         }
+    }
+    /// GAME 0x57f8a0 (RVA 0x17f8a0) C_human::Do_Crouched owned latch slice
+    /// (mafia-re 113b5b6 game/actors/C_human.cpp:6098-6118): carrying a box
+    /// or a dead body clears the crouch latch and returns; otherwise a stand
+    /// request while crouched is held down (crouch stays true) unless the
+    /// headroom probe clears it, and the latch takes `crouch`. The stand-up
+    /// headroom probe (frame GetWorldPos + 1.0 y lift, TestSphereB radius 0.3
+    /// dir (0, 0.55, 0) excluding the colls/ghosts, DynSetNextCollOwnerMult
+    /// plumbing at C_human.cpp:6108-6113) has no frame or collision owner yet,
+    /// so the caller supplies its verdict as `headroom_clear` (true when the
+    /// probe reports no hit). SCOPE: latch only. DEFERRED with explicit
+    /// markers, no new owner here: the frame and collision owners of the
+    /// probe, plus the PersonAnim/Update/Movement writers of the latch.
+    pub fn apply_do_crouched(&mut self, crouch: bool, headroom_clear: bool) {
+        if self.carrying_box || self.carrying_dead_body {
+            self.crouching = false;
+            return;
+        }
+        let mut crouch = crouch;
+        if self.crouching && !crouch && !headroom_clear {
+            crouch = true;
+        }
+        self.crouching = crouch;
+    }
+    /// GAME 0x58ac50 (RVA 0x18ac50) C_human::Force_CanWorking (mafia-re
+    /// 113b5b6 game/actors/C_human.cpp:9028-9031): set action_state to
+    /// HUMAN_ACTION_STAND (C_human.h:137). No guard, no anim write; the
+    /// HUMAN_WAITTOREADY gate that reads it stays DEFERRED.
+    pub fn apply_force_can_working(&mut self) {
+        self.action_state = HUMAN_ACTION_STAND;
+    }
+    /// GAME 0x58ac60 (RVA 0x18ac60) C_human::Turn_Turn owned select slice
+    /// (mafia-re 113b5b6 game/actors/C_human.cpp:9034-9040): select
+    /// next_anim_id ANIM_TURN1 and invoke PersonAnim(0.0, true, false),
+    /// recorded here as the handoff for the future animation owner (same
+    /// shape as the Do_StopAnim alive path). The velocity_ramp = 0 and
+    /// last_velocity.Zero() writes have no owners yet and stay DEFERRED with
+    /// an explicit marker; no invented motion state.
+    pub fn apply_turn_turn(&mut self) {
+        self.next_anim_id = ANIM_TURN1;
+        self.person_anim_request = Some(HumanPersonAnimRequest {
+            blend: 0.0,
+            stance: true,
+            play_once: false,
+        });
+    }
+    /// GAME 0x58a960 (RVA 0x18a960) C_human::Do_CornerBreath (mafia-re
+    /// 113b5b6 game/actors/C_human.cpp:8922-8936): carrying a box or a dead
+    /// body refuses; CORNER_0 selects ANIM_ENM_ROH_STOJ_STAT_L and CORNER_1
+    /// selects ANIM_ENM_ROH_STOJ_STAT_R (both return true); CORNER_2 has no
+    /// arm and refuses (false), matching the original switch fall-through.
+    /// No PersonAnim call: the original only arms next_anim_id here. SCOPE:
+    /// anim select only. DEFERRED with explicit markers, no new owner here:
+    /// the PersonAnim/Update/Movement writers of the word, collision, tick.
+    pub fn apply_do_corner_breath(&mut self, view: CornerView) -> bool {
+        if self.carrying_box || self.carrying_dead_body {
+            return false;
+        }
+        match view {
+            CornerView::Corner0 => {
+                self.next_anim_id = ANIM_ENM_ROH_STOJ_STAT_L;
+                true
+            }
+            CornerView::Corner1 => {
+                self.next_anim_id = ANIM_ENM_ROH_STOJ_STAT_R;
+                true
+            }
+            CornerView::Corner2 => false,
+        }
+    }
+    /// GAME 0x58a9a0 (RVA 0x18a9a0) C_human::Do_CornerView owned select
+    /// slice (mafia-re 113b5b6 game/actors/C_human.cpp:8939-8961): carrying
+    /// a box or a dead body refuses; CORNER_0 selects
+    /// ANIM_ENM_ROH_STOJ_NAHL_L and CORNER_1 selects ANIM_ENM_ROH_STOJ_NAHL_R;
+    /// CORNER_2 refuses unless crouching and then selects
+    /// ANIM_ENM_ROH_DREP_NAHL_T; any other view (unrepresentable here)
+    /// refuses. On admission the inline SetWaitAnim runs: its PersonAnim(0.0,
+    /// true, false) invocation is recorded here as the handoff for the future
+    /// animation owner, while its action_time/last_velocity/velocity_ramp
+    /// writes plus the HUMAN_ACTION_WAIT select (C_human.h:1160-1172) have no
+    /// owners yet and stay DEFERRED with an explicit marker; no invented
+    /// wait state. Returns true on admission.
+    pub fn apply_do_corner_view(&mut self, view: CornerView) -> bool {
+        if self.carrying_box || self.carrying_dead_body {
+            return false;
+        }
+        match view {
+            CornerView::Corner0 => {
+                self.next_anim_id = ANIM_ENM_ROH_STOJ_NAHL_L;
+            }
+            CornerView::Corner1 => {
+                self.next_anim_id = ANIM_ENM_ROH_STOJ_NAHL_R;
+            }
+            CornerView::Corner2 => {
+                if !self.crouching {
+                    return false;
+                }
+                self.next_anim_id = ANIM_ENM_ROH_DREP_NAHL_T;
+            }
+        }
+        self.person_anim_request = Some(HumanPersonAnimRequest {
+            blend: 0.0,
+            stance: true,
+            play_once: false,
+        });
+        true
+    }
+    /// GAME 0x587cb0 (RVA 0x187cb0) C_human::Do_ShockUp (mafia-re 113b5b6
+    /// game/actors/C_human.cpp:8143-8153): carrying a box or a dead body is a
+    /// no-op; when the current animation is one of the panic stativs
+    /// (ANIM_X_PANIKA_DREP_STATIV, ANIM_X_PANIKA_NA4_STATIV,
+    /// ANIM_X_PANIKA_LEH_STATIV), the next animation advances by exactly one
+    /// and PersonAnim(0.0, true, false) runs, recorded here as the handoff
+    /// for the future animation owner. Any other anim_id leaves the state
+    /// untouched. SCOPE: anim advance only. DEFERRED with explicit markers,
+    /// no new owner here: the PersonAnim/Update/Movement writers, collision,
+    /// tick.
+    pub fn apply_do_shock_up(&mut self) {
+        if self.carrying_box || self.carrying_dead_body {
+            return;
+        }
+        if self.anim_id == ANIM_X_PANIKA_DREP_STATIV
+            || self.anim_id == ANIM_X_PANIKA_NA4_STATIV
+            || self.anim_id == ANIM_X_PANIKA_LEH_STATIV
+        {
+            self.next_anim_id = self.anim_id + 1;
+            self.person_anim_request = Some(HumanPersonAnimRequest {
+                blend: 0.0,
+                stance: true,
+                play_once: false,
+            });
+        }
+    }
+    /// GAME 0x587cf0 (RVA 0x187cf0) C_human::Do_ShockStumble (mafia-re
+    /// 113b5b6 game/actors/C_human.cpp:8156-8165): carrying a box or a dead
+    /// body is a no-op; when the current animation is one of the panic runs
+    /// (ANIM_PANIKA_RUN01A, ANIM_PANIKA_RUN03A, ANIM_PANIKA_RUN02A), the next
+    /// animation advances by exactly one (verbatim `anim_id + 1`, gaps
+    /// included) and PersonAnim(0.0, true, false) runs, recorded here as the
+    /// handoff. Any other anim_id leaves the state untouched. SCOPE and
+    /// DEFERRED markers as in `apply_do_shock_up`.
+    pub fn apply_do_shock_stumble(&mut self) {
+        if self.carrying_box || self.carrying_dead_body {
+            return;
+        }
+        if self.anim_id == ANIM_PANIKA_RUN01A
+            || self.anim_id == ANIM_PANIKA_RUN03A
+            || self.anim_id == ANIM_PANIKA_RUN02A
+        {
+            self.next_anim_id = self.anim_id + 1;
+            self.person_anim_request = Some(HumanPersonAnimRequest {
+                blend: 0.0,
+                stance: true,
+                play_once: false,
+            });
+        }
+    }
+    /// GAME 0x58b7e0 (RVA 0x18b7e0) C_human::Do_DeadBodyDrop owned anim
+    /// slice (mafia-re 113b5b6 game/actors/C_human.cpp:9271-9280): without a
+    /// carried dead body this is a no-op; otherwise the body release runs
+    /// (Do_DeadBody(NULL) with the body/cart owners, DEFERRED with an
+    /// explicit marker and no latch write here: the drop body itself carries
+    /// no latch store, matching the Intern_FromCar seat convention), then
+    /// anim_id clears to 0, next_anim_id selects
+    /// ANIM_NOSENI_MRTVOLY_TOM_SHOZENI and PersonAnim(0.0, true, false) runs,
+    /// recorded here as the handoff. The trailing inline SetWaitAnim's
+    /// PersonAnim part is that same handoff; its
+    /// action_time/last_velocity/velocity_ramp writes plus the
+    /// HUMAN_ACTION_WAIT select (C_human.h:1160-1172) stay DEFERRED with an
+    /// explicit marker. SCOPE: anim words plus handoff only.
+    pub fn apply_do_dead_body_drop(&mut self) {
+        if !self.carrying_dead_body {
+            return;
+        }
+        self.anim_id = 0;
+        self.next_anim_id = ANIM_NOSENI_MRTVOLY_TOM_SHOZENI;
+        self.person_anim_request = Some(HumanPersonAnimRequest {
+            blend: 0.0,
+            stance: true,
+            play_once: false,
+        });
     }
     /// GAME 0x57f9a0 (RVA 0x17f9a0) C_human::InventoryTruncate (mafia-re
     /// 113b5b6 game/actors/C_human.cpp:6133-6140): clamp right_hand,
@@ -2205,5 +2621,359 @@ mod tests {
             ),
             (7, 7, 9)
         );
+    }
+    fn speed_unit_seed() -> HumanSeed {
+        // Hand-derived helper: a 1.0 Speed multiplier (mafia-re 113b5b6
+        // game/actors/C_human.h:92 HUMAN_PROPERTY_SPEED 7) so the Go_*
+        // expectations read as plain base speeds.
+        let mut seed_record = [0u8; 64];
+        seed_record[7 * 4..7 * 4 + 4].copy_from_slice(&1.0f32.to_le_bytes());
+        HumanSeed {
+            allocator_tag: 0xd7,
+            animation_machine: HumanAnimationMachineSeed {
+                untouched_word: 0xa5a5_a5a5,
+            },
+            previous_animation_code: 0,
+            requested_animation_code: 0,
+            human_type_mask: 0,
+            current_properties: HumanProperties::from_record(seed_record),
+            target_e: None,
+            target_n: None,
+            base_frame: None,
+            auxiliary: std::array::from_fn(|_| HumanAuxiliarySeed {
+                untouched_word: 0,
+                padding: [0; 3],
+                untouched_tail: [0; 16],
+            }),
+        }
+    }
+    #[test]
+    // GAME 0x57d670 (RVA 0x17d670) C_human::Go_FrontLeft (mafia-re 113b5b6
+    // game/actors/C_human.cpp:5442): the seat guard refuses, crouching forces
+    // the walk blend, and the run blend normalizes (side + dir) before the
+    // 5.0 scaling.
+    fn go_front_left_rva_17d670_walk_run_and_seat_guard() {
+        use crate::script_scheduler::ActorReferenceId;
+        let mut human = HumanState::construct(speed_unit_seed());
+        human.set_dir([0.0, 0.0, 1.0]);
+        human.set_car(Some(ActorReferenceId::from_existing(3)));
+        human.seat = 0;
+        assert!(!human.apply_go_front_left(true, true));
+        assert_eq!(human.action_state(), HUMAN_ACTION_STAND);
+        human.set_car(None);
+        // dir (0,0,1): side (-1,0,0), blend (-1,0,1), |blend| = sqrt(2).
+        assert!(human.apply_go_front_left(true, false));
+        assert_eq!(human.action_state(), HUMAN_ACTION_WALK);
+        assert_eq!(human.turn_speed(), 0.0);
+        assert_eq!(human.next_anim_id(), ANIM_RUNL1);
+        let inv_sqrt2 = std::f32::consts::FRAC_1_SQRT_2;
+        for (got, want) in human
+            .velocity()
+            .iter()
+            .zip([-5.0 * inv_sqrt2, 0.0, 5.0 * inv_sqrt2])
+        {
+            assert!((got - want).abs() < 1e-5, "got {got}, want {want}");
+        }
+        // Crouching forces the 1.7 walk blend and the WALKL1 select.
+        human.set_crouching(true);
+        assert!(human.apply_go_front_left(true, false));
+        assert_eq!(human.next_anim_id(), ANIM_WALKL1);
+        for (got, want) in human
+            .velocity()
+            .iter()
+            .zip([-1.7 * inv_sqrt2, 0.0, 1.7 * inv_sqrt2])
+        {
+            assert!((got - want).abs() < 1e-5, "got {got}, want {want}");
+        }
+    }
+    #[test]
+    // GAME 0x57d860 (RVA 0x17d860) C_human::Go_FrontRight (mafia-re 113b5b6
+    // game/actors/C_human.cpp:5458): the mirror blend (side + dir) with
+    // side = (dir.z, dir.y, -dir.x) and the RUNR1/WALKR1 select.
+    fn go_front_right_rva_17d860_mirrors_left_blend() {
+        let mut human = HumanState::construct(speed_unit_seed());
+        human.set_dir([0.0, 0.0, 1.0]);
+        // dir (0,0,1): side (1,0,0), blend (1,0,1), |blend| = sqrt(2).
+        assert!(human.apply_go_front_right(false, false));
+        assert_eq!(human.action_state(), HUMAN_ACTION_WALK);
+        assert_eq!(human.turn_speed(), 0.0);
+        assert_eq!(human.next_anim_id(), ANIM_WALKR1);
+        let inv_sqrt2 = std::f32::consts::FRAC_1_SQRT_2;
+        for (got, want) in human
+            .velocity()
+            .iter()
+            .zip([1.7 * inv_sqrt2, 0.0, 1.7 * inv_sqrt2])
+        {
+            assert!((got - want).abs() < 1e-5, "got {got}, want {want}");
+        }
+        assert!(human.apply_go_front_right(true, false));
+        assert_eq!(human.next_anim_id(), ANIM_RUNR1);
+    }
+    #[test]
+    // GAME 0x57da50 (RVA 0x17da50) C_human::Go_BackLeft (mafia-re 113b5b6
+    // game/actors/C_human.cpp:5474): no crouch arm, the normalized
+    // (side + -dir) blend scaled by SPEED * 1.5 and the BACKL1 select; the
+    // zero-dir degenerate arm of Normalize yields (0, 1, 0).
+    fn go_back_left_rva_17da50_normalizes_reverse_blend() {
+        let mut human = HumanState::construct(speed_unit_seed());
+        human.set_dir([1.0, 0.0, 0.0]);
+        // dir (1,0,0): side (0,0,1), blend (-1,0,1), |blend| = sqrt(2).
+        assert!(human.apply_go_back_left(false));
+        assert_eq!(human.action_state(), HUMAN_ACTION_WALK);
+        assert_eq!(human.turn_speed(), 0.0);
+        assert_eq!(human.next_anim_id(), ANIM_BACKL1);
+        let unit = 1.5 * std::f32::consts::FRAC_1_SQRT_2;
+        for (got, want) in human.velocity().iter().zip([-unit, 0.0, unit]) {
+            assert!((got - want).abs() < 1e-5, "got {got}, want {want}");
+        }
+        // Crouching does not force anything here: the original has no such
+        // arm on this path, so the blend is unchanged.
+        human.set_crouching(true);
+        assert!(human.apply_go_back_left(false));
+        assert_eq!(human.next_anim_id(), ANIM_BACKL1);
+        // Degenerate zero direction: side and blend are zero, Normalize maps
+        // them to (0, 1, 0) (first-nonzero-axis arm with 0.0 as positive).
+        human.set_dir([0.0, 0.0, 0.0]);
+        assert!(human.apply_go_back_left(false));
+        for (got, want) in human.velocity().iter().zip([0.0, 1.5, 0.0]) {
+            assert!((got - want).abs() < 1e-5, "got {got}, want {want}");
+        }
+    }
+    #[test]
+    // GAME 0x57dc10 (RVA 0x17dc10) C_human::Go_BackRight (mafia-re 113b5b6
+    // game/actors/C_human.cpp:5488): same guard/entry/scaling as Go_BackLeft
+    // with the mirrored blend and the BACKR1 select, but no normalization:
+    // the raw blend scales directly (the IsMrgZeroLess probe result is
+    // discarded in the original and has no observable effect).
+    fn go_back_right_rva_17dc10_scales_raw_blend() {
+        let mut human = HumanState::construct(speed_unit_seed());
+        human.set_dir([1.0, 0.0, 0.0]);
+        // dir (1,0,0): side (0,0,-1), raw blend (-1,0,-1) scaled by 1.5.
+        assert!(human.apply_go_back_right(false));
+        assert_eq!(human.action_state(), HUMAN_ACTION_WALK);
+        assert_eq!(human.turn_speed(), 0.0);
+        assert_eq!(human.next_anim_id(), ANIM_BACKR1);
+        for (got, want) in human.velocity().iter().zip([-1.5, 0.0, -1.5]) {
+            assert!((got - want).abs() < 1e-5, "got {got}, want {want}");
+        }
+    }
+    #[test]
+    // GAME 0x57f8a0 (RVA 0x17f8a0) C_human::Do_Crouched (mafia-re 113b5b6
+    // game/actors/C_human.cpp:6098): carried box/dead body clears the latch;
+    // standing up while crouched needs the headroom verdict; otherwise the
+    // latch takes the request.
+    fn do_crouched_rva_17f8a0_carry_hold_and_release() {
+        let mut human = HumanState::construct(seed());
+        assert!(!human.crouching());
+        human.apply_do_crouched(true, true);
+        assert!(human.crouching());
+        // Standing up with headroom: the latch releases.
+        human.apply_do_crouched(false, true);
+        assert!(!human.crouching());
+        // Standing up without headroom: the latch holds (probe hit).
+        human.apply_do_crouched(true, true);
+        human.apply_do_crouched(false, false);
+        assert!(human.crouching());
+        // A carried box clears the latch and returns, ignoring the request.
+        human.set_carrying_box(true);
+        human.apply_do_crouched(true, true);
+        assert!(!human.crouching());
+        human.set_carrying_box(false);
+        // A carried dead body behaves like the box.
+        human.set_carrying_dead_body(true);
+        human.apply_do_crouched(true, true);
+        assert!(!human.crouching());
+        human.set_carrying_dead_body(false);
+        assert!(!human.crouching());
+    }
+    #[test]
+    // GAME 0x58ac50 (RVA 0x18ac50) C_human::Force_CanWorking (mafia-re
+    // 113b5b6 game/actors/C_human.cpp:9028): unconditionally restores
+    // HUMAN_ACTION_STAND.
+    fn force_can_working_rva_18ac50_restores_stand() {
+        let mut human = HumanState::construct(seed());
+        human.action_state = HUMAN_ACTION_WALK;
+        human.apply_force_can_working();
+        assert_eq!(human.action_state(), HUMAN_ACTION_STAND);
+        human.action_state = HUMAN_ACTION_JUMP;
+        human.apply_force_can_working();
+        assert_eq!(human.action_state(), 1);
+    }
+    #[test]
+    // GAME 0x58ac60 (RVA 0x18ac60) C_human::Turn_Turn (mafia-re 113b5b6
+    // game/actors/C_human.cpp:9034): selects ANIM_TURN1 and stages the
+    // PersonAnim(0.0, true, false) handoff; velocity_ramp/last_velocity stay
+    // with their future owners.
+    fn turn_turn_rva_18ac60_selects_turn_and_hands_off() {
+        let mut human = HumanState::construct(seed());
+        assert_eq!(human.person_anim_request(), None);
+        human.apply_turn_turn();
+        assert_eq!(human.next_anim_id(), ANIM_TURN1);
+        assert_eq!(human.next_anim_id(), 0xa);
+        assert_eq!(
+            human.person_anim_request(),
+            Some(HumanPersonAnimRequest {
+                blend: 0.0,
+                stance: true,
+                play_once: false,
+            })
+        );
+    }
+    #[test]
+    // GAME 0x58a960 (RVA 0x18a960) C_human::Do_CornerBreath (mafia-re 113b5b6
+    // game/actors/C_human.cpp:8922): the corner arms select the stat anims
+    // and admit; CORNER_2 and carried loads refuse with the state untouched.
+    fn corner_breath_rva_18a960_selects_stat_anims() {
+        let mut human = HumanState::construct(seed());
+        assert!(human.apply_do_corner_breath(CornerView::Corner0));
+        assert_eq!(human.next_anim_id(), ANIM_ENM_ROH_STOJ_STAT_L);
+        assert!(human.apply_do_corner_breath(CornerView::Corner1));
+        assert_eq!(human.next_anim_id(), ANIM_ENM_ROH_STOJ_STAT_R);
+        assert!(!human.apply_do_corner_breath(CornerView::Corner2));
+        assert_eq!(human.next_anim_id(), ANIM_ENM_ROH_STOJ_STAT_R);
+        // No PersonAnim call on this path: only next_anim_id is armed.
+        assert_eq!(human.person_anim_request(), None);
+        human.set_carrying_box(true);
+        assert!(!human.apply_do_corner_breath(CornerView::Corner0));
+        assert_eq!(human.next_anim_id(), ANIM_ENM_ROH_STOJ_STAT_R);
+        human.set_carrying_box(false);
+        human.set_carrying_dead_body(true);
+        assert!(!human.apply_do_corner_breath(CornerView::Corner1));
+        assert_eq!(human.next_anim_id(), ANIM_ENM_ROH_STOJ_STAT_R);
+    }
+    #[test]
+    // GAME 0x58a9a0 (RVA 0x18a9a0) C_human::Do_CornerView (mafia-re 113b5b6
+    // game/actors/C_human.cpp:8939): the stand peeks admit with the
+    // SetWaitAnim handoff; CORNER_2 needs the crouch and otherwise refuses;
+    // carried loads refuse.
+    fn corner_view_rva_18a9a0_gates_crouch_peek() {
+        let mut human = HumanState::construct(seed());
+        assert!(human.apply_do_corner_view(CornerView::Corner0));
+        assert_eq!(human.next_anim_id(), ANIM_ENM_ROH_STOJ_NAHL_L);
+        assert_eq!(
+            human.person_anim_request(),
+            Some(HumanPersonAnimRequest {
+                blend: 0.0,
+                stance: true,
+                play_once: false,
+            })
+        );
+        assert!(human.apply_do_corner_view(CornerView::Corner1));
+        assert_eq!(human.next_anim_id(), ANIM_ENM_ROH_STOJ_NAHL_R);
+        // Standing CORNER_2 refuses with the state untouched.
+        assert!(!human.apply_do_corner_view(CornerView::Corner2));
+        assert_eq!(human.next_anim_id(), ANIM_ENM_ROH_STOJ_NAHL_R);
+        human.set_crouching(true);
+        assert!(human.apply_do_corner_view(CornerView::Corner2));
+        assert_eq!(human.next_anim_id(), ANIM_ENM_ROH_DREP_NAHL_T);
+        human.set_carrying_dead_body(true);
+        assert!(!human.apply_do_corner_view(CornerView::Corner0));
+        assert_eq!(human.next_anim_id(), ANIM_ENM_ROH_DREP_NAHL_T);
+    }
+    #[test]
+    // GAME 0x587cb0 (RVA 0x187cb0) C_human::Do_ShockUp (mafia-re 113b5b6
+    // game/actors/C_human.cpp:8143): only the three panic stativs advance by
+    // one with the PersonAnim handoff; other anims and carried loads leave
+    // the state untouched.
+    fn shock_up_rva_187cb0_advances_only_stativs() {
+        let mut human = HumanState::construct(seed());
+        for (stativ, advanced) in [
+            (ANIM_X_PANIKA_DREP_STATIV, 0x3f),
+            (ANIM_X_PANIKA_NA4_STATIV, 0x42),
+            (ANIM_X_PANIKA_LEH_STATIV, 0x45),
+        ] {
+            human.anim_id = stativ;
+            human.next_anim_id = 0;
+            human.apply_do_shock_up();
+            assert_eq!(human.next_anim_id(), advanced);
+            assert_eq!(
+                human.person_anim_request(),
+                Some(HumanPersonAnimRequest {
+                    blend: 0.0,
+                    stance: true,
+                    play_once: false,
+                })
+            );
+            human.take_person_anim_request();
+        }
+        // A non-stativ anim leaves the words and the handoff untouched.
+        human.anim_id = ANIM_BREATH01A;
+        human.next_anim_id = 0x42;
+        human.apply_do_shock_up();
+        assert_eq!(human.next_anim_id(), 0x42);
+        assert_eq!(human.person_anim_request(), None);
+        // Carried loads guard the whole body.
+        human.anim_id = ANIM_X_PANIKA_DREP_STATIV;
+        human.set_carrying_box(true);
+        human.apply_do_shock_up();
+        assert_eq!(human.next_anim_id(), 0x42);
+        assert_eq!(human.person_anim_request(), None);
+    }
+    #[test]
+    // GAME 0x587cf0 (RVA 0x187cf0) C_human::Do_ShockStumble (mafia-re 113b5b6
+    // game/actors/C_human.cpp:8156): only the three panic runs advance by one
+    // (verbatim anim_id + 1) with the PersonAnim handoff.
+    fn shock_stumble_rva_187cf0_advances_only_panic_runs() {
+        let mut human = HumanState::construct(seed());
+        for (run, advanced) in [
+            (ANIM_PANIKA_RUN01A, 0x47),
+            (ANIM_PANIKA_RUN03A, 0x49),
+            (ANIM_PANIKA_RUN02A, 0x4b),
+        ] {
+            human.anim_id = run;
+            human.next_anim_id = 0;
+            human.apply_do_shock_stumble();
+            assert_eq!(human.next_anim_id(), advanced);
+            assert_eq!(
+                human.person_anim_request(),
+                Some(HumanPersonAnimRequest {
+                    blend: 0.0,
+                    stance: true,
+                    play_once: false,
+                })
+            );
+            human.take_person_anim_request();
+        }
+        human.anim_id = ANIM_WALK1;
+        human.next_anim_id = 0x42;
+        human.apply_do_shock_stumble();
+        assert_eq!(human.next_anim_id(), 0x42);
+        assert_eq!(human.person_anim_request(), None);
+        human.anim_id = ANIM_PANIKA_RUN01A;
+        human.set_carrying_dead_body(true);
+        human.apply_do_shock_stumble();
+        assert_eq!(human.next_anim_id(), 0x42);
+        assert_eq!(human.person_anim_request(), None);
+    }
+    #[test]
+    // GAME 0x58b7e0 (RVA 0x18b7e0) C_human::Do_DeadBodyDrop (mafia-re 113b5b6
+    // game/actors/C_human.cpp:9271): without a carried body this is a no-op;
+    // otherwise anim_id clears, the shozeni anim selects and the
+    // PersonAnim/SetWaitAnim handoff stages (the body release and the wait
+    // timer stay with their owners).
+    fn dead_body_drop_rva_18b7e0_guards_and_hands_off() {
+        let mut human = HumanState::construct(seed());
+        human.anim_id = 7;
+        human.next_anim_id = 0x42;
+        human.apply_do_dead_body_drop();
+        assert_eq!(human.anim_id(), 7);
+        assert_eq!(human.next_anim_id(), 0x42);
+        assert_eq!(human.person_anim_request(), None);
+        human.set_carrying_dead_body(true);
+        human.apply_do_dead_body_drop();
+        assert_eq!(human.anim_id(), 0);
+        assert_eq!(human.next_anim_id(), ANIM_NOSENI_MRTVOLY_TOM_SHOZENI);
+        assert_eq!(human.next_anim_id(), 0xa8);
+        assert_eq!(
+            human.person_anim_request(),
+            Some(HumanPersonAnimRequest {
+                blend: 0.0,
+                stance: true,
+                play_once: false,
+            })
+        );
+        // The body release itself stays with the body owner: the latch is
+        // not cleared by this slice.
+        assert!(human.carrying_dead_body());
     }
 }

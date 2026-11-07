@@ -11497,6 +11497,123 @@
       "symbol": "lhr_engine::vehicle_small_accessors::car_set_record_playing",
       "tier": "differential",
       "evidence": "REA ev_0b21a77592 + Ghidra body 2 insns/1 bbs; pin tests vehicle_small 15 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x17d670",
+      "va": "0x57d670",
+      "name": "C_human::Go_FrontLeft",
+      "symbol": "lhr_engine::human_actor::HumanState::apply_go_front_left",
+      "tier": "differential",
+      "evidence": "REA ev_1a1049a4da + Ghidra body 147 insns/28 bbs; pin tests human_actor 32 / player_actor 4 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x17d860",
+      "va": "0x57d860",
+      "name": "C_human::Go_FrontRight",
+      "symbol": "lhr_engine::human_actor::HumanState::apply_go_front_right",
+      "tier": "differential",
+      "evidence": "REA ev_1213f75100 + Ghidra body 147 insns/28 bbs; pin tests human_actor 32 / player_actor 4 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x17da50",
+      "va": "0x57da50",
+      "name": "C_human::Go_BackLeft",
+      "symbol": "lhr_engine::human_actor::HumanState::apply_go_back_left",
+      "tier": "differential",
+      "evidence": "REA ev_8befd0c1a0 + Ghidra body 133 insns/20 bbs; pin tests human_actor 32 / player_actor 4 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x17dc10",
+      "va": "0x57dc10",
+      "name": "C_human::Go_BackRight",
+      "symbol": "lhr_engine::human_actor::HumanState::apply_go_back_right",
+      "tier": "differential",
+      "evidence": "REA ev_a627102a00 + Ghidra body 72 insns/5 bbs; pin tests human_actor 32 / player_actor 4 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x18ac50",
+      "va": "0x58ac50",
+      "name": "C_human::Force_CanWorking",
+      "symbol": "lhr_engine::human_actor::HumanState::apply_force_can_working",
+      "tier": "differential",
+      "evidence": "REA ev_16b56151dd + Ghidra body 2 insns/1 bbs; pin tests human_actor 32 / player_actor 4 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x18ac60",
+      "va": "0x58ac60",
+      "name": "C_human::Turn_Turn",
+      "symbol": "lhr_engine::human_actor::HumanState::apply_turn_turn",
+      "tier": "differential",
+      "evidence": "REA ev_27852be5f7 + Ghidra body 11 insns/1 bbs; pin tests human_actor 32 / player_actor 4 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x18a960",
+      "va": "0x58a960",
+      "name": "C_human::Do_CornerBreath",
+      "symbol": "lhr_engine::human_actor::HumanState::apply_do_corner_breath",
+      "tier": "differential",
+      "evidence": "REA ev_ab804f3067 + Ghidra body 19 insns/7 bbs; pin tests human_actor 32 / player_actor 4 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x18a9a0",
+      "va": "0x58a9a0",
+      "name": "C_human::Do_CornerView",
+      "symbol": "lhr_engine::human_actor::HumanState::apply_do_corner_view",
+      "tier": "differential",
+      "evidence": "REA ev_618bcaaa40 + Ghidra body 54 insns/13 bbs; pin tests human_actor 32 / player_actor 4 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x187cb0",
+      "va": "0x587cb0",
+      "name": "C_human::Do_ShockUp",
+      "symbol": "lhr_engine::human_actor::HumanState::apply_do_shock_up",
+      "tier": "differential",
+      "evidence": "REA ev_71d044dc83 + Ghidra body 20 insns/7 bbs; pin tests human_actor 32 / player_actor 4 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x187cf0",
+      "va": "0x587cf0",
+      "name": "C_human::Do_ShockStumble",
+      "symbol": "lhr_engine::human_actor::HumanState::apply_do_shock_stumble",
+      "tier": "differential",
+      "evidence": "REA ev_27d5bc7ea0 + Ghidra body 20 insns/7 bbs; pin tests human_actor 32 / player_actor 4 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x18b7e0",
+      "va": "0x58b7e0",
+      "name": "C_human::Do_DeadBodyDrop",
+      "symbol": "lhr_engine::human_actor::HumanState::apply_do_dead_body_drop",
+      "tier": "differential",
+      "evidence": "REA ev_d48a8d39f0 + Ghidra body 41 insns/4 bbs; pin tests human_actor 32 / player_actor 4 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x18f160",
+      "va": "0x58f160",
+      "name": "SetPlayerNaviPoint",
+      "symbol": "lhr_engine::player_actor::PlayerState::set_player_navi_point",
+      "tier": "differential",
+      "evidence": "REA ev_b9c4ccf830 + Ghidra body 2 insns/1 bbs; pin tests human_actor 32 / player_actor 4 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1961b0",
+      "va": "0x5961b0",
+      "name": "C_player::FadeReset",
+      "symbol": "lhr_engine::player_actor::PlayerState::apply_fade_reset",
+      "tier": "differential",
+      "evidence": "REA ev_73a3ff2c48 + Ghidra body 6 insns/1 bbs; pin tests human_actor 32 / player_actor 4 pass"
     }
   ],
   "vm": {

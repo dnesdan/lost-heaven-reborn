@@ -2,9 +2,12 @@
 //! destructor58f220; deleting wrapper58f200. No Player GameInit/control policy.
 //! PLAYER_LOCKCONTROLS (mafia-re 113b5b6 game/mission/C_program.cpp:4172)
 //! LockControls GAME 0x595f00 stores its bool here; Do_Breath stays DEFERRED
-//! (needs player animation/breath owner, no new RVAs).
+//! (needs player animation/breath owner, no new RVAs). The navigation point
+//! (SetPlayerNaviPoint GAME 0x58f160) and the fade words (FadeReset GAME
+//! 0x5961b0 with the SetAlpha GAME 0x595e10 call DEFERRED) are staged here.
 #![forbid(unsafe_code)]
 use crate::human_actor::{EmptyHumanCollection, HumanSeed, HumanState};
+use crate::script_scheduler::FrameReferenceId;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PlayerSeed {
@@ -23,6 +26,21 @@ pub struct PlayerState {
     /// projection (the single-player game owns one player). Starts cleared,
     /// matching the C_game::Init clear; the HUD consumer stays DEFERRED.
     can_car_damage: bool,
+    /// Navigation-point frame (mafia-re 113b5b6 game/actors/C_player.h:89:
+    /// static I3D_frame *navi_frame, a frame or NULL). Native storage is a
+    /// C_player.cpp static written by SetPlayerNaviPoint; this stages the
+    /// per-player projection. Starts at none; the compass consumer stays
+    /// DEFERRED.
+    navi_frame: Option<FrameReferenceId>,
+    /// The player's alpha and the one it fades to (mafia-re 113b5b6
+    /// game/actors/C_player.h:67-70: 0xab8 fade_alpha and 0xabc fade_target,
+    /// 1 from C_game::Init and FadeReset). Written by the FadeReset core of
+    /// this slice; the SetAlpha consumer (GAME 0x595e10, frame owner) stays
+    /// DEFERRED. Starts at the fully-visible unit pair (working deterministic
+    /// default: the C_player constructor at GAME 0x58f170 is an unowned
+    /// STUB, so no original default is evidenced on this path).
+    fade_alpha: f32,
+    fade_target: f32,
 }
 impl PlayerState {
     pub(crate) fn construct(allocator_tag: u8, human: &mut HumanState) -> Self {
@@ -37,6 +55,9 @@ impl PlayerState {
             collection: EmptyHumanCollection::construct(allocator_tag),
             controls_locked: false,
             can_car_damage: false,
+            navi_frame: None,
+            fade_alpha: 1.0,
+            fade_target: 1.0,
         }
     }
     pub fn constructor_words(&self) -> &[u32; 2] {
@@ -62,6 +83,34 @@ impl PlayerState {
     /// Card-damage HUD latch staged by SetCanCarDamage, cleared at start.
     pub fn can_car_damage(&self) -> bool {
         self.can_car_damage
+    }
+    /// GAME 0x58f160 (RVA 0x18f160) SetPlayerNaviPoint (mafia-re 113b5b6
+    /// game/actors/C_player.cpp:16-19): store the navigation point, None for
+    /// NULL. Native storage is the C_player.cpp static; the compass setter
+    /// and C_game::Init clearer stay DEFERRED with the mission owner.
+    pub fn set_player_navi_point(&mut self, frame: Option<FrameReferenceId>) {
+        self.navi_frame = frame;
+    }
+    /// Navigation point staged by SetPlayerNaviPoint, None for NULL.
+    pub fn navi_frame(&self) -> Option<FrameReferenceId> {
+        self.navi_frame
+    }
+    /// GAME 0x5961b0 (RVA 0x1961b0) C_player::FadeReset (mafia-re 113b5b6
+    /// game/actors/C_player.cpp:59-64): restore fade_alpha and fade_target to
+    /// 1.0 (fully visible). The trailing SetAlpha(fade_alpha) call (GAME
+    /// 0x595e10) stays with the frame/alpha owner (DEFERRED) with an explicit
+    /// marker; no alpha effect happens here.
+    pub fn apply_fade_reset(&mut self) {
+        self.fade_alpha = 1.0;
+        self.fade_target = 1.0;
+    }
+    /// Player alpha staged by FadeReset (1.0 fully visible).
+    pub fn fade_alpha(&self) -> f32 {
+        self.fade_alpha
+    }
+    /// Fade target staged by FadeReset (1.0 fully visible).
+    pub fn fade_target(&self) -> f32 {
+        self.fade_target
     }
 }
 
@@ -110,5 +159,35 @@ mod lock_tests {
         assert!(player.can_car_damage());
         player.set_can_car_damage(false);
         assert!(!player.can_car_damage());
+    }
+    #[test]
+    // GAME 0x58f160 (RVA 0x18f160) SetPlayerNaviPoint (mafia-re 113b5b6
+    // game/actors/C_player.cpp:16-19): the point starts at none (NULL) and
+    // round-trips through the setter.
+    fn navi_point_rva_18f160_starts_none_and_stores_frame() {
+        use crate::script_scheduler::FrameReferenceId;
+        let mut human = HumanState::construct(human_seed());
+        let mut player = PlayerState::construct(0xd7, &mut human);
+        assert_eq!(player.navi_frame(), None);
+        player.set_player_navi_point(Some(FrameReferenceId::from_existing(7)));
+        assert_eq!(
+            player.navi_frame(),
+            Some(FrameReferenceId::from_existing(7))
+        );
+        player.set_player_navi_point(None);
+        assert_eq!(player.navi_frame(), None);
+    }
+    #[test]
+    // GAME 0x5961b0 (RVA 0x1961b0) C_player::FadeReset (mafia-re 113b5b6
+    // game/actors/C_player.cpp:59-64): both fade words restore to 1.0; the
+    // SetAlpha call stays with the frame owner.
+    fn fade_reset_rva_1961b0_restores_unit_fades() {
+        let mut human = HumanState::construct(human_seed());
+        let mut player = PlayerState::construct(0xd7, &mut human);
+        assert_eq!((player.fade_alpha(), player.fade_target()), (1.0, 1.0));
+        player.fade_alpha = 0.25;
+        player.fade_target = 0.0;
+        player.apply_fade_reset();
+        assert_eq!((player.fade_alpha(), player.fade_target()), (1.0, 1.0));
     }
 }
