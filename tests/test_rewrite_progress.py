@@ -325,8 +325,12 @@ class RewriteProgressTests(unittest.TestCase):
         # human_actor 44 pass; bound-points loop held as contract).
         # +1 detector GameInit (complete walk with disclosed base-call/coll
         # deferrals; owned latch-nulling slice + pin test).
-        self.assertEqual(game["ported"], 149 + 480)
-        self.assertEqual(game["verified"], 149 + 401)
+        # +16 menu contracts (Exit/Options/FreeRide/LoadGame/GameFailed/
+        # QuestionBox/Component/Stack text-id; marker-only, tests green).
+        # +16 menu differential (14 complete walks + 2 Ghidra dossiers;
+        # pin tests menu 45 / main_menu 25).
+        self.assertEqual(game["ported"], 149 + 496)
+        self.assertEqual(game["verified"], 149 + 417)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")

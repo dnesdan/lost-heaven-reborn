@@ -465,6 +465,8 @@ pub enum TickKey {
 pub struct MenuComponent {
     pub id: u32,
     pub flags: u32,
+    /// Text-database id latch (native GM_Component::text_id, g_m_comps.h:140).
+    pub text_id: u32,
 }
 
 impl MenuComponent {
@@ -474,7 +476,23 @@ impl MenuComponent {
         Self {
             id,
             flags: main_menu::DEFAULT_COMPONENT_FLAGS,
+            text_id: 0,
         }
+    }
+
+    /// GM_Component::SetTextID id latch (Game.exe VA 0x5ea1c0, RVA 0x1ea1c0;
+    /// sibling game/ui/g_menu.cpp:579-587, cited only): records the text id.
+    /// The text-database pointer resolution (textDatabase.GetText) needs the
+    /// text owner and stays DEFERRED.
+    pub fn set_text_id(&mut self, text_id: u32) {
+        self.text_id = text_id;
+    }
+
+    /// Live read of the latched text id (the inline GM_Component::GetTextID
+    /// base, sibling game/ui/g_m_comps.h:107, cited only: no outline body, so
+    /// no RVA is claimed here; the Menu-level lookup below owns 0x1eaff0).
+    pub fn get_text_id(&self) -> u32 {
+        self.text_id
     }
 
     /// GM_Menu::SetDisabled bit application (GAME 0x5eaed0; sibling
@@ -563,6 +581,9 @@ impl MenuStack {
         let mut root_seen = false;
         for item in definition.items.iter().filter(|item| !item.is_upup()) {
             let mut component = MenuComponent::new(item.id);
+            // Native GM_Component ctor intake (sibling game/ui/g_menu.cpp:485-502,
+            // cited only): the definition's text id lands on the component.
+            component.set_text_id(item.text_id);
             if !root_seen {
                 component.flags &= !main_menu::COMPONENT_ACTIVATABLE;
                 root_seen = true;
@@ -617,6 +638,23 @@ impl MenuStack {
         if let Some(component) = self.find_component_by_id_mut(id) {
             component.set_hidden(visible);
         }
+    }
+
+    /// GM_Menu::SetTextID (GAME 0x5eafd0, RVA 0x1eafd0; sibling
+    /// game/ui/g_menu.cpp:929-935, cited only): records the text id on the
+    /// looked-up component; no-op where the menu has no such component.
+    pub fn set_text_id(&mut self, id: u32, text_id: u32) {
+        if let Some(component) = self.find_component_by_id_mut(id) {
+            component.set_text_id(text_id);
+        }
+    }
+
+    /// GM_Menu::GetTextID (GAME 0x5eaff0, RVA 0x1eaff0; sibling
+    /// game/ui/g_menu.cpp:937-944, cited only): the component's latched text
+    /// id, 0 where the menu has no such component.
+    pub fn get_text_id(&self, id: u32) -> u32 {
+        self.find_component_by_id(id)
+            .map_or(0, MenuComponent::get_text_id)
     }
 
     fn set_active_id(&mut self, id: Option<u32>) {
@@ -881,6 +919,15 @@ pub fn oncreate_stack_activate(stack: &mut MenuStack, extreme_gated: bool) -> i3
         stack.set_disabled(main_menu::MAINMENU_ITEM_FREE_RIDE_EXTREME, false);
     }
     stack.activate_by_id_or_next(main_menu::MAINMENU_ITEM_INTRO);
+    0
+}
+
+/// GM_MainMenuExit::OnCreate (Game.exe VA 0x5e08f0, RVA 0x1e08f0; sibling
+/// game/ui/g_m_func.cpp:363-368, cited only): shows "Quit Game?" in the
+/// question window, then returns 0. Glyph rendering plus the component-class
+/// text owner stay DEFERRED; only the text-id request is owned here.
+pub fn main_menu_exit_oncreate(stack: &mut MenuStack) -> i32 {
+    stack.set_text_id(main_menu::EXITYESNO_WINDOW, main_menu::TEXT_QUIT_GAME);
     0
 }
 fn validate_layout(definition: &MenuDefinition) -> Result<(), String> {
@@ -1677,5 +1724,52 @@ mod tests {
         assert!(load_definition_for_menu(&installation, "optionsb", 0x656e).is_err());
         assert!(load_definition_for_menu(&installation, "main menu", 0x656e).is_err());
         assert!(load_definition_for_menu(&installation, "", 0x656e).is_err());
+    }
+
+    #[test]
+    fn set_text_id_0x1eafd0_and_get_text_id_0x1eaff0_gate_on_lookup() {
+        let mut stack = MenuStack::create(&stack_definition());
+        // Intake carries the definition's own text ids (all zero here).
+        assert_eq!(stack.get_text_id(main_menu::MAINMENU_ITEM_INTRO), 0);
+        assert_eq!(stack.get_text_id(424242), 0);
+        // Missing ids: set is a no-op, get reads the neutral element.
+        stack.set_text_id(424242, main_menu::TEXT_QUIT_GAME);
+        assert_eq!(stack.get_text_id(424242), 0);
+        stack.set_text_id(
+            main_menu::MAINMENU_ITEM_INTRO,
+            main_menu::TEXT_QUIT_GAME,
+        );
+        assert_eq!(
+            stack.get_text_id(main_menu::MAINMENU_ITEM_INTRO),
+            main_menu::TEXT_QUIT_GAME
+        );
+        // Other rows keep the neutral element.
+        assert_eq!(stack.get_text_id(main_menu::MAINMENU_ITEM_NEW_GAME), 0);
+        // Rewriting restores the previous latch, like the native store.
+        stack.set_text_id(main_menu::MAINMENU_ITEM_INTRO, 0);
+        assert_eq!(stack.get_text_id(main_menu::MAINMENU_ITEM_INTRO), 0);
+    }
+
+    #[test]
+    fn main_menu_exit_oncreate_0x1e08f0_shows_quit_game_and_returns_zero() {
+        let item = |id: u32| lhr_assets::MenuItem {
+            id,
+            kind: *b"ttub",
+            rect: [10.0, 10.0, 100.0, 20.0],
+            text_id: 0,
+            style: 0,
+        };
+        let definition = MenuDefinition {
+            version: 1,
+            reserved: 0,
+            items: vec![item(1), item(main_menu::EXITYESNO_WINDOW)],
+        };
+        let mut stack = MenuStack::create(&definition);
+        assert_eq!(main_menu_exit_oncreate(&mut stack), 0);
+        assert_eq!(
+            stack.get_text_id(main_menu::EXITYESNO_WINDOW),
+            main_menu::TEXT_QUIT_GAME
+        );
+        assert_eq!(main_menu::TEXT_QUIT_GAME, 0x77);
     }
 }

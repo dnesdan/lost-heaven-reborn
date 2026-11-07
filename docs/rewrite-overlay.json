@@ -12280,6 +12280,150 @@
       "symbol": "lhr_engine::human_actor::HumanState::apply_do_shock_start",
       "tier": "differential",
       "evidence": "REA ev_bda6cebb04 + Ghidra body 33 insns/8 bbs; pin tests human_actor 44 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1e0640",
+      "va": "0x5e0640",
+      "name": "GM_MainMenuExit::OnClick",
+      "symbol": "lhr_engine::main_menu::main_menu_exit_onclick",
+      "tier": "differential",
+      "evidence": "REA ev_eb666d2264 + complete walk all branches (id-0x8a JZ/JNZ + MenuClose CALLs + RETs); pin tests menu 45 / main_menu 25 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1e08e0",
+      "va": "0x5e08e0",
+      "name": "GM_MainMenuExit::OnBeforeCreate",
+      "symbol": "lhr_engine::main_menu::main_menu_exit_definition",
+      "tier": "differential",
+      "evidence": "REA ev_e878893520 + complete walk 2 insns (MOV EAX,imm + RET), definition leaf; pin tests menu 45 / main_menu 25 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1e08f0",
+      "va": "0x5e08f0",
+      "name": "GM_MainMenuExit::OnCreate",
+      "symbol": "lhr_engine::menu::main_menu_exit_oncreate",
+      "tier": "differential",
+      "evidence": "REA ev_9423f39edb + complete walk (PUSH/PUSH/CALL SetTextID + RET), OnCreate text init; pin tests menu 45 / main_menu 25 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1e0900",
+      "va": "0x5e0900",
+      "name": "GM_Options::OnBeforeCreate",
+      "symbol": "lhr_engine::main_menu::options_definition",
+      "tier": "differential",
+      "evidence": "REA ev_5bfe3e040f + complete walk 2 insns, definition leaf; pin tests menu 45 / main_menu 25 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1e0910",
+      "va": "0x5e0910",
+      "name": "GM_FreeRide::OnBeforeCreate",
+      "symbol": "lhr_engine::main_menu::freeride_definition",
+      "tier": "differential",
+      "evidence": "REA ev_5768fb9f79 + complete walk 2 insns, definition leaf; pin tests menu 45 / main_menu 25 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1e0920",
+      "va": "0x5e0920",
+      "name": "GM_LoadGame::OnBeforeCreate",
+      "symbol": "lhr_engine::main_menu::load_game_definition",
+      "tier": "differential",
+      "evidence": "REA ev_17ffb84b33 + complete walk 2 insns, definition leaf; pin tests menu 45 / main_menu 25 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1e0ad0",
+      "va": "0x5e0ad0",
+      "name": "GM_Options::OnClick",
+      "symbol": "lhr_engine::main_menu::options_onclick",
+      "tier": "differential",
+      "evidence": "REA ev_0d12849d75 + complete walk incl. SEH prologue + dispatch + vtable stores + epilogue RET; pin tests menu 45 / main_menu 25 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1e0bb0",
+      "va": "0x5e0bb0",
+      "name": "GM_OptionsAudioVideo::OnBeforeCreate",
+      "symbol": "lhr_engine::main_menu::options_audio_video_definition",
+      "tier": "differential",
+      "evidence": "REA ev_5646b8a82f + complete walk 2 insns (MOV EAX,imm + RET), A/V definition leaf; pin tests main_menu 25 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1e1480",
+      "va": "0x5e1480",
+      "name": "GM_OptionsControls::OnBeforeCreate",
+      "symbol": "lhr_engine::main_menu::options_controls_definition",
+      "tier": "differential",
+      "evidence": "REA ev_965dfbe739 + complete walk all branches (DEC/JZ page selects + RETs); pin tests menu 45 / main_menu 25 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1e2340",
+      "va": "0x5e2340",
+      "name": "GM_QuestionBox::OnBeforeCreate",
+      "symbol": "lhr_engine::main_menu::question_box_definition",
+      "tier": "differential",
+      "evidence": "REA ev_c55ac25234 + complete walk 2 insns, definition leaf; pin tests menu 45 / main_menu 25 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1e2380",
+      "va": "0x5e2380",
+      "name": "GM_QuestionBox::OnKey",
+      "symbol": "lhr_engine::main_menu::question_box_onkey",
+      "tier": "differential",
+      "evidence": "REA ev_605a85142f + complete walk all branches (key check + close CALLs + RETs); pin tests menu 45 / main_menu 25 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1e23b0",
+      "va": "0x5e23b0",
+      "name": "GM_QuestionBox::OnClick",
+      "symbol": "lhr_engine::main_menu::question_box_onclick",
+      "tier": "differential",
+      "evidence": "REA ev_01d7839641 + complete walk all branches (id dispatch + close CALLs + RETs); pin tests menu 45 / main_menu 25 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1e2950",
+      "va": "0x5e2950",
+      "name": "GM_GameFailed::OnClick",
+      "symbol": "lhr_engine::main_menu::game_failed_onclick",
+      "tier": "differential",
+      "evidence": "REA ev_01a9ed19a7 + complete walk all branches (id dispatch + MenuOpen CALLs + RETs); pin tests menu 45 / main_menu 25 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1ea1c0",
+      "va": "0x5ea1c0",
+      "name": "GM_Component::SetTextID",
+      "symbol": "lhr_engine::menu::MenuComponent::set_text_id",
+      "tier": "differential",
+      "evidence": "REA ev_68a1aa86be + complete walk both branches (store +0xc; null -> +0x10=0 else file lookup + RET); pin tests menu 45 / main_menu 25 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1eafd0",
+      "va": "0x5eafd0",
+      "name": "GM_Menu::SetTextID",
+      "symbol": "lhr_engine::menu::MenuStack::set_text_id",
+      "tier": "differential",
+      "evidence": "REA ev_9e7289c8df + Ghidra body 11 insns/3 bbs, Menu SetTextID; pin tests menu 45 / main_menu 25 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1eaff0",
+      "va": "0x5eaff0",
+      "name": "GM_Menu::GetTextID",
+      "symbol": "lhr_engine::menu::MenuStack::get_text_id",
+      "tier": "differential",
+      "evidence": "REA ev_5809d4a493 + Ghidra body 11 insns/3 bbs, Menu GetTextID; pin tests menu 45 / main_menu 25 pass"
     }
   ],
   "vm": {

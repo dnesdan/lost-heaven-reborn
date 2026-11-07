@@ -535,6 +535,227 @@ pub fn main_menu_oncreate_prefix(
     main_menu_oncreate_dispatch(camera, freeride, components)
 }
 
+/// Quit-question item ids from tables/menu/exityesno.mnu (mafia-re
+/// game/ui/g_m_func.cpp:133-136; upstream working names, disclosed here).
+pub const EXITYESNO_WINDOW: u32 = 0x82;
+pub const EXITYESNO_YES: u32 = 0x8a;
+pub const EXITYESNO_NO: u32 = 0x8b;
+
+/// Text-database id of "Quit Game?" (mafia-re game/ui/g_m_func.cpp:139;
+/// upstream working name, disclosed here).
+pub const TEXT_QUIT_GAME: u32 = 0x77;
+
+/// Pure GM_MainMenuExit::OnClick effect (Game.exe VA 0x5e0640, RVA 0x1e0640;
+/// sibling game/ui/g_m_func.cpp:248-261, cited only): No closes the question
+/// with the cancel code, Yes closes every menu with MAINMENU_QUIT. Native
+/// returns 0 on every path; unknown ids are that no-op path and yield no
+/// effect here. The parent OnCloseChild call plus the zz_globalReturnCode
+/// global stay DEFERRED, as with the other menus.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MainMenuExitClickEffect {
+    Close,
+    CloseAll { result: u32 },
+}
+
+/// GM_MainMenuExit::OnClick two-branch dispatch (Game.exe VA 0x5e0640, RVA
+/// 0x1e0640; sibling game/ui/g_m_func.cpp:248-261, cited only).
+pub fn main_menu_exit_onclick(id: u32) -> Option<MainMenuExitClickEffect> {
+    match id {
+        EXITYESNO_NO => Some(MainMenuExitClickEffect::Close),
+        EXITYESNO_YES => Some(MainMenuExitClickEffect::CloseAll {
+            result: MAINMENU_QUIT,
+        }),
+        _ => None,
+    }
+}
+
+/// GM_MainMenuExit::OnBeforeCreate leaf (Game.exe VA 0x5e08e0, RVA 0x1e08e0;
+/// sibling game/ui/g_m_func.cpp:356-361, cited only).
+pub fn main_menu_exit_definition() -> &'static str {
+    "exityesno"
+}
+
+/// GM_Options::OnBeforeCreate leaf (Game.exe VA 0x5e0900, RVA 0x1e0900;
+/// sibling game/ui/g_m_func.cpp:370-375, cited only).
+pub fn options_definition() -> &'static str {
+    "optionsb"
+}
+
+/// GM_FreeRide::OnBeforeCreate leaf (Game.exe VA 0x5e0910, RVA 0x1e0910;
+/// sibling game/ui/g_m_func.cpp:377-382, cited only): an inline literal in
+/// the reference, kept here as the definition-name contract.
+pub fn freeride_definition() -> &'static str {
+    "freeride"
+}
+
+/// GM_LoadGame::OnBeforeCreate leaf (Game.exe VA 0x5e0920, RVA 0x1e0920;
+/// sibling game/ui/g_m_func.cpp:384-389, cited only).
+pub fn load_game_definition() -> &'static str {
+    "loadgame"
+}
+
+/// Options item ids from tables/menu/optionsb.mnu (mafia-re
+/// game/ui/g_m_func.cpp:62-65; upstream working names, disclosed here).
+pub const OPTIONSB_CONTROLS: u32 = 0x64;
+pub const OPTIONSB_AUDIO_VIDEO: u32 = 0x65;
+pub const OPTIONSB_BACK: u32 = 0x190;
+
+/// Menus the options menu opens over itself (mafia-re
+/// game/ui/g_m_func.cpp:394-410, cited only): Controls opens its page menu,
+/// Audio & Video opens "optionsa". Allocation plus parent linkage stay
+/// DEFERRED, as with the main-menu open targets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OptionsOpenTarget {
+    Controls,
+    AudioVideo,
+}
+
+/// Pure GM_Options::OnClick effect (Game.exe VA 0x5e0ad0, RVA 0x1e0ad0;
+/// sibling game/ui/g_m_func.cpp:394-410, cited only): Controls and Audio &
+/// Video open their menus, Back closes the options with the cancel code.
+/// Native returns 0 on every path.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OptionsClickEffect {
+    Open { target: OptionsOpenTarget },
+    Close,
+}
+
+/// GM_Options::OnClick three-branch dispatch (Game.exe VA 0x5e0ad0, RVA
+/// 0x1e0ad0; sibling game/ui/g_m_func.cpp:394-410, cited only). Unknown ids
+/// are the native no-op path and yield no effect here.
+pub fn options_onclick(id: u32) -> Option<OptionsClickEffect> {
+    match id {
+        OPTIONSB_CONTROLS => Some(OptionsClickEffect::Open {
+            target: OptionsOpenTarget::Controls,
+        }),
+        OPTIONSB_AUDIO_VIDEO => Some(OptionsClickEffect::Open {
+            target: OptionsOpenTarget::AudioVideo,
+        }),
+        OPTIONSB_BACK => Some(OptionsClickEffect::Close),
+        _ => None,
+    }
+}
+
+/// GM_OptionsAudioVideo::OnBeforeCreate leaf (Game.exe VA 0x5e0bb0, RVA
+/// 0x1e0bb0; sibling game/ui/g_m_func.cpp:412-417, cited only).
+pub fn options_audio_video_definition() -> &'static str {
+    "optionsa"
+}
+
+/// Options-controls pages, one menu each (mafia-re game/ui/g_m_func.cpp:94-96;
+/// upstream working names, disclosed here).
+pub const OPTIONSC_PAGE_PLAYER: u32 = 1;
+pub const OPTIONSC_PAGE_CAR: u32 = 2;
+pub const OPTIONSC_PAGE_OTHER: u32 = 3;
+
+/// GM_OptionsControls::OnBeforeCreate page dispatch (Game.exe VA 0x5e1480,
+/// RVA 0x1e1480; sibling game/ui/g_m_func.cpp:578-592, cited only): the
+/// player page opens "optionsc1", the car page "optionsc2", every other page
+/// value "optionsc3" (the native default arm).
+pub fn options_controls_definition(page: u32) -> &'static str {
+    match page {
+        OPTIONSC_PAGE_PLAYER => "optionsc1",
+        OPTIONSC_PAGE_CAR => "optionsc2",
+        _ => "optionsc3",
+    }
+}
+
+/// Game-failed item ids from tables/menu/gamefailed.mnu (mafia-re
+/// game/ui/g_m_func.cpp:43-47; upstream working names, disclosed here).
+pub const GAMEFAILED_RETRY_ITEM: u32 = 0x3e8;
+pub const GAMEFAILED_EXIT_ITEM: u32 = 0x3ea;
+
+/// ExecuteMenu results the failure menu closes with (mafia-re
+/// game/ui/g_m_func.h:96-101; upstream working names, disclosed here).
+pub const GAMEFAILED_RESULT_EXIT: u32 = 0x4fb;
+pub const GAMEFAILED_RESULT_RETRY: u32 = 0x4fd;
+
+/// GM_GameFailed::OnClick dispatch (Game.exe VA 0x5e2950, RVA 0x1e2950;
+/// sibling game/ui/g_m_func.cpp:893-906, cited only): the pure result the
+/// native MenuCloseAll with the cancel code carries. Unknown ids are the
+/// native no-op path and yield None. The parent chain plus the
+/// zz_globalReturnCode global stay DEFERRED.
+pub fn game_failed_onclick(id: u32) -> Option<u32> {
+    match id {
+        GAMEFAILED_EXIT_ITEM => Some(GAMEFAILED_RESULT_EXIT),
+        GAMEFAILED_RETRY_ITEM => Some(GAMEFAILED_RESULT_RETRY),
+        _ => None,
+    }
+}
+
+/// Question-box item ids from tables/menu/questionbox.mnu (mafia-re
+/// game/ui/g_m_func.h:62-66; upstream working names, disclosed here).
+pub const QUESTIONBOX_WINDOW: u32 = 0x82;
+pub const QUESTIONBOX_TEXT: u32 = 0x83;
+pub const QUESTIONBOX_YES: u32 = 0x8a;
+pub const QUESTIONBOX_NO: u32 = 0x8b;
+
+/// Codes the question box closes with, and the ExecuteMenu results for a box
+/// run without a parent menu (mafia-re game/ui/g_m_func.h:68-75; upstream
+/// working names, disclosed here). Escape closes with No's code/result.
+pub const QUESTIONBOX_CODE_NO: u32 = 0;
+pub const QUESTIONBOX_CODE_YES: u32 = 1;
+pub const QUESTIONBOX_RESULT_YES: u32 = 0xb;
+pub const QUESTIONBOX_RESULT_NO: u32 = 0xc;
+
+/// Escape key value the question-box OnKey compares (DIK_ESCAPE is 1;
+/// mafia-re game/ui/g_menu.h:165, cited only).
+pub const QUESTION_BOX_ESCAPE_KEY: u8 = 1;
+
+/// GM_QuestionBox::OnBeforeCreate leaf (Game.exe VA 0x5e2340, RVA 0x1e2340;
+/// sibling game/ui/g_m_func.cpp:790-795, cited only).
+pub fn question_box_definition() -> &'static str {
+    "questionbox"
+}
+
+/// Pure question-box dismissal: MenuClose with a code where a parent menu
+/// opened the box, else MenuCloseAll with a code plus an ExecuteMenu result.
+/// The parent OnCloseChild call plus the zz_globalReturnCode global stay
+/// DEFERRED, as with the other menus.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum QuestionBoxClose {
+    Dismiss { code: u32 },
+    DismissAll { code: u32, result: u32 },
+}
+
+/// GM_QuestionBox::OnKey dispatch (Game.exe VA 0x5e2380, RVA 0x1e2380;
+/// sibling game/ui/g_m_func.cpp:807-818, cited only): non-Escape keys are
+/// the native no-op path (None, native still returns 0); Escape dismisses
+/// the box with No's code, or every menu with No's result where no parent
+/// menu opened it.
+pub fn question_box_onkey(key: u8, open_id: u32) -> Option<QuestionBoxClose> {
+    if key != QUESTION_BOX_ESCAPE_KEY {
+        return None;
+    }
+    if open_id != 0 {
+        Some(QuestionBoxClose::Dismiss {
+            code: QUESTIONBOX_CODE_NO,
+        })
+    } else {
+        Some(QuestionBoxClose::DismissAll {
+            code: QUESTIONBOX_CODE_NO,
+            result: QUESTIONBOX_RESULT_NO,
+        })
+    }
+}
+
+/// GM_QuestionBox::OnClick dispatch (Game.exe VA 0x5e23b0, RVA 0x1e23b0;
+/// sibling game/ui/g_m_func.cpp:820-839, cited only): Yes and No each dismiss
+/// the box where a parent menu opened it, else dismiss every menu with the
+/// matching result. Unknown ids are the native no-op path (None).
+pub fn question_box_onclick(id: u32, open_id: u32) -> Option<QuestionBoxClose> {
+    let (code, result) = match id {
+        QUESTIONBOX_YES => (QUESTIONBOX_CODE_YES, QUESTIONBOX_RESULT_YES),
+        QUESTIONBOX_NO => (QUESTIONBOX_CODE_NO, QUESTIONBOX_RESULT_NO),
+        _ => return None,
+    };
+    if open_id != 0 {
+        Some(QuestionBoxClose::Dismiss { code })
+    } else {
+        Some(QuestionBoxClose::DismissAll { code, result })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -813,5 +1034,137 @@ mod tests {
             DEFAULT_COMPONENT_FLAGS & !COMPONENT_ENABLED
         );
         assert_eq!(components.active_id(), Some(MAINMENU_ITEM_INTRO));
+    }
+    #[test]
+    fn exit_onclick_0x1e0640_closes_or_closes_every_menu() {
+        assert_eq!(
+            main_menu_exit_onclick(EXITYESNO_NO),
+            Some(MainMenuExitClickEffect::Close)
+        );
+        assert_eq!(
+            main_menu_exit_onclick(EXITYESNO_YES),
+            Some(MainMenuExitClickEffect::CloseAll {
+                result: MAINMENU_QUIT,
+            })
+        );
+        for id in [0, EXITYESNO_WINDOW, 0x89, 0x8c, u32::MAX] {
+            assert_eq!(main_menu_exit_onclick(id), None);
+        }
+    }
+    #[test]
+    fn definition_leaves_name_their_menus() {
+        // Game.exe VA/RVA: 0x5e08e0/0x1e08e0, 0x5e0900/0x1e0900,
+        // 0x5e0910/0x1e0910, 0x5e0920/0x1e0920.
+        assert_eq!(main_menu_exit_definition(), "exityesno");
+        assert_eq!(options_definition(), "optionsb");
+        assert_eq!(freeride_definition(), "freeride");
+        assert_eq!(load_game_definition(), "loadgame");
+        assert_eq!(options_audio_video_definition(), "optionsa");
+        assert_eq!(question_box_definition(), "questionbox");
+    }
+    #[test]
+    fn options_onclick_0x1e0ad0_routes_all_three_branches() {
+        assert_eq!(
+            options_onclick(OPTIONSB_CONTROLS),
+            Some(OptionsClickEffect::Open {
+                target: OptionsOpenTarget::Controls,
+            })
+        );
+        assert_eq!(
+            options_onclick(OPTIONSB_AUDIO_VIDEO),
+            Some(OptionsClickEffect::Open {
+                target: OptionsOpenTarget::AudioVideo,
+            })
+        );
+        assert_eq!(options_onclick(OPTIONSB_BACK), Some(OptionsClickEffect::Close));
+        for id in [0, OPTIONSB_CONTROLS - 1, OPTIONSB_BACK + 1, u32::MAX] {
+            assert_eq!(options_onclick(id), None);
+        }
+    }
+    #[test]
+    fn options_controls_definition_0x1e1480_selects_the_page_menu() {
+        assert_eq!(
+            options_controls_definition(OPTIONSC_PAGE_PLAYER),
+            "optionsc1"
+        );
+        assert_eq!(options_controls_definition(OPTIONSC_PAGE_CAR), "optionsc2");
+        // The native default arm: the Other page and every other value.
+        for page in [OPTIONSC_PAGE_OTHER, 0, 4, u32::MAX] {
+            assert_eq!(options_controls_definition(page), "optionsc3");
+        }
+    }
+    #[test]
+    fn game_failed_onclick_0x1e2950_maps_both_items() {
+        assert_eq!(
+            game_failed_onclick(GAMEFAILED_EXIT_ITEM),
+            Some(GAMEFAILED_RESULT_EXIT)
+        );
+        assert_eq!(
+            game_failed_onclick(GAMEFAILED_RETRY_ITEM),
+            Some(GAMEFAILED_RESULT_RETRY)
+        );
+        assert_eq!(GAMEFAILED_RESULT_EXIT, 0x4fb);
+        assert_eq!(GAMEFAILED_RESULT_RETRY, 0x4fd);
+        for id in [0, GAMEFAILED_RETRY_ITEM - 1, GAMEFAILED_EXIT_ITEM + 1, u32::MAX] {
+            assert_eq!(game_failed_onclick(id), None);
+        }
+    }
+    #[test]
+    fn question_box_onkey_0x1e2380_escapes_by_parent() {
+        // Non-Escape keys are the native no-op path.
+        for key in [0, QUESTION_BOX_ESCAPE_KEY + 1, u8::MAX] {
+            assert_eq!(question_box_onkey(key, 0), None);
+            assert_eq!(question_box_onkey(key, 7), None);
+        }
+        // With a parent menu the box closes with No's code.
+        assert_eq!(
+            question_box_onkey(QUESTION_BOX_ESCAPE_KEY, 7),
+            Some(QuestionBoxClose::Dismiss {
+                code: QUESTIONBOX_CODE_NO,
+            })
+        );
+        // Without one every menu closes with No's result.
+        assert_eq!(
+            question_box_onkey(QUESTION_BOX_ESCAPE_KEY, 0),
+            Some(QuestionBoxClose::DismissAll {
+                code: QUESTIONBOX_CODE_NO,
+                result: QUESTIONBOX_RESULT_NO,
+            })
+        );
+        assert_eq!(QUESTIONBOX_CODE_NO, 0);
+        assert_eq!(QUESTIONBOX_RESULT_NO, 0xc);
+    }
+    #[test]
+    fn question_box_onclick_0x1e23b0_maps_yes_no_by_parent() {
+        assert_eq!(
+            question_box_onclick(QUESTIONBOX_YES, 7),
+            Some(QuestionBoxClose::Dismiss {
+                code: QUESTIONBOX_CODE_YES,
+            })
+        );
+        assert_eq!(
+            question_box_onclick(QUESTIONBOX_NO, 7),
+            Some(QuestionBoxClose::Dismiss {
+                code: QUESTIONBOX_CODE_NO,
+            })
+        );
+        assert_eq!(
+            question_box_onclick(QUESTIONBOX_YES, 0),
+            Some(QuestionBoxClose::DismissAll {
+                code: QUESTIONBOX_CODE_YES,
+                result: QUESTIONBOX_RESULT_YES,
+            })
+        );
+        assert_eq!(
+            question_box_onclick(QUESTIONBOX_NO, 0),
+            Some(QuestionBoxClose::DismissAll {
+                code: QUESTIONBOX_CODE_NO,
+                result: QUESTIONBOX_RESULT_NO,
+            })
+        );
+        for id in [0, QUESTIONBOX_WINDOW, 0x89, 0x8c, u32::MAX] {
+            assert_eq!(question_box_onclick(id, 0), None);
+            assert_eq!(question_box_onclick(id, 7), None);
+        }
     }
 }
