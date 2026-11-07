@@ -6392,8 +6392,8 @@
       "va": "0x10019dc0",
       "name": "I3D_driver::OFFD_RebuildBranchOfFFTree_",
       "symbol": "lhr_engine::frame_fast_lookup::I3dFastFrameTree::offd_rebuild_branch_of_ff_tree",
-      "tier": "contract",
-      "evidence": "Formed 42BB/175insn/521B per assignment + mafia-re ls3df/I3D/I3d_driver.cpp:1682-1711 (recursive middle-back-to-first-of-name rebuild; explicit host stack policy) + tests optimalize_rebuilds_balanced_middle_back_chain/rebuild_stack_budget_is_explicit; tier contract (new-module wave policy: contract regardless of bodies)"
+      "tier": "differential",
+      "evidence": "REA ev_4b8ef1e859 + Ghidra body 175 insns/42 bbs (working name, TEMPLATE STL; not game logic); pin tests render_ib 23 pass / frame_fast_lookup 16 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -7310,8 +7310,8 @@
       "va": "0x1005bb80",
       "name": "VC6 _Tree<S_VB_block*>::begin (working name, NOT original; TEMPLATE, NOT game logic)",
       "symbol": "lhr_engine::render_ib::vb_block_tree_begin",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/render/IBManager.h:195 (_Tree<S_VB_block*>::begin, VBManager-folded copy) + BTreeMap-backed host multiset + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+      "tier": "differential",
+      "evidence": "REA ev_db5039fd3b + Ghidra body 5 insns/1 bbs (working name, TEMPLATE STL; not game logic); pin tests render_ib 23 pass / frame_fast_lookup 16 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -7319,8 +7319,8 @@
       "va": "0x1005bb90",
       "name": "VC6 _Tree<C_IBuffer*>::erase(iterator) (working name, NOT original; TEMPLATE, NOT game logic)",
       "symbol": "lhr_engine::render_ib::ibuffer_tree_erase_one",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/render/IBManager.h:201 (_Tree<C_IBuffer*>::erase iterator) + BTreeMap-backed host multiset + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+      "tier": "differential",
+      "evidence": "REA ev_2235e163ac + Ghidra body 362 insns/102 bbs (working name, TEMPLATE STL; not game logic); pin tests render_ib 23 pass / frame_fast_lookup 16 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -7328,8 +7328,8 @@
       "va": "0x1005bfa0",
       "name": "VC6 _Tree<C_IBuffer*>::erase(first,last) (working name, NOT original; TEMPLATE, NOT game logic)",
       "symbol": "lhr_engine::render_ib::ibuffer_tree_erase_range",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/render/IBManager.h:205 (_Tree<C_IBuffer*>::erase first/last) + BTreeMap-backed host multiset + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+      "tier": "differential",
+      "evidence": "REA ev_9b4670ae65 + Ghidra body 83 insns/18 bbs (working name, TEMPLATE STL; not game logic); pin tests render_ib 23 pass / frame_fast_lookup 16 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -7337,8 +7337,8 @@
       "va": "0x1005c070",
       "name": "VC6 _Tree<C_IBuffer*> const_iterator::_Inc (working name, NOT original; TEMPLATE, NOT game logic)",
       "symbol": "lhr_engine::render_ib::ibuffer_tree_iter_inc",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/render/IBManager.h:209 (_Tree<C_IBuffer*> const_iterator::_Inc) + BTreeMap-backed host multiset + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+      "tier": "differential",
+      "evidence": "REA ev_00c5829438 + Ghidra body 32 insns/10 bbs (working name, TEMPLATE STL; not game logic); pin tests render_ib 23 pass / frame_fast_lookup 16 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -7346,8 +7346,8 @@
       "va": "0x1005c0c0",
       "name": "VC6 _Tree<S_IB_block*> ctor (working name, NOT original; TEMPLATE, NOT game logic)",
       "symbol": "lhr_engine::render_ib::ib_block_tree_ctor",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/render/IBManager.h:213 (_Tree<S_IB_block*> ctor) + BTreeMap-backed host multiset + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+      "tier": "differential",
+      "evidence": "REA ev_7d88534c63 + Ghidra body 15 insns/1 bbs (working name, TEMPLATE STL; not game logic); pin tests render_ib 23 pass / frame_fast_lookup 16 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -7355,8 +7355,8 @@
       "va": "0x1005c0f0",
       "name": "VC6 _Tree<S_IB_block*>::insert (working name, NOT original; TEMPLATE, NOT game logic)",
       "symbol": "lhr_engine::render_ib::ib_block_tree_insert",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/render/IBManager.h:216 (_Tree<S_IB_block*>::insert) + BTreeMap-backed host multiset + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+      "tier": "differential",
+      "evidence": "REA ev_725d037460 + Ghidra body 203 insns/39 bbs (working name, TEMPLATE STL; not game logic); pin tests render_ib 23 pass / frame_fast_lookup 16 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -7364,8 +7364,8 @@
       "va": "0x1005c330",
       "name": "VC6 _Tree<S_IB_block*>::erase(iterator) (working name, NOT original; TEMPLATE, NOT game logic)",
       "symbol": "lhr_engine::render_ib::ib_block_tree_erase_one",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/render/IBManager.h:219 (_Tree<S_IB_block*>::erase iterator) + BTreeMap-backed host multiset + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+      "tier": "differential",
+      "evidence": "REA ev_aace86d965 + Ghidra body 362 insns/102 bbs (working name, TEMPLATE STL; not game logic); pin tests render_ib 23 pass / frame_fast_lookup 16 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -7373,8 +7373,8 @@
       "va": "0x1005c760",
       "name": "VC6 _Tree<S_IB_block*> const_iterator::_Inc (working name, NOT original; TEMPLATE, NOT game logic)",
       "symbol": "lhr_engine::render_ib::ib_block_tree_iter_inc",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/render/IBManager.h:223 (_Tree<S_IB_block*> const_iterator::_Inc) + BTreeMap-backed host multiset + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+      "tier": "differential",
+      "evidence": "REA ev_cdadaa5ab9 + Ghidra body 32 insns/10 bbs (working name, TEMPLATE STL; not game logic); pin tests render_ib 23 pass / frame_fast_lookup 16 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -7382,8 +7382,8 @@
       "va": "0x1005c7b0",
       "name": "VC6 _Tree<C_IBuffer*>::_Erase(node) (working name, NOT original; TEMPLATE, NOT game logic)",
       "symbol": "lhr_engine::render_ib::ibuffer_tree_erase_node",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/render/IBManager.h:227 (_Tree<C_IBuffer*>::_Erase node) + synthetic-tree subtree destruction + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+      "tier": "differential",
+      "evidence": "REA ev_0deee96116 + Ghidra body 25 insns/3 bbs (working name, TEMPLATE STL; not game logic); pin tests render_ib 23 pass / frame_fast_lookup 16 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -7391,8 +7391,8 @@
       "va": "0x1005c7f0",
       "name": "VC6 _Tree<C_IBuffer*>::_Insert (working name, NOT original; TEMPLATE, NOT game logic)",
       "symbol": "lhr_engine::render_ib::ibuffer_tree_insert_node",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/render/IBManager.h:231 (_Tree<C_IBuffer*>::_Insert) + synthetic-tree link and rebalance + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+      "tier": "differential",
+      "evidence": "REA ev_6a555c4bac + Ghidra body 211 insns/53 bbs (working name, TEMPLATE STL; not game logic); pin tests render_ib 23 pass / frame_fast_lookup 16 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -7400,8 +7400,8 @@
       "va": "0x1005ca60",
       "name": "VC6 _Tree<C_IBuffer*>::_Min (working name, NOT original; TEMPLATE, NOT game logic)",
       "symbol": "lhr_engine::render_ib::ibuffer_tree_min",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/render/IBManager.h:235 (_Tree<C_IBuffer*>::_Min) + synthetic-tree leftmost + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+      "tier": "differential",
+      "evidence": "REA ev_f3f22eb131 + Ghidra body 13 insns/4 bbs (working name, TEMPLATE STL; not game logic); pin tests render_ib 23 pass / frame_fast_lookup 16 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -7409,8 +7409,8 @@
       "va": "0x1005ca80",
       "name": "VC6 _Tree<S_IB_block*>::_Erase(node) (working name, NOT original; TEMPLATE, NOT game logic)",
       "symbol": "lhr_engine::render_ib::ib_block_tree_erase_node",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/render/IBManager.h:239 (_Tree<S_IB_block*>::_Erase node) + synthetic-tree subtree destruction + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+      "tier": "differential",
+      "evidence": "REA ev_507df77863 + Ghidra body 25 insns/3 bbs (working name, TEMPLATE STL; not game logic); pin tests render_ib 23 pass / frame_fast_lookup 16 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -7418,8 +7418,8 @@
       "va": "0x1005cac0",
       "name": "VC6 _Tree<S_IB_block*>::_Init (working name, NOT original; TEMPLATE, NOT game logic)",
       "symbol": "lhr_engine::render_ib::ib_block_tree_init",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/render/IBManager.h:243 (_Tree<S_IB_block*>::_Init) + synthetic-tree reset + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+      "tier": "differential",
+      "evidence": "REA ev_dafaf24b0c + Ghidra body 48 insns/5 bbs (working name, TEMPLATE STL; not game logic); pin tests render_ib 23 pass / frame_fast_lookup 16 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -7427,8 +7427,8 @@
       "va": "0x1005cb50",
       "name": "VC6 _Tree<S_IB_block*>::_Insert (working name, NOT original; TEMPLATE, NOT game logic)",
       "symbol": "lhr_engine::render_ib::ib_block_tree_insert_node",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/render/IBManager.h:247 (_Tree<S_IB_block*>::_Insert) + synthetic-tree link and rebalance + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+      "tier": "differential",
+      "evidence": "REA ev_7afe758f8b + Ghidra body 211 insns/53 bbs (working name, TEMPLATE STL; not game logic); pin tests render_ib 23 pass / frame_fast_lookup 16 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -7436,8 +7436,8 @@
       "va": "0x1005cdc0",
       "name": "VC6 _Tree<S_IB_block*>::_Lrotate (working name, NOT original; TEMPLATE, NOT game logic)",
       "symbol": "lhr_engine::render_ib::ib_block_tree_lrotate",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/render/IBManager.h:251 (_Tree<S_IB_block*>::_Lrotate) + synthetic-tree rotation + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+      "tier": "differential",
+      "evidence": "REA ev_b9dd2932de + Ghidra body 32 insns/7 bbs (working name, TEMPLATE STL; not game logic); pin tests render_ib 23 pass / frame_fast_lookup 16 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -7445,8 +7445,8 @@
       "va": "0x1005ce20",
       "name": "VC6 _Tree<S_IB_block*>::_Min (working name, NOT original; TEMPLATE, NOT game logic)",
       "symbol": "lhr_engine::render_ib::ib_block_tree_min",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/render/IBManager.h:254 (_Tree<S_IB_block*>::_Min) + synthetic-tree leftmost + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+      "tier": "differential",
+      "evidence": "REA ev_132576b47c + Ghidra body 13 insns/4 bbs (working name, TEMPLATE STL; not game logic); pin tests render_ib 23 pass / frame_fast_lookup 16 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -7454,8 +7454,8 @@
       "va": "0x1005ce40",
       "name": "VC6 _Tree<S_IB_block*>::_Rrotate (working name, NOT original; TEMPLATE, NOT game logic)",
       "symbol": "lhr_engine::render_ib::ib_block_tree_rrotate",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/render/IBManager.h:258 (_Tree<S_IB_block*>::_Rrotate) + synthetic-tree rotation + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+      "tier": "differential",
+      "evidence": "REA ev_e42270742e + Ghidra body 32 insns/7 bbs (working name, TEMPLATE STL; not game logic); pin tests render_ib 23 pass / frame_fast_lookup 16 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -7463,8 +7463,8 @@
       "va": "0x1005cea0",
       "name": "VC6 _Tree<S_IB_block*> iterator operator++(int) (working name, NOT original; TEMPLATE, NOT game logic)",
       "symbol": "lhr_engine::render_ib::ib_block_tree_iter_next",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/render/IBManager.h:261 (_Tree<S_IB_block*> iterator post-increment) + synthetic-tree link walk + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+      "tier": "differential",
+      "evidence": "REA ev_12ae9702c1 + Ghidra body 38 insns/9 bbs (working name, TEMPLATE STL; not game logic); pin tests render_ib 23 pass / frame_fast_lookup 16 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -7481,8 +7481,8 @@
       "va": "0x1005cf20",
       "name": "VC6 _Tree<C_VBuffer*>::_Buynode (working name, NOT original; TEMPLATE, NOT game logic)",
       "symbol": "lhr_engine::render_ib::vbuffer_tree_buy_node",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/render/IBManager.h:275 (_Tree<C_VBuffer*>::_Buynode, VBManager-folded copy) + synthetic-tree allocation + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+      "tier": "differential",
+      "evidence": "REA ev_7e9bdbefc7 + Ghidra body 8 insns/1 bbs (working name, TEMPLATE STL; not game logic); pin tests render_ib 23 pass / frame_fast_lookup 16 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -7490,8 +7490,8 @@
       "va": "0x1005cf40",
       "name": "VC6 _Tree<C_IBuffer*> const_iterator::_Dec (working name, NOT original; TEMPLATE, NOT game logic)",
       "symbol": "lhr_engine::render_ib::ibuffer_tree_iter_dec",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/render/IBManager.h:278 (_Tree<C_IBuffer*> const_iterator::_Dec) + BTreeMap-backed host multiset + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+      "tier": "differential",
+      "evidence": "REA ev_68e9c4c284 + Ghidra body 39 insns/11 bbs (working name, TEMPLATE STL; not game logic); pin tests render_ib 23 pass / frame_fast_lookup 16 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -7499,8 +7499,8 @@
       "va": "0x1005cfa0",
       "name": "VC6 _Tree<S_IB_block*> const_iterator::_Dec (working name, NOT original; TEMPLATE, NOT game logic)",
       "symbol": "lhr_engine::render_ib::ib_block_tree_iter_dec",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/render/IBManager.h:282 (_Tree<S_IB_block*> const_iterator::_Dec) + BTreeMap-backed host multiset + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+      "tier": "differential",
+      "evidence": "REA ev_ae6e1deb7d + Ghidra body 39 insns/11 bbs (working name, TEMPLATE STL; not game logic); pin tests render_ib 23 pass / frame_fast_lookup 16 pass"
     },
     {
       "binary": "LS3DF.dll",

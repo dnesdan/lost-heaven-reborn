@@ -313,8 +313,11 @@ class RewriteProgressTests(unittest.TestCase):
         # hardening ODCHYLKA).
         # +7 listener tranche F (SetDir/SetVelocity/Distance/Doppler/Rolloff
         # 0x7b120-0x7b1a0 walks + 3dsound ctor/dtor; pin tests).
+        # +22 tree tranche G (VC6 _Tree begin/erase/insert/Inc/ctor/Min/Erase/
+        # Init/Lrotate/Rrotate/iter/Buynode/Dec + OFFD rebuild; Ghidra bodies
+        # 5-362 insns; working-name TEMPLATE note kept; EnumFFTree held).
         self.assertEqual(ls3df["ported"], 145 + 830)
-        self.assertEqual(ls3df["verified"], 145 + 324)
+        self.assertEqual(ls3df["verified"], 145 + 346)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()
