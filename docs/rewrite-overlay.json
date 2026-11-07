@@ -11902,6 +11902,141 @@
       "symbol": "lhr_engine::game_housekeeping::sebrali_mi_kaaaru_svine",
       "tier": "contract",
       "evidence": "STUB: explicit boundary (GAME 0x4ba300). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x20b470",
+      "va": "0x60b470",
+      "name": "G_LoadSaveClass::ReplaySet",
+      "symbol": "lhr_engine::game_loadsave_lifecycle::replay_set",
+      "tier": "differential",
+      "evidence": "REA ev_33a62d4220 + Ghidra body 19 insns/5 bbs; pin tests game_loadsave 24 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x20b5a0",
+      "va": "0x60b5a0",
+      "name": "G_LoadSaveClass::_replayGetNext",
+      "symbol": "lhr_engine::game_loadsave_lifecycle::replay_get_next",
+      "tier": "differential",
+      "evidence": "REA ev_6a05788be0 + Ghidra body 13 insns/5 bbs; pin tests game_loadsave 24 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x20b5e0",
+      "va": "0x60b5e0",
+      "name": "G_LoadSaveClass::_replayPutNext",
+      "symbol": "lhr_engine::game_loadsave_lifecycle::replay_put_next",
+      "tier": "differential",
+      "evidence": "REA ev_93e7892098 + Ghidra body 11 insns/3 bbs; pin tests game_loadsave 24 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x20b610",
+      "va": "0x60b610",
+      "name": "G_LoadSaveClass::RaceCarsEnable",
+      "symbol": "lhr_engine::game_loadsave_lifecycle::race_cars_enable",
+      "tier": "differential",
+      "evidence": "REA ev_6e237abec0 + Ghidra body 5 insns/1 bbs; pin tests game_loadsave 24 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x20b630",
+      "va": "0x60b630",
+      "name": "G_LoadSaveClass::RaceCarsDisable",
+      "symbol": "lhr_engine::game_loadsave_lifecycle::race_cars_disable",
+      "tier": "differential",
+      "evidence": "REA ev_80b13b3607 + Ghidra body 6 insns/1 bbs; pin tests game_loadsave 24 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x20b650",
+      "va": "0x60b650",
+      "name": "G_LoadSaveClass::RaceCarsGetEnabled",
+      "symbol": "lhr_engine::game_loadsave_lifecycle::race_cars_get_enabled",
+      "tier": "differential",
+      "evidence": "REA ev_255ab47421 + Ghidra body 2 insns/1 bbs; pin tests game_loadsave 24 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x20b660",
+      "va": "0x60b660",
+      "name": "G_LoadSaveClass::RaceCarsAddWin",
+      "symbol": "lhr_engine::game_loadsave_lifecycle::race_cars_add_win",
+      "tier": "differential",
+      "evidence": "REA ev_562d609314 + Ghidra body 12 insns/1 bbs; pin tests game_loadsave 24 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x20b690",
+      "va": "0x60b690",
+      "name": "G_LoadSaveClass::ObjectivesClear",
+      "symbol": "lhr_engine::game_loadsave_lifecycle::objectives_clear",
+      "tier": "differential",
+      "evidence": "REA ev_a61df1022a + Ghidra body 17 insns/5 bbs; pin tests game_loadsave 24 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x20b6c0",
+      "va": "0x60b6c0",
+      "name": "G_LoadSaveClass::ObjectivesAdd",
+      "symbol": "lhr_engine::game_loadsave_lifecycle::objectives_add",
+      "tier": "differential",
+      "evidence": "REA ev_0efd7f3a2e + Ghidra body 172 insns/29 bbs; pin tests game_loadsave 24 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x20b8a0",
+      "va": "0x60b8a0",
+      "name": "G_LoadSaveClass::ObjectivesRemove",
+      "symbol": "lhr_engine::game_loadsave_lifecycle::objectives_remove",
+      "tier": "differential",
+      "evidence": "REA ev_141ef8e159 + Ghidra body 29 insns/10 bbs; pin tests game_loadsave 24 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x20b8f0",
+      "va": "0x60b8f0",
+      "name": "G_LoadSaveClass::ObjectivesDisplay",
+      "symbol": "lhr_engine::game_loadsave_lifecycle::objectives_display",
+      "tier": "differential",
+      "evidence": "REA ev_8524516c22 + Ghidra body 23 insns/3 bbs; pin tests game_loadsave 24 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x20b940",
+      "va": "0x60b940",
+      "name": "G_LoadSaveClass::GarageClear",
+      "symbol": "lhr_engine::game_loadsave_lifecycle::garage_clear",
+      "tier": "differential",
+      "evidence": "REA ev_f5af0fefc6 + Ghidra body 11 insns/3 bbs; pin tests game_loadsave 24 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x20b970",
+      "va": "0x60b970",
+      "name": "G_LoadSaveClass::AddCarByIdx",
+      "symbol": "lhr_engine::game_loadsave_lifecycle::garage_add_car_by_idx",
+      "tier": "differential",
+      "evidence": "REA ev_62a1d7b481 + Ghidra body 37 insns/7 bbs; pin tests game_loadsave 24 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x20b9f0",
+      "va": "0x60b9f0",
+      "name": "G_LoadSaveClass::AddCarByActor",
+      "symbol": "lhr_engine::game_loadsave_lifecycle::garage_add_car_by_actor",
+      "tier": "differential",
+      "evidence": "REA ev_df99196ab3 + Ghidra body 56 insns/13 bbs; pin tests game_loadsave 24 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x20baa0",
+      "va": "0x60baa0",
+      "name": "G_LoadSaveClass::RemoveCar",
+      "symbol": "lhr_engine::game_loadsave_lifecycle::garage_remove_car",
+      "tier": "differential",
+      "evidence": "REA ev_6fc67cd925 + Ghidra body 25 insns/5 bbs; pin tests game_loadsave 24 pass"
     }
   ],
   "vm": {

@@ -307,8 +307,12 @@ class RewriteProgressTests(unittest.TestCase):
         # Pump/Sebrali STUBs; VA-form ok; marker-only, tests green).
         # +13 housekeeping differential (Ghidra bodies 2-32 insns; pin tests
         # housekeeping 35 pass; 2 STUBs held as contract).
-        self.assertEqual(game["ported"], 149 + 438)
-        self.assertEqual(game["verified"], 149 + 368)
+        # +15 loadsave contracts (ReplaySet/GetNext/PutNext + RaceCars x4 +
+        # Objectives x4 + Garage x4; VA-form ok; marker-only, tests green).
+        # +15 loadsave differential (Ghidra bodies 2-172 insns; pin tests
+        # game_loadsave 24 pass).
+        self.assertEqual(game["ported"], 149 + 453)
+        self.assertEqual(game["verified"], 149 + 383)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")
