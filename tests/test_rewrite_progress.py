@@ -270,8 +270,11 @@ class RewriteProgressTests(unittest.TestCase):
         # +9 controls/logo/head batch (ctor/dtor/Close/Init/MouseScale/Clear/
         # SetControl 0xefb40-0xf02b0 + PlayLogo + GetHeadPos; bodies 2-279
         # insns; SetParticles data-area held).
+        # +7 load/session batch (cbSectorBitFill/CloseVehicleMaterials/
+        # GetTShift/LoadTables/ConstructSound + Break_Glass/SceneErrFnc
+        # walks; 5 dossiers + 2 walks; SEH cbFrameMap held).
         self.assertEqual(game["ported"], 149 + 363)
-        self.assertEqual(game["verified"], 149 + 272)
+        self.assertEqual(game["verified"], 149 + 279)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")
@@ -386,7 +389,7 @@ class RewriteProgressTests(unittest.TestCase):
         # +4 ISND_sound lifecycle (GetSource walk + Open/Close/Stop dossiers;
         # Play walks + Get/SetCurrTime/Volume held).
         self.assertEqual(ls3df["ported"], 145 + 830)
-        self.assertEqual(ls3df["verified"], 145 + 379)
+        self.assertEqual(ls3df["verified"], 145 + 381)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()

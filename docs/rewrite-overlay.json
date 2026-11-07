@@ -6536,8 +6536,8 @@
       "va": "0x1007b420",
       "name": "ISND_3Dsound::Is3DInit (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_3dsound_is_3d_init",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dsound.cpp:20; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_3dsound_is_3d_init_copies)"
+      "tier": "differential",
+      "evidence": "REA ev_647f8bdd9b + complete walk 3 insns (MOV EAX,[ESP+4]; MOV AL,[EAX+0x1c]; RET 4), 3D-init flag; pin test is_3d_init 1 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -6878,8 +6878,8 @@
       "va": "0x1007d040",
       "name": "ISND_sound::GetCurrTime (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_sound_get_curr_time",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_sound.cpp:361; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_sound_get_curr_time_vectors)"
+      "tier": "differential",
+      "evidence": "REA ev_5c75f556b3 + complete walk both branches (null -> RET 0; else vcall [ECX+0x10] + FILD/FDIV [ECX+0x24] + ftol); pin test get_curr_time 1 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -9362,8 +9362,8 @@
       "va": "0x4262f0",
       "name": "C_car::Break_Glass",
       "symbol": "lhr_engine::vehicle_damage_glass::car_damage_glass_callback",
-      "tier": "contract",
-      "evidence": "Part/sound resolve (GAME 0x4262f0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_0783642d82 + complete walk (default-or-arg + indexed vcall + RET 8); pin tests glass 24 pass"
     },
     {
       "binary": "Game.exe",
@@ -10379,8 +10379,8 @@
       "va": "0x540ff0",
       "name": "cbSectorBitFill",
       "symbol": "lhr_engine::mission_load_session::fill_primary_sector_groups",
-      "tier": "contract",
-      "evidence": "Descending group-bit fill (GAME 0x540ff0); filed via mission_load_session re-export. Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_3cabaa70b7 + Ghidra body 24 insns/5 bbs, cbSectorBitFill; pin tests mission_load_session 55 pass"
     },
     {
       "binary": "Game.exe",
@@ -10388,8 +10388,8 @@
       "va": "0x4c5c80",
       "name": "CloseVehicleMaterials",
       "symbol": "lhr_engine::vehicle_engine_state::vehicle_close_materials",
-      "tier": "contract",
-      "evidence": "Entries clear (GAME 0x4c5c80). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_362fed0910 + Ghidra body 21 insns/5 bbs, CloseVehicleMaterials; pin test close_materials 1 pass"
     },
     {
       "binary": "Game.exe",
@@ -10496,8 +10496,8 @@
       "va": "0x540fd0",
       "name": "C_mission::__SceneErrFnc",
       "symbol": "lhr_engine::mission_scene_loading::scene_error_callback_forwards",
-      "tier": "contract",
-      "evidence": "Error/log filter (GAME 0x540fd0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_ab0919e904 + complete walk (switch 0x10/0x20 -> RET; else tail-jump 0x5bcc10); pin tests scene_error 3 pass"
     },
     {
       "binary": "Game.exe",
@@ -10505,8 +10505,8 @@
       "va": "0x547120",
       "name": "C_mission::GetTShift",
       "symbol": "lhr_engine::mission_lifecycle::MissionLifecycle::get_tshift",
-      "tier": "contract",
-      "evidence": "TShift member read (GAME 0x547120). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_e2a64f2977 + Ghidra body 2 insns/1 bb, GetTShift; pin tests get_tshift 2 pass"
     },
     {
       "binary": "Game.exe",
@@ -10514,8 +10514,8 @@
       "va": "0x55f390",
       "name": "LoadTables (sound manager)",
       "symbol": "lhr_engine::indexed_sound_manager::load_sound_manager",
-      "tier": "contract",
-      "evidence": "sounds.dat v2 intake (GAME 0x55f390, tools.cpp:257). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_14d0728283 + Ghidra body 201 insns/20 bbs, LoadTables sound manager; pin tests indexed_sound 2 pass"
     },
     {
       "binary": "Game.exe",
@@ -10523,8 +10523,8 @@
       "va": "0x55f820",
       "name": "ConstructSound",
       "symbol": "lhr_engine::indexed_sound_manager::construct_sound",
-      "tier": "contract",
-      "evidence": "Sound construction (GAME 0x55f820, tools.cpp:319). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_48ebbd6ccd + Ghidra body 179 insns/24 bbs, ConstructSound; pin tests indexed_sound"
     },
     {
       "binary": "Game.exe",
