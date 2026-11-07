@@ -441,6 +441,20 @@ impl ObjectResources {
             slot,
         })
     }
+    /// Working name for the direct `cur_lod` member read on `I3D_object`
+    /// (mafia-re ls3df/I3D/I3D.h carries `cur_lod` as ordinary render state
+    /// beside the mesh owner). The original reads the public member with no
+    /// accessor, so no LS3DF FUNCTION address exists and none is claimed.
+    pub fn object_cur_lod(&self, object: ObjectResourceKey) -> Result<u32, ObjectError> {
+        Ok(self.object(object)?.cur_lod)
+    }
+    /// Working name for the direct `fade` member read on `I3D_object`
+    /// (mafia-re ls3df/I3D/I3D.h carries `fade` as ordinary render state
+    /// beside `cur_lod`). The original reads the public member with no
+    /// accessor, so no LS3DF FUNCTION address exists and none is claimed.
+    pub fn object_fade(&self, object: ObjectResourceKey) -> Result<f32, ObjectError> {
+        Ok(self.object(object)?.fade)
+    }
     /// I3D_singlemesh and I3D_singlemorph inherit I3D_object mesh ownership.
     /// The graph separately owns joint binding, morph weights and CPU pose.
     pub fn create_singlemesh_resources(
@@ -1788,6 +1802,31 @@ mod tests {
     use crate::visual_resources::{self as vr, RawVertexBytesKey};
     use std::collections::{BTreeMap, VecDeque};
 
+    #[test]
+    fn object_state_reads_match_constructor_members() {
+        // Working names for the direct `cur_lod`/`fade` member reads on
+        // I3D_object (I3D.h): the original reads the public members with no
+        // accessor, so no LS3DF FUNCTION address exists and none is claimed.
+        let mut r = ObjectResources::new().unwrap();
+        let bare = r.create_object_resources(None).unwrap();
+        assert_eq!(r.object_cur_lod(bare).unwrap(), 0);
+        assert_eq!(r.object_fade(bare).unwrap(), 1.);
+        let mesh = r.create_mesh_object().unwrap();
+        let object = r.create_object_resources(Some(mesh)).unwrap();
+        assert_eq!(r.object_cur_lod(object).unwrap(), 0);
+        assert_eq!(r.object_fade(object).unwrap(), 1.);
+        r.objects[(object.slot - 1) as usize]
+            .as_mut()
+            .unwrap()
+            .cur_lod = 3;
+        assert_eq!(r.object_cur_lod(object).unwrap(), 3);
+        let foreign = ObjectResources::new()
+            .unwrap()
+            .create_object_resources(None)
+            .unwrap();
+        assert_eq!(r.object_cur_lod(foreign), Err(ObjectError::ForeignArena));
+        assert_eq!(r.object_fade(foreign), Err(ObjectError::ForeignArena));
+    }
     #[test]
     fn texbl_struct_teardown_releases_offsets_and_keeps_scalars() {
         // LS3DF RVA 0x5da70: hand-derived offsets, no game fixtures. The

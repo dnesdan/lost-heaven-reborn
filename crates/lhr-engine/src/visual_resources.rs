@@ -715,6 +715,17 @@ impl VisualResources {
             slot,
         })
     }
+    /// Working name for the direct `material` member read on `I3D_face_group`
+    /// (mafia-re ls3df/I3D/I3D.h carries the group material as a public
+    /// member). The original reads it with no accessor, so no LS3DF FUNCTION
+    /// address exists and none is claimed. A detached group reads as `None`,
+    /// matching the native null member.
+    pub fn face_group_material(
+        &self,
+        group: FaceGroupKey,
+    ) -> Result<Option<MaterialKey>, VisualResourceError> {
+        Ok(self.face_group(group)?.material)
+    }
     /// Driver factory 0x19200 `I3D_driver::CreateMeshLevel` (mafia-re
     /// `ls3df/I3D/I3d_driver.cpp:1398`): operator-new owner is the caller
     /// (no null check in the factory body; the ctor-callee linkage is
@@ -3313,6 +3324,28 @@ mod tests {
         );
         assert_eq!(backend.events.len(), start + 4);
         assert!(backend.textures.is_empty());
+    }
+    #[test]
+    fn face_group_material_matches_set_member() {
+        // Working name for the direct `material` member read on
+        // I3D_face_group (I3D.h): the original reads the public member with
+        // no accessor, so no LS3DF FUNCTION address exists and none is claimed.
+        let mut resources = VisualResources::new().unwrap();
+        let mut backend = Backend::default();
+        let group = resources.create_face_group().unwrap();
+        assert_eq!(resources.face_group_material(group).unwrap(), None);
+        let material = resources.create_material().unwrap();
+        resources
+            .set_material(group, Some(material), &mut backend)
+            .unwrap();
+        assert_eq!(
+            resources.face_group_material(group).unwrap(),
+            Some(material)
+        );
+        resources
+            .set_material(group, None, &mut backend)
+            .unwrap();
+        assert_eq!(resources.face_group_material(group).unwrap(), None);
     }
     #[test]
     fn animated_destructor_clears_color_alias_before_interrupted_env_release() {

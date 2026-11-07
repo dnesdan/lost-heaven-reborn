@@ -492,8 +492,10 @@ class RewriteProgressTests(unittest.TestCase):
         # pin tests model_loading 112 / frame_transform 55).
         # +2 weather dummy batch (GetDummyCnt/GetDummies complete 3-insn
         # walks; pin tests weather_dummy 3 / dummy 18; loops/dispatch held).
-        self.assertEqual(ls3df["ported"], 145 + 834)
-        self.assertEqual(ls3df["verified"], 145 + 409)
+        # +3 EnumProc link batch (sector/occluder/area ring links, complete
+        # 6-insn walks; 11 working-name helpers held uncredited).
+        self.assertEqual(ls3df["ported"], 145 + 837)
+        self.assertEqual(ls3df["verified"], 145 + 412)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()

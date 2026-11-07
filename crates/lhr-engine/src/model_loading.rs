@@ -917,6 +917,95 @@ impl ModelArena {
         Ok(())
     }
     /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// RVA 0x1be40, VA 0x1001be40. Upstream static `EnumHelp::I3D_EnumProc`
+    /// used by `I3D_frame::LinkTo` (mafia-re ls3df/I3D/frames/I3d_frame.cpp:439-443),
+    /// not an evidenced original symbol. The reference annotates this address
+    /// as a FUNCTION in LS3DF.dll (code, not data; no Game.exe address is used).
+    /// Kind-checked composition over the owned sector scene ring: the native
+    /// blind cast trusts the ENUMF_SECTOR filter, the host rejects other kinds
+    /// as missing sector records. Success is the native I3DENUMRET_OK path.
+    pub fn link_sector_scene_ring(
+        &mut self,
+        frame: FrameKey,
+        scene: Option<crate::scene_ownership::SceneKey>,
+    ) -> Result<(), ModelError> {
+        if self.state(frame)?.kind != FrameKind::Sector {
+            return Err(crate::frame_sector::SectorError::MissingRecord.into());
+        }
+        self.sector_add_to_scene_ring(crate::scene_ownership::SectorKey(frame), scene)
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// RVA 0x1be60, VA 0x1001be60. Upstream static `EnumHelp1::I3D_EnumProc`
+    /// used by `I3D_frame::LinkTo` (mafia-re ls3df/I3D/frames/I3d_frame.cpp:447-454),
+    /// not an evidenced original symbol. Verified reference FUNCTION address in
+    /// LS3DF.dll (code, not data). Registration-checked composition over the
+    /// owned occluder scene ring; unknown frames keep the native filter
+    /// assumption as an explicit host error.
+    pub fn link_occluder_scene_ring(
+        &mut self,
+        frame: FrameKey,
+        scene: Option<crate::scene_ownership::SceneKey>,
+    ) -> Result<(), ModelError> {
+        let key = self.occluder_key(frame)?;
+        self.occluder_set_scene_ring(key, scene)
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// RVA 0x1be80, VA 0x1001be80. Upstream static `EnumHelp2::I3D_EnumProc`
+    /// used by `I3D_frame::LinkTo` (mafia-re ls3df/I3D/frames/I3d_frame.cpp:455-462),
+    /// not an evidenced original symbol. Verified reference FUNCTION address in
+    /// LS3DF.dll (code, not data). Registration-checked composition over the
+    /// owned area scene ring; unknown frames keep the native filter assumption
+    /// as an explicit host error.
+    pub fn link_area_scene_ring(
+        &mut self,
+        frame: FrameKey,
+        scene: Option<crate::scene_ownership::SceneKey>,
+    ) -> Result<(), ModelError> {
+        let key = self.area_key(frame)?;
+        self.area_change_scene_ring(key, scene)
+    }
+    /// Working name for the LS3DF-inlined `I3D_frame::GetName` read
+    /// (mafia-re ls3df/I3D/I3D.h:583-587). No LS3DF FUNCTION address exists
+    /// for it: the only out-of-line copy is Game.exe 0x47ad00, which is not
+    /// claimed here. Null stored names collapse to empty, like the native
+    /// ternary; stored bytes keep C-string (first-zero) semantics.
+    pub fn frame_name_or_empty(&self, key: FrameKey) -> Result<&[u8], ModelError> {
+        let frame = self.frame(key)?;
+        if frame.name_is_null {
+            return Ok(b"");
+        }
+        let bytes = &frame.name_bytes;
+        Ok(&bytes[..bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len())])
+    }
+    /// Working name for the LS3DF-inlined `I3D_frame::GetOrigName` read
+    /// (mafia-re ls3df/I3D/I3D.h:589-592). No LS3DF FUNCTION address is
+    /// recorded for it at all. A missing original name reads as empty, like
+    /// the native null-to-"" ternary; present bytes keep C-string semantics.
+    pub fn frame_orig_name_or_empty(&self, key: FrameKey) -> Result<&[u8], ModelError> {
+        let frame = self.frame(key)?;
+        let Some(original) = frame.original_name_bytes.as_deref() else {
+            return Ok(b"");
+        };
+        Ok(&original[..original.iter().position(|&b| b == 0).unwrap_or(original.len())])
+    }
+    /// Working name for the LS3DF-inlined `I3D_model::GetFileName` read
+    /// (mafia-re ls3df/I3D/I3D.h:5078-5082). No LS3DF FUNCTION address
+    /// exists for it: the only out-of-line copy is Game.exe 0x47adc0, which
+    /// is not claimed here. A model without an Open filename reads as empty,
+    /// like the native null-to-"" ternary.
+    pub fn model_file_name_or_empty(&self, model: ModelKey) -> Result<&[u8], ModelError> {
+        let mi = self.model_index(model)?;
+        let Some(key) = self.models[mi].filename else {
+            return Ok(b"");
+        };
+        Ok(self
+            .filenames
+            .get(key.projection_slot())
+            .and_then(Option::as_ref)
+            .map(|record| record.bytes())
+            .unwrap_or(b""))
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
     /// RVA 0x1b3c0. Upstream working name I3D_frame::SetCallback
     /// (mafia-re I3d_frame.cpp:223-234), not an evidenced original symbol.
     /// No Ghidra body in session -> tier contract per the 0x2b830 standard.
@@ -3970,6 +4059,87 @@ pub(crate) mod tests {
             instance: None,
             lods: Vec::new(),
         }
+    }
+    #[test]
+    fn rva_0x1be40_link_sector_moves_scene_ring() {
+        // LS3DF RVA 0x1be40 (VA 0x1001be40): LinkTo sector EnumProc over the
+        // owned sector scene ring; other kinds are missing sector records.
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let sector = arena.create_sector_frame().unwrap();
+        arena
+            .link_sector_scene_ring(sector.frame(), Some(scene))
+            .unwrap();
+        assert_eq!(arena.sector(sector).unwrap().scene, Some(scene));
+        arena.link_sector_scene_ring(sector.frame(), None).unwrap();
+        assert_eq!(arena.sector(sector).unwrap().scene, None);
+        let dummy = arena.create_dummy_frame().unwrap();
+        assert!(arena.link_sector_scene_ring(dummy, Some(scene)).is_err());
+    }
+    #[test]
+    fn rva_0x1be60_link_occluder_moves_scene_ring() {
+        // LS3DF RVA 0x1be60 (VA 0x1001be60): LinkTo occluder EnumProc over
+        // the owned occluder scene ring; unregistered frames stay errors.
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let occluder = arena.create_occluder().unwrap();
+        arena
+            .link_occluder_scene_ring(occluder.frame(), Some(scene))
+            .unwrap();
+        assert_eq!(arena.occluder(occluder).unwrap().scene, Some(scene));
+        arena.link_occluder_scene_ring(occluder.frame(), None).unwrap();
+        assert_eq!(arena.occluder(occluder).unwrap().scene, None);
+        let sector = arena.create_sector_frame().unwrap();
+        assert!(
+            arena
+                .link_occluder_scene_ring(sector.frame(), Some(scene))
+                .is_err()
+        );
+    }
+    #[test]
+    fn rva_0x1be80_link_area_moves_scene_ring() {
+        // LS3DF RVA 0x1be80 (VA 0x1001be80): LinkTo area EnumProc over the
+        // owned area scene ring; unregistered frames stay errors.
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let area = arena.create_area().unwrap();
+        arena.link_area_scene_ring(area.frame(), Some(scene)).unwrap();
+        assert_eq!(arena.area(area).unwrap().scene, Some(scene));
+        arena.link_area_scene_ring(area.frame(), None).unwrap();
+        assert_eq!(arena.area(area).unwrap().scene, None);
+        let dummy = arena.create_dummy_frame().unwrap();
+        assert!(arena.link_area_scene_ring(dummy, Some(scene)).is_err());
+    }
+    #[test]
+    fn frame_name_collapses_null_to_empty() {
+        // Working name for inlined I3D_frame::GetName (I3D.h:583-587): no
+        // LS3DF FUNCTION address exists (only Game.exe 0x47ad00, unclaimed).
+        let mut arena = ModelArena::default();
+        let model = arena.create_model().unwrap();
+        let root = model.root();
+        assert_eq!(arena.frame_name_or_empty(root).unwrap(), b"");
+        arena.set_frame_name(root, Some(b"m")).unwrap();
+        assert_eq!(arena.frame_name_or_empty(root).unwrap(), b"m");
+    }
+    #[test]
+    fn frame_orig_name_collapses_missing_to_empty() {
+        // Working name for inlined I3D_frame::GetOrigName (I3D.h:589-592):
+        // no LS3DF FUNCTION address is recorded at all.
+        let mut arena = ModelArena::default();
+        let model = arena.create_model().unwrap();
+        let root = model.root();
+        assert_eq!(arena.frame_orig_name_or_empty(root).unwrap(), b"");
+        arena.set_frame_name(root, Some(b"m")).unwrap();
+        assert_eq!(arena.frame_orig_name_or_empty(root).unwrap(), b"m");
+    }
+    #[test]
+    fn model_file_name_collapses_absent_to_empty() {
+        // Working name for inlined I3D_model::GetFileName (I3D.h:5078-5082):
+        // no LS3DF FUNCTION address exists (only Game.exe 0x47adc0).
+        let mut arena = ModelArena::default();
+        let model = arena.create_model().unwrap();
+        assert_eq!(arena.model_file_name_or_empty(model).unwrap(), b"");
+        assert!(arena.model_file_name_or_empty(ModelKey(FrameKey(u32::MAX))).is_err());
     }
     #[test]
     fn lensflare_owns_live_source_and_material_associations_until_close() {

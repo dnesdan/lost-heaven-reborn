@@ -286,6 +286,22 @@ pub fn visual_void_set_weight(_region: i32, _level: i32, _weight: f32) -> i32 {
 pub fn visual_void_get_weight(_region: i32, _level: i32) -> f32 {
     0.0
 }
+/// Working name for `I3D_void_interface::NumLevels`
+/// (mafia-re ls3df/I3D/visuals/I3d_visual.cpp:145-148). The reference
+/// records no LS3DF FUNCTION address for it (plain .cpp definition without
+/// a FUNCTION annotation), so no RVA is claimed. Void interfaces carry no
+/// levels, hence the constant zero.
+pub fn visual_void_num_levels() -> i32 {
+    0
+}
+/// Working name for `I3D_void_interface::NumRegions`
+/// (mafia-re ls3df/I3D/visuals/I3d_visual.cpp:150-153). The reference
+/// records no LS3DF FUNCTION address for it (plain .cpp definition without
+/// a FUNCTION annotation), so no RVA is claimed. Void interfaces carry no
+/// regions, hence the constant zero.
+pub fn visual_void_num_regions() -> i32 {
+    0
+}
 impl I3dFrameGraph {
     pub fn insert(&mut self, state: I3dFrameState) -> Result<FrameKey, FrameError> {
         let id = u32::try_from(self.nodes.len())
@@ -632,6 +648,30 @@ impl I3dFrameGraph {
         let flags = &mut self.node_mut(key)?.state.flags;
         *flags = (*flags & !1) | u32::from(on as u8 != 0);
         Ok(())
+    }
+    /// Working name for the LS3DF-inlined `I3D_frame::IsOn` read
+    /// (mafia-re ls3df/I3D/I3D.h:543-549). No LS3DF FUNCTION address exists
+    /// for it: the only out-of-line copy is Game.exe 0x47acf0, which is not
+    /// claimed here. Reports flag bit0 (FRMFLAGS_ON); cache flags and
+    /// descendants are untouched.
+    pub fn frame_is_on(&self, key: FrameKey) -> Result<bool, FrameError> {
+        Ok(self.state(key)?.flags & 1 != 0)
+    }
+    /// Working name for the LS3DF-inlined `I3D_frame::GetParent` read
+    /// (mafia-re ls3df/I3D/I3D.h:5042-5046). No LS3DF FUNCTION address
+    /// exists for it: the only out-of-line copy is Game.exe 0x47ad10, which
+    /// is not claimed here. Borrows the live hierarchy link; no cycle or
+    /// ownership claim beyond that link.
+    pub fn frame_parent_key(&self, key: FrameKey) -> Result<Option<FrameKey>, FrameError> {
+        Ok(self.links(key)?.parent)
+    }
+    /// Working name for the LS3DF-inlined `I3D_frame::NumChildren` read
+    /// (mafia-re ls3df/I3D/I3D.h:602-611, LS3DF_EXPORTS by-value branch). No
+    /// LS3DF FUNCTION address exists for it: the only out-of-line copy is
+    /// Game.exe 0x47ad20, which is not claimed here. The native width is
+    /// int; the host count stays within the admitted hierarchy domain.
+    pub fn frame_child_count(&self, key: FrameKey) -> Result<u32, FrameError> {
+        Ok(self.links(key)?.child_count)
     }
     /// GetFrameInterpolator RVA0x1ea60 marks a newly bound destination.
     pub(crate) fn mark_animated(&mut self, key: FrameKey) -> Result<(), FrameError> {
@@ -2428,6 +2468,59 @@ impl TargetFrameBackend for I3dFrameGraph {
 mod tests {
     use super::*;
 
+    #[test]
+    fn frame_is_on_reports_flag_bit_zero() {
+        // Working name for inlined I3D_frame::IsOn (I3D.h:543-549): no
+        // LS3DF FUNCTION address exists (only Game.exe 0x47acf0, unclaimed).
+        let mut graph = I3dFrameGraph::default();
+        let key = graph.insert(I3dFrameState::model()).unwrap();
+        assert!(graph.frame_is_on(key).unwrap());
+        graph.set_on(key, 0x100).unwrap();
+        assert!(!graph.frame_is_on(key).unwrap());
+        graph.set_on(key, 1).unwrap();
+        assert!(graph.frame_is_on(key).unwrap());
+        assert_eq!(
+            graph.frame_is_on(FrameKey(u32::MAX)),
+            Err(FrameError::UnknownFrame(FrameKey(u32::MAX)))
+        );
+    }
+    #[test]
+    fn frame_parent_key_follows_live_hierarchy_links() {
+        // Working name for inlined I3D_frame::GetParent (I3D.h:5042-5046):
+        // no LS3DF FUNCTION address exists (only Game.exe 0x47ad10).
+        let mut graph = I3dFrameGraph::default();
+        let parent = graph.insert(I3dFrameState::model()).unwrap();
+        let child = graph.insert(I3dFrameState::dummy()).unwrap();
+        assert_eq!(graph.frame_parent_key(child).unwrap(), None);
+        graph.add_child(parent, child).unwrap();
+        assert_eq!(graph.frame_parent_key(child).unwrap(), Some(parent));
+        graph.remove_child(parent, child).unwrap();
+        assert_eq!(graph.frame_parent_key(child).unwrap(), None);
+    }
+    #[test]
+    fn frame_child_count_tracks_prepend_links() {
+        // Working name for inlined I3D_frame::NumChildren (I3D.h:602-611):
+        // no LS3DF FUNCTION address exists (only Game.exe 0x47ad20).
+        let mut graph = I3dFrameGraph::default();
+        let parent = graph.insert(I3dFrameState::model()).unwrap();
+        assert_eq!(graph.frame_child_count(parent).unwrap(), 0);
+        let first = graph.insert(I3dFrameState::dummy()).unwrap();
+        let second = graph.insert(I3dFrameState::dummy()).unwrap();
+        graph.add_child(parent, first).unwrap();
+        assert_eq!(graph.frame_child_count(parent).unwrap(), 1);
+        graph.add_child(parent, second).unwrap();
+        assert_eq!(graph.frame_child_count(parent).unwrap(), 2);
+    }
+    #[test]
+    fn visual_void_counts_are_constant_zero() {
+        // Working names for I3D_void_interface::NumLevels/NumRegions
+        // (I3d_visual.cpp:145-153): plain definitions with no recorded
+        // LS3DF FUNCTION address, so no RVA is claimed. Next to the
+        // existing SetWeight/GetWeight pair (RVAs 0x5a760/0x5a770).
+        assert_eq!(visual_void_num_levels(), 0);
+        assert_eq!(visual_void_num_regions(), 0);
+        assert_eq!(visual_void_num_levels(), visual_void_num_regions());
+    }
     #[test]
     fn joint_destruction_clears_the_indexed_slot_joint_and_preserves_other_slots() {
         let mut graph = I3dFrameGraph::default();

@@ -13252,6 +13252,33 @@
       "symbol": "lhr_engine::police_state::SledovackaState::apply_done",
       "tier": "differential",
       "evidence": "REA ev_7e1202744d + Ghidra body 67 insns/11 bbs; pin tests police_state 61 pass"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1be40",
+      "va": "0x1001be40",
+      "name": "EnumHelp::I3D_EnumProc (upstream working name)",
+      "symbol": "lhr_engine::model_loading::link_sector_scene_ring",
+      "tier": "differential",
+      "evidence": "REA ev_f908afc7f5 + complete walk 6 insns (MOV/MOV/PUSH/CALL kind-check + XOR/RET 8 OK); pin test link_sector 1 pass"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1be60",
+      "va": "0x1001be60",
+      "name": "EnumHelp1::I3D_EnumProc (upstream working name)",
+      "symbol": "lhr_engine::model_loading::link_occluder_scene_ring",
+      "tier": "differential",
+      "evidence": "REA ev_fba3b60eed + complete walk 6 insns; pin test link_occluder 1 pass"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1be80",
+      "va": "0x1001be80",
+      "name": "EnumHelp2::I3D_EnumProc (upstream working name)",
+      "symbol": "lhr_engine::model_loading::link_area_scene_ring",
+      "tier": "differential",
+      "evidence": "REA ev_7a6bbf2e93 + complete walk 6 insns; pin test link_area 1 pass"
     }
   ],
   "vm": {
