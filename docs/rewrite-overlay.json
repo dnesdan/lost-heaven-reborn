@@ -10397,8 +10397,8 @@
       "va": "0x4cc620",
       "name": "GetHeadPos",
       "symbol": "lhr_engine::vehicle_engine_state::vehicle_get_head_pos",
-      "tier": "contract",
-      "evidence": "Raw head words (GAME 0x4cc620). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_6b6cbcfff7 + Ghidra body 2 insns/1 bb, GetHeadPos; pin test head_pos 1 pass"
     },
     {
       "binary": "Game.exe",
@@ -10577,8 +10577,8 @@
       "va": "0x4efb40",
       "name": "C_controls ctor",
       "symbol": "lhr_engine::game_controls::GameControls::construct",
-      "tier": "contract",
-      "evidence": "Constructor prefix (GAME 0x4efb40). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_a1e5e21a89 + Ghidra body 30 insns/1 bb, controls ctor; pin tests game_controls 14 pass"
     },
     {
       "binary": "Game.exe",
@@ -10586,8 +10586,8 @@
       "va": "0x4efbd0",
       "name": "C_controls dtor",
       "symbol": "lhr_engine::game_controls::GameControls::destruct",
-      "tier": "contract",
-      "evidence": "Destructor prefix (GAME 0x4efbd0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_efb6670cb1 + Ghidra body 44 insns/1 bb, controls dtor; pin tests game_controls"
     },
     {
       "binary": "Game.exe",
@@ -10595,8 +10595,8 @@
       "va": "0x4efc80",
       "name": "C_controls::Close",
       "symbol": "lhr_engine::game_controls::GameControls::close",
-      "tier": "contract",
-      "evidence": "Close prefix (GAME 0x4efc80). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_1e70bb952e + Ghidra body 114 insns/15 bbs, controls Close; pin tests game_controls"
     },
     {
       "binary": "Game.exe",
@@ -10604,8 +10604,8 @@
       "va": "0x4efde0",
       "name": "C_controls::Init",
       "symbol": "lhr_engine::game_controls::GameControls::init",
-      "tier": "contract",
-      "evidence": "Init with references (GAME 0x4efde0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_84d56b6a43 + Ghidra body 260 insns/34 bbs, controls Init; pin tests game_controls"
     },
     {
       "binary": "Game.exe",
@@ -10613,8 +10613,8 @@
       "va": "0x4efdb0",
       "name": "SetMouseScale",
       "symbol": "lhr_engine::game_controls::GameControls::set_mouse_scale",
-      "tier": "contract",
-      "evidence": "Mouse scale store (GAME 0x4efdb0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_39faa8e113 + Ghidra body 8 insns/1 bb, SetMouseScale; pin tests game_controls"
     },
     {
       "binary": "Game.exe",
@@ -10622,8 +10622,8 @@
       "va": "0x4f00f0",
       "name": "ClearControls",
       "symbol": "lhr_engine::game_controls::GameControls::clear_controls",
-      "tier": "contract",
-      "evidence": "Controls clear (GAME 0x4f00f0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_0e3ad7b936 + Ghidra body 61 insns/9 bbs, ClearControls; pin tests game_controls"
     },
     {
       "binary": "Game.exe",
@@ -10631,8 +10631,8 @@
       "va": "0x4f02b0",
       "name": "SetControl",
       "symbol": "lhr_engine::game_controls::GameControls::set_control",
-      "tier": "contract",
-      "evidence": "Shared key refs (GAME 0x4f02b0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_c3e5f635f2 + Ghidra body 270 insns/65 bbs, SetControl; pin tests game_controls"
     },
     {
       "binary": "Game.exe",
@@ -10640,8 +10640,8 @@
       "va": "0x55d460",
       "name": "PlayLogo",
       "symbol": "lhr_engine::original_logo::play_logo",
-      "tier": "contract",
-      "evidence": "Caller-side logo projection (GAME 0x15d460); AVI/Bink runtime deferred. Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_b19e761ce7 + Ghidra body 279 insns/27 bbs, PlayLogo caller projection; pin tests original_logo 18 pass"
     },
     {
       "binary": "Game.exe",

@@ -267,8 +267,11 @@ class RewriteProgressTests(unittest.TestCase):
         # +9 text/house/vehicle/compare batch (GetTextOrNull/CharacterStack/
         # WheelCamPos/AddSector x2/AngleTo2/RotateDirNoNorm/compare_anim/
         # CompareShadows; 2 walks + 7 dossiers; SEH cbFrameMap held).
+        # +9 controls/logo/head batch (ctor/dtor/Close/Init/MouseScale/Clear/
+        # SetControl 0xefb40-0xf02b0 + PlayLogo + GetHeadPos; bodies 2-279
+        # insns; SetParticles data-area held).
         self.assertEqual(game["ported"], 149 + 363)
-        self.assertEqual(game["verified"], 149 + 263)
+        self.assertEqual(game["verified"], 149 + 272)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")
