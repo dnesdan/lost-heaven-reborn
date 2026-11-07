@@ -8534,8 +8534,8 @@
       "va": "0x56ae20",
       "name": "C_clock::Init",
       "symbol": "lhr_engine::actor_world::ActorWorld::init_clock_linked",
-      "tier": "contract",
-      "evidence": "Vtable-gated Mala/Velka/Sekundova hand-frame intake at +0x70/+0x74/+0x78 (missing-H/M fail closed, missing-S stores zero) per mafia-re c_clock.cpp:14-29; SetDir/Update frame effects stay with a future owner. Tests pass. Marker-only contract."
+      "tier": "differential",
+      "evidence": "REA ev_2db431a868 + complete walk 42 insns (TEST frm/JZ, CALL 0x405dd0 C_actor::Init, 3x FindChildFrame [vt+0x38] for Mala@0x6368c8/Velka@0x6368c0/Sekundova@0x6368b4 with fail-closed on hour/minute, AL 0/1, RET 4); pin tests clock_linked_init cover all 4 combos"
     },
     {
       "binary": "Game.exe",
@@ -8543,8 +8543,8 @@
       "va": "0x56ae90",
       "name": "C_clock::GameInit",
       "symbol": "lhr_engine::actor_world::ActorWorld::game_init_clock",
-      "tier": "contract",
-      "evidence": "Zeroes elapsed/angles then sets both hands from u16 hour/minute per mafia-re c_clock.cpp:31-52 (midnight and 3:30 cases tested); GetLocalTime sourcing and SetDir/Update stay deferred. Marker-only contract."
+      "tier": "differential",
+      "evidence": "REA ev_a187a2d382 + complete walk 80 insns (zero +0x80/+0x84/+0x7c, CALL 0x405fa0, IAT 0x623048 GetLocalTime, AND 0xffff + ADD doubling, FILD/FMUL PI/12@0x6256e4 + PI/60@0x6256e0, FADD 1/12 share, FSUBR PI, SetDir/Update [vt+0xc/+0x18], second skip); pin test game_init_sets_hands_from_computer_time"
     },
     {
       "binary": "Game.exe",
@@ -8552,8 +8552,8 @@
       "va": "0x56afe0",
       "name": "C_clock::AI",
       "symbol": "lhr_engine::actor_world::ActorWorld::tick_clock",
-      "tier": "contract",
-      "evidence": "wrapping_add tick accumulation with strict >60000 minute/hour strict-float turns per mafia-re c_clock.cpp:73-96 (60000/60001/wrap cases tested). Frame effects deferred. Marker-only contract."
+      "tier": "differential",
+      "evidence": "REA ev_033d44900e + complete walk 94 insns (ADD elapsed wrap, CMP 60000/JBE, ADD -60000, FADD 2PI/60, FCOM 2PI + AND 0x4100 strict-gt wraps, FADD PI/12 hour, SetDir/Update, FILD qword elapsed + FMUL 2PI/60000 second); pin tests ai_turns_minute_hand_each_minute_past + ai_wraps_minute_and_hour_turns_verbatim"
     },
     {
       "binary": "Game.exe",
