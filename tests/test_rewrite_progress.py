@@ -494,8 +494,10 @@ class RewriteProgressTests(unittest.TestCase):
         # walks; pin tests weather_dummy 3 / dummy 18; loops/dispatch held).
         # +3 EnumProc link batch (sector/occluder/area ring links, complete
         # 6-insn walks; 11 working-name helpers held uncredited).
+        # +1 singlemesh UpdateVertices(index) (complete 7-insn walk: forward +
+        # counter bump; pin tests singlemesh 33 pass).
         self.assertEqual(ls3df["ported"], 145 + 837)
-        self.assertEqual(ls3df["verified"], 145 + 412)
+        self.assertEqual(ls3df["verified"], 145 + 413)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()

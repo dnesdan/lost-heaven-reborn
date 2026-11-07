@@ -3422,8 +3422,8 @@
       "va": "0x10054390",
       "name": "I3D_singlemesh::UpdateVertices(index) (mafia-re evidenced name)",
       "symbol": "lhr_engine::singlemesh_lifecycle::singlemesh_note_indexed_vertices_updated",
-      "tier": "contract",
-      "evidence": "Ghidra formed no body; complete 9-insn linear decode entry to RET 8 (index forwarded to object::UpdateVertices(index), then ++) + mafia-re I3d_singlemesh.cpp:70-74; tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_37235db036 + complete walk 7 insns (MOV/PUSH/PUSH/CALL UpdateVertices + INC [ESI+0x224] + RET 8); pin tests singlemesh 33 pass"
     },
     {
       "binary": "LS3DF.dll",
