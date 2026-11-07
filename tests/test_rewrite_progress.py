@@ -191,8 +191,10 @@ class RewriteProgressTests(unittest.TestCase):
         # AI 0x16afe0 94 insns; complete instruction walks + pinning tests).
         # +26 recon batch (detector/human/vehicle/indicators/police/menu/
         # ishow getters + STUBs; Ghidra bodies 2-929 insns + pinning tests).
+        # +5 roads helpers (clear 0x15cb90 / zone 0x15be10 / emit 0x15bc10 /
+        # fixup 0x15bcd0 / edge 0x15b5d0; Ghidra bodies 20-132 insns).
         self.assertEqual(game["ported"], 149 + 311)
-        self.assertEqual(game["verified"], 149 + 48)
+        self.assertEqual(game["verified"], 149 + 53)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")

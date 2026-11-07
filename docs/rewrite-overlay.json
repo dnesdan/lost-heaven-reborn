@@ -36,8 +36,8 @@
       "va": "0x55cb90",
       "name": "C_roads output clear",
       "symbol": "lhr_engine::road_network::clear_path_output",
-      "tier": "contract",
-      "evidence": "REA ev_97ead2f7 + Rust tests"
+      "tier": "differential",
+      "evidence": "REA ev_225a6aa643 + Ghidra body 20 insns/5 bbs, copy [src,end)->dst, no callees; pin tests clear_path_output"
     },
     {
       "binary": "Game.exe",
@@ -45,8 +45,8 @@
       "va": "0x55be10",
       "name": "C_roads zone resolve",
       "symbol": "lhr_engine::road_network::resolve_zone",
-      "tier": "contract",
-      "evidence": "REA ev_abb271eb + Rust tests"
+      "tier": "differential",
+      "evidence": "REA ev_d5759e05ba + Ghidra body 132 insns/18 bbs, AND 0x7FFF, stride 0x18, callees 0x55bcd0/0x55b5d0; pin test resolve_zone_picks_the_closer_valid_side"
     },
     {
       "binary": "Game.exe",
@@ -54,8 +54,8 @@
       "va": "0x55bc10",
       "name": "C_roads path emit",
       "symbol": "lhr_engine::road_network::emit_chain",
-      "tier": "contract",
-      "evidence": "REA ev_6ceec1cd + Rust tests"
+      "tier": "differential",
+      "evidence": "REA ev_7de4d19298 + Ghidra body 63 insns/12 bbs, callee 0x47c020, TEST 0x8000/AND 0x7FFF; pin tests emit_chain"
     },
     {
       "binary": "Game.exe",
@@ -63,8 +63,8 @@
       "va": "0x55bcd0",
       "name": "C_roads chain fixup",
       "symbol": "lhr_engine::road_network::fixup_distance",
-      "tier": "contract",
-      "evidence": "REA ev_77cb6fe3 + Rust tests"
+      "tier": "differential",
+      "evidence": "REA ev_8c219734ad + Ghidra body 97 insns/13 bbs, AND 0x7FFF/0x8000, FLD/FSUB squared dist, no callees; pin tests fixup_distance"
     },
     {
       "binary": "Game.exe",
@@ -81,8 +81,8 @@
       "va": "0x55b5d0",
       "name": "C_roads edge lane",
       "symbol": "lhr_engine::road_network::edge_lane",
-      "tier": "contract",
-      "evidence": "REA ev_b3e004ff + Rust tests"
+      "tier": "differential",
+      "evidence": "REA ev_0a48b3d4ee + Ghidra body 104 insns/23 bbs, stride 0x34, slots +0x1c/+0x20/+0x14, no callees; pin test edge_lane_selects_last_or_lightest_match"
     },
     {
       "binary": "Game.exe",
