@@ -6905,8 +6905,8 @@
       "va": "0x1007d1f0",
       "name": "ISND_sound::SetVolumeLOG float (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_sound_set_volume_log",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_sound.cpp:421; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_sound_set_volume_log_stores_first)"
+      "tier": "differential",
+      "evidence": "REA ev_b715fd8db5 + complete walk (store + 1.0-x FMUL + ftol + vcall + RET; error branch 0x80000005); pin tests set_volume 5 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -6914,8 +6914,8 @@
       "va": "0x1007d240",
       "name": "ISND_sound::SetVolumeLOG int (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_sound_set_volume_log_db",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_sound.cpp:433; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_sound_set_volume_log_db_pins)"
+      "tier": "differential",
+      "evidence": "REA ev_a2febb3e27 + complete walk (log-scale FYL2X + clamp + vcall + RET; error branch 0x80000005); pin tests set_volume"
     },
     {
       "binary": "LS3DF.dll",
@@ -6923,8 +6923,8 @@
       "va": "0x1007d2b0",
       "name": "ISND_sound::SetFrequency (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_sound_set_frequency",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_sound.cpp:450; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_sound_set_frequency_pins)"
+      "tier": "differential",
+      "evidence": "REA ev_5993126128 + complete walk (freq clamp vs driver bounds + FILD/FDIV store + vcall + RET); pin test set_frequency 1 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -6932,8 +6932,8 @@
       "va": "0x1007d340",
       "name": "ISND_sound::SetPanning (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_sound_set_panning",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_sound.cpp:466; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_sound_set_panning_pins)"
+      "tier": "differential",
+      "evidence": "REA ev_e43a2b1399 + complete walk (MRG_ZERO guard + clamp 0x2710/0xffffd8f0 + vcall + RET all branches); pin test panning 1 pass"
     },
     {
       "binary": "LS3DF.dll",

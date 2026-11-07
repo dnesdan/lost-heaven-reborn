@@ -454,8 +454,10 @@ class RewriteProgressTests(unittest.TestCase):
         # null->0, FMUL/ftol + vcall + HRESULT; pin tests).
         # +4 ISND listener/source batch (Update/CommitDeferred/Lock/Unlock
         # contracts + complete walks; 9 working-name helpers held).
+        # +4 ISND_sound volume/freq/pan batch (SetVolume float/int + SetFreq/
+        # SetPanning complete walks with clamps + vcalls; pin tests).
         self.assertEqual(ls3df["ported"], 145 + 834)
-        self.assertEqual(ls3df["verified"], 145 + 388)
+        self.assertEqual(ls3df["verified"], 145 + 392)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()
