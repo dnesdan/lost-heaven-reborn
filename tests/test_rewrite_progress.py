@@ -323,8 +323,10 @@ class RewriteProgressTests(unittest.TestCase):
         # Castrate/HardHead/ShockStart; marker-only, tests green).
         # +11 human differential (Ghidra bodies 2-127 insns; pin tests
         # human_actor 44 pass; bound-points loop held as contract).
+        # +1 detector GameInit (complete walk with disclosed base-call/coll
+        # deferrals; owned latch-nulling slice + pin test).
         self.assertEqual(game["ported"], 149 + 480)
-        self.assertEqual(game["verified"], 149 + 400)
+        self.assertEqual(game["verified"], 149 + 401)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")

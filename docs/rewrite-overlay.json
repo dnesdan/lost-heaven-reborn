@@ -9812,8 +9812,8 @@
       "va": "0x432a00",
       "name": "C_detector::GameInit (latch-nulling scope)",
       "symbol": "lhr_engine::actor_world::ActorWorld::game_init_detector",
-      "tier": "contract",
-      "evidence": "Signal/wait_for_hit/dyn_colls nulling (GAME 0x432a00); base calls and coll pointers deferred. Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_b2c9f2e98b + complete walk (base CALL 0x405fa0 + self +0xb4 + CALL 0x461580 + latch nulling +0x65/+0xdc-0xdf/+0x118-0x124 + CALL 0x407cd0 + RET); owned slice nulls signal/wait_for_hit/dyn_colls, base calls + coll-pointer nulling disclosed deferred; pin test detector_game_init 1 pass"
     },
     {
       "binary": "Game.exe",
