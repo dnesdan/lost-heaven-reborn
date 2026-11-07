@@ -6617,8 +6617,8 @@
       "va": "0x1007b680",
       "name": "ISND_sound::GetSource (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_sound_get_source",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/ISound.h:150-155 (out-of-line copy); tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_sound_get_source_copies)"
+      "tier": "differential",
+      "evidence": "REA ev_0804f37f85 + complete walk 3 insns (MOV EAX,[ESP+4]; MOV EAX,[EAX+0xc]; RET 4), source getter; pin tests isound_sound 18 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -6833,8 +6833,8 @@
       "va": "0x1007c9d0",
       "name": "ISND_sound::Open (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_sound_open",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_sound.cpp:184; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_sound_open_branches)"
+      "tier": "differential",
+      "evidence": "REA ev_b3472264e9 + Ghidra body 40 insns/5 bbs, sound Open; pin tests sound_open 3 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -6842,8 +6842,8 @@
       "va": "0x1007ca30",
       "name": "ISND_sound::Close (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_sound_close",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_sound.cpp:202; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_sound_close_effects)"
+      "tier": "differential",
+      "evidence": "REA ev_e28170751b + Ghidra body 22 insns/5 bbs, sound Close; pin tests isound_sound"
     },
     {
       "binary": "LS3DF.dll",
@@ -6869,8 +6869,8 @@
       "va": "0x1007cf50",
       "name": "ISND_sound::Stop (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_sound_stop",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_sound.cpp:333; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_sound_stop_gate)"
+      "tier": "differential",
+      "evidence": "REA ev_741d0dcc5a + Ghidra body 81 insns/21 bbs, sound Stop; pin tests isound_sound"
     },
     {
       "binary": "LS3DF.dll",

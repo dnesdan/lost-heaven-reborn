@@ -380,8 +380,10 @@ class RewriteProgressTests(unittest.TestCase):
         # GetSource held).
         # +2 I3D_sound GetPlayTime/ForceUpdate (complete walks: null->0/vcall
         # + wrapper CALL 873-insn worker covered through entry; pin tests).
+        # +4 ISND_sound lifecycle (GetSource walk + Open/Close/Stop dossiers;
+        # Play walks + Get/SetCurrTime/Volume held).
         self.assertEqual(ls3df["ported"], 145 + 830)
-        self.assertEqual(ls3df["verified"], 145 + 375)
+        self.assertEqual(ls3df["verified"], 145 + 379)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()
