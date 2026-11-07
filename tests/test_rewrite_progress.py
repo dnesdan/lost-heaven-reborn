@@ -490,8 +490,10 @@ class RewriteProgressTests(unittest.TestCase):
         # NumInterpolators complete walks; itexture/visual 129/143 pass).
         # +3 frame batch (Release/GetChild/SetCallback complete walks;
         # pin tests model_loading 112 / frame_transform 55).
+        # +2 weather dummy batch (GetDummyCnt/GetDummies complete 3-insn
+        # walks; pin tests weather_dummy 3 / dummy 18; loops/dispatch held).
         self.assertEqual(ls3df["ported"], 145 + 834)
-        self.assertEqual(ls3df["verified"], 145 + 407)
+        self.assertEqual(ls3df["verified"], 145 + 409)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()

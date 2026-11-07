@@ -1991,8 +1991,8 @@
       "va": "0x1004bcc0",
       "name": "I3D_scene::WeatherSystemGetDummyCnt (upstream working name)",
       "symbol": "lhr_engine::scene_weather_dummy::ModelArena::weather_dummy_count",
-      "tier": "contract",
-      "evidence": "Ghidra forms no function (not_found); entry bytes read [EAX+0x334]=used_size + mafia-re I3d_scene.cpp:1085-1088; tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_0f1681ba17 + complete walk 3 insns (MOV [ESP+4]; MOV EAX,[EAX+0x334]; RET 4), dummy count; pin tests weather_dummy 3 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -2000,8 +2000,8 @@
       "va": "0x1004bcd0",
       "name": "I3D_scene::WeatherSystemGetDumies (upstream working name)",
       "symbol": "lhr_engine::scene_weather_dummy::ModelArena::weather_dummies",
-      "tier": "contract",
-      "evidence": "Ghidra forms no function (not_found); entry bytes read [EAX+0x32C]=array + mafia-re I3d_scene.cpp:1092-1095; empty yields empty slice (native NULL, disclosed)"
+      "tier": "differential",
+      "evidence": "REA ev_7baee823ce + complete walk 3 insns (MOV [ESP+4]; MOV EAX,[EAX+0x32c]; RET 4), dummy array; pin tests dummy 18 pass"
     },
     {
       "binary": "LS3DF.dll",
