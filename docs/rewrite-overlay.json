@@ -9767,8 +9767,8 @@
       "va": "0x4cdcc0",
       "name": "C_Vehicle::SetDynamicCollsOn",
       "symbol": "lhr_engine::car_actor::CarActorState::set_dynamic_colls_on",
-      "tier": "contract",
-      "evidence": "Flag stores (GAME 0x4cdcc0); attach deferred. Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_ce8bb82681 + Ghidra body 139 insns/23 bbs, SetDynamicCollsOn; pin tests vehicle 298 pass"
     },
     {
       "binary": "Game.exe",
@@ -9794,8 +9794,8 @@
       "va": "0x57d0e0",
       "name": "C_human::TestMoveCollInOwner (probe)",
       "symbol": "lhr_engine::human_move_coll::test_move_coll_in_owner_gate",
-      "tier": "contract",
-      "evidence": "Seat/railway gate (GAME 0x57d0e0); sweep deferred. Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_c325e64a24 + Ghidra body 139 insns/9 bbs, TestMoveCollInOwner probe; pin tests human_move_coll 13 pass"
     },
     {
       "binary": "Game.exe",
@@ -9821,8 +9821,8 @@
       "va": "0x60fa40",
       "name": "G_TextDatabase::G_TextDatabase",
       "symbol": "lhr_engine::text_database::TextDatabase::new",
-      "tier": "contract",
-      "evidence": "Zeroed-state ctor (GAME 0x60fa40). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_97f397f825 + Ghidra body 3 insns/1 bb, TextDatabase ctor; pin tests text_database 6 pass"
     },
     {
       "binary": "Game.exe",
@@ -9830,8 +9830,8 @@
       "va": "0x60fa50",
       "name": "G_TextDatabase::~G_TextDatabase",
       "symbol": "lhr_engine::text_database::TextDatabase::reset",
-      "tier": "contract",
-      "evidence": "Emptying reset, double-reset safe (GAME 0x60fa50). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_efa32785f8 + complete walk (null-check + free call + RET); pin tests text_database"
     },
     {
       "binary": "Game.exe",
@@ -9839,8 +9839,8 @@
       "va": "0x60fa60",
       "name": "G_TextDatabase::LoadDatabase",
       "symbol": "lhr_engine::text_database::TextDatabase::load_from_bytes",
-      "tier": "contract",
-      "evidence": "Count+offset intake with NUL-terminator admission (GAME 0x60fa60). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_1a4ad89445 + Ghidra body 72 insns/9 bbs, LoadDatabase; pin tests text_database"
     },
     {
       "binary": "Game.exe",
@@ -9848,8 +9848,8 @@
       "va": "0x60fb10",
       "name": "G_TextDatabase::Unload",
       "symbol": "lhr_engine::text_database::TextDatabase::unload",
-      "tier": "contract",
-      "evidence": "Release + zero count (GAME 0x60fb10). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_f4e2ae2730 + Ghidra body 12 insns/3 bbs, Unload; pin tests text_database"
     },
     {
       "binary": "Game.exe",
