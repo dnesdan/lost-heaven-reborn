@@ -155,9 +155,12 @@ mod tests {
 // order is the native vector order and every walk runs back-to-front like the
 // native `for (i = size; i--)` loops.
 //
-// Withheld (no claims, no functions): single DestroyIShow device sequence
-// (GAME 0x5b62c0, mafia-re stub), IShowFade/IShowFadeDownAll creation (GAME
-// 0x5b6710 / 0x5b6660, stubs), film-music stream device ops, the Tick
+// Withheld (marker-only contracts in the STUB section below, no bodies): single
+// DestroyIShow device sequence (GAME 0x5b62c0, cgame_destroy_ishow),
+// IShowFade/IShowFadeDownAll creation (GAME 0x5b6710 / 0x5b6660,
+// cgame_ishow_fade / cgame_ishow_fade_down_all), film-music stream device ops
+// (GAME 0x5ae1d0 / 0x5ae390 / 0x5ae3d0, cgame_set_film_music /
+// cgame_get_film_music / cgame_stream_destroy_all), the Tick
 // loop-restart slice (game.cpp:2140-2151, needs device
 // GetEvent/SetCurrentPos/Play), and all IShow::Open/Play/Stop/Close/IsInit
 // plus IShowStream decode/submit paths.
@@ -1069,6 +1072,226 @@ mod cgame_videolist_tests {
         assert!(list.shows.is_empty());
         assert!(list.fades.is_empty());
         assert!(list.film_music_streams.is_empty());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// C_game IShow/film-music STUB marker-only contracts (Game.exe, NOT LS3DF).
+//
+// Every entry below is tier contract: reviewed mafia-re source at pin
+// 113b5b6 plus pinning tests. No Game.exe body was re-observed here; the
+// native bodies are StubLog-only (empty), so each call returns explicit
+// Unsupported and, by taking only a shared list borrow, cannot mutate host
+// state: the destroy row is kept, the fade list is untouched, the film
+// stream tokens are kept. Device Close/Release, the native ISND_fade owner,
+// the fade iteration, the film-music stream registers and the stream
+// teardown stay DEFERRED with no backend and no host claims.
+//
+// Decoder-side reference for the deferred device side (already-ported CPU
+// pattern, device still behind backend): ISND_source::GetPlayTime (LS3DF
+// 0x1007d8d0, mafia-re ls3df/ISound/IS_source.cpp:164-169) and
+// ISND_source::GetFormat (LS3DF 0x1007d910, mafia-re
+// ls3df/ISound/IS_source.cpp:173-177), consumed by the channel mixer
+// (mafia-re ls3df/ISound/IS_sound.cpp:40,54,77).
+
+/// Still-unimplemented C_game video/film-music STUBs. The entries name the
+/// original Game.exe addresses.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CGameIshowStubError {
+    Unsupported { entry: u32 },
+}
+
+/// `C_game::DestroyIShow` GAME 0x5b62c0.
+pub const DESTROY_ISHOW_ENTRY: u32 = 0x5b62c0;
+/// `C_game::IShowFade` GAME 0x5b6710.
+pub const ISHOW_FADE_ENTRY: u32 = 0x5b6710;
+/// `C_game::IShowFadeDownAll` GAME 0x5b6660.
+pub const ISHOW_FADE_DOWN_ALL_ENTRY: u32 = 0x5b6660;
+/// `C_game::SetFilmMusic` GAME 0x5ae1d0.
+pub const SET_FILM_MUSIC_ENTRY: u32 = 0x5ae1d0;
+/// `C_game::GetFilmMusic` GAME 0x5ae390.
+pub const GET_FILM_MUSIC_ENTRY: u32 = 0x5ae390;
+/// `C_game::StreamDestroyAll` GAME 0x5ae3d0.
+pub const STREAM_DESTROY_ALL_ENTRY: u32 = 0x5ae3d0;
+
+/// GAME 0x5b62c0. `C_game::DestroyIShow` (mafia-re game/mission/game.cpp:
+/// 3507-3511): native body is an empty StubLog stub, so this single-row
+/// destroy sequence returns explicit Unsupported; the device Close/Release
+/// stays deferred and the row is kept. Callers of the deferred sequence:
+/// CityMusicOff (game.cpp:3016-3029) and the per-row teardown of
+/// DestroyIShowAll (game.cpp:3515-3529).
+pub fn cgame_destroy_ishow(
+    _list: &CGameVideolist,
+    _id: i32,
+) -> Result<(), CGameIshowStubError> {
+    Err(CGameIshowStubError::Unsupported {
+        entry: DESTROY_ISHOW_ENTRY,
+    })
+}
+
+/// GAME 0x5b6710. `C_game::IShowFade` (mafia-re game/mission/game.cpp:
+/// 3588-3592): native body is an empty StubLog stub, so this fade-record
+/// stage returns explicit Unsupported; the native ISND_fade owner stays
+/// deferred. Staged from TickCityMusic (game.cpp:1780,1789) and
+/// CityMusicOff (game.cpp:3026); consumed by the Tick fade walk
+/// (game.cpp:2098-2138), whose rows callers stage directly.
+pub fn cgame_ishow_fade(
+    _list: &CGameVideolist,
+    _id: i32,
+    _from: f32,
+    _to: f32,
+    _time_ms: i32,
+) -> Result<(), CGameIshowStubError> {
+    Err(CGameIshowStubError::Unsupported {
+        entry: ISHOW_FADE_ENTRY,
+    })
+}
+
+/// GAME 0x5b6660. `C_game::IShowFadeDownAll` (mafia-re
+/// game/mission/game.cpp:3582-3586): native body is an empty StubLog stub,
+/// so this iteration over the fades returns explicit Unsupported; both the
+/// walk and the fade device owner stay deferred.
+pub fn cgame_ishow_fade_down_all(
+    _list: &CGameVideolist,
+    _time_ms: i32,
+) -> Result<(), CGameIshowStubError> {
+    Err(CGameIshowStubError::Unsupported {
+        entry: ISHOW_FADE_DOWN_ALL_ENTRY,
+    })
+}
+
+/// GAME 0x5ae1d0. `C_game::SetFilmMusic` (mafia-re game/mission/game.cpp:
+/// 3037-3041): native body is an empty StubLog stub, so this film-music
+/// register returns explicit Unsupported; the stream device op stays
+/// deferred.
+pub fn cgame_set_film_music(
+    _list: &CGameVideolist,
+    _music: i32,
+) -> Result<(), CGameIshowStubError> {
+    Err(CGameIshowStubError::Unsupported {
+        entry: SET_FILM_MUSIC_ENTRY,
+    })
+}
+
+/// GAME 0x5ae390. `C_game::GetFilmMusic` (mafia-re game/mission/game.cpp:
+/// 3043-3048): native stub body only logs and returns the -1 placeholder, so
+/// this film-music read returns explicit Unsupported instead of replaying
+/// the placeholder; the stream register stays deferred.
+pub fn cgame_get_film_music(
+    _list: &CGameVideolist,
+    _index: i32,
+) -> Result<i32, CGameIshowStubError> {
+    Err(CGameIshowStubError::Unsupported {
+        entry: GET_FILM_MUSIC_ENTRY,
+    })
+}
+
+/// GAME 0x5ae3d0. `C_game::StreamDestroyAll` (mafia-re
+/// game/mission/game.cpp:3050-3054): native body is an empty StubLog stub,
+/// so this stream teardown returns explicit Unsupported; the film-music
+/// stream tokens are kept and the device teardown stays deferred.
+pub fn cgame_stream_destroy_all(
+    _list: &CGameVideolist,
+) -> Result<(), CGameIshowStubError> {
+    Err(CGameIshowStubError::Unsupported {
+        entry: STREAM_DESTROY_ALL_ENTRY,
+    })
+}
+
+#[cfg(test)]
+mod cgame_ishow_stub_tests {
+    use super::*;
+
+    fn stubbed_list() -> CGameVideolist {
+        let mut list = CGameVideolist::fresh();
+        list.shows.push(CGameIshowEntry {
+            show: 11,
+            id: 3,
+            flags: 0,
+            name: Some(b"clip.ogg".to_vec()),
+            volume: 0.5,
+        });
+        list.fades.push(CGameIshowFade {
+            id: 3,
+            from: 0.5,
+            to: 0.0,
+            time: 0,
+            length: 5000,
+        });
+        list.film_music_streams.push(77);
+        list
+    }
+
+    #[test]
+    fn stub_0x5b62c0_destroy_ishow_is_unsupported_and_keeps_row() {
+        let list = stubbed_list();
+        let before = list.clone();
+        assert_eq!(
+            cgame_destroy_ishow(&list, 3),
+            Err(CGameIshowStubError::Unsupported { entry: 0x5b62c0 })
+        );
+        assert!(cgame_destroy_ishow(&list, 3).is_err());
+        assert_eq!(list, before);
+    }
+
+    #[test]
+    fn stub_0x5b6710_ishow_fade_is_unsupported_and_keeps_fades() {
+        let list = stubbed_list();
+        let before = list.clone();
+        assert_eq!(
+            cgame_ishow_fade(&list, 3, 0.5, 0.0, 5000),
+            Err(CGameIshowStubError::Unsupported { entry: 0x5b6710 })
+        );
+        assert!(cgame_ishow_fade(&list, 3, 0.5, 0.0, 5000).is_err());
+        assert_eq!(list, before);
+    }
+
+    #[test]
+    fn stub_0x5b6660_ishow_fade_down_all_is_unsupported_and_keeps_fades() {
+        let list = stubbed_list();
+        let before = list.clone();
+        assert_eq!(
+            cgame_ishow_fade_down_all(&list, 5000),
+            Err(CGameIshowStubError::Unsupported { entry: 0x5b6660 })
+        );
+        assert!(cgame_ishow_fade_down_all(&list, 5000).is_err());
+        assert_eq!(list, before);
+    }
+
+    #[test]
+    fn stub_0x5ae1d0_set_film_music_is_unsupported_and_keeps_streams() {
+        let list = stubbed_list();
+        let before = list.clone();
+        assert_eq!(
+            cgame_set_film_music(&list, 2),
+            Err(CGameIshowStubError::Unsupported { entry: 0x5ae1d0 })
+        );
+        assert!(cgame_set_film_music(&list, 2).is_err());
+        assert_eq!(list, before);
+    }
+
+    #[test]
+    fn stub_0x5ae390_get_film_music_is_unsupported_not_placeholder() {
+        let list = stubbed_list();
+        let before = list.clone();
+        assert_eq!(
+            cgame_get_film_music(&list, 0),
+            Err(CGameIshowStubError::Unsupported { entry: 0x5ae390 })
+        );
+        assert!(cgame_get_film_music(&list, 0).is_err());
+        assert_eq!(list, before);
+    }
+
+    #[test]
+    fn stub_0x5ae3d0_stream_destroy_all_is_unsupported_and_keeps_streams() {
+        let list = stubbed_list();
+        let before = list.clone();
+        assert_eq!(
+            cgame_stream_destroy_all(&list),
+            Err(CGameIshowStubError::Unsupported { entry: 0x5ae3d0 })
+        );
+        assert!(cgame_stream_destroy_all(&list).is_err());
+        assert_eq!(list, before);
     }
 }
 
