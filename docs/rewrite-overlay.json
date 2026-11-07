@@ -10136,8 +10136,8 @@
       "va": "0x5457a0",
       "name": "AddTimeTransparentObject",
       "symbol": "lhr_engine::mission_scene_loading::add_time_transparent_object",
-      "tier": "contract",
-      "evidence": "Guarded RefCount+push (GAME 0x5457a0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_b93399b751 + Ghidra body 195 insns/26 bbs, AddTimeTransparentObject; pin tests transparent 4 pass"
     },
     {
       "binary": "Game.exe",
@@ -10145,8 +10145,8 @@
       "va": "0x5459b0",
       "name": "FinishTimeTransparentObjects",
       "symbol": "lhr_engine::mission_scene_loading::finish_time_transparent_objects",
-      "tier": "contract",
-      "evidence": "Reverse finish + clear (GAME 0x5459b0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_7d880e7bcb + Ghidra body 41 insns/6 bbs, FinishTimeTransparentObjects; pin tests transparent"
     },
     {
       "binary": "Game.exe",
@@ -10154,8 +10154,8 @@
       "va": "0x545a30",
       "name": "UpdateSettings",
       "symbol": "lhr_engine::mission_options::MissionOptions::update_settings",
-      "tier": "contract",
-      "evidence": "Range/LOD/weather application (GAME 0x545a30); device deferred. Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_5e14dcdd40 + Ghidra body 55 insns/9 bbs, UpdateSettings; pin tests mission_option 14 pass"
     },
     {
       "binary": "Game.exe",
@@ -10163,8 +10163,8 @@
       "va": "0x545ad0",
       "name": "RestoreSettings",
       "symbol": "lhr_engine::mission_options::MissionOptions::restore_settings",
-      "tier": "contract",
-      "evidence": "Range/LOD restore (GAME 0x545ad0); device deferred. Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_74f7070235 + Ghidra body 26 insns/3 bbs, RestoreSettings; pin tests mission_option"
     },
     {
       "binary": "Game.exe",
@@ -10172,8 +10172,8 @@
       "va": "0x546010",
       "name": "FrmActBuff_StoreModel",
       "symbol": "lhr_engine::mission_scene_loading::frm_act_buff_store_model",
-      "tier": "contract",
-      "evidence": "Dedup + basename store (GAME 0x546010). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_f19ab8db13 + Ghidra body 239 insns/35 bbs, FrmActBuff_StoreModel; pin test store_model 1 pass"
     },
     {
       "binary": "Game.exe",
@@ -10181,8 +10181,8 @@
       "va": "0x4cb6e0",
       "name": "C_Vehicle::SetFuel",
       "symbol": "lhr_engine::vehicle_engine_state::vehicle_set_fuel",
-      "tier": "contract",
-      "evidence": "min(fuel,tank) clamp (GAME 0x4cb6e0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_31e40141a1 + Ghidra body 10 insns/3 bbs, SetFuel; pin tests vehicle 298 pass"
     },
     {
       "binary": "Game.exe",
@@ -10190,8 +10190,8 @@
       "va": "0x4cd5b0",
       "name": "IsVehicleUnstable",
       "symbol": "lhr_engine::vehicle_engine_state::vehicle_is_unstable",
-      "tier": "contract",
-      "evidence": "Flag read (GAME 0x4cd5b0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_1ec91e271d + Ghidra body 4 insns/1 bb, IsVehicleUnstable; pin tests vehicle"
     },
     {
       "binary": "Game.exe",
@@ -10199,8 +10199,8 @@
       "va": "0x4cd5c0",
       "name": "GetVehicleSize",
       "symbol": "lhr_engine::vehicle_engine_state::vehicle_get_size",
-      "tier": "contract",
-      "evidence": "Size select (GAME 0x4cd5c0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_774b51ed93 + Ghidra body 6 insns/3 bbs, GetVehicleSize; pin tests vehicle"
     },
     {
       "binary": "Game.exe",
@@ -10208,8 +10208,8 @@
       "va": "0x4cd5e0",
       "name": "GetVehiclePivotPos",
       "symbol": "lhr_engine::vehicle_engine_state::vehicle_get_pivot_pos",
-      "tier": "contract",
-      "evidence": "Pivot select (GAME 0x4cd5e0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_1c3b8b6d95 + Ghidra body 6 insns/3 bbs, GetVehiclePivotPos; pin tests vehicle"
     },
     {
       "binary": "Game.exe",
@@ -10217,8 +10217,8 @@
       "va": "0x4cd600",
       "name": "LockVehicle",
       "symbol": "lhr_engine::vehicle_engine_state::vehicle_lock_vehicle",
-      "tier": "contract",
-      "evidence": "Count-gated lock (GAME 0x4cd600). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_8cf33b3951 + Ghidra body 17 insns/6 bbs, LockVehicle; pin tests vehicle"
     },
     {
       "binary": "Game.exe",
