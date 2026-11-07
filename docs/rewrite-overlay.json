@@ -12424,6 +12424,42 @@
       "symbol": "lhr_engine::menu::MenuStack::get_text_id",
       "tier": "differential",
       "evidence": "REA ev_5809d4a493 + Ghidra body 11 insns/3 bbs, Menu GetTextID; pin tests menu 45 / main_menu 25 pass"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7b1b0",
+      "va": "0x1007b1b0",
+      "name": "ISND_3Dlistener::Update",
+      "symbol": "lhr_engine::runtime_audio::isound_listener_update",
+      "tier": "differential",
+      "evidence": "REA ev_ab5de1e8a3 + complete walk (global voice lookup + vcall [ECX+0x28] + HRESULT map); pin test 0x7b1b0 1 pass"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7b320",
+      "va": "0x1007b320",
+      "name": "ISND_3Dlistener::CommitDeferredSettings",
+      "symbol": "lhr_engine::runtime_audio::isound_listener_commit_deferred_settings",
+      "tier": "differential",
+      "evidence": "REA ev_81727cda17 + complete walk (global voice + vcall [ECX+0x44] + HRESULT map); pin test 0x7b320 1 pass"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7d940",
+      "va": "0x1007d940",
+      "name": "ISND_source::Lock",
+      "symbol": "lhr_engine::runtime_audio::isound_source_lock",
+      "tier": "differential",
+      "evidence": "REA ev_52fc7070ed + complete walk both branches (vcall [EDX+0x2c] + area store / 0x80000005); pin test 0x7d940 1 pass"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x7d980",
+      "va": "0x1007d980",
+      "name": "ISND_source::Unlock",
+      "symbol": "lhr_engine::runtime_audio::isound_source_unlock",
+      "tier": "differential",
+      "evidence": "REA ev_188af0e74c + complete walk (vcall [EDX+0x4c] + HRESULT map); pin test 0x7d980 1 pass"
     }
   ],
   "vm": {

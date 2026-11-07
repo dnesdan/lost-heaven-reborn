@@ -2056,11 +2056,15 @@ mod source_tests;
 // paths (all 866.0 volume/pan conversions use f64::ln like the C library
 // log), with host saturation disclosed where x87 fistp would be UB.
 //
-// Withheld (no claims, no functions): listener Update 0x7b1b0,
-// CommitDeferredSettings 0x7b320, driver InitEAX probe 0x7bc10, the device
+// Withheld (no claims, no functions): driver InitEAX probe 0x7bc10
+// (frozen-ledger retained entry plus a multi-stage DirectSound/EAX device
+// probe), the full InitDSound device sequence 0x7be20 (frozen-ledger
+// retained; only narrow CPU phases own that entry), the device
 // half of sound IsPlaying 0x7d3e0 (only its CPU null-guard is ported, filed
-// as a contract entry), source
-// Lock/Unlock 0x7d940/0x7d980 (pure-device submits). Construction-covered, no
+// as a contract entry). Newly ported since that withhold note: listener
+// Update 0x7b1b0 and CommitDeferredSettings 0x7b320 (submit wrappers behind
+// the param backend), source Lock/Unlock 0x7d940/0x7d980 (CPU save words
+// plus buffer submits). Construction-covered, no
 // new functions, cited owners: empty listener dtor 0x7b0a0 (covered by
 // isound_listener_new field defaults), synthetic scalar-deleting dtors
 // 0x7b390/0x7c910 and $E5/$E10 list thunks 0x7c2d0/0x7c320 (covered by the
@@ -2247,6 +2251,14 @@ pub trait IsoundDriverDtorBackend {
     fn note_destroy_while_initialized(&mut self);
 }
 
+/// Device side of the listener parameter submits (Update and
+/// CommitDeferredSettings). The DS3D_IMMEDIATE submits stay behind this
+/// trait; bool returns are FAILED submits (GENERIC).
+pub trait IsoundListenerParamBackend {
+    fn submit_listener_parameters(&mut self, listener: &IsoundListener) -> bool;
+    fn commit_deferred_settings(&mut self) -> bool;
+}
+
 /// Device side of source Open (buffer creation, lock/fill/unlock, release).
 pub trait IsoundSourceOpenBackend {
     fn create_source_buffer(
@@ -2256,6 +2268,8 @@ pub trait IsoundSourceOpenBackend {
     ) -> Option<u32>;
     fn submit_source_bytes(&mut self, buffer: u32, size: u32) -> bool;
     fn release_source_buffer(&mut self, buffer: u32);
+    fn lock_source_buffer(&mut self, buffer: u32) -> Option<(u32, u32)>;
+    fn unlock_source_buffer(&mut self, buffer: u32, ptr: u32, size: u32) -> bool;
 }
 
 /// Live per-sound CPU queries (volume, play time, frequency factor, rate words).
@@ -2391,6 +2405,10 @@ pub struct IsoundSource {
     pub bits_per_sample: u16,
     pub bytes_per_ms: f32,
     pub buffer: Option<u32>,
+    /// Lock's first area (ISound.h save_lock_ptr1/save_lick_size1, Insanity3D
+    /// order and typo): the PC Lock submits for the first area only.
+    pub lock_ptr: Option<u32>,
+    pub lock_size: u32,
 }
 
 /// Driver CPU state (ISND_driver members; globals live in IsoundGlobals).
@@ -4061,7 +4079,9 @@ pub fn isound_source_file_name(source: &IsoundSource) -> &str {
 /// LS3DF RVA 0x7d430, VA 0x1007d430. ISND_source::ISND_source working name
 /// (mafia-re ls3df/ISound/IS_source.cpp:26): ref 1, null buffer through the
 /// Close arm (format words zeroed, rate zero). Filename and open flags start
-/// unset on the host (native leaves them uninitialized until Open), disclosed.
+/// unset on the host (native leaves them uninitialized until Open), and the
+/// lock save words start clear (native leaves them uninitialized until Lock),
+/// disclosed.
 pub fn isound_source_new() -> IsoundSource {
     IsoundSource {
         ref_count: 1,
@@ -4075,6 +4095,8 @@ pub fn isound_source_new() -> IsoundSource {
         bits_per_sample: 0,
         bytes_per_ms: 0.0,
         buffer: None,
+        lock_ptr: None,
+        lock_size: 0,
     }
 }
 
@@ -4231,7 +4253,8 @@ pub fn isound_source_open(
 
 /// LS3DF RVA 0x7d890, VA 0x1007d890. ISND_source::Close working name (mafia-re
 /// ls3df/ISound/IS_source.cpp:144): buffer released and cleared, format words
-/// zeroed, rate zeroed. Filename and open flags are retained.
+/// zeroed, rate zeroed. Filename, open flags and the lock save words are
+/// retained (native keeps them; only a new Lock overwrites the save words).
 pub fn isound_source_close(source: &mut IsoundSource, backend: &mut impl IsoundSourceOpenBackend) {
     if let Some(handle) = source.buffer.take() {
         backend.release_source_buffer(handle);
@@ -4280,6 +4303,190 @@ pub fn isound_source_get_format(source: &IsoundSource, out: &mut IsoundSourceFor
     ISOUND_OK
 }
 
+/// LS3DF RVA 0x7b1b0, VA 0x1007b1b0. ISND_3Dlistener::Update working name
+/// (mafia-re ls3df/ISound/IS_3Dlistener.cpp:102): hands the stored listener
+/// words to the device (DS3D_IMMEDIATE submit behind the backend); a failed
+/// submit is GENERIC, else I3D_OK. No null-device guard is invented: the
+/// caller owns a live device listener, like the native driver path.
+pub fn isound_listener_update(
+    listener: &IsoundListener,
+    backend: &mut impl IsoundListenerParamBackend,
+) -> i32 {
+    if !backend.submit_listener_parameters(listener) {
+        return ISOUND_GENERIC;
+    }
+    ISOUND_OK
+}
+
+/// LS3DF RVA 0x7b320, VA 0x1007b320. ISND_3Dlistener::CommitDeferredSettings
+/// working name (mafia-re ls3df/ISound/IS_3Dlistener.cpp:182): deferred
+/// submit behind the backend; a failed submit is GENERIC, else I3D_OK.
+pub fn isound_listener_commit_deferred_settings(
+    backend: &mut impl IsoundListenerParamBackend,
+) -> i32 {
+    if !backend.commit_deferred_settings() {
+        return ISOUND_GENERIC;
+    }
+    ISOUND_OK
+}
+
+/// LS3DF RVA 0x7d940, VA 0x1007d940. ISND_source::Lock working name (mafia-re
+/// ls3df/ISound/IS_source.cpp:179): the whole-buffer lock submits behind the
+/// backend; the first area stages into the save words (native
+/// save_lock_ptr1/save_lick_size1) and out carries the pointer, I3D_OK. A
+/// bufferless record or a failed submit is GENERIC with the out word and the
+/// save words untouched (the native null-buffer path would fault; the host
+/// returns GENERIC, disclosed hardening).
+pub fn isound_source_lock(
+    source: &mut IsoundSource,
+    data: &mut u32,
+    backend: &mut impl IsoundSourceOpenBackend,
+) -> i32 {
+    let Some(handle) = source.buffer else {
+        return ISOUND_GENERIC;
+    };
+    let Some((ptr, size)) = backend.lock_source_buffer(handle) else {
+        return ISOUND_GENERIC;
+    };
+    source.lock_ptr = Some(ptr);
+    source.lock_size = size;
+    *data = ptr;
+    ISOUND_OK
+}
+
+/// LS3DF RVA 0x7d980, VA 0x1007d980. ISND_source::Unlock working name
+/// (mafia-re ls3df/ISound/IS_source.cpp:189): submits the staged first area
+/// (native save_lock_ptr1/save_lick_size1) behind the backend; success is
+/// I3D_OK, failure GENERIC. A bufferless record or a missing staged area
+/// (no prior Lock) is GENERIC with no submit (the native path would carry
+/// stale words; the host requires the staged area, disclosed hardening).
+pub fn isound_source_unlock(
+    source: &IsoundSource,
+    backend: &mut impl IsoundSourceOpenBackend,
+) -> i32 {
+    let Some(handle) = source.buffer else {
+        return ISOUND_GENERIC;
+    };
+    let Some(ptr) = source.lock_ptr else {
+        return ISOUND_GENERIC;
+    };
+    if !backend.unlock_source_buffer(handle, ptr, source.lock_size) {
+        return ISOUND_GENERIC;
+    }
+    ISOUND_OK
+}
+
+/// ISND_source::AddRef working name. Header-inline (mafia-re
+/// ls3df/ISound/ISound.h:96-100): no out-of-line FUNCTION address exists,
+/// so no RVA is claimed. Pre-increments the count and returns the new
+/// value; unlike Release there is no warning arm.
+pub fn isound_source_add_ref(source: &mut IsoundSource) -> i32 {
+    source.ref_count = source.ref_count.wrapping_add(1);
+    source.ref_count
+}
+
+/// ISND_sound::GetVolume working name. Header-inline (mafia-re
+/// ls3df/ISound/ISound.h:163-166): no out-of-line FUNCTION address exists,
+/// so no RVA is claimed. Copies the stored volume word.
+pub fn isound_sound_get_volume(sound: &IsoundSound) -> f32 {
+    sound.volume
+}
+
+/// ISND_sound::GetFrequency working name. Header-inline (mafia-re
+/// ls3df/ISound/ISound.h:168-171): no out-of-line FUNCTION address exists,
+/// so no RVA is claimed. Copies the stored frequency factor (the
+/// SetFrequency multiplier), not a Hertz rate.
+pub fn isound_sound_get_frequency(sound: &IsoundSound) -> f32 {
+    sound.freq_mult
+}
+
+/// Hardware 3D channel count rule working name. Narrow CPU phase of the
+/// retained-ledger InitDSound entry (LS3DF RVA 0x7be20 is occupied, so no
+/// separate credit is claimed): mafia-re ls3df/ISound/IS_driver.cpp:308-313.
+/// Under the NOHWCHANNELS gate the count comes from the device caps word and
+/// clamps above 35 down to 30; behind the gate the stored count is untouched,
+/// so the host returns None (keep current) instead of inventing a zero.
+pub fn isound_init_hw_channels(caps_free_hw_buffers: u32, create_flags: u32) -> Option<i32> {
+    if create_flags & ISNDINIT_NOHWCHANNELS != 0 {
+        return None;
+    }
+    let claimed = caps_free_hw_buffers as i32;
+    Some(if claimed > 35 { 30 } else { claimed })
+}
+
+/// Source-bank unlink working name. CPU phase of the credited source
+/// destructor entry (LS3DF RVA 0x7d480): mafia-re
+/// ls3df/ISound/IS_source.cpp:37 `pISndDriver->sources.remove(this)`.
+/// The caller-owned bank drops the first matching identity by swap-remove,
+/// matching the C_list::remove shape used by the in-file banks (ls3df.h);
+/// no separate credit is claimed.
+pub fn isound_unlink_source(bank: &mut Vec<u64>, self_id: u64) {
+    if let Some(slot) = bank.iter().position(|id| *id == self_id) {
+        bank.swap_remove(slot);
+    }
+}
+
+/// Source buffer-description words working name. CPU phase of the credited
+/// source Open entry (LS3DF RVA 0x7d590): mafia-re
+/// ls3df/ISound/IS_source.cpp:95-111. Frequency and volume control always;
+/// 3D control when requested; deferred placement on hardware voices (both
+/// native EAX arms merge into LOCDEFER) else software placement; the
+/// no-virtualization algorithm on 3D buffers. No separate credit is claimed.
+pub fn isound_source_buffer_desc_words(
+    want_3d: bool,
+    hardware_voice: bool,
+    buffer_bytes: u32,
+) -> IsoundBufferDesc {
+    IsoundBufferDesc {
+        control_3d: want_3d,
+        defer_location: hardware_voice,
+        software_location: !hardware_voice,
+        buffer_bytes,
+        no_virtualization: want_3d,
+    }
+}
+
+/// EAX listener value width working name. Width arms of the credited
+/// SetEAXProperty entry (LS3DF RVA 0x7b1e0): mafia-re
+/// ls3df/ISound/IS_3Dlistener.cpp:123-157. Integer and float properties
+/// submit 4 bytes (sizeof(long)/sizeof(float)); vector properties submit 12
+/// bytes (sizeof(EAXVECTOR): three floats, eax.h:137-139); other ids submit
+/// nothing. No separate credit is claimed.
+pub const EAX_VECTOR_BYTES: u32 = 12;
+
+/// EAX listener value width (see EAX_VECTOR_BYTES): byte width of the staged
+/// submit for a property id, or None when the id submits nothing. Helper
+/// phase of the credited 0x7b1e0 entry; no separate credit is claimed.
+pub fn isound_eax_property_width(property: u32) -> Option<u32> {
+    match isound_eax_classify(property) {
+        IsoundEaxClass::Integer | IsoundEaxClass::Float => Some(4),
+        IsoundEaxClass::Vector => Some(EAX_VECTOR_BYTES),
+        IsoundEaxClass::None => None,
+    }
+}
+
+/// Source stereo/3D flag rule working name. CPU phase of the credited source
+/// Open entry (LS3DF RVA 0x7d590): mafia-re ls3df/ISound/IS_source.cpp:91-93.
+/// DirectSound positions only mono sounds in 3D, so a stereo source clears
+/// the 3D-buffer request. No separate credit is claimed.
+pub fn isound_source_open_flags_for_channels(open_flags: u32, channels: u16) -> u32 {
+    if channels > 1 {
+        open_flags & !ISND_3DBUFFER
+    } else {
+        open_flags
+    }
+}
+
+/// Hardware voice-management gate working name. Shared CPU gate of Play
+/// (mafia-re ls3df/ISound/IS_sound.cpp:235), the Stop/Close channel erase
+/// (:338, via the shared erase helper) and SetCurrTime (:383), plus source
+/// Open's placement select with the open flags (IS_source.cpp:101): neither
+/// NOHWCHANNELS nor SYSMEM means the voice is hardware-managed. Helper
+/// phase of those credited entries; no separate credit is claimed.
+pub fn isound_hw_voice_managed(create_flags: u32, flags: u32) -> bool {
+    create_flags & ISNDINIT_NOHWCHANNELS == 0 && flags & ISND_SYSMEM == 0
+}
+
 #[cfg(test)]
 mod isound_contract_tests {
     use super::*;
@@ -4323,6 +4530,11 @@ mod isound_contract_tests {
         calls3d: Vec<String>,
         query3d: Option<u32>,
         released3d: Vec<u32>,
+        params_ok: bool,
+        param_calls: Vec<String>,
+        lock_area: Option<(u32, u32)>,
+        unlock_ok: bool,
+        unlocked: Vec<(u32, u32, u32)>,
     }
 
     impl Default for Rig {
@@ -4365,6 +4577,11 @@ mod isound_contract_tests {
                 calls3d: Vec::new(),
                 query3d: Some(9),
                 released3d: Vec::new(),
+                params_ok: true,
+                param_calls: Vec::new(),
+                lock_area: Some((0x5000, 128)),
+                unlock_ok: true,
+                unlocked: Vec::new(),
             }
         }
     }
@@ -4471,6 +4688,24 @@ mod isound_contract_tests {
         }
         fn release_source_buffer(&mut self, buffer: u32) {
             self.released.push(buffer);
+        }
+        fn lock_source_buffer(&mut self, _buffer: u32) -> Option<(u32, u32)> {
+            self.lock_area
+        }
+        fn unlock_source_buffer(&mut self, buffer: u32, ptr: u32, size: u32) -> bool {
+            self.unlocked.push((buffer, ptr, size));
+            self.unlock_ok
+        }
+    }
+
+    impl IsoundListenerParamBackend for Rig {
+        fn submit_listener_parameters(&mut self, _listener: &IsoundListener) -> bool {
+            self.param_calls.push("params".to_string());
+            self.params_ok
+        }
+        fn commit_deferred_settings(&mut self) -> bool {
+            self.param_calls.push("commit".to_string());
+            self.params_ok
         }
     }
 
@@ -6278,6 +6513,172 @@ mod isound_contract_tests {
                 size: 44100,
             }
         );
+    }
+
+    #[test]
+    fn isound_listener_update_0x7b1b0_ok_and_generic() {
+        let mut rig = Rig::default();
+        let listener = isound_listener_new();
+        assert_eq!(isound_listener_update(&listener, &mut rig), ISOUND_OK);
+        assert_eq!(rig.param_calls, vec!["params".to_string()]);
+        rig.params_ok = false;
+        assert_eq!(
+            isound_listener_update(&listener, &mut rig),
+            ISOUND_GENERIC
+        );
+    }
+
+    #[test]
+    fn isound_listener_commit_deferred_0x7b320_ok_and_generic() {
+        let mut rig = Rig::default();
+        assert_eq!(isound_listener_commit_deferred_settings(&mut rig), ISOUND_OK);
+        assert_eq!(rig.param_calls, vec!["commit".to_string()]);
+        rig.params_ok = false;
+        assert_eq!(
+            isound_listener_commit_deferred_settings(&mut rig),
+            ISOUND_GENERIC
+        );
+    }
+
+    #[test]
+    fn isound_source_lock_0x7d940_stores_first_area() {
+        let mut rig = Rig::default();
+        let mut source = isound_source_new();
+        // Bufferless: GENERIC, out and save words untouched.
+        let mut data = 0xdead;
+        assert_eq!(
+            isound_source_lock(&mut source, &mut data, &mut rig),
+            ISOUND_GENERIC
+        );
+        assert_eq!(data, 0xdead);
+        assert_eq!((source.lock_ptr, source.lock_size), (None, 0));
+        source.buffer = Some(7);
+        assert_eq!(
+            isound_source_lock(&mut source, &mut data, &mut rig),
+            ISOUND_OK
+        );
+        assert_eq!(data, 0x5000);
+        assert_eq!((source.lock_ptr, source.lock_size), (Some(0x5000), 128));
+        // Failed submit: GENERIC, prior staging retained.
+        rig.lock_area = None;
+        let mut retry = 0xdead;
+        assert_eq!(
+            isound_source_lock(&mut source, &mut retry, &mut rig),
+            ISOUND_GENERIC
+        );
+        assert_eq!(retry, 0xdead);
+        assert_eq!((source.lock_ptr, source.lock_size), (Some(0x5000), 128));
+    }
+
+    #[test]
+    fn isound_source_unlock_0x7d980_submits_staged_area() {
+        let mut rig = Rig::default();
+        let plain = isound_source_new();
+        // Bufferless and unstaged: GENERIC with no submit.
+        assert_eq!(isound_source_unlock(&plain, &mut rig), ISOUND_GENERIC);
+        let mut staged = isound_source_new();
+        staged.buffer = Some(7);
+        assert_eq!(isound_source_unlock(&staged, &mut rig), ISOUND_GENERIC);
+        assert!(rig.unlocked.is_empty());
+        let mut data = 0;
+        assert_eq!(
+            isound_source_lock(&mut staged, &mut data, &mut rig),
+            ISOUND_OK
+        );
+        assert_eq!(isound_source_unlock(&staged, &mut rig), ISOUND_OK);
+        assert_eq!(rig.unlocked, vec![(7, 0x5000, 128)]);
+        rig.unlock_ok = false;
+        assert_eq!(
+            isound_source_unlock(&staged, &mut rig),
+            ISOUND_GENERIC
+        );
+    }
+
+    #[test]
+    fn isound_source_add_ref_pre_increments() {
+        let mut source = isound_source_new();
+        assert_eq!(isound_source_add_ref(&mut source), 2);
+        assert_eq!(source.ref_count, 2);
+    }
+
+    #[test]
+    fn isound_sound_inline_getters_copy_words() {
+        let mut sound = isound_sound_new();
+        sound.volume = 0.25;
+        sound.freq_mult = 2.0;
+        assert_eq!(isound_sound_get_volume(&sound), 0.25);
+        assert_eq!(isound_sound_get_frequency(&sound), 2.0);
+    }
+
+    #[test]
+    fn isound_init_hw_channels_gate_and_clamp() {
+        assert_eq!(isound_init_hw_channels(20, 0), Some(20));
+        assert_eq!(isound_init_hw_channels(35, 0), Some(35));
+        assert_eq!(isound_init_hw_channels(36, 0), Some(30));
+        assert_eq!(isound_init_hw_channels(90, 0), Some(30));
+        assert_eq!(isound_init_hw_channels(20, ISNDINIT_NOHWCHANNELS), None);
+    }
+
+    #[test]
+    fn isound_unlink_source_removes_first_match() {
+        let mut bank = vec![3, 5, 5, 7];
+        isound_unlink_source(&mut bank, 5);
+        assert_eq!(bank.len(), 3);
+        assert!(bank.contains(&5));
+        isound_unlink_source(&mut bank, 9);
+        assert_eq!(bank.len(), 3);
+        isound_unlink_source(&mut bank, 5);
+        assert!(!bank.contains(&5));
+    }
+
+    #[test]
+    fn isound_source_buffer_desc_words_arms() {
+        let hw_3d = isound_source_buffer_desc_words(true, true, 1024);
+        assert!(hw_3d.control_3d && hw_3d.defer_location && !hw_3d.software_location);
+        assert!(hw_3d.no_virtualization);
+        assert_eq!(hw_3d.buffer_bytes, 1024);
+        let sw = isound_source_buffer_desc_words(false, false, 512);
+        assert!(!sw.control_3d && !sw.defer_location && sw.software_location);
+        assert!(!sw.no_virtualization);
+        assert_eq!(sw.buffer_bytes, 512);
+    }
+
+    #[test]
+    fn isound_eax_property_width_arms() {
+        assert_eq!(isound_eax_property_width(EAX_LISTENER_ROOM), Some(4));
+        assert_eq!(isound_eax_property_width(EAX_LISTENER_DECAYTIME), Some(4));
+        assert_eq!(
+            isound_eax_property_width(EAX_LISTENER_REVERBPAN),
+            Some(EAX_VECTOR_BYTES)
+        );
+        assert_eq!(isound_eax_property_width(EAX_LISTENER_ALLPARAMETERS), None);
+        assert_eq!(isound_eax_property_width(0xffff), None);
+        assert_eq!(EAX_VECTOR_BYTES, 12);
+    }
+
+    #[test]
+    fn isound_source_open_flags_for_channels_stereo_rule() {
+        assert_eq!(
+            isound_source_open_flags_for_channels(ISND_3DBUFFER | ISND_FREQUENCY, 1),
+            ISND_3DBUFFER | ISND_FREQUENCY
+        );
+        assert_eq!(
+            isound_source_open_flags_for_channels(ISND_3DBUFFER | ISND_FREQUENCY, 2),
+            ISND_FREQUENCY
+        );
+        assert_eq!(isound_source_open_flags_for_channels(0, 6), 0);
+    }
+
+    #[test]
+    fn isound_hw_voice_managed_gate() {
+        assert!(isound_hw_voice_managed(0, 0));
+        assert!(!isound_hw_voice_managed(ISNDINIT_NOHWCHANNELS, 0));
+        assert!(!isound_hw_voice_managed(0, ISND_SYSMEM));
+        assert!(!isound_hw_voice_managed(
+            ISNDINIT_NOHWCHANNELS,
+            ISND_SYSMEM
+        ));
+        assert!(isound_hw_voice_managed(ISNDINIT_EAX, ISND_LOOP));
     }
 }
 

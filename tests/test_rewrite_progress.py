@@ -448,8 +448,10 @@ class RewriteProgressTests(unittest.TestCase):
         # release_paths).
         # +2 3dsound SetCone/SetOutVolume (complete walks all branches:
         # null->0, FMUL/ftol + vcall + HRESULT; pin tests).
-        self.assertEqual(ls3df["ported"], 145 + 830)
-        self.assertEqual(ls3df["verified"], 145 + 384)
+        # +4 ISND listener/source batch (Update/CommitDeferred/Lock/Unlock
+        # contracts + complete walks; 9 working-name helpers held).
+        self.assertEqual(ls3df["ported"], 145 + 834)
+        self.assertEqual(ls3df["verified"], 145 + 388)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()
