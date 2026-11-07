@@ -484,8 +484,10 @@ class RewriteProgressTests(unittest.TestCase):
         # IsOpen/GetFileName/IsPlaying walks; pin tests isound_source 14).
         # +4 texture/visual batch (CompressTexture dossier + NumFaces/GetLOD/
         # NumInterpolators complete walks; itexture/visual 129/143 pass).
+        # +3 frame batch (Release/GetChild/SetCallback complete walks;
+        # pin tests model_loading 112 / frame_transform 55).
         self.assertEqual(ls3df["ported"], 145 + 834)
-        self.assertEqual(ls3df["verified"], 145 + 404)
+        self.assertEqual(ls3df["verified"], 145 + 407)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()

@@ -1316,8 +1316,8 @@
       "va": "0x1001aae0",
       "name": "I3D_frame::Release (upstream working name)",
       "symbol": "lhr_engine::model_loading::ModelArena::release",
-      "tier": "contract",
-      "evidence": "REA not_in_procedure ev_6d8da45e (walk-derived: MOV ECX/MOV EAX/TEST anchors + RET4 tail + 32 vtable slots) + mafia-re I3d_frame.cpp:96-104 + refcount-transition tests over the pre-existing release; tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_ae03aaa528 + complete walk (DEC/JG + zero-path delete vcall + RET 4); pin tests model_loading 112 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -1325,8 +1325,8 @@
       "va": "0x1001bfd0",
       "name": "I3D_frame::GetChild (upstream working name)",
       "symbol": "lhr_engine::frame_transform::I3dFrameGraph::child_at",
-      "tier": "contract",
-      "evidence": "REA not_in_procedure ev_797bc85b (walk-derived entry/mid/RET8 anchors + 32 vtable slots) + mafia-re I3d_frame.cpp:610-620 + signed-bounds tests; tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_10c5f247fb + complete walk all branches (bounds + chain walk + warn path + null RET 8); pin tests frame_transform 55 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -1370,8 +1370,8 @@
       "va": "0x1001b3c0",
       "name": "I3D_frame::SetCallback (upstream working name)",
       "symbol": "lhr_engine::model_loading::ModelArena::set_frame_callback",
-      "tier": "contract",
-      "evidence": "REA not_in_procedure ev_099c086f (walk-derived AND-0x1e00 mask + both RET 0xc exits + 30 vtable slots) + mafia-re I3d_frame.cpp:223-234 + mask/order tests; tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_6db5d2b8fd + complete walk both branches (mask clear vs store+set + RET 0xc); pin tests model_loading"
     },
     {
       "binary": "LS3DF.dll",
