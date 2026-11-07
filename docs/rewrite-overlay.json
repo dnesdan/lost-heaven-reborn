@@ -6941,8 +6941,8 @@
       "va": "0x10059370",
       "name": "ISND_source::GetFileName (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_source_file_name",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/ISound.h:103-110 (out-of-line copy); tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_source_file_name_fallback)"
+      "tier": "differential",
+      "evidence": "REA ev_d22d373d4c + Ghidra body 68 insns/16 bbs, GetFileName; pin tests isound_source"
     },
     {
       "binary": "LS3DF.dll",
@@ -6950,8 +6950,8 @@
       "va": "0x1007d430",
       "name": "ISND_source::ISND_source (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_source_new",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_source.cpp:26; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_source_new_zeroed)"
+      "tier": "differential",
+      "evidence": "REA ev_84776cceb2 + Ghidra body 24 insns/1 bb, source ctor; pin tests isound_source 14 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -6959,8 +6959,8 @@
       "va": "0x1007d480",
       "name": "ISND_source::~ISND_source (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_source_destroy",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_source.cpp:34; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_source_destroy_closes)"
+      "tier": "differential",
+      "evidence": "REA ev_a76a9b4306 + Ghidra body 78 insns/17 bbs, source dtor; pin tests isound_source"
     },
     {
       "binary": "LS3DF.dll",
@@ -6968,8 +6968,8 @@
       "va": "0x1007d550",
       "name": "ISND_source::Release (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_source_release",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_source.cpp:42; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_source_release_paths)"
+      "tier": "differential",
+      "evidence": "REA ev_173c31fb78 + Ghidra body 23 insns/5 bbs, source Release; pin tests isound_source"
     },
     {
       "binary": "LS3DF.dll",
@@ -6986,8 +6986,8 @@
       "va": "0x1007d890",
       "name": "ISND_source::Close (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_source_close",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_source.cpp:144; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_source_close_retains_name_and_flags)"
+      "tier": "differential",
+      "evidence": "REA ev_6823803a6e + Ghidra body 18 insns/3 bbs, source Close; pin tests isound_source"
     },
     {
       "binary": "LS3DF.dll",
@@ -6995,8 +6995,8 @@
       "va": "0x1007d8c0",
       "name": "ISND_source::IsOpen (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_source_is_open",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_source.cpp:156; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_source_is_open_words)"
+      "tier": "differential",
+      "evidence": "REA ev_018bd2d83e + complete walk 5 insns (MOV+MOV+TEST+SETA+RET), nonzero IsOpen; pin tests isound_source"
     },
     {
       "binary": "LS3DF.dll",
@@ -7247,8 +7247,8 @@
       "va": "0x1007d3e0",
       "name": "ISND_sound::IsPlaying (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_sound_is_playing_cpu",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_sound.cpp:485 (CPU null-guard + playing-bit read; GetStatus submit stays behind the backend) + null-guard tests; tier contract (wave policy: no Ghidra body observed)"
+      "tier": "differential",
+      "evidence": "REA ev_4bebc6b8b1 + complete walk both branches (null -> 0; else vcall + AND 1); pin tests is_playing 2 pass"
     },
     {
       "binary": "LS3DF.dll",

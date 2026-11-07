@@ -463,8 +463,10 @@ class RewriteProgressTests(unittest.TestCase):
         # SetPanning complete walks with clamps + vcalls; pin tests).
         # +1 ISND_sound Play-with-source (complete walk: source+play vcalls;
         # pin test).
+        # +7 ISND source lifecycle batch (ctor/dtor/Release/Close dossiers +
+        # IsOpen/GetFileName/IsPlaying walks; pin tests isound_source 14).
         self.assertEqual(ls3df["ported"], 145 + 834)
-        self.assertEqual(ls3df["verified"], 145 + 393)
+        self.assertEqual(ls3df["verified"], 145 + 400)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()
