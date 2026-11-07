@@ -238,8 +238,11 @@ class RewriteProgressTests(unittest.TestCase):
         # +9 police/traffic batch (TickDoRici/Add/Del/Free/Firing/Boxing/
         # ForceArrest/CrashTime 0x9ea80-0x9d3e0 + SetVisible 0x4e960;
         # bodies 16-249 insns).
+        # +4 vehicle/menu/loadsave batch (SetEngineOn 0xcb5b0 / glass worker
+        # 0xd6670 / FreerideStoreA 0x20e920 / Menu Create 0x1ea2e0;
+        # bodies 11-69 insns).
         self.assertEqual(game["ported"], 149 + 363)
-        self.assertEqual(game["verified"], 149 + 183)
+        self.assertEqual(game["verified"], 149 + 187)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")
@@ -338,8 +341,10 @@ class RewriteProgressTests(unittest.TestCase):
         # GetCaps; 5 dossiers + 2 walks; Close/InitBuffer/SetVolume held).
         # +6 driver tranche I (Create3DSound(x2)/CreateListener(x2)/InitDSound
         # repair/Init from-record; 5 dossiers + 1 walk; Init mark held).
+        # +1 driver SetVolume (complete 60-insn walk: init-flag + MRG_ZERO +
+        # clamp [0.0..1.0] via FCOMP + voice loop OR 0x8; close/initbuf held).
         self.assertEqual(ls3df["ported"], 145 + 830)
-        self.assertEqual(ls3df["verified"], 145 + 359)
+        self.assertEqual(ls3df["verified"], 145 + 360)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()

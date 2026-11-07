@@ -6671,8 +6671,8 @@
       "va": "0x1007b8a0",
       "name": "ISND_driver::SetVolume (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_driver_set_volume",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_driver.cpp:113; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_driver_set_volume_guard_and_mark)"
+      "tier": "differential",
+      "evidence": "REA ev_083c9a7f44 + complete walk 60 insns (init-flag + MRG_ZERO + clamp [0.0..1.0] via FCOMP 0x1009b304=1.0/0x1009b310=0.0 + voice loop OR 0x8); pin tests set_volume 5 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -9353,8 +9353,8 @@
       "va": "0x60e920",
       "name": "G_LoadSaveClass::FreerideStoreA",
       "symbol": "lhr_engine::main_menu::MainMenuFreeride::store_a",
-      "tier": "contract",
-      "evidence": "Exact-word store (GAME 0x60e920). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_00c71c51e6 + Ghidra body 11 insns/1 bb, FreerideStoreA exact-word store; pin test freeride 1 pass"
     },
     {
       "binary": "Game.exe",
@@ -9371,8 +9371,8 @@
       "va": "0x4cb5b0",
       "name": "C_Vehicle::SetEngineOn",
       "symbol": "lhr_engine::vehicle_engine_state::vehicle_set_engine_on",
-      "tier": "contract",
-      "evidence": "Guarded engine-on (GAME 0x40cb5b0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_2a04536b80 + Ghidra body 69 insns/17 bbs, guarded engine-on; pin tests vehicle_init 82 pass"
     },
     {
       "binary": "Game.exe",
@@ -9380,8 +9380,8 @@
       "va": "0x4d6670",
       "name": "C_Vehicle glass-damage worker",
       "symbol": "lhr_engine::vehicle_damage_glass::vehicle_damage_glass",
-      "tier": "contract",
-      "evidence": "Material swap on damage (GAME 0x4d6670). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_51c04b491d + Ghidra body 64 insns/9 bbs, glass-damage material swap; pin tests vehicle_init"
     },
     {
       "binary": "Game.exe",
@@ -9389,8 +9389,8 @@
       "va": "0x5ea2e0",
       "name": "GM_Menu::Create",
       "symbol": "lhr_engine::menu::MenuStack::create",
-      "tier": "contract",
-      "evidence": "Stack intake skipping upup, INTRO auto-activate (GAME 0x5ea2e0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_2f0e4a24cb + Ghidra body 61 insns/10 bbs, Menu Create stack intake (upup skip, INTRO auto-activate); pin tests main_menu 17 pass"
     },
     {
       "binary": "Game.exe",
