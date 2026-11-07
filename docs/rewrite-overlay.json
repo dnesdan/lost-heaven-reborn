@@ -8705,8 +8705,8 @@
       "va": "0x5f4cd0",
       "name": "G_Dabing::SetHuman",
       "symbol": "lhr_engine::dabing::DabingOwner::set_human_marker",
-      "tier": "contract",
-      "evidence": "Speaker marker store per g_dabing.cpp:100 (GAME 0x5f4cd0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_2795264f0e + Ghidra body 298 insns/9 bbs, SetHuman marker store; pin tests dabing 10 pass"
     },
     {
       "binary": "Game.exe",
@@ -8714,8 +8714,8 @@
       "va": "0x5f5060",
       "name": "G_Dabing::Reset",
       "symbol": "lhr_engine::dabing::DabingOwner::dabing_reset",
-      "tier": "contract",
-      "evidence": "Channel reset incl. recorder-close path per g_dabing.cpp:62 (GAME 0x5f5060). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_d05d3ee906 + Ghidra body 174 insns/12 bbs, Reset incl recorder-close; pin tests dabing"
     },
     {
       "binary": "Game.exe",
@@ -8723,8 +8723,8 @@
       "va": "0x5f5570",
       "name": "G_Dabing::Speak",
       "symbol": "lhr_engine::dabing::DabingOwner::speak_marker",
-      "tier": "contract",
-      "evidence": "Kind 1-6/subtitle/scene-sound intake per g_dabing.cpp:117 (GAME 0x5f5570); file I/O deferred. Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_72b7bb5711 + Ghidra body 466 insns/63 bbs, Speak intake (file IO deferred, disclosed); pin tests dabing"
     },
     {
       "binary": "Game.exe",
@@ -8741,8 +8741,8 @@
       "va": "0x5f5dd0",
       "name": "G_Dabing::Tick",
       "symbol": "lhr_engine::dabing::DabingOwner::dabing_tick",
-      "tier": "contract",
-      "evidence": "Clock/weight/fade/subtitle countdown per g_dabing.cpp:117+ (GAME 0x5f5dd0); device mix deferred. Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_1de5a46901 + Ghidra body 677 insns/51 bbs, Tick countdown (device mix deferred, disclosed); pin tests dabing"
     },
     {
       "binary": "Game.exe",
@@ -8750,8 +8750,8 @@
       "va": "0x5b5e90",
       "name": "C_game::CreateIShow",
       "symbol": "lhr_engine::ishow_renderer::cgame_create_ishow",
-      "tier": "contract",
-      "evidence": "Disable-sound-gated id allocation per game.cpp:3446 (GAME 0x5b5e90); decode deferred. Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_2a88303349 + Ghidra body 228 insns/27 bbs, CreateIShow id alloc (decode deferred, disclosed); pin tests ishow 46 pass"
     },
     {
       "binary": "Game.exe",
@@ -8759,8 +8759,8 @@
       "va": "0x5b6110",
       "name": "C_game::OpenIShow",
       "symbol": "lhr_engine::ishow_renderer::cgame_open_ishow",
-      "tier": "contract",
-      "evidence": "Duplicate-rm + .ogg->.mp3 NOFILE-only retry per game.cpp:3468 (GAME 0x5b6110). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_dd71474251 + Ghidra body 159 insns/26 bbs, OpenIShow retry; pin tests ishow_renderer 19 pass"
     },
     {
       "binary": "Game.exe",
@@ -8777,8 +8777,8 @@
       "va": "0x5adf30",
       "name": "C_game::S_hlp::cbCityMusic",
       "symbol": "lhr_engine::ishow_renderer::cgame_cb_city_music",
-      "tier": "contract",
-      "evidence": "len>12 + city_music_ i-case area predicate per game.cpp:3001 (GAME 0x5adf30). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_fc415fe72a + complete walk (len>12 + city_music predicate branches); pin tests ishow"
     },
     {
       "binary": "Game.exe",
@@ -8975,8 +8975,8 @@
       "va": "0x5aca70",
       "name": "C_game spatial sound publication",
       "symbol": "lhr_engine::game_spatial_sound::play_spatial_sound",
-      "tier": "contract",
-      "evidence": "Spatial publish (GAME 0x5aca70). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_7aa773b2e6 + Ghidra body 133 insns/11 bbs, spatial publish; pin tests spatial 4 pass"
     },
     {
       "binary": "Game.exe",
@@ -8984,8 +8984,8 @@
       "va": "0x5acf00",
       "name": "StopAllSounds",
       "symbol": "lhr_engine::game_spatial_sound::stop_all_sounds",
-      "tier": "contract",
-      "evidence": "Stop-all (GAME 0x5acf00). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_a83faf50f6 + Ghidra body 61 insns/7 bbs, StopAllSounds; pin tests spatial"
     },
     {
       "binary": "Game.exe",
@@ -9056,8 +9056,8 @@
       "va": "0x5d6430",
       "name": "TestPanak2InVehicle (single pass)",
       "symbol": "lhr_engine::collision_swept_capsule::panak2_in_vehicle_once",
-      "tier": "contract",
-      "evidence": "Single pass over dyn_colls (GAME 0x5d6430); iteration deferred. Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_59873eb76e + Ghidra body 582 insns/30 bbs, TestPanak2InVehicle single pass (iteration deferred, disclosed); pin tests collision 34 pass"
     },
     {
       "binary": "Game.exe",

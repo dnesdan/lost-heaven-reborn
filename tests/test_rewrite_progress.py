@@ -341,8 +341,11 @@ class RewriteProgressTests(unittest.TestCase):
         # +6 menu definition differential (MessageBox/LoadProgress/GameFailed/
         # GunShop/GarageSummary/OptionsControls-OnClose; 2-insn leaves +
         # small dispatches with complete walks; pin tests menu/main_menu).
+        # +10 dabing/ishow/spatial/collision batch (SetHuman/Reset/Speak/Tick +
+        # CreateIShow/OpenIShow/cbCityMusic + spatial publish/StopAll +
+        # TestPanak2InVehicle; 9 dossiers + 1 walk; deferrals disclosed).
         self.assertEqual(game["ported"], 149 + 546)
-        self.assertEqual(game["verified"], 149 + 455)
+        self.assertEqual(game["verified"], 149 + 465)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")
