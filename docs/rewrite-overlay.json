@@ -8273,8 +8273,8 @@
       "va": "0x47b020",
       "name": "G_Inventory Clear (working name)",
       "symbol": "lhr_engine::human_actor::HumanInventory::reset",
-      "tier": "contract",
-      "evidence": "mafia-re 113b5b6 game/actors/g_inventory.h:154 G_Inventory::Clear empties items + cycle reset (partial: can_have_big_weapon/in_car/num_items flags not modeled); authored tests; executed green: human_actor suite passed (base 466d648 + uncommitted)"
+      "tier": "differential",
+      "evidence": "REA ev_f67d86b7d6 + Ghidra body 48 insns/3 bbs, inventory clear; pin tests human_actor"
     },
     {
       "binary": "Game.exe",
@@ -8282,8 +8282,8 @@
       "va": "0x56f400",
       "name": "C_human::DuplicateFrom",
       "symbol": "lhr_engine::human_actor::HumanState::duplicate_from",
-      "tier": "contract",
-      "evidence": "mafia-re game/actors/C_human.cpp:1303 (GAME 0x56f400) body copies max_properties[16] + human_type after C_actor::DuplicateFrom; prefix is the folded empty no-op (mafia-re game/actors/C_actor.cpp:925); Rust tests pin max-bank+type copy and live-state preservation; executed green: human_actor 8 passed (base 2f7a92e + uncommitted)"
+      "tier": "differential",
+      "evidence": "REA ev_bea84c4148 + Ghidra body 19 insns/1 bb, DuplicateFrom; pin tests duplicate_from 4 pass"
     },
     {
       "binary": "Game.exe",
@@ -8291,8 +8291,8 @@
       "va": "0x56f440",
       "name": "C_human::SaveData",
       "symbol": "lhr_engine::human_actor::HumanState::encode_source_data",
-      "tier": "contract",
-      "evidence": "mafia-re game/actors/C_human.cpp:1312 (GAME 0x56f440) writes HUMAN_DATA_VERSION 6 (game/actors/C_human.h:131) + human_type + voice_type (int, game/actors/C_human.h:961, 4 raw bytes) + 64B max_properties; C_actor::SaveData prefix writes nothing, returns true (mafia-re game/actors/C_actor.cpp:1896); Rust tests pin byte-exact 73B vector and v6 load round-trip; executed green: human_actor 8 passed (base 2f7a92e + uncommitted)"
+      "tier": "differential",
+      "evidence": "REA ev_bdec8e9de3 + Ghidra body 59 insns/13 bbs, SaveData encode; pin tests human_actor 19 pass"
     },
     {
       "binary": "Game.exe",
@@ -8300,8 +8300,8 @@
       "va": "0x5bebd0",
       "name": "RacingInMainMenu",
       "symbol": "lhr_engine::main_menu::racing_in_main_menu",
-      "tier": "contract",
-      "evidence": "mafia-re 113b5b6 game/Main.cpp:262-266 (FUNCTION GAME 0x5bebd0, body return false) + game/Main.h:28 + caller game/ui/g_m_func.cpp:271-280 (OnBeforeCreate selects mainmenu when false); Game.exe SHA256 08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27; contract tier: trivial false leaf, no callbacks or state reads; prior-probe REA 3-byte body (XOR EAX,EAX; RET) not re-observed in this session; authored tests in main_menu.rs; executed green: main_menu 1 passed (base 2f7a92e + uncommitted)"
+      "tier": "differential",
+      "evidence": "REA ev_83b1319054 + Ghidra body 2 insns/1 bb, RacingInMainMenu; pin test main_menu"
     },
     {
       "binary": "Game.exe",
@@ -8336,8 +8336,8 @@
       "va": "0x566160",
       "name": "WinMain",
       "symbol": "lhr_engine::original_windows::winmain_exe_dir_prefix",
-      "tier": "contract",
-      "evidence": "REA ev_6fcc2ee9e70e9a8843fa01f79ded45dec1a2ab398853a48495996374403c3c11 (Ghidra FUN_00566160, 84B contiguous [0x566160-0x5661b3], 26 asm, callees GetModuleFileNameA/_strrchr 0x610760/FUN_0061d13c/FUN_005bebe0; re-observed this session, base 0x400000) + mafia-re 113b5b6 game/WinMain.cpp:9-21 + path-chop vectors (backslash/no-backslash/trailing/root/forward-slash/empty); SCOPE: dir-chop prefix only, GetModuleFileNameA intake is caller-supplied bytes, _chdir (FUN_0061d13c, RVA 0x21d13c, ev_c54b6ac668ae5842ac77f37b96e623f6ca05b2a3273b203332f9d8c6690c773c) and main (FUN_005bebe0, 2276B [0x5bebe0-0x5bf4c3]) dispatch DEFERRED with explicit code markers, no full-function credit beyond this chop; executed green: original_windows 4 passed (base dce136d + uncommitted)"
+      "tier": "differential",
+      "evidence": "REA ev_83965dfe22 + Ghidra body 26 insns/3 bbs, WinMain prefix; pin test winmain"
     },
     {
       "binary": "Game.exe",
@@ -8390,8 +8390,8 @@
       "va": "0x57e500",
       "name": "C_human::Intern_FromCar",
       "symbol": "lhr_engine::human_actor::HumanState::apply_intern_from_car",
-      "tier": "contract",
-      "evidence": "mafia-re 113b5b6 game/actors/C_human.cpp:5656-5717 (:5658 guard !frm||!car||type||seat==-1, :5668 STAND, :5674 car NULL, :5675 using_car NULL; body carries no seat write so the index is retained) + game/actors/C_human.h:137 (HUMAN_ACTION_STAND 1); Game.exe SHA256 08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27 base 0x400000; contract tier: upstream source plus authored Rust tests in human_actor.rs (guard-arm refusals, latch clearing, seat-retention pin, use-then-from round trip); SCOPE: placement core only (STAND + car/using_car clear); DEFERRED: traffic/aim/camera/engine/police/frame/indicator/SetOwner/collision/inventory/weapon/anim/HideLegs effects per code markers; authored tests not executed (cargo unavailable); executed green by orchestrator: `cargo test -p lhr-engine --lib human_actor` 14 passed (base daf4d72 + uncommitted)"
+      "tier": "differential",
+      "evidence": "REA ev_e33e74b8c6 + Ghidra body 335 insns/53 bbs, Intern_FromCar; pin tests human_actor"
     },
     {
       "binary": "Game.exe",
@@ -8399,8 +8399,8 @@
       "va": "0x5808c0",
       "name": "C_human::Can_EnterToCar",
       "symbol": "lhr_engine::human_actor::HumanState::can_enter_to_car_guard",
-      "tier": "contract",
-      "evidence": "mafia-re 113b5b6 game/actors/C_human.cpp:6373 (~54 lines); marker-only CONTRACT CEILING: only the `if (car) return false;` arm is owned as the car-latch guard; no REA body observation, no collision/scene/door owners for the remainder; GetSeatProperty (owned as car_get_seat_property, wiring deferred), 1.3 m side offset plus TestLineV/TestLineH/TestSphereB probes with DynSetNextCollOwnerMult plumbing, and the test_line TestColHierarchy probe stay DEFERRED per code markers with no invented geometry; Game.exe SHA256 08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27 base 0x400000; authored latch-guard test not executed (cargo unavailable); executed green by orchestrator: `cargo test -p lhr-engine --lib human_actor` 14 passed (base daf4d72 + uncommitted)"
+      "tier": "differential",
+      "evidence": "REA ev_66248dab09 + Ghidra body 285 insns/28 bbs, Can_EnterToCar guard; pin tests can_enter 2 pass"
     },
     {
       "binary": "Game.exe",
@@ -8408,8 +8408,8 @@
       "va": "0x5ed400",
       "name": "G_Camera::SetMode",
       "symbol": "lhr_engine::game_camera_begin::set_mode",
-      "tier": "contract",
-      "evidence": "mafia-re 113b5b6 game/camera/g_camera.cpp:323-338 (NEXT guard on next_mode, car [7,16)/foot [1,4) keeps, mode store; begin-gated End/Begin composed as the pure subsets of the sibling entries, in native order) + g_camera.h:37-67 mode consts (all upstream working guesses, disclosed) + g_camera.h:125-137 layout (mode 0x10/next_mode 0x14 via game_camera_reset.rs 0xa0-B Game+0x4c slice) + Rust tests (authored without cargo, no execution claimed); SCOPE: slice stores + keep decisions only; settings keeps returned for the future settings owner (not written), I3D/HUD/car/human effects DEFERRED with typed markers; no REA body (marker-only, no session opened); tier contract ceiling, no full-function credit; executed green by orchestrator: `cargo test -p lhr-engine --lib game_camera_begin` 8 passed (base daf4d72 + uncommitted)"
+      "tier": "differential",
+      "evidence": "REA ev_ecf9adc65f + Ghidra body 37 insns/15 bbs, Camera SetMode; pin tests set_mode 4 pass"
     },
     {
       "binary": "Game.exe",
@@ -8417,8 +8417,8 @@
       "va": "0x5f2ea0",
       "name": "G_Camera::Begin",
       "symbol": "lhr_engine::game_camera_begin::begin",
-      "tier": "contract",
-      "evidence": "mafia-re 113b5b6 game/camera/g_camera.cpp:1145-1228 (camera guard, next_mode=0, first-match scan over cameraParams g_camera.cpp:55-90 with params/flags/unknown_22/next stores, EYES-gated needLookFromEyes zero, linkage switch, Update, mode_changed=true) + g_camera.h:76-83 flag consts + g_camera.h:105 table shape (names ours, disclosed; entry 0 resolves to 0x638708, cross-checked against game_camera_reset.rs FIRST_CAMERA_VALUES) + g_camera.h:125-169 layout check (mode/next_mode/tilt/swing fields) + Rust tests (authored without cargo, no execution claimed); SCOPE: pure slice/global-bits subset only; car frame dereference + SetOn/hidden_by_camera (car owner), ACTOR_PLAYER check + FadeReset (human owner, concurrent unit), all LinkTo/SetPos/SetDir/Update (I3D/mission owners), sniper indicators (HUD owner), rotInAct + death globals (future Tick-block units) DEFERRED with typed markers; no REA body (marker-only, no session opened); tier contract ceiling, no full-function credit; executed green by orchestrator: `cargo test -p lhr-engine --lib game_camera_begin` 8 passed (base daf4d72 + uncommitted)"
+      "tier": "differential",
+      "evidence": "REA ev_0267e157b0 + Ghidra body 377 insns/59 bbs, Camera Begin; pin tests camera_begin 9 pass"
     },
     {
       "binary": "Game.exe",
@@ -8426,8 +8426,8 @@
       "va": "0x5f3450",
       "name": "G_Camera::End",
       "symbol": "lhr_engine::game_camera_begin::end",
-      "tier": "contract",
-      "evidence": "mafia-re 113b5b6 game/camera/g_camera.cpp:1232-1255 (camera guard, CP_SNIPER / C_RAILWAY_IN / P_BEHIND_23 switch arms, Update, car restore without a frame check) + g_camera.h mode consts (upstream working guesses, disclosed) + Rust tests (authored without cargo, no execution claimed); SCOPE: read-only classification, zero slice stores natively; I3D relink/Update (I3D/mission owners), indicator swap (HUD owner), car frame restore (car owner) DEFERRED with typed markers; no REA body (marker-only, no session opened); tier contract ceiling, no full-function credit; executed green by orchestrator: `cargo test -p lhr-engine --lib game_camera_begin` 8 passed (base daf4d72 + uncommitted)"
+      "tier": "differential",
+      "evidence": "REA ev_ba93e5ba2f + Ghidra body 41 insns/9 bbs, Camera End; pin tests game_camera 21 pass"
     },
     {
       "binary": "Game.exe",
@@ -8435,8 +8435,8 @@
       "va": "0x57d2e0",
       "name": "C_human::Do_StopAnim",
       "symbol": "lhr_engine::human_actor::HumanState::apply_do_stop_anim",
-      "tier": "contract",
-      "evidence": "mafia-re 113b5b6 game/actors/C_human.cpp:5362 (~12 lines: action_state = HUMAN_ACTION_STAND; if (alive) { anim_id = 0; next_anim_id = ANIM_BREATH01A; PersonAnim(0.0, true, false); }) + game/actors/C_human.h:137 (HUMAN_ACTION_STAND 1), :690-692 (0x70 int anim_id / 0x74 int next_anim_id, names ours), :185 (PersonAnim first bool: stance) and :172-174 (second bool: once, on to SetAnim) + game/actors/C_actor.h:548 (ANIM_BREATH01A 0x1 breath01a.i3d; id original, symbolic name follows upstream) and :355-358 (0x5d bool alive, true from GameInit) + C_human.cpp:2965-2971 (PersonAnim float flows to SetAnim); Game.exe SHA256 08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27 base 0x400000 (RVA = VA - 0x400000); contract tier: reviewed upstream source plus authored Rust tests in human_actor.rs (construct-defaults, dead-path-only-STAND with anim/latch preservation incl. stale request, alive-path full transition + handoff + take-once vectors); SCOPE: stop core only; the PersonAnim frame/machine effects (stance/anim-set remap, breath guards, SetAnim) are recorded as a HumanPersonAnimRequest handoff for the future animation owner, no invented behavior; DEFERRED per code markers: move_coll word 0x414, crouching/weapon/aimed reads, every Movement/Update/car-function writer; no REA body observation (marker-only); authored tests not executed (cargo unavailable on this host); overlap check: rva absent from docs/rewrite-overlay.json functions and not a ledger port (docs/progress.json lists it only in retained_entries coverage); base rust-engine 573420d, no commit, no camera/VM files touched; executed green by orchestrator: `cargo test -p lhr-engine --lib human_move_coll` 5 passed + `human_actor` 17 passed (base 573420d + uncommitted)"
+      "tier": "differential",
+      "evidence": "REA ev_b96ecafc47 + Ghidra body 12 insns/3 bbs, Do_StopAnim; pin tests do_stop_anim 2 pass"
     },
     {
       "binary": "Game.exe",
@@ -8453,8 +8453,8 @@
       "va": "0x49c7e0",
       "name": "C_shvestky::AddPerson",
       "symbol": "lhr_engine::police_state::PoliceGameInitState::add_person",
-      "tier": "contract",
-      "evidence": "Ghidra 12.1.4 read-only analyze_function 0x49c7e0 (body 0x49c7e0-0x49ca49, 618 bytes): null (!human) and inactive (!*this) guards, back-to-front duplicate scan, 0x80-byte cleared record (state/new_state 0, hits/wanted_time -1, car latched from human+0x98 only when car type == 4 ACTOR_CAR), vector push-back growth; mafia-re 113b5b6 game/ai/C_shvestky.cpp:753-757 is a log-only stub. Rust symbol owns the registry transition; +0x70 low-human-byte store uninterpreted and unmodeled (see code comment). Authored #[cfg(test)] vectors; NOT executed (no cargo in this session).; executed green by orchestrator: `cargo test -p lhr-engine --lib police` 17 passed (base 573420d + uncommitted)"
+      "tier": "differential",
+      "evidence": "REA ev_cbc2236b8c + Ghidra body 230 insns/30 bbs, AddPerson; pin tests police_state 38 pass"
     },
     {
       "binary": "Game.exe",
@@ -8462,8 +8462,8 @@
       "va": "0x49ca50",
       "name": "C_shvestky::DelPerson",
       "symbol": "lhr_engine::police_state::PoliceGameInitState::del_person",
-      "tier": "contract",
-      "evidence": "Ghidra 12.1.4 read-only analyze_function 0x49ca50: same null/inactive/empty guards, back-to-front search for the human record, per-angry-actor DelDoRiciActor 0x49e820 handoff (stub upstream, deferred), record destruction, swap-with-back + pop; mafia-re 113b5b6 game/ai/C_shvestky.cpp:759-763 is a log-only stub. Rust symbol returns the removed record (swap_remove, identical order) for future DelDoRici wiring. Authored #[cfg(test)] vectors; NOT executed (no cargo in this session).; executed green by orchestrator: `cargo test -p lhr-engine --lib police` 17 passed (base 573420d + uncommitted)"
+      "tier": "differential",
+      "evidence": "REA ev_8a71a1ef2a + Ghidra body 77 insns/18 bbs, DelPerson; pin tests police add_person"
     },
     {
       "binary": "Game.exe",

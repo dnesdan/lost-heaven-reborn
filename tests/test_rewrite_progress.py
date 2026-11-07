@@ -210,8 +210,11 @@ class RewriteProgressTests(unittest.TestCase):
         # 4 / railway 3 / turnout 1 / wagon 2; marker-only, tests green).
         # +12 traffic/rail differential (5 dossiers + 7 walks; 8 STUBs
         # corovacka/car_ex/rail-gameinit-done-ai stay contract).
+        # +13 human/camera/police batch (inventory/duplicate/savedata/menu/
+        # winmain/fromcar/enter-guard/setmode/begin/end/stopanim/add-del;
+        # Ghidra bodies 2-377 insns).
         self.assertEqual(game["ported"], 149 + 363)
-        self.assertEqual(game["verified"], 149 + 104)
+        self.assertEqual(game["verified"], 149 + 117)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")
